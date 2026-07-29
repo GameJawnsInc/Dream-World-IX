@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the Place tab (click-to-place content on a forked room's own art)
+- A new Workspace document on the Author rail: open any fork of a real field (verbatim,
+  native/editable, or BG-borrow — the donor resolves from `[verbatim_eb] donor` /
+  `[field] source_field` / `borrow_field`), press **Load the room**, and the donor's
+  composited background, real camera, and real walkmesh arrive together (built off the
+  GUI thread, disk-cached per camera). Every click raycasts the walkmesh — you click
+  what you SEE, slopes and stairs included — and drops an `[[npc]]`, `[[prop]]`,
+  `[player] spawn`, or `[[player.arrival]]` row (upserted per entrance) straight into
+  the OPEN field.toml: one undo step per drop, Save through the ordinary editor path.
+  A stacked-floor pixel (a bridge over a floor) lists its floors and asks — never a
+  silent guess. Placed content renders as markers at its real floor height; multi-camera
+  fields composite and place per camera. Refusals are hard and honest: bundled examples
+  and installed copies refuse the whole surface; a field with no donor says why; a
+  verbatim fork refuses spawn/arrival (the donor's own entry sequence runs) while
+  npc/prop placement seats below the donor's party band at build, as always.
+- The field-card picker knows what you already fork: a card whose room is open in the
+  current project offers **Place content on this field** instead of a second fork.
+
+### Added — `[[prop]]` as a first-class editor kind
+- Props now appear in the Editor tree (their own "Props" group), with a full form
+  (archetype/model/pose/pos/face/collision/gates/attach), Inspector summary + rollup
+  tally, and per-node lint mirroring the build's own reads (archetype-or-model, an
+  unknown archetype/GEO name, a missing pos).
+
 ### Added — floor-aware spatial instruments (THE FLOOR LAW)
 - A walker lives on ONE floor of a multi-floor walkmesh and changes floors only across a
   SEAM edge — everywhere else two floors meeting in flattened 2D (a terrace base, a

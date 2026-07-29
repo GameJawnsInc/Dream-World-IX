@@ -282,8 +282,24 @@ GUI claim from source; that is the documented recurring failure in this package.
    as the live walkable footprint), `set_place_mode` (exclusive with trace), `surface_clicked`
    carrying the visible hit's (x, z) + every stacked hit nearest-first with floor ids (hosts
    disambiguate, never guess), `set_markers` for placed content.
-   Remaining: (c) the placement HOST — load a fork's field.toml + its donor's
-   `compose_background` backdrop + `cache_field` camera/mesh, place NPCs/props/spawn/arrival
-   into the OPEN doc (shell undo contract; refuse `ff9mapkit/examples/`; verbatim seats below
-   the party band), entry from the field cards (§5 call site 2); (d) `gui_snap` surfaces + the
-   owner walks a placed NPC in-game. Rung 2 (occluder contacts) rides along.
+   (c) ★ BUILT 2026-07-29 — `workspace/placedoc.py` (`PlaceDoc`, the "Place" tab on the
+   Author rail): the shell PUSHES the open doc (the BehaviorDoc feed contract; no disk at
+   construction/tab-show), one explicit **Load the room** click builds the donor surface off
+   the GUI thread (`cache_field` camera/mesh + per-camera `compose_background`, disk-cached
+   under the provision cache, `env_lock`'d); drops are PURE ops (`place_npc`/`place_prop`/
+   `set_spawn`/`set_arrival` — arrival upserts by entrance) into the OPEN dict + ONE
+   `on_edit` → the shell records the undo step (focus "place" lands Undo back on the tab)
+   and the tree grows the row. Markers render at real floor height (`floor_y_at`, plan-view
+   barycentric, stacks resolved toward the eye); a stacked-hit click ASKS via a floor menu.
+   Refusals: `protected_reason` (examples/installed) kills the whole surface; no donor
+   (`build.donor_field_id`, the pure-dict refactor) says why; VERBATIM disables spawn/arrival
+   (the donor's entry sequence runs) while npc/prop ride the build's below-band seating.
+   `[[prop]]` became a first-class editor kind on the way (PROP_SPEC + tree/rollup/lint —
+   it had none). Entry ★: the field-card picker takes a {donor→open member} map from the
+   shell and offers "Place content on this field" on already-forked rooms (§5 call site 2).
+   Pinned: `tests/test_workspace_place.py` (16) + a smoke block (drop→undo→focus round-trip);
+   `gui_snap place:bare|fork|refused` read at 100 + 150 (the fork state runs the REAL op path
+   over kit-painted stand-in art; the dirty-close modal needed `_no_modals`, the drift lesson).
+   Remaining: (d) the owner playtest — Load a real fork's room, drop an NPC/prop, build,
+   deploy, walk it (the load path against the live install is exercised there; offline ≠
+   in-game proof). Rung 2 (occluder contacts) still rides along later.
