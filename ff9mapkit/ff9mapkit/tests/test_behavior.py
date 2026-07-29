@@ -1346,3 +1346,27 @@ def test_hud_value_sources_and_per_slot_digits():
         fb._hud_ref("hp:ghost")
     with pytest.raises(B.BehaviorError, match="digits list"):
         fb.hud("[NUMB=0]", ["kills"], window=4, txid=942, digits=[2, 2])
+
+
+def test_boot_mirrors_preset_to_spawn_not_zero():
+    """THE BOOT-MIRROR WINDOW (hangout playtest; the owner read the live blackboard):
+    position mirrors are active-gated, so before a unit's active flips its published
+    mx/mz read the Main_Init zero-fill -- and an ungated near(unit) cond compared
+    (0,0) vs (0,0) = TRUE, falsely firing and cooldown-LATCHING on the first boot
+    ticks (the statue pair). Main_Init must preset every unit's mirrors to its SPAWN
+    so perception reads truth from tick 0."""
+    fb = B.FieldBehavior([B.UnitSpec("a", entry=2, spawn=(120, -80)),
+                          B.UnitSpec("b", entry=3, spawn=(-1376, 1612))])
+    for n in ("a", "b"):
+        fb.units[n].tree = B.Selector(
+            B.Cooldown(100, B.Sequence(fb.near(n, "b" if n == "a" else "a", 300),
+                                       B.Do(B.Announce(700)))),
+            B.Do(B.Wander((0, 0), radius=200)),
+        )
+    cb = fb.compile()
+    _verify_all(cb)
+    for n, (sx, sz) in (("a", (120, -80)), ("b", (-1376, 1612))):
+        for slot, v in (("mx", sx), ("mz", sz)):
+            want = B._stmt(f"Global.Int16[{fb.bb.int16(f'{n}.{slot}')}] "
+                           f"{B._cnum(int(v))} B_LET")
+            assert want in cb.main_init, (n, slot, v)

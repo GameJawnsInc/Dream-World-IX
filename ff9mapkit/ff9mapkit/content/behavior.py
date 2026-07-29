@@ -1230,6 +1230,10 @@ class FieldBehavior:
                     self._cls_preset("cls.spdap", mu.entry, int(mu.walk_speed))
                     self._cls_preset("cls.px", mu.entry, int(mu.spawn[0]))
                     self._cls_preset("cls.pz", mu.entry, int(mu.spawn[1]))
+                    # the boot-mirror window fix, strided edition: perception must
+                    # read spawn truth before the active-gated mirror first runs
+                    self._cls_preset("cls.mx", mu.entry, int(mu.spawn[0]))
+                    self._cls_preset("cls.mz", mu.entry, int(mu.spawn[1]))
 
     # ---------------- the strided-state ref layer (per-class brain sharing)
     def _cls_preset(self, tname: str, cell: int, value: int) -> None:
@@ -2083,6 +2087,18 @@ class FieldBehavior:
                 main_init += self._uset(u.name, "spdap", u.walk_speed)
                 main_init += self._uset(u.name, "tx", int(px))
                 main_init += self._uset(u.name, "tz", int(pz))
+                # THE BOOT-MIRROR WINDOW (hangout playtest, proven by the owner
+                # reading the live blackboard): the ticker's position mirrors are
+                # active-gated, so until a unit's active flips its published mx/mz
+                # read the zero-fill -- and an UNGATED near(unit) cond compares
+                # (0,0) against (0,0) = TRUE, falsely firing (and cooldown-LATCHING,
+                # per the hysteresis law) on the first boot ticks. The statue: the
+                # greet row keeps selection forever while the stale wander feed
+                # parks the walker. Preset the mirrors to the SPAWN so perception
+                # reads truth from tick 0. (The duel idiom survived only because
+                # its rows carry an active() guard, false in the same window.)
+                main_init += self._uset(u.name, "mx", int(u.spawn[0]))
+                main_init += self._uset(u.name, "mz", int(u.spawn[1]))
                 if u.hp is not None and u.name not in self._member:
                     # a roster member's ONLY hp home is its group cell (table-seeded)
                     main_init += _set_byte(self.bb.byte(f"{u.name}.hp"), int(u.hp))
