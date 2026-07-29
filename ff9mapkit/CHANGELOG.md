@@ -5,7 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — floor-aware spatial instruments (THE FLOOR LAW)
+### Fixed — `cooldown` over a one-shot is now an EVENT (the hangout greet latch)
+- A `cooldown` branch whose action is a one-shot (`announce`/`sfx`/`flash`/`stop_timer`)
+  compiled with sticky-engagement semantics: selecting the announce halts the walker
+  (the dispatch-halt), so two neighbours greeting each other on `near` conds parked
+  inside each other's radius, the condition could never fail, and both held selection
+  forever — statues after their first exchange (only player-keyed rows escaped, because
+  the player is an external mover). The cooldown now compiles fire-and-release on the
+  one-shot request lane, symmetric with the event `once`: the delivery ARMS the timer
+  (a byte on the central clock, or a brain-private slot under `brains`) and clears the
+  request, and the branch releases the tick the timer lands. Sticky semantics are
+  unchanged for movement children ("chase me, re-aggro N after I escape"). The offline
+  stepper had modeled the intended event semantics all along (its cooldown never even
+  armed) — the exact divergence that hid the latch — and now arms the timer at fire and
+  models the dispatch-halt, converging with the compiled bytes.
 - A walker lives on ONE floor of a multi-floor walkmesh and changes floors only across a
   SEAM edge — everywhere else two floors meeting in flattened 2D (a terrace base, a
   balcony lip) is a wall the old point tests could not see, so a wander target / route
