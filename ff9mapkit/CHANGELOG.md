@@ -52,6 +52,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   and it writes a `<stem>.trace.json` session record beside the build — Open it later
   to restore the whole editable state: photo, floor, pitch, cut-outs at their dragged
   spots, name and id.
+- **The open field offers itself**: showing the Trace tab with a field open in the Editor
+  auto-loads its trace session when the tab is empty, or shows a one-click
+  "Load NAME (the open field)" button when a session is already in progress — no
+  navigating to a folder the app already has open. And edits made after a Generate flag
+  the status ("not stamped — Regenerate…") until the project on disk is updated.
+- **Open accepts the project's `field.toml` too** — and a project generated BEFORE the
+  session record existed still reopens: the tab rebuilds the editable session from the
+  compiled artifacts themselves (the walkmesh ring inverted back through the collision
+  outset, the camera block's pitch, the generator's own anchored-contact comments), then
+  writes the record on the next Generate. No traced project is ever a dead end.
 - **Draggable things now say so**: trace vertices, contact anchors, snip overlays, and
   the Behavior stage's handles/grips show the move (or resize) cursor on hover — the
   pan hand no longer masks what grabs. (Under the hood this surfaced a real crasher:

@@ -60,6 +60,9 @@ class TraceDoc(QWidget):
         self._history = []                            # prior (floor, fg) snapshots, one per gesture (undo)
         self._project = None                          # {"out", "name", "fid"} after a Generate:
                                                       # later Generates go IN PLACE (no dialog)
+        self._stamped = True                          # False = gestures since the last Generate
+        self._offer_path = None                       # the OPEN field's toml (the shell's feed)
+        self._offer_rejected = None                   # a non-project offer, remembered (no re-parse)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 10)
@@ -79,6 +82,12 @@ class TraceDoc(QWidget):
                                  "384×448 cover-crop the build will use.")
         self.open_btn.clicked.connect(self.on_open)
         row.addWidget(self.open_btn)
+        self.offer_btn = QPushButton()                 # "Load <open field>" -- shown by offer_project
+        self.offer_btn.setToolTip("Reopen the field currently open in the Editor as a trace "
+                                  "session — no navigating to its folder.")
+        self.offer_btn.clicked.connect(self.on_offer)
+        self.offer_btn.hide()
+        row.addWidget(self.offer_btn)
         self.img_label = QLabel("no image")
         self.img_label.setProperty("role", "muted")
         row.addWidget(self.img_label)
@@ -295,6 +304,9 @@ class TraceDoc(QWidget):
                         note += f" · {fg_invalid} contact{'' if fg_invalid == 1 else 's'} invalid"
                     if fg_unattached:
                         note += f" · {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} missing"
+        if self._project and not self._stamped:        # edits the project on disk doesn't have
+            note += f" · ⚠ not stamped — Regenerate {self._project['name']} to update the project"
+            state = state or "warn"
         self.status.setText(note)
         widgets.set_state(self.status, state)
 
@@ -377,6 +389,8 @@ class TraceDoc(QWidget):
             try:
                 if str(path).endswith(".trace.json"):  # a generated project's session record
                     self.load_trace(path)
+                elif str(path).endswith(".toml"):      # the project's field.toml works too
+                    self.load_project(path)
                 else:
                     self.load_image(path)
             except Exception as e:                     # noqa: BLE001 -- a bad file must not crash the tab
@@ -407,6 +421,7 @@ class TraceDoc(QWidget):
         self._refresh()
 
     def _on_pitch(self, _v):
+        self._stamped = False                          # a camera change alters the build
         self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)
         self._refresh_cutouts()                        # anchored z's are camera-dependent
         self._refresh()
@@ -417,6 +432,7 @@ class TraceDoc(QWidget):
         through vertex and contact gestures in the order they happened."""
         self._history.append({"floor": list(self._floor), "fg": [dict(f) for f in self._fg]})
         del self._history[:-_HISTORY_CAP]
+        self._stamped = False                          # a gesture the project doesn't have yet
 
     def _on_floor(self, pts):
         self._push_history()
@@ -550,6 +566,7 @@ class TraceDoc(QWidget):
                       "or a floor larger than the Int16 world bound.")
         if started:
             self._project = {"out": str(out), "name": name, "fid": int(fid)}
+            self._stamped = True                       # the project now matches the session
             self._write_trace_sidecar(out)             # the re-editable session record
             self._refresh(f"Generating {name} → {out} …")
 
@@ -593,18 +610,110 @@ class TraceDoc(QWidget):
             self.id_box.setText(str(data["id"]))
         self._project = {"out": str(Path(path).parent), "name": self.name_box.text(),
                          "fid": data.get("id")}
+        self._stamped = True                           # the record IS the project's state
         self._refresh_cutouts()
         self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place.")
+
+    def load_project(self, path):
+        """Reopen a generated image-field PROJECT from its field.toml: prefer the folder's
+        ``.trace.json`` session record; without one (a pre-sidecar project) BACKFILL the
+        session from the compiled artifacts themselves — the walkmesh ring inverted back
+        through the -48u collision outset, the [camera] pitch, and the generator's own
+        anchored-contact comments. Either way the project ends armed for in-place Generate."""
+        import re
+        import tomllib
+        path = Path(path)
+        side = sorted(path.parent.glob("*.trace.json"))
+        if side:
+            self.load_trace(side[0])
+            return
+        text = path.read_text(encoding="utf-8")
+        data = tomllib.loads(text)
+        layers = data.get("layers", []) or []
+        base_rel = next((la["image"] for la in layers if la.get("z") == imagefield.Z_BASE),
+                        layers[0]["image"] if layers else None)
+        obj_rel = (data.get("walkmesh") or {}).get("obj")
+        if base_rel is None or obj_rel is None:
+            raise ValueError("not an image-field project (no [[layers]] art / [walkmesh] obj) "
+                             "— open the photo instead and trace fresh")
+        self.load_image(path.parent / base_rel)        # the flattened base IS the photo, 1:1
+        self.pitch.setValue(int(round(float((data.get("camera") or {})
+                                            .get("pitch", imagefield.DEFAULT_PITCH)))))
+        cam = self.canvas.camera()
+        ring = []
+        for line in (path.parent / obj_rel).read_text(encoding="utf-8").splitlines():
+            if line.startswith("v "):
+                p = line.split()
+                ring.append((float(p[1]), float(p[3])))
+        if len(ring) < 3:
+            raise ValueError(f"{obj_rel} has no walkmesh ring to invert")
+        inner = imagefield.outset_polygon(ring, -imagefield.COLLISION_OUTSET)
+        self._floor = [(round(cx, 1), round(cy, 1))
+                       for cx, cy in (imagefield.world_to_click(cam, p) for p in inner)]
+        self.canvas.set_floor(self._floor)
+        # the generator writes each anchored occluder's contact as a comment above its layer —
+        # the one place the SOURCE pixel survives compilation (tomllib drops comments; regex it)
+        for m in re.finditer(r'# occluder anchored at floor contact '
+                             r'\((-?[\d.]+),(-?[\d.]+)\)[^"]*?image = "([^"]+)"', text, re.S):
+            self._fg.append({"contact": (round(float(m.group(1)), 1),
+                                         round(float(m.group(2)), 1)), "image": None})
+            fg_path = path.parent / m.group(3)
+            if fg_path.is_file():
+                self._attach_cutout(len(self._fg) - 1, str(fg_path))
+        name = str((data.get("field") or {}).get("name") or "PICTURE")
+        fid = (data.get("field") or {}).get("id")
+        self.name_box.setText(name)
+        if fid:
+            self.id_box.setText(str(fid))
+        self._project = {"out": str(path.parent), "name": name, "fid": fid}
+        self._stamped = True                           # rebuilt FROM the project = in sync
+        self._refresh_cutouts()
+        self._refresh(f"Reopened {path.name} — session REBUILT from the compiled project (no "
+                      f".trace.json yet; the next Generate writes one). Generate goes in place.")
+
+    # ------------------------------------------------------------------ the open-field offer
+    def offer_project(self, path):
+        """The shell's feed on tab show: the field currently open in the Editor. A PRISTINE tab
+        auto-loads a reopenable project outright (the owner-asked best case — the one sanctioned
+        tab-show disk touch); a tab mid-session shows a one-click button instead of clobbering.
+        A non-project toml (a fork, a hand toml) is remembered and never re-parsed."""
+        self._offer_path = str(path) if path else None
+        self.offer_btn.hide()
+        if not self._offer_path or self._offer_path == self._offer_rejected:
+            return
+        cur = Path(self._project["out"]) if self._project else None
+        if cur is not None and Path(self._offer_path).parent == cur:
+            return                                     # already this project
+        pristine = self._image is None and not self._floor and not self._fg
+        if pristine:
+            try:
+                self.load_project(self._offer_path)
+            except Exception:                          # noqa: BLE001 -- not a traceable project
+                self._offer_rejected = self._offer_path
+            return
+        self.offer_btn.setText(f"Load {Path(self._offer_path).stem.replace('.field', '')} "
+                               f"(the open field)")
+        self.offer_btn.show()
+
+    def on_offer(self):
+        if not self._offer_path:
+            return
+        try:
+            self.load_project(self._offer_path)
+        except Exception as e:                         # noqa: BLE001
+            self._offer_rejected = self._offer_path
+            self.offer_btn.hide()
+            self._refresh(f"Not a traceable project: {e}", "warn")
 
     # ------------------------------------------------------------------ dialog seams
     def _ask_image(self):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
-        dlg = QFileDialog(self, "Open an image to trace (or a generated project's .trace.json)",
-                          str(self._image.parent if self._image else Path.home()))
+        dlg = QFileDialog(self, "Open an image, a generated project's field.toml, or its "
+                          ".trace.json", str(self._image.parent if self._image else Path.home()))
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
         dlg.setNameFilter("Images or trace projects (*.png *.jpg *.jpeg *.bmp *.webp "
-                          "*.trace.json);;Images (*.png *.jpg *.jpeg *.bmp *.webp);;"
-                          "Trace projects (*.trace.json)")
+                          "*.trace.json *.field.toml);;Images (*.png *.jpg *.jpeg *.bmp *.webp);;"
+                          "Trace projects (*.trace.json *.field.toml)")
         if dlg.exec() != QFileDialog.DialogCode.Accepted:
             return None
         files = dlg.selectedFiles()
