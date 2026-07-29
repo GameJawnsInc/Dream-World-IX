@@ -96,8 +96,18 @@ same `KeyNotFoundException` from Step A — i.e. it got all the way past the geo
 
 ## Step D — Rung 3: the combination
 
-1. Leave the spike toggle **`[x]` armed**.
-2. `~` → **Go** → **`9013`** → **Go**.
+> ⚠ **THE TRAP (hit for real 2026-07-29, Rung 3 attempt 1).** Step C ends in a black screen, so you have
+> to restart — and the spike toggle is **session-only by design**, so the restart clears it. "Leave the
+> toggle armed" across Steps C→D is impossible. Attempt 1 warped to 9013 with the spike silently OFF and
+> got a perfectly normal stock disc-1: the right behaviour, the wrong experiment. **Always confirm
+> `[PathD s71] … ARMED` is in `Memoria.log` before reading a Rung 3 result.**
+>
+> You do NOT need to restart to run this. From a working 9013 (or any overworld), just re-arm and warp —
+> the toggle takes effect on the next world load.
+
+1. On the overworld, `~` → **Go** tab → tick the spike so it reads **`[x]`**.
+2. **Confirm it armed:** `Memoria.log` should gain `[PathD s71] synthetic WorldDisc spike ARMED`.
+3. `~` → **Go** → **`9013`** → **Go**.
 
 **PASS — and this is the money shot:** the world loads as **open ocean containing only the Southern
 Ring's reclaimed cells**, with a working script. Nothing else. That is a 480-cell grid that did not exist
