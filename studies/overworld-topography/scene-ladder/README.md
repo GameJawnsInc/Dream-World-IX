@@ -127,11 +127,11 @@ can replay-loop. **2b** (`dc1263bd`): the kit ferry lane's departure arms (`depa
 at the Lantern Quay. (Ashvale first shipped as a plain no-voyage home-port arm; the owner
 read that as a silent warp with the wrong moogle line — ALL ports sail now, code 1.)
 
-**Known cosmetic seam (owner-observed, disposition open):** after the hall→world transition
-there is ~1s of standing at the Ashvale shore before the scene takes over (the engine's own
-world-entry fade-in plays before the director's first fade can own the screen, and the two
-fade systems meeting can read as a snap). Options if it ever bothers: a fast 8-frame dip on
-the departure branch's opening fade, or waiting out the entry fade before starting ours.
+**The entry seam — CLOSED (owner-confirmed):** the ~1s of standing at the Ashvale shore and
+the "camera snap" after the hall→world transition were both the same artifact — the visible
+free-roam entry before the scene owned the frame. Gone with the v5-v11 ladder (Main_Init
+prologue black + rigs arm at construction, navi disarm, show-bit hide under the parked
+`Map.Byte[37]` latch). No open scene items remain on the ladder.
 
 **The ladder's arc complete: rungs 0 → 2b in one day** — a decorative static became a rig-
 tracked, phase-coordinated, fade-bracketed cinematic voyage wired into shipped ring UX, on
