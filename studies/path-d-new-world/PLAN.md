@@ -1,5 +1,58 @@
 # Path D — Minting a Genuinely Third FF9 Overworld: Execution Plan
 
+> ## ⚠ EXECUTION UPDATE 2026-07-29 — read this before trusting §3's rung text
+>
+> **Rungs 0–2's engine work is BUILT AND DEPLOYED** (`s70`/`s71`/`s72`; pre-build DLL backup
+> `20260729-153010`), and Rung 2's data half (a verbatim WORLD11 clone shipped as `EVT_WORLD_WORLD13`
+> across 7 locales + a `WorldScene 9013 WORLD13` registration) is deployed too. Playtest script:
+> [`RUNGS-0-3-PLAYTEST.md`](RUNGS-0-3-PLAYTEST.md). **Nothing is in-game proven yet.**
+>
+> A 6-sweep source verification was run against the live patched clone before any code was written. Most
+> of this document held up. These specific claims did **not** — they are corrected here rather than in
+> place, so the original reasoning stays readable:
+>
+> 1. **§3 Rung 1's "no override files exist yet, so `HasLandOverride` always returns false"** — **REFUTED
+>    by the live install.** 112 `Terrain.ff9mesh` overrides + `Donor.txt` sidecars already ship in
+>    `FF9CustomMap-world` (the Southern Ring's), so 112 of the 480 cells take the s34 reclaim branch. The
+>    spike is therefore not the "no per-block prefab lookups" payload this plan prices. Left unsuppressed
+>    on purpose: that path is already in-game proven, and an ocean containing only those cells is an
+>    unmistakable success picture.
+> 2. **§3 Rung 0's "read what happens next in `Memoria.log`"** — **wrong file.** There is no
+>    Unity→Memoria log bridge, so plain `Debug.Log` and every Unity exception land only in
+>    `x64\FF9_Data\output_log.txt`. New diagnostics must go through `Memoria.Prime.Log` to reach
+>    `Memoria.log`. As written, the rung's verify step was unreadable.
+> 3. **§3 Rung 0's "set the widened field to any unused id in the 4000-9899 or 30000-32767 bands"** —
+>    **produces a false negative.** Any id registered by a stacked `DictionaryPatch` already has an
+>    EventDB row, so it yields an `ArgumentNullException` (a field `.eb` loaded down the world path)
+>    rather than the clean unregistered-id `KeyNotFoundException`. Use an id registered nowhere (31000).
+> 4. **`ArmWorldReload` has TWO undocumented preconditions** — `UIManager.State == WorldHUD` **and**
+>    `sys.mode == 3`. Every rung's spike can only be fired while already standing on an overworld.
+> 5. **§6 unknown 6 is now closed, and found a throw site this plan never named.** Besides
+>    `EventDB[MapNo]`, `ff9ShutdownStateFieldMap` indexes `EventEngineUtils.eventIDToMESID[wldMapNo]`
+>    unguarded on the field→world exit — it fires while still in the old field, before the world scene
+>    loads. `s72` registers it (default mesID 68, the shared world block). Everything else the plan
+>    worried about (minimap, continent title, vehicles, encounter zones, netsync, save schema) either
+>    keys off a different variable or fails safe.
+> 6. **§3 Rung 1's spike sketch would have crashed for three reasons unrelated to WorldDisc** —
+>    `Form2Transforms` is never initialised by `LoadBlock` though `ApplyForm` iterates it;
+>    `CurrentX`/`CurrentY` are read by `GetAbsoluteBlock`/`DetectUnseenBlocks` and stock seeds them; and
+>    with no player the sentinel actor sits at the world origin, sending `DetectUnseenBlocks` into
+>    `Blocks[0,-1]`. All three are fixed in `s71`.
+> 7. **§3 Rung 6 and §5 are more pessimistic than the code.** `cmdasm.assemble_block` already builds
+>    switches from zero (round-trip verified), so no `eb/switchbuild.py` is needed; `entrance_func_body_
+>    direct` emits `Field(dest)` inline, so the exit may need no switch at all; the kit already writes
+>    world `.eb` containers into mod folders in three places; and novel `.eb` names with no `p0data`
+>    counterpart (`EVT_LAMPLIGHT.eb.bytes`) already ship and resolve. §5's `blank_world_bytes` "zero prior
+>    art for the WORLD container shape" is also overstated — the container shape is identical to a field's;
+>    what is genuinely novel is the *content* of a minimal world `Main_Init`.
+> 8. **Also corrected:** the plan mis-cites `entrance.py:486` as `author_entrance`'s replication loop (it
+>    is in `extend_nameplate_band`; the real loop is `:895`). The argument that loop supports is still right.
+>
+> One deliberate deviation from §3 as written: `s71` is gated behind a **session-only debug-menu toggle**,
+> not the `.ini` flag the plan specifies. An `.ini` flag is read at launch, so Rungs 0 and 1 would cost two
+> relaunches; a toggle costs one and is off on every launch, which is strictly safer on an install shared
+> by ~26 concurrent worktrees.
+
 *Final revision. Synthesizes six parallel first-principles research passes (r1–r6), a prior re-verification
 pass, three independent adversarial critiques (feasibility, sequencing, scope-honesty), and a further round
 of direct source re-reading performed while incorporating those critiques. Every claim below is tagged:
