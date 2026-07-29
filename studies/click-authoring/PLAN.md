@@ -228,8 +228,13 @@ GUI claim from source; that is the documented recurring failure in this package.
 1. ~~**Rung 0** — `BackdropCanvas` + the two conversions + the round-trip assert.~~ ★ DONE 2026-07-28.
 2. ~~**The imported-camera census**~~ ★ DONE 2026-07-28 — Rung 3 is GENERAL; the offset bug is fixed;
    `plane_y` is pulled forward as a Rung 3 dependency (see the gate block under Rung 3).
-3. **Rung 1** — tracing parity; a Workspace host for the canvas (§5 call sites 1+3), polygon
-   vertices + drag handles + pitch slider + outset preview + `build_image_field`; re-do the hallway
-   photo entirely in the GUI, deploy, walk it. First `gui_snap` surface lands here.
+3. **Rung 1** — tracing parity. **Part 1 (the trace layer) ★ DONE 2026-07-28:** `BackdropCanvas`
+   trace mode — click-to-append (horizon-refused), zoom-immune drag handles with live world
+   readout, right-click delete, canvas-px truth re-judged per camera swap (bad verts mark red),
+   the +48u outset ring re-projected live and SUSPENDED while any vertex is invalid; one
+   `on_floor` callback per gesture, `set_floor` never echoes. **Part 2 (open):** the Workspace
+   host doc (§5 call sites 1+3 — image on-ramp, pitch slider driving `set_backdrop`, undo/clear,
+   `build_image_field` through `run_job`-style seams), shell tab wiring, the first `gui_snap`
+   surface, smoke/a11y sweeps — then re-do the hallway photo entirely in the GUI, deploy, walk it.
 4. **Scope Rung 3's UI** — measure real walkmesh floor heights first (the `plane_y` decision), then
    the field-card entry point (§5 call site 2) + surgical write-back (call site 4).
