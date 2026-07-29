@@ -1603,16 +1603,37 @@ SCEN_MODELS = (
 )
 
 
+def _so_multi_geom(parts, uv=(0, 0, 10, 10)) -> bytes:
+    """A **MULTI-PART** ``so`` record (``P = len(parts)``) + a UV-bearing GEOM block -- W6b-3's
+    CHANNEL A fixture.
+
+    ★ SYNTHESISED, NEVER COPIED: the header is
+    ``struct.pack("<HHHH", 0x6F73, 1, 8 + 8P, 8 + 4P)`` and every pair is invented, so this file
+    embeds no run of bytes out of a real ``ef*.bytes``.  The GEOM half is :func:`_uv_geom`'s, reused
+    rather than re-typed, so a change to the scanner's acceptance law cannot leave this fixture behind.
+    """
+    P = len(parts)
+    so = struct.pack("<HHHH", 0x6F73, 1, 8 + 8 * P, 8 + 4 * P)
+    so += b"".join(struct.pack("<HH", tp, cw) for tp, cw in parts)
+    so += b"".join(struct.pack("<HH", 0, 0) for _ in parts)   # the OPAQUE second array at +arrayB
+    assert len(so) == 8 + 8 * P
+    return so + _uv_geom(0, 0, uv)[0x10:]
+
+
 def build_scenery_container(rects=SCEN_RECTS, models=SCEN_MODELS, id9: int = 0,
-                            clut4=SCEN_CLUT4) -> bytes:
+                            clut4=SCEN_CLUT4, extra_models: bytes = b"") -> bytes:
     """The scenery fixture: a creature-less container with real page rects and real UV-bound models.
 
     ``id9`` enables the id-9 alternate slot that lands on VRAM ``(320, 256)`` -- the same cell rect 5
     writes -- which is the CO-TRANSFORM shape (two writers, one cell) in miniature.
+
+    ``extra_models`` appends RAW record+GEOM bytes to the id-6 payload, which is how a W6b-3
+    MULTI-PART record joins the fixture without giving the ``(label, x, y, bpp, clut, uv)`` table a
+    second shape it would then have to carry everywhere.
     """
     res = [(0, 0, _scenery_id0(rects, clut4)), (3, 0, bytes([0x55]) * SECTOR)]
     body = b"".join(_uv_geom(_tpage(x, y, bpp), 0 if cl is None else _clut_word(*cl), uv)
-                    for _lbl, x, y, bpp, cl, uv in models)
+                    for _lbl, x, y, bpp, cl, uv in models) + extra_models
     if body:
         res.append((6, 0, body))
     for i in range(int(id9)):
@@ -2226,18 +2247,27 @@ def test_the_shipped_derivation_reproduces_THE_WHOLE_SCENERY_CENSUS():
     set into refusals with sharper names: ``187 + 2,385`` becomes ``187 + 57 + 2,298 + 22 + 8``.
     Both totals are the same 2,572, which is the only thing that proves nothing fell out of the walk.
 
-    ⚠ AND THE SIX HAZARD POPULATIONS ARE MEASURED ON **BOTH** SURFACES, because one of them MOVES and
+    ⚠ AND THE SIX HAZARD POPULATIONS ARE MEASURED ON **BOTH** SURFACES, because they MOVE on one and
     saying so is the point.  ``multi-palette`` is class-C evidence and W6b-2 takes that evidence at the
     same granularity as the depth, so a readerless channel-G cell whose COLUMN is bound with 2-3 CLUTs
-    now discloses like any other class-C cell: 25 on the census surface (W6b-1, unmoved) and 32 on the
-    edit surface (25 + 7).  Pinning only the licensed number would hide the W6b-1 identity; pinning
-    only 25 was how the 7 stayed invisible in the first place.
+    discloses like any other class-C cell.  Pinning only the licensed number would hide the W6b-1
+    identity; pinning only 25 was how the class-C cells stayed invisible in the first place.
+
+    ★ **W6b-3 SPLITS THE TWO SURFACES FURTHER, AND ON PURPOSE.** The CENSUS half is still
+    **187 / 2,385, byte for byte** -- that is the containment, and if it moves, ``bound_models`` or
+    ``page_depth_view`` leaked. The EDIT half MOVES BY -6, because CHANNEL A holds VETO power: 12
+    ``array-dual`` cells and the 2 ``array-vs-column`` cells refuse on any path that consults
+    ``so-array``, and 6 of those 14 were being SERVED (4 by ``so-uv``, 2 by ``so-page``). ``187 + 57``
+    becomes ``183 + 55``, and the 8 in-reach ``array-dual`` cells move out of ``depth-unknown``
+    (2,298 -> 2,290) into a refusal with a sharper name. **The closure is what proves nothing fell
+    out of the walk**, and it now closes over four hazard classes instead of two.
     """
     cells, read, dark = set(), set(), set()
     c_read, c_dark = set(), set()
     by_source = {s: set() for s in RP.DEPTH_SOURCES}
     dual = {"program-dual-depth": set(), "channel-g-dual-depth": set(),
-            "spill-vs-own-page": set()}
+            "spill-vs-own-page": set(),
+            "array-dual-depth": set(), "array-vs-column-depth": set()}
     HZ = ("same-bytes-two-depths", "multi-palette", "shared-read", "spill-in", "spill-out",
           "co-transform")
     hz = {k: set() for k in HZ}
@@ -2276,20 +2306,38 @@ def test_the_shipped_derivation_reproduces_THE_WHOLE_SCENERY_CENSUS():
     # files are silently measuring a different population than the one they were written about.
     assert (len(c_read), len(c_dark)) == (187, 2385), "CENSUS_CHANNELS == W6b-1, unchanged"
     assert len(c_read) + len(c_dark) == len(cells)
-    assert len(by_source["so-uv"]) == 187, "W6b-1's own number: cells with at least one `so` reader"
-    assert len(by_source["so-page"]) == 57, "CHANNEL G -- the same records at PAGE granularity"
+    assert len(by_source["so-uv"]) == 183, \
+        "W6b-1's 187, less the 4 CHANNEL A vetoes (3 array-dual + 1 array-vs-column)"
+    assert len(by_source["so-page"]) == 55, \
+        "CHANNEL G's 57, less the 2 CHANNEL A vetoes (1 array-dual + 1 array-vs-column)"
+    assert len(by_source["so-array"]) == 0, "CHANNEL A stays SHUT without the acknowledgement"
     assert len(by_source["program"]) == 0, "CHANNEL P stays SHUT without the acknowledgement"
-    assert len(read) == 244, "cells this lane now hands back a picture for (187 + 57)"
-    assert len(dark) == 2298, "DEPTH-UNKNOWN after both channels have spoken"
+    assert len(read) == 238, "cells this lane hands back a picture for (183 + 55) -- 244 less the 6"
+    assert len(dark) == 2290, "DEPTH-UNKNOWN after all three attribution channels have spoken"
     assert len(dual["program-dual-depth"]) == 22, "the program names these columns at TWO depths"
     assert len(dual["channel-g-dual-depth"]) == 8, "...and the `so` records name these at two"
     assert len(dual["spill-vs-own-page"]) == 2, "cells that HAD a depth and now have two"
+    assert len(dual["array-dual-depth"]) == 12, "6 columns whose NOVEL array entries name TWO depths"
+    assert len(dual["array-vs-column-depth"]) == 2, \
+        "ef184 x448 -- the ONLY column where the incumbent and novel readings CONTRADICT"
+    # ★ THE -6 IS THE ONE NON-ZERO ADDRESSABILITY DECISION IN THE RUNG, and it is stated as an
+    # identity rather than trusted: 4 cells leave `so-uv` and 2 leave `so-page`, and every one of
+    # them is inside the 14 CHANNEL A refuses.
+    assert (187 - len(by_source["so-uv"])) + (57 - len(by_source["so-page"])) == 6
+    veto = dual["array-dual-depth"] | dual["array-vs-column-depth"]
+    assert (c_read - read) <= veto, "every cell the edit surface stopped serving is one CHANNEL A names"
+    assert len(c_read - read) == 4, \
+        "4 of the 6 withdrawals are CENSUS cells (`so-uv`); the other 2 were channel-G-only and were " \
+        "never in the census surface at all"
     # THE ARITHMETIC CLOSES, and it is the closure -- not any single count -- that proves the walk
     # still visits every cell exactly once.  The 2 spill cells are deliberately NOT in this sum: they
     # are OUTSIDE the depth-unknown population entirely and are already inside `read`.
     assert (len(read) + len(dark) + len(dual["program-dual-depth"])
-            + len(dual["channel-g-dual-depth"])) == len(cells)
-    assert 2385 - 57 - 22 - 8 == len(dark), "W6b-1's 2,385, split by the two new channels"
+            + len(dual["channel-g-dual-depth"]) + len(dual["array-dual-depth"])
+            + len(dual["array-vs-column-depth"])) == len(cells)
+    assert 2385 - 57 - 22 - 8 - 8 == len(dark), \
+        "W6b-1's 2,385, split by channel G, the two W6b-2 dual classes, and the 8 array-dual cells " \
+        "whose column carried no incumbent depth at all (the other 4 were never in the dark set)"
     assert len(depths[15]) == 17, "the whole 15bpp surface the container states a depth for (14 + 3)"
     # ★ THE SIX W6b-1 HAZARD POPULATIONS, ON THE CENSUS SURFACE: every one of them is still its W6b-1
     # number.  This is the identity `w6b_gates` G6 and `w6q_gates` G1 are written about.
@@ -2305,14 +2353,16 @@ def test_the_shipped_derivation_reproduces_THE_WHOLE_SCENERY_CENSUS():
     # readerless cell whose column carries 2-3 CLUT keys discloses instead of silently shipping one of
     # them.  A predicate that cannot fire on a whole surface is not a measurement of that surface.
     assert len(hz["same-bytes-two-depths"]) == 17
-    assert len(hz["shared-read"]) == 93
+    assert len(hz["shared-read"]) == 90, \
+        "93 less the 3 shared-read cells CHANNEL A vetoes (ef179 x448_y256, ef186 x576_y256/y384)"
     assert len(hz["spill-in"]) == 36
     assert len(hz["spill-in"] | hz["spill-out"]) == 70
     assert len(hz["co-transform"]) == 24
-    assert len(hz["multi-palette"]) == 32, "25 + the 7 channel-G cells bound with >1 CLUT"
-    assert len(hz["multi-palette"] - c_hz["multi-palette"]) == 7
+    assert len(hz["multi-palette"]) == 30, \
+        "25 + the channel-G cells bound with >1 CLUT, less the one CHANNEL A withdraws"
+    assert len(hz["multi-palette"] - c_hz["multi-palette"]) == 6
     assert all(k in by_source["so-page"] for k in hz["multi-palette"] - c_hz["multi-palette"]), \
-        "every one of the 7 is a channel-G cell -- no read cell's class-C verdict moved"
+        "every one of the 6 is a channel-G cell -- no read cell's class-C verdict moved"
 
 
 @needs_corpus
@@ -2321,20 +2371,25 @@ def test_the_per_cell_map_unlocks_EXACTLY_the_twenty_lower_half_cells():
     UNADDRESSABLE because ``(tag, x)`` cannot name the lower half of a tall rect.  ``page_cells`` names
     them -- and W6b-2's channel G is the class that FILLS that named-but-empty space.
 
-    ⚠ THREE PREDICATES, ALL PINNED, because the 57 land in three buckets and a reader of one number
-    alone would call the others a bug:
+    ⚠ THREE PREDICATES, ALL PINNED, because the channel-G cells land in three buckets and a reader of
+    one number alone would call the others a bug:
 
-    * **56 of the 57 clear every REFUSAL** and 1 refuses on a program-VRAM write (ef038).  That is
+    * **all but one clear every REFUSAL**; 1 refuses on a program-VRAM write (ef038).  That is
       row 8's own re-spec -- *"the 57 cells build"* is FALSE;
-    * **49 of those 56 are HAZARD-CLEAN and 7 carry the class-C multi-palette DISCLOSURE**, so only
-      the 49 land in the buckets counted below.  Those 7 are the cells whose COLUMN is bound with two
-      or three CLUT keys: they were invisible while class-C evidence was read off READERS a readerless
-      cell does not have, and making them visible is a fix, not a loss of 7 cells;
+    * **the hazard-CLEAN ones are counted separately from the class-C multi-palette DISCLOSURE**, so
+      only the clean ones land in the buckets counted below.  The class-C ones are the cells whose
+      COLUMN is bound with two or three CLUT keys: they were invisible while class-C evidence was read
+      off READERS a readerless cell does not have, and making them visible is a fix, not a loss;
     * ``lower_half`` is a property of a WRITER's own upload, so a channel-G cell written by an **id-9
       alternate block** -- one whole 0x4000 upload that happens to sit at ``y = 384`` -- is not the
-      lower half of anything and scores as ``upper``.  That is 2 of the 49.
+      lower half of anything and scores as ``upper``.  That is 2 of them.
 
-    ``2 + 47 == 49``, and the W6b-1 halves (56 / 20) are still exactly inside the totals.
+    ★ **W6b-3 MOVES EVERY CHANNEL-G BUCKET BY THE SAME 2**, and only by those 2: ``so-page`` emits
+    **55** on the edit surface rather than 57, because ef179 x448_y384 (``array-dual``) and ef184
+    x448_y384 (``array-vs-column``) are VETOED by CHANNEL A. One of the two was a class-C cell, so
+    the class-C bucket goes 7 -> 6 and the clean bucket 49 -> 48. **The W6b-1 halves (56 / 20) are
+    untouched**, because W6b-1's own cells are ``so-uv`` and CHANNEL A vetoes 4 of those separately --
+    which is why they are counted here by SUBTRACTING the channel-G sets rather than by a constant.
     """
     upper, lower, spill_out = set(), set(), set()
     g_upper, g_lower, g_all, g_multi = set(), set(), set(), set()
@@ -2354,20 +2409,29 @@ def test_the_per_cell_map_unlocks_EXACTLY_the_twenty_lower_half_cells():
                     (g_lower if h.lower_half else g_upper).add(k)
                 if h.spill_out and not h.lower_half:
                     spill_out.add(k)
-    assert len(spill_out) == 6, "LAWFUL != PAGE-SCOPE-SAFE: 56 = 50 page-scope-safe + 6 model-scope"
-    assert len(g_all) == 57, "CHANNEL G's whole gain"
-    assert len(g_multi) == 7, \
-        "...of which 7 sit on a column bound with MORE THAN ONE CLUT and disclose class C.  A " \
-        "class-C predicate fed from READERS is False by construction on a readerless cell, which " \
-        "would have shipped one of 2-3 renderings with no disclosure and no alternate PNG"
-    assert len(g_upper) + len(g_lower) == 49, \
-        "CHANNEL G: 57 gain a depth, 56 clear every REFUSAL (1 refuses on ef038's program write) " \
-        "and 49 of those are hazard-clean -- the other 7 are the class-C cells above"
-    assert (len(g_upper), len(g_lower)) == (2, 47), \
+    assert len(spill_out) == 6, "LAWFUL != PAGE-SCOPE-SAFE: 6 of the lawful uppers are model-scope"
+    assert len(g_all) == 55, \
+        "CHANNEL G's gain on the EDIT surface: 57 named by `page_depth_view`, less the 2 CHANNEL A " \
+        "VETOES (ef179 x448_y384 array-dual, ef184 x448_y384 array-vs-column).  The VIEW is unmoved " \
+        "at 57 -- what moved is how many of them this lane is willing to EMIT"
+    assert len(g_multi) == 6, \
+        "...of which 6 sit on a column bound with MORE THAN ONE CLUT and disclose class C (7 before " \
+        "CHANNEL A withdrew one of them).  A class-C predicate fed from READERS is False by " \
+        "construction on a readerless cell, which would have shipped one of 2-3 renderings with no " \
+        "disclosure and no alternate PNG"
+    assert len(g_upper) + len(g_lower) == 48, \
+        "CHANNEL G: 55 emit a depth, 54 clear every REFUSAL (1 refuses on ef038's program write) " \
+        "and 48 of those are hazard-clean -- the other 6 are the class-C cells above"
+    assert (len(g_upper), len(g_lower)) == (2, 46), \
         "and the 2 are id-9 alternate blocks at y=384: one whole upload, never a rect's lower half"
-    assert len(upper) - len(g_upper) == 56, "A1's lawful count, still re-derived by the shipped code"
+    # ★ THE W6b-1 HALVES ARE RE-DERIVED BY SUBTRACTION, NOT BY A CONSTANT -- so a channel-A veto on
+    # a `so-uv` cell shows up HERE, in the W6b-1 number, instead of hiding inside a channel-G total.
+    assert len(upper) - len(g_upper) == 55, \
+        "A1's 56 lawful uppers, less the ONE `so-uv` cell CHANNEL A vetoes that was hazard-clean " \
+        "(ef184 x448_y256; the other three `so-uv` vetoes carry `shared-read` and were never in " \
+        "this bucket)"
     assert len(lower) - len(g_lower) == 20, "THE CELLS THE PER-VRAM-CELL MAP UNLOCKED IN W6b-1"
-    assert (len(upper), len(lower)) == (58, 67), "...and the W6b-2 totals the two sum to"
+    assert (len(upper), len(lower)) == (57, 66), "...and the W6b-3 totals the two sum to"
 
 
 @needs_corpus
@@ -2449,12 +2513,16 @@ def test_every_readable_corpus_cell_round_trips_BYTE_IDENTICALLY_at_its_own_dept
                 RP.write_indexed_png(raw, RP.palette_words(blob, p), p.w, p.h, png)
                 assert RP.read_indexed_png(png, p.w, p.h, 256) == raw, p.name
             n[p.bpp] += 1
-    assert (n[4], n[8], n[15]) == (80, 168, 17), \
+    assert (n[4], n[8], n[15]) == (76, 166, 17), \
         "the WHOLE round-trippable surface, per writer record -- if this population moves, the pass " \
-        "above stopped covering what it used to and the count is the only thing that would say so"
-    assert (n[4] - 30, n[8] - 24, n[15] - 3) == (50, 144, 14), \
-        "W6b-1's own three numbers, still inside it: channel G adds 30 + 24 + 3 = 57 writer records " \
-        "and the CODEC is untouched -- every one of them round-trips at the depth its COLUMN states"
+        "above stopped covering what it used to and the count is the only thing that would say so.  " \
+        "W6b-3: was (80, 168, 17); CHANNEL A's VETO withdraws 4 4bpp writer records (ef179 x448 and " \
+        "ef184 x448) and 2 8bpp (ef186 x576) -- the same -6 the census pin records, seen from the " \
+        "codec's side"
+    assert (n[4] - 28, n[8] - 24, n[15] - 3) == (48, 142, 14), \
+        "the two channels, still separable inside it: channel G contributes 28 + 24 + 3 = 55 writer " \
+        "records and `so-uv` 48 + 142 + 14 = 204.  THE CODEC IS UNTOUCHED -- every one of them " \
+        "round-trips at the depth its own channel states"
     print("W6b identity: %d 4bpp + %d 8bpp + %d 15bpp cell views, 0 mismatches"
           % (n[4], n[8], n[15]))
 
@@ -4051,6 +4119,350 @@ def test_the_refusal_matrix_NAMES_all_three_new_classes_and_only_two_are_UNADDRE
     assert "22 cells in 10 containers" in RP._REFUSAL_TEXT["program-dual-depth"]
 
 
+# ============================================================ W6b-3: CHANNEL A (`so-array`)
+#: a declared cell no fixture model reads and no INCUMBENT record's column names -- channel A's own
+#: surface.  (Same cell as ``DARK_CELL``: the point is that it is dark until a channel speaks.)
+ARRAY_CELL = DARK_CELL
+#: ONE multi-part record: entry 0 binds column 448 at 8bpp, entry 1 binds column 704 at the depth the
+#: incumbent record already states there -- so the fixture exercises the GAIN without also tripping a
+#: conflict, and the two are separable.
+A_PARTS_CLEAN = ((_tpage(448, 256, 8), _clut_word(0, 245)),
+                 (_tpage(704, 256, 8), _clut_word(0, 245)))
+#: ...and the HAZARD shapes.  DUAL: one column, two depths across the record's own entries.
+A_PARTS_DUAL = ((_tpage(448, 256, 8), _clut_word(0, 245)),
+                (_tpage(448, 256, 4), _clut_word(0, 244)))
+#: CONFLICT: column 576 carries a UNANIMOUS incumbent 4bpp (palA/palB) and a UNANIMOUS novel 8bpp.
+#: That column's cell is served by ``so-uv`` today, which is exactly what makes the veto visible.
+A_PARTS_CONFLICT = ((_tpage(576, 256, 8), _clut_word(0, 245)),
+                    (_tpage(576, 256, 8), _clut_word(0, 245)))
+#: CLASS C: ONE column, ONE depth, TWO CLUT words -- the only shape where the display pick is a live
+#: choice.  ``(0, 244)`` is the VALUE-lowest key; ``(16, 244)`` is the one an array-INDEX tie-break
+#: would pick under the reversed storage order.  Both resolve to palettes this fixture declares, so an
+#: alternate PNG lands on a row the container really uploads.
+A_PARTS_TWO_KEYS = ((_tpage(448, 256, 4), _clut_word(0, 244)),
+                    (_tpage(448, 256, 4), _clut_word(16, 244)))
+
+
+def test_bound_models_is_incumbent_only():
+    """★ THE CENSUS LANE IS INCUMBENT-ONLY, and it is a property of the OUTPUT, not a promise.
+
+    A multi-part record contributes NO ``BoundModel`` and NO ``CellReader``, so every W6b-1 spill /
+    cover / hazard number is untouched by construction.  There is no order-free alternative: routing
+    a multi-part model's FACES to their entries needs the primitive ``part`` byte, i.e. the ORDER
+    clause nothing has measured.
+    """
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_CLEAN))
+    ms = RP.bound_models(blob)
+    assert len(ms) == len(SCEN_MODELS), "the novel record produced no BoundModel"
+    assert ARRAY_CELL == "cell.s0.x448_y256" and (448, 256) not in RP.cell_readers(blob)
+    inc = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
+    assert len({b.geom for b in inc.bindings}) == len(inc.bindings), \
+        "THE CALL-SITE ASSERTION: incumbent bindings are 1:1 with GEOM blocks, so `by_geom` in " \
+        "`bound_models` cannot last-wins-collapse anything"
+    allb = RS.attribution(blob, include_direct=True)
+    assert len(allb.bindings) == len(inc.bindings) + 2, \
+        "...and the TRUE population really does carry the two novel entries -- otherwise this test " \
+        "would pass on a fixture that never exercised the narrowing"
+    assert RP.cell_readers(blob).keys() == RP.cell_readers(build_scenery_container()).keys()
+
+
+def test_the_census_scope_gate_keeps_CHANNEL_A_silent():
+    """★ A3: the channel-A hazards derive from ``array_depth_view``, and that call is GATED on the
+    caller naming ``"so-array"``.  Without the gate the veto would fire under CENSUS scope and W6b-1's
+    own 187 / 2,385 headline would move -- a channel a caller declined to consult must be unable to
+    say anything at all, including "no"."""
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_CONFLICT))
+    c_pages, c_ref = RP.scenery_surface(blob, 999)                    # CENSUS_CHANNELS
+    base_pages, _ = RP.scenery_surface(build_scenery_container(), 999)
+    assert {p.name for p in c_pages} == {p.name for p in base_pages}, \
+        "the census surface is byte-for-byte what it was, novel record or not"
+    assert not any(r.klass.startswith("array-") for r in c_ref)
+    assert all(p.hazards.array_depths == () for p in c_pages), \
+        "an unconsulted channel contributes NO data, not merely no verdict"
+    # ...and the moment the caller names it, the same bytes speak
+    l_pages, l_ref = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
+    assert any(r.klass == "array-vs-column-depth" for r in l_ref)
+
+
+def test_so_array_needs_ack_and_expect_bpp():
+    """★ THE ACK LADDER FOR CHANNEL A, rung by rung, with ``enabled = false`` so every one of them is
+    decided before a PNG is opened."""
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_CLEAN))
+
+    # (0) DISCLOSE, do not license: without the ack the cell is still dark -- and the reason NAMES
+    # the depth it will not adopt, the record it came off, and how to proceed
+    r = {x.name: x for x in RP.scenery_cell_refusals(blob, 999)}[ARRAY_CELL]
+    assert r.klass == "depth-unknown"
+    assert "CHANNEL A, DISCLOSE" in r.reason and "record 0x" in r.reason
+    assert "binds that column at 8 bpp" in r.reason
+    assert RP.ACK_ARRAY_DEPTH in r.reason and "expect_bpp = 8" in r.reason
+    assert DA.ARRAY_CAVEAT in r.reason and DA.ORDER_UNMEASURED in r.reason
+    assert DA.ARRAY_RESIDUE_LINE in r.reason, "the second residue line, never reconciled with the first"
+    # ...and NOT under census scope, where the channel was never consulted
+    assert "CHANNEL A" not in {x.name: x for x in RP.scenery_surface(blob, 999)[1]}[ARRAY_CELL].reason
+    with pytest.raises(RP.RepaintError, match="is REFUSED, not unknown"):
+        RP.texel_page(blob, ARRAY_CELL, 999)
+
+    # (1) the ack ALONE is not a guard -- and the refusal names the record and the slot
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, _ack_rows(name=ARRAY_CELL, **{RP.ACK_ARRAY_DEPTH: True})),
+                 "t", blob=blob)
+    assert "states NO `expect_bpp`" in str(e.value) and RP.ACK_ARRAY_DEPTH in str(e.value)
+    assert "record 0x" in str(e.value) and "slot 0" in str(e.value)
+    assert "THE ARITY IS MEASURED TWICE; THE ORDER IS NOT" in str(e.value)
+    assert "NOTHING ABOUT CHANNEL A IS IN-GAME" in str(e.value)
+
+    # (2) a MISMATCHING expect_bpp fails by name, and says WHICH channel it argues with
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, _ack_rows(name=ARRAY_CELL, expect_bpp=4,
+                                            **{RP.ACK_ARRAY_DEPTH: True})), "t", blob=blob)
+    assert "the spec guards 4bpp" in str(e.value) and "CHANNEL A" in str(e.value)
+    assert "a BINDING is not a DRAW" in str(e.value)
+
+    # (3) THE LITERAL-BOOLEAN LAW
+    with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
+        RP.build(_spec_dict(blob, _ack_rows(name=ARRAY_CELL, expect_bpp=8,
+                                            **{RP.ACK_ARRAY_DEPTH: "true"})), "t", blob=blob)
+
+    # (4) THE PAIR resolves it, and the ledger records the judgement beside the depth source
+    b = RP.build(_spec_dict(blob, _ack_rows(name=ARRAY_CELL, expect_bpp=8,
+                                            **{RP.ACK_ARRAY_DEPTH: True})), "t", blob=blob)
+    t = b.targets[0]
+    assert t.ack_array_depth is True and t.page.depth_source == "so-array" and t.page.bpp == 8
+    assert t.page.depth_inherited is True, "no instrument saw a model sample these bytes"
+    assert t.page.hazards.array_records and t.page.hazards.array_binders
+    # ...and the disclosure says all four things in one breath
+    txt = "  ".join(RP._scenery_disclosures(t))
+    assert "DEPTH FROM CHANNEL A" in txt and "record 0x" in txt
+    assert "NOTHING ABOUT CHANNEL A IS IN-GAME" in txt
+    assert "0 HITS, 4 MISSES and 2 VACUOUS PASSES" in txt
+    assert "THE ORDER IS CORROBORATED BY NOTHING" in txt
+
+
+def test_array_dual_refuses_under_ack():
+    """A HAZARD OUTRANKS AN ACKNOWLEDGEMENT: the ack is a judgement about a SINGLE-valued derivation
+    and there is no single value here to judge."""
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_DUAL))
+    ref = {x.name: x for x in RP.scenery_cell_refusals(blob, 999)}
+    assert ref[ARRAY_CELL].klass == "array-dual-depth"
+    assert "UNANIMITY IS THE VERDICT RULE" in ref[ARRAY_CELL].reason
+    assert "no acknowledgement lifts it" in ref[ARRAY_CELL].reason
+    assert "the column's INCUMBENT depth set is EMPTY" in ref[ARRAY_CELL].reason
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, _ack_rows(name=ARRAY_CELL, expect_bpp=8,
+                                            **{RP.ACK_ARRAY_DEPTH: True})), "t", blob=blob)
+    assert "ARRAY-DUAL-DEPTH" in str(e.value)
+
+
+def test_array_dual_refuses_EVEN_WHERE_ANOTHER_CHANNEL_ALREADY_SERVES_THE_CELL():
+    """★ A2: ALL 12 corpus ``array-dual`` cells refuse OUTRIGHT, including the 4 whose column carries
+    an incumbent depth -- and for those the refusal DISPLACES the ``so-uv`` / ``so-page`` service.
+
+    The softer treatment (state the hazard ALONGSIDE, keep the page) was considered and NOT shipped:
+    CHANNEL A holds VETO power and never emission power, so where it can only make the picture LESS
+    certain it is allowed to, and where it could only make it MORE certain it is not.  Loosening later
+    is cheap; tightening after shipping is not.
+    """
+    dual_on_read = ((_tpage(704, 256, 8), _clut_word(0, 245)),
+                    (_tpage(704, 256, 4), _clut_word(0, 244)))
+    blob = build_scenery_container(extra_models=_so_multi_geom(dual_on_read))
+    base = {p.name for p in RP.scenery_texel_pages(build_scenery_container(), 999)}
+    assert "cell.s0.x704_y256" in base, "the fixture served this cell before CHANNEL A spoke"
+    now = {p.name for p in RP.scenery_texel_pages(blob, 999)}
+    assert "cell.s0.x704_y256" not in now and "cell.s0.x704_y384" not in now
+    ref = {x.name: x for x in RP.scenery_cell_refusals(blob, 999)}
+    assert ref["cell.s0.x704_y256"].klass == "array-dual-depth"
+    assert "TAKES THAT PAGE AWAY" in ref["cell.s0.x704_y256"].reason
+    assert "considered and NOT shipped" in ref["cell.s0.x704_y256"].reason
+    # ...and the CENSUS surface still serves it, because it never consulted the channel
+    assert "cell.s0.x704_y256" in {p.name for p in RP.scenery_surface(blob, 999)[0]}
+
+
+def test_the_ONE_resolution_entry_point_is_LICENSED_so_a_CENSUS_pick_can_still_be_VETOED():
+    """★ WHERE A2's -6 ACTUALLY BITES, said out loud rather than left as a seam between two scopes.
+
+    The channel-scope law keeps CHANNEL A silent on a census-scoped SURFACE, so every W6b-1 census
+    number holds.  But :func:`~ff9mapkit.summons.repaint.texel_page` -- the lane's ONLY resolution
+    entry point, and the one every paint/export vehicle goes through -- resolves at
+    :data:`~ff9mapkit.summons.repaint.LICENSED_CHANNELS` unconditionally.  So a cell CHOSEN off the
+    census surface and then RESOLVED is answered by the veto: the two scopes disagree about the same
+    cell, and only one of them can hand back bytes.
+
+    That is the shape of the rung's permissiveness regression at its widest, and it is pinned HERE so
+    a later ratification of the softer treatment has a named test to invert rather than a surprise in
+    a sibling board.  The refusal is at least honest in both directions: it names its own class, and
+    no acknowledgement lifts it.
+    """
+    dual_on_read = ((_tpage(704, 256, 8), _clut_word(0, 245)),
+                    (_tpage(704, 256, 4), _clut_word(0, 244)))
+    blob = build_scenery_container(extra_models=_so_multi_geom(dual_on_read))
+    census = {p.name: p for p in RP.scenery_surface(blob, 999)[0]}
+    assert "cell.s0.x704_y256" in census and census["cell.s0.x704_y256"].bpp == 8, \
+        "the CENSUS still answers with a page, and with the depth a reader actually samples"
+    for kw in ({}, {"allow_array_depth": True}):
+        with pytest.raises(RP.RepaintError, match="ARRAY-DUAL-DEPTH") as e:
+            RP.texel_page(blob, "cell.s0.x704_y256", 999, **kw)
+        assert "is REFUSED, not unknown" in str(e.value), \
+            "a vetoed cell is answered with its own reason, never with 'unknown'"
+
+
+def test_array_vs_column_refuses_and_is_unaddressable():
+    """★ THE RUNG'S ONE DELIBERATE PERMISSIVENESS REGRESSION, at fixture scale (the corpus shape is
+    ef184 x448).  A licensed channel's own instrument contradicts itself on one column, so the licence
+    is void FOR THAT COLUMN and the page is withdrawn: both predicates are true of the same bytes, and
+    the kit states both and picks neither."""
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_CONFLICT))
+    ref = {x.name: x for x in RP.scenery_cell_refusals(blob, 999)}
+    r = ref["cell.s0.x576_y256"]
+    assert r.klass == "array-vs-column-depth"
+    assert "BOTH PREDICATES ARE TRUE OF THE SAME BYTES" in r.reason
+    assert "WITHDRAWS A PAGE THE LANE USED TO HAND BACK" in r.reason
+    assert "A LICENCE CONTRADICTED BY ITS OWN INSTRUMENT IS VOID FOR THAT COLUMN" in r.reason
+    assert "NOTHING ABOUT CHANNEL A IS IN-GAME" in r.reason, "A6: the caveat rides the refusal"
+    # BOTH depths are named and NEITHER is picked
+    assert "4 bpp" in r.reason and "8 bpp" in r.reason
+    # UNADDRESSABLE, and no acknowledgement reaches it
+    assert "array-vs-column-depth" in RP._UNADDRESSABLE
+    with pytest.raises(RP.RepaintError, match="is REFUSED, not unknown"):
+        RP.texel_page(blob, "cell.s0.x576_y256", 999, allow_array_depth=True)
+    # THE COUNTERFACTUAL: exactly this cell is lost and nothing else
+    before = {p.name for p in RP.scenery_texel_pages(build_scenery_container(), 999)}
+    after = {p.name for p in RP.scenery_texel_pages(blob, 999)}
+    assert before - after == {"cell.s0.x576_y256"} and not after - before
+
+
+def test_so_array_without_so_page_fails_CLOSED():
+    """★ CHANNEL A DEPENDS ON CHANNEL G, AND THE DEPENDENCY IS A CALL-SITE GUARD.
+
+    Both channel-A hazards are COMPARISONS against the column's incumbent depth, and the incumbent
+    side is channel G's ``page_depth_view``.  Asked for ``"so-array"`` with ``"so-page"`` left out,
+    ``array_vs_column`` is ``False`` BY CONSTRUCTION -- so the one column whose licensed reading its
+    own record class contradicts would come back as an ordinary 4bpp page with the contradiction
+    unstated.  That is the silent side-taking channel A exists to refuse, so the combination is
+    REFUSED rather than served: *a law not enforced at the call site is not enforced.*
+    """
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_CONFLICT))
+    # the guard fires on the SET, before any derivation -- and it names the remedy
+    with pytest.raises(RP.RepaintError) as e:
+        RP.scenery_surface(blob, 999, channels=("so-uv", "so-array"))
+    assert "requires 'so-page'" in str(e.value) and "silently answers" in str(e.value)
+    # ...and it is a GUARD, not a blanket ban: both shipped sets still work
+    assert RP.scenery_surface(blob, 999, channels=RP.CENSUS_CHANNELS)[0] is not None
+    conflict = [r for r in RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)[1]
+                if r.klass == "array-vs-column-depth"]
+    assert len(conflict) == 1, "the licensed set still states the contradiction it was gated for"
+    # the W6b-2 scope (the licensed set MINUS channel A) is likewise lawful -- sibling boards roll it
+    assert RP.scenery_surface(blob, 999,
+                              channels=tuple(c for c in RP.LICENSED_CHANNELS
+                                             if c != "so-array"))[0] is not None
+
+
+def test_depth_attribution_lines_gate_CHANNEL_A_on_the_token():
+    """The report block is the one place channel A used to speak without being asked.  It changes no
+    verdict -- but *"no line about channel A"* and *"channel A states nothing"* are the same output
+    and only one of them is a measurement, so the block says which it means."""
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_CLEAN))
+    pages, _ = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
+    lic = "\n".join(RP.depth_attribution_lines(blob, 999, pages))
+    cen = "\n".join(RP.depth_attribution_lines(blob, 999, pages, channels=RP.CENSUS_CHANNELS))
+    assert "CHANNEL A here:" in lic and "NOT CONSULTED" not in lic
+    assert "CHANNEL A here: NOT CONSULTED" in cen
+    assert "must not appear to have spoken" in cen
+
+
+def test_depth_derived_by_covers_every_source():
+    """A missing entry makes ``assert_expect_bpp`` raise ``KeyError`` -- i.e. the guard that is
+    supposed to REFUSE would crash.  A guard may only ever fail CLOSED, so the coverage is asserted at
+    IMPORT in ``repaint`` itself; this pins that the assertion exists and holds."""
+    assert set(RP._DEPTH_DERIVED_BY) == set(RP.DEPTH_SOURCES)
+    assert "so-array" in RP.DEPTH_SOURCES and "so-array" in RP.LICENSED_CHANNELS
+    assert "so-array" not in RP.CENSUS_CHANNELS, "the census channel set is W6b-1's own, unchanged"
+    assert "a BINDING is not a DRAW" in RP._DEPTH_DERIVED_BY["so-array"]
+    assert "UNMEASURED" in RP._DEPTH_DERIVED_BY["so-array"]
+
+
+def test_refusal_text_covers_every_new_class():
+    """Both W6b-3 classes have text, both are UNADDRESSABLE, and both quote ``ARRAY_CAVEAT`` -- the
+    page-withdrawing verdict is exactly where "nothing about this channel is in-game" carries most."""
+    for k in ("array-dual-depth", "array-vs-column-depth"):
+        assert k in RP._REFUSAL_TEXT, k
+        assert k in RP._UNADDRESSABLE and k in RP._EXPORT_BLOCKING
+        assert DA.ARRAY_CAVEAT in RP._REFUSAL_TEXT[k], "A6"
+        assert DA.DEPTH_COROLLARY in RP._REFUSAL_TEXT[k]
+        assert "** STATED PLAINLY" in RP._REFUSAL_TEXT[k]
+    assert "12 corpus cells over 6 columns" in RP._REFUSAL_TEXT["array-dual-depth"]
+    assert "ONLY column in the corpus" in RP._REFUSAL_TEXT["array-vs-column-depth"]
+
+
+def test_ack_array_key_registered():
+    """An unregistered spec key fails CLOSED two lines into ``build`` -- correct behaviour that would
+    also make the whole feature unreachable.  A capability nobody can spell is not a capability."""
+    assert DA.ACK_ARRAY_KEY in RP._TEXEL_KEYS and RP.ACK_ARRAY_DEPTH == DA.ACK_ARRAY_KEY
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_CLEAN))
+    with pytest.raises(RP.RepaintError, match="unknown key"):
+        RP.build(_spec_dict(blob, _ack_rows(name=ARRAY_CELL, acknowledge_array_derived_dept=True)),
+                 "t", blob=blob)
+
+
+def test_class_C_evidence_for_a_channel_A_cell_comes_from_the_ARRAY_entries():
+    """★ THE CLASS-C EVIDENCE IS TAKEN AT THE SAME GRANULARITY AS THE DEPTH, one channel further.
+
+    65/65 corpus channel-A cells are readerless AND unnamed by any incumbent record, so a class-C
+    predicate fed from either older source is False BY CONSTRUCTION there -- the census's clean 0 on
+    this surface is VACUOUS, not a clear, and 34 of the 65 sit on a column bound with 2-4 CLUT words.
+    """
+    # ``A_PARTS_TWO_KEYS``: both keys resolve to declared palettes -- an alternate PNG for a row the
+    # container never uploads would be a picture in a key the engine never applies, which is the thing
+    # the class-C mechanism exists to avoid.  ONE derivation, shared with the display-pick test below,
+    # so the two cannot drift onto different evidence about the same shape.
+    blob = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_TWO_KEYS))
+    p = RP.texel_page(blob, ARRAY_CELL, 999, allow_array_depth=True)
+    assert p.depth_source == "so-array" and p.bpp == 4
+    assert len(p.hazards.array_clut_cells) == 2 and p.hazards.page_clut_cells == ()
+    assert p.hazards.column_clut_cells == p.hazards.array_clut_cells
+    assert p.hazards.multi_palette, "class C, and it is REACHABLE -- not False by construction"
+    t = RP.TexelTarget(name=p.name, enabled=True, source="", page=p, ack_array_depth=True)
+    assert "MULTI-PALETTE (class C)" in "  ".join(RP._scenery_disclosures(t))
+    assert len(RP.alternate_palette_rows(blob, p, RS.palette_map(blob))) == 1, \
+        "every OTHER key ships an alternate PNG -- which is what makes the display CONVENTION safe"
+
+
+def test_the_channel_A_display_pick_ties_on_VALUES_not_on_the_array_index():
+    """★ A4, at the PAGE: the CLUT a channel-A cell renders through is a CONVENTION OVER A SET, and
+    its key is ``(geom, tpage, clut_word)`` -- the VALUES the display consumes.
+
+    Two entries of one record can now land on one cell, so the old bare-``geom`` key stopped being a
+    total order.  Completing it with the array INDEX would make the picture depend on STORAGE ORDER,
+    which is the one thing about this format nothing has measured (identity 63.3 / reversed 56.0 /
+    permutations 59.4, ~0.9 sigma above chance).  Completing it with the values cannot: permuting the
+    record's entries is then invisible to every field of the page.
+
+    Both halves are asserted, because either alone is weak.  A permutation-invariance check alone
+    passes on a pick that is symmetric-but-wrong; an equals-the-lowest-key check alone passes on an
+    index tie-break that happens to agree on this fixture's storage order.
+    """
+    fwd = build_scenery_container(extra_models=_so_multi_geom(A_PARTS_TWO_KEYS))
+    rev = build_scenery_container(extra_models=_so_multi_geom(tuple(reversed(A_PARTS_TWO_KEYS))))
+    a, b = (RP.texel_page(x, ARRAY_CELL, 999, allow_array_depth=True) for x in (fwd, rev))
+    assert a.depth_source == "so-array" and a.hazards.multi_palette, \
+        "the fixture must put TWO keys on the column or the tie-break is never exercised"
+    # (1) THE PICK IS THE VALUE-LOWEST KEY, not entry 0 of the array
+    assert (a.clut, a.palette_name) == (_clut_word(0, 244), "pal.s0.x0_y244.e16")
+    assert a.hazards.array_clut_cells == ((0, 244), (16, 244))
+    # (2) ...and a permutation of the SAME entries is invisible to every field of the page
+    assert (b.clut, b.tpage, b.bpp, b.palette_name) == (a.clut, a.tpage, a.bpp, a.palette_name)
+    assert b.clut_offset == a.clut_offset and b.clut_entries == a.clut_entries
+    assert b.hazards.array_clut_cells == a.hazards.array_clut_cells
+    assert b.hazards.array_depths == a.hazards.array_depths
+    # (3) and the OTHER key is still named and still ships its own read-only alternate, which is what
+    # makes naming ONE of them safe in the first place
+    alt_rev = RP.alternate_palette_rows(rev, b, RS.palette_map(rev))
+    assert [(r.clut_cell, r.palette_name, r.words) for r in alt_rev] == \
+           [(r.clut_cell, r.palette_name, r.words)
+            for r in RP.alternate_palette_rows(fwd, a, RS.palette_map(fwd))]
+    assert [r.clut_cell for r in alt_rev] == [(16, 244)], "the key NOT picked, named and rendered"
+
+
 def test_a_readerless_cell_whose_COLUMN_is_bound_at_TWO_depths_REFUSES_by_name():
     """ROW 4, on synthetic bytes: the class the calibration refuter found and NO lane dossier named.
     Two models bind the same column at different depths; the cell neither of them reads inherits an
@@ -4099,7 +4511,7 @@ def test_scenery_lines_prints_the_channel_block_even_when_every_channel_is_SILEN
     P states nothing here' are the same output, and only one of them is a measurement."""
     blob = build_scenery_container()
     L = "\n".join(RP.scenery_lines(blob, 999))
-    assert "THE DEPTH CHANNELS (W6b-2)" in L
+    assert "THE DEPTH CHANNELS (W6b-2, W6b-3)" in L
     assert "DEPTH is a property of the PAGE" in L
     assert "CHANNEL P here: 0 cell(s)" in L, "ef999 is not in the table, and the line still prints"
     assert "CHANNEL H here: nClut4 3 / nClut8 1 -> no narrowing" in L

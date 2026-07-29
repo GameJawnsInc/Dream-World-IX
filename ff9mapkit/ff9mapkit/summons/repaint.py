@@ -91,6 +91,30 @@ SOMEWHERE ELSE. It does, in two places, and they do not carry the same authority
 * **Two channel sets** (:data:`CENSUS_CHANNELS` / :data:`LICENSED_CHANNELS`) so no published W6b-1
   count moved under a caller that did not ask for the new channel -- the ``include_direct`` precedent.
 
+W6b-3 -- CHANNEL A: THE SAME RECORD, READ AT ITS TRUE LENGTH
+--------------------------------------------------------------
+The ``so`` record is a MULTI-PART BINDING ARRAY and the reader hard-probed two lengths, so 126 records
+and 309 binding slots were invisible. Repairing the reader is a SAFETY fix (it repaired five false
+``DERIVED PRIVATE`` palette verdicts); licensing what it reveals is a separate decision, and it is
+refused.
+
+> **A IS FOR ARRAY, NOT ARCHIVE. CHANNEL A DISCLOSES -- at channel P's tier, for a harsher reason.**
+
+* the census (``so-uv``) and CHANNEL G are held to the **INCUMBENT** witness, so every W6b-1/W6b-2
+  count is byte-identical BY CONSTRUCTION AT ITS INPUT rather than by inspection;
+* **CHANNEL A** (:func:`ff9mapkit.summons.reskin.array_depth_view`) discloses 65 cells and emits only
+  behind :data:`ACK_ARRAY_DEPTH` plus a matching ``expect_bpp``. Channel P's one in-game trial FAILED;
+  channel A has had none it passed (:data:`~ff9mapkit.summons.depth_attribution.ARRAY_CAVEAT`);
+* ⚠ **its hazards hold VETO power and never emission power**, so ``array-dual-depth`` (12 cells) and
+  ``array-vs-column-depth`` (2) can take away a page ``so-uv``/``so-page`` earned -- **the rung's one
+  deliberate permissiveness regression, and it is confined to channel sets that name ``so-array``.**
+  Every count in the W6b-2 section above is therefore a W6b-2-SCOPE count; the delta on the shipped
+  set is stated by :data:`~ff9mapkit.summons.depth_attribution.A2_SCOPE_NOTE`, which every
+  author-facing string quoting one of them carries;
+* the array's ARITY is measured twice and its ORDER by nothing, so ``parts`` is a **SET** everywhere:
+  a reason string names a record and a slot as IDENTIFICATION, and no verdict maps part *k* to entry
+  *k* (:data:`~ff9mapkit.summons.depth_attribution.ORDER_UNMEASURED`).
+
 THE TEXANIM CO-TRANSFORM (W7) -- AN OBLIGATION, NOT A REFUSAL
 --------------------------------------------------------------
 On the five armed packages (ef038 / ef177 / ef493 / ef494 / ef495) this lane used to refuse outright,
@@ -210,7 +234,8 @@ __all__ = [
     "CellWriter", "CellReader", "CellHazards", "CellRefusal",
     "scenery_surface", "scenery_texel_pages", "scenery_cell_refusals", "assert_expect_bpp",
     # --- W6b-2: the depth-attribution channels (P discloses, G licenses) ------------------------
-    "ACK_PROGRAM_DEPTH", "DEPTH_SOURCES", "CENSUS_CHANNELS", "LICENSED_CHANNELS",
+    "ACK_PROGRAM_DEPTH", "ACK_ARRAY_DEPTH",
+    "DEPTH_SOURCES", "CENSUS_CHANNELS", "LICENSED_CHANNELS",
     "clut_arity", "depth_attribution_lines",
     # --- W6b-1: the codecs ----------------------------------------------------------------------
     "pack4", "unpack4", "write_indexed4_png", "read_indexed4_png",
@@ -290,10 +315,14 @@ W6B_REASON = ("W6b-2 attributes 246 of W6b-1's 2,385 depth-unknown cells (189 pr
               "DUAL-DEPTH BY ATTRIBUTION (22 program + 8 channel-G, both INSIDE the 2,139 above, + 2 "
               "spill-vs-own-page, which are OUTSIDE it entirely -- 32 cells, three populations, "
               "READ THE POPULATION AND DO NOT ADD THEM UP) / SAME-BYTES-TWO-DEPTHS (17) / "
-              "PROGRAM-VRAM WRITE (175, 3 by cell) / a spilling model's UNWRITTEN COLUMN (10)")
+              "PROGRAM-VRAM WRITE (175, 3 by cell) / a spilling model's UNWRITTEN COLUMN (10).  "
+              + DA.A2_SCOPE_NOTE)
 
 #: the W6b-2 acknowledgement's spec key, re-exported here so a caller never spells it as a literal.
 ACK_PROGRAM_DEPTH = DA.ACK_KEY
+
+#: the W6b-3 acknowledgement's spec key (CHANNEL A), re-exported for the same reason.
+ACK_ARRAY_DEPTH = DA.ACK_ARRAY_KEY
 
 #: where a scenery page's ``bpp`` came from -- carried on the page itself, because a depth that is
 #: INHERITED FROM A COLUMN and a depth a model's own UVs declare are not the same kind of fact and a
@@ -302,13 +331,21 @@ ACK_PROGRAM_DEPTH = DA.ACK_KEY
 #: * ``"so-uv"``   -- an ``so`` reader whose stored UVs land in THIS cell states it (W6b-1, 187 cells);
 #: * ``"so-page"`` -- CHANNEL G: no reader samples the cell, but its COLUMN carries exactly one
 #:   ``so``-stated depth, so the depth is inherited from the page (57 cells; 55 of them lower halves
-#:   addressable only through the per-cell map). **LICENSED** -- it is the same record read at the
-#:   granularity the hardware uses;
+#:   addressable only through the per-cell map -- both counts at the W6b-2 channel scope, see
+#:   :data:`ff9mapkit.summons.depth_attribution.A2_SCOPE_NOTE`). **LICENSED** -- it is the same
+#:   record read at the granularity the hardware uses;
+#: * ``"so-array"`` -- CHANNEL A (W6b-3): no reader samples the cell and no ``P <= 1`` record names
+#:   its column, but an ENTRY of a MULTI-PART ``so`` record's binding array does (65 cells). It is
+#:   the SAME record class channel G reads, read at its true length -- **not new evidence, an old
+#:   reader repaired**. **DISCLOSED, and edits only behind** :data:`ACK_ARRAY_DEPTH` plus a matching
+#:   ``expect_bpp``, at channel P's tier and for a harsher reason: channel P's one in-game trial
+#:   FAILED, channel A has had none it passed
+#:   (:data:`ff9mapkit.summons.depth_attribution.ARRAY_CAVEAT`);
 #: * ``"program"`` -- CHANNEL P: the container's own id-3 program registers this page at a constant
 #:   depth (189 cells). **DISCLOSED, and edits only behind** :data:`ACK_PROGRAM_DEPTH` plus a matching
 #:   ``expect_bpp`` -- see :data:`ff9mapkit.summons.depth_attribution.REGISTRATION_CAVEAT`, which is
 #:   an in-game refutation and not a caution.
-DEPTH_SOURCES = ("so-uv", "so-page", "program")
+DEPTH_SOURCES = ("so-uv", "so-page", "so-array", "program")
 
 #: **THE CENSUS CHANNEL SET** -- W6b-1's own, and the DEFAULT of :func:`scenery_surface`.
 #:
@@ -326,14 +363,29 @@ CENSUS_CHANNELS = ("so-uv",)
 #: :func:`export_art`, :func:`scenery_lines`, :func:`build`).
 #:
 #: * ``"so-page"`` -- CHANNEL G is ADOPTED: 57 readerless cells gain their column's depth, and the
-#:   8 cells whose column carries TWO depths refuse under their own name;
+#:   8 cells whose column carries TWO depths refuse under their own name. ⚠ **That 57 is channel G's
+#:   own count at the W6b-2 channel scope, and this set is no longer that scope** -- channel A, one
+#:   bullet down, can withdraw a page channel G earned. The counts are not restated (A is disclosed,
+#:   never adopted); the delta is stated in full by
+#:   :data:`ff9mapkit.summons.depth_attribution.A2_SCOPE_NOTE`, which every author-facing string
+#:   quoting one of those counts carries;
+#: * ``"so-array"`` -- CHANNEL A is CONSULTED (W6b-3), at exactly channel P's tier: the
+#:   depth-unknown reason gains the array's depth (a DISCLOSURE), emitting additionally needs
+#:   ``array_depth=True`` i.e. :data:`ACK_ARRAY_DEPTH`, and the two array HAZARD classes refuse under
+#:   their own names. ⚠ **CONSULTING CHANNEL A CAN TAKE A PAGE AWAY.** Its hazards hold **VETO**
+#:   power and never emission power, so a cell whose column the array names at a depth that
+#:   CONTRADICTS the incumbent one, or at two depths at once, refuses on this path even where
+#:   ``so-uv`` or ``so-page`` would otherwise have served it. That is the rung's one deliberate
+#:   permissiveness regression, and it is confined to this channel set: under
+#:   :data:`CENSUS_CHANNELS` channel A is not consulted, so it can neither add nor withdraw a cell;
 #: * ``"program"`` -- CHANNEL P is CONSULTED: the depth-unknown reason gains the program's registered
 #:   depth (a DISCLOSURE) and a program-DUAL cell refuses under its own name. **Consulting is not
 #:   adopting**: emitting a channel-P page additionally needs ``program_depth=True``, which is what
 #:   :data:`ACK_PROGRAM_DEPTH` sets. A consumer states which KINDS of depth fact it accepts, and
-#:   *"a depth a model's own UVs declare"*, *"a depth inherited from the column"* and *"a depth the
-#:   program REGISTERS"* are three different kinds.
-LICENSED_CHANNELS = ("so-uv", "so-page", "program")
+#:   *"a depth a model's own UVs declare"*, *"a depth inherited from the column"*, *"a depth an ENTRY
+#:   of the column's binding ARRAY states"* and *"a depth the program REGISTERS"* are four different
+#:   kinds.
+LICENSED_CHANNELS = ("so-uv", "so-page", "so-array", "program")
 
 #: THE INDEXED LANE'S RGBA REFUSAL, in its own words -- deliberately NOT :data:`W6B_REASON`.
 #:
@@ -470,7 +522,7 @@ class TexelPage:
         :func:`_scenery_disclosures` gates its inheritance clause on. They differ on every UPPER half
         of an attributed column.
         """
-        return self.depth_source in ("so-page", "program")
+        return self.depth_source in ("so-page", "so-array", "program")
 
     @property
     def scenery(self) -> bool:
@@ -681,11 +733,31 @@ def bound_models(blob: bytes) -> List[BoundModel]:
     polygon fill with the CORNERS OR-ed in, because a one-texel-thin face has no centre inside it at
     all -- lifted into ABSOLUTE VRAM halfword space so a cover can cross a column boundary, which is
     the whole point.
+
+    ★ **W6b-3: THE CENSUS LANE IS INCUMBENT-ONLY, AND IT TAKES NO PARAMETER.** ``bound_models`` is
+    the population ``w6b_gates`` G6, ``w6q_gates`` G1/G16 and ``w6b2i_gates`` I5 are written ABOUT,
+    and ``so-uv`` LICENSES -- it emits a paintable page with no acknowledgement anywhere on the path.
+    A rung that silently re-aimed it would have moved the thing those gates measure while every one
+    of them still read green on a different population.
+
+    And there is **no order-free way to make it correct otherwise**: rasterising a multi-part model's
+    cover means routing each FACE to its part's array entry through the primitive ``part`` byte --
+    precisely the ORDER clause nothing has measured -- and 82 of the 126 multi-part records name more
+    than one distinct tpage, so an arbitrary pick mis-attributes the majority of them. A parameter
+    with no correct second consumer is speculative generality; what the law needs is the ASSERTION
+    below, at the call site, because *a law not enforced at the call site is not enforced.*
     """
     mp = EC.creature_package(blob)
     creature_geom = mp.geom_offset if mp is not None else None
-    attrib = RS.attribution(blob, include_direct=True)
+    attrib = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
     by_geom = {b.geom: b for b in attrib.bindings}
+    if len(by_geom) != len(attrib.bindings):                     # pragma: no cover - by construction
+        raise RepaintError(
+            "the incumbent `so` bindings are not 1:1 with GEOM blocks (%d bindings over %d blocks) --"
+            " `by_geom` would silently keep the LAST one and drop the rest.  Under"
+            " `witness=WITNESS_INCUMBENT` every record has P <= 1, so this cannot happen unless the"
+            " witness narrowing above was removed or the reader changed shape."
+            % (len(attrib.bindings), len(by_geom)))
     out: List[BoundModel] = []
     for g in EC.scan_geom(blob):
         if creature_geom is not None and g.base == creature_geom:
@@ -839,6 +911,33 @@ class CellHazards:
     #: "4bpp **or** 15bpp"). It attributes NOTHING and is carried only so a refusal can say WHICH of
     #: "the container states nothing" it means.
     bpp_hint: Optional[int] = None
+    # ---- W6b-3: CHANNEL A, as data ---------------------------------------------------------------
+    #: CHANNEL A -- every depth an ENTRY of a MULTI-PART ``so`` record's binding array states for this
+    #: cell's **COLUMN** (:func:`ff9mapkit.summons.reskin.array_depth_view`). A **SET**: the entry
+    #: ORDER inside a record's array is UNMEASURED, so nothing here may be read positionally. Empty
+    #: wherever the caller did not consult ``"so-array"`` -- an unconsulted channel can SAY nothing.
+    array_depths: Tuple[int, ...] = ()
+    #: the GEOM bases behind :attr:`array_depths`, lowest first.
+    array_binders: Tuple[int, ...] = ()
+    #: CHANNEL A's KEY evidence at the SAME granularity as its depth -- the distinct CLUT cells those
+    #: array entries name, DISPLAY KEY FIRST. The channel-A twin of :attr:`page_clut_cells`, and it
+    #: has to be its own field: 65/65 channel-A cells are readerless AND unnamed by any ``P <= 1``
+    #: record, so both of the older sources are empty there by construction.
+    array_clut_cells: Tuple[Tuple[int, int], ...] = ()
+    #: ``(record offset, slot index)`` for each contributing array entry -- **IDENTIFICATION ONLY**,
+    #: quoted by the disclosure so an author can look the evidence up. Never an ordering claim.
+    array_records: Tuple[Tuple[int, int], ...] = ()
+
+    @property
+    def column_clut_cells(self) -> Tuple[Tuple[int, int], ...]:
+        """The COLUMN's own CLUT keys, from whichever channel spoke for this cell's depth.
+
+        Channel G's where a ``P <= 1`` record names the column, channel A's where only an array entry
+        does. **One accessor, so the class-C evidence can never be taken at a different granularity
+        from the depth** -- the defect W6b-2 had to repair for channel G, re-appearing verbatim for
+        channel A if these two fields were read separately at each call site.
+        """
+        return self.page_clut_cells or self.array_clut_cells
 
     @property
     def co_transform(self) -> bool:
@@ -856,7 +955,9 @@ class CellHazards:
         this predicate is ``False`` BY CONSTRUCTION on every readerless cell, so the 57 cells channel G
         licenses would have shipped one of 2-3 renderings with no class-C line and no alternate PNG --
         *less* honest on the new licensed path than W6b-1 was on the old one, on identical evidence.
-        7 of the 57 sit on a column bound with more than one CLUT (one with three).
+        7 of the 57 sit on a column bound with more than one CLUT (one with three). (Both counts are
+        channel G's own, at the W6b-2 channel scope --
+        :data:`ff9mapkit.summons.depth_attribution.A2_SCOPE_NOTE`.)
         """
         return len(self.palette_cells) > 1 and not self.two_depths
 
@@ -887,6 +988,50 @@ class CellHazards:
         return not self.readers and len(self.page_depths) > 1
 
     @property
+    def array_dual(self) -> bool:
+        """ARRAY-DUAL-DEPTH (W6b-3): this cell's COLUMN carries **more than one distinct depth across
+        its NOVEL slots**. Set semantics, order-free. **12 corpus cells over 6 columns.**
+
+        ⚠ **NOT scoped to readerless cells, and that is the whole posture.** ``channel_g_dual`` is
+        scoped because where a reader exists its UV-granular depth is the cell's own fact and the
+        column is an aside. Channel A is not a licensed instrument, so it may not ADD a depth to a
+        cell -- but a contradiction it finds is still a contradiction about the same bytes, and the
+        conservative reading of an unlicensed channel is a VETO, never an emission. 4 of the 12 sit
+        on columns ``so-uv`` / ``so-page`` already serve, and on a path that consults ``so-array``
+        those 4 lose their page.
+        """
+        return len(self.array_depths) > 1
+
+    @property
+    def array_in_reach(self) -> bool:
+        """★ THE 8/4 SPLIT'S EXACT PREDICATE -- ``the column's INCUMBENT depth set is EMPTY``.
+
+        **INFORMATIVE, NOT A POLICY.** The 8 in channel A's own reach were already refusing as
+        ``depth-unknown``, so refusing them by this sharper name costs 0 addressability; the other 4
+        DO lose a page. The split is derived and printed because a reader deserves to know which
+        half a cell is in -- and the TREATMENT is uniform, because a hazard bites hardest exactly
+        where another channel already covers the cell.
+        """
+        return self.array_dual and not self.page_depths
+
+    @property
+    def array_vs_column(self) -> bool:
+        """ARRAY-vs-COLUMN-DEPTH (W6b-3): the column carries a UNANIMOUS incumbent depth (channel G
+        would license it) **and** a UNANIMOUS novel depth, **and the two differ**. Order-free.
+
+        ★ **THIS ONE WITHDRAWS A PAGE, AND THAT IS THE POINT.** 1 corpus column = 2 cells (ef184
+        x448), the ONLY column in the corpus satisfying the predicate, and both cells are LICENSED
+        today with no acknowledgement anywhere. Channel G's licence rests on being *the correct
+        reading of the record the kit already reads*; here the SAME RECORD CLASS, read correctly,
+        says the same texels are bound at another depth. When a licensed channel's own instrument
+        contradicts itself on one column the licence is void FOR THAT COLUMN -- and silently keeping
+        the incumbent number would manufacture a certainty neither predicate supports. *Both
+        predicates true of the same bytes; the kit states both and picks neither.*
+        """
+        return (len(self.page_depths) == 1 and len(self.array_depths) == 1
+                and self.page_depths[0] != self.array_depths[0])
+
+    @property
     def spill_vs_own_page(self) -> bool:
         """SPILL-vs-OWN-PAGE: **both predicates are true of the same bytes.** Every reader of this
         cell is a binding on the NEIGHBOURING page whose ``u`` range crosses the column boundary,
@@ -914,6 +1059,10 @@ class CellHazards:
             out.append("program-dual-depth")
         if self.channel_g_dual:
             out.append("channel-g-dual-depth")
+        if self.array_vs_column:
+            out.append("array-vs-column-depth")
+        if self.array_dual:
+            out.append("array-dual-depth")
         if self.spill_vs_own_page:
             out.append("spill-vs-own-page")
         if self.multi_palette:
@@ -1015,6 +1164,39 @@ _REFUSAL_TEXT = {
         "cells, and they are NAMED IN NO LANE DOSSIER: a kit building its refusal list from the "
         "attribution sweep alone would ship all 8 unlisted, which is why this class is derived LIVE "
         "from the container rather than read off a table."),
+    # ---- W6b-3: the two classes CHANNEL A mints.  Both DERIVED LIVE from the container, never
+    # tabled and never enumerated in source -- the precedent is `channel-g-dual-depth`, which says in
+    # its own words why: a kit building its refusal list from the attribution sweep alone would ship
+    # every unlisted one.  Both carry `ARRAY_CAVEAT` because the page-withdrawing verdict is exactly
+    # where "nothing about this channel is in-game" is most load-bearing.
+    "array-dual-depth": (
+        "ARRAY-DUAL-DEPTH: %s.  This cell's COLUMN is named at TWO different depths by the entries of "
+        "the container's own MULTI-PART `so` records -- an array no kit before W6b-3 could read.  "
+        "UNANIMITY IS THE VERDICT RULE; TWO VALUES IS A HAZARD, NOT A VOTE, and no acknowledgement "
+        "lifts it: `" + DA.ACK_ARRAY_KEY + "` is the author's judgement about a SINGLE-valued "
+        "derivation, and there is no single value here to judge.  12 corpus cells over 6 columns.  "
+        "** STATED PLAINLY: the 12 split 8 + 4 on an EXACT predicate -- whether the column's "
+        "INCUMBENT depth set is EMPTY.  The 8 were refusing as `depth-unknown` anyway, so naming "
+        "them costs nothing; the other 4 sit on columns `so-uv` or `so-page` DOES serve, and on a "
+        "path that consults `so-array` this refusal TAKES THAT PAGE AWAY.  That is deliberate: "
+        "CHANNEL A holds VETO power and never emission power, so where it can only make the picture "
+        "less certain it is allowed to, and where it could only make it MORE certain it is not.  The "
+        "softer treatment -- state the hazard ALONGSIDE and keep the page -- was considered and NOT "
+        "shipped: loosening later is cheap, tightening after shipping is not.  " + DA.ARRAY_CAVEAT
+        + "  " + DA.DEPTH_COROLLARY),
+    "array-vs-column-depth": (
+        "ARRAY-vs-COLUMN-DEPTH: %s.  BOTH PREDICATES ARE TRUE OF THE SAME BYTES, and this one "
+        "WITHDRAWS A PAGE THE LANE USED TO HAND BACK.  The column carries a UNANIMOUS depth from the "
+        "records the kit has always read (CHANNEL G, which it LICENSES) and a UNANIMOUS, DIFFERENT "
+        "depth from an ENTRY of a MULTI-PART record's binding array.  CHANNEL G's licence rests on "
+        "being the CORRECT READING OF THE RECORD THE KIT ALREADY READS -- and here that same record "
+        "class, read at its true length, says these texels are bound at another depth.  A LICENCE "
+        "CONTRADICTED BY ITS OWN INSTRUMENT IS VOID FOR THAT COLUMN: keeping the incumbent number "
+        "would manufacture a certainty neither predicate supports.  The kit states both and picks "
+        "neither.  1 corpus column = 2 cells, and it is the ONLY column in the corpus satisfying the "
+        "predicate.  ** STATED PLAINLY: this is the rung's ONE deliberate permissiveness "
+        "regression -- these cells resolved to an editable picture before W6b-3 and do not now.  "
+        + DA.ARRAY_CAVEAT + "  " + DA.DEPTH_COROLLARY),
     "spill-vs-own-page": (
         "SPILL-vs-OWN-PAGE: %s.  BOTH PREDICATES ARE TRUE OF THE SAME BYTES.  Every `so` reader of "
         "this cell is a binding on the NEIGHBOURING page whose u range crosses the column boundary, "
@@ -1042,9 +1224,17 @@ _REFUSAL_TEXT = {
 #: ``program-depth-no-palette`` is here for the same reason ``no-declared-clut`` is -- there is no
 #: picture to hand back -- and it is likewise NOT liftable: an acknowledgement is a judgement about a
 #: DEPTH and what this class reports missing is a KEY.
+#:
+#: **W6b-3 adds BOTH channel-A classes, and their addressability deltas are NOT the same.**
+#: ``array-dual-depth``'s 8 in-reach cells were already unaddressable as ``depth-unknown`` (delta 0,
+#: refusal QUALITY up, the W6b-2 argument verbatim); its other 4, and both ``array-vs-column-depth``
+#: cells, HAD a resolvable page and lose it -- **delta -6 on the licensed path, 0 on the census
+#: path**. That is the one non-zero addressability decision in the rung and it is gated by a
+#: counterfactual rather than asserted.
 _UNADDRESSABLE = frozenset(("depth-unknown", "same-bytes-two-depths", "no-declared-clut",
                             "program-dual-depth", "channel-g-dual-depth",
-                            "program-depth-no-palette"))
+                            "program-depth-no-palette",
+                            "array-dual-depth", "array-vs-column-depth"))
 
 #: the refusal classes that also stop :func:`export_art` handing back a paintable PNG. It is
 #: ``_UNADDRESSABLE`` plus the program-VRAM verdicts (a picture whose edit is overwritten at run time
@@ -1089,7 +1279,9 @@ def clut_arity(blob: bytes) -> Tuple[int, int]:
     return _arity(RS.palette_map(blob))
 
 
-def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulted: bool) -> str:
+def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulted: bool,
+                    ad: Optional["RS.PageDepth"] = None,
+                    a_records: Tuple[Tuple[int, int], ...] = ()) -> str:
     """The DISCLOSURE a depth refusal owes the author: what the container states ELSEWHERE.
 
     W6b-1's refusal said *"the container states nothing about this cell"*, and W6b-2 measured that
@@ -1127,6 +1319,21 @@ def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulte
                      "cells are indexed and NONE of them render; the ack's live surface is the 55 "
                      "that are 15bpp DIRECT."
                      % (DA.ACK_KEY, pd.bpp, pd.bpp))))
+    # W6b-3: CHANNEL A discloses on exactly the same terms -- a depth the container states that this
+    # lane will not adopt.  ``ad`` is None unless the caller named ``"so-array"``, so an unconsulted
+    # channel still says nothing; and the remedy sentence is UNconditional here (unlike channel P's)
+    # because a channel-A binding carries its own CLUT word, so there is a key as well as a depth.
+    if ad is not None and len(ad.depths) == 1:
+        L.append("** AND THE CONTAINER STATES A DEPTH ELSEWHERE (CHANNEL A, DISCLOSE): no `so` reader "
+                 "samples this cell and no record this kit could read before W6b-3 names its COLUMN, "
+                 "but an ENTRY of a MULTI-PART `so` record's binding array binds that column at "
+                 "%d bpp (%s -- identification only).  %s  %s  %s  To edit it anyway say `%s = true` "
+                 "AND state a matching `expect_bpp = %d` -- the author carries the judgement, the kit "
+                 "carries the check.  %s"
+                 % (ad.depths[0],
+                    ", ".join("record %#x slot %d" % r for r in a_records) or "an array entry",
+                    DA.ARRAY_CAVEAT, DA.DEPTH_COROLLARY, DA.ORDER_UNMEASURED,
+                    DA.ACK_ARRAY_KEY, ad.depths[0], DA.ARRAY_RESIDUE_LINE))
     if hint is not None:
         L.append("** AND THE CONTAINER NARROWS IT (CHANNEL H): %s -- a NARROWING, not a depth, so it "
                  "licenses no decode on its own and this cell stays refused; but 'the container "
@@ -1140,7 +1347,8 @@ def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulte
 
 def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                     channels: Sequence[str] = CENSUS_CHANNELS,
-                    program_depth: bool = False
+                    program_depth: bool = False,
+                    array_depth: bool = False
                     ) -> Tuple[List[TexelPage], List[CellRefusal]]:
     """**THE SCENERY TEXEL SURFACE** -- one pass, two results: the pages, and the refusals by name.
 
@@ -1158,18 +1366,32 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
       palette is named the way the sibling lever names it rather than invented here;
     * **CHANNEL G** :func:`~ff9mapkit.summons.reskin.page_depth_view` -- the SAME ``so`` records at
       PAGE granularity. **The kit keeps both views and never merges them**; this one is what licenses
-      the 57 readerless cells whose own column the container binds;
+      the 57 readerless cells whose own column the container binds (57 at the W6b-2 channel scope --
+      channel A's veto below withdraws 2 of them on a set that names ``so-array``);
+    * **CHANNEL A** :func:`~ff9mapkit.summons.reskin.array_depth_view` -- the SAME ``so`` records at
+      page granularity again, but the entries of the MULTI-PART ones no reader before W6b-3 could
+      read. Derived LIVE, like G, and for the same reason: it is one more read of a record the walk
+      already performs;
     * **CHANNEL P** :data:`ff9mapkit.summons.depth_attribution.PROGRAM_DEPTH` -- the id-3 program's
       own registered tpage, cached and re-derivation-pinned.
 
-    THE LINE, enforced here rather than described: **CHANNEL G LICENSES, CHANNEL P DISCLOSES.** A cell
-    is EMITTED when (a) an ``so`` reader samples it -- W6b-1's rule, unchanged; or (b) ``"so-page"``
-    is in ``channels`` and, with no reader, its COLUMN carries exactly one ``so``-stated depth
-    (``depth_source="so-page"``); or (c) ``"program"`` is in ``channels`` **and**
-    ``program_depth=True`` -- i.e. the row said :data:`ACK_PROGRAM_DEPTH` -- and the program names the
-    column at exactly one depth (``depth_source="program"``). Everything else refuses by name, and the
-    **DUAL** cases refuse FIRST: a hazard outranks an acknowledgement, because the ack is a judgement
-    about a single-valued derivation and there is no single value to judge.
+    THE LINE, enforced here rather than described: **CHANNEL G LICENSES; CHANNELS P AND A DISCLOSE.**
+    A cell is EMITTED when (a) an ``so`` reader samples it -- W6b-1's rule, unchanged; or (b)
+    ``"so-page"`` is in ``channels`` and, with no reader, its COLUMN carries exactly one ``so``-stated
+    depth (``depth_source="so-page"``); or (c) ``"so-array"`` is in ``channels`` **and**
+    ``array_depth=True`` -- i.e. the row said :data:`ACK_ARRAY_DEPTH` -- and the column's novel array
+    entries name exactly one depth (``depth_source="so-array"``); or (d) ``"program"`` is in
+    ``channels`` **and** ``program_depth=True`` and the program names the column at exactly one depth.
+    Everything else refuses by name, and the **DUAL / CONTRADICTED** cases refuse FIRST: a hazard
+    outranks an acknowledgement, because the ack is a judgement about a single-valued derivation and
+    there is no single value to judge.
+
+    ★ **AND CHANNEL A's TWO HAZARDS OUTRANK EVEN ``so-uv``.** They are the only refusals in this lane
+    that can take away a page an earlier rung emitted. The argument is the asymmetry in what an
+    UNLICENSED channel is allowed to do: it may never ADD certainty, and it may always SUBTRACT it.
+    Four of the 12 ``array-dual`` cells and both ``array-vs-column`` cells are served by ``so-uv`` or
+    ``so-page`` today and are withdrawn on any path that consults ``so-array`` -- **-6 cells,
+    measured, and 0 on the census path**, because :data:`CENSUS_CHANNELS` does not consult A at all.
 
     ``channels`` defaults to :data:`CENSUS_CHANNELS` -- **W6b-1's own set, so this function's output is
     byte-for-byte what it was** -- and every author-facing caller passes :data:`LICENSED_CHANNELS`.
@@ -1181,6 +1403,23 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
     if unknown_ch:                                       # a guard may only ever fail CLOSED
         raise RepaintError("unknown depth channel(s) %s -- this rung ships %s"
                            % (", ".join(repr(c) for c in unknown_ch), ", ".join(DEPTH_SOURCES)))
+    # ★ CHANNEL A DEPENDS ON CHANNEL G, AND THE DEPENDENCY IS ENFORCED HERE RATHER THAN DESCRIBED.
+    # Both of channel A's hazards compare the column's NOVEL reading against its INCUMBENT one, and
+    # the incumbent half is `pdv` -- empty unless the caller named "so-page".  Asked for "so-array"
+    # WITHOUT it, `array_vs_column` is False BY CONSTRUCTION, so ef184 x448 -- the ONE column in the
+    # corpus whose licensed reading its own record class contradicts -- would be handed back at 4bpp
+    # with the contradiction unstated, and `array_dual`'s refusal would mis-print all 12 cells as
+    # having an EMPTY incumbent set.  That is the silent side-taking channel A exists to refuse, so
+    # the combination is refused instead of served: *a law not enforced at the call site is not
+    # enforced*, and a guard may only ever fail CLOSED.
+    if "so-array" in ch and "so-page" not in ch:
+        raise RepaintError(
+            "channel 'so-array' requires 'so-page' in the same channel set.  CHANNEL A's two hazard "
+            "classes are COMPARISONS -- `array-vs-column-depth` asks whether the column's incumbent "
+            "depth and its novel one DIFFER, and `array-dual-depth` prints which half of the 8/4 "
+            "split a cell is in -- and both read the incumbent side from CHANNEL G.  Without it the "
+            "comparison silently answers 'no conflict' on the one corpus column that has one.  Pass "
+            "%r (or %r for W6b-1's own surface)." % (LICENSED_CHANNELS, CENSUS_CHANNELS))
     cells = RS.page_cells(blob)
     models = bound_models(blob)
     readers = cell_readers(blob, models)
@@ -1195,6 +1434,13 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
     # a refusal that was already going to fire.
     consulted = bool(ch - frozenset(CENSUS_CHANNELS))
     pdv = RS.page_depth_view(blob) if "so-page" in ch else {}
+    # ★ THE CHANNEL-SCOPE GATE FOR CHANNEL A, EXPLICIT (and it is load-bearing, not symmetry for its
+    # own sake).  Both channel-A hazards derive from `adv`, so gating it here is what makes them
+    # unable to fire under CENSUS scope -- exactly as `channel_g_dual` cannot, because `pdv` is gated
+    # on the line above.  Without this line the ef184 pair and the 4 covered `array-dual` cells would
+    # reclassify under the census default and the containment headline (187 read / 2,385 depth-
+    # unknown) would break while every narrowing in the kit was still in place.
+    adv = RS.array_depth_view(blob) if "so-array" in ch else {}
     n4, n8 = _arity(pmap)
     hint = DA.clut_arity_hint(n4, n8) if consulted else None
     prog, prog_why = program_class(effect)
@@ -1215,16 +1461,26 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
     for _key, pc in sorted(cells.items()):
         rds = readers.get(pc.cell, [])
         gpd = pdv.get(pc.cell)
+        apd = adv.get(pc.cell)
         ppd = DA.program_depth(effect, pc.cell) if "program" in ch else None
         g_depths = gpd.depths if gpd is not None else ()
         g_binders = tuple(b.geom for b in gpd.binders) if gpd is not None else ()
         # CHANNEL G's KEY evidence, DISPLAY FIRST and de-duplicated in binder order (`binders` is
-        # sorted lowest-GEOM-first, which IS the class-C display rule).  A 15bpp direct binder names
-        # no CLUT and contributes nothing, so a direct column yields ().
+        # sorted on VALUES -- (geom, tpage, clut_word) -- which IS the class-C display rule and is
+        # permutation-invariant).  A 15bpp direct binder names no CLUT and contributes nothing, so a
+        # direct column yields ().
         g_keys: List[Tuple[int, int]] = []
         for b in (gpd.binders if gpd is not None else ()):
             if b.cell is not None and not b.direct and b.cell not in g_keys:
                 g_keys.append(b.cell)
+        # ...and CHANNEL A's, by exactly the same rule on exactly the same accessor.
+        a_depths = apd.depths if apd is not None else ()
+        a_binders = tuple(b.geom for b in apd.binders) if apd is not None else ()
+        a_records = tuple((b.record_at, b.slot) for b in apd.binders) if apd is not None else ()
+        a_keys: List[Tuple[int, int]] = []
+        for b in (apd.binders if apd is not None else ()):
+            if b.cell is not None and not b.direct and b.cell not in a_keys:
+                a_keys.append(b.cell)
         p_depths = ppd.depths if ppd is not None else ()
         p_sites = ppd.call_sites if ppd is not None else 0
 
@@ -1246,8 +1502,17 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
         # BY CONSTRUCTION on every readerless cell -- 7 corpus channel-G cells sit on a column bound
         # with 2-3 different CLUTs, and they would ship ONE of those renderings with no class-C line
         # and no alternate PNG, on evidence the kit already had in hand.
-        pal_cells = (tuple(sorted({r.clut_cell for r in crs if r.clut_cell is not None})) if crs
-                     else tuple(sorted(g_keys)))
+        # ...and W6b-3 extends the same law one channel further: where NEITHER a reader NOR a P<=1
+        # record speaks, the depth comes from the column's NOVEL array entries, so the KEYS come from
+        # them too.  65/65 channel-A cells are readerless AND unnamed by any incumbent record, so
+        # `g_keys` is empty there by construction and the census's `hz_multi_palette` reads a VACUOUS
+        # 0 -- 34 of the 65 sit on a column bound with 2-4 distinct CLUT words.
+        if crs:
+            pal_cells = tuple(sorted({r.clut_cell for r in crs if r.clut_cell is not None}))
+        elif gpd is not None:
+            pal_cells = tuple(sorted(g_keys))
+        else:
+            pal_cells = tuple(sorted(a_keys))
         spill_in = tuple(r for r in crs if not r.own_column)
         spill_out = tuple(sorted({c for r in crs if r.own_column for c in r.columns
                                   if c != pc.x}))
@@ -1259,14 +1524,52 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             program_cell=(hard_cell == pc.cell), lower_half=(pc.split and pc.split_index > 0),
             provenance=pc.provenance, page_depths=g_depths, page_binders=g_binders,
             page_clut_cells=tuple(g_keys), program_depths=p_depths, program_sites=p_sites,
-            bpp_hint=hint)
+            bpp_hint=hint,
+            array_depths=a_depths, array_binders=a_binders, array_clut_cells=tuple(a_keys),
+            array_records=a_records)
 
         # ---- (1) WHICH CHANNEL, IF ANY, STATES A DEPTH.  Hazards first: a DUAL derivation is a
-        # refusal no acknowledgement lifts, and the two dual classes are DISJOINT over the corpus
-        # (22 program + 8 channel-G, overlap 0) so the ordering is a statement, not a tie-break.
+        # refusal no acknowledgement lifts, and the FOUR hazard classes are DISJOINT over the corpus
+        # (22 program + 8 channel-G + 12 array-dual + 2 array-vs-column, pairwise overlap 0) so the
+        # ordering is a STATEMENT, not a tie-break.
+        #
+        # ★ AND THE TWO CHANNEL-A HAZARDS SIT ABOVE `rds`.  Everything else in this chain answers
+        # "which channel may SPEAK for this cell"; these two answer "does any channel still get to".
+        # `array-vs-column` outranks `array-dual` because it is the sharper name: two unanimous
+        # readings that CONTRADICT is a stronger statement than one reading that is multi-valued, and
+        # a refusal must never drift from the predicate that produced it.
         source = ""
         binder = gpd.binding if gpd is not None else None
-        if rds:
+        a_binder = apd.binding if apd is not None else None
+        if hz.array_vs_column:
+            refused.append(_refusal(
+                pc.name, pc.cell,
+                "array-vs-column-depth",
+                "the records this kit has always read bind its column at %d bpp (GEOM %s) and an "
+                "entry of a MULTI-PART record binds the same column at %d bpp (GEOM %s; %s -- "
+                "identification only)"
+                % (g_depths[0], ", ".join("%#x" % g for g in g_binders),
+                   a_depths[0], ", ".join("%#x" % g for g in a_binders),
+                   ", ".join("record %#x slot %d" % r for r in a_records))))
+            continue
+        elif hz.array_dual:
+            refused.append(_refusal(
+                pc.name, pc.cell, "array-dual-depth",
+                "its column is bound at %s bpp by the entries of MULTI-PART record(s) (GEOM %s; %s "
+                "-- identification only), while the records this kit has always read state %s"
+                % ("/".join(str(d) for d in a_depths),
+                   ", ".join("%#x" % g for g in a_binders),
+                   ", ".join("record %#x slot %d" % r for r in a_records),
+                   # ★ THE SPLIT'S PREDICATE IS SPENT HERE, NOT RE-DERIVED HERE.  `hz.array_in_reach`
+                   # IS `array_dual and not page_depths`; writing `if g_depths` inline would be a
+                   # second copy of a law that already has a name, and a property with no call site
+                   # is a law nothing enforces.
+                   "NOTHING for it (the column's INCUMBENT depth set is EMPTY, so this cell was "
+                   "already refusing as `depth-unknown` and the refusal costs no addressability)"
+                   if hz.array_in_reach
+                   else "%s bpp" % "/".join(str(d) for d in g_depths))))
+            continue
+        elif rds:
             source = "so-uv"
         elif hz.channel_g_dual:
             refused.append(_refusal(pc.name, pc.cell, "channel-g-dual-depth",
@@ -1279,13 +1582,18 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             continue
         elif gpd is not None:
             source = "so-page"                           # CHANNEL G LICENSES
+        elif apd is not None and array_depth:
+            # CHANNEL A, behind the acknowledgement, at exactly CHANNEL P's tier.  `apd` is None
+            # unless "so-array" is in ``channels``, so an ack alone can never reach here through a
+            # census-scoped caller -- the same structure the program branch below relies on.
+            source = "so-array"
         elif ppd is not None and program_depth:
             # CHANNEL P, behind the acknowledgement.  ``ppd`` is None unless "program" is in
             # ``channels``, so an ack alone can never reach here through a census-scoped caller.
             source = "program"
         else:
             refused.append(_refusal(pc.name, pc.cell, "depth-unknown",
-                                    extra=_depth_evidence(hint, ppd, consulted)))
+                                    extra=_depth_evidence(hint, ppd, consulted, apd, a_records)))
             continue
 
         # ---- (2) THE PAGE ITSELF.  THE DISPLAY BINDING for a read cell is the LOWEST-ADDRESSED
@@ -1306,6 +1614,17 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             pals = _palettes(binder.cell, binder.entries) if not binder.direct else ()
             clut_off = pals[0].off if pals else None
             clut_n, pal_name = (binder.entries or None), (pals[0].name if pals else "")
+        elif source == "so-array":
+            # CHANNEL A's page is built exactly the way channel G's is, off the SAME accessor -- so
+            # the depth AND the key come from ONE record's array rather than from a depth here and a
+            # second, unrelated palette choice there.  `PageDepth.binding` ties on VALUES
+            # ((geom, tpage, clut_word)), never on the array INDEX, so the display pick cannot depend
+            # on storage order; every OTHER key on the column is named through `array_clut_cells` and
+            # ships its own `.as-x{X}_y{Y}.png` alternate.
+            bpp, tpage, clut_word = a_depths[0], a_binder.tpage, a_binder.clut_word
+            pals = _palettes(a_binder.cell, a_binder.entries) if not a_binder.direct else ()
+            clut_off = pals[0].off if pals else None
+            clut_n, pal_name = (a_binder.entries or None), (pals[0].name if pals else "")
         else:
             bpp, tpage, clut_word = p_depths[0], 0, 0
             clut_off, clut_n, pal_name = None, None, ""
@@ -1343,11 +1662,15 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                 "own id-0 headers ship %d 16-entry and %d 256-entry palette(s) -- none of them bound "
                 "to THIS cell by anything" % (bpp, p_sites, n4, n8)))
         elif bpp != 15 and clut_off is None:
+            # whichever binder actually spoke for this cell -- a channel-A page's key comes off its
+            # OWN array entry, so naming channel G's (absent) record here would print `None` as if it
+            # were a measurement, which is the exact defect channel P's own class was minted to fix.
+            _b = crs[0] if crs else (binder if binder is not None else a_binder)
             refused.append(CellRefusal(
                 name=pc.name, cell=pc.cell, klass="no-declared-clut",
                 reason=_REFUSAL_TEXT["no-declared-clut"]
-                % (str(crs[0].clut_cell if crs else (binder.cell if binder else None)),
-                   (crs[0].clut_entries if crs else (binder.entries if binder else 0)) or 0)))
+                % (str(_b.clut_cell if crs else (_b.cell if _b is not None else None)),
+                   ((_b.clut_entries if crs else _b.entries) if _b is not None else 0) or 0)))
 
         # ---- (4) SPILL-vs-OWN-PAGE, appended ALONGSIDE rather than in the chain above.  It is a
         # different question from every one of them ("is this cell's depth contested?" rather than
@@ -1364,7 +1687,8 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
 
 def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
                         channels: Sequence[str] = LICENSED_CHANNELS,
-                        program_depth: bool = False) -> List[TexelPage]:
+                        program_depth: bool = False,
+                        array_depth: bool = False) -> List[TexelPage]:
     """Every scenery page-cell whose DEPTH the container states -- **THE EDIT SURFACE**.
 
     Defaults to :data:`LICENSED_CHANNELS`, which is the whole of what "channel G LICENSES" means in
@@ -1373,15 +1697,23 @@ def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
     it is the same one :func:`ff9mapkit.summons.reskin.attribution` already makes -- one derivation,
     a parameter, and defaults chosen so a published count never moves under a caller that did not ask
     for the new channel.
+
+    ⚠ **The 57 is CHANNEL G's own count, at the W6b-2 channel scope** -- since W6b-3 this default
+    also consults CHANNEL A, whose hazards can withdraw a page, and 2 of the 57 are among what it
+    withdraws. :data:`ff9mapkit.summons.depth_attribution.A2_SCOPE_NOTE` states that delta in full;
+    the count is not restated here because channel A is DISCLOSED, never adopted.
     """
-    return scenery_surface(blob, effect, channels=channels, program_depth=program_depth)[0]
+    return scenery_surface(blob, effect, channels=channels, program_depth=program_depth,
+                           array_depth=array_depth)[0]
 
 
 def scenery_cell_refusals(blob: bytes, effect: Optional[int] = None, *,
                           channels: Sequence[str] = LICENSED_CHANNELS,
-                          program_depth: bool = False) -> List[CellRefusal]:
+                          program_depth: bool = False,
+                          array_depth: bool = False) -> List[CellRefusal]:
     """Every scenery page-cell this rung refuses an editable picture for, with its reason."""
-    return scenery_surface(blob, effect, channels=channels, program_depth=program_depth)[1]
+    return scenery_surface(blob, effect, channels=channels, program_depth=program_depth,
+                           array_depth=array_depth)[1]
 
 
 #: how each depth channel is named in a guard failure -- so the message says WHICH derivation the
@@ -1390,9 +1722,19 @@ _DEPTH_DERIVED_BY = {
     "so-uv": "the container's own `so` record",
     "so-page": "the container's own `so` record for this cell's COLUMN (CHANNEL G -- the depth is "
                "INHERITED FROM THE COLUMN, never direct)",
+    "so-array": "the container's own `so` record's BINDING ARRAY for this cell's COLUMN (CHANNEL A "
+                "-- an array entry the kit could not read before W6b-3; the depth is INHERITED FROM "
+                "THE COLUMN, the entry's ORDER within the array is UNMEASURED, and a BINDING is not "
+                "a DRAW)",
     "program": "the container's own id-3 program's registered tpage (CHANNEL P -- a REGISTRATION, "
                "and registration is not a draw)",
 }
+
+# a source with no entry here raises `KeyError` inside `assert_expect_bpp`, i.e. the guard that is
+# supposed to REFUSE would crash instead.  A guard may only ever fail CLOSED, so the coverage is
+# asserted at import rather than left to a test somebody might not write.
+assert set(_DEPTH_DERIVED_BY) == set(DEPTH_SOURCES), sorted(set(DEPTH_SOURCES)
+                                                            - set(_DEPTH_DERIVED_BY))
 
 
 def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> str:
@@ -1434,7 +1776,12 @@ def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> 
                ("  This is the check `%s` exists to be paired with: the ack is your judgement that a "
                 "REGISTERED depth is the drawn depth, and `expect_bpp` is the number the kit checks "
                 "against the derivation.  It does not match." % DA.ACK_KEY)
-               if page.depth_source == "program" else ""))
+               if page.depth_source == "program" else
+               ("  This is the check `%s` exists to be paired with: the ack is your judgement that a "
+                "depth read off an ENTRY of this column's `so` BINDING ARRAY is the drawn depth, and "
+                "`expect_bpp` is the number the kit checks that judgement against.  It does not "
+                "match." % DA.ACK_ARRAY_KEY)
+               if page.depth_source == "so-array" else ""))
     if page.scenery and got != 15:
         want = 16 if got == 4 else 256
         slot = page.hazards.writers[0].slot if page.hazards and page.hazards.writers else -1
@@ -1450,7 +1797,8 @@ def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> 
 
 
 def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
-               allow_program_depth: bool = False) -> TexelPage:
+               allow_program_depth: bool = False,
+               allow_array_depth: bool = False) -> TexelPage:
     """Resolve a spec-declared texel name over BOTH namespaces, or REFUSE with the set named.
 
     ``tex.part0`` is the id-4 CREATURE page (W6a). ``cell.s0.x704_y256`` is a scenery VRAM PAGE-CELL
@@ -1469,6 +1817,10 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
     first and consulted the ack second would have to un-refuse a page, and a refusal you can take back
     is not a refusal. It widens nothing else -- a program-DUAL cell stays unaddressable under it,
     because the hazard outranks the acknowledgement.
+
+    ``allow_array_depth`` is the row's ``acknowledge_array_derived_depth`` and is threaded EXACTLY
+    the same way, for exactly the same reason. It likewise widens nothing else: an ``array-dual`` or
+    ``array-vs-column`` cell stays unaddressable under it.
     """
     pages = creature_texel_pages(blob)
     for p in pages:
@@ -1479,7 +1831,8 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
     scen_error = ""
     try:
         scen, refused = scenery_surface(blob, effect, channels=LICENSED_CHANNELS,
-                                        program_depth=allow_program_depth)
+                                        program_depth=allow_program_depth,
+                                        array_depth=allow_array_depth)
     except (RS.ReskinError, EC.ContainerError) as e:               # a derivation refusal, surfaced
         scen_error = "%s: %s" % (type(e).__name__, e)
     # the REFUSAL is consulted FIRST: a same-bytes-two-depths cell is still EMITTED (the gates phase
@@ -2071,8 +2424,14 @@ def alternate_palette_rows(blob: bytes, page: TexelPage,
     the cell, so ``hz.readers`` is empty and this function used to return ``()`` by construction --
     the export would ship the display key's PNG alone for a cell the container reads through two or
     three. The keys therefore come from the same granularity the DEPTH did: :attr:`CellHazards.readers`
-    where there are readers, :attr:`CellHazards.page_clut_cells` (display key first) where there are
+    where there are readers, :attr:`CellHazards.column_clut_cells` (display key first) where there are
     not. 7 corpus channel-G cells are in that class, one of them with three keys.
+
+    ★ **W6b-3 extends that one accessor, not this branch**: on a channel-A page the column's keys come
+    from the NOVEL array entries, and :attr:`CellHazards.column_clut_cells` picks the right source, so
+    the 34 class-C cells of the channel-A surface each get their alternate PNGs by the same rule that
+    already served channel G. **Every key in the set gets an alternate** -- which is what makes the
+    display-binder CONVENTION safe while the array's entry ORDER stays unmeasured.
     """
     hz = page.hazards
     if hz is None or page.direct or not page.clut_entries:
@@ -2081,8 +2440,9 @@ def alternate_palette_rows(blob: bytes, page: TexelPage,
         shown = hz.readers[0].clut_cell
         keys = {r.clut_cell for r in hz.readers if r.clut_cell is not None}
     else:
-        shown = hz.page_clut_cells[0] if hz.page_clut_cells else None
-        keys = set(hz.page_clut_cells)
+        col = hz.column_clut_cells
+        shown = col[0] if col else None
+        keys = set(col)
     out: List[AlternateRow] = []
     for other in sorted(k for k in keys if k != shown):
         pal = next((q for q in sorted(pmap.palettes, key=lambda z: z.off)
@@ -3246,6 +3606,10 @@ _TEXEL_KEYS = frozenset((
     # from a channel whose only in-game trial FAILED.  So it is the one key the build path also
     # requires a matching `expect_bpp` alongside; on its own it is refused BY NAME.
     DA.ACK_KEY,
+    # W6b-3: CHANNEL A's key, on the same terms.  MANDATORY here -- an unregistered spec key fails
+    # CLOSED two lines into `build`, which is correct behaviour and would also make the whole feature
+    # unreachable.  A capability nobody can spell is not a capability.
+    DA.ACK_ARRAY_KEY,
 ))
 
 
@@ -3279,6 +3643,10 @@ class TexelTarget:
     #: W6b-1: the NAME-EVERY-COLUMN remedy's word, required once every cell a spilling model reads is
     #: named (:func:`_gate_spill_columns`).
     ack_spill: bool = False
+    #: W6b-3: ``acknowledge_array_derived_depth`` -- CHANNEL A's word, recorded on the target and
+    #: staged into the ledger beside ``depth_source`` so a build's own record says which judgement
+    #: the author made. Literal boolean only; useless without a matching ``expect_bpp``.
+    ack_array_depth: bool = False
     #: W6b-2: "this cell's depth comes from the container's own PROGRAM, not from any `so` reader, and
     #: I have read what happened the one time that was cast." Literal boolean only, and MEANINGLESS
     #: without a matching ``expect_bpp`` -- which the build path requires by name.
@@ -3740,8 +4108,20 @@ def _scenery_disclosures(t: "TexelTarget") -> List[str]:
                  "its COLUMN is bound at %dbpp by GEOM %s, and a page's draw mode governs all 256 "
                  "lines.%s  LICENSED -- it is the same record the lane already ships on, read at "
                  "the granularity the hardware uses; 57 corpus cells, 55 of them lower halves "
-                 "addressable only through the per-cell map."
-                 % (t.page.bpp, ", ".join("%#x" % g for g in hz.page_binders), inherited))
+                 "addressable only through the per-cell map.  %s"
+                 % (t.page.bpp, ", ".join("%#x" % g for g in hz.page_binders), inherited,
+                    DA.A2_SCOPE_NOTE))
+    elif t.page.depth_source == "so-array":
+        # ★ CHANNEL A's disclosure says all four things in one breath: which ENTRY of which RECORD
+        # (identification), which COLUMN the depth was inherited from, that the entry ORDER is
+        # UNMEASURED, and the channel's in-game standing -- which is nothing.
+        L.append("DEPTH FROM CHANNEL A (AN ENTRY OF THE COLUMN'S `so` BINDING ARRAY), acknowledged: "
+                 "no `so` reader samples this cell and no record the kit could read before W6b-3 "
+                 "names its COLUMN; %s binds the column at %dbpp (GEOM %s), and a page's draw mode "
+                 "governs all 256 lines.%s  %s"
+                 % (", ".join("record %#x slot %d" % r for r in hz.array_records)
+                    or "an array entry", t.page.bpp,
+                    ", ".join("%#x" % g for g in hz.array_binders), inherited, DA.ARRAY_ACK_WARNING))
     elif t.page.depth_source == "program":
         L.append("DEPTH FROM CHANNEL P (THE PROGRAM'S REGISTRATION), acknowledged: no `so` reader "
                  "samples this cell; the container's own program registers this page at %dbpp at %d "
@@ -3765,7 +4145,7 @@ def _scenery_disclosures(t: "TexelTarget") -> List[str]:
         others = (", ".join("%s (CLUT %s)" % (r.palette_name or "-", str(r.clut_cell))
                             for r in hz.readers[1:]) if hz.readers
                   else ", ".join("CLUT %s (its `.as-x%d_y%d.png` view)" % (c, c[0], c[1])
-                                 for c in hz.page_clut_cells[1:]))
+                                 for c in hz.column_clut_cells[1:]))
         L.append("MULTI-PALETTE (class C): one index array, %d renderings.  You are painting in %s; "
                  "the same bytes are ALSO shown in %s -- read-only alternate views ship beside the "
                  "editable PNG as `<cell>.as-x{X}_y{Y}.png`"
@@ -4230,7 +4610,10 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         # a page, and a refusal a later line can take back is not a refusal.  `_ack_bool` makes
         # `"true"` fail here rather than arm -- an acknowledgement is stated, never inferred.
         ack_pd = _ack_bool(d, DA.ACK_KEY, where)
-        page = texel_page(blob, name, effect, allow_program_depth=ack_pd)
+        # W6b-3: CHANNEL A's ack, read on exactly the same rung and for exactly the same reason.
+        ack_ad = _ack_bool(d, DA.ACK_ARRAY_KEY, where)
+        page = texel_page(blob, name, effect, allow_program_depth=ack_pd,
+                          allow_array_depth=ack_ad)
         where = "texel target %s" % name
         # THE MANDATORY PAIR.  `expect_bpp` is STATED by the author and CHECKED against the derivation,
         # never chosen -- and on the one channel whose in-game trial FAILED the kit declines to accept
@@ -4245,6 +4628,20 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
                 "`expect_bpp = %d` if you mean it.  %s"
                 % (where, DA.ACK_KEY, page.bpp, page.hazards.program_sites, page.bpp,
                    DA.REGISTRATION_CAVEAT))
+        # ...and CHANNEL A's mandatory pair, on the same rung.  Channel A's tier is channel P's, and
+        # its reason to be there is HARSHER: P's one in-game trial failed, A has had none it passed.
+        if page.depth_source == "so-array" and "expect_bpp" not in d:
+            _hz = page.hazards
+            _ident = ", ".join("record %#x slot %d" % r for r in (_hz.array_records if _hz else ()))
+            raise RepaintError(
+                "%s says `%s = true` but states NO `expect_bpp`.  The acknowledgement is your "
+                "judgement that a depth read off an entry of this column's `so` BINDING ARRAY is the "
+                "depth the screen reads; `expect_bpp` is the number the kit checks that judgement "
+                "against, and an ack with nothing to check is not a guard.  This cell's channel-A "
+                "derivation is %dbpp, off %s (identification only) -- write `expect_bpp = %d` if you "
+                "mean it.  %s  %s"
+                % (where, DA.ACK_ARRAY_KEY, page.bpp, _ident or "the column's novel array entries",
+                   page.bpp, DA.ORDER_UNMEASURED, DA.ARRAY_CAVEAT))
         if "expect_bpp" in d:
             assert_expect_bpp(blob, page, int(d["expect_bpp"]), where)
         if "expect_cell" in d:
@@ -4295,7 +4692,7 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             ack_texanim_frames=_ack_bool(d, "acknowledge_texanim_frames", where),
             ack_cotransform=_ack_bool(d, "acknowledge_cotransform", where),
             ack_spill=_ack_bool(d, "acknowledge_spill", where),
-            ack_program_depth=ack_pd))
+            ack_program_depth=ack_pd, ack_array_depth=ack_ad))
 
     # ---- THE GATES THAT NEED NO ART, all of them before a single PNG is opened --------------------
     # An armed-and-unread table, a program-VRAM write, an unnamed co-transform writer and an unnamed
@@ -5028,6 +5425,9 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
                             # channel -- which is the whole point of a channel-P cast.
                             "depth_source": t.page.depth_source,
                             DA.ACK_KEY: t.ack_program_depth,
+                            # W6b-3: and CHANNEL A's word, staged beside `depth_source` for the same
+                            # reason -- the ack IS the judgement a cast would be testing.
+                            DA.ACK_ARRAY_KEY: t.ack_array_depth,
                             "cell": (list(t.page.cell) if t.page.cell else None),
                             "page_offset": t.page.page_offset, "page_bytes": t.page.page_bytes,
                             "wh": list(t.page.wh), "changed": len(t.changed),
@@ -5166,15 +5566,20 @@ def verify(b: TexelBuild, root=None) -> dict:
 
 
 # ============================================================ (9) REPORTING
-def scenery_lines(blob: bytes, effect: Optional[int] = None) -> List[str]:
+def scenery_lines(blob: bytes, effect: Optional[int] = None, *,
+                  channels: Sequence[str] = LICENSED_CHANNELS) -> List[str]:
     """The scenery page-cell census, as DISCLOSURE -- what the container states and what it does not.
 
     A derivation FAILURE is printed, never swallowed: a report that quietly showed zero cells because
     the map refused to derive would be the most expensive kind of quiet.
+
+    ``channels`` is threaded to :func:`depth_attribution_lines` as well as to the surface, so the
+    report and the surface it reports on are the SAME scope -- a channel the caller declined to
+    consult must not appear in either half.
     """
     L = ["  THE DERIVED SCENERY PAGE-CELLS (W6b-1: keyed by WRITER and VRAM cell)"]
     try:
-        pages, refused = scenery_surface(blob, effect, channels=LICENSED_CHANNELS)
+        pages, refused = scenery_surface(blob, effect, channels=channels)
     except (RS.ReskinError, EC.ContainerError) as e:
         return L + ["    THE DERIVATION REFUSED: %s: %s" % (type(e).__name__, e)]
     klass, why = program_class(effect)
@@ -5194,18 +5599,26 @@ def scenery_lines(blob: bytes, effect: Optional[int] = None) -> List[str]:
             by[r.klass] = by.get(r.klass, 0) + 1
         L.append("    REFUSED %d cell(s): %s"
                  % (len(refused), ", ".join("%s %d" % (k, by[k]) for k in sorted(by))))
-    return L + depth_attribution_lines(blob, effect, pages)
+    return L + depth_attribution_lines(blob, effect, pages, channels=channels)
 
 
 def depth_attribution_lines(blob: bytes, effect: Optional[int],
-                            pages: Sequence[TexelPage]) -> List[str]:
+                            pages: Sequence[TexelPage], *,
+                            channels: Sequence[str] = LICENSED_CHANNELS) -> List[str]:
     """W6b-2's own disclosure block: WHICH CHANNEL spoke, and what the one channel-P cast found.
 
     Printed for every container, including the ones where nothing spoke -- **a channel that is silent
     here has to say so**, because "no line about channel P" and "channel P states nothing" are the
     same output and only one of them is a measurement. 222 of the corpus's 372 containers declare no
     model at all and are silent by construction; that is the STRUCTURAL CEILING, not a shortfall.
+
+    ⚠ **AND A CHANNEL THE CALLER DECLINED TO CONSULT SAYS NOTHING HERE EITHER.** Channel P's rows are
+    already scoped by ``effect``; channel A's are scoped by the ``"so-array"`` token, exactly as
+    :func:`scenery_surface` gates ``adv``. This block is report-only, so an ungated derivation moved
+    no verdict -- but it was the one place in the module where channel A spoke without being asked,
+    and *a law not enforced at every call site is not enforced*.
     """
+    ch = frozenset(channels)
     by_src: Dict[str, int] = {s: 0 for s in DEPTH_SOURCES}
     for p in pages:
         by_src[p.depth_source] = by_src.get(p.depth_source, 0) + 1
@@ -5213,17 +5626,29 @@ def depth_attribution_lines(blob: bytes, effect: Optional[int],
     hint = DA.clut_arity_hint(n4, n8)
     prog = sorted(k for k in DA.PROGRAM_DEPTH if effect is not None and k[0] == int(effect))
     dual = [k for k in prog if DA.PROGRAM_DEPTH[k].dual]
-    L = ["", "  THE DEPTH CHANNELS (W6b-2) -- %s" % DA.GRANULARITY_LAW,
+    adv = RS.array_depth_view(blob) if "so-array" in ch else {}
+    a_dual = sum(1 for v in adv.values() if len(v.depths) > 1)
+    L = ["", "  THE DEPTH CHANNELS (W6b-2, W6b-3) -- %s" % DA.GRANULARITY_LAW,
          "    depth source: so-uv %d (a reader's own UVs) . so-page %d (CHANNEL G, INHERITED from "
-         "the column -- LICENSED) . program %d (CHANNEL P, only behind `%s`)"
-         % (by_src["so-uv"], by_src["so-page"], by_src["program"], DA.ACK_KEY),
+         "the column -- LICENSED) . so-array %d (CHANNEL A, only behind `%s`) . program %d "
+         "(CHANNEL P, only behind `%s`)"
+         % (by_src["so-uv"], by_src["so-page"], by_src["so-array"], DA.ACK_ARRAY_KEY,
+            by_src["program"], DA.ACK_KEY),
          "    CHANNEL P here: %d cell(s) this container's own id-3 program registers a depth for, "
          "%d of them at TWO depths (a REFUSAL, never a vote)" % (len(prog), len(dual)),
+         ("    CHANNEL A here: %d cell(s) an entry of a MULTI-PART `so` record names a depth for, "
+          "%d of them at TWO depths (a REFUSAL, and it can WITHDRAW a page)" % (len(adv), a_dual))
+         if "so-array" in ch else
+         "    CHANNEL A here: NOT CONSULTED -- this caller's channel set is %s, and a channel nobody "
+         "asked for must not appear to have spoken" % (", ".join(sorted(ch)),),
          "    CHANNEL H here: nClut4 %d / nClut8 %d -> %s"
          % (n4, n8, "no narrowing (the container ships both palette classes)" if hint is None
             else ("4bpp or 15bpp" if hint == 4 else "8bpp or 15bpp") + " -- a NARROWING, not a depth"),
          "    %s" % DA.REGISTRATION_CAVEAT,
-         "    %s" % DA.DEPTH_COROLLARY]
+         "    %s" % DA.DEPTH_COROLLARY,
+         "    %s" % DA.ORDER_UNMEASURED,
+         "    %s" % DA.ARRAY_CAVEAT,
+         "    %s" % DA.ARRAY_RESIDUE_LINE]
     return L
 
 

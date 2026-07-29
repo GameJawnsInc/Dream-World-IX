@@ -97,6 +97,13 @@ __all__ = [
     "ProgramDepth", "PROGRAM_DEPTH", "program_depth", "clut_arity_hint",
     "ACK_KEY", "REGISTRATION_CAVEAT", "DEPTH_COROLLARY", "ACK_WARNING", "RESIDUE_LINE",
     "GRANULARITY_LAW", "INHERITED_LINE",
+    # ---- W6b-3: CHANNEL A (`so-array`).  ADDITIVE ONLY -- no constant above moves and no import-time
+    # assert above changes, because channel A is NOT ADOPTED and W6b-2's arithmetic still describes
+    # the shipped surface exactly.
+    "ACK_ARRAY_KEY", "ORDER_UNMEASURED", "ARRAY_CAVEAT", "ARRAY_ACK_WARNING", "ARRAY_RESIDUE_LINE",
+    "GAIN_ARRAY", "ARRAY_MULTIVALUED_CELLS", "ARRAY_IN_REACH_DUAL", "ARRAY_COLUMN_CONFLICT_CELLS",
+    "ARRAY_CLASS_C", "ARRAY_CLEAN", "ARRAY_PROGRAM_WRITE", "ARRAY_DEFLATION_OVERLAP",
+    "A2_SCOPE_NOTE",
 ]
 
 # ---------------------------------------------------------------- THE COUNT PINS (asserted at import)
@@ -220,6 +227,137 @@ RESIDUE_LINE = (
 
 #: THE SPEC KEY.  Literal-boolean-only, like every other acknowledgement in this lane.
 ACK_KEY = "acknowledge_program_derived_depth"
+
+# ================================================================ W6b-3: CHANNEL A -- `so-array`
+# ★ A IS FOR **ARRAY**, NOT ARCHIVE.  W6b-3 opened on the hypothesis that an id-2 SUB-FILE ARCHIVE
+# held an unread model; the recon FALSIFIED the premise (`reskin.attribution` already walks every
+# sub-file id) and found the blindness in the RECORD READER instead: the `so` record is a MULTI-PART
+# BINDING ARRAY and the reader hard-probed two lengths.  The 126 records it could not read split
+# id-2 61 / id-6 53 / id-3 12, so "the archive channel" would be the wrong name on 65 of 126.
+#
+# ⚠ **CHANNEL A DISCLOSES AT CHANNEL P's TIER, AND FOR A HARSHER REASON.**  Channel P discloses
+# because its one in-game trial FAILED.  Channel A has had NO trial at all that it passed: see
+# :data:`ARRAY_CAVEAT`.  Nothing below is ADOPTED, which is exactly why :data:`RESIDUE_LINE`,
+# :data:`GAIN_EITHER`, :data:`RESIDUE` and every import-time assert in this module are UNCHANGED.
+
+#: THE SPEC KEY for channel A.  Literal-boolean-only, and -- like :data:`ACK_KEY` -- it admits a
+#: FACT rather than arming an obligation the author already discharged, so the build path also
+#: demands a matching ``expect_bpp``; on its own it is refused BY NAME.
+ACK_ARRAY_KEY = "acknowledge_array_derived_depth"
+
+#: ★ THE ORDER CLAUSE, carried as a constant because a caveat that travels separately from the
+#: number is a caveat nobody reads.  Quoted by the ``so-array`` disclosure, the
+#: ack-without-``expect_bpp`` refusal, :data:`ARRAY_ACK_WARNING` and the report block.
+ORDER_UNMEASURED = (
+    "THE ARITY IS MEASURED TWICE; THE ORDER IS NOT, AND THE KIT SHIPS ONLY THE ARITY.  The `so` "
+    "record's array is 'selected by the primitive's part byte', which states an arity AND an order.  "
+    "The ARITY is corroborated from outside the record's own header twice -- the part-byte range "
+    "test (0 of 502 records has max(part) >= P, and a stride-8 reading over-runs on 126 of 126) and "
+    "the CLUT-arity test (264/264 against a 16.2% random floor and a 53.3% ambient).  THE ORDER IS "
+    "CORROBORATED BY NOTHING: the best available discriminator scores identity 63.3% / reversed "
+    "56.0% / random permutations 59.4%, about 0.9 sigma above chance, and 82 of the 126 multi-part "
+    "records name more than one distinct tpage.  So `parts` is a SET everywhere in this kit: a "
+    "reason string may name a record offset and a slot index as IDENTIFICATION, and no verdict may "
+    "assert that part k draws with entry k")
+
+#: ★ WHAT CHANNEL A's IN-GAME STANDING ACTUALLY IS: nothing.  The rung's own ghost-layer prediction
+#: was scored cell by cell and did not land once.
+ARRAY_CAVEAT = (
+    "NOTHING ABOUT CHANNEL A IS IN-GAME.  The ghost-layer prediction this channel was recruited to "
+    "explain scored 0 HITS, 4 MISSES and 2 VACUOUS PASSES over six named cells -- so the multi-part "
+    "reading has never put a texel on screen and has never been refuted there either.  "
+    "BINDING-IS-NOT-A-DRAW and THE DEPTH COROLLARY apply in full: what the array states is what "
+    "something BINDS at, and the draw can read the same bytes at another depth")
+
+#: what saying :data:`ACK_ARRAY_KEY` means, printed on every build that uses it.
+ARRAY_ACK_WARNING = (
+    "%s = true: this cell's depth comes from CHANNEL A -- an entry of the container's own `so` "
+    "record's BINDING ARRAY that no kit before W6b-3 could read -- and NOT from any `so` reader's "
+    "UVs and not from the program.  %s  %s  %s  The kit checks that your `expect_bpp` matches the "
+    "derivation and checks nothing else; the judgement that this depth is the depth the SCREEN reads "
+    "is yours." % (ACK_ARRAY_KEY, ARRAY_CAVEAT, DEPTH_COROLLARY, ORDER_UNMEASURED))
+
+#: CHANNEL A's disclosure surface: depth-unknown cells whose column the multi-part reading names
+#: UNANIMOUSLY.  **Re-derivation-pinned** -- ``w6b3i_gates`` I9 re-rolls it from the 372 containers
+#: through :func:`ff9mapkit.summons.reskin.array_depth_view` and asserts equality, the repair this
+#: module's own self-consistent ``GAIN_PROGRAM + GAIN_SO_PAGE == GAIN_EITHER`` assert could never
+#: have made for itself.  *A constant nobody re-checks is a claim.*
+GAIN_ARRAY = 65
+
+#: THE MULTI-VALUED HAZARD: cells whose column carries MORE THAN ONE depth across its NOVEL slots.
+#: 6 columns x 2 stacked cells.  **All 12 REFUSE outright** on any path that consults ``so-array``.
+#: Re-derivation-pinned (``w6b3i_gates`` I6).
+ARRAY_MULTIVALUED_CELLS = 12
+#: ...of which the column's INCUMBENT depth set is EMPTY -- the exact derived predicate behind the
+#: 8/4 structure the refusal text prints.  ⚠ **The SPLIT is informative; the TREATMENT is UNIFORM.**
+#: The other 4 sit on columns channel G already covers, and their refusal DISPLACES that service
+#: rather than being stated alongside it: channel A holds VETO power (the conservative direction),
+#: never emission power.  This constant survives as the split's DERIVATION count, not as a policy.
+ARRAY_IN_REACH_DUAL = 8
+#: THE COLUMN CONFLICT: a column with a UNANIMOUS incumbent depth AND a UNANIMOUS novel depth that
+#: DIFFER -- ef184 x448, the only column in the corpus satisfying the predicate, 2 stacked cells.
+#: These are the rung's ONE deliberate permissiveness regression: they are LICENSED today.
+ARRAY_COLUMN_CONFLICT_CELLS = 2
+#: of :data:`GAIN_ARRAY`, how many sit on a column bound with 2-4 DISTINCT CLUT words (class C).
+#: Derived from the BINDERS, never from the census's ``hz_multi_palette``: that flag is
+#: READER-derived and 65/65 of these cells are readerless, so its clean 0 is VACUOUS, not a clear.
+ARRAY_CLASS_C = 34
+#: ...and how many sit in a container whose own id-3 program WRITES VRAM at run time.  A CONSTANT
+#: rather than a literal inside :data:`ARRAY_RESIDUE_LINE`, and re-derivation-pinned with the rest
+#: (``w6b3i_gates`` I5/I9): a number nobody re-checks is a claim, and this module exists to repair
+#: exactly that shape.
+ARRAY_PROGRAM_WRITE = 7
+#: ⚠ THE TWO DEFLATING CLASSES OVERLAP, so the three buckets are NOT addends.  Stated as its own
+#: constant so :data:`ARRAY_RESIDUE_LINE` can say it rather than leave ``26 + 34 + 7 == 67 > 65`` for
+#: a reader to trip over -- the same law :data:`~ff9mapkit.summons.repaint.W6B_REASON` states in caps
+#: for the dual-depth populations.
+ARRAY_DEFLATION_OVERLAP = 2
+#: ...and how many clear class C and the program-VRAM verdicts both.  THE REACH's real bottom line.
+ARRAY_CLEAN = 26
+
+#: ★ A SECOND RESIDUE LINE, NEVER RECONCILED WITH THE FIRST.  :data:`RESIDUE_LINE` describes the
+#: SHIPPED surface and does not move, because channel A is NOT adopted.  This one states the
+#: counterfactual so the disclosure can say what the ack would buy without pretending it was bought.
+#: (The two-scopes precedent is ``w6b2i_gates`` I1.)
+ARRAY_RESIDUE_LINE = (
+    "IF CHANNEL A WERE ADOPTED the residue would move %s -> %s (%d more cells gain a depth).  IT IS "
+    "NOT ADOPTED: `so-array` is CONSULTED, it emits only behind `%s` plus a matching `expect_bpp`, "
+    "and the shipped residue is still %s.  Of the %d, %d are clean, %d sit on a class-C column and "
+    "%d are in a container whose own program writes VRAM at run time -- READ THE POPULATION AND DO "
+    "NOT ADD THEM UP: the last two OVERLAP on %d cell(s), so the three buckets close as "
+    "%d + %d + %d - %d == %d"
+    % ("{:,}".format(RESIDUE), "{:,}".format(RESIDUE - GAIN_ARRAY), GAIN_ARRAY, ACK_ARRAY_KEY,
+       "{:,}".format(RESIDUE), GAIN_ARRAY, ARRAY_CLEAN, ARRAY_CLASS_C, ARRAY_PROGRAM_WRITE,
+       ARRAY_DEFLATION_OVERLAP, ARRAY_CLEAN, ARRAY_CLASS_C, ARRAY_PROGRAM_WRITE,
+       ARRAY_DEFLATION_OVERLAP,
+       ARRAY_CLEAN + ARRAY_CLASS_C + ARRAY_PROGRAM_WRITE - ARRAY_DEFLATION_OVERLAP))
+
+#: ★★ **THE SCOPE CLAUSE THE W6b-2 COUNTS NOW OWE THE READER**, carried as a call-sited constant.
+#:
+#: :data:`GAIN_SO_PAGE`, :data:`CHANNEL_G_DUAL_CELLS`, :data:`REFUSED_AMBIGUOUS`,
+#: :data:`RESIDUE_LINE` and :data:`~ff9mapkit.summons.repaint.W6B_REASON` all measure the surface
+#: ``LICENSED_CHANNELS`` emitted at W6b-2 -- ``("so-uv", "so-page", "program")``. **None of them
+#: moves**, and that is deliberate: channel A is DISCLOSED, never adopted, so nothing it discloses
+#: belongs in an adopted count. But W6b-3 put ``"so-array"`` into that same channel set, and channel
+#: A holds VETO power, so on the path an author actually walks a handful of cells resolve
+#: differently. A number that does not say which surface it describes is a stale string waiting to
+#: happen -- so the numbers stay put and **the scope is stated beside them**.
+#:
+#: The delta is spelled from the channel's own re-derivation-pinned constants rather than restated as
+#: fresh literals, because restating it would mint exactly the un-re-derived count this module exists
+#: to refuse. Whether A2's uniform refusal is permanent is an owner ratification, and the day it is
+#: settled this clause is what says which numbers have to move.
+A2_SCOPE_NOTE = (
+    "** SCOPE OF THE COUNTS ABOVE: they measure the W6b-2 CHANNEL SET (`so-uv`, `so-page`, "
+    "`program`), where they are EXACT.  The shipped `LICENSED_CHANNELS` also consults CHANNEL A, "
+    "whose two hazard classes hold VETO power and never emission power, so on that path %d cell(s) "
+    "resolve NO page that these counts include (%d `array-vs-column-depth` + %d `array-dual-depth` "
+    "on columns another channel already served) and %d more refuse under the sharper "
+    "`array-dual-depth` name instead of `depth-unknown`.  CHANNEL A IS DISCLOSED, NEVER ADOPTED, so "
+    "none of the counts above moves; W6b-3 states the delta rather than restating them"
+    % (ARRAY_COLUMN_CONFLICT_CELLS + (ARRAY_MULTIVALUED_CELLS - ARRAY_IN_REACH_DUAL),
+       ARRAY_COLUMN_CONFLICT_CELLS, ARRAY_MULTIVALUED_CELLS - ARRAY_IN_REACH_DUAL,
+       ARRAY_IN_REACH_DUAL))
 
 #: what saying it means, printed on every build that uses it.
 ACK_WARNING = (

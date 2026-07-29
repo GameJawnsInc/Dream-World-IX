@@ -23,6 +23,16 @@ G1  THE POPULATION AND THE FORMAT.  981 non-creature GEOM blocks by resource; 50
 G2  THE HYPOTHESIS'S PREMISE, FALSIFIED.  `EC.scan_geom` is a whole-blob needle scan with no
     resource filter, so the census walker already descends into the id-2 archive: the kit's own
     bindings are mapped back to their owning resource here, WITHOUT re-implementing the walker.
+    ** AND, AT W6b-3i, THE INVERSION: the pin "reskin.so_record returns None on all 126" now reads
+    0 against the SHIPPED reader, while the 126 stays live against `_LEGACY_SO_RECORD`.
+
+** W6b-3i, AND WHY THIS FILE DID NOT GO VACUOUSLY GREEN.  The kit now READS the multi-part record,
+   so every delta this board measures would be 0 by construction.  THREE FREEZES keep it a
+   measurement: F1 freezes a byte-for-byte copy of the pre-W6b-3 `reskin.so_record` inside this file
+   (`_LEGACY_SO_RECORD`) and keeps R3/R4/G3's reach against THAT; F2 and F3 declare
+   `witness=WITNESS_INCUMBENT` on this file's own CHANNEL G roll and on the tautology control, so
+   `g_gain 57` / `new 73` / `taut_columns 65` still mean what they were written to mean.  What moves
+   is G2's None-count (126 -> 0, both printed) and G7's verdict census, which is the fix landing.
 G3  THE SWEEP AND THE REACH.  109 declared cells (106 scenery + 3 CREATURE -- the pivot that
     explains both L1's 106 and its "cells the container NEVER UPLOADS"); 73 new-vs-all-channels;
     65 unanimous + 8 dual; the channels re-derived LIVE (P from the shipped table, G from the
@@ -97,6 +107,8 @@ PIN = {
     "ka2_at": 0x9C7F4, "ka2_textured": 0, "ka2_tpage": 0x97, "ka2_clut": 0x3E00, "ka2_P": 1,
     "r3_slot0_matches": 340,
     "r4_accepted": 376, "r4_tpage_bearing": 340,
+    # ★ W6b-3i: the SHIPPED reader's own population, a DIFFERENT claim from R3/R4's frozen one.
+    "r4_shipped_accepted": 502, "r4_shipped_tpage_bearing": 466,
     "ka_rungs_touching_a_p2_byte": 0,        # ★ refuter 1 finding #3, re-measured not restated
     "ef211_p2_records": 0,                   # KA1's vehicle has NO multi-part record at all
     # -- G1 population + format
@@ -133,6 +145,9 @@ PIN = {
     "kit_bind_by_res": {2: 175, 6: 137, 8: 20, 10: 8},
     "kit_id2_containers": 60,
     "kit_none_on_p2": 126,
+    #: ★ THE INVERSION.  126 -> 0 against the SHIPPED reader; the 126 stays live against the FROZEN
+    #: pre-W6b-3 copy in this file, so the finding is preserved rather than renumbered away.
+    "shipped_none_on_p2": 0,
     "geoms_unowned_by_the_walker": 0,
     # -- G3 sweep + reach
     "declared_cells": 109,
@@ -203,8 +218,27 @@ PIN = {
     "reach_readerless": 65, "reach_census_multi_palette": 0,
     "reach_15bpp": 4,
     "cast_vehicles": 4,                      # clean AND directly sampled -- sec 8.3's shortlist
-    "false_private": 5, "n_private": 107, "n_shared": 87, "n_unknown": 2600,
-    "unknown_gains": 83, "complete_flips": 19,
+    # ---- ★ THE W6b-3i RE-PINS AND INVERSIONS.  The OLD values are preserved in the gate body's own
+    # prose (and in `W6B3I-PIN-DELTA.md`) rather than deleted: `w5_gates` G3' REFUSALS -> LIFTS is the
+    # template -- the history stays quotable, the new claim is the one that is asserted.
+    #   false_private   5  ->  0    THE INVERSION: the reader fix repaired all five, by name.
+    #   unknown_gains  83  ->  0    ...and the 0-binder branch's blindness with them.
+    #   n_private     107  -> 148 / n_shared 87 -> 129 / n_unknown 2,600 -> 2,395
+    "false_private": 0, "n_private": 148, "n_shared": 129, "n_unknown": 2395,
+    #: the 301 are UNCHANGED as a bucket; the 122 are the NEW guarded variant (A1) -- `complete`
+    #: flipped on their containers, but only BECAUSE of records first readable at W6b-3, so
+    #: `acknowledge_shared` stays ARMED and the release is measured rather than taken.
+    "n_unbound_complete": 301, "n_unbound_complete_novel_guarded": 122,
+    "unknown_gains": 0, "complete_flips": 19,
+    "complete_flip_names": [58, 94, 154, 155, 179, 186, 237, 261, 290, 300, 382, 390, 415, 424,
+                            431, 432, 438, 439, 490],
+    #: the 83 that gained a named binder, split under BOTH predicates -- (PRIVATE, SHARED).  The
+    #: GEOM-model split is what SHIPS (the reason string's own noun); the SLOT split is printed beside
+    #: it because the two differ, which is exactly why the dedupe is a law and not a tidy-up.
+    "unknown_gain_split_geom": (46, 37), "unknown_gain_split_slot": (43, 40),
+    #: THE DEDUPE LAW's two populations: 3 where counting slots would flip the VERDICT, 2 where it
+    #: would only mis-state the printed COUNT.
+    "self_shared_verdict": 3, "self_shared_count_only": 2,
     # -- G8 the critic's corrections
     "uv_cal": 41,
     "uv_damage_vy": 648, "uv_damage_hx": 627, "uv_slots_boxed": 648,
@@ -276,6 +310,29 @@ def _records(blob: bytes, geoms: List[int]) -> List[dict]:
                             "textured": u16(blob, o + 2), "geom": g})
                 break
     return out
+
+
+def _LEGACY_SO_RECORD(blob: bytes, geom_base: int) -> Optional[dict]:
+    """★ **FREEZE F1 -- THE HISTORICAL INSTRUMENT, KEPT.**
+
+    A byte-for-byte copy of ``reskin.so_record``'s PRE-W6b-3 body (the kit's own retired code, ~8
+    lines, no Square-Enix bytes).  W6b-3's whole subject is a DELTA between what the kit could read
+    and what the container states; once the kit is fixed that delta is 0 **by construction**, and a
+    board that goes vacuously green is worse than one that goes red.
+
+    So the historical predicate is kept against THIS function rather than re-pinned against the new
+    one.  Re-pinning R3/R4 from 376/340 to 502/466 would have read green while comparing two decoders
+    written from one spec in one round -- a self-comparison wearing a calibration's clothes.
+    """
+    for rec_len in (0x10, 0x08):
+        o = geom_base - rec_len
+        if o >= 0 and u16(blob, o) == SO_MAGIC and u16(blob, o + 4) == rec_len:
+            rec = {"at": o, "len": rec_len, "textured": u16(blob, o + 2)}
+            if rec_len == 0x10:
+                rec["tpage"] = u16(blob, o + 8)
+                rec["clut"] = u16(blob, o + 0x0A)
+            return rec
+    return None
 
 
 def _iv(blob: bytes, r: dict) -> List[Tuple[int, int]]:
@@ -439,7 +496,13 @@ class Data:
 
             # -- CHANNEL G: the kit's own bindings, at PAGE granularity, and their owning resource
             try:
-                a = RS.attribution(blob, include_direct=True)
+                # ★ FREEZE F2, DECLARED (the substitution is stated the way G0 states KA2's, not
+                # slipped in): this roll IS channel G and feeds `kit_bind_by_res`,
+                # `kit_id2_containers`, `sopage` -> `g_gain 57`, G3's `new 73` and G5.  W6b-3 made
+                # `attribution`'s default the TRUE multi-part population; channel G is its INCUMBENT
+                # half, so the scope is SAID here.  Left at the default, `new 73` would collapse to 0
+                # by construction and this whole board would go vacuously green.
+                a = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
             except Exception:                                                  # noqa: BLE001
                 a = None
             if a is not None:
@@ -460,7 +523,12 @@ class Data:
             for r in recs:
                 r["ef"] = ef
                 r["res_id"] = rid(r["geom"])
-                r["kit_blind"] = RS.so_record(blob, r["geom"]) is None
+                # ★ FREEZE F1 APPLIED.  The predicate is against the FROZEN historical reader, not
+                # against the shipped one -- the shipped one now reads all 502, so `RS.so_record(...)
+                # is None` would be 0 everywhere and R3/R4/G2/G3's reach would all collapse to a
+                # tautology.  Renamed `novel` because that is what it now means: a record the
+                # pre-W6b-3 kit could not see.  The SHIPPED reader is asserted separately in G0/G2.
+                r["novel"] = _LEGACY_SO_RECORD(blob, r["geom"]) is None
                 with_rec.add(r["geom"])
                 self.recs.append(r)
                 for k, (tp, cw) in enumerate(_iv(blob, r)):
@@ -469,7 +537,7 @@ class Data:
                         "ef": ef, "geom": r["geom"], "at": r["at"], "part": k,
                         "tpage": tp, "clut": cw, "bpp": bpp, "page": (px, py),
                         "res_id": r["res_id"], "npart": r["npart"],
-                        "invisible": r["kit_blind"] or k > 0,
+                        "invisible": r["novel"] or k > 0,
                     })
                 self.uvbox[(ef, r["geom"])] = _uv_boxes(blob, gmap[r["geom"]])
 
@@ -580,32 +648,69 @@ def g0_calibrate(D: Data) -> None:
           " not an `so` record and lies outside this walker's domain -- it was tried first, FAILED"
           " with 0 records, and was REPLACED rather than rescued.")
 
-    # R3/R4 -- the incumbent reader reproduced on every record it accepts.
+    # R3/R4 -- the incumbent reader reproduced on every record it accepts.  ★ AGAINST THE FROZEN
+    # HISTORICAL READER (F1), never against the shipped one: the shipped one now reads all 502, so
+    # these two rungs would be a self-comparison between two decoders written from one spec in one
+    # round.  The SHIPPED reader gets its own rungs immediately below, and they are DIFFERENT claims.
     ok = n = 0
     for r in D.recs:
-        kit = RS.so_record(D.blobs[r["ef"]], r["geom"])
+        kit = _LEGACY_SO_RECORD(D.blobs[r["ef"]], r["geom"])
         if kit is None or "tpage" not in kit:
             continue
         n += 1
         s0 = _iv(D.blobs[r["ef"]], r)[0]
         if kit["at"] == r["at"] and kit["tpage"] == s0[0] and kit["clut"] == s0[1]:
             ok += 1
-    chk("R3 slot 0 reproduces reskin.so_record", ok, PIN["r3_slot0_matches"])
+    chk("R3 slot 0 reproduces the FROZEN pre-W6b-3 so_record", ok, PIN["r3_slot0_matches"])
     chk("R3 denominator", n, PIN["r3_slot0_matches"])
     acc = tp_bear = 0
     for ef, blob in D.blobs.items():
         for g in D.geoms_by_ef[ef]:
-            rec = RS.so_record(blob, g)
+            rec = _LEGACY_SO_RECORD(blob, g)
             if rec is None:
                 continue
             acc += 1
             if "tpage" in rec:
                 tp_bear += 1
-    chk("R4 accepted records", acc, PIN["r4_accepted"])
-    chk("R4 tpage-bearing", tp_bear, PIN["r4_tpage_bearing"])
-    print("   R3 slot 0 reproduces reskin.so_record's (at, tpage, clut): %d/%d" % (ok, n))
-    print("   R4 the population reskin.attribution publishes: %d accepted / %d tpage-bearing"
-          " (so_record's own docstring: 376 / 340)" % (acc, tp_bear))
+    chk("R4 accepted records (frozen reader)", acc, PIN["r4_accepted"])
+    chk("R4 tpage-bearing (frozen reader)", tp_bear, PIN["r4_tpage_bearing"])
+    print("   R3 slot 0 reproduces the FROZEN pre-W6b-3 so_record's (at, tpage, clut): %d/%d"
+          % (ok, n))
+    print("   R4 the population the pre-W6b-3 reskin.attribution published: %d accepted / %d"
+          " tpage-bearing (that reader's own docstring: 376 / 340)" % (acc, tp_bear))
+
+    # ★ AND THE SHIPPED READER, AS A SEPARATE CLAIM (W6b-3i).  Two rungs, both new:
+    #   (a) the COMPATIBILITY VIEW -- the shipped reader's part 0 IS the frozen reader's answer on
+    #       every record the frozen reader accepted, so the containment is checkable rather than
+    #       asserted;
+    #   (b) the shipped population, which is the whole point of the fix.
+    same = same_n = 0
+    sacc = stp = 0
+    for ef, blob in D.blobs.items():
+        for g in D.geoms_by_ef[ef]:
+            new = RS.so_record(blob, g)
+            old = _LEGACY_SO_RECORD(blob, g)
+            if new is not None:
+                sacc += 1
+                if "tpage" in new:
+                    stp += 1
+            if old is None or "tpage" not in old:
+                continue
+            same_n += 1
+            if (new is not None and new["at"] == old["at"] and new.get("tpage") == old["tpage"]
+                    and new.get("clut") == old["clut"] and new["nparts"] == 1
+                    and new["witness"] == RS.WITNESS_INCUMBENT):
+                same += 1
+    chk("R3' the SHIPPED reader's part 0 == the frozen answer", same, PIN["r3_slot0_matches"])
+    chk("R3' denominator", same_n, PIN["r3_slot0_matches"])
+    chk("R4' the SHIPPED reader accepts", sacc, PIN["r4_shipped_accepted"])
+    chk("R4' ...tpage-bearing", stp, PIN["r4_shipped_tpage_bearing"])
+    print("   R3' THE COMPATIBILITY VIEW: the SHIPPED reader's part 0 == the frozen reader's"
+          " (at, tpage, clut) on %d/%d, every one of them P==1 and witness=%r" %
+          (same, same_n, RS.WITNESS_INCUMBENT))
+    print("   R4' THE READER NOW READS THEM: the SHIPPED reskin.so_record accepts %d records /"
+          " %d tpage-bearing -- the frozen reader's %d / %d plus the %d it could not see"
+          % (sacc, stp, acc, tp_bear, sacc - acc))
 
     # ★ AND THE LIMIT OF ALL FOUR, MEASURED RATHER THAN CONCEDED.
     ef211_p2 = len([r for r in D.recs if r["ef"] == 211 and r["npart"] >= 2])
@@ -630,7 +735,7 @@ def g1_population(D: Data) -> None:
     chk("GEOM by resource", dict(D.geom_by_res), PIN["geom_by_res"])
     chk("records", len(D.recs), PIN["records"])
     chk("slots", len(D.slots), PIN["slots"])
-    inv_r = [r for r in D.recs if r["kit_blind"]]
+    inv_r = [r for r in D.recs if r["novel"]]
     inv_s = [s for s in D.slots if s["invisible"]]
     chk("invisible records", len(inv_r), PIN["invisible_records"])
     chk("invisible slots", len(inv_s), PIN["invisible_slots"])
@@ -804,8 +909,16 @@ def g2_premise(D: Data) -> None:
     chk("containers where the KIT itself binds an id-2-resident model",
         len(D.kit_id2_containers), PIN["kit_id2_containers"])
     p2 = [r for r in D.recs if r["npart"] >= 2]
+    # ★ THE INVERSION (W6b-3i).  This gate USED to pin "the shipped reader returns None on all 126".
+    # The reader is fixed, so the pin is inverted to 0 -- and the OLD assertion is kept live against
+    # the FROZEN reader (F1) beside it, which is what stops the inversion from erasing the finding.
+    # `w5_gates` G3' REFUSALS -> LIFTS is the template: history in the docstring, the new claim active.
+    legacy_none = sum(1 for r in p2 if _LEGACY_SO_RECORD(D.blobs[r["ef"]], r["geom"]) is None)
     none_on = sum(1 for r in p2 if RS.so_record(D.blobs[r["ef"]], r["geom"]) is None)
-    chk("reskin.so_record returns None on every P>=2 record", none_on, PIN["kit_none_on_p2"])
+    chk("the FROZEN pre-W6b-3 reader returns None on every P>=2 record", legacy_none,
+        PIN["kit_none_on_p2"])
+    chk("** THE READER NOW READS THEM: the SHIPPED reader returns None on", none_on,
+        PIN["shipped_none_on_p2"])
     chk("... and that is the whole invisible population", len(p2), PIN["invisible_records"])
     print("   EC.RESOURCE_IDS[2] = %r, read by EC.parse_directory (fn 0x3d800's tail) -- id 2 IS the"
           " sub-file archive, and %d of the corpus's %d non-creature GEOM blocks live in it"
@@ -814,9 +927,11 @@ def g2_premise(D: Data) -> None:
           " with no resource filter and reskin.attribution iterates it unfiltered, so the kit's own"
           " bindings resolve to resources %s -- it binds id-2-resident models in %d containers"
           % (dict(sorted(D.kit_bind_by_res.items())), len(D.kit_id2_containers)))
-    print("   THE BLINDNESS IS IN THE RECORD READER: reskin.so_record hard-probes recLen in"
-          " (0x10, 0x08) only, so all %d P>=2 records return None -- record, slot 0 and every"
-          " part>=1 slot" % none_on)
+    print("   THE BLINDNESS WAS IN THE RECORD READER: the pre-W6b-3 reskin.so_record hard-probed"
+          " recLen in (0x10, 0x08) only, so all %d P>=2 records returned None -- record, slot 0 AND"
+          " every part>=1 slot.  ** W6b-3i FIXED IT: the SHIPPED reader now returns None on %d of"
+          " them, and the frozen copy above is what keeps that a MEASUREMENT rather than a memory."
+          % (legacy_none, none_on))
     print("   ** FOLLOW-THE-EVIDENCE CORRECTION, STATED LOUDLY: this is a RECORD-LENGTH channel,"
           " NOT an id-2 channel.  The %d invisible records split id-2 %d / id-6 %d / id-3 %d, so"
           " naming it 'the id-2 archive channel' would be wrong on %d of %d."
@@ -1010,7 +1125,7 @@ def g4_ghost(D: Data) -> None:
     for ef in (446, 251, 429):
         spec = _GHOST[ef]
         recs = [r for r in D.recs if r["ef"] == ef]
-        inv = [r for r in recs if r["kit_blind"]]
+        inv = [r for r in recs if r["novel"]]
         slots = [s for s in D.slots if s["ef"] == ef]
         col_inv = [s for s in slots if s["invisible"] and s["page"][0] in spec["cols"]]
         col_any = [s for s in slots if s["page"][0] in spec["cols"]]
@@ -1199,7 +1314,12 @@ def g5_conflicts(D: Data) -> None:
     col_models: Dict[Tuple[int, int], set] = defaultdict(set)
     for ef, blob in D.blobs.items():
         try:
-            a = RS.attribution(blob, include_direct=True)
+            # ★ FREEZE F3, DECLARED: the tautology control is a statement about what the CENSUS's own
+            # instrument does on columns IT can see -- `taut_columns 65` / `taut_single_depth 51` /
+            # `taut_rate`.  Under `attribution`'s post-W6b-3 default it would silently become a
+            # statement about the multi-part population and stop being the control the agreement
+            # statistic has to beat.
+            a = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
         except Exception:                                                      # noqa: BLE001
             continue
         for b in a.bindings:
@@ -1292,7 +1412,7 @@ def g6_controls(D: Data) -> None:
         blob, ef, P = D.blobs[r["ef"]], r["ef"], r["npart"]
         at, rl = r["at"], r["reclen"]
         for k in range(P):
-            if not (r["kit_blind"] or k > 0):
+            if not (r["novel"] or k > 0):
                 continue
             if at + 8 + 8 * k + 4 <= at + rl:
                 if dec(u16(blob, at + 8 + 8 * k))[0] in dcol[ef]:
@@ -1374,7 +1494,7 @@ def g6_controls(D: Data) -> None:
         for k in range(P):
             tp, cw = iv[k]
             bpp = dec(tp)[2]
-            invisible = r["kit_blind"] or k > 0
+            invisible = r["novel"] or k > 0
             # the WHOLE-CORPUS view first
             if bpp == 15:
                 all_d15 += 1
@@ -1465,7 +1585,7 @@ def g6_controls(D: Data) -> None:
         blob, ef, P = D.blobs[r["ef"]], r["ef"], r["npart"]
         iv, sp = _iv(blob, r), _split(blob, r)
         for k in range(P):
-            if not (r["kit_blind"] or k > 0):
+            if not (r["novel"] or k > 0):
                 continue
             if dec(sp[k][0])[0] in dcol[ef]:
                 sp_col += 1
@@ -1580,54 +1700,127 @@ def g7_deflation(D: Data) -> None:
     print("   -> of those, %d are ALSO DIRECTLY SAMPLED by the invisible model's own UVs and are"
           " sec 8.3's cast vehicles: %s" % (len(vehicles), ", ".join(vehicles)))
 
-    # ★ THE SAFETY FINDING: the SHIPPED palette lane's DERIVED PRIVATE verdicts
+    # ★ THE SAFETY FINDING -- **INVERTED AT W6b-3i, WHICH IS THE POINT OF A SAFETY FIX**.
+    #
+    # This rung's ORIGINAL claim, preserved verbatim because a finding that is renumbered away is a
+    # finding nobody can look up: the SHIPPED `reskin._apply_attribution` published
+    #   107 PRIVATE / 87 SHARED / 2,600 SHARED-UNKNOWN
+    # and **5 of those PRIVATE verdicts were FALSE** -- a record the reader dropped bound the same
+    # (vram, entries).  83 SHARED-UNKNOWN palettes would have gained a named binder.
+    #
+    # W6b-3i fixed the reader, so the delta this gate measures is 0 BY CONSTRUCTION, and the pins are
+    # inverted rather than deleted: `false_private` and `unknown_gains` now assert **0** -- i.e. the
+    # kit's own answer and the container's bytes AGREE -- while the verdict census re-pins to what
+    # the shipped path now publishes.  The site deliberately stays at `attribution`'s DEFAULT
+    # (WITNESS_ALL): narrowed to INCUMBENT it would keep measuring the old delta and never notice.
     by_ef: Dict[int, List[dict]] = defaultdict(list)
     for r in D.recs:
         if r["npart"] >= 2:
             by_ef[r["ef"]].append(r)
-    n_priv = n_shared = n_unknown = 0
+    n_priv = n_shared = n_unknown = n_unbound = n_guard = 0
     false_priv = []
     gains = 0
+    flips = []
+    self_shared, count_only = [], []
+    split_geom = {"priv": 0, "shared": 0}
+    split_slot = {"priv": 0, "shared": 0}
     for ef, blob in D.blobs.items():
         try:
-            pm = RS.palette_map(blob, attrib=RS.attribution(blob))
+            a_all = RS.attribution(blob)
+            a_inc = RS.attribution(blob, witness=RS.WITNESS_INCUMBENT)
+            pm = RS.palette_map(blob, attrib=a_all)
+            pm_inc = RS.palette_map(blob, attrib=a_inc)
         except Exception:                                                      # noqa: BLE001
             continue
+        if a_all.complete and not a_inc.complete:
+            flips.append(ef)
         extra: Dict[tuple, set] = defaultdict(set)
         for r in by_ef.get(ef, ()):
             for tp, cw in _iv(blob, r):
                 if dec(tp)[2] == 15 or not cw:
                     continue
                 extra[(RS.clut_word_xy(cw), 16 if dec(tp)[2] == 4 else 256)].add(r["geom"])
+        old = {q.name: q for q in pm_inc.palettes}
         for pal in pm.palettes:
             if pal.slot < 0:
                 continue
             add = extra.get((pal.vram, pal.entries), set()) - set(pal.binders or ())
-            if pal.binders and len(pal.binders) == 1 and not pal.shared:
+            rsn = pal.shared_reason
+            if rsn.startswith("DERIVED PRIVATE"):
                 n_priv += 1
                 if add:
                     false_priv.append("ef%03d %s" % (ef, pal.name))
-            elif pal.shared and pal.binders:
+            elif rsn.startswith("DERIVED SHARED"):
                 n_shared += 1
-            elif pal.shared:
+            elif rsn.startswith("SHARED-UNKNOWN"):
                 n_unknown += 1
                 if add:
                     gains += 1
+            elif rsn.startswith("UNBOUND at COMPLETE so-coverage (NOVEL-DEPENDENT)"):
+                n_guard += 1
+            elif rsn.startswith("UNBOUND at COMPLETE"):
+                n_unbound += 1
+            # ---- the DEDUPE LAW's two populations, and the 83's split under BOTH predicates
+            b_all = a_all.binders(pal.vram, pal.entries)
+            models = {b.geom for b in b_all}
+            if len(b_all) > 1 and len(models) == 1:
+                self_shared.append("ef%03d %s" % (ef, pal.name))
+            elif len(models) > 1 and len(b_all) != len(models):
+                count_only.append("ef%03d %s (%d slots -> %d models)"
+                                  % (ef, pal.name, len(b_all), len(models)))
+            o = old.get(pal.name)
+            if o is not None and o.shared_reason.startswith("SHARED-UNKNOWN") and b_all:
+                split_geom["shared" if len(models) > 1 else "priv"] += 1
+                split_slot["shared" if len(b_all) > 1 else "priv"] += 1
     chk("palettes the kit calls DERIVED PRIVATE", n_priv, PIN["n_private"])
     chk("palettes the kit calls DERIVED SHARED", n_shared, PIN["n_shared"])
     chk("palettes the kit calls SHARED-UNKNOWN", n_unknown, PIN["n_unknown"])
-    chk("** FALSE PRIVATE", len(false_priv), PIN["false_private"])
-    chk("SHARED-UNKNOWN palettes a dropped record would give a named binder", gains,
+    chk("palettes UNBOUND at COMPLETE so-coverage", n_unbound, PIN["n_unbound_complete"])
+    chk("... and UNBOUND at a NOVEL-DEPENDENT completeness (guard still ARMED)", n_guard,
+        PIN["n_unbound_complete_novel_guarded"])
+    chk("** FALSE PRIVATE (INVERTED: the reader fix repaired all five)", len(false_priv),
+        PIN["false_private"])
+    chk("SHARED-UNKNOWN palettes a dropped record would give a named binder (INVERTED)", gains,
         PIN["unknown_gains"])
-    print("   * THE SAFETY FINDING, arguably worth more than the depth gain: reskin._apply_"
-          "attribution publishes shared=False with 'DERIVED PRIVATE: exactly one GEOM model binds"
-          " this cell' whenever len(binders)==1.  Running the SHIPPED path unmodified: %d PRIVATE /"
-          " %d SHARED / %d SHARED-UNKNOWN, and %d of the PRIVATE verdicts are FALSE -- a dropped"
-          " record binds the same (vram, entries): %s"
-          % (n_priv, n_shared, n_unknown, len(false_priv), ", ".join(sorted(false_priv))))
-    print("   AND THE BLINDNESS IS ASYMMETRIC: %d SHARED-UNKNOWN palettes would gain a named binder,"
-          " i.e. the 0-binder branch is currently MORE conservative than the bytes require.  The"
-          " unsafe direction is only the len(binders)==1 branch." % gains)
+    chk("containers whose `complete` flips on the multi-part reader", len(flips),
+        PIN["complete_flips"])
+    chk("... by name", sorted(flips), PIN["complete_flip_names"])
+    chk("the 83's split by GEOM MODEL (the dedupe law, SHIPPED)",
+        (split_geom["priv"], split_geom["shared"]), PIN["unknown_gain_split_geom"])
+    chk("... and by BINDING SLOT (the un-deduped counterfactual)",
+        (split_slot["priv"], split_slot["shared"]), PIN["unknown_gain_split_slot"])
+    chk("SELF-SHARED palettes (one model, >1 entry) -- the dedupe FLIPS the verdict",
+        len(self_shared), PIN["self_shared_verdict"])
+    chk("COUNT-ONLY palettes -- the verdict holds, the printed COUNT would not",
+        len(count_only), PIN["self_shared_count_only"])
+    print("   * THE SAFETY FINDING, INVERTED -- and the inversion IS the deliverable.  W6b-3 measured"
+          " reskin._apply_attribution publishing 107 PRIVATE / 87 SHARED / 2,600 SHARED-UNKNOWN with"
+          " FIVE FALSE 'DERIVED PRIVATE' verdicts (ef179 pal.s0.x16_y244.e16, ef179"
+          " pal.s0.x0_y248.e256, ef381 pal.s0.x0_y248.e256, ef438 pal.s0.x0_y242.e256, ef438"
+          " pal.s0.x0_y248.e256) and 83 SHARED-UNKNOWN palettes a dropped record would have named.")
+    print("     THE SHIPPED PATH NOW PUBLISHES: %d PRIVATE / %d SHARED / %d SHARED-UNKNOWN / %d"
+          " UNBOUND-at-COMPLETE / %d UNBOUND-at-COMPLETE-(NOVEL-DEPENDENT).  FALSE PRIVATE %d."
+          "  SHARED-UNKNOWN palettes still missing a binder their own bytes name: %d."
+          % (n_priv, n_shared, n_unknown, n_unbound, n_guard, len(false_priv), gains))
+    print("     THE 83 SPLIT: %d -> PRIVATE + %d -> SHARED counting distinct GEOM MODELS (the law the"
+          " reason string's own noun states, and what SHIPS); %d + %d counting binding SLOTS -- the"
+          " two differ, which is why the dedupe is a law and not a tidy-up."
+          % (split_geom["priv"], split_geom["shared"], split_slot["priv"], split_slot["shared"]))
+    print("     THE DEDUPE's TWO POPULATIONS: %d SELF-SHARED (one model binding one palette through"
+          " two entries of its OWN array -- slot-counting would publish 'DERIVED SHARED: 2 GEOM"
+          " models' about ONE model): %s ; and %d COUNT-ONLY (the verdict stays SHARED, the printed"
+          " count would be wrong by one): %s"
+          % (len(self_shared), ", ".join(self_shared), len(count_only), ", ".join(count_only)))
+    print("   ** AND THE ASYMMETRY NOTE THIS RUNG SHIPPED IS CORRECTED, NOT QUIETLY DROPPED."
+          "  W6b3-ARCHIVE sec 8.2 said the fix makes the kit less conservative only in the"
+          " len(binders)==1 branch.  MEASURED: `complete` flips INCOMPLETE -> COMPLETE on %d"
+          " containers (%s) and %d palettes hang on it.  Left alone that would have DISSOLVED"
+          " `acknowledge_shared` on all %d -- 24x the population of the 5 false PRIVATE the fix"
+          " exists to repair, and moving in the PERMISSIVE direction.  So the kit ships the"
+          " NOVEL-DEPENDENT verdict variant instead: the completeness is HONEST (the denominator is"
+          " the bytes'), the guard stays ARMED, and the release is measured and NOT taken pending"
+          " owner ratification."
+          % (len(flips), ", ".join("ef%03d" % e for e in sorted(flips)), n_guard, n_guard))
 
 
 # --------------------------------------------------------------------------- G8
@@ -1890,7 +2083,19 @@ def _broken_box(blob: bytes, D: Data, s: dict):
 
 # --------------------------------------------------------------------------- G9
 #: BENIGN BY NAME, not by silence.  Adjudicated literals go here with their reason.
-_ADJUDICATED: Dict[bytes, str] = {}
+#: BENIGN BY NAME, never by silence -- and this one is INHERITED, not minted here: it is
+#: `w6b2_gates.py`'s own adjudication, verbatim.  W6b-3i's kit change takes a one-line narrowing in
+#: `w6b2_gates.py` and `w6b2_v1a_check.py`, which puts both files inside `git status --porcelain` and
+#: therefore inside this scan for the first time.  The literal is the MIPS load/store opcode tuple in
+#: those files' own instruction decoder (`op in (2, 3, 4, 5, 6, 7)`) -- a monotone run of six small
+#: ints, which matches binary data by construction.  ADJUDICATED, and the gate PRINTS the reason on
+#: every run rather than dropping the row.
+_ADJUDICATED: Dict[bytes, str] = {
+    b"\x02\x03\x04\x05\x06\x07": "MIPS load/store opcode tuple in a decoder's is_transfer "
+                                 "(w6b2_gates.py's own adjudication, inherited verbatim)",
+    b"\x00\x00\x01\x01\x02\x03\x04\x05": "reskin.ID9_SLOT_BIT, the kit's own slot->bit table, "
+                                         "asserted in test_reskin.py (same inheritance)",
+}
 
 
 def _untracked_new_files() -> List[str]:
@@ -2007,12 +2212,14 @@ GATES = [
      g0_calibrate),
     ("G1", "THE POPULATION AND THE FORMAT (502/649/126/309; two L1 numbers corrected)",
      g1_population),
-    ("G2", "THE PREMISE FALSIFIED (the census walker already descends into id-2)", g2_premise),
+    ("G2", "THE PREMISE FALSIFIED (id-2 was never the channel) + THE READER NOW READS THEM",
+     g2_premise),
     ("G3", "THE SWEEP AND THE REACH (73 new; the residue's actual movement)", g3_reach),
     ("G4", "THE GHOST-LAYER VERDICT (0 hits, 4 misses, 2 vacuous passes)", g4_ghost),
     ("G5", "CONFLICTS + AGREEMENT + THE TAUTOLOGY CONTROL it does not beat", g5_conflicts),
     ("G6", "THE CONTROLS (L1's four, the part-byte test, and the CLUT-ARITY rung)", g6_controls),
-    ("G7", "THE DEFLATION (65 -> 26) and the FIVE false DERIVED PRIVATE verdicts", g7_deflation),
+    ("G7", "THE DEFLATION (65 -> 26) and the FIVE false DERIVED PRIVATE verdicts, NOW REPAIRED",
+     g7_deflation),
     ("G8", "THE CRITIC'S CORRECTIONS (the UV operand, the wall, the directory)", g8_critic),
     ("G9", "PROVENANCE (no SE bytes committable; the dossiers stay in SCRATCH)", g9_provenance),
 ]

@@ -289,7 +289,10 @@ def so_tpages(blob: bytes) -> List[Dict[str, object]]:
     """Every non-creature ``so`` binding's tpage -- channel G's whole input."""
     rows = []
     try:
-        a = RS.attribution(blob, include_direct=True)
+        # ★ W6b-3 NARROWING, DECLARED: this artifact DESCRIBES channel G ("channel G's whole input"),
+        # and channel G is the INCUMBENT half of the post-W6b-3 population.  Left at the default the
+        # sweep's outputs would silently re-aim onto CHANNEL A while still being read as G's.
+        a = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
     except Exception:
         return rows
     for b in a.bindings:

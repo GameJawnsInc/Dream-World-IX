@@ -216,7 +216,11 @@ def _roll_so_page(C: Dict[Tuple[int, int, int], dict]
         with open(p, "rb") as fh:
             blob = fh.read()
         try:
-            a = RS.attribution(blob, include_direct=True)
+            # ★ W6b-3 NARROWING, DECLARED: the census artifact describes the SHIPPED census, and the
+            # shipped census (`repaint.bound_models`) is INCUMBENT-only.  A future re-stamp left at
+            # `attribution`'s post-W6b-3 default would silently re-aim `pages.json` onto a population
+            # the kit does not emit -- and `w6b3i_gates` I10 verifies the freeze against this.
+            a = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
         except Exception:
             continue
         for b in a.bindings:

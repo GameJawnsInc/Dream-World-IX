@@ -375,13 +375,26 @@ def test_slot_keyed_auto_names_and_the_derived_envelope():
 
 def test_attribution_is_derived_from_the_containers_own_so_records():
     """D5: the ``so`` scan (magic 0x6F73) is committable code now, and the SHARED flag is its
-    output -- not a hand table keyed on bare VRAM cells."""
+    output -- not a hand table keyed on bare VRAM cells.
+
+    ★ **W6b-3: EVERY NUMBER HERE IS INVARIANT, AND THAT IS MEASURED RATHER THAN ASSUMED.**  W6b-3
+    made ``attribution``'s default the TRUE (multi-part) binding population, which moved the corpus
+    counts sharply -- 316/340 bindings to 580/649.  This file's fixtures are built from ``P == 1``
+    records only, so all three witness classes agree here; the rung below SAYS so, because a study
+    copy that silently stopped exercising the thing it was written about is worse than one that fails.
+    """
     blob = build_synth_container(npart=1)
     a = RS.attribution(blob)
     assert (a.geom_with_so, a.geom_total) == (3, 3) and a.complete
     assert len(a.binders((0, 245), 256)) == 2
     assert len(a.binders((0, 244), 16)) == 1
     assert a.binders((0, 999), 256) == []
+    inc = RS.attribution(blob, witness=RS.WITNESS_INCUMBENT)
+    nov = RS.attribution(blob, witness=RS.WITNESS_NOVEL)
+    assert inc.bindings == a.bindings and a.witness == RS.WITNESS_ALL
+    assert nov.bindings == [] and a.geom_with_so_novel == 0
+    assert not a.complete_is_novel_dependent, "this fixture's coverage owes W6b-3 nothing"
+    assert all(b.witness == RS.WITNESS_INCUMBENT and b.slot == 0 for b in a.bindings)
 
 
 def test_incomplete_so_coverage_makes_every_unattributed_palette_shared_unknown():

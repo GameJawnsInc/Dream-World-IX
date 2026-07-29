@@ -201,8 +201,32 @@ def _so_geom(tpage: int, clut: int) -> bytes:
     return so + bytes(g)
 
 
+def _so_geom_multi(parts) -> bytes:
+    """A **MULTI-PART** ``so`` record (``P = len(parts)``) plus the same degenerate GEOM block.
+
+    ★ SYNTHESISED, NEVER COPIED.  The header is
+    ``struct.pack("<HHHH", 0x6F73, 1, 8 + 8P, 8 + 4P)`` and every pair is invented, so nothing in this
+    file is a run of bytes lifted out of a real ``ef*.bytes`` -- the provenance rule the whole summon
+    lane is held to.  ``P == 0`` yields the 8-byte record, which is a RECORD and not an absence.
+    """
+    P = len(parts)
+    so = struct.pack("<HHHH", 0x6F73, 1 if P else 0, 8 + 8 * P, 8 + 4 * P)
+    so += b"".join(struct.pack("<HH", tp, cw) for tp, cw in parts)
+    so += b"".join(struct.pack("<HH", 0, 0) for _ in parts)   # the OPAQUE second array at +arrayB
+    assert len(so) == 8 + 8 * P
+    return so + _so_geom(0, 0)[0x10:]                         # the GEOM block, one derivation
+
+
 def _build_models_id6(bindings) -> bytes:
-    return b"".join(_so_geom(tp, cw) for tp, cw in bindings)
+    """``(tpage, clut)`` builds an INCUMBENT (``P == 1``) record; a SEQUENCE of such pairs builds a
+    MULTI-PART one, and the empty sequence builds the ``P == 0`` record."""
+    out = []
+    for b in bindings:
+        if isinstance(b, (list, tuple)) and (not b or isinstance(b[0], (list, tuple))):
+            out.append(_so_geom_multi(tuple(b)))
+        else:
+            out.append(_so_geom(*b))
+    return b"".join(out)
 
 
 #: TWO models on the 8bpp cell (so it derives SHARED) and ONE on the 4bpp cell (so it derives
@@ -1788,6 +1812,340 @@ def test_include_direct_moves_neither_the_so_COVERAGE_nor_the_derived_SHARED_fla
     assert on.binders(RS.NO_CLUT_CELL, 0) == [], "a direct binder is unreachable through binders()"
 
 
+# ============================================================ (8b) W6b-3: THE MULTI-PART `so` RECORD
+#: tpage words that land on the PAGED fixture's own declared columns, derived from the bit layout
+#: rather than guessed: bits 0-3 = column/64, bit 4 = the 256-line half, bits 7-8 = the colour mode.
+_TP8_704 = 0x080 | 0x10 | (704 // 64)      # 8bpp, page origin (704, 256)
+_TP8_576 = 0x080 | 0x10 | (576 // 64)      # 8bpp, page origin (576, 256)
+_TP4_576 = 0x000 | 0x10 | (576 // 64)      # 4bpp, page origin (576, 256)
+assert RS.SO_BPP[(_TP8_704 >> 7) & 3] == 8 and (_TP8_704 & 0x0F) * 64 == 704
+assert RS.SO_BPP[(_TP4_576 >> 7) & 3] == 4 and (_TP4_576 & 0x0F) * 64 == 576
+
+#: a synthetic multi-part model: ONE GEOM block whose record's array binds the 8bpp cell TWICE,
+#: naming TWO DIFFERENT COLUMNS -- the shape 2 of the 3 corpus self-shared palettes actually have,
+#: and the reason no order-free column pick exists.  Nothing here is a corpus byte.
+_SELF_SHARED = (((_TP8_704, _CELL_8BPP), (_TP8_576, _CELL_8BPP)),)
+
+
+class _NoBinders:
+    """A stand-in for "this view names no binder here" -- so a union can be written without a branch."""
+    binders = ()
+
+
+_EMPTY = _NoBinders()
+
+
+def test_so_record_multipart_synthetic():
+    """★ THE READER FIX, on bytes this file wrote.  ``P = 3`` decodes to three pairs, ``len == 0x20``,
+    ``witness == "novel"``, and ``tpage``/``clut`` are the COMPATIBILITY VIEW of entry 0 -- present,
+    documented as one entry of an array, and detectable as under-reading through ``nparts``."""
+    parts = ((0x88, 0x1234), (0x89, 0x5678), (0x08, 0x9ABC))
+    blob = _so_geom_multi(parts)
+    rec = RS.so_record(blob, 8 + 8 * len(parts))
+    assert rec["nparts"] == 3 and rec["len"] == 0x20 and rec["at"] == 0
+    assert rec["parts"] == list(parts)
+    assert rec["witness"] == RS.WITNESS_NOVEL
+    assert (rec["tpage"], rec["clut"]) == parts[0], "the compat view is ENTRY 0, never a summary"
+
+
+def test_so_record_arrayb_is_load_bearing():
+    """★ THE ACCEPTANCE RESTS ON ``+0x06``.  ``recLen == 8 + 8P`` is near-tautological given
+    ``P := (recLen - 8) // 8``; ``arrayB == 8 + 4P`` is the INDEPENDENT halfword, and 126 of 126
+    corpus multi-part records take it outside the two values a ``P <= 1`` corpus could supply.  A
+    record with the right magic and the right length but a WRONG ``arrayB`` must be REJECTED."""
+    parts = ((0x88, 0x1234), (0x89, 0x5678))
+    good = bytearray(_so_geom_multi(parts))
+    base = 8 + 8 * len(parts)
+    assert RS.so_record(bytes(good), base) is not None
+    for wrong in (0x08, 0x0C, 0x14, 0xFFFF):
+        bad = bytearray(good)
+        struct.pack_into("<H", bad, 6, wrong)
+        assert RS.so_record(bytes(bad), base) is None, wrong
+
+
+def test_so_record_incumbent_bytes_unchanged():
+    """The existing ``P == 1`` fixture decodes EXACTLY as it did: the containment is a property of the
+    reader's OUTPUT on incumbent bytes, not a promise about its input."""
+    blob = _so_geom(0x88, _CELL_8BPP)
+    rec = RS.so_record(blob, 0x10)
+    assert (rec["len"], rec["nparts"], rec["witness"]) == (0x10, 1, RS.WITNESS_INCUMBENT)
+    assert (rec["tpage"], rec["clut"]) == (0x88, _CELL_8BPP)
+    assert rec["parts"] == [(0x88, _CELL_8BPP)]
+
+
+def test_so_record_p0_still_counts_as_coverage():
+    """★ THE P = 0 INVARIANT -- the hole in the OPPOSITE direction.  A record with zero pairs is still
+    a RECORD: it returns a dict with ``parts == []`` and NO ``tpage`` key, and :func:`attribution`
+    counts it in ``geom_with_so`` BEFORE any tpage check.  "No pairs, return None" would shrink the
+    coverage DENOMINATOR, flip ``complete`` on containers that read UNBOUND today, and demand
+    ``acknowledge_shared`` on palettes that never needed it.  Unsafe-by-omission is still unsafe."""
+    raw = _so_geom_multi(())
+    rec = RS.so_record(raw, 8)
+    assert rec is not None and rec["nparts"] == 0 and rec["parts"] == [] and rec["len"] == 8
+    assert "tpage" not in rec and "clut" not in rec
+    assert rec["witness"] == RS.WITNESS_INCUMBENT, "P == 0 is a length the old reader accepted"
+
+    with_p0 = build_synth_creatureless_container(bindings=DEFAULT_BINDINGS + ((),))
+    a = RS.attribution(with_p0)
+    assert (a.geom_total, a.geom_with_so) == (4, 4), "the P=0 block is COVERED, it just binds nothing"
+    assert a.complete, "and coverage stays COMPLETE, so no palette gains a spurious obligation"
+    assert len(a.bindings) == len(RS.attribution(
+        build_synth_creatureless_container()).bindings), "it contributes no BINDING"
+
+
+def test_so_record_terminates_on_hostile_blob():
+    """``MAX_SO_PARTS`` is a BOUND, not a fact (the corpus max is P = 7, pinned separately).  The
+    probe must terminate on a blob built to keep it walking."""
+    biggest = tuple((0x88, 0x100 + i) for i in range(RS.MAX_SO_PARTS))
+    ok = _so_geom_multi(biggest)
+    assert RS.so_record(ok, 8 + 8 * RS.MAX_SO_PARTS)["nparts"] == RS.MAX_SO_PARTS
+    over = tuple((0x88, 0x100 + i) for i in range(RS.MAX_SO_PARTS + 1))
+    assert RS.so_record(_so_geom_multi(over), 8 + 8 * (RS.MAX_SO_PARTS + 1)) is None
+    assert RS.so_record(b"\x00" * 4096, 4096) is None, "no magic anywhere: terminates, does not raise"
+    assert RS.so_record(b"\x73\x6f", 2) is None, "geom_base under the smallest record: no read below 0"
+
+
+def test_witness_class_fails_closed():
+    """A guard may only ever fail CLOSED -- the precedent is ``scenery_surface``'s unknown-channel
+    raise.  A witness class that fell back to "everything" would silently hand CHANNEL A the census's
+    authority the first time somebody typo'd it."""
+    blob = build_synth_creatureless_container()
+    for bad in ("everything", "INCUMBENT", "", None, 0):
+        with pytest.raises(RS.ReskinError):
+            RS.attribution(blob, witness=bad)
+    with pytest.raises(RS.ReskinError):
+        RS.page_depth_view(build_synth_paged_container(), witness="nope")
+
+
+def test_attribution_witness_partition():
+    """★ THE WITNESS PARTITION, on a fixture with one incumbent record and one multi-part one.
+
+    ``WITNESS_ALL`` is the union; ``INCUMBENT`` and ``NOVEL`` are the two halves; and the coverage
+    counters stay PER GEOM BLOCK under all three -- a multi-part record is ONE block's coverage
+    however many entries it carries."""
+    mixed = ((0x08, _CELL_4BPP), ((0x88, _CELL_8BPP), (0x89, _CELL_8BPP)))
+    blob = build_synth_creatureless_container(bindings=mixed)
+    a_all = RS.attribution(blob)
+    a_inc = RS.attribution(blob, witness=RS.WITNESS_INCUMBENT)
+    a_nov = RS.attribution(blob, witness=RS.WITNESS_NOVEL)
+    assert (a_all.witness, a_inc.witness, a_nov.witness) == (
+        RS.WITNESS_ALL, RS.WITNESS_INCUMBENT, RS.WITNESS_NOVEL)
+    assert len(a_all.bindings) == 3 and len(a_inc.bindings) == 1 and len(a_nov.bindings) == 2
+    assert a_inc.bindings + a_nov.bindings == a_all.bindings, "the halves partition the union"
+    assert all(b.witness == RS.WITNESS_INCUMBENT and b.slot == 0 for b in a_inc.bindings)
+    assert [b.slot for b in a_nov.bindings] == [0, 1], "slot 0 of a P>=2 record is NOVEL too"
+    assert all(b.record_at == a_nov.bindings[0].record_at for b in a_nov.bindings)
+    # coverage is PER GEOM BLOCK, never per slot
+    assert a_all.geom_total == a_inc.geom_total == a_nov.geom_total == 2
+    assert (a_all.geom_with_so, a_inc.geom_with_so, a_nov.geom_with_so) == (2, 1, 1)
+    assert (a_all.geom_with_so_novel, a_inc.geom_with_so_novel) == (1, 0)
+    assert a_all.complete and not a_inc.complete and not a_nov.complete
+    assert a_all.complete_is_novel_dependent, "this container is COMPLETE only via the novel record"
+
+
+def test_shared_verdict_counts_models_not_slots():
+    """★ THE DEDUPE LAW.  One model binding one palette through TWO entries of its OWN array is
+    **DERIVED PRIVATE**, and the reason says how many entries -- never "2 GEOM models", which is a
+    false statement in the safest-sounding direction and would arm ``acknowledge_shared`` on a palette
+    exactly one model reads.  3 corpus palettes are in this class."""
+    blob = build_synth_creatureless_container(bindings=_SELF_SHARED)
+    pmap = RS.palette_map(blob)
+    pal = next(p for p in pmap.palettes if p.entries == 256 and p.slot >= 0)
+    assert len(RS.attribution(blob).binders(pal.vram, pal.entries)) == 2, "TWO binding SLOTS..."
+    assert pal.shared is False, "...but ONE model"
+    assert pal.shared_reason.startswith("DERIVED PRIVATE")
+    assert "through 2 entries of its own binding array" in pal.shared_reason
+    assert "GEOM models" not in pal.shared_reason
+    assert len(pal.binders) == 1
+    # ★ AND THE SLOT LIST CARRIES THE SAME QUALIFIER ITS `DERIVED SHARED` SIBLING DOES.  This is the
+    # ONE branch where an author reads a slot index next to a PRIVATE verdict, so it is the branch
+    # where "record N slot k" is most readable as an ordering claim -- and the order is unmeasured.
+    assert "record 0x" in pal.shared_reason and "slot " in pal.shared_reason
+    assert "identification only" in pal.shared_reason
+    assert "ORDER inside a record's array is UNMEASURED" in pal.shared_reason
+
+
+def test_shared_verdict_count_matches_its_noun():
+    """The COUNT-ONLY half of the same law: where a second model really is there, the verdict stays
+    SHARED and the printed number is the number of MODELS.  2 corpus palettes would otherwise print
+    one model too many."""
+    mixed = (((0x88, _CELL_8BPP), (0x89, _CELL_8BPP)), (0x88, _CELL_8BPP))
+    blob = build_synth_creatureless_container(bindings=mixed)
+    pmap = RS.palette_map(blob)
+    pal = next(p for p in pmap.palettes if p.entries == 256 and p.slot >= 0)
+    assert len(RS.attribution(blob).binders(pal.vram, pal.entries)) == 3, "THREE binding SLOTS..."
+    assert pal.shared is True and pal.shared_reason.startswith("DERIVED SHARED: 2 GEOM models")
+    assert len(pal.binders) == 2 and len(set(pal.binders)) == 2
+    assert "MULTI-PART record the kit did not read before W6b-3" in pal.shared_reason
+
+
+def test_palette_map_and_the_preview_path_ask_for_the_SAME_population():
+    """★ ONE DEFAULT, TWO CALL SITES.  ``palette_map``'s own ``attrib = attribution(blob)`` and
+    ``render_previews``' ``b.pmap.attrib or attribution(b.orig)`` must resolve to the SAME scan, or a
+    palette's VERDICT and the picture the author is shown would be derived from different populations
+    -- the exact split that let a false ``DERIVED PRIVATE`` ship in the first place."""
+    mixed = ((0x08, _CELL_4BPP), ((0x88, _CELL_8BPP), (0x89, _CELL_8BPP)))
+    blob = build_synth_creatureless_container(bindings=mixed)
+    pm = RS.palette_map(blob)
+    assert pm.attrib is not None and pm.attrib.witness == RS.WITNESS_ALL
+    assert pm.attrib.bindings == RS.attribution(blob).bindings
+    assert [(p.name, p.shared, p.binders, p.shared_reason) for p in pm.palettes] == \
+           [(p.name, p.shared, p.binders, p.shared_reason)
+            for p in RS.palette_map(blob, attrib=RS.attribution(blob)).palettes]
+
+
+def test_page_depth_view_defaults_to_incumbent_and_array_view_is_its_novel_half():
+    """★ THE CONTAINMENT, as a default.  ``page_depth_view`` answers a **LICENSE** -- a paintable page
+    with no acknowledgement anywhere on the path -- so it defaults to the INCUMBENT witness and
+    CHANNEL A is reached by NAME, through :func:`array_depth_view`."""
+    mixed = ((_TP4_576, _CELL_4BPP), ((_TP8_704, _CELL_8BPP), (_TP8_576, _CELL_8BPP)))
+    blob = build_synth_paged_container(bindings=mixed)
+    g = RS.page_depth_view(blob)
+    a = RS.array_depth_view(blob)
+    assert g and a, "the fixture must exercise BOTH halves or this test proves nothing"
+    for cell, pd in g.items():
+        assert all(b.witness == RS.WITNESS_INCUMBENT for b in pd.binders), cell
+    for cell, pd in a.items():
+        assert all(b.witness == RS.WITNESS_NOVEL for b in pd.binders), cell
+    both = RS.page_depth_view(blob, witness=RS.WITNESS_ALL)
+    for cell in set(g) | set(a):
+        want = tuple(sorted({b.bpp for b in list(g.get(cell, _EMPTY).binders)
+                             + list(a.get(cell, _EMPTY).binders)}))
+        assert both[cell].depths == want, cell
+
+
+def test_page_depth_view_display_binder_ties_on_VALUES_not_on_the_array_index():
+    """★ A4: the display pick is a CONVENTION OVER A SET, and its key is ``(geom, tpage, clut_word)``.
+
+    Two bindings can now share a ``geom``, so the old bare-``geom`` key stopped being a total order.
+    Completing it with the array INDEX would make the DISPLAY depend on storage order -- the one thing
+    about this format nothing has measured -- so it is completed with the VALUES the display consumes.
+    Permuting a record's entries must therefore leave the pick bit-identical."""
+    # ONE model, TWO entries, SAME column -- so both land on the same cell and the tie-break is live.
+    mixed = (((_TP8_704, _CELL_8BPP), (_TP8_704, _CELL_4BPP)),)
+    blob = build_synth_paged_container(bindings=mixed)
+    view = RS.array_depth_view(blob)
+    assert view, "the fixture must bind a declared page-cell"
+    assert any(len(pd.binders) > 1 for pd in view.values()), \
+        "the fixture must put TWO bindings on ONE cell or the tie-break is never exercised"
+    for cell, pd in view.items():
+        keys = [(b.geom, b.tpage, b.clut_word) for b in pd.binders]
+        assert keys == sorted(keys), cell
+        assert pd.binding is pd.binders[0]
+    flipped = (((_TP8_704, _CELL_4BPP), (_TP8_704, _CELL_8BPP)),)
+    other = RS.array_depth_view(build_synth_paged_container(bindings=flipped))
+    assert sorted(other) == sorted(view)
+    for cell in view:
+        assert [(b.geom, b.tpage, b.clut_word) for b in other[cell].binders] == \
+               [(b.geom, b.tpage, b.clut_word) for b in view[cell].binders], \
+            "the display order is a function of the VALUES, so a storage permutation cannot move it"
+        assert other[cell].depths == view[cell].depths
+
+
+def test_preview_source_refuses_with_a_reason():
+    """★ A MISSING PREVIEW CARRIES ITS CAUSE.  Under W6b-3 a preview can vanish because a SECOND
+    binder became visible -- and on 2 of the 3 corpus self-shared palettes that second binder is the
+    SAME MODEL naming a DIFFERENT column, so there is no order-free way to pick which upload to draw.
+    The refusal therefore stands (do NOT widen ``!= 1``, do NOT dedupe here) and says why."""
+    blob = build_synth_paged_container(bindings=_SELF_SHARED)
+    attrib = RS.attribution(blob)
+    pal = next(p for p in RS.palette_map(blob, attrib=attrib).palettes
+               if p.entries == 256 and p.slot >= 0)
+    reasons = []
+    assert RS.preview_source(blob, pal, attrib, reasons=reasons) is None
+    why = reasons[0]
+    assert "NO PREVIEW" in why and "ONE model, 2 entries of its own binding array" in why
+    assert "576, 704" in why, "BOTH columns are named -- that is why no column can be picked"
+    assert "ORDER" in why and "UNMEASURED" in why
+    assert "became visible only at W6b-3" in why
+
+    # ★ AND THE DIRECTION THAT ACTUALLY LOSES A PICTURE: one incumbent binder plus a NOVEL one on a
+    # SECOND model.  The incumbent view previews it; the true population cannot, and says so.
+    vanish = ((_TP8_704, _CELL_8BPP), ((_TP8_576, _CELL_8BPP), (_TP4_576, _CELL_4BPP)))
+    blob2 = build_synth_paged_container(bindings=vanish)
+    a_all = RS.attribution(blob2)
+    a_inc = RS.attribution(blob2, witness=RS.WITNESS_INCUMBENT)
+    pal2 = next(p for p in RS.palette_map(blob2, attrib=a_all).palettes
+                if p.entries == 256 and p.slot >= 0)
+    assert RS.preview_source(blob2, pal2, a_inc) is not None, "the pre-W6b-3 kit rendered this"
+    r2 = []
+    assert RS.preview_source(blob2, pal2, a_all, reasons=r2) is None
+    assert "2 GEOM models" in r2[0] and "became visible only at W6b-3" in r2[0]
+
+
+#: a CLUT cell NO id-0 header in this file's fixtures declares.  A record that binds it still COUNTS
+#: toward ``so`` coverage (a GEOM block with a record is covered whatever it points at) while leaving
+#: every declared palette UNBOUND -- which is the only shape that reaches the two COMPLETE branches.
+#: Computed from the word layout (``(y << 6) | (x >> 4)``), never picked.
+_CELL_UNDECLARED = (250 << 6) | 0
+#: 2 GEOM blocks: one INCUMBENT record and one MULTI-PART one, so coverage is 2/2 -- but only 1/2
+#: WITHOUT the reader fix.  ★ That is the exact predicate ``complete_is_novel_dependent`` names.
+_NOVEL_DEPENDENT_BINDINGS = ((0x88, _CELL_UNDECLARED),
+                             ((0x88, _CELL_UNDECLARED), (0x89, _CELL_UNDECLARED)))
+#: the same container with the multi-part block removed: coverage 1/1, honestly, on records the kit
+#: could always read.  The CONTRAST that keeps the test above from passing on a tautology.
+_INCUMBENT_COMPLETE_BINDINGS = ((0x88, _CELL_UNDECLARED),)
+
+
+def test_a_NOVEL_DEPENDENT_completeness_keeps_the_shared_guard_ARMED():
+    """★ A1: THE 122-PALETTE RELEASE DOES NOT SHIP -- coverage tells the truth, the guard stays armed.
+
+    The reader fix flips ``complete`` to True on 19 corpus containers, and a bare boolean would then
+    release 122 palettes from ``acknowledge_shared`` **with no binder naming any of them** -- 24x the
+    population of the 5 false PRIVATE verdicts the fix exists to repair, and moving in the PERMISSIVE
+    direction.  A loosening produced by a safety fix is still a loosening.
+
+    So the denominator stays HONEST (the container's own bytes say 2 of 2) and the OBLIGATION is
+    decided by a second predicate: where completeness would not hold without the multi-part records,
+    the verdict is ``UNBOUND at COMPLETE so-coverage (NOVEL-DEPENDENT)`` and ``shared`` stays **True**.
+    Nothing about that reading is in-game, so the release awaits an owner-ratified decision instead of
+    arriving as a side effect of a bug fix.
+    """
+    blob = build_synth_creatureless_container(bindings=_NOVEL_DEPENDENT_BINDINGS)
+    a = RS.attribution(blob)
+    assert (a.geom_total, a.geom_with_so, a.geom_with_so_novel) == (2, 2, 1)
+    assert a.complete, "the denominator is HONEST -- the bytes really do carry 2 of 2"
+    assert a.complete_is_novel_dependent, "...and it is exactly the reader fix that bought the 2nd"
+    assert not RS.attribution(blob, witness=RS.WITNESS_INCUMBENT).complete, \
+        "the predicate's whole content: WITHOUT the novel record this container is INCOMPLETE"
+
+    pmap = RS.palette_map(blob)
+    for pal in pmap.palettes:
+        assert pal.shared is True, pal.name
+        assert pal.shared_reason.startswith("UNBOUND at COMPLETE so-coverage (NOVEL-DEPENDENT) (2/2)")
+        assert "1 of those 2 GEOM blocks were read ONLY by W6b-3's multi-part reader" \
+            in pal.shared_reason
+        assert RS._NOVEL_DEPENDENT_CAVEAT in pal.shared_reason, \
+            "the caveat travels WITH the verdict -- one that travels separately is one nobody reads"
+        assert "awaits owner ratification" not in pal.note, "the note is short; the reason carries it"
+
+    # ★ AND THE GUARD IS LIVE, not merely a flag: `_gate_shared` refuses through `build`
+    with pytest.raises(RS.ReskinError, match="SHARED palette") as e:
+        RS.build(_spec(blob, [{"name": PAL_8BPP, "hue_rotate": 30.0}]), "t", blob=blob)
+    assert "NOVEL-DEPENDENT" in str(e.value), \
+        "the refusal quotes the verdict, so an author reads WHY it is armed rather than only THAT"
+    assert RS.build(_spec(blob, [{"name": PAL_8BPP, "hue_rotate": 30.0,
+                                  "acknowledge_shared": True}]), "t", blob=blob).targets[0].enabled
+
+    # ★ THE OBLIGATION IS THE SAME ONE THE PRE-FIX KIT IMPOSED.  Read with the incumbent witness this
+    # container is INCOMPLETE and every palette is SHARED-UNKNOWN -- also `shared = True`.  So the fix
+    # changed the REASON and never the answer: no palette here is released BY the fix.
+    inc = RS.palette_map(blob, attrib=RS.attribution(blob, witness=RS.WITNESS_INCUMBENT))
+    assert all(p.shared and p.shared_reason.startswith("SHARED-UNKNOWN") for p in inc.palettes)
+
+    # ...and the CONTRAST, or the assertions above would hold on a branch nothing can leave: a
+    # container COMPLETE on records the kit could always read still releases, exactly as it did.
+    plain = build_synth_creatureless_container(bindings=_INCUMBENT_COMPLETE_BINDINGS)
+    ap = RS.attribution(plain)
+    assert ap.complete and not ap.complete_is_novel_dependent and ap.geom_with_so_novel == 0
+    for pal in RS.palette_map(plain).palettes:
+        assert pal.shared is False and pal.shared_reason.startswith(
+            "UNBOUND at COMPLETE so-coverage (1/1)")
+        assert "NOVEL-DEPENDENT" not in pal.shared_reason
+    assert RS.build(_spec(plain, [{"name": PAL_8BPP, "hue_rotate": 30.0}]),
+                    "t", blob=plain).targets[0].enabled, "no ack needed, and none is demanded"
+
+
 # ============================================================ (9) W6b-1: THE ID-0 REGION PARTITION
 def _covering(regions, off):
     return [n for n, lo, hi in regions if lo <= off < hi]
@@ -1951,11 +2309,18 @@ def test_the_id0_pixel_stream_runs_into_the_chunks_id1_payload_on_two_thirds_of_
 
 @needs_corpus
 def test_the_so_record_docstring_names_the_ONE_outlier_it_used_to_round_away():
-    """RE-MEASURED: 376 accepted records, 340 carrying a tpage/clut pair, 339 declaring
-    ``textured == 1``.  The docstring said 340 textured; the one record between the two predicates is
-    ef226 GEOM 0x9c804, and it is NAMED rather than renumbered -- an outlier absorbed into a round
-    number is an outlier nobody can look up."""
-    total = len10 = textured = 0
+    """RE-MEASURED at W6b-3: **502 accepted records**, 466 carrying a tpage/clut pair, 465 declaring
+    ``textured == 1``.  The docstring once said 340 textured against 340 tpage-bearing; the one record
+    between the two predicates is ef226 GEOM 0x9c804, and it is NAMED rather than renumbered -- an
+    outlier absorbed into a round number is an outlier nobody can look up.
+
+    ★ **AND THE INCUMBENT TRIPLE IS KEPT AS THE CONTAINMENT RUNG.**  ``len10`` (``rec["len"] ==
+    0x10``, i.e. ``P == 1``) is **INVARIANT at 340** across the reader fix, and the records the
+    pre-W6b-3 reader accepted are still exactly 376 -- so this test pins the NEW population and the
+    OLD one side by side, and a regression in either direction has a number that says so.
+    """
+    total = len10 = textured = tpage_bearing = 0
+    inc_total = inc_len10 = inc_textured = 0
     odd = []
     for ef, blob in _corpus_blobs():
         mp = KC.creature_package(blob)
@@ -1969,21 +2334,35 @@ def test_the_so_record_docstring_names_the_ONE_outlier_it_used_to_round_away():
             total += 1
             len10 += rec["len"] == 0x10
             textured += bool(rec["textured"])
+            tpage_bearing += "tpage" in rec
+            if rec["witness"] == RS.WITNESS_INCUMBENT:
+                inc_total += 1
+                inc_len10 += rec["len"] == 0x10
+                inc_textured += bool(rec["textured"])
             if rec["len"] == 0x10 and not rec["textured"]:
                 odd.append((ef, g.base))
-    assert (total, len10, textured) == (376, 340, 339)
+    assert (total, len10, textured) == (502, 340, 465)
+    assert tpage_bearing == 466, "466 records carry at least one pair; 465 of them SAY they do"
+    assert (inc_total, inc_len10, inc_textured) == (376, 340, 339), \
+        "THE CONTAINMENT RUNG: the incumbent witness reproduces the pre-W6b-3 population exactly"
     assert odd == [(226, 0x9C804)]
     doc = RS.so_record.__doc__.lower()
-    assert "339" in doc and "0x9c804" in doc and "ef226" in doc
+    assert "465" in doc and "0x9c804" in doc and "ef226" in doc
 
 
 @needs_corpus
 def test_the_direct_binder_population_is_the_only_thing_include_direct_adds_corpus_wide():
-    """The u-spill census was measured over ``attribution``'s own population; this pins that the
-    default is byte-for-byte what it was (316 bindings -- 315 textured plus the ef226 outlier) and
-    that ``include_direct`` adds exactly the 24 direct binders over 12 effects, and nothing else."""
+    """``include_direct`` adds the direct binders and NOTHING else -- the structural invariant, which
+    survives W6b-3 unchanged: ``[b for b in on if not b.direct] == off``, container for container.
+
+    The POPULATION moved with the reader fix (580 / 649 over 69 direct binders in 17 effects, up from
+    316 / 340 / 24 / 12), because ``attribution`` now answers the TRUE binding population by default.
+    ★ **The INCUMBENT witness reproduces the old numbers exactly**, and pinning both is what makes
+    "the census does not move" a statement about this function's OUTPUT rather than a hope.
+    """
     off_n = on_n = direct = 0
-    effects = set()
+    i_off_n = i_on_n = i_direct = 0
+    effects, i_effects = set(), set()
     for ef, blob in _corpus_blobs():
         a0, a1 = RS.attribution(blob), RS.attribution(blob, include_direct=True)
         assert [b for b in a1.bindings if not b.direct] == a0.bindings
@@ -1994,8 +2373,68 @@ def test_the_direct_binder_population_is_the_only_thing_include_direct_adds_corp
         if a1.direct:
             effects.add(ef)
         assert all(b.entries == 0 and b.cell == RS.NO_CLUT_CELL for b in a1.direct)
-    assert off_n == 316 and on_n == 340
-    assert (direct, len(effects)) == (24, 12)
+        i0 = RS.attribution(blob, witness=RS.WITNESS_INCUMBENT)
+        i1 = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
+        assert [b for b in i1.bindings if not b.direct] == i0.bindings
+        assert all(b.witness == RS.WITNESS_INCUMBENT and b.slot == 0 for b in i1.bindings), \
+            "an incumbent record is P <= 1, so every incumbent binding is entry 0 of its own record"
+        i_off_n += len(i0.bindings)
+        i_on_n += len(i1.bindings)
+        i_direct += len(i1.direct)
+        if i1.direct:
+            i_effects.add(ef)
+    assert off_n == 580 and on_n == 649
+    assert (direct, len(effects)) == (69, 17)
+    assert i_off_n == 316 and i_on_n == 340, \
+        "THE CONTAINMENT RUNG: the incumbent binding population is byte-for-byte pre-W6b-3"
+    assert (i_direct, len(i_effects)) == (24, 12)
+
+
+@needs_corpus
+def test_the_previews_the_reader_fix_ADDS_and_the_ones_it_TAKES_are_both_measured():
+    """★ A7.m3: THE PREVIEW POPULATION MOVED IN **BOTH** DIRECTIONS, AND BOTH ARE MEASURED.
+
+    ``render_previews`` draws a scenery palette only where exactly one binder resolves it, so the
+    reader fix moves that population two ways and only one of them is comfortable:
+
+    * **APPEARING -- 30 palettes.** Every one of them goes 0 -> 1 binder and that single binder is
+      NOVEL: a palette the pre-W6b-3 kit could name no reader for now has exactly one, so the author
+      gets a picture where they used to get silence.  Single-slot, no set to choose from, no order
+      consumed -- the safe direction, and it SHIPS.
+    * **VANISHING -- 4 palettes**, named here, where a SECOND binder became visible and the refusal
+      (with its reason) is the honest answer.  ``ef381 pal.s0.x0_y248.e256`` is the flagship: 1 -> 7.
+
+    Measured through the SHIPPED :func:`~ff9mapkit.summons.reskin.preview_source` on both witnesses,
+    never through a re-implementation, and the three numbers CLOSE: ``57 - 4 + 30 == 83``.  A count
+    that closes against its own before-and-after cannot be a coincidence of the instrument.
+    """
+    appearing, vanishing = [], []
+    n_inc = n_all = 0
+    for ef, blob in _corpus_blobs():
+        a_all = RS.attribution(blob)
+        a_inc = RS.attribution(blob, witness=RS.WITNESS_INCUMBENT)
+        for pal in RS.palette_map(blob, attrib=a_all).palettes:
+            if pal.slot < 0 or pal.entries != 256:            # `render_previews`' own predicate
+                continue
+            pre = RS.preview_source(blob, pal, a_inc)
+            post = RS.preview_source(blob, pal, a_all)
+            n_inc += pre is not None
+            n_all += post is not None
+            if pre is None and post is not None:
+                bind = a_all.binders(pal.vram, pal.entries)
+                assert not a_inc.binders(pal.vram, pal.entries) and len(bind) == 1 and bind[0].novel, \
+                    "a preview may only APPEAR by the 0 -> 1 route, on a single NOVEL binder"
+                appearing.append((ef, pal.name))
+            if pre is not None and post is None:
+                vanishing.append((ef, pal.name))
+    assert len(appearing) == 30, "the APPEARING population, pinned"
+    assert [(ef, n) for ef, n in vanishing] == [
+        (179, "pal.s0.x0_y248.e256"), (381, "pal.s0.x0_y248.e256"),
+        (438, "pal.s0.x0_y242.e256"), (438, "pal.s0.x0_y248.e256")], \
+        "the four that lose a picture, BY NAME -- a vanished preview counted but not named is a " \
+        "number the next rung cannot look up"
+    assert (n_inc, n_all) == (57, 83)
+    assert n_inc - len(vanishing) + len(appearing) == n_all, "and the three close on each other"
 
 
 @needs_corpus

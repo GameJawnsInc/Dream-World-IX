@@ -172,13 +172,15 @@ __all__ = [
     "ReskinError",
     "MOD_SUBPATH", "STAGING_BASE", "LEGACY_STAGING", "staging_root",
     "WHOLE_SET_CEILING", "BLOWOUT_FRACTION", "EF227_NAMES", "ID9_SLOT_BIT", "id9_slot_vram",
-    "SO_MAGIC", "SO_BPP", "so_record", "NO_CLUT_CELL", "Binding", "Attribution", "attribution",
+    "SO_MAGIC", "SO_BPP", "MAX_SO_PARTS", "so_record", "NO_CLUT_CELL", "Binding", "Attribution",
+    "attribution",
+    "WITNESS_INCUMBENT", "WITNESS_NOVEL", "WITNESS_ALL", "WITNESS_CLASSES",
     "TexAnim", "texanim_region", "assert_region_invariant",
     "Span", "Palette", "Cell", "PaletteMap", "clut_word_xy", "chunk_tag", "chunk_tag_of_slot",
     "palette_auto_name", "span_auto_name", "id0_palettes", "creature_palettes", "palette_map",
     "creature_pages", "PageRect", "scenery_pages", "id9_pages", "preview_source",
     "PAGE_CELL_W", "PAGE_CELL_LINES", "PAGE_CELL_BYTES", "PageCell", "page_cells",
-    "PAGE_LINES", "PageDepth", "page_depth_view",
+    "PAGE_LINES", "PageDepth", "page_depth_view", "array_depth_view",
     "assert_page_cells_identical", "Id0Split", "id0_splits",
     "CLIP_SAT", "CLIP_VAL", "CLIP_CHANNEL", "Transform", "apply_word", "apply_palette",
     "PaletteResult", "palette_peak", "palette_mean_hue",
@@ -308,43 +310,121 @@ SO_MAGIC = 0x6F73                                            # 'so', little-endi
 #: PSX TPAGE colour-mode field (bits 7-8) -> bits per texel
 SO_BPP = {0: 4, 1: 8, 2: 15, 3: 15}
 
+# ---------------------------------------------------------------- ★ THE WITNESS PARTITION (W6b-3)
+#: ★ THE WITNESS PARTITION.  A binding slot's witness class is a property of the RECORD it came out
+#: of, not of the slot: an ``so`` record with ``P <= 1`` is one the pre-W6b-3 reader already accepted
+#: (INCUMBENT); a record with ``P >= 2`` was returned as ``None`` in its entirety, so the record,
+#: slot 0 AND every ``slot >= 1`` binding are all NOVEL together.  Measured: filtering the fixed
+#: reader to INCUMBENT reproduces the pre-W6b-3 population exactly -- 340/340 bindings and 376/376
+#: records, tuple for tuple, 0 of 372 containers differing -- which is what makes *"the census and
+#: CHANNEL G do not move"* a statement about the INPUT rather than a claim about the output.
+WITNESS_INCUMBENT = "incumbent"
+#: a binding only :func:`so_record`'s W6b-3 multi-part reading can see.
+WITNESS_NOVEL = "novel"
+#: both classes -- :func:`attribution`'s DEFAULT, because the true population is not a scope choice.
+WITNESS_ALL = "all"
+WITNESS_CLASSES = (WITNESS_INCUMBENT, WITNESS_NOVEL, WITNESS_ALL)
+
+
+def _check_witness(witness: str) -> str:
+    """A guard may only ever fail CLOSED -- the precedent is ``scenery_surface``'s unknown-channel
+    raise.  An unrecognised witness class must never silently degrade to "everything"."""
+    if witness not in WITNESS_CLASSES:
+        raise ReskinError(
+            "unknown witness class %r -- this kit ships %s.  A witness class selects which `so`"
+            " RECORDS a derivation is allowed to see, and a scope that fails open is not a scope."
+            % (witness, ", ".join(repr(w) for w in WITNESS_CLASSES)))
+    return witness
+
+
+#: ★ A BOUND, NOT A FACT. The corpus's longest ``so`` record is ``P = 7`` (``recLen`` 0x40); this
+#: caps the probe so a hostile or corrupt blob cannot make :func:`so_record` walk backwards forever.
+#: The corpus maximum is pinned SEPARATELY (``w6b3_gates`` G1) precisely so this constant can never
+#: be mistaken for the measurement.
+MAX_SO_PARTS = 15
+
 
 def so_record(blob: bytes, geom_base: int) -> Optional[dict]:
-    """The 8- or 16-byte binding record that immediately precedes a non-creature GEOM block.
+    """The ``8 + 8P``-byte binding record that immediately precedes a non-creature GEOM block.
 
-    Measured over the corpus: **376 accepted records**, of which **340 carry a tpage/clut pair**
-    (``rec_len == 0x10``) but only **339 declare ``textured == 1``**. This docstring used to say 340
-    textured; the two counts are not the same predicate and the one record between them is named
-    here rather than renumbered away -- an outlier absorbed into a round number is an outlier nobody
-    can look up:
+    ★ **THE RECORD IS A MULTI-PART BINDING ARRAY (W6b-3), and this reader used to get its LENGTH
+    wrong.** It hard-probed ``recLen in (0x10, 0x08)``, i.e. ``P <= 1``, so **126 corpus records and
+    all 309 of their binding slots returned ``None`` -- record, slot 0 and every ``slot >= 1`` pair
+    alike.** That was not a missing answer, it was a WRONG one: five palettes shipped a
+    ``DERIVED PRIVATE`` verdict that a dropped record contradicts. Fixing it is a SAFETY fix and is
+    unconditional; licensing the DEPTHS it reveals is a separate decision, and the kit does not take
+    it (CHANNEL A ``so-array`` DISCLOSES -- see
+    :func:`ff9mapkit.summons.reskin.array_depth_view`).
+
+    Measured over the corpus with this reader: **502 accepted records** / **649 binding slots**, of
+    which **466 carry a tpage/clut pair** but only **465 declare ``textured == 1``**. The docstring
+    once said 340 textured against 340 tpage-bearing; the two counts are not the same predicate and
+    the one record between them is named here rather than renumbered away -- an outlier absorbed into
+    a round number is an outlier nobody can look up:
 
     * **ef226 GEOM 0x9c804** (record at ``0x9c7f4``, ``tpage 0x97``, ``clut 0x3e00``) is a full
       0x10-byte record with a live-looking binding that nonetheless declares ``textured == 0``, and
       its GEOM block carries **zero UV-bearing faces**. It has nothing to sample with.
 
-    Of the 340 tpage-bearing records, :func:`attribution` binds **316** by default and the remaining
-    **24** are 15bpp DIRECT-colour binders across 12 effects, which index no palette at all and are
-    admitted only under ``include_direct=True``. Layout::
+    THE LAYOUT::
 
-        +0x00 u16 magic  == 0x6F73 ('so')
-        +0x02 u16 textured    1 = carries tpage/clut, 0 = Gouraud/flat only
-        +0x04 u16 geomOff     0x10 (textured) / 0x08 (untextured) -- record -> GEOM, and the length
-        +0x06 u16 OPAQUE
-        +0x08 u16 tpage       (textured only)
-        +0x0a u16 clut        (textured only; 0 when the tpage says 15bpp direct colour)
-        +0x0c u16 OPAQUE
-        +0x0e u16 OPAQUE
+        +0x00 u16 magic     == 0x6F73 ('so')
+        +0x02 u16 textured     a near-redundant restatement of P >= 1 (501/502; ef226 above is the
+                               exception, and it reads 1 at P == 7 elsewhere -- NOT a part count)
+        +0x04 u16 recLen    == 8 + 8P   -- recordBase + recLen == geomBase (502/502)
+        +0x06 u16 arrayB    == 8 + 4P   -- ★ THE INDEPENDENT HALFWORD the acceptance test rests on
+        +0x08     P x { u16 tpage, u16 clut }   stride 4
+        +arrayB   P x { u16, u16 }              OPAQUE (scored as an in-record null: 0/309, 0/264)
 
-    The acceptance test is the magic AND the self-describing length, so a coincidental ``0x6F73``
-    two bytes before a GEOM block cannot be mistaken for a record.
+    **THE ACCEPTANCE TEST IS THREE INDEPENDENT HALFWORDS**, and only two of them carry load.
+    ``recLen == 8 + 8P`` is near-tautological given ``P := (recLen - 8) // 8`` -- it asserts only
+    ``recLen`` is a multiple of 8. The weight is carried by ``arrayB`` at ``+0x06``, which agrees
+    502/502 and which **126 of 126 multi-part records take OUTSIDE the two values {8, 12} a ``P <= 1``
+    corpus could ever supply**. So ``+0x06`` stops being ``OPAQUE`` here and becomes the field the
+    acceptance rests on.
+
+    ★ **THE P = 0 INVARIANT: a record with ZERO pairs is still a RECORD.** 36 corpus records are
+    8-byte ``P == 0``; :func:`attribution` counts them in ``geom_with_so`` BEFORE any tpage check.
+    The natural new shape -- *"no pairs, return None"* -- would silently shrink the coverage
+    DENOMINATOR, flip ``complete`` on containers that read ``UNBOUND at COMPLETE so-coverage`` today,
+    and demand ``acknowledge_shared`` on palettes that never needed it. **Unsafe-by-omission is still
+    unsafe**, so a ``P == 0`` record returns a dict with ``parts == []`` and NO ``tpage``/``clut``
+    keys -- exactly the old 8-byte shape plus the three new keys.
+
+    ⚠ **THE ARITY IS MEASURED TWICE; THE ORDER IS NOT, AND THIS READER SHIPS ONLY THE ARITY.** The
+    array is *"selected by the primitive's ``part`` byte"*, which states an arity **and** an order.
+    The arity is corroborated from outside the header twice (the part-byte range test: 0 of 502
+    records has ``max(part) >= P``, and stride 8 would over-run on 126/126; the CLUT-arity test:
+    264/264 against a 16.2% random floor and a 53.3% ambient). **The order is corroborated by
+    nothing** -- the best available discriminator scores identity 63.3% / reversed 56.0% / random
+    permutations 59.4%, ~0.9 sigma above chance. **No kit verdict may map a part INDEX to an array
+    ENTRY.** Every consumer treats ``parts`` as a **SET**. A reason string may name the record offset
+    and the slot index as *identification*; it may not assert that part *k* draws with entry *k*.
+    Carried as the quotable call-sited constant
+    :data:`ff9mapkit.summons.depth_attribution.ORDER_UNMEASURED` -- *a law in a docstring is a wish.*
+
+    ``tpage`` / ``clut`` remain as a **COMPATIBILITY VIEW of entry 0** (absent at ``P == 0``), which
+    keeps the 340/340 slot-0 rung assertable as a live containment check. Read them on an
+    ``nparts >= 2`` record and you are silently under-reading -- and ``nparts`` is exactly what makes
+    that detectable.
+
+    Returns ``{at, len, textured, nparts, witness, parts, [tpage, clut]}``; see
+    :data:`WITNESS_INCUMBENT` / :data:`WITNESS_NOVEL` for what ``witness`` decides.
     """
-    for rec_len in (0x10, 0x08):
+    for P in range(0, MAX_SO_PARTS + 1):                     # nearest-first; P=0 shadows nothing
+        rec_len = 8 + 8 * P
         o = geom_base - rec_len
-        if o >= 0 and _u16(blob, o) == SO_MAGIC and _u16(blob, o + 4) == rec_len:
-            rec = {"at": o, "len": rec_len, "textured": _u16(blob, o + 2)}
-            if rec_len == 0x10:
-                rec["tpage"] = _u16(blob, o + 8)
-                rec["clut"] = _u16(blob, o + 0x0A)
+        if o < 0:
+            return None
+        if (_u16(blob, o) == SO_MAGIC
+                and _u16(blob, o + 4) == rec_len                  # recordBase + recLen == geomBase
+                and _u16(blob, o + 6) == 8 + 4 * P):              # arrayB -- THE INDEPENDENT HALFWORD
+            parts = [(_u16(blob, o + 8 + 4 * k), _u16(blob, o + 10 + 4 * k)) for k in range(P)]
+            rec = {"at": o, "len": rec_len, "textured": _u16(blob, o + 2),
+                   "nparts": P, "parts": parts,
+                   "witness": WITNESS_INCUMBENT if P <= 1 else WITNESS_NOVEL}
+            if parts:
+                rec["tpage"], rec["clut"] = parts[0]
             return rec
     return None
 
@@ -360,8 +440,23 @@ NO_CLUT_CELL: Tuple[int, int] = (-1, -1)
 
 @dataclass(frozen=True)
 class Binding:
-    """One GEOM model's texture binding: which page it samples and which CLUT cell colours it."""
+    """One GEOM model's texture binding: which page it samples and which CLUT cell colours it.
+
+    ★ **ONE ENTRY OF AN ARRAY, since W6b-3.** An ``so`` record carries ``P`` ``(tpage, clut)`` pairs,
+    so one GEOM model can contribute more than one ``Binding``. :attr:`slot` says which entry this
+    came out of and :attr:`record_at` says which record -- both **IDENTIFICATION ONLY**. Neither is
+    an ordering claim: the array's ARITY is measured twice and its ORDER by nothing
+    (:func:`so_record`'s order clause / :data:`ff9mapkit.summons.depth_attribution.ORDER_UNMEASURED`),
+    so no verdict in this kit may map a primitive's ``part`` byte to array entry ``k``.
+    """
     geom: int
+    #: WHICH ENTRY of the record's binding array -- **identification, never an order**. Always 0 on
+    #: an INCUMBENT binding, so every pre-W6b-3 repr, sort key and dict key is unchanged there. It is
+    #: deliberately NOT called ``part``: the primitive's ``part`` byte keeps that name, and the array
+    #: index must not borrow it while the order clause is open.
+    slot: int
+    #: the record's own file offset -- what a CHANNEL A reason string names to identify the evidence.
+    record_at: int
     chunk_slot: int
     tpage: int
     page: Tuple[int, int]        # tpage VRAM origin (x halfwords, y lines)
@@ -369,11 +464,19 @@ class Binding:
     clut_word: int
     cell: Tuple[int, int]        # CLUT VRAM cell (x entries, y line); NO_CLUT_CELL at 15bpp
     entries: int                 # 16 (4bpp) or 256 (8bpp); 0 at 15bpp -- there is no palette
+    #: :data:`WITNESS_INCUMBENT` or :data:`WITNESS_NOVEL` -- CARRIED off the record rather than
+    #: re-derived from ``slot`` at each call site, because slot 0 of a ``P >= 2`` record is novel too.
+    witness: str = WITNESS_INCUMBENT
 
     @property
     def direct(self) -> bool:
         """15bpp DIRECT colour -- the texels ARE the colour, so there is nothing to recolour."""
         return self.bpp == 15
+
+    @property
+    def novel(self) -> bool:
+        """This binding is one no kit before W6b-3 could read -- see :data:`WITNESS_NOVEL`."""
+        return self.witness == WITNESS_NOVEL
 
 
 @dataclass
@@ -392,6 +495,16 @@ class Attribution:
     #: whether 15bpp DIRECT binders were admitted -- carried so a consumer can tell "this container
     #: has no direct binders" from "this scan never looked for them".
     include_direct: bool = False
+    #: WHICH RECORD CLASS this scan was allowed to see (:data:`WITNESS_CLASSES`) -- carried for the
+    #: same reason ``include_direct`` is: so a consumer can tell *"this container has no novel
+    #: bindings"* from *"this scan never looked for them"*.
+    witness: str = WITNESS_ALL
+    #: how many of :attr:`geom_with_so` were reachable ONLY through a ``P >= 2`` record, i.e. how much
+    #: of this container's COVERAGE rests on the W6b-3 reading. **Coverage must state its reader
+    #: population**: :attr:`complete` is the switch between *"shared, acknowledge it"* and *"free to
+    #: recolour"*, and a completeness that depends on records no kit could read a rung ago is not the
+    #: same fact as one the pre-W6b-3 reader already established.
+    geom_with_so_novel: int = 0
 
     @property
     def coverage(self) -> float:
@@ -413,6 +526,20 @@ class Attribution:
         so per target."""
         return self.geom_total > 0 and self.geom_with_so == self.geom_total
 
+    @property
+    def complete_is_novel_dependent(self) -> bool:
+        """★ COVERAGE STATES ITS READER POPULATION: this container reads COMPLETE **only because**
+        the W6b-3 multi-part reader saw records no earlier kit could.
+
+        19 corpus containers are in this class and 122 palettes hang on it. Left as a bare boolean,
+        :attr:`complete` would silently dissolve ``acknowledge_shared`` on every one of them -- a
+        LOOSENING produced by a SAFETY FIX, which is the same class of defect the fix repairs. So the
+        predicate is named, carried into the verdict (``_apply_attribution``'s NOVEL-DEPENDENT
+        branch) and the guard stays ARMED until an owner ratifies the release.
+        """
+        return (self.complete and self.geom_with_so_novel > 0
+                and self.geom_with_so - self.geom_with_so_novel < self.geom_total)
+
     def binders(self, cell: Tuple[int, int], entries: int) -> List[Binding]:
         """Which models read a PALETTE -- so a 15bpp direct binder can never be one of them.
 
@@ -425,15 +552,28 @@ class Attribution:
                 if not b.direct and b.cell == cell and b.entries == entries]
 
 
-def attribution(blob: bytes, include_direct: bool = False) -> Attribution:
+def attribution(blob: bytes, include_direct: bool = False,
+                witness: str = WITNESS_ALL) -> Attribution:
     """Scan every non-creature GEOM block for its ``so`` record and join model -> (tpage, CLUT).
 
-    ``include_direct`` admits the **15bpp DIRECT-colour binders** this scan has always dropped (24
-    bindings over 12 effects, corpus-measured). It defaults to ``False`` so every existing caller and
-    every published count is byte-for-byte what it was: the CLUT lane asks
-    :meth:`Attribution.binders` for a palette's ``(vram, entries)``, a direct binder carries
-    :data:`NO_CLUT_CELL` and ``entries == 0``, and the recorded 316-record binding population (the
-    denominator the u-spill census was measured over) is unchanged under the default.
+    ★ **``witness`` DEFAULTS TO** :data:`WITNESS_ALL`, **and that deliberately inverts the
+    ``include_direct`` precedent.** ``include_direct``'s default was chosen so no published count
+    moved, because the bindings it withheld were bindings the CLUT lane *correctly* excluded -- a
+    direct binder answers no palette question. The INCUMBENT population is not a scope choice, it is
+    a **defect**: :func:`so_record` could not read a ``P >= 2`` record at all, so 126 records and 309
+    binding slots were invisible. A default chosen to preserve a defect so that counts do not move is
+    exactly *"the guard-rail defeated by construction"* this rung exists to repair.
+
+    And the decisive argument is mechanical, not aesthetic: several call sites in this repo rolled
+    *"CHANNEL G"* as *"whatever ``attribution()`` returns"* -- an expression that was correct only
+    while the two were the same set. With the default at the TRUE population those expressions are
+    wrong LOUDLY, so every consumer that means CHANNEL G or THE CENSUS must **say**
+    ``witness=WITNESS_INCUMBENT`` and every narrowing site is auditable by ``grep -rn "witness="``.
+
+    ``include_direct`` admits the **15bpp DIRECT-colour binders** this scan has always dropped. It
+    defaults to ``False`` so the CLUT lane's population is byte-for-byte what it was: the CLUT lane
+    asks :meth:`Attribution.binders` for a palette's ``(vram, entries)``, a direct binder carries
+    :data:`NO_CLUT_CELL` and ``entries == 0``.
 
     A PARAMETER, never a second scanner -- the same precedent :func:`_regions`' ``partition`` set. The
     texel lane needs these bindings for two things a palette lane never asks about: a cell's DEPTH
@@ -441,7 +581,12 @@ def attribution(blob: bytes, include_direct: bool = False) -> Attribution:
     depth-unknown) and the U-SPILL census (17 of the 58 spilling bindings are 15bpp, and one halfword
     is one texel at that depth, so they spill up to three columns where 8bpp reaches exactly one).
     ``coverage``/``complete`` are computed BEFORE this filter and are identical either way.
+
+    ⚠ ``coverage`` / ``geom_with_so`` / ``geom_total`` / ``complete`` stay **per-GEOM-BLOCK counters**
+    and are never re-based on slots -- a multi-part record is ONE block's coverage however many
+    entries it carries, and a ``P == 0`` record is still a record (:func:`so_record`'s P=0 invariant).
     """
+    _check_witness(witness)
     mp = EC.creature_package(blob)
     creature_geom = mp.geom_offset if mp is not None else None
     c = EC.parse_header(blob, strict=False)
@@ -458,7 +603,7 @@ def attribution(blob: bytes, include_direct: bool = False) -> Attribution:
         return -1
 
     binds: List[Binding] = []
-    total = with_so = 0
+    total = with_so = with_so_novel = 0
     for g in EC.scan_geom(blob):
         if creature_geom is not None and g.base == creature_geom:
             continue
@@ -466,26 +611,38 @@ def attribution(blob: bytes, include_direct: bool = False) -> Attribution:
         rec = so_record(blob, g.base)
         if rec is None:
             continue
+        # ★ THE WITNESS FILTER IS ON THE RECORD, NOT ON THE SLOT.  A `P >= 2` record was returned as
+        # None in its entirety before W6b-3, so slot 0 of one is exactly as novel as slot 3 -- and
+        # filtering per slot would leak slot 0 of all 126 into the incumbent population.
+        if witness != WITNESS_ALL and rec["witness"] != witness:
+            continue
+        # ★ THE P=0 INVARIANT: a record with ZERO pairs is still a RECORD.  36 corpus records are
+        # 8-byte / P == 0, and this `+= 1` sits BEFORE the per-slot loop exactly as the pre-W6b-3
+        # `with_so += 1` sat before the tpage check.  Dropping them would shrink the coverage
+        # DENOMINATOR, flip `complete` True on containers that read UNBOUND today, and dissolve
+        # `acknowledge_shared` on palettes that never needed it -- unsafe-by-omission is still unsafe.
         with_so += 1
-        tp, cw = rec.get("tpage"), rec.get("clut")
-        if tp is None:                                       # an 8-byte record: untextured
-            continue
-        bpp = SO_BPP[(tp >> 7) & 3]
-        if bpp == 15:                                        # direct colour: no palette to bind
-            if not include_direct:
+        if rec["witness"] == WITNESS_NOVEL:
+            with_so_novel += 1
+        for k, (tp, cw) in enumerate(rec["parts"]):
+            bpp = SO_BPP[(tp >> 7) & 3]
+            common = dict(geom=g.base, slot=k, record_at=rec["at"],
+                          chunk_slot=owner_slot(g.base), tpage=tp,
+                          page=((tp & 0x0F) * 64, ((tp >> 4) & 1) * 256),
+                          witness=rec["witness"])
+            if bpp == 15:                                    # direct colour: no palette to bind
+                if not include_direct:
+                    continue
+                binds.append(Binding(bpp=15, clut_word=cw or 0, cell=NO_CLUT_CELL, entries=0,
+                                     **common))
                 continue
-            binds.append(Binding(geom=g.base, chunk_slot=owner_slot(g.base), tpage=tp,
-                                 page=((tp & 0x0F) * 64, ((tp >> 4) & 1) * 256), bpp=15,
-                                 clut_word=cw or 0, cell=NO_CLUT_CELL, entries=0))
-            continue
-        if not cw:                                           # an indexed record naming no CLUT word
-            continue
-        binds.append(Binding(geom=g.base, chunk_slot=owner_slot(g.base), tpage=tp,
-                             page=((tp & 0x0F) * 64, ((tp >> 4) & 1) * 256), bpp=bpp,
-                             clut_word=cw, cell=clut_word_xy(cw),
-                             entries=16 if bpp == 4 else 256))
+            if not cw:                                       # an indexed slot naming no CLUT word
+                continue
+            binds.append(Binding(bpp=bpp, clut_word=cw, cell=clut_word_xy(cw),
+                                 entries=16 if bpp == 4 else 256, **common))
     return Attribution(bindings=binds, geom_total=total, geom_with_so=with_so,
-                       include_direct=include_direct)
+                       include_direct=include_direct, witness=witness,
+                       geom_with_so_novel=with_so_novel)
 
 
 # ============================================================ (1b) THE TEXANIM REGION -- MEASURED
@@ -863,19 +1020,42 @@ def creature_palettes(blob: bytes) -> Tuple[Optional[Span], List[Palette], str]:
     return span, pals, ""
 
 
+#: what a NOVEL-DEPENDENT completeness verdict has to say out loud, in one quotable place -- W6b-3's
+#: coverage flip is a LOOSENING produced by a SAFETY FIX, and a loosening nobody states is a leak.
+_NOVEL_DEPENDENT_CAVEAT = (
+    "NOTHING ABOUT THE MULTI-PART READING IS IN-GAME: its ghost-layer prediction scored 0 hits, 4 "
+    "misses and 2 vacuous passes over six named cells, and BINDING-IS-NOT-A-DRAW plus THE DEPTH "
+    "COROLLARY apply in full.  So `acknowledge_shared` stays ARMED here rather than being dissolved "
+    "by a coverage figure that rests on records no kit could read a rung ago.  UPGRADE PATH: an "
+    "owner-ratified release, or a cast that puts one of these bindings on screen")
+
+
 def _apply_attribution(pals: List[Palette], attrib: Attribution) -> List[Palette]:
     """Hang the DERIVED ``shared`` flag and binder list on every scenery palette.
 
-    Three states, and the middle one is the whole point:
+    Four states now, and the two middle ones are the whole point:
 
-    * **bound by >1 GEOM model** -> ``shared = True``. It may only be recoloured as the GROUP it is,
+    * **bound by >1 GEOM MODEL** -> ``shared = True``. It may only be recoloured as the GROUP it is,
       so the spec must acknowledge it.
+    * **bound by exactly one GEOM MODEL** -> ``shared = False``, DERIVED PRIVATE.
     * **bound by no model, and ``so`` coverage is INCOMPLETE** -> ``shared = True``, reason UNKNOWN.
       We cannot tell "private" from "shared" because we could not read every model's binding; a hand
       table asserted ``shared = False`` here, which is the guard-rail defeated by construction.
     * **bound by no model at COMPLETE coverage** -> ``shared = False``, and the note says the honest
       thing: the header declares it, no GEOM model reads it, so something else (a sprite, a
-      particle) does.
+      particle) does. ★ **Unless that completeness DEPENDS on W6b-3's multi-part records**, in which
+      case the verdict is ``UNBOUND at COMPLETE so-coverage (NOVEL-DEPENDENT)`` and ``shared`` stays
+      **True** -- see :attr:`Attribution.complete_is_novel_dependent`. 19 corpus containers / 122
+      palettes are in that class; releasing them would be a loosening produced by a safety fix, and
+      it awaits owner ratification rather than arriving as a side effect.
+
+    ★ **THE DEDUPE LAW: THE VERDICT COUNTS DISTINCT GEOM MODELS, NEVER BINDING SLOTS.** Since W6b-3 a
+    multi-part record can bind ONE palette from TWO entries of ONE model's own array. The reason
+    string says *"GEOM models"*, and a count that does not match its own noun is a false statement in
+    the safest-sounding direction. Measured corpus-wide: **5 palettes are affected -- 3 flip the
+    VERDICT (shared -> private) and 2 flip only the printed COUNT while staying shared** -- and there
+    are **0** cases of one GEOM binding one palette at two different DEPTHS, so the dedupe can never
+    collapse a depth conflict.
     """
     out: List[Palette] = []
     pct = 100.0 * attrib.coverage
@@ -884,30 +1064,69 @@ def _apply_attribution(pals: List[Palette], attrib: Attribution) -> List[Palette
             out.append(p)
             continue
         binders = attrib.binders(p.vram, p.entries)
-        if len(binders) > 1:
+        # ★ THE DEDUPE, at the call site.  `models` is the tuple the `binders` field always CLAIMED
+        # to be: distinct GEOM bases, lowest first.
+        by_geom: Dict[int, List[Binding]] = {}
+        for b in binders:
+            by_geom.setdefault(b.geom, []).append(b)
+        models = sorted(by_geom)
+        novel = [b for b in binders if b.novel]
+        # IDENTIFICATION ONLY -- a record offset and a slot index, never a claim that entry k is
+        # drawn by part k (:func:`so_record`'s order clause).
+        novel_ids = ", ".join("record %#x slot %d" % (b.record_at, b.slot)
+                              for b in sorted(novel, key=lambda x: (x.geom, x.record_at, x.slot)))
+        if len(models) > 1:
+            extra = ("  -- %d of these binding(s) come from a MULTI-PART record the kit did not read "
+                     "before W6b-3 (%s; identification only -- the entry ORDER inside a record's "
+                     "array is UNMEASURED)" % (len(novel), novel_ids)) if novel else ""
             out.append(dataclasses.replace(
-                p, shared=True, binders=tuple(sorted(b.geom for b in binders)),
-                shared_reason="DERIVED SHARED: %d GEOM models bind this cell (%s)"
-                              % (len(binders), ", ".join("%#x" % b.geom for b in sorted(
-                                  binders, key=lambda x: x.geom))),
-                note=p.note or "read by %d models" % len(binders)))
-        elif len(binders) == 1:
+                p, shared=True, binders=tuple(models),
+                shared_reason="DERIVED SHARED: %d GEOM models bind this cell (%s)%s"
+                              % (len(models), ", ".join("%#x" % g for g in models), extra),
+                note=p.note or "read by %d models" % len(models)))
+        elif len(models) == 1:
+            # ★ ONE MODEL, MORE THAN ONE ENTRY: say so, or the 3 self-shared palettes read as a plain
+            # single binding and the arity is hidden by the very dedupe that made the verdict right.
+            # ...and the slot list carries the SAME qualifier its DERIVED SHARED sibling four lines
+            # up does.  This branch is the one the self-shared palettes land in, so it is the one
+            # place an author reads a slot index next to a PRIVATE verdict -- the convention may not
+            # lapse exactly where it is easiest to read as an ordering claim.
+            arity = ("  (through %d entries of its own binding array%s)"
+                     % (len(by_geom[models[0]]),
+                        "; %s -- identification only, the entry ORDER inside a record's array is "
+                        "UNMEASURED" % novel_ids if novel else "")
+                     ) if len(by_geom[models[0]]) > 1 else ""
             out.append(dataclasses.replace(
-                p, shared=False, binders=(binders[0].geom,),
-                shared_reason="DERIVED PRIVATE: exactly one GEOM model (%#x) binds this cell"
-                              % binders[0].geom,
-                note=p.note or "bound by GEOM %#x" % binders[0].geom))
+                p, shared=False, binders=(models[0],),
+                shared_reason="DERIVED PRIVATE: exactly one GEOM model (%#x) binds this cell%s"
+                              % (models[0], arity),
+                note=p.note or "bound by GEOM %#x" % models[0]))
         elif not attrib.complete:
             why = ("this container declares NO non-creature GEOM models at all, so attribution has "
                    "no evidence to work from (222 of the 372 corpus containers are in this class)"
                    if attrib.geom_total == 0 else
-                   "only %d of %d GEOM blocks (%.1f%%) carry one"
-                   % (attrib.geom_with_so, attrib.geom_total, pct))
+                   "only %d of %d GEOM blocks (%.1f%%) carry one%s"
+                   % (attrib.geom_with_so, attrib.geom_total, pct,
+                      ", %d of them readable ONLY by W6b-3's multi-part reader"
+                      % attrib.geom_with_so_novel if attrib.geom_with_so_novel else ""))
             out.append(dataclasses.replace(
                 p, shared=True,
                 shared_reason="SHARED-UNKNOWN: no `so` record names this cell, and %s -- sharing "
                               "cannot be ruled out" % why,
                 note=p.note or "UNATTRIBUTED at %.0f%% so-coverage" % pct))
+        elif attrib.complete_is_novel_dependent:
+            out.append(dataclasses.replace(
+                p, shared=True,
+                shared_reason="UNBOUND at COMPLETE so-coverage (NOVEL-DEPENDENT) (%d/%d): the header "
+                              "declares it and no GEOM model reads it -- but %d of those %d GEOM "
+                              "blocks were read ONLY by W6b-3's multi-part reader, so this "
+                              "container's COMPLETENESS is exactly what the new reading bought.  %s"
+                              % (attrib.geom_with_so, attrib.geom_total,
+                                 attrib.geom_with_so_novel, attrib.geom_with_so,
+                                 _NOVEL_DEPENDENT_CAVEAT),
+                note=p.note or "declared by the header, attributed to no GEOM model "
+                               "(completeness rests on %d multi-part record(s))"
+                               % attrib.geom_with_so_novel))
         else:
             out.append(dataclasses.replace(
                 p, shared=False,
@@ -1279,14 +1498,35 @@ class PageDepth:
 
     @property
     def binding(self) -> Optional[Binding]:
-        """THE DISPLAY BINDER: the lowest-addressed record naming this column -- the same rule the
-        texel lane's class-C display palette uses, so a cell that inherits a depth inherits the
-        matching CLUT key from the same record rather than from a second, unrelated choice."""
+        """THE DISPLAY BINDER: the lowest ``(geom, tpage, clut_word)`` naming this column -- the same
+        rule the texel lane's class-C display palette uses, so a cell that inherits a depth inherits
+        the matching CLUT key from the same record rather than from a second, unrelated choice.
+
+        ★ **THE KEY IS VALUES, NEVER THE ARRAY INDEX.** Two bindings can now share a ``geom`` (one
+        model, two entries of its own record), so the old bare ``geom`` key stopped being a total
+        order. It is completed with the two VALUES the display actually consumes rather than with
+        ``(record_at, slot)``, because a tie-break on the array index would make the pick depend on
+        STORAGE ORDER -- the one thing about this format nothing has measured. Ties now happen only
+        between IDENTICAL values, where the pick is immaterial by construction.
+        """
         return self.binders[0] if self.binders else None
 
 
-def page_depth_view(blob: bytes, include_direct: bool = True) -> Dict[Tuple[int, int], PageDepth]:
+def page_depth_view(blob: bytes, include_direct: bool = True,
+                    witness: str = WITNESS_INCUMBENT) -> Dict[Tuple[int, int], PageDepth]:
     """``{(vram x, vram y): PageDepth}`` -- every page-cell whose COLUMN an ``so`` record binds.
+
+    ★ **``witness`` DEFAULTS TO** :data:`WITNESS_INCUMBENT`, **the opposite of**
+    :func:`attribution`'s **default, and the reason is what this function's answer IS: a LICENSE.**
+    :func:`ff9mapkit.summons.repaint.scenery_surface` emits a paintable page straight off it with no
+    acknowledgement key anywhere on the path, and ``"so-page"`` is in
+    :data:`ff9mapkit.summons.repaint.LICENSED_CHANNELS`. What licensed CHANNEL G (W6b-2) was never
+    *binding-ness*: it was that G reads **the record the kit already reads**, at the granularity the
+    hardware uses, with an informative calibration (16/18 on the informative rows) and a cast that
+    HELD -- both inherited from W6b-2 (``W6b2-ATTRIBUTION.md`` / ``w6b2_gates`` H10), not re-measured
+    here. A NOVEL binding has the first of those and none of the others, so widening this function
+    would hand CHANNEL A CHANNEL G's authority silently. CHANNEL A is reached by NAME, through
+    :func:`array_depth_view`, and it DISCLOSES at channel P's tier.
 
     **NOT a variant of :func:`attribution` and never folded into it.** ``attribution`` returns the
     UV-granular reader view the CLUT lane and the texel lane both already ship; this returns the
@@ -1305,19 +1545,42 @@ def page_depth_view(blob: bytes, include_direct: bool = True) -> Dict[Tuple[int,
     """
     declared = {pc.cell for pc in page_cells(blob).values()}
     rolled: Dict[Tuple[int, int], List[Binding]] = {}
-    for b in attribution(blob, include_direct=include_direct).bindings:
+    for b in attribution(blob, include_direct=include_direct, witness=witness).bindings:
         px, py = b.page
         for cy in (py, py + PAGE_CELL_LINES):
             if (px, cy) in declared:
                 rolled.setdefault((px, cy), []).append(b)
     out: Dict[Tuple[int, int], PageDepth] = {}
     for cell, binders in sorted(rolled.items()):
-        binders.sort(key=lambda b: b.geom)
+        # ★ A TOTAL ORDER ON VALUES.  `key=b.geom` alone became non-deterministic the moment two
+        # bindings could share a geom, and completing it with the array index would let the DISPLAY
+        # pick depend on storage order -- the unmeasured clause.  `(geom, tpage, clut_word)` is
+        # permutation-invariant: it ties only between identical values.  Under the incumbent witness
+        # it is equivalent to the old key (one binding per GEOM block), so channel G's display binder
+        # is provably unmoved.
+        binders.sort(key=lambda b: (b.geom, b.tpage, b.clut_word))
         out[cell] = PageDepth(cell=cell, page=(cell[0], cell[1] - (cell[1] % PAGE_LINES)),
                               depths=tuple(sorted({b.bpp for b in binders})),
                               binders=tuple(binders),
                               inherited=bool(cell[1] % PAGE_LINES))
     return out
+
+
+def array_depth_view(blob: bytes, include_direct: bool = True
+                     ) -> Dict[Tuple[int, int], PageDepth]:
+    """★ **CHANNEL A** at page granularity -- :func:`page_depth_view`'s NOVEL half.
+
+    A **WRAPPER, not a second scanner**: one derivation, one parameter, two call sites (the precedent
+    is :func:`attribution`'s ``include_direct``). It exists so the two channels are separately
+    NAMEABLE by a gate, a doc and a refusal -- **not** so they are separately DERIVED.
+
+    ⚠ CHANNEL A **DISCLOSES**; it does not license. Nothing about it is in-game
+    (:data:`ff9mapkit.summons.depth_attribution.ARRAY_CAVEAT`), and the entry ORDER inside a record's
+    array is UNMEASURED (:data:`ff9mapkit.summons.depth_attribution.ORDER_UNMEASURED`), so every
+    product taken off this view must be order-free -- a SET of depths, a SET of CLUT words, and a
+    display pick that ties on VALUES.
+    """
+    return page_depth_view(blob, include_direct=include_direct, witness=WITNESS_NOVEL)
 
 
 def assert_page_cells_identical(orig: bytes, patched: bytes,
@@ -1447,8 +1710,39 @@ def id0_splits(blob: bytes) -> List[Id0Split]:
     return out
 
 
-def preview_source(blob: bytes, pal: Palette, attrib: Attribution) -> Optional[List[PageRect]]:
+def _preview_refusal_reason(pal: Palette, bind: List[Binding]) -> str:
+    """★ WHY THERE IS NO PREVIEW -- a refusal that says nothing teaches nothing.
+
+    W6b-3 gave this refusal a second cause: a preview can now vanish because a SECOND binder became
+    visible, including on the 3 self-shared palettes where the second binder is the **same model**.
+    On 2 of those 3 the model's two entries name DIFFERENT columns, so there is no order-free way to
+    pick which upload to draw -- picking entry 0 would consume the ORDER clause :func:`so_record`
+    says is unmeasured. So the refusal stands and carries this instead.
+    """
+    if not bind:
+        return ("%s: NO PREVIEW -- no `so` binding names this CLUT cell, so nothing in this "
+                "container resolves the texels it colours." % pal.name)
+    geoms = sorted({b.geom for b in bind})
+    cols = sorted({b.page[0] for b in bind})
+    novel = [b for b in bind if b.novel]
+    who = ("ONE model, %d entries of its own binding array" % len(bind) if len(geoms) == 1
+           else "%d GEOM models (%s)" % (len(geoms), ", ".join("%#x" % g for g in geoms)))
+    extra = ("  %d of these became visible only at W6b-3 (%s -- identification only)."
+             % (len(novel), ", ".join("record %#x slot %d" % (b.record_at, b.slot)
+                                      for b in novel))) if novel else ""
+    return ("%s: NO PREVIEW -- %d binders resolve this CLUT cell (%s), naming column(s) %s.  The "
+            "entry ORDER inside a record's binding array is UNMEASURED, so NO column is picked: "
+            "choosing one would manufacture a certainty the format does not state.%s"
+            % (pal.name, len(bind), who, ", ".join(str(c) for c in cols), extra))
+
+
+def preview_source(blob: bytes, pal: Palette, attrib: Attribution,
+                   reasons: Optional[List[str]] = None) -> Optional[List[PageRect]]:
     """Which file bytes hold the texels a scenery palette colours -- derived, not tabulated.
+
+    ``reasons``, when given, collects the REFUSAL text for every palette this declines to preview
+    (:func:`_preview_refusal_reason`). The ``len(bind) != 1`` test is deliberately **not** widened
+    and deliberately **not** de-duplicated: see that helper for why.
 
     The ``so`` record that binds the palette also names the model's TPAGE, so the column is a
     by-product of attribution. Which upload of that column to draw is the one judgement call: a
@@ -1461,6 +1755,8 @@ def preview_source(blob: bytes, pal: Palette, attrib: Attribution) -> Optional[L
     """
     bind = attrib.binders(pal.vram, pal.entries)
     if len(bind) != 1:
+        if reasons is not None:
+            reasons.append(_preview_refusal_reason(pal, bind))
         return None
     b = bind[0]
     pages, alt = scenery_pages(blob), id9_pages(blob)
@@ -2147,6 +2443,16 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             continue
         _gate_shared(t)
         _gate_headroom(blob, t)
+    # ★ W6b-3: A PREVIEW THAT WILL NOT APPEAR SAYS SO **HERE**, not at render time.  `render_previews`
+    # runs after `describe` has already printed, so a refusal raised there reaches the author too
+    # late to read as anything but a missing file.  Same predicate, same helper, one derivation.
+    _attrib_for_preview = pmap.attrib or attribution(blob)
+    for t in targets:
+        if not t.enabled or t.pal.slot < 0 or t.pal.entries != 256:
+            continue
+        _bind = _attrib_for_preview.binders(t.pal.vram, t.pal.entries)
+        if len(_bind) != 1:
+            notes.append(_preview_refusal_reason(t.pal, _bind))
 
     out = bytearray(blob)
     for t in targets:
@@ -2698,10 +3004,16 @@ def render_previews(b: Build, out_dir) -> List[str]:
         written.append(str(p))
 
     # --- the scenery: the 8bpp columns the `so` bindings resolve, no table
+    #
+    # ★ W6b-3: A MISSING PREVIEW NOW CARRIES A REASON.  This loop used to `continue` in silence, and
+    # after the multi-part reader landed a preview can vanish because a SECOND binder became visible
+    # -- including where that binder is the SAME model through a second array entry.  A picture that
+    # quietly stops appearing is exactly the kind of change an author reads as a bug in their spec.
+    no_preview: List[str] = []
     for t in b.enabled:
         if t.pal.slot < 0 or t.pal.entries != 256:
             continue
-        rects = preview_source(b.orig, t.pal, attrib)
+        rects = preview_source(b.orig, t.pal, attrib, reasons=no_preview)
         if not rects:
             continue
         px = b"".join(b.orig[r.off:r.off + r.nbytes] for r in rects)
@@ -2710,6 +3022,12 @@ def render_previews(b: Build, out_dir) -> List[str]:
         if w <= 0 or h <= 0 or len(px) < w * h:              # pragma: no cover - malformed rect
             continue
         pair(t.pal.alias or t.name, px, w, h, t.result, scale=2)
+    # the same refusals `build` already staged into `notes` (where `describe` prints them BEFORE this
+    # runs); re-collected here so a caller that reaches `render_previews` directly still gets them,
+    # and de-duplicated so the disclosure is stated once.  `written` stays a list of PATHS.
+    for why in no_preview:
+        if why not in b.notes:
+            b.notes.append(why)
 
     # --- the swatch strips: every target, stock over patched, in one contact sheet
     rowsimg = []

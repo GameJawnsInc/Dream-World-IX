@@ -62,6 +62,24 @@ LANE = os.path.join(W6B, "w6b2")
 #: a 64 x 256 PAGE, a census page-cell is 64 x 128, so one page word covers a COLUMN of two cells.
 PAGE_HW, PAGE_LINES, CELL_LINES = 64, 256, 128
 
+#: ★ W6b-3 NARROWING, DECLARED -- THE EDIT SURFACE THIS FILE IS WRITTEN ABOUT IS **W6b-2's**.
+#:
+#: Every pin below (`gain_so_page 57`, `so_uv_cells 187`, `depth_unknown_after 2298`, the whole
+#: `hz_*` block, `scenery_cells 2572`) measures the surface `LICENSED_CHANNELS` emitted when this
+#: file was written -- ``("so-uv", "so-page", "program")``.  W6b-3 added ``"so-array"`` to that
+#: constant, and CHANNEL A holds **VETO** power: on the shipped licensed path 6 cells lose a page
+#: and 8 more refuse under a sharper name (`w6b3i_gates` I6/I9 measure and pin exactly that).
+#: Taking `RP.LICENSED_CHANNELS` here would therefore have re-aimed every number in this file at a
+#: different population while the pins still read as W6b-2's -- the same defect
+#: :data:`~ff9mapkit.summons.repaint.CENSUS_CHANNELS` was minted to prevent one channel earlier, and
+#: the same defect `w6b3_gates`' three freezes prevent one witness earlier.
+#:
+#: So the scope is **STATED**, not inherited: derived from the shipped tuple so a future channel
+#: cannot be silently absorbed either, and any W6b-2-era number that moves under it is a real leak
+#: rather than a re-aim.  The SHIPPED default's own figures live in `w6b3i_gates` I9, beside these,
+#: with the delta derived -- two scopes, both printed, neither reconciled (the I1 precedent).
+W6B2_CHANNELS = tuple(c for c in RP.LICENSED_CHANNELS if c != "so-array")
+
 # --------------------------------------------------------------------------- THE PINS
 #: Every number this rung's kit side is allowed to assert.  Each is RE-MEASURED below and compared
 #: here.  Where a number is also in `w6b2_gates.PIN` it is deliberately NOT imported: two files
@@ -242,7 +260,12 @@ class Data:
             mine: Dict[Tuple[int, int], set] = defaultdict(set)
             wide: Dict[Tuple[int, int], set] = defaultdict(set)
             wide_g: Dict[Tuple[int, int], set] = defaultdict(set)
-            for b in RS.attribution(blob, include_direct=True).bindings:
+            # ★ W6b-3 NARROWING, DECLARED: `mine` / `wide` / `wide_g` are this file's private CHANNEL
+            # G roll and feed I0/I1.  `attribution`'s default became the TRUE (multi-part) population
+            # at W6b-3 and channel G is its INCUMBENT half, so the scope is stated here rather than
+            # inherited from a default that no longer means what this code was written to mean.
+            for b in RS.attribution(blob, include_direct=True,
+                                    witness=RS.WITNESS_INCUMBENT).bindings:
                 px, py, bpp = dec(b.tpage)
                 for c in cover(px, py):
                     if c in declared:
@@ -265,8 +288,11 @@ class Data:
             for pg in cp:
                 for n in self._hz_of(pg):
                     self.census_hz[n].add((ef, pg.cell[0], pg.cell[1]))
-            # THE EDIT SURFACE -- what an author actually gets, and what every gate below judges.
-            pages, refused = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS)
+            # THE EDIT SURFACE -- what an author got at W6b-2, and what every gate below judges.
+            # ★ SCOPED, NOT INHERITED: see `W6B2_CHANNELS`.  `RP.LICENSED_CHANNELS` now consults
+            # CHANNEL A, whose hazards can WITHDRAW a page, so reading the constant here would move
+            # this file's whole subject while its pins still claimed to be W6b-2's.
+            pages, refused = RP.scenery_surface(blob, ef, channels=W6B2_CHANNELS)
             for pg in pages:
                 self.pages[(ef, pg.cell[0], pg.cell[1])] = pg
                 for n in self._hz_of(pg):
@@ -277,7 +303,7 @@ class Data:
                 self.reasons[k][r.klass] = r.reason
             # THE ACK SURFACE, only where channel P has anything to say.
             if ef in p_effects:
-                apages, arefused = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS,
+                apages, arefused = RP.scenery_surface(blob, ef, channels=W6B2_CHANNELS,
                                                       program_depth=True)
                 for pg in apages:
                     k = (ef, pg.cell[0], pg.cell[1])
@@ -1188,7 +1214,18 @@ def i9_residue(D: Data) -> None:
 # --------------------------------------------------------------------------- I10
 #: BENIGN BY NAME, not by silence.  Nothing in this round's committable surface is expected to match
 #: corpus bytes; anything that does is printed with its file and adjudicated here or the gate is red.
-_ADJUDICATED: Dict[bytes, str] = {}
+#:
+#: ⚠ THE SCAN'S SURFACE IS `git status`, SO IT GROWS WHEN A NEIGHBOURING ROUND EDITS A FILE.  W6b-3i
+#: pulled `test_reskin.py`, `w6b2_gates.py` and four more into it, and the two literals below are the
+#: ones the other three boards carrying this table (`w6b2_gates.py`, `w6b3_gates.py`,
+#: `w6b3i_gates.py`) already clear BY NAME.  Both are short runs of small ints that match binary data
+#: by construction, and both are the KIT's or a DECODER's own published tables -- adjudicated here so
+#: this board clears them for the same stated reason instead of going red on a false alarm.
+_ADJUDICATED: Dict[bytes, str] = {
+    b"\x02\x03\x04\x05\x06\x07": "MIPS load/store opcode tuple in a decoder's is_transfer",
+    b"\x00\x00\x01\x01\x02\x03\x04\x05": "reskin.ID9_SLOT_BIT, the kit's own slot->bit table, "
+                                         "asserted in test_reskin.py",
+}
 
 
 def _new_files() -> List[str]:

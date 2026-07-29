@@ -58,6 +58,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+from typing import Dict, List, Tuple
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -182,6 +183,54 @@ def _lawful_surfaces(blob: bytes, ef: int):
         scen, refused = [], []
     bad = {r.name for r in refused}
     return list(pages), [p for p in scen if p.bpp in (4, 8) and p.name not in bad]
+
+
+#: ★ W6b-3 SPLIT THE CENSUS SURFACE FROM THE AUTHOR-FACING ONE, AND THIS BOARD STRADDLES BOTH.
+#:
+#: :func:`_lawful_surfaces` rolls the CENSUS scope (``scenery_surface``'s own default) -- that is the
+#: population every number in this file is about, and W6b-3 leaves it BYTE-IDENTICAL (0 census cells
+#: gained or lost, pinned by `w6b3i_gates` I4).  But :func:`~ff9mapkit.summons.repaint.texel_page`
+#: resolves at ``LICENSED_CHANNELS``, which since W6b-3 consults CHANNEL A -- and channel A's two
+#: hazard classes hold **VETO** power: they can WITHDRAW a page an earlier channel emitted.  So a
+#: census cell can now be REFUSED on the author-facing path, and a bare ``texel_page`` sweep over the
+#: census aborts this whole board on the first one.
+#:
+#: The board therefore SKIPS what an author can no longer reach and **states the difference instead
+#: of absorbing it**: :func:`_author_surface_withdrawals` re-derives the set from the shipped
+#: predicate every run and G6b pins it BY NAME, so a withdrawal of a DIFFERENT cell -- or one under a
+#: class that is not channel A's -- turns this board RED rather than disappearing into a ``try``.
+CHANNEL_A_VETO = ("array-dual-depth", "array-vs-column-depth")
+
+#: the census class-C cells the AUTHOR-FACING surface withdraws.  MEASURED through the shipped
+#: predicate (never a hand list -- the list is here so a CHANGE is visible, and G6b re-derives it).
+W6B3_WITHDRAWN = ((179, "cell.s0.x448_y256"),)
+
+_WITHDRAWN = None
+
+
+def _author_surface_withdrawals(records) -> List[Tuple[int, str, str]]:
+    """``[(effect, cell name, refusal class)]`` for every census cell the AUTHOR-FACING surface
+    refuses -- rolled from ``scenery_surface(..., LICENSED_CHANNELS)`` so the class is the
+    predicate's own name rather than a substring scraped off a ``RepaintError``."""
+    global _WITHDRAWN
+    if _WITHDRAWN is not None:
+        return _WITHDRAWN
+    by_ef: Dict[int, set] = {}
+    for rec in records:
+        by_ef.setdefault(rec["ef"], set()).add(rec["name"])
+    out: List[Tuple[int, str, str]] = []
+    for ef, names in sorted(by_ef.items()):
+        blob = _load(ef)
+        try:
+            pages, refused = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS)
+        except Exception:                                        # pragma: no cover - derivation refusal
+            continue
+        served = {p.name for p in pages}
+        for r in refused:
+            if r.name in names and r.name not in served:
+                out.append((ef, r.name, r.klass))
+    _WITHDRAWN = sorted(set(out))
+    return _WITHDRAWN
 
 
 def _paint_source(blob: bytes, page, out_dir: str) -> str:
@@ -587,9 +636,14 @@ def _permuted_alt_rows_probe(td):
     """
     from PIL import Image
     best = None
+    # W6b-3: the same channel-A veto G6b names -- a cell the author-facing surface withdraws is not a
+    # fixture this probe may pick, and reaching one through `texel_page` would abort the board.
+    _lost = {(ef, n) for ef, n, _k in _author_surface_withdrawals(census()["classC"])}
     for rec in sorted(census()["classC"], key=lambda r: -r["alts"]):
         if rec["alts"] < 2:
             break
+        if (rec["ef"], rec["name"]) in _lost:
+            continue
         blob = _load(rec["ef"])
         p = RP.texel_page(blob, rec["name"], rec["ef"])
         words = RP.palette_words(blob, p)
@@ -903,12 +957,24 @@ def g6b_over_fire_measurement():
     exactly the surface R7 lives on, and it is what makes a non-zero refusal rate at 4 degrees a
     statement about EDITS rather than about the gate being on. The hue rates themselves are a
     DISCLOSURE: they are the owner's decision to price, not a threshold this rung may invent.
+
+    ★ **AND SINCE W6b-3 THE SWEEP STATES ITS OWN SURFACE.** ``texel_page`` resolves at
+    ``LICENSED_CHANNELS``, which consults CHANNEL A, whose hazards can WITHDRAW a census cell from
+    the author-facing path (:data:`CHANNEL_A_VETO`). The sweep runs over what an author can still
+    reach and the withdrawal is **named, counted and pinned** rather than skipped quietly -- a
+    control that silently shrinks is not a control.
     """
     if not _have_corpus():
         return gate("G6b the R7 over-fire measurement", False, "no corpus")
     td = _tmp()
     cc = census()["classC"]
     lines, ok = [], True
+    # ★ THE AUTHOR-FACING SURFACE, RE-DERIVED, AND ITS DIFFERENCE FROM THE CENSUS PINNED BY NAME.
+    withdrawn = _author_surface_withdrawals(cc)
+    lost = {(ef, n) for ef, n, _k in withdrawn}
+    cc = [rec for rec in cc if (rec["ef"], rec["name"]) not in lost]
+    ok = ok and tuple(sorted(lost)) == tuple(sorted(W6B3_WITHDRAWN))
+    ok = ok and all(k in CHANNEL_A_VETO for _e, _n, k in withdrawn)
     noop_exact = noop_refused = 0
     rates = {}
     for deg in (0.0, 4.0, 8.0, 40.0):
@@ -938,6 +1004,17 @@ def g6b_over_fire_measurement():
     lines.append("%-52s %d of %d byte-EXACT, %d refusal(s) -- law 1 on R7's OWN surface"
                  % ("THE CONTROL: an unedited re-quantize (0 degrees)", noop_exact, len(cc),
                     noop_refused))
+    lines.append("%-52s %s"
+                 % ("★ W6b-3: THE AUTHOR-FACING SURFACE IS SMALLER THAN THE CENSUS",
+                    ("; ".join("ef%03d %s (%s)" % w for w in withdrawn) +
+                     " -- CHANNEL A holds VETO power, so these census cell(s) resolve no page on the "
+                     "path an author walks.  The census itself is UNMOVED (0 cells gained or lost) "
+                     "and every §1.4 pin above is measured there.")
+                    if withdrawn else
+                    "none -- no census class-C cell is withdrawn on the licensed path"))
+    lines.append("%-52s the set is RE-DERIVED from `scenery_surface(LICENSED_CHANNELS)` every run "
+                 "and pinned by NAME: a different cell, or a class that is not channel A's, is RED "
+                 "here rather than a silently shorter sweep" % "   (and it is pinned, not skipped:)")
     for deg in (4.0, 8.0, 40.0):
         r, n = rates[deg]
         lines.append("%-52s R7 REFUSED %d of %d exportable class-C cells (%.1f%%)"
@@ -1445,6 +1522,9 @@ def g16_re_derivation_pin():
     pin("§1.2    of derived scenery rows", c["pal_rows_scen"], 3095)
     pin("§1.2    worst multiplicity", c["dup_s_worst"], 239)
     cc = c["classC"]
+    # ⚠ MEASURED AT THE CENSUS SCOPE, which W6b-3 leaves byte-identical -- so this dossier number
+    # still re-measures what §1.4 measured.  One of the 16 is withdrawn from the AUTHOR-FACING
+    # surface by CHANNEL A's veto; G6b names it, and re-pinning it here would be re-aiming a control.
     pin("§1.4 exportable class-C cells", len(cc), 16)
     pin("§1.4    ...carrying >= 1 split group", sum(1 for x in cc if x["split"]), 11)
     pin("§1.4 duplicate groups in the editable rows", sum(x["groups"] for x in cc), 365)

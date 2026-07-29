@@ -406,7 +406,10 @@ def container_columns(blob: bytes) -> set:
 
 def container_so(blob: bytes) -> List[Dict[str, object]]:
     try:
-        a = RS.attribution(blob, include_direct=True)
+        # ★ W6b-3 NARROWING, DECLARED: every consumer of this helper compares L1's hits against the
+        # CENSUS's own `so` bindings, i.e. against channel G's input.  `attribution`'s default became
+        # the TRUE (multi-part) population at W6b-3, so the scope is stated rather than inherited.
+        a = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
     except Exception:
         return []
     return [{"geom": b.geom, "tpage": int(b.tpage), "bpp": int(b.bpp),

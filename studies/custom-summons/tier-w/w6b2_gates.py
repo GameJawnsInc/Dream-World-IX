@@ -346,7 +346,13 @@ class Data:
             with open(p, "rb") as fh:
                 blob = fh.read()
             try:
-                a = RS.attribution(blob, include_direct=True)
+                # ★ W6b-3 NARROWING, DECLARED: this roll IS this file's private CHANNEL G, and
+                # `gain_so_page 57` / `cal_g_n,agree 140/138` / the `g57_*` block /
+                # `prog_pages_with_no_so_record 112` are all written ABOUT it.  `attribution`'s
+                # default became the TRUE (multi-part) population at W6b-3; channel G is the
+                # INCUMBENT half by design, so this site must SAY so or twelve pins would silently
+                # measure a different population and still read green.
+                a = RS.attribution(blob, include_direct=True, witness=RS.WITNESS_INCUMBENT)
             except Exception:
                 self.blind[ef] = True
                 continue
@@ -860,7 +866,15 @@ _DOSSIERS = [os.path.join(LANE, n) for n in
 
 #: BENIGN BY NAME, not by silence.  A monotone run of small ints matches binary data by construction;
 #: this one is the MIPS load/store opcode tuple in a decoder.  Adjudicated, never suppressed silently.
-_ADJUDICATED = {b"\x02\x03\x04\x05\x06\x07": "MIPS load/store opcode tuple in a decoder's is_transfer"}
+_ADJUDICATED = {
+    b"\x02\x03\x04\x05\x06\x07": "MIPS load/store opcode tuple in a decoder's is_transfer",
+    # W6b-3i: `test_reskin.py` enters this scan the moment anything edits it, and it asserts the
+    # KIT's own published id-9 slot->bit table (`RS.ID9_SLOT_BIT == (0, 0, 1, 1, 2, 3, 4, 5)`).
+    # Eight small ints in near-monotone order match binary data by construction.  Adjudicated by
+    # name and by its call site, never suppressed silently.
+    b"\x00\x00\x01\x01\x02\x03\x04\x05": "reskin.ID9_SLOT_BIT, the kit's own slot->bit table, "
+                                         "asserted in test_reskin.py",
+}
 
 
 def _untracked_new_files() -> List[str]:
@@ -1346,7 +1360,12 @@ def h13_next_probe(D: Data) -> None:
 
     # THE RANKED-SECOND QUESTION, answered here with one call instead of a lane.
     with open(os.path.join(SCRATCH, "ef390.bytes"), "rb") as fh:
-        a = RS.attribution(fh.read(), include_direct=True)
+        # ★ W6b-3 NARROWING, DECLARED -- and this site was NOT in the integration design's list; it
+        # was found by measuring rather than by reading.  ef390 holds 10 multi-part records, so left
+        # at `attribution`'s post-W6b-3 default `ef390_bindings 12` and `ef390_writerless_15bpp 10`
+        # would both move.  This roll is W6b-1 sec 7.2 Q4's answer about the CENSUS's own bindings,
+        # so it is the INCUMBENT population by definition.
+        a = RS.attribution(fh.read(), include_direct=True, witness=RS.WITNESS_INCUMBENT)
     by = Counter((b.page[0], b.page[1], b.bpp) for b in a.bindings)
     cols = sorted(set(x for (_t, x, _y) in D.pcmap.get(390, {})))
     writerless = sum(n for (px, _py, bpp), n in by.items() if bpp == 15 and px not in cols)
