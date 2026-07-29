@@ -120,11 +120,24 @@ real camera math, live outset preview (+48u `COLLISION_RADIUS_W`), then call `bu
 **Verify:** `tools/gui_snap.py` → **read the PNG**; then build → `deploy_field.py --id <scratch>` →
 walk it. Parity target: the hallway photo, re-done entirely in the GUI.
 
-### Rung 2 — occluder contacts
+### Rung 2 — occluder contacts ★ BUILT 2026-07-29, ⚠ awaiting playtest
 Click a contact pixel → `occluder_z` → a `--foreground`-equivalent layer. Math ★ already in-game
 proven (pillar room, contact (230,320) → z 1073, flip mid-room). Small rung; mostly UI.
 **Guard:** error when `z ≥ Z_BASE 4000` (means the contact was traced up the body, not at the base) —
 the existing CLI check, re-enforced at the new call site.
+
+★ **BUILT into the Trace tab:** `BackdropCanvas` gained CONTACT mode (exclusive clicks; the traced
+polygon stays visible, inert; emits the raw canvas pixel — `occluder_z` stays the ONE owner of both
+refusals, horizon and the z≥Z_BASE "trace the base, not the body" message, surfaced verbatim).
+The host: an **Add cut-out** toggle arms a contact click → records ONE undoable gesture → asks for
+the cut-out PNG (full-canvas alpha); a Cut-outs strip (hidden until one exists) lists each contact
+with its DERIVED z — re-judged per pitch change exactly like the trace vertices, never stored
+stale — and Attach/Remove; valid contacts mark the art with `fgN · z` markers; Generate gates on
+every cut-out valid + attached and emits the retired tracer's own `--foreground path@cx,cy` form.
+Pinned: 2 canvas + 6 host tests (the proven (230,320)→1073 exact; the guard message; the pitch
+re-judge; the argv via `parse_foreground_spec`; unified undo); `gui_snap trace:contacts` read.
+**Playtest:** trace a photo with a real occluder (a pillar/doorframe), mark its base, attach the
+cut-out, generate, deploy — walk in front (actor on top) and behind (occluded).
 
 ### ★ Rung 3 — placement on ANY field (the payoff) — ★ CLOSED, PLAYTEST-CONFIRMED 2026-07-29
 Load an existing `field.toml` + its background + **its own camera**, and click to place NPCs, props,
@@ -308,6 +321,8 @@ GUI claim from source; that is the documented recurring failure in this package.
    (d) ★ PLAYTEST-CONFIRMED 2026-07-29 — the owner placed a prop + an NPC on a VERBATIM fork
    in the Place tab, deployed to 4003, and saw both in-game (the live-install load path, the
    raycast, the write-back, AND the build's below-band verbatim seating, proven in one pass).
-   **RUNG 3 CLOSED.** Still open on the board: Rung 2 (occluder contacts — small, mostly UI),
-   Rung 4 (regions drawn on the art), and Rung 6 (the multi-room composer, now unblocked —
-   its "do not start before Rung 3 is real" gate is satisfied).
+   **RUNG 3 CLOSED.** Still open on the board: Rung 4 (regions drawn on the art), and Rung 6
+   (the multi-room composer, now unblocked — its "do not start before Rung 3 is real" gate is
+   satisfied).
+5. **Rung 2** ★ BUILT 2026-07-29 (see the rung block: contact mode + the Cut-outs strip in the
+   Trace tab), ⚠ awaiting the occlusion-flip playtest on a real photo's occluder.

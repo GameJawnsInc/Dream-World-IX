@@ -54,6 +54,8 @@ class BackdropCanvas(QGraphicsView):
 
     floor_clicked = Signal(float, float)     # world (x, z) of an accepted left-click (plane mode)
     surface_clicked = Signal(object)         # a walkmesh hit dict (place mode; see _emit_surface)
+    contact_clicked = Signal(float, float)   # CANVAS px of a click (contact mode; the host judges
+                                             # it through occluder_z — ONE owner of both refusals)
     click_refused = Signal(str)              # why a click produced no floor point
 
     def __init__(self, palette, *, scale=100, on_floor=None):
@@ -71,6 +73,7 @@ class BackdropCanvas(QGraphicsView):
         self._drag = None                    # live vertex drag, cleared by every _rebuild
         self.on_floor = on_floor             # ONE call per completed gesture (add/move/delete)
         self._place_mode = False             # Rung 3: clicks raycast the field's walkmesh
+        self._contact_mode = False           # Rung 2: clicks are occluder ground contacts (canvas px)
         self._surface_tris = []              # RENDER-frame triangles (mesh_world_tris's output)
         self._surface_floors = []            # floor index per triangle (or empty)
         self._markers = []                   # [{pos: (x,y,z) render frame, label, kind}]
@@ -157,18 +160,36 @@ class BackdropCanvas(QGraphicsView):
         self._trace_mode = on
         if on:
             self._place_mode = False           # one click semantics at a time
+            self._contact_mode = False
         self._rebuild()
 
     # -- public: Rung 3 place mode --
     def set_place_mode(self, on):
         """Clicks raycast the loaded walkmesh (``set_surface``) instead of the y=0 plane.
-        Exclusive with trace mode — one click semantics at a time."""
+        Exclusive with the other modes — one click semantics at a time."""
         on = bool(on)
         if on == self._place_mode:
             return
         self._place_mode = on
         if on:
             self._trace_mode = False
+            self._contact_mode = False
+        self._rebuild()
+
+    # -- public: Rung 2 contact mode --
+    def set_contact_mode(self, on):
+        """Clicks are occluder GROUND CONTACTS: a slop click emits ``contact_clicked`` with the
+        raw CANVAS pixel and nothing else — the host judges it through ``imagefield.occluder_z``
+        (the one owner of BOTH refusals: above-horizon and z >= Z_BASE 'trace the base, not the
+        body'). Exclusive with trace/place for CLICKS; the traced polygon keeps RENDERING for
+        context, but its handles go inert (no drag, no append, no delete)."""
+        on = bool(on)
+        if on == self._contact_mode:
+            return
+        self._contact_mode = on
+        if on:
+            self._trace_mode = False
+            self._place_mode = False
         self._rebuild()
 
     def set_surface(self, tris, floors=None):
@@ -355,8 +376,8 @@ class BackdropCanvas(QGraphicsView):
 
     def _draw_trace(self):
         self._trace_items = []
-        if not self._trace_mode or not self._trace:
-            return
+        if not (self._trace_mode or self._contact_mode) or not self._trace:
+            return                             # contact mode keeps the polygon VISIBLE, inert
         pal, sc = self.pal, self._scene
         worlds = self._trace_worlds()
         pen = QPen(QColor(pal["accent"]), 1.6)
@@ -562,6 +583,10 @@ class BackdropCanvas(QGraphicsView):
         travel = (event.position() - press).manhattanLength()
         if travel > _CLICK_SLOP_PX:
             return                                 # it was a pan
+        if self._contact_mode:                     # Rung 2: the raw canvas pixel; the host judges it
+            c = self._widget_to_canvas(event.position())
+            self.contact_clicked.emit(c.x(), c.y())
+            return
         if self._place_mode:                       # Rung 3: the click raycasts the walkmesh
             c = self._widget_to_canvas(event.position())
             try:

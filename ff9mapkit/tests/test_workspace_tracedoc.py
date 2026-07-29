@@ -179,3 +179,123 @@ def test_retheme_and_scale_reach_the_canvas(app):
     assert doc.canvas.pal is doc.pal
     doc.set_scale(150)
     assert doc.canvas._scale == 150
+
+
+# ---------------------------------------------------------------- Rung 2: occluder cut-outs
+
+def _cutout(tmp_path, name="pillar.png"):
+    from PIL import Image
+    p = tmp_path / name
+    Image.new("RGBA", (768, 896), (0, 0, 0, 0)).save(p)
+    return p
+
+
+def _traced(app, tmp_path):
+    doc, run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    return doc, run
+
+
+def test_contact_records_the_proven_z_and_asks_for_the_png(app, tmp_path, monkeypatch):
+    """The in-game-proven pillar contact: (230,320) at the default camera -> overlay z 1073.
+    One undoable gesture; the attach dialog answers; the marker + strip carry the z."""
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    png = _cutout(tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    assert doc.canvas._contact_mode
+    doc._on_contact(230.0, 320.0)
+    assert doc._fg == [{"contact": (230.0, 320.0), "image": str(png)}]
+    assert not doc.canvas._contact_mode and doc.canvas._trace_mode   # disarmed back to tracing
+    assert "z 1073" in doc.status.text()
+    assert "z 1073" in doc.fg_box.itemText(0) and "pillar.png" in doc.fg_box.itemText(0)
+    assert len(doc.canvas._markers) == 1 and "z 1073" in doc.canvas._markers[0]["label"]
+    assert doc.gen_btn.isEnabled()
+
+
+def test_contact_guard_refuses_up_the_body(app, tmp_path, monkeypatch):
+    """The Z_BASE guard reaches the GUI with the CLI's own message: a pixel high on the canvas
+    computes z >= 4000 and refuses — still armed for the retry, nothing recorded."""
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: None)
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(192.0, 30.0)
+    assert doc._fg == [] and doc.canvas._contact_mode                # refused, still armed
+    assert "MEETS THE FLOOR" in doc.status.text()
+
+
+def test_unattached_cutout_blocks_generate(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    doc, run = _traced(app, tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: None)            # Cancel: no PNG yet
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    assert not doc.gen_btn.isEnabled()
+    assert "PNG" in doc.gen_btn.toolTip()
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert not run.calls                                             # belt AND suspenders
+    png = _cutout(tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.on_fg_attach()
+    assert doc.gen_btn.isEnabled()
+
+
+def test_pitch_rejudges_contacts_like_vertices(app, tmp_path, monkeypatch):
+    """A pitch change re-derives every anchored z (never stored stale); a contact the new camera
+    cannot anchor flags invalid and gates Generate off."""
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    png = _cutout(tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 150.0)                                    # valid at pitch 26 (z 1656)
+    assert doc.gen_btn.isEnabled()
+    z26 = doc._fg_state(doc._fg[0])[0]
+    doc.pitch.setValue(45)
+    z45 = doc._fg_state(doc._fg[0])[0]
+    assert z45 is not None and z45 != z26                            # derived per camera
+    doc.pitch.setValue(6)                                            # horizon y~175: y=150 is sky now
+    assert doc._fg_state(doc._fg[0])[1] is not None
+    assert not doc.gen_btn.isEnabled() and "invalid" in doc.status.text()
+    doc.pitch.setValue(26)
+    assert doc.gen_btn.isEnabled()
+
+
+def test_generate_emits_the_tracer_foreground_form(app, tmp_path, monkeypatch):
+    """Parity with the retired tracer's emitted command: each cut-out rides as
+    --foreground path@cx,cy (the anchored form parse_foreground_spec decodes)."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, run = _traced(app, tmp_path)
+    png = _cutout(tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    i = argv.index("--foreground")
+    spec = IF.parse_foreground_spec(argv[i + 1])
+    assert spec == {"image": str(png), "z": None, "contact": (230.0, 320.0)}
+
+
+def test_undo_walks_contact_gestures_and_new_image_clears_them(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    png = _cutout(tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    doc.on_fg_remove()
+    assert doc._fg == []
+    doc.on_undo()                                                    # undo the remove
+    assert len(doc._fg) == 1 and doc._fg[0]["image"] == str(png)
+    doc.on_undo()                                                    # undo the add
+    assert doc._fg == [] and doc.canvas._markers == []
+    doc.load_image(_photo(tmp_path))                                 # new art -> contacts void
+    assert doc._fg == [] and not doc._history
