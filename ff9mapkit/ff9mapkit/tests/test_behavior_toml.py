@@ -1355,6 +1355,23 @@ def test_published_flags_are_visible_to_the_flag_lint():
     assert BT.published_flags({"behavior": {"unit": [{"npc": "ghost"}]}}) == set()
 
 
+def test_hud_digits_beyond_the_u16_reach_warns():
+    """A width reserve wider than the value operand can ever carry. The sentinel rides
+    SetTextVariable's u16 -> it saturates at 65535 (5 chars), so 6/7 silently mean 5.
+    A WARNING, not an error: the accepted range stays 1..7 so existing fields build."""
+    def hud(digits):
+        return {"behavior": {"unit": [{"npc": "u", "hp": 5}],     # table() needs a unit row
+                             "hud": [{"window": 6, "values": ["gil"],
+                                      "text": "[NUMB=0]", "digits": digits}]}}
+    w = BT.hud_digits_warnings(hud([6, 2, 2, 2]))
+    assert len(w) == 1 and "[6]" in w[0] and "65535" in w[0]
+    assert BT.hud_digits_warnings(hud(7))                    # a bare int, not a list
+    assert BT.hud_digits_warnings(hud([7, 6]))[0].count(",") >= 1   # both named once
+    for ok in (5, 2, [5, 5], [1, 2, 3, 4, 5]):               # everything reachable is silent
+        assert BT.hud_digits_warnings(hud(ok)) == [], ok
+    assert BT.hud_digits_warnings({"behavior": {"unit": [{"npc": "u"}]}}) == []   # no hud rows
+
+
 def test_draining_condition_lint():
     """THE DRAINING-CONDITION LAW as a lint: N once-branches on one gate need it to
     hold for N consecutive ticks. Sticky gates are exempt; drainable ones warn."""
