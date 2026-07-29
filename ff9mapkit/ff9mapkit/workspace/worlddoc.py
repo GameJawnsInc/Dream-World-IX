@@ -313,10 +313,14 @@ class AtlasCanvas(QGraphicsView):
             th = fm.height()
             plate = QColor(pal["surface"])
             plate.setAlpha(230)                               # the poster scrim's fenced ground
-            pill = QGraphicsRectItem(-tw / 2 - 6, -th - 9, tw + 12, th + 5, anchor)
+            pill = sc.addRect(-tw / 2 - 6, -th - 9, tw + 12, th + 5)   # scene-created THEN
+            pill.setParentItem(anchor)             # parented: a constructor-parented child is
+                                                   # Python-owned to shiboken and double-frees
+                                                   # (THE GC-CHILD LAW, backdrop.py:_child)
             pill.setPen(QPen(Qt.PenStyle.NoPen))
             pill.setBrush(QBrush(plate))
-            t = QGraphicsSimpleTextItem(text, anchor)
+            t = sc.addSimpleText(text)
+            t.setParentItem(anchor)
             t.setFont(font)
             t.setBrush(QBrush(QColor(pal["text"])))
             t.setPos(-tw / 2, -th - 7)

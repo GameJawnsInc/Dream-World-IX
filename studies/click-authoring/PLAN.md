@@ -143,13 +143,18 @@ once and edited forever. **Hover affordance (owner-asked, applies to the Behavio
 every draggable item carries the OS move/resize cursor via `widgets.mark_grabbable` — a per-item
 cursor out-ranks the pan hand exactly over the item's shape(), so an alpha-masked snip announces
 itself only over its opaque pixels.
-★ **THE GC-CHILD LAW** (found by the cursor pin, fixed at the root): a QGraphicsItem CHILD
-constructed with a parent argument is PYTHON-owned to shiboken — its wrapper's GC deletes the
-C++ item under a live scene (stale `itemAt` wrappers mid-handler) and its finalizer double-frees
-after a `scene.clear()` (exit access violations). Children must be SCENE-created then
-`setParentItem`'d (`backdrop._child`; the Behavior stage's handle/grip squares fixed the same
-way — its other constructor-parented children are a standing sweep candidate). `_kids` keeps
-wrappers alive as a belt, and tests must never retain item wrappers across a rebuild.
+★ **THE GC-CHILD LAW** (found by the cursor pin; a real crasher class, three layers deep):
+(1) a QGraphicsItem CHILD constructed with a parent argument is PYTHON-owned to shiboken — its
+wrapper's GC deletes the C++ item under a live scene (stale `itemAt` wrappers mid-handler) and
+its finalizer double-frees after a `scene.clear()`. Children must be SCENE-created then
+`setParentItem`'d — swept everywhere (`backdrop._child`, behaviordoc's `_label`/`_marker` +
+handle/grip squares, worlddoc's plate pills); `_kids` keeps wrappers alive as a belt.
+(2) Tests must assert through RETAINED wrappers, never fresh `scene.items()` retrievals — a
+retrieval-wrapper + `cursor()` pattern flaked ~1-in-3 under pytest's forced GC on Python 3.14 /
+PySide6 6.11.1 even after (1), and neither deterministic deleteLater, widget parking, nor
+`gc.freeze` cured it; the retained-wrapper rewrite made 8/8 combo runs deterministic (a
+shiboken suspicion — minimal-repro chip filed). (3) `tests/conftest.py qt_drain` parks each
+GUI test's widgets (opt-in per module; never where a module fixture caches one).
 
 ★ **BUILT into the Trace tab:** `BackdropCanvas` gained CONTACT mode (exclusive clicks; the traced
 polygon stays visible, inert; emits the raw canvas pixel — `occluder_z` stays the ONE owner of both

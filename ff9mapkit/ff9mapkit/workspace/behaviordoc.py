@@ -485,7 +485,10 @@ class StageCanvas(QGraphicsView):
 
     def _label(self, text, x, z, *, dx=8, dy=-16, color=None, bold=False, pt=8, tip=None):
         anchor = self._anchor(x, z, "label")
-        t = QGraphicsSimpleTextItem(text, anchor)
+        t = self._scene.addSimpleText(text)        # scene-created THEN parented: a constructor-
+        t.setParentItem(anchor)                    # parented child is Python-owned to shiboken
+                                                   # and double-frees (THE GC-CHILD LAW,
+                                                   # backdrop.py:_child)
         t.setFont(self._font(pt, bold))
         t.setBrush(QBrush(QColor(color or self.pal["muted"])))
         t.setPos(dx, dy)                           # screen px, relative to the anchor
@@ -496,7 +499,8 @@ class StageCanvas(QGraphicsView):
 
     def _marker(self, x, z, color, *, hollow=False, r=_POST_R, tag="post"):
         anchor = self._anchor(x, z, tag)
-        dot = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r, anchor)
+        dot = self._scene.addEllipse(-r, -r, 2 * r, 2 * r)   # scene-created THEN parented (THE
+        dot.setParentItem(anchor)                            # GC-CHILD LAW — see _label)
         dot.setPen(QPen(QColor(color), 1.6))
         dot.setBrush(QBrush(Qt.BrushStyle.NoBrush) if hollow else QBrush(QColor(color)))
         return anchor

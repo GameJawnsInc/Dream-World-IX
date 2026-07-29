@@ -247,3 +247,10 @@ def test_picker_without_place_context_has_no_place_button(app):
     dlg = FieldCardPicker(None, pick_palette("dark"), None)
     assert dlg.place_btn is None
     dlg.deleteLater()
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_qt_teardown(qt_drain):
+    """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
+    yield
+    qt_drain()
