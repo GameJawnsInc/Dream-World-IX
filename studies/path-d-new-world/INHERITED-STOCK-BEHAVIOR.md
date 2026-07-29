@@ -10,7 +10,7 @@ Grid convention: the engine names cells `Block[InitialX][InitialY]`, and `Number
 
 ## Class A — CELL-KEYED (the block grid carries it)
 
-### A1. Our own loose overrides — 112 cells
+### A1. Our own loose overrides — 56 cells
 
 The Southern Ring's `Terrain.ff9mesh` + `Donor.txt` files under
 `FF9CustomMap-world/FF9_Data/WorldMap/Disc1/`. Because Path D keeps `currentDisc == 1`, every override

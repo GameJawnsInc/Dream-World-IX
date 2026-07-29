@@ -65,8 +65,8 @@
 > place, so the original reasoning stays readable:
 >
 > 1. **§3 Rung 1's "no override files exist yet, so `HasLandOverride` always returns false"** — **REFUTED
->    by the live install.** 112 `Terrain.ff9mesh` overrides + `Donor.txt` sidecars already ship in
->    `FF9CustomMap-world` (the Southern Ring's), so 112 of the 480 cells take the s34 reclaim branch. The
+>    by the live install.** 56 disc-1 `Terrain.ff9mesh` overrides + `Donor.txt` sidecars already ship in
+>    `FF9CustomMap-world` (the Southern Ring's), so 56 of the 480 cells take the s34 reclaim branch. The
 >    spike is therefore not the "no per-block prefab lookups" payload this plan prices. Left unsuppressed
 >    on purpose: that path is already in-game proven, and an ocean containing only those cells is an
 >    unmistakable success picture.

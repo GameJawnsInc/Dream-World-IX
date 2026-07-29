@@ -117,7 +117,7 @@ as a baked asset ten seconds earlier.
 real, and it is the exact thing I cannot see for myself.
 
 **Expected oddities that are NOT bugs:**
-- **112 land cells floating in the ocean.** The install already ships 112 `Terrain.ff9mesh` overrides in
+- **56 land cells floating in the ocean.** The install already ships 56 disc-1 `Terrain.ff9mesh` overrides in
   `FF9CustomMap-world` (the Southern Ring's work), so those cells take the proven s34 reclaim path. The
   plan claimed "no override files exist yet, so every cell is plain sea" — that is **refuted by the live
   install**. I left them in deliberately: they're the already-in-game-proven path, and an ocean with only
