@@ -76,3 +76,24 @@ exactly UV-ANALYSIS §6's number). `0x2d344` (FT3) holds 4,064; x576_y256 holds 
 fixtures re-authored in Z order; ef227's pinned creature census updated 65,267 → 65,298 covered /
 part-5 holes 33 → 2 (bowtie wedges had been reading as interior holes), old predicate named in the
 comment; CHANGELOG entry under [Unreleased]; kit summon tests green.
+
+## 6. Late-found movers — the CREATURE-side mean, cross-branch (resolved post-W6b-3i)
+
+The remeasure above ran on master; the W6q board (`w6q_gates.py`) lived on the recon lane
+(`claude/summon-work-orchestration-f4605d`, forked at `81c8e864` — before this fix landed) and
+merged afterwards (`a3c16bcd`, repaint.py auto-merged), so its G16 coverage pin was authored
+against the perimeter fan and never appeared in §3's table. Surfaced as `W6b3-ARCHIVE.md` §11's
+inherited finding; A/B at the re-pin (old fan monkeypatched back, same 372-container corpus):
+
+| where | published (perimeter fan) | correct (Z fan) |
+|---|---|---|
+| `w6q_gates` G16, creature mean covered fraction | 0.640 (measures 0.640017) | **0.6443** (0.644309) |
+| W6-TEXEL.md §1.7, corpus creature coverage | 975,202 = 64.00 % (548,510 dead) | **981,741 = 64.43 %** (541,971 dead) |
+| W6-TEXEL.md §1.7 per-effect max / ef251 | 71.9 % (ef261) / 64.8 % | **72.2 %** / **65.3 %** |
+| W6-TEXEL.md G6 row, MARGIN LAW pad share | 98.767 % (6,765 holes) | **99.241 %** (4,115 holes) |
+
+37 of 93 creature pages gain, **0 lose**, +6,539 texels net — density only, the same class as §2's
+scenery movers, and the creature complement of §2's "110 of 340 `so`-bound models move".
+Fan-invariant, verified in the same A/B: ef227 `tex.part0`'s 11,563-texel island (the W6a/W6q stamp
+vehicle — its sha pins stand), the 52.8 % per-effect minimum (ef211/ef225), every other G16 row, and
+`w6_gates` G6's only coverage *assertion* (`holes/dead < 0.02`: 0.76 % post-fix, safe direction).

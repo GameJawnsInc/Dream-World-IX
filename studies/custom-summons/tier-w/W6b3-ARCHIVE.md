@@ -765,4 +765,7 @@ alternate PNG per key.
 **Inherited finding, not this rung's:** `w6q_gates` G16's creature mean-covered-fraction pin
 (0.640 ± 0.001) measures 0.644309 **at HEAD too** (A/B with the three kit modules restored: identical
 digits) — stale before this integration, previously masked by G6b's abort. Left red and named; owner
-call.
+call. **Resolved since:** the cause is the QUAD-ORDER Z-fan fix (kit `6ed66133`), which landed on
+master after the W6q board was pinned on the recon lane and rode this very merge (`a3c16bcd`); the
+perimeter fan re-measures 0.640017 in A/B. Re-pinned **0.6443** — `QUAD-ORDER-DELTA.md` §6,
+`w6q_QUANTIZE.md` §4 item 3.

@@ -1562,8 +1562,14 @@ def g16_re_derivation_pin():
                     c["rows4"]))
     near("§1.9 creature mean distinct live colours",
          sum(c["distinct_live"]) / len(c["distinct_live"]), 233.7, 0.05, F1)
+    # ⚠ RE-PINNED 0.640 → 0.6443: the design's §1.9 measured the PERIMETER quad fan; the QUAD-ORDER
+    # fix (kit 6ed66133, Z fan) landed on master after this board was authored on the recon lane and
+    # rode the a3c16bcd merge, so the pin was a cache of a pre-fix measurement.  A/B at the re-pin:
+    # the old fan monkeypatched back re-measures 0.640017 -- the pin's own source -- and the Z fan
+    # 0.644309 (37/93 pages gain, 0 lose, +6,539 texels: bowtie wedges that had read as dead).
+    # Provenance: w6q_QUANTIZE.md §4 item 3, QUAD-ORDER-DELTA.md §6.
     near("§1.9 creature mean covered fraction",
-         sum(c["covered"]) / len(c["covered"]), 0.640, 0.0005, F3)
+         sum(c["covered"]) / len(c["covered"]), 0.6443, 0.0005, F3)
     pin("§1.9 entry budget |H| <= B, creature", (c["budget_c"], c["n_creature"]), (93, 93))
     pin("§1.9    ...scenery", (c["budget_s"], c["n_scenery"]), (147, 147))
     pin("§1.9    tightest", c["tightest"][:1] + c["tightest"][1:],

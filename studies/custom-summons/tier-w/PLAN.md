@@ -486,7 +486,8 @@ scenery must be re-authored *together*.
   pinned by name in the amended G6b). Containment = THE WITNESS PARTITION (incumbent ≡ pre-fix,
   340/340 / 376/376 / 0 of 372 differing); census and channel G byte-identical. ⚠ OPEN, owner
   decisions: (1) ratify-or-cast the 122-palette release; (2) optionally soften the 4 covered
-  archive-dual cells back to advisory (−2 variant, documented); (3) `w6q_gates` G16's stale
-  creature-cover pin (0.644309 vs 0.640±0.001, pre-existing at HEAD — proven by A/B). The order
+  archive-dual cells back to advisory (−2 variant, documented); (3) ~~`w6q_gates` G16's stale
+  creature-cover pin~~ RESOLVED: the QUAD-ORDER Z fan (kit `6ed66133`) rode the `a3c16bcd` merge past
+  the recon-lane pin; re-pinned **0.6443** (`QUAD-ORDER-DELTA.md` §6, `w6q_QUANTIZE.md` §4). The order
   clause + the 4-cell cast shortlist stay study-side; LICENSE still needs (i) the order measured
   and (ii) a cast.

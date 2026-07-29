@@ -80,7 +80,7 @@ export lanes, and the deprecated-but-parsed `acknowledge_texanim`.
 | G17 | the fail-safes are LABELLED with their populations | — |
 | G18 | provenance: zero SE bytes committable | point an output at the repo → refused |
 
-## 4. Two measured DISAGREEMENTS with the design's §1, both reported rather than tuned away
+## 4. Three measured DISAGREEMENTS with the design's §1, all reported rather than tuned away
 
 1. **§1.3's threshold table does not reproduce on this fixture set.** D1 reported
    `worst_hue40 >= min_unrepresentable` at **9 of 9** thresholds; re-run here over 6 creature pages
@@ -97,6 +97,16 @@ export lanes, and the deprecated-but-parsed `acknowledge_texanim`.
    because choosing the reading that agrees is not evidence. Whoever owns the study record should
    settle the predicate. (§1.9's *"tightest `ef179 tex.part1` at 255 of 255"* independently settled
    the entry-budget predicate: |H| and B are both over **live** entries, not all 256.)
+3. **§1.9's creature mean covered fraction (0.640) is a perimeter-fan number.** Found at the W6b-3i
+   handoff (`W6B3I-PIN-DELTA.md` §1), resolved after it: the shipped kit measures **0.644309**, and
+   the cause is not this lane — kit commit `6ed66133` (quads are Z-ordered, the QUAD-ORDER fix,
+   `QUAD-ORDER-DELTA.md`) landed on master **after** this board was authored on the recon lane and
+   rode the `a3c16bcd` merge, so G16's pin was a cache of a pre-fix measurement. A/B at the re-pin,
+   fan monkeypatched on the same corpus: the perimeter fan re-measures **0.640017** — the pin's own
+   source — the Z fan **0.644309**; 37 of 93 creature pages gain, **0 lose**, +6,539 texels net
+   (bowtie wedges that had read as dead). G16 is re-pinned at **0.6443 ± 0.0005**. Fan-invariant,
+   verified in the same A/B: the stamp island (`ef227 tex.part0`, 11,563), the 52.8 % per-effect
+   minimum, and every other G16 row.
 
 **OPEN RISK 2 is DISCHARGED.** D1's M3 was single-source and load-bearing; re-measured here
 independently it reproduces **exactly**: 16 exportable class-C cells, 11 carrying ≥1 split group,

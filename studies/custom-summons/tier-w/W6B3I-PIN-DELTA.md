@@ -58,6 +58,10 @@ A's. A different cell, or a non-channel-A class, goes RED instead of aborting. +
 0.640 ± 0.001 pin — **pre-existing at HEAD** (A/B: the kit's three edited modules restored from HEAD
 give the identical 0.644309; every other G16 row green both ways). It was masked only because the board
 died at G6b first. A W6q-dossier number; owner call; not this rung's to re-pin.
+**Since resolved:** the cause is the QUAD-ORDER Z-fan fix (kit `6ed66133`, perimeter → Z fan) riding
+the `a3c16bcd` merge — the recon lane pinned 0.640 against the old fan (A/B at the re-pin: old fan
+0.640017, Z fan 0.644309; 37/93 pages gain, 0 lose, +6,539 texels). Re-pinned **0.6443**; provenance
+`w6q_QUANTIZE.md` §4 item 3 and `QUAD-ORDER-DELTA.md` §6.
 
 ### `studies/custom-summons/tier-w/w6b2i_gates.py`
 **Every pin VALUE unchanged — 11/11** via `W6B2_CHANNELS = LICENSED_CHANNELS − {"so-array"}`, declared

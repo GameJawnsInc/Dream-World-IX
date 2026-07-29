@@ -218,10 +218,16 @@ uses **100 %** of its own page block."* **The bbox is exactly right; the inferen
 coverage at texel centres (with corner-OR so a one-texel-thin face lights its own texels) measures:
 
 ```
-corpus, 24 packages / 93 pages:  975,202 of 1,523,712 texels sampled = 64.00 %   (548,510 dead, 36.00 %)
-per effect: 52.8 % (ef211, ef225)  ...  71.9 % (ef261)
-ef227 66.4 %   ef211 52.8 %   ef251 64.8 %
+corpus, 24 packages / 93 pages:  981,741 of 1,523,712 texels sampled = 64.43 %   (541,971 dead, 35.57 %)
+per effect: 52.8 % (ef211, ef225)  ...  72.2 % (ef261)
+ef227 66.4 %   ef211 52.8 %   ef251 65.3 %
 ```
+
+> **Quad-fan correction.** As published these read 975,202 sampled = 64.00 % (548,510 dead,
+> 36.00 %), max 71.9 %, ef251 64.8 % — the perimeter fan's bowties under-measured 37 of the 93
+> creature pages by +6,539 texels net, 0 pages losing (`QUAD-ORDER-DELTA.md` §6). The minimum
+> (ef211/ef225 52.8 %), ef227's 66.4 % and the emblem page's 11,563-texel island are fan-invariant,
+> and the section's headline — ~1/3 of the budget never sampled — stands.
 
 Reproduced **exactly** by `w6_gates` G6 this round, independently of R2's script. **~1/3 of every
 summon's texture budget is never sampled by any face** — a tool that hands a painter a bare 128×128
@@ -733,7 +739,7 @@ copy.)*
 | **G3** | one `_regions` function, two partitions, no overlap and no gap | 23 identical regions outside id-4; union 102,400/102,400, gap 0 |
 | **G4** | the refusal matrix | **26 refusals**, each with its own reason, + 1 positive control |
 | **G5** | the CLUT lane is byte-compatible | ef227 `7fef205f…` / ef211 `4daab8ad…` / ef251 `78b395f8…` |
-| **G6** | the corpus census | 24 pkg / 93 pages, 64.00 % coverage, MARGIN LAW 98.767 %, **0** collisions |
+| **G6** | the corpus census | 24 pkg / 93 pages, 64.43 % coverage, MARGIN LAW 99.241 % (64.00 % / 98.767 % pre-quad-fan, `QUAD-ORDER-DELTA.md` §6), **0** collisions |
 | **G7** | provenance | 1 byte literal (`b'tampered'`, a test fixture) in 6 committable files, **0** of them in 372 corpus containers; art + staging outside the checkout; the repo and StreamingAssets destinations refuse |
 
 **G4's matrix, in full** — W6b surfaces (a scenery page name; the `rgba` export lane; an unknown
