@@ -40,18 +40,36 @@ class ImageFieldError(ValueError):
 
 
 # ----------------------------------------------------------------- the homography (the new math)
+def click_ray(cam: _cam.Cam, pt) -> tuple:
+    """The world-frame camera ray under a canvas pixel -> ``(origin C, direction)``.
+
+    THE one owner of the canvas-frame fold: subtract the camera's GTE centerOffset and the
+    half-extents (the exact inverse of ``cam.to_canvas``), then pull the pixel through
+    ``inv3(R_view)`` — NEVER a transpose (R_view carries the k=14/15 squash; a transpose is ~7%
+    of vertical error). Kit cameras have offset (0,0); REAL imported cameras carry a nonzero one
+    (map158's [26, 400] round-tripped 400.8 px wrong before the fold — the census's catch), and
+    **277 of 741 real cameras have one**, so every ray construction must come from here —
+    the plane inverse (:func:`unproject_floor`) and the walkmesh raycast
+    (:func:`click_to_surface`) both do."""
+    d = _cam.decompose(cam)
+    Minv = _cam.inv3(d["R_view"])
+    W, H, D = cam.range[0], cam.range[1], cam.proj
+    ox, oy = cam.centerOffset
+    ray = _cam.mv(Minv, (pt[0] - ox - W / 2.0, H / 2.0 + oy - pt[1], D))
+    return d["C"], ray
+
+
 def unproject_floor(cam: _cam.Cam, contour_px) -> list:
     """Un-project a canvas-pixel floor polygon onto the world ground plane Y=0 -> [(X, Z), ...].
 
-    The plane-induced inverse of FF9's perspective projection: for each pixel we shoot the camera
-    ray through it and intersect the y=0 plane. Raises :class:`ImageFieldError` if any vertex lands
-    at or above the horizon (where the ray is parallel to the floor and the inverse blows up)."""
-    d = _cam.decompose(cam)
-    C, Minv = d["C"], _cam.inv3(d["R_view"])   # inv3, NOT transpose — R_view carries the k=14/15 squash
-    W, H, D = cam.range[0], cam.range[1], cam.proj
+    The plane-induced inverse of FF9's perspective projection: for each pixel we shoot
+    :func:`click_ray` and intersect the y=0 plane. Raises :class:`ImageFieldError` if any vertex
+    lands at or above the horizon (where the ray is parallel to the floor and the inverse blows
+    up). For AUTHORING new geometry from art this plane form is the ceiling (THE PLANE LAW);
+    placement onto an EXISTING walkmesh uses :func:`click_to_surface` instead."""
     out = []
     for i, (cx, cy) in enumerate(contour_px):
-        ray = _cam.mv(Minv, (cx - W / 2.0, H / 2.0 - cy, D))
+        C, ray = click_ray(cam, (cx, cy))
         if ray[1] == 0:
             raise ImageFieldError(f"floor vertex {i} ({cx:.0f},{cy:.0f}) is on the horizon line")
         s = -C[1] / ray[1]
@@ -62,6 +80,135 @@ def unproject_floor(cam: _cam.Cam, contour_px) -> list:
                 f"camera — trace the floor BELOW the horizon, or steepen the pitch")
         out.append((C[0] + s * ray[0], C[2] + s * ray[2]))
     return out
+
+
+def _ray_tri(orig, ray, a, b, c):
+    """Möller–Trumbore: the ray parameter s where ``orig + s*ray`` meets triangle (a, b, c),
+    else None. s > 0 only (a hit behind the camera is not under the pixel)."""
+    e1 = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+    e2 = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+    p = (ray[1] * e2[2] - ray[2] * e2[1], ray[2] * e2[0] - ray[0] * e2[2],
+         ray[0] * e2[1] - ray[1] * e2[0])
+    det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2]
+    if abs(det) < 1e-12:
+        return None
+    t = (orig[0] - a[0], orig[1] - a[1], orig[2] - a[2])
+    u = (t[0] * p[0] + t[1] * p[1] + t[2] * p[2]) / det
+    if u < -1e-9 or u > 1 + 1e-9:
+        return None
+    q = (t[1] * e1[2] - t[2] * e1[1], t[2] * e1[0] - t[0] * e1[2], t[0] * e1[1] - t[1] * e1[0])
+    v = (ray[0] * q[0] + ray[1] * q[1] + ray[2] * q[2]) / det
+    if v < -1e-9 or u + v > 1 + 1e-9:
+        return None
+    s = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) / det
+    return s if s > 1e-9 else None
+
+
+def click_to_surface(cam: _cam.Cam, tris, pt) -> dict:
+    """Canvas click -> the VISIBLE point of a world-frame triangle soup under it (Rung 3's
+    conversion: placement onto an EXISTING walkmesh, exact on slopes — benched to 1.7e-11u on
+    the most-sloped real fields, ``studies/click-authoring/raycast_bench.py``).
+
+    ``tris`` = ``[((x,y,z), (x,y,z), (x,y,z)), ...]``. Returns ``{"pos", "tri", "hits"}`` where
+    ``hits`` is every intersection nearest-first ``[(s, tri_index, (x,y,z)), ...]`` — a stacked
+    walkmesh (a bridge over a floor) yields several, and the FIRST is what the author actually
+    sees under the pixel; callers surface the rest for disambiguation. Raises
+    :class:`ImageFieldError` when no triangle lies under the click. The accepted hit re-projects
+    through ``cam.to_canvas`` back onto the click (the same tripwire as :func:`click_to_world`)."""
+    orig, ray = click_ray(cam, tuple(pt))
+    hits = []
+    for i, (a, b, c) in enumerate(tris):
+        s = _ray_tri(orig, ray, a, b, c)
+        if s is not None:
+            hits.append((s, i, (orig[0] + s * ray[0], orig[1] + s * ray[1],
+                                orig[2] + s * ray[2])))
+    if not hits:
+        raise ImageFieldError(
+            f"no walkmesh under the click ({pt[0]:.1f},{pt[1]:.1f}) — the walkable area does "
+            f"not reach this pixel")
+    hits.sort(key=lambda h: h[0])
+    pos = hits[0][2]
+    cx, cy = _cam.to_canvas(pos, cam)
+    err = math.hypot(cx - pt[0], cy - pt[1])
+    if err > CLICK_ROUNDTRIP_TOL:
+        raise ImageFieldError(
+            f"click ({pt[0]:.1f},{pt[1]:.1f}) hits the walkmesh at ({pos[0]:.0f},{pos[1]:.0f},"
+            f"{pos[2]:.0f}) but that point re-projects to canvas ({cx:.1f},{cy:.1f}) — {err:.2f} px "
+            f"off. The camera's ray is not consistent with its forward projection")
+    return {"pos": pos, "tri": hits[0][1], "hits": hits}
+
+
+def mesh_world_tris(mesh) -> tuple:
+    """A walkmesh (``scene.bgi.BgiWalkmesh`` or anything duck-shaped like one) -> the
+    ``(render_frame_triangles, floor_index_per_triangle)`` pair :func:`click_to_surface`
+    consumes.
+
+    ★ **THE Y-FLIP: the engine negates walkmesh Y before the GTE** (Memoria WalkMesh.cs:54), so
+    the frame ``cam.to_canvas`` projects — the frame the ART shows and the actor walks — is
+    ``(x, -y, z)`` of ``world_verts`` (= vert + orgPos + floor.org). ``world_verts`` itself
+    stays pre-flip (the BUILD ships it verbatim); the flip lives ONLY at this projection
+    boundary — the exact discipline ``extract.compose_background``'s footprint proved in-game
+    (un-flipped, a DEEP floor projects off the painting; near-plane floors hide it at ~20px).
+    A raycast is a display-frame operation, so it intersects these flipped triangles; the hit's
+    (x, z) — the pair placement writes, the engine re-resolving y from the mesh — is unaffected
+    by the sign of y."""
+    wv = [(x, -y, z) for (x, y, z) in mesh.world_verts()]
+    tri_floor = {ti: fi for fi, fl in enumerate(mesh.floors) for ti in fl.tri_ndx_list}
+    tris, floors = [], []
+    for ti, t in enumerate(mesh.tris):
+        tris.append(tuple(wv[vi] for vi in t.vtx))
+        floors.append(tri_floor.get(ti))
+    return tris, floors
+
+
+# The per-click self-check's loudness threshold, canvas px. The homography round-trips synthesized
+# cameras to ~2e-12 world units, so any honest inverse lands back on the click to far below a pixel;
+# the defect classes this trips on are large (a transpose of R_view = tens of px of vertical error,
+# a numerically degenerate camera = unbounded). Real imported cameras are vetted against this same
+# bound by the click-authoring census (studies/click-authoring/PLAN.md, the Rung 3 gate).
+CLICK_ROUNDTRIP_TOL = 0.25
+
+
+def click_to_world(cam: _cam.Cam, pt) -> tuple:
+    """One canvas click -> the world floor point (X, Z) under it, self-checked.
+
+    THE conversion every click-authoring call site routes through (HOP 2 of the architecture in
+    ``studies/click-authoring/PLAN.md``): un-project through the plane homography, then assert the
+    forward projection lands back on the click. The re-projection is one extra 3x3 multiply and it
+    turns the silent geometry-bug class (an inverse that is *almost* right — the transpose trap, a
+    degenerate real camera) into a loud error at the exact click that hit it. Raises
+    :class:`ImageFieldError` at/above the horizon — a click there has NO floor intersection and must
+    refuse, never clamp."""
+    (X, Z), = unproject_floor(cam, [tuple(pt)])
+    cx, cy = _cam.to_canvas((X, 0.0, Z), cam)
+    err = math.hypot(cx - pt[0], cy - pt[1])
+    if err > CLICK_ROUNDTRIP_TOL:
+        raise ImageFieldError(
+            f"click ({pt[0]:.1f},{pt[1]:.1f}) un-projects to world ({X:.0f},{Z:.0f}) but that point "
+            f"re-projects to canvas ({cx:.1f},{cy:.1f}) — {err:.2f} px off. The camera's inverse is "
+            f"not consistent with its forward projection (a degenerate/unsupported camera pose)")
+    return (X, Z)
+
+
+def world_point_to_click(cam: _cam.Cam, p) -> tuple:
+    """A world 3D point (x, y, z) -> the canvas pixel (cx, cy) it appears under.
+
+    The general forward hop (``cam.to_canvas`` with the behind-camera guard). Raises
+    :class:`ImageFieldError` for a point at/behind the camera plane, where the projection's
+    ``abs(z)`` would silently mirror it onto the canvas at a bogus position."""
+    P = (p[0], p[1], p[2])
+    _, _, resz = _cam.project(P, cam)
+    if resz <= 0:
+        raise ImageFieldError(
+            f"world point ({p[0]:.0f},{p[1]:.0f},{p[2]:.0f}) is at/behind the camera plane — "
+            f"it does not appear on the canvas")
+    return _cam.to_canvas(P, cam)
+
+
+def world_to_click(cam: _cam.Cam, p) -> tuple:
+    """A world FLOOR point (x, z) -> its canvas pixel: the y=0 specialization of
+    :func:`world_point_to_click` (one owner of the behind-camera guard)."""
+    return world_point_to_click(cam, (p[0], 0.0, p[1]))
 
 
 def occluder_z(cam: _cam.Cam, contact_px) -> int:

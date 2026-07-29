@@ -296,6 +296,208 @@ def test_auto_floor_without_numpy_errors_cleanly(tmp_path, monkeypatch):
         IF.auto_floor(tmp_path / "x.png")
 
 
+# ---------------------------------------------------------------- click-authoring Rung 0 conversions
+
+def test_click_to_world_grid_roundtrip():
+    """Rung 0's offline gate (studies/click-authoring/PLAN.md): a grid of canvas points through
+    click_to_world -> world_to_click must land back to < 1e-9 canvas px, across the synthesized
+    envelope (pitch 10-45, yaw +/-25, two FOVs)."""
+    for pitch in (10, 26, 45):
+        for yaw in (-25, 0, 25):
+            for fov in (36.0, 48.0):
+                cam = guide.make_camera(pitch, 3000.0, fov_x_deg=fov, yaw_deg=yaw)
+                hy = C.horizon_canvas_y(cam)
+                for cx in range(12, 384, 62):
+                    for cy in range(0, 448, 32):
+                        if cy <= hy + 2:            # at/above the horizon there is no floor
+                            continue
+                        X, Z = IF.click_to_world(cam, (cx, cy))
+                        bx, by = IF.world_to_click(cam, (X, Z))
+                        err = math.hypot(bx - cx, by - cy)
+                        assert err < 1e-9, \
+                            f"pitch {pitch} yaw {yaw} fov {fov}: ({cx},{cy}) round-trips {err:g} px off"
+
+
+def test_click_roundtrip_with_real_style_center_offset():
+    """REAL imported cameras carry a nonzero GTE centerOffset (the map158 donor's [26, 400]);
+    the un-projection must fold it out exactly as to_canvas folds it in. Before the fix this
+    round-tripped |offset| px wrong (measured 400.8 px on the donor — the click-authoring
+    census's first catch)."""
+    cam = guide.make_camera(26.0, 3000.0, fov_x_deg=42.0, center_offset=(26, 400),
+                            range_wh=(512, 400))
+    hy = C.horizon_canvas_y(cam)
+    for cx in (30, 250, 480):
+        for cy in (int(hy + 10), 200, 390):
+            if cy <= hy + 3:
+                continue
+            X, Z = IF.click_to_world(cam, (cx, cy))
+            bx, by = IF.world_to_click(cam, (X, Z))
+            assert math.hypot(bx - cx, by - cy) < 1e-9
+
+
+def test_click_to_world_refuses_above_horizon():
+    """The horizon guard: refuse, never clamp — a silent clamp would place content at absurd depth."""
+    cam = _cam()
+    hy = C.horizon_canvas_y(cam)
+    with pytest.raises(IF.ImageFieldError, match="horizon"):
+        IF.click_to_world(cam, (192, hy - 5))
+
+
+def test_click_roundtrip_tripwire_is_live(monkeypatch):
+    """The self-check must actually fire: an inverse that drifts from the forward projection (the
+    transpose class, a degenerate camera) raises loudly instead of returning a plausible point."""
+    cam = _cam()
+    real = IF.unproject_floor
+    monkeypatch.setattr(IF, "unproject_floor",
+                        lambda c, pts: [(x + 120.0, z) for (x, z) in real(c, pts)])
+    with pytest.raises(IF.ImageFieldError, match="re-projects"):
+        IF.click_to_world(cam, (200, 300))
+
+
+def test_world_to_click_refuses_behind_camera():
+    """A point at/behind the camera plane would silently mirror onto the canvas (the projection
+    divides by abs(z)); the forward hop refuses it instead."""
+    cam = _cam()
+    cz = C.decompose(cam)["C"][2]
+    with pytest.raises(IF.ImageFieldError, match="behind the camera"):
+        IF.world_to_click(cam, (0.0, cz - 5000.0))
+
+
+# ---------------------------------------------------------------- Rung 3: the walkmesh raycast
+
+def _bary(a, b, c, u, v):
+    w = 1.0 - u - v
+    return tuple(a[i] * w + b[i] * u + c[i] * v for i in range(3))
+
+
+def test_click_ray_agrees_with_the_plane_inverse():
+    """One owner: intersecting click_ray with y=0 must equal unproject_floor exactly — on a
+    REAL-style camera (nonzero centerOffset), the class the fold bug lived in."""
+    cam = guide.make_camera(26.0, 3000.0, fov_x_deg=42.0, center_offset=(26, 400),
+                            range_wh=(512, 400))
+    for pt in ((60.0, 320.0), (250.0, 380.0), (480.0, 305.0)):   # horizon here is y~296
+        (X, Z), = IF.unproject_floor(cam, [pt])
+        C0, ray = IF.click_ray(cam, pt)
+        s = -C0[1] / ray[1]
+        assert math.hypot((C0[0] + s * ray[0]) - X, (C0[2] + s * ray[2]) - Z) < 1e-9
+
+
+def test_click_to_surface_recovers_sloped_points():
+    """The plane model's blind spot IS this function's home turf: interior points of a RAMP
+    triangle recover exactly through project -> raycast."""
+    cam = _cam()
+    ramp = ((-500.0, 0.0, 800.0), (500.0, 0.0, 800.0), (0.0, 400.0, 1600.0))
+    for (u, v) in ((0.2, 0.3), (0.5, 0.2), (0.1, 0.7), (0.33, 0.33)):
+        p = _bary(*ramp, u, v)
+        got = IF.click_to_surface(cam, [ramp], C.to_canvas(p, cam))
+        assert math.dist(got["pos"], p) < 1e-6
+        assert got["tri"] == 0 and len(got["hits"]) == 1
+
+
+def test_click_to_surface_stacked_floors_nearest_first():
+    """A bridge over a floor: both hits reported nearest-first, the VISIBLE (upper) one wins —
+    you click what you see; the rest is the caller's disambiguation list."""
+    cam = _cam()
+    lower = ((-2000.0, 0.0, 400.0), (2000.0, 0.0, 400.0), (0.0, 0.0, 6000.0))
+    upper = ((-400.0, 500.0, 1200.0), (400.0, 500.0, 1200.0), (0.0, 500.0, 2000.0))
+    p_up = _bary(*upper, 0.3, 0.3)
+    got = IF.click_to_surface(cam, [lower, upper], C.to_canvas(p_up, cam))
+    assert len(got["hits"]) == 2
+    assert got["tri"] == 1 and math.dist(got["pos"], p_up) < 1e-6
+    assert got["hits"][0][0] < got["hits"][1][0]   # sorted by ray distance
+    assert got["hits"][1][1] == 0                  # the buried floor is the second hit
+
+
+def test_click_to_surface_no_mesh_refuses():
+    cam = _cam()
+    off = ((5000.0, 0.0, 800.0), (6000.0, 0.0, 800.0), (5500.0, 0.0, 1600.0))
+    with pytest.raises(IF.ImageFieldError, match="no walkmesh under the click"):
+        IF.click_to_surface(cam, [off], (192.0, 300.0))
+
+
+def test_click_to_surface_ignores_behind_camera():
+    """A triangle behind the camera never answers for a pixel (s > 0 only)."""
+    cam = _cam()
+    cz = C.decompose(cam)["C"][2]
+    behind = ((-500.0, 0.0, cz - 4000.0), (500.0, 0.0, cz - 4000.0), (0.0, 0.0, cz - 6000.0))
+    with pytest.raises(IF.ImageFieldError, match="no walkmesh"):
+        IF.click_to_surface(cam, [behind], (192.0, 300.0))
+
+
+def test_world_point_to_click_roundtrips_mesh_points():
+    cam = _cam()
+    p = (120.0, 350.0, 1400.0)
+    cx, cy = IF.world_point_to_click(cam, p)
+    got = IF.click_to_surface(
+        cam, [((0.0, 350.0, 1000.0), (300.0, 350.0, 1200.0), (100.0, 350.0, 1800.0))], (cx, cy))
+    assert math.dist(got["pos"], p) < 1e-6
+
+
+def test_mesh_world_tris_maps_floors():
+    """The adapter: world frame = vert + orgPos + floor.org (the import-frame law), one floor
+    index per triangle — duck-typed, mirroring BgiWalkmesh's own world_verts contract."""
+    class _V:
+        def __init__(self, x, y, z):
+            self.x, self.y, self.z = x, y, z
+
+    class _T:
+        def __init__(self, *vtx):
+            self.vtx = list(vtx)
+
+    class _F:
+        def __init__(self, tris):
+            self.tri_ndx_list = tris
+
+    class _Mesh:
+        floors = [_F([0]), _F([1])]
+        tris = [_T(0, 1, 2), _T(3, 4, 5)]
+
+        def world_verts(self):
+            return [(0, 0, 0), (10, 0, 0), (0, 0, 10),
+                    (0, 5, 0), (10, 5, 0), (0, 5, 10)]
+
+    tris, floors = IF.mesh_world_tris(_Mesh())
+    assert floors == [0, 1]
+    assert tris[1][0] == (0, -5, 0)                # RENDER frame: y negated (WalkMesh.cs:54)
+
+
+def test_mesh_world_tris_render_flip_is_load_bearing():
+    """The engine negates walkmesh Y before the GTE, so a DEEP floor (build-frame y=+2000) is
+    seen by the camera at y=-2000 — compose_background's proven footprint flip. Pin it end to
+    end: the pixel of the RENDER-frame point recovers through the adapter's triangles, and the
+    un-flipped projection lands somewhere else entirely (the class of misplacement this
+    prevents)."""
+    cam = _cam()
+
+    class _V:
+        pass
+
+    class _T:
+        def __init__(self, *vtx):
+            self.vtx = list(vtx)
+
+    class _F:
+        def __init__(self, tris):
+            self.tri_ndx_list = tris
+
+    class _Mesh:
+        floors = [_F([0])]
+        tris = [_T(0, 1, 2)]
+
+        def world_verts(self):
+            return [(-800.0, 2000.0, 1400.0), (800.0, 2000.0, 1400.0), (0.0, 2000.0, 2600.0)]
+
+    tris, _ = IF.mesh_world_tris(_Mesh())
+    p_render = _bary(*tris[0], 0.3, 0.3)           # a visible point of the deep floor
+    got = IF.click_to_surface(cam, tris, C.to_canvas(p_render, cam))
+    assert math.dist(got["pos"], p_render) < 1e-6
+    # the un-flipped pixel for the same spot is far away on canvas — the flip is not cosmetic
+    p_build = (p_render[0], -p_render[1], p_render[2])
+    cx_r, cy_r = C.to_canvas(p_render, cam)
+    cx_b, cy_b = C.to_canvas(p_build, cam)
+    assert math.hypot(cx_r - cx_b, cy_r - cy_b) > 50
+
+
 # ---------------------------------------------------------------- the floor tracer (--trace)
 
 def test_write_trace_html(tmp_path):

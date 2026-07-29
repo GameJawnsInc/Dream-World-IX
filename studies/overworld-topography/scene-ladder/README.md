@@ -99,9 +99,9 @@ white screen and minted:
   (the F2 record's "white fade" phrasing was the same misread).
 
 **RUNG 1 IS COMPLETE**: trigger → rig camera → tracked motion → phases → fades → restore,
-all in-place in a free-roam world, repeatable, on stock scene idioms + s66/s68. The s67
-probe stays LIVE through rung 2 (remove at ladder close, bundled with the pending
-Memoria.Prime x64 copy at the next closed-game build).
+all in-place in a free-roam world, repeatable, on stock scene idioms + s66/s68. (The s67
+probe was removed and the Memoria.Prime x64 copy trued at the 2026-07-29 closed-game
+build — the patch file remains re-appliable history.)
 
 Rung 2 (design, owner input wanted): wire the proven scene into the ring's ferry UX — the
 diegetic candidates are a DEPARTURE scene (sail-away after boarding at the hall), an
@@ -113,20 +113,25 @@ in-9011 proves cramped.
 
 The ferry is a voyage. **2a** (`rung2a_departure.py`, three rounds): the pending-port code in
 `Global.Byte[1872]` (`flags.FERRY_DEPART_BYTE`, the kit-world-flags band) auto-fires the
-sail-away on world entry — player mesh-hidden (aboard), the 1c scene sails OUT only and the
+sail-away on world entry — player show-bit-hidden with the anchor's foot arm parked
+(**THE DISPATCH LAW**, v11: `Global.Byte[190]` is the world's DefinePlayerCharacter dispatch —
+0 = the anchor, 7 = the Narciss, an UNCLAIMED value = no controlled player = the black-screen
+brick; park the anchor's own stock latch `Map.Byte[37]=1` instead, restore 0 at close), the
+1c scene sails OUT only and the
 ship rides THROUGH the closing fade (leg split around the FadeFilter — the blocking-walk
 idiom), then behind black: re-moor, rig disposal, the anchor's per-port tags 61-64 snap the
 player to the chosen shore at its PROBED ground height (round 1 buried the player: a wrong
 scripted y is not rescued by the ground snap), unhide, reveal. The code pre-clears — no save
 can replay-loop. **2b** (`dc1263bd`): the kit ferry lane's departure arms (`depart_code` +
-`stage_arrive`, lint-guarded, FORMAT.md) — the hall's Tidefall/Grimhorn/Larkspur write codes
-2/3/4 and stage at the Lantern Quay; Ashvale stays the plain home-port arm.
+`stage_arrive`, lint-guarded, FORMAT.md) — the hall's four ports write codes 1-4 and stage
+at the Lantern Quay. (Ashvale first shipped as a plain no-voyage home-port arm; the owner
+read that as a silent warp with the wrong moogle line — ALL ports sail now, code 1.)
 
-**Known cosmetic seam (owner-observed, disposition open):** after the hall→world transition
-there is ~1s of standing at the Ashvale shore before the scene takes over (the engine's own
-world-entry fade-in plays before the director's first fade can own the screen, and the two
-fade systems meeting can read as a snap). Options if it ever bothers: a fast 8-frame dip on
-the departure branch's opening fade, or waiting out the entry fade before starting ours.
+**The entry seam — CLOSED (owner-confirmed):** the ~1s of standing at the Ashvale shore and
+the "camera snap" after the hall→world transition were both the same artifact — the visible
+free-roam entry before the scene owned the frame. Gone with the v5-v11 ladder (Main_Init
+prologue black + rigs arm at construction, navi disarm, show-bit hide under the parked
+`Map.Byte[37]` latch). No open scene items remain on the ladder.
 
 **The ladder's arc complete: rungs 0 → 2b in one day** — a decorative static became a rig-
 tracked, phase-coordinated, fade-bracketed cinematic voyage wired into shipped ring UX, on

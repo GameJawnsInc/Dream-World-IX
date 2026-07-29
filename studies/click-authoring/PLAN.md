@@ -103,14 +103,18 @@ line, it catches both laws, and it turns a class of silent geometry bugs into a 
 Each rung is independently shippable and independently verifiable. Rungs 0-2 reach parity with the
 HTML tracer; **Rung 3 is the payoff** — the point at which this stops being an image-field feature.
 
-### Rung 0 — `BackdropCanvas`, the shared primitive
-Generalize `StageCanvas` (or extract a shared base) into a view that holds **a background pixmap +
-a camera** and exposes `click_to_world(pt)` / `world_to_click(p)` plus the horizon line.
-**Verify offline, no GUI assertion needed:** round-trip a grid of canvas points through
-`unproject_floor` → `to_canvas`, assert < 1e-9; assert an above-horizon click raises rather than
-returns.
+### Rung 0 — `BackdropCanvas`, the shared primitive ★ DONE 2026-07-28
+`workspace/backdrop.py` (`BackdropCanvas`) + the pure pair `imagefield.click_to_world` /
+`world_to_click`. The scene IS the logical canvas (4× art transformed into the frame, display zoom
+in the view transform — HOP 1 is `viewportTransform` and nothing else); the horizon renders dashed
++ labeled and clicks above it emit `click_refused`, never a clamp; click-vs-pan by 4px slop; atlas
+zoom grammar; every accepted click runs the `to_canvas` round-trip tripwire
+(`CLICK_ROUNDTRIP_TOL = 0.25 px`, proven live by a shifted-inverse monkeypatch test). Offline gate
+green: grid round-trips < 1e-9 px across pitch 10-45 / yaw ±25 / two FOVs / a nonzero-centerOffset
+camera; `ff9mapkit/tests/test_workspace_backdrop.py` pins the widget half. Note: the DEFAULT-pitch
+26 camera's horizon sits just OFF-frame (canvas y ≈ −3.6) — pitch ≤ ~20 puts it on-canvas.
 
-### Rung 1 — floor tracing (parity with `--trace`)
+### Rung 1 — floor tracing (parity with `--trace`) ★ DONE + PLAYTESTED 2026-07-28
 Click to add polygon vertices, drag handles to adjust, pitch slider re-deriving the horizon from the
 real camera math, live outset preview (+48u `COLLISION_RADIUS_W`), then call `build_image_field`.
 **Verify:** `tools/gui_snap.py` → **read the PNG**; then build → `deploy_field.py --id <scratch>` →
@@ -130,12 +134,50 @@ This is what makes the tool general: it serves forks of real FF9 rooms, not just
 it kills the error class that `laying-out-ff9-fields` exists to prevent (content packed under ~192u,
 inverted cardinals because the camera sits at **negative z**).
 
-⚠ **HARD GATE — the imported-camera census.** The homography's 2.3e-12 round-trip was verified for
-**synthesized** cameras (`make_camera`, pitch 10-45 / yaw ±25). **Real FF9 cameras have not been
-checked.** Before building Rung 3's UI, run `decompose` → `unproject_floor` → `to_canvas` across
-**all ~674 real field cameras** and publish the residual distribution here. Cheap, fully offline,
-and it decides whether Rung 3 is general or restricted to a verified pose envelope. **Do not build
-Rung 3's UI before this number exists.**
+★ **THE SUBSTRATE IS THE RAYCAST, NOT THE PLANE (scoped 2026-07-28 — VIABLE).** The floor census
+(`floor_census.py` / `.json`, 674/674 walkmeshes parsed) killed `plane_y` for real fields: only
+**17%** have a flat dominant floor, **78%** slope > 64u (steps/ramps everywhere), 61% aren't at y≈0,
+82% are multi-floor (median 3). A plane can't serve that population — but it doesn't have to:
+**field content is placed as (x, z)** (the engine resolves y from the mesh), and every field's real
+walkmesh is available in exact world frame (`vert + orgPos + floor.org`). So Rung 3's HOP 2 is
+**click ray → Möller–Trumbore over the walkmesh's world triangles → the NEAREST hit** (you click
+what you SEE). Benched on the census's worst sloped fields (`raycast_bench.py` — alxc_map056b
+9727u spread, ipsn_map740, GRGR, the map158 offset donor): sampled surface points recover **exactly
+(worst 1.7e-11u)** at 89–98%; the remainder are pixels owned by a NEARER floor — the visibility
+semantics, not error, and the walkmesh knows it (a stacked-hit click lists its floors, defaults to
+the visible one, warns). This does not breach §1 THE PLANE LAW: the law bounds *authoring new
+geometry* from a photo (a ray meets an unknown surface nowhere exact); placement targets the
+**known** surface, where a ray–mesh intersection is closed-form. The self-check still applies
+unchanged: every accepted hit re-projects through `to_canvas` onto the click.
+
+Build inventory (all pieces exist, none exotic): camera + walkmesh per field = `extract.cache_field`
+(idempotent, cached); the canvas-frame backdrop = the extract compositor (per-camera mode for
+multi-cam fields; scrolling Range is already the canvas frame in `BackdropCanvas`); placement edits
+ride the OPEN document + the shell undo contract (the Behavior stage-edit precedent — one pure op
+per drop); art loads async in the thumbs idiom.
+
+★ **THE HARD GATE IS CLEARED — the imported-camera census ran 2026-07-28** (`camera_census.py` /
+`camera_census.json` in this directory, against the live install). **674 fields, 741 cameras, 729
+measured: every one round-trips < 1e-9 px (worst 7.4e-12). Rung 3 is GENERAL — no pose envelope.**
+The 12 unmeasured cameras are up-pitched sky/ceiling cutscene shots (Prima Vista meteor, steeple
+views) with genuinely no floor plane in frame — not a placement surface, refused honestly.
+
+The census earned its keep before the sweep even finished — two findings:
+
+1. **The offset bug (FIXED + fenced same day):** `unproject_floor` inverted the offset-less canvas
+   map while `to_canvas` folds the camera's GTE `centerOffset` in — so a real camera round-tripped
+   exactly |offset| px wrong (**measured 400.8 px** on the map158 donor, centerOffset [26, 400]),
+   and **277 of 741 real cameras (37%) carry a nonzero offset**. Synthesized cameras are offset
+   (0,0), which is why the proven 2.3e-12 figure never saw it. The exact instance of §3's "easy to
+   silently violate at a new call site" — caught by calibrating the instrument on 3 known cameras
+   before the sweep.
+2. **The plane-height scoping fact:** **33 cameras sit BELOW the y=0 plane** (their floor
+   intersections land *above* the horizon line — the first census run mis-filtered all 33 by
+   assuming floor = below-horizon). A real field's floor height is arbitrary (`vert + orgPos +
+   floor.org`), so **Rung 3 must un-project onto the FIELD'S OWN floor plane, not y=0** — Rung 5's
+   one-parameter change (`s = (h - C.y)/ray.y`) is a Rung 3 *dependency*, pulled forward. The
+   floor-SELECTOR UI stays deferred; measure real walkmesh heights when scoping Rung 3 and read the
+   plane height from the field's own walkmesh.
 
 ⚠ **Write-back is surgical, and refuses bundled examples.** The standing trap: the form editor's
 Save rewrites a byte-exact golden oracle (CLAUDE.md §5). Write-back must preserve unrelated keys,
@@ -162,10 +204,12 @@ arrival position + facing per side, encounters, save-point siting.
 This is why the composer is a rung here and not its own study: standalone it would need to generate
 geometry; downstream of Rungs 0-3 it does not. **Do not start it before Rung 3 is real.**
 
-### Rung 5 (bounded) — discrete multi-plane
-Add `plane_y` to the un-projection (`s = (h - C.y)/ray.y`) so a field with several **flat** floors at
-known heights can be authored per-floor, with a floor selector. **THE PLANE LAW (§1) is the ceiling:
-if a surface's height varies across it, it is Blender's.** Rung 5 ships only if a real field wants it.
+### Rung 5 (bounded) — discrete multi-plane ⚠ SCOPE SHRUNK 2026-07-28
+Add `plane_y` to the un-projection (`s = (h - C.y)/ray.y`) so a **traced photo** with several flat
+floors at known heights can be authored per-floor, with a floor selector. **THE PLANE LAW (§1) is
+the ceiling: if a surface's height varies across it, it is Blender's.** Rung 5 ships only if a real
+photo wants it — and it is now PHOTO-ONLY: real-field placement no longer needs planes at all
+(Rung 3's walkmesh raycast supersedes it there; floors fall out of the mesh).
 
 ---
 
@@ -192,7 +236,8 @@ GUI claim from source; that is the documented recurring failure in this package.
 | Risk | Mitigation |
 |---|---|
 | **A transpose sneaks into a new call site** (~7% vertical error, looks plausible) | §3 — one shared conversion function; the `to_canvas` round-trip assert on every click |
-| **Real field cameras fall outside the verified envelope** | Rung 3's census gate — measure before building |
+| **Real field cameras fall outside the verified envelope** | ★ RETIRED — census 2026-07-28: 729/729 measured cameras < 1e-9 px; the one real defect (centerOffset, 37% of cameras) found + fixed + fenced |
+| **Un-projecting a real field onto y=0 when its floor sits elsewhere** | The census's finding 2 — Rung 3 reads the plane height from the field's own walkmesh (`plane_y`) |
 | **Three coordinate scales (384×448 / 2× display / 4× layer)** silently mixed | One conversion function, no ad-hoc scaling at call sites |
 | **Above-horizon clicks** placing content at absurd depth | Reject `s ≤ 0`; render the horizon line |
 | **Write-back clobbers a golden oracle** | Surgical write; hard refusal under `ff9mapkit/examples/` |
@@ -204,11 +249,41 @@ GUI claim from source; that is the documented recurring failure in this package.
 
 ## 7. Do-next
 
-1. **Rung 0** — `BackdropCanvas` + the two conversions + the round-trip assert. Offline tests only.
-2. **Rung 1** — tracing parity; re-do the hallway photo entirely in the GUI, deploy, walk it.
-3. **★ The imported-camera census** (§ Rung 3 gate) — offline, ~674 cameras, publish the residuals here.
-4. Read step 3's numbers, **then** scope Rung 3's UI.
-
-Rungs 0-1 are self-contained and prove the surface. **Nothing in Rung 3 should be built before the
-census number exists** — it is the difference between a general placement tool and one that quietly
-misplaces content on certain real fields.
+1. ~~**Rung 0** — `BackdropCanvas` + the two conversions + the round-trip assert.~~ ★ DONE 2026-07-28.
+2. ~~**The imported-camera census**~~ ★ DONE 2026-07-28 — Rung 3 is GENERAL; the offset bug is fixed;
+   `plane_y` is pulled forward as a Rung 3 dependency (see the gate block under Rung 3).
+3. **Rung 1** — tracing parity. **Part 1 (the trace layer) ★ DONE 2026-07-28:** `BackdropCanvas`
+   trace mode — click-to-append (horizon-refused), zoom-immune drag handles with live world
+   readout, right-click delete, canvas-px truth re-judged per camera swap (bad verts mark red),
+   the +48u outset ring re-projected live and SUSPENDED while any vertex is invalid; one
+   `on_floor` callback per gesture, `set_floor` never echoes. **Part 2 (the Trace tab) ★ BUILT
+   same day, ⚠ awaiting playtest:** `workspace/tracedoc.py` on the Assets rail — the ingest is
+   the SAME cover-crop the build performs (2× display, the tracer's frame), pitch slider, host
+   undo/clear, Generate = the tracer's exact `image-field` argv through `run_job` (id via
+   `pack.check_custom_id`); snap surfaces `trace:bare|traced` (fixture art = `_paint_room`, one
+   owner); the a11y sweep caught the slider as a ringless Tab stop (id-scoped reserved ring —
+   an app-wide QSlider box would deFusion every slider), the 150% snap caught standing prose
+   starving the canvas (162→270px). **★ PLAYTEST-CONFIRMED 2026-07-28** — owner traced a photo
+   in the tab, generated, deployed, and walked it ("looks good i got one in"). **RUNG 1 CLOSED —
+   the GUI reaches full parity with the retired HTML tracer.**
+4. ~~**Scope Rung 3's UI**~~ ★ SCOPED 2026-07-28 — VIABLE via the walkmesh raycast (see the Rung 3
+   block: floor census + bench receipts). Build order, (a) ★ DONE 2026-07-28: `click_ray` is now
+   THE one-owner ray construction (spent by both `unproject_floor` and the raycast, so the
+   offset-fold class cannot fork), `click_to_surface` (Möller–Trumbore, hits nearest-first,
+   tripwired), `mesh_world_tris`, `world_point_to_click` — offline-gated (ramps < 1e-6, stacked
+   floors sorted, refusals).
+   ★ **THE RENDER-FRAME Y-FLIP (a law step (b)+ must keep):** the engine negates walkmesh Y
+   before the GTE (WalkMesh.cs:54), so the frame the ART shows is `(x, -y, z)` of `world_verts` —
+   `mesh_world_tris` flips at the projection boundary exactly as `compose_background`'s in-game-
+   proven footprint does; the bench alone could NOT catch this (a round-trip is self-consistent
+   under a global flip) — reading the proven compositor did. Placement's written (x, z) is
+   sign-invariant.
+   (b) ★ DONE 2026-07-28 — `BackdropCanvas` place mode: `set_surface` (render-frame tris drawn
+   as the live walkable footprint), `set_place_mode` (exclusive with trace), `surface_clicked`
+   carrying the visible hit's (x, z) + every stacked hit nearest-first with floor ids (hosts
+   disambiguate, never guess), `set_markers` for placed content.
+   Remaining: (c) the placement HOST — load a fork's field.toml + its donor's
+   `compose_background` backdrop + `cache_field` camera/mesh, place NPCs/props/spawn/arrival
+   into the OPEN doc (shell undo contract; refuse `ff9mapkit/examples/`; verbatim seats below
+   the party band), entry from the field cards (§5 call site 2); (d) `gui_snap` surfaces + the
+   owner walks a placed NPC in-game. Rung 2 (occluder contacts) rides along.

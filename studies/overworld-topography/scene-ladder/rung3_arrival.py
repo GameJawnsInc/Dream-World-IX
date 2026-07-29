@@ -1,32 +1,31 @@
-"""Scene ladder rung 2a: THE DEPARTURE -- the pending-departure auto-scene (world side only).
+"""Scene ladder rung 3: THE ARRIVAL -- the ferry visibly sails in and docks at the destination.
 
-The rung-2 diegesis (owner-ruled: DEPARTURE) split per house method; 2a is the world half,
-bench-testable before any hall change:
+Supersedes rung2a's director close (deploy this ON TOP of the v11 world; everything else --
+prologue, rigs, anchor tags, the confirm vignette -- is carried verbatim from rung2a v11).
+The voyage's second half stops being a teleport: after the departure sails through the
+closing fade, the whole theater relocates BEHIND BLACK to the chosen port (ship to the
+probed approach waters, hidden player to the shore, rigs re-armed, eye overridden to a
+3/4-astern water point), reveals, and the ferry sails in and noses up to the dock before
+the final black hands control over ashore.
 
-  * THE SIGNAL: `Global.Byte[1872]` (= flags.py `FERRY_DEPART_BYTE`, the first byte of the
-    sanctioned kit_world_flags band 14976-15007) carries the pending port code -- 0 none,
-    1 Ashvale / 2 Tidefall / 3 Grimhorn / 4 Larkspur. GLOB = it survives the hall->world
-    transition (Map vars reset on world load). The director CACHES it to Map.Byte[51] and
-    CLEARS it FIRST inside the branch -- a mid-scene failure can never replay-loop a save.
-  * THE AUTO-SCENE: the ship's director gains a branch BEFORE the confirm vignette: pending
-    port + on foot -> fade to black -> HideObject(14, 65535) (mesh-hide the player: aboard,
-    unseen; flags/collision untouched) -> rigs arm -> reveal the composed shot -> the ship
-    casts off and sails 40u south (NO return leg -- a departure) -> fade to black -> rigs
-    disposed + the ship re-moors + THE PORT SNAP: RunScriptSync(6, 14, 60+port) runs the
-    anchor's per-port arrive tag (the boat's proven shore-snap shape) -> ShowObject ->
-    chase settles at the new shore behind black -> reveal -> control back at the chosen
-    port, facing inland.
-  * Anchor entry 14 gains tags 61-64 (one per port, arrive coords + face from the hall's
-    [[ferry.destination]] rows; y passes 200 -- the index-1 human class ground-snaps).
+THE LANES (probe_arrival_lanes.py, all-wet verdicts; eye candidates probed WATER):
+  port 1 Ashvale : approach (29,-1208)  dock (29,-1168)   sail N(128), moor 192
+  port 2 Tidefall: approach (358,-1232) dock (394,-1232)  sail E(192), moor 192
+  port 3 Grimhorn: approach (1146,-1192) dock (1182,-1192) sail E(192), moor 192
+  port 4 Larkspur: approach (762.5,-616) dock (726.5,-616) sail W(64),  moor 64
+Angle law (kit optable): 0=south, 64=west, 128=north, 192=east.
 
-Bench (no hall changes needed): ~ Flags -> set bit 14976 (port 1 Ashvale; 14977 = port 2,
-14976+14977 = 3, 14978 = 4) -> close the menu -> the departure plays and drops you at that
-port's shore. 2b wires the hall's ferry arms to write the byte + land the world at Ashvale
-waters instead of the destination.
+NEW MECHANISM: MoveInstantXZYEx (0xAD, DPOS3) -- the engine handler is GetObj1 + the exact
+POS3 body, letting the DIRECTOR place the model-less EYE per port. ORDER LAW: InitObject's
+tag-0 runs on LATER frames, so the eye override must sit after a settle (op_22) or the
+rig's own ship-relative init overwrites it.
 
-Deploy: py rung2a_departure.py --deploy    (7 languages, hot)
-Revert: re-run rung1c_handshake.py --deploy (the confirm vignette only; tags 61-64 stay,
-        unarmed -- harmless).
+The ship STAYS DOCKED at the destination (diegetic: the ferry that brought you); the next
+world entry re-moors it home via Main_Init. The docked ship still carries the confirm
+vignette -- harmless anywhere.
+
+Deploy: py rung3_arrival.py --deploy   (7 languages, hot; requires rungs 0-2a deployed)
+Revert: py rung2a_departure.py --deploy (the teleport-close departure, v11)
 """
 import argparse
 import pathlib
@@ -53,20 +52,29 @@ SHIP = (29, -1168, 200)
 SHIP_FACE = 192
 SAIL_TO_Z = -1208
 SAIL_SPEED = 60
+ARRIVE_SPEED = 48                    # statelier than the departure's 60
 PHASE = 50                           # Map.Byte[50] -- scene phase (1c)
-PORT_CACHE = 51                      # Map.Byte[51] -- the cached port code for the switch
+PORT_CACHE = 51                      # Map.Byte[51] -- the cached port code for the switches
 DEPART_BYTE = 1872                   # Global.Byte -- flags.py FERRY_DEPART_BYTE
 
-# The four ports (arrive x/z/face from lantern-hall.field.toml [[ferry.destination]] rows;
-# ground_y probed offline from the deployed blocks -- round 1 landed the player at pos[1] =
-# -200 (-0.78u) under a 3u shore, "inside the ground": the arrival MoveInstant must place the
-# player AT the ground height, arg2 = (-y*256) & 0xFFFF per THE ARG2 SIGN LAW -- the index-1
-# ground snap does NOT rescue a wrong scripted y): tag, x, z, face, ground_y.
+SHIP_Y = 200                         # the proven at-sea y arg (draft), all waters
+EYE_UP = 6.0
+
+# Per-port shore snap (rung 2a, probed ground heights -- unchanged, tags live on the anchor).
 PORTS = [
     (61, 60.0, -1168.0, 192, 3.0),   # 1 Ashvale (the Lantern Quay)
     (62, 432.0, -1232.0, 192, 3.2),  # 2 Tidefall
     (63, 1214.0, -1192.0, 192, 3.2), # 3 Grimhorn (desert ground)
     (64, 688.0, -616.0, 64, 3.23),   # 4 Larkspur (west = inland)
+]
+
+# Per-port arrival theater: anchor tag, approach(x,z), dock(x,z), sail heading, moor face,
+# eye(x,z) at +EYE_UP (3/4 astern of the approach point; every point probed WATER).
+ARRIVE = [
+    (61, (29.0, -1208.0), (29.0, -1168.0), 128, 192, (19.0, -1222.0)),
+    (62, (358.0, -1232.0), (394.0, -1232.0), 192, 192, (344.0, -1222.0)),
+    (63, (1146.0, -1192.0), (1182.0, -1192.0), 192, 192, (1132.0, -1182.0)),
+    (64, (762.5, -616.0), (726.5, -616.0), 64, 64, (776.5, -626.0)),
 ]
 
 CONFIRM_ON = 131072
@@ -78,6 +86,10 @@ FADE_IN = "FadeFilter(3, 16, 0, 0, 0, 0)\nop_22(17)"
 
 def fp(v) -> int:
     return int(v * 256) & 0xFFFFFFFF
+
+
+def up_arg(h: float) -> int:
+    return (-int(h * 256)) & 0xFFFF
 
 
 def ship_rel(axis: int, up_units: float = 0.0, lateral: float = 0.0) -> str:
@@ -93,7 +105,7 @@ def ship_rel(axis: int, up_units: float = 0.0, lateral: float = 0.0) -> str:
     return f"{{{base} const4({n}) {op} B_EXPR_END}}"
 
 
-# --- unchanged 1c bodies (ship init, rigs) ---
+# --- rung2a v11 bodies, carried verbatim (ship init, rigs, anchor hide/show, port snaps) ---
 
 SHIP_INIT = f"""
 SetObjectIndex(0)
@@ -109,11 +121,6 @@ TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 RET()
 """
 
-# One framing for both modes (owner preference: the departure looks at the boat/shore FROM
-# open sea, like the vignette). Safe again despite the deferred-model flash risk that forced
-# the v5 seaward detour: the prologue's instant black provably HOLDS from frame zero (the
-# floating-minimap screenshot was black underneath), and the director re-hides the player
-# ~17 frames before its fade-in completes -- hidden before anything is visible.
 EYE_INIT = f"""
 0xB7()
 SetObjectLogicalSize(0, 0, 0)
@@ -152,7 +159,7 @@ op_22(1)
 JMP(L0)
 """
 
-HIDE_TAG, SHOW_TAG = 65, 66            # anchor self-op tags: show-bit clear / restore (stock flags = 5)
+HIDE_TAG, SHOW_TAG = 65, 66
 
 ANCHOR_HIDE = """
 SetObjectFlags(4)
@@ -164,7 +171,6 @@ SetObjectFlags(5)
 RET()
 """
 
-# --- the port-snap tags on the anchor (the boat tag-60 shape) ---
 
 def port_tag_body(x: float, z: float, face: int, ground_y: float) -> str:
     y_arg = (-int(ground_y * 256)) & 0xFFFF
@@ -175,19 +181,51 @@ RET()
 """
 
 
-# --- the director: departure branch + the 1c confirm vignette ---
+# --- the director: departure + THE ARRIVAL THEATER + the 1c confirm vignette ---
 
-def _port_switch() -> str:
+def _switch(bodies: list, tagpfx: str) -> str:
+    """Emit a Map.Byte[PORT_CACHE] switch: bodies[0..3] for ports 1..4 (last = default)."""
     lines = []
-    for i, (tag, _x, _z, _f, _gy) in enumerate(PORTS[:-1], start=1):
+    for i, body in enumerate(bodies[:-1], start=1):
         lines.append(f"SET({{Map.Byte[{PORT_CACHE}] const({i}) B_EQ B_EXPR_END}})")
-        lines.append(f"JMP_IFNOT(LP{i})")
-        lines.append(f"RunScriptSync(6, {ANCHOR_UID}, {tag})")
-        lines.append("JMP(LPD)")
-        lines.append(f"LP{i}:")
-    lines.append(f"RunScriptSync(6, {ANCHOR_UID}, {PORTS[-1][0]})")
-    lines.append("LPD:")
+        lines.append(f"JMP_IFNOT(L{tagpfx}{i})")
+        lines.append(body.strip())
+        lines.append(f"JMP(L{tagpfx}D)")
+        lines.append(f"L{tagpfx}{i}:")
+    lines.append(bodies[-1].strip())
+    lines.append(f"L{tagpfx}D:")
     return "\n".join(lines)
+
+
+def _relocate_body(entry) -> str:
+    tag, (apx, apz), _dock, heading, _moor, _eye = entry
+    return f"""
+MoveInstantXZY({{const4({fp(apx)}) B_EXPR_END}}, {{const({SHIP_Y}) B_EXPR_END}}, {{const4({fp(apz)}) B_EXPR_END}})
+TurnInstant({{const({heading}) B_EXPR_END}})
+RunScriptSync(6, {ANCHOR_UID}, {tag})
+"""
+
+
+def _eye_body(entry) -> str:
+    _tag, _ap, _dock, _h, _m, (ex, ez) = entry
+    return f"""
+MoveInstantXZYEx({EYE_UID}, {{const4({fp(ex)}) B_EXPR_END}}, {{const({up_arg(EYE_UP)}) B_EXPR_END}}, {{const4({fp(ez)}) B_EXPR_END}})
+"""
+
+
+def _sail_in_body(entry) -> str:
+    _tag, _ap, (dx, dz), _h, _m, _eye = entry
+    return f"""
+InitWalk()
+WalkXZY({{const4({fp(dx)}) B_EXPR_END}}, {SHIP_Y}, {{const4({fp(dz)}) B_EXPR_END}})
+"""
+
+
+def _moor_body(entry) -> str:
+    _tag, _ap, _dock, _h, moor, _eye = entry
+    return f"""
+TurnInstant({{const({moor}) B_EXPR_END}})
+"""
 
 
 DIRECTOR_LOOP = f"""
@@ -207,13 +245,26 @@ WalkXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {SHIP[2]}, {{const4({fp(SAIL_TO_Z 
 FadeFilter(2, 24, 0, 255, 255, 255)
 InitWalk()
 WalkXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {SHIP[2]}, {{const4({fp(SAIL_TO_Z)}) B_EXPR_END}})
+op_22(8)
+op_1C({EYE_UID})
+op_1C({AIM_UID})
+{_switch([_relocate_body(e) for e in ARRIVE], "R")}
+InitObject({EYE_UID}, 0)
+InitObject({AIM_UID}, 0)
 op_22(4)
+{_switch([_eye_body(e) for e in ARRIVE], "E")}
+op_22(6)
+{FADE_IN}
+op_22(20)
+SetWalkSpeed({ARRIVE_SPEED})
+SetWalkTurnSpeed(6)
+{_switch([_sail_in_body(e) for e in ARRIVE], "S")}
+op_22(24)
+{FADE_OUT}
+{_switch([_moor_body(e) for e in ARRIVE], "M")}
 SET({{Map.Byte[{PHASE}] const(2) B_LET B_EXPR_END}})
 op_1C({EYE_UID})
 op_1C({AIM_UID})
-MoveInstantXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {{const({SHIP[2]}) B_EXPR_END}}, {{const4({fp(SHIP[1])}) B_EXPR_END}})
-TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
-{_port_switch()}
 RunScriptSync(6, {ANCHOR_UID}, {SHOW_TAG})
 SET({{Map.Byte[37] const(0) B_LET B_EXPR_END}})
 op_22(24)
@@ -267,20 +318,8 @@ JMP(L0)
 """
 
 
-# THE MAIN-INIT PROLOGUE (v4 -- owner: "like stock, the character doesn't show"): stock
-# departures are DEDICATED cutscene worlds (9001-class) where no controlled player ever
-# spawns; an in-place 9011 scene cannot avoid the spawn, but Main_Init runs at WORLD
-# CONSTRUCTION, before the first rendered frame -- an instant black + show-bit hide there
-# means the free-roam entry is never seen, and the director's fade-out composes black-on-black.
-#
-# THE PARK (v11): Global.Byte[190] is the world's DefinePlayerCharacter DISPATCH -- every
-# value must be CLAIMED by some entry's init (0 = the anchor's foot arm, 7 = the boat...);
-# an unclaimed value (v10's 99) means NO entry defines the player = the no-controlled-actor
-# brick (black screen), and 7 (v9) hands the player to the Narciss. Leave [190] ALONE; park
-# the anchor's per-frame foot re-stamp with ITS OWN stock latch, Map.Byte[37]=1 (the arm is
-# gated on [37]==0 -- the anchor itself latches this value on the Global.Byte[181] path).
-# [37]!=0 also stock-blocks boarding + the quicksand battle -- all desirable mid-scene.
-# Restore [37]=0 at scene close (behind black: the arm re-fires -- flags 5, anims, redefine).
+# THE MAIN-INIT PROLOGUE -- rung2a v11 verbatim (the [37] latch park; see rung2a for the
+# [190] DISPATCH LAW record).
 DEPART_PROLOGUE = f"""SET({{Global.Byte[{DEPART_BYTE}] B_EXPR_END}})
 JMP_IFNOT(LDEPQ)
 SET({{Map.Byte[{PORT_CACHE}] Global.Byte[{DEPART_BYTE}] B_LET B_EXPR_END}})
@@ -310,7 +349,7 @@ def patch_one(base: bytes) -> bytes:
     for uid in (SHIP_UID, EYE_UID, AIM_UID, ANCHOR_UID):
         e = s.entry(uid)
         if e.empty or not e.funcs:
-            raise SystemExit(f"entry {uid} missing -- deploy rungs 0-1c first")
+            raise SystemExit(f"entry {uid} missing -- deploy rungs 0-2a first")
     out = base
     out = E.replace_function_body(out, SHIP_UID, 0, asm(SHIP_INIT))
     out = E.replace_function_body(out, EYE_UID, 0, asm(EYE_INIT))
@@ -333,9 +372,7 @@ def patch_one(base: bytes) -> bytes:
             out = E.add_function(out, ANCHOR_UID, tag, body)
     out = E.replace_function_body(out, SHIP_UID, 1, asm(DIRECTOR_LOOP))
 
-    # Main_Init gains the departure prologue before its final RET. Re-runs REPLACE any prior
-    # prologue version (v4's skip-if-present guard left a stale v4 prologue deployed under a
-    # v5 director -- an inconsistent pair that would softlock a departure; strip then insert).
+    # Main_Init prologue: strip-and-replace (the v5b lesson).
     import re as _re
     s3 = EbScript(out)
     f0 = next(f for f in s3.entry(0).funcs if f.tag == 0)
@@ -372,13 +409,13 @@ def main() -> None:
     for lang in LANGS:
         mod_p = eb_root / lang / FNAME
         if not mod_p.is_file():
-            raise SystemExit(f"{mod_p} missing -- rungs 0-1c not deployed for {lang}")
+            raise SystemExit(f"{mod_p} missing -- rungs 0-2a not deployed for {lang}")
         base = mod_p.read_bytes()
         out = patch_one(base)
         patched[lang] = (mod_p, out)
         if lang == "us":
             s = EbScript(out)
-            print(f"[us] departure in; anchor tags {sorted(f.tag for f in s.entry(ANCHOR_UID).funcs)}; "
+            print(f"[us] arrival theater in; anchor tags {sorted(f.tag for f in s.entry(ANCHOR_UID).funcs)}; "
                   f"{len(out) - len(base):+} bytes vs base")
     if not args.deploy:
         print("dry run OK (all 7 languages patched in memory) -- re-run with --deploy to write")

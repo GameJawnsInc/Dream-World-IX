@@ -778,6 +778,38 @@ def snap_script(ctx: _Ctx, state: str) -> None:
 BEHAVIOR_STATES = ("guide", "bare", "wizard", "branchwiz", "doc", "compiled", "edit",
                    "stage", "sweep", "siege", "sim")
 
+TRACE_STATES = ("bare", "traced")
+
+
+def snap_trace(ctx: _Ctx, state: str) -> None:
+    """The Trace tab (click-authoring Rung 1): the empty on-ramp ('bare' — the teach caption +
+    the bare canvas frame with its horizon), or the synthetic proof room loaded with a traced
+    floor polygon and its +48u outset ring ('traced'). The photo + polygon come from
+    test_imagefield's _paint_room — ONE owner for the fixture art (kit-painted, zero
+    Square-Enix bytes)."""
+    if state not in TRACE_STATES:
+        raise ValueError(f"unknown trace state {state!r} (know: {', '.join(TRACE_STATES)})")
+    win = _make_win(ctx)
+    win.tabs.setCurrentWidget(win.trace_doc)
+    _settle(4)
+    if state == "traced":
+        import importlib.util
+        p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
+        spec = importlib.util.spec_from_file_location("_trace_fixture", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        root = _SCRATCH / "trace_demo"                 # stable path -- mkdtemp breaks pixel-diffing
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+        root.mkdir(parents=True, exist_ok=True)
+        photo, floor = mod._paint_room(root)
+        win.trace_doc.load_image(photo)
+        win.trace_doc.canvas._commit_floor([(float(x), float(y)) for x, y in floor])
+        _settle(6)
+    _grab(ctx, f"trace-{state}", win)
+    _grab(ctx, f"trace-{state}-canvas", win.trace_doc.canvas)   # the SUBJECT, not just the window
+    _close(win)
+
 _BARE_TOML = """\
 [field]
 name = "BARE"
@@ -1071,7 +1103,8 @@ def all_surfaces() -> list[str]:
             + [f"console:{s}" for s in CONSOLE_STATES]
             + [f"drift:{s}" for s in DRIFT_STATES]
             + [f"script:{s}" for s in SCRIPT_STATES]
-            + [f"behavior:{s}" for s in BEHAVIOR_STATES])
+            + [f"behavior:{s}" for s in BEHAVIOR_STATES]
+            + [f"trace:{s}" for s in TRACE_STATES])
 
 
 def main() -> None:
@@ -1119,6 +1152,8 @@ def main() -> None:
                 snap_script(ctx, rest)
             elif kind == "behavior":
                 snap_behavior(ctx, rest)
+            elif kind == "trace":
+                snap_trace(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface
