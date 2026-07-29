@@ -377,6 +377,8 @@ class TraceDoc(QWidget):
             try:
                 if str(path).endswith(".trace.json"):  # a generated project's session record
                     self.load_trace(path)
+                elif str(path).endswith(".toml"):      # the project's field.toml works too
+                    self.load_project(path)
                 else:
                     self.load_image(path)
             except Exception as e:                     # noqa: BLE001 -- a bad file must not crash the tab
@@ -596,15 +598,71 @@ class TraceDoc(QWidget):
         self._refresh_cutouts()
         self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place.")
 
+    def load_project(self, path):
+        """Reopen a generated image-field PROJECT from its field.toml: prefer the folder's
+        ``.trace.json`` session record; without one (a pre-sidecar project) BACKFILL the
+        session from the compiled artifacts themselves — the walkmesh ring inverted back
+        through the -48u collision outset, the [camera] pitch, and the generator's own
+        anchored-contact comments. Either way the project ends armed for in-place Generate."""
+        import re
+        import tomllib
+        path = Path(path)
+        side = sorted(path.parent.glob("*.trace.json"))
+        if side:
+            self.load_trace(side[0])
+            return
+        text = path.read_text(encoding="utf-8")
+        data = tomllib.loads(text)
+        layers = data.get("layers", []) or []
+        base_rel = next((la["image"] for la in layers if la.get("z") == imagefield.Z_BASE),
+                        layers[0]["image"] if layers else None)
+        obj_rel = (data.get("walkmesh") or {}).get("obj")
+        if base_rel is None or obj_rel is None:
+            raise ValueError("not an image-field project (no [[layers]] art / [walkmesh] obj) "
+                             "— open the photo instead and trace fresh")
+        self.load_image(path.parent / base_rel)        # the flattened base IS the photo, 1:1
+        self.pitch.setValue(int(round(float((data.get("camera") or {})
+                                            .get("pitch", imagefield.DEFAULT_PITCH)))))
+        cam = self.canvas.camera()
+        ring = []
+        for line in (path.parent / obj_rel).read_text(encoding="utf-8").splitlines():
+            if line.startswith("v "):
+                p = line.split()
+                ring.append((float(p[1]), float(p[3])))
+        if len(ring) < 3:
+            raise ValueError(f"{obj_rel} has no walkmesh ring to invert")
+        inner = imagefield.outset_polygon(ring, -imagefield.COLLISION_OUTSET)
+        self._floor = [(round(cx, 1), round(cy, 1))
+                       for cx, cy in (imagefield.world_to_click(cam, p) for p in inner)]
+        self.canvas.set_floor(self._floor)
+        # the generator writes each anchored occluder's contact as a comment above its layer —
+        # the one place the SOURCE pixel survives compilation (tomllib drops comments; regex it)
+        for m in re.finditer(r'# occluder anchored at floor contact '
+                             r'\((-?[\d.]+),(-?[\d.]+)\)[^"]*?image = "([^"]+)"', text, re.S):
+            self._fg.append({"contact": (round(float(m.group(1)), 1),
+                                         round(float(m.group(2)), 1)), "image": None})
+            fg_path = path.parent / m.group(3)
+            if fg_path.is_file():
+                self._attach_cutout(len(self._fg) - 1, str(fg_path))
+        name = str((data.get("field") or {}).get("name") or "PICTURE")
+        fid = (data.get("field") or {}).get("id")
+        self.name_box.setText(name)
+        if fid:
+            self.id_box.setText(str(fid))
+        self._project = {"out": str(path.parent), "name": name, "fid": fid}
+        self._refresh_cutouts()
+        self._refresh(f"Reopened {path.name} — session REBUILT from the compiled project (no "
+                      f".trace.json yet; the next Generate writes one). Generate goes in place.")
+
     # ------------------------------------------------------------------ dialog seams
     def _ask_image(self):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
-        dlg = QFileDialog(self, "Open an image to trace (or a generated project's .trace.json)",
-                          str(self._image.parent if self._image else Path.home()))
+        dlg = QFileDialog(self, "Open an image, a generated project's field.toml, or its "
+                          ".trace.json", str(self._image.parent if self._image else Path.home()))
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
         dlg.setNameFilter("Images or trace projects (*.png *.jpg *.jpeg *.bmp *.webp "
-                          "*.trace.json);;Images (*.png *.jpg *.jpeg *.bmp *.webp);;"
-                          "Trace projects (*.trace.json)")
+                          "*.trace.json *.field.toml);;Images (*.png *.jpg *.jpeg *.bmp *.webp);;"
+                          "Trace projects (*.trace.json *.field.toml)")
         if dlg.exec() != QFileDialog.DialogCode.Accepted:
             return None
         files = dlg.selectedFiles()
