@@ -90,11 +90,16 @@ is the latest release as of 2026-07-29).
 2. **Sharpened law: never call `parentItem()` on a QGraphicsItem wrapper you don't intend
    to own — a `None` return converts the wrapper into a delayed delete of the C++ item.**
    Resolve tags/lookups through retained wrappers instead.
-3. **Live-app exposure (latent, masked by post-gesture rebuilds):** the press-path walks at
-   `backdrop.py:438` (`_resolve_data`), `backdrop.py:542` (`_resolve_vertex`), and
-   `behaviordoc.py:339` call `parentItem()` from `itemAt()` hits. A walk that MATCHES a tag
-   returns before poisoning the top-level node; a tag-MISS (click on backdrop/line/frame)
-   arms the hit item / walks to `None`. Hardening (separate change, chip filed): stop each
-   walk before the `None` return or route hits through retained wrappers.
+3. **Live-app exposure — HARDENED.** The three press-path walks (backdrop `_resolve_data` /
+   `_resolve_vertex`, behaviordoc `_resolve_grab`) used to call `parentItem()` from
+   `itemAt()`/`items(pos)` hits; a tag-MISS (click on backdrop/line/frame) walked to the
+   `None` top and armed the hit item. All three now read the HIT ITEM ALONE — the `_child`
+   adopters stamp every child with its anchor's tag in data slots 2/3 (slot 0/1 stays the
+   item's own identity, so tag-count fences hold) — and zero `parentItem()` calls remain in
+   `workspace/`. Fenced deterministically by the probe pattern:
+   `test_a_tag_miss_press_walk_leaves_the_scene_intact` (test_workspace_backdrop.py) and
+   `test_a_tag_miss_grab_walk_leaves_the_scene_intact` (test_behaviordoc.py) sweep the
+   resolvers over fresh wrappers, kill them, and assert `scene.items()` count is unchanged
+   (pre-fix: 9/22 and 26/75 items destroyed by the read-only sweep).
 4. **No interpreter/dependency pin.** Suite stays on Python 3.14. On every PySide6 bump,
    run `probe_item_destroyed.py` first.

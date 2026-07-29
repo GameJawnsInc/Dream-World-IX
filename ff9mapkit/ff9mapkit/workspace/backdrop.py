@@ -146,8 +146,12 @@ class BackdropCanvas(QGraphicsView):
         deletes the C++ child under a live scene (stale itemAt hits mid-handler) and its
         finalizer double-frees after a scene.clear() (an exit access violation). Creating via
         ``scene.addX`` then ``setParentItem`` keeps ownership C++-side both ways; ``_kids``
-        keeps the wrapper alive as a belt."""
+        keeps the wrapper alive as a belt. Data slots 2/3 carry the anchor's own tag so
+        press resolution reads the hit alone — never a parentItem() walk, the poison call
+        (studies/pyside-gc-crash)."""
         item.setParentItem(parent)
+        item.setData(2, parent.data(0))            # the anchor's tag, resolvable in place
+        item.setData(3, parent.data(1))
         self._kids.append(item)
         return item
 
@@ -436,11 +440,18 @@ class BackdropCanvas(QGraphicsView):
             self._contact_items[c["i"]] = anchor
 
     def _resolve_data(self, item, tag):
+        """Resolve a press hit to ``tag``'s payload from the hit item ALONE. NEVER walk
+        parentItem() here: when it returns None (any tag-miss hit — the art, a leg, the
+        frame) shiboken flips the wrapper Python-owned, and the wrapper's death then
+        DELETES the C++-owned item (studies/pyside-gc-crash). Children carry their
+        anchor's tag in data slots 2/3 (``_child`` stamps them), so the hit itself
+        always holds the answer."""
         try:
-            while item is not None:
+            if item is not None:
                 if item.data(0) == tag:
                     return item.data(1)
-                item = item.parentItem()
+                if item.data(2) == tag:
+                    return item.data(3)
         except RuntimeError:                       # a stale itemAt wrapper: treat as a miss
             pass
         return None
@@ -540,14 +551,8 @@ class BackdropCanvas(QGraphicsView):
     # -- trace gestures: press resolves a handle, move updates ONLY the grabbed items, release
     # commits ONE callback and the re-render redraws everything (the StageCanvas contract)
     def _resolve_vertex(self, item):
-        try:
-            while item is not None:
-                if item.data(0) == "tracept":
-                    return int(item.data(1))
-                item = item.parentItem()
-        except RuntimeError:                       # a stale itemAt wrapper (the GC-deleted-child
-            pass                                   # class _kids prevents) must never kill a press
-        return None
+        i = self._resolve_data(item, "tracept")    # the hit alone — see _resolve_data
+        return None if i is None else int(i)
 
     def _begin_vertex_drag(self, i):
         if not 0 <= i < len(self._trace_items):

@@ -480,3 +480,47 @@ def test_a_press_through_crossing_furniture_still_grabs(app):
     QTest.mouseRelease(c.viewport(), Qt.MouseButton.LeftButton,
                        pos=QPoint(round(wpt.x()) + 5, round(wpt.y()) + 10))
     assert len(anchored) == 1
+
+
+def test_a_tag_miss_press_walk_leaves_the_scene_intact(app):
+    """THE POISON-CALL FENCE (studies/pyside-gc-crash): press resolution must never call
+    parentItem() — a None return flips the wrapper Python-owned, so the wrapper's DEATH
+    deletes the C++-owned item (deterministic; probe_item_destroyed.py). A tag-MISS press
+    (backdrop art, a trace leg, the frame) used to walk every hit to the None top and arm
+    exactly that. Sweep the resolvers over every item as fresh wrappers — the itemAt()/
+    items(pos) class — kill the wrappers, and the scene must not lose a single item."""
+    import gc
+
+    c, cam, _ = _trace_canvas(app)
+    c._commit_floor([(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)])
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (50.0, 250.0, 40.0, 30.0),
+                    "contact": (70.0, 280.0), "label": "fg0", "bad": False, "locked": False}])
+    n0 = len(c._scene.items())
+    wrappers = c._scene.items()          # fresh temporaries where no retained wrapper exists
+    for it in wrappers:                  # the mousePressEvent loop's exact resolver calls
+        c._resolve_vertex(it)
+        c._resolve_data(it, "cutoutpt")
+        c._resolve_data(it, "cutoutimg")
+    del wrappers, it
+    gc.collect()
+    assert len(c._scene.items()) == n0   # nothing armed, nothing deleted
+
+
+def test_press_resolution_reads_the_hit_alone_children_included(app):
+    """The parity half of the poison-call fence: a press lands on the VISIBLE furniture (a
+    vertex dot, a contact diamond) — children of the tagged anchors — so with the ancestor
+    walk banned, resolution must still find their handle through the hit item alone."""
+    from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem
+
+    c, cam, _ = _trace_canvas(app)
+    c._commit_floor([(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)])
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (50.0, 250.0, 40.0, 30.0),
+                    "contact": (70.0, 280.0), "label": "fg0", "bad": False, "locked": False}])
+    dots = [k for k in c._kids if isinstance(k, QGraphicsEllipseItem)]
+    assert sorted(c._resolve_vertex(d) for d in dots) == [0, 1, 2]
+    glyph = next(k for k in c._kids if isinstance(k, QGraphicsPolygonItem))
+    assert c._resolve_data(glyph, "cutoutpt") == 0

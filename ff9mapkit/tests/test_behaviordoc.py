@@ -1017,6 +1017,32 @@ def test_the_branch_wizard_previews_the_real_body_and_honours_unit_only():
     assert w.picked() == ("swing_reach", "raider")
 
 
+def test_a_tag_miss_grab_walk_leaves_the_scene_intact(edoc):
+    """THE POISON-CALL FENCE (studies/pyside-gc-crash): _resolve_grab must read the hit
+    alone — the old parentItem() walk ran every tag-miss press (a route leg, a label, a
+    ring) to the None top, which flips that wrapper Python-owned so its DEATH deletes the
+    C++-owned item (deterministic; probe_item_destroyed.py). Sweep the resolver over every
+    item as fresh wrappers — the itemAt() class — kill the wrappers, and the scene must
+    not lose a single item; the grab furniture (anchors AND their child squares) must
+    still resolve through the hit item alone."""
+    import gc
+
+    raw = demo_raw()
+    edoc.show_field("BGLADE", raw, None)
+    edoc.edit_btn.setChecked(True)
+    canvas = edoc.canvas
+    n0 = len(canvas._scene.items())
+    wrappers = canvas._scene.items()
+    kinds = [g[0] for g in (canvas._resolve_grab(it) for it in wrappers) if g]
+    assert "handle" in kinds and "grip" in kinds   # matches still resolve mid-sweep
+    del wrappers
+    gc.collect()
+    assert len(canvas._scene.items()) == n0        # nothing armed, nothing deleted
+    kid_squares = [it for it in canvas._scene.items() if it.data(2) == "handle"]
+    assert kid_squares                             # the visible grip square, not the 0-size anchor
+    assert all(canvas._resolve_grab(k) == ("handle", int(k.data(3))) for k in kid_squares)
+
+
 @pytest.fixture(autouse=True)
 def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
