@@ -292,9 +292,17 @@ a dead transition; the canvas label "door0 → 0" was the only tell). Closed thr
 quad's own menu grew **Set gateway target…** (`region_retarget` + an instance-dialog seam in
 both hosts — on the photo lane there IS no other editor for a drawn door); `region_rows` marks
 the row NO TARGET and the Trace tab gates Generate until every door has one.
-**Playtest ask (retry):** kill + relaunch FF9, right-click the door → Set gateway target → 301
-(Ice Cavern/Ice Path — a real id), Regenerate, deploy, ~ Reload, walk in; then a Place-tab
-gateway on a real fork (aim its 0→1 edge at the exit) and walk out both ways.
+**Round 2 same day — ★ BOTH LANES CONFIRMED IN-GAME:** the retargeted hallway door WORKS
+("nice that worked"), and the Place tab landed an NPC + prop + gateway + event on a verbatim
+Black Mage Village fork, all seen in-game. The round's catch — **THE TOP-RIGHT "..." BOX:** a
+`received` event re-styled the author's message as window 7 at the dialogue default (10,1)+UPR —
+a sliver pinned top-right with no item name (the Place placeholder made it a literal "...").
+The exact disease `_chest_received_box` already cured for CHESTS, never propagated to events.
+Fixed at the one owner: both text channels now route received events through the chest's
+canonical box (`[STRT=69,3]` centering + DEFT + the live item name); `received` needs no
+message; an authored message fills the box verbatim; the bare "..." never ships. Verified
+against the reporter's own field on a scratch copy. ⚠ The fixed box itself awaits one in-game
+look (rebuild + redeploy + walk-in).
 
 ### Rung 6 (DEFERRED — the intended expansion, owner-decided 2026-07-28)
 **A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
