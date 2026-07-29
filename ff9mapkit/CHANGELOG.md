@@ -149,6 +149,40 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   and a zone still carrying the drawn-zone placeholder warns on the canvas and in the lint
   ("it ships as a literal '...' popup") unless it's a `received` item box.
 
+### Fixed — the painted-row inverse spanned the projection pole (low-pitch cameras lost their floor)
+- **`cam.solve_z_for_canvasY` bisected across a discontinuity.** `project` divides by `num =
+  abs(res.z)`, so past the projection pole at `res.z = 0` the SAME canvas row is re-produced,
+  MIRRORED, by points behind the camera. The solver bracketed `[-30000, +30000]` — a window that
+  SPANS that pole — so its two-endpoint sign test came back same-sign and returned `None` for rows
+  that had a perfectly good front-branch root. Measured at pitch 15 / distance 3000: rows 365, 420
+  and 440 all returned `None` (true roots -1650/-1900/-1970, which re-project to exactly those
+  rows). It is **not only a shallow-camera bug**: swept over world z genuinely IN FRONT of the seven
+  real donor cameras in the regression suite, the old solver lost **112 of 886 samples — all 32 on
+  TRNO0_inv**, whose `r[2][2] < 0` puts its entire front branch at negative z.
+- **Replaced by the exact closed form.** `canvasY(z)` along a world line is a Möbius function of z,
+  so the inverse needs no search: `z = (a*E - A*H)/(B*H - a*G)` on the front branch, with the
+  coefficients read straight out of `project`. Exact for ANY camera — yaw, roll, a real imported
+  `centerOffset` — not only pure-pitch synthesis: it round-trips `to_canvas` to ~1e-13 px and to
+  **zero misses on all seven real cameras**. `zlo`/`zhi` keep their old meaning as a reachable
+  window (the default ±30000 is the walkmesh's own Int16 coordinate budget).
+- **`horizon_canvas_y` is now exact too.** It probed `z = +1e7`, which rides the same `abs(res.z)`
+  mirror — on TRNO0_inv it reported row 321 for a true horizon of -13, a 334-row lie under the
+  Workspace's "no floor above" line and `imagefield`'s row cap. And 1e7 is not infinity: the
+  residual is O(1/z), still 6.5 rows out on the map158 donor. It is now the analytic asymptote.
+- **`guide.frame_floor` stopped lying about why.** It raised at EVERY distance for pitch 15 and 20
+  with "canvas Y=420 is above the horizon … horizon at canvas Y~100" — false by 320 rows, because
+  the `None` came from the bracket, not from the horizon. It now quotes the reason
+  `cam.canvas_row_z` gives (row past the horizon / root behind the camera / root outside the
+  window) and names the side of the horizon that is actually reachable — which takes
+  `sign(G·det)`, not `sign(G)`: the obvious guess is wrong on TRNO0_inv and on any `det < 0` camera.
+- **`ff9mapkit new --pitch 15` no longer ships a mesh that doesn't match its camera.**
+  `pack.new_project` wrapped the frame in `except (ValueError, ZeroDivisionError): pass` and fell
+  back to a HARD-CODED quad, so the scaffold looked fine and shipped a walkmesh belonging to no
+  camera — and because the solver was broken below ~30° pitch, that was the common case, not the
+  extreme one. The quad is now ALWAYS derived from the scaffold's own camera, and an unframeable
+  camera (a near-level pitch, where the back row really is past the horizon) REFUSES with the knob
+  to turn instead of guessing a floor. Nothing is created on the way out.
+
 ### Fixed — a `received` event now shows the REAL item-get box (the top-right "..." bug)
 - `[[event]] received = true` re-styled the author's message as the window-7 item box at the
   dialogue-default geometry — a tiny box pinned to the TOP-RIGHT corner, with no item name in
