@@ -524,3 +524,162 @@ def test_press_resolution_reads_the_hit_alone_children_included(app):
     assert sorted(c._resolve_vertex(d) for d in dots) == [0, 1, 2]
     glyph = next(k for k in c._kids if isinstance(k, QGraphicsPolygonItem))
     assert c._resolve_data(glyph, "cutoutpt") == 0
+
+
+# --------------------------------------------------------------------------- Rung 4: regions
+def _region_canvas(app, tris=None):
+    """A canvas in REGION mode (camera + optional walkmesh surface) with signal recorders."""
+    c = BackdropCanvas(pick_palette("dark"))
+    pm = QPixmap(384, 448)
+    pm.fill(Qt.GlobalColor.darkGray)
+    c.set_backdrop(pm, guide.make_camera(26.0, 3000.0, fov_x_deg=42.0))
+    if tris is not None:
+        c.set_surface(tris, [0] * len(tris))
+    c.set_region_mode(True)
+    c.resize(500, 560)
+    c.show()
+    QApplication.processEvents()
+    drawn, changed, deleted, refused = [], [], [], []
+    c.region_drawn.connect(drawn.append)
+    c.region_changed.connect(lambda i, q: changed.append((i, q)))
+    c.region_deleted.connect(deleted.append)
+    c.click_refused.connect(refused.append)
+    return c, drawn, changed, deleted, refused
+
+
+_GW_QUAD = [(-300.0, 900.0), (300.0, 900.0), (300.0, 1500.0), (-300.0, 1500.0)]
+
+
+def test_region_mode_is_exclusive_with_every_other(app):
+    c, *_ = _region_canvas(app)
+    assert c._region_mode
+    c.set_trace_mode(True)
+    assert c._trace_mode and not c._region_mode
+    c.set_region_mode(True)
+    assert c._region_mode and not c._trace_mode and not c._place_mode
+    c.set_contact_mode(True)
+    assert c._contact_mode and not c._region_mode
+
+
+def test_four_clicks_emit_one_region_drawn_with_world_corners(app):
+    c, drawn, *_ , refused = _region_canvas(app)
+    for n, (x, z) in enumerate(_GW_QUAD):
+        _click_at_world(c, (x, 0.0, z))
+        if n == 1:                                       # mid-draw: pending renders, no emission
+            assert not drawn and "regionpending" in _tags(c)
+    assert not refused and len(drawn) == 1
+    quad = drawn[0]
+    assert len(quad) == 4
+    for (gx, gz), (ex, ez) in zip(quad, _GW_QUAD):
+        assert math.hypot(gx - ex, gz - ez) < 12.0       # integer widget-px quantization only
+    assert "regionpending" not in _tags(c)               # the gesture consumed its corners
+
+
+def test_escape_abandons_the_pending_quad(app):
+    c, drawn, *_ = _region_canvas(app)
+    _click_at_world(c, (-300.0, 0.0, 900.0))
+    _click_at_world(c, (300.0, 0.0, 900.0))
+    assert "regionpending" in _tags(c)
+    QTest.keyClick(c, Qt.Key.Key_Escape)
+    assert "regionpending" not in _tags(c) and not drawn
+
+
+def test_set_regions_renders_the_laws_not_just_the_quads(app):
+    """The census: kind by SHAPE (a gateway's walk-out edge + chevron), the fan audit painted
+    (the notch-in-hull dart spills in warn), handles + corner indices only in region mode."""
+    c, *_ = _region_canvas(app)
+    dart = [(70.0, 1060.0), (100.0, 1000.0), (100.0, 1100.0), (0.0, 1100.0)]
+    c.set_regions([
+        {"i": 0, "quad": _GW_QUAD, "label": "door0 → 4005", "kind": "gateway", "warn": None},
+        {"i": 1, "quad": dart, "label": "zone0", "kind": "event",
+         "warn": "over-trigger ~31% — fires outside the drawn outline"},
+    ])
+    tags = _tags(c)
+    assert tags.count("regionquad") == 2
+    assert tags.count("regionedge") == 1                 # gateways only
+    assert tags.count("regionchevron") == 1
+    assert tags.count("regionlabel") == 2
+    assert tags.count("regionpt") == 8                   # 4 corners x 2 quads, region mode
+    assert tags.count("regionspill") >= 1                # the dart's fan swallows its notch
+    assert tags.count("regiongap") == 0
+    warn_tip = c._region_items[1].toolTip()
+    assert "over-trigger" in warn_tip and "⚠" in warn_tip
+    c.set_place_mode(True)                               # regions stay visible for context…
+    tags = _tags(c)
+    assert tags.count("regionquad") == 2 and tags.count("regionpt") == 0   # …but inert
+
+
+def test_corner_and_whole_quad_drags_emit_once_each(app):
+    c, drawn, changed, *_ = _region_canvas(app)
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    assert c._begin_region_corner_drag(0, 2)
+    tx, ty = IF.world_point_to_click(c.camera(), (350.0, 0.0, 1600.0))
+    c._drag_canvas(tx, ty)
+    c._end_vertex_drag()
+    assert len(changed) == 1
+    i, quad = changed[0]
+    assert i == 0 and math.hypot(quad[2][0] - 350.0, quad[2][1] - 1600.0) < 0.2
+    assert quad[0] == _GW_QUAD[0]                        # the other corners never moved
+    # whole-quad drag: grab the centre, move it +100/+100 in world
+    changed.clear()
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    gx, gy = IF.world_point_to_click(c.camera(), (0.0, 0.0, 1200.0))
+    assert c._begin_region_quad_drag(0, QPointF(gx, gy))
+    nx, ny = IF.world_point_to_click(c.camera(), (100.0, 0.0, 1300.0))
+    c._drag_canvas(nx, ny)
+    c._end_vertex_drag()
+    assert len(changed) == 1 and not drawn
+    _, quad = changed[0]
+    for (qx, qz), (ex, ez) in zip(quad, _GW_QUAD):
+        assert math.hypot(qx - (ex + 100.0), qz - (ez + 100.0)) < 0.3
+
+
+def test_region_menu_rotates_the_walkout_edge_and_deletes(app, monkeypatch):
+    import types
+
+    class _FakeMenu:
+        pick = 0                                          # which added action exec() returns
+
+        def __init__(self, parent=None):
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text)
+            self.acts.append(tok)
+            return tok
+
+        def exec(self, pos):
+            return self.acts[_FakeMenu.pick]
+
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    c, _, changed, deleted, _ = _region_canvas(app)
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    _FakeMenu.pick = 0                                    # the rotate action (gateways lead)
+    c._region_menu(0, QPoint(0, 0))
+    assert changed == [(0, _GW_QUAD[1:] + _GW_QUAD[:1])]  # order rotated, geometry identical
+    _FakeMenu.pick = 1
+    c._region_menu(0, QPoint(0, 0))
+    assert deleted == [0]
+
+
+def test_zone_corners_project_at_the_mesh_floor_height(app):
+    """A raised real floor (render y = -300): corners draw AT that height, an on-mesh pixel
+    converts through the raycast, and an OFF-mesh pixel lands on the plane at the nearest
+    floor height (donor door quads legitimately hang past the mesh edge)."""
+    y = -300.0
+    a, b, cc, d = (-1000.0, y, 500.0), (1000.0, y, 500.0), (1000.0, y, 2500.0), (-1000.0, y, 2500.0)
+    c, *_ = _region_canvas(app, tris=[(a, b, cc), (a, cc, d)])
+    c.set_regions([{"i": 0, "quad": [(0.0, 900.0), (200.0, 900.0), (200.0, 1100.0),
+                                     (0.0, 1100.0)], "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    ex, ey = IF.world_point_to_click(c.camera(), (0.0, y, 900.0))
+    h = c._region_handle_items[(0, 0)]
+    assert math.hypot(h.pos().x() - ex, h.pos().y() - ey) < 0.01
+    on = c._px_to_zone_world(QPointF(*IF.world_point_to_click(c.camera(), (0.0, y, 900.0))))
+    assert math.hypot(on[0] - 0.0, on[1] - 900.0) < 1e-6          # the raycast, exact
+    off_px = IF.world_point_to_click(c.camera(), (5000.0, y, 2000.0))
+    off = c._px_to_zone_world(QPointF(*off_px))
+    assert math.hypot(off[0] - 5000.0, off[1] - 2000.0) < 1.0     # the plane at floor height

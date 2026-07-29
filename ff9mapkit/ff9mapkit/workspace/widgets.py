@@ -6,7 +6,7 @@ PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the emp
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
@@ -278,6 +278,57 @@ def mark_grabbable(*items, resize=False):
     cursor = Qt.CursorShape.SizeHorCursor if resize else Qt.CursorShape.SizeAllCursor
     for it in items:
         it.setCursor(cursor)
+
+
+class ToolStrip(QWidget):
+    """A per-canvas TOOL strip: the click-authoring canvases' explicit click semantics
+    (owner-proposed once pan/trace/contacts stacked up; regions made it mandatory —
+    studies/click-authoring/PLAN.md rung 2c/4). Exactly one tool is active; hosts treat
+    ``changed(key)`` as the ONE mode-switch channel, whether the user clicked or
+    ``set_current`` did. Segments are ``#railSeg`` QToolButtons — the rail's settled rule
+    set (hover/checked/pressed/focus, the documented tie order) with zero new QSS."""
+
+    changed = Signal(str)
+
+    def __init__(self, tools, *, initial=None, parent=None):
+        """``tools`` = [(key, label, tooltip), ...]; ``initial`` = the starting key
+        (defaults to the first)."""
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        self._btns = {}
+        for key, label, tip in tools:
+            b = QToolButton()
+            b.setObjectName("railSeg")
+            b.setText(label)
+            b.setCheckable(True)
+            b.setAutoExclusive(True)               # arrow-key nav within the segmented control
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setToolTip(tip)
+            b.setAccessibleName(f"{label} tool")
+            self._btns[key] = b
+            lay.addWidget(b)
+        self._current = initial if initial in self._btns else next(iter(self._btns))
+        self._btns[self._current].setChecked(True)
+        for key, b in self._btns.items():          # connect AFTER the initial check: no ctor emit
+            b.toggled.connect(lambda on, k=key: self._on_toggled(k, on))
+
+    def _on_toggled(self, key, on):
+        if on and key != self._current:
+            self._current = key
+            self.changed.emit(key)
+
+    def current(self) -> str:
+        return self._current
+
+    def set_current(self, key):
+        if key in self._btns and key != self._current:
+            self._btns[key].setChecked(True)       # -> toggled -> changed
+
+    def button(self, key):
+        """The segment button (tests + hosts gating a tool's availability)."""
+        return self._btns.get(key)
 
 
 def caption(text="", *, parent=None, width=None):

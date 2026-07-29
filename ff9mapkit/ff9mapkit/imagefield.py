@@ -190,6 +190,146 @@ def click_to_world(cam: _cam.Cam, pt) -> tuple:
     return (X, Z)
 
 
+def click_to_plane(cam: _cam.Cam, pt, h: float) -> tuple:
+    """One canvas click -> the (X, Z) where its ray meets the horizontal plane at height ``h``
+    (render frame — the frame ``floor_y_at`` speaks and ``to_canvas`` projects).
+
+    THE PLANE LAW's one-parameter generalization (``s = (h - C.y) / ray.y`` — PLAN §1): the
+    y=0 form is :func:`click_to_world`. Used where a click must land on a KNOWN height but
+    OFF the walkmesh — a region corner (donor door quads routinely hang past the mesh edge;
+    the quad only has to intersect the walk lane) — with the same self-check and the same
+    horizon refusal (at ``h`` the horizon shifts with the plane, and the guard follows it)."""
+    C, ray = click_ray(cam, tuple(pt))
+    if ray[1] == 0:
+        raise ImageFieldError(f"click ({pt[0]:.1f},{pt[1]:.1f}) is on the horizon line")
+    s = (h - C[1]) / ray[1]
+    if s <= 0:
+        raise ImageFieldError(
+            f"click ({pt[0]:.1f},{pt[1]:.1f}) is at/above the horizon for a plane at height "
+            f"{h:.0f} — no intersection in front of the camera")
+    X, Z = C[0] + s * ray[0], C[2] + s * ray[2]
+    cx, cy = _cam.to_canvas((X, h, Z), cam)
+    err = math.hypot(cx - pt[0], cy - pt[1])
+    if err > CLICK_ROUNDTRIP_TOL:
+        raise ImageFieldError(
+            f"click ({pt[0]:.1f},{pt[1]:.1f}) un-projects to ({X:.0f},{Z:.0f}) at height {h:.0f} "
+            f"but re-projects to canvas ({cx:.1f},{cy:.1f}) — {err:.2f} px off (a degenerate "
+            f"camera pose)")
+    return (X, Z)
+
+
+def floor_y_at(tris, x, z, eye=None):
+    """The RENDER-frame height of a walkmesh under plan point (x, z): barycentric containment
+    in XZ over ``tris`` (:func:`mesh_world_tris`'s output). Stacked floors resolve to the
+    candidate nearest ``eye`` (the camera position — the same visibility bias the raycast has).
+    Falls back to the NEAREST VERTEX's y when no triangle contains the point — off-mesh content
+    must still show (at its neighbour floor's height), or the author can't see it to fix it.
+    ``None`` only on an empty mesh."""
+    cands, best_v, best_d = [], None, None
+    for a, b, c in tris:
+        (ax, ay, az), (bx, by, bz), (cx, cy, cz) = a, b, c
+        for vx, vy, vz in (a, b, c):
+            d = (vx - x) ** 2 + (vz - z) ** 2
+            if best_d is None or d < best_d:
+                best_d, best_v = d, vy
+        den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
+        if abs(den) < 1e-12:
+            continue                             # degenerate in plan view (a vertical wall tri)
+        w0 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den
+        w1 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den
+        w2 = 1.0 - w0 - w1
+        if min(w0, w1, w2) < -1e-9:
+            continue
+        cands.append(w0 * ay + w1 * by + w2 * cy)
+    if not cands:
+        return best_v
+    if eye is None or len(cands) == 1:
+        return cands[0]
+    ex, ey, ez = eye
+    return min(cands, key=lambda y: (x - ex) ** 2 + (y - ey) ** 2 + (z - ez) ** 2)
+
+
+# ------------------------------------------------------- the IsInQuad fan (region-law geometry)
+def _tri_area2(a, b, c) -> float:
+    return abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]))
+
+
+def _in_tri(p, a, b, c) -> bool:
+    d1 = (p[0] - b[0]) * (a[1] - b[1]) - (a[0] - b[0]) * (p[1] - b[1])
+    d2 = (p[0] - c[0]) * (b[1] - c[1]) - (b[0] - c[0]) * (p[1] - c[1])
+    d3 = (p[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (p[1] - a[1])
+    return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))
+
+
+def fan_triangles(zone) -> list:
+    """What the ENGINE will actually cover for a region zone.
+
+    ``EventEngine.TreadQuad``'s IsInQuad fans CONSECUTIVE vertex triplets ``(q[i], q[i+1],
+    q[i+2]) mod n`` and fires on membership in ANY — so coverage is the union of those
+    triangles, NOT the drawn outline. A 4-corner zone is judged as the encoders ship it —
+    last vertex doubled (``content.gateway.quad_zone``, the IsInQuad-safe form); a 5-point
+    zone is taken verbatim (``inject_gateway`` ships it as given, doubled or not).
+    Zero-area triplets (collinear points) drop out exactly as they do in the engine."""
+    q = [tuple(p) for p in zone]
+    if len(q) == 4:
+        q = q + [q[-1]]
+    n = len(q)
+    out = []
+    for i in range(n):
+        t = (q[i], q[(i + 1) % n], q[(i + 2) % n])
+        if _tri_area2(*t) > 1e-9:
+            out.append(t)
+    return out
+
+
+def zone_fan_audit(zone, samples: int = 48) -> dict:
+    """How the engine's fan (:func:`fan_triangles`) disagrees with the outline the author
+    DREW, both ways — ``{"gap": …, "spill": …}``, each a 0–1 area fraction:
+
+    * ``gap`` — the drawn interior the fan never tests: a DEAD ZONE the trigger silently
+      won't fire in. Impossible for a 4-corner zone (the doubled fan always covers the drawn
+      interior — over-covers, in fact); REAL for a hand-authored 5-distinct-point zone with
+      collinear runs (the classic centre-dead strip, [[project-ff9-gateway-regions]]).
+    * ``spill`` — fan coverage OUTSIDE the drawn outline: the trigger fires where nothing was
+      drawn. THE non-convex hazard: a dart or bowtie quad's fan swallows the notch (up to the
+      whole convex hull), so the player warps from pixels the author never marked.
+
+    Deterministic grid sampling (``samples``² over the bbox) — a judge for warnings, not a
+    surveyor. A convex quad in either winding scores 0 / 0."""
+    q = [tuple(map(float, p)) for p in zone]
+    if len(q) < 3:
+        return {"gap": 0.0, "spill": 0.0}
+    tris = fan_triangles(q)
+    xs, ys = [p[0] for p in q], [p[1] for p in q]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    if x1 - x0 < 1e-9 or y1 - y0 < 1e-9:
+        return {"gap": 0.0, "spill": 0.0}        # a degenerate sliver has no interior to judge
+    n = len(q)
+
+    def drawn(px, py):                           # even-odd ray cast over the drawn outline
+        hit = False
+        for i in range(n):
+            ax, ay = q[i]
+            bx, by = q[(i + 1) % n]
+            if (ay > py) != (by > py) and px < ax + (py - ay) * (bx - ax) / (by - ay):
+                hit = not hit
+        return hit
+
+    in_drawn = in_fan = gap = spill = 0
+    for iy in range(samples):
+        py = y0 + (iy + 0.5) * (y1 - y0) / samples
+        for ix in range(samples):
+            px = x0 + (ix + 0.5) * (x1 - x0) / samples
+            d = drawn(px, py)
+            f = any(_in_tri((px, py), *t) for t in tris)
+            in_drawn += d
+            in_fan += f
+            gap += d and not f
+            spill += f and not d
+    return {"gap": gap / in_drawn if in_drawn else 0.0,
+            "spill": spill / in_fan if in_fan else 0.0}
+
+
 def world_point_to_click(cam: _cam.Cam, p) -> tuple:
     """A world 3D point (x, y, z) -> the canvas pixel (cx, cy) it appears under.
 

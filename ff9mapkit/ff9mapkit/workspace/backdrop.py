@@ -60,6 +60,9 @@ class BackdropCanvas(QGraphicsView):
                                              # it through occluder_z — ONE owner of both refusals)
     cutout_moved = Signal(int, float, float)   # a snip overlay drag ended: (index, new x, new y)
     contact_moved = Signal(int, float, float)  # a contact-handle drag ended: (index, cx, cy)
+    region_drawn = Signal(object)            # rung 4: a 4-corner quad completed — [(x, z)] * 4
+    region_changed = Signal(int, object)     # a region gesture ended: (index, its new [(x, z)] quad)
+    region_deleted = Signal(int)             # the region menu's delete — the host owns the doc op
     click_refused = Signal(str)              # why a click produced no floor point
 
     def __init__(self, palette, *, scale=100, on_floor=None):
@@ -84,6 +87,14 @@ class BackdropCanvas(QGraphicsView):
         self._cutouts = []                   # rung 2 previews: see set_cutouts
         self._cutout_items = {}              # i -> the overlay pixmap item (live drag target)
         self._contact_items = {}             # i -> the contact anchor item (live drag target)
+        self._region_mode = False            # rung 4: clicks author trigger-region quads
+        self._regions = []                   # the fed rows: see set_regions
+        self._region_items = {}              # i -> the quad polygon item (live drag target)
+        self._region_handle_items = {}       # (i, corner) -> the corner anchor (live drag target)
+        self._region_edge_items = {}         # i -> the walk-out edge line (gateways)
+        self._region_law_items = {}          # i -> [spill/gap overlay items] (hidden mid-drag)
+        self._region_label_items = {}        # i -> the label anchor (follows a live drag)
+        self._pending_region = []            # world (x, z) corners of the quad being drawn
         self._kids = []                      # STRONG refs to child items (labels/dots/glyphs):
                                              # a parented QGraphicsItem whose only Python wrapper
                                              # dies can be GC-DELETED on the C++ side mid-handler
@@ -188,6 +199,7 @@ class BackdropCanvas(QGraphicsView):
         if on:
             self._place_mode = False           # one click semantics at a time
             self._contact_mode = False
+            self._region_mode = False
         self._rebuild()
 
     # -- public: Rung 3 place mode --
@@ -201,6 +213,7 @@ class BackdropCanvas(QGraphicsView):
         if on:
             self._trace_mode = False
             self._contact_mode = False
+            self._region_mode = False
         self._rebuild()
 
     # -- public: Rung 2 contact mode --
@@ -217,6 +230,36 @@ class BackdropCanvas(QGraphicsView):
         if on:
             self._trace_mode = False
             self._place_mode = False
+            self._region_mode = False
+        self._rebuild()
+
+    # -- public: Rung 4 region mode --
+    def set_region_mode(self, on):
+        """Clicks author TRIGGER-REGION quads: four accepted clicks build one region
+        (``region_drawn``), a corner or whole-quad drag re-shapes an existing one
+        (``region_changed``), right-click offers rotate-the-walk-out-edge / delete. Exclusive
+        with the other click semantics; the fed regions keep RENDERING in place mode for
+        context (doc truth, like markers), but only region mode makes them grabbable."""
+        on = bool(on)
+        if on == self._region_mode:
+            return
+        self._region_mode = on
+        self._pending_region = []
+        if on:
+            self._trace_mode = False
+            self._place_mode = False
+            self._contact_mode = False
+        self._rebuild()
+
+    def set_regions(self, rows):
+        """Feed the trigger regions: ``[{"i", "quad" ([(x, z)] * 4, world), "label", "kind"
+        ("gateway"|"event"), "warn" (str|None)}]``. The canvas derives each row's engine-fan
+        audit (:func:`ff9mapkit.imagefield.zone_fan_audit`) per render and PAINTS the
+        disagreement — a dead zone hatches in error, an over-trigger spill washes in warn —
+        so the law is visible, not just accepted. Corners project at the walkmesh's height
+        when a surface is loaded (zone corners may hang OFF the mesh — that is normal donor
+        layout), on the y=0 plane otherwise."""
+        self._regions = list(rows or [])
         self._rebuild()
 
     def set_surface(self, tris, floors=None):
@@ -293,6 +336,11 @@ class BackdropCanvas(QGraphicsView):
         self._trace_items = []
         self._cutout_items = {}
         self._contact_items = {}
+        self._region_items = {}
+        self._region_handle_items = {}
+        self._region_edge_items = {}
+        self._region_law_items = {}
+        self._region_label_items = {}
         self._kids = []                            # the old scene's children die WITH the clear
         self._coords.hide()
         sc.clear()
@@ -309,9 +357,12 @@ class BackdropCanvas(QGraphicsView):
         frame = sc.addRect(QRectF(0, 0, w, h), border)
         frame.setData(0, "frame")
         self._draw_surface()
+        self._draw_regions()
+        self._draw_pending_region()                # renders on a bare canvas too (first quad)
         self._draw_horizon(w, h)
         self._draw_trace()
         self._draw_cutout_handles()                # grab furniture TOPMOST (the behaviordoc law)
+        self._draw_region_handles()
         self._draw_markers()
 
     def _draw_horizon(self, w, h):
@@ -438,6 +489,302 @@ class BackdropCanvas(QGraphicsView):
             anchor.setToolTip("the floor-contact anchor — occlusion flips here; drag to re-anchor"
                               + (" (INVALID: no floor under it)" if c.get("bad") else ""))
             self._contact_items[c["i"]] = anchor
+
+    # -- Rung 4: trigger regions drawn on the art --
+    def _zone_y(self, x, z):
+        """The render-frame height a zone corner sits at: the walkmesh's floor under (x, z)
+        when a surface is loaded (nearest-vertex fallback covers off-mesh corners — normal
+        donor layout), the y=0 plane otherwise."""
+        if self._surface_tris:
+            eye = tuple(_cam.decompose(self._cam)["C"]) if self._cam is not None else None
+            y = imagefield.floor_y_at(self._surface_tris, x, z, eye)
+            if y is not None:
+                return y
+        return 0.0
+
+    def _zone_px(self, x, z):
+        """A zone corner's canvas pixel (raises ImageFieldError behind the camera)."""
+        return imagefield.world_point_to_click(self._cam, (x, self._zone_y(x, z), z))
+
+    def _px_to_zone_world(self, c, h_hint=0.0):
+        """Canvas point -> the (x, z) a zone corner lands at: the walkmesh raycast when the
+        pixel hits it (you click what you see), else the plane at the nearest floor height —
+        a zone corner is a PLAN-space object and may legitimately hang off the mesh. Raises
+        ImageFieldError at/above the horizon (the standing refusal, never a clamp)."""
+        if self._surface_tris:
+            try:
+                hit = imagefield.click_to_surface(self._cam, self._surface_tris,
+                                                  (c.x(), c.y()))
+                return (hit["pos"][0], hit["pos"][2])
+            except imagefield.ImageFieldError:
+                x, z = imagefield.click_to_plane(self._cam, (c.x(), c.y()), h_hint)
+                y = imagefield.floor_y_at(self._surface_tris, x, z)
+                if y is not None and abs(y - h_hint) > 1e-6:   # one refine pass: land on the
+                    x, z = imagefield.click_to_plane(self._cam, (c.x(), c.y()), y)  # real floor
+                return (x, z)
+        return imagefield.click_to_world(self._cam, (c.x(), c.y()))
+
+    def _region_row(self, i):
+        return next((r for r in self._regions if r["i"] == i), None)
+
+    def _region_pts_px(self, quad):
+        """Every corner's canvas pixel, or None if any corner is unprojectable."""
+        try:
+            return [self._zone_px(x, z) for x, z in quad]
+        except imagefield.ImageFieldError:
+            return None
+
+    def _draw_regions(self):
+        """The fed trigger regions ON the art (any mode — they are doc truth, like markers):
+        the quad the author drew, its engine-fan DISAGREEMENT painted (dead zone = error
+        hatch, over-trigger spill = warn wash — the law rendered, not just accepted), and a
+        gateway's walk-out edge (q0→q1, the edge ``CalculateExitPosition`` walks the player
+        across) marked with a zoom-immune chevron. Kind speaks by SHAPE: gateways solid,
+        events dashed."""
+        if not self._regions or self._cam is None:
+            return
+        sc, pal = self._scene, self.pal
+        from PySide6.QtGui import QPainterPath
+        for r in self._regions:
+            pts = self._region_pts_px(r["quad"])
+            if pts is None or len(pts) < 4:
+                continue
+            i = r["i"]
+            warn = r.get("warn")
+            color = QColor(pal["warn"] if warn else pal["accent"])
+            pen = QPen(color, 1.6)
+            pen.setCosmetic(True)
+            if r.get("kind") == "event":
+                pen.setDashPattern([5, 3])
+            fill = QColor(color)
+            fill.setAlpha(22)
+            poly = QPolygonF([QPointF(x, y) for x, y in pts])
+            it = sc.addPolygon(poly, pen, QBrush(fill))
+            it.setData(0, "regionquad")
+            it.setData(1, i)
+            tip = str(r.get("label") or f"region {i}")
+            if warn:
+                tip += f"\n⚠ {warn}"
+            it.setToolTip(tip)
+            if self._region_mode:
+                mark_grabbable(it)
+            # the fan audit, painted: what the engine tests vs what the author drew
+            audit = imagefield.zone_fan_audit(r["quad"])
+            law_items = []
+            if max(audit["gap"], audit["spill"]) > 0.02:
+                drawn = QPainterPath()
+                drawn.addPolygon(poly)
+                drawn.closeSubpath()
+                fan = QPainterPath()
+                for t in imagefield.fan_triangles(r["quad"]):
+                    tp = self._region_pts_px(list(t))
+                    if tp is None:
+                        continue
+                    p = QPainterPath()
+                    p.addPolygon(QPolygonF([QPointF(x, y) for x, y in tp]))
+                    p.closeSubpath()
+                    fan = fan.united(p)
+                if audit["gap"] > 0.02:
+                    g = QColor(pal["error"])
+                    g.setAlpha(70)
+                    gi = sc.addPath(drawn.subtracted(fan), QPen(Qt.PenStyle.NoPen), QBrush(g))
+                    gi.setData(0, "regiongap")
+                    gi.setData(1, i)
+                    gi.setToolTip(f"DEAD ZONE (~{audit['gap']:.0%} of the drawn area): the "
+                                  f"engine's IsInQuad fan never tests here — the trigger "
+                                  f"silently won't fire. Use a convex quad (collinear points "
+                                  f"are the usual cause).")
+                    law_items.append(gi)
+                if audit["spill"] > 0.02:
+                    s = QColor(pal["warn"])
+                    s.setAlpha(55)
+                    si = sc.addPath(fan.subtracted(drawn), QPen(Qt.PenStyle.NoPen), QBrush(s))
+                    si.setData(0, "regionspill")
+                    si.setData(1, i)
+                    si.setToolTip(f"OVER-TRIGGER (~{audit['spill']:.0%} of what actually "
+                                  f"fires): the engine's fan covers this un-drawn area too — "
+                                  f"a non-convex or self-crossing quad fires past its own "
+                                  f"outline. Make the quad convex.")
+                    law_items.append(si)
+            self._region_law_items[i] = law_items
+            if r.get("kind") == "gateway":
+                (x0, y0), (x1, y1) = pts[0], pts[1]
+                epen = QPen(color, 3.2)
+                epen.setCosmetic(True)
+                edge = sc.addLine(x0, y0, x1, y1, epen)
+                edge.setData(0, "regionedge")
+                edge.setData(1, i)
+                edge.setToolTip("the WALK-OUT edge (corners 0→1): the exit walks the player "
+                                "across this edge into the fade — put the edge the player "
+                                "should leave through first (right-click the quad to rotate)")
+                self._region_edge_items[i] = edge
+                mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+                cx = sum(p[0] for p in pts) / len(pts)
+                cy = sum(p[1] for p in pts) / len(pts)
+                ex, ey = mx - cx, my - cy              # outward = away from the quad's centre
+                el = (ex * ex + ey * ey) ** 0.5 or 1.0
+                anchor = sc.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+                anchor.setPos(mx, my)
+                anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
+                anchor.setData(0, "regionchevron")
+                anchor.setData(1, i)
+                ux, uy = ex / el, ey / el
+                tipx, tipy = 7 * ux, 7 * uy
+                px, py = -uy, ux
+                chev = QPolygonF([QPointF(tipx, tipy),
+                                  QPointF(4 * px - 2 * ux, 4 * py - 2 * uy),
+                                  QPointF(-4 * px - 2 * ux, -4 * py - 2 * uy)])
+                gl = self._child(sc.addPolygon(chev), anchor)
+                gl.setPen(QPen(color, 1.2))
+                gl.setBrush(QBrush(color))
+            # the label, zoom-immune at the quad's centre
+            cx = sum(p[0] for p in pts) / len(pts)
+            cy = sum(p[1] for p in pts) / len(pts)
+            lab = sc.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+            lab.setPos(cx, cy)
+            lab.setFlag(lab.GraphicsItemFlag.ItemIgnoresTransformations)
+            lab.setData(0, "regionlabel")
+            lab.setData(1, i)
+            t = self._child(sc.addSimpleText(("⚠ " if warn else "") + str(r.get("label") or "")),
+                            lab)
+            t.setFont(self._font(8))
+            t.setBrush(QBrush(color))
+            t.setPos(6, -16)
+            self._region_items[i] = it
+            self._region_label_items[i] = lab
+
+    def _draw_pending_region(self):
+        """The quad mid-draw: accepted corners + the legs between them (the 4th click
+        completes and emits — nothing here persists past it)."""
+        if not self._region_mode or not self._pending_region or self._cam is None:
+            return
+        sc, pal = self._scene, self.pal
+        pts = self._region_pts_px(self._pending_region)
+        if pts is None:
+            return
+        pen = QPen(QColor(pal["accent"]), 1.6)
+        pen.setCosmetic(True)
+        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            ln = sc.addLine(ax, ay, bx, by, pen)
+            ln.setData(0, "regionpending")
+        for n, (x, y) in enumerate(pts):
+            anchor = sc.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+            anchor.setPos(x, y)
+            anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
+            anchor.setData(0, "regionpending")
+            dot = self._child(sc.addEllipse(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R,
+                                            2 * _HANDLE_R), anchor)
+            dot.setPen(QPen(QColor(pal["accent"]), 1.6))
+            dot.setBrush(QBrush(QColor(pal["accent"])))
+            t = self._child(sc.addSimpleText(str(n)), anchor)
+            t.setFont(self._font(8))
+            t.setBrush(QBrush(QColor(pal["accent"])))
+            t.setPos(6, -16)
+
+    def _draw_region_handles(self):
+        """Corner handles, region mode only, TOPMOST (the handles-last law): squares (a
+        vertex-dot is a trace thing) with their corner INDEX — order is authored geometry
+        here, it decides the walk-out edge."""
+        if not self._region_mode or not self._regions or self._cam is None:
+            return
+        sc = self._scene
+        for r in self._regions:
+            pts = self._region_pts_px(r["quad"])
+            if pts is None:
+                continue
+            color = QColor(self.pal["warn"] if r.get("warn") else self.pal["accent"])
+            for ci, (x, y) in enumerate(pts):
+                anchor = sc.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+                anchor.setPos(x, y)
+                anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
+                anchor.setData(0, "regionpt")
+                anchor.setData(1, (r["i"], ci))
+                sq = self._child(sc.addRect(QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R,
+                                                   2 * _HANDLE_R)), anchor)
+                sq.setPen(QPen(color, 1.6))
+                sq.setBrush(QBrush(color))
+                mark_grabbable(sq)
+                t = self._child(sc.addSimpleText(str(ci)), anchor)
+                t.setFont(self._font(8))
+                t.setBrush(QBrush(color))
+                t.setPos(6, -16)
+                self._region_handle_items[(r["i"], ci)] = anchor
+
+    def _region_h_hint(self, quad):
+        """The drag/click plane height for a region: its corners' mean floor height (one
+        stable plane per gesture — a corner sliding between stacked floors mid-drag would
+        judder)."""
+        ys = [self._zone_y(x, z) for x, z in quad]
+        return sum(ys) / len(ys) if ys else 0.0
+
+    def _begin_region_corner_drag(self, i, ci):
+        r = self._region_row(i)
+        if r is None or (i, ci) not in self._region_handle_items:
+            return False
+        quad = [tuple(p) for p in r["quad"]]
+        self._drag = {"kind": "rpt", "i": i, "ci": ci, "quad": quad,
+                      "start": list(quad), "h": self._region_h_hint(quad)}
+        self._hide_region_law(i)
+        self._update_coords()
+        return True
+
+    def _begin_region_quad_drag(self, i, grab_canvas):
+        r = self._region_row(i)
+        if r is None or i not in self._region_items:
+            return False
+        quad = [tuple(p) for p in r["quad"]]
+        h = self._region_h_hint(quad)
+        try:
+            gw = self._px_to_zone_world(grab_canvas, h)
+        except imagefield.ImageFieldError:
+            return False
+        self._drag = {"kind": "rquad", "i": i, "quad": quad, "start": list(quad),
+                      "grab": gw, "h": h}
+        self._hide_region_law(i)
+        self._update_coords()
+        return True
+
+    def _hide_region_law(self, i):
+        for it in self._region_law_items.get(i, []):
+            it.setVisible(False)                   # stale mid-drag; the release rebuild re-judges
+
+    def _move_region_items(self, i, quad):
+        """One live drag step's redraw: the polygon, the walk-out edge, the handles, and the
+        label follow the quad; the law overlays stay hidden until the release re-judge."""
+        pts = self._region_pts_px(quad)
+        if pts is None:
+            return
+        if i in self._region_items:
+            self._region_items[i].setPolygon(QPolygonF([QPointF(x, y) for x, y in pts]))
+        if i in self._region_edge_items:
+            self._region_edge_items[i].setLine(pts[0][0], pts[0][1], pts[1][0], pts[1][1])
+        for ci, (x, y) in enumerate(pts):
+            a = self._region_handle_items.get((i, ci))
+            if a is not None:
+                a.setPos(x, y)
+        lab = self._region_label_items.get(i)
+        if lab is not None:
+            lab.setPos(sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+
+    def _region_menu(self, i, global_pos):
+        """The region list-op menu, behind a seam (tests drive the choice without a popup)."""
+        from PySide6.QtWidgets import QMenu
+        r = self._region_row(i)
+        if r is None:
+            return
+        menu = QMenu(self)
+        rot = None
+        if r.get("kind") == "gateway":
+            rot = menu.addAction("Walk-out edge → next edge (rotate corners)")
+        rm = menu.addAction(f"Delete {r.get('label') or f'region {i}'}")
+        act = menu.exec(global_pos)
+        if act is None:
+            return
+        if act is rot:
+            q = [tuple(p) for p in r["quad"]]
+            self.region_changed.emit(i, q[1:] + q[:1])
+        elif act is rm:
+            self.region_deleted.emit(i)
 
     def _resolve_data(self, item, tag):
         """Resolve a press hit to ``tag``'s payload from the hit item ALONE. NEVER walk
@@ -592,6 +939,21 @@ class BackdropCanvas(QGraphicsView):
         elif d.get("kind") == "cimg":
             d["pt"] = (cx - d["grab"][0], cy - d["grab"][1])
             self._cutout_items[d["i"]].setPos(*d["pt"])
+        elif d.get("kind") == "rpt":
+            try:
+                w = self._px_to_zone_world(QPointF(cx, cy), d["h"])
+            except imagefield.ImageFieldError:
+                return                             # above the horizon: the corner stays put
+            d["quad"][d["ci"]] = w
+            self._move_region_items(d["i"], d["quad"])
+        elif d.get("kind") == "rquad":
+            try:
+                w = self._px_to_zone_world(QPointF(cx, cy), d["h"])
+            except imagefield.ImageFieldError:
+                return
+            dx, dz = w[0] - d["grab"][0], w[1] - d["grab"][1]
+            d["quad"] = [(x + dx, z + dz) for x, z in d["start"]]
+            self._move_region_items(d["i"], d["quad"])
         else:
             d["pt"] = (cx, cy)
             self._trace_items[d["i"]]["anchor"].setPos(cx, cy)
@@ -610,6 +972,13 @@ class BackdropCanvas(QGraphicsView):
         if d.get("kind") == "cimg":
             if d["pt"] != d["start"]:
                 self.cutout_moved.emit(d["i"], round(d["pt"][0], 1), round(d["pt"][1], 1))
+            return
+        if d.get("kind") in ("rpt", "rquad"):
+            if d["quad"] != d["start"]:
+                self.region_changed.emit(
+                    d["i"], [(round(x, 1), round(z, 1)) for x, z in d["quad"]])
+            else:
+                self._rebuild()                    # nothing changed: restore the law overlays
             return
         if d["pt"] != tuple(self._trace[d["i"]]):
             pts = list(self._trace)
@@ -631,8 +1000,21 @@ class BackdropCanvas(QGraphicsView):
         d = self._drag
         if not d:
             return
-        cx, cy = d["pt"]
         kind = d.get("kind", "vertex")
+        if kind in ("rpt", "rquad"):
+            q = d["quad"]
+            if kind == "rpt":
+                x, z = q[d["ci"]]
+                head = f"region {d['i']} corner {d['ci']} · world x {x:.0f} · z {z:.0f}"
+            else:
+                cx0 = sum(p[0] for p in q) / len(q)
+                cz0 = sum(p[1] for p in q) / len(q)
+                head = f"region {d['i']} · centre x {cx0:.0f} · z {cz0:.0f}"
+            self._coords.setText(head)
+            self._coords.show()
+            self._place_hint()
+            return
+        cx, cy = d["pt"]
         if kind == "cimg":
             self._coords.setText(f"fg{d['i']} · canvas {cx:.0f},{cy:.0f}")
             self._coords.show()
@@ -694,6 +1076,12 @@ class BackdropCanvas(QGraphicsView):
         super().wheelEvent(event)
 
     def keyPressEvent(self, event):                # noqa: N802 (Qt override)
+        if (event.key() == Qt.Key.Key_Escape and self._region_mode
+                and self._pending_region):
+            self._pending_region = []              # abandon the quad mid-draw
+            self._rebuild()
+            event.accept()
+            return
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             if event.key() == Qt.Key.Key_0:
                 self._fit()
@@ -734,6 +1122,19 @@ class BackdropCanvas(QGraphicsView):
                             int(ci), self._widget_to_canvas(event.position())):
                         event.accept()
                         return
+            if self._region_mode and not self._pending_region:   # mid-draw, clicks are corners
+                for it in under:                   # corner handles out-rank the quad body
+                    pay = self._resolve_data(it, "regionpt")
+                    if pay is not None and self._begin_region_corner_drag(*pay):
+                        event.accept()
+                        return
+                for it in under:
+                    for tag in ("regionquad", "regionedge"):
+                        ri = self._resolve_data(it, tag)
+                        if ri is not None and self._begin_region_quad_drag(
+                                int(ri), self._widget_to_canvas(event.position())):
+                            event.accept()
+                            return
             self._press_pos = event.position()
         super().mousePressEvent(event)             # the pan machinery still runs
 
@@ -762,6 +1163,20 @@ class BackdropCanvas(QGraphicsView):
             c = self._widget_to_canvas(event.position())
             self.contact_clicked.emit(c.x(), c.y())
             return
+        if self._region_mode:                      # Rung 4: four corners build one region
+            c = self._widget_to_canvas(event.position())
+            h = (self._zone_y(*self._pending_region[-1]) if self._pending_region else 0.0)
+            try:
+                w = self._px_to_zone_world(c, h)
+            except imagefield.ImageFieldError as e:
+                self.click_refused.emit(str(e))
+                return
+            self._pending_region.append((round(w[0], 1), round(w[1], 1)))
+            if len(self._pending_region) >= 4:
+                quad, self._pending_region = list(self._pending_region), []
+                self.region_drawn.emit(quad)       # the host writes + re-feeds set_regions
+            self._rebuild()
+            return
         if self._place_mode:                       # Rung 3: the click raycasts the walkmesh
             c = self._widget_to_canvas(event.position())
             try:
@@ -784,6 +1199,21 @@ class BackdropCanvas(QGraphicsView):
         self.floor_clicked.emit(x, z)
 
     def contextMenuEvent(self, event):             # noqa: N802 (Qt override)
+        if self._region_mode:
+            if self._pending_region:               # right-click abandons the quad mid-draw
+                self._pending_region = []
+                self._rebuild()
+                event.accept()
+                return
+            for it in self.items(event.pos()):
+                for tag in ("regionpt", "regionquad", "regionedge", "regionlabel"):
+                    pay = self._resolve_data(it, tag)
+                    if pay is not None:
+                        i = pay[0] if tag == "regionpt" else int(pay)
+                        self._region_menu(i, event.globalPos())
+                        event.accept()
+                        return
+            return super().contextMenuEvent(event)
         if not self._trace_mode:
             return super().contextMenuEvent(event)
         i = next((v for v in (self._resolve_vertex(it) for it in self.items(event.pos()))
