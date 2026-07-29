@@ -123,8 +123,9 @@ idiom), then behind black: re-moor, rig disposal, the anchor's per-port tags 61-
 player to the chosen shore at its PROBED ground height (round 1 buried the player: a wrong
 scripted y is not rescued by the ground snap), unhide, reveal. The code pre-clears — no save
 can replay-loop. **2b** (`dc1263bd`): the kit ferry lane's departure arms (`depart_code` +
-`stage_arrive`, lint-guarded, FORMAT.md) — the hall's Tidefall/Grimhorn/Larkspur write codes
-2/3/4 and stage at the Lantern Quay; Ashvale stays the plain home-port arm.
+`stage_arrive`, lint-guarded, FORMAT.md) — the hall's four ports write codes 1-4 and stage
+at the Lantern Quay. (Ashvale first shipped as a plain no-voyage home-port arm; the owner
+read that as a silent warp with the wrong moogle line — ALL ports sail now, code 1.)
 
 **Known cosmetic seam (owner-observed, disposition open):** after the hall→world transition
 there is ~1s of standing at the Ashvale shore before the scene takes over (the engine's own
