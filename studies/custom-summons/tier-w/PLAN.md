@@ -429,3 +429,18 @@ scenery must be re-authored *together*.
   **cast B, THE DOME (ef211 (704,384), 8bpp via channel G, bench 30301 row 198, bands only) now
   builds through the licensed lane itself** and is the experiment that tests
   REGISTRATION-IS-A-DRAW-ENOUGH.
+- **W6q — ★★ THE `paint` (QUANTIZE) LANE, CAST-PROVEN AND CLOSED (record `w6q_QUANTIZE.md`; gates
+  `w6q_gates.py` 20/20; casts §7 of the record).** W6q-0..4: `source_paint` +
+  `acknowledge_quantize` on `[[reskin.texel]]`, THE INCUMBENT LOCK (the no-op re-quantize moves
+  **0 bytes on 240/240 surfaces** — the naive rule moves 767,531), integer-only nearest-entry
+  codec, the alternate-split (R7) and recoloured-palette refusals, quantize error as DISCLOSURE
+  never refusal (G16b), fail-closed unknown keys on all three spec tables. **W6q-5 ★ the ratified
+  cast pair on `ef227 tex.part0` (bench row 196, composed on W4's `7fef205f`), both judged PASS
+  against their `after` panels:** cast A (`bahamut_quantize.toml`, inks sampled from the row —
+  census 100.00 % exact, 0 approximated) proved the CODEC; cast B (`bahamut_quantize_b.toml`,
+  authored foreign magenta/orange — 981/981 approximated, worst d² 557, census loud, nothing
+  refused) proved the DISCLOSURE posture on screen. Generator `w6q5_paint_stamp.py` (refuses on
+  base drift; independently re-derived W6a's island). Owner call on approximation-at-speed:
+  provisionally acceptable pending real authoring; the `acknowledge_alternate_split` follow-on
+  stays untriggered (a creature page runs 0 R7 checks — the trigger is the first real CLASS-C
+  paint cast). Resting: ef227 REVERTED TO STOCK, artifacts regenerate from the committed specs.

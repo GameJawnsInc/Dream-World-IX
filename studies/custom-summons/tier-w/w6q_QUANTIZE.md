@@ -1,7 +1,9 @@
 # W6q — THE `paint` (QUANTIZE) LANE: IMPLEMENTATION RECORD
 
-**Status:** rungs **W6q-0 … W6q-4 SHIPPED and GREEN**. W6q-5 (the in-game cast pair) is
-**OWNER-GATED and NOT part of this round** — nothing here has been on screen.
+**Status: ★ THE RUNG IS CLOSED — W6q-0 … W6q-4 SHIPPED and GREEN, and W6q-5's CAST PAIR IS
+JUDGED (§7): both casts match their `after` panels on screen.** The one still-unfired trigger is
+§6's R7 owner-call — no class-C paint cast has run (the pair's vehicle is a creature page, where
+the alternate-split check structurally has nothing to do).
 
 Spec: `C:\gd\SCRATCH\summon-format\quantize-w6q\FINAL-DESIGN.md` (+ `CONSTRAINTS.md`).
 Gate runner: **`w6q_gates.py`** (this directory) — `py w6q_gates.py`, G1…G18, corpus-only.
@@ -194,9 +196,8 @@ is green: 0 literals, 0 hits.**
 
 ## 6. What is NOT proven
 
-* **The lane is UNCAST.** Nothing here has been on screen. A byte-exact rebuild proves the bytes,
-  never the picture. W6q-5's two-cast plan (one shape edit in colours the row already carries, then
-  one genuine colour shift) is the cheapest way to retire it and it isolates one variable per cast.
+* ~~**The lane is UNCAST.**~~ ⛳ **RETIRED — §7.** The two-cast plan ran exactly as specified and
+  both casts matched their `after` panels on screen.
 * **★ THE ALTERNATE-SPLIT REFUSAL BLOCKS A THIRD OF THE CLASS-C SURFACE ON A 4-DEGREE HUE NUDGE —
   AN OWNER CALL, NOW MEASURED (G6b).** OPEN RISK 1 asked for the instrument; here is what it says,
   driving the real codec over all 16 exportable class-C cells:
@@ -219,3 +220,41 @@ is green: 0 literals, 0 hits.**
   the key pre-emptively. **This should land before W6q-5.**
 * **`alt_rows` is bounded by what the container DECLARES.** A non-GEOM reader (a sprite, a particle)
   is invisible to R7. The refusal says so in its own words.
+
+---
+
+## 7. ★ W6q-5 — THE CAST PAIR, RUN AND JUDGED (the rung's close)
+
+Ratified plan: `FINAL-DESIGN.md` §9.4 item 6 — vehicle `ef227 tex.part0`, composed on the W4
+spectral-mist base (`7fef205f`, rebuilt byte-exact from `bahamut_reskin.toml` before each build).
+The art generator is **`w6q5_paint_stamp.py`** (committable; refuses on base drift, re-derives the
+UV island through the kit's own `coverage()` — and independently re-found `emblem_stamp.py`'s exact
+island: 11,563/16,384 sampled, centroid (63.8, 59.8)). The glyph is a BULLSEYE (two concentric
+rings + a centre dot) — deliberately not W6a's ring-and-bars, so the screen names which lane drew.
+Preflight held: SfxHybrid `Enabled = 0` (its `EffectId` is 227 — this mattered), no ModFileList,
+ef227 ABSENT pre-cast so the first-deploy snapshot restores TRUE STOCK.
+
+| | spec | inks | build census | screen verdict |
+|---|---|---|---|---|
+| **A** | `bahamut_quantize.toml` (`15397241…`) | SAMPLED from the render — row colours by construction | **15,931/15,931 opaque exact (100.00 %), 0 approximated, worst d² 0**; 976 bytes moved (5 incumbent-locked); halves disjoint 4,832 + 976, ∩ 0 | **PASS** — *"looks just like the example image"*; the bullseye reads on both wings |
+| **B** | `bahamut_quantize_b.toml` (`13889735…`) | AUTHORED FOREIGN — rgb(255,0,255) / rgb(255,96,0), verified absent from the whole render (refused otherwise) | **981/981 painted texels APPROXIMATED, worst d² 557 of 2,883**, rest exact; census LOUD, nothing refused (G16b's posture, on screen) | **PASS** — *"looks like the after panel"*; the magenta landed as the row's pale silver-lavender, the orange as pale yellow-green, exactly as previewed |
+
+**What the pair proved, one variable each:** A = the codec (an approximated-import build draws what
+the census promises when every hit is exact). B = the DISCLOSURE posture (out-of-palette paint is
+approximated, disclosed in numbers and previews, never refused — and the preview IS the screen).
+
+**The owner call on approximation-at-speed:** *"i'd have to do some actual authoring to see
+exactly, but this seems acceptable."* Provisionally accepted; the standing trigger is unchanged —
+if the first real **class-C** paint cast trips R7 on ordinary work, open the
+`acknowledge_alternate_split` follow-on (§6). This pair could not fire it: a creature page ran
+**0 alternate-split checks** by construction.
+
+**Verification chain per cast:** `summon-reskin build` → `verify` (the staged container matches an
+independent re-quantize byte for byte) → deploy via the staged ledger script → cast on bench 30301
+row 196 (hot — `SFX.Play` re-reads the container per cast, no relaunch) → screenshot judged against
+the staged `after` preview.
+
+**Resting state: ef227 REVERTED TO STOCK** (`EXACT RESTORE`, the snapshot kept for re-baselining;
+the folder held nothing pre-cast, so stock means ABSENT). Both artifacts regenerate byte-exact from
+their committed specs; the ledger lives at `C:\gd\SCRATCH\summon-transplant\repaint\ef227\`, the art
++ export at `C:\gd\SCRATCH\summon-format\quantize-w6q\cast5\`.
