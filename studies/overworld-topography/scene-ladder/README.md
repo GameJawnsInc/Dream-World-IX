@@ -113,7 +113,11 @@ in-9011 proves cramped.
 
 The ferry is a voyage. **2a** (`rung2a_departure.py`, three rounds): the pending-port code in
 `Global.Byte[1872]` (`flags.FERRY_DEPART_BYTE`, the kit-world-flags band) auto-fires the
-sail-away on world entry — player mesh-hidden (aboard), the 1c scene sails OUT only and the
+sail-away on world entry — player show-bit-hidden with the anchor's foot arm parked
+(**THE DISPATCH LAW**, v11: `Global.Byte[190]` is the world's DefinePlayerCharacter dispatch —
+0 = the anchor, 7 = the Narciss, an UNCLAIMED value = no controlled player = the black-screen
+brick; park the anchor's own stock latch `Map.Byte[37]=1` instead, restore 0 at close), the
+1c scene sails OUT only and the
 ship rides THROUGH the closing fade (leg split around the FadeFilter — the blocking-walk
 idiom), then behind black: re-moor, rig disposal, the anchor's per-port tags 61-64 snap the
 player to the chosen shore at its PROBED ground height (round 1 buried the player: a wrong
