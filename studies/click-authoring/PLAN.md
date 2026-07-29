@@ -278,7 +278,12 @@ GUI claim from source; that is the documented recurring failure in this package.
    proven footprint does; the bench alone could NOT catch this (a round-trip is self-consistent
    under a global flip) — reading the proven compositor did. Placement's written (x, z) is
    sign-invariant.
-   Remaining: (b) `BackdropCanvas` placement mode over a `cache_field`/`compose_background`
-   backdrop, (c) the field-card entry (§5 call site 2) + open-doc write-back with the examples
-   refusal and the verbatim party-band seat, (d) `gui_snap` surfaces + the owner walks a placed
-   NPC in-game. Rung 2 (occluder contacts — a contact mode on the same canvas) rides along.
+   (b) ★ DONE 2026-07-28 — `BackdropCanvas` place mode: `set_surface` (render-frame tris drawn
+   as the live walkable footprint), `set_place_mode` (exclusive with trace), `surface_clicked`
+   carrying the visible hit's (x, z) + every stacked hit nearest-first with floor ids (hosts
+   disambiguate, never guess), `set_markers` for placed content.
+   Remaining: (c) the placement HOST — load a fork's field.toml + its donor's
+   `compose_background` backdrop + `cache_field` camera/mesh, place NPCs/props/spawn/arrival
+   into the OPEN doc (shell undo contract; refuse `ff9mapkit/examples/`; verbatim seats below
+   the party band), entry from the field cards (§5 call site 2); (d) `gui_snap` surfaces + the
+   owner walks a placed NPC in-game. Rung 2 (occluder contacts) rides along.
