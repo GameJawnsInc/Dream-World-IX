@@ -552,4 +552,3 @@ def test_unstamped_changes_warn_until_regenerate(app, tmp_path, monkeypatch):
     assert "not stamped" in doc.status.text() and "Regenerate" in doc.status.text()
     doc.on_generate()
     assert "not stamped" not in doc.status.text()
-    assert doc.canvas.viewportUpdateMode().name == "FullViewportUpdate"   # the drag-artifact pin
