@@ -135,4 +135,27 @@ prologue black + rigs arm at construction, navi disarm, show-bit hide under the 
 
 **The ladder's arc complete: rungs 0 → 2b in one day** — a decorative static became a rig-
 tracked, phase-coordinated, fade-bracketed cinematic voyage wired into shipped ring UX, on
-two engine fixes (s66/s68), one instrument (s67, still live), and ten in-game-earned laws.
+two engine fixes (s66/s68), one instrument (s67, since removed), and ten in-game-earned laws.
+
+## Rung 3 — THE ARRIVAL ★ v2 OWNER-CONFIRMED (2026-07-29, "good, moves during destination cutscene")
+
+`rung3_arrival.py` (supersedes 2a's teleport-close; deploy on top of the v11 world) — the
+voyage's second half: behind the departure's closing black the whole theater relocates to
+the chosen port (ship to probed approach waters, hidden player ashore, rigs re-armed, the
+EYE placed per port via **`MoveInstantXZYEx` 0xAD** — ORDER LAW: `InitObject`'s tag-0 runs
+on LATER frames, so an Ex override of a fresh rig must sit after an `op_22` settle), then
+reveals the ferry sailing in and docking before the final black hands over ashore. The ship
+STAYS DOCKED at the destination (Main_Init re-moors home on next world load). Lanes + every
+camera point probed offline (`probe_arrival_lanes.py`, all-wet verdicts at all 4 ports).
+**v2 (the owner's framing notes):** the theater moved CLOSE-IN — approach 20u off the dock,
+tight 3/4-astern eye (8/8/+7u) so ship AND shore sit inside the ~45u world fog (the v1 shore
+at ~56u read as empty ocean) — and the reveal fade no longer blocks, so the ship is under
+way as the black lifts (the departure's own no-wait-fade trick at the other end).
+
+**NEXT — rung 3c, origin-port departures (designed, not built):** departures always stage at
+Ashvale today. Fix without touching the hall: the anchor's saved world position
+(`Global.Int24[64]`/`Int24[69]` = where the player stood when they entered the hall)
+classifies the origin port by coordinate box tests in the departure prologue; the sail-OUT
+theater then stages at THAT port using the ARRIVE lanes in reverse — fully symmetric
+(leave from where you boarded, arrive where you booked). ⚠ Verify the expression engine's
+signed compares on negative Int24 z values before trusting the classifier.
