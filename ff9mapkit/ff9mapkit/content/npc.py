@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import struct
 
-from ..binutils import pi16, pu16
+from ..binutils import pi16, pu8, pu16
 from .._npcparams import NPC_PARAMS          # baked per-model NPC object params (animset/head-focus/size/clips)
 from ..eb import EbScript, edit, opcodes
 from ..eb.disasm import iter_code
@@ -131,7 +131,8 @@ def build_npc_init(*, model, animset, anims, x: int, z: int, facing: int = 0, y:
     parts.append(_d9_const(4, z))
     parts.append(_d9_const(6, facing))
     parts.append(_d9_const(2, y))
-    parts.append(bytes([0x2F, 0x00]) + struct.pack("<H", int(model) & 0xFFFF) + bytes([int(animset) & 0xFF]))
+    parts.append(bytes([0x2F, 0x00]) + pu16(int(model)) + pu8(int(animset)))   # strict: a masked
+    # model id is a DIFFERENT, plausible model loading silently instead of an error
     parts.append(_CREATE_OBJECT)
     parts.append(_TURN_INSTANT)
     for op, name in zip(_ANIM_OPS, ANIM_ORDER):
@@ -395,7 +396,9 @@ def set_player_model(data, model_id: int, anims: dict | None = None, *,
     body0 = bytearray(data[f0.abs_start:f0.abs_end])
     body0[loc["model"]:loc["model"] + 2] = pu16(int(model_id))
     if animset is not None and loc["animset"] is not None:
-        body0[loc["animset"]] = int(animset) & 0xFF
+        if not 0 <= int(animset) <= 0xFF:             # a 1-byte field: mask it and a bad id becomes a
+            raise ValueError(f"[player] animset {animset} does not fit u8 (0-255)")   # plausible one
+        body0[loc["animset"]] = int(animset)
     if anims and loc["stand"] is not None:
         for k, name in enumerate(ANIM_ORDER):
             if name in anims and anims[name] is not None:

@@ -2560,7 +2560,10 @@ class FieldBehavior:
             # slot will ever show, then open. The values land on the next pass.
             cd_blocks += [_stmt(f"Global.Bit[{shown}]"), (JMP_IF, f"hud_{hi}_live")]
             for i, d in enumerate(h.digits):
-                cd_blocks.append(opcodes.encode(0x66, i, 10 ** int(d) - 1))
+                # the sentinel rides a u16 operand: clamp, don't wrap. A 6-digit slot's naive
+                # 999999 used to mask down to 16959 (a NARROWER strip than asked). 65535 is the
+                # widest value the opcode can ever carry, so it is the true max-width sentinel.
+                cd_blocks.append(opcodes.encode(0x66, i, min(10 ** int(d) - 1, 0xFFFF)))
             cd_blocks += [
                 opcodes.window_async(h.window, 16, int(h.txid)),
                 _set_flag(shown, 1),

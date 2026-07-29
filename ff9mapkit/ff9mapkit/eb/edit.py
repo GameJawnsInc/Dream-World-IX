@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import struct
 
-from ..binutils import set_u16, u16
+from ..binutils import EB_ENTRY_SIZE_MAX, EB_FILE_BUDGET, eb_budget_used, set_u16, u16
 from .model import ENTRY_SLOT_SIZE, ENTRY_TABLE_OFF, EbScript
 
 
@@ -113,21 +113,24 @@ def append_entry(data, slot: int, entry_bytes: bytes, *, loc: int = 0) -> bytes:
     so = ENTRY_TABLE_OFF + slot * ENTRY_SLOT_SIZE
     if u16(b, so + 2) != 0:
         raise ValueError(f"entry slot {slot} is not empty (size={u16(b, so + 2)})")
-    new_off = len(b) - ENTRY_TABLE_OFF
+    new_off = eb_budget_used(b)                       # == len(b) - ENTRY_TABLE_OFF, the OFFSET budget
     # the entry table is u16-addressed; set_u16 is strict (raises), but THIS
     # check fires first with the budget-level message the author needs
-    if new_off > 0xFFFF:
+    if new_off > EB_FILE_BUDGET:
         raise ValueError(
             f"entry slot {slot}: the file is too large — this entry would start at "
-            f"table-relative offset {new_off} > 65535 (the .eb entry table is "
+            f"table-relative offset {new_off} > {EB_FILE_BUDGET} (the .eb entry table is "
             f"u16-addressed; whole-file budget ≈ 64KB). Trim the biggest bodies.")
-    if len(entry_bytes) > 0xFFFF:
-        raise ValueError(f"entry slot {slot}: entry size {len(entry_bytes)} > 65535 "
+    if len(entry_bytes) > EB_ENTRY_SIZE_MAX:          # a DIFFERENT limit: the slot's own size field
+        raise ValueError(f"entry slot {slot}: entry size {len(entry_bytes)} > {EB_ENTRY_SIZE_MAX} "
                          f"(the entry-table size field is u16)")
+    if not 0 <= int(loc) <= 0xFF:                     # the slot's varn field is ONE byte -- masking it
+        raise ValueError(f"entry slot {slot}: loc (local-var bytes) {loc} does not fit u8; "
+                         f"the engine would size the object's var area from the WRAPPED value")
     b += entry_bytes
     set_u16(b, so, new_off)
     set_u16(b, so + 2, len(entry_bytes))
-    b[so + 4] = int(loc) & 0xFF  # local-var bytes (stock `allocate N`; 0 = no locals)
+    b[so + 4] = int(loc)  # local-var bytes (stock `allocate N`; 0 = no locals)
     b[so + 5] = 0  # flags
     b[so + 6] = 0  # pad
     b[so + 7] = 0
@@ -311,7 +314,8 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
                         if not -0x8000 <= disp <= 0x7FFF:
                             raise ValueError(f"insert at {abs_ins}: fixed jump {j.off}->{tgt} "
                                              f"overflows the i16 displacement")
-                        newraw = disp & 0xFFFF
+                        newraw = disp & 0xFFFF      # INTENTIONAL: two's-complement of an
+                        # i16 already range-checked on the line above -- not a truncation
                     # the displacement i16 sits at j.off+1 (jump ops carry no argflag byte); the site
                     # itself shifts when the jump's own origin is at/after the insert point
                     site = j.off + 1 + (len(ins) if j.off >= abs_ins else 0)
