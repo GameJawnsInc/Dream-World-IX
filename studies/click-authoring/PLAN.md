@@ -232,9 +232,14 @@ GUI claim from source; that is the documented recurring failure in this package.
    trace mode — click-to-append (horizon-refused), zoom-immune drag handles with live world
    readout, right-click delete, canvas-px truth re-judged per camera swap (bad verts mark red),
    the +48u outset ring re-projected live and SUSPENDED while any vertex is invalid; one
-   `on_floor` callback per gesture, `set_floor` never echoes. **Part 2 (open):** the Workspace
-   host doc (§5 call sites 1+3 — image on-ramp, pitch slider driving `set_backdrop`, undo/clear,
-   `build_image_field` through `run_job`-style seams), shell tab wiring, the first `gui_snap`
-   surface, smoke/a11y sweeps — then re-do the hallway photo entirely in the GUI, deploy, walk it.
+   `on_floor` callback per gesture, `set_floor` never echoes. **Part 2 (the Trace tab) ★ BUILT
+   same day, ⚠ awaiting playtest:** `workspace/tracedoc.py` on the Assets rail — the ingest is
+   the SAME cover-crop the build performs (2× display, the tracer's frame), pitch slider, host
+   undo/clear, Generate = the tracer's exact `image-field` argv through `run_job` (id via
+   `pack.check_custom_id`); snap surfaces `trace:bare|traced` (fixture art = `_paint_room`, one
+   owner); the a11y sweep caught the slider as a ringless Tab stop (id-scoped reserved ring —
+   an app-wide QSlider box would deFusion every slider), the 150% snap caught standing prose
+   starving the canvas (162→270px). **Remaining:** the hallway-photo parity walk — owner traces
+   the photo in the tab, Generate, `deploy_field.py --id <scratch>`, walk it in-game.
 4. **Scope Rung 3's UI** — measure real walkmesh floor heights first (the `plane_y` decision), then
    the field-card entry point (§5 call site 2) + surgical write-back (call site 4).
