@@ -25,8 +25,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QVBoxLayout,
-    QWidget,
+    QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider,
+    QVBoxLayout, QWidget,
 )
 
 from .. import imagefield
@@ -137,15 +137,24 @@ class TraceDoc(QWidget):
         self.fg_remove_btn.setToolTip("Remove the selected cut-out contact (one Undo brings it back).")
         self.fg_remove_btn.clicked.connect(self.on_fg_remove)
         fg_row.addWidget(self.fg_remove_btn)
+        self.fg_show = QCheckBox("Show")
+        self.fg_show.setChecked(True)
+        self.fg_show.setToolTip("Preview the cut-outs on the art (uncheck to trace a vertex "
+                                "hiding under one).")
+        self.fg_show.toggled.connect(lambda _on: self._refresh_cutouts())
+        fg_row.addWidget(self.fg_show)
         fg_row.addStretch(1)
         root.addLayout(fg_row)
-        self._fg_widgets = (self.fg_label, self.fg_box, self.fg_attach_btn, self.fg_remove_btn)
+        self._fg_widgets = (self.fg_label, self.fg_box, self.fg_attach_btn, self.fg_remove_btn,
+                            self.fg_show)
 
         self.canvas = BackdropCanvas(pal, scale=scale, on_floor=self._on_floor)
         self.canvas.set_trace_mode(True)
         self.canvas.set_backdrop(None, self._camera())   # pure math — no disk at construction
         self.canvas.click_refused.connect(self._on_refused)
         self.canvas.contact_clicked.connect(self._on_contact)
+        self.canvas.cutout_moved.connect(self._on_cutout_moved)
+        self.canvas.contact_moved.connect(self._on_contact_moved)
         root.addWidget(self.canvas, 1)
 
         out_row = QHBoxLayout()
@@ -203,24 +212,37 @@ class TraceDoc(QWidget):
         except imagefield.ImageFieldError as e:
             return None, str(e)
 
-    def _frame_note(self, path):
-        """None, or why this cut-out will NOT sit on the photo: the build cover-crops the base
-        and every foreground to the same canvas, so two images align only when they share ONE
-        aspect. A cropped-out object (a 531x473 snip of a 1536x1792 photo — the first playtest)
-        scales to FILL the screen instead of sitting where it was. Advisory, not a block: an
-        equal-aspect vignette at another resolution is legit and covers as intended."""
-        try:
-            from PIL import Image
-            with Image.open(path) as im:
-                fw, fh = im.size
-        except Exception:                              # noqa: BLE001 -- unreadable: the build says so loudly
+    def _photo_wh(self):
+        return self._img_size or (imagefield.CANVAS_W, imagefield.CANVAS_H)
+
+    def _canvas_scale(self):
+        """Photo px -> logical canvas px: the photo's own cover scale (the same factor the build
+        applies at 4x, so a snip previews at exactly the size it will ship)."""
+        pw, ph = self._photo_wh()
+        return max(imagefield.CANVAS_W / pw, imagefield.CANVAS_H / ph)
+
+    def _attach_cutout(self, i, path):
+        """Classify + wire an attached PNG. Photo-frame aspect -> REGISTERED (fills the frame,
+        pixel-for-pixel where the artist painted it, inert). Anything else -> a positionable
+        SNIP: shown at its natural photo scale with its base parked on the contact, draggable —
+        the first playtest's 531x473 object crop is a feature now, not a giant dog. Returns a
+        short teach note for snips (None for registered)."""
+        from PIL import Image
+        with Image.open(path) as im:
+            sw, sh = im.size
+        f = self._fg[i]
+        f["image"] = str(path)
+        f["size"] = (sw, sh)
+        f["pm"] = QPixmap(str(path))
+        pw, ph = self._photo_wh()
+        if abs(sw / sh - pw / ph) <= 0.02 * (pw / ph):
+            f["kind"], f["offset"] = "full", None
             return None
-        pw, ph = self._img_size or (imagefield.CANVAS_W, imagefield.CANVAS_H)
-        if abs(fw / fh - pw / ph) <= 0.02 * (pw / ph):
-            return None
-        return (f"{fw}x{fh} does not share the photo's {pw}x{ph} frame — it will be scaled to "
-                f"FILL the screen. Cut it from the photo itself: same size, everything but the "
-                f"object erased to transparent")
+        k = self._canvas_scale()
+        cx, cy = f["contact"]
+        f["kind"] = "snip"
+        f["offset"] = (round(cx - sw * k / 2, 1), round(cy - sh * k, 1))
+        return "a snip — drag it into place on the art (its contact anchor rides along)"
 
     def _fg_problems(self):
         """(invalid, unattached) counts across the marked cut-outs — the Generate gates."""
@@ -284,11 +306,9 @@ class TraceDoc(QWidget):
             head = f"fg{i} @ ({cx:g},{cy:g})"
             head += f" · z {z}" if err is None else " · ⚠ invalid contact"
             head += f" · {Path(f['image']).name}" if f.get("image") else " · ⚠ needs its PNG"
-            if f.get("frame_warn"):
-                head += " · ⚠ won't align"
+            if f.get("kind") == "snip":
+                head += " · snip"
             self.fg_box.addItem(head)
-            self.fg_box.setItemData(self.fg_box.count() - 1, f.get("frame_warn") or "",
-                                    Qt.ItemDataRole.ToolTipRole)
         if 0 <= keep < self.fg_box.count():
             self.fg_box.setCurrentIndex(keep)
         elif self.fg_box.count():
@@ -298,20 +318,50 @@ class TraceDoc(QWidget):
         self.fg_attach_btn.setEnabled(has)
         self.fg_remove_btn.setEnabled(has)
 
-    def _refresh_markers(self):
-        """Contact markers on the art: each VALID contact's floor point, labelled with the overlay
-        z the build will emit (an invalid one has no floor point to mark — the strip flags it)."""
-        marks = []
+    def _refresh_cutouts(self):
+        """The canvas's cut-out furniture: attached PNGs PREVIEWED on the art (a registered
+        full-frame fills it; a snip sits at its rect and drags) + a draggable contact handle per
+        cut-out labelled with the derived z (INVALID marks red, exactly like a bad vertex)."""
+        show = self.fg_show.isChecked()
+        k = self._canvas_scale()
+        out = []
         for i, f in enumerate(self._fg):
             z, err = self._fg_state(f)
-            if err is not None:
-                continue
-            try:
-                (X, Z), = imagefield.unproject_floor(self.canvas.camera(), [f["contact"]])
-            except imagefield.ImageFieldError:
-                continue
-            marks.append({"pos": (X, 0.0, Z), "label": f"fg{i} · z {z}", "kind": "contact"})
-        self.canvas.set_markers(marks)
+            rect = None
+            if f.get("kind") == "snip" and f.get("offset") and f.get("size"):
+                sw, sh = f["size"]
+                rect = (f["offset"][0], f["offset"][1], sw * k, sh * k)
+            out.append({"i": i, "pixmap": (f.get("pm") if show else None), "rect": rect,
+                        "contact": f["contact"],
+                        "label": f"fg{i} · z {z}" if err is None else f"fg{i} · no floor",
+                        "bad": err is not None,
+                        "locked": f.get("kind") != "snip"})
+        self.canvas.set_cutouts(out)
+
+    def _on_cutout_moved(self, i, x, y):
+        """A snip drag ended: ONE undoable gesture — the image moves AND its contact anchor
+        rides by the same delta (the base line travels with the object; z re-derives)."""
+        if not 0 <= i < len(self._fg) or self._fg[i].get("offset") is None:
+            return
+        self._push_history()
+        ox, oy = self._fg[i]["offset"]
+        cx, cy = self._fg[i]["contact"]
+        self._fg[i]["offset"] = (round(x, 1), round(y, 1))
+        self._fg[i]["contact"] = (round(cx + (x - ox), 1), round(cy + (y - oy), 1))
+        z, err = self._fg_state(self._fg[i])
+        self._refresh_cutouts()
+        self._refresh(err if err else f"fg{i} moved → z {z}", "error" if err else "")
+
+    def _on_contact_moved(self, i, cx, cy):
+        """A contact-handle drag ended: re-anchor the depth alone (the image stays put) — for
+        tuning where the flip line sits under an already-placed object."""
+        if not 0 <= i < len(self._fg):
+            return
+        self._push_history()
+        self._fg[i]["contact"] = (round(cx, 1), round(cy, 1))
+        z, err = self._fg_state(self._fg[i])
+        self._refresh_cutouts()
+        self._refresh(err if err else f"fg{i} re-anchored → z {z}", "error" if err else "")
 
     # ------------------------------------------------------------------ image
     def on_open(self):
@@ -340,14 +390,14 @@ class TraceDoc(QWidget):
         self._history = []
         self.fg_btn.setChecked(False)
         self.canvas.set_floor([])
-        self.canvas.set_markers([])
+        self.canvas.set_cutouts([])
         self.canvas.set_backdrop(pm, self._camera(), refit=True)
         self.img_label.setText(self._image.name)
         self._refresh()
 
     def _on_pitch(self, _v):
         self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)
-        self._refresh_markers()                        # anchored z's are camera-dependent
+        self._refresh_cutouts()                        # anchored z's are camera-dependent
         self._refresh()
 
     # ------------------------------------------------------------------ trace + contact gestures
@@ -372,7 +422,7 @@ class TraceDoc(QWidget):
         self._floor = list(snap["floor"])
         self._fg = [dict(f) for f in snap["fg"]]
         self.canvas.set_floor(self._floor)             # the host write path: no on_floor echo
-        self._refresh_markers()
+        self._refresh_cutouts()
         self._refresh()
 
     def on_clear(self):
@@ -408,19 +458,17 @@ class TraceDoc(QWidget):
         self._push_history()
         self._fg.append({"contact": contact, "image": None})
         self.fg_btn.setChecked(False)                  # -> _on_fg_arm(False) -> trace mode
-        self._refresh_markers()
         self.fg_box.setCurrentIndex(len(self._fg) - 1)
         path = self._ask_cutout()
-        warn = None
+        teach = None
         if path:
-            self._fg[-1]["image"] = str(path)
-            warn = self._frame_note(path)
-            self._fg[-1]["frame_warn"] = warn
+            teach = self._attach_cutout(len(self._fg) - 1, path)
         note = (f"cut-out fg{len(self._fg) - 1} anchored at ({contact[0]:g},{contact[1]:g})"
                 f" → z {z}" + ("" if path else " — attach its PNG before Generate"))
-        if warn:
-            note += f" · ⚠ {warn}"
-        self._refresh(note, "warn" if warn else "")
+        if teach:
+            note += f" · {teach}"
+        self._refresh_cutouts()
+        self._refresh(note)
 
     def on_fg_attach(self):
         i = self.fg_box.currentIndex()
@@ -430,10 +478,9 @@ class TraceDoc(QWidget):
         if not path:
             return
         self._push_history()
-        self._fg[i]["image"] = str(path)
-        warn = self._frame_note(path)
-        self._fg[i]["frame_warn"] = warn
-        self._refresh(f"⚠ {warn}" if warn else "", "warn" if warn else "")
+        teach = self._attach_cutout(i, path)
+        self._refresh_cutouts()
+        self._refresh(f"fg{i}: {teach}" if teach else "")
 
     def on_fg_remove(self):
         i = self.fg_box.currentIndex()
@@ -441,7 +488,7 @@ class TraceDoc(QWidget):
             return
         self._push_history()
         del self._fg[i]
-        self._refresh_markers()
+        self._refresh_cutouts()
         self._refresh()
 
     # ------------------------------------------------------------------ generate
@@ -472,9 +519,12 @@ class TraceDoc(QWidget):
         argv = [sys.executable, "-m", "ff9mapkit", "image-field", str(self._image),
                 "--floor", " ".join(f"{x:g},{y:g}" for x, y in self._floor),
                 "--out", str(out), "--name", name, "--id", str(fid)]
-        for f in self._fg:                             # the tracer's own form: path@cx,cy anchors
+        for i, f in enumerate(self._fg):               # the tracer's own form: path@cx,cy anchors
             cx, cy = f["contact"]                      # the occluder at its floor-contact pixel
-            argv += ["--foreground", f"{f['image']}@{cx:g},{cy:g}"]
+            img = f["image"]
+            if f.get("kind") == "snip":                # a placed snip ships as a composed full frame
+                img = str(self._composed_fg_path(i, f))
+            argv += ["--foreground", f"{img}@{cx:g},{cy:g}"]
         if float(self.pitch.value()) != imagefield.DEFAULT_PITCH:
             argv += ["--pitch", f"{self.pitch.value():g}"]
         started = self._run(
@@ -507,6 +557,25 @@ class TraceDoc(QWidget):
             return None
         files = dlg.selectedFiles()
         return files[0] if files else None
+
+    def _composed_fg_path(self, i, f):
+        """A placed SNIP composed onto the photo's transparent full frame at the 4x art
+        resolution the build crops from — written beside the source image (the emitted command
+        must stay re-runnable, so its inputs need a durable home). The paste scale is the
+        photo's own cover scale: the shipped pixels match the preview exactly."""
+        from PIL import Image
+        W = imagefield.CANVAS_W * imagefield.UPSCALE
+        H = imagefield.CANVAS_H * imagefield.UPSCALE
+        s = self._canvas_scale() * imagefield.UPSCALE
+        sw, sh = f["size"]
+        ox, oy = f["offset"]
+        frame = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        snip = Image.open(f["image"]).convert("RGBA").resize(
+            (max(1, round(sw * s)), max(1, round(sh * s))), Image.LANCZOS)
+        frame.paste(snip, (round(ox * imagefield.UPSCALE), round(oy * imagefield.UPSCALE)), snip)
+        out = self._image.parent / f"{self._image.stem}.fg{i}.png"
+        frame.save(out)
+        return out
 
     def _ask_cutout(self):
         """The cut-out PNG picker (instance dialog behind a seam, like the others): a full-canvas

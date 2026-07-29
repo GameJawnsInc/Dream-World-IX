@@ -42,11 +42,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Mark a photo's foreground occluder (a pillar, a doorframe) directly on the art: **Add
   cut-out** arms a contact click — click where the object MEETS the floor — and the tab
   derives the overlay depth from the camera (`occluder_z`, the in-game-proven anchor:
-  occlusion flips exactly at that line), asks for the object's full-canvas cut-out PNG,
+  occlusion flips exactly at that line), asks for the object's cut-out PNG,
   and lists every contact in a strip with its depth, re-judged live on every pitch
   change. A contact traced up the body (depth at/behind the base layer) or above the
   horizon refuses with the CLI's own message. Generate emits the classic
   `--foreground path@cx,cy` form, so the build is byte-identical to the CLI loop's.
+- Cut-outs **preview on the art** and snips are **positionable**: a PNG sharing the
+  photo's frame registers pixel-for-pixel (inert, exactly where the artist painted it);
+  any other size is a SNIP — shown at its natural photo scale with its base parked on
+  the contact, draggable into place (its depth anchor rides along, re-deriving live; a
+  transparent surround never blocks tracing). Each contact also has its own draggable
+  handle to re-tune the flip line alone. Generate composites placed snips onto the full
+  frame automatically — cut out just the object, drop it on the art, drag until it sits.
 
 ### Added — `[[prop]]` as a first-class editor kind
 - Props now appear in the Editor tree (their own "Props" group), with a full form

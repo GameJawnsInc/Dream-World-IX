@@ -35,7 +35,8 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF, QTransform
 from PySide6.QtWidgets import (
-    QGraphicsEllipseItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView, QLabel,
+    QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem,
+    QGraphicsView, QLabel,
 )
 
 from .. import imagefield
@@ -56,6 +57,8 @@ class BackdropCanvas(QGraphicsView):
     surface_clicked = Signal(object)         # a walkmesh hit dict (place mode; see _emit_surface)
     contact_clicked = Signal(float, float)   # CANVAS px of a click (contact mode; the host judges
                                              # it through occluder_z — ONE owner of both refusals)
+    cutout_moved = Signal(int, float, float)   # a snip overlay drag ended: (index, new x, new y)
+    contact_moved = Signal(int, float, float)  # a contact-handle drag ended: (index, cx, cy)
     click_refused = Signal(str)              # why a click produced no floor point
 
     def __init__(self, palette, *, scale=100, on_floor=None):
@@ -77,6 +80,14 @@ class BackdropCanvas(QGraphicsView):
         self._surface_tris = []              # RENDER-frame triangles (mesh_world_tris's output)
         self._surface_floors = []            # floor index per triangle (or empty)
         self._markers = []                   # [{pos: (x,y,z) render frame, label, kind}]
+        self._cutouts = []                   # rung 2 previews: see set_cutouts
+        self._cutout_items = {}              # i -> the overlay pixmap item (live drag target)
+        self._contact_items = {}             # i -> the contact anchor item (live drag target)
+        self._kids = []                      # STRONG refs to child items (labels/dots/glyphs):
+                                             # a parented QGraphicsItem whose only Python wrapper
+                                             # dies can be GC-DELETED on the C++ side mid-handler
+                                             # (shiboken ownership), leaving itemAt() wrappers
+                                             # stale and the scene teardown double-freeing
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -207,6 +218,16 @@ class BackdropCanvas(QGraphicsView):
         self._markers = list(markers or [])
         self._rebuild()
 
+    def set_cutouts(self, cutouts):
+        """Rung 2's foreground previews: ``[{"i", "pixmap" (QPixmap|None), "rect" ((x, y, w, h)
+        canvas px | None = fill the frame), "contact" ((cx, cy)), "label", "bad", "locked"}]``.
+        A full-frame cut-out (rect None) renders registered and inert; a SNIP renders at its
+        rect and DRAGS (alpha-masked hits, so clicks through its transparent sky still trace) —
+        one ``cutout_moved`` per completed drag. Every cut-out gets a draggable contact handle
+        (``contact_moved``) — the depth anchor is authored geometry, exactly like a vertex."""
+        self._cutouts = list(cutouts or [])
+        self._rebuild()
+
     def set_floor(self, pts):
         """Feed the trace polygon (canvas px) WITHOUT firing ``on_floor`` — the host's own
         writes route here (load, undo/redo); user gestures route through ``_commit_floor``."""
@@ -254,6 +275,9 @@ class BackdropCanvas(QGraphicsView):
         sc, pal = self._scene, self.pal
         self._drag = None                          # scene.clear() deletes any grabbed item
         self._trace_items = []
+        self._cutout_items = {}
+        self._contact_items = {}
+        self._kids = []                            # the old scene's children die WITH the clear
         self._coords.hide()
         sc.clear()
         w, h = self._frame_wh()
@@ -263,6 +287,7 @@ class BackdropCanvas(QGraphicsView):
             item.setTransform(QTransform.fromScale(w / self._pixmap.width(),
                                                    h / self._pixmap.height()))
             item.setData(0, "backdrop")
+        self._draw_cutouts(w, h)
         border = QPen(QColor(pal["border"]), 1.0)
         border.setCosmetic(True)
         frame = sc.addRect(QRectF(0, 0, w, h), border)
@@ -294,6 +319,7 @@ class BackdropCanvas(QGraphicsView):
         t.setFont(self._font(8))
         t.setBrush(QColor(self.pal["warn"]))
         t.setPos(0, -14)                           # screen px, riding the zoom-immune anchor
+        self._kids.append(t)
 
     # -- Rung 3: the walkable footprint + placed-content markers --
     def _draw_surface(self):
@@ -337,11 +363,73 @@ class BackdropCanvas(QGraphicsView):
             dot = QGraphicsEllipseItem(-1.5, -1.5, 3, 3, anchor)
             dot.setPen(QPen(Qt.PenStyle.NoPen))
             dot.setBrush(QBrush(color))
+            self._kids += [ring, dot]
             if m.get("label"):
                 t = QGraphicsSimpleTextItem(str(m["label"]), anchor)
                 t.setFont(self._font(8))
                 t.setBrush(QBrush(color))
                 t.setPos(7, -15)               # screen px, riding the zoom-immune anchor
+                self._kids.append(t)
+
+    # -- Rung 2: cut-out previews + their contact handles --
+    def _draw_cutouts(self, w, h):
+        """The attached foregrounds ON the art (drawn right after the backdrop, before every
+        instrument): a full-frame cut-out fills the frame inert; a snip sits at its rect with
+        ALPHA-MASKED hit testing (a press on its transparent surround falls through to tracing/
+        panning — only the object itself grabs). Contact handles ride zoom-immune on top."""
+        from PySide6.QtWidgets import QGraphicsPixmapItem
+        for c in self._cutouts:
+            pm = c.get("pixmap")
+            if pm is None or pm.isNull():
+                continue
+            it = self._scene.addPixmap(pm)
+            it.setData(0, "cutoutimg")
+            it.setData(1, c["i"])
+            r = c.get("rect")
+            if r is None:                          # full-frame: registered art, inert
+                it.setTransform(QTransform.fromScale(w / pm.width(), h / pm.height()))
+                it.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            else:
+                x, y, rw, rh = r
+                it.setTransform(QTransform.fromScale(rw / pm.width(), rh / pm.height()))
+                it.setPos(x, y)
+                if c.get("locked"):
+                    it.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+                else:                              # the object's pixels grab; its sky doesn't
+                    it.setShapeMode(QGraphicsPixmapItem.ShapeMode.MaskShape)
+                self._cutout_items[c["i"]] = it
+        for c in self._cutouts:
+            cx, cy = c["contact"]
+            color = QColor(self.pal["error"] if c.get("bad") else self.pal["warn"])
+            anchor = self._scene.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+            anchor.setPos(cx, cy)
+            anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
+            anchor.setData(0, "cutoutpt")
+            anchor.setData(1, c["i"])
+            dia = QPolygonF([QPointF(0, -5), QPointF(5, 0), QPointF(0, 5), QPointF(-5, 0)])
+            gl = QGraphicsPolygonItem(dia, anchor)
+            gl.setPen(QPen(color, 1.6))
+            gl.setBrush(QBrush(color))
+            self._kids.append(gl)
+            if c.get("label"):
+                t = QGraphicsSimpleTextItem(str(c["label"]), anchor)
+                t.setFont(self._font(8))
+                t.setBrush(QBrush(color))
+                t.setPos(7, -16)                   # screen px, riding the zoom-immune anchor
+                self._kids.append(t)
+            anchor.setToolTip("the floor-contact anchor — occlusion flips here; drag to re-anchor"
+                              + (" (INVALID: no floor under it)" if c.get("bad") else ""))
+            self._contact_items[c["i"]] = anchor
+
+    def _resolve_data(self, item, tag):
+        try:
+            while item is not None:
+                if item.data(0) == tag:
+                    return item.data(1)
+                item = item.parentItem()
+        except RuntimeError:                       # a stale itemAt wrapper: treat as a miss
+            pass
+        return None
 
     def _surface_payload(self, hit):
         """The ``surface_clicked`` dict: the VISIBLE hit first-class (its (x, z) is what
@@ -408,6 +496,7 @@ class BackdropCanvas(QGraphicsView):
             t.setFont(self._font(8))
             t.setBrush(QBrush(color))
             t.setPos(6, -16)                       # screen px, riding the zoom-immune anchor
+            self._kids += [dot, t]
             if bad:
                 anchor.setToolTip("above the horizon — the build will refuse this vertex")
             self._trace_items.append({"anchor": anchor, "i": i})
@@ -435,16 +524,39 @@ class BackdropCanvas(QGraphicsView):
     # -- trace gestures: press resolves a handle, move updates ONLY the grabbed items, release
     # commits ONE callback and the re-render redraws everything (the StageCanvas contract)
     def _resolve_vertex(self, item):
-        while item is not None:
-            if item.data(0) == "tracept":
-                return int(item.data(1))
-            item = item.parentItem()
+        try:
+            while item is not None:
+                if item.data(0) == "tracept":
+                    return int(item.data(1))
+                item = item.parentItem()
+        except RuntimeError:                       # a stale itemAt wrapper (the GC-deleted-child
+            pass                                   # class _kids prevents) must never kill a press
         return None
 
     def _begin_vertex_drag(self, i):
         if not 0 <= i < len(self._trace_items):
             return False
-        self._drag = {"i": i, "pt": tuple(self._trace[i])}
+        self._drag = {"kind": "vertex", "i": i, "pt": tuple(self._trace[i])}
+        self._update_coords()
+        return True
+
+    def _begin_contact_drag(self, i):
+        c = next((c for c in self._cutouts if c["i"] == i), None)
+        if c is None or i not in self._contact_items:
+            return False
+        self._drag = {"kind": "cpt", "i": i, "pt": tuple(c["contact"]), "start": tuple(c["contact"])}
+        self._update_coords()
+        return True
+
+    def _begin_cutout_drag(self, i, grab):
+        """``grab`` = the press point in canvas px; the snip drags by its grabbed spot, never
+        snapping its corner to the cursor."""
+        c = next((c for c in self._cutouts if c["i"] == i), None)
+        if c is None or c.get("rect") is None or c.get("locked") or i not in self._cutout_items:
+            return False
+        x, y, w, h = c["rect"]
+        self._drag = {"kind": "cimg", "i": i, "grab": (grab.x() - x, grab.y() - y),
+                      "pt": (x, y), "start": (x, y), "wh": (w, h)}
         self._update_coords()
         return True
 
@@ -453,14 +565,30 @@ class BackdropCanvas(QGraphicsView):
         d = self._drag
         if not d:
             return
-        d["pt"] = (cx, cy)
-        self._trace_items[d["i"]]["anchor"].setPos(cx, cy)
+        if d.get("kind") == "cpt":
+            d["pt"] = (cx, cy)
+            self._contact_items[d["i"]].setPos(cx, cy)
+        elif d.get("kind") == "cimg":
+            d["pt"] = (cx - d["grab"][0], cy - d["grab"][1])
+            self._cutout_items[d["i"]].setPos(*d["pt"])
+        else:
+            d["pt"] = (cx, cy)
+            self._trace_items[d["i"]]["anchor"].setPos(cx, cy)
         self._update_coords()
 
     def _end_vertex_drag(self):
+        """Release commits ONE emission per gesture, per drag kind (the StageCanvas contract)."""
         d, self._drag = self._drag, None
         self._coords.hide()
         if not d:
+            return
+        if d.get("kind") == "cpt":
+            if d["pt"] != d["start"]:
+                self.contact_moved.emit(d["i"], round(d["pt"][0], 1), round(d["pt"][1], 1))
+            return
+        if d.get("kind") == "cimg":
+            if d["pt"] != d["start"]:
+                self.cutout_moved.emit(d["i"], round(d["pt"][0], 1), round(d["pt"][1], 1))
             return
         if d["pt"] != tuple(self._trace[d["i"]]):
             pts = list(self._trace)
@@ -483,7 +611,14 @@ class BackdropCanvas(QGraphicsView):
         if not d:
             return
         cx, cy = d["pt"]
-        head = f"vertex {d['i']} · canvas {cx:.0f},{cy:.0f}"
+        kind = d.get("kind", "vertex")
+        if kind == "cimg":
+            self._coords.setText(f"fg{d['i']} · canvas {cx:.0f},{cy:.0f}")
+            self._coords.show()
+            self._place_hint()
+            return
+        who = f"fg{d['i']} contact" if kind == "cpt" else f"vertex {d['i']}"
+        head = f"{who} · canvas {cx:.0f},{cy:.0f}"
         if self._cam is not None:
             try:
                 X, Z = imagefield.click_to_world(self._cam, (cx, cy))
@@ -554,9 +689,20 @@ class BackdropCanvas(QGraphicsView):
     # a slop-click elsewhere appends a vertex; everything else stays a pan.
     def mousePressEvent(self, event):              # noqa: N802 (Qt override)
         if event.button() == Qt.MouseButton.LeftButton:
+            item = self.itemAt(event.position().toPoint())
             if self._trace_mode:
-                i = self._resolve_vertex(self.itemAt(event.position().toPoint()))
+                i = self._resolve_vertex(item)
                 if i is not None and self._begin_vertex_drag(i):
+                    event.accept()
+                    return
+            if self._trace_mode or self._contact_mode:   # cut-out furniture drags in both modes
+                ci = self._resolve_data(item, "cutoutpt")
+                if ci is not None and self._begin_contact_drag(int(ci)):
+                    event.accept()
+                    return
+                ci = self._resolve_data(item, "cutoutimg")
+                if ci is not None and self._begin_cutout_drag(
+                        int(ci), self._widget_to_canvas(event.position())):
                     event.accept()
                     return
             self._press_pos = event.position()

@@ -368,3 +368,41 @@ def test_contact_mode_is_exclusive_but_keeps_the_trace_visible(app):
     assert len(c.floor()) == 3 and len(calls) == n0            # no vertex appended
     c.set_trace_mode(True)
     assert not c._contact_mode
+
+
+def test_cutout_furniture_renders_and_drags_one_emission_each(app):
+    """set_cutouts renders the snip overlay + its contact handle; a drag is ONE emission per
+    gesture through the same seam the vertex drags use (grab-relative, never corner-snapped)."""
+    c, cam, _ = _trace_canvas(app)
+    pm = QPixmap(100, 80)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (100.0, 250.0, 50.0, 40.0),
+                    "contact": (125.0, 290.0), "label": "fg0 · z 999",
+                    "bad": False, "locked": False}])
+    tags = _tags(c)
+    assert "cutoutimg" in tags and "cutoutpt" in tags
+    moved, anchored = [], []
+    c.cutout_moved.connect(lambda i, x, y: moved.append((i, x, y)))
+    c.contact_moved.connect(lambda i, x, y: anchored.append((i, x, y)))
+    assert c._begin_cutout_drag(0, QPointF(110.0, 260.0))     # grabbed 10px inside the rect
+    c._drag_canvas(130.0, 280.0)
+    c._end_vertex_drag()
+    assert moved == [(0, 120.0, 270.0)]                       # origin rode the grab delta
+    assert c._begin_contact_drag(0)
+    c._drag_canvas(140.0, 300.0)
+    c._end_vertex_drag()
+    assert anchored == [(0, 140.0, 300.0)]
+    assert moved == [(0, 120.0, 270.0)]                       # the anchor drag moved no image
+
+
+def test_locked_and_full_frame_cutouts_refuse_the_drag(app):
+    c, cam, _ = _trace_canvas(app)
+    pm = QPixmap(100, 80)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": None, "contact": (125.0, 290.0),
+                    "label": "fg0", "bad": False, "locked": True},
+                   {"i": 1, "pixmap": pm, "rect": (10.0, 10.0, 40.0, 30.0),
+                    "contact": (30.0, 40.0), "label": "fg1", "bad": False, "locked": True}])
+    assert not c._begin_cutout_drag(0, QPointF(120.0, 260.0))   # full-frame: registered art
+    assert not c._begin_cutout_drag(1, QPointF(20.0, 20.0))     # locked snip: inert
+    assert c._begin_contact_drag(0)                             # the ANCHOR always re-tunes
