@@ -5,6 +5,103 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the `so` record is a multi-part ARRAY: a reader fix, the witness partition, CHANNEL A (W6b-3)
+- **The reader was wrong, and the consequence was a wrong ANSWER, not a missing one.** An `so` binding
+  record is `8 + 8P` bytes carrying a **P-entry binding array** (`P` runs 0–7 in the corpus);
+  `reskin.so_record` hard-probed `recLen ∈ {0x08, 0x10}` and returned `None` for anything longer, so
+  **126 records and all 309 of their binding slots were invisible** — the record, slot 0, and every later
+  slot together. The palette lane's `DERIVED PRIVATE` verdict means *exactly one GEOM model binds this
+  cell*, so the shipped `summon-reskin` published **five FALSE `DERIVED PRIVATE` verdicts**, named and
+  now repaired: `ef179 pal.s0.x16_y244.e16` · `ef179 pal.s0.x0_y248.e256` · `ef381 pal.s0.x0_y248.e256`
+  (**seven** distinct models bind that one) · `ef438 pal.s0.x0_y242.e256` · `ef438 pal.s0.x0_y248.e256`.
+  The acceptance test now rests on **`arrayB` at +0x06** (`== 8 + 4P`), an independent halfword agreeing
+  502/502 and taking a value outside a `P<=1` corpus's two constants on 126 of 126 novel records —
+  `recLen == 8 + 8P` is near-tautological given `P := (recLen-8)//8` and is flagged as such.
+- **THE SAFETY FIX, unconditional.** Verdicts over the 372-container corpus through the shipped
+  `palette_map`: **148 DERIVED PRIVATE / 129 DERIVED SHARED / 2,395 SHARED-UNKNOWN / 301 UNBOUND at
+  COMPLETE / 122 UNBOUND at COMPLETE (NOVEL-DEPENDENT)** = 3,095. False-private **5 → 0**. The 205-palette
+  move closes exactly as **83 gaining a named binder + 122 whose container's coverage flipped**, and the
+  83 split **46 PRIVATE + 37 SHARED** by distinct GEOM model (43 + 40 by slot, measured and printed
+  beside it). Guard transitions measured on the field `_gate_shared` actually reads: **46 palettes
+  released, 5 newly armed — and the 5 are exactly the five historical false-private names.**
+- **★ THE VERDICT COUNTS MODELS, NEVER SLOTS.** One model can bind one palette from two entries of its
+  own array, and the reason string says *"GEOM models"*. Two measured populations: **3 palettes flip the
+  VERDICT** (`ef179 x0_y249`, `ef186 x0_y248`, `ef415 x0_y248` — on two of them the model's two entries
+  name *different columns*) and **2 more keep the verdict with a wrong printed count** (`ef186 x0_y252`
+  5→4 models, `ef226 x0_y249` 7→6). A single model binding through several entries now says *"through N
+  entries of its own binding array"*. **0 cases corpus-wide of one model binding one palette at two
+  different depths**, so the dedupe can never collapse a depth conflict.
+- **★ COVERAGE STATES ITS READER POPULATION — and the release it would have granted is measured, not
+  taken.** The true record population flips `so`-coverage to COMPLETE on **19 containers** (ef058, 094,
+  154, 155, 179, 186, 237, 261, 290, 300, 382, 390, 415, 424, 431, 432, 438, 439, 490), which would have
+  released **122 palettes** from `acknowledge_shared` with no binder naming any of them — 24× the
+  population of the five verdicts the fix repairs, moving the permissive way. Coverage stays honest
+  (a figure the container's own bytes contradict would be the same defect class the fix repairs) and the
+  guard stays **ARMED**: those palettes take a new verdict, `UNBOUND at COMPLETE so-coverage
+  (NOVEL-DEPENDENT)`, `shared = True`, whose reason states how many GEOM blocks the new reader bought,
+  that nothing about that reading is in-game, and that the release awaits owner ratification or a cast.
+  **0 palettes released by the coverage flip.** (`W6b3-ARCHIVE.md` §8.2's "the fix makes the kit less
+  conservative only in the `len(binders) == 1` branch" is corrected in the same breath — it is wrong;
+  there is a second, larger permissive direction and only an explicit decision keeps it shut.)
+- **★ THE WITNESS PARTITION — and why no published count moved.** A binding slot's witness class is a
+  property of the **record**: `P <= 1` is INCUMBENT (the old reader accepted it), `P >= 2` is NOVEL in
+  its entirety. Filtering the fixed reader to INCUMBENT reproduces the pre-fix population **exactly —
+  340/340 bindings and 376/376 accepted records, tuple for tuple, 0 of 372 containers differing** — so
+  containment is a statement about the consumers' **input**, not an inspection of their output.
+  `attribution()` now answers the TRUE population by default (its old answer was a defect, not a scope
+  choice); everything that means CHANNEL G or THE CENSUS **says `witness=WITNESS_INCUMBENT` explicitly**,
+  at ten call sites, each with a comment naming what it protects and every one findable by grep.
+  `w6b_gates` / `w4` / `w5` / `w7` are green **untouched**, as the control.
+- **CHANNEL A DISCLOSES — 65 cells, behind `acknowledge_array_derived_depth` + a matching `expect_bpp`.**
+  New `depth_source = "so-array"`, new `reskin.array_depth_view` (a WRAPPER on `page_depth_view`'s novel
+  half — one derivation, two names, not two scanners). **A is for ARRAY, not ARCHIVE**: the round's own
+  id-2-archive premise was falsified, the 126 invisible records split id-2 61 / id-6 53 / id-3 12, and
+  the id-2 framing would have cost 52% of the reach. It DISCLOSES rather than licenses because what
+  licensed channel G was never binding-ness — it was reading the record the kit already reads, an
+  informative calibration, **and a cast**. Channel A has the first only: **0 hits, 4 misses, 2 vacuous
+  passes** over six named cells, carried as a call-sited constant on every disclosure and both refusals.
+  The 65 split **26 clean + 34 class-C + 7 program-VRAM-write** (2 carry two, so they account for 65 once).
+- **Two new refusals, and one of them TAKES A PAGE AWAY.** `array-dual-depth` — **12 cells over 6
+  columns** named at two depths by the multi-part entries, derived live and never tabled. They split
+  **8 + 4** on an exact predicate (*is the column's incumbent depth set empty?*) and the split is
+  printed, but **treatment is uniform: all 12 refuse**, including the 4 whose columns `so-uv`/`so-page`
+  does serve — channel A holds **veto power and never emission power**, and the softer
+  state-it-alongside treatment is recorded as considered and not shipped. `array-vs-column-depth` —
+  **2 cells, one column (`ef184 x448`), the only one in the corpus satisfying the predicate**: channel G
+  says 4bpp, an entry of a multi-part record says 8bpp, and their UV covers overlap. *A licence
+  contradicted by its own instrument is void for that column.* Both classes are `_UNADDRESSABLE`, and
+  this is the rung's one non-zero addressability decision, gated by a counterfactual measuring
+  **exactly −6 cells on the licensed path (`so-uv` 187→183, `so-page` 57→55, depth-unknown 2,298→2,290)
+  and 0 on the census path**. All four dual-depth classes are re-measured **pairwise disjoint (0 overlap
+  on 6 of 6 pairs)**, so the ladder's order is a statement rather than a tie-break.
+- **Nothing a caller declined to consult appears to have spoken.** `CENSUS_CHANNELS` is unchanged and
+  the census default is byte-identical — 187 cells read, 2,385 depth-unknown, every hazard count
+  unmoved — because the channel-A views are gated on the token exactly as channel G's are.
+  `LICENSED_CHANNELS` gains `so-array` (CONSULTED, never adopted without the ack), and declining it
+  reproduces every W6b-2 number exactly. `W6B_REASON`'s 2,298 / 2,139 populations are **scoped rather
+  than restated**, with the 6-cell withdrawal and the 8-cell rename spelled out at both live sites.
+- **Class C at the same granularity as the depth.** 34 of the 65 sit on a column bound with 2–4 distinct
+  CLUT words. The census's `multi_palette` flag is **reader**-derived and 65/65 of these cells are
+  readerless, so its clean `0` there is **vacuous, not a clear** — it is printed beside the derived
+  answer so nobody mistakes silence for a pass. Keys come from the column's **novel** slots when the
+  depth did, and `export-art` writes an `.as-` alternate PNG for every key.
+- **★ THE ORDER CLAUSE IS UNMEASURED AND THE KIT SHIPS THE ARITY ONLY.** *"Selected by the primitive's
+  `part` byte"* states an arity **and** an order. The arity is corroborated twice from outside the
+  record's header (part-byte range: 0 of 502 records has `max(part) >= P`, stride-8 over-runs 126/126;
+  CLUT-arity 264/264 against a 16.2% random floor and a 53.3% ambient). The order is corroborated by
+  nothing (identity 63.3% / reversed 56.0% / permutations 59.4%, ~0.9σ). So `parts` is a **SET**
+  everywhere, display keys tie-break on **values** (`geom`, `tpage`, `clut_word`) and never on the array
+  index, and the sharper reading that would follow from the order — 5 of the 65 are *direct reads* rather
+  than inherited, plus a four-cell cast shortlist — is **withheld** and stays in the study. Proven, not
+  asserted: a permutation-invariance gate re-runs the shipped path over all 372 containers with each
+  record's entries shuffled and asserts every verdict-bearing output is bit-identical.
+- **`GAIN_SO_PAGE`, `CHANNEL_G_DUAL_CELLS` and `REFUSED_AMBIGUOUS` are now RE-DERIVATION-PINNED**, with
+  `GAIN_ARRAY` and the seven new channel-A counts alongside them. Their only guard was an assert built
+  from the same constants — self-consistent, and therefore structurally incapable of catching its own
+  drift. Repaired now, while they are still right. New gate board
+  `studies/custom-summons/tier-w/w6b3i_gates.py` (I0–I11, incl. the permutation-invariance rung) drives
+  every claim above through the code that ships.
+
 ### Added — floor-aware spatial instruments (THE FLOOR LAW)
 - A walker lives on ONE floor of a multi-floor walkmesh and changes floors only across a
   SEAM edge — everywhere else two floors meeting in flattened 2D (a terrace base, a

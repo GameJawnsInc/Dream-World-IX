@@ -684,6 +684,21 @@ round's commit:
 | `w6b3_gates.py` | this synthesis — G0–G9 |
 | `W6b3-ARCHIVE.md` | this record |
 
+**Extended at W6b-3i (§11) — the integration's committable surface:** `w6b3i_gates.py` (I0–I11) ·
+`W6B3I-PIN-DELTA.md` · the kit edits (`summons/reskin.py`, `summons/repaint.py`,
+`summons/depth_attribution.py`) · the test edits (`tests/test_summon_reskin.py`,
+`tests/test_summon_repaint.py`, this dir's `test_reskin.py`) · the amended boards (`w6b3_gates.py`,
+`w6q_gates.py` G6b) · the declared narrowings (`w6b2_gates.py`, `w6b2i_gates.py`,
+`w6b2_tpage_sweep.py`, `w6b2_census_restamp.py`, `w6b2_v1a_check.py`). All swept by the live
+`git status` provenance gates (G9 + I11): 0 leaks, the two pre-existing benign literals adjudicated by
+name on all four boards.
+
+**THE CENSUS FREEZE (decided at W6b-3i):** `texel-w6b/census/pages.json` is **FROZEN, not re-stamped**
+— the shipped census channel is incumbent-narrowed and byte-identical, so the artifact still describes
+it exactly, and this record's 73/65/26 are deltas measured against that snapshot; re-stamping would
+collapse the record's own subject to zero by construction. The freeze is verified every run by
+`w6b3i_gates` I10 rather than trusted.
+
 **Every lane script and every lane dossier stays OUTSIDE the checkout**, under
 `C:\gd\SCRATCH\summon-format\texel-w6b\w6b3\` — the sweep, the join, both refuter suites and the
 critic's seven probes, together with every JSON that carries decoded byte content. G9 asserts each
@@ -696,3 +711,58 @@ is asked to refuse a repo destination and does.
 **RECON ONLY, honoured:** no kit code changed, no deploy, no game-install read or write, no
 `Memoria.ini` or engine edit, no `git commit`. The corpus is read from `C:\gd\SCRATCH\summon-format`,
 which is extracted from the user's own install and is not in the repo.
+
+---
+
+# 11. W6b-3i — WHAT SHIPPED (the kit integration)
+
+> **Status: SHIPPED, offline.** §8's posture implemented; every number below measured through the
+> SHIPPED code path (the moved-pin itemisation is `W6B3I-PIN-DELTA.md`; boards: `w6b3i_gates.py`
+> 13/13 · `w6b3_gates.py` 10/10 amended · `w6b2i_gates` 11/11 · `w6b2` 17/17 · `w6b` 7/7 ·
+> `w6q` 19/20 with both exceptions named below). NOTHING here is in-game; §9's residue stands whole.
+
+**§8.2 item 1 — the reader fix, UNCONDITIONAL.** `so_record` reads the full multi-part array
+(acceptance on `arrayB`, the independent halfword; `MAX_SO_PARTS` bounds a hostile blob; the P=0
+record is still a record; the ef226 outlier kept by offset and value). The five FALSE `DERIVED
+PRIVATE` verdicts repair to 0 — and the newly-armed guard set is EXACTLY those five palettes, asserted
+as an identity. THE DEDUPE LAW ships with it: the verdict counts distinct GEOM **models**, never
+binding slots (3 verdict-flipping + 2 count-only palettes, named).
+
+**★ §8.2's ⛳ ASYMMETRY NOTE IS CORRECTED — the original stays visible above, per house rule.** It
+says *"the fix makes the kit less conservative only in the `len(binders) == 1` branch."* **Measured
+false:** the true record population also flips `so`-coverage COMPLETE on **19 containers**, which
+would have silently released **122 palettes** from `acknowledge_shared` — 24× the repaired
+population, in the permissive direction, on a channel with **0 in-game hits**. THE INTEGRATION DOES
+NOT TAKE THAT RELEASE: coverage stays honest (502-based), and those palettes take the
+`UNBOUND at COMPLETE so-coverage (NOVEL-DEPENDENT)` verdict with `shared = True` — **the guard stays
+ARMED**. ⛳ **OPEN — OWNER DECISION: the 122-palette release** (ratify, or upgrade by a cast). The
+46 palettes released by the private-flip are the safety fix's own direction (a palette with exactly
+one named binder is private) and DID ship.
+
+**§8.2 item 2 — CHANNEL A (`so-array`) DISCLOSES**, behind `acknowledge_array_derived_depth` + a
+matching `expect_bpp`, reasons naming the record offset and slot index as identification only; 65
+cells (26 clean / 34 class-C / 7 program-write, overlap 2); **A is for ARRAY, not ARCHIVE**. The
+containment is THE WITNESS PARTITION (incumbent ≡ pre-fix, 340/340 / 376/376 / 0 of 372 differing);
+census and channel G are narrowed at ten grep-findable call sites and their scopes are byte-identical.
+The ORDER clause ships UNMEASURED: `parts` is a SET everywhere, display keys tie-break on values,
+the direct-read refinement (§7 finding 3) and §8.3's cast shortlist stay study-side, and a
+permutation-invariance gate (I8b, no carve-outs) proves no verdict consumes storage order.
+
+**§8.2 item 3 — the refusals, LITERAL COMPLIANCE.** All **12** archive-dual cells refuse
+(`array-dual-depth`, derived live; the `incumbent == ∅` 8/4 structure printed as derivation, the
+treatment uniform) and the **2** ef184 cells refuse (`array-vs-column-depth`), withdrawing their
+licensed pages. **The measured cost of the literal reading, stated rather than absorbed:** licensed
+addressability −6 / census 0 — and one of the four covered withdrawals is `ef179 cell.s0.x448_y256`,
+**a W6q paint vehicle**, so `w6q_gates` G6b was amended to pin the withdrawal by name (any other
+withdrawal still goes red). The softer treatment considered and NOT shipped — hazard stated alongside,
+page kept, cost −2 — is documented in the design record and remains ⛳ **owner-ratifiable** if the 4
+covered cells should return.
+
+**§8.2 item 4 — class-C for the 34** at the depth's own granularity, binder-derived (the census flag
+is reader-derived and vacuously 0 here — printed beside the real answer), every key named, an
+alternate PNG per key.
+
+**Inherited finding, not this rung's:** `w6q_gates` G16's creature mean-covered-fraction pin
+(0.640 ± 0.001) measures 0.644309 **at HEAD too** (A/B with the three kit modules restored: identical
+digits) — stale before this integration, previously masked by G6b's abort. Left red and named; owner
+call.

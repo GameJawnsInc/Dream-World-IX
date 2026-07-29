@@ -297,7 +297,7 @@ flip rows on — you never hand-type an offset, a VRAM cell, or a palette name.
 | `hue_to` | no | the **absolute** hue in degrees the palette's own measured mean hue should land on; the build computes the delta for you. Required on **every** writer of a multi-writer CLUT cell (see the refusal table). |
 | `saturation` | no, default `1.0` | a scale on S. |
 | `value` | no, default `1.0` | a scale on V. `> 1.0` on a palette that already peaks at 31/31 (zero headroom) refuses without `acknowledge_headroom`. |
-| `acknowledge_shared` | *conditional* | required (`= true`) before an **enabled** target on a DERIVED-shared palette may build (bound by more than one GEOM model, or unattributed at incomplete `so`-coverage — see the laws, below). |
+| `acknowledge_shared` | *conditional* | required (`= true`) before an **enabled** target on a DERIVED-shared palette may build (bound by more than one GEOM model, or unattributed at incomplete `so`-coverage — see the laws, below). **W6b-3 repaired the binder count this gate reads** — the `so` record is a multi-part binding *array* the old reader dropped whole. Five palettes that claimed "exactly one GEOM model binds this cell" were wrong and now arm the key; 46 that could name no binder at all now resolve to one named model and no longer need it; and a fourth verdict, `UNBOUND at COMPLETE so-coverage (NOVEL-DEPENDENT)`, keeps the key **armed** on 122 palettes whose `so`-coverage is complete only because of records first readable at W6b-3. |
 | `acknowledge_headroom` | *conditional* | required (`= true`) before a `value > 1.0` on a zero-headroom row may build. |
 | `expect_entries` / `expect_vram` / `expect_offset` | no | guards: if the derivation disagrees with what you name here, the build refuses rather than splice at a place this row was not authored against. |
 | `note` | no | free text, carried into manifests/reports only. |
@@ -398,6 +398,30 @@ under the hue you chose (see THE SATURATED-RAMP LAW, below).
   produce the identical symptom — "nothing changed" — with nothing logged anywhere. Deliberately
   large first deltas and `verify`'s byte-level re-check exist because of this one law, shared
   verbatim with the rescore lane below.
+- **★ THE `so` RECORD IS AN ARRAY, AND THE OLD READER'S ERROR WAS A WRONG ANSWER, NOT A MISSING ONE.**
+  A palette is `DERIVED PRIVATE` when **exactly one GEOM model binds its cell** — the mechanism behind
+  every `acknowledge_shared` verdict, and the thing that was wrong. The record is `8 + 8P` bytes with a
+  **P-entry binding array**; the reader accepted only `P ∈ {0, 1}`, so 126 records and 309 binding slots
+  were invisible and the kit published **five FALSE "exactly one model binds this cell" verdicts** —
+  including one cell that seven distinct models bind. That is not a missing depth, it is an author being
+  told it is safe to recolour a set piece other models read. Fixed **unconditionally**, as a safety fix,
+  ahead of and separately from any decision about the depths those records also carry.
+- **THE VERDICT COUNTS MODELS, NEVER BINDING SLOTS.** A multi-part record lets **one** model bind one
+  palette from two entries of its own array. The reason string says *"%d GEOM models"*, and a count that
+  does not match its own noun is a false statement in the safest-sounding direction: 3 palettes would
+  have read as SHARED when one model binds them, and 2 more would have had the right verdict with the
+  wrong number. A single model binding through several entries now says so — *"through 2 entries of its
+  own binding array"* — rather than hiding the arity behind a plain single binding.
+- **★ COVERAGE STATES ITS READER POPULATION, AND A LOOSENING PRODUCED BY A SAFETY FIX IS STILL A
+  LOOSENING.** `so`-coverage decides between *"shared, acknowledge it"* and *"free to recolour"*. Reading
+  the true record population flips **19 containers** to COMPLETE, which would have released **122**
+  palettes from `acknowledge_shared` **with no binder naming any of them** — 24× the population of the
+  five verdicts the fix exists to repair, moving the permissive way. The coverage figure stays honest
+  (publishing a number the container's own bytes contradict would be the same defect class the fix
+  repairs), and the **guard stays armed**: those palettes take a fourth verdict, `UNBOUND at COMPLETE
+  so-coverage (NOVEL-DEPENDENT)`, whose reason says that this container's completeness is exactly what
+  the new reading bought, that nothing about that reading is in-game, and that the release awaits an
+  owner-ratified decision or a cast. **0 palettes were released by the coverage flip.**
 - **The ModFileList refusal.** When a mod folder carries a `ModFileList.txt`, the engine's asset
   lookup TRUSTS that list and never probes the folder directly — so a file the list omits is
   invisible, and (per the law above) that invisibility logs nothing. `deploy` refuses outright into
@@ -786,13 +810,19 @@ re-derived. The fail-safe is proven non-vacuous against a deliberately perturbed
 Every law, its measurement and its provenance live in the study record:
 `studies/custom-summons/tier-w/W6b-SCENERY.md` (and `W6-TEXEL.md` for the creature lane).
 
-### Where a depth comes from — the two attribution channels (W6b-2)
+### Where a depth comes from — the attribution channels (W6b-2, and CHANNEL A in W6b-3)
 
 W6b-1 closed the section above with an honest asymmetry: **the codec never fails and the gate refuses
 93% of the surface**, because 2,385 of 2,572 scenery cells have no model that samples them and the
 container therefore states no depth. Rung **W6b-2** asked whether the container states it *somewhere
 else*, and found two places. **246 of the 2,385 now carry a depth. 2,139 still do not**, and the
 refusal now says which kind of "no" it means.
+
+Rung **W6b-3** added a third place — and, more importantly, fixed a **reader** that had been dropping
+part of the first one. The `so` record is a multi-part binding **array**; the old reader accepted only
+its one-entry and zero-entry lengths, so 126 records and all 309 of their binding slots were invisible.
+Reading them is a **safety** fix to the palette verdicts (see `acknowledge_shared`, above) and it is
+unconditional. Their **depths** are a separate decision, and they DISCLOSE rather than license.
 
 Everything below turns on one sentence about the hardware:
 
@@ -809,7 +839,16 @@ Every page you get back now carries **`depth_source`**, and the plan/report line
 |---|---|---|
 | `so-uv` | a model whose stored UVs land in **this cell** declares it — W6b-1's rule, unchanged (187 cells) | editable, no key |
 | `so-page` | **CHANNEL G**: no model samples this cell, but the container binds its **column**, so the depth is inherited from the page (57 cells) | **LICENSED** — no key |
+| `so-array` | **CHANNEL A** (W6b-3): the same `so` record class read at its true length — the depth comes from an **entry of the column's multi-part binding array**, an entry no kit before W6b-3 could read (65 cells) | **DISCLOSED** — an acknowledgement *and* a matching `expect_bpp`, and **nothing about this channel is in-game** |
 | `program` | **CHANNEL P**: the effect's own id-3 program *registers* this page at a constant depth (189 cells) | **DISCLOSED** — an edit needs an acknowledgement *and* a matching `expect_bpp`, **and even then it reaches only the 55 that are 15bpp** (see below) |
+
+> **THE ONE COUNT THAT MOVED, AND IT MOVED THE STRICT WAY.** Channel A holds **veto** power and never
+> emission power, so consulting it can only ever make the picture *less* certain. On the author-facing
+> licensed default its two hazard classes withdraw **6 cells** that used to resolve: `so-uv` goes
+> **187 → 183** and `so-page` **57 → 55**, and `depth-unknown` on that surface goes **2,298 → 2,290**
+> because 8 more cells now refuse under a sharper name. **The census default is untouched** — 187 and
+> 2,385, byte for byte, because a caller that declines to consult `so-array` is told nothing by it,
+> refusals included. Decline channel A and every W6b-2 number comes back exactly.
 
 **CHANNEL G LICENSES.** It is not new evidence — it is the *same* `so` record the lane already ships
 on, read at the granularity the hardware actually uses. Calling that an inference would mean the kit's
@@ -841,6 +880,44 @@ and its general form, from the ef446 ladder the same day:
 > anything that binds them.**
 
 So a channel-P cell is refused by default, and its refusal *names the depth it is refusing to use*.
+
+**CHANNEL A DISCLOSES — and A IS FOR ARRAY, NOT ARCHIVE.** The rung that found this channel went
+looking for models hiding inside id-2 **archive** sub-files, and that premise was falsified: the
+census walker already descends into every sub-file id. The real blindness was in the **record
+reader**. An `so` record is `8 + 8P` bytes carrying a **P-entry binding array** — `P` runs 0 to 7 in
+the corpus — and the kit probed only `P ∈ {0, 1}`, returning `None` for anything longer. So 126
+records and all 309 of their slots were invisible, and the channel's honest name is the one the bytes
+support: **a record-length channel**, not an id-2 one (the 126 split id-2 61 / id-6 53 / id-3 12, so
+the archive framing would have been wrong on 65 of them and would have cost 52% of the reach).
+
+Like channel G, this is **not new evidence** — it is the *same record class the lane already ships
+on*, read at its true length. Unlike channel G it gets **no licence**, and the difference is argued
+rather than asserted. What licensed G was three things together: it reads the record the kit already
+reads, its calibration had **informative rows** (16/18 — `W6b2-ATTRIBUTION.md`'s measurement, not
+re-run here), and **a cast held**. Channel A has the first and neither of the others:
+
+> **NOTHING ABOUT CHANNEL A IS IN-GAME.** The ghost-layer prediction it was recruited to explain
+> scored **0 hits, 4 misses and 2 vacuous passes** over six named cells. Its agreement with the census
+> (17 of 21 = 81%) is indistinguishable from the corpus's own column-homogeneity base rate (78.5%), so
+> that statistic is not a calibration. `BINDING-IS-NOT-A-DRAW` and `THE DEPTH COROLLARY` apply in full.
+
+Its surface is **65 cells** — depth-unknown cells whose column the multi-part reading names
+unanimously — and the honest hazard split behind that number is **26 clean + 34 class-C + 7 on a
+program-VRAM write** (2 cells carry two of those, so the three account for 65 once the overlap is
+counted once). All 65 come out of the 861 covered-but-uncovered cells; the 1,278 cells behind the
+structural wall gain **zero**, and that zero is an identity, not a measurement.
+
+★ **And one clause of the record's own spec is UNMEASURED, so the kit ships the other one.** *"selected
+by the primitive's `part` byte"* states an **arity** and an **order**. The arity is corroborated twice
+from outside the record's own header (the part-byte range test: 0 of 502 records has `max(part) >= P`,
+and a stride-8 reading over-runs on 126 of 126; the CLUT-arity test: 264/264 against a 16.2% random
+floor and a 53.3% ambient). **The order is corroborated by nothing** — identity 63.3% / reversed 56.0%
+/ random permutations 59.4%, about 0.9σ above chance. So the kit treats `parts` as a **SET**
+everywhere: a reason string may name a record offset and a slot index as *identification*, and no
+verdict may assert that part *k* draws with entry *k*. A sharper reading of the lower halves (five of
+the 65 are **directly sampled** rather than inherited, and a four-cell cast shortlist follows from it)
+is **withheld for exactly that reason** and stays in the study record. An error running into false
+modesty is a defect; shipping a correction on unmeasured evidence would be a worse one.
 
 #### `acknowledge_program_derived_depth` — and why it is useless alone
 
@@ -883,7 +960,51 @@ Five ways it refuses, each by name:
 **The author carries the judgement; the kit carries the check.** This is `expect_bpp`'s own law, and
 W6b-2 does not soften it: the kit still declines to *choose* a depth anywhere, including here.
 
-#### Four more refusals, by name, and what each is worth
+#### `acknowledge_array_derived_depth` — and what it cannot buy you
+
+| key | when | what it does |
+|---|---|---|
+| `acknowledge_array_derived_depth` | *conditional* | required (`= true`, a **literal boolean** — a truthy string refuses rather than arms) to edit a cell whose depth came from CHANNEL A. **It must be paired with a matching `expect_bpp`; on its own it FAILS BY NAME.** |
+
+```toml
+[[reskin.texel]]
+name        = "cell.s0.x448_y384"
+source      = "cell.s0.x448_y384.png"
+acknowledge_array_derived_depth = true   # "I have read that this channel has never been on screen"
+expect_bpp  = 8                          # ...and here is the number the kit checks that against
+```
+
+Six ways it refuses, each by name:
+
+- **no acknowledgement** → the cell does not resolve at all, and the reason names the key, the derived
+  depth, the record offset and slot it came off (as *identification*), and the order clause;
+- **the acknowledgement with no `expect_bpp`** → refused: the ack is *your judgement*, `expect_bpp` is
+  the number the kit checks it against, and a judgement with nothing to check is not a guard;
+- **an `expect_bpp` that does not match the derivation** → refused, naming CHANNEL A as the channel it
+  argues with;
+- **`= "true"` as a string** → refused, not armed — the literal-boolean law, shared with channel P;
+- **a cell on an `array-dual-depth` column** → refused *even with* a correct-looking ack. There is no
+  single value for a judgement to be about, and **no acknowledgement lifts a hazard**;
+- **a cell on the `array-vs-column-depth` column** → refused likewise, and this one **takes away a page
+  the lane used to hand back**.
+
+> ⚠ **THE ACK'S REAL SURFACE, and the sentence that has to ride with it.** Channel A discloses **65**
+> cells: **26 are clean**, **34 sit on a column bound with 2–4 distinct CLUT words** (class C — a
+> disclosure with an alternate PNG per key, not a refusal), and **7 land on a program-VRAM write**.
+> The key admits a **fact about a binding**, and this channel's fact has never been checked against a
+> screen: **0 hits, 4 misses, 2 vacuous passes**. Nothing in the residue arithmetic moves either —
+> channel A is **consulted, not adopted**, so W6b-2's `246 / 1,278 / 861` split still describes the
+> shipped surface exactly, and channel A's own "if it were adopted, 2,139 → 2,074" line is printed as a
+> **second line that is never reconciled with the first**.
+>
+> **AND THE ORDER CLAUSE.** The array's arity is measured twice; its *order* is measured by nothing.
+> `expect_bpp` is safe under that gap because a slot's page and that slot's own depth travel together,
+> index-free — but no `.png` you paint, and no verdict the kit prints, may assume entry *k* belongs to
+> part *k*. A permutation-invariance gate re-runs the whole shipped path with each record's entries
+> shuffled and asserts every verdict-bearing output is bit-identical, so this is proven un-consumed
+> rather than merely un-grepped.
+
+#### Six more refusals, by name, and what each is worth
 
 - **PROGRAM-DEPTH-NO-PALETTE** — the largest of the four: an indexed channel-P cell with no key, the
   class described above. It has its **own** wording rather than reusing `no-declared-clut`, whose text
@@ -899,6 +1020,25 @@ W6b-2 does not soften it: the kit still declines to *choose* a depth anywhere, i
   prints both and picks neither. Stated plainly: this class **protects nothing new** — both cells
   already refuse through the name-every-column gate — and it exists to carry the *reason*. Silently
   picking one of the two numbers would have manufactured a certainty nobody measured.
+- **ARRAY-DUAL-DEPTH** *(W6b-3)* — **12 cells over 6 columns** whose column the multi-part records name
+  at two different depths. Derived live from the container like the channel-G class above, never tabled.
+  The 12 split **8 + 4** on an exact predicate — *is the column's INCUMBENT depth set empty?* — and the
+  split is printed because it is informative, but the **treatment is uniform: all 12 refuse.** The 8
+  were refusing as `depth-unknown` anyway, so naming them costs nothing; **the other 4 sit on columns
+  `so-uv` or `so-page` does serve, and on a path that consults `so-array` this refusal takes that page
+  away.** That is deliberate. Channel A holds **veto** power and never emission power: where it can
+  only make the picture less certain it is allowed to, where it could only make it *more* certain it is
+  not. The softer treatment — state the hazard alongside and keep the page — was considered and **not
+  shipped**, because loosening later is cheap and tightening after shipping is not.
+- **ARRAY-vs-COLUMN-DEPTH** *(W6b-3)* — **2 cells, one column, and ★ it withdraws a page: the rung's
+  one deliberate permissiveness regression.** The column carries a unanimous depth from the records the
+  kit has always read (channel G, which it **licenses**) and a unanimous, *different* depth from an
+  entry of a multi-part record's array — the same record class, read at its true length, on texels whose
+  UV covers overlap. **A licence contradicted by its own instrument is void for that column.** These two
+  cells resolved to an editable picture before W6b-3 and do not now; keeping the incumbent number would
+  have manufactured a certainty neither predicate supports. It is the only column in the corpus
+  satisfying the predicate, and the addressability cost is gated by a counterfactual rather than
+  asserted: **−6 cells on the licensed path (these 2 plus `array-dual`'s 4), 0 on the census path.**
 
 #### And what the depth-unknown refusal says now
 
@@ -920,17 +1060,25 @@ It no longer says the container is silent, because for most of the residue that 
 > *attribution residue*: cells with no depth on **any** channel, i.e. those 2,298 less the 189 channel P
 > discloses, plus the 30 dual-depth cells, which sit **inside** the residue as a subset and are never an
 > addend. Adding the flat list up double-counts them, so the string says which is which.
+>
+> ⚠ **BOTH NUMBERS ARE W6b-2-SCOPED, AND THE STRING NOW SAYS SO.** They describe the edit surface with
+> `so-array` **not** consulted. Consult channel A and its two hazard classes withdraw 6 cells (2 on the
+> `array-vs-column` column, 4 whose columns `so-uv`/`so-page` served) and rename 8 more out of
+> `depth-unknown`, so that count reads **2,290**. The 2,298 is not restated as 2,290, because a channel
+> a caller declines to consult must not appear to have spoken: the scope is stated instead.
 
-Nothing above moves a W6b-1 count. `scenery_surface()` still defaults to the census channel set, and on
-that default the refusal strings are W6b-1's **byte for byte** — a channel a caller declined to consult
-must not appear to have spoken, and a residue split is a W6b-2 measurement.
+`scenery_surface()` still defaults to the census channel set, and on that default the refusal strings
+are W6b-1's **byte for byte** — a channel a caller declined to consult must not appear to have spoken,
+and a residue split is a W6b-2 measurement. That containment is what makes W6b-3 a **contained** change
+too: on the census default nothing at all moved (187 cells read, 2,385 depth-unknown, every hazard count
+identical), and the only movement on the licensed default is the −6 the paragraph above names.
 
 > **THE CEILING IS STRUCTURAL, NOT STATISTICAL.** Do not read "10% of the dark surface was recovered"
 > as a rate that can be pushed. The program idiom registers a texture *onto a model*; 222 containers
 > have no model, make zero such calls, and hold 1,278 of the unknown cells. That projection goes
 > through a wall.
 
-#### Two views, kept apart
+#### Three views, kept apart
 
 `reskin.attribution` answers **readership** (which model samples which halfwords) and
 `reskin.page_depth_view` answers **depth** (what mode the whole 256-line page is read in). They are
@@ -938,17 +1086,49 @@ separate entry points on purpose and are never merged: measured against the cens
 138/140 rows overall and **16/18 on the informative ones**, and *both* rows that could have falsified
 the page predicate did — they are the spill-vs-own-page class above, flagged rather than reconciled.
 
+★ **The third view is the WITNESS PARTITION, and it is what kept W6b-3 from moving anything by
+accident.** A binding slot's witness class is a property of the **record** it came out of, not of the
+slot: a record with `P <= 1` is one the old reader already accepted (**INCUMBENT**), and a record with
+`P >= 2` was returned as `None` in its entirety, so the record, slot 0 *and* every later slot are all
+**NOVEL** together. Measured: filtering the fixed reader to the incumbent class reproduces the pre-W6b-3
+population **exactly — 340/340 bindings and 376/376 accepted records, tuple for tuple, 0 of 372
+containers differing**. So "the census and channel G did not move" is a statement about their **input**,
+not a claim about their output.
+
+Which view each entry point asks for is a decision, spelled at every call site:
+
+- `attribution()` answers the **true** population by default. Its old answer was not a scope choice, it
+  was a defect, and a default chosen to preserve a defect so that counts do not move is the guard-rail
+  defeated by construction.
+- `page_depth_view()` (channel G) and `repaint.bound_models` (the census) **say INCUMBENT explicitly**,
+  each with a comment naming what it protects — these two are the paths that LICENSE, and widening them
+  would have handed channel A channel G's authority silently.
+- `array_depth_view()` is channel A: `page_depth_view`'s **novel half**, a wrapper on the same
+  derivation rather than a second scanner, so the two channels are separately *nameable* without being
+  separately *derived*.
+
 `scenery_surface()` defaults to the **census** channel set (`so-uv` only), so W6b-1's published counts
 are byte-for-byte what they were; `scenery_texel_pages()`, `texel_page()`, `export-art` and `build` —
-everything an author actually touches — default to the **licensed** set. A channel a caller declines to
-consult is not merely un-adopted: its refusals are not stated either, because a verdict from an
-instrument you declined to run is a verdict you cannot check.
+everything an author actually touches — default to the **licensed** set, which since W6b-3 also carries
+`so-array`. A channel a caller declines to consult is not merely un-adopted: its refusals are not stated
+either, because a verdict from an instrument you declined to run is a verdict you cannot check.
 
 The channel-P table is the one **cached measurement** in the lane (recovering it is a const-folding
 walk over 385 program images, which no build can afford to re-run), so it is **re-derivation-pinned**:
 `studies/custom-summons/tier-w/w6b2i_gates.py` re-rolls it from the recon artifacts and asserts
-equality cell for cell, exactly as the program-VRAM lists already are. Its full record, with every
-number re-measured, is `studies/custom-summons/tier-w/W6b2-ATTRIBUTION.md`.
+equality cell for cell, exactly as the program-VRAM lists already are. Channels G, H, the spill class
+and **channel A** are all derived **live** — channel A costs strictly less than channel G, which was
+already live, because it is the same `scan_geom` pass over the same records and differs only in which
+slots it keeps.
+
+W6b-3 also repaired a house-law defect it found in that module rather than leaving it for the round
+that would have been bitten by it: `GAIN_SO_PAGE`, `CHANNEL_G_DUAL_CELLS` and `REFUSED_AMBIGUOUS` were
+guarded only by an assert built from *the same constants*, which is self-consistent and therefore
+structurally incapable of noticing that one of them had gone wrong. They — and `GAIN_ARRAY` and every
+new channel-A count — are now **re-rolled from the 372 containers through the shipped derivation** and
+asserted equal. *A constant nobody re-checks is a claim.* The full records, with every number
+re-measured, are `studies/custom-summons/tier-w/W6b2-ATTRIBUTION.md` and `W6b3-ARCHIVE.md` (with the
+moved pins itemised in `W6B3I-PIN-DELTA.md`).
 
 ## Reframe a stock summon's camera in place — `summon-rescore`
 

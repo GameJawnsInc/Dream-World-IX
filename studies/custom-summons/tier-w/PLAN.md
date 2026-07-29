@@ -468,4 +468,25 @@ scenery must be re-authored *together*.
   rate — no licence); refuse the 12 archive-dual + 2 ef184 G-contradicting cells.** OPEN: the
   submission-time-GPU-state ceiling hypothesis (refuter 2's — now the arc's biggest question);
   4 dome-shaped cast vehicles named (ef424/ef130/ef179 preferred; avoid ef184). Kit integration
-  NOT started.
+  → the next bullet.
+- **W6b-3i — THE KIT INTEGRATION ★ SHIPPED (offline; record `W6b3-ARCHIVE.md` §11; moved pins
+  `W6B3I-PIN-DELTA.md`; gates `w6b3i_gates.py` 13/13 NEW, `w6b3_gates` 10/10 amended, `w6b2i` 11/11
+  via a declared channel-set freeze, `w6b2` 17/17, `w6b` 7/7 control untouched, `w6q` 19/20 with
+  both exceptions named).** The reader fix landed UNCONDITIONALLY: `so_record` reads the multi-part
+  array (acceptance on `arrayB`; ORDER clause ships unmeasured — SET semantics, value tie-breaks,
+  permutation-invariance proven with no carve-outs), the 5 FALSE `DERIVED PRIVATE` verdicts repair
+  to 0 (the newly-armed guard set IS those five, an asserted identity), the verdict now counts GEOM
+  MODELS never slots (3 flip + 2 count-only), and 46 palettes gained a lawful private verdict while
+  **the 122-palette coverage-flip release was MEASURED AND NOT TAKEN** — `UNBOUND at COMPLETE
+  (NOVEL-DEPENDENT)` keeps `acknowledge_shared` ARMED (§8.2's "only the len(binders)==1 branch"
+  clause corrected in the record: measurably false). The depths DISCLOSE as **CHANNEL A
+  (`so-array`)** — 65 cells behind `acknowledge_array_derived_depth` + matching `expect_bpp` (26
+  clean / 34 class-C / 7 program-write); **all 12 archive-dual + 2 ef184 cells REFUSE (literal §8.2
+  item 3)**, cost −6 licensed / 0 census, withdrawing one W6q paint vehicle (`ef179 x448_y256`,
+  pinned by name in the amended G6b). Containment = THE WITNESS PARTITION (incumbent ≡ pre-fix,
+  340/340 / 376/376 / 0 of 372 differing); census and channel G byte-identical. ⚠ OPEN, owner
+  decisions: (1) ratify-or-cast the 122-palette release; (2) optionally soften the 4 covered
+  archive-dual cells back to advisory (−2 variant, documented); (3) `w6q_gates` G16's stale
+  creature-cover pin (0.644309 vs 0.640±0.001, pre-existing at HEAD — proven by A/B). The order
+  clause + the 4-cell cast shortlist stay study-side; LICENSE still needs (i) the order measured
+  and (ii) a cast.
