@@ -2672,7 +2672,8 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
         fg = list(args.foreground or [])
         man = imagefield.build_image_field(
             args.image, floor, args.out, foreground=fg, name=args.name, field_id=args.id,
-            pitch=args.pitch, fov=args.fov, distance=args.distance)
+            pitch=args.pitch, fov=args.fov, distance=args.distance,
+            gateways=list(args.gateway or []), events=list(args.event_zone or []))
     except (imagefield.ImageFieldError, ValueError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2683,6 +2684,12 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
         if f["contact"]:
             print(f"  occluder {Path(f['image']).name}: contact ({f['contact'][0]:g},{f['contact'][1]:g}) "
                   f"-> z {f['z']} (walk in front = actor on top; walk behind = occluded)")
+    for gi, gw in enumerate(man.get("gateways", [])):
+        print(f"  gateway door{gi} -> field {gw['to']}"
+              + (f" entrance {gw['entrance']}" if gw['entrance'] else "")
+              + " (corners 0->1 = the walk-out edge)")
+    for ei, ev in enumerate(man.get("events", [])):
+        print(f"  event zone{ei}: {ev['message']!r}")
     print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then ~ -> Warp 30058)")
     print("HAND-TRACED FLOOR: the polygon must outline the floor in the FINAL 384x448 canvas (top-left, "
           "Y-down), below the horizon. Only the human can confirm it lands on the art in-game (CLAUDE.md).")
@@ -6910,6 +6917,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="a near-occluder cut-out PNG (full-canvas, alpha); repeatable. Bare path = always in "
                           "front of the actor; 'path@cx,cy' anchors it at its floor-contact canvas pixel so "
                           "occlusion flips there (walk in front = actor on top, walk behind = occluded)")
+    imf.add_argument("--gateway", action="append", default=None,
+                     help="an exit zone 'to[,entrance]@cx,cy;cx,cy;cx,cy;cx,cy' (repeatable): a 4-corner "
+                          "quad in canvas pixels sending the player to field 'to'; corners 0-1 become the "
+                          "walk-out edge. Un-projected through the same camera as --floor")
+    imf.add_argument("--event-zone", dest="event_zone", action="append", default=None,
+                     help="a walk-in message zone 'message@cx,cy;cx,cy;cx,cy;cx,cy' (repeatable), same "
+                          "canvas-pixel frame as --floor")
     imf.set_defaults(func=_cmd_image_field)
 
     mp = sub.add_parser("model-preview",

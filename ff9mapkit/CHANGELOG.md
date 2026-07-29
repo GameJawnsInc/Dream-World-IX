@@ -24,6 +24,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (normal donor door layout): an off-mesh click lands through the new plane-at-height
   conversion (`imagefield.click_to_plane` — THE PLANE LAW's one-parameter
   generalization), raycast-exact everywhere the mesh is under the pixel.
+- The PHOTO lane draws regions too: the Trace tab grew the same tool strip
+  (Floor / Cut-outs / Regions — the Add-cut-out toggle became the Cut-outs segment) and
+  stores drawn zones in canvas pixels alongside the floor, so a pitch change re-judges
+  them and Generate emits them through the CLI's own new `--gateway
+  "to[,entrance]@cx,cy;…"` / `--event-zone "message@cx,cy;…"` arguments —
+  `image-field` un-projects the quads through the same camera as the floor and writes
+  real `[[gateway]]`/`[[event]]` rows, so a photo project's doors and walk-in messages
+  survive every in-place regenerate. The `.trace.json` sidecar and the field.toml
+  reopen path round-trip them (a compiled project's world zones invert back to the
+  session's canvas pixels).
 
 ### Fixed — `cooldown` over a one-shot is now an EVENT (the hangout greet latch)
 - A `cooldown` branch whose action is a one-shot (`announce`/`sfx`/`flash`/`stop_timer`)

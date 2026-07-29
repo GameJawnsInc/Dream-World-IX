@@ -778,22 +778,23 @@ def snap_script(ctx: _Ctx, state: str) -> None:
 BEHAVIOR_STATES = ("guide", "bare", "wizard", "branchwiz", "doc", "compiled", "edit",
                    "stage", "sweep", "siege", "sim")
 
-TRACE_STATES = ("bare", "traced", "contacts")
+TRACE_STATES = ("bare", "traced", "contacts", "regions")
 
 
 def snap_trace(ctx: _Ctx, state: str) -> None:
-    """The Trace tab (click-authoring Rungs 1+2): the empty on-ramp ('bare' — the teach caption +
-    the bare canvas frame with its horizon), the synthetic proof room loaded with a traced
-    floor polygon and its +48u outset ring ('traced'), or that room with the PILLAR marked as a
+    """The Trace tab (click-authoring Rungs 1+2+4): the empty on-ramp ('bare' — the teach caption
+    + the bare canvas frame with its horizon), the synthetic proof room loaded with a traced
+    floor polygon and its +48u outset ring ('traced'), that room with the PILLAR marked as a
     foreground cut-out at its in-game-proven contact (230,320) -> z 1073 ('contacts' — the strip
-    + the anchored marker). The photo + polygon come from test_imagefield's _paint_room — ONE
-    owner for the fixture art (kit-painted, zero Square-Enix bytes)."""
+    + the anchored marker), or the Regions tool with a drawn gateway + a law-warned event zone
+    ('regions'). The photo + polygon come from test_imagefield's _paint_room — ONE owner for the
+    fixture art (kit-painted, zero Square-Enix bytes)."""
     if state not in TRACE_STATES:
         raise ValueError(f"unknown trace state {state!r} (know: {', '.join(TRACE_STATES)})")
     win = _make_win(ctx)
     win.tabs.setCurrentWidget(win.trace_doc)
     _settle(4)
-    if state in ("traced", "contacts"):
+    if state in ("traced", "contacts", "regions"):
         import importlib.util
         p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_trace_fixture", p)
@@ -816,6 +817,19 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
         td._ask_cutout = lambda: str(cut)                    # the attach dialog, answered
         td.fg_btn.setChecked(True)
         td._on_contact(230.0, 320.0)                         # the proven pillar contact -> z 1073
+        _settle(6)
+    if state == "regions":
+        from ff9mapkit import imagefield as _if
+        td = win.trace_doc
+        td.tools.set_current("regions")                      # the rung-4 tool, on the photo lane
+        cam = td.canvas.camera()
+        td.gw_to.setValue(4005)
+        td._on_region_drawn([_if.click_to_world(cam, p) for p in
+                             [(40.0, 400.0), (150.0, 400.0), (150.0, 430.0), (40.0, 430.0)]])
+        td.rkind_btns["event"].setChecked(True)
+        td.ev_msg.setText("It creaks underfoot.")
+        td._on_region_drawn([_if.click_to_world(cam, p) for p in   # a bowtie: the spill wash
+                             [(220.0, 380.0), (330.0, 380.0), (220.0, 430.0), (330.0, 430.0)]])
         _settle(6)
     _grab(ctx, f"trace-{state}", win)
     _grab(ctx, f"trace-{state}-canvas", win.trace_doc.canvas)   # the SUBJECT, not just the window

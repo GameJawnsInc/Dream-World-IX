@@ -394,6 +394,59 @@ def parse_foreground_spec(spec) -> dict:
     return {"image": s, "z": None, "contact": None}
 
 
+def _parse_quad_px(pts_str, what) -> list:
+    quad = [p for p in str(pts_str).split(";") if p.strip()]
+    out = []
+    for p in quad:
+        parts = p.split(",")
+        if len(parts) != 2:
+            raise ImageFieldError(f"{what}: corner {p!r} is not 'cx,cy'")
+        try:
+            out.append((float(parts[0]), float(parts[1])))
+        except ValueError:
+            raise ImageFieldError(f"{what}: corner {p!r} is not numeric") from None
+    if len(out) != 4:
+        raise ImageFieldError(f"{what}: a zone is 4 canvas-pixel corners 'cx,cy;cx,cy;cx,cy;cx,cy' "
+                              f"(got {len(out)})")
+    return out
+
+
+def parse_gateway_spec(spec) -> dict:
+    """Normalize a gateway spec -> ``{"to", "entrance", "zone_px": [(cx, cy)] * 4}``.
+
+    The CLI form is ``to[,entrance]@cx,cy;cx,cy;cx,cy;cx,cy`` — the quad in CANVAS pixels
+    (the tracer's own frame, like ``--floor``), un-projected through the build's camera so a
+    ``--pitch`` re-run moves the zone WITH the floor. Corner order is authored: corners 0→1
+    become the walk-out edge the exit walks the player across."""
+    if isinstance(spec, dict):
+        return {"to": int(spec["to"]), "entrance": int(spec.get("entrance") or 0),
+                "zone_px": [tuple(map(float, p)) for p in spec["zone_px"]]}
+    head, _, pts = str(spec).partition("@")
+    if not pts:
+        raise ImageFieldError(f"--gateway {spec!r}: expected 'to[,entrance]@cx,cy;cx,cy;cx,cy;cx,cy'")
+    nums = [n.strip() for n in head.split(",")]
+    try:
+        to = int(nums[0])
+        ent = int(nums[1]) if len(nums) > 1 and nums[1] else 0
+    except (ValueError, IndexError):
+        raise ImageFieldError(f"--gateway {spec!r}: the head is 'to' or 'to,entrance' "
+                              f"(field id + arrival entrance)") from None
+    return {"to": to, "entrance": ent, "zone_px": _parse_quad_px(pts, f"--gateway {spec!r}")}
+
+
+def parse_event_spec(spec) -> dict:
+    """Normalize a walk-in-event spec -> ``{"message", "zone_px": [(cx, cy)] * 4}``.
+
+    The CLI form is ``message@cx,cy;…`` (the LAST '@' splits, so the message may contain one)."""
+    if isinstance(spec, dict):
+        return {"message": str(spec.get("message") or "..."),
+                "zone_px": [tuple(map(float, p)) for p in spec["zone_px"]]}
+    msg, _, pts = str(spec).rpartition("@")
+    if not msg:
+        raise ImageFieldError(f"--event-zone {spec!r}: expected 'message@cx,cy;cx,cy;cx,cy;cx,cy'")
+    return {"message": msg, "zone_px": _parse_quad_px(pts, f"--event-zone {spec!r}")}
+
+
 # ----------------------------------------------------------------- polygon helpers (stdlib)
 def _signed_area(poly) -> float:
     n = len(poly)
@@ -794,12 +847,16 @@ def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov:
 # ----------------------------------------------------------------- orchestrator
 def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="PICTURE",
                       field_id: int = 4003, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
-                      distance: float = DEFAULT_DISTANCE, area: int = 11) -> dict:
+                      distance: float = DEFAULT_DISTANCE, area: int = 11,
+                      gateways=None, events=None) -> dict:
     """Synthesize a deployable field project from an image + a hand-traced floor polygon.
 
     ``floor_px`` = [(cx, cy), ...] the floor outline in logical canvas pixels (384x448, top-left,
     Y-down). ``foreground`` = optional [path | {"image": path, "z": int}] near-occluder PNGs (each a
-    full-canvas cut-out with alpha; smaller Z = drawn in front of the actor). Writes ``out_dir`` with
+    full-canvas cut-out with alpha; smaller Z = drawn in front of the actor). ``gateways`` /
+    ``events`` = optional trigger-region specs (:func:`parse_gateway_spec` /
+    :func:`parse_event_spec` forms) whose quads are CANVAS pixels un-projected through the same
+    camera as the floor — a ``--pitch`` re-run moves the zones WITH it. Writes ``out_dir`` with
     ``<name>.field.toml`` + ``walkmesh.obj`` + ``art/*.png``. Returns a manifest dict."""
     from PIL import Image
     out = Path(out_dir)
@@ -850,9 +907,36 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
             lines.append(layer_notes[img_rel])
         lines += ["[[layers]]", f'image = "{img_rel}"', f"z = {z}"]
     lines += ["", "[player]", f"spawn = [{int(round(spawn[0]))}, {int(round(spawn[1]))}]", ""]
+
+    # 4) trigger regions: canvas-pixel quads -> world (x, z) through the SAME camera. Corner
+    # order carries (0->1 is a gateway's walk-out edge); the build's encoder doubles the last
+    # vertex for the IsInQuad fan, so a convex drawn quad ships fully faithful.
+    def _zone_world(quad_px, what):
+        try:
+            pts = unproject_floor(cam, quad_px)
+        except ImageFieldError as e:
+            raise ImageFieldError(f"{what}: {e}") from e
+        return "[" + ", ".join(f"[{int(round(x))}, {int(round(z))}]" for x, z in pts) + "]"
+
+    gw_manifest, ev_manifest = [], []
+    for gi, spec in enumerate(gateways or []):
+        gw = parse_gateway_spec(spec)
+        lines += [f"[[gateway]]", f'name = "door{gi}"', f"to = {gw['to']}"]
+        if gw["entrance"]:
+            lines.append(f"entrance = {gw['entrance']}")
+        lines += [f"zone = {_zone_world(gw['zone_px'], f'gateway door{gi}')}", ""]
+        gw_manifest.append(gw)
+    for ei, spec in enumerate(events or []):
+        ev = parse_event_spec(spec)
+        msg = ev["message"].replace("\\", "\\\\").replace('"', '\\"')
+        lines += [f"[[event]]", f'name = "zone{ei}"', f'message = "{msg}"',
+                  f"zone = {_zone_world(ev['zone_px'], f'event zone{ei}')}", ""]
+        ev_manifest.append(ev)
+
     toml_path = out / f"{name}.field.toml"
     toml_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
     return {"toml": str(toml_path), "walkmesh": str(out / "walkmesh.obj"),
             "world_floor": world, "spawn": spawn, "verts": len(verts), "faces": len(faces),
-            "layers": layers, "foreground": fg_manifest}
+            "layers": layers, "foreground": fg_manifest,
+            "gateways": gw_manifest, "events": ev_manifest}

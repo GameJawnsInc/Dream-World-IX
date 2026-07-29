@@ -107,3 +107,42 @@ def test_malformed_zones_never_crash_the_judge():
     raw = {"gateway": [{"to": 5, "zone": "oops"}, {"to": 6}],
            "event": [{"name": "e", "zone": [["x", 0], [1, 1], [2, 2], [3, 3]]}]}
     assert build.region_overlap_pairs(raw) == []
+
+
+# ------------------------------------------------------------------- the photo-lane generator
+def test_build_image_field_emits_drawn_regions(tmp_path):
+    """The CLI passthrough: canvas-px zone specs un-project through the build's own camera into
+    [[gateway]]/[[event]] rows — the photo lane's regions survive every in-place regenerate."""
+    pytest.importorskip("PIL")
+    import tomllib
+
+    from PIL import Image
+    img = tmp_path / "photo.png"
+    Image.new("RGB", (768, 896), (90, 80, 70)).save(img)
+    man = IF.build_image_field(
+        img, [(60, 440), (330, 440), (330, 300), (60, 300)], tmp_path / "proj",
+        gateways=["4005,2@60,300;140,300;140,330;60,330"],
+        events=[{"message": 'say "hi" @ the door', "zone_px":
+                 [(200, 340), (300, 340), (300, 380), (200, 380)]}])
+    data = tomllib.loads((tmp_path / "proj" / "PICTURE.field.toml").read_text(encoding="utf-8"))
+    (gw,) = data["gateway"]
+    assert gw["to"] == 4005 and gw["entrance"] == 2 and gw["name"] == "door0"
+    assert len(gw["zone"]) == 4 and all(len(p) == 2 for p in gw["zone"])
+    (ev,) = data["event"]
+    assert ev["message"] == 'say "hi" @ the door'     # escaped through the writer, verbatim back
+    assert man["gateways"][0]["to"] == 4005 and man["events"][0]["zone_px"][0] == (200.0, 340.0)
+    # the zone rode the same camera as the floor: corner 0 un-projects to the emitted int pair
+    from ff9mapkit.scene import guide
+    cam = guide.make_camera(26.0, 3000.0, fov_x_deg=42.0)
+    (wx, wz), = IF.unproject_floor(cam, [(60.0, 300.0)])
+    assert gw["zone"][0] == [round(wx), round(wz)]
+
+
+def test_region_spec_parse_refusals():
+    for bad in ("4005", "x@1,2;3,4;5,6;7,8", "4005@1,2;3,4", "4005@1,2;3,4;5,6;7"):
+        with pytest.raises(IF.ImageFieldError):
+            IF.parse_gateway_spec(bad)
+    with pytest.raises(IF.ImageFieldError):
+        IF.parse_event_spec("@1,2;3,4;5,6;7,8")       # an empty message is a mistake, refused
+    ev = IF.parse_event_spec("watch @ the ledge@1,2;3,4;5,6;7,8")
+    assert ev["message"] == "watch @ the ledge"       # the LAST @ splits
