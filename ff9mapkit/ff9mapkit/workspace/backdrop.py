@@ -299,7 +299,7 @@ class BackdropCanvas(QGraphicsView):
             item.setTransform(QTransform.fromScale(w / self._pixmap.width(),
                                                    h / self._pixmap.height()))
             item.setData(0, "backdrop")
-        self._draw_cutouts(w, h)
+        self._draw_cutout_overlays(w, h)           # art layers, under every instrument
         border = QPen(QColor(pal["border"]), 1.0)
         border.setCosmetic(True)
         frame = sc.addRect(QRectF(0, 0, w, h), border)
@@ -307,6 +307,7 @@ class BackdropCanvas(QGraphicsView):
         self._draw_surface()
         self._draw_horizon(w, h)
         self._draw_trace()
+        self._draw_cutout_handles()                # grab furniture TOPMOST (the behaviordoc law)
         self._draw_markers()
 
     def _draw_horizon(self, w, h):
@@ -381,11 +382,11 @@ class BackdropCanvas(QGraphicsView):
                 t.setPos(7, -15)               # screen px, riding the zoom-immune anchor
 
     # -- Rung 2: cut-out previews + their contact handles --
-    def _draw_cutouts(self, w, h):
+    def _draw_cutout_overlays(self, w, h):
         """The attached foregrounds ON the art (drawn right after the backdrop, before every
         instrument): a full-frame cut-out fills the frame inert; a snip sits at its rect with
         ALPHA-MASKED hit testing (a press on its transparent surround falls through to tracing/
-        panning — only the object itself grabs). Contact handles ride zoom-immune on top."""
+        panning — only the object itself grabs)."""
         from PySide6.QtWidgets import QGraphicsPixmapItem
         for c in self._cutouts:
             pm = c.get("pixmap")
@@ -408,6 +409,10 @@ class BackdropCanvas(QGraphicsView):
                     it.setShapeMode(QGraphicsPixmapItem.ShapeMode.MaskShape)
                     mark_grabbable(it)             # the move cursor follows the opaque pixels
                 self._cutout_items[c["i"]] = it
+
+    def _draw_cutout_handles(self):
+        """Contact anchors, drawn AFTER the trace so they sit topmost — grab furniture must
+        never hide under a leg it happens to cross (the behaviordoc handles-last law)."""
         for c in self._cutouts:
             cx, cy = c["contact"]
             color = QColor(self.pal["error"] if c.get("bad") else self.pal["warn"])
@@ -700,22 +705,30 @@ class BackdropCanvas(QGraphicsView):
     # a slop-click elsewhere appends a vertex; everything else stays a pan.
     def mousePressEvent(self, event):              # noqa: N802 (Qt override)
         if event.button() == Qt.MouseButton.LeftButton:
-            item = self.itemAt(event.position().toPoint())
+            # EVERY item under the press, topmost-first — never itemAt alone. itemAt returns
+            # only the topmost item, so a trace leg / outset ring / label crossing a grabbable
+            # thing ATE the press and fell through to pan, while Qt's hover CURSOR looks
+            # through cursor-less items — the exact says-Move-but-pans mismatch the owner hit.
+            # Kind priority (vertex > contact anchor > snip) matches the furniture's z-order.
+            under = self.items(event.position().toPoint())
             if self._trace_mode:
-                i = self._resolve_vertex(item)
-                if i is not None and self._begin_vertex_drag(i):
-                    event.accept()
-                    return
+                for it in under:
+                    i = self._resolve_vertex(it)
+                    if i is not None and self._begin_vertex_drag(i):
+                        event.accept()
+                        return
             if self._trace_mode or self._contact_mode:   # cut-out furniture drags in both modes
-                ci = self._resolve_data(item, "cutoutpt")
-                if ci is not None and self._begin_contact_drag(int(ci)):
-                    event.accept()
-                    return
-                ci = self._resolve_data(item, "cutoutimg")
-                if ci is not None and self._begin_cutout_drag(
-                        int(ci), self._widget_to_canvas(event.position())):
-                    event.accept()
-                    return
+                for it in under:
+                    ci = self._resolve_data(it, "cutoutpt")
+                    if ci is not None and self._begin_contact_drag(int(ci)):
+                        event.accept()
+                        return
+                for it in under:
+                    ci = self._resolve_data(it, "cutoutimg")
+                    if ci is not None and self._begin_cutout_drag(
+                            int(ci), self._widget_to_canvas(event.position())):
+                        event.accept()
+                        return
             self._press_pos = event.position()
         super().mousePressEvent(event)             # the pan machinery still runs
 
@@ -768,7 +781,8 @@ class BackdropCanvas(QGraphicsView):
     def contextMenuEvent(self, event):             # noqa: N802 (Qt override)
         if not self._trace_mode:
             return super().contextMenuEvent(event)
-        i = self._resolve_vertex(self.itemAt(event.pos()))
+        i = next((v for v in (self._resolve_vertex(it) for it in self.items(event.pos()))
+                  if v is not None), None)
         if i is None:
             return super().contextMenuEvent(event)
         self._vertex_menu(i, event.globalPos())

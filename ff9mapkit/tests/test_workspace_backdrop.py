@@ -446,3 +446,36 @@ def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
     yield
     qt_drain()
+
+
+def test_a_press_through_crossing_furniture_still_grabs(app):
+    """The says-Move-but-pans fix: a trace leg crossing a snip (or a contact diamond) must not
+    eat the press — resolution scans EVERY item under the point by kind, matching what the
+    hover cursor promises. The floor's closing leg here runs straight across both targets."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor([(60.0, 260.0), (340.0, 260.0), (200.0, 430.0)])   # leg y=260 spans the frame
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (100.0, 245.0, 40.0, 30.0),   # leg crosses it
+                    "contact": (250.0, 260.0), "label": "fg0",                  # diamond ON the leg
+                    "bad": False, "locked": False}])
+    moved, anchored = [], []
+    c.cutout_moved.connect(lambda i, x, y: moved.append((i, x, y)))
+    c.contact_moved.connect(lambda i, x, y: anchored.append((i, x, y)))
+    n0 = len(calls)
+    wpt = c.viewportTransform().map(QPointF(120.0, 260.0))     # ON the leg, ON the snip's pixels
+    QTest.mousePress(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert c._drag is not None and c._drag.get("kind") == "cimg"   # grabbed, not panned
+    c._drag_canvas(140.0, 280.0)
+    QTest.mouseRelease(c.viewport(), Qt.MouseButton.LeftButton,
+                       pos=QPoint(round(wpt.x()) + 20, round(wpt.y()) + 20))
+    assert len(moved) == 1 and len(calls) == n0                # one drag, no vertex appended
+    wpt = c.viewportTransform().map(QPointF(250.0, 260.0))     # the diamond under the same leg
+    QTest.mousePress(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert c._drag is not None and c._drag.get("kind") == "cpt"
+    c._drag_canvas(255.0, 270.0)
+    QTest.mouseRelease(c.viewport(), Qt.MouseButton.LeftButton,
+                       pos=QPoint(round(wpt.x()) + 5, round(wpt.y()) + 10))
+    assert len(anchored) == 1
