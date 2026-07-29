@@ -53,6 +53,7 @@ class TraceDoc(QWidget):
         self.proj_base = (self.kit.parent if (self.kit / "pyproject.toml").is_file()
                           else Path.home() / "Dream World IX")
         self._image = None                            # Path of the opened photo (the CLI arg)
+        self._img_size = None                         # its ORIGINAL (w, h) — the cut-out frame check
         self._pixmap = None                           # its display cover-crop (2x canvas res)
         self._floor = []                              # mirror of the canvas trace (canvas px)
         self._fg = []                                 # rung 2: [{"contact": (cx, cy), "image": str|None}]
@@ -202,6 +203,25 @@ class TraceDoc(QWidget):
         except imagefield.ImageFieldError as e:
             return None, str(e)
 
+    def _frame_note(self, path):
+        """None, or why this cut-out will NOT sit on the photo: the build cover-crops the base
+        and every foreground to the same canvas, so two images align only when they share ONE
+        aspect. A cropped-out object (a 531x473 snip of a 1536x1792 photo — the first playtest)
+        scales to FILL the screen instead of sitting where it was. Advisory, not a block: an
+        equal-aspect vignette at another resolution is legit and covers as intended."""
+        try:
+            from PIL import Image
+            with Image.open(path) as im:
+                fw, fh = im.size
+        except Exception:                              # noqa: BLE001 -- unreadable: the build says so loudly
+            return None
+        pw, ph = self._img_size or (imagefield.CANVAS_W, imagefield.CANVAS_H)
+        if abs(fw / fh - pw / ph) <= 0.02 * (pw / ph):
+            return None
+        return (f"{fw}x{fh} does not share the photo's {pw}x{ph} frame — it will be scaled to "
+                f"FILL the screen. Cut it from the photo itself: same size, everything but the "
+                f"object erased to transparent")
+
     def _fg_problems(self):
         """(invalid, unattached) counts across the marked cut-outs — the Generate gates."""
         invalid = sum(1 for f in self._fg if self._fg_state(f)[1] is not None)
@@ -264,7 +284,11 @@ class TraceDoc(QWidget):
             head = f"fg{i} @ ({cx:g},{cy:g})"
             head += f" · z {z}" if err is None else " · ⚠ invalid contact"
             head += f" · {Path(f['image']).name}" if f.get("image") else " · ⚠ needs its PNG"
+            if f.get("frame_warn"):
+                head += " · ⚠ won't align"
             self.fg_box.addItem(head)
+            self.fg_box.setItemData(self.fg_box.count() - 1, f.get("frame_warn") or "",
+                                    Qt.ItemDataRole.ToolTipRole)
         if 0 <= keep < self.fg_box.count():
             self.fg_box.setCurrentIndex(keep)
         elif self.fg_box.count():
@@ -303,6 +327,7 @@ class TraceDoc(QWidget):
         Opening a new image clears the trace (the old polygon means nothing on new art)."""
         from PIL import Image
         src = Image.open(path).convert("RGB")
+        self._img_size = src.size
         disp = imagefield._cover_crop(src, imagefield.CANVAS_W * 2, imagefield.CANVAS_H * 2)
         buf = io.BytesIO()
         disp.save(buf, "PNG")
@@ -386,10 +411,16 @@ class TraceDoc(QWidget):
         self._refresh_markers()
         self.fg_box.setCurrentIndex(len(self._fg) - 1)
         path = self._ask_cutout()
+        warn = None
         if path:
             self._fg[-1]["image"] = str(path)
-        self._refresh(f"cut-out fg{len(self._fg) - 1} anchored at ({contact[0]:g},{contact[1]:g})"
-                      f" → z {z}" + ("" if path else " — attach its PNG before Generate"))
+            warn = self._frame_note(path)
+            self._fg[-1]["frame_warn"] = warn
+        note = (f"cut-out fg{len(self._fg) - 1} anchored at ({contact[0]:g},{contact[1]:g})"
+                f" → z {z}" + ("" if path else " — attach its PNG before Generate"))
+        if warn:
+            note += f" · ⚠ {warn}"
+        self._refresh(note, "warn" if warn else "")
 
     def on_fg_attach(self):
         i = self.fg_box.currentIndex()
@@ -400,7 +431,9 @@ class TraceDoc(QWidget):
             return
         self._push_history()
         self._fg[i]["image"] = str(path)
-        self._refresh()
+        warn = self._frame_note(path)
+        self._fg[i]["frame_warn"] = warn
+        self._refresh(f"⚠ {warn}" if warn else "", "warn" if warn else "")
 
     def on_fg_remove(self):
         i = self.fg_box.currentIndex()

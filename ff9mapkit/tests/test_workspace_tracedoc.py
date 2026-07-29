@@ -186,7 +186,7 @@ def test_retheme_and_scale_reach_the_canvas(app):
 def _cutout(tmp_path, name="pillar.png"):
     from PIL import Image
     p = tmp_path / name
-    Image.new("RGBA", (768, 896), (0, 0, 0, 0)).save(p)
+    Image.new("RGBA", (800, 600), (0, 0, 0, 0)).save(p)   # the photo's own frame -> no aspect warn
     return p
 
 
@@ -207,7 +207,7 @@ def test_contact_records_the_proven_z_and_asks_for_the_png(app, tmp_path, monkey
     doc.fg_btn.setChecked(True)
     assert doc.canvas._contact_mode
     doc._on_contact(230.0, 320.0)
-    assert doc._fg == [{"contact": (230.0, 320.0), "image": str(png)}]
+    assert doc._fg == [{"contact": (230.0, 320.0), "image": str(png), "frame_warn": None}]
     assert not doc.canvas._contact_mode and doc.canvas._trace_mode   # disarmed back to tracing
     assert "z 1073" in doc.status.text()
     assert "z 1073" in doc.fg_box.itemText(0) and "pillar.png" in doc.fg_box.itemText(0)
@@ -299,3 +299,44 @@ def test_undo_walks_contact_gestures_and_new_image_clears_them(app, tmp_path, mo
     assert doc._fg == [] and doc.canvas._markers == []
     doc.load_image(_photo(tmp_path))                                 # new art -> contacts void
     assert doc._fg == [] and not doc._history
+
+
+def test_cutout_frame_mismatch_warns_the_playtest_case(app, tmp_path, monkeypatch):
+    """The first playtest's exact miss: a 531x473 object snip attached over a 1536x1792 photo
+    cover-crops to FILL the screen (a giant dog) — the attach warns with the re-export teach and
+    the strip flags the row. Advisory, not a block (an equal-aspect vignette is legit)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _ = _doc(app)
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    doc.load_image(photo)
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    snip = tmp_path / "snip.png"
+    Image.new("RGBA", (531, 473), (0, 0, 0, 255)).save(snip)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(snip))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    assert doc._fg[0]["frame_warn"] and "531x473" in doc._fg[0]["frame_warn"]
+    assert "FILL the screen" in doc.status.text()
+    assert "won't align" in doc.fg_box.itemText(0)
+    assert doc.gen_btn.isEnabled()                       # advisory — Generate stays open
+
+
+def test_equal_aspect_cutout_does_not_warn(app, tmp_path, monkeypatch):
+    """Same frame at half resolution shares the aspect — cover-crop scales it back into perfect
+    register, so no warn (the honest boundary of what the check can know)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _ = _doc(app)
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    doc.load_image(photo)
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    half = tmp_path / "half.png"
+    Image.new("RGBA", (768, 896), (0, 0, 0, 0)).save(half)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(half))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    assert not doc._fg[0].get("frame_warn")
+    assert "won't align" not in doc.fg_box.itemText(0)
