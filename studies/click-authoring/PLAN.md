@@ -126,9 +126,14 @@ proven (pillar room, contact (230,320) → z 1073, flip mid-room). Small rung; m
 **Guard:** error when `z ≥ Z_BASE 4000` (means the contact was traced up the body, not at the base) —
 the existing CLI check, re-enforced at the new call site.
 
-### ★ Rung 3 — placement on ANY field (the payoff)
+### ★ Rung 3 — placement on ANY field (the payoff) — ★ CLOSED, PLAYTEST-CONFIRMED 2026-07-29
 Load an existing `field.toml` + its background + **its own camera**, and click to place NPCs, props,
 spawn, arrival. Writes back to the toml.
+
+★ **Owner-confirmed in-game 2026-07-29:** a prop AND an NPC placed on a **verbatim** fork through
+the Place tab, deployed (slot 4003), seen in-game — the whole chain at once: the live-install load
+path (cache_field + compose_background), the walkmesh raycast, the open-doc write-back, the build's
+below-band verbatim seating, deploy, render. Rung 3 is DONE end to end.
 
 This is what makes the tool general: it serves forks of real FF9 rooms, not just traced photos, and
 it kills the error class that `laying-out-ff9-fields` exists to prevent (content packed under ~192u,
@@ -300,6 +305,9 @@ GUI claim from source; that is the documented recurring failure in this package.
    Pinned: `tests/test_workspace_place.py` (16) + a smoke block (drop→undo→focus round-trip);
    `gui_snap place:bare|fork|refused` read at 100 + 150 (the fork state runs the REAL op path
    over kit-painted stand-in art; the dirty-close modal needed `_no_modals`, the drift lesson).
-   Remaining: (d) the owner playtest — Load a real fork's room, drop an NPC/prop, build,
-   deploy, walk it (the load path against the live install is exercised there; offline ≠
-   in-game proof). Rung 2 (occluder contacts) still rides along later.
+   (d) ★ PLAYTEST-CONFIRMED 2026-07-29 — the owner placed a prop + an NPC on a VERBATIM fork
+   in the Place tab, deployed to 4003, and saw both in-game (the live-install load path, the
+   raycast, the write-back, AND the build's below-band verbatim seating, proven in one pass).
+   **RUNG 3 CLOSED.** Still open on the board: Rung 2 (occluder contacts — small, mostly UI),
+   Rung 4 (regions drawn on the art), and Rung 6 (the multi-room composer, now unblocked —
+   its "do not start before Rung 3 is real" gate is satisfied).
