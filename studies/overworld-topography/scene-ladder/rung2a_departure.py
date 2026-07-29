@@ -301,18 +301,28 @@ def patch_one(base: bytes) -> bytes:
             out = E.add_function(out, ANCHOR_UID, tag, body)
     out = E.replace_function_body(out, SHIP_UID, 1, asm(DIRECTOR_LOOP))
 
-    # Main_Init gains the departure prologue before its final RET (idempotent on re-runs).
+    # Main_Init gains the departure prologue before its final RET. Re-runs REPLACE any prior
+    # prologue version (v4's skip-if-present guard left a stale v4 prologue deployed under a
+    # v5 director -- an inconsistent pair that would softlock a departure; strip then insert).
+    import re as _re
     s3 = EbScript(out)
     f0 = next(f for f in s3.entry(0).funcs if f.tag == 0)
     text = disassemble_block(s3.data, f0.abs_start, f0.abs_end)
     if assemble_block(text) != s3.data[f0.abs_start:f0.abs_end]:
         raise SystemExit("Main_Init does not round-trip text<->bytes -- refusing to rebuild it")
-    if f"Global.Byte[{DEPART_BYTE}]" not in text:
-        lines = text.rstrip().splitlines()
-        if lines[-1].strip() != "RET()":
-            raise SystemExit(f"Main_Init does not end in RET() (got {lines[-1]!r}) -- refusing")
-        lines[-1:-1] = DEPART_PROLOGUE.splitlines()
-        out = E.replace_function_body(out, 0, 0, assemble_block("\n".join(lines) + "\n"))
+    lines = text.rstrip().splitlines()
+    if f"Global.Byte[{DEPART_BYTE}]" in text:
+        i = next(k for k, l in enumerate(lines) if f"Global.Byte[{DEPART_BYTE}]" in l)
+        m = _re.match(r"JMP_IFNOT\((\w+)\)", lines[i + 1].strip())
+        if not m:
+            raise SystemExit("existing prologue shape unrecognized -- refusing to strip")
+        lbl = m.group(1) + ":"
+        j = next(k for k in range(i + 2, len(lines)) if lines[k].strip() == lbl)
+        del lines[i:j + 1]
+    if lines[-1].strip() != "RET()":
+        raise SystemExit(f"Main_Init does not end in RET() (got {lines[-1]!r}) -- refusing")
+    lines[-1:-1] = DEPART_PROLOGUE.splitlines()
+    out = E.replace_function_body(out, 0, 0, assemble_block("\n".join(lines) + "\n"))
     return out
 
 
