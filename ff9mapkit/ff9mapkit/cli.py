@@ -1510,6 +1510,73 @@ def _cmd_new_campaign(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_floorplan(args: argparse.Namespace) -> int:
+    """Compose a floorplan.json into N wired FF9 fields + a buildable campaign.
+
+    The plan file is the single source of truth for the dungeon's content (rooms, doors, names); the
+    flags only override its envelope (where to write, which id run, which mod folder) so the GUI can
+    hand this verb one json and nothing else.
+    """
+    from pathlib import Path
+    from . import floorplan
+    ppath = Path(args.plan)
+    out = Path(args.out) if args.out else ppath.parent
+    try:
+        plan = floorplan.load_plan(ppath)
+    except (OSError, ValueError) as e:
+        print(f"cannot read {ppath}: {e}", file=sys.stderr)
+        return 2
+    cfg = _deploy_cfg()
+    if args.id_base is not None:
+        plan["id_base"] = int(args.id_base)
+    plan.setdefault("id_base", int(cfg.get("campaign_id_base", 4000)))
+    if args.mod_folder:
+        plan["mod_folder"] = args.mod_folder
+    plan.setdefault("mod_folder", cfg.get("mod_folder") or "FF9CustomMap")
+
+    # THE ID PRE-FLIGHT. EventDB/SceneData are GLOBAL, so a collision is the classic null-.eb black
+    # screen -- and the kit's own collision guard only runs at `deploy --apply`, i.e. after you have
+    # already authored N rooms onto colliding ids. An UNREADABLE stack is "unknown", never "clear".
+    taken = set()
+    if not args.no_preflight:
+        try:
+            from . import config, deploylog
+            game = config.find_game_path(args.game)
+            reg, folders = deploylog.registrations(game)
+            if folders:
+                taken = set(reg)
+                print(f"id pre-flight: {len(taken)} id(s) registered across {folders}")
+            else:
+                print("id pre-flight: could not read the mod-folder stack -- ids are UNCHECKED "
+                      "against the live game (an unreadable stack is not evidence that a slot is free)")
+        except Exception as e:                      # no install / no ini / an odd layout: say so, carry on
+            print(f"id pre-flight skipped ({type(e).__name__}: {e}) -- ids are UNCHECKED against "
+                  f"the live game")
+
+    try:
+        composed, wrote = floorplan.compose_and_emit(plan, out, taken_ids=taken, log=print)
+    except floorplan.ComposeError as e:
+        print(f"the floorplan cannot become a legal dungeon ({len(e.problems)} problem(s)):",
+              file=sys.stderr)
+        for p in e.problems:
+            print(f"  - {p}", file=sys.stderr)
+        return 2
+    for w in composed.warnings:
+        print(f"warning: {w}")
+    ids = wrote["ids"]
+    print(f"composed '{composed.name}': {wrote['rooms']} room(s), ids {ids[0]}-{ids[-1]}, "
+          f"entry {composed.entry} -> {wrote['campaign']}")
+    print(f"Build it:  ff9mapkit build-all {wrote['campaign']}")
+    print(f"Deploy it one room at a time (ADDITIVE -- deploy-campaign --apply would rmtree the whole "
+          f"mod folder):")
+    for r in composed.rooms:
+        rel = Path(r.name) / f"{r.name.lower()}.field.toml"
+        print(f"  py tools/deploy_field.py {out / rel} --id {r.field_id}")
+    print(f"Then in-game: ~ -> Warp to field -> {composed.by_name(composed.entry).field_id} "
+          f"(a NEW id needs one relaunch to register).")
+    return 0
+
+
 def _cmd_add_field(args: argparse.Namespace) -> int:
     from pathlib import Path
     from . import campaign
@@ -6596,6 +6663,23 @@ def build_parser() -> argparse.ArgumentParser:
     af.add_argument("--source", default=None,
                     help="a real field id or unique FBG name to FORK (needs the game); omit for a blank room")
     af.set_defaults(func=_cmd_add_field)
+
+    fp = sub.add_parser("floorplan",
+                        help="compose a hand-drawn multi-room floorplan.json into a wired dungeon "
+                             "(click-authoring Rung 6)")
+    fp.add_argument("plan", help="path to a floorplan.json (rooms + declared doors, plan-frame world units)")
+    fp.add_argument("--out", default=None,
+                    help="output campaign directory (default: the plan file's own directory)")
+    fp.add_argument("--id-base", type=int, default=None, dest="id_base",
+                    help="first room field id (default: the plan's own id_base, else .ff9deploy.toml)")
+    fp.add_argument("--mod-folder", default=None, dest="mod_folder",
+                    help="Memoria mod folder (default: the plan's own, else .ff9deploy.toml / FF9CustomMap)")
+    fp.add_argument("--game", default=None,
+                    help="path to the FF9 install, for the live id pre-flight (default: auto-detect)")
+    fp.add_argument("--no-preflight", action="store_true", dest="no_preflight",
+                    help="skip reading the live DictionaryPatch stack (offline; ids are then unchecked "
+                         "against what is already registered)")
+    fp.set_defaults(func=_cmd_floorplan)
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
     lf.add_argument("pattern", nargs="?", default=None,
