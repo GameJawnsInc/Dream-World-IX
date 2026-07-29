@@ -52,7 +52,8 @@ class BackdropCanvas(QGraphicsView):
     Rung 0 is the primitive; Rung 1's trace mode authors the floor polygon on it. The canvas
     emits, it never writes — hosts own every document mutation."""
 
-    floor_clicked = Signal(float, float)     # world (x, z) of an accepted left-click
+    floor_clicked = Signal(float, float)     # world (x, z) of an accepted left-click (plane mode)
+    surface_clicked = Signal(object)         # a walkmesh hit dict (place mode; see _emit_surface)
     click_refused = Signal(str)              # why a click produced no floor point
 
     def __init__(self, palette, *, scale=100, on_floor=None):
@@ -69,6 +70,10 @@ class BackdropCanvas(QGraphicsView):
         self._trace_items = []               # [{anchor, i}] rebuilt per render
         self._drag = None                    # live vertex drag, cleared by every _rebuild
         self.on_floor = on_floor             # ONE call per completed gesture (add/move/delete)
+        self._place_mode = False             # Rung 3: clicks raycast the field's walkmesh
+        self._surface_tris = []              # RENDER-frame triangles (mesh_world_tris's output)
+        self._surface_floors = []            # floor index per triangle (or empty)
+        self._markers = []                   # [{pos: (x,y,z) render frame, label, kind}]
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -150,6 +155,35 @@ class BackdropCanvas(QGraphicsView):
         if on == self._trace_mode:
             return
         self._trace_mode = on
+        if on:
+            self._place_mode = False           # one click semantics at a time
+        self._rebuild()
+
+    # -- public: Rung 3 place mode --
+    def set_place_mode(self, on):
+        """Clicks raycast the loaded walkmesh (``set_surface``) instead of the y=0 plane.
+        Exclusive with trace mode — one click semantics at a time."""
+        on = bool(on)
+        if on == self._place_mode:
+            return
+        self._place_mode = on
+        if on:
+            self._trace_mode = False
+        self._rebuild()
+
+    def set_surface(self, tris, floors=None):
+        """Feed the field's walkmesh in the RENDER frame (``imagefield.mesh_world_tris``'s
+        output — the y-flip already applied there, never here). Drawn as the live walkable
+        footprint; place-mode clicks intersect exactly these triangles."""
+        self._surface_tris = list(tris or [])
+        self._surface_floors = list(floors or [])
+        self._rebuild()
+
+    def set_markers(self, markers):
+        """Placed-content markers: ``[{"pos": (x, y, z) render frame, "label": str}, ...]``.
+        Screen-fixed furniture at each point's projected pixel; points behind the camera are
+        skipped (they are not on this canvas)."""
+        self._markers = list(markers or [])
         self._rebuild()
 
     def set_floor(self, pts):
@@ -212,8 +246,10 @@ class BackdropCanvas(QGraphicsView):
         border.setCosmetic(True)
         frame = sc.addRect(QRectF(0, 0, w, h), border)
         frame.setData(0, "frame")
+        self._draw_surface()
         self._draw_horizon(w, h)
         self._draw_trace()
+        self._draw_markers()
 
     def _draw_horizon(self, w, h):
         """The refusal boundary, visible: a dashed line at ``horizon_canvas_y`` with a
@@ -237,6 +273,69 @@ class BackdropCanvas(QGraphicsView):
         t.setFont(self._font(8))
         t.setBrush(QColor(self.pal["warn"]))
         t.setPos(0, -14)                           # screen px, riding the zoom-immune anchor
+
+    # -- Rung 3: the walkable footprint + placed-content markers --
+    def _draw_surface(self):
+        """The walkmesh as a live footprint (the compose_background idiom, vector form):
+        translucent fills + cosmetic outlines, one item per triangle. Behind-camera triangles
+        are simply not on this canvas."""
+        if not self._surface_tris or self._cam is None:
+            return
+        acc = QColor(self.pal["accent"])
+        fill = QColor(acc)
+        fill.setAlpha(26)
+        edge = QColor(acc)
+        edge.setAlpha(130)
+        pen = QPen(edge, 1.0)
+        pen.setCosmetic(True)
+        for a, b, c in self._surface_tris:
+            try:
+                pts = [imagefield.world_point_to_click(self._cam, p) for p in (a, b, c)]
+            except imagefield.ImageFieldError:
+                continue
+            it = self._scene.addPolygon(QPolygonF([QPointF(x, y) for x, y in pts]),
+                                        pen, QBrush(fill))
+            it.setData(0, "meshtri")
+
+    def _draw_markers(self):
+        if not self._markers or self._cam is None:
+            return
+        color = QColor(self.pal["text"])
+        for m in self._markers:
+            try:
+                cx, cy = imagefield.world_point_to_click(self._cam, m["pos"])
+            except imagefield.ImageFieldError:
+                continue                       # behind the camera: not on this canvas
+            anchor = self._scene.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+            anchor.setPos(cx, cy)
+            anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
+            anchor.setData(0, "marker")
+            ring = QGraphicsEllipseItem(-4, -4, 8, 8, anchor)
+            ring.setPen(QPen(color, 1.6))
+            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            dot = QGraphicsEllipseItem(-1.5, -1.5, 3, 3, anchor)
+            dot.setPen(QPen(Qt.PenStyle.NoPen))
+            dot.setBrush(QBrush(color))
+            if m.get("label"):
+                t = QGraphicsSimpleTextItem(str(m["label"]), anchor)
+                t.setFont(self._font(8))
+                t.setBrush(QBrush(color))
+                t.setPos(7, -15)               # screen px, riding the zoom-immune anchor
+
+    def _surface_payload(self, hit):
+        """The ``surface_clicked`` dict: the VISIBLE hit first-class (its (x, z) is what
+        placement writes), every stacked hit listed nearest-first — ``len(stacked) > 1`` means
+        a bridge/floor stack under this pixel, and hosts disambiguate rather than guess."""
+        fl = self._surface_floors
+
+        def row(s, ti, pos):
+            return {"pos": pos, "xz": (pos[0], pos[2]),
+                    "floor": fl[ti] if ti < len(fl) else None, "tri": ti, "s": s}
+
+        rows = [row(*h) for h in hit["hits"]]
+        top = dict(rows[0])
+        top["stacked"] = rows
+        return top
 
     # -- Rung 1: the trace layer --
     def _trace_worlds(self):
@@ -463,6 +562,16 @@ class BackdropCanvas(QGraphicsView):
         travel = (event.position() - press).manhattanLength()
         if travel > _CLICK_SLOP_PX:
             return                                 # it was a pan
+        if self._place_mode:                       # Rung 3: the click raycasts the walkmesh
+            c = self._widget_to_canvas(event.position())
+            try:
+                hit = imagefield.click_to_surface(self._cam, self._surface_tris,
+                                                  (c.x(), c.y()))
+            except imagefield.ImageFieldError as e:
+                self.click_refused.emit(str(e))
+                return
+            self.surface_clicked.emit(self._surface_payload(hit))
+            return
         try:
             x, z = self.click_to_world(event.position())
         except imagefield.ImageFieldError as e:

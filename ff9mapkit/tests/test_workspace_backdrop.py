@@ -243,6 +243,91 @@ def test_delete_vertex_commits_once(app):
     assert len(calls) == 1 and len(c.floor()) == 3 and c.floor()[0] == (254.0, 200.0)
 
 
+# ---------------------------------------------------------------- Rung 3: place mode
+
+_RAMP = ((-500.0, 0.0, 800.0), (500.0, 0.0, 800.0), (0.0, 400.0, 1600.0))
+_LOWER = ((-2000.0, 0.0, 400.0), (2000.0, 0.0, 400.0), (0.0, 0.0, 6000.0))
+_UPPER = ((-400.0, 500.0, 1200.0), (400.0, 500.0, 1200.0), (0.0, 500.0, 2000.0))
+
+
+def _place_canvas(app, tris, floors=None):
+    c = BackdropCanvas(pick_palette("dark"))
+    pm = QPixmap(384, 448)
+    pm.fill(Qt.GlobalColor.darkGray)
+    c.set_backdrop(pm, guide.make_camera(26.0, 3000.0, fov_x_deg=42.0))
+    c.set_surface(tris, floors)
+    c.set_place_mode(True)
+    c.resize(500, 560)
+    c.show()
+    QApplication.processEvents()
+    hits, refused = [], []
+    c.surface_clicked.connect(hits.append)
+    c.click_refused.connect(refused.append)
+    return c, hits, refused
+
+
+def _click_at_world(c, p):
+    cx, cy = IF.world_point_to_click(c.camera(), p)
+    wpt = c.viewportTransform().map(QPointF(cx, cy))
+    QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+
+
+def test_place_click_hits_the_sloped_surface(app):
+    """A click on a RAMP triangle emits the walkmesh hit — the exact case the plane model
+    cannot serve; the footprint renders as meshtri items."""
+    c, hits, refused = _place_canvas(app, [_RAMP], [0])
+    p = tuple((_RAMP[0][i] * 0.4 + _RAMP[1][i] * 0.3 + _RAMP[2][i] * 0.3) for i in range(3))
+    _click_at_world(c, p)
+    assert not refused and len(hits) == 1
+    got = hits[0]
+    # integer WIDGET px quantization only: at fit zoom one widget px ≈ 0.8 canvas px, and one
+    # canvas px at this ramp's depth spans ~3-4 world units — so within ~6u IS sub-pixel exact
+    assert math.dist(got["pos"], p) < 6.0
+    assert got["xz"] == (got["pos"][0], got["pos"][2]) and got["floor"] == 0
+    assert len(got["stacked"]) == 1
+    assert "meshtri" in _tags(c)
+
+
+def test_place_click_reports_stacked_floors(app):
+    """A bridge over a floor: the visible (upper) hit is first-class, both hits listed
+    nearest-first with their floor ids — the host's disambiguation data."""
+    c, hits, refused = _place_canvas(app, [_LOWER, _UPPER], [0, 1])
+    p_up = tuple((_UPPER[0][i] * 0.4 + _UPPER[1][i] * 0.3 + _UPPER[2][i] * 0.3)
+                 for i in range(3))
+    _click_at_world(c, p_up)
+    assert not refused and len(hits) == 1
+    got = hits[0]
+    assert got["floor"] == 1 and abs(got["pos"][1] - 500.0) < 1e-6
+    assert len(got["stacked"]) == 2
+    assert got["stacked"][1]["floor"] == 0          # the buried floor, second
+    assert got["stacked"][0]["s"] < got["stacked"][1]["s"]
+
+
+def test_place_click_off_mesh_refuses(app):
+    c, hits, refused = _place_canvas(app, [_UPPER], [0])
+    QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(20, 20))
+    assert not hits and len(refused) == 1 and "no walkmesh" in refused[0]
+
+
+def test_modes_are_exclusive(app):
+    """One click semantics at a time: enabling place mode turns trace off and vice versa."""
+    c, _, _ = _place_canvas(app, [_RAMP])
+    c.set_trace_mode(True)
+    assert c._trace_mode and not c._place_mode
+    c.set_place_mode(True)
+    assert c._place_mode and not c._trace_mode
+
+
+def test_markers_render_and_skip_behind_camera(app):
+    c, _, _ = _place_canvas(app, [_RAMP])
+    cz = C.decompose(c.camera())["C"][2]
+    c.set_markers([{"pos": (0.0, 0.0, 1200.0), "label": "moggy"},
+                   {"pos": (100.0, 0.0, 1500.0), "label": "spawn"},
+                   {"pos": (0.0, 0.0, cz - 5000.0), "label": "ghost"}])   # behind: skipped
+    assert _tags(c).count("marker") == 2
+
+
 def test_bare_camera_frame_uses_cam_range(app):
     """No art at all (a scrolling field's wider Range must still frame correctly)."""
     c = BackdropCanvas(pick_palette("dark"))
