@@ -207,6 +207,7 @@ ShowObject({ANCHOR_UID}, 255)
 op_22(24)
 SET({{Map.Byte[{PHASE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{PORT_CACHE}] const(0) B_LET B_EXPR_END}})
+RunWorldCode(2, 1)
 {FADE_IN}
 EnableMenu()
 EnableMove()
@@ -269,6 +270,8 @@ InitObject({AIM_UID}, 0)
 HideObject({ANCHOR_UID}, 255)
 DisableMove()
 DisableMenu()
+RunWorldCode(2, 0)
+FadeFilter(2, 1, 0, 255, 255, 255)
 LDEPQ:"""
 
 
