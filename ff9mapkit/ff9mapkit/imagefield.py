@@ -140,10 +140,19 @@ def click_to_surface(cam: _cam.Cam, tris, pt) -> dict:
 
 def mesh_world_tris(mesh) -> tuple:
     """A walkmesh (``scene.bgi.BgiWalkmesh`` or anything duck-shaped like one) -> the
-    ``(world_triangles, floor_index_per_triangle)`` pair :func:`click_to_surface` consumes.
-    World frame = ``vert + orgPos + floor.org`` (the import-frame law), straight from the
-    mesh's own ``world_verts``."""
-    wv = mesh.world_verts()
+    ``(render_frame_triangles, floor_index_per_triangle)`` pair :func:`click_to_surface`
+    consumes.
+
+    ★ **THE Y-FLIP: the engine negates walkmesh Y before the GTE** (Memoria WalkMesh.cs:54), so
+    the frame ``cam.to_canvas`` projects — the frame the ART shows and the actor walks — is
+    ``(x, -y, z)`` of ``world_verts`` (= vert + orgPos + floor.org). ``world_verts`` itself
+    stays pre-flip (the BUILD ships it verbatim); the flip lives ONLY at this projection
+    boundary — the exact discipline ``extract.compose_background``'s footprint proved in-game
+    (un-flipped, a DEEP floor projects off the painting; near-plane floors hide it at ~20px).
+    A raycast is a display-frame operation, so it intersects these flipped triangles; the hit's
+    (x, z) — the pair placement writes, the engine re-resolving y from the mesh — is unaffected
+    by the sign of y."""
+    wv = [(x, -y, z) for (x, y, z) in mesh.world_verts()]
     tri_floor = {ti: fi for fi, fl in enumerate(mesh.floors) for ti in fl.tri_ndx_list}
     tris, floors = [], []
     for ti, t in enumerate(mesh.tris):

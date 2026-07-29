@@ -458,7 +458,44 @@ def test_mesh_world_tris_maps_floors():
 
     tris, floors = IF.mesh_world_tris(_Mesh())
     assert floors == [0, 1]
-    assert tris[1][0] == (0, 5, 0)
+    assert tris[1][0] == (0, -5, 0)                # RENDER frame: y negated (WalkMesh.cs:54)
+
+
+def test_mesh_world_tris_render_flip_is_load_bearing():
+    """The engine negates walkmesh Y before the GTE, so a DEEP floor (build-frame y=+2000) is
+    seen by the camera at y=-2000 — compose_background's proven footprint flip. Pin it end to
+    end: the pixel of the RENDER-frame point recovers through the adapter's triangles, and the
+    un-flipped projection lands somewhere else entirely (the class of misplacement this
+    prevents)."""
+    cam = _cam()
+
+    class _V:
+        pass
+
+    class _T:
+        def __init__(self, *vtx):
+            self.vtx = list(vtx)
+
+    class _F:
+        def __init__(self, tris):
+            self.tri_ndx_list = tris
+
+    class _Mesh:
+        floors = [_F([0])]
+        tris = [_T(0, 1, 2)]
+
+        def world_verts(self):
+            return [(-800.0, 2000.0, 1400.0), (800.0, 2000.0, 1400.0), (0.0, 2000.0, 2600.0)]
+
+    tris, _ = IF.mesh_world_tris(_Mesh())
+    p_render = _bary(*tris[0], 0.3, 0.3)           # a visible point of the deep floor
+    got = IF.click_to_surface(cam, tris, C.to_canvas(p_render, cam))
+    assert math.dist(got["pos"], p_render) < 1e-6
+    # the un-flipped pixel for the same spot is far away on canvas — the flip is not cosmetic
+    p_build = (p_render[0], -p_render[1], p_render[2])
+    cx_r, cy_r = C.to_canvas(p_render, cam)
+    cx_b, cy_b = C.to_canvas(p_build, cam)
+    assert math.hypot(cx_r - cx_b, cy_r - cy_b) > 50
 
 
 # ---------------------------------------------------------------- the floor tracer (--trace)
