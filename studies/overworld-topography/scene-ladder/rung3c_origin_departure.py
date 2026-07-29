@@ -44,6 +44,20 @@ THE DEPARTURE THEATER (probe_departure_lanes.py, all out-lanes + eyes WET):
 
 Booking passage to the port you are at plays out-and-back-in at one quay -- no special case.
 
+THE MINIMAP BRACKET (v2, first-playtest fix; REQUIRES engine s69): the old bare
+RunWorldCode(2,0)/(2,1) bracket had two failures the owner caught -- (a) minimap-open: the
+HUD's DEFERRED Show() re-activates the panel per ff9.w_naviMode AFTER the prologue's (2,0),
+so the minimap sat visible through both cutscenes; (b) minimap-closed: the close's (2,1)
+activates the panel WITHOUT the HUD state machine (SetMinimapVisible only syncs currentState
+on world 9005 -- upstream Fix #670's narrow scope -- and WorldHUD.Update() only lays out /
+animates when currentState == HUD), leaving an inert minimap at the prefab position. Now the
+prologue caches Global.Byte[100] (keventNaviModeNo) into Map.Byte[53], zeroes both it and
+w_naviMode (RunWorldCode(4,0)) so the deferred Show keeps the panel closed for the whole
+voyage, and the close restores [100] and re-opens ((4,1) + (2,1)) ONLY if it was open at
+boarding -- with s69 generalizing Fix #670 (currentState sync on every world, guarded to the
+two HUD states) so the re-opened panel is laid out live by Update(). Without s69 the close
+re-open would itself go inert -- deploy the s69 engine build WITH this script.
+
 Deploy: py rung3c_origin_departure.py --deploy   (7 languages, hot; requires rungs 0-3
         deployed AND the 3c hall redeploy -- without the hall, the cache byte stays 0 and
         every departure classifies Ashvale, exactly the pre-3c behavior)
@@ -80,8 +94,13 @@ PHASE = 50                           # Map.Byte[50] -- scene phase (1c)
 PORT_CACHE = 51                      # Map.Byte[51] -- the cached destination code
 ORIGIN_CACHE = 52                    # Map.Byte[52] -- the classified ORIGIN port (free: stock
                                      # census 24-42; ours 50/51)
+NAVI_CACHE = 53                      # Map.Byte[53] -- the pre-scene minimap mode (free, same census)
 DEPART_BYTE = 1872                   # Global.Byte -- flags.py FERRY_DEPART_BYTE
 ORIGIN_X = FLAGS.FERRY_ORIGIN_X_INT24  # Global.Int24 -- the hall-entry X cache (x256)
+NAVI_BYTE = 100                      # Global.Byte[100] = keventNaviModeNo, the engine's persisted
+                                     # navi mode (0 closed / 1 minimap / 2 fullmap): world init
+                                     # seeds ff9.w_naviMode from it (ff9.cs:7064) and the Select
+                                     # toggle commits back (byte_gEventGlobal_updateNaviMode)
 
 SHIP_Y = 200                         # the proven at-sea y arg (draft), all waters
 EYE_UP = 7.0
@@ -355,7 +374,13 @@ op_22(24)
 SET({{Map.Byte[{PHASE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{PORT_CACHE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{ORIGIN_CACHE}] const(0) B_LET B_EXPR_END}})
+SET({{Global.Byte[{NAVI_BYTE}] Map.Byte[{NAVI_CACHE}] B_LET B_EXPR_END}})
+SET({{Map.Byte[{NAVI_CACHE}] const(1) B_EQ B_EXPR_END}})
+JMP_IFNOT(LNAV)
+RunWorldCode(4, 1)
 RunWorldCode(2, 1)
+LNAV:
+SET({{Map.Byte[{NAVI_CACHE}] const(0) B_LET B_EXPR_END}})
 {FADE_IN}
 EnableMenu()
 EnableMove()
@@ -429,6 +454,9 @@ JMP_IFNOT(LDEPQ)
 SET({{Map.Byte[{PORT_CACHE}] Global.Byte[{DEPART_BYTE}] B_LET B_EXPR_END}})
 SET({{Global.Byte[{DEPART_BYTE}] const(0) B_LET B_EXPR_END}})
 {_classifier()}
+SET({{Map.Byte[{NAVI_CACHE}] Global.Byte[{NAVI_BYTE}] B_LET B_EXPR_END}})
+SET({{Global.Byte[{NAVI_BYTE}] const(0) B_LET B_EXPR_END}})
+RunWorldCode(4, 0)
 SET({{Map.Byte[{PHASE}] const(1) B_LET B_EXPR_END}})
 InitObject({EYE_UID}, 0)
 InitObject({AIM_UID}, 0)

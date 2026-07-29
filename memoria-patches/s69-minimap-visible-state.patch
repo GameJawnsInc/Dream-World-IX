@@ -1,0 +1,22 @@
+diff --git a/Assembly-CSharp/Global/World/WorldHUD.cs b/Assembly-CSharp/Global/World/WorldHUD.cs
+index 33cfc9a0..99c119a3 100644
+--- a/Assembly-CSharp/Global/World/WorldHUD.cs
++++ b/Assembly-CSharp/Global/World/WorldHUD.cs
+@@ -1009,9 +1009,15 @@ public class WorldHUD : UIScene
+     {
+         this.MiniMapPanel.SetActive(isVisible);
+         this.SetMinimapPressable(isVisible);
+-        if (isVisible && FF9StateSystem.Common.FF9.wldMapNo == 9005)
++        if (this.currentState == WorldHUD.State.HUD || this.currentState == WorldHUD.State.HUDNoMiniMap)
+         {
+-            // Fix #670: World Map - Hilda Garde 1. Maybe it should be always done like that when SetMinimapVisible is called
++            // Fix #670 (World Map - Hilda Garde 1) generalized per its own comment ("Maybe it should be
++            // always done like that when SetMinimapVisible is called"): the scripted toggle
++            // (RunWorldCode(2,x) -> w_frameSetParameter case 2) must keep currentState in sync on EVERY
++            // world -- Update() only lays out / animates the minimap while currentState == HUD, so a
++            // (2,1) on a world where the panel was closed activates an inert minimap at the prefab
++            // position, and the Select toggle desyncs. Guarded to the two HUD states so a scripted
++            // toggle can never yank the state out from under FullMap. [ff9mapkit s69]
+             this.currentState = isVisible ? WorldHUD.State.HUD : WorldHUD.State.HUDNoMiniMap;
+             this.DisplayChocographLocation(isVisible);
+         }

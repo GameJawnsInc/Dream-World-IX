@@ -190,6 +190,25 @@ prologue-armed rigs finish constructing before disposal), eye overridden per por
 The arrival half is rung 3 verbatim. Origin 1 reproduces the owner-confirmed Ashvale
 departure (same dock/legs/speed; the eye moves to the probed (15,−1180)).
 
+**THE MINIMAP BRACKET (v2, from the first playtest — voyages confirmed at all four ports;
+the minimap was the one bug set):** leaving with the minimap CLOSED arrived to an INERT
+minimap at the wrong screen position; leaving it OPEN re-armed fine but showed through both
+cutscenes. One root cause, engine-grounded: `RunWorldCode(2,x)` → `SetMinimapVisible` toggles
+the panel but syncs the HUD state machine ONLY on world 9005 (upstream Fix #670's narrow
+scope), and `WorldHUD.Update()` lays out / animates the minimap only while
+`currentState == HUD` — so the close's `(2,1)` activated an unmanaged panel (inert, prefab
+position), while the open case showed through the scenes because the HUD's DEFERRED `Show()`
+re-activates the panel per `ff9.w_naviMode` AFTER the prologue's `(2,0)`. Fix, two halves:
+**s69** (`memoria-patches/s69-minimap-visible-state.patch`) generalizes Fix #670 — state sync
+on every world, guarded to the two HUD states so FullMap is never yanked; **the v2 script
+bracket** caches `Global.Byte[100]` (keventNaviModeNo, the persisted navi mode the world
+init seeds `w_naviMode` from and the Select toggle commits back to) into `Map.Byte[53]`,
+zeroes both it and `w_naviMode` (`RunWorldCode(4,0)`) in the prologue so the deferred Show
+keeps the panel closed for the whole voyage, and restores + conditionally re-opens
+(`(4,1)`+`(2,1)`) behind the final black ONLY if it was open at boarding. The bracket
+REQUIRES s69 (without it the close re-open itself goes inert). DLL backup `20260729-080314`.
+
 Revert: `py rung3_arrival.py --deploy` (world) + `backups/scene-ladder/EVT_LANTERN_HALL.*`
-(hall). Without the hall redeploy the cache byte stays 0 and every departure classifies
-Ashvale — the pre-3c behavior, gracefully.
+(hall) + `py tools/restore_memoria_dll.py 20260729-080314` (engine). Without the hall
+redeploy the cache byte stays 0 and every departure classifies Ashvale — the pre-3c
+behavior, gracefully.
