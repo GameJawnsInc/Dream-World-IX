@@ -75,8 +75,11 @@ expect_sha256 = "fe590d00a01d95c6dc473cee9fea9096b9ded63c3daae3aab693099c6d0ed16
 # correct here, but the gate runners invoke the build from elsewhere and must resolve the same specs.
 [reskin.orthogonality]
 compose = true
-reskin  = "C:/gd/Dream-World-IX/.claude/worktrees/summons-tier-w-generalize-915e33/studies/custom-summons/tier-w/bahamut_reskin.toml"
-rescore = "C:/gd/Dream-World-IX/.claude/worktrees/summons-tier-w-generalize-915e33/studies/custom-summons/tier-w/bahamut_rescore.toml"
+# SIBLING PATHS ARE SPEC-RELATIVE (`_resolve_base` joins them to this file's own directory). They
+# were absolute paths into the authoring worktree until W6b-3i, which broke this spec -- and w6_gates
+# G2 with it -- in every other checkout once that worktree was cleaned up.
+reskin  = "bahamut_reskin.toml"
+rescore = "bahamut_rescore.toml"
 
 
 # ==============================================================================================
