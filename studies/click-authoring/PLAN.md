@@ -134,6 +134,28 @@ This is what makes the tool general: it serves forks of real FF9 rooms, not just
 it kills the error class that `laying-out-ff9-fields` exists to prevent (content packed under ~192u,
 inverted cardinals because the camera sits at **negative z**).
 
+★ **THE SUBSTRATE IS THE RAYCAST, NOT THE PLANE (scoped 2026-07-28 — VIABLE).** The floor census
+(`floor_census.py` / `.json`, 674/674 walkmeshes parsed) killed `plane_y` for real fields: only
+**17%** have a flat dominant floor, **78%** slope > 64u (steps/ramps everywhere), 61% aren't at y≈0,
+82% are multi-floor (median 3). A plane can't serve that population — but it doesn't have to:
+**field content is placed as (x, z)** (the engine resolves y from the mesh), and every field's real
+walkmesh is available in exact world frame (`vert + orgPos + floor.org`). So Rung 3's HOP 2 is
+**click ray → Möller–Trumbore over the walkmesh's world triangles → the NEAREST hit** (you click
+what you SEE). Benched on the census's worst sloped fields (`raycast_bench.py` — alxc_map056b
+9727u spread, ipsn_map740, GRGR, the map158 offset donor): sampled surface points recover **exactly
+(worst 1.7e-11u)** at 89–98%; the remainder are pixels owned by a NEARER floor — the visibility
+semantics, not error, and the walkmesh knows it (a stacked-hit click lists its floors, defaults to
+the visible one, warns). This does not breach §1 THE PLANE LAW: the law bounds *authoring new
+geometry* from a photo (a ray meets an unknown surface nowhere exact); placement targets the
+**known** surface, where a ray–mesh intersection is closed-form. The self-check still applies
+unchanged: every accepted hit re-projects through `to_canvas` onto the click.
+
+Build inventory (all pieces exist, none exotic): camera + walkmesh per field = `extract.cache_field`
+(idempotent, cached); the canvas-frame backdrop = the extract compositor (per-camera mode for
+multi-cam fields; scrolling Range is already the canvas frame in `BackdropCanvas`); placement edits
+ride the OPEN document + the shell undo contract (the Behavior stage-edit precedent — one pure op
+per drop); art loads async in the thumbs idiom.
+
 ★ **THE HARD GATE IS CLEARED — the imported-camera census ran 2026-07-28** (`camera_census.py` /
 `camera_census.json` in this directory, against the live install). **674 fields, 741 cameras, 729
 measured: every one round-trips < 1e-9 px (worst 7.4e-12). Rung 3 is GENERAL — no pose envelope.**
@@ -182,10 +204,12 @@ arrival position + facing per side, encounters, save-point siting.
 This is why the composer is a rung here and not its own study: standalone it would need to generate
 geometry; downstream of Rungs 0-3 it does not. **Do not start it before Rung 3 is real.**
 
-### Rung 5 (bounded) — discrete multi-plane
-Add `plane_y` to the un-projection (`s = (h - C.y)/ray.y`) so a field with several **flat** floors at
-known heights can be authored per-floor, with a floor selector. **THE PLANE LAW (§1) is the ceiling:
-if a surface's height varies across it, it is Blender's.** Rung 5 ships only if a real field wants it.
+### Rung 5 (bounded) — discrete multi-plane ⚠ SCOPE SHRUNK 2026-07-28
+Add `plane_y` to the un-projection (`s = (h - C.y)/ray.y`) so a **traced photo** with several flat
+floors at known heights can be authored per-floor, with a floor selector. **THE PLANE LAW (§1) is
+the ceiling: if a surface's height varies across it, it is Blender's.** Rung 5 ships only if a real
+photo wants it — and it is now PHOTO-ONLY: real-field placement no longer needs planes at all
+(Rung 3's walkmesh raycast supersedes it there; floors fall out of the mesh).
 
 ---
 
@@ -242,6 +266,10 @@ GUI claim from source; that is the documented recurring failure in this package.
    starving the canvas (162→270px). **★ PLAYTEST-CONFIRMED 2026-07-28** — owner traced a photo
    in the tab, generated, deployed, and walked it ("looks good i got one in"). **RUNG 1 CLOSED —
    the GUI reaches full parity with the retired HTML tracer.**
-4. **Scope Rung 3's UI** — measure real walkmesh floor heights first (the `plane_y` decision), then
-   the field-card entry point (§5 call site 2) + surgical write-back (call site 4). Rung 2
-   (occluder contacts — a contact mode on the same canvas) is small and can ride along either way.
+4. ~~**Scope Rung 3's UI**~~ ★ SCOPED 2026-07-28 — VIABLE via the walkmesh raycast (see the Rung 3
+   block: floor census + bench receipts). Build order: (a) the raycast conversion beside
+   `click_to_world` + its offline gate (project mesh points → raycast back, exact; stacked-floor
+   hits listed), (b) `BackdropCanvas` placement mode over a cache_field-composited backdrop,
+   (c) the field-card entry (§5 call site 2) + open-doc write-back with the examples refusal and
+   the verbatim party-band seat, (d) `gui_snap` surfaces + the owner walks a placed NPC in-game.
+   Rung 2 (occluder contacts — a contact mode on the same canvas) rides along.
