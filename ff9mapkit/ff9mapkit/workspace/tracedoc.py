@@ -57,7 +57,13 @@ class TraceDoc(QWidget):
         self._pixmap = None                           # its display cover-crop (2x canvas res)
         self._floor = []                              # mirror of the canvas trace (canvas px)
         self._fg = []                                 # rung 2: [{"contact": (cx, cy), "image": str|None}]
-        self._history = []                            # prior (floor, fg) snapshots, one per gesture (undo)
+        self._regions = []                            # rung 4: [{"kind", "to", "entrance",
+                                                      #   "message", "quad": [(cx, cy)] * 4}] —
+                                                      # CANVAS px, the authoring truth (a pitch
+                                                      # change re-judges, exactly like vertices)
+        self._history = []                            # prior snapshots, one per gesture (undo)
+        self._region_rows_cache = []                  # the last judged canvas feed
+        self._region_back = []                        # feed row -> self._regions index
         self._project = None                          # {"out", "name", "fid"} after a Generate:
                                                       # later Generates go IN PLACE (no dialog)
         self._stamped = True                          # False = gestures since the last Generate
@@ -110,13 +116,63 @@ class TraceDoc(QWidget):
         self.pitch_label = QLabel()
         row.addWidget(self.pitch_label)
         row.addStretch(1)
-        self.fg_btn = QPushButton("Add cut-out")
-        self.fg_btn.setCheckable(True)
-        self.fg_btn.setToolTip("Mark a foreground occluder (a pillar, a crate): click where the "
-                               "object MEETS the floor — its base — then attach its full-canvas "
-                               "cut-out PNG. Occlusion flips exactly at that line in-game.")
-        self.fg_btn.toggled.connect(self._on_fg_arm)
-        row.addWidget(self.fg_btn)
+        root.addLayout(row)
+
+        # the TOOLS row (rung 2c/4): the strip + the active tool's own cluster + the gesture
+        # verbs — its OWN row, because sharing the photo row squeezed the strip to a blank chip
+        # (the snap caught it: an oversubscribed row shaves every control, the round-7 law)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        # the per-canvas TOOL strip: one explicit click semantic at a time
+        self.tools = widgets.ToolStrip(
+            [("floor", "Floor", "Trace the walkable floor — click its outline in order, below "
+                                "the horizon."),
+             ("cutout", "Cut-outs", "Mark a foreground occluder (a pillar, a crate): click where "
+                                    "the object MEETS the floor — its base — then attach its "
+                                    "full-canvas cut-out PNG. Occlusion flips exactly there."),
+             ("regions", "Regions", "Draw trigger quads on the photo — gateways and walk-in "
+                                    "events (4 clicks = one zone).")])
+        self.tools.changed.connect(self._on_tool)
+        row.addWidget(self.tools)
+        self.fg_btn = self.tools.button("cutout")      # the Add-cut-out control, now a segment
+        # the Regions tool's own cluster (visible only while it is the active tool)
+        from PySide6.QtWidgets import QButtonGroup, QRadioButton, QSpinBox
+        self.rkind_group = QButtonGroup(self)
+        self.rkind_btns = {}
+        for key, label in (("gateway", "Gateway"), ("event", "Event")):
+            rb = QRadioButton(label)
+            rb.setAccessibleName(f"Draw {label} zones")
+            rb.toggled.connect(lambda _on=False: self._sync_region_cluster())
+            self.rkind_group.addButton(rb)
+            self.rkind_btns[key] = rb
+            row.addWidget(rb)
+        self.rkind_btns["gateway"].setChecked(True)
+        self.gw_to_label = QLabel("to field")
+        row.addWidget(self.gw_to_label)
+        self.gw_to = QSpinBox()
+        self.gw_to.setRange(0, 32767)
+        self.gw_to.setSpecialValueText("?")
+        self.gw_to.setAccessibleName("Gateway target field id")
+        self.gw_to.setToolTip("The field id this door sends the player to.")
+        self.gw_to_label.setBuddy(self.gw_to)
+        row.addWidget(self.gw_to)
+        self.gw_ent_label = QLabel("entrance")
+        row.addWidget(self.gw_ent_label)
+        self.gw_ent = QSpinBox()
+        self.gw_ent.setRange(0, 255)
+        self.gw_ent.setAccessibleName("Gateway arrival entrance")
+        self.gw_ent.setToolTip("The entrance index the destination's [[player.arrival]] rows "
+                               "dispatch on.")
+        self.gw_ent_label.setBuddy(self.gw_ent)
+        row.addWidget(self.gw_ent)
+        self.ev_msg = QLineEdit("...")
+        self.ev_msg.setMaximumWidth(180)
+        self.ev_msg.setAccessibleName("Event message")
+        self.ev_msg.setToolTip("The message a drawn event zone shows on walk-in (captured per "
+                               "zone as you draw it — the photo lane regenerates its toml, so "
+                               "the words live in this session, not in the file).")
+        row.addWidget(self.ev_msg)
+        row.addStretch(1)
         self.undo_btn = QPushButton("Undo")
         self.undo_btn.setToolTip("Take back the last vertex or cut-out gesture.")
         self.undo_btn.clicked.connect(self.on_undo)
@@ -166,7 +222,11 @@ class TraceDoc(QWidget):
         self.canvas.contact_clicked.connect(self._on_contact)
         self.canvas.cutout_moved.connect(self._on_cutout_moved)
         self.canvas.contact_moved.connect(self._on_contact_moved)
+        self.canvas.region_drawn.connect(self._on_region_drawn)
+        self.canvas.region_changed.connect(self._on_region_changed)
+        self.canvas.region_deleted.connect(self._on_region_deleted)
         root.addWidget(self.canvas, 1)
+        self._sync_region_cluster()                    # the boxes exist now: settle visibility
 
         out_row = QHBoxLayout()
         out_row.setSpacing(8)
@@ -268,8 +328,9 @@ class TraceDoc(QWidget):
             else f"{self.pitch.value()}° · horizon above the frame")
         good, bad = self._valid_count()
         fg_invalid, fg_unattached = self._fg_problems()
+        _shim, _back, rg_bad = self._region_shim()
         ready = (self._image is not None and good >= 3 and bad == 0
-                 and fg_invalid == 0 and fg_unattached == 0)
+                 and fg_invalid == 0 and fg_unattached == 0 and rg_bad == 0)
         self.gen_btn.setEnabled(ready)
         self.gen_btn.setText(f"Regenerate {self._project['name']} — in place"
                              if self._project else "Generate field project…")
@@ -282,12 +343,16 @@ class TraceDoc(QWidget):
         elif fg_invalid or fg_unattached:
             tip = ("Every cut-out needs a valid floor contact (below the horizon, below the base "
                    "layer) and an attached PNG — fix or Remove the flagged ones.")
+        elif rg_bad:
+            tip = ("A region has a corner above the horizon at this pitch — reshape or delete "
+                   "it (right-click the quad).")
         else:
             tip = "Needs an open image and at least 3 traced vertices, all below the horizon."
         self.gen_btn.setToolTip(tip)
         self.undo_btn.setEnabled(bool(self._history))
         self.clear_btn.setEnabled(bool(self._floor))
-        self.fg_btn.setEnabled(self._image is not None)
+        for key in ("cutout", "regions"):
+            self.tools.button(key).setEnabled(self._image is not None)
         self._refresh_fg_strip()
         if not note:
             if self._image is None:
@@ -304,6 +369,13 @@ class TraceDoc(QWidget):
                         note += f" · {fg_invalid} contact{'' if fg_invalid == 1 else 's'} invalid"
                     if fg_unattached:
                         note += f" · {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} missing"
+                if self._regions:
+                    note += f" · {len(self._regions)} region{'' if len(self._regions) == 1 else 's'}"
+                    warned = sum(1 for r in getattr(self, '_region_rows_cache', []) if r.get("warn"))
+                    if warned:
+                        note += f" · ⚠ {warned} with law warnings"
+                    if rg_bad:
+                        note += f" · {rg_bad} above the horizon"
         if self._project and not self._stamped:        # edits the project on disk doesn't have
             note += f" · ⚠ not stamped — Regenerate {self._project['name']} to update the project"
             state = state or "warn"
@@ -411,11 +483,14 @@ class TraceDoc(QWidget):
         self._pixmap = pm
         self._floor = []
         self._fg = []                                  # old contacts mean nothing on new art
+        self._regions = []                             # nor do old zones
         self._history = []
         self._project = None                           # a new photo is a NEW project
-        self.fg_btn.setChecked(False)
+        self.tools.set_current("floor")
         self.canvas.set_floor([])
         self.canvas.set_cutouts([])
+        self.canvas.set_regions([])
+        self._region_rows_cache, self._region_back = [], []
         self.canvas.set_backdrop(pm, self._camera(), refit=True)
         self.img_label.setText(self._image.name)
         self._refresh()
@@ -424,13 +499,15 @@ class TraceDoc(QWidget):
         self._stamped = False                          # a camera change alters the build
         self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)
         self._refresh_cutouts()                        # anchored z's are camera-dependent
+        self._refresh_regions()                        # zone worlds re-judge with the horizon
         self._refresh()
 
     # ------------------------------------------------------------------ trace + contact gestures
     def _push_history(self):
-        """One snapshot per completed gesture — floor AND cut-outs together, so Undo walks back
-        through vertex and contact gestures in the order they happened."""
-        self._history.append({"floor": list(self._floor), "fg": [dict(f) for f in self._fg]})
+        """One snapshot per completed gesture — floor, cut-outs AND regions together, so Undo
+        walks back through every gesture kind in the order they happened."""
+        self._history.append({"floor": list(self._floor), "fg": [dict(f) for f in self._fg],
+                              "regions": [dict(r) for r in self._regions]})
         del self._history[:-_HISTORY_CAP]
         self._stamped = False                          # a gesture the project doesn't have yet
 
@@ -448,8 +525,10 @@ class TraceDoc(QWidget):
         snap = self._history.pop()
         self._floor = list(snap["floor"])
         self._fg = [dict(f) for f in snap["fg"]]
+        self._regions = [dict(r) for r in snap.get("regions", [])]
         self.canvas.set_floor(self._floor)             # the host write path: no on_floor echo
         self._refresh_cutouts()
+        self._refresh_regions()
         self._refresh()
 
     def on_clear(self):
@@ -460,17 +539,126 @@ class TraceDoc(QWidget):
         self.canvas.set_floor([])
         self._refresh()
 
-    # ------------------------------------------------------------------ rung 2: cut-out contacts
-    def _on_fg_arm(self, on):
-        """The Add-cut-out toggle: armed = the canvas emits contact pixels (the traced polygon
-        stays visible, inert); disarmed = back to floor tracing."""
-        if on:
+    # ------------------------------------------------------------------ the tool strip
+    def _on_tool(self, key):
+        """ONE owner of tool -> canvas click semantics (the strip made the mode explicit —
+        rung 2c's owner ask, mandatory once regions became a fourth semantic)."""
+        if key == "cutout":
             self.canvas.set_contact_mode(True)
-            self._refresh("Click where the object MEETS the floor — its base, not up its body. "
-                          "Esc = the button again to cancel.")
+            self._sync_region_cluster()
+            self._refresh("Click where the object MEETS the floor — its base, not up its body.")
+            return
+        if key == "regions":
+            self.canvas.set_region_mode(True)
         else:
             self.canvas.set_trace_mode(True)
-            self._refresh()
+        self._sync_region_cluster()
+        self._refresh()
+
+    def _sync_region_cluster(self):
+        """The Regions tool's own boxes show only while it is active (visibility swaps — a row
+        that grows on selection shrinks the canvas out from under itself)."""
+        if getattr(self, "ev_msg", None) is None:
+            return                                 # construction order: radios fire before the boxes
+        on = self.tools.current() == "regions"
+        gw = on and self.rkind_btns["gateway"].isChecked()
+        for w in (self.rkind_btns["gateway"], self.rkind_btns["event"]):
+            w.setVisible(on)
+        for w in (self.gw_to_label, self.gw_to, self.gw_ent_label, self.gw_ent):
+            w.setVisible(gw)
+        self.ev_msg.setVisible(on and not gw)
+
+    # ------------------------------------------------------------------ rung 4: trigger regions
+    def _region_worlds(self, quad_px):
+        """A stored canvas-px quad -> world corners under the CURRENT camera, or None where a
+        corner sits above the horizon (a pitch change re-judges regions exactly like vertices)."""
+        cam = self.canvas.camera()
+        out = []
+        for p in quad_px:
+            try:
+                out.append(imagefield.click_to_world(cam, p))
+            except imagefield.ImageFieldError:
+                out.append(None)
+        return out
+
+    def _region_shim(self):
+        """The session's regions as the doc-dict shape ``placedoc.region_rows`` judges — ONE
+        owner of the labels + both region laws for every host. Returns (shim, map) where map
+        takes the shim's (kind, per-kind index) back to ``self._regions`` indices; rows with an
+        above-horizon corner are left OUT of the shim (counted in the status instead)."""
+        shim = {"gateway": [], "event": []}
+        back = {}
+        bad = 0
+        for ri, r in enumerate(self._regions):
+            worlds = self._region_worlds(r["quad"])
+            if any(w is None for w in worlds):
+                bad += 1
+                continue
+            zone = [[int(round(x)), int(round(z))] for x, z in worlds]
+            kind = r["kind"]
+            row = {"name": f"door{len(shim['gateway'])}" if kind == "gateway"
+                   else f"zone{len(shim['event'])}", "zone": zone}
+            if kind == "gateway":
+                row["to"] = r.get("to", 0)
+                if r.get("entrance"):
+                    row["entrance"] = r["entrance"]
+            else:
+                row["message"] = r.get("message") or "..."
+            back[(kind, len(shim[kind]))] = ri
+            shim[kind].append(row)
+        return shim, back, bad
+
+    def _refresh_regions(self):
+        """Feed the canvas from the session's regions, laws judged (the placedoc derivation —
+        one owner). The row list is kept for gesture routing."""
+        from . import placedoc
+        shim, back, _bad = self._region_shim()
+        rows = placedoc.region_rows(shim)
+        self._region_rows_cache = rows
+        self._region_back = [back[(r["kind"], r["index"])] for r in rows]
+        self.canvas.set_regions(rows)
+
+    def _on_region_drawn(self, quad_world):
+        """Four accepted clicks: store the quad in CANVAS px (the authoring truth — the exact
+        inverse of the click conversion, so the round-trip is the tripwire's own)."""
+        cam = self.canvas.camera()
+        quad_px = [tuple(round(v, 1) for v in imagefield.world_to_click(cam, w))
+                   for w in quad_world]
+        self._push_history()
+        kind = "gateway" if self.rkind_btns["gateway"].isChecked() else "event"
+        self._regions.append({"kind": kind, "to": self.gw_to.value(),
+                              "entrance": self.gw_ent.value(),
+                              "message": self.ev_msg.text().strip() or "...",
+                              "quad": quad_px})
+        self._refresh_regions()
+        note = "drew a gateway zone" if kind == "gateway" else "drew an event zone"
+        if kind == "gateway" and not self.gw_to.value():
+            note += " — set its target field id (the 'to field' box)"
+        self._refresh(note)
+
+    def _on_region_changed(self, i, quad_world):
+        if not 0 <= i < len(getattr(self, "_region_back", [])):
+            return
+        cam = self.canvas.camera()
+        try:
+            quad_px = [tuple(round(v, 1) for v in imagefield.world_to_click(cam, w))
+                       for w in quad_world]
+        except imagefield.ImageFieldError:
+            return                                     # a corner behind the camera: keep the old quad
+        self._push_history()
+        self._regions[self._region_back[i]]["quad"] = quad_px
+        self._refresh_regions()
+        self._refresh("region reshaped")
+
+    def _on_region_deleted(self, i):
+        if not 0 <= i < len(getattr(self, "_region_back", [])):
+            return
+        self._push_history()
+        del self._regions[self._region_back[i]]
+        self._refresh_regions()
+        self._refresh("region deleted")
+
+    # ------------------------------------------------------------------ rung 2: cut-out contacts
 
     def _on_contact(self, cx, cy):
         """A contact click, judged through the ONE owner (``imagefield.occluder_z``): above the
@@ -484,7 +672,7 @@ class TraceDoc(QWidget):
             return
         self._push_history()
         self._fg.append({"contact": contact, "image": None})
-        self.fg_btn.setChecked(False)                  # -> _on_fg_arm(False) -> trace mode
+        self.tools.set_current("floor")                # one contact per arm -> back to tracing
         self.fg_box.setCurrentIndex(len(self._fg) - 1)
         path = self._ask_cutout()
         teach = None
@@ -555,6 +743,13 @@ class TraceDoc(QWidget):
             if f.get("kind") == "snip":                # a placed snip ships as a composed full frame
                 img = str(self._composed_fg_path(i, f))
             argv += ["--foreground", f"{img}@{cx:g},{cy:g}"]
+        for r in self._regions:                        # zones ride in canvas px, the same frame as
+            pts = ";".join(f"{cx:g},{cy:g}" for cx, cy in r["quad"])   # --floor (pitch-coupled)
+            if r["kind"] == "gateway":
+                head = f"{r.get('to', 0)},{r['entrance']}" if r.get("entrance") else str(r.get("to", 0))
+                argv += ["--gateway", f"{head}@{pts}"]
+            else:
+                argv += ["--event-zone", f"{r.get('message') or '...'}@{pts}"]
         if float(self.pitch.value()) != imagefield.DEFAULT_PITCH:
             argv += ["--pitch", f"{self.pitch.value():g}"]
         started = self._run(
@@ -584,6 +779,10 @@ class TraceDoc(QWidget):
             (Path(out) / f"{self._image.stem}.trace.json").write_text(json.dumps({
                 "image": str(self._image), "pitch": self.pitch.value(),
                 "floor": [list(p) for p in self._floor], "fg": fg,
+                "regions": [{"kind": r["kind"], "to": r.get("to", 0),
+                             "entrance": r.get("entrance", 0),
+                             "message": r.get("message", "..."),
+                             "quad": [list(p) for p in r["quad"]]} for r in self._regions],
                 "name": self.name_box.text().strip() or "PICTURE",
                 "id": self.id_box.text().strip()}, indent=2), encoding="utf-8")
         except OSError:
@@ -605,6 +804,11 @@ class TraceDoc(QWidget):
                 self._attach_cutout(len(self._fg) - 1, e["image"])
                 if e.get("offset") and self._fg[-1].get("offset") is not None:
                     self._fg[-1]["offset"] = tuple(e["offset"])   # the dragged spot wins
+        self._regions = [{"kind": r.get("kind", "gateway"), "to": int(r.get("to", 0)),
+                          "entrance": int(r.get("entrance", 0)),
+                          "message": str(r.get("message", "...")),
+                          "quad": [tuple(p) for p in r.get("quad", [])]}
+                         for r in data.get("regions", []) if len(r.get("quad", [])) == 4]
         self.name_box.setText(str(data.get("name") or "PICTURE"))
         if data.get("id"):
             self.id_box.setText(str(data["id"]))
@@ -612,6 +816,7 @@ class TraceDoc(QWidget):
                          "fid": data.get("id")}
         self._stamped = True                           # the record IS the project's state
         self._refresh_cutouts()
+        self._refresh_regions()
         self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place.")
 
     def load_project(self, path):
@@ -660,6 +865,23 @@ class TraceDoc(QWidget):
             fg_path = path.parent / m.group(3)
             if fg_path.is_file():
                 self._attach_cutout(len(self._fg) - 1, str(fg_path))
+        # regions: the compiled toml's WORLD zones invert to canvas px through the same camera
+        for kind in ("gateway", "event"):
+            for e in data.get(kind, []) or []:
+                z = e.get("zone")
+                if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):
+                    continue
+                pts = [tuple(map(float, p)) for p in z]
+                if len(pts) == 5 and pts[-1] == pts[-2]:
+                    pts = pts[:4]                      # the IsInQuad-safe doubled stored form
+                try:
+                    quad = [tuple(round(v, 1) for v in imagefield.world_to_click(cam, p))
+                            for p in pts]
+                except imagefield.ImageFieldError:
+                    continue                           # a corner behind the camera: not this lane's
+                self._regions.append({"kind": kind, "to": int(e.get("to", 0) or 0),
+                                      "entrance": int(e.get("entrance", 0) or 0),
+                                      "message": str(e.get("message", "...")), "quad": quad})
         name = str((data.get("field") or {}).get("name") or "PICTURE")
         fid = (data.get("field") or {}).get("id")
         self.name_box.setText(name)
@@ -668,6 +890,7 @@ class TraceDoc(QWidget):
         self._project = {"out": str(path.parent), "name": name, "fid": fid}
         self._stamped = True                           # rebuilt FROM the project = in sync
         self._refresh_cutouts()
+        self._refresh_regions()
         self._refresh(f"Reopened {path.name} — session REBUILT from the compiled project (no "
                       f".trace.json yet; the next Generate writes one). Generate goes in place.")
 

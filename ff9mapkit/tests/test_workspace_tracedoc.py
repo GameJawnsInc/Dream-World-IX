@@ -552,3 +552,103 @@ def test_unstamped_changes_warn_until_regenerate(app, tmp_path, monkeypatch):
     assert "not stamped" in doc.status.text() and "Regenerate" in doc.status.text()
     doc.on_generate()
     assert "not stamped" not in doc.status.text()
+
+
+# --------------------------------------------------------------------------- rung 4: regions
+def _traced_doc(app, tmp_path):
+    doc, run = _doc(app)
+    doc.resize(760, 700)
+    doc.show()                                       # visibility asserts need a shown top-level
+    QApplication.processEvents()
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    return doc, run
+
+
+def test_tool_strip_owns_the_click_semantics(app, tmp_path):
+    pytest.importorskip("PIL")
+    doc, _ = _traced_doc(app, tmp_path)
+    assert doc.tools.current() == "floor" and doc.canvas._trace_mode
+    doc.tools.set_current("cutout")
+    assert doc.canvas._contact_mode and not doc.canvas._trace_mode
+    doc.tools.set_current("regions")
+    assert doc.canvas._region_mode and not doc.canvas._contact_mode
+    assert doc.rkind_btns["gateway"].isVisible() and doc.gw_to.isVisible()
+    doc.rkind_btns["event"].setChecked(True)
+    assert not doc.gw_to.isVisible() and doc.ev_msg.isVisible()
+    doc.tools.set_current("floor")
+    assert doc.canvas._trace_mode and not doc.rkind_btns["event"].isVisible()
+
+
+def test_a_drawn_region_is_stored_in_canvas_px_and_reaches_the_argv(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, run = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    doc.gw_to.setValue(4005)
+    doc.gw_ent.setValue(2)
+    cam = doc.canvas.camera()
+    quad_px = [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in quad_px])
+    assert len(doc._regions) == 1
+    got = doc._regions[0]
+    assert got["kind"] == "gateway" and got["to"] == 4005 and got["entrance"] == 2
+    for (gx, gy), (ex, ey) in zip(got["quad"], quad_px):
+        assert abs(gx - ex) < 0.2 and abs(gy - ey) < 0.2   # the px round-trip is the tripwire's
+    assert len(doc.canvas._regions) == 1                   # fed back, judged
+    doc.rkind_btns["event"].setChecked(True)
+    doc.ev_msg.setText("Watch the ledge")
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(200.0, 340.0), (300.0, 340.0), (300.0, 380.0), (200.0, 380.0)]])
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    gi = argv.index("--gateway")
+    assert argv[gi + 1] == "4005,2@60,300;140,300;140,330;60,330"
+    ei = argv.index("--event-zone")
+    assert argv[ei + 1] == "Watch the ledge@200,340;300,340;300,380;200,380"
+    # the sidecar round-trips the whole region session
+    doc2, _ = _doc(app)
+    doc2.load_trace(tmp_path / "photo-field" / "photo.trace.json")
+    assert [r["kind"] for r in doc2._regions] == ["gateway", "event"]
+    assert doc2._regions[0]["quad"][0] == (60.0, 300.0)
+    assert doc2._regions[1]["message"] == "Watch the ledge"
+
+
+def test_region_gestures_are_undoable_and_reshape_by_row(app, tmp_path):
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    cam = doc.canvas.camera()
+    px = [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in px])
+    moved = [(70.0, 300.0), (150.0, 300.0), (150.0, 330.0), (70.0, 330.0)]
+    doc._on_region_changed(0, [IF.click_to_world(cam, p) for p in moved])
+    assert abs(doc._regions[0]["quad"][0][0] - 70.0) < 0.2
+    doc.on_undo()                                          # back to the drawn spot
+    assert abs(doc._regions[0]["quad"][0][0] - 60.0) < 0.2
+    doc._on_region_deleted(0)
+    assert doc._regions == []
+    doc.on_undo()
+    assert len(doc._regions) == 1                          # the delete walks back too
+
+
+def test_open_field_toml_backfills_regions(app, tmp_path, monkeypatch):
+    """A compiled photo project's [[gateway]]/[[event]] world zones invert to the session's
+    canvas px through the project's own camera (the doubled 5th point dropped)."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    img = _photo(tmp_path)
+    man = IF.build_image_field(
+        img, [(130, 200), (254, 200), (364, 440), (20, 440)], tmp_path / "photo-field",
+        gateways=["4005@60,300;140,300;140,330;60,330"],
+        events=[{"message": "hi", "zone_px": [(200, 340), (300, 340), (300, 380), (200, 380)]}])
+    doc, _ = _doc(app)
+    doc.load_project(man["toml"])
+    kinds = [r["kind"] for r in doc._regions]
+    assert kinds == ["gateway", "event"]
+    assert doc._regions[0]["to"] == 4005
+    assert doc._regions[1]["message"] == "hi"
+    gx, gy = doc._regions[0]["quad"][0]
+    assert abs(gx - 60.0) < 1.0 and abs(gy - 300.0) < 1.0  # world ints -> sub-px inversion

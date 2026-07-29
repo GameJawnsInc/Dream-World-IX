@@ -778,22 +778,23 @@ def snap_script(ctx: _Ctx, state: str) -> None:
 BEHAVIOR_STATES = ("guide", "bare", "wizard", "branchwiz", "doc", "compiled", "edit",
                    "stage", "sweep", "siege", "sim")
 
-TRACE_STATES = ("bare", "traced", "contacts")
+TRACE_STATES = ("bare", "traced", "contacts", "regions")
 
 
 def snap_trace(ctx: _Ctx, state: str) -> None:
-    """The Trace tab (click-authoring Rungs 1+2): the empty on-ramp ('bare' — the teach caption +
-    the bare canvas frame with its horizon), the synthetic proof room loaded with a traced
-    floor polygon and its +48u outset ring ('traced'), or that room with the PILLAR marked as a
+    """The Trace tab (click-authoring Rungs 1+2+4): the empty on-ramp ('bare' — the teach caption
+    + the bare canvas frame with its horizon), the synthetic proof room loaded with a traced
+    floor polygon and its +48u outset ring ('traced'), that room with the PILLAR marked as a
     foreground cut-out at its in-game-proven contact (230,320) -> z 1073 ('contacts' — the strip
-    + the anchored marker). The photo + polygon come from test_imagefield's _paint_room — ONE
-    owner for the fixture art (kit-painted, zero Square-Enix bytes)."""
+    + the anchored marker), or the Regions tool with a drawn gateway + a law-warned event zone
+    ('regions'). The photo + polygon come from test_imagefield's _paint_room — ONE owner for the
+    fixture art (kit-painted, zero Square-Enix bytes)."""
     if state not in TRACE_STATES:
         raise ValueError(f"unknown trace state {state!r} (know: {', '.join(TRACE_STATES)})")
     win = _make_win(ctx)
     win.tabs.setCurrentWidget(win.trace_doc)
     _settle(4)
-    if state in ("traced", "contacts"):
+    if state in ("traced", "contacts", "regions"):
         import importlib.util
         p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_trace_fixture", p)
@@ -817,19 +818,34 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
         td.fg_btn.setChecked(True)
         td._on_contact(230.0, 320.0)                         # the proven pillar contact -> z 1073
         _settle(6)
+    if state == "regions":
+        from ff9mapkit import imagefield as _if
+        td = win.trace_doc
+        td.tools.set_current("regions")                      # the rung-4 tool, on the photo lane
+        cam = td.canvas.camera()
+        td.gw_to.setValue(4005)
+        td._on_region_drawn([_if.click_to_world(cam, p) for p in
+                             [(40.0, 400.0), (150.0, 400.0), (150.0, 430.0), (40.0, 430.0)]])
+        td.rkind_btns["event"].setChecked(True)
+        td.ev_msg.setText("It creaks underfoot.")
+        td._on_region_drawn([_if.click_to_world(cam, p) for p in   # a bowtie: the spill wash
+                             [(220.0, 380.0), (330.0, 380.0), (220.0, 430.0), (330.0, 430.0)]])
+        _settle(6)
     _grab(ctx, f"trace-{state}", win)
     _grab(ctx, f"trace-{state}-canvas", win.trace_doc.canvas)   # the SUBJECT, not just the window
     _close(win)
 
 
-PLACE_STATES = ("bare", "fork", "refused")
+PLACE_STATES = ("bare", "fork", "refused", "regions")
 
 
 def snap_place(ctx: _Ctx, state: str) -> None:
-    """The Place tab (click-authoring Rung 3c): the empty on-ramp ('bare'), a fork member with a
-    loaded surface + placed content ('fork' — kit-painted stand-in art + a synthetic flat quad,
+    """The Place tab (click-authoring Rung 3c/4): the empty on-ramp ('bare'), a fork member with
+    a loaded surface + placed content ('fork' — kit-painted stand-in art + a synthetic flat quad,
     so the snap needs no install; the REAL donor surface arrives through the user's own Load),
-    or a bundled example refusing placement outright ('refused')."""
+    a bundled example refusing placement outright ('refused'), or the Regions tool with all
+    three zone-law renders on the art ('regions' — a gateway's walk-out edge, a TREADQUAD
+    overlap warn, and a non-convex quad's over-trigger spill wash)."""
     if state not in PLACE_STATES:
         raise ValueError(f"unknown place state {state!r} (know: {', '.join(PLACE_STATES)})")
     # 'fork' deliberately ends with an UNSAVED placed prop, so win.close() would fire the
@@ -845,7 +861,7 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
         win.tabs.setCurrentWidget(win.place_doc)
         win.place_doc.show_field("hut_int", {"verbatim_eb": {"donor": 351}}, ex)
         _settle(4)
-    elif state == "fork":
+    elif state in ("fork", "regions"):
         import importlib.util
         p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_place_fixture", p)
@@ -870,9 +886,22 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
                                  "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
                                  "png": str(photo), "tris": quad, "floors": [0, 0]}
         pd._apply_bundle(pd._bundles[(351, 0)], refit=True)
-        pd.mode_btns["prop"].setChecked(True)          # place a prop through the REAL op path so the
-        pd._apply_hit({"xz": (300.0, 1700.0), "pos": (300.0, 0.0, 1700.0),   # status + marker are true
-                       "floor": 0, "tri": 0, "s": 1.0})
+        if state == "regions":
+            pd.tools.set_current("regions")            # the rung-4 tool, through its own strip
+            pd.gw_to.setValue(4005)
+            pd._on_region_drawn([(-800.0, 1600.0), (-100.0, 1600.0),  # a CLEAN convex gateway:
+                                 (-100.0, 2400.0), (-800.0, 2400.0)])  # accent, edge + chevron
+            pd._on_region_drawn([(400.0, 1900.0), (900.0, 1900.0),   # overlaps the event below ->
+                                 (900.0, 2600.0), (400.0, 2600.0)])   # the TREADQUAD warn pair
+            pd.rkind_btns["event"].setChecked(True)
+            pd._on_region_drawn([(100.0, 1600.0), (800.0, 1600.0),
+                                 (800.0, 2200.0), (100.0, 2200.0)])
+            pd._on_region_drawn([(-50.0, 1000.0), (300.0, 600.0),    # a notch-in-hull dart ->
+                                 (300.0, 1200.0), (-400.0, 1200.0)])  # the over-trigger wash
+        else:
+            pd.mode_btns["prop"].setChecked(True)      # place a prop through the REAL op path so the
+            pd._apply_hit({"xz": (300.0, 1700.0), "pos": (300.0, 0.0, 1700.0),   # status + marker are true
+                           "floor": 0, "tri": 0, "s": 1.0})
         _settle(6)
     else:
         win.tabs.setCurrentWidget(win.place_doc)

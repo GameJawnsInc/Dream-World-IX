@@ -5,6 +5,36 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — trigger regions drawn on the art (the Place tab's Regions tool)
+- Gateway and walk-in-event zones are now DRAWN, not typed: a per-canvas tool strip
+  (Place / Regions — explicit click semantics, the strip every canvas mode was waiting
+  for) arms a region mode where four clicks build one quad, corner and whole-quad drags
+  reshape it, and the quad's own menu rotates its walk-out edge or deletes it. New
+  `[[gateway]]` rows take their target field + entrance from the strip's own boxes;
+  events land with a placeholder message for the Editor form to word.
+- Both region LAWS render on the canvas instead of waiting for the lint: overlapping
+  tread regions mark in warn with the starvation explained (the TREADQUAD one-fire law,
+  judged by the same `region_overlap_pairs` the lint formats), and every zone is audited
+  against the engine's real IsInQuad fan — a dead zone (drawn area that silently never
+  fires, the hand-authored collinear-strip class) hatches in error, an over-trigger
+  spill (a non-convex/self-crossing quad firing OUTSIDE its own outline) washes in warn.
+  A gateway's corners-0→1 walk-out edge draws thick with an outward chevron — the edge
+  the exit walks the player across.
+- Zone corners project at the walkmesh's real floor height and may hang off the mesh
+  (normal donor door layout): an off-mesh click lands through the new plane-at-height
+  conversion (`imagefield.click_to_plane` — THE PLANE LAW's one-parameter
+  generalization), raycast-exact everywhere the mesh is under the pixel.
+- The PHOTO lane draws regions too: the Trace tab grew the same tool strip
+  (Floor / Cut-outs / Regions — the Add-cut-out toggle became the Cut-outs segment) and
+  stores drawn zones in canvas pixels alongside the floor, so a pitch change re-judges
+  them and Generate emits them through the CLI's own new `--gateway
+  "to[,entrance]@cx,cy;…"` / `--event-zone "message@cx,cy;…"` arguments —
+  `image-field` un-projects the quads through the same camera as the floor and writes
+  real `[[gateway]]`/`[[event]]` rows, so a photo project's doors and walk-in messages
+  survive every in-place regenerate. The `.trace.json` sidecar and the field.toml
+  reopen path round-trip them (a compiled project's world zones invert back to the
+  session's canvas pixels).
+
 ### Fixed — `cooldown` over a one-shot is now an EVENT (the hangout greet latch)
 - A `cooldown` branch whose action is a one-shot (`announce`/`sfx`/`flash`/`stop_timer`)
   compiled with sticky-engagement semantics: selecting the announce halts the walker

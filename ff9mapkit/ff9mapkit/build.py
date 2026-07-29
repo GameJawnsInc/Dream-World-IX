@@ -3091,62 +3091,71 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
     return out
 
 
-def lint_region_overlaps(project: FieldProject) -> list[str]:
-    """THE TREADQUAD LAW (in-game 2026-07-12): ``EventEngine.TreadQuad`` returns the FIRST active
-    region whose quad contains the player -- the engine delivers exactly ONE tread event per frame,
-    so overlapping tread regions (gateways, walk-events, walk-choices, [[coop]] plates/zones)
-    silently STARVE each other: whichever arms earlier in the scan wins every frame it contains the
-    player. Warn on any pair of tread-class zones whose bounding boxes genuinely overlap (shared
-    edges are fine -- abutting zones are a normal layout). Advisory + lint-only."""
-    raw = project.raw
-    boxes: list = []          # (label, x1, z1, x2, z2)
+def region_overlap_pairs(raw: dict) -> list[tuple]:
+    """The TREADQUAD-LAW judge over a field's raw dict: every pair of tread-class zones whose
+    bounding boxes genuinely overlap (shared edges are fine -- abutting zones are a normal
+    layout). Each side of a pair is ``(kind, index, label)`` so a live canvas can mark the
+    exact row; :func:`lint_region_overlaps` formats the same pairs into lint messages -- ONE
+    owner of the judgment for both."""
+    boxes: list = []          # ((kind, index, label), x1, z1, x2, z2)
 
-    def _add_quad(label, pts):
+    def _add_quad(key, pts):
         try:
             xs = [float(p[0]) for p in pts]
             zs = [float(p[1]) for p in pts]
         except (TypeError, ValueError, IndexError):
             return                                       # malformed zones are validate()'s problem
         if xs and zs:
-            boxes.append((label, min(xs), min(zs), max(xs), max(zs)))
+            boxes.append((key, min(xs), min(zs), max(xs), max(zs)))
 
-    def _add_rect(label, rect):
+    def _add_rect(key, rect):
         try:
             x1, z1, x2, z2 = (float(v) for v in rect)
         except (TypeError, ValueError):
             return
-        boxes.append((label, min(x1, x2), min(z1, z2), max(x1, x2), max(z1, z2)))
+        boxes.append((key, min(x1, x2), min(z1, z2), max(x1, x2), max(z1, z2)))
 
     for i, gw in enumerate(raw.get("gateway", [])):
         if "zone" in gw:
-            _add_quad(f"gateway -> {gw.get('to', '#' + str(i))}", gw["zone"][:4])
+            _add_quad(("gateway", i, f"gateway -> {gw.get('to', '#' + str(i))}"), gw["zone"][:4])
     for i, ev in enumerate(raw.get("event", [])):
         if "zone" in ev:
-            _add_quad(f"event {ev.get('name', '#' + str(i))!r}", ev["zone"][:4])
+            _add_quad(("event", i, f"event {ev.get('name', '#' + str(i))!r}"), ev["zone"][:4])
     for i, ch in enumerate(raw.get("choice", [])):
         if "zone" in ch and (ch.get("trigger") or "action") == "walk":   # action = tag-3, a separate class
-            _add_quad(f"walk-choice #{i}", ch["zone"][:4])
+            _add_quad(("choice", i, f"walk-choice #{i}"), ch["zone"][:4])
     for i, co in enumerate(raw.get("coop", [])):
         if str(co.get("mode", "once")).lower() == "hold":
             continue                                     # holds are looping CODE entries, not regions
         who = f"[[coop]] gate {co.get('name', '#' + str(i))!r}"
         if "zone" in co:
-            _add_rect(f"{who} zone", co["zone"])
+            _add_rect(("coop", i, f"{who} zone"), co["zone"])
         else:
             for key in ("plate_a", "plate_b"):
                 if key in co:
-                    _add_rect(f"{who} {key}", co[key])
+                    _add_rect(("coop", i, f"{who} {key}"), co[key])
 
-    out: list[str] = []
+    out: list[tuple] = []
     for a in range(len(boxes)):
         for b in range(a + 1, len(boxes)):
-            la, ax1, az1, ax2, az2 = boxes[a]
-            lb, bx1, bz1, bx2, bz2 = boxes[b]
+            ka, ax1, az1, ax2, az2 = boxes[a]
+            kb, bx1, bz1, bx2, bz2 = boxes[b]
             if ax1 < bx2 and bx1 < ax2 and az1 < bz2 and bz1 < az2:      # strict: shared edges OK
-                out.append(f"{la} and {lb} OVERLAP -- the engine fires ONE tread region per frame "
-                           f"(first active match wins), so the later-armed one is silently starved "
-                           f"wherever they overlap. Separate the zones.")
+                out.append((ka, kb))
     return out
+
+
+def lint_region_overlaps(project: FieldProject) -> list[str]:
+    """THE TREADQUAD LAW (in-game 2026-07-12): ``EventEngine.TreadQuad`` returns the FIRST active
+    region whose quad contains the player -- the engine delivers exactly ONE tread event per frame,
+    so overlapping tread regions (gateways, walk-events, walk-choices, [[coop]] plates/zones)
+    silently STARVE each other: whichever arms earlier in the scan wins every frame it contains the
+    player. Advisory + lint-only; the judgment itself is :func:`region_overlap_pairs` (shared with
+    the Workspace's live region canvas)."""
+    return [f"{ka[2]} and {kb[2]} OVERLAP -- the engine fires ONE tread region per frame "
+            f"(first active match wins), so the later-armed one is silently starved "
+            f"wherever they overlap. Separate the zones."
+            for ka, kb in region_overlap_pairs(project.raw)]
 
 
 @dataclass

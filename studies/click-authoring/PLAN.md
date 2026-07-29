@@ -244,10 +244,47 @@ Save rewrites a byte-exact golden oracle (CLAUDE.md §5). Write-back must preser
 comments, and ordering, and must **refuse outright** on anything under `ff9mapkit/examples/`.
 On a `--verbatim` fork, new content seats below the party band ([[project-ff9-npc-on-verbatim]]).
 
-### Rung 4 — regions drawn on the art
+### Rung 4 — regions drawn on the art ★ BUILT 2026-07-29, ⚠ awaiting playtest
 Gateway / trigger quads drawn directly on the background instead of typed as numbers. Carries the
 existing region laws (tags 2/3/10, `IsInQuad` dead-zones) — the canvas should *render* a dead-zone
 warning, not just accept the quad.
+
+★ **BUILT, both hosts + the CLI (commits `4213b627` part A / `18a3ed44` part B):**
+- **The canvas** (`BackdropCanvas` region mode, exclusive like the others): four clicks build one
+  quad (`region_drawn`), corner + whole-quad drags reshape (`region_changed`, ONE emission per
+  gesture through the same seams the vertex drags use), right-click rotates the walk-out edge or
+  deletes; Esc/right-click abandons a quad mid-draw. Corners project at the walkmesh's real floor
+  height and legitimately hang OFF the mesh (donor door quads do) — an off-mesh click converts
+  through `imagefield.click_to_plane`, §1's own `s = (h - C.y)/ray.y` one-parameter
+  generalization, raycast-exact wherever the mesh is under the pixel.
+- **THE LAWS RENDER, both directions.** The fan simulation (`imagefield.fan_triangles` /
+  `zone_fan_audit`) surfaced a truth the dead-zone framing missed: with the encoder's
+  auto-doubling (`quad_zone`), a drawn 4-corner quad can NEVER dead-zone — the fan always covers
+  the drawn interior. The real 4-corner hazard is **OVER-TRIGGER**: a dart/bowtie's fan swallows
+  the notch (up to the whole hull), firing where nothing was drawn — rendered as a warn wash on
+  fan-minus-drawn. The genuine dead zone survives only in hand-authored 5-DISTINCT-point zones
+  (the classic collinear strip) — rendered as an error hatch. TREADQUAD overlap starvation marks
+  live too, judged by `build.region_overlap_pairs` — extracted from `lint_region_overlaps` so the
+  canvas and the lint share ONE owner. A gateway's corners-0→1 walk-out edge draws thick with an
+  outward chevron.
+- **The tool strip shipped WITH this rung as mandated** (`widgets.ToolStrip`, `#railSeg`
+  segments — the rail's settled rule set, zero new QSS): Place = Place/Regions; Trace =
+  Floor/Cut-outs/Regions (the Add-cut-out toggle became the Cut-outs segment). The strip earned
+  its own row in the Trace tab immediately — the snap caught the shared photo row squeezing it to
+  a blank chip (the round-7 squeeze law, live).
+- **The Place host**: pure ops `place_gateway`/`place_event`/`move_zone`/`delete_region` +
+  `region_rows` (the one derivation of labels + both laws, reused by the Trace host through a
+  shim); gateway target/entrance boxes on the strip; verbatim forks stay live (below-band
+  seating). **The photo lane**: zones stored in CANVAS px beside the floor (pitch re-judges,
+  undo walks them), emitted via `image-field`'s new `--gateway "to[,entrance]@cx,cy;…"` /
+  `--event-zone "message@cx,cy;…"` args — un-projected through the same camera as the floor into
+  real `[[gateway]]`/`[[event]]` rows, so doors survive every in-place regenerate; the
+  `.trace.json` sidecar and the field.toml reopen path round-trip them both ways.
+- Pinned: `tests/test_region_laws.py` (14 — the fan audit's every class, plane round-trips,
+  overlap keys, the generator emission) + backdrop (8 new) + place (7 new) + tracedoc (4 new);
+  snaps `place:regions` + `trace:regions` read at 100/150 (both hosts hold the 150 rung).
+**Playtest ask:** draw a gateway on a real fork in the Place tab (aim its 0→1 edge at the exit),
+deploy, walk out both ways; then a photo-lane door on the hallway project via Regenerate.
 
 ### Rung 6 (DEFERRED — the intended expansion, owner-decided 2026-07-28)
 **A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
@@ -363,9 +400,9 @@ GUI claim from source; that is the documented recurring failure in this package.
    (d) ★ PLAYTEST-CONFIRMED 2026-07-29 — the owner placed a prop + an NPC on a VERBATIM fork
    in the Place tab, deployed to 4003, and saw both in-game (the live-install load path, the
    raycast, the write-back, AND the build's below-band verbatim seating, proven in one pass).
-   **RUNG 3 CLOSED.** Still open on the board: Rung 4 (regions drawn on the art), and Rung 6
-   (the multi-room composer, now unblocked — its "do not start before Rung 3 is real" gate is
-   satisfied).
+   **RUNG 3 CLOSED.** Still open on the board: Rung 4 ★ BUILT awaiting playtest (see its block),
+   and Rung 6 (the multi-room composer, now unblocked — its "do not start before Rung 3 is real"
+   gate is satisfied).
 5. **Rung 2** ★ BUILT 2026-07-29, ★ CORE MECHANISM PLAYTEST-CONFIRMED (contact mode + the
    Cut-outs strip in the Trace tab; owner aligned a snip on a real hallway photo and confirmed
    it composites correctly in-game — "that worked when i aligned it correctly"). Two full
@@ -393,8 +430,8 @@ GUI claim from source; that is the documented recurring failure in this package.
    (c) *Explicit canvas TOOLS (owner-proposed)* — as click semantics multiply (pan/trace/
    contacts now; regions at rung 4), a small per-canvas tool strip (Canvas / Walkmesh /
    Cut-outs; Behavior its own set; possibly anchor-vs-image sub-tools) beats implicit mode
-   juggling. STILL DEFERRED — adopt at latest WITH rung 4, whose region quads add a fourth
-   semantic and make a strip mandatory.
+   juggling. ★ **ADOPTED WITH RUNG 4** as mandated (`widgets.ToolStrip` on both click-authoring
+   canvases); the Behavior stage's own set remains a possible follow-on.
    Also shipped this round: Generate is IN-PLACE after the first run (no dialog; writes a
    `.trace.json` session record); Open accepts that sidecar OR the project's own `field.toml`
    (backfilling the session from compiled artifacts when no sidecar exists yet); the Trace tab
