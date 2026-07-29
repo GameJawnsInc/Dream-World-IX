@@ -267,9 +267,18 @@ GUI claim from source; that is the documented recurring failure in this package.
    in the tab, generated, deployed, and walked it ("looks good i got one in"). **RUNG 1 CLOSED —
    the GUI reaches full parity with the retired HTML tracer.**
 4. ~~**Scope Rung 3's UI**~~ ★ SCOPED 2026-07-28 — VIABLE via the walkmesh raycast (see the Rung 3
-   block: floor census + bench receipts). Build order: (a) the raycast conversion beside
-   `click_to_world` + its offline gate (project mesh points → raycast back, exact; stacked-floor
-   hits listed), (b) `BackdropCanvas` placement mode over a cache_field-composited backdrop,
-   (c) the field-card entry (§5 call site 2) + open-doc write-back with the examples refusal and
-   the verbatim party-band seat, (d) `gui_snap` surfaces + the owner walks a placed NPC in-game.
-   Rung 2 (occluder contacts — a contact mode on the same canvas) rides along.
+   block: floor census + bench receipts). Build order, (a) ★ DONE 2026-07-28: `click_ray` is now
+   THE one-owner ray construction (spent by both `unproject_floor` and the raycast, so the
+   offset-fold class cannot fork), `click_to_surface` (Möller–Trumbore, hits nearest-first,
+   tripwired), `mesh_world_tris`, `world_point_to_click` — offline-gated (ramps < 1e-6, stacked
+   floors sorted, refusals).
+   ★ **THE RENDER-FRAME Y-FLIP (a law step (b)+ must keep):** the engine negates walkmesh Y
+   before the GTE (WalkMesh.cs:54), so the frame the ART shows is `(x, -y, z)` of `world_verts` —
+   `mesh_world_tris` flips at the projection boundary exactly as `compose_background`'s in-game-
+   proven footprint does; the bench alone could NOT catch this (a round-trip is self-consistent
+   under a global flip) — reading the proven compositor did. Placement's written (x, z) is
+   sign-invariant.
+   Remaining: (b) `BackdropCanvas` placement mode over a `cache_field`/`compose_background`
+   backdrop, (c) the field-card entry (§5 call site 2) + open-doc write-back with the examples
+   refusal and the verbatim party-band seat, (d) `gui_snap` surfaces + the owner walks a placed
+   NPC in-game. Rung 2 (occluder contacts — a contact mode on the same canvas) rides along.
