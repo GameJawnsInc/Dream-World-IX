@@ -318,6 +318,23 @@ def test_click_to_world_grid_roundtrip():
                             f"pitch {pitch} yaw {yaw} fov {fov}: ({cx},{cy}) round-trips {err:g} px off"
 
 
+def test_click_roundtrip_with_real_style_center_offset():
+    """REAL imported cameras carry a nonzero GTE centerOffset (the map158 donor's [26, 400]);
+    the un-projection must fold it out exactly as to_canvas folds it in. Before the fix this
+    round-tripped |offset| px wrong (measured 400.8 px on the donor — the click-authoring
+    census's first catch)."""
+    cam = guide.make_camera(26.0, 3000.0, fov_x_deg=42.0, center_offset=(26, 400),
+                            range_wh=(512, 400))
+    hy = C.horizon_canvas_y(cam)
+    for cx in (30, 250, 480):
+        for cy in (int(hy + 10), 200, 390):
+            if cy <= hy + 3:
+                continue
+            X, Z = IF.click_to_world(cam, (cx, cy))
+            bx, by = IF.world_to_click(cam, (X, Z))
+            assert math.hypot(bx - cx, by - cy) < 1e-9
+
+
 def test_click_to_world_refuses_above_horizon():
     """The horizon guard: refuse, never clamp — a silent clamp would place content at absurd depth."""
     cam = _cam()

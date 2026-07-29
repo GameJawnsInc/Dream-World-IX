@@ -45,13 +45,20 @@ def unproject_floor(cam: _cam.Cam, contour_px) -> list:
 
     The plane-induced inverse of FF9's perspective projection: for each pixel we shoot the camera
     ray through it and intersect the y=0 plane. Raises :class:`ImageFieldError` if any vertex lands
-    at or above the horizon (where the ray is parallel to the floor and the inverse blows up)."""
+    at or above the horizon (where the ray is parallel to the floor and the inverse blows up).
+
+    The canvas frame folds OUT the camera's GTE centerOffset first — the exact inverse of
+    ``cam.to_canvas`` (canvasX = rawProj.x + off.x + w/2, canvasY = h/2 + off.y - rawProj.y).
+    Kit-authored cameras have offset (0,0), so the image-field path is untouched; REAL imported
+    cameras carry a nonzero offset (the map158 donor's [26, 400] is the proven case) and skipping
+    the fold round-trips exactly |offset| px wrong (measured 400.8 px there, click-authoring census)."""
     d = _cam.decompose(cam)
     C, Minv = d["C"], _cam.inv3(d["R_view"])   # inv3, NOT transpose — R_view carries the k=14/15 squash
     W, H, D = cam.range[0], cam.range[1], cam.proj
+    ox, oy = cam.centerOffset
     out = []
     for i, (cx, cy) in enumerate(contour_px):
-        ray = _cam.mv(Minv, (cx - W / 2.0, H / 2.0 - cy, D))
+        ray = _cam.mv(Minv, (cx - ox - W / 2.0, H / 2.0 + oy - cy, D))
         if ray[1] == 0:
             raise ImageFieldError(f"floor vertex {i} ({cx:.0f},{cy:.0f}) is on the horizon line")
         s = -C[1] / ray[1]
