@@ -366,22 +366,37 @@ GUI claim from source; that is the documented recurring failure in this package.
    **RUNG 3 CLOSED.** Still open on the board: Rung 4 (regions drawn on the art), and Rung 6
    (the multi-room composer, now unblocked — its "do not start before Rung 3 is real" gate is
    satisfied).
-5. **Rung 2** ★ BUILT 2026-07-29 (see the rung block: contact mode + the Cut-outs strip in the
-   Trace tab), ⚠ awaiting the occlusion-flip playtest on a real photo's occluder.
-   **Playtest round 2 (2026-07-29) — three findings, all actioned:**
+5. **Rung 2** ★ BUILT 2026-07-29, ★ CORE MECHANISM PLAYTEST-CONFIRMED (contact mode + the
+   Cut-outs strip in the Trace tab; owner aligned a snip on a real hallway photo and confirmed
+   it composites correctly in-game — "that worked when i aligned it correctly"). Two full
+   playtest rounds drove real fixes, all landed:
    (a) *Re-deployed art needed a full relaunch* → root-caused to the ENGINE, not the tab: the
    s35 overlay-texture cache keyed on path alone, serving the stale decode all session. The
-   owner called its original ★ proof confounded (the entry-settle churn) → **s35 RETIRED**
-   (memoria-patches/README.md row has the full story; reinstate WITH mtime invalidation only
-   if the fade provably returns). Reverted + compile-checked; the deploying rebuild waits for
-   a closed game. After it lands: move cut-out → Regenerate → deploy → ~ Reload, no relaunch.
-   (b) *Says-Move-but-pans* → the press resolver used `itemAt` (topmost only), so a trace leg /
-   ring / label crossing a grabbable ate the press, while Qt's hover cursor looks THROUGH
-   cursor-less items — fixed: press resolution scans EVERY item under the point by kind
-   (vertex > anchor > snip) and contact handles draw topmost (the behaviordoc handles-last
-   law); pinned by a crossing-leg test.
+   owner called its original ★ proof confounded (the entry-settle churn) → **s35 RETIRED**:
+   reverted from `C:\gd\FFIX\Memoria`, compile-checked, then DEPLOYED closed-game 2026-07-29
+   (Output == both arches sha `44090B29…`, backup `preS35removal.20260729-114832`; full story
+   + fingerprint tokens in `memoria-patches/README.md`'s s35 row). ★ **Owner-confirmed
+   in-game: "image movement is hot-reloadable now"** — move cut-out → Regenerate → deploy →
+   ~ Reload, no relaunch, exactly as designed.
+   (b) *Says-Move-but-pans* → two layers. First cut: the press resolver used `itemAt`
+   (topmost-only), so a trace leg/ring/label crossing a grabbable ate the press while the
+   hover cursor looked through cursor-less items — fixed by scanning every item under the
+   point by kind. Then a SEPARATE session root-caused the real disease underneath both this
+   and the wider GC-crash saga: **`QGraphicsItem.parentItem()` returning `None` silently
+   flips the wrapper Python-owned, so its death DELETES the C++ item** — a pure PySide6 bug,
+   version-independent (memory `project-ff9-pyside-parentitem-ownership`, full record
+   `studies/pyside-gc-crash/NOTES.md`). The press-walk sites now resolve through tag slots
+   alone (zero `parentItem()` calls in `workspace/`); backdrop drags no longer risk deleting
+   the art itself. Background-vanishing-during-drag (a separate owner report) was THIS bug,
+   not a repaint artifact — a viewport-update-mode band-aid was tried and reverted as the
+   wrong layer once the real cause was clear.
    (c) *Explicit canvas TOOLS (owner-proposed)* — as click semantics multiply (pan/trace/
    contacts now; regions at rung 4), a small per-canvas tool strip (Canvas / Walkmesh /
    Cut-outs; Behavior its own set; possibly anchor-vs-image sub-tools) beats implicit mode
-   juggling. DEFERRED until the grab fix soaks — adopt at latest WITH rung 4, whose region
-   quads add a fourth semantic and make a strip mandatory.
+   juggling. STILL DEFERRED — adopt at latest WITH rung 4, whose region quads add a fourth
+   semantic and make a strip mandatory.
+   Also shipped this round: Generate is IN-PLACE after the first run (no dialog; writes a
+   `.trace.json` session record); Open accepts that sidecar OR the project's own `field.toml`
+   (backfilling the session from compiled artifacts when no sidecar exists yet); the Trace tab
+   auto-loads / one-click-offers the field currently open in the Editor; edits since the last
+   Generate show a "⚠ not stamped" status warning until re-stamped.
