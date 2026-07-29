@@ -59,6 +59,7 @@ from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
+from .tracedoc import TraceDoc
 from .worlddoc import WorldDoc
 from .style import qss, space, type_px
 from . import thumbs as _thumbs, widgets
@@ -926,6 +927,8 @@ class Workspace(QMainWindow):
             self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
         if getattr(self, "behavior_doc", None) is not None:
             self.behavior_doc.retheme(pal)                    # the stage canvas + guide glyph paint too
+        if getattr(self, "trace_doc", None) is not None:
+            self.trace_doc.retheme(pal)                       # the backdrop canvas paints too
         if getattr(self, "_find_bar", None) is not None:
             self._find_bar.retheme(pal)                       # both highlight tiers are QTextCharFormats --
                                                               # QPainter-side, so the sheet cannot reach them
@@ -977,6 +980,8 @@ class Workspace(QMainWindow):
             self.world_doc.set_scale(self._text_scale)  # the world atlas canvas paints too
         if getattr(self, "behavior_doc", None) is not None:
             self.behavior_doc.set_scale(self._text_scale)   # the behavior stage canvas too
+        if getattr(self, "trace_doc", None) is not None:
+            self.trace_doc.set_scale(self._text_scale)      # the backdrop canvas too
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1731,6 +1736,12 @@ class Workspace(QMainWindow):
                                       thumbs=self.thumbs,                  # fork preview shows the room's art
                                       on_open_models=lambda: self.tabs.setCurrentWidget(self.models_doc))
         self.tabs.addTab(self.import_field, "Import")
+        # click-authoring Rung 1 (studies/click-authoring): trace a photo's floor ON the art and
+        # generate a walkable field — the image→field on-ramp as a first-class surface. Streams
+        # the same `image-field` CLI through run_job; touches no disk until Open/Generate.
+        self.trace_doc = TraceDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
+                                  scale=self._text_scale)
+        self.tabs.addTab(self.trace_doc, "Trace")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
         self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job, on_setup=self._open_setup,
@@ -1759,7 +1770,7 @@ class Workspace(QMainWindow):
         self._rail_groups = [
             ("Home", [self._welcome_tab]),
             ("Author", [self.doc_scroll, self.map, self.behavior_doc]),
-            ("Assets", [self.import_field, self.models_doc, self.battle]),
+            ("Assets", [self.import_field, self.trace_doc, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
             ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
         ]

@@ -453,6 +453,12 @@ _QSS = Template(
        has no focusable children at all, so tabbing to it is the ONLY way to read it.) */
     QScrollArea { border: 1px solid transparent; }
     QScrollArea:focus { border: 1px solid $focus; }
+    /* The Trace tab's pitch slider is a real Tab stop with nothing to recolour (a bare QSlider
+       carries no frame). Same reserved-transparent move as the scroll areas -- and scoped BY ID,
+       because an app-wide `QSlider { border: ... }` box rule would flip every slider (the prefs
+       CALIBRE dial, the sim stepper) off Fusion's native groove/handle painting. */
+    QSlider#tracePitch { border: 1px solid transparent; border-radius: 6px; }
+    QSlider#tracePitch:focus { border: 1px solid $focus; }
     /* NB: pseudo-ELEMENT before pseudo-CLASS -- `::indicator:focus`, NEVER `:focus::indicator`. Qt does
        not reject the wrong order: `Selector::pseudoElement()` reads the FIRST pseudo, sees the known class
        `focus`, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`, so the match test
