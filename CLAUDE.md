@@ -268,7 +268,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
 - Summons TIER W ★: W5 ⛳, W6a ★★, W7 ★★, W6b-1 ⛳ in-game (byte→screen + per-cell map + 4bpp proven; BINDING≠DRAW + UV-shredding laws; shape-on-flat open) → `studies/custom-summons/tier-w/PLAN.md`
-- The scene ladder — rung 0 ★ the quay ship + rung 1a ★ the rig camera (s66/s68 engine fixes; probe-verified); next = 1b the sail → `studies/overworld-topography/scene-ladder/`
+- The scene ladder — RUNG 1 COMPLETE ★ (quay ship · rig camera · tracked sail · phases+fades; s66/s68, six laws); next = rung 2 the ferry-scene diegesis (owner design) → `studies/overworld-topography/scene-ladder/`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

@@ -7999,15 +7999,22 @@ class Workspace(QMainWindow):
             if lay.get("central_split"):
                 self._central_split.setSizes(self._repair_central_split(lay["central_split"]))
             csplit = lay.get("console_split")
+            collapsed = bool(lay.get("console_collapsed", False))
             if csplit:
+                # Seed the re-expand memory ALWAYS; push it into the live splitter only when the console
+                # comes back OPEN. A collapsed console pins the panel's maximumHeight, and that pin clamps
+                # only the WIDGET -- the splitter rail keeps whatever span setSizes() asked for. So a
+                # collapsed restore that setSizes()'d the saved EXPANDED split left the header strip atop
+                # a dead void the exact height of the remembered body ("fake-maximized" until first click).
                 self._console_sizes = list(csplit)
-                self._vsplit.setSizes(self._console_sizes)
+                if not collapsed:
+                    self._vsplit.setSizes(self._console_sizes)
             # A saved session's console state wins over the collapsed-by-default (both directions). The
             # prefs layer only persists console_collapsed when it's TRUE (an OPEN console drops the key),
             # so a saved layout (console_split present) with NO flag == the user had it OPEN -> expand;
             # a stored TRUE flag -> collapse. No saved layout at all -> the cold-start collapse stands.
-            if csplit or lay.get("console_collapsed"):
-                self._toggle_console(expand=not lay.get("console_collapsed", False))
+            if csplit or collapsed:
+                self._toggle_console(expand=not collapsed)
         except Exception:   # noqa: BLE001  (never let a bad layout block launch)
             pass
 

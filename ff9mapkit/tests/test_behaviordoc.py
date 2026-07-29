@@ -415,11 +415,21 @@ def test_move_delete_add_branch_go_through_the_shell_contract(edoc):
     assert br[1]["do"] == {"die": True}
     edoc._delete_row(1)
     assert len(br) == 5 and not any(b["do"] == {"die": True} for b in br)
+    edoc._ask_branch = lambda: ("blank", None)     # the mini-wizard's seam: Blank branch
     edoc._add_branch()                             # lands above the fallback + opens the editor
     assert br[-2]["when"] == [{"flag": "never"}]
     assert edoc.editor.isVisibleTo(edoc)
+    edoc._ask_branch = lambda: ("chase_sight", "raider")   # ...and a BRANCH archetype
+    edoc._add_branch()
+    assert br[-2]["do"] == {"chase": "raider", "standoff": 180, "speed": 65}
+    assert br[-2]["when"] == [{"active": "raider"}, {"near": ["raider", 900]}]
+    edoc._ask_branch = lambda: None                # a cancelled dialog adds nothing
+    n = len(br)
+    edoc._add_branch()
+    assert len(br) == n
     assert [lab for _m, lab in edoc._edits] == [
-        "reorder watchman branches", "delete watchman branch 2", "add watchman branch"]
+        "reorder watchman branches", "delete watchman branch 2", "add watchman branch",
+        "stamp chase_sight branch on watchman"]
 
 
 def test_add_unit_through_the_seam_and_remove_back_to_guide(edoc):
@@ -941,3 +951,67 @@ def test_overlapping_labels_take_distinct_tiers(doc):
     doc.show_field("STACK", raw, None)
     ys = {t: y for t, y in _label_texts(doc.canvas) if t.startswith("twin")}
     assert len(ys) == 2 and len(set(ys.values())) == 2   # same anchor, two tiers
+
+
+# --------------------------------------------------------------------------- round 2: dead rows + rowtool
+def test_a_dead_row_wears_the_never_selects_chip_and_the_sim_agrees(doc):
+    raw = {"field": {"name": "DEAD"}, "player": {"spawn": [0, 0]},
+           "npc": [{"name": "a", "pos": [100, 0]}],
+           "behavior": {"unit": [{"npc": "a", "hp": 3, "branch": [
+               {"when": [{"near": ["player", 900]}], "do": {"chase": "player"}},
+               {"when": [{"near": ["player", 400]}], "do": {"swing_at": "player",
+                                                            "damage": 1}},
+               {"do": {"hold_post": True}},
+           ]}]}}
+    doc.show_field("DEAD", raw, None)
+    rows = _ladder_rows(doc.ladder)
+    chips = [w.text() for w in rows[1].findChildren(QLabel)]
+    assert any("never selects — row 1 wins first" in t for t in chips)
+    assert not any("never selects" in w.text()
+                   for r in (rows[0], rows[2]) for w in r.findChildren(QLabel))
+    # the sim corroborates the static claim: the shadowed row never selects in a run
+    from ff9mapkit.workspace import behaviorsim
+    sim = behaviorsim.Sim(raw)
+    assert all(sim.at(t)["units"]["a"]["sel"] != 1 for t in range(0, 200, 10))
+
+
+def test_the_demo_ladder_renders_no_dead_row_chip(doc):
+    doc.show_field("BGLADE", demo_raw(), None)     # announce-once over swing over chase:
+    for r in _ladder_rows(doc.ladder):             # the once-exemption keeps it chip-free
+        assert not any("never selects" in w.text() for w in r.findChildren(QLabel))
+
+
+def test_the_row_buttons_are_rowtool_tier_and_the_stats_keep_a_stub(doc):
+    doc.show_field("BGLADE", demo_raw(), None)
+    rows = _ladder_rows(doc.ladder)
+    btns = rows[0].findChildren(QPushButton)
+    assert btns and all(b.property("role") == "rowtool" for b in btns)
+    # the unit bar's stats label yields width but never to NOTHING. The floor must be
+    # the EXPLICIT minimum: Policy.Ignored makes the layout skip minimumSizeHint, so a
+    # floor living only there is a property nobody renders (this round's own catch).
+    fm = doc.unit_stats.fontMetrics()
+    assert doc.unit_stats.minimumWidth() >= int(fm.averageCharWidth() * 12)
+
+
+def test_the_branch_wizard_previews_the_real_body_and_honours_unit_only():
+    from ff9mapkit.workspace.behaviordoc import BranchWizard
+    raw = demo_raw()
+    w = BranchWizard(pick_palette("dark"), raw, "watchman")
+    assert w.list.count() == len(behaviorscan.BRANCH_ARCHETYPES) + 1   # + the blank row
+    assert w.picked() is None
+    w.list.setCurrentRow(0)                        # blank: no target row, OK enabled
+    assert not w._vs_row.isVisibleTo(w) and w._ok.isEnabled()
+    ci = next(i for i, a in enumerate(behaviorscan.BRANCH_ARCHETYPES)
+              if a["key"] == "chase_sight") + 1
+    w.list.setCurrentRow(ci)
+    assert [w.vs.itemText(i) for i in range(w.vs.count())] == ["player", "raider", "porter"]
+    w.vs.setCurrentText("raider")
+    body = behaviorscan.branch_archetype_body(raw, "watchman", "chase_sight", "raider")
+    verb, detail = behaviorscan.fmt_action(body["do"])
+    assert verb in w.preview.text() and detail in w.preview.text()   # verbatim, not prose
+    si = next(i for i, a in enumerate(behaviorscan.BRANCH_ARCHETYPES)
+              if a["key"] == "swing_reach") + 1
+    w.list.setCurrentRow(si)                       # unit_only: the player row is GONE
+    assert [w.vs.itemText(i) for i in range(w.vs.count())] == ["raider", "porter"]
+    w.accept()
+    assert w.picked() == ("swing_reach", "raider")

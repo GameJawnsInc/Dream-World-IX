@@ -180,12 +180,14 @@ _DENSITY = {
         "tb_btn_pad": "6px 10px",                        # == btn_pad at 100%, but exempt from the dial
         "input_pad": "6px 9px", "combo_pad": "4px 8px", "row_pad": "6px 8px",
         "tab_pad": "7px 16px", "menu_pad": "6px 22px",
+        "rowtool_pad": "1px 6px",                        # per-row tool glyphs (the ladder's ↑↓✎✕)
     },
     "compact": {
         "tb_pad": "3px 6px", "tb_space": "4px", "btn_pad": "4px 8px",
         "tb_btn_pad": "4px 8px",
         "input_pad": "4px 7px", "combo_pad": "3px 7px", "row_pad": "3px 4px",
         "tab_pad": "5px 12px", "menu_pad": "5px 16px",
+        "rowtool_pad": "0px 5px",
     },
 }
 
@@ -333,6 +335,20 @@ _QSS = Template(
     QPushButton[role="quiet"]:pressed  { background: $pressed; color: $pressed_fg; }
     QPushButton[role="quiet"]:focus    { border: 1px solid $focus; }
     QPushButton[role="quiet"]:disabled { color: $muted; background: $bg; border: 1px solid $border; }
+
+    /* ROW TOOLS -- repeated per-row furniture (the Behavior ladder's ↑ ↓ ✎ ✕), not four more
+       buttons: borderless and fill-less at rest (the row's card is the ground), a fill only under
+       the cursor, padding tightened so a 4-glyph rack stops out-massing the branch it serves.
+       Ink stays the body-text token, never muted -- muted-on-transparent is the DISABLED idiom
+       (the quiet tier's own lesson). The rest border is transparent but PRESENT so focus
+       recolours without reflow, and pressed/focus/disabled are explicit for the same
+       specificity-tie reason as the quiet tier's. */
+    QPushButton[role="rowtool"]          { background: transparent; border: 1px solid transparent;
+                                           color: $text; padding: $rowtool_pad; }
+    QPushButton[role="rowtool"]:hover    { background: $hover; }
+    QPushButton[role="rowtool"]:pressed  { background: $pressed; color: $pressed_fg; }
+    QPushButton[role="rowtool"]:focus    { border: 1px solid $focus; }
+    QPushButton[role="rowtool"]:disabled { color: $muted; }
 
     /* Indicators MUST be fully specified: once a stylesheet touches a QCheckBox/QRadioButton, Qt stops
        drawing the native checked dot, so without this the selected state renders INVISIBLE. */

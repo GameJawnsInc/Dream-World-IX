@@ -54,16 +54,54 @@ Instrument: `memoria-patches/s67-rig-probe.patch` (fires while any rig is armed,
 world + a 90-frame tail; reads BOTH position domains and the REAL render camera =
 `WMWorld.MainCamera`). **KEPT LIVE for rung 1b** — remove when the sail rung closes.
 
-## Rung 1b — THE SAIL (NEXT)
+## Rung 1b — THE SAIL ★ CLOSED (2026-07-28, two rounds; video-verified)
 
-The ship runs a ship-relative waypoint `WalkXZY` lane while the aim rides it (per-frame
-re-pin, stock entry-2 shape) — the camera tracks a moving subject; fold the eye dolly
-back in. Also owed here: hide/park the player during the shot if the scene calls for it.
+`rung1b_sail.py` — the camera tracks a moving subject: Confirm → the composed shot → the
+ship comes about and sails 40u due south at speed 60 with the aim re-pinned per frame and
+the eye dollying in → returns, snaps onto the mooring facing the quay → control back
+(owner video: full arc + re-moor + chase restore). Round 1 SOFTLOCKED and minted two laws:
 
-## Rung 1c — THE HANDSHAKE
+- **THE CARROT LAW**: a blocking `WalkXZY` RE-READS its argument expressions every frame —
+  a self-relative target recedes with each step and the walk never terminates. THAT is why
+  stock caches ship-relative targets into Instance vars before walking. Walk targets are
+  CONSTANTS (canonical constants are frame-correct — `RealPosition` is the engine's
+  absolute tracker; probe-confirmed `pos[]` stays canonical).
+- **THE RIG-RADIUS LAW**: `EventCollision.Collision` mode 0 (MoveToward's call) BYPASSES
+  the tag-2/3 candidacy gate — every cid-4 actor is a radius candidate. The aim, re-pinned
+  onto the hull at distance ~0, collided every frame; MoveToward reverted the transform
+  and the per-frame writeback mirrored the revert into `pos[]` (probe: the ship
+  oscillating ±one step forever while the eye's dolly 17u away completed cleanly). Rigs
+  are camera hardware, not bodies: `SetObjectLogicalSize(0,0,0)` on rigs + scenery ship.
 
-A `Byte[26]`-style state machine + fade + restore/`Field()` — a complete self-contained
-mini-scene (the fade also masks the return tween).
+**Known polish item (diagnosed, deferred — owner's call whether to spend an engine round):**
+the scene reads slightly juddery vs free-roam. Frame analysis of the owner's 60fps capture:
+the world simulates at WorldTPS≈28 → 2:3 pulldown; the smoother lerps the camera between
+ticks but screen velocity still varies per frame, and script `SetPosition` motion is
+teleport-class to the smoother. Stock scene worlds (9001) ride the same machinery — this
+matches stock-scene fidelity; free-roam is the smoother's tuned path. s69 candidate:
+SmoothFrameUpdater_World treatment of rig-driven cameras + script-moved actors. Cheap
+scene-side mitigation meanwhile: slower pans / farther eye (smaller per-tick steps).
+
+## Rung 1c — THE HANDSHAKE ★ CLOSED (2026-07-28, two rounds; owner: "clean and repeatable")
+
+`rung1c_handshake.py` — the complete self-contained mini-scene: the fade bracket masks
+both camera cuts AND the post-scene chase ease (all behind black), and the phase byte
+(Map.Byte[50], free per the used-census 24-42) carries the director→cast handshake — the
+EYE's dolly waits on phase 1, the stock Byte[26] idiom. Round 1 hardlocked on a stuck
+white screen and minted:
+
+- **THE FADE SEMANTICS**: `FadeFilter` = WIPERGB 0xEC → `SceneDirector.InitFade((mode&2)
+  ? Sub : Add, frames, CMY)`. The dominant ×65 form `(2,24,0,255,255,255)` SUBTRACTS full
+  white = fade to BLACK (stock brackets scenes through black); mode-0 full white is an
+  ADDITIVE WASH that HOLDS (the ×11 flash form — NOT a fade-in); the restore is the ×18
+  `(3,16,0,0,0,0)` form — subtract zero, lerp the filter to nothing. **The lesson: a
+  census without the HANDLER is pattern-matching, not semantics — read the case first**
+  (the F2 record's "white fade" phrasing was the same misread).
+
+**RUNG 1 IS COMPLETE**: trigger → rig camera → tracked motion → phases → fades → restore,
+all in-place in a free-roam world, repeatable, on stock scene idioms + s66/s68. The s67
+probe stays LIVE through rung 2 (remove at ladder close, bundled with the pending
+Memoria.Prime x64 copy at the next closed-game build).
 
 Rung 2 (design, owner input wanted): wire the proven scene into the ring's ferry UX — the
 diegetic candidates are a DEPARTURE scene (sail-away after boarding at the hall), an

@@ -2263,8 +2263,12 @@ def validate(project: FieldProject) -> list[str]:
                     problems.append(f"[carry_text] carried txid {e.new_txid} out of the safe band "
                                     f"[{_textcarry.CARRY_BASE_TXID}, 65535] (would collide with base/authored text)")
     for m in project.raw.get("marker", []):
-        if "name" not in m or "pos" not in m:
-            problems.append("[[marker]] needs a 'name' and pos = [x, z] (a named point for movement)")
+        # a marker is a named POINT (pos) or a named ROUTE (path) -- the behavior
+        # compiler and the archetype stamps mint path markers, so the old pos-only
+        # check flagged every patrol beat (caught by the HANGOUT bench's lint)
+        if "name" not in m or ("pos" not in m and "path" not in m):
+            problems.append("[[marker]] needs a 'name' and pos = [x, z] (a point) or "
+                            "path = [[x, z], ...] (a route)")
     # [[numeric_input]] steppers (the Treno-bid substrate, content.numinput): validate each block and
     # collect the names the option-level `input =` key may reference.
     ni_names = set()
