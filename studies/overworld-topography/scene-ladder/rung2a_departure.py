@@ -192,7 +192,7 @@ def _port_switch() -> str:
 
 DIRECTOR_LOOP = f"""
 L0:
-SET({{Map.Byte[{PORT_CACHE}] Global.Byte[190] B_NOT B_ANDAND B_EXPR_END}})
+SET({{Map.Byte[{PORT_CACHE}] B_EXPR_END}})
 JMP_IFNOT(L100)
 RunScriptSync(6, {ANCHOR_UID}, {HIDE_TAG})
 op_22(4)
@@ -213,6 +213,7 @@ MoveInstantXZY({{const4({fp(SHIP[0])}) B_EXPR_END}}, {{const({SHIP[2]}) B_EXPR_E
 TurnInstant({{const({SHIP_FACE}) B_EXPR_END}})
 {_port_switch()}
 RunScriptSync(6, {ANCHOR_UID}, {SHOW_TAG})
+SET({{Global.Byte[190] const(0) B_LET B_EXPR_END}})
 op_22(24)
 SET({{Map.Byte[{PHASE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{PORT_CACHE}] const(0) B_LET B_EXPR_END}})
@@ -276,6 +277,7 @@ SET({{Global.Byte[{DEPART_BYTE}] const(0) B_LET B_EXPR_END}})
 SET({{Map.Byte[{PHASE}] const(1) B_LET B_EXPR_END}})
 InitObject({EYE_UID}, 0)
 InitObject({AIM_UID}, 0)
+SET({{Global.Byte[190] const(7) B_LET B_EXPR_END}})
 RunScriptSync(6, {ANCHOR_UID}, {HIDE_TAG})
 DisableMove()
 DisableMenu()
