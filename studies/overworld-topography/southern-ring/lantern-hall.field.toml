@@ -85,6 +85,12 @@ save = "Log the passage."
 save_reply = "Kupo! Signed and sealed."
 decline = "Nothing for now."
 decline_reply = "Kupo! The ferry keeps her berth."
+# THE DEPARTURE STAGE (scene-ladder rung 2b): departure arms land here (the Lantern Quay
+# shore) with their port code in flags.FERRY_DEPART_BYTE; WORLD11's departure director plays
+# the sail-away and completes the journey. Ashvale itself stays a plain arm -- it IS the
+# home quay, stepping ashore needs no voyage.
+stage_arrive = [60.0, -1168.0]
+stage_face = 192
 
 [[ferry.destination]]
 name = "Sail to Ashvale"
@@ -96,16 +102,19 @@ reply = "The Lantern Quay it is, kupo!"
 name = "Sail to Tidefall"
 arrive = [432.0, -1232.0]
 arrive_face = 192
+depart_code = 2
 reply = "Tidefall, kupo! Mind the spray."
 
 [[ferry.destination]]
 name = "Sail to Grimhorn"
 arrive = [1214.0, -1192.0]
 arrive_face = 192
+depart_code = 3
 reply = "Grimhorn, kupo. Cold water there."
 
 [[ferry.destination]]
 name = "Sail to Larkspur"
 arrive = [688.0, -616.0]
 arrive_face = 64                     # WEST = inland on Larkspur -- the one that differs
+depart_code = 4
 reply = "Larkspur, kupo! The long crossing."

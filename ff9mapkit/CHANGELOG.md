@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — ferry DEPARTURE arms (`[[ferry.destination]] depart_code`)
+- A destination row with `depart_code = N` becomes a departure arm: the arm writes the
+  code into the pending-departure byte (`flags.FERRY_DEPART_BYTE` by default; `[ferry]
+  depart_byte` overrides) and lands at the ferry's `stage_arrive` — the home-quay shore
+  where a world-side departure director (the scene-ladder study's WORLD11 build) consumes
+  the code, plays the sail-away scene, and completes the journey to the row's real
+  `arrive` point. Lint requires `stage_arrive` with any `depart_code`, bounds codes to
+  1–255, and rejects duplicates. The plain (code-less) arm is byte-identical to before.
+
 ### Added — the archetype stamp WIZARD (one teaching surface, not a picker chain)
 - "Stamp an archetype…" now opens a single dialog: the proven trees listed with their
   teach text, the actor bindings (target npc, the guard's enemy, the shift pair's

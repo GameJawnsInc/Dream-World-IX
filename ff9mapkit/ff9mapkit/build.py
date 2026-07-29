@@ -229,6 +229,7 @@ def _desugar_ferries(raw: dict) -> None:
     ferries = raw.get("ferry") or []
     if not ferries:
         return
+    from . import flags as _flags
     choices = raw.setdefault("choice", [])
     for f in ferries:
         opts = []
@@ -238,6 +239,20 @@ def _desugar_ferries(raw: dict) -> None:
                 o["reply"] = d["reply"]
             if "arrive" in d:
                 o["worldmap"] = {"arrive": d["arrive"], "face": d.get("arrive_face", 0)}
+                if "depart_code" in d:
+                    # THE DEPARTURE ARM (scene-ladder rung 2b): the arm writes the pending-port
+                    # code into the world-flags byte and lands at the ferry's STAGE (the home
+                    # quay's waters) instead of the destination -- the overworld's departure
+                    # director (WORLD11) plays the sail and completes the journey to the real
+                    # arrive point. The toml keeps the honest destination in `arrive=`; the
+                    # swap here is the mechanism. Requires `[ferry] stage_arrive`.
+                    o["worldmap"]["depart"] = (int(f.get("depart_byte",
+                                                         _flags.FERRY_DEPART_BYTE)),
+                                               int(d["depart_code"]))
+                    stage = f.get("stage_arrive")     # absent -> lint_project reports it
+                    if stage is not None:
+                        o["worldmap"]["arrive"] = stage
+                        o["worldmap"]["face"] = int(f.get("stage_face", d.get("arrive_face", 0)))
             opts.append(o)
         if "save" in f:
             # the SAVE row -- one NPC is both ferry and save point, so the hall needs no twin
@@ -2395,6 +2410,21 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[ferry]] #{fi} npc {f['npc']!r} is not a defined [[npc]] name")
         if "prompt" not in f:
             problems.append(f"[[ferry]] #{fi} needs a prompt (the \"Where to?\" line above the rows)")
+        # THE DEPARTURE ARMS (scene-ladder rung 2b): a depart_code arm lands at the ferry's STAGE
+        # and hands the journey to the overworld's departure director -- without a stage the code
+        # rides to the DESTINATION and the scene plays a map away from its camera.
+        codes = [d.get("depart_code") for d in dests if "depart_code" in d]
+        if codes and "stage_arrive" not in f:
+            problems.append(f"[[ferry]] #{fi} has depart_code arms but no stage_arrive = [x, z] "
+                            f"(the home-quay landing where the departure scene stages)")
+        for d in dests:
+            c = d.get("depart_code")
+            if c is not None and not (isinstance(c, int) and 1 <= c <= 255):
+                problems.append(f"[[ferry]] #{fi} destination {d.get('name', '?')!r}: depart_code "
+                                f"must be an int in 1-255 (0 means no pending departure)")
+        if len(codes) != len(set(codes)):
+            problems.append(f"[[ferry]] #{fi} has duplicate depart_code values -- each departure arm "
+                            f"needs a distinct port code")
         # A ferry REPLACES its NPC's talk window (build's talk-body selection takes the choice), so a
         # `dialogue` on the same NPC is allocated a txid and then never shown -- silently dead text that
         # reads, in the toml, as if the player would see it. Say so instead of letting it rot.
