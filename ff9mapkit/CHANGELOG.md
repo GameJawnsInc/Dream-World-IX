@@ -35,6 +35,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   reopen path round-trip them (a compiled project's world zones invert back to the
   session's canvas pixels).
 
+### Fixed — a `received` event now shows the REAL item-get box (the top-right "..." bug)
+- `[[event]] received = true` re-styled the author's message as the window-7 item box at the
+  dialogue-default geometry — a tiny box pinned to the TOP-RIGHT corner, with no item name in
+  it (the Place tab's drawn-zone placeholder made it a literal "..."). Both text channels
+  (synthesize + verbatim) now emit the chest's own canonical box — `[STRT]` auto-centering,
+  `DEFT` tail, `Received <item>!` with the live item name — through the one shared builder
+  chests already used. A `received` event no longer needs a `message` at all; with one, your
+  text fills the box verbatim (you own its codes, chest-style), and the bare "..." placeholder
+  never ships as box text.
+
 ### Fixed — `cooldown` over a one-shot is now an EVENT (the hangout greet latch)
 - A `cooldown` branch whose action is a one-shot (`announce`/`sfx`/`flash`/`stop_timer`)
   compiled with sticky-engagement semantics: selecting the announce halts the walker

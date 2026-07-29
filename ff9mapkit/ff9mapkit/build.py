@@ -4636,33 +4636,50 @@ def _verbatim_npc_message_count(project: FieldProject) -> int:
                if n.get("dialogue") or _npc_needs_default_talk(project, n))
 
 
+def _event_shows_text(ev: dict) -> bool:
+    """Whether an ``[[event]]`` appends a text entry: an authored message, OR a ``received``
+    item-get box (which needs NO message — the canonical "Received <item>!" is its own text).
+    ONE owner for the voiced filter and the count, so the txid blocks above/below never skew."""
+    return bool(ev.get("message")) or bool(ev.get("received") and "give_item" in ev)
+
+
 def _verbatim_event_messages(project: FieldProject, langs) -> tuple[dict, dict]:
-    """For a verbatim fork's authored ``[[event]]`` messages (a chest's "You found X" line): give each a
-    txid ABOVE the donor `.mes` + the on_entry/logic_add/npc blocks (all disjoint), plus the per-language
-    `.mes` lines to append. Returns ``(txid_by_event_index, suffix_by_lang)`` keyed by the index into
-    ``project.raw['event']``; ``({}, {})`` when no event shows a message. (A ``received`` event still needs a
-    ``message``; ``received`` only styles it as the window-7 item box.)"""
-    voiced = [(j, ev) for j, ev in enumerate(project.raw.get("event", []) or []) if ev.get("message")]
+    """For a verbatim fork's authored ``[[event]]`` texts: give each a txid ABOVE the donor `.mes`
+    + the on_entry/logic_add/npc blocks (all disjoint), plus the per-language `.mes` lines to
+    append. A ``received`` event's entry is the CANONICAL item-get box (:func:`_event_received_box`
+    — [STRT] auto-centering + DEFT, one owner with chests; the first cut re-styled the author's
+    message at the dialogue default (10,1)+UPR — a tiny box pinned TOP-RIGHT, the rung-4 playtest
+    report). Returns ``(txid_by_event_index, suffix_by_lang)`` keyed by the index into
+    ``project.raw['event']``; ``({}, {})`` when no event shows text."""
+    voiced = [(j, ev) for j, ev in enumerate(project.raw.get("event", []) or [])
+              if _event_shows_text(ev)]
     if not voiced:
         return {}, {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
             + _logic_add_message_count(project) + _verbatim_npc_message_count(project))
     wrap = _wrap_width(project)
-    lines, tails, txid_by_idx = [], [], {}
+    lines, tails, strts, txid_by_idx = [], [], [], {}
     for k, (j, ev) in enumerate(voiced):
-        line = _text.with_speaker(ev.get("speaker"), ev["message"])
-        if wrap is not None:
-            line = _text.wrap_text(line, wrap)[0]
-        lines.append(line)
-        tails.append(ev.get("tail"))
+        if ev.get("received") and "give_item" in ev:
+            text, strt, tail = _event_received_box(ev)   # pre-formatted: never wrapped
+            lines.append(text)
+            tails.append(ev.get("tail") or tail)
+            strts.append(strt)
+        else:
+            line = _text.with_speaker(ev.get("speaker"), ev["message"])
+            if wrap is not None:
+                line = _text.wrap_text(line, wrap)[0]
+            lines.append(line)
+            tails.append(ev.get("tail"))
+            strts.append(None)
         txid_by_idx[j] = base + k
-    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
 def _verbatim_event_message_count(project: FieldProject) -> int:
-    """How many ``[[event]]`` show a message (so the ``[[chest]]`` Received-text block can sit above them)."""
-    return sum(1 for ev in (project.raw.get("event", []) or []) if ev.get("message"))
+    """How many ``[[event]]`` append a text entry (so the ``[[chest]]`` block can sit above them)."""
+    return sum(1 for ev in (project.raw.get("event", []) or []) if _event_shows_text(ev))
 
 
 def _chest_received_box(ch: dict) -> tuple[str, tuple, str]:
@@ -4681,6 +4698,15 @@ def _chest_received_box(ch: dict) -> tuple[str, tuple, str]:
     if "gil" in ch:
         return "[WDTH=0,86,64,0,-1][IMME]\n Received [C8B040][HSHD][NUMB=0] Gil[C8C8C8][HSHD]! \n", (86, 3), "DEFT"
     return "[WDTH=0,69,14,0,-1][IMME]\n Received [ITEM=0]! \n", (69, 3), "DEFT"
+
+
+def _event_received_box(ev: dict) -> tuple[str, tuple, str]:
+    """A ``received`` ``[[event]]``'s item-get window: the chest's own canonical box (ONE owner —
+    :func:`_chest_received_box`), narrowed to the ITEM form (an event's separate ``gil`` key must
+    not flip it to the gil box). The Place tab's drawn-zone placeholder message ("...") does not
+    count as authored box text — the canonical "Received <item>!" shows instead."""
+    msg = ev.get("message")
+    return _chest_received_box({"message": None if msg == "..." else msg, "box": ev.get("box")})
 
 
 def _verbatim_chest_messages(project: FieldProject, langs) -> tuple[dict, dict]:
@@ -6937,13 +6963,16 @@ def collect_text(project: FieldProject):
         if "dialogue" in n:
             npc_pos[i] = _add(n, n["dialogue"])
     for j, ev in enumerate(project.raw.get("event", [])):
-        if "message" in ev:
+        if ev.get("received") and "give_item" in ev:
+            # the CANONICAL item-get box, one owner with [[chest]] (_chest_received_box): the
+            # [WDTH][IMME] framing + [STRT=69,3] auto-CENTERING + DEFT tail. The first cut showed
+            # "Received [ITEM=0]!" (or the author's message) at the dialogue-default (10,1)+UPR --
+            # a tiny box PINNED TO THE TOP-RIGHT corner (the rung-4 playtest report; the same bug
+            # chests had). Added verbatim -- pre-formatted, must not wrap.
+            text, strt, tail = _event_received_box(ev)
+            ev_pos[j] = _add_raw(text, ev.get("tail") or tail, strt=strt)
+        elif "message" in ev:
             ev_pos[j] = _add(ev, ev["message"])
-        elif ev.get("received") and "give_item" in ev:
-            # canonical item-get text: [ITEM=0] renders the item name from text-var slot 0 (set at
-            # runtime by SetTextVariable(0, item)); shown in the window-7 item-get box. Added verbatim
-            # (the [ITEM=0] tag must survive wrapping).
-            ev_pos[j] = _add_raw("Received [ITEM=0]!", ev.get("tail"))
     # [[cutscene]] dispatch: say lines register in BLOCK-then-STEP order -- the same flat order build_script
     # slices per block, so each block's compile consumes exactly its own txids.
     for _cb in _cutscene.blocks(project.raw.get("cutscene")):

@@ -99,7 +99,8 @@ EVENT_SPEC = [
     Field("speaker", "Speaker name", STR, "optional name before the message (blank for an unsigned popup)"),
     Field("tail", "Window tail", STR, _TAIL_HELP + ". Default UPR."),
     Field("give_item", "Give item (id, count)", PAIR, "e.g. 232, 1"),
-    Field("received", "Item-get window", BOOL, "for Give item: also show the canonical 'Received <item>!' window",
+    Field("received", "Item-get window", BOOL, "for Give item: show the real centered 'Received <item>!' box "
+          "(needs no message; with one, your text fills the box and you own its codes)",
           default=False),
     Field("require_space", "Skip if bag full", BOOL, "for Give item: chest-style — don't fire if you can't carry it",
           default=False),
