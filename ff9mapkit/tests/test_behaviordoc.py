@@ -1015,3 +1015,10 @@ def test_the_branch_wizard_previews_the_real_body_and_honours_unit_only():
     assert [w.vs.itemText(i) for i in range(w.vs.count())] == ["raider", "porter"]
     w.accept()
     assert w.picked() == ("swing_reach", "raider")
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_qt_teardown(qt_drain):
+    """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
+    yield
+    qt_drain()

@@ -444,3 +444,10 @@ def test_trace_sidecar_round_trips_the_session(app, tmp_path, monkeypatch):
     doc2.on_generate()
     argv, _kw = run2.calls[0]
     assert argv[argv.index("--out") + 1] == str(tmp_path / "room-field")
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_qt_teardown(qt_drain):
+    """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
+    yield
+    qt_drain()
