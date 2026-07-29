@@ -151,6 +151,98 @@ def test_a_pan_is_not_a_click(app):
     assert not got and not refused
 
 
+# ---------------------------------------------------------------- Rung 1: the trace layer
+
+def _trace_canvas(app, pitch=10.0):
+    """A realized trace-mode canvas + the on_floor call log."""
+    calls = []
+    c = BackdropCanvas(pick_palette("dark"), on_floor=lambda pts: calls.append(pts))
+    pm = QPixmap(384, 448)
+    pm.fill(Qt.GlobalColor.darkGray)
+    c.set_backdrop(pm, guide.make_camera(pitch, 3000.0, fov_x_deg=42.0))
+    c.set_trace_mode(True)
+    c.resize(500, 560)
+    c.show()
+    QApplication.processEvents()
+    return c, c.camera(), calls
+
+
+def test_trace_click_appends_a_vertex(app):
+    """A slop-click on the floor appends a vertex at the clicked CANVAS px — one on_floor
+    callback per click, handles + legs rendered."""
+    c, cam, calls = _trace_canvas(app)
+    want = ((100.0, 300.0), (300.0, 300.0), (200.0, 430.0))
+    for cpt in want:
+        wpt = c.viewportTransform().map(QPointF(*cpt))
+        QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton,
+                         pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert len(calls) == 3 and len(c.floor()) == 3
+    for (ex, ey), (gx, gy) in zip(want, c.floor()):
+        assert abs(gx - ex) <= 1 and abs(gy - ey) <= 1   # integer widget px quantization only
+    tags = _tags(c)
+    assert tags.count("tracept") == 3 and "traceline" in tags
+
+
+def test_trace_click_above_horizon_refused_not_added(app):
+    c, cam, calls = _trace_canvas(app)
+    refused = []
+    c.click_refused.connect(refused.append)
+    hy = C.horizon_canvas_y(cam)
+    wpt = c.viewportTransform().map(QPointF(192.0, hy - 8))
+    QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(round(wpt.x()), round(wpt.y())))
+    assert not calls and not c.floor() and len(refused) == 1
+
+
+def test_outset_preview_rings_the_polygon(app):
+    """>=3 valid vertices -> the +48u collision ring, re-projected through the SAME
+    conversions, drawn strictly outside the traced polygon. set_floor is the host's write
+    path and must NOT echo on_floor."""
+    c, cam, calls = _trace_canvas(app)
+    c.set_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    assert not calls
+    rings = [it for it in c._scene.items() if it.data(0) == "outset"]
+    assert len(rings) == 1
+    poly = rings[0].polygon()
+    xs = [p.x() for p in poly]
+    ys = [p.y() for p in poly]
+    assert min(xs) < 20 and max(xs) > 364 and max(ys) > 440
+
+
+def test_pitch_change_marks_bad_vertices_and_suspends_outset(app):
+    """Canvas px stay the truth: a camera swap re-judges every vertex. The two back vertices
+    land above the shallower camera's horizon -> error-marked with the refusal tooltip, and
+    the outset preview SUSPENDS rather than lie from partial geometry."""
+    c, _, calls = _trace_canvas(app, pitch=20.0)     # horizon y ~54
+    c.set_floor([(130, 100), (254, 100), (364, 440), (20, 440)])
+    assert [it for it in c._scene.items() if it.data(0) == "outset"]
+    c.set_backdrop(c._pixmap, guide.make_camera(6.0, 3000.0, fov_x_deg=42.0), refit=False)
+    tags = _tags(c)
+    assert "outset" not in tags and tags.count("tracept") == 4
+    bad = [it for it in c._scene.items() if it.data(0) == "tracept" and it.toolTip()]
+    assert len(bad) == 2
+
+
+def test_vertex_drag_commits_once_via_the_seam(app):
+    """The StageCanvas contract: move updates only the grabbed handle; release commits ONE
+    callback with the new list (tests drive the canvas-frame seam directly)."""
+    c, cam, calls = _trace_canvas(app)
+    c.set_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    assert c._begin_vertex_drag(1)
+    c._drag_canvas(260.0, 210.0)
+    c._drag_canvas(262.0, 214.0)
+    assert not calls                                  # the drag never writes mid-gesture
+    c._end_vertex_drag()
+    assert len(calls) == 1 and c.floor()[1] == (262.0, 214.0)
+
+
+def test_delete_vertex_commits_once(app):
+    c, cam, calls = _trace_canvas(app)
+    c.set_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    c._delete_vertex(0)
+    assert len(calls) == 1 and len(c.floor()) == 3 and c.floor()[0] == (254.0, 200.0)
+
+
 def test_bare_camera_frame_uses_cam_range(app):
     """No art at all (a scrolling field's wider Range must still frame correctly)."""
     c = BackdropCanvas(pick_palette("dark"))

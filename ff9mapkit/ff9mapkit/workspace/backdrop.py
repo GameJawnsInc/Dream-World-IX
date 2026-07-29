@@ -19,31 +19,43 @@ View grammar = the atlas family's (Ctrl+scroll zoom / Ctrl+0 fit / Ctrl+1 1:1, p
 a press-release pair that travels no further than the slop is a CLICK, so panning and
 placement share the left button without a mode. The canvas is painted, so CALIBRE reaches it
 via ``set_scale`` and themes via ``retheme`` (the mapview rule).
+
+Rung 1 adds TRACE mode: the floor polygon authored directly on the art — click to append a
+vertex (below the horizon only), drag a handle to move it, right-click to delete, with the
+live +48u collision-outset preview derived through the same conversions. The canvas never
+touches a document: a completed gesture ends in ONE ``on_floor(points)`` callback and the
+host owns the write + undo (the StageCanvas contract). Vertices are kept in CANVAS px (the
+authoring truth, exactly the HTML tracer's frame); world coordinates are derived per render,
+so a pitch change re-judges every vertex against the new horizon (invalid ones mark red and
+suspend the outset preview instead of silently mis-projecting).
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QTransform
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView, QLabel
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF, QTransform
+from PySide6.QtWidgets import (
+    QGraphicsEllipseItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView, QLabel,
+)
 
 from .. import imagefield
 from ..scene import cam as _cam
 
 _ZOOM_MIN, _ZOOM_MAX = 0.1, 8.0
 _CLICK_SLOP_PX = 4          # press->release travel at/under this = a click, past it = a pan
+_HANDLE_R = 4               # a trace vertex handle's screen radius (px, zoom-immune)
 
 
 class BackdropCanvas(QGraphicsView):
     """A background pixmap + a camera; clicks become world floor points.
 
-    Rung 0 is the primitive only: it emits, it never writes — hosts (the tracing and
-    placement rungs) own every document mutation."""
+    Rung 0 is the primitive; Rung 1's trace mode authors the floor polygon on it. The canvas
+    emits, it never writes — hosts own every document mutation."""
 
     floor_clicked = Signal(float, float)     # world (x, z) of an accepted left-click
     click_refused = Signal(str)              # why a click produced no floor point
 
-    def __init__(self, palette, *, scale=100):
+    def __init__(self, palette, *, scale=100, on_floor=None):
         super().__init__()
         self.pal = palette
         self._scale = scale if scale in range(50, 301) else 100
@@ -52,6 +64,11 @@ class BackdropCanvas(QGraphicsView):
         self._zoom = 1.0
         self._fit_pending = False
         self._press_pos = None
+        self._trace_mode = False
+        self._trace = []                     # [(cx, cy)] canvas px — the authoring truth
+        self._trace_items = []               # [{anchor, i}] rebuilt per render
+        self._drag = None                    # live vertex drag, cleared by every _rebuild
+        self.on_floor = on_floor             # ONE call per completed gesture (add/move/delete)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -66,6 +83,10 @@ class BackdropCanvas(QGraphicsView):
         self._hint = QLabel("Ctrl+scroll zooms · Ctrl+0 fits · click the floor", self.viewport())
         self._hint.setObjectName("backdropHint")   # selector-scoped (the round-9 census law)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._coords = QLabel("", self.viewport())  # live world readout while a vertex drags
+        self._coords.setObjectName("backdropHint")
+        self._coords.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._coords.hide()
         self._style_hint()
 
     # -- text + geometry (CALIBRE) --
@@ -89,12 +110,14 @@ class BackdropCanvas(QGraphicsView):
 
     def _style_hint(self):
         surf = QColor(self.pal["surface"])
-        self._hint.setFont(self._font(8))
-        self._hint.setStyleSheet(
-            "QLabel#backdropHint {"
-            f"color: {self.pal['muted']};"
-            f"background: rgba({surf.red()},{surf.green()},{surf.blue()},0.86);"
-            "border-radius: 9px; padding: 2px 9px; }")
+        sheet = ("QLabel#backdropHint {"
+                 f"color: {self.pal['muted']};"
+                 f"background: rgba({surf.red()},{surf.green()},{surf.blue()},0.86);"
+                 "border-radius: 9px; padding: 2px 9px; }")
+        for lab in (self._hint, self._coords):
+            lab.setFont(self._font(8))
+            lab.setStyleSheet(sheet)
+        self._coords.setStyleSheet(sheet.replace(self.pal["muted"], self.pal["text"], 1))
         self._place_hint()
 
     def _place_hint(self):
@@ -102,6 +125,8 @@ class BackdropCanvas(QGraphicsView):
         vp = self.viewport()
         self._hint.move(vp.width() - self._hint.width() - 10,
                         vp.height() - self._hint.height() - 8)
+        self._coords.adjustSize()
+        self._coords.move(10, vp.height() - self._coords.height() - 8)
 
     # -- public: content --
     def set_backdrop(self, pixmap, cam, *, refit=True):
@@ -118,6 +143,23 @@ class BackdropCanvas(QGraphicsView):
 
     def camera(self):
         return self._cam
+
+    # -- public: Rung 1 trace mode --
+    def set_trace_mode(self, on):
+        on = bool(on)
+        if on == self._trace_mode:
+            return
+        self._trace_mode = on
+        self._rebuild()
+
+    def set_floor(self, pts):
+        """Feed the trace polygon (canvas px) WITHOUT firing ``on_floor`` — the host's own
+        writes route here (load, undo/redo); user gestures route through ``_commit_floor``."""
+        self._trace = [tuple(p) for p in (pts or [])]
+        self._rebuild()
+
+    def floor(self):
+        return list(self._trace)
 
     # -- public: THE two conversions --
     def click_to_world(self, pt) -> tuple:
@@ -155,6 +197,9 @@ class BackdropCanvas(QGraphicsView):
 
     def _rebuild(self):
         sc, pal = self._scene, self.pal
+        self._drag = None                          # scene.clear() deletes any grabbed item
+        self._trace_items = []
+        self._coords.hide()
         sc.clear()
         w, h = self._frame_wh()
         sc.setSceneRect(QRectF(0, 0, w, h))
@@ -168,6 +213,7 @@ class BackdropCanvas(QGraphicsView):
         frame = sc.addRect(QRectF(0, 0, w, h), border)
         frame.setData(0, "frame")
         self._draw_horizon(w, h)
+        self._draw_trace()
 
     def _draw_horizon(self, w, h):
         """The refusal boundary, visible: a dashed line at ``horizon_canvas_y`` with a
@@ -191,6 +237,151 @@ class BackdropCanvas(QGraphicsView):
         t.setFont(self._font(8))
         t.setBrush(QColor(self.pal["warn"]))
         t.setPos(0, -14)                           # screen px, riding the zoom-immune anchor
+
+    # -- Rung 1: the trace layer --
+    def _trace_worlds(self):
+        """Per-vertex world (X, Z), or None where the vertex has no floor under it (above the
+        horizon after a pitch change, or no camera). Derived per render — canvas px stay the
+        truth, so a camera swap re-judges every vertex instead of silently mis-projecting."""
+        out = []
+        for p in self._trace:
+            if self._cam is None:
+                out.append(None)
+                continue
+            try:
+                out.append(imagefield.click_to_world(self._cam, p))
+            except imagefield.ImageFieldError:
+                out.append(None)
+        return out
+
+    def _draw_trace(self):
+        self._trace_items = []
+        if not self._trace_mode or not self._trace:
+            return
+        pal, sc = self.pal, self._scene
+        worlds = self._trace_worlds()
+        pen = QPen(QColor(pal["accent"]), 1.6)
+        pen.setCosmetic(True)                      # legs must survive fit zoom (the atlas lesson)
+        pts = [QPointF(cx, cy) for cx, cy in self._trace]
+        for a, b in zip(pts, pts[1:]):
+            ln = sc.addLine(a.x(), a.y(), b.x(), b.y(), pen)
+            ln.setData(0, "traceline")
+        if len(pts) > 2:                           # the closing leg, dashed (the tracer's idiom)
+            dash = QPen(pen)
+            dash.setDashPattern([4, 4])
+            ln = sc.addLine(pts[-1].x(), pts[-1].y(), pts[0].x(), pts[0].y(), dash)
+            ln.setData(0, "traceline")
+        self._draw_outset(worlds)
+        for i, (cx, cy) in enumerate(self._trace):
+            bad = worlds[i] is None
+            color = QColor(pal["error"] if bad else pal["accent"])
+            anchor = sc.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+            anchor.setPos(cx, cy)
+            anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
+            anchor.setData(0, "tracept")
+            anchor.setData(1, i)
+            dot = QGraphicsEllipseItem(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R,
+                                       anchor)
+            dot.setPen(QPen(color, 1.6))
+            dot.setBrush(QBrush(color))
+            t = QGraphicsSimpleTextItem(str(i), anchor)
+            t.setFont(self._font(8))
+            t.setBrush(QBrush(color))
+            t.setPos(6, -16)                       # screen px, riding the zoom-immune anchor
+            if bad:
+                anchor.setToolTip("above the horizon — the build will refuse this vertex")
+            self._trace_items.append({"anchor": anchor, "i": i})
+
+    def _draw_outset(self, worlds):
+        """The +48u collision-outset ring the build will actually emit, derived through the
+        SAME conversions (world outset -> re-projected per vertex). Suspended while any vertex
+        is invalid — a preview computed from partial geometry would lie."""
+        if len(worlds) < 3 or any(w is None for w in worlds):
+            return
+        try:
+            grown = imagefield.outset_polygon([tuple(w) for w in worlds],
+                                              imagefield.COLLISION_OUTSET)
+            ring = [imagefield.world_to_click(self._cam, g) for g in grown]
+        except imagefield.ImageFieldError:
+            return
+        pen = QPen(QColor(self.pal["muted"]), 1.2)
+        pen.setCosmetic(True)
+        pen.setDashPattern([2, 3])
+        it = self._scene.addPolygon(QPolygonF([QPointF(cx, cy) for cx, cy in ring]), pen)
+        it.setData(0, "outset")
+        it.setToolTip(f"+{imagefield.COLLISION_OUTSET:g}u collision outset — the walkmesh "
+                      f"edge the build emits so the player centre reaches the visual edge")
+
+    # -- trace gestures: press resolves a handle, move updates ONLY the grabbed items, release
+    # commits ONE callback and the re-render redraws everything (the StageCanvas contract)
+    def _resolve_vertex(self, item):
+        while item is not None:
+            if item.data(0) == "tracept":
+                return int(item.data(1))
+            item = item.parentItem()
+        return None
+
+    def _begin_vertex_drag(self, i):
+        if not 0 <= i < len(self._trace_items):
+            return False
+        self._drag = {"i": i, "pt": tuple(self._trace[i])}
+        self._update_coords()
+        return True
+
+    def _drag_canvas(self, cx, cy):
+        """One drag step, CANVAS px (tests drive this directly — the testable seam)."""
+        d = self._drag
+        if not d:
+            return
+        d["pt"] = (cx, cy)
+        self._trace_items[d["i"]]["anchor"].setPos(cx, cy)
+        self._update_coords()
+
+    def _end_vertex_drag(self):
+        d, self._drag = self._drag, None
+        self._coords.hide()
+        if not d:
+            return
+        if d["pt"] != tuple(self._trace[d["i"]]):
+            pts = list(self._trace)
+            pts[d["i"]] = (round(d["pt"][0], 1), round(d["pt"][1], 1))
+            self._commit_floor(pts)
+
+    def _delete_vertex(self, i):
+        if 0 <= i < len(self._trace):
+            self._commit_floor(self._trace[:i] + self._trace[i + 1:])
+
+    def _commit_floor(self, pts):
+        """Every completed gesture funnels here: re-render, then exactly ONE host callback."""
+        self._trace = [tuple(p) for p in pts]
+        self._rebuild()
+        if self.on_floor:
+            self.on_floor(list(self._trace))
+
+    def _update_coords(self):
+        d = self._drag
+        if not d:
+            return
+        cx, cy = d["pt"]
+        head = f"vertex {d['i']} · canvas {cx:.0f},{cy:.0f}"
+        if self._cam is not None:
+            try:
+                X, Z = imagefield.click_to_world(self._cam, (cx, cy))
+                head += f" · world x {X:.0f} · z {Z:.0f}"
+            except imagefield.ImageFieldError:
+                head += " · above the horizon"
+        self._coords.setText(head)
+        self._coords.show()
+        self._place_hint()
+
+    def _vertex_menu(self, i, global_pos):
+        """The list-op menu, behind a seam so tests drive the choice without a popup."""
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        rm = menu.addAction(f"Delete vertex {i}")
+        act = menu.exec(global_pos)
+        if act is rm:
+            self._delete_vertex(i)
 
     # -- view grammar (the atlas family's) --
     def _fit(self):
@@ -239,13 +430,31 @@ class BackdropCanvas(QGraphicsView):
                 return
         super().keyPressEvent(event)
 
-    # -- click vs pan: slop, not modes --
+    # -- click vs pan: slop, not modes. In trace mode a press ON a handle starts a drag;
+    # a slop-click elsewhere appends a vertex; everything else stays a pan.
     def mousePressEvent(self, event):              # noqa: N802 (Qt override)
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._trace_mode:
+                i = self._resolve_vertex(self.itemAt(event.position().toPoint()))
+                if i is not None and self._begin_vertex_drag(i):
+                    event.accept()
+                    return
             self._press_pos = event.position()
         super().mousePressEvent(event)             # the pan machinery still runs
 
+    def mouseMoveEvent(self, event):               # noqa: N802 (Qt override)
+        if self._drag:
+            sp = self._widget_to_canvas(event.position())
+            self._drag_canvas(sp.x(), sp.y())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):            # noqa: N802 (Qt override)
+        if self._drag and event.button() == Qt.MouseButton.LeftButton:
+            self._end_vertex_drag()
+            event.accept()
+            return
         press, self._press_pos = self._press_pos, None
         super().mouseReleaseEvent(event)
         if (press is None or event.button() != Qt.MouseButton.LeftButton
@@ -259,4 +468,17 @@ class BackdropCanvas(QGraphicsView):
         except imagefield.ImageFieldError as e:
             self.click_refused.emit(str(e))
             return
+        if self._trace_mode:
+            c = self._widget_to_canvas(event.position())
+            self._commit_floor(self._trace + [(round(c.x(), 1), round(c.y(), 1))])
+            return
         self.floor_clicked.emit(x, z)
+
+    def contextMenuEvent(self, event):             # noqa: N802 (Qt override)
+        if not self._trace_mode:
+            return super().contextMenuEvent(event)
+        i = self._resolve_vertex(self.itemAt(event.pos()))
+        if i is None:
+            return super().contextMenuEvent(event)
+        self._vertex_menu(i, event.globalPos())
+        event.accept()
