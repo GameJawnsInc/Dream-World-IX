@@ -120,15 +120,75 @@ real camera math, live outset preview (+48u `COLLISION_RADIUS_W`), then call `bu
 **Verify:** `tools/gui_snap.py` → **read the PNG**; then build → `deploy_field.py --id <scratch>` →
 walk it. Parity target: the hallway photo, re-done entirely in the GUI.
 
-### Rung 2 — occluder contacts
+### Rung 2 — occluder contacts ★ BUILT 2026-07-29, ⚠ awaiting playtest
 Click a contact pixel → `occluder_z` → a `--foreground`-equivalent layer. Math ★ already in-game
 proven (pillar room, contact (230,320) → z 1073, flip mid-room). Small rung; mostly UI.
 **Guard:** error when `z ≥ Z_BASE 4000` (means the contact was traced up the body, not at the base) —
 the existing CLI check, re-enforced at the new call site.
 
-### ★ Rung 3 — placement on ANY field (the payoff)
+★ **PREVIEW + POSITIONABLE SNIPS (owner-asked after the first playtest, built same day):**
+attached cut-outs render ON the art (`set_cutouts` — a photo-aspect PNG fills the frame
+REGISTERED and inert; anything else is a **SNIP**: previewed at its natural photo scale, its base
+parked on the contact, DRAGGABLE with alpha-masked hits so its transparent surround still traces).
+Dragging a snip moves its contact anchor by the same delta (z re-derives live); every contact has
+its own draggable diamond handle for re-anchoring the flip line alone. Generate composites each
+placed snip onto a transparent full frame at the 4x art resolution (written beside the source
+image) and emits the SAME `--foreground path@cx,cy` CLI form — the frame rule stopped being a
+rule the author has to know. A Show toggle hides the previews to trace under them.
+**In-place regenerate + reopen (owner-asked):** after the first Generate the tab remembers the
+project — the button becomes "Regenerate — in place", no dialog — and writes
+`<out>/<stem>.trace.json` (photo, floor, pitch, cut-outs at their dragged offsets, name/id);
+Open accepts a `.trace.json` and restores the whole editable session, so a project is set up
+once and edited forever. **Hover affordance (owner-asked, applies to the Behavior stage too):**
+every draggable item carries the OS move/resize cursor via `widgets.mark_grabbable` — a per-item
+cursor out-ranks the pan hand exactly over the item's shape(), so an alpha-masked snip announces
+itself only over its opaque pixels.
+★ **THE GC-CHILD LAW** (found by the cursor pin; a real crasher class, three layers deep):
+(1) a QGraphicsItem CHILD constructed with a parent argument is PYTHON-owned to shiboken — its
+wrapper's GC deletes the C++ item under a live scene (stale `itemAt` wrappers mid-handler) and
+its finalizer double-frees after a `scene.clear()`. Children must be SCENE-created then
+`setParentItem`'d — swept everywhere (`backdrop._child`, behaviordoc's `_label`/`_marker` +
+handle/grip squares, worlddoc's plate pills); `_kids` keeps wrappers alive as a belt.
+(2) Tests must assert through RETAINED wrappers, never fresh `scene.items()` retrievals — a
+retrieval-wrapper + `cursor()` pattern flaked ~1-in-3 under pytest's forced GC on Python 3.14 /
+PySide6 6.11.1 even after (1), and neither deterministic deleteLater, widget parking, nor
+`gc.freeze` cured it; the retained-wrapper rewrite made 8/8 combo runs deterministic.
+**★ ROOT-CAUSED (pure-PySide6 repro, zero kit code) → `studies/pyside-gc-crash/NOTES.md`:**
+shiboken's parent heuristic flips a wrapper to PYTHON-owned when `parentItem()` returns
+`None`, so the wrapper's death DELETES the C++-owned item — the sweep helper's
+`it.parentItem()` was the poison, not GC and not cursor(); version-independent (3.13 = 3.14,
+6.10.3 = 6.11.1), unreported upstream (the PYSIDE-3380 fix is QAction-specific), NO pin
+helps. The retained path is safe because it never calls `parentItem()`. Gate every PySide6
+bump on `studies/pyside-gc-crash/probe_item_destroyed.py`. (3) `tests/conftest.py qt_drain`
+parks each GUI test's widgets (opt-in per module; never where a module fixture caches one).
+
+★ **BUILT into the Trace tab:** `BackdropCanvas` gained CONTACT mode (exclusive clicks; the traced
+polygon stays visible, inert; emits the raw canvas pixel — `occluder_z` stays the ONE owner of both
+refusals, horizon and the z≥Z_BASE "trace the base, not the body" message, surfaced verbatim).
+The host: an **Add cut-out** toggle arms a contact click → records ONE undoable gesture → asks for
+the cut-out PNG (full-canvas alpha); a Cut-outs strip (hidden until one exists) lists each contact
+with its DERIVED z — re-judged per pitch change exactly like the trace vertices, never stored
+stale — and Attach/Remove; valid contacts mark the art with `fgN · z` markers; Generate gates on
+every cut-out valid + attached and emits the retired tracer's own `--foreground path@cx,cy` form.
+Pinned: 2 canvas + 6 host tests (the proven (230,320)→1073 exact; the guard message; the pitch
+re-judge; the argv via `parse_foreground_spec`; unified undo); `gui_snap trace:contacts` read.
+**Playtest:** trace a photo with a real occluder (a pillar/doorframe), mark its base, attach the
+cut-out, generate, deploy — walk in front (actor on top) and behind (occluded).
+**First playtest 2026-07-29 — the MECHANISM works** (the layer deploys + occludes the actor at the
+anchored depth), and it caught THE FRAME LESSON: a 531x473 object SNIP attached over a 1536x1792
+photo cover-crops to FILL the screen (a giant dog) — the cut-out must share the PHOTO'S OWN frame
+(erase everything but the object on a copy of the photo; equal aspect = aligned, that is the whole
+rule). The tab now warns at attach on an aspect mismatch (advisory — an equal-aspect vignette is
+legit) with the re-export teach; the flip-line read awaits a properly-framed cut-out.
+
+### ★ Rung 3 — placement on ANY field (the payoff) — ★ CLOSED, PLAYTEST-CONFIRMED 2026-07-29
 Load an existing `field.toml` + its background + **its own camera**, and click to place NPCs, props,
 spawn, arrival. Writes back to the toml.
+
+★ **Owner-confirmed in-game 2026-07-29:** a prop AND an NPC placed on a **verbatim** fork through
+the Place tab, deployed (slot 4003), seen in-game — the whole chain at once: the live-install load
+path (cache_field + compose_background), the walkmesh raycast, the open-doc write-back, the build's
+below-band verbatim seating, deploy, render. Rung 3 is DONE end to end.
 
 This is what makes the tool general: it serves forks of real FF9 rooms, not just traced photos, and
 it kills the error class that `laying-out-ff9-fields` exists to prevent (content packed under ~192u,
@@ -184,10 +244,80 @@ Save rewrites a byte-exact golden oracle (CLAUDE.md §5). Write-back must preser
 comments, and ordering, and must **refuse outright** on anything under `ff9mapkit/examples/`.
 On a `--verbatim` fork, new content seats below the party band ([[project-ff9-npc-on-verbatim]]).
 
-### Rung 4 — regions drawn on the art
+### Rung 4 — regions drawn on the art ★ BUILT 2026-07-29, ⚠ awaiting playtest
 Gateway / trigger quads drawn directly on the background instead of typed as numbers. Carries the
 existing region laws (tags 2/3/10, `IsInQuad` dead-zones) — the canvas should *render* a dead-zone
 warning, not just accept the quad.
+
+★ **BUILT, both hosts + the CLI (commits `4213b627` part A / `18a3ed44` part B):**
+- **The canvas** (`BackdropCanvas` region mode, exclusive like the others): four clicks build one
+  quad (`region_drawn`), corner + whole-quad drags reshape (`region_changed`, ONE emission per
+  gesture through the same seams the vertex drags use), right-click rotates the walk-out edge or
+  deletes; Esc/right-click abandons a quad mid-draw. Corners project at the walkmesh's real floor
+  height and legitimately hang OFF the mesh (donor door quads do) — an off-mesh click converts
+  through `imagefield.click_to_plane`, §1's own `s = (h - C.y)/ray.y` one-parameter
+  generalization, raycast-exact wherever the mesh is under the pixel.
+- **THE LAWS RENDER, both directions.** The fan simulation (`imagefield.fan_triangles` /
+  `zone_fan_audit`) surfaced a truth the dead-zone framing missed: with the encoder's
+  auto-doubling (`quad_zone`), a drawn 4-corner quad can NEVER dead-zone — the fan always covers
+  the drawn interior. The real 4-corner hazard is **OVER-TRIGGER**: a dart/bowtie's fan swallows
+  the notch (up to the whole hull), firing where nothing was drawn — rendered as a warn wash on
+  fan-minus-drawn. The genuine dead zone survives only in hand-authored 5-DISTINCT-point zones
+  (the classic collinear strip) — rendered as an error hatch. TREADQUAD overlap starvation marks
+  live too, judged by `build.region_overlap_pairs` — extracted from `lint_region_overlaps` so the
+  canvas and the lint share ONE owner. A gateway's corners-0→1 walk-out edge draws thick with an
+  outward chevron.
+- **The tool strip shipped WITH this rung as mandated** (`widgets.ToolStrip`, `#railSeg`
+  segments — the rail's settled rule set, zero new QSS): Place = Place/Regions; Trace =
+  Floor/Cut-outs/Regions (the Add-cut-out toggle became the Cut-outs segment). The strip earned
+  its own row in the Trace tab immediately — the snap caught the shared photo row squeezing it to
+  a blank chip (the round-7 squeeze law, live).
+- **The Place host**: pure ops `place_gateway`/`place_event`/`move_zone`/`delete_region` +
+  `region_rows` (the one derivation of labels + both laws, reused by the Trace host through a
+  shim); gateway target/entrance boxes on the strip; verbatim forks stay live (below-band
+  seating). **The photo lane**: zones stored in CANVAS px beside the floor (pitch re-judges,
+  undo walks them), emitted via `image-field`'s new `--gateway "to[,entrance]@cx,cy;…"` /
+  `--event-zone "message@cx,cy;…"` args — un-projected through the same camera as the floor into
+  real `[[gateway]]`/`[[event]]` rows, so doors survive every in-place regenerate; the
+  `.trace.json` sidecar and the field.toml reopen path round-trip them both ways.
+- Pinned: `tests/test_region_laws.py` (14 — the fan audit's every class, plane round-trips,
+  overlap keys, the generator emission) + backdrop (8 new) + place (7 new) + tracedoc (4 new);
+  snaps `place:regions` + `trace:regions` read at 100/150 (both hosts hold the 150 rung).
+**First playtest 2026-07-29 — the chain WORKS to the warp (a photo-lane door on the hallway
+project armed and FIRED), and it caught THE FIELD(0) DOOR:** the owner drew the quad before
+setting the 'to field' box (which feeds NEW draws only), typed 301 after — the row kept to=0,
+compiled to `Field(0)`, and the walk-in BLACK-SCREEN softlocked (no such field; ~ cannot recover
+a dead transition; the canvas label "door0 → 0" was the only tell). Closed three ways, same day:
+`build.validate` ERRORS on a non-positive gateway target (a Field(0) door never ships); the
+quad's own menu grew **Set gateway target…** (`region_retarget` + an instance-dialog seam in
+both hosts — on the photo lane there IS no other editor for a drawn door); `region_rows` marks
+the row NO TARGET and the Trace tab gates Generate until every door has one.
+**Round 2 same day — ★ BOTH LANES CONFIRMED IN-GAME:** the retargeted hallway door WORKS
+("nice that worked"), and the Place tab landed an NPC + prop + gateway + event on a verbatim
+Black Mage Village fork, all seen in-game. The round's catch — **THE TOP-RIGHT "..." BOX:** a
+`received` event re-styled the author's message as window 7 at the dialogue default (10,1)+UPR —
+a sliver pinned top-right with no item name (the Place placeholder made it a literal "...").
+The exact disease `_chest_received_box` already cured for CHESTS, never propagated to events.
+Fixed at the one owner: both text channels now route received events through the chest's
+canonical box (`[STRT=69,3]` centering + DEFT + the live item name); `received` needs no
+message; an authored message fills the box verbatim; the bare "..." never ships. Verified
+against the reporter's own field on a scratch copy. ⚠ The fixed box itself awaits one in-game
+look (rebuild + redeploy + walk-in).
+
+★ **THE DEFAULT-VALUE LAW pass (owner-asked before rung 6):** both playtest bugs were one
+disease — a GUI-minted default that is *quietly plausible* in-game — so every minted value got
+audited against the law: **a default is REAL (renders correctly) or LOUDLY INVALID (a gate
+refuses it), never in between.** Probed with minimal projects; already-gated ✓: chest-no-flag,
+choice-empty-npc, npc-no-pos, dup sps ids (all validate errors), off-mesh (0,0) positions (the
+placement lint). Fixed: the form gateway's `to = 100` — a REAL id nobody chose, silently
+warping to it — is now 0 (the Field(0) gates own it); the form flag's fixed `index = 8712`
+now mints the next free bit (a constant aliased every added flag onto ONE save bit) and
+validate reports index collisions directly (`collect_flag_defs` always knew; no call site
+spent it — load crashed, dict-built projects said nothing); minted NPCs drop `dialogue "..."`
+(the silent-talk channel's canonical line is the real default, both build lanes); the form
+prop default "chest" → "barrel" (looked openable, wasn't); drawn events get **Set message…**
+on the quad menu (the photo lane has no other editor for a zone's words) + a canvas/lint warn
+while the "..." placeholder would ship as a literal popup.
 
 ### Rung 6 (DEFERRED — the intended expansion, owner-decided 2026-07-28)
 **A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
@@ -282,8 +412,61 @@ GUI claim from source; that is the documented recurring failure in this package.
    as the live walkable footprint), `set_place_mode` (exclusive with trace), `surface_clicked`
    carrying the visible hit's (x, z) + every stacked hit nearest-first with floor ids (hosts
    disambiguate, never guess), `set_markers` for placed content.
-   Remaining: (c) the placement HOST — load a fork's field.toml + its donor's
-   `compose_background` backdrop + `cache_field` camera/mesh, place NPCs/props/spawn/arrival
-   into the OPEN doc (shell undo contract; refuse `ff9mapkit/examples/`; verbatim seats below
-   the party band), entry from the field cards (§5 call site 2); (d) `gui_snap` surfaces + the
-   owner walks a placed NPC in-game. Rung 2 (occluder contacts) rides along.
+   (c) ★ BUILT 2026-07-29 — `workspace/placedoc.py` (`PlaceDoc`, the "Place" tab on the
+   Author rail): the shell PUSHES the open doc (the BehaviorDoc feed contract; no disk at
+   construction/tab-show), one explicit **Load the room** click builds the donor surface off
+   the GUI thread (`cache_field` camera/mesh + per-camera `compose_background`, disk-cached
+   under the provision cache, `env_lock`'d); drops are PURE ops (`place_npc`/`place_prop`/
+   `set_spawn`/`set_arrival` — arrival upserts by entrance) into the OPEN dict + ONE
+   `on_edit` → the shell records the undo step (focus "place" lands Undo back on the tab)
+   and the tree grows the row. Markers render at real floor height (`floor_y_at`, plan-view
+   barycentric, stacks resolved toward the eye); a stacked-hit click ASKS via a floor menu.
+   Refusals: `protected_reason` (examples/installed) kills the whole surface; no donor
+   (`build.donor_field_id`, the pure-dict refactor) says why; VERBATIM disables spawn/arrival
+   (the donor's entry sequence runs) while npc/prop ride the build's below-band seating.
+   `[[prop]]` became a first-class editor kind on the way (PROP_SPEC + tree/rollup/lint —
+   it had none). Entry ★: the field-card picker takes a {donor→open member} map from the
+   shell and offers "Place content on this field" on already-forked rooms (§5 call site 2).
+   Pinned: `tests/test_workspace_place.py` (16) + a smoke block (drop→undo→focus round-trip);
+   `gui_snap place:bare|fork|refused` read at 100 + 150 (the fork state runs the REAL op path
+   over kit-painted stand-in art; the dirty-close modal needed `_no_modals`, the drift lesson).
+   (d) ★ PLAYTEST-CONFIRMED 2026-07-29 — the owner placed a prop + an NPC on a VERBATIM fork
+   in the Place tab, deployed to 4003, and saw both in-game (the live-install load path, the
+   raycast, the write-back, AND the build's below-band verbatim seating, proven in one pass).
+   **RUNG 3 CLOSED.** Still open on the board: Rung 4 ★ BUILT awaiting playtest (see its block),
+   and Rung 6 (the multi-room composer, now unblocked — its "do not start before Rung 3 is real"
+   gate is satisfied).
+5. **Rung 2** ★ BUILT 2026-07-29, ★ CORE MECHANISM PLAYTEST-CONFIRMED (contact mode + the
+   Cut-outs strip in the Trace tab; owner aligned a snip on a real hallway photo and confirmed
+   it composites correctly in-game — "that worked when i aligned it correctly"). Two full
+   playtest rounds drove real fixes, all landed:
+   (a) *Re-deployed art needed a full relaunch* → root-caused to the ENGINE, not the tab: the
+   s35 overlay-texture cache keyed on path alone, serving the stale decode all session. The
+   owner called its original ★ proof confounded (the entry-settle churn) → **s35 RETIRED**:
+   reverted from `C:\gd\FFIX\Memoria`, compile-checked, then DEPLOYED closed-game 2026-07-29
+   (Output == both arches sha `44090B29…`, backup `preS35removal.20260729-114832`; full story
+   + fingerprint tokens in `memoria-patches/README.md`'s s35 row). ★ **Owner-confirmed
+   in-game: "image movement is hot-reloadable now"** — move cut-out → Regenerate → deploy →
+   ~ Reload, no relaunch, exactly as designed.
+   (b) *Says-Move-but-pans* → two layers. First cut: the press resolver used `itemAt`
+   (topmost-only), so a trace leg/ring/label crossing a grabbable ate the press while the
+   hover cursor looked through cursor-less items — fixed by scanning every item under the
+   point by kind. Then a SEPARATE session root-caused the real disease underneath both this
+   and the wider GC-crash saga: **`QGraphicsItem.parentItem()` returning `None` silently
+   flips the wrapper Python-owned, so its death DELETES the C++ item** — a pure PySide6 bug,
+   version-independent (memory `project-ff9-pyside-parentitem-ownership`, full record
+   `studies/pyside-gc-crash/NOTES.md`). The press-walk sites now resolve through tag slots
+   alone (zero `parentItem()` calls in `workspace/`); backdrop drags no longer risk deleting
+   the art itself. Background-vanishing-during-drag (a separate owner report) was THIS bug,
+   not a repaint artifact — a viewport-update-mode band-aid was tried and reverted as the
+   wrong layer once the real cause was clear.
+   (c) *Explicit canvas TOOLS (owner-proposed)* — as click semantics multiply (pan/trace/
+   contacts now; regions at rung 4), a small per-canvas tool strip (Canvas / Walkmesh /
+   Cut-outs; Behavior its own set; possibly anchor-vs-image sub-tools) beats implicit mode
+   juggling. ★ **ADOPTED WITH RUNG 4** as mandated (`widgets.ToolStrip` on both click-authoring
+   canvases); the Behavior stage's own set remains a possible follow-on.
+   Also shipped this round: Generate is IN-PLACE after the first run (no dialog; writes a
+   `.trace.json` session record); Open accepts that sidecar OR the project's own `field.toml`
+   (backfilling the session from compiled artifacts when no sidecar exists yet); the Trace tab
+   auto-loads / one-click-offers the field currently open in the Editor; edits since the last
+   Generate show a "⚠ not stamped" status warning until re-stamped.

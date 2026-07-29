@@ -249,3 +249,30 @@ def test_build_mes_fixed_does_not_disturb_sequential_build_mes():
     fixed = _t.build_mes_fixed([(0, "roster"), (3, "menu")])
     assert min(mapping.values()) >= _t.DEFAULT_BASE_TXID
     assert "[TXID=0]" not in seq and "[TXID=500]" not in fixed
+
+
+def test_received_event_box_is_the_canonical_chest_box(tmp_path):
+    """The rung-4 playtest bug: a received event's window rode the author's message at the
+    dialogue default (10,1) + UPR -- a tiny box pinned to the TOP-RIGHT corner (the same disease
+    _chest_received_box already cured for chests). Both text channels now emit the chest's own
+    centered box, a received event needs NO message, and the Place tab's drawn-zone placeholder
+    "..." does not count as authored box text."""
+    raw = {"event": [
+        {"name": "z0", "zone": [[0, 0]] * 4, "message": "...",        # the drawn-zone placeholder
+         "give_item": [100, 1], "received": True},
+        {"name": "z1", "zone": [[0, 0]] * 4,                          # no message at all
+         "give_item": [236, 1], "received": True},
+        {"name": "z2", "zone": [[0, 0]] * 4, "message": "Plain."}]}   # a normal dialogue popup
+    proj = build.FieldProject(raw, tmp_path)
+    ev_txids, sfx = build._verbatim_event_messages(proj, ["us"])
+    body = sfx["us"]
+    assert set(ev_txids) == {0, 1, 2}                     # received no longer requires a message
+    assert body.count("Received [ITEM=0]!") == 2          # placeholder + absent both -> canonical
+    assert body.count("[STRT=69,3]") == 2                 # the real box CENTERS from its geometry
+    assert body.count("[TAIL=DEFT]") == 2
+    assert "..." not in body                              # the placeholder never ships as a box
+    assert "[TAIL=UPR]" in body                           # the plain message keeps dialogue style
+    assert build._verbatim_event_message_count(proj) == 3     # the txid blocks stay in lockstep
+    body2, _, et2, *_ = build.collect_text(_Stub(raw))    # the synth channel emits the same box
+    assert body2.count("Received [ITEM=0]!") == 2 and body2.count("[STRT=69,3]") == 2
+    assert set(et2) == {0, 1, 2}

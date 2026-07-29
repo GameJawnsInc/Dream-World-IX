@@ -59,6 +59,7 @@ from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
+from .placedoc import PlaceDoc
 from .tracedoc import TraceDoc
 from .worlddoc import WorldDoc
 from .style import qss, space, type_px
@@ -189,23 +190,36 @@ _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "
                  "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
                  "event": forms.EVENT_SPEC, "chest": forms.CHEST_SPEC, "flag": forms.FLAG_SPEC,
                  "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC,
-                 "sps": forms.SPS_SPEC, "playable": forms.PLAYABLE_SPEC, "player": forms.PLAYER_SPEC}
+                 "sps": forms.SPS_SPEC, "playable": forms.PLAYABLE_SPEC, "player": forms.PLAYER_SPEC,
+                 "prop": forms.PROP_SPEC}
 _SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup", "player")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
 _SINGLE = [("player", "Player & entry"), ("dialogue", "Dialogue"), ("encounter", "Encounter"),
            ("music", "Music"), ("cutscene", "Cutscene"), ("party", "Party"), ("startup", "Startup beat")]
-_LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("chest", "Chests"), ("flag", "Flags"),
+_LISTS = [("npc", "NPCs"), ("prop", "Props"), ("gateway", "Gateways"), ("event", "Events"),
+          ("chest", "Chests"), ("flag", "Flags"),
           ("marker", "Markers"), ("choice", "Choices"), ("sps", "Effects"), ("playable", "Playables")]
-_LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "chest": "Chest", "flag": "Flag",
+_LIST_SINGULAR = {"npc": "NPC", "prop": "Prop", "gateway": "Gateway", "event": "Event", "chest": "Chest",
+                  "flag": "Flag",
                   "marker": "Marker", "choice": "Choice", "sps": "Effect", "playable": "Playable"}
 # the default new entity per list kind -- mirrors the tkinter editor's _add_entity (editor/app.py).
 _LIST_DEFAULTS = {
-    "npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
-    "gateway": {"name": "door", "to": 100, "entrance": 0},
+    # THE DEFAULT-VALUE LAW (two rung-4 playtests): a minted default must be either REAL (it
+    # renders correctly in-game) or LOUDLY INVALID (a gate refuses it) -- never quietly valid.
+    # gateway to=100 was the worst offender: a REAL field id nobody chose, silently warping to
+    # it; to=0 puts the row under the Field(0) validate error + the canvas NO TARGET warn.
+    # An NPC minted with dialogue "..." shipped a hand-rolled placeholder window; with NO
+    # dialogue the build's silent-talk channel emits the canonical FF9 silent line instead.
+    # A default prop of "chest" LOOKED openable but wasn't (a real openable is [[chest]]).
+    "npc": {"name": "NPC", "preset": "vivi"},
+    "prop": {"name": "prop", "prop": "barrel", "pos": [0, 0]},  # static set-dressing (no dialogue, no turn)
+    "gateway": {"name": "door", "to": 0, "entrance": 0},
     "event": {"name": "event", "message": "..."},
     "chest": {"pos": [0, 0], "item": ["Potion", 1]},
-    "flag": {"name": "flag", "index": 8712},          # a save-persistent story flag (name -> gEventGlobal bit)
+    "flag": {"name": "flag", "index": 8712},          # index re-minted per add (_add_list_item) -- a
+                                                      # fixed index would alias every added flag onto
+                                                      # ONE save bit
     "marker": {"name": "spot", "pos": [0, 0]},
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
     "sps": {"id": 5000, "template": "fire", "pos": [0, 0]},   # a from-scratch particle effect (Tier-2 creator)
@@ -929,6 +943,8 @@ class Workspace(QMainWindow):
             self.behavior_doc.retheme(pal)                    # the stage canvas + guide glyph paint too
         if getattr(self, "trace_doc", None) is not None:
             self.trace_doc.retheme(pal)                       # the backdrop canvas paints too
+        if getattr(self, "place_doc", None) is not None:
+            self.place_doc.retheme(pal)                       # its backdrop canvas paints too
         if getattr(self, "_find_bar", None) is not None:
             self._find_bar.retheme(pal)                       # both highlight tiers are QTextCharFormats --
                                                               # QPainter-side, so the sheet cannot reach them
@@ -982,6 +998,8 @@ class Workspace(QMainWindow):
             self.behavior_doc.set_scale(self._text_scale)   # the behavior stage canvas too
         if getattr(self, "trace_doc", None) is not None:
             self.trace_doc.set_scale(self._text_scale)      # the backdrop canvas too
+        if getattr(self, "place_doc", None) is not None:
+            self.place_doc.set_scale(self._text_scale)      # its backdrop canvas too
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1734,7 +1752,9 @@ class Workspace(QMainWindow):
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
                                       on_forked=self._import_forked,       # a clean fork auto-opens its project
                                       thumbs=self.thumbs,                  # fork preview shows the room's art
-                                      on_open_models=lambda: self.tabs.setCurrentWidget(self.models_doc))
+                                      on_open_models=lambda: self.tabs.setCurrentWidget(self.models_doc),
+                                      place_ctx=self._place_members_by_donor,  # already-forked rooms offer
+                                      on_place=self.open_place_for_member)     # 'Place content…' instead
         self.tabs.addTab(self.import_field, "Import")
         # click-authoring Rung 1 (studies/click-authoring): trace a photo's floor ON the art and
         # generate a walkable field — the image→field on-ramp as a first-class surface. Streams
@@ -1758,6 +1778,12 @@ class Workspace(QMainWindow):
         self.behavior_doc = BehaviorDoc(self.pal, scale=self._text_scale,
                                         on_edit=self._on_behavior_edit)
         self.tabs.addTab(self.behavior_doc, "Behavior")
+        # click-authoring Rung 3 (studies/click-authoring): place NPCs/props/spawn/arrival by
+        # clicking a forked room's OWN art (every click raycasts the donor walkmesh). The shell
+        # PUSHES the open doc (tab show / tree select, the Behavior contract); the doc's one
+        # disk touch is the user's own 'Load the room' click.
+        self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, scale=self._text_scale)
+        self.tabs.addTab(self.place_doc, "Place")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
@@ -1769,7 +1795,7 @@ class Workspace(QMainWindow):
         # a setTabVisible(False) tab still works + fires the signal).
         self._rail_groups = [
             ("Home", [self._welcome_tab]),
-            ("Author", [self.doc_scroll, self.map, self.behavior_doc]),
+            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.place_doc]),
             ("Assets", [self.import_field, self.trace_doc, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
             ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
@@ -4762,6 +4788,9 @@ class Workspace(QMainWindow):
         if (getattr(self, "behavior_doc", None) is not None
                 and self.tabs.currentWidget() is self.behavior_doc):
             self._feed_behavior()                  # a field switch while Behavior is showing follows live
+        if (getattr(self, "place_doc", None) is not None
+                and self.tabs.currentWidget() is self.place_doc):
+            self._feed_place()                     # same live-follow for the Place surface
         if field_item is not None and p:
             member = self._payload(field_item)[1]
             if item is field_item:                 # the member row itself -> its Field form
@@ -4880,6 +4909,15 @@ class Workspace(QMainWindow):
             self._feed_behavior()                  # re-fed on each show so it tracks the open doc
             self.crumb.set([bc.Crumb("behavior", w.crumb_label())])
             self._set_chip(None)
+        elif w is self.place_doc:                  # placement on the open field -> re-fed on each show
+            self._feed_place()
+            self.crumb.set([bc.Crumb("place", w.crumb_label())])
+            self._set_chip(None)
+        elif w is getattr(self, "trace_doc", None):   # offer the OPEN field's project for a
+            self.crumb.set(self._content_crumbs)      # one-click (or pristine-auto) reopen
+            self._set_chip(None)
+            tgt = self._behavior_target()
+            self.trace_doc.offer_project(self.member_paths.get(tgt) if tgt else None)
         else:                                      # Import / Home -> project context, but no edit-target chip
             self.crumb.set(self._content_crumbs)
             self._set_chip(None)
@@ -4934,6 +4972,58 @@ class Workspace(QMainWindow):
         already open; a never-opened member loads through the Inspector's own `_safe_doc` lane
         (one toml, cached). The doc itself never reads files -- this is its only feed."""
         doc = getattr(self, "behavior_doc", None)
+        if doc is None:
+            return
+        member = self._behavior_target()
+        fd = self._safe_doc(member) if member else None
+        if fd is None:
+            doc.show_none()
+            return
+        doc.show_field(member, fd.data, self.member_paths.get(member),
+                       dirty=member in set(self._dirty_members()))
+
+    def _place_members_by_donor(self):
+        """``{donor real-field id -> open member name}`` across the open project — which real rooms
+        are already forked here. Feeds the field-card picker's 'Place content on this field'
+        (click-authoring §5 call site 2); first fork of a donor wins on a duplicate."""
+        out = {}
+        from .. import build
+        for member in (getattr(self, "member_paths", None) or {}):
+            fd = self._safe_doc(member)
+            if fd is None:
+                continue
+            d = build.donor_field_id(fd.data)
+            if d is not None:
+                out.setdefault(d, member)
+        return out
+
+    def open_place_for_member(self, member):
+        """Jump to the Place tab aimed at ``member`` (the field-card entry): select its tree row so
+        the feed targets it, then show the tab (which re-feeds)."""
+        node = getattr(self, "_member_items", {}).get(member)
+        if node is not None and self.tree.currentItem() is not node:
+            self.tree.setCurrentItem(node)
+        self.tabs.setCurrentWidget(self.place_doc)     # fires _on_tab_changed -> _feed_place
+        self.statusBar().showMessage(f"Place — click {member}'s art to drop content", 4000)
+
+    def _on_place_edit(self, member, label):
+        """A Place-tab drop landed in the open doc (the doc mutated it in place through
+        placedoc's pure ops): dirty-dot the member, record ONE undo step whose focus lands back
+        on the Place tab, rebuild the member's object rows (a drop ADDS a tree row — the
+        Behavior precedent never did), and re-feed so the new marker shows."""
+        self._touch(member)
+        self._checkpoint(member, label, "place")
+        if member in getattr(self, "_member_items", {}):
+            self.tree.blockSignals(True)
+            self._refresh_objects(member)
+            self.tree.blockSignals(False)
+        self._feed_place()
+
+    def _feed_place(self):
+        """Push the OPEN field's parsed dict into the Place doc — the same one feed contract as
+        :meth:`_feed_behavior` (in-memory when open; the Inspector's `_safe_doc` lane otherwise;
+        the doc itself reads no files)."""
+        doc = getattr(self, "place_doc", None)
         if doc is None:
             return
         member = self._behavior_target()
@@ -5044,6 +5134,8 @@ class Workspace(QMainWindow):
             ("Go to World (overworld atlas)", "view", lambda: self.tabs.setCurrentWidget(self.world_doc)),
             ("Go to Behavior (NPC AI ladders)", "view",
              lambda: self.tabs.setCurrentWidget(self.behavior_doc)),
+            ("Go to Place (click content onto the art)", "view",
+             lambda: self.tabs.setCurrentWidget(self.place_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
             ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
@@ -5278,6 +5370,15 @@ class Workspace(QMainWindow):
                 self.tree.setCurrentItem(node)       # _on_select re-feeds from the restored data
             else:
                 self._feed_behavior()
+            return
+        if key == "place":                           # a Place-tab drop -> land back on the art
+            node = getattr(self, "_member_items", {}).get(member)
+            if getattr(self, "place_doc", None) is not None:
+                self.tabs.setCurrentWidget(self.place_doc)           # fires _feed_place on show
+            if node is not None and self.tree.currentItem() is not node:
+                self.tree.setCurrentItem(node)       # _on_select re-feeds from the restored data
+            else:
+                self._feed_place()
             return
         if key and key.startswith("logic_n:"):       # a verbatim logic-node edit -> re-open its edit panel
             parts = key.split(":")
@@ -6908,6 +7009,9 @@ class Workspace(QMainWindow):
         elif kind == "npc":                           # never a field of twins named "NPC" — names are
             new["name"] = names.fresh_npc_name(       # load-bearing (behavior units + the scene merge
                 n.get("name") for n in lst)           # bind by name); playtest-asked FF9 flavour
+        if kind == "flag":                            # each flag gets the NEXT free save bit — a fixed
+            taken = [f.get("index") for f in lst if isinstance(f.get("index"), int)]
+            new["index"] = max([new["index"] - 1] + taken) + 1
         lst.append(new)
         idx = len(lst) - 1
         self._touch(member)                           # the new default entity is an unsaved change
@@ -8391,7 +8495,7 @@ class Workspace(QMainWindow):
         def seg(sect, label):
             return self._link(f"goto:tree:{member}:{sect}", label)
         bits = []
-        for sect, sing in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event"),
+        for sect, sing in (("npc", "NPC"), ("prop", "prop"), ("gateway", "gateway"), ("event", "event"),
                            ("chest", "chest"), ("marker", "marker"), ("choice", "choice")):
             n = len(data.get(sect, []) or [])
             if n:
@@ -8561,6 +8665,16 @@ class Workspace(QMainWindow):
             if e.get("flag") is not None:
                 out.append(m(f"opened-flag: {_esc(e['flag'])}"))
             return out + self._gate_lines(e)
+        if section == "prop":
+            what = e.get("prop") or e.get("model") or "?"
+            out = [f"prop: {_esc(e.get('name') or what)}", m(f"model: {_esc(what)}")]
+            if e.get("pos") is not None:
+                out.append(m(f"pos: {_esc(e['pos'])}"))
+            if e.get("attach_to"):
+                out.append(m(f"held by: {_esc(e['attach_to'])}"))
+            if e.get("collision") is False:
+                out.append(m("walk-through"))
+            return out + self._gate_lines(e)
         if section == "marker":
             out = [f"marker: {_esc(e.get('name', '?'))}"]
             if e.get("pos") is not None:
@@ -8621,6 +8735,9 @@ class Workspace(QMainWindow):
                     items.resolve(value)
                 except (ValueError, TypeError):
                     ok = False
+            elif cat == "prop":                            # build: prop_archetypes (single OR composite)
+                from .. import prop_archetypes
+                ok = prop_archetypes.is_prop_archetype(value) or prop_archetypes.is_composite(value)
         except Exception:                                  # noqa: BLE001 -- predicate import/quirk: stay silent
             ok = True
         self._name_valid[key] = ok
@@ -8739,6 +8856,21 @@ class Workspace(QMainWindow):
                         from .. import flags
                         if flags.is_reserved(int(f0)):
                             warn(f"set_flag writes a reserved bit ({f0})")
+            elif kind == "prop":                           # mirror the prop builder's own reads
+                has_arch, has_model = obj.get("prop") is not None, obj.get("model") is not None
+                if not has_arch and not has_model:
+                    warn("a prop needs a prop archetype or a model")
+                elif has_arch and has_model:
+                    warn("prop AND model are both set — the archetype wins and model is ignored")
+                if has_arch and not self._name_ok("prop", obj["prop"]):
+                    warn(f"unknown prop archetype '{obj['prop']}'")
+                if not has_arch and has_model:
+                    mid = obj["model"]
+                    if isinstance(mid, str) and mid.strip() and not mid.strip().isdigit() \
+                            and not self._name_ok("model", mid):    # a raw int id passes (the build accepts it)
+                        warn(f"unknown model '{mid}'")
+                if len(obj.get("pos", []) or []) < 2 and not obj.get("attach_to"):
+                    warn("a prop needs a pos = [x, z] (or an attach_to NPC)")
             elif kind == "chest":                          # mirror build.validate's [[chest]] checks
                 has_item, has_gil = obj.get("item") is not None, obj.get("gil") is not None
                 if has_item == has_gil:
@@ -9585,9 +9717,14 @@ def _smoke(win):
     flav, _, role = minted.partition("_")
     assert flav in _names.FLAVOR and role.split("_")[0] in _names.ROLES, minted
     assert win._save_ctx["section"] == "npc" and win._save_ctx["idx"] == nbefore   # new item's form is mounted
+    assert "dialogue" not in npcs[-1]                  # THE DEFAULT-VALUE LAW: no "..." placeholder --
+    #                                                    the silent-talk channel owns a wordless NPC
     assert win._payload(win.tree.currentItem()) == ("object", minted, f"npc:{nbefore}")   # tree refreshed+selected
     win._add_list_item("IC_ENT", "gateway")            # a different list kind
-    assert win._doc("IC_ENT").data["gateway"][-1]["to"] == 100 and win._save_ctx["section"] == "gateway"
+    # to == 0 on purpose (THE DEFAULT-VALUE LAW): loudly invalid -- the Field(0) validate error +
+    # the canvas NO TARGET warn own it. The old default 100 was a REAL field id nobody chose,
+    # silently warping there.
+    assert win._doc("IC_ENT").data["gateway"][-1]["to"] == 0 and win._save_ctx["section"] == "gateway"
     win._add_list_item("IC_ENT", "choice")             # a choice routes to the choice sub-editor
     assert win._doc("IC_ENT").data["choice"][-1]["prompt"] == "What'll it be?"
     win._add_list_item("IC_ENT", "flag")               # the [[flag]] section (audit #7 -> story flags are GUI-authorable)
@@ -9597,7 +9734,10 @@ def _smoke(win):
     assert forms.build_entity(forms.FLAG_SPEC, {"name": "got_sword", "index": "8720"}) == {"name": "got_sword", "index": 8720}
     assert win._node_problems("flag", {"name": "x", "index": 8720}, "IC_ENT") == []   # in-band: clean
     assert win._node_problems("flag", {"name": "x", "index": 100}, "IC_ENT")          # out-of-band: warns
+    win._add_list_item("IC_ENT", "flag")               # a SECOND flag mints the NEXT free save bit --
+    assert win._doc("IC_ENT").data["flag"][-1]["index"] == 8713   # a fixed default would alias one bit
     win._confirm = lambda *a: True
+    win._delete_object("IC_ENT", "flag", single=False, idx=len(win._doc("IC_ENT").data["flag"]) - 1, label="Flag")
     win._delete_object("IC_ENT", "flag", single=False, idx=len(win._doc("IC_ENT").data["flag"]) - 1, label="Flag")
     assert "flag" not in win._doc("IC_ENT").data                                       # cleaned up
     # DELETE a list entity: removes it, writes the file, refreshes the tree, lands on the group
@@ -10574,6 +10714,39 @@ def _smoke(win):
     assert "U1" not in win._dirty_members(), "viewing an options-less choice did not dirty the field"
     win._doc("U1").data.pop("choice", None)
     win._mark_clean("U1")
+
+    # PLACE (click-authoring rung 3c): a fork member feeds the Place tab, a drop is ONE undo step whose
+    # focus lands back on the tab, and the tree grows the new row (the synthetic bundle stands in for the
+    # donor surface -- the load path needs the install and is exercised by the user's own Load click).
+    pfld = d / "PLACETEST.field.toml"
+    pfld.write_text('[field]\nid = 4701\nname = "PLC"\narea = 11\nsource_field = 351\n', encoding="utf-8")
+    assert win.open_field(pfld)
+    win.tabs.setCurrentWidget(win.place_doc)               # fires _feed_place on show
+    pd = win.place_doc
+    assert pd._member == "PLC" and pd._donor == 351 and pd._blocked is None, (pd._member, pd._donor,
+                                                                              pd._blocked)
+    from ..scene import guide as _guide
+    _quad = [((-1000.0, 0.0, 500.0), (1000.0, 0.0, 500.0), (1000.0, 0.0, 2500.0)),
+             ((-1000.0, 0.0, 500.0), (1000.0, 0.0, 2500.0), (-1000.0, 0.0, 2500.0))]
+    pd._bundles[(351, 0)] = {"donor": 351, "cam_index": 0, "n_cams": 1,
+                             "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
+                             "png": None, "tris": _quad, "floors": [0, 0]}
+    pd._apply_bundle(pd._bundles[(351, 0)], refit=True)
+    nP = len(win._undo_stack)
+    pd._on_surface_clicked({"xz": (12.0, 900.0), "pos": (12.0, 0.0, 900.0), "floor": 0,
+                            "stacked": [{"xz": (12.0, 900.0), "pos": (12.0, 0.0, 900.0),
+                                         "floor": 0, "tri": 0, "s": 1.0}]})
+    assert win._doc("PLC").data["npc"][0]["pos"] == [12, 900], "the drop landed in the OPEN doc"
+    assert len(win._undo_stack) == nP + 1 and win._undo_stack[-1].focus == "place"
+    _pgrp = win._object_item("PLC", "npc", kind="group")
+    assert _pgrp is not None and _pgrp.childCount() == 1, "the tree grew the placed NPC's row"
+    assert len(pd.canvas._markers) == 1, "the re-feed drew the placed NPC's marker"
+    win.tabs.setCurrentWidget(win.doc_scroll)              # leave the tab, then undo -> land back on Place
+    win._undo()
+    assert not win._doc("PLC").data.get("npc"), "undo removed the placed NPC"
+    assert win.tabs.currentWidget() is win.place_doc, "undoing a place edit lands back on the Place tab"
+    assert pd.canvas._markers == [], "the undone drop's marker is gone"
+    assert "Prop" in [b.text() for b in pd.mode_btns.values()], "props are placeable"
 
     # CREATE NEW (the pure actions; the dialogs are modal so the smoke drives the actions directly) --
     # New Field scaffolds a standalone project + opens it (loose mode)

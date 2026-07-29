@@ -778,21 +778,23 @@ def snap_script(ctx: _Ctx, state: str) -> None:
 BEHAVIOR_STATES = ("guide", "bare", "wizard", "branchwiz", "doc", "compiled", "edit",
                    "stage", "sweep", "siege", "sim")
 
-TRACE_STATES = ("bare", "traced")
+TRACE_STATES = ("bare", "traced", "contacts", "regions")
 
 
 def snap_trace(ctx: _Ctx, state: str) -> None:
-    """The Trace tab (click-authoring Rung 1): the empty on-ramp ('bare' — the teach caption +
-    the bare canvas frame with its horizon), or the synthetic proof room loaded with a traced
-    floor polygon and its +48u outset ring ('traced'). The photo + polygon come from
-    test_imagefield's _paint_room — ONE owner for the fixture art (kit-painted, zero
-    Square-Enix bytes)."""
+    """The Trace tab (click-authoring Rungs 1+2+4): the empty on-ramp ('bare' — the teach caption
+    + the bare canvas frame with its horizon), the synthetic proof room loaded with a traced
+    floor polygon and its +48u outset ring ('traced'), that room with the PILLAR marked as a
+    foreground cut-out at its in-game-proven contact (230,320) -> z 1073 ('contacts' — the strip
+    + the anchored marker), or the Regions tool with a drawn gateway + a law-warned event zone
+    ('regions'). The photo + polygon come from test_imagefield's _paint_room — ONE owner for the
+    fixture art (kit-painted, zero Square-Enix bytes)."""
     if state not in TRACE_STATES:
         raise ValueError(f"unknown trace state {state!r} (know: {', '.join(TRACE_STATES)})")
     win = _make_win(ctx)
     win.tabs.setCurrentWidget(win.trace_doc)
     _settle(4)
-    if state == "traced":
+    if state in ("traced", "contacts", "regions"):
         import importlib.util
         p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_trace_fixture", p)
@@ -806,8 +808,106 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
         win.trace_doc.load_image(photo)
         win.trace_doc.canvas._commit_floor([(float(x), float(y)) for x, y in floor])
         _settle(6)
+    if state == "contacts":
+        from PIL import Image
+        cut = _SCRATCH / "trace_demo" / "pillar_snip.png"
+        im = Image.new("RGBA", (40, 180), (68, 60, 82, 255))   # a kit-painted object SNIP: the
+        im.save(cut)                                           # positionable-cut-out idiom
+        td = win.trace_doc
+        td._ask_cutout = lambda: str(cut)                    # the attach dialog, answered
+        td.fg_btn.setChecked(True)
+        td._on_contact(230.0, 320.0)                         # the proven pillar contact -> z 1073
+        _settle(6)
+    if state == "regions":
+        from ff9mapkit import imagefield as _if
+        td = win.trace_doc
+        td.tools.set_current("regions")                      # the rung-4 tool, on the photo lane
+        cam = td.canvas.camera()
+        td.gw_to.setValue(4005)
+        td._on_region_drawn([_if.click_to_world(cam, p) for p in
+                             [(40.0, 400.0), (150.0, 400.0), (150.0, 430.0), (40.0, 430.0)]])
+        td.rkind_btns["event"].setChecked(True)
+        td.ev_msg.setText("It creaks underfoot.")
+        td._on_region_drawn([_if.click_to_world(cam, p) for p in   # a bowtie: the spill wash
+                             [(220.0, 380.0), (330.0, 380.0), (220.0, 430.0), (330.0, 430.0)]])
+        _settle(6)
     _grab(ctx, f"trace-{state}", win)
     _grab(ctx, f"trace-{state}-canvas", win.trace_doc.canvas)   # the SUBJECT, not just the window
+    _close(win)
+
+
+PLACE_STATES = ("bare", "fork", "refused", "regions")
+
+
+def snap_place(ctx: _Ctx, state: str) -> None:
+    """The Place tab (click-authoring Rung 3c/4): the empty on-ramp ('bare'), a fork member with
+    a loaded surface + placed content ('fork' — kit-painted stand-in art + a synthetic flat quad,
+    so the snap needs no install; the REAL donor surface arrives through the user's own Load),
+    a bundled example refusing placement outright ('refused'), or the Regions tool with all
+    three zone-law renders on the art ('regions' — a gateway's walk-out edge, a TREADQUAD
+    overlap warn, and a non-convex quad's over-trigger spill wash)."""
+    if state not in PLACE_STATES:
+        raise ValueError(f"unknown place state {state!r} (know: {', '.join(PLACE_STATES)})")
+    # 'fork' deliberately ends with an UNSAVED placed prop, so win.close() would fire the
+    # unsaved-changes QMessageBox -- the drift surfaces' silent native hang. Same cure.
+    with _no_modals():
+        _snap_place_body(ctx, state)
+
+
+def _snap_place_body(ctx: _Ctx, state: str) -> None:
+    win = _make_win(ctx)
+    if state == "refused":
+        ex = REPO / "ff9mapkit" / "examples" / "vivi-hut" / "hut_int.field.toml"
+        win.tabs.setCurrentWidget(win.place_doc)
+        win.place_doc.show_field("hut_int", {"verbatim_eb": {"donor": 351}}, ex)
+        _settle(4)
+    elif state in ("fork", "regions"):
+        import importlib.util
+        p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
+        spec = importlib.util.spec_from_file_location("_place_fixture", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        root = _SCRATCH / "place_demo"                 # stable path -- mkdtemp breaks pixel-diffing
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+        root.mkdir(parents=True, exist_ok=True)
+        photo, _floor = mod._paint_room(root)
+        pf = root / "PLACEDEMO.field.toml"
+        pf.write_text('[field]\nid = 4702\nname = "PLACEDEMO"\narea = 11\nsource_field = 351\n\n'
+                      '[[npc]]\nname = "Mira"\npreset = "vivi"\ndialogue = "..."\npos = [-120, 1100]\n',
+                      encoding="utf-8")
+        assert win.open_field(pf), "the demo fork must open"
+        win.tabs.setCurrentWidget(win.place_doc)
+        pd = win.place_doc
+        from ff9mapkit.scene import guide as _guide
+        quad = [((-900.0, 0.0, 500.0), (900.0, 0.0, 500.0), (900.0, 0.0, 2600.0)),
+                ((-900.0, 0.0, 500.0), (900.0, 0.0, 2600.0), (-900.0, 0.0, 2600.0))]
+        pd._bundles[(351, 0)] = {"donor": 351, "cam_index": 0, "n_cams": 1,
+                                 "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
+                                 "png": str(photo), "tris": quad, "floors": [0, 0]}
+        pd._apply_bundle(pd._bundles[(351, 0)], refit=True)
+        if state == "regions":
+            pd.tools.set_current("regions")            # the rung-4 tool, through its own strip
+            pd.gw_to.setValue(4005)
+            pd._on_region_drawn([(-800.0, 1600.0), (-100.0, 1600.0),  # a CLEAN convex gateway:
+                                 (-100.0, 2400.0), (-800.0, 2400.0)])  # accent, edge + chevron
+            pd._on_region_drawn([(400.0, 1900.0), (900.0, 1900.0),   # overlaps the event below ->
+                                 (900.0, 2600.0), (400.0, 2600.0)])   # the TREADQUAD warn pair
+            pd.rkind_btns["event"].setChecked(True)
+            pd._on_region_drawn([(100.0, 1600.0), (800.0, 1600.0),
+                                 (800.0, 2200.0), (100.0, 2200.0)])
+            pd._on_region_drawn([(-50.0, 1000.0), (300.0, 600.0),    # a notch-in-hull dart ->
+                                 (300.0, 1200.0), (-400.0, 1200.0)])  # the over-trigger wash
+        else:
+            pd.mode_btns["prop"].setChecked(True)      # place a prop through the REAL op path so the
+            pd._apply_hit({"xz": (300.0, 1700.0), "pos": (300.0, 0.0, 1700.0),   # status + marker are true
+                           "floor": 0, "tri": 0, "s": 1.0})
+        _settle(6)
+    else:
+        win.tabs.setCurrentWidget(win.place_doc)
+        _settle(4)
+    _grab(ctx, f"place-{state}", win)
+    _grab(ctx, f"place-{state}-canvas", win.place_doc.canvas)   # the SUBJECT, not just the window
     _close(win)
 
 _BARE_TOML = """\
@@ -1104,7 +1204,8 @@ def all_surfaces() -> list[str]:
             + [f"drift:{s}" for s in DRIFT_STATES]
             + [f"script:{s}" for s in SCRIPT_STATES]
             + [f"behavior:{s}" for s in BEHAVIOR_STATES]
-            + [f"trace:{s}" for s in TRACE_STATES])
+            + [f"trace:{s}" for s in TRACE_STATES]
+            + [f"place:{s}" for s in PLACE_STATES])
 
 
 def main() -> None:
@@ -1154,6 +1255,8 @@ def main() -> None:
                 snap_behavior(ctx, rest)
             elif kind == "trace":
                 snap_trace(ctx, rest)
+            elif kind == "place":
+                snap_place(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface

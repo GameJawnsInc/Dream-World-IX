@@ -268,8 +268,9 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
 - Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3i ★ offline (so_record multi-part fix, 5 false PRIVATE repaired; CHANNEL A discloses 65; census/G contained) → `studies/custom-summons/tier-w/PLAN.md`
-- The scene ladder — ★ rungs 0-3 owner-confirmed (rig cinema + THE FERRY VOYAGE both halves: sail-out AND the close-in arrival dock; s66/s68); NEXT: 3c origin-port departures, designed → `studies/overworld-topography/scene-ladder/`
-- Click authoring (the Trace tab) — Rungs 0-1 ★ in-game; the camera census clears Rung 3 → `studies/click-authoring/PLAN.md`
+- The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
+- Click authoring — ★ Rungs 0-4 owner-confirmed (regions on BOTH lanes in-game; tool strip shipped); received-box fix awaits one look; open: 6 → `studies/click-authoring/PLAN.md`
+- Path D, a genuinely new 3rd overworld world — PLANNED (adversarially-reviewed, unexecuted): Rung 0/1 (debug reach + a runtime-built WorldDisc) are the pivotal unknowns → `studies/path-d-new-world/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

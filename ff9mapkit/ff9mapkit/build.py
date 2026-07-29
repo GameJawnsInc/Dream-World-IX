@@ -1219,6 +1219,14 @@ def validate(project: FieldProject) -> list[str]:
     _validate_folklore(project, problems)
     _validate_summon(project, problems)
     story_names = _story_names(project)
+    # the [[flag]] table's own errors, reported DIRECTLY: _story_names degrades to {} on a bad
+    # table (so name resolution can report unknowns), which left a table nobody references
+    # failing SILENTLY -- two flags on one index alias a single save bit with no complaint
+    # (the mechanism existed in collect_flag_defs; no call site spent it).
+    try:
+        _flags.collect_flag_defs(project.raw)
+    except ValueError as e:
+        problems.append(str(e))
     f = project.field
     for key in ("id", "name", "area"):
         if key not in f:
@@ -1356,6 +1364,11 @@ def validate(project: FieldProject) -> list[str]:
         elif isinstance(gw["to"], str) and gw["to"].strip().lower() != "worldmap":
             problems.append(f"[[gateway]] to = {gw['to']!r} -- a field id (int) or the string "
                             f"\"worldmap\" (the walk-out world-map exit).")
+        elif isinstance(gw["to"], bool) or (isinstance(gw["to"], int) and gw["to"] <= 0):
+            problems.append(f"[[gateway]] to = {gw['to']!r} is not a field id -- Field(0)/negative "
+                            f"never resolves, so walking into this door BLACK-SCREEN softlocks the "
+                            f"game (in-game 2026-07-29). Set the real destination id "
+                            f"(reference/field-manifest.tsv names the stock fields).")
         if str(gw.get("to")).strip().lower() == "worldmap":
             rk = gw.get("region_key", 62)
             if not isinstance(rk, int) or isinstance(rk, bool) or not (1 <= rk <= 255):
@@ -2670,6 +2683,12 @@ def lint_logic(project: FieldProject) -> list[str]:
       * duplicate entity names (the scene<->field merge key would be ambiguous)."""
     raw = project.raw
     out = []
+    for j, ev in enumerate(raw.get("event", []) or []):
+        if ev.get("message") == "..." and not (ev.get("received") and "give_item" in ev):
+            out.append(f"[[event]] {ev.get('name') or '#' + str(j)}: message is still the drawn-zone "
+                       f"placeholder '...' -- it ships as a literal '...' popup. Word it (the Editor "
+                       f"form, or right-click the quad -> Set message...), or make it a received item "
+                       f"box (give_item + received). (advisory)")
     if "verbatim_eb" in raw:                       # a verbatim fork runs the donor's real .eb (build_script,
         dropped = [lbl for key, lbl in _VERBATIM_IGNORED_BLOCKS.items() if raw.get(key)]   # which injects these,
         if dropped:                                                                        # is bypassed)
@@ -3091,62 +3110,71 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
     return out
 
 
-def lint_region_overlaps(project: FieldProject) -> list[str]:
-    """THE TREADQUAD LAW (in-game 2026-07-12): ``EventEngine.TreadQuad`` returns the FIRST active
-    region whose quad contains the player -- the engine delivers exactly ONE tread event per frame,
-    so overlapping tread regions (gateways, walk-events, walk-choices, [[coop]] plates/zones)
-    silently STARVE each other: whichever arms earlier in the scan wins every frame it contains the
-    player. Warn on any pair of tread-class zones whose bounding boxes genuinely overlap (shared
-    edges are fine -- abutting zones are a normal layout). Advisory + lint-only."""
-    raw = project.raw
-    boxes: list = []          # (label, x1, z1, x2, z2)
+def region_overlap_pairs(raw: dict) -> list[tuple]:
+    """The TREADQUAD-LAW judge over a field's raw dict: every pair of tread-class zones whose
+    bounding boxes genuinely overlap (shared edges are fine -- abutting zones are a normal
+    layout). Each side of a pair is ``(kind, index, label)`` so a live canvas can mark the
+    exact row; :func:`lint_region_overlaps` formats the same pairs into lint messages -- ONE
+    owner of the judgment for both."""
+    boxes: list = []          # ((kind, index, label), x1, z1, x2, z2)
 
-    def _add_quad(label, pts):
+    def _add_quad(key, pts):
         try:
             xs = [float(p[0]) for p in pts]
             zs = [float(p[1]) for p in pts]
         except (TypeError, ValueError, IndexError):
             return                                       # malformed zones are validate()'s problem
         if xs and zs:
-            boxes.append((label, min(xs), min(zs), max(xs), max(zs)))
+            boxes.append((key, min(xs), min(zs), max(xs), max(zs)))
 
-    def _add_rect(label, rect):
+    def _add_rect(key, rect):
         try:
             x1, z1, x2, z2 = (float(v) for v in rect)
         except (TypeError, ValueError):
             return
-        boxes.append((label, min(x1, x2), min(z1, z2), max(x1, x2), max(z1, z2)))
+        boxes.append((key, min(x1, x2), min(z1, z2), max(x1, x2), max(z1, z2)))
 
     for i, gw in enumerate(raw.get("gateway", [])):
         if "zone" in gw:
-            _add_quad(f"gateway -> {gw.get('to', '#' + str(i))}", gw["zone"][:4])
+            _add_quad(("gateway", i, f"gateway -> {gw.get('to', '#' + str(i))}"), gw["zone"][:4])
     for i, ev in enumerate(raw.get("event", [])):
         if "zone" in ev:
-            _add_quad(f"event {ev.get('name', '#' + str(i))!r}", ev["zone"][:4])
+            _add_quad(("event", i, f"event {ev.get('name', '#' + str(i))!r}"), ev["zone"][:4])
     for i, ch in enumerate(raw.get("choice", [])):
         if "zone" in ch and (ch.get("trigger") or "action") == "walk":   # action = tag-3, a separate class
-            _add_quad(f"walk-choice #{i}", ch["zone"][:4])
+            _add_quad(("choice", i, f"walk-choice #{i}"), ch["zone"][:4])
     for i, co in enumerate(raw.get("coop", [])):
         if str(co.get("mode", "once")).lower() == "hold":
             continue                                     # holds are looping CODE entries, not regions
         who = f"[[coop]] gate {co.get('name', '#' + str(i))!r}"
         if "zone" in co:
-            _add_rect(f"{who} zone", co["zone"])
+            _add_rect(("coop", i, f"{who} zone"), co["zone"])
         else:
             for key in ("plate_a", "plate_b"):
                 if key in co:
-                    _add_rect(f"{who} {key}", co[key])
+                    _add_rect(("coop", i, f"{who} {key}"), co[key])
 
-    out: list[str] = []
+    out: list[tuple] = []
     for a in range(len(boxes)):
         for b in range(a + 1, len(boxes)):
-            la, ax1, az1, ax2, az2 = boxes[a]
-            lb, bx1, bz1, bx2, bz2 = boxes[b]
+            ka, ax1, az1, ax2, az2 = boxes[a]
+            kb, bx1, bz1, bx2, bz2 = boxes[b]
             if ax1 < bx2 and bx1 < ax2 and az1 < bz2 and bz1 < az2:      # strict: shared edges OK
-                out.append(f"{la} and {lb} OVERLAP -- the engine fires ONE tread region per frame "
-                           f"(first active match wins), so the later-armed one is silently starved "
-                           f"wherever they overlap. Separate the zones.")
+                out.append((ka, kb))
     return out
+
+
+def lint_region_overlaps(project: FieldProject) -> list[str]:
+    """THE TREADQUAD LAW (in-game 2026-07-12): ``EventEngine.TreadQuad`` returns the FIRST active
+    region whose quad contains the player -- the engine delivers exactly ONE tread event per frame,
+    so overlapping tread regions (gateways, walk-events, walk-choices, [[coop]] plates/zones)
+    silently STARVE each other: whichever arms earlier in the scan wins every frame it contains the
+    player. Advisory + lint-only; the judgment itself is :func:`region_overlap_pairs` (shared with
+    the Workspace's live region canvas)."""
+    return [f"{ka[2]} and {kb[2]} OVERLAP -- the engine fires ONE tread region per frame "
+            f"(first active match wins), so the later-armed one is silently starved "
+            f"wherever they overlap. Separate the zones."
+            for ka, kb in region_overlap_pairs(project.raw)]
 
 
 @dataclass
@@ -4622,33 +4650,50 @@ def _verbatim_npc_message_count(project: FieldProject) -> int:
                if n.get("dialogue") or _npc_needs_default_talk(project, n))
 
 
+def _event_shows_text(ev: dict) -> bool:
+    """Whether an ``[[event]]`` appends a text entry: an authored message, OR a ``received``
+    item-get box (which needs NO message — the canonical "Received <item>!" is its own text).
+    ONE owner for the voiced filter and the count, so the txid blocks above/below never skew."""
+    return bool(ev.get("message")) or bool(ev.get("received") and "give_item" in ev)
+
+
 def _verbatim_event_messages(project: FieldProject, langs) -> tuple[dict, dict]:
-    """For a verbatim fork's authored ``[[event]]`` messages (a chest's "You found X" line): give each a
-    txid ABOVE the donor `.mes` + the on_entry/logic_add/npc blocks (all disjoint), plus the per-language
-    `.mes` lines to append. Returns ``(txid_by_event_index, suffix_by_lang)`` keyed by the index into
-    ``project.raw['event']``; ``({}, {})`` when no event shows a message. (A ``received`` event still needs a
-    ``message``; ``received`` only styles it as the window-7 item box.)"""
-    voiced = [(j, ev) for j, ev in enumerate(project.raw.get("event", []) or []) if ev.get("message")]
+    """For a verbatim fork's authored ``[[event]]`` texts: give each a txid ABOVE the donor `.mes`
+    + the on_entry/logic_add/npc blocks (all disjoint), plus the per-language `.mes` lines to
+    append. A ``received`` event's entry is the CANONICAL item-get box (:func:`_event_received_box`
+    — [STRT] auto-centering + DEFT, one owner with chests; the first cut re-styled the author's
+    message at the dialogue default (10,1)+UPR — a tiny box pinned TOP-RIGHT, the rung-4 playtest
+    report). Returns ``(txid_by_event_index, suffix_by_lang)`` keyed by the index into
+    ``project.raw['event']``; ``({}, {})`` when no event shows text."""
+    voiced = [(j, ev) for j, ev in enumerate(project.raw.get("event", []) or [])
+              if _event_shows_text(ev)]
     if not voiced:
         return {}, {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
             + _logic_add_message_count(project) + _verbatim_npc_message_count(project))
     wrap = _wrap_width(project)
-    lines, tails, txid_by_idx = [], [], {}
+    lines, tails, strts, txid_by_idx = [], [], [], {}
     for k, (j, ev) in enumerate(voiced):
-        line = _text.with_speaker(ev.get("speaker"), ev["message"])
-        if wrap is not None:
-            line = _text.wrap_text(line, wrap)[0]
-        lines.append(line)
-        tails.append(ev.get("tail"))
+        if ev.get("received") and "give_item" in ev:
+            text, strt, tail = _event_received_box(ev)   # pre-formatted: never wrapped
+            lines.append(text)
+            tails.append(ev.get("tail") or tail)
+            strts.append(strt)
+        else:
+            line = _text.with_speaker(ev.get("speaker"), ev["message"])
+            if wrap is not None:
+                line = _text.wrap_text(line, wrap)[0]
+            lines.append(line)
+            tails.append(ev.get("tail"))
+            strts.append(None)
         txid_by_idx[j] = base + k
-    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
 def _verbatim_event_message_count(project: FieldProject) -> int:
-    """How many ``[[event]]`` show a message (so the ``[[chest]]`` Received-text block can sit above them)."""
-    return sum(1 for ev in (project.raw.get("event", []) or []) if ev.get("message"))
+    """How many ``[[event]]`` append a text entry (so the ``[[chest]]`` block can sit above them)."""
+    return sum(1 for ev in (project.raw.get("event", []) or []) if _event_shows_text(ev))
 
 
 def _chest_received_box(ch: dict) -> tuple[str, tuple, str]:
@@ -4667,6 +4712,15 @@ def _chest_received_box(ch: dict) -> tuple[str, tuple, str]:
     if "gil" in ch:
         return "[WDTH=0,86,64,0,-1][IMME]\n Received [C8B040][HSHD][NUMB=0] Gil[C8C8C8][HSHD]! \n", (86, 3), "DEFT"
     return "[WDTH=0,69,14,0,-1][IMME]\n Received [ITEM=0]! \n", (69, 3), "DEFT"
+
+
+def _event_received_box(ev: dict) -> tuple[str, tuple, str]:
+    """A ``received`` ``[[event]]``'s item-get window: the chest's own canonical box (ONE owner —
+    :func:`_chest_received_box`), narrowed to the ITEM form (an event's separate ``gil`` key must
+    not flip it to the gil box). The Place tab's drawn-zone placeholder message ("...") does not
+    count as authored box text — the canonical "Received <item>!" shows instead."""
+    msg = ev.get("message")
+    return _chest_received_box({"message": None if msg == "..." else msg, "box": ev.get("box")})
 
 
 def _verbatim_chest_messages(project: FieldProject, langs) -> tuple[dict, dict]:
@@ -4974,13 +5028,14 @@ def _verbatim_npc_messages(project: FieldProject, langs) -> tuple[dict, dict]:
 _UID_HOTFIX_DONORS = frozenset((900, 2803))
 
 
-def _verbatim_donor_id(project: FieldProject):
-    """Best-effort donor field id of ANY fork (verbatim OR native/synth), for engine-hotfix warnings AND the
-    deploy-time ForkDonorPatch `<forkId> <donorId>` mapping. The import records it as ``[verbatim_eb] donor``
-    (verbatim) or ``[field] source_field`` (native/synth); ``borrow_field`` is the BG-borrow form. ``None``
-    when an older fork's toml lacks it (the warn/emit is then skipped -- pre-record forks need a hand-added line)."""
+def donor_field_id(raw) -> "int | None":
+    """Best-effort donor field id of ANY fork (verbatim OR native/synth) from a parsed field.toml dict.
+    The import records it as ``[verbatim_eb] donor`` (verbatim) or ``[field] source_field`` (native/synth);
+    ``borrow_field`` is the BG-borrow form. ``None`` when an older fork's toml lacks it (pre-record forks
+    need a hand-added line). Pure -- the Workspace Place tab resolves an OPEN doc's donor through this
+    same reader, so the deploy-time ForkDonorPatch mapping and the GUI can never disagree."""
     for blk, key in (("verbatim_eb", "donor"), ("field", "source_field"), ("field", "borrow_field")):
-        v = (project.raw.get(blk) or {}).get(key)
+        v = ((raw or {}).get(blk) or {}).get(key)
         if isinstance(v, bool):
             continue
         if isinstance(v, int):
@@ -4988,6 +5043,11 @@ def _verbatim_donor_id(project: FieldProject):
         if isinstance(v, str) and v.isdigit():
             return int(v)
     return None
+
+
+def _verbatim_donor_id(project: FieldProject):
+    """:func:`donor_field_id` over a loaded project (engine-hotfix warnings + the deploy-time emit)."""
+    return donor_field_id(project.raw)
 
 
 def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, choice_txids=None, warnings):
@@ -6917,13 +6977,16 @@ def collect_text(project: FieldProject):
         if "dialogue" in n:
             npc_pos[i] = _add(n, n["dialogue"])
     for j, ev in enumerate(project.raw.get("event", [])):
-        if "message" in ev:
+        if ev.get("received") and "give_item" in ev:
+            # the CANONICAL item-get box, one owner with [[chest]] (_chest_received_box): the
+            # [WDTH][IMME] framing + [STRT=69,3] auto-CENTERING + DEFT tail. The first cut showed
+            # "Received [ITEM=0]!" (or the author's message) at the dialogue-default (10,1)+UPR --
+            # a tiny box PINNED TO THE TOP-RIGHT corner (the rung-4 playtest report; the same bug
+            # chests had). Added verbatim -- pre-formatted, must not wrap.
+            text, strt, tail = _event_received_box(ev)
+            ev_pos[j] = _add_raw(text, ev.get("tail") or tail, strt=strt)
+        elif "message" in ev:
             ev_pos[j] = _add(ev, ev["message"])
-        elif ev.get("received") and "give_item" in ev:
-            # canonical item-get text: [ITEM=0] renders the item name from text-var slot 0 (set at
-            # runtime by SetTextVariable(0, item)); shown in the window-7 item-get box. Added verbatim
-            # (the [ITEM=0] tag must survive wrapping).
-            ev_pos[j] = _add_raw("Received [ITEM=0]!", ev.get("tail"))
     # [[cutscene]] dispatch: say lines register in BLOCK-then-STEP order -- the same flat order build_script
     # slices per block, so each block's compile consumes exactly its own txids.
     for _cb in _cutscene.blocks(project.raw.get("cutscene")):

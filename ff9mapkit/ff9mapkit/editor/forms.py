@@ -99,7 +99,8 @@ EVENT_SPEC = [
     Field("speaker", "Speaker name", STR, "optional name before the message (blank for an unsigned popup)"),
     Field("tail", "Window tail", STR, _TAIL_HELP + ". Default UPR."),
     Field("give_item", "Give item (id, count)", PAIR, "e.g. 232, 1"),
-    Field("received", "Item-get window", BOOL, "for Give item: also show the canonical 'Received <item>!' window",
+    Field("received", "Item-get window", BOOL, "for Give item: show the real centered 'Received <item>!' box "
+          "(needs no message; with one, your text fills the box and you own its codes)",
           default=False),
     Field("require_space", "Skip if bag full", BOOL, "for Give item: chest-style — don't fire if you can't carry it",
           default=False),
@@ -129,6 +130,28 @@ CHEST_SPEC = [
           "[WDTH]/codes); blank = the real FF9 box"),
     Field("box", "Box size (width, lines)", PAIR, "advanced: centers a custom message, e.g. 69, 3"),
     Field("tail", "Window tail", STR, _TAIL_HELP + ". Default DEFT (the centered system box)."),
+]
+PROP_SPEC = [
+    # [[prop]] -- static set-dressing (docs/FORMAT.md): NOT a character, so no dialogue/turn-to-player keys.
+    Field("name", "Name", STR, "a label (shows in the tree; optional)"),
+    Field("prop", "Prop", STR, "a built-in prop archetype — chest, tent, save_book, barrel, lever, … "
+          "(model + its canonical resting pose)", catalog="prop"),
+    Field("model", "Model", STR, "advanced: a prop model id or exact GEO name instead of an archetype",
+          catalog="model"),
+    Field("pose", "Pose", STR, "advanced: a static pose — an action name or a raw clip id; blank = the "
+          "archetype's resting pose"),
+    Field("pos", "Position (x, z)", COORD, "where it sits on the floor (on the walkmesh)"),
+    Field("face", "Facing (0-255)", OPTINT, "rotate it (0=south, 64=west, 128=north, 192=east)"),
+    Field("collision", "Solid (blocks walking)", BOOL, "off = a walk-through prop (floor markers, dense "
+          "scenery)", default=True),
+    Field("requires_flag", "Appears when flag set", FLAGREF,
+          "story gate: show only after this flag (name or index) is set", catalog="flag"),
+    Field("requires_flag_clear", "Appears when flag clear", FLAGREF,
+          "show only while this flag (name or index) is unset", catalog="flag"),
+    Field("attach_to", "Attach to NPC", STR, "advanced: an [[npc]] name — the prop binds to that NPC's "
+          "bone and follows it (a held item)", advanced=True),
+    Field("bone", "Attachment bone", OPTINT, "advanced: with Attach to — the bone index (default 11, the "
+          "right hand)", advanced=True),
 ]
 SPS_SPEC = [
     Field("id", "Effect ID", INT, "a unique number for this effect (use >= 5000; must not clash with a "

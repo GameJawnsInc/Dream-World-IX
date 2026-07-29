@@ -243,3 +243,23 @@ def test_lint_rejects_depart_code_without_a_stage(tmp_path):
     pr = _load(tmp_path, bad)
     problems = build.validate(pr)
     assert any("stage_arrive" in p for p in problems)
+
+
+def test_depart_arm_caches_the_origin_x_before_the_stage_preset(tmp_path):
+    """THE ORIGIN CACHE (rung 3c). The stage preset (arrive_writes) overwrites the on-foot
+    saved-position block, so the depart arm must first copy Global.Int24[64] -- where the player
+    stood when they entered the hall -- into the kit-world band for the world's departure
+    prologue to classify the origin port. The copy must sit BEFORE the arrive writes."""
+    from ff9mapkit import flags as F
+    from ff9mapkit.eb.cmdasm import assemble_block
+    pr = _load(tmp_path, DEPART_TOML)
+    wm = pr.raw["choice"][0]["options"][1]["worldmap"]
+    body = C.option_body({"worldmap": wm})
+    cache = assemble_block(
+        f"SET({{Global.Int24[{F.FERRY_ORIGIN_X_INT24}] Global.Int24[64] B_LET B_EXPR_END}})\n")
+    assert body.count(cache) == 1, "exactly one origin-x cache write per depart arm"
+    assert body.index(cache) < body.index(WX.arrive_writes(60.0, -1168.0, face=192)), \
+        "the cache must precede the stage preset that clobbers Int24[64]"
+    # a PLAIN destination arm (no depart_code) must not carry it
+    plain = C.option_body({"worldmap": {"arrive": [60.0, -1168.0], "face": 192}})
+    assert cache not in plain

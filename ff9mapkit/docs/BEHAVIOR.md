@@ -296,13 +296,19 @@ order. A strike clip needs only the fire-and-forget half (it *should* return to 
   first tick the condition fails. A tight `near` (say 280 with a 170 chase standoff) reads the
   player's first step back as "escaped" and a `once` latches almost instantly; give the keep
   real room (hundreds of units past the standoff) so disengaging means genuinely leaving.
-- **`once` over an `announce` is an EVENT, not an engagement**: it fires the line once and
-  *releases the branch immediately* (via the same edge-latched request lane battles use, so
-  another body holding the dispatch level can't eat it). This matters because announce
-  conditions are usually **monotonic** — a kill tally, a spent wave counter — and a sticky
-  `once` over a condition that never goes false again would hold the selection forever,
-  **starving every branch below it** (the BTTABLE round-2 defect: the win line, once fired,
-  silently swallowed the wave-three line for the rest of the match).
+- **`once` / `cooldown` over a one-shot (`announce`/`sfx`/`flash`/`stop_timer`) are EVENTS,
+  not engagements**: the branch fires and *releases immediately* (via the same edge-latched
+  request lane battles use, so another body holding the dispatch level can't eat it). For
+  `once` this matters because announce conditions are usually **monotonic** — a kill tally, a
+  spent wave counter — and a sticky `once` over a condition that never goes false again would
+  hold the selection forever, **starving every branch below it** (the BTTABLE round-2 defect:
+  the win line, once fired, silently swallowed the wave-three line). For `cooldown` the trap
+  is worse — a **mutual deadlock**: selecting a one-shot *halts the walker* (the duty walk is
+  fed the unit's own position), so two neighbours greeting each other on `near` conds would
+  park inside each other's radius with no way for either condition to ever fail — both
+  statues, selection held forever (the hangout greet latch). The event form fires the line,
+  **arms the timer at delivery**, and hands selection straight back to the fallback — the
+  pair parts, wanders, and greets again when the timer allows.
 
 ## Pooled units — spawn reinforcements at your feet
 
