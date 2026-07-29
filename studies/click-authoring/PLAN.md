@@ -114,7 +114,7 @@ green: grid round-trips < 1e-9 px across pitch 10-45 / yaw ±25 / two FOVs / a n
 camera; `ff9mapkit/tests/test_workspace_backdrop.py` pins the widget half. Note: the DEFAULT-pitch
 26 camera's horizon sits just OFF-frame (canvas y ≈ −3.6) — pitch ≤ ~20 puts it on-canvas.
 
-### Rung 1 — floor tracing (parity with `--trace`)
+### Rung 1 — floor tracing (parity with `--trace`) ★ DONE + PLAYTESTED 2026-07-28
 Click to add polygon vertices, drag handles to adjust, pitch slider re-deriving the horizon from the
 real camera math, live outset preview (+48u `COLLISION_RADIUS_W`), then call `build_image_field`.
 **Verify:** `tools/gui_snap.py` → **read the PNG**; then build → `deploy_field.py --id <scratch>` →
@@ -239,7 +239,9 @@ GUI claim from source; that is the documented recurring failure in this package.
    `pack.check_custom_id`); snap surfaces `trace:bare|traced` (fixture art = `_paint_room`, one
    owner); the a11y sweep caught the slider as a ringless Tab stop (id-scoped reserved ring —
    an app-wide QSlider box would deFusion every slider), the 150% snap caught standing prose
-   starving the canvas (162→270px). **Remaining:** the hallway-photo parity walk — owner traces
-   the photo in the tab, Generate, `deploy_field.py --id <scratch>`, walk it in-game.
+   starving the canvas (162→270px). **★ PLAYTEST-CONFIRMED 2026-07-28** — owner traced a photo
+   in the tab, generated, deployed, and walked it ("looks good i got one in"). **RUNG 1 CLOSED —
+   the GUI reaches full parity with the retired HTML tracer.**
 4. **Scope Rung 3's UI** — measure real walkmesh floor heights first (the `plane_y` decision), then
-   the field-card entry point (§5 call site 2) + surgical write-back (call site 4).
+   the field-card entry point (§5 call site 2) + surgical write-back (call site 4). Rung 2
+   (occluder contacts — a contact mode on the same canvas) is small and can ride along either way.
