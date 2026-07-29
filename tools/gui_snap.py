@@ -810,6 +810,66 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
     _grab(ctx, f"trace-{state}-canvas", win.trace_doc.canvas)   # the SUBJECT, not just the window
     _close(win)
 
+
+PLACE_STATES = ("bare", "fork", "refused")
+
+
+def snap_place(ctx: _Ctx, state: str) -> None:
+    """The Place tab (click-authoring Rung 3c): the empty on-ramp ('bare'), a fork member with a
+    loaded surface + placed content ('fork' — kit-painted stand-in art + a synthetic flat quad,
+    so the snap needs no install; the REAL donor surface arrives through the user's own Load),
+    or a bundled example refusing placement outright ('refused')."""
+    if state not in PLACE_STATES:
+        raise ValueError(f"unknown place state {state!r} (know: {', '.join(PLACE_STATES)})")
+    # 'fork' deliberately ends with an UNSAVED placed prop, so win.close() would fire the
+    # unsaved-changes QMessageBox -- the drift surfaces' silent native hang. Same cure.
+    with _no_modals():
+        _snap_place_body(ctx, state)
+
+
+def _snap_place_body(ctx: _Ctx, state: str) -> None:
+    win = _make_win(ctx)
+    if state == "refused":
+        ex = REPO / "ff9mapkit" / "examples" / "vivi-hut" / "hut_int.field.toml"
+        win.tabs.setCurrentWidget(win.place_doc)
+        win.place_doc.show_field("hut_int", {"verbatim_eb": {"donor": 351}}, ex)
+        _settle(4)
+    elif state == "fork":
+        import importlib.util
+        p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
+        spec = importlib.util.spec_from_file_location("_place_fixture", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        root = _SCRATCH / "place_demo"                 # stable path -- mkdtemp breaks pixel-diffing
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+        root.mkdir(parents=True, exist_ok=True)
+        photo, _floor = mod._paint_room(root)
+        pf = root / "PLACEDEMO.field.toml"
+        pf.write_text('[field]\nid = 4702\nname = "PLACEDEMO"\narea = 11\nsource_field = 351\n\n'
+                      '[[npc]]\nname = "Mira"\npreset = "vivi"\ndialogue = "..."\npos = [-120, 1100]\n',
+                      encoding="utf-8")
+        assert win.open_field(pf), "the demo fork must open"
+        win.tabs.setCurrentWidget(win.place_doc)
+        pd = win.place_doc
+        from ff9mapkit.scene import guide as _guide
+        quad = [((-900.0, 0.0, 500.0), (900.0, 0.0, 500.0), (900.0, 0.0, 2600.0)),
+                ((-900.0, 0.0, 500.0), (900.0, 0.0, 2600.0), (-900.0, 0.0, 2600.0))]
+        pd._bundles[(351, 0)] = {"donor": 351, "cam_index": 0, "n_cams": 1,
+                                 "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
+                                 "png": str(photo), "tris": quad, "floors": [0, 0]}
+        pd._apply_bundle(pd._bundles[(351, 0)], refit=True)
+        pd.mode_btns["prop"].setChecked(True)          # place a prop through the REAL op path so the
+        pd._apply_hit({"xz": (300.0, 1700.0), "pos": (300.0, 0.0, 1700.0),   # status + marker are true
+                       "floor": 0, "tri": 0, "s": 1.0})
+        _settle(6)
+    else:
+        win.tabs.setCurrentWidget(win.place_doc)
+        _settle(4)
+    _grab(ctx, f"place-{state}", win)
+    _grab(ctx, f"place-{state}-canvas", win.place_doc.canvas)   # the SUBJECT, not just the window
+    _close(win)
+
 _BARE_TOML = """\
 [field]
 name = "BARE"
@@ -1104,7 +1164,8 @@ def all_surfaces() -> list[str]:
             + [f"drift:{s}" for s in DRIFT_STATES]
             + [f"script:{s}" for s in SCRIPT_STATES]
             + [f"behavior:{s}" for s in BEHAVIOR_STATES]
-            + [f"trace:{s}" for s in TRACE_STATES])
+            + [f"trace:{s}" for s in TRACE_STATES]
+            + [f"place:{s}" for s in PLACE_STATES])
 
 
 def main() -> None:
@@ -1154,6 +1215,8 @@ def main() -> None:
                 snap_behavior(ctx, rest)
             elif kind == "trace":
                 snap_trace(ctx, rest)
+            elif kind == "place":
+                snap_place(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface

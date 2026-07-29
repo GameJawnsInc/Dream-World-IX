@@ -826,6 +826,94 @@ def test_once_announce_shared_with_bare_site_refused():
         fb.compile()
 
 
+# --------------------------------------------- the EVENT Cooldown (the greet latch)
+def greet_pair_field() -> B.FieldBehavior:
+    """THE HANGOUT GREET LATCH: a near(partner)+cooldown announce over a wander
+    fallback, both sides. Sticky engagement deadlocks the pair — selecting the
+    announce HALTS both walkers (the dispatch-halt feeds own mirror), near()
+    never re-falsifies, and both hold selection forever after their first
+    exchange (the owner's playtest: statues). Cooldown over a one-shot is an
+    EVENT: fire through the request lane, arm the timer AT DELIVERY, release."""
+    fb = B.FieldBehavior([B.UnitSpec("a", entry=2, spawn=(120, -80)),
+                          B.UnitSpec("b", entry=3, spawn=(-1376, 1612))])
+    for n in ("a", "b"):
+        fb.units[n].tree = B.Selector(
+            B.Cooldown(220, B.Sequence(fb.near(n, "b" if n == "a" else "a", 300),
+                                       B.Do(B.Announce(700)))),
+            B.Do(B.Wander((0, 0), radius=200)),
+        )
+    return fb
+
+
+def test_cooldown_announce_is_an_event_not_an_engagement():
+    fb = greet_pair_field()
+    cb = fb.compile()
+    _verify_all(cb)
+    # NO engagement machinery — the event form has no sticky gate to hold the
+    # selection open while the halted pair sits inside each other's radius
+    assert "cdeng" not in cb.report
+    # the timer is aid-keyed, central-clock registered, Main_Init zeroed
+    assert ("a.ecd1", 220) in fb._cooldowns and ("b.ecd1", 220) in fb._cooldowns
+    t_a = fb.bb.byte("a.ecd1")
+    req_a = fb.bb.flag("a.areq1")
+    ticks = _expr_stmts(cb.ticker_body)
+    # the gate is timer-only, and selection edge-latches the request
+    assert f"{{Global.Byte[{t_a}] const(0) B_EQ B_EXPR_END}}" in ticks
+    assert f"{{Global.Bit[{req_a}] const(1) B_LET B_EXPR_END}}" in ticks
+    # the lane's served check reads the timer (cooling -> skip-and-wait)
+    assert f"{{Global.Byte[{t_a}] const(0) B_GT B_EXPR_END}}" in ticks
+    # the dispatch body: ARM THE TIMER FIRST (a re-request can never
+    # double-fire), CLEAR the request (a stale req must not re-fire at
+    # expiry), no idle loop
+    body = [b for _t, b in cb.action_funcs["a"]][0]
+    stmts = _expr_stmts(body)
+    assert stmts[0] == f"{{Global.Byte[{t_a}] const(220) B_LET B_EXPR_END}}"
+    assert stmts[1] == f"{{Global.Bit[{req_a}] const(0) B_LET B_EXPR_END}}"
+    ops = [i.op for i in D.iter_code(body, 0, len(body))]
+    assert 0x22 not in ops                       # no Wait — fire and return
+    # the timer zeroes at Main_Init (~ Reload = fresh cooldowns)
+    assert any(f"Global.Byte[{t_a}]" in s and "const(0)" in s
+               for s in _expr_stmts(cb.main_init))
+    # determinism
+    assert greet_pair_field().compile().stable_hash() == cb.stable_hash()
+
+
+def test_cooldown_over_a_feed_stays_sticky():
+    fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0))])
+    fb.units["g"].tree = B.Selector(
+        B.Cooldown(90, B.Sequence(fb.near("g", B.PLAYER, 400),
+                                  B.Do(B.Chase(B.PLAYER)))),
+        B.Do(B.Hold((0, 0))),
+    )
+    cb = fb.compile()
+    _verify_all(cb)
+    assert "cdeng" in cb.report                  # the engagement flag survives
+    assert "areq" not in cb.report and "ecd" not in cb.report
+
+
+def test_cooldown_announce_brains_rides_the_instance_block():
+    fb = B.FieldBehavior([B.UnitSpec("a", entry=2, spawn=(120, -80)),
+                          B.UnitSpec("b", entry=3, spawn=(-1376, 1612))],
+                         brains=True)
+    for n in ("a", "b"):
+        fb.units[n].tree = B.Selector(
+            B.Cooldown(220, B.Sequence(fb.near(n, "b" if n == "a" else "a", 300),
+                                       B.Do(B.Announce(700)))),
+            B.Do(B.Wander((0, 0), radius=200)),
+        )
+    cb = fb.compile()
+    _verify_all(cb)
+    # timer + request are SEQ-PRIVATE and the brain ticks its own timer
+    assert ("a", "ecd1") in fb._inst_slots and ("a", "areq1") in fb._inst_slots
+    a_t = f"Instance.Byte[{fb._inst_slots[('a', 'ecd1')][1]}]"
+    assert a_t in fb._brain_cooldowns["a"]
+    # the inline lane arms the timer and clears the request (rung-5 shape)
+    stmts = _expr_stmts(cb.brain_bodies["a"])
+    assert f"{{{a_t} const(220) B_LET B_EXPR_END}}" in stmts
+    a_req = f"Instance.Byte[{fb._inst_slots[('a', 'areq1')][1]}]"
+    assert f"{{{a_req} const(0) B_LET B_EXPR_END}}" in stmts
+
+
 def test_once_announce_shared_between_two_onces_refused():
     fb = B.FieldBehavior([B.UnitSpec("g", entry=2, spawn=(0, 0))])
     a = B.Announce(700)

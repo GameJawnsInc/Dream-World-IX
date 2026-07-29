@@ -4974,13 +4974,14 @@ def _verbatim_npc_messages(project: FieldProject, langs) -> tuple[dict, dict]:
 _UID_HOTFIX_DONORS = frozenset((900, 2803))
 
 
-def _verbatim_donor_id(project: FieldProject):
-    """Best-effort donor field id of ANY fork (verbatim OR native/synth), for engine-hotfix warnings AND the
-    deploy-time ForkDonorPatch `<forkId> <donorId>` mapping. The import records it as ``[verbatim_eb] donor``
-    (verbatim) or ``[field] source_field`` (native/synth); ``borrow_field`` is the BG-borrow form. ``None``
-    when an older fork's toml lacks it (the warn/emit is then skipped -- pre-record forks need a hand-added line)."""
+def donor_field_id(raw) -> "int | None":
+    """Best-effort donor field id of ANY fork (verbatim OR native/synth) from a parsed field.toml dict.
+    The import records it as ``[verbatim_eb] donor`` (verbatim) or ``[field] source_field`` (native/synth);
+    ``borrow_field`` is the BG-borrow form. ``None`` when an older fork's toml lacks it (pre-record forks
+    need a hand-added line). Pure -- the Workspace Place tab resolves an OPEN doc's donor through this
+    same reader, so the deploy-time ForkDonorPatch mapping and the GUI can never disagree."""
     for blk, key in (("verbatim_eb", "donor"), ("field", "source_field"), ("field", "borrow_field")):
-        v = (project.raw.get(blk) or {}).get(key)
+        v = ((raw or {}).get(blk) or {}).get(key)
         if isinstance(v, bool):
             continue
         if isinstance(v, int):
@@ -4988,6 +4989,11 @@ def _verbatim_donor_id(project: FieldProject):
         if isinstance(v, str) and v.isdigit():
             return int(v)
     return None
+
+
+def _verbatim_donor_id(project: FieldProject):
+    """:func:`donor_field_id` over a loaded project (engine-hotfix warnings + the deploy-time emit)."""
+    return donor_field_id(project.raw)
 
 
 def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, choice_txids=None, warnings):

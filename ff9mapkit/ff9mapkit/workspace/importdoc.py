@@ -34,7 +34,7 @@ class ImportDoc(QWidget):
     _rooms_ready = Signal(object)
 
     def __init__(self, pal, kit_root, *, run, problems=None, on_forked=None, thumbs=None,
-                 on_open_models=None):
+                 on_open_models=None, place_ctx=None, on_place=None):
         super().__init__()
         self.pal = pal
         # Suggested-test-rooms cache: find-rooms is a ~45s sweep with no cache of its own, so remember the
@@ -56,6 +56,8 @@ class ImportDoc(QWidget):
                           else Path.home() / "Dream World IX")
         self._run = run
         self._on_forked = on_forked                    # called with the output DIR on a clean fork -> shell opens it
+        self._place_ctx = place_ctx                    # shell callback: {donor field id -> open member name}
+        self._on_place = on_place                      # shell callback: jump to the Place tab on that member
         # The tab body SCROLLS: this view stacks five tall group boxes, so a short window would otherwise
         # cram/overlap them (and the inflated minimum height blocks the bottom Output dock from growing). The
         # scroll area keeps THIS widget's min height small so the dock is resizable + the boxes never collide.
@@ -813,10 +815,22 @@ class ImportDoc(QWidget):
             self.field.setText(dlg.result)
 
     def on_field_cards(self):
-        """The region-divided field card view, one click from the source box; the pick fills it."""
+        """The region-divided field card view, one click from the source box; the pick fills it.
+        Cards whose room the OPEN project already forks offer 'Place content on this field'
+        instead of a second fork (click-authoring §5 call site 2) — that path jumps to Place."""
         from .fieldcards import FieldCardPicker
-        dlg = FieldCardPicker(self, self.pal, self.thumbs, initial=self.field.text().strip())
+        pm = {}
+        if self._place_ctx is not None:
+            try:
+                pm = self._place_ctx() or {}
+            except Exception:                          # noqa: BLE001 -- the map is an affordance, not a gate
+                pm = {}
+        dlg = FieldCardPicker(self, self.pal, self.thumbs, initial=self.field.text().strip(),
+                              place_members=pm)
         dlg.exec()
+        if dlg.place_member is not None and self._on_place is not None:
+            self._on_place(dlg.place_member)
+            return
         if dlg.result:
             self.field.setText(dlg.result)
 

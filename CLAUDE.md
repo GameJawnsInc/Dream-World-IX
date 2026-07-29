@@ -269,7 +269,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   lives on an unmerged branch)
 - Summons TIER W ★: W5 ⛳, W6a ★★, W7 ★★, W6b-1 ⛳ in-game (byte→screen + per-cell map + 4bpp proven; BINDING≠DRAW + UV-shredding laws; shape-on-flat open) → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
-- Click authoring (the Trace tab) — Rungs 0-1 ★ in-game; the camera census clears Rung 3 → `studies/click-authoring/PLAN.md`
+- Click authoring — Rungs 0-1 ★ in-game; Rung 3 BUILT through (c) the Place tab (raycast placement into the open doc), awaiting the (d) playtest → `studies/click-authoring/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

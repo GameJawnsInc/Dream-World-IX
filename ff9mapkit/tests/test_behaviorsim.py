@@ -162,6 +162,53 @@ def test_determinism_and_the_honesty_ledger():
     assert s1.at(200)["units"]["b"]["dormant"]
 
 
+def test_cooldown_announce_is_an_event_and_the_greet_pair_unlatches():
+    """THE HANGOUT GREET LATCH: two neighbours wander overlapping boxes and
+    announce at each other on a near(partner) cond under ``cooldown``. Sticky
+    engagement deadlocks the pair in-engine -- selecting the announce HALTS
+    both walkers (the dispatch-halt), so near() never re-falsifies and both
+    hold selection forever (the owner's playtest: statues after the first
+    exchange). The event-cooldown fires, arms its timer AT DELIVERY, and
+    releases: greet -> part -> wander -> greet again."""
+    npcs = [{"name": "a", "pos": [320, 0]}, {"name": "b", "pos": [-320, 0]}]
+    units = [
+        _unit("a", [{"when": [{"near": ["b", 300]}],
+                     "do": {"announce": "hi"}, "cooldown": 100},
+                    {"do": {"wander": [320, 0], "radius": 350, "speed": 25}}]),
+        _unit("b", [{"when": [{"near": ["a", 300]}],
+                     "do": {"announce": "yo"}, "cooldown": 120},
+                    {"do": {"wander": [-320, 0], "radius": 350, "speed": 25}}]),
+    ]
+    sim = SIM.Sim(_field(units, npcs=npcs))
+    sim.run_to(1500)
+    fires = {n: [e.tick for e in sim.events if e.unit == n and e.kind == "announce"]
+             for n in ("a", "b")}
+    # both greet MORE THAN ONCE -- the un-latch fence -- and the timer gates
+    for n, cd in (("a", 100), ("b", 120)):
+        assert len(fires[n]) >= 2, f"{n} never re-greeted: {fires[n]}"
+        assert all(g >= cd for g in
+                   (t2 - t1 for t1, t2 in zip(fires[n], fires[n][1:])))
+    # selection releases the tick after a fire (never a held engagement), and
+    # the pair genuinely parts and keeps living between greets
+    first = min(fires["a"] + fires["b"])
+    longest = {n: 0 for n in fires}
+    run = {n: 0 for n in fires}
+    moved = {n: 0.0 for n in fires}
+    prev: dict = {}
+    for t in range(first, min(first + 600, 1500)):
+        units_t = sim.at(t)["units"]
+        for n in fires:
+            u = units_t[n]
+            if n in prev:
+                moved[n] += max(abs(u["x"] - prev[n][0]), abs(u["z"] - prev[n][1]))
+            prev[n] = (u["x"], u["z"])
+            run[n] = run[n] + 1 if u["sel"] == 0 else 0
+            longest[n] = max(longest[n], run[n])
+    for n in fires:
+        assert longest[n] <= 3, f"{n} held the greet row {longest[n]} ticks"
+        assert moved[n] > 200, f"{n} statued after the greet ({moved[n]:.0f}u)"
+
+
 # --------------------------------------------------------------------------- the tab's sim mode
 # Qt half: the strip appears, stepping paints ghosts + sweeps the ladder, an edit exits sim,
 # and the honesty caption is ON THE FACE. The interpreter itself is pinned above, Qt-free.

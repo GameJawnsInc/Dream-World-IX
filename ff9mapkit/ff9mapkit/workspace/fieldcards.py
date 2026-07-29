@@ -62,14 +62,22 @@ def regions_of(entries) -> list:
 
 
 class FieldCardPicker(QDialog):
-    """A modal region-divided card grid over the real fields; ``result`` is the field id (str) or None."""
+    """A modal region-divided card grid over the real fields; ``result`` is the field id (str) or None.
 
-    def __init__(self, parent, palette, field_thumbs, *, initial=""):
+    ``place_members`` (optional, ``{real field id -> open member name}``) marks the rooms the OPEN
+    project already forks: their cards enable **Place content on this field**, which sets
+    ``place_member`` and accepts — the click-authoring entry point (studies/click-authoring §5,
+    call site 2) from where the author already is, instead of forking the same room twice."""
+
+    def __init__(self, parent, palette, field_thumbs, *, initial="", place_members=None):
         super().__init__(parent)
         self.setWindowTitle("Pick a real field")
         self.pal = palette
         self.thumbs = field_thumbs
         self.result = None
+        self.place_member = None                 # set by the Place button (an open member name)
+        self._place_members = {int(k): v for k, v in (place_members or {}).items()}
+        self.place_btn = None                    # built with the button bar below (guards _describe)
         self._all = field_entries()
         self._entries = []
         self._items = {}                         # field id -> QListWidgetItem (current filter)
@@ -135,6 +143,13 @@ class FieldCardPicker(QDialog):
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
         bar.addWidget(use)
+        if self._place_members:
+            self.place_btn = QPushButton("Place content on this field")
+            self.place_btn.setEnabled(False)
+            self.place_btn.setToolTip("Your open project already forks this room — jump to the "
+                                      "Place tab and click content onto its art.")
+            self.place_btn.clicked.connect(self._place)
+            bar.addWidget(self.place_btn)
         bar.addWidget(cancel)
         bar.addStretch(1)
         if thumbs_mod.enabled():
@@ -249,12 +264,27 @@ class FieldCardPicker(QDialog):
 
     # ------------------------------------------------------------------ selection
     def _describe(self, item, _prev=None):
+        if self.place_btn is not None:
+            fid = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+            self.place_btn.setEnabled(fid in self._place_members)
         if item is None:
             return
         e = next((x for x in self._entries if x.id == item.data(Qt.ItemDataRole.UserRole)), None)
         if e is None:
             return
-        self.info.setText(f"{e.name}  ·  field #{e.id}  ·  {e.summary}")
+        note = f"{e.name}  ·  field #{e.id}  ·  {e.summary}"
+        if e.id in self._place_members:
+            note += f"  ·  already forked here as {self._place_members[e.id]}"
+        self.info.setText(note)
+
+    def _place(self):
+        it = self.listw.currentItem()
+        fid = it.data(Qt.ItemDataRole.UserRole) if it is not None else None
+        member = self._place_members.get(fid)
+        if member is None:
+            return
+        self.place_member = member
+        self.accept()
 
     def _ok(self):
         it = self.listw.currentItem()
