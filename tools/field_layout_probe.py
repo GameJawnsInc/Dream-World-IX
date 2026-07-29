@@ -3,10 +3,12 @@
 
 Renders what a field's authored content actually looks like, before any deploy:
 
-  topdown.png   -- the world X/Z plane seen from above (+Z/north UP, +X/east RIGHT): walkmesh floors,
-                   true-scale collision footprints (48u controller / 96u object radius), facing arrows,
-                   zone quads, the camera's position + look direction, a compass rose that ALSO shows
-                   which way "screen-up" points for this camera.
+  topdown.png   -- the world X/Z plane seen from above (+Z/north UP, +X/east RIGHT): walkmesh floors
+                   EACH IN ITS OWN TINT (a raised terrace reads at a glance), cross-floor SEAM edges
+                   in green (the ONLY places a walker legally changes floors -- everywhere else two
+                   floors meeting in 2D is a wall), true-scale collision footprints (48u controller /
+                   96u object radius), facing arrows, zone quads, the camera's position + look
+                   direction, a compass rose that ALSO shows which way "screen-up" points.
   camview.png   -- the painted-canvas view through the exact engine projection (cam.to_canvas):
                    walkmesh outline, zone quads, each point marker with its projected HEIGHT pole
                    (so you see how big a model renders at its depth), labels.
@@ -131,6 +133,9 @@ boundary_edges_xz = R.boundary_edges_xz
 # --- routes (a [[marker]] with `path`): scripted-walk polylines, swept for walkability ------
 ROUTE_COLORS = [(255, 170, 60), (90, 200, 255), (190, 120, 255), (120, 230, 140),
                 (255, 120, 160), (230, 220, 90)]
+# per-floor topdown tints (cycled): terraces/balconies must read differently from the ground
+FLOOR_FILLS = [(58, 66, 84), (96, 72, 52), (60, 88, 62), (90, 58, 84),
+               (52, 84, 90), (92, 88, 52)]
 
 
 def collect_routes(field_cfg: dict, scene_cfg: dict | None) -> list:
@@ -209,11 +214,16 @@ def analyze(items, camera, wmesh, cw, ch, scrolling=False) -> tuple:
              for it in items if it.get("footprint") == "zone" and it.get("zone")]
     pts = [it for it in items if it.get("footprint") == "point" and it.get("pos")]
 
+    multi_floor = wmesh is not None and len(getattr(wmesh, "floors", ())) > 1
     for it in pts:
         x, z = it["pos"]
         cx, cy = C.to_canvas((x, 0.0, z), camera)
         _, _, depth = C.project((x, 0.0, z), camera)
         r = {"item": it, "canvas": (cx, cy), "depth": abs(depth), "flags": []}
+        if wmesh is not None:
+            r["floors"] = wmesh.floors_at(x, z)
+            if multi_floor and r["floors"]:
+                r["flags"].append("floor " + "+".join(str(f) for f in r["floors"]))
         if not scrolling and not (0 <= cx < cw and 0 <= cy < ch):
             r["flags"].append("OFF-CANVAS")
             warns.append(f"{it['label']}: anchor projects OFF the canvas at ({cx:.0f},{cy:.0f})")
@@ -304,12 +314,33 @@ def render_topdown(path, items, camera, wmesh, comp, routes=(), swept=None):
         dr.text((2, px(x0, gz)[1] + 2), str(gz), fill=(110, 115, 130), font=font)
 
     if wmesh is not None:
-        tris = [tuple(t.vtx) for t in wmesh.tris]
-        for t in tris:
-            poly = [px(wv[i][0], wv[i][2]) for i in t[:3]]
-            dr.polygon(poly, fill=(58, 66, 84, 120))
-        for a, b in boundary_edges_xz(wv, tris):
+        # EACH FLOOR IN ITS OWN TINT: a raised terrace must read at a glance -- flattened
+        # 2D hid one from three playtests (the HANGOUT lesson). Walls (seam-aware) in
+        # light grey; cross-floor SEAM edges in green: the ONLY legal floor crossings.
+        tfmap = {ti: fi for fi, fl in enumerate(wmesh.floors) for ti in fl.tri_ndx_list}
+        for ti, t in enumerate(wmesh.tris):
+            poly = [px(wv[i][0], wv[i][2]) for i in t.vtx[:3]]
+            fi = tfmap.get(ti, t.floor_ndx)
+            dr.polygon(poly, fill=FLOOR_FILLS[fi % len(FLOOR_FILLS)] + (120,))
+        for a, b in R.mesh_boundary_edges(wmesh):
             dr.line([px(*a), px(*b)], fill=(200, 205, 220), width=2)
+        for segs in wmesh.seam_edges_xz().values():
+            for a, b in segs:
+                dr.line([px(*a), px(*b)], fill=(120, 255, 140), width=3)
+        if len(wmesh.floors) > 1:                       # the floor legend, top-left
+            yy = 16
+            for fi, fl in enumerate(wmesh.floors):
+                ys = [wv[vi][1] for ti in fl.tri_ndx_list if 0 <= ti < len(wmesh.tris)
+                      for vi in wmesh.tris[ti].vtx]
+                col = FLOOR_FILLS[fi % len(FLOOR_FILLS)]
+                dr.rectangle([26, yy, 40, yy + 10], fill=col + (220,),
+                             outline=(200, 205, 220))
+                dr.text((45, yy), f"floor {fi} · {len(fl.tri_ndx_list)} tris · "
+                        f"y {min(ys) if ys else 0:.0f}..{max(ys) if ys else 0:.0f}",
+                        fill=(200, 205, 220), font=font)
+                yy += 14
+            dr.text((26, yy + 2), "green = seam (the only legal floor crossing)",
+                    fill=(120, 255, 140), font=font)
 
     for it in items:                                    # zones under points
         zone = it.get("zone")
@@ -339,6 +370,11 @@ def render_topdown(path, items, camera, wmesh, comp, routes=(), swept=None):
                     p0 = px(ax + (bx - ax) * t0, az + (bz - az) * t0)
                     p1 = px(ax + (bx - ax) * t1, az + (bz - az) * t1)
                     dr.line([p0, p1], fill=(255, 70, 70), width=6)
+                for jmp in legs[i].get("jumps") or ():  # unseamed floor breaks: magenta X
+                    jp = px(jmp["x"], jmp["z"])
+                    for sx, sy in ((-7, -7), (-7, 7)):
+                        dr.line([(jp[0] + sx, jp[1] + sy), (jp[0] - sx, jp[1] - sy)],
+                                fill=(255, 80, 255), width=3)
         lp = px(*rt["path"][0])
         dr.text((lp[0] + 5, lp[1] + 5), f"~{rt['name']}", fill=col, font=font)
 
@@ -389,7 +425,8 @@ def render_topdown(path, items, camera, wmesh, comp, routes=(), swept=None):
 
     dr.text((6, H + 6), "TOP-DOWN  world frame: +Z=north=BACK (up)  -Z=south=FRONT/camera (down)  "
             "+X=east (right)  |  green arrow = which world way is UP-SCREEN for this camera  |  "
-            "grid 500u  |  rings: 48u controller / 96u object", fill=(150, 155, 170), font=font)
+            "grid 500u  |  rings: 48u controller / 96u object  |  floors tinted, green edges = "
+            "seams, magenta X = unseamed floor break", fill=(150, 155, 170), font=font)
     im.save(path)
 
 
@@ -469,6 +506,22 @@ def write_report(path, field, camera, cam_idx, ncams, comp, recs, warns, wmesh, 
                  "(the VIEWER stands here; the room edge nearest it is the FRONT)")
     except Exception:
         pass
+    if wmesh is not None and len(getattr(wmesh, "floors", ())) > 1:
+        wv = wmesh.world_verts()
+        seams = wmesh.seam_edges_xz()
+        L.append("")
+        L.append(f"FLOORS ({len(wmesh.floors)} -- tinted on topdown.png; a walker changes "
+                 "floors ONLY at a green seam edge, everywhere else two floors meeting "
+                 "in 2D is a WALL, e.g. a terrace base):")
+        for fi, fl in enumerate(wmesh.floors):
+            ys = [wv[vi][1] for ti in fl.tri_ndx_list if 0 <= ti < len(wmesh.tris)
+                  for vi in wmesh.tris[ti].vtx]
+            partners = sorted({fa if fb == fi else fb
+                               for (fa, fb) in seams if fi in (fa, fb)})
+            L.append(f"  floor {fi}: {len(fl.tri_ndx_list)} tris, "
+                     f"y {min(ys) if ys else 0}..{max(ys) if ys else 0}, "
+                     + (f"seams into floor {', '.join(map(str, partners))}"
+                        if partners else "NO seams (unreachable on foot from the rest)"))
     L.append("")
     L.append("COMPASS (world direction -> where it points ON SCREEN):")
     for r in comp["rows"]:
@@ -506,7 +559,13 @@ def write_report(path, field, camera, cam_idx, ncams, comp, recs, warns, wmesh, 
             legs = (swept or {}).get(rt["name"], [])
             total = sum(lg["len"] for lg in legs)
             bad = sum(1 for lg in legs for _ in lg["spans"])
-            status = "ALL LEGS ON-MESH" if not bad else f"{bad} OFF-MESH SPAN(S) -- see warnings"
+            jmp = sum(len(lg.get("jumps") or ()) for lg in legs)
+            if not bad and not jmp:
+                status = "ALL LEGS ON-MESH (single-floor-clean)"
+            else:
+                parts = ([f"{bad} OFF-MESH SPAN(S)"] if bad else []) + \
+                        ([f"{jmp} UNSEAMED FLOOR BREAK(S)"] if jmp else [])
+                status = " + ".join(parts) + " -- see warnings"
             shape = "closed ring" if rt["closed"] else "open path"
             L.append(f"  ~{rt['name']:<18} {shape}, {len(legs)} legs, {total:.0f}u total -- {status}")
     if wmesh is None:
@@ -520,7 +579,9 @@ def write_report(path, field, camera, cam_idx, ncams, comp, recs, warns, wmesh, 
     L.append("")
     L.append("Reminders: FRONT of a room = -z (toward camera) = down-screen at yaw 0. Facing byte: "
              "0=south(front) 64=west 128=north(back) 192=east. Actors jam under ~192u centre distance; "
-             "real fields keep standing NPCs 300u+ apart; the player centre stays 48u off walls.")
+             "real fields keep standing NPCs 300u+ apart; the player centre stays 48u off walls. "
+             "Multi-floor: a walker changes floors ONLY at a seam -- content on another floor is "
+             "unreachable to it anywhere else, even where the floors touch in this top-down view.")
     txt = "\n".join(L) + "\n"
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(txt)

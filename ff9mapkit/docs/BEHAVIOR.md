@@ -184,9 +184,20 @@ smooth walk — unit collision, walkmesh sliding, walk animation. Two consequenc
     family is the entire field, so on anything non-convex it *will* wedge somewhere. If you want
     a unit to come from across the map, give it a `march` with `route = "auto"` for the approach
     and let `chase` take over from close range.
-  A `wander` is swept the same way over its own box (a roll can land behind a wall — the walker
-  then shoves that wall until the next roll). Coverage is sampled, and the sweep always prints the
+  A `wander` gets its own honest model — **THE WANDER SWEEP**: the engine's roll lands ANYWHERE
+  in the `centre ± radius` box and *never checks the mesh*, so the lint tests straight legs from
+  standable positions to EVERY roll cell, walkable or not (a roll behind a wall, past the mesh
+  edge, or on another floor makes the walker shove that boundary until the next roll — the
+  in-game "glitchy waypoints" look). It reports the jam fraction plus the box's own composition
+  ("97 of 225 roll cells sit OFF the walkmesh"). Shrink the radius or recentre until the box
+  hugs the walker's floor. Coverage is sampled, and the sweep always prints the
   spacing it used: the number it reports is a floor on the real rate, not a ceiling.
+- **THE FLOOR LAW (multi-floor fields).** A walker lives on ONE floor and can only change floors
+  across a **seam** edge; anywhere else two floors meet in flattened 2D — a terrace base, a
+  balcony lip — is a WALL, invisible to a top-down point test. Every sweep above is floor-aware:
+  a static route leg crossing floors away from a seam is an **error** ("NO SEAM"), and pursuit /
+  wander legs count such crossings as jams. The layout probe tints each floor and draws seams in
+  green, so a terrace reads at a glance — look at `topdown.png` before relaying a cast.
 
 `patrol` loops its points forever; `march` walks them once and holds the last (a raid column,
 an escape run). `flee` is deliberately not vector math: you give it **refuge points in priority

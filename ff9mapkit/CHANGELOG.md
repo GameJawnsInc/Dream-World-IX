@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — floor-aware spatial instruments (THE FLOOR LAW)
+- A walker lives on ONE floor of a multi-floor walkmesh and changes floors only across a
+  SEAM edge — everywhere else two floors meeting in flattened 2D (a terrace base, a
+  balcony lip) is a wall the old point tests could not see, so a wander target / route
+  point / post on a raised terrace passed every offline gate while the ground walker
+  wedged (the HANGOUT bench, field 559's four floors). Now: `BgiWalkmesh.floors_at`
+  reports every floor containing a point and `seam_edges_xz` the legal crossings; the
+  route sweep flags any leg crossing floors away from a seam (a lint ERROR, "NO SEAM");
+  the pursuit sweep counts such crossings as jams; and a new WANDER sweep models the
+  engine's roll honestly — it lands anywhere in the box, mesh or not, so off-mesh and
+  off-floor box area is reported with the jam fraction. The layout probe tints each
+  floor, draws seams in green, marks unseamed crossings with a magenta X, and reports
+  each item's floor(s) plus a per-floor summary. `route = "auto"`'s safety re-sweep
+  refuses a detour that still crosses an unseamed floor break (its A* is floor-blind).
+
 ### Added — ferry DEPARTURE arms (`[[ferry.destination]] depart_code`)
 - A destination row with `depart_code = N` becomes a departure arm: the arm writes the
   code into the pending-departure byte (`flags.FERRY_DEPART_BYTE` by default; `[ferry]

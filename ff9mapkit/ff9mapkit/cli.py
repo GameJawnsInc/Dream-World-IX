@@ -371,10 +371,13 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
     walkability SWEEP of every route a patrol/march/flee references (the layout
     probe's sweep -- a leg that leaves the mesh stalls its walker in-game); a
     route="auto" patrol/march is judged on its ROUTED line (what the build compiles)
-    and each auto-routed leg is reported as such, not as a jam. lint also sweeps the
-    DYNAMIC feeds (chase/wander), which have no authored line to route: for each it
-    tests the family of pursuit legs its branch's own near radius admits and warns
-    with the blocked fraction + the worst position pair. view: compile, then
+    and each auto-routed leg is reported as such, not as a jam. Every sweep is
+    FLOOR-AWARE: a leg crossing floors anywhere but a real seam edge wedges against
+    the terrace base (looks on-mesh in flattened 2D) and is an error. lint also
+    sweeps the DYNAMIC feeds: a chase tests the family of pursuit legs its branch's
+    own near radius admits; a wander is modelled the way the engine plays it -- the
+    roll lands ANYWHERE in the box, mesh or not, so walker x every-roll-cell legs
+    are tested and the jam fraction reported. view: compile, then
     disassemble every generated body (the ticker, each duty walk, each dispatch/nudge
     function) -- the bytecode the trees became."""
     from . import build as _build
@@ -453,10 +456,11 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
                 seen.add(dk)
                 legs = _routes.sweep_polyline(pts, wmesh, bedges, closed=closed)
                 probs = _routes.describe_leg_problems(name, legs)
-                offmesh = [p for p in probs if "OFF-MESH" in p]
-                problems += offmesh                # a jammed walker = an error
-                warnings += [p for p in probs if p not in offmesh]
-                if offmesh and ref["verb"] in ("patrol", "march") and not ref["autoroute"]:
+                # OFF-MESH and an unseamed floor crossing both jam every lap = errors
+                jams = [p for p in probs if "OFF-MESH" in p or "NO SEAM" in p]
+                problems += jams
+                warnings += [p for p in probs if p not in jams]
+                if jams and ref["verb"] in ("patrol", "march") and not ref["autoroute"]:
                     jam_hint = True
             if jam_hint:
                 warnings.append('hint: patrol/march accept route = "auto" -- the build '
@@ -471,6 +475,20 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
             pursuit_hint = False
             pseen = set()
             for ref in BT.pursuit_refs(raw):
+                label = (f"{ref['verb']} {ref['target']!r} ({ref['unit']!r} "
+                         f"branch #{ref['bi']})")
+                if ref["verb"] == "wander":
+                    # the roll-anywhere, floor-aware model: the engine's roll never
+                    # checks the mesh, so the family is walker x EVERY box cell
+                    dk = ("wander", ref["centre"], ref["wradius"])
+                    if dk in pseen:
+                        continue
+                    pseen.add(dk)
+                    res = _routes.sweep_wander(wmesh, ref["centre"][0], ref["centre"][1],
+                                               ref["wradius"], bedges=bedges)
+                    warnings += _routes.describe_wander_problems(
+                        f"{ref['target']!r} ({ref['unit']!r} branch #{ref['bi']})", res)
+                    continue
                 radius = ref["radius"]
                 ungated = radius is None
                 if ungated:
@@ -484,8 +502,6 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
                                             bedges=bedges,
                                             source_box=ref["source_box"],
                                             target_box=ref["target_box"])
-                label = (f"{ref['verb']} {ref['target']!r} ({ref['unit']!r} "
-                         f"branch #{ref['bi']})")
                 if ungated:
                     label += " [UNGATED: no near/any_near row bounds this target, so the "
                     label += f"family is the whole field ({extent:.0f}u)]"
