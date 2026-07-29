@@ -1759,7 +1759,10 @@ class FieldBehavior:
         re-parses, never re-sizes), so a strip opened at "0" clips when a value
         reaches two digits (playtest 2). The open pass therefore feeds each
         slot a max-width sentinel (``10**digits - 1``) so the bake reserves
-        room."""
+        room. That sentinel rides a u16 operand, so it saturates at 65535:
+        **anything above 5 behaves as 5** (the range stays 1..7 so existing
+        fields keep building; ``behaviortoml.hud_digits_warnings`` says so at
+        lint time)."""
         values = tuple(str(v) for v in values)
         if not 1 <= len(values) <= 8:
             raise BehaviorError("hud: 1..8 values (the engine has 8 gMesValue slots)")

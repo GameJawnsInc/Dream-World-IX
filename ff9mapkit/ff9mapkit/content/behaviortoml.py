@@ -465,6 +465,32 @@ def hud_lines(raw: dict) -> list:
     return list(enumerate((b.get("hud", []) if b else []) or []))
 
 
+HUD_DIGITS_REACHABLE = 5        # 65535 is the widest value SetTextVariable's u16 can carry
+
+
+def hud_digits_warnings(raw: dict) -> list:
+    """LINT (warnings): a ``digits`` reserve wider than the value can ever be.
+
+    The open pass feeds each slot a max-width sentinel so ``Dialog.AutomaticSize``
+    bakes a strip wide enough, but that sentinel rides the u16 value operand of
+    ``SetTextVariable`` — it saturates at 65535, five characters. ``digits = 6`` or
+    ``7`` therefore reserves nothing extra; it silently means the same as 5. (It used
+    to mean something WORSE: the sentinel wrapped, so 6 asked for 999999 and got
+    16959.) Not an error — the range stays 1..7 so existing fields keep building."""
+    out = []
+    for hi, row in hud_lines(raw):
+        d = row.get("digits", 2)
+        digs = [d] if isinstance(d, int) else list(d or [])
+        wide = sorted({int(x) for x in digs
+                       if isinstance(x, int) and int(x) > HUD_DIGITS_REACHABLE})
+        if wide:
+            out.append(f"[[behavior.hud]] #{hi}: digits {wide} reserve no extra width — "
+                       f"the value operand is a u16 (max 65535, {HUD_DIGITS_REACHABLE} "
+                       f"characters), so anything above {HUD_DIGITS_REACHABLE} behaves "
+                       f"as {HUD_DIGITS_REACHABLE}")
+    return out
+
+
 def synth_mint_map(raw: dict) -> dict:
     """RESULT item id -> the recipe id the ``[[synthesis]]`` CSV emitter will mint —
     the same deterministic base-max+1 allocation, recomputed here so a
