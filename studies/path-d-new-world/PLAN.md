@@ -51,6 +51,27 @@
 >   player with no byte-splice written. The verbatim-first route makes §5's `blank_world_bytes()` an
 >   optimization, not a prerequisite. Remaining Rung 4 question is only whether control/movement behaves.
 >
+> - **s73 + s74 ★ IN-GAME CONFIRMED (owner, same day).** With the sentinel namespace live: **9011 still
+>   shows the custom landmasses** (no regression on real disc-1 play — the risk that actually mattered,
+>   since ~26 worktrees share this DLL) and **9013 is empty apart from the airships and the weather
+>   change**. Both halves of the two-class model in
+>   [`INHERITED-STOCK-BEHAVIOR.md`](INHERITED-STOCK-BEHAVIOR.md) predicted exactly this: everything Class A
+>   (the 56 disc-1 override cells, the quicksand, the Daguerreo bridge) is gone, and everything left is
+>   Class B — position-keyed or dispatcher-spawned. Nothing unexplained.
+>
+> ### Owner design decisions 2026-07-29 (these set Rung 5's direction)
+>
+> 1. **Inheritance is a MODE, not a fixed choice.** Path D must support a blank slate *or* a clone of a
+>    stock world map — the owner's reasoning: *"you could reshape a single (or custom group of) world map
+>    based on the stock game without actually affecting the stock game itself."* This upgrades Path D from
+>    "a new world" to **a non-destructive sandbox over stock geography**, and it is nearly free: the real
+>    baked `WorldDisc` is still in the scene at substitution time (we only reassign the reference), so
+>    `Build()` can copy each stock cell's flags and let non-sea cells load their real `WorldDisc1` block
+>    prefabs through `LoadBlock`'s existing else-branch. Stock world, our override namespace, no data
+>    files. → `s75`.
+> 2. **The new continent is CLEAN OF MIST.**
+> 3. **The world is shaped around the DALI area.**
+>
 > ⚠ **What Rung 1 alone did NOT prove** (superseded by Rung 3 above, kept for the record). The block
 > STREAMER never ran in the Rung 1 test — no `Finished Loading Blocks!`, and
 > `Memoria.log` stops at the spike line. Because `HonoAwake` threw, `AddBehavior` never registered
