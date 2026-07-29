@@ -1,8 +1,10 @@
 # W6b-2 — DEPTH ATTRIBUTION (recon synthesis: two channels, 246 cells, one structural wall)
 
-> **Status: RECON COMPLETE, KIT INTEGRATION NOT STARTED.** Two sweep lanes, three refuters and a
-> completeness critic; this record decides what W6b-2 *proper* should build. **No kit code changed.
-> No cell has moved out of a refusal yet.** §7 is the build list; §8 is the cast recommendation.
+> **Status: RECON COMPLETE — and KIT INTEGRATION SHIPPED (§10).** Two sweep lanes, three refuters
+> and a completeness critic; §0–§9 are the RECON record, written before any kit code changed, and are
+> left as written. §7 is the build list — **now built**; §10 is the integration round, its gates
+> (`w6b2i_gates.py` 11/11) and the two corrections its review forces on §7's own numbers; §8 is the
+> cast recommendation (cast B now runs through the shipped lane).
 >
 > **Record under extension:** `W6b-SCENERY.md` (W6b-1's classes, §1.2 class C, §3.2's depth-unknown
 > refusal, §5's cast ladder, §7.2 open questions **1, 2, 3 and 4 — all four now answered**), `PLAN.md`.
@@ -374,7 +376,7 @@ H13). Row 7 is here in its corrected form: **as first drafted it would have fail
 | 5 | **the program-derived depth table as a corpus constant, WITH A RE-DERIVATION PIN** | the `w6b_gates` G6 precedent: **a constant that caches a measurement must be re-measured somewhere**, because a disassembly walk cannot run per build |
 | 6 | **the depth-unknown refusal reason gains the derived evidence** (DISCLOSE) | the refusal matrix names the new string |
 | 7 | **`acknowledge_program_derived_depth` + a MANDATORY matching `expect_bpp`** | an ack without a matching `expect_bpp` must FAIL by name; a mismatching one must FAIL by name |
-| 8 | **channel G adopted as a depth SOURCE**, not merely a disclosure | ⚠ **CORRECTED: 57 gain a depth; 56 clear every other hazard; 1 refuses on a program write.** *(As originally drafted — "the 57 cells build" — this gate fails.)* **55 of the 57 are lower halves, buildable ONLY through the per-cell map**, so this deliverable also depends on row 9. |
+| 8 | **channel G adopted as a depth SOURCE**, not merely a disclosure | ⚠ **CORRECTED: 57 gain a depth; 56 clear every other hazard; 1 refuses on a program write.** *(As originally drafted — "the 57 cells build" — this gate fails.)* **55 of the 57 are lower halves, buildable ONLY through the per-cell map**, so this deliverable also depends on row 9. ⛳ **CORRECTED AGAIN IN §10: the 56 was CLASS-C-BLIND — the honest split is 49 clean + 7 class-C + 1 program-write.** |
 | 9 | **re-stamp the census's `addressable_via` field** | it still asserts "UNADDRESSABLE" for cells the shipped per-cell map names — measured: the map names **93/93** of the program-gained lower halves. **A stale flag that contradicts the kit is how the 79-vs-199 dispute regenerates.** ⚠ **TWO PREDICATES ON THE SAME CELLS, BOTH PRINTED so a future reader does not read a contradiction:** **93** = *all* program-gained `y = 384` cells (this record's number, and the one the map is asked about); **83** = the subset that *carries the census's stale `hz_unaddressable_lower_half` flag* (a mid-round audit's number). **83 + 55 channel-G = 138**, the `y = 384` hazard total quoted in §6 row 3. Nothing in the checkout printed both until now. |
 | 10 | **2,139 cells keep refusing by name**, with the residue split in the reason string | the census gate re-measures the split and its arithmetic closure |
 
@@ -492,6 +494,85 @@ failure there would have been a finding, not something to fix quietly.
 
 ---
 
+# 10. THE INTEGRATION ROUND — W6b-2 PROPER, SHIPPED
+
+> Implemented as a 7-agent round (implement + the census re-stamp → three adversarial review lenses
+> → fix → verify): **11 confirmed findings (1 critical, 4 major), all fixed, none skipped.** Gates:
+> **`w6b2i_gates.py` I0–I10, 11/11** — every §7 gate implemented as stated, plus its own calibration
+> (I0 re-finds THE DOME with an independent roll before believing the shipped view) and provenance
+> rungs. Siblings green and BYTE-UNTOUCHED: w6b2 17/17 · w6b 7/7 · w6q 20/20 · w4 8/8. Kit summon
+> suites green (one pre-existing failure in the behavior-compiler subsystem, unrelated, spun off).
+
+**What shipped, mapped to §7:**
+
+- **`ff9mapkit/ff9mapkit/summons/depth_attribution.py`** — the cached channel-P table at CELL
+  granularity, **221 rows = 199 unanimous + 22 dual** (the 10 extra unanimous rows are P's own
+  census ground truth, import-asserted as `GAIN_PROGRAM + 10` so they can never read as gains);
+  count pins assert at IMPORT so a truncated table fails loudly; **I2 re-derives the whole table
+  from `tpage_sweep.json` + the corpus and asserts EQUALITY** (row 5's pin, the G6 precedent).
+  Channels G, H and the spill conflict are **DERIVED LIVE** from the container's own records — only
+  the disassembly is cached, because only the disassembly cannot run per build.
+- **THE CHANNEL SET** — the one design decision §7 left open, and what keeps the read-only sibling
+  pins (w6b G6, w6q G1/G16) green without touching them: `repaint.CENSUS_CHANNELS = ('so-uv',)` is
+  `scenery_surface`'s default — **W6b-1 byte-for-byte, refusal REASON TEXT included** (a channel a
+  caller does not consult states neither depths NOR refusals; I5 asserts the census view names none
+  of the three new classes). `repaint.LICENSED_CHANNELS = ('so-uv', 'so-page', 'program')` is the
+  default of every author-facing path (`scenery_texel_pages` / `texel_page` / `export_art` /
+  `build`). ⚠ `'program'` in the set means **CONSULTED** (disclosure + the dual refusal), never
+  ADOPTED — emission additionally requires the ack. The default-on adoption deltas were MEASURED
+  before being backed out, so a future re-pinning round inherits numbers, not guesses.
+- **The refusals:** `program-dual-depth` (22 / 10 containers) · `channel-g-dual-depth` (8) ·
+  `spill-vs-own-page` (2 — I4 proves it protects EXACTLY ZERO new cells by COUNTERFACTUAL, re-running
+  `export_art`'s filter with the class added to the blocking set, not by an identity that could never
+  fail) · **`program-depth-no-palette` — minted IN REVIEW, absent from this record's own §7** (see
+  correction 2). Precedence: reader → G-dual → P-dual → G adopt → P adopt (ack) → depth-unknown;
+  hazards outrank adoption, and the disjointness that makes the order a statement rather than a
+  tie-break is asserted, not assumed.
+- **The ack ladder** (`acknowledge_program_derived_depth`, LITERAL boolean + a mandatory MATCHING
+  `expect_bpp`): every rung fails BY NAME — no ack / string-`'true'` / ack without `expect_bpp` /
+  mismatch / a dual cell outranks the ack (I7, plus kit tests on synthetic containers).
+- **The in-game caveats are CALL-SITED CONSTANTS, not prose**: `REGISTRATION_CAVEAT` (the upgrade
+  path's first trigger FIRED AND FAILED — ef251, tpage 312, 15 bpp claimed, drawn as the 4-cycle
+  bumper strip of a 4 bpp read), `DEPTH_COROLLARY` (ef446 — a stated depth is a BINDING-side fact),
+  `INHERITED_LINE` — gated on **the COLUMN (`y % 256`), never the writer rect** (10 id-9 alternate
+  blocks sit at y = 384 with `lower_half == False` and inherited depth; a reviewer caught the
+  conflation live, on shipped output). I6 asserts all 189 disclosed reasons carry them.
+- **`W6B_REASON` states BOTH depth-unknown populations** with the closing arithmetic — 2,298 refuse
+  by name on the edit surface (189 of them DISCLOSING), 2,139 have no depth on any channel
+  (1,278 + 861) — and I9 regex-extracts and re-measures both numbers; no substring pins.
+- **The census re-stamp landed** (`w6b2_census_restamp.py`, idempotent, backup kept): 1,179 cells;
+  both row-9 predicates printed and re-derived — **93** map-named program-gained lower halves (10 of
+  them id-9 alternate blocks, resolved through the writer's `cls`, which is why a naive tag join
+  under-reports 83/93) / **83** stale-flagged / 83 + 55 = 138 against H6/H12's own pins.
+
+## ★ THE TWO CORRECTIONS THE REVIEW FORCES ON THIS RECORD'S OWN NUMBERS
+
+1. **§7 row 8's "56 build / 1 refuses" was CLASS-C-BLIND.** The kit's `palette_cells` came from
+   READERS only, so a readerless channel-G cell could never carry the multi-palette hazard — **7 of
+   the 57 sit on columns bound with 2–3 distinct CLUTs** (ef179 · ef211 (640,384) · ef226 · ef390 ·
+   ef447 with THREE · ef498 · ef510) and would have silently shipped one rendering of several: the
+   kit LESS honest on the new licensed path than W6b-1 was on the old one, on identical evidence,
+   visible INSIDE one column of ef211. Fixed at the same granularity as the depth — class-C evidence
+   now comes from the COLUMN's binders where readers are absent; the alternates are named and
+   exported. **The honest row-8 split: 49 clean + 7 class-C (DISCLOSED, not refused — the
+   display-palette rule) + 1 program-write.**
+2. **THE ACK'S REAL SURFACE IS 55 CELLS, NOT 189.** Channel P states a DEPTH AND NOTHING ELSE — it
+   names no CLUT. An INDEXED (4/8 bpp) P cell therefore has **no key to render against, and no
+   combination of acknowledgement keys reaches it**: of the 189, **134 are indexed** (102 refuse as
+   `program-depth-no-palette`; 32 refuse first on program-VRAM verdicts) and **the ack reaches the
+   55 direct 15 bpp cells, 43 of which carry no refusal at all**. As first implemented the refusal
+   handed those authors a READER-shaped message formatting `None`/`0` as measurements, and the
+   disclosure promised a remedy 134 cells cannot use — both lenses' top finding. The disclosure now
+   offers the ack ONLY where it can work and says plainly why it cannot elsewhere. (§5's posture
+   survives untouched: this narrows the ack's REACH, not its terms.)
+
+**Still true, and now said in the shipped docstrings: NOTHING HERE IS IN-GAME.** Cast B — THE DOME,
+ef211 (704,384), 8 bpp from channel G, bench 30301 row 198, translation-invariant figure only — is
+now buildable through the licensed lane itself and remains the experiment that tests
+REGISTRATION-IS-A-DRAW-ENOUGH on a surface already proven to reach the screen.
+
+---
+
 ## PROVENANCE
 
 What this rung commits is a **derivation, its gates and this record** — cell coordinates, depths,
@@ -509,6 +590,10 @@ round's commit:
 | `w6b2_v2_check.py` | the write refuter (V2) |
 | `w6b2_gates.py` | this synthesis — H0–H16 |
 | `W6b2-ATTRIBUTION.md` | this record |
+
+⛳ **§10 adds two more, same rules** (plus the kit files themselves, which its I10 and H8 both scan):
+`w6b2i_gates.py` (the integration round — I0–I10) and `w6b2_census_restamp.py` (row 9's re-stamp;
+its SE-derived input and output stay in SCRATCH, the script commits only coordinates and counts).
 
 ⛳ **A SEVENTH FILE WAS PRESENT AND IS NOW GONE, BY DECISION rather than by drift.**
 `w6b2_v1b_audit.py` (28 KB) sat untracked in the checkout and **every lane that could have owned it

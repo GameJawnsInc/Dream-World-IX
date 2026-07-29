@@ -5,6 +5,81 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — where a scenery cell's DEPTH comes from: two attribution channels (W6b-2)
+- W6b-1 shipped the scenery texel lane **attribution-limited**: 2,385 of 2,572 cells had no `so`
+  reader, so the container stated no bit depth and the lane refused them by name. W6b-2 asks whether
+  the container states it *somewhere else*. **246 of the 2,385 now carry a depth; 2,139 still do not**,
+  and the refusal now says which kind of "no" it means. Every page carries a new `depth_source`.
+- **CHANNEL G LICENSES — 57 cells, no key.** New `reskin.page_depth_view` reads the container's own
+  `so` records at **PAGE** rather than **UV** granularity: a texture page is 256 lines and an
+  addressable cell is 128, so one page word names a **column of two stacked cells**. That is not new
+  evidence — it is the same record the lane already ships on, read at the granularity the hardware
+  uses, and it is exactly W6b-1's lower-half blind spot fixed as a class. 55 of the 57 are addressable
+  only through the per-cell map. They flow through every other gate unchanged: **56 build, 1 refuses on
+  a program-VRAM write**. Kept as a SECOND VIEW beside `attribution`'s reader view and never merged —
+  the two agree 138/140 overall and **16/18 on the informative rows**, and both rows that could have
+  falsified the page predicate did.
+- **CHANNEL P DISCLOSES — 189 cells, behind `acknowledge_program_derived_depth` + a matching
+  `expect_bpp` — and the ack's live surface is 55 of them, which the refusal says out loud.** Channel P
+  states a *depth* and names no CLUT, so an INDEXED (4/8bpp) channel-P cell has no key to render
+  against and refuses as `program-depth-no-palette` whatever is acknowledged: **134 of the 189 are
+  indexed and not one of them renders** (102 reach that refusal, 32 refuse earlier on a program-VRAM
+  verdict). The remaining 55 are 15bpp direct colour, 43 of which clear every other gate. The class has
+  its own wording rather than reusing `no-declared-clut`, whose text quotes "the reader's `so` record"
+  on a channel whose premise is that no such reader exists.
+  New `summons/depth_attribution.py` caches the depth the effect's own id-3 program
+  *registers* each page at, recovered by const-folding two independently written disassemblers to
+  **238/238 sites and 233/233 values**. It is DISCLOSED and not licensed because **the channel's own
+  upgrade trigger fired once and failed in-game**: ef251's program-registered 15bpp page drew a 4-cycle
+  "bumper strip" — a 4bpp read. `REGISTRATION-IS-NOT-A-DRAW` and its general form, `THE DEPTH
+  COROLLARY` (a stated depth is a *binding-side* fact; the draw can read the same bytes at another
+  depth), are carried as constants in the refusal text rather than as docstrings. The ack alone
+  **FAILS BY NAME**: it is the author's judgement, `expect_bpp` is what the kit checks it against, and
+  a judgement with nothing to check is not a guard. A truthy string still refuses (the literal-boolean
+  law).
+- **Four new refusals, four different populations, and one of them protects nothing on purpose.**
+  `program-depth-no-palette` (above); `program-dual-depth` (22 cells in 10 containers the program names
+  at two depths — a class the `so` census could not see); `channel-g-dual-depth` (8 cells whose column
+  is bound at two depths — named in no recon dossier, so it is derived live from the container rather
+  than cached); and `spill-vs-own-page` (2 cells where every reader binds the *neighbouring* page at one
+  depth while this cell's own page is named at another). **Unanimity is the verdict rule; two values is
+  a hazard, not a vote, and no acknowledgement lifts one.** The spill class is stated plainly as adding
+  **zero** cells to the protected set — both already refuse through the name-every-column gate — and
+  existing to carry the reason; a gate asserting otherwise would fail, and the gate that asserts it
+  measures the counterfactual (`_EXPORT_BLOCKING` re-run with the class added) rather than an identity.
+- **Class-C evidence is now taken at the same granularity as the depth.** `multi_palette` reads the
+  CLUT keys the cell's *readers* name — and a channel-G cell has none, so the predicate was false by
+  construction across the whole newly licensed surface. 7 of the 57 sit on a column bound with two or
+  three different CLUTs (one with three): they now carry the class-C disclosure and `export-art` writes
+  their read-only `.as-<clut>.png` alternate renderings, as it always did for a multi-reader cell. So
+  channel G's 57 split **49 hazard-clean + 7 class-C + 1 refused on a program write**, not 56 + 1.
+- **The depth-unknown refusal stopped saying the container is silent, because for most of the residue
+  that was false.** It now names the program-derived depth and its call-site count where there is one,
+  says WHICH **CHANNEL H** narrowing applies where the container's own `nClut4`/`nClut8` arity speaks
+  (`hint = 4` means "4bpp **or** 15bpp" — a narrowing, not a depth, and it breaks 0 of the 30
+  dual-depth ties), and ends with the **residue split**: `246 + 1,278 + 861 = 2,385`, asserted rather
+  than quoted. The 1,278 sit in the 222 containers that declare no model at all, whose programs
+  register nothing and structurally never could — **the ceiling is structural, not statistical.** The
+  refusal offers the acknowledgement path only where there is one: on an indexed channel-P cell it says
+  the ack cannot reach it, rather than naming necessary conditions a reader would take for sufficient.
+- **`repaint.W6B_REASON` names BOTH depth-unknown populations** — the 2,298 cells that refuse under
+  that name on the edit surface *and* the record's 2,139-cell attribution residue — with the arithmetic
+  between them spelled out, because the 30 dual-depth cells are a subset of the residue and a flat list
+  double-counts them. The gate re-measures the printed number against the derivation instead of
+  matching it as a substring.
+- **Two channel sets, so no published count moved under a caller that did not ask for the new one.**
+  `scenery_surface()` defaults to `CENSUS_CHANNELS` (W6b-1's, byte-for-byte); `scenery_texel_pages()`,
+  `texel_page()`, `export-art` and `build` default to `LICENSED_CHANNELS`. The precedent is
+  `attribution(include_direct=)`: a parameter, never a second derivation. A channel a caller declines
+  to consult is not merely un-adopted — its refusals are not stated either, **down to the reason
+  strings**: on the census default a depth-unknown refusal is W6b-1's own text byte for byte, not
+  merely its own count.
+- **The cached table is RE-DERIVATION-PINNED**, like the program-VRAM id lists before it: new
+  `studies/custom-summons/tier-w/w6b2i_gates.py` (I0–I10) re-rolls it from the recon artifacts and
+  asserts equality cell for cell, re-derives every count per run, and drives the whole acknowledgement
+  ladder through the real build path. Its count pins are also asserted **at import**, so a truncated
+  table fails loudly instead of quietly attributing fewer cells.
+
 ### Added — paint a summon's texture pages in COLOUR: `--art-lane paint` + `source_paint`
 - `summon-reskin export-art --art-lane paint` writes an editable **RGBA render** (`<name>.paint.png`)
   and a marked palette (`<name>.swatch.png`) beside the exact indexed PNG, per creature part and per

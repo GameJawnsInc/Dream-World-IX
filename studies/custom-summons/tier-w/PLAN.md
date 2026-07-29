@@ -407,5 +407,25 @@ scenery must be re-authored *together*.
   CEILING:** the 222 GEOM-blind containers (1,278 cells = 53.6 %) never call the model-draw API —
   unreachable by this lever class; the dark textured-registration path is costed at ≤ 119 cells
   (ops 19/171). **Q2: the program-VRAM WRITE list is exactly right — delta 0 in both directions on
-  two instruments** (V2 re-adjudicated 77/77 sites). OPEN: kit integration — the refusal matrix
-  consuming the attribution table per the record's §6 spec.
+  two instruments** (V2 re-adjudicated 77/77 sites). Kit integration → the next bullet.
+- **W6b-2i — ★ KIT INTEGRATION SHIPPED (record §10; gates `w6b2i_gates.py` 11/11; siblings
+  byte-untouched and green w6b2 17/17 / w6b 7/7 / w6q 20/20 / w4 8/8).** The refusal matrix consumes
+  the attribution table: **`depth_attribution.py`** ships the cached channel-P table (221 rows =
+  199 unanimous + 22 dual, import-pinned, I2 re-derives it from `tpage_sweep.json` and asserts
+  EQUALITY); channels G / H / spill derive LIVE. **THE CHANNEL SET:** `CENSUS_CHANNELS` (`so-uv`)
+  keeps `scenery_surface` byte-for-byte W6b-1 including reason text; `LICENSED_CHANNELS`
+  (`so-uv, so-page, program`) is every author-facing path's default — `program` means CONSULTED,
+  never adopted without the ack. New refusals: program-dual (22) / channel-G-dual (8) /
+  spill-vs-own-page (2, protects zero by counterfactual proof) / **`program-depth-no-palette`
+  (minted in REVIEW)**. The ack ladder (`acknowledge_program_derived_depth` + matching
+  `expect_bpp`) fails by name on every rung, and the in-game caveats ride as call-sited constants
+  (ef251's REGISTRATION_CAVEAT, ef446's DEPTH_COROLLARY, INHERITED_LINE gated on the COLUMN, not
+  the writer rect). **THE REVIEW'S TWO CORRECTIONS to the record's own numbers:** row 8's
+  "56 build / 1 refuses" was class-C-blind — honest split **49 clean + 7 class-C (2–3 CLUTs per
+  column, alternates now named + exported) + 1 program-write**; and **the ack's real surface is the
+  55 direct 15bpp cells (43 hazard-free)** — the 134 indexed P cells have no CLUT key and no ack
+  combination reaches them, said plainly in the disclosure and docs. Census re-stamped
+  (`w6b2_census_restamp.py`: 93 / 83 / 83+55=138, idempotent, backup kept). NOTHING IN-GAME yet —
+  **cast B, THE DOME (ef211 (704,384), 8bpp via channel G, bench 30301 row 198, bands only) now
+  builds through the licensed lane itself** and is the experiment that tests
+  REGISTRATION-IS-A-DRAW-ENOUGH.

@@ -786,6 +786,170 @@ re-derived. The fail-safe is proven non-vacuous against a deliberately perturbed
 Every law, its measurement and its provenance live in the study record:
 `studies/custom-summons/tier-w/W6b-SCENERY.md` (and `W6-TEXEL.md` for the creature lane).
 
+### Where a depth comes from — the two attribution channels (W6b-2)
+
+W6b-1 closed the section above with an honest asymmetry: **the codec never fails and the gate refuses
+93% of the surface**, because 2,385 of 2,572 scenery cells have no model that samples them and the
+container therefore states no depth. Rung **W6b-2** asked whether the container states it *somewhere
+else*, and found two places. **246 of the 2,385 now carry a depth. 2,139 still do not**, and the
+refusal now says which kind of "no" it means.
+
+Everything below turns on one sentence about the hardware:
+
+> **DEPTH is a property of the PAGE. READERSHIP is a property of the UVs.**
+> A texture page is 64 halfwords × **256** lines; an addressable page-cell is 64 × **128**. So one
+> page word names a **column of two stacked cells**, and a page's draw mode governs all 256 lines *for
+> a given draw*. Collapsing the first two clauses is what produced W6b-1's lower-half blind spot;
+> dropping the third would license a page drawn twice at two depths to be averaged into one, which is
+> a hazard class, not a contradiction.
+
+Every page you get back now carries **`depth_source`**, and the plan/report lines print it:
+
+| `depth_source` | where the depth came from | posture |
+|---|---|---|
+| `so-uv` | a model whose stored UVs land in **this cell** declares it — W6b-1's rule, unchanged (187 cells) | editable, no key |
+| `so-page` | **CHANNEL G**: no model samples this cell, but the container binds its **column**, so the depth is inherited from the page (57 cells) | **LICENSED** — no key |
+| `program` | **CHANNEL P**: the effect's own id-3 program *registers* this page at a constant depth (189 cells) | **DISCLOSED** — an edit needs an acknowledgement *and* a matching `expect_bpp`, **and even then it reaches only the 55 that are 15bpp** (see below) |
+
+**CHANNEL G LICENSES.** It is not new evidence — it is the *same* `so` record the lane already ships
+on, read at the granularity the hardware actually uses. Calling that an inference would mean the kit's
+existing depth source has been an inference all along. 55 of its 57 cells are the lower half of a tall
+rect and are addressable **only** through the per-cell map, which is exactly the blind spot the map was
+built for. They flow through every other gate unchanged: **56 clear every refusal and one refuses on a
+program-VRAM write** like any other cell would — and of those 56, **49 are hazard-clean and 7 carry the
+class-C multi-palette disclosure**, because their *column* is bound with two or three different CLUT
+keys. That last split matters more than it looks: class-C evidence is taken at the **same granularity as
+the depth**, so a readerless cell's alternate renderings come from the column's binders. Read off
+*readers* — which a readerless cell has none of — the predicate would be false by construction and those
+7 cells would ship one of two or three renderings with no disclosure and no `.as-` PNG.
+
+**CHANNEL P DISCLOSES.** A constant page word folded out of the container's own program *is* the
+machine declaring how those bytes will be read — and it is a **REGISTRATION, not a draw**. W6b-1 minted
+`BINDING-IS-NOT-A-DRAW` at the cost of two negative playtests; W6b-2's own written upgrade path was
+*"channel P earns a licence when a cast proves a program-derived depth on screen"*, and **that trigger
+fired once and failed.** The refusal now carries the result:
+
+> **REGISTRATION-IS-NOT-A-DRAW, CONFIRMED IN-GAME.** ef251 (Madeen) column x512, program-registered
+> tpage 312 = 15bpp, was cast with solid white `0x7FFF` words — flat white would have meant a 15bpp
+> read — and drew a 4-cycle "bumper strip" of fine ridged micro-stripes: a **4bpp** read.
+
+and its general form, from the ef446 ladder the same day:
+
+> **THE DEPTH COROLLARY.** A stated depth is a **binding-side** fact, not a draw fact. On ef446 the
+> `so` record's 15bpp bound its own (evidently undrawn) model while the surface that draws the nucleus
+> read the *same bytes* at 8bpp under a warm CLUT. **The draw can read the bytes at another depth than
+> anything that binds them.**
+
+So a channel-P cell is refused by default, and its refusal *names the depth it is refusing to use*.
+
+#### `acknowledge_program_derived_depth` — and why it is useless alone
+
+| key | when | what it does |
+|---|---|---|
+| `acknowledge_program_derived_depth` | *conditional* | required (`= true`, a **literal boolean** — a truthy string refuses rather than arms) to edit a cell whose depth came from CHANNEL P. **It must be paired with a matching `expect_bpp`; on its own it FAILS BY NAME.** |
+
+```toml
+[[reskin.texel]]
+name        = "cell.s0.x448_y256"
+source      = "cell.s0.x448_y256.png"
+acknowledge_program_derived_depth = true   # "I have read what happened the one time this was cast"
+expect_bpp  = 15                           # ...and here is the number the kit checks that against
+```
+
+Five ways it refuses, each by name:
+
+- **no acknowledgement** → the cell does not resolve at all, and the reason names the key, the derived
+  depth, its call-site count and the in-game refutation;
+- **the acknowledgement with no `expect_bpp`** → refused: the ack is *your judgement*, `expect_bpp` is
+  the number the kit checks it against, and a judgement with nothing to check is not a guard;
+- **a `expect_bpp` that does not match the derivation** → refused, naming which channel it argues with;
+- **a cell the program registers at TWO depths** → refused *even with* a correct-looking ack. Unanimity
+  is the verdict rule; two values is a hazard, not a vote, and **no key lifts a hazard** — there is no
+  single value for a judgement to be about. 22 cells in 10 containers are in that class;
+- **★ a cell whose derived depth is INDEXED (4 or 8 bpp)** → refused as `program-depth-no-palette`
+  *whatever* you acknowledge, and this is the one that hits the most cells. **Channel P states a DEPTH
+  and names no CLUT**; no `so` record names one either, because no `so` reader samples the cell at all —
+  that is the premise of the whole channel. An index array with no key cannot be rendered, and picking
+  one of the container's own would be the kit *choosing* a rendering. The ack admits a **depth**; what
+  is missing here is a **key**, so no combination of keywords reaches it.
+
+> **THE ACK'S REAL SURFACE, since the four conditions above are necessary and not sufficient.** Of
+> channel P's 189 cells, **134 are indexed and not one of them renders** (102 reach the refusal above;
+> the other 32 refuse earlier on a program-VRAM verdict). The acknowledgement's live surface is the
+> **55 that are 15bpp direct colour** — which index no palette by definition — and **43 of those clear
+> every other gate**. The disclosure says so per cell: an indexed channel-P cell's refusal states that
+> the ack cannot reach it instead of offering a remedy that does not exist.
+
+**The author carries the judgement; the kit carries the check.** This is `expect_bpp`'s own law, and
+W6b-2 does not soften it: the kit still declines to *choose* a depth anywhere, including here.
+
+#### Four more refusals, by name, and what each is worth
+
+- **PROGRAM-DEPTH-NO-PALETTE** — the largest of the four: an indexed channel-P cell with no key, the
+  class described above. It has its **own** wording rather than reusing `no-declared-clut`, whose text
+  quotes *"the reader's `so` record"* — a record that by the channel's own premise does not exist. A
+  reason may never drift from the predicate that produced it.
+- **PROGRAM-DUAL-DEPTH** — 22 cells in 10 containers the program names at two depths. The `so` census
+  could not see this class at all, because the program is the only channel that speaks there.
+- **CHANNEL-G-DUAL-DEPTH** — 8 cells whose *column* is bound at two depths. Derived live from the
+  container on every call rather than cached, because these were named in no recon dossier: a tool that
+  built its refusal list from the attribution sweep alone would have shipped all 8 unlisted.
+- **SPILL-vs-OWN-PAGE** — 2 cells where every reader binds the *neighbouring* page at one depth while
+  this cell's own page is named at another. **Both predicates are true of the same bytes**; the build
+  prints both and picks neither. Stated plainly: this class **protects nothing new** — both cells
+  already refuse through the name-every-column gate — and it exists to carry the *reason*. Silently
+  picking one of the two numbers would have manufactured a certainty nobody measured.
+
+#### And what the depth-unknown refusal says now
+
+It no longer says the container is silent, because for most of the residue that was **false**:
+
+- **189** cells name their program-derived depth and its call-site count (with the refutation above);
+- **334** more carry a **CHANNEL H narrowing** — the container's own `nClut4`/`nClut8` arity. `hint = 4`
+  means *"this container ships no 8-entry-per-byte CLUT, so this page is 4bpp **or** 15bpp"*. It is a
+  narrowing, **not a depth**, it licenses no decode, and it breaks **0 of the 30** dual-depth ties — a
+  clean negative, recorded so nobody re-tries it;
+- and every one of them ends with **the residue split**: of 2,385, **246 gain a depth** and **2,139 keep
+  refusing — 1,278 of them inside the 222 containers that declare no model at all** (their programs
+  register nothing and structurally never could) and **861** in model-bearing containers the lever does
+  not cover. `246 + 1,278 + 861 = 2,385`, and the kit asserts that closure rather than quoting it.
+
+> **TWO POPULATIONS, AND THE KIT PRINTS BOTH.** The number the derivation actually refuses under the
+> name `depth-unknown` on the edit surface is **2,298** — the 2,385 less channel G's 57 and less the 30
+> cells that now refuse under their own dual-depth names. The **2,139** above is the record's
+> *attribution residue*: cells with no depth on **any** channel, i.e. those 2,298 less the 189 channel P
+> discloses, plus the 30 dual-depth cells, which sit **inside** the residue as a subset and are never an
+> addend. Adding the flat list up double-counts them, so the string says which is which.
+
+Nothing above moves a W6b-1 count. `scenery_surface()` still defaults to the census channel set, and on
+that default the refusal strings are W6b-1's **byte for byte** — a channel a caller declined to consult
+must not appear to have spoken, and a residue split is a W6b-2 measurement.
+
+> **THE CEILING IS STRUCTURAL, NOT STATISTICAL.** Do not read "10% of the dark surface was recovered"
+> as a rate that can be pushed. The program idiom registers a texture *onto a model*; 222 containers
+> have no model, make zero such calls, and hold 1,278 of the unknown cells. That projection goes
+> through a wall.
+
+#### Two views, kept apart
+
+`reskin.attribution` answers **readership** (which model samples which halfwords) and
+`reskin.page_depth_view` answers **depth** (what mode the whole 256-line page is read in). They are
+separate entry points on purpose and are never merged: measured against the census they agree on
+138/140 rows overall and **16/18 on the informative ones**, and *both* rows that could have falsified
+the page predicate did — they are the spill-vs-own-page class above, flagged rather than reconciled.
+
+`scenery_surface()` defaults to the **census** channel set (`so-uv` only), so W6b-1's published counts
+are byte-for-byte what they were; `scenery_texel_pages()`, `texel_page()`, `export-art` and `build` —
+everything an author actually touches — default to the **licensed** set. A channel a caller declines to
+consult is not merely un-adopted: its refusals are not stated either, because a verdict from an
+instrument you declined to run is a verdict you cannot check.
+
+The channel-P table is the one **cached measurement** in the lane (recovering it is a const-folding
+walk over 385 program images, which no build can afford to re-run), so it is **re-derivation-pinned**:
+`studies/custom-summons/tier-w/w6b2i_gates.py` re-rolls it from the recon artifacts and asserts
+equality cell for cell, exactly as the program-VRAM lists already are. Its full record, with every
+number re-measured, is `studies/custom-summons/tier-w/W6b2-ATTRIBUTION.md`.
+
 ## Reframe a stock summon's camera in place — `summon-rescore`
 
 A summon's camera is not reached from the effect's own program: it is played by the container's
