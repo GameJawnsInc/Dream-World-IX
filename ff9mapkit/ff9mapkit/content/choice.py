@@ -123,8 +123,17 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
         # fade. A region prologue is not portable into a menu context.
         from . import worldexit as _wx
         wm = opt["worldmap"]
+        on_exit = b""
+        if "depart" in wm:
+            # THE DEPARTURE ARM (scene-ladder rung 2b): write the pending-port code into the
+            # world-flags byte before sailing -- the overworld's departure director consumes
+            # (and clears) it on arrival at the stage. Assembled, not hand-packed: the byte
+            # index (1872+) is beyond _set_var32's one-byte idx encoding.
+            from ..eb.cmdasm import assemble_block as _asm
+            b_idx, b_code = wm["depart"]
+            on_exit = _asm(f"SET({{Global.Byte[{int(b_idx)}] const({int(b_code)}) B_LET B_EXPR_END}})\n")
         parts.append(_wx.worldmap_exit_body(arrive=(float(wm["arrive"][0]), float(wm["arrive"][1])),
-                                            arrive_face=int(wm.get("face", 0)),
+                                            arrive_face=int(wm.get("face", 0)), on_exit_body=on_exit,
                                             fade=True, gate=False, game=opt.get("_game")))  # LAST: away
     return b"".join(parts)
 

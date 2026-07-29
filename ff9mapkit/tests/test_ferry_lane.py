@@ -202,3 +202,44 @@ def test_lint_rejects_dialogue_plus_ferry_on_one_npc(tmp_path):
     toml = FERRY_TOML.replace("model = 220", 'model = 220\ndialogue = "Never seen."')
     problems = [p for p in build.validate(_load(tmp_path, toml)) if "[[ferry]]" in p]
     assert any("also has dialogue" in p for p in problems), problems
+
+
+# --- the departure arms (scene-ladder rung 2b) -------------------------------------------------
+
+DEPART_TOML = FERRY_TOML.replace(
+    'decline = "Not yet, kupo."',
+    'stage_arrive = [60.0, -1168.0]\nstage_face = 192\ndecline = "Not yet, kupo."',
+).replace(
+    'name = "Larkspur"\narrive = [688.0, -616.0]\narrive_face = 64',
+    'name = "Larkspur"\narrive = [688.0, -616.0]\narrive_face = 64\ndepart_code = 4',
+)
+
+
+def test_depart_arm_swaps_to_the_stage_and_carries_the_code(tmp_path):
+    from ff9mapkit import flags as F
+    pr = _load(tmp_path, DEPART_TOML)
+    rows = pr.raw["choice"][0]["options"]
+    # the plain arm is untouched; the depart arm lands at the STAGE with the code attached
+    assert rows[0]["worldmap"] == {"arrive": [60.0, -1168.0], "face": 192}
+    wm = rows[1]["worldmap"]
+    assert wm["arrive"] == [60.0, -1168.0] and wm["face"] == 192
+    assert wm["depart"] == (F.FERRY_DEPART_BYTE, 4)
+
+
+def test_depart_arm_emits_the_byte_write_before_the_exit(tmp_path):
+    from ff9mapkit import flags as F
+    from ff9mapkit.eb.cmdasm import assemble_block
+    pr = _load(tmp_path, DEPART_TOML)
+    wm = pr.raw["choice"][0]["options"][1]["worldmap"]
+    body = C.option_body({"worldmap": wm})
+    write = assemble_block(f"SET({{Global.Byte[{F.FERRY_DEPART_BYTE}] const(4) B_LET B_EXPR_END}})\n")
+    assert write in body, "the pending-port byte write must be embedded in the arm"
+    plain = C.option_body({"worldmap": {"arrive": [60.0, -1168.0], "face": 192}})
+    assert write not in plain
+
+
+def test_lint_rejects_depart_code_without_a_stage(tmp_path):
+    bad = DEPART_TOML.replace("stage_arrive = [60.0, -1168.0]\nstage_face = 192\n", "")
+    pr = _load(tmp_path, bad)
+    problems = build.validate(pr)
+    assert any("stage_arrive" in p for p in problems)

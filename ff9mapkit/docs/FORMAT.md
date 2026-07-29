@@ -1413,6 +1413,9 @@ reply = "The Lantern Quay it is!"    # optional line before the fade
 | `destination[].reply` | optional line before the fade. |
 | `save` | *(optional)* text for a **save row** — opens the real save menu (latched `Menu(4,0)`), so one NPC can be ferry *and* save point instead of standing beside a twin save-moogle prop. Inserted before the decline row. |
 | `save_reply` | optional line after saving. |
+| `destination[].depart_code` | *(optional)* int 1–255 — makes this a **departure arm**: the arm writes the code into the pending-departure byte and lands at the ferry's `stage_arrive` instead of its own `arrive`; a world-side departure director (see the scene-ladder study) consumes the code, plays the sail-away scene, and completes the journey to the real `arrive` point. Codes must be distinct per ferry. |
+| `stage_arrive` / `stage_face` | `[x, z]` (+ facing byte) — the home-quay landing where departure arms stage their scene. **Required when any destination carries `depart_code`.** |
+| `depart_byte` | *(optional)* the `gEventGlobal` byte index the codes are written to; defaults to `flags.FERRY_DEPART_BYTE` (the kit-world-flags band). The world-side director must read the same byte. |
 
 > **How it compiles.** A `[[ferry]]` desugars into an ordinary `[[choice]]` whose destination rows
 > carry a worldmap-exit action, so it inherits the whole choice pipeline — the one-text-entry
