@@ -451,3 +451,61 @@ def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
     yield
     qt_drain()
+
+
+def _built_project(tmp_path, with_fg=True):
+    """A REAL compiled image-field project (the offline builder itself), pre-sidecar."""
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    fg = []
+    if with_fg:
+        fgp = tmp_path / "pillar.png"
+        Image.new("RGBA", (1536, 1792), (0, 0, 0, 0)).save(fgp)
+        fg = [f"{fgp}@159.2,202.9"]
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", foreground=fg,
+                               name="HALL3", field_id=30779, pitch=21)
+    return Path(man["toml"]), floor
+
+
+def test_open_field_toml_backfills_the_session(app, tmp_path, monkeypatch):
+    """A PRE-SIDECAR project reopens from its field.toml alone: the floor comes back through
+    the -48u outset inversion (within ~a pixel of the original trace), the pitch from the
+    camera block, the contact from the generator's own comment, and in-place Generate is
+    armed — the owner's 'why didn't it load my scene' gap."""
+    pytest.importorskip("PIL")
+    toml, floor = _built_project(tmp_path)
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    assert doc.pitch.value() == 21
+    assert doc.name_box.text() == "HALL3" and doc.id_box.text() == "30779"
+    assert len(doc._floor) == 4
+    for ex, ey in floor:                             # order/start-vertex agnostic: nearest match
+        assert min(abs(gx - ex) + abs(gy - ey) for gx, gy in doc._floor) < 1.5
+    assert doc._fg[0]["contact"] == (159.2, 202.9)
+    assert doc._fg[0]["kind"] == "full"              # the shipped fg is the composed full frame
+    assert "z" in doc.fg_box.itemText(0)
+    monkeypatch.setattr(doc, "_ask_out",
+                        lambda: (_ for _ in ()).throw(AssertionError("asked on a reopen")))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    assert argv[argv.index("--out") + 1] == str(tmp_path / "proj")
+    assert (tmp_path / "proj" / "base.trace.json").is_file()   # the record exists from now on
+
+
+def test_open_field_toml_prefers_the_sidecar(app, tmp_path, monkeypatch):
+    """With a session record present, the field.toml route loads IT (dragged offsets and all)
+    instead of rebuilding from compiled artifacts."""
+    pytest.importorskip("PIL")
+    import json
+    toml, _floor = _built_project(tmp_path, with_fg=False)
+    photo = tmp_path / "room.png"
+    (toml.parent / "room.trace.json").write_text(json.dumps({
+        "image": str(photo), "pitch": 33, "floor": [[10, 300], [200, 300], [100, 430]],
+        "fg": [], "name": "SIDECAR", "id": "30780"}), encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert doc.pitch.value() == 33 and doc.name_box.text() == "SIDECAR"
+    assert doc._floor == [(10, 300), (200, 300), (100, 430)]
