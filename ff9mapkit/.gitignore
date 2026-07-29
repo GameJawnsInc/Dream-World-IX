@@ -15,6 +15,14 @@ tests/fixtures/*.bgi.bytes
 
 # --- local cache override target, if a user points $FF9MAPKIT_DATA at a repo subdir ---
 .ff9mapkit-cache/
+# When $FF9MAPKIT_DATA is set, provision.cache_dir() returns THAT dir, so the cache families land
+# inside the package data dir instead of .ff9mapkit-cache/. All game-derived + regenerable (the
+# battle.locate encounter census, extract-field camera/walkmesh forks, deploy snapshots/reverts) --
+# never commit (docs/PROVENANCE.md). thumbs/ + model_thumbs/ have root-level rules already.
+ff9mapkit/data/battlemap/
+ff9mapkit/data/fields/
+ff9mapkit/data/deploy/
+ff9mapkit/data/deploysnap/
 
 # --- local scratch / dev artifacts (not part of the kit) ---
 blender/human_testing/
