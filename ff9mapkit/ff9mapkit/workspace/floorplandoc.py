@@ -1029,13 +1029,27 @@ class FloorplanDoc(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 10)
         root.setSpacing(6)
+        # NO STANDING CHROME OVER THE CHART AT ALL -- no prose, and no crown either.
+        #
         # NO standing prose at all, not even one line. THE CHART IS THE PRIMARY SURFACE and at
         # CALIBRE 150 it had 134px of a 556px document: measured, the note cost 28px of that and
         # said nothing the status line ('Draw a room: click its corners...') and the two ToolStrip
         # tooltips do not already say at the moment they are needed. Prose that repeats a live
         # teach is not information, it is a floor under the instrument.
-        crown, _ = widgets.nameplate("", "Floorplan")
-        root.addWidget(crown)
+        #
+        # THE CROWN WENT THE SAME WAY, BY THE SAME ARGUMENT AND WITH LESS TO SAY FOR ITSELF. A bare
+        # `widgets.nameplate("", "Floorplan")` cost 46px of display serif plus 6 of layout spacing
+        # -- 21% of the 248px movable pool at CALIBRE 150 -- to restate the tab the author had just
+        # clicked, two rows and 46px above it. Every OTHER crowned doc (Build & Deploy, Co-op,
+        # Import, Place, Trace) pairs that duplicated name with a teach NOTE, which is real
+        # information and stays; five docs (Battle, Models, Save, World, Behavior) already ship
+        # with no crown at all, so a crownless doc is in the app's own language. This tab's note
+        # was removed for the reason directly above, and what remained was the duplication alone.
+        #
+        # Measured native, 1280x850 dark, chart height before -> after: at CALIBRE 100 the crown was
+        # charging 39px (refused 310 -> 349), at 125 46px (201 -> 247) and at 150 52px (127 -> 179,
+        # +41%) -- the price rose with the dial, so it was dearest exactly where the pool was
+        # smallest. The on-ramp goes 254 -> 306 at 150 and the reclaimed rail 245 -> 297.
 
         # -- the tools row: the click semantics, the Doors cluster, the gesture verbs --
         row = QHBoxLayout()
