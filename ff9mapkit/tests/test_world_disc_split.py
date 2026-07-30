@@ -28,7 +28,7 @@ from ff9mapkit.world import mesh as M
 class _BM:
     """Minimal BlockMesh stand-in -- deploy_override only reads .disc/.x/.y before handing off to write_ff9mesh."""
     def __init__(self, disc=1, x=5, y=5):
-        self.disc, self.x, self.y = disc, x, y
+        self.disc, self.x, self.y, self.tris = disc, x, y, ()
 
 
 def _captured_dest(monkeypatch, tmp_path, bm, **kw):
@@ -103,3 +103,93 @@ def test_mixed_write_set_mirrors_real_and_refuses_synthetic(monkeypatch, tmp_pat
     """A build that touched both namespaces must not be all-or-nothing."""
     calls, _ = _auto_mirror_over(monkeypatch, [_p(tmp_path, 1, 5, 5), _p(tmp_path, 9, 6, 6)])
     assert [c["src_disc"] for c in calls] == [1]
+
+
+# --- 3. the interior verbs (world-forest / world-hill / world-mountain) ---------------------------------------
+# These work ON the deployed island, so like terrain.reshape the READ moves with target_disc too:
+# a Disc1 read would hand the carve real disc-1 land while the caller believes it is on a synthetic world.
+
+def test_read_deployed_blocks_reads_the_target_namespace(monkeypatch, tmp_path):
+    from ff9mapkit import config
+    from ff9mapkit.world import interior as IN
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    seen = []
+    monkeypatch.setattr(IN.M, "blockmesh_from_ff9mesh",
+                        lambda p, **kw: seen.append((Path(p), kw)) or object())
+    _p(tmp_path, 9, 5, 5)                                    # the synthetic island's override
+    _p(tmp_path, 1, 5, 5)                                    # a REAL disc-1 override at the same coords
+    out = IN.read_deployed_blocks("MOD", near=(64.0 * 5 + 32, -(64.0 * 5) - 32), reach=10.0,
+                                  disc=1, target_disc=9)
+    assert (5, 5) in out and len(seen) == 1
+    assert "Disc9" in seen[0][0].parts and seen[0][1]["disc"] == 9
+
+
+def test_read_deployed_blocks_default_is_unchanged(monkeypatch, tmp_path):
+    from ff9mapkit import config
+    from ff9mapkit.world import interior as IN
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    seen = []
+    monkeypatch.setattr(IN.M, "blockmesh_from_ff9mesh",
+                        lambda p, **kw: seen.append(Path(p)) or object())
+    _p(tmp_path, 1, 5, 5)
+    IN.read_deployed_blocks("MOD", near=(64.0 * 5 + 32, -(64.0 * 5) - 32), reach=10.0, disc=1)
+    assert "Disc1" in seen[0].parts
+
+
+def test_deploy_changed_compares_and_writes_in_the_same_namespace(monkeypatch, tmp_path):
+    """The byte-compare/backup root and the write must aim at ONE namespace: comparing against
+    Disc1 while writing Disc9 would defeat the converge check and back up the wrong file."""
+    from ff9mapkit import config
+    from ff9mapkit.world import interior as IN
+    from ff9mapkit.world import discmirror as DM
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    dep9 = _p(tmp_path, 9, 5, 5)                             # existing Disc9 override, stale bytes
+    seen = {}
+    monkeypatch.setattr(IN.M, "write_ff9mesh",
+                        lambda bm, dest: (dest.write_bytes(b"NEW"), dest)[1])
+
+    def fake_deploy(bm, **kw):
+        seen["disc"] = kw.get("disc")
+        return dep9
+
+    monkeypatch.setattr(IN.M, "deploy_override", fake_deploy)
+    monkeypatch.setattr(DM, "auto_mirror", lambda *a, **k: None)
+    out = IN.deploy_changed({(5, 5): _BM(disc=9, x=5, y=5)}, mod_folder="MOD",
+                            disc=1, target_disc=9, backup=True)
+    assert seen["disc"] == 9, "the write must land in the target namespace"
+    assert out, "stale Disc9 bytes must be seen as a CHANGE (the compare read the target file)"
+    baks = list(dep9.parent.glob("*.bak-*"))
+    assert baks, "the pre-write backup must be of the TARGET namespace's file"
+
+
+# --- 4. fuse_layout threads the split into its engine and its collision pre-check -----------------------------
+
+def test_fuse_layout_collision_precheck_scans_the_target_namespace(monkeypatch, tmp_path):
+    from ff9mapkit.world import fuse as FU
+    monkeypatch.setattr(FU.config, "find_game_path", lambda game=None: tmp_path)
+    _p(tmp_path, 9, 7, 7)
+    hits9 = FU._existing_overrides([(7, 7)], "MOD", disc=9, lod="0_1")
+    hits1 = FU._existing_overrides([(7, 7)], "MOD", disc=1, lod="0_1")
+    assert hits9 and not hits1
+
+
+def test_fuse_layout_threads_target_disc_into_every_transplant_call(monkeypatch, tmp_path):
+    from ff9mapkit.world import fuse as FU
+    from ff9mapkit.world import discmirror as DM
+    calls = []
+
+    def fake_region(mod_folder, **kw):
+        calls.append((mod_folder, kw))
+        return {"donor": [0, 0], "cell": list(kw["cell"]), "rot": 0, "shift": [0, 0],
+                "size": [1, 1], "tsize": [1, 1], "gates": [], "clean": True,
+                "frame_profile": {}, "deployed": ["x"], "dry_run": kw.get("dry_run", False)}
+
+    monkeypatch.setattr(FU.TR, "transplant_region", fake_region)
+    monkeypatch.setattr(FU.config, "find_game_path", lambda game=None: tmp_path)
+    monkeypatch.setattr(DM, "auto_mirror", lambda *a, **k: None)
+    FU.fuse_layout("MOD", [{"cell": (7, 7), "donor": (0, 0), "size": (1, 1)}],
+                   disc=1, target_disc=9, all_sea_target=True)
+    assert len(calls) == 2, "the gate pass and the deploy pass must both run"
+    for _mf, kw in calls:
+        assert kw["disc"] == 1, "the stock read disc must stay put"
+        assert kw["target_disc"] == 9 and kw["all_sea_target"] is True

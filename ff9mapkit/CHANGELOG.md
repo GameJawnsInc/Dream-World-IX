@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-coastnav`: vehicle-legality classes on a synthetic coast
+- The Southern Ring's in-game-proven coast-nav stamp (R5d sail-through seal + R5e standoff
+  belt) is a kit verb: re-derives every deployed sea override's water-triangle topograph into
+  KEEL-BLOCK 56 (under high ground — the seal) / STANDOFF BELT 55 (within 3.5u of a wall) /
+  BEACH 53 / CLIFF-FRONT 54, topo bits only, geometry and look byte-preserved. Two landability
+  policies: `land-anywhere` (the ring's plateau isles) and `cliffs-refuse` (stock grammar —
+  53 fronts beaches only, so a cliff-ringed island can be sailed to but never disembarked on).
+  `--disc`/`--mirror-disc` aware; dry-run by default.
+- The stacked ground query behind it now runs on a uniform-grid triangle index (bucketed 2D
+  AABBs, first-hit order preserved exactly — calibrated 0/1500 mismatches against the linear
+  scan), taking a five-cell pass from the previously measured hours to minutes.
+
+### Added — the read/write disc split reaches every world verb
+- `world-transplant`, `world-fuse`, `world-forest`, `world-hill`, `world-mountain` and
+  `world-minimap` take `--target-disc` (and, where the open-ocean probe applies,
+  `--all-sea-target`), completing the split `world-terrain`/`world-reclaim`/`world-coast`/
+  `world-island` shipped with: `--disc` stays the stock read disc, the overrides land in the
+  target namespace (9 = a Path D synthetic world). The interior verbs move their deployed-
+  island READ too, like `terrain.reshape` — before this, a carve near a synthetic island
+  silently read and reshaped whatever real disc-1 override sat at those coordinates.
+
 ### Added — trigger regions drawn on the art (the Place tab's Regions tool)
 - Gateway and walk-in-event zones are now DRAWN, not typed: a per-canvas tool strip
   (Place / Regions — explicit click semantics, the strip every canvas mode was waiting

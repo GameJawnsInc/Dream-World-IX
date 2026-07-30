@@ -2442,7 +2442,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                enforce_wang_carry: bool = False, allow_orphan_decals: bool = False,
                enforce_orphan_decals: bool = False, redress_orphans: bool = False,
                enforce_texture_gates: bool = False, allow_texture_gates: bool = False,
-               dry_run: bool = False, skip_mirror: bool = False) -> dict:
+               dry_run: bool = False, skip_mirror: bool = False,
+               target_disc: int | None = None, all_sea_target: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
     LAND within the coverage-feasible window), with optional component ``tweaks``. All sub-mesh
@@ -2484,10 +2485,17 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
     if not (0 <= dbx < GRID_X and 0 <= dby < GRID_Y):
         raise ValueError(f"donor ({dbx},{dby}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    rtarget = disc if target_disc is None else int(target_disc)   # THE READ/WRITE DISC SPLIT:
+    # `disc` stays the STOCK read disc (the donor bytes); `rtarget` is where the overrides land.
     # THE TARGET must be OPEN OCEAN (no per-block mesh assets -- it renders from the shared
     # SeaBlockPrefab). A cell with real data is part of the game's world: overriding it replaces
     # real continent/coast geometry and shreds the whole area (proven the hard way, 2026-07-08).
-    if not allow_real_target:
+    # ``all_sea_target`` opts out -- the island.py law verbatim: the gate is a PROXY probing the
+    # REAL disc's assets, broken in both directions on a Path D world in s75 BLANK mode, yet
+    # DELIBERATELY NOT keyed on ``target_disc != disc`` because in s75 CLONE mode the synthetic
+    # grid's IsSea flags ARE the stock flags this probe measures -- folding the skip into the
+    # retarget would fail-OPEN on precisely the mode that needs it.
+    if not allow_real_target and not all_sea_target:
         occupied = {p: len(world_tris(bx, by, p, disc=disc, lod=lod, game=game))
                     for p in parts}
         occupied = {p: n for p, n in occupied.items() if n}
@@ -2767,11 +2775,12 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     gates.append({"gate": "census", "miss": len(cen["miss"]), "inherited": inherited,
                   "introduced": len(introduced), "samples": census_samples * census_samples,
                   "ok": not introduced})
-    gates.append(_mod_overwrite_gate(mod_folder, {(bx, by): (dbx, dby)}, disc=disc,
+    gates.append(_mod_overwrite_gate(mod_folder, {(bx, by): (dbx, dby)}, disc=rtarget,
                                      lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
     summary = {"op": "transplant", "donor": [dbx, dby], "cell": [bx, by], "rot": rot,
+               "disc": disc, "target_disc": rtarget,
                "shift": [sh_x, sh_z], "window": {"x": list(win_x), "z": list(win_z)},
                "strips": sorted(strips_with_data & windowed),
                "coverage_strips": sorted(strips_with_data - windowed), "carried": carried,
@@ -2781,12 +2790,12 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         return summary
     for (pn, bm) in meshes:
         summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder, game=game,
-                                                         lod=lod, part=pn)))
+                                                         lod=lod, part=pn, disc=rtarget)))
     if arm_mesh is not None:                                   # the divert-arm stub Terrain (water-only cell)
         summary["deployed"].append(str(M.deploy_override(arm_mesh, mod_folder=mod_folder, game=game,
-                                                         lod=lod, part="Terrain")))
+                                                         lod=lod, part="Terrain", disc=rtarget)))
     summary["deployed"].append(str(M.deploy_donor_sidecar(dbx, dby, mod_folder=mod_folder,
-                                                          disc=disc, x=bx, y=by, lod=lod,
+                                                          disc=rtarget, x=bx, y=by, lod=lod,
                                                           game=game)))
     from . import discmirror as DM
     DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
@@ -2895,7 +2904,8 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       allow_orphan_decals: bool = False, enforce_orphan_decals: bool = False,
                       redress_orphans: bool = False,
                       enforce_texture_gates: bool = False, allow_texture_gates: bool = False,
-                      dry_run: bool = False, skip_mirror: bool = False) -> dict:
+                      dry_run: bool = False, skip_mirror: bool = False,
+                      target_disc: int | None = None, all_sea_target: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
     ``cell``, as ONE rigid assembly -- rotated by ``rot`` about the REGION centre (a 90/270
@@ -2961,7 +2971,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     dcells = [(i, j) for j in range(ny) for i in range(nx)]
     tcells = [(i, j) for j in range(th) for i in range(tw)]
 
-    if not allow_real_target:
+    rtarget = disc if target_disc is None else int(target_disc)   # THE READ/WRITE DISC SPLIT
+    # ``all_sea_target`` skips the stock-occupancy proxy exactly as in :func:`transplant` /
+    # island.landmass -- deliberately NOT keyed on ``target_disc != disc`` (s75 CLONE mode).
+    if not allow_real_target and not all_sea_target:
         for (i, j) in tcells:
             occupied = {p: len(world_tris(bx + i, by + j, p, disc=disc, lod=lod, game=game))
                         for p in parts}
@@ -3377,7 +3390,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     gates.append(_mod_overwrite_gate(
         mod_folder,
         {(bx + i, by + j): tuple(cell_meta[(i, j)]["donor"]) for (i, j) in deploy_meshes},
-        disc=disc, lod=lod, game=game, allow=allow_mod_overwrite))
+        disc=rtarget, lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
     # FRAME BORDER PROFILES (the cross-donor FUSE law's input, 2026-07-09): per frame edge,
@@ -3421,6 +3434,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
 
     summary = {"op": "transplant-region", "donor": [dbx, dby], "size": [nx, ny],
                "cell": [bx, by], "tsize": [tw, th], "rot": rot, "shift": [sh_x, sh_z],
+               "disc": disc, "target_disc": rtarget,
                "window": {"x": list(win_x), "z": list(win_z)},
                "strips": sorted(strips_with_data & windowed),
                "coverage_strips": sorted(strips_with_data - windowed), "carried": carried,
@@ -3436,13 +3450,15 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
             continue
         for (pn, bm) in deploy_meshes[(i, j)]:
             summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder,
-                                                             game=game, lod=lod, part=pn)))
+                                                             game=game, lod=lod, part=pn,
+                                                             disc=rtarget)))
         if (i, j) in arm_meshes:                              # the divert-arm stub Terrain (water-only cell)
             summary["deployed"].append(str(M.deploy_override(arm_meshes[(i, j)], mod_folder=mod_folder,
-                                                             game=game, lod=lod, part="Terrain")))
+                                                             game=game, lod=lod, part="Terrain",
+                                                             disc=rtarget)))
         (sdx, sdy) = cell_meta[(i, j)]["donor"]
         summary["deployed"].append(str(M.deploy_donor_sidecar(sdx, sdy, mod_folder=mod_folder,
-                                                              disc=disc, x=bx + i, y=by + j,
+                                                              disc=rtarget, x=bx + i, y=by + j,
                                                               lod=lod, game=game)))
     from . import discmirror as DM
     DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)

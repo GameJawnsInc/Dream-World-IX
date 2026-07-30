@@ -336,7 +336,8 @@ def _islet_anchors():
 
 
 def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=None,
-                        dry_run: bool = False, verbose: bool = True) -> dict:
+                        dry_run: bool = False, verbose: bool = True,
+                        target_disc: int | None = None) -> dict:
     """Draw the mod folder's deployed overworld LAND onto the all-world map image
     and ship it as the folder's own ``world_map_full_all.png`` override.
 
@@ -344,7 +345,14 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
     projects the terrain triangles through the engine's own map projection
     (frame-calibrated), and paints them in colours sampled from the map itself
     (fill = the median land colour at the real-town anchors; rim = that colour
-    darkened). Data-derived end to end -- no hand art. RELAUNCH to see it."""
+    darkened). Data-derived end to end -- no hand art. RELAUNCH to see it.
+
+    THE READ/WRITE DISC SPLIT. ``target_disc`` moves the deployed-tree SCAN to that namespace
+    (a synthetic world's land lives only there; scanning Disc1 would draw the real disc-1
+    islands on a map the caller believes describes a synthetic world). ⚠ The produced sprite
+    override is per MOD FOLDER, not per disc -- one ``world_map_full_all.png`` serves every
+    world the folder hosts, so compositing a synthetic namespace OVERWRITES the sprite a
+    disc-1 composite produced (last writer wins)."""
     import re as _re
     from PIL import ImageDraw
     from .. import config
@@ -371,17 +379,18 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
     fill = samples[len(samples) // 2]
     rim = tuple(int(v * 0.55) for v in fill)
 
-    root = gp / mod_folder / f"FF9_Data/WorldMap/Disc{disc}/{lod}"
+    rtarget = disc if target_disc is None else int(target_disc)
+    root = gp / mod_folder / f"FF9_Data/WorldMap/Disc{rtarget}/{lod}"
     blocks = sorted(root.rglob("Block[[]*[]] Terrain.ff9mesh"))
     if not blocks:
-        raise ValueError(f"{mod_folder} has no deployed WorldMap Terrain overrides to draw")
+        raise ValueError(f"{mod_folder} has no deployed Disc{rtarget} WorldMap Terrain overrides to draw")
     draw = ImageDraw.Draw(im)
     n_tris = 0
     polys = []
     for p in blocks:
         m = _re.match(r"Block\[(\d+)\]\[(\d+)\]", p.name)
         bx, by = int(m.group(1)), int(m.group(2))
-        bm = M.blockmesh_from_ff9mesh(p, disc=disc, x=bx, y=by, lod=lod, part="terrain")
+        bm = M.blockmesh_from_ff9mesh(p, disc=rtarget, x=bx, y=by, lod=lod, part="terrain")
         ox, oz = 64.0 * bx, -64.0 * by
         for tri in bm.tris:
             pts = [to_px(bm.verts[i][0] + ox, bm.verts[i][2] + oz) for i in tri]

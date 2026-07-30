@@ -118,7 +118,8 @@ def _existing_overrides(cells, mod_folder: str, *, disc: int, lod: str, game=Non
 
 def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1", game=None,
                 allow_overwrite: bool = False, dry_run: bool = False,
-                skip_mirror: bool = False) -> dict:
+                skip_mirror: bool = False,
+                target_disc: int | None = None, all_sea_target: bool = False) -> dict:
     """Validate + deploy a multi-placement LAYOUT. Each placement is a dict of
     :func:`ff9mapkit.world.transplant.transplant_region` kwargs (``cell``, ``donor``,
     ``size``; optional ``rot``, ``shift``, ``tweaks``, ``strips``, ``land_margin``,
@@ -154,10 +155,15 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
         if fac is not None:
             kw["tweaks"] = list(fac()) + list(kw.pop("tweaks", ()) or ())
         return kw
+    # THE READ/WRITE DISC SPLIT: `disc` stays the STOCK read disc for every donor byte; `rtarget`
+    # is the namespace the layout deploys into AND the one the collision pre-check must scan --
+    # checking Disc1 while writing Disc9 would miss every real collision and flag phantom ones.
+    rtarget = disc if target_disc is None else int(target_disc)
     summaries = []
     for pl in placements:
         summaries.append(TR.transplant_region("UNUSED", disc=disc, lod=lod, game=game,
-                                              dry_run=True, **_kw(pl)))
+                                              dry_run=True, target_disc=rtarget,
+                                              all_sea_target=all_sea_target, **_kw(pl)))
     gates = []
     for i, s in enumerate(summaries):
         gates.append({"gate": f"placement[{i}]", "donor": s["donor"], "cell": s["cell"],
@@ -190,7 +196,7 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
                       "grade_jumps": len(jumps), "ok": not bad})
     tcells = [(bx + i, by + j) for (bx, by, tw, th) in rects
               for i in range(tw) for j in range(th)]
-    existing = _existing_overrides(tcells, mod_folder, disc=disc, lod=lod, game=game) \
+    existing = _existing_overrides(tcells, mod_folder, disc=rtarget, lod=lod, game=game) \
         if mod_folder != "UNUSED" else []
     gates.append({"gate": "existing-overrides", "files": existing[:8],
                   "n_files": len(existing), "ok": allow_overwrite or not existing})
@@ -201,7 +207,8 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
         return out
     for pl in placements:
         s = TR.transplant_region(mod_folder, disc=disc, lod=lod, game=game,
-                                 dry_run=False, skip_mirror=True, **_kw(pl))
+                                 dry_run=False, skip_mirror=True, target_disc=rtarget,
+                                 all_sea_target=all_sea_target, **_kw(pl))
         out["deployed"].extend(s["deployed"])
     from . import discmirror as DM
     DM.auto_mirror(out["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
