@@ -327,6 +327,15 @@ arrival position + facing per side, encounters, save-point siting.
 > **The verified math, every constant sourced, and the record of what an adversarial pass caught:
 > [`RUNG6.md`](RUNG6.md). Read it before changing a number** — the draft's own values were wrong in
 > five ways that each looked right, and §1 is the table of what the measurements killed.
+>
+> ⚠ **The Floorplan TAB has never been used by a human.** 73 fences, 20 rendered PNGs, zero minutes
+> of hands — and it changed three times AFTER its adversarial review (the splitter, the deleted
+> nameplate, the viewport-chip label clearance) without being looked at whole since. Risk-ordered
+> first-contact plan: **[`RUNG6-TESTPLAN.md`](RUNG6-TESTPLAN.md)**; its findings come back here.
+> Two things it already establishes: the offline pipeline is sound (a 3-room plan composes, lints
+> and builds clean), and **the live gate is a stall past ~4 rooms** — 1.02 s for one full-size room,
+> 16.45 s for eight, because `standable` grid-samples every bounding box at 8u and is re-walked per
+> room, per door strip and again to site the spawn. Cache it per room and re-judge only what changed.
 
 - **6a ★** — `ff9mapkit/ff9mapkit/floorplan.py`, the pure Qt-free core: the closed-form projection,
   polygon health, `standable`, the edge-anchored inward normal, the engine's own facing formula,
