@@ -1,9 +1,13 @@
 # W6b-3 (ii) — THE ODIN CHANNEL-A CAST LADDER. ef424 `Odin__Short`, bench rows 203/204
 
-> **Nothing in this ladder has been deployed.** Every artifact below is STAGED: the bench build ran
-> offline into `rung8-epic/stage/final/`, the probe and the ink cast into
-> `C:\gd\SCRATCH\summon-format\repaint-w6b\ef424-channel-a\`. No install write, no `Memoria.ini` edit,
-> no relaunch, no commit. This file is the sequence a session runs when the owner is at the machine.
+> ★★ **STATE — THE LADDER IS COMPLETE AND THE INSTALL IS REVERTED.** Casts A, B and C all ran; the
+> adjudicated verdict is **BPP8 at 0.96 — channel A's stated 8 bpp IS the draw depth, the ink is
+> palette index 240 = rgb(222,115,115), band count 5** (§9; full record
+> `…\ef424-channel-a\castC-read\REPORT-CASTC.md`, the audited first write-up preserved as
+> `REPORT-CASTC-v1.md`). The install is at §6's RESTING STATE, sha-verified at each rung: cast C
+> `0650b968…` → cast B `69ed527d…` (stage-c ledger) → **DELETED = stock**; `ef211` untouched;
+> rows 203/204 stay on the bench. Sections 1–6 are the sequence record; §7 cast A, §8 casts B/C,
+> **§9 is the verdict.** §7.3's second-array worry: examined offline and REFUTED (ladder unaffected).
 
 **WHAT IS BEING MEASURED.** `cell.s0.x704_y384` is bound by exactly one thing in the container: entry
 slot 1 of the multi-part `so` record 0x2f9a4 (P = 2). `page_depth_view` is ABSENT for that whole column,
@@ -13,7 +17,8 @@ screen (0 hits / 4 misses / 2 vacuous passes over six named cells). Two question
 | | question | instrument | answer shape |
 |---|---|---|---|
 | **CAST A** | is the cell DRAWN at all? | `odin_cell_probe.py` — zero stripes, 10 on the verdict cell, 2 on the order cell | banding / clean |
-| **CAST B** | is channel A's 8 bpp the DRAW depth? | `odin_channel_a.toml` — 5 ink bands on the verdict cell, 3 on the order cell | clean / pin-striped / wrong-hue |
+| **CAST B** | is channel A's 8 bpp the DRAW depth? | `odin_channel_a.toml` — 5 ink bands (byte `0xFF`) | ~~clean / pin-striped / wrong-hue~~ **VOID — see §8** |
+| **CAST C** | is channel A's 8 bpp the DRAW depth? | `odin_channel_a_c.toml` — the SAME 5 bands, ink byte **`0xF0`** | **salmon bands / no spearhead at all / violet** |
 | **RIDER** | which part reads which array entry? | the same two band COUNTS, per surface | identity / reversed / vacuous |
 
 **BINDING-IS-NOT-A-DRAW gates the ladder, not the reverse.** A negative depth read on an undrawn cell
@@ -313,3 +318,327 @@ removing a row renumbers nothing but strands the next one — rows 201/202 staye
 are the control that shows the 192+ allocator never moved. **Resting state after the ladder:** ef424
 override DELETED (= stock), rows 203/204 on the bench, every artifact and every video in
 `…\repaint-w6b\ef424-channel-a\`, and the `[SfxProbe]` log archived beside them.
+
+---
+
+## 7. ★★ CAST A — RAN 2026-07-30, AND IT IS POSITIVE
+
+**Owner's report: *"i see a banded javelin shoot down from the sky."*** Video
+`C:\Users\skaki\Videos\2026-07-30 08-43-30.mkv` (4.417 s, 1920×1080, 60 fps; the SFX layer updates every
+4th frame, so ~66 unique frames). Frames + the whole readout under `scratchpad/castA*`; evidence crops
+in `castA/evidence/`, offline part renders in `castA/geom/`.
+
+### 7.1 ⛳ THE CELL IS DRAWN — CHANNEL A PUTS TEXELS ON SCREEN
+
+Measured, not eyeballed, on the impact frames (`g069`/`g070` are the cleanest):
+
+* **9 grating lines resolved** on a regular lattice, band-normal 120°±2° (Radon projection-variance max,
+  FFT agrees), spacings 29.4 → 23.6 px **monotonically decreasing** — one planar surface in perspective,
+  not nine independent objects.
+* **Duty (bright/hole fraction) 0.40–0.48** across 7 parallel scan lines; second-moment band width
+  3.46σ ≈ 15 px against a 26.7 px period → 0.42. **k = 10 predicts 0.469. k = 2 predicts 0.094.**
+
+**`cell.s0.x704_y384` is READERLESS, is named by NO channel except CHANNEL A, and it is on the screen.**
+The container's only binder of column 704 is entry slot 1 of the multi-part record `0x2f9a4`
+(re-confirmed offline: ef424 holds 11 GEOM blocks, `0x2f9bc` is the only P=2 record and the only binder
+of that column), so the k=10 grating fingerprints that entry uniquely.
+
+⚠ **What this does and does not establish.** It answers **drawn-ness**, which is the question
+BINDING-IS-NOT-A-DRAW made the gate — and the ghost table's prior was hostile: **14 scenery cells carry a
+census 15bpp, 6 had been probed in-game, and every one was bound-never-drawn or drawn at another depth**
+(ef429 twice, ef446, ef251). ef424 (704,384) is the **first channel-A cell to come back DRAWN**.
+It does **not** yet establish the DEPTH — a zero-write is depth-invariant by construction. That is cast B.
+
+### 7.2 ★ THE ORDER RIDER READS **IDENTITY** — and cast A alone was enough
+
+The grating is on the **BLADE (part 1)**, not the shaft. Two independent legs, and they were derived
+from opposite directions before being compared:
+
+* **From the video (geometry-free).** For a 32-unit-wide tube to show a 10-period grating, either the
+  periods run along its 606-unit length — then each band is at most the tube's *width*, **26–29 px**,
+  against **123–180 px measured** (5–6×) — or across its width, giving a **2.6–2.9 px** period against
+  **26.7 px measured** (10×). The 260×422-unit sheet fits exactly: 10 periods × ~24 px over its 260-unit
+  y-axis = 0.92 px/unit, which then *predicts* the shaft's cross-axis width at 32 × 0.92 ≈ **29 px**
+  against **26–28 px measured**. The solid tapered shaft is **visibly ungrated over ~500 px**, and the
+  banded sheet **straddles the shaft on its own centreline** (3 px from the 9-line stack's midpoint) —
+  which is what part 1's `x ≡ 0, y ∈ [−130,130]` demands.
+* **From the container (video-free).** Part 0 = a closed square-section tapered TUBE in 3 telescoping
+  segments, 19:1, z −1028…−422 = the **shaft**; part 1 = a zero-thickness sheet at x ≡ 0 with a wide
+  guard lobe, z −422…0 = the **blade**, tip at z=0. The two orderings' screen signatures are visually
+  disjoint, and the offline render predicted them **before** the video was scored: IDENTITY → the blade
+  is chopped into ~10 transverse see-through bands and the shaft carries 2 marks in its rear taper;
+  REVERSED → the shaft's rear 40 % becomes a dashed line of 8–10 segments while the blade carries 1–2.
+  **The screen shows the first.**
+
+**part 1 → entry slot 1 → column 704 ⇒ the array is read in FILE ORDER (identity).** Confidence ~0.90.
+
+⚠ **AND IT MOVES NO CONSTANT.** `ORDER_UNMEASURED` stands exactly as shipped; `w6b3i_gates` I8 (THE ORDER
+CLAUSE IS NOT SHIPPED) still passes and must keep passing. This is **one observation on one container**,
+and it is written here rather than promoted. Promotion needs its own evidence bar and its own gated
+decision — §8.3's condition (i) is *the order MEASURED*, and a single-vehicle screen read is not that.
+
+### 7.3 What the geometry slice killed, and what it opened
+
+* **KILLED — the UV shortcut.** The hoped-for discriminator (*"one part barely reaches the lower cell, so
+  it cannot show the stripes"*) is **falsified**: part 0 touches v≥128 on 16/32 faces (38.2 % of its 3D
+  area), part 1 on 64/68 (73.0 %), and **all 10 stripes land on covered rows for BOTH parts**. Geometry
+  alone can never settle the order — that *is* the unmeasured clause.
+* **OPENED — the second array.** `rec+0x10`'s unread second array reads `(0x0080, 0x0000)` /
+  `(0x0000, 0x0000)`, and **0x0080 = 128** is a suspiciously v-offset-shaped number on a page whose
+  addressable split is exactly v=128. If that array is a per-slot V-offset, cell attribution shifts and
+  these ladder cells were struck on the right rows for the wrong reason. `W6b3-ARCHIVE.md` §1.1 scored
+  that array as an in-record null (0/309, 0/264) on the *tpage/clut* predicate — which does not test a
+  v-offset reading. **→ EXAMINED OFFLINE AND REFUTED (0.85), ladder unaffected.** Dual independent
+  corpus census (309/309 row-identical) + an adversarial third walk, and the attribution the worry
+  rested on was backwards: **the 0x0080 is SLOT 0's — column 448, the ORDER cell; slot 1 (704, the
+  verdict cell) carries 0x0000** (offsets 0x2f9b4/0x2f9b8), so these cells were struck on the right
+  rows for the RIGHT reason. The mechanism itself dies three ways: 51 bound parts out-reach the
+  128-line block premise, 8 order-FORCED P=1 records wrap off the page under the byte-add (0x2ec24 —
+  the 448 cell's only incumbent reader — among them), and the pre-registered flag-vs-v tiebreaker
+  lands **R_FLAGS at P<0.0001** with H_V's own predicate null at P=0.45. Best-supported reading:
+  halfword A is a depth-keyed render-state bit (observation, NOT promoted). One survivor, recorded
+  honestly: A=0x0080 sits only on columns with a declared lower half, 73/73 — real, unexplained,
+  non-discriminating. Open remainder = **U1, does the engine apply A at all** (one-cast sketch on an
+  A=0x0080 P=1 slot, + honest limits incl. the corpus's empty bottom-only stratum):
+  `C:\gd\SCRATCH\summon-format\repaint-w6b\second-array-lead\REPORT.md`.
+* Also recorded: **two javelin instances** are on screen in g059–g064 (two congruent gratings 66° apart,
+  each with its own solid shaft) — the record is drawn more than once per cast, consistent with W6b-1's
+  *scenery texel art is TEXTURE art, not placard art*.
+* The **k=2 mark was NOT positively located** (confidence ~0.35): one longitudinal see-through slit on the
+  shaft sits at a constant fractional width, but at 2.7× the predicted stripe width and with no second
+  slit. It is also **not diagnostic** — 7 other records bind column 448, so a 2-band artifact anywhere is
+  uninformative. Nothing rests on it.
+
+### 7.4 Resting state at the end of cast A / start of cast B
+
+Probe **REVERTED** (`revert_probe.py` → `deleted …\SpecialEffects\ef424`, install back to ABSENT/stock),
+**then** the ink cast deployed — the ledger trap avoided in the order §2 requires. The kit's plan records
+`existed: None / backup: None` for the install path, so its revert **deletes to stock**. Live now:
+`…\FF9CustomMap\FF9_Data\SpecialEffects\ef424` = **`69ed527d…`**, the cast-B container. ef211's pool
+wheel untouched (`cbcc9fde…`, mtime unmoved). A 75 MB `sfxmeshprobe.log` that had never been archived was
+copied to `…\repaint-w6b\capture-logs\sfxmeshprobe.pre-odin-cast.2026-07-28.log` before the cast could
+overwrite it. **Cast B needs no relaunch — recast and read §4.**
+
+---
+
+## 8. ★★ CAST B WAS CAST, AND REFUTED — CAST C IS THE DEPTH DISCRIMINATOR
+
+### 8.1 What cast B bought, and what it did not
+
+Cast B deployed (container `69ed527d…`, **live on the install now**) and the owner's video was scored
+twice — a quantitative census, then an adversarial refutation. **Two results stand and must keep their
+credit:**
+
+* **the cell is DRAWN and the surface is `cell.s0.x704_y384`.** Cast A gave **10 cycles** and cast B
+  **5 cycles** on the *same pixels* over an identical 282 px span — a threshold-free 2:1 that no stock
+  feature can produce, because a stock feature cannot change its spatial frequency between two casts.
+  Confidence 0.98.
+* **BLADE (GEOM part 1) → slot 1 → column 704, IDENTITY ordering.** It rests on the band COUNT and is
+  therefore **depth-invariant**, so it survives however the depth resolves. Confidence 0.96.
+  (`ORDER_UNMEASURED` still stands — written in the study, promoted nowhere.)
+
+**And the depth verdict does NOT rest on the ink.** Every one of cast B's three verdict rows is void:
+
+| cast B's key | why it is void |
+|---|---|
+| clean bands → 8bpp | at 4bpp the ink byte `0xFF` is nibbles **(15, 15) — two IDENTICAL texels**, so a 4bpp read renders the bands **perfectly solid** too |
+| pin-striped → 4bpp | same reason. There is nothing to pin-stripe |
+| one solid wrong hue → 15bpp | **87.4 %** of the ink's 15bpp words are `0xFFFF` = pure **white**, at the **same rows** |
+
+Band COUNT, ROW POSITION and SOLIDITY are **depth-invariant by construction** — the stamp writes whole
+byte ROWS, and a byte row is a texel row at 4, 8 and 15 bpp alike. What actually carried the verdict to
+0.87 was **the surrounding STOCK art** (99.9 % red-family, which neither a 4bpp/CLUT-0 read at 28.3 %
+blue nor a 15bpp read at 29 % green can produce) — an argument that **needs no ink at all** and was
+available from cast A. Also withdrawn: the "±2 % tangent pitch across five bands" claim (a narrow-strip
+artifact; the real spread is 3×) and the frame-diff CONTAINMENT claim (containment rests on the byte
+ledger, not on the diff). The ink's palette identity is **undecidable** on cast B — it clipped.
+
+### 8.2 The fix: the same five bands, ink byte `0xF0`
+
+**Spec `odin_channel_a_c.toml`. One variable moves: the ink byte.** The three depths then give three
+mutually exclusive, unmistakable outcomes — every number re-derived from the user's own container:
+
+| depth | `0xF0` renders as |
+|---|---|
+| **8bpp** | index 240 = **rgb(222,115,115) SALMON**, luma 147 (Rec.601) — well below saturation, so its hue survives additive blending. Calibrated on cast B's own clip statistics (gain ≈ 0.86) it reads **(231,139,139) at backdrop 40 → (255,169,169) at backdrop 70**, G/R ≈ 0.60; the refutation's "~(255,170,170)" is the bright end of that range |
+| **4bpp** (natural CLUT base) | nibbles (0, 15) → **TRANSPARENT alternating with rgb(24,0,8)** — a 50 %-duty 1-texel **transparent comb** in the band. ⚠ **But the screen read is not "the blade thins"** — at 4bpp the *whole cell* is 17.9 % opaque at mean luma 11, a dark shredded smear with **no recognisable spearhead at all**. See §8.3 |
+| **15bpp** | word `0xF0F0` → **rgb(131,57,230) VIOLET-BLUE** — and only 0.1 % of the javelin body is blue, so it is unmissable |
+
+**THE COUNT STAYS FIVE** so the cell identity stays self-verifying (10 : 5 is the 2:1). **Row 2 (the 448
+order cell) is byte-for-byte cast B's** — so cast C minus cast B is exactly **2,311 bytes, one cell,
+`0xFF`→`0xF0`, nothing else**. `0xF0` is not even available on 448: index 240 is transparent under
+`pal.s0.x0_y242.e256` and the stamp refuses it by name.
+
+### 8.3 ★ READ THE OFFLINE PREDICTION BEFORE THE VIDEO
+
+`predict_cast_c.py` renders the **actual patched bytes** four ways into
+`…\ef424-channel-a\predict-c\` — 8bpp, 4bpp/CLUT-0, 4bpp/base-240 window, 15bpp — plus a
+`…SHEET.png` that shows each as texture, v-flipped (screen order), and composited **additively over
+rgb(55,55,55)**, which is what the engine does. Measured on the panels:
+
+| read | opaque | mean luma | red / green / blue | looks like |
+|---|---|---|---|---|
+| **8bpp** | 26.4 % | 97 | 88 / 0 / 5 % | the ornate maroon spearhead with **5 salmon bars** |
+| **4bpp CLUT-0** | 17.9 % | **11** | 54 / 0 / 6 % | destroyed art, **no bright content anywhere** |
+| 4bpp base-240 | **100 %** | 158 | 100 / 0 / 0 % | a **solid opaque pink slab** — no cutout, no cave through it |
+| **15bpp** | 28.3 % | 99 | 23 / 17 / **60 %** | half-width **violet** confetti |
+
+The three primary hypotheses are unmistakable. **The one honest overlap:** the contrived base-240 window
+shares the pink HUE with 8bpp — it is separated primarily by the **CUTOUT**, not by colour (100 % opaque
+vs 26.4 %), and secondarily by about **20 DN of Cr and 38 DN of Y** once both are put through the blend
+model. So the read is *"salmon bands **and** the cave still visible through the head's gaps"*, and a head
+that turns into a solid opaque rectangle is the base-240 residue, not a verdict. (That residue is in any
+case independently dead: **cast A punched 10 transparent slots through this cell and they were counted on
+screen**, which a 100 %-opaque base-240 read could not have shown.) Compare the video to the sheet; never
+to a memory of the table.
+
+⚠ **What cast C actually buys.** The 4bpp and 15bpp rows corroborate but add little — casts A and B
+already showed a coherent ornate spearhead, which neither depth can produce. **The new content is the
+POSITIVE 8bpp row**: an ink-borne measurement of the draw depth *and* of the ink's palette identity,
+where cast B's depth verdict rested entirely on the surrounding stock art. Read the salmon; the other two
+rows are there so a surprise has somewhere to land.
+
+### 8.4 The sequence — and ⚠ THE REVERT IS NOT CAST B'S
+
+```
+  0.  (bench rows 203/204 already registered; ef424 overrides are HOT -- NO relaunch)
+  1.  regen   cd studies\custom-summons\tier-w
+              py odin_band_stamp.py --cast c
+              (cwd = ff9mapkit\)
+              py -m ff9mapkit summon-reskin build  ../studies/custom-summons/tier-w/odin_channel_a_c.toml ^
+                 --out C:\gd\SCRATCH\summon-format\repaint-w6b\ef424-channel-a\stage-c
+              py predict_cast_c.py
+  2.  deploy  py -m ff9mapkit summon-reskin deploy ../studies/custom-summons/tier-w/odin_channel_a_c.toml ^
+                 --out C:\gd\SCRATCH\summon-format\repaint-w6b\ef424-channel-a\stage-c
+  3.  RECAST  (no relaunch -- a page upload is itself the cache-invalidating event).  Video, not stills.
+  4.  READ    section 8.2's table against section 8.3's sheet.  Archive the [SfxProbe] log to capture-logs\.
+  5.  revert  see below
+```
+
+**`--out stage-c` IS LOAD-BEARING.** `stage/` holds **cast B's** first-deploy snapshot and its
+`revert_summon_repaint_ledger_424.py`, which records `backup: null` — i.e. *delete to stock*. That
+snapshot is taken **once per root and never overwritten**, so building cast C into `stage/` would make
+cast C ride cast B's ledger. Its own root gets its own honest ledger.
+
+⚠ **AND THAT LEDGER SAYS SOMETHING DIFFERENT.** Rehearsed against a temp mod folder primed with cast B:
+the cast-C deploy snapshots the live override — which at that moment is **cast B (`69ed527d…`)**, not
+ABSENT — into `stage-c\backups\ef424.pre-<stamp>`, so **`revert` from `stage-c` RESTORES CAST B, it does
+not delete.** Verified idempotent (run twice → `69ed527d…` both times). **Getting back to stock is TWO
+steps, in this order:**
+
+```
+  py -m ff9mapkit summon-reskin revert ../studies/custom-summons/tier-w/odin_channel_a_c.toml ^
+     --out ...\ef424-channel-a\stage-c     -> restores CAST B (69ed527d...)
+  py -m ff9mapkit summon-reskin revert ../studies/custom-summons/tier-w/odin_channel_a.toml ^
+     --out ...\ef424-channel-a\stage       -> DELETES the override; resting state stock
+```
+
+Section 6's warnings still apply in full: **name the spec, never `--ef 424`** (that routes to the
+CLUT/reskin lane's root), **pass the same `--out` the deploy used**, and **never `--dry-run` into the
+default root**.
+
+### 8.5 What is staged for cast C
+
+| artifact | path |
+|---|---|
+| generator (extended: `--cast`, `--ink-byte`, `--emit-spec-guards`) | `studies/custom-summons/tier-w/odin_band_stamp.py` |
+| cast C spec | `studies/custom-summons/tier-w/odin_channel_a_c.toml` |
+| prediction renderer | `studies/custom-summons/tier-w/predict_cast_c.py` |
+| cast C figure (manifest-free, on purpose) | `…\art-channel-a\cell.s0.x704_y384.verdictbands.inkf0.png` |
+| order figure — **byte-identical to cast B** | `…\art\cell.s0.x448_y384.orderbands.png` (sha `70f3c096…`) |
+| staged container | `…\ef424-channel-a\stage-c\mod\FF9_Data\SpecialEffects\ef424` — sha **`0650b968…`** |
+| prediction sheet + 4 panels | `…\ef424-channel-a\predict-c\` |
+
+**Byte proof.** changed-vs-stock = **6,249 bytes**, and the offset-and-value set is **exactly** the
+authored band set (0 extra, 0 missing, 0 wrong-value); 6,253 texels are authored and 4 were *already*
+`0xF0` in the stock art, which is why the count is 6,249 and not 6,253. Cast C vs cast B = **2,311
+bytes, all `0xFF`→`0xF0`, all inside the 704 cell, 0 in the 448 cell, 0 anywhere else.**
+Regression: re-running `odin_band_stamp.py` with no arguments reproduces cast B's three artifacts
+byte-identically and rebuilds to `69ed527d…` — the container live on the install.
+
+**Refusal rungs re-driven on the new spec** (all three fire, first line quoted in the session record):
+no ack → `DEPTH-UNKNOWN … ** AND THE CONTAINER STATES A DEPTH ELSEWHERE (CHANNEL A, DISCLOSE)`;
+ack without `expect_bpp` → `says \`acknowledge_array_derived_depth = true\` but states NO \`expect_bpp\``;
+`expect_bpp = 4` → `the spec guards 4bpp, the container's own \`so\` record's BINDING ARRAY … derives 8bpp`.
+
+---
+
+## 9. ★★ CAST C — CAST, READ, ADJUDICATED: **BPP8 AT 0.96. THE LADDER IS COMPLETE.**
+
+**Owner's video `odin_sho.mkv`** (3.8 s 1920×1080 60 fps; archived with frames beside the others).
+**Read provenance:** two independent scoring lenses (geometry/count and radiometry/hue), an
+adversarial verifier that re-derived every load-bearing number, a completeness critic that found six
+gaps in the first write-up, a three-resolver round that closed all six AT THE PIXELS, and an
+adjudicator that spot-checked the resolvers' emitted artifacts and re-derived the confidence rather
+than inheriting it. Record: `…\ef424-channel-a\castC-read\REPORT-CASTC.md` (the audited first
+write-up preserved intact as `REPORT-CASTC-v1.md`; machine verdict `adjudicate\a06_verdict.json`).
+
+### 9.1 The verdict
+
+Cast C returns **BPP8 at confidence 0.96**, with the band ink identified as **palette index 240 =
+rgb(222,115,115)** and a **band count of 5** on the blade. This is the positive 8bpp row §8.3 said
+cast C existed to buy: cast B's ink clipped (pinned at 255 in 15 of 16 flash-window frames), leaving
+palette identity undecidable, while cast C's ink sits off-ceiling (median max-channel 225 on the dark
+tail, 248 on the flash window), so its chroma is information. The load-bearing instrument is the hue
+closure Q = (R−B)/(R−G) with the measured backdrop folded in: only 8bpp predicts the frame-to-frame
+trend (r = +0.977, median abs error 0.035); 4bpp/CLUT-0 and 15bpp both predict it *backwards*
+(r = −0.521 and −0.994). Each rival also dies on its own instrument — 4bpp on a gain-insensitive
+absolute luma ceiling (its ink can lift the surface by at most 8.09 DN at gain 1.0 against a measured
++102 DN, 12.6×), 15bpp on a blue-family fraction of 0.0000 % over the whole weapon against the
+panel's 57.84 %, and base-240 — the honest hue twin — hue-free, three ways: solidity 0.346–0.395
+against the panel's 1.004, 4–8 interior holes against 0, a footprint minimum luma of 3.4 DN under a
+predicted floor of g·147, and (new this round) a backdrop-agnostic test over all 82 blade frames in
+which the see-through pixels track whatever is behind them at 8.5 DN while the drawn pixels do not at
+40.0 DN. The count of 5 matches the bytes: the two staged figures differ in exactly 2,311 texels in
+five authored height-12 bands at pitch 25.75 texels and duty 0.466, and on screen the free-pitch
+matched filter peaks at 34.0–34.75 px with the half-pitch (a 10-band read) 5–6× weaker, measured duty
+0.436–0.491, and the five authored centres project onto the five measured centres with an rms
+residual of 3.9–6.4 % of pitch. A reading fell out of the geometry that we did not have before: the
+long "cross-arm" on the spearhead is not separate geometry — **it is authored band 3**, carrying
+1,091 of the 2,311 texels at the plane's widest cross-section.
+
+### 9.2 The honest limits
+
+An adversarial completeness pass found six gaps in the first write-up and all six are now closed at
+the pixels, but two of the closures narrowed the claim rather than confirming it as stated. **The
+band count may be asserted only over c118–c127, ten consecutive frames** — the first report's table
+printed 5 on c115/c126/c127 where its own detector had returned 6, and the sixth run was dropped by
+hand; the exclusion now exists as code (a run is a band iff its ink lies within 15 px of the stock
+maroon body, insensitive to that threshold over 8–25 px, applied identically to all 85 frames of the
+javelin's span). Off that window the count is support-geometry dependent (3, 4 or 5 on c111–c117),
+and a superficially five-band stretch at c056–c060 is a different, spurious periodicity that the
+adjudication rejects. **No frame in the javelin window is clean-cave** — the explosion is already
+lighting the scene when the javelin enters — so the see-through evidence is a tail test by necessity:
+c128 is the only javelin-free reference within 6 DN of any window frame, and at c126/c127 the gap
+behind the blade is a measured mixture, 51.5 % dark scene art under a thin pink veil and 28.4 % blown
+smoke. The see-through *percentage* is uncalibrated (the convex hull is not the projected quad, so
+55.4 % does not reconcile with the bytes' 0.7365 cutout_frac) and no exclusion rests on it. The
+additive gain remains unpinned (0.17–0.55 by this closure, 0.74–0.84 by the radiometry scorer, 0.86
+by cast B's clip calibration) and every discriminator that carries weight is gain-free or
+gain-insensitive. Cast B cannot corroborate the tail poses at all — its near-white ink is inseparable
+from near-white smoke there. The change is contained: the 448 shaft, which carries zero changed
+bytes, moves 0.11–0.37 DN in the chroma/luma plane, less than a cave control that never held the
+weapon, and the off-band residual inside the licensed cell is a measured blend halo (exponential
+decay, scale 3.6 px ≈ 2.7 texels, sign-locked to the licensed white→salmon swap, bounded by a
+byte-free control ring). A process-integrity discount for the hand-edited table an outside critic had
+to catch is priced into the 0.96.
+
+### 9.3 What it buys, and what it does not
+
+**Draw depth and palette identity, for one cast on one container — and nothing else.**
+`ORDER_UNMEASURED` stays exactly as shipped: §7.2's identity read rests on the band COUNT, is
+depth-invariant, keeps its credit and survives this verdict, but promotion needs §8.3's condition (i)
+— the order MEASURED — and a single-vehicle screen read is not that. No constant moved; `w6b3i_gates`
+I8 must keep passing. No re-cast is needed, and per §5 none should be attempted with a second figure
+in the same deploy. The licence bar W6b-3i left standing ("(i) the order measured and (ii) a cast")
+now has its first cast vehicle; whether one vehicle satisfies (ii) is a separate gated decision, not
+this section's to make.
+
+### 9.4 Resting state — §6's, sha-verified
+
+ef424 override **DELETED (= stock)**: cast C `0650b968…` → stage-c revert restored cast B
+`69ed527d…` → stage revert deleted, in exactly §8.4's two-step order; `ef211` untouched
+(`cbcc9fde…`). Rows 203/204 stay on the bench. Both videos, all frames, every analysis artifact and
+the SfxProbe logs (`casts-a-b`, `cast-c`) are archived under `…\repaint-w6b\`. The §7.3 second-array
+coda (H_V refuted offline, ladder unaffected, the U1 remainder) is recorded in §7.3 and
+`…\second-array-lead\REPORT.md`.

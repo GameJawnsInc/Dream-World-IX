@@ -160,6 +160,26 @@ synthesis recipe for the terrace-wall rung:
 **⇒ THE TERRACE-WALL RUNG IS UNBLOCKED: full synthesis recipe in hand** (courses of ~4.7u
 quads; crest/body/base band rows; u-continuation with band wrap).
 
+## The INSTANCE anatomy (decoded 2026-07-30 — `rock_wall_instances.py`, after T1's failure)
+
+The first decode never asked per-INSTANCE questions; terrace-wall T1 failed in game on
+exactly those (flipped tiles, stamped-together sides — `studies/path-d-new-world/
+TERRACE-WALL-PREDICTION.md`). Same grouping verbatim (8945 instances — the count is the
+calibration), three laws:
+
+- **LAW 1 — V-ORIENTATION IS FIXED PER TILE**: 54/62 well-sampled tiles are ≥90%
+  orientation-consistent (the 8 mixed are low-count accessory tiles). Take orientation
+  from the per-tile MAJORITY, never from one exemplar.
+- **LAW 2 — MIRRORING IS RARE, NOT ABSENT**: 12.5% of horizontally-adjacent pairs invert
+  their u-sense (same-tile pairs 15.6%). A mirror-free wall and a coin-flip wall are both
+  off-language.
+- **LAW 3 — A WALL COLUMN IS A CONTIGUOUS VERTICAL ATLAS STRIP**: the dominant vertical
+  transitions are same-column row-descent, `(c,9)→(c,8)→(c,7)` (~130+ instances each),
+  capped body→crest by specific pairs (`(7,7)→(5,4)` ×111, `(8,7)→(6,4)` ×106, and the
+  `(0-1,7)→(0-1,6)` family). Courses are NOT independently-tiled bands — v continues down
+  one atlas column per wall column, then the crest caps via the measured transition table
+  (`out/rock_tile_instances.json` holds the full table + per-instance orientations).
+
 ## The TERRACE arc — round 4: THE TWO-LEVEL ISLAND (deployed, awaits playtest)
 
 `two_level_f.py` **DEPLOYED 2026-07-12** (762 tris, block (3,17)): island F as

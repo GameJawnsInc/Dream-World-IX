@@ -64,3 +64,53 @@ THE SPUR).
 
 Prerequisites already met: the read/write disc split (all verbs threaded), the coast-nav
 emitter default + 0.8s stamp, the junction carry into 9013 (step 2 — in flight).
+
+---
+
+## SCORED — round 1 in-game: FAIL (2026-07-30)
+
+Built (`terrace_wall_t1.py`), offline gates green, deployed to the (416,−512) Disc9 bench,
+owner-playtested. Verdict, verbatim: *"it's a mess … the top grass is all banded, and the
+sides look stamped together. some of the grass-cliff transition tiles are flipped upside
+down. the bottom third is especially messy, even missing faces."* Wall REVERTED; the bench is
+byte-identical to pre-wall (`backups/terrace-t1-prewall.20260730-173247`). Renders + the
+playtest engine log archived in `out/terrace_t1/`.
+
+**Defect classification — implementation vs form, because the scoring depends on it:**
+
+- *Top grass banding* — **implementation, of a SOLVED class.** `junction_compose` L3 exists
+  precisely because naive per-cell random (quad,ori) bands; T1 re-implemented the naive
+  version instead of reusing the folded policy. [[feedback-own-prior-art-before-new-lanes]]
+  fired AGAIN, the same day the handoff recorded its last firing.
+- *Flipped grass-cliff transition tiles* — **implementation.** One exemplar's v-orientation
+  was applied to every instance of a tile; stock orients per instance, and u-direction /
+  mirroring is unrecoverable from min/max rects. Needs a per-instance orientation decode.
+- *Missing faces, bottom third* — **implementation + gate gap.** Zip-tri winding by radial
+  outward test fails on concave jag sections; the watertight gate counts once-edges, not
+  winding — the D3 provenance-winding gate existed in `junction_compose` and was not ported.
+- *"The sides look stamped together"* — **the form verdict on the continuation itself** —
+  the discriminant's own territory — though confounded by the orientation defects above.
+- *Overworld lag* — **unattributed.** The engine log shows no exception spam; transient CPU
+  contention from concurrent sessions is the owner's own read and the likelier cause.
+
+**Scoring against the declared semantics:** NOT a clean discriminant refutation — the build
+did not faithfully implement the language (two known-solved defect classes re-derived
+naively, one gate unported), so "fails on form despite green gates" is not established.
+But the first of the two allowed rounds is consumed, and the owner invoked the meta-law:
+*"looks like we don't have enough study knowledge to synth yet."* **The synthesis rung
+PAUSES on that ruling.** A resumption must start with an anatomy study (per-instance tile
+orientation/mirror statistics, course-transition decode) and must REUSE the folded
+generators — L3 for tops, the D3 winding gate — rather than re-deriving them. The
+prediction itself stays open: one round remains, and it may only be spent on a build that
+faithfully implements the language.
+
+**The anatomy study ran the same day** (`studies/overworld-topography/
+rock_wall_instances.py`, 8945 instances — the count matches the first decode, which is the
+calibration): **LAW 1** v-orientation is FIXED per tile (54/62 ≥90% consistent — use the
+majority, never one exemplar); **LAW 2** u-mirroring is real but RARE (12.5%; T1 mirrored
+at ~50%); **LAW 3 — the discovery** — a wall column is a CONTIGUOUS VERTICAL ATLAS STRIP
+(same-col row-descent `(c,9)→(c,8)→(c,7)`, crest-capped by a measured transition table),
+not independently-tiled course bands. T1's "stamped together" verdict is LAW 3's absence.
+The remaining prediction round, when the owner reopens it, builds columns as vertical
+strips with majority orientations, ~12% seeded mirrors, the crest-cap table, junction L3
+for the top, and the D3 winding gate ported.
