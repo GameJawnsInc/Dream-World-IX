@@ -49,7 +49,14 @@ dlg:new-field|new-campaign|new-journey|fork-regions|import-fields|setup|prefs|ab
 coop:nogame|stock|s36|s37|ready|live                 map:empty|plain|art
 world:guide|nogame|atlas                             console:log|find|miss|jobs
 drift:none|synced|ahead|campaign                     script:tree|panel
+behavior:guide|bare|wizard|branchwiz|doc|compiled|edit|stage|sweep|siege|sim
+trace:bare|traced|contacts|regions                   place:bare|fork|refused|regions
+floorplan:bare|rooms|door|refused                    form:encounter|encounter-named|music|npc
 ```
+
+`form:*` renders the field editor's LOGIC FORMS over a writable copy of the boletta example (guided
+forced OFF, so `advanced` fields are inline instead of inside a collapsed drawer) and grabs
+`doc_host`, not the window — a hint or placeholder judged inside an 850px window shot is unreadable.
 
 `script:*` renders the verbatim Script presentation over a KIT-AUTHORED synthetic .eb (zero SE bytes —
 the builder is owned by `tests/test_workspace_script_tree.py` and loaded by path), so it works in a

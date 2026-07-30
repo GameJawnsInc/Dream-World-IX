@@ -2032,8 +2032,8 @@ Per-scene battle music, keyed on the **battle scene id** (not the field). Each b
 
 | key | meaning |
 |---|---|
-| `scene` | the battle scene id this song applies to. |
-| `song` | the akao song-play id (e.g. `35` = a boss/special battle theme). |
+| `scene` | the battle scene **id or `BSC_` name** this song applies to — the same values [`[encounter]`](#encounter-optional) takes, resolved the same way (an unknown name fails `lint`, naming the row). |
+| `song` | the akao song-play id (e.g. `35` = a boss/special battle theme). Integers only — a song-play id has no name catalog. |
 
 Why it exists: FF9 picks a field battle's song by `(fldMapNo, scene)`, so a fork to a custom id loses
 the donor's *scripted* (boss) battle theme — the custom `fldMapNo` isn't in the engine's map. This

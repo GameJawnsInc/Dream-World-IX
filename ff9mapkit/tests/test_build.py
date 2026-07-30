@@ -1156,6 +1156,34 @@ def test_validate_rejects_bad_battle_bgm(tmp_path):
     assert any("battle_bgm" in p for p in validate(FieldProject.load(bad)))
 
 
+def test_battle_bgm_scene_takes_a_name_like_encounter_does(tmp_path):
+    # `scene` names the SAME thing in [[battle_bgm]] as in [encounter], so it must accept the same values --
+    # one file used to build `scene = "BSC_CA_E013"` under [encounter] and fail lint on it here.
+    proj = FieldProject.load(EXAMPLE)
+    proj.raw["battle_bgm"] = [{"scene": "BSC_CA_E013", "song": 35}]     # BSC_CA_E013 == 296
+    assert validate(proj) == [], "a KNOWN BSC_ name must lint clean"
+    out = tmp_path / "mod"
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    bp = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    assert "Battle: 296" in bp and "Music: 35" in bp, bp        # the NAME reached the scene-keyed line as an id
+
+
+def test_validate_names_the_row_of_an_unknown_battle_bgm_scene(tmp_path):
+    # the fence: it builds, or it fails LINT with the row index and a suggestion -- never an int() death
+    # mid-build. song stays integers-only (an akao song-play id has no name catalog) and says so.
+    bad = tmp_path / "bad.field.toml"
+    bad.write_text('[field]\nid=4003\nname="X"\narea=11\n[camera]\npitch=48\n'
+                   '[[battle_bgm]]\nscene = 330\nsong = 35\n'
+                   '[[battle_bgm]]\nscene = "BSC_NOPE"\nsong = 35\n', encoding="utf-8")
+    probs = validate(FieldProject.load(bad))
+    assert any("#1" in p and "BSC_NOPE" in p for p in probs), probs
+    assert not any("#0" in p for p in probs), "the good row must not be blamed"
+    worse = tmp_path / "worse.field.toml"
+    worse.write_text('[field]\nid=4003\nname="X"\narea=11\n[camera]\npitch=48\n'
+                     '[[battle_bgm]]\nscene = 330\nsong = "Rufus\'s Welcoming Ceremony"\n', encoding="utf-8")
+    assert any("song must be an integer" in p for p in validate(FieldProject.load(worse)))
+
+
 # ---- [encounter] scene/scenes take a NAME as well as an id -------------------------------------
 # The trap this closes: `lint_logic` resolved a catalog name to report on it (so a name linted CLEAN),
 # but both build consumers did a bare `int()` -- the same value then died as `invalid literal for int()

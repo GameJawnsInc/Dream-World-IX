@@ -69,6 +69,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   with **no `scene`** — which arms nothing, since `has_encounter` tests `scene` alone —
   now warns instead of building an encounter-free field in silence.
 
+### Fixed — the form editor was stricter than the format it edits (and its placeholder said so)
+- Once `[encounter] scene` took a battle-scene NAME (above), the form editor still parsed it as an
+  int: typing `BSC_CA_E013` — the very thing the line edit's own placeholder invited, "a encounter
+  name or id" — was refused at **Save** with `expected a whole number`, on a value that is legal TOML
+  and builds. `[[npc]] model` had the same split all along: the build resolves a GEO name, `FORMAT.md`
+  documents one, and the Inspector's preflight validates one, but the form rejected it.
+- Both are now the new `forms.CATINT` kind — a number stays an id, a name stays a **name** (the build
+  resolves it, so re-opening and saving no longer rewrites the author's file). Two rules the two
+  editors used to duplicate inline now have one owner each: `forms.wants_id` (Browse still fills the
+  numeric **id**, unchanged for every user — a warm `encounter` picker LABEL reads "Goblin, Fang —
+  Evil Forest (field 250, random)", which no resolver takes) and `forms.placeholder_for`, which can no
+  longer promise a name the field's own parser would refuse. The id-only catalogs say so: `song` and
+  the carried-effect picker now read "a song id" / "a sps id".
+- `[[battle_bgm]] scene` takes a `BSC_` name too. It named the same thing as `[encounter] scene` and
+  accepted less, so one file could build a name in one block and fail lint on it in the other; both
+  now go through one resolver, and an unknown name fails lint naming the ROW. `song` stays
+  integers-only — an akao song-play id has no name catalog — and the error says that.
+- The Inspector RESOLVES a named scene instead of falling back to plain text, so the field that
+  authors the friendlier value keeps both the `— #67` gloss and the Battle-tab jump the row exists
+  for. New pinned snap surfaces `form:encounter` / `form:encounter-named` / `form:music` / `form:npc`
+  — the logic forms had none, which is how a placeholder could contradict its own parser unseen.
+
 ### Fixed — the layout probe called a correct field COLLIDING
 - `tools/field_layout_probe.py` compared `[player] spawn` against `[[player.arrival]]`
   rows as if they were two actors. An entrance-0 arrival is conventionally equal to the

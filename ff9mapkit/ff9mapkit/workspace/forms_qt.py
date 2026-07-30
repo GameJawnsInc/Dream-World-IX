@@ -203,8 +203,8 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         adv_box.content_layout.addWidget(_adv_inner)
 
     def browse(field, getter, setter):
-        # a numeric field (e.g. the encounter battle scene, an INT) wants the picked entry's id, not its name
-        val = pick(field.catalog, getter(), want_id=field.kind in (forms.INT, forms.OPTINT))
+        # an id-bearing field (e.g. the encounter battle scene) wants the picked entry's id, not its name
+        val = pick(field.catalog, getter(), want_id=forms.wants_id(field))
         if val:
             setter(val)
 
@@ -245,8 +245,9 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             getters[f.key] = lambda box=te: box.toPlainText().replace("\\n", "\n")
         else:
             le = QLineEdit(str(values.get(f.key, "") or ""))
-            if f.catalog:
-                le.setPlaceholderText(f"a {f.catalog.split(',')[0]} name or id")
+            _ph = forms.placeholder_for(f)          # never promises a name the field's parser would refuse
+            if _ph:
+                le.setPlaceholderText(_ph)
             widget, getters[f.key], setter = le, le.text, le.setText
         if f.catalog and pick is not None and setter is not None:
             row = QHBoxLayout()
@@ -530,8 +531,9 @@ class CatalogPicker(QDialog):
 def pick_catalog(parent, catalog, initial, plan, palette, *, want_id=False, sps_context=None,
                  model_thumbs=None):
     """Open :class:`CatalogPicker` for a comma-separated ``catalog`` string; return the chosen NAME (or the
-    entry's numeric id as a string when ``want_id`` -- for an INT field like an encounter's battle scene),
-    or None. The shell passes this (curried with its window/plan/palette) as ``build_form``'s ``pick``.
+    entry's numeric id as a string when ``want_id`` -- for an id-bearing field like an encounter's battle
+    scene; :func:`forms.wants_id` owns that choice), or None. The shell passes this (curried with its
+    window/plan/palette) as ``build_form``'s ``pick``.
     ``sps_context`` (the open field's carried effects) makes the ``sps`` kind browse THIS field's effects;
     ``model_thumbs`` (the shared preview service) unlocks the model card view."""
     kinds = [k.strip() for k in catalog.split(",")] if catalog else None
