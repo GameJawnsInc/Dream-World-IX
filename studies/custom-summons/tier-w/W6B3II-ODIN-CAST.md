@@ -387,7 +387,19 @@ decision — §8.3's condition (i) is *the order MEASURED*, and a single-vehicle
   addressable split is exactly v=128. If that array is a per-slot V-offset, cell attribution shifts and
   these ladder cells were struck on the right rows for the wrong reason. `W6b3-ARCHIVE.md` §1.1 scored
   that array as an in-record null (0/309, 0/264) on the *tpage/clut* predicate — which does not test a
-  v-offset reading. **Named here, unexamined, and it is the cheapest open lead this rung produced.**
+  v-offset reading. **→ EXAMINED OFFLINE AND REFUTED (0.85), ladder unaffected.** Dual independent
+  corpus census (309/309 row-identical) + an adversarial third walk, and the attribution the worry
+  rested on was backwards: **the 0x0080 is SLOT 0's — column 448, the ORDER cell; slot 1 (704, the
+  verdict cell) carries 0x0000** (offsets 0x2f9b4/0x2f9b8), so these cells were struck on the right
+  rows for the RIGHT reason. The mechanism itself dies three ways: 51 bound parts out-reach the
+  128-line block premise, 8 order-FORCED P=1 records wrap off the page under the byte-add (0x2ec24 —
+  the 448 cell's only incumbent reader — among them), and the pre-registered flag-vs-v tiebreaker
+  lands **R_FLAGS at P<0.0001** with H_V's own predicate null at P=0.45. Best-supported reading:
+  halfword A is a depth-keyed render-state bit (observation, NOT promoted). One survivor, recorded
+  honestly: A=0x0080 sits only on columns with a declared lower half, 73/73 — real, unexplained,
+  non-discriminating. Open remainder = **U1, does the engine apply A at all** (one-cast sketch on an
+  A=0x0080 P=1 slot, + honest limits incl. the corpus's empty bottom-only stratum):
+  `C:\gd\SCRATCH\summon-format\repaint-w6b\second-array-lead\REPORT.md`.
 * Also recorded: **two javelin instances** are on screen in g059–g064 (two congruent gratings 66° apart,
   each with its own solid shaft) — the record is drawn more than once per cast, consistent with W6b-1's
   *scenery texel art is TEXTURE art, not placard art*.
