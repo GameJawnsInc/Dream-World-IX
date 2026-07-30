@@ -943,14 +943,24 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
              ground: str = "grass", relief_amp: float = 0.0, relief_seed=None,
              beach=None, donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1",
              game=None, dry_run: bool = False, skip_mirror: bool = False,
-             target_disc: int | None = None, all_sea_target: bool = False) -> dict:
+             target_disc: int | None = None, all_sea_target: bool = False,
+             coastnav: bool = True, coastnav_policy: str = "land-anywhere") -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
     override + a hole-patched full-cell deep ``Sea4`` + blanked ``Object``/``Sea1/2/3/5`` + a ``Donor.txt``
     naming ``donor`` (must carry a Terrain transform for the s34 divert), then auto-mirrors the written
     overrides to Disc4 (THE DISC-4 GAP; pass ``skip_mirror=True`` to opt out). RELAUNCH / re-enter the world
-    for a first-time block."""
+    for a first-time block.
+
+    THE COAST-NAV EMITTER DEFAULT (``coastnav``, on by default): after the deploy, the island's own
+    sea overrides are stamped with vehicle navigation classes (:func:`ff9mapkit.world.coastnav.stamp`
+    -- keel-block under land, the 3.5u standoff belt, landability per ``coastnav_policy``). Without it
+    a fresh mint ships boat-permeable straddling triangles, no standoff and no get-off classes -- the
+    R5d/R5e lesson, re-derived from scratch once already. Runs BEFORE the disc-4 mirror so the mirror
+    carries the stamped bytes. ``coastnav_policy``: ``"land-anywhere"`` (default -- the Southern
+    Ring's plateau-isle property) or ``"cliffs-refuse"`` (stock grammar: a shore with no low ground
+    can be sailed to but never disembarked on)."""
     from . import mesh as M
     from . import discmirror as DM
     if center is None:
@@ -1033,5 +1043,14 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
                                                       x=bx, y=by, lod=lod, game=game))
         summary["blocks"].append(entry)
     if not dry_run and summary["blocks"]:
+        if coastnav:
+            # backup=False: the pre-stamp state is this very call's own output (re-run to reproduce).
+            # The stamp mutates only files already in `written`, so the mirror below carries the
+            # stamped bytes and Disc1/Disc4 parity holds without a second pass.
+            from . import coastnav as CN
+            summary["coastnav"] = CN.stamp(mod_folder, disc=target,
+                                           cells=[tuple(b["block"]) for b in summary["blocks"]],
+                                           policy=coastnav_policy, deploy=True, game=game,
+                                           backup=False)
         DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary

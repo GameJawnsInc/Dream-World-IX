@@ -123,11 +123,25 @@ def _load_env(path):
     return _l(path)
 
 
+#: per-process memo of ``_worldmap_env`` outcomes, keyed (StreamingAssets path, disc) -- POSITIVE and
+#: NEGATIVE. The hint file below caches only WINNERS, so a disc with no bundle (a synthetic namespace,
+#: e.g. 9) used to trigger the full ~50-bundle rescan on EVERY call: profiled at 97% of a coast-nav
+#: stamp's runtime (928 UnityPy loads for one cell). A miss is now paid once per process.
+_WM_ENV_MEMO: dict = {}
+
+
 def _worldmap_env(disc: int = 1, game=None):
     """The loaded p0data bundle that holds the worldmap terrain meshes for ``disc``. Caches the winning bundle
-    basename next to StreamingAssets so we don't rescan ~50 bundles every call (p0data3 first -- where they live)."""
+    basename next to StreamingAssets so we don't rescan ~50 bundles every call (p0data3 first -- where they live).
+    A disc with NO winning bundle is memoized too (see ``_WM_ENV_MEMO``) and re-raises without rescanning."""
     _unitypy()                                       # surface the install/UnityPy error early
     sa = _streaming_assets(game)
+    memo_key = (str(sa), int(disc))
+    if memo_key in _WM_ENV_MEMO:
+        env, err = _WM_ENV_MEMO[memo_key]
+        if err is not None:
+            raise ValueError(err)
+        return env
     needle = f"worldmap/disc{disc}/0_1/"
     hint = sa / _WM_BUNDLE_HINT
 
@@ -140,6 +154,7 @@ def _worldmap_env(disc: int = 1, game=None):
             if bn and (sa / bn).is_file():
                 env = _load_env(str(sa / bn))
                 if _has(env):
+                    _WM_ENV_MEMO[memo_key] = (env, None)
                     return env
         except (OSError, ValueError, KeyError):
             pass
@@ -156,9 +171,12 @@ def _worldmap_env(disc: int = 1, game=None):
                 hint.write_text(json.dumps(cur), encoding="utf-8")
             except OSError:
                 pass
+            _WM_ENV_MEMO[memo_key] = (env, None)
             return env
-    raise ValueError(f"no worldmap terrain meshes (container {needle!r}) found in StreamingAssets/p0data*.bin "
-                     f"-- is this a full FF9 install?")
+    msg = (f"no worldmap terrain meshes (container {needle!r}) found in StreamingAssets/p0data*.bin "
+           f"-- is this a full FF9 install?")
+    _WM_ENV_MEMO[memo_key] = (None, msg)
+    raise ValueError(msg)
 
 
 @dataclass

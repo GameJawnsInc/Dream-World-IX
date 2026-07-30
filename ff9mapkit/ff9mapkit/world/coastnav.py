@@ -145,16 +145,31 @@ class _Loader:
     def parts(self, bx, by):
         key = (bx, by)
         if key not in self._c:
-            from .entrance import read_block_stacked
             out = []
-            for part in PARTS_ORDER:
-                try:
-                    bm = read_block_stacked(self.mod_folder, bx, by, disc=self.disc,
-                                            part=part.lower(), game=self.game, missing_ok=True)
-                except (ValueError, FileNotFoundError):
-                    bm = None
-                if bm is not None and bm.tris:
-                    out.append((part, bm, _build_grid(bm)))
+            if self.disc in (1, 4):
+                from .entrance import read_block_stacked
+                for part in PARTS_ORDER:
+                    try:
+                        bm = read_block_stacked(self.mod_folder, bx, by, disc=self.disc,
+                                                part=part.lower(), game=self.game, missing_ok=True)
+                    except (ValueError, FileNotFoundError):
+                        bm = None
+                    if bm is not None and bm.tris:
+                        out.append((part, bm, _build_grid(bm)))
+            else:
+                # a SYNTHETIC namespace: only deployed overrides exist -- read them directly and
+                # never consult the stock fallback. The stacked read's fallback rescans every
+                # p0data bundle per missing part on a disc no bundle serves (928 UnityPy loads for
+                # ONE cell, 97% of a stamp's profiled runtime).
+                from . import mesh as M
+                root = _worldmap_root(self.mod_folder, self.game)
+                for part in PARTS_ORDER:
+                    p = _part_path(root, self.disc, bx, by, part)
+                    if p.is_file():
+                        bm = M.blockmesh_from_ff9mesh(p, disc=self.disc, x=bx, y=by,
+                                                      part=part.lower())
+                        if bm.tris:
+                            out.append((part, bm, _build_grid(bm)))
             self._c[key] = out
         return self._c[key]
 
@@ -280,12 +295,15 @@ def _parse_header(data):
 
 def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-anywhere",
           deploy: bool = False, game=None, backup_dir: Path | None = None,
-          mirror_disc: int | None = None) -> dict:
+          mirror_disc: int | None = None, backup: bool = True) -> dict:
     """Stamp navigation classes onto every deployed sea override in ``disc``'s namespace.
 
     ``cells`` restricts to an iterable of ``(bx, by)``; default is every cell with a sea override.
     ``policy`` is one of :data:`POLICIES`. ``mirror_disc`` writes an identical copy to that disc too
     (the real-disc Disc1/Disc4 parity pair); leave None for a synthetic namespace.
+    ``backup=False`` skips the pre-write file backups -- for an EMITTER calling this over sea files
+    it deployed moments earlier in the same run, where the pre-stamp state is the emitter's own
+    output and re-running the emitter reproduces it. Keep the default for standalone stamping.
     Read-only unless ``deploy``."""
     if policy not in POLICIES:
         raise ValueError(f"policy must be one of {POLICIES}, got {policy!r}")
@@ -299,7 +317,7 @@ def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-any
         base = repo if (repo / ".git").exists() or (repo / "ff9mapkit").is_dir() else Path.cwd()
         backup_dir = base / "backups" / f"coastnav-disc{disc}-{time.strftime('%Y%m%d-%H%M%S')}"
     summary = {"disc": disc, "policy": policy, "deploy": deploy, "cells": [], "totals": {},
-               "backup_dir": str(backup_dir) if deploy else None}
+               "backup_dir": str(backup_dir) if (deploy and backup) else None}
     from . import extract as W
     for bx, by in todo:
         lows = highs = None
@@ -371,12 +389,13 @@ def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-any
             if not changed:
                 continue
             if deploy:
-                backup_dir.mkdir(parents=True, exist_ok=True)
-                for src, tag in ((p, f"disc{disc}"), (pm, f"disc{mirror_disc}")):
-                    if src is not None and src.is_file():
-                        bk = backup_dir / f"{src.name}.{tag}"
-                        if not bk.exists():
-                            shutil.copy2(src, bk)
+                if backup:
+                    backup_dir.mkdir(parents=True, exist_ok=True)
+                    for src, tag in ((p, f"disc{disc}"), (pm, f"disc{mirror_disc}")):
+                        if src is not None and src.is_file():
+                            bk = backup_dir / f"{src.name}.{tag}"
+                            if not bk.exists():
+                                shutil.copy2(src, bk)
                 for vi, cls in changed.items():
                     o = tan_off + vi * 16
                     old = int(round(struct.unpack_from("<f", data, o)[0]))

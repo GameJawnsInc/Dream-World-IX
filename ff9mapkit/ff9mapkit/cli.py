@@ -4007,7 +4007,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
                   relief_amp=relief_amp, relief_seed=args.relief_seed,
                   beach=beach, disc=args.disc, game=args.game, dry_run=args.dry_run,
                   skip_mirror=args.skip_mirror, target_disc=args.target_disc,
-                  all_sea_target=args.all_sea_target)
+                  all_sea_target=args.all_sea_target,
+                  coastnav=not args.skip_coastnav, coastnav_policy=args.coastnav_policy)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -4038,6 +4039,15 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
             print(f"  !! WARNING {g['gate']}: {g.get('detail') or 'see the report'} -- THE TEXTURE + "
                   f"SEA GATES (studies/overworld-topography's Rung-F UV/relief arc). The mint is "
                   f"deployed; review it in-game before building on it.")
+    cn = summary.get("coastnav")
+    if cn:
+        names = {53: "beach", 54: "cliff-front", 55: "standoff-belt", 56: "keel"}
+        bits = " ".join(f"{names.get(c, c)}={n}" for c, n in sorted(cn["totals"].items()))
+        print(f"  coast-nav stamped ({cn['policy']}): {bits or 'no water reclassified'}")
+    elif not args.dry_run and args.skip_coastnav:
+        print("  !! coast-nav SKIPPED (--skip-coastnav): the mint's water has no keel/standoff/"
+              "landability classes -- straddling triangles are boat-permeable until stamped "
+              "(ff9mapkit world-coastnav).")
     print("all gates CLEAN (geometry, UV language, placement census: 0 MISS). "
           "~ -> World -> Teleport to the centre; a first-time block needs a world re-entry.")
     return 0
@@ -7840,6 +7850,16 @@ def build_parser() -> argparse.ArgumentParser:
                           "dialect, AND the beach block's divert donor). Default per family: grass "
                           "(7,17), desert (20,5).")
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wis.add_argument("--coastnav-policy", choices=("land-anywhere", "cliffs-refuse"),
+                     default="land-anywhere",
+                     help="landability policy for the post-deploy coast-nav stamp (default "
+                          "land-anywhere = the Southern Ring's get-off-at-any-beach property; "
+                          "cliffs-refuse = stock grammar, a shore with no low ground can be sailed "
+                          "to but never disembarked on)")
+    wis.add_argument("--skip-coastnav", action="store_true",
+                     help="don't stamp vehicle navigation classes after the deploy. The mint's water "
+                          "then ships boat-permeable straddling triangles with no standoff belt and "
+                          "no landability -- only for A/B work; stamp later with world-coastnav")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
