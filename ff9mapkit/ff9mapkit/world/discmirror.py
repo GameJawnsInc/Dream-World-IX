@@ -57,6 +57,10 @@ from . import mesh as M
 _BLOCK_RE = re.compile(r"^Block\[(\d+)\]\[(\d+)\] (.+?)\.(ff9mesh|txt)$")
 _DISC_SEG_RE = re.compile(r"^Disc(\d+)$")
 
+# The only discs FF9 actually ships a `worldmap/disc{N}/` bundle tree for. Anything else in a deployed override
+# path is a SYNTHETIC namespace (Path D's sentinel, engine patch s74) and must never be mirrored into a real one.
+_REAL_DISCS = (1, 4)
+
 
 def _real_parts(disc: int, lod: str = "0_1", *, game=None) -> dict:
     """{(bx, by): {part, ...}} of the REAL map's per-block mesh assets on ``disc`` at ``lod``."""
@@ -172,6 +176,19 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
     out = None
     for src_disc, grp in sorted(by_disc.items()):
         if not grp["cells"]:
+            continue
+        # THE FOREIGN-NAMESPACE REFUSAL (Path D). The disc-1<->disc-4 mirror exists to close THE DISC-4 GAP for
+        # the two REAL discs. A synthetic world (engine patch s74) resolves its overrides against a SENTINEL disc
+        # whose whole purpose is to be disjoint from the real trees -- mirroring those cells into the real Disc4
+        # namespace would recreate exactly the collision s74 was built to prevent, and would do it silently.
+        # Today this is stopped only by ACCIDENT: mirror() -> _real_parts(src_disc) -> _worldmap_env(9) rescans
+        # ~50 p0data bundles, finds no `worldmap/disc9/` container, and raises ValueError, which the handler
+        # below swallows as a benign "no bundle data" skip. That is a slow, misleadingly-logged near-miss rather
+        # than a guard, and it would stop working the moment a disc-9 read path were ever cached or stubbed.
+        # Refuse explicitly, before the rescan.
+        if src_disc not in _REAL_DISCS:
+            log(f"disc-{dst_disc} mirror: refused for Disc{src_disc} "
+                f"(not a real disc -- a synthetic override namespace is deliberately unmirrored)")
             continue
         try:
             out = mirror(mod_folder, src_disc=src_disc, dst_disc=dst_disc, lod=grp["lod"] or "0_1",
