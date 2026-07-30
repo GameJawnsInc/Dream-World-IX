@@ -1,0 +1,9 @@
+Disc9 deployed sea cells: [(11, 10), (12, 9), (12, 10), (12, 11), (13, 10)]
+CALIBRATE: 1500 paired queries, 0 mismatch(es)
+SEAL: 358 high-ground samples, 0 sail-through leak(s)
+STANDOFF: 34 wall-hug samples, 0 legal (0.0%; seam-artifact tolerance 5%)
+INTEGRITY: 5 files checked, 0 violation(s)
+CENSUS of changed verts: CLIFF(54)=1128 BELT(55)=282 KEEL(56)=468  (deploy said CLIFF 1128 / BELT 282 / KEEL 468 / BEACH 0)
+LANDINGS: 0 verts changed to 53, 0 live 53 verts (cliffs-refuse + no low shore -> both must be 0)
+
+COAST-NAV DISC9: ALL CHECKS PASS

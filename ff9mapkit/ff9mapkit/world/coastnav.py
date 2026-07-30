@@ -111,6 +111,29 @@ def deployed_sea_cells(mod_folder: str, disc: int, game=None):
     return sorted(cells)
 
 
+_GRID = 8.0  #: spatial-index bucket size (block-local units)
+
+
+def _build_grid(bm):
+    """Uniform-grid index over triangle 2D AABBs, block-local (x, z) -> ascending tri indices.
+
+    Buckets hold ascending triangle indices, and any triangle covering a point is in that point's
+    bucket (AABB overlap), so a bucket scan returns exactly the file-order first hit the full scan
+    returns -- the index is a pure accelerator, never a semantic change. It is what makes the
+    per-cell ground scan (~2.5k samples x O(all tris) before) cheap enough to be an emitter
+    default; the un-indexed pass was the ~hour-per-pass cost measured on 2026-07-30."""
+    grid = {}
+    for t, tri in enumerate(bm.tris):
+        xs = [bm.verts[k][0] for k in tri]
+        zs = [bm.verts[k][2] for k in tri]
+        for gx in range(math.floor((min(xs) - 1e-6) / _GRID),
+                        math.floor((max(xs) + 1e-6) / _GRID) + 1):
+            for gz in range(math.floor((min(zs) - 1e-6) / _GRID),
+                            math.floor((max(zs) + 1e-6) / _GRID) + 1):
+                grid.setdefault((gx, gz), []).append(t)
+    return grid
+
+
 class _Loader:
     """Stacked block-part reader, cached. Reads this disc's deployed override, falling back to the
     stock tree when the disc is a real one (a synthetic namespace has no stock tree, so only what we
@@ -131,12 +154,12 @@ class _Loader:
                 except (ValueError, FileNotFoundError):
                     bm = None
                 if bm is not None and bm.tris:
-                    out.append((part, bm))
+                    out.append((part, bm, _build_grid(bm)))
             self._c[key] = out
         return self._c[key]
 
 
-def _query_top(loader, wx, wz):
+def _query_top(loader, wx, wz, parts=None):
     """First part in registration order covering ``(wx, wz)`` -> ``(part, topo, y)`` or None.
 
     Matches the engine's own ground query on the two filters that decide whether a triangle is
@@ -144,14 +167,23 @@ def _query_top(loader, wx, wz):
     the GEOMETRIC winding normal. The study script this was ported from omitted both, which let a
     downward-facing sub-sea skirt register as "ground" -- on the Path D cliff island that surfaced
     as one or two phantom samples at y=-80 per cell, and because they classified LOW they painted
-    228 verts of landable 53 onto a coast that has no shore at all."""
+    228 verts of landable 53 onto a coast that has no shore at all.
+
+    ``parts`` optionally restricts the query to a set/tuple of part names (e.g. the seas only --
+    what the boat's cache-favoured ``w_cellHit`` effectively reads under land); None = the full
+    stack."""
     from . import extract as W
     from .placement import IDALL_SKIP
     wx %= WORLD_W
     bx, by = math.floor(wx / BLOCK), math.floor(-wz / BLOCK)
     ox, oz = W.block_world_origin(bx, by)
-    for nm, bm in loader.parts(bx, by):
-        for t in range(len(bm.tris)):
+    for nm, bm, grid in loader.parts(bx, by):
+        if parts is not None and nm not in parts:
+            continue
+        cands = grid.get((math.floor((wx - ox) / _GRID), math.floor((wz - oz) / _GRID)))
+        if not cands:
+            continue
+        for t in cands:
             tri = bm.tris[t]
             if int(round(bm.tangents[tri[0]][0])) in IDALL_SKIP:
                 continue
