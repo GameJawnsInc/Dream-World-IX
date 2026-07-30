@@ -8133,6 +8133,11 @@ class Workspace(QMainWindow):
                 self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")), _LAYOUT_VERSION)
             if lay.get("central_split"):
                 self._central_split.setSizes(self._repair_central_split(lay["central_split"]))
+            # The Floorplan tab's chart/findings rail. The doc owns both the repair and the floors
+            # (they are read from its own canvas chips and list font, so only it can know them); the
+            # shell owns the one layout pref, so this is the call site that spends them.
+            if lay.get("floorplan_split") and getattr(self, "floorplan_doc", None) is not None:
+                self.floorplan_doc.restore_split(lay["floorplan_split"])
             csplit = lay.get("console_split")
             collapsed = bool(lay.get("console_collapsed", False))
             if csplit:
@@ -8157,13 +8162,21 @@ class Workspace(QMainWindow):
         try:
             collapsed = not self._console_open
             sizes = self._console_sizes if collapsed else self._vsplit.sizes()
-            prefs.set_layout({
+            out = {
                 "geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
                 "state": bytes(self.saveState(_LAYOUT_VERSION).toBase64()).decode("ascii"),
                 "central_split": [int(x) for x in self._central_split.sizes()],
                 "console_split": [int(x) for x in (sizes or [])],
                 "console_collapsed": collapsed,
-            })
+            }
+            # `split_sizes()` is None until the author actually drags the rail, and the key is then
+            # ABSENT rather than written -- a value the app computed is not a preference, so the next
+            # launch re-derives it from the live font and window instead of inheriting our arithmetic.
+            fp = (self.floorplan_doc.split_sizes()
+                  if getattr(self, "floorplan_doc", None) is not None else None)
+            if fp:
+                out["floorplan_split"] = [int(x) for x in fp]
+            prefs.set_layout(out)
         except Exception:   # noqa: BLE001
             pass
 

@@ -301,8 +301,8 @@ def set_deploy_dest(mode: str) -> None:
 
 def layout() -> dict:
     """The saved window layout: ``{"geometry": b64, "state": b64, "central_split": [ints],
-    "console_split": [ints], "console_collapsed": bool}`` — any subset; garbage-tolerant like every pref
-    (a corrupt value is just dropped)."""
+    "console_split": [ints], "floorplan_split": [ints], "console_collapsed": bool}`` — any subset;
+    garbage-tolerant like every pref (a corrupt value is just dropped)."""
     val = get("layout", {})
     if not isinstance(val, dict):
         return {}
@@ -316,7 +316,7 @@ def layout() -> dict:
     # IndexError. `_restore_layout`'s `except Exception: pass  # never let a bad layout block launch` had
     # already swallowed the first raise AFTER storing the poison, so the crash surfaced far from its cause.
     # The SAVE path arity-checks (`if len(sizes) == 2`); only the restore path did not.
-    for k, arity in (("central_split", 3), ("console_split", 2)):
+    for k, arity in (("central_split", 3), ("console_split", 2), ("floorplan_split", 2)):
         sizes = val.get(k)
         if (isinstance(sizes, list) and len(sizes) == arity
                 and all(isinstance(x, int) and x >= 0 for x in sizes)):

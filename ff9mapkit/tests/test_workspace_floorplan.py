@@ -22,6 +22,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt                                           # noqa: E402
 from PySide6.QtWidgets import QApplication                              # noqa: E402
 
 from ff9mapkit import floorplan as FP                                   # noqa: E402
@@ -40,8 +41,25 @@ def app():
 
 @pytest.fixture(autouse=True)
 def _deterministic_qt_teardown(qt_drain):
-    """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
+    """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half).
+
+    ★ ...AND THE JUDGE DEBOUNCE IS DISARMED FIRST. ``qt_drain`` PARKS widgets alive on purpose and
+    runs ``processEvents()`` after every test — so a doc whose last gesture armed the 140ms timer
+    fires it inside somebody else's teardown and starts a judge WORKER THREAD, long after its own
+    test ended. That is invisible until a thread is mid-import when the main thread touches the same
+    module: it surfaced as ``pytest.approx`` raising ``partially initialized module 'numpy'`` in a
+    test that touches neither Qt nor threads — a "circular import" that is really a data race. The
+    judge has a deterministic sync lane and this module uses only that, so nothing here needs the
+    timer; a probe that leaves a thread running is not a probe, it is the next test's flake.
+    """
     yield
+    for w in QApplication.topLevelWidgets():
+        try:
+            t = getattr(w, "_debounce", None)
+            if t is not None:
+                t.stop()
+        except RuntimeError:                           # a wrapper whose C++ side already went
+            pass
     qt_drain()
 
 
@@ -1071,6 +1089,207 @@ def test_the_canvas_feed_is_pure_of_the_hosts_dict(app):
     fed = doc.canvas._rooms[0]
     fed["poly"][0] = (9999, 9999)
     assert doc._session["rooms"][0]["poly"][0] == tuple(_A[0])
+
+
+# ------------------------------------------------- the chart/findings rail (the shared budget)
+
+def _laid_out(app, doc, w=900, h=620):
+    """Give ``doc`` a REAL layout pass without putting a window on anyone's desktop.
+
+    ``resize()`` alone is not one: an unshown widget never lays out, so the rail's sizes stay
+    ``[0, 0]`` and ``_fit_split`` correctly declines to divide nothing. ``WA_DontShowOnScreen`` +
+    ``show()`` is the same pair ``tools/gui_snap.py`` renders with. Geometry read after this is
+    still offscreen geometry — assert relations, not numbers.
+
+    ★ AND IT MUST QUIESCE THE DEBOUNCE. Every gesture arms a 140ms timer whose default lane is a
+    WORKER THREAD, and nothing in this module had ever run an event loop, so that timer had never
+    once fired here. The first ``processEvents()`` let it — and a judge thread importing under the
+    main thread's feet took down an unrelated later test with ``partially initialized module
+    'numpy'``, a "circular import" that is really a data race. A probe that leaves a thread running
+    is not a probe, it is the next test's flake; so the timer is stopped and the verdict is taken on
+    the deterministic sync lane the rest of this module already uses.
+    """
+    doc._debounce.stop()
+    doc.judge_now(sync=True)
+    doc.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    doc.resize(w, h)
+    doc.show()
+    app.processEvents()
+    doc._debounce.stop()
+    doc._fit_plist()
+    app.processEvents()
+    doc._debounce.stop()
+    return doc
+
+
+def _refused(app, **kw):
+    """The state the rail exists for: a plan whose door gate REFUSES, so the well has content."""
+    doc, run = _two_rooms(app, **kw)
+    doc.tools.set_current("doors")
+    doc.judge_now(sync=True)
+    doc.canvas.click_world(0, 0)
+    doc.depth.setValue(100)                            # under DEPTH_MIN -> the long refusal
+    doc.judge_now(sync=True)
+    return doc, run
+
+
+def test_the_chart_and_the_well_share_one_rail(app):
+    """★ THE CHART IS THE PRIMARY SURFACE, and before the rail it lost to the well exactly when a
+    gate refused. Measured natively at CALIBRE 150 in an 850px window: of a 556px document the well
+    took 118px and the canvas was left **130** — 23% of the tab, showing a plan the author could not
+    read, at the one moment the problem being reported was about that plan.
+
+    The fixed rows ride in the UPPER pane on purpose: the chart and the well are not adjacent (the
+    envelope, id and status rows sit between them), so this is what keeps the reading order — and
+    the status line's "see the list below" — true while still making every pixel the rail takes from
+    the well a pixel the canvas gets, the canvas being the only stretching member above it."""
+    doc, _ = _refused(app)
+    assert doc.split.count() == 2
+    assert doc.split.widget(0) is doc._upper and doc.split.widget(1) is doc.plist
+    assert doc.canvas.parent() is doc._upper, "the canvas stretches inside the upper pane"
+    for w in (doc.status, doc.id_box, doc.mod_box, doc.name_box):
+        assert doc._upper.isAncestorOf(w), f"{w} must ride with the chart, not below the rail"
+    assert doc.split.isCollapsible(0) is False, "the chart never collapses to nothing"
+    assert doc.split.isCollapsible(1) is True, "the well may be dragged shut -- that is a choice"
+
+    # ...and every spare pixel goes to the CHART. Fenced as the effect, not as the setter (QSplitter
+    # has no stretchFactor getter, and the effect is what the author sees): grow the document and
+    # the canvas must take the whole increase while the content-sized well stays put.
+    _laid_out(app, doc, 900, 560)
+    chart, well = doc.canvas.height(), doc.plist.height()
+    _laid_out(app, doc, 900, 760)
+    assert doc.plist.height() == well, "the well grew on a taller window instead of the chart"
+    assert doc.canvas.height() >= chart + 180, \
+        f"the chart took only {doc.canvas.height() - chart} of a 200px increase"
+
+
+def test_the_rail_default_never_leaves_a_void_over_the_chart(app):
+    """★ A SPLITTER SEEDS FROM sizeHint AND NEVER RECLAIMS WHAT maximumHeight REFUSES — the rail's
+    own regression, caught by the snap the day it went in. A ``QListWidget``'s sizeHint is ~256x192
+    whatever it holds, so Qt placed the handle at the well's 192px HINT while ``maximumHeight``
+    clamped the widget to 72: 120px of dead splitter void, and the chart fell from 313 to 184 at
+    CALIBRE 100. Stretch factors cannot fix it (they divide a surplus, and there was none), so
+    ``_fit_split`` sets the default explicitly from the ceiling ``_fit_plist`` just measured."""
+    doc, _ = _refused(app)
+    _laid_out(app, doc)
+    upper, well = doc.split.sizes()
+    assert well <= doc.plist.maximumHeight(), \
+        f"the rail gave the well {well} for a box that can only be {doc.plist.maximumHeight()}"
+    assert upper + well == sum(doc.split.sizes()), "no pane may be left holding a void"
+    assert upper >= doc.pane_floor(0), "the chart column never opens below its own floor"
+
+
+def test_the_charts_floor_hears_the_dial(app):
+    """A px constant cannot hear the CALIBRE dial, and the chart's floor is two overlay CHIPS —
+    the compass and the zoom hint, both pinned to the viewport corners, both text. So the floor is
+    read from the live labels and MUST grow with the dial.
+
+    Asserted as a relation, never as a number: this module runs offscreen, whose stub font DB has
+    manufactured whole defects in this repo (it reports 65/71/82 here against a real 85/100/112)."""
+    floors = []
+    for scale in (100, 125, 150):
+        doc, _ = _doc(app)
+        doc.set_scale(scale)
+        floors.append(doc.canvas.chart_floor())
+        assert doc.canvas.minimumHeight() == doc.canvas.chart_floor(), \
+            "the floor is only a floor if the widget carries it"
+    assert floors == sorted(floors) and floors[0] < floors[-1], \
+        f"a floor that does not move with the dial is a px constant in disguise: {floors}"
+
+
+def test_an_untouched_rail_is_never_persisted(app):
+    """★ A VALUE THE APP COMPUTED UNDER DURESS IS NOT A VALUE THE USER CHOSE (the round-7 law).
+    The cheapest way to honour it on a new rail is to never record the app's own arithmetic at all:
+    until the handle moves there is no preference here, so the save path has nothing to write and
+    the next launch re-derives the default from the live font and window."""
+    doc, _ = _refused(app)
+    _laid_out(app, doc)
+    assert doc.split_sizes() is None, "the app sizing its own rail is not the author choosing"
+    doc._on_split_moved(0, 1)                          # what splitterMoved delivers on a real drag
+    assert doc.split_sizes() == [int(x) for x in doc.split.sizes()]
+
+
+def test_a_squeezed_rail_is_not_a_preference(app):
+    """The round-7 law spent on this rail — the same tell, the same boundary, and the floors READ
+    at runtime because they are font-dependent (``chart_floor`` moves with the dial; the well's is
+    Qt's list default, a flat 74 native / 70 offscreen — which is precisely why it is taken from the
+    live widget rather than copied here as a literal that would be wrong on one of them)."""
+    doc, _ = _refused(app)
+    up, well = doc.pane_floor(0), doc.pane_floor(1)
+
+    # PINNED AT A MINIMUM == forced by a short window (or a bigger dial than the one that saved).
+    assert doc.repair_split([up, 300]) is None
+    assert doc.repair_split([up + 2, 300]) is None
+    assert doc.repair_split([600, well]) is None
+    assert doc.repair_split([600, well + 2]) is None
+
+    # COLLAPSED TO ZERO == chosen: setCollapsible(1, True), so a shut well is a deliberate drag.
+    assert doc.repair_split([600, 0]) == [600, 0]
+    # ...and pane 0 is NOT collapsible, so a zero chart is not something a drag can produce.
+    assert doc.repair_split([0, 400]) is None
+
+    # Comfortably clear of both floors == a real drag. Keep it.
+    assert doc.repair_split([600, 200]) == [600, 200]
+    # Arity / type / sign — prefs.layout() fences these too; belt and braces.
+    assert doc.repair_split([600]) is None
+    assert doc.repair_split([600, 200, 40]) is None
+    assert doc.repair_split([-1, 400]) is None
+    assert doc.repair_split("nonsense") is None
+
+
+def test_restore_split_spends_the_repair(app):
+    """The mechanism is worth nothing if the call site does not spend it — this arc's oldest lesson.
+    A saved squeeze must not become the author's balance just because it was on disk."""
+    doc, _ = _refused(app)
+    assert doc.restore_split([600, 200]) is True and doc.split_sizes() == [600, 200]
+    doc._split_choice = None
+    assert doc.restore_split([600, doc.pane_floor(1)]) is False, "a squeeze fossil is refused"
+    assert doc.split_sizes() is None, "...and the live default is left to re-derive itself"
+
+
+def test_the_status_stops_promising_a_list_that_is_shut(app):
+    """A refusal must always say where to read it. The well is collapsible on purpose, which makes
+    "see the list below" a lie in exactly the state where a refusal most needs somewhere to point —
+    and the replacement is kept to one word longer because this is an ElideLabel that drops its
+    TAIL: the first cut ("open the findings rail below to read them") rendered as "…below to rea…"
+    at CALIBRE 150, eliding away the very words it was added to say."""
+    doc, _ = _refused(app)
+    assert "see the list below" in _status(doc)
+    doc._split_choice = [500, 0]                       # the author dragged it shut
+    doc._paint_verdict()
+    assert doc._well_shut() is True
+    assert "see the list below" not in _status(doc)
+    assert "open the list below" in _status(doc)
+    doc._split_choice = [400, 100]                     # ...and opened it again
+    doc._paint_verdict()
+    assert "see the list below" in _status(doc)
+
+
+def test_the_rail_is_visible_and_grabbable(app):
+    """★ THE RAIL IS A CONTROL, NOT A DIVIDER, so it does not get divider ink. The app-wide
+    ``QSplitter::handle`` is ``$border`` at 1px, and both halves fail this one surface: 1px is a
+    grab target the author cannot hit, and ``$border`` measures **1.25-1.49:1** against ``$surface``
+    across the 8 palettes — the 6x-magnified strip showed a flat band with no rail in it, which is
+    what sub-3.0 looks like. ``$muted`` is 5.08-6.99:1 in every palette, clearing the 3.0 NON-TEXT
+    floor (WCAG 1.4.11).
+
+    :hover goes to ``$text``, not ``$accent``: accent is only 2.47:1 on nord, so hovering would have
+    made the rail HARDER to see there. Monotone by measurement, asserted per palette."""
+    from ff9mapkit.editor import theme as T
+    from ff9mapkit.workspace import style
+
+    doc, _ = _doc(app)
+    assert doc.split.objectName() == "floorplanSplit", "the scoped rule needs its id on the widget"
+    for name in T.THEME_CHOICES:
+        pal = pick_palette(name)
+        sheet = style.qss(pal)
+        assert "QSplitter#floorplanSplit::handle:vertical" in sheet
+        assert "QSplitter#floorplanSplit::handle:vertical:hover" in sheet
+        base = _contrast(_srgb(pal["muted"]), _srgb(pal["surface"]))
+        hover = _contrast(_srgb(pal["text"]), _srgb(pal["surface"]))
+        assert base >= 3.0, f"{name}: the rail is {base:.2f}:1 -- under the non-text floor"
+        assert hover >= base, (f"{name}: hover {hover:.2f} is fainter than the resting rail "
+                               f"{base:.2f} -- the affordance would go backwards")
 
 
 def test_candidate_doors_is_pure_and_survives_a_sick_outline():
