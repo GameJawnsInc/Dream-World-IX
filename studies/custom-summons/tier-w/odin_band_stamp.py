@@ -1,5 +1,46 @@
-r"""TIER W rung W6b-3 CAST B -- THE ODIN BANDS: the first depth-BEARING edit on a CHANNEL-A cell,
-and the ORDER RIDER that comes free with it.
+r"""TIER W rung W6b-3 CASTS B *and* C -- THE ODIN BANDS: the first depth-BEARING edit on a CHANNEL-A
+cell, the ORDER RIDER that comes free with it, and -- since the cast-B refutation -- THE DEPTH
+DISCRIMINATOR the cast-B figure could not be.
+
+★ WHY THIS FILE GREW AN INK-BYTE ARGUMENT.  Cast B inked with the cell's own max-luminance palette
+entry, which on the verdict cell is index **255** -- byte `0xFF`.  An adversarial review of the cast-B
+video then proved the figure CANNOT discriminate the depth, and the reason is arithmetic, not optics:
+
+  * every one of the 2,311 changed bytes is `0xFF`, and at 4bpp that byte is nibbles **(15, 15) --
+    TWO IDENTICAL TEXELS** -- so a 4bpp read renders the bands PERFECTLY SOLID.  "Clean vs
+    pin-striped", the discriminator the cast-B header states below, was never a discriminator at all;
+  * 87.4 % of the ink's 15bpp words are `0xFFFF` = pure white, so a 15bpp read gives WHITE bands at
+    the SAME rows.  Colour does not separate 8 from 15 either;
+  * band COUNT, ROW POSITION and SOLIDITY are DEPTH-INVARIANT by construction: the stamp writes whole
+    byte ROWS, and a byte row is a texel row at 4, 8 and 15 bpp alike.
+
+What survived was the cell IDENTITY (a threshold-free 2:1 in spatial frequency between cast A's k=10
+and cast B's 5 on the same pixels) and the ordering.  The depth verdict survived only on an argument
+about the SURROUNDING STOCK ART, which needed no ink at all.  So the ink must be re-chosen, and the
+choice is the refuter's own: **byte `0xF0` instead of `0xFF`**, which the three depths cannot render
+alike (all three numbers derived from the user's own container, never typed):
+
+  ================  ==============================================================================
+  8bpp              palette index 240 = `0xb9db` = **rgb(222,115,115) SALMON**.  It does NOT clip,
+                    so its hue survives the additive blend (reads about (255,170,170) PINK).
+  4bpp, CLUT base 0 nibbles (0, 15) -> index 0 = TRANSPARENT alternating with index 15 = `0x8403` =
+                    rgb(24,0,8), luma 7.  A 50 %-duty 1-texel **TRANSPARENT COMB**: the surface
+                    visibly THINS at five heights and no bright bar appears anywhere.
+  15bpp             word `0xF0F0` = **rgb(131,57,230) VIOLET-BLUE**, and only 0.1 % of the javelin
+                    body is blue -- unmissable.
+  ================  ==============================================================================
+
+THE COUNT STAYS FIVE.  Cast A gave 10 cycles and cast B 5 on the same pixels -- a threshold-free 2:1
+that is what pins the cell.  Changing the count would spend that.  Cast C changes ONE thing, the ink
+byte, which is the whole point of running it.
+
+THE LITERAL-INK MODE TAKES THE BYTE LITERALLY AND REFUSES RATHER THAN SUBSTITUTING.  It does **not**
+fall back to max-luminance the way the derived mode picks it: `--ink-byte` is a claim about a specific
+palette ENTRY, and a mode that silently moved to a different entry would repaint the discriminator.
+It refuses a byte that is not a lawful index in the cell's ACTIVE CLUT (the container's own entry
+count, not PIL's padded 256), a byte whose entry is transparent under that CLUT (index 0 or any other
+-- inking a transparent index is a cutout FILL and would arm `acknowledge_cutout_reshape`), and any
+page whose derived depth is not 8 (where a BYTE is not an INDEX and "lawful index" has no meaning).
 
 `odin_channel_a.toml` needs two indexed PNGs; this script writes both.  The vehicle is ef424
 (`SpecialEffect.Odin__Short = 424`), reachable from bench row 203 "Stock Odin Short", and the two
@@ -11,10 +52,17 @@ targets are the two COLUMNS one multi-part `so` record names -- record 0x2f9a4, 
     cannot test a depth (zeroing is depth-invariant); INK can, so what the screen shows judges the
     channel:
 
-        clean bands           -> channel A's 8 bpp IS the draw depth
+        ⚠⚠ THE THREE LINES BELOW ARE CAST B'S KEY AND ALL THREE ARE REFUTED.  Kept verbatim and
+        labelled rather than deleted, because an instrument that quietly stops printing the claim it
+        was read on cannot be audited.  With ink byte 0xFF none of them can occur -- see the ★ block
+        at the top of this file, and use `--cast c`.
+
+        clean bands           -> channel A's 8 bpp IS the draw depth        [VOID: solid at 4bpp too]
         pin-striped bands     -> the draw reads these bytes at 4 bpp (each ink byte splits into two
                                  nibble texels -- the ef446 "jittery" signature one level down)
+                                                          [VOID: 0xFF is nibbles (15,15) -- IDENTICAL]
         one solid WRONG hue   -> a 15 bpp read (byte pairs become direct words)
+                                                          [VOID: 0xFFFF is WHITE, same as index 255]
 
   * `cell.s0.x448_y384`  THE ORDER RIDER.  Slot 0's column, and SEVEN incumbent single-part records
     bind it too -- so it is licensed on the `so`-UV channel and carries NO acknowledgement key.  It
@@ -54,6 +102,10 @@ Run AFTER `summon-reskin export-art --ef 424 --out <art dir>`:
 
     py odin_band_stamp.py --from C:\gd\SCRATCH\summon-format\ef424.bytes ^
        --art C:\gd\SCRATCH\summon-format\repaint-w6b\ef424-channel-a\art
+
+    py odin_band_stamp.py --cast c          # CAST C: the same 5 bands, ink byte 0xF0 on the verdict
+                                            # cell; the order row is UNCHANGED and byte-identical
+    py odin_band_stamp.py --cast c --emit-spec-guards      # the TOML guard lines, derived
 """
 from __future__ import annotations
 
@@ -95,9 +147,221 @@ ACK_ARRAY_DEPTH = {VERDICT_CELL: True, ORDER_CELL: False}
 #: the suffix each stamped file takes, so a spec's `source` names the FIGURE and not just the cell.
 SUFFIX = {VERDICT_CELL: "verdictbands", ORDER_CELL: "orderbands"}
 
+#: ★ CAST C'S INK BYTE -- THE DEPTH DISCRIMINATOR, and the ONE constant that separates cast C from
+#: cast B.  `0xF0` is not a taste: it is the unique small family of bytes whose three depth readings
+#: are mutually exclusive AND all three visible (see the header table).  `0xFF` -- cast B's -- fails
+#: on both counts at once, which is why cast B could not discriminate.
+CAST_C_INK_BYTE = 0xF0
+
+#: THE CAST PRESETS.  A cast is a MAP from cell to literal ink byte; a cell absent from the map keeps
+#: TODAY'S behaviour (the cell's own display palette's max-luminance entry, derived).  `"b"` is
+#: therefore the empty map BY CONSTRUCTION rather than by a flag -- which is what makes "cast B still
+#: regenerates byte-identically" a property of the data instead of a promise in a docstring.
+#:
+#: ⚠ THE ORDER CELL IS DELIBERATELY ABSENT FROM CAST C, and it could not be present even if wanted:
+#: index 240 is TRANSPARENT under `pal.s0.x0_y242.e256` (that palette's entries 100..255 are all
+#: `0x0000`), so `--ink-byte cell.s0.x448_y384=0xF0` is REFUSED by name.  Cast C therefore moves
+#: exactly ONE cell's bytes, which is the "one change per in-game test" rule spent where it counts:
+#: cast C minus cast B is precisely the 2,311 verdict-cell ink bytes.
+CASTS = {"b": {}, "c": {VERDICT_CELL: CAST_C_INK_BYTE}}
+
 
 def _fail(msg: str) -> "SystemExit":
     return SystemExit("REFUSED: " + msg)
+
+
+def palette_luma(pal, i: int) -> int:
+    """The integer luma this module ranks palette entries by -- ONE definition, two call sites.
+
+    Kept exactly as cast B computed it (`2R + 5G + B`, unnormalised) so the derived-ink path is
+    bit-identical; a "better" luma here would silently re-pick cast B's ink and break the regeneration
+    proof this file's whole default mode exists to keep.
+    """
+    return 2 * pal[3 * i] + 5 * pal[3 * i + 1] + pal[3 * i + 2]
+
+
+def resolve_ink(pal, words, zeros, page, cell: str, src: str, literal=None):
+    """``(index, luma, how)`` -- the ink this stamp will write, DERIVED or taken LITERALLY.
+
+    ``literal is None`` reproduces cast B exactly: the cell's own display palette's max-luminance
+    entry, refused if that entry is transparent.
+
+    ``literal`` is CAST C, and it is a different KIND of statement -- a claim about one specific
+    palette entry, made because the three candidate depths must render THAT entry differently.  So it
+    is checked and refused, never adjusted:
+
+    * **it is never re-picked as max-luminance.**  A mode that fell back would repaint the
+      discriminator with cast B's own ink and the run would look like it had worked;
+    * **the depth must be 8**, because at 4bpp a byte is TWO indices and at 15bpp it is half a colour
+      -- "the byte 0xF0 is index 240" is only true at one depth, and stating it at another would be
+      the same category error this cast exists to test for;
+    * **the byte must be a lawful index in the cell's ACTIVE CLUT** -- ``page.clut_entries`` from the
+      container's own header, never PIL's palette, which is padded to 256 whatever the row holds.  On
+      a 16-entry row index 240 names nothing and the engine would read whatever follows the row;
+    * **the entry must not be transparent** -- and the transparent set is DERIVED
+      (:func:`RP.transparent_indices`), not assumed to be ``{0}``: on this vehicle the order cell's
+      row has a transparent TAIL of 157 entries including 240 and 255, so "index 0" would be a rule
+      that happened to be sufficient rather than one that is right.  Inking a transparent index is a
+      cutout FILL, which would arm ``acknowledge_cutout_reshape`` and make the silhouette a second
+      variable in a one-variable cast.
+    """
+    if literal is None:
+        ink_luma, ink = max((palette_luma(pal, i), i) for i in range(256))
+        if ink in zeros:
+            raise _fail("%s's brightest entry (index %d) is TRANSPARENT under this cell's own palette "
+                        "-- refusing to ink with the cutout" % (src, ink))
+        return ink, ink_luma, "DERIVED (this cell's own display palette max-luminance entry)"
+
+    ink = int(literal)
+    if not 0 <= ink <= 255:
+        raise _fail("--ink-byte %r on %s is not a byte (0..255).  A texel byte is what is written; "
+                    "there is nothing else it could mean." % (literal, cell))
+    if page.bpp != 8:
+        raise _fail("--ink-byte 0x%02X names a palette INDEX, but %s derives %dbpp (%s).  A byte is "
+                    "two indices at 4bpp and half a direct colour at 15bpp, so 'the byte 0x%02X is "
+                    "index %d' is only true at 8 bpp.  The literal-ink mode refuses rather than "
+                    "quietly meaning something else." % (ink, cell, page.bpp, page.depth_source, ink,
+                                                         ink))
+    entries = int(page.clut_entries or 0)
+    if ink >= entries:
+        raise _fail("--ink-byte 0x%02X = index %d is NOT a lawful index in %s's active CLUT: %s "
+                    "declares %d entr%s (0..%d).  The engine would read whatever bytes follow the "
+                    "row, which is not a colour anybody chose."
+                    % (ink, ink, cell, page.palette_name or "the page's CLUT row", entries,
+                       "y" if entries == 1 else "ies", max(0, entries - 1)))
+    if ink in zeros:
+        raise _fail("--ink-byte 0x%02X = index %d is TRANSPARENT under %s's own palette (%s): its "
+                    "word is 0x0000, so inking with it is a cutout FILL, not a mark.  That would arm "
+                    "`acknowledge_cutout_reshape` and make the SILHOUETTE a second variable in a cast "
+                    "whose whole content is one variable.  This cell's transparent set is DERIVED and "
+                    "holds %d entr%s (%s%s) -- it is not just index 0."
+                    % (ink, ink, cell, page.palette_name or "its CLUT row", len(zeros),
+                       "y" if len(zeros) == 1 else "ies",
+                       ", ".join(str(z) for z in sorted(zeros)[:6]),
+                       ", ..." if len(zeros) > 6 else ""))
+    return ink, palette_luma(pal, ink), "LITERAL --ink-byte 0x%02X (taken as written; NOT re-picked)" % ink
+
+
+def resolve_ink_map(cast: str, overrides) -> dict:
+    """``{cell: literal ink byte}`` from a cast preset plus zero or more ``[CELL=]BYTE`` overrides.
+
+    A cell ABSENT from the map keeps the derived max-luminance ink, so ``--cast b`` with no overrides
+    is the empty map and cast B regenerates byte-for-byte.  A bare ``BYTE`` names every cell this
+    script stamps, which is how the refusals are exercised: ``--ink-byte 0xF0`` alone is REFUSED on
+    the order cell (index 240 is transparent under ``pal.s0.x0_y242.e256``), and that refusal is the
+    honest answer rather than a silently skipped row.
+    """
+    out = dict(CASTS[cast])
+    for spec in overrides or ():
+        cell, _, raw = spec.rpartition("=")
+        try:
+            val = int(raw.strip(), 0)
+        except ValueError:
+            raise _fail("--ink-byte %r: %r is not an int literal (0xF0, 240, 0b11110000)"
+                        % (spec, raw.strip()))
+        if not cell:
+            for c in BANDS:
+                out[c] = val
+        elif cell.strip() not in BANDS:
+            raise _fail("--ink-byte %r names %r, which this script does not stamp.  The cells are: %s"
+                        % (spec, cell.strip(), ", ".join(sorted(BANDS))))
+        else:
+            out[cell.strip()] = val
+    return out
+
+
+def other_depth_readings(blob: bytes, cell: str, byte: int, full: bool = False) -> list:
+    """What the SAME ink byte becomes at the two depths this cast excludes -- DERIVED, never recalled.
+
+    ★ THIS IS THE CAST'S WHOLE ARGUMENT, so it is computed from the container at run time instead of
+    written into a table.  Cast B's verdict key WAS a written table, and it was wrong in both of its
+    non-8bpp rows -- the 4bpp row claimed pin-striping from a byte whose two nibbles are IDENTICAL,
+    and the 15bpp row claimed a wrong hue from a byte pair that is pure white.  A cast whose read is
+    a colour must derive that colour.
+
+    The three readings, all off the user's own bytes:
+
+    * **8 bpp** -- the byte IS a palette index, coloured by the page's own CLUT row;
+    * **4 bpp** -- the byte is TWO texels, ``low nibble first`` (:func:`RP.unpack4`'s measured order),
+      indexing a 16-entry window of the same CLUT.  Two windows are reported: the NATURAL base 0 that
+      an unchanged CLUT pointer selects, and the contrived ``base 240`` window -- the only window
+      whose index 15 is cast B's own ink, and the one residue the cast-B refutation left undecidable;
+    * **15 bpp** -- byte PAIRS become direct BGR555 words, so an all-``0xF0`` run is the word
+      ``0xF0F0`` and the colour owes nothing to any palette.
+    """
+    from ff9mapkit.summons import texture as KT
+
+    page = RP.texel_page(blob, cell, EFFECT, allow_array_depth=ACK_ARRAY_DEPTH.get(cell, False))
+    w = RP.palette_words(blob, page)
+    lo, hi = byte & 0x0F, byte >> 4                  # RP.unpack4: out[2i] = raw[i] & 0x0F
+
+    def rgb(word):
+        r, g, b, alpha = KT.bgr555_rgba(word)
+        return ("TRANSPARENT (word 0x0000)" if not alpha
+                else "rgb(%3d,%3d,%3d) word %#06x" % (r, g, b, word))
+
+    def entry(i):
+        return rgb(w[i]) if i < len(w) else "NO SUCH ENTRY (CLUT row holds %d)" % len(w)
+
+    L = ["8bpp   -> index %d = %s" % (byte, entry(byte)),
+         "4bpp   -> nibbles (%d, %d), low first; CLUT base 0   = %s  +  %s"
+         % (lo, hi, entry(lo), entry(hi)),
+         "          the same nibbles in the contrived base-240 window = %s  +  %s"
+         % (entry(240 + lo), entry(240 + hi)),
+         "15bpp  -> word %#06x = %s" % ((byte << 8) | byte, rgb((byte << 8) | byte))]
+    if full:
+        L += ["",
+              "    SO THE SCREEN CANNOT REPORT TWO OF THESE AS THE SAME THING:",
+              "      8bpp   a SALMON/PINK brightening at %d heights that does NOT clip, so its hue"
+              % BANDS[cell],
+              "             survives the additive blend (~(255,170,170) over a 40-70 luma backdrop);",
+              "      4bpp   index %d is the CUTOUT and index %d is luma-7 near-black, so the bands are"
+              % (lo, hi),
+              "             a 50%-duty 1-texel TRANSPARENT COMB: the surface THINS, no bright bar;",
+              "      15bpp  a saturated VIOLET-BLUE, on a javelin body that is 99.9% red-family and",
+              "             0.1% blue.",
+              "    Cast B could report none of them: its ink byte 0xFF is (15,15) at 4bpp -- two",
+              "    IDENTICAL texels, hence SOLID -- and 0xFFFF at 15bpp -- pure WHITE at the same rows."]
+    return L
+
+
+def spec_guard_lines(blob: bytes, path: str, rows) -> list:
+    """The spec's `expect_*` block, DERIVED from this container, for every stamped row.
+
+    The guards exist to make a wrong page or a wrong depth a REFUSAL, so a guard copied from memory
+    (or from a sibling spec) is a guard that can agree with the wrong thing.  Emitting them from the
+    same `texel_page` derivation the build will re-run makes "derived, never typed" mechanical.
+    """
+    import hashlib
+
+    sha = hashlib.sha256(blob).hexdigest()
+    L = ["[reskin]", "effect = %d" % EFFECT, 'expect_sha256 = "%s"' % sha,
+         "#   sha256 of %s" % path, ""]
+    for r in rows:
+        page = RP.texel_page(blob, r["cell"], EFFECT,
+                             allow_array_depth=ACK_ARRAY_DEPTH.get(r["cell"], False))
+        L += ["[[reskin.texel]]",
+              'name = "%s"' % page.name,
+              'source = "%s"' % r["out"].replace("\\", "/"),
+              "expect_page_offset = %#07x" % page.page_offset,
+              "expect_page_bytes  = %d" % page.page_bytes,
+              "expect_page_wh     = [%d, %d]" % (page.w, page.h),
+              "expect_bpp         = %d      # depth_source = %s" % (page.bpp, page.depth_source),
+              "expect_cell        = [%d, %d]" % page.cell,
+              'palette_from = "%s"' % page.palette_name,
+              ("acknowledge_array_derived_depth = true" if page.depth_source == "so-array" else
+               "# NO acknowledgement key on this row: depth_source = %s, which the kit LICENSES."
+               % page.depth_source),
+              ""]
+    return L
+
+
+def out_name(cell: str, literal=None) -> str:
+    """The stamped file's name.  A literal ink puts its own byte in the name, so a cast-C run can
+    never overwrite the cast-B figure that is live on the install and whose ledger is already taken."""
+    if literal is None:
+        return "%s.%s.png" % (cell, SUFFIX[cell])
+    return "%s.%s.ink%02x.png" % (cell, SUFFIX[cell], int(literal))
 
 
 #: THE SOURCE PIN.  What the two ladder cells MUST derive to on this vehicle, measured off ef424 and
@@ -234,8 +498,14 @@ def identity_gate(blob: bytes, cell: str, png: str) -> str:
     return "no-op identity VERIFIED: %d index bytes match the container exactly" % len(want)
 
 
-def stamp(blob: bytes, src: str, cell: str, out_path: str, placement: str = "cover") -> dict:
-    """Ink ``BANDS[cell]`` bands into ``src`` and write ``out_path``.  Returns the census."""
+def stamp(blob: bytes, src: str, cell: str, out_path: str, placement: str = "cover",
+          literal=None) -> dict:
+    """Ink ``BANDS[cell]`` bands into ``src`` and write ``out_path``.  Returns the census.
+
+    ``literal is None`` is cast B (derived max-luminance ink); a byte is cast C.  Only the INK moves
+    -- count, rows, placement rule and the cutout skip are the same code on both casts, which is what
+    makes the two containers differ in exactly one thing.
+    """
     from PIL import Image
 
     img = Image.open(src)
@@ -246,8 +516,6 @@ def stamp(blob: bytes, src: str, cell: str, out_path: str, placement: str = "cov
     pal = img.getpalette()
     if not pal:
         raise _fail("%s carries no palette to derive an ink from" % src)
-    lumas = [(2 * pal[3 * i] + 5 * pal[3 * i + 1] + pal[3 * i + 2], i) for i in range(256)]
-    ink_luma, ink = max(lumas)
 
     # THE HOLE SET IS DERIVED FROM THE CONTAINER, NOT ASSUMED TO BE {0}.  On this vehicle the order
     # cell's palette row has a transparent TAIL (entries 100..255 are all 0x0000), so "skip index 0"
@@ -255,10 +523,9 @@ def stamp(blob: bytes, src: str, cell: str, out_path: str, placement: str = "cov
     # transparent index is a cutout FILL and would arm `acknowledge_cutout_reshape`; skipping the whole
     # derived set makes `= false` provable instead of lucky.
     page = RP.texel_page(blob, cell, EFFECT, allow_array_depth=ACK_ARRAY_DEPTH.get(cell, False))
-    zeros = set(RP.transparent_indices(RP.palette_words(blob, page)))
-    if ink in zeros:
-        raise _fail("%s's brightest entry (index %d) is TRANSPARENT under this cell's own palette -- "
-                    "refusing to ink with the cutout" % (src, ink))
+    words = RP.palette_words(blob, page)
+    zeros = set(RP.transparent_indices(words))
+    ink, ink_luma, ink_how = resolve_ink(pal, words, zeros, page, cell, src, literal)
 
     lo, hi, rule = placement_for(blob, cell, placement)
     cov = cover_span(blob, page.cell)
@@ -302,7 +569,10 @@ def stamp(blob: bytes, src: str, cell: str, out_path: str, placement: str = "cov
     return {"cell": cell, "src": src, "out": out_path, "bands": BANDS[cell], "band_rows": BAND_ROWS,
             "starts": starts, "placement": rule, "span": [lo, hi],
             "cover_span": list(cov) if cov else None, "covered_rows": len(cover_rows),
-            "ink": ink, "ink_luma": ink_luma,
+            "ink": ink, "ink_luma": ink_luma, "ink_how": ink_how,
+            "ink_literal": (None if literal is None else int(literal)),
+            "ink_word": words[ink], "palette_name": page.palette_name,
+            "clut_entries": page.clut_entries,
             "ink_rgb": [pal[3 * ink], pal[3 * ink + 1], pal[3 * ink + 2]],
             "transparent_indices": sorted(zeros)[:4] + (["..."] if len(zeros) > 4 else []),
             "band_texels": band_texels, "inked": stamped + already, "changed": stamped,
@@ -331,11 +601,31 @@ def main(argv=None) -> int:
                          "the count read), or evenly over all 128 lines (the ef211 rule -- the named "
                          "follow-up if the covered placement shows nothing, because a cell's UNBOUND "
                          "lines may be what actually reaches the screen)")
+    ap.add_argument("--cast", default="b", choices=sorted(CASTS),
+                    help="which CAST's ink map to use.  `b` (default) is TODAY: every cell takes its "
+                         "own display palette's max-luminance entry, so the cast-B artifacts "
+                         "regenerate byte-identically.  `c` is THE DEPTH DISCRIMINATOR: the verdict "
+                         "cell takes the literal byte 0x%02X, whose 8 / 4 / 15 bpp readings are salmon "
+                         "/ a transparent comb / violet-blue and cannot be confused.  The order cell "
+                         "is in NO preset and stays derived." % CAST_C_INK_BYTE)
+    ap.add_argument("--ink-byte", action="append", default=[], metavar="[CELL=]BYTE",
+                    help="override the cast's ink map: `CELL=BYTE` for one cell, or a bare `BYTE` for "
+                         "every stamped cell.  BYTE is any Python int literal (0xF0, 240, 0b11110000)."
+                         "  Repeatable.  The byte is taken LITERALLY -- it is never re-picked as "
+                         "max-luminance -- and is REFUSED if the cell's derived depth is not 8, if it "
+                         "is not a lawful index in that cell's active CLUT, or if that entry is "
+                         "transparent")
+    ap.add_argument("--emit-spec-guards", action="store_true",
+                    help="also print the TOML guard block (`expect_sha256`, `expect_page_offset`, "
+                         "`expect_page_bytes`, `expect_page_wh`, `expect_bpp`, `expect_cell`) DERIVED "
+                         "from this container for each stamped row, so a spec's guards are copied "
+                         "from a derivation instead of typed from a memory of one")
     a = ap.parse_args(argv)
 
     with open(a.from_path, "rb") as fh:
         blob = fh.read()
     pin = pin_source(blob, a.from_path)
+    ink_map = resolve_ink_map(a.cast, a.ink_byte)
 
     if os.path.exists(os.path.join(a.art_channel_a, RP.ART_MANIFEST)):
         raise _fail("%s holds an %s.  The shipped export REFUSES %s (`depth-unknown` -- export_art "
@@ -351,8 +641,8 @@ def main(argv=None) -> int:
                     % (order_src, EFFECT, a.art))
     order_identity = identity_gate(blob, ORDER_CELL, order_src)
     order = stamp(blob, order_src, ORDER_CELL,
-                  os.path.join(a.art, "%s.%s.png" % (ORDER_CELL, SUFFIX[ORDER_CELL])),
-                  a.placement)
+                  os.path.join(a.art, out_name(ORDER_CELL, ink_map.get(ORDER_CELL))),
+                  a.placement, ink_map.get(ORDER_CELL))
     order["manifest"] = os.path.exists(os.path.join(a.art, RP.ART_MANIFEST))
     order["identity"] = order_identity
 
@@ -360,16 +650,24 @@ def main(argv=None) -> int:
     verdict_src = base_png(blob, VERDICT_CELL, a.art_channel_a)
     verdict_identity = identity_gate(blob, VERDICT_CELL, verdict_src)
     verdict = stamp(blob, verdict_src, VERDICT_CELL,
-                    os.path.join(a.art_channel_a, "%s.%s.png" % (VERDICT_CELL,
-                                                                 SUFFIX[VERDICT_CELL])),
-                    a.placement)
+                    os.path.join(a.art_channel_a, out_name(VERDICT_CELL,
+                                                           ink_map.get(VERDICT_CELL))),
+                    a.placement, ink_map.get(VERDICT_CELL))
     verdict["manifest"] = False
     verdict["identity"] = verdict_identity
 
     rows = [verdict, order]
-    print("odin_band_stamp -- ef%03d CAST B art written (2 cells, 1 run)" % EFFECT)
+    # The banner names the ACTUAL ink map, not just the preset -- an `--ink-byte` override that left
+    # the banner saying "CAST B" would put a figure nobody cast under a name somebody trusts.
+    print("odin_band_stamp -- ef%03d CAST %s%s art written (2 cells, 1 run)"
+          % (EFFECT, a.cast.upper(),
+             " + OVERRIDES" if ink_map != CASTS[a.cast] else ""))
     print("  container       %s" % a.from_path)
     print("  %s" % pin)
+    print("  ink map         %s" % (", ".join("%s = 0x%02X (LITERAL)" % (c, v)
+                                              for c, v in sorted(ink_map.items()))
+                                    or "empty -- every cell DERIVES its own max-luminance ink "
+                                       "(cast B, byte-for-byte)"))
     for r in rows:
         chan = "CHANNEL A (ack + expect_bpp)" if ACK_ARRAY_DEPTH[r["cell"]] else "so-UV (LICENSED)"
         print("")
@@ -379,10 +677,15 @@ def main(argv=None) -> int:
                                                                    "spec's expect_* are the guard)"))
         print("    written       %s" % r["out"])
         print("    identity      %s" % r["identity"])
-        print("    ink           index %d (this cell's own display palette max-luminance entry, "
-              "luma %d)" % (r["ink"], r["ink_luma"]))
-        print("    ink colour    rgb(%d, %d, %d) as rendered by the decode"
-              % tuple(r["ink_rgb"]))
+        print("    ink           index %d, luma %d -- %s" % (r["ink"], r["ink_luma"], r["ink_how"]))
+        print("    ink colour    rgb(%d, %d, %d) as rendered by the decode  (word %#06x under %s, "
+              "%d entries)"
+              % (tuple(r["ink_rgb"]) + (r["ink_word"], r["palette_name"], r["clut_entries"])))
+        if r["ink_literal"] is not None:
+            print("    *** OTHER DEPTHS  the SAME byte 0x%02X read at the two depths this cast excludes:"
+                  % r["ink_literal"])
+            for line in other_depth_readings(blob, r["cell"], r["ink_literal"]):
+                print("                    %s" % line)
         print("    placement     %s, lines %d..%d%s"
               % (r["placement"], r["span"][0], r["span"][1],
                  ("   (so cover %d..%d, %d covered line(s))"
@@ -423,8 +726,21 @@ def main(argv=None) -> int:
                   "proved the cell drawn.")
 
     print("")
-    print("  VERDICT KEY   clean bands = the channel's stated bpp IS the draw depth;")
-    print("                pin-striped bands = a 4bpp read; one solid wrong hue = a 15bpp read.")
+    if ink_map.get(VERDICT_CELL) is None:
+        # CAST B's key, and it is WRONG -- kept verbatim, labelled, because a refuted instrument that
+        # quietly stops printing its own claim is an instrument nobody can audit.
+        print("  *** VERDICT KEY (CAST B) -- REFUTED, DO NOT READ A DEPTH OFF IT.  It said: clean bands")
+        print("    = the stated bpp IS the draw depth; pin-striped = 4bpp; one solid wrong hue = "
+              "15bpp.")
+        print("    All three rows are void with ink 0xFF: at 4bpp that byte is nibbles (15,15) = TWO")
+        print("    IDENTICAL TEXELS so the bands are SOLID, and 87.4% of its 15bpp words are 0xFFFF =")
+        print("    WHITE at the same rows.  Count, row position and solidity are DEPTH-INVARIANT -- a")
+        print("    byte row is a texel row at every depth.  Run `--cast c` for a figure that CAN "
+              "discriminate.")
+    else:
+        print("  *** VERDICT KEY (CAST C) -- three MUTUALLY EXCLUSIVE outcomes, derived above:")
+        for line in other_depth_readings(blob, VERDICT_CELL, ink_map[VERDICT_CELL], full=True):
+            print("    %s" % line)
     print("  ORDER READ    %d bands on a surface = it sampled %s (record 0x2f9a4 slot 1);"
           % (BANDS[VERDICT_CELL], VERDICT_CELL))
     print("                %d bands = it sampled %s (slot 0).  ORDER_UNMEASURED stands either way: "
@@ -432,12 +748,23 @@ def main(argv=None) -> int:
     print("                the entry's ORDER within the array is NOT a kit verdict this cast may "
           "write.")
 
+    if a.emit_spec_guards:
+        print("")
+        print("  ---- SPEC GUARDS, DERIVED FROM THIS CONTAINER (copy into the spec; never type them) "
+              "----")
+        for line in spec_guard_lines(blob, a.from_path, rows):
+            print("  %s" % line)
+
     man = {"effect": EFFECT, "container": a.from_path, "band_rows": BAND_ROWS,
-           "bands": BANDS, "placement": a.placement, "rows": rows}
+           "bands": BANDS, "placement": a.placement, "cast": a.cast,
+           "ink_map": {c: v for c, v in sorted(ink_map.items())}, "rows": rows}
     # beside the art it describes, so a run with a non-default --art-channel-a cannot leave its
-    # derivation record pointing at the default root's older one.
+    # derivation record pointing at the default root's older one.  AND the ink signature is in the
+    # NAME, for the same reason `out_name` puts it in the figure's: a cast-C run must not overwrite
+    # the derivation record of the cast-B container that is live on the install.
+    sig = "".join(".%s-%02x" % (c.split(".")[-1], v) for c, v in sorted(ink_map.items()))
     derivation = os.path.join(os.path.dirname(os.path.abspath(a.art_channel_a)),
-                              "bandstamp.derivation.json")
+                              "bandstamp%s.derivation.json" % sig)
     with open(derivation, "w", encoding="utf-8") as fh:
         json.dump(man, fh, indent=1)
     print("")
