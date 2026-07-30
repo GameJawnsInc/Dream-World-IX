@@ -68,7 +68,9 @@ TOP_Y = 17.0                                                # stock shelf band 1
 COURSE_Y = [17.0, 12.4, 7.8]                                # crest / ring1 / ring2 tops
 RUN = 1.4                                                   # per-course outward run (~73 deg)
 R_PLAT = 14.0                                               # plateau blob base radius
-DROP_R_EXTRA = 5.2                                          # grass drop reach beyond the blob
+DROP_R_EXTRA = 3.6                                          # grass drop reach beyond the blob --
+                                                            # keeps the foot faces near the 73-deg
+                                                            # language instead of a flat skirt
 STATION = 4.4                                               # column width target (u)
 GRASS_TOPO = {0, 1, 2, 3, 42}
 ROCK = 49
@@ -479,8 +481,11 @@ def main() -> int:
     crest_c = [tuple(p) for p in crest] + [tuple(crest[0])]
 
     # ---- rings + the grass drop ---------------------------------------------------------------
+    # both rings share station phase -- the stock dual-phase stagger is a TEXTURE phase
+    # (implemented in the per-course u mapping below), NOT a ring rotation: rotating the
+    # geometry shears every body quad half a column (round-1's diagonal smear).
     ring1 = ring_at(poly, RUN, COURSE_Y[1], n_st, phase=0.0)
-    ring2 = ring_at(poly, 2 * RUN, COURSE_Y[2], n_st, phase=0.5)   # dual-phase stagger
+    ring2 = ring_at(poly, 2 * RUN, COURSE_Y[2], n_st, phase=0.0)
     ring1c, ring2c = ring1 + [ring1[0]], ring2 + [ring2[0]]
 
     drop = set()
@@ -573,19 +578,20 @@ def main() -> int:
     adjacency = []
     for ci, (role, ctris) in enumerate(courses):
         prow = plan[ci]
-        for k in range(1, n_st):
+        u_phase = 0.5 * (ci % 2)                            # THE DUAL-PHASE STAGGER, in texture:
+        for k in range(1, n_st):                            # alternate courses' column boundaries
             adjacency.append((prow[k][0] - prow[k - 1][0], prow[k][1] - prow[k - 1][1]))
         for tri in ctris:
             thc = math.atan2(float(np.mean([p[2] for p in tri])) - CENTER[1],
                              float(np.mean([p[0] for p in tri])) - CENTER[0])
-            s = (thc % (2 * math.pi)) / (2 * math.pi) * n_st
+            s = ((thc % (2 * math.pi)) / (2 * math.pi) * n_st - u_phase) % n_st
             wcol = max(0, min(n_st - 1, int(s)))
             e2 = ex[prow[wcol]]
             ylo, yhi = y_spans[ci]
             uvt = []
             for p in tri:
                 thp = math.atan2(p[2] - CENTER[1], p[0] - CENTER[0])
-                sp = (thp % (2 * math.pi)) / (2 * math.pi) * n_st
+                sp = ((thp % (2 * math.pi)) / (2 * math.pi) * n_st - u_phase) % n_st
                 if sp < wcol - 0.5:                          # wrap seam
                     sp += n_st
                 su = max(0.0, min(1.0, sp - wcol))
@@ -737,21 +743,24 @@ def main() -> int:
     LDIR = (-0.5, 0.7, -0.3)
     _l = math.sqrt(sum(q * q for q in LDIR))
     LDIR = tuple(q / _l for q in LDIR)
-    for name, bearing in (("E", 0.0), ("N", math.pi / 2), ("W", math.pi), ("S", -math.pi / 2)):
-        SC = 22
-        HW, HH = 20.0, 17.0
+
+    def render_strip(items, path, center, bearing, HW=20.0, HH=17.0, SC=22):
+        """Vertex-lit elevation strip: per-pixel barycentric UV + Gouraud lambda from the
+        supplied per-vertex normals -- the engine's own shading model, so stock and synth
+        read through the SAME eye."""
         RW, RH = int(2 * HW * SC), int(HH * SC)
         img = Image.new("RGB", (RW, RH), (152, 178, 208))
         zbuf = np.full((RW, RH), -1e9)
         tvec = (-math.sin(bearing), math.cos(bearing))
-        for tri, uvt, _, _ in wall_out + [(t3, u2, None, None) for t3, u2 in top_out]:
+        for tri, uvt, nrm3 in items:
             pts = []
             for p, u2 in zip(tri, uvt):
-                s2 = (p[0] - CENTER[0]) * tvec[0] + (p[2] - CENTER[1]) * tvec[1]
-                d2 = (p[0] - CENTER[0]) * math.cos(bearing) + (p[2] - CENTER[1]) * math.sin(bearing)
+                s2 = (p[0] - center[0]) * tvec[0] + (p[2] - center[1]) * tvec[1]
+                d2 = (p[0] - center[0]) * math.cos(bearing) + (p[2] - center[1]) * math.sin(bearing)
                 pts.append((s2, p[1], d2, u2))
             if all(p[2] < 0 for p in pts):
                 continue
+            lams = [max(0.25, float(np.dot(np.array(n2), LDIR)) * 0.6 + 0.55) for n2 in nrm3]
             xs = [int((p[0] + HW) * SC) for p in pts]
             ys = [int((HH - p[1]) * SC) for p in pts]
             if max(xs) < 0 or min(xs) >= RW or max(ys) < 0 or min(ys) >= RH:
@@ -760,10 +769,6 @@ def main() -> int:
             det = float(np.cross(b2 - a2, c2 - a2))
             if abs(det) < 1e-9:
                 continue
-            n3 = np.cross(np.array(tri[1]) - np.array(tri[0]),
-                          np.array(tri[2]) - np.array(tri[0]))
-            L2 = np.linalg.norm(n3) or 1.0
-            lam = max(0.25, float(np.dot(n3 / L2, LDIR)) * 0.6 + 0.55)
             for px_ in range(max(0, min(xs)), min(RW - 1, max(xs)) + 1):
                 for py_ in range(max(0, min(ys)), min(RH - 1, max(ys)) + 1):
                     sx = px_ / SC - HW
@@ -779,10 +784,40 @@ def main() -> int:
                     zbuf[px_, py_] = dep
                     uu = w1 * pts[0][3][0] + w2 * pts[1][3][0] + w3 * pts[2][3][0]
                     vv = w1 * pts[0][3][1] + w2 * pts[1][3][1] + w3 * pts[2][3][1]
+                    lam = w1 * lams[0] + w2 * lams[1] + w3 * lams[2]
                     col2 = at_b(uu, vv)
                     img.putpixel((px_, py_), tuple(int(ch * lam) for ch in col2))
-        img.save(OUTD / f"face_{name}.png")
-    print(f"renders -> {OUTD}")
+        img.save(path)
+
+    synth_items = [(tri, uvt, [snrm(p) for p in tri]) for tri, uvt, _, _ in wall_out]
+    synth_items += [(t3, uvt, [snrm(p) for p in t3]) for t3, uvt in top_out]
+    for name, bearing in (("E", 0.0), ("N", math.pi / 2), ("W", math.pi), ("S", -math.pi / 2)):
+        render_strip(synth_items, OUTD / f"face_{name}.png", CENTER, bearing)
+
+    # THE CALIBRATION CONTROL: a real stock wall through the SAME eye. If stock reads
+    # faceted here too, the faceting is the instrument; only differences are findings.
+    sbx, sby = top_blocks[0]
+    sbm = X.read_block(sbx, sby, disc=1, part="terrain")
+    spos = sbm.chan_arrays[X.CH_POS]
+    suv = sbm.chan_arrays[X.CH_UV]
+    snr = sbm.chan_arrays[X.CH_NRM]
+    stan = sbm.chan_arrays[X.CH_TAN]
+    sox, soz = BLOCK * sbx, -BLOCK * sby
+    stock_items = []
+    rock_pts = []
+    for t in sbm.tris:
+        topo = X.decode_id(int(round(stan[t[0]][0])))["topograph"]
+        if topo not in (49, 58, 31, 7, 62):
+            continue
+        w3 = [(spos[i][0] + sox, spos[i][1], spos[i][2] + soz) for i in t]
+        stock_items.append((w3, [suv[i] for i in t], [snr[i] for i in t]))
+        rock_pts += [(p[0], p[2]) for p in w3]
+    scx = float(np.mean([p[0] for p in rock_pts]))
+    scz = float(np.mean([p[1] for p in rock_pts]))
+    for name, bearing in (("N", math.pi / 2), ("E", 0.0)):
+        render_strip(stock_items, OUTD / f"stock_control_{name}.png", (scx, scz), bearing,
+                     HW=26.0, HH=34.0, SC=13)
+    print(f"renders -> {OUTD} (incl. the stock control strips from block ({sbx},{sby}))")
 
     if fails:
         print("\nT1: GATES RED -- not deployable")
