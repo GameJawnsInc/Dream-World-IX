@@ -27,8 +27,9 @@ so the junction landmass, the R4 bench, Sandreach etc. are all covered):
     shores by design)
   * open sea                                                            -> unchanged
 
-Shared verts across class boundaries resolve by priority 53 > 56 > 54 (err landable at the
-beach/keel seam -- the keel is many tris thick; err sealed at the keel/cliff seam). Topo bits
+Shared verts across class boundaries resolve by priority 56 > 53 > 55 (KEEL first -- round 1's
+beach-claimed verts left 23 first-vert holes in the seal; BEACH beats BELT at the seam so the
+getoff gate under the hull survives -- see PRIORITY below). Topo bits
 only (IDALL mask 0xFC); geometry/UV/material/event/area/flags byte-preserved. Disc parity
 asserted before, restored after. Backups -> backups/r3-lamplight.20260726-r3lamplight/
 pre-coastnav-sea/. Dry run by default; --deploy writes. Probe: probe_r3/probe_coast_nav.py.
@@ -86,7 +87,12 @@ KEEL, BEACH, BELT = 56, 53, 55
 # vert on a 53 ring tri would refuse the landing there -- landing survival outranks the last
 # half-tri of standoff.
 PRIORITY = {KEEL: 0, BEACH: 1, BELT: 2}
-BACKUP = ROOT / "backups" / "r3-lamplight.20260726-r3lamplight" / "pre-coastnav-sea"
+# ⚠ ABSOLUTE, main repo: ROOT resolves per-WORKTREE, and the 2026-07-26 --deploy run parked the
+# only pre-stamp backup in an ephemeral worktree (r3-lamplight-island-overworld-44317f) -- from
+# every other tree the pointer dangled and the stamp read as unrevertable. Consolidated to the
+# main repo 2026-07-30 alongside pre-fringe-sea4 and a live-coastnav-sea.20260730 snapshot of the
+# stamped (playtest-proven) state.
+BACKUP = Path(r"C:\gd\Dream-World-IX\backups\r3-lamplight.20260726-r3lamplight\pre-coastnav-sea")
 
 
 def query_top(wx, wz):

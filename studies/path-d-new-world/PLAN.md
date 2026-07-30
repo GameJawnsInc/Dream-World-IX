@@ -1,5 +1,132 @@
 # Path D — Minting a Genuinely Third FF9 Overworld: Execution Plan
 
+> ## ⚠ EXECUTION UPDATE 2026-07-29 — read this before trusting §3's rung text
+>
+> **Rungs 0–2's engine work is BUILT AND DEPLOYED** (`s70`/`s71`/`s72`; pre-build DLL backup
+> `20260729-153010`), and Rung 2's data half (a verbatim WORLD11 clone shipped as `EVT_WORLD_WORLD13`
+> across 7 locales + a `WorldScene 9013 WORLD13` registration) is deployed too. Playtest script:
+> [`RUNGS-0-3-PLAYTEST.md`](RUNGS-0-3-PLAYTEST.md).
+>
+> ### ★ IN-GAME RESULTS 2026-07-29 — rungs 0, 1, 2 ALL PASS
+>
+> - **Rung 0 ★ PASS.** Warp to unregistered 31000 produced exactly the predicted signature:
+>   `KeyNotFoundException` at `Dictionary.get_Item` → `ff9InitStateWorldMap` → `WMScriptDirector.HonoAwake`.
+>   The menu accepted the id (the old guard would have refused it), the scene fully tore down and rebuilt,
+>   and the failure landed at the dispatcher lookup — informative, not silent.
+> - **Rung 2 ★ PASS (owner-confirmed).** `WorldScene 9013 WORLD13` registered at mod-load
+>   (`[PathD s72] … (mes 68)`), warping to 9013 loaded a **normal, fully functional disc-1 overworld**
+>   running the cloned dispatcher — owner also confirmed the chocobo debug commands worked there. A
+>   genuinely new `wldMapNo` outside 9000-9012 both registers AND dispatches.
+> - **Rung 1 ★ PASS — THE PIVOTAL UNKNOWN IS ANSWERED: a WorldDisc CAN be minted in C# at runtime.**
+>   With the spike armed, `[PathD s71] WorldDisc replaced by a synthetic WorldDisc_SPIKE (480 IsSea blocks)`
+>   fired and execution reached `HonoAwake:57` — i.e. **past** `Initialize()` (`:40`) and `OnInitialize()`
+>   (`:44`). Zero `WMWorld`/`WorldDisc`/`WMBlock` frames in any trace; zero `|E|` lines in `Memoria.log`.
+>   The only exceptions were the expected 31000 miss and 32 instances of one pre-existing, field-side
+>   `FieldMapActorController.MovePC` NRE. **§1's "single biggest open risk" and §6 unknown 1 are CLOSED
+>   favourably; the §4 fallback (a real third disc + a baked Unity AssetBundle) is NOT needed.**
+>
+> - **Rung 3 ★★ PASS — A GENUINELY THIRD OVERWORLD EXISTS AND RENDERS.** Spike armed + warp to 9013:
+>   `[PathD s71] WorldDisc replaced by a synthetic WorldDisc_SPIKE (480 IsSea blocks)`, then the window
+>   titled **`FINAL FANTASY IX - World Map: 9013`** showing a correctly-rendered ocean — sea shader, fog,
+>   horizon curvature — with the player standing in it (agent-verified via `tools/game_snap.ps1`, not
+>   inferred). Zero `|E|`, zero `WMWorld`/`WMBlock` frames; the only exceptions were the same pre-existing
+>   field-side `FieldMapActorController.MovePC` NREs. **Rendering IS the streamer proof**: blocks visible to
+>   the horizon means `LoadBlock` ran the grid, `ApplyForm` iterated `Form2Transforms` without NRE, and
+>   `DetectUnseenBlocks` resolved a sane window — so all three pre-emptive `s71` fixes are now exercised,
+>   not merely written.
+> - **⚠ CORRECTION to this document's own Rung 1/3 success criterion:** "`Finished Loading Blocks!` in the
+>   log" is **unusable** — plain `Debug.Log` reaches NEITHER `Memoria.log` NOR `output_log.txt` on this
+>   install (calibrated: `WMScriptDirector.HonoAwake`'s own `Debug.Log`, which demonstrably ran, is absent
+>   from both). `output_log.txt` captures only warnings/errors/exceptions. Judge a world load by
+>   `game_snap.ps1` + the absence of exceptions, never by an expected `Debug.Log` line.
+> - **Rung 4 ★ PASS (owner-confirmed) — and `blank_world_bytes()` was never written.** In 9013 the player
+>   renders, turns, and the **Blue Narciss traverses the synthetic ocean** when enabled from the debug menu.
+>   *Not* being able to walk is CORRECT, not a limitation: every cell is `IsSea` and FF9 has never let you
+>   walk on ocean on foot. The boat moving is the stronger result — it proves the sea walkmesh and the
+>   ground query are valid on runtime-minted geometry, and that the vehicle system works there. **Rungs 0-4
+>   are therefore ALL closed.**
+> - **★ Rung 4 was PRE-EMPTED by the verbatim route, and `blank_world_bytes()` is not needed.** §3 Rung 4 scopes
+>   the player as its own novel sub-step gated on a from-scratch `blank_world_bytes()` ("zero prior art").
+>   But a VERBATIM donor clone already carries `DefinePlayerCharacter` — the 9013 world has a rendered
+>   player with no byte-splice written. The verbatim-first route makes §5's `blank_world_bytes()` an
+>   optimization, not a prerequisite. Remaining Rung 4 question is only whether control/movement behaves.
+>
+> - **s73 + s74 ★ IN-GAME CONFIRMED (owner, same day).** With the sentinel namespace live: **9011 still
+>   shows the custom landmasses** (no regression on real disc-1 play — the risk that actually mattered,
+>   since ~26 worktrees share this DLL) and **9013 is empty apart from the airships and the weather
+>   change**. Both halves of the two-class model in
+>   [`INHERITED-STOCK-BEHAVIOR.md`](INHERITED-STOCK-BEHAVIOR.md) predicted exactly this: everything Class A
+>   (the 56 disc-1 override cells, the quicksand, the Daguerreo bridge) is gone, and everything left is
+>   Class B — position-keyed or dispatcher-spawned. Nothing unexplained.
+>
+> ### Owner design decisions 2026-07-29 (these set Rung 5's direction)
+>
+> 1. **Inheritance is a MODE, not a fixed choice.** Path D must support a blank slate *or* a clone of a
+>    stock world map — the owner's reasoning: *"you could reshape a single (or custom group of) world map
+>    based on the stock game without actually affecting the stock game itself."* This upgrades Path D from
+>    "a new world" to **a non-destructive sandbox over stock geography**, and it is nearly free: the real
+>    baked `WorldDisc` is still in the scene at substitution time (we only reassign the reference), so
+>    `Build()` can copy each stock cell's flags and let non-sea cells load their real `WorldDisc1` block
+>    prefabs through `LoadBlock`'s existing else-branch. Stock world, our override namespace, no data
+>    files. → `s75`.
+> 2. **The new continent is CLEAN OF MIST.**
+> 3. **The world is shaped around the DALI area.**
+>
+> ⚠ **What Rung 1 alone did NOT prove** (superseded by Rung 3 above, kept for the record). The block
+> STREAMER never ran in the Rung 1 test — no `Finished Loading Blocks!`, and
+> `Memoria.log` stops at the spike line. Because `HonoAwake` threw, `AddBehavior` never registered
+> `WMScriptDirector`, so no world tick fired. (The recon's calibration predicted `LoadBlocks` would run
+> regardless of a dispatcher; that assumed the director survives, and it does not.) So `LoadBlock` ×480,
+> `DetectUnseenBlocks` and `ApplyForm` are still untested — and therefore so are the three pre-emptive
+> fixes in `s71` (`Form2Transforms`, `CurrentX`/`CurrentY`, the mid-grid sentinel parking). **Rung 3 is
+> where the streaming half is first exercised; it is load-bearing, not a formality.**
+>
+> A 6-sweep source verification was run against the live patched clone before any code was written. Most
+> of this document held up. These specific claims did **not** — they are corrected here rather than in
+> place, so the original reasoning stays readable:
+>
+> 1. **§3 Rung 1's "no override files exist yet, so `HasLandOverride` always returns false"** — **REFUTED
+>    by the live install.** 56 disc-1 `Terrain.ff9mesh` overrides + `Donor.txt` sidecars already ship in
+>    `FF9CustomMap-world` (the Southern Ring's), so 56 of the 480 cells take the s34 reclaim branch. The
+>    spike is therefore not the "no per-block prefab lookups" payload this plan prices. Left unsuppressed
+>    on purpose: that path is already in-game proven, and an ocean containing only those cells is an
+>    unmistakable success picture.
+> 2. **§3 Rung 0's "read what happens next in `Memoria.log`"** — **wrong file.** There is no
+>    Unity→Memoria log bridge, so plain `Debug.Log` and every Unity exception land only in
+>    `x64\FF9_Data\output_log.txt`. New diagnostics must go through `Memoria.Prime.Log` to reach
+>    `Memoria.log`. As written, the rung's verify step was unreadable.
+> 3. **§3 Rung 0's "set the widened field to any unused id in the 4000-9899 or 30000-32767 bands"** —
+>    **produces a false negative.** Any id registered by a stacked `DictionaryPatch` already has an
+>    EventDB row, so it yields an `ArgumentNullException` (a field `.eb` loaded down the world path)
+>    rather than the clean unregistered-id `KeyNotFoundException`. Use an id registered nowhere (31000).
+> 4. **`ArmWorldReload` has TWO undocumented preconditions** — `UIManager.State == WorldHUD` **and**
+>    `sys.mode == 3`. Every rung's spike can only be fired while already standing on an overworld.
+> 5. **§6 unknown 6 is now closed, and found a throw site this plan never named.** Besides
+>    `EventDB[MapNo]`, `ff9ShutdownStateFieldMap` indexes `EventEngineUtils.eventIDToMESID[wldMapNo]`
+>    unguarded on the field→world exit — it fires while still in the old field, before the world scene
+>    loads. `s72` registers it (default mesID 68, the shared world block). Everything else the plan
+>    worried about (minimap, continent title, vehicles, encounter zones, netsync, save schema) either
+>    keys off a different variable or fails safe.
+> 6. **§3 Rung 1's spike sketch would have crashed for three reasons unrelated to WorldDisc** —
+>    `Form2Transforms` is never initialised by `LoadBlock` though `ApplyForm` iterates it;
+>    `CurrentX`/`CurrentY` are read by `GetAbsoluteBlock`/`DetectUnseenBlocks` and stock seeds them; and
+>    with no player the sentinel actor sits at the world origin, sending `DetectUnseenBlocks` into
+>    `Blocks[0,-1]`. All three are fixed in `s71`.
+> 7. **§3 Rung 6 and §5 are more pessimistic than the code.** `cmdasm.assemble_block` already builds
+>    switches from zero (round-trip verified), so no `eb/switchbuild.py` is needed; `entrance_func_body_
+>    direct` emits `Field(dest)` inline, so the exit may need no switch at all; the kit already writes
+>    world `.eb` containers into mod folders in three places; and novel `.eb` names with no `p0data`
+>    counterpart (`EVT_LAMPLIGHT.eb.bytes`) already ship and resolve. §5's `blank_world_bytes` "zero prior
+>    art for the WORLD container shape" is also overstated — the container shape is identical to a field's;
+>    what is genuinely novel is the *content* of a minimal world `Main_Init`.
+> 8. **Also corrected:** the plan mis-cites `entrance.py:486` as `author_entrance`'s replication loop (it
+>    is in `extend_nameplate_band`; the real loop is `:895`). The argument that loop supports is still right.
+>
+> One deliberate deviation from §3 as written: `s71` is gated behind a **session-only debug-menu toggle**,
+> not the `.ini` flag the plan specifies. An `.ini` flag is read at launch, so Rungs 0 and 1 would cost two
+> relaunches; a toggle costs one and is off on every launch, which is strictly safer on an install shared
+> by ~26 concurrent worktrees.
+
 *Final revision. Synthesizes six parallel first-principles research passes (r1–r6), a prior re-verification
 pass, three independent adversarial critiques (feasibility, sequencing, scope-honesty), and a further round
 of direct source re-reading performed while incorporating those critiques. Every claim below is tagged:

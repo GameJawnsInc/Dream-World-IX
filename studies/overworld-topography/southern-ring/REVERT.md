@@ -2894,6 +2894,9 @@ bits, old∈{53..57} new∈{53,54,56}, disc parity holds; landings — all seven
 Restore the 64×2 sea files from
 `backups/r3-lamplight.20260726-r3lamplight/pre-coastnav-sea/` (returns the sail-through state
 with R5c's fringe); the deeper `pre-fringe-sea4/` returns the pre-R5c unlandable coasts.
+⚠ Both dirs live in the **MAIN repo's** `backups/` (consolidated 2026-07-30 — the `--deploy` run
+had parked them in an ephemeral worktree, where they read as nonexistent from every other tree).
+`live-coastnav-sea.20260730/` beside them snapshots the stamped, playtest-proven state.
 
 ## 30.4 Playtest ask (owner) — no relaunch, re-enter the world
 

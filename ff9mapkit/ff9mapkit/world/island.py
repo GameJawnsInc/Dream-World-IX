@@ -776,12 +776,12 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
                     ("Sea1", _part_blockmesh("Sea1", blk, beach["sea1"], bm.disc)),
                     ("Sea2", _part_blockmesh("Sea2", blk, beach["wash"], bm.disc)),
                     ("Sea3", hid("Sea3")),
-                    ("Sea4", _cut_plane(sea_plane, bx, by, beach["sea4_cut"])),
+                    ("Sea4", _cut_plane(sea_plane, bx, by, beach["sea4_cut"], bm)),
                     ("Sea5", _part_blockmesh("Sea5", blk, beach["sea5"], bm.disc)),
                     ("Beach1", _part_blockmesh("Beach1", blk, beach["foam"], bm.disc))]
         return [("Object", hid("Object")), ("Terrain", bm),
                 ("Sea1", hid("Sea1")), ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")),
-                ("Sea4", sea_plane), ("Sea5", hid("Sea5"))]
+                ("Sea4", _cut_plane(sea_plane, bx, by, frozenset(), bm)), ("Sea5", hid("Sea5"))]
 
     # THE TEXTURE + SEA GATES (read-only; WARN unless enforce_texgates). The sea half needs the
     # real part list, so it runs only when a sea_plane was supplied -- the texture half always does.
@@ -845,16 +845,63 @@ def _part_blockmesh(part, blk, tris, disc):
                      submeshes=[])
 
 
-def _cut_plane(plane, bx, by, cut_cells):
-    """The block's full-cell Sea4 plane MINUS the beach-claimed lattice cells (the
-    ladder owns them: undropped deep tiles under new bands are off-language)."""
+def _xz_tri_cover(bm):
+    """The block's Terrain triangles projected to LOCAL XZ, as ``(minx, maxx, minz, maxz, a, b, c)``
+    rows -- the footprint test used by THE SEA4-UNDER-LAND LAW. ``bm`` and the Sea4 plane share the
+    block-local frame (both span x 0..BLOCK, z -BLOCK..0), so no world transform is needed."""
+    from .extract import CH_POS
+    P = bm.chan_arrays[CH_POS]
+    rows = []
+    for tri in bm.tris:
+        a, b, c = (P[tri[0]][0], P[tri[0]][2]), (P[tri[1]][0], P[tri[1]][2]), (P[tri[2]][0], P[tri[2]][2])
+        rows.append((min(a[0], b[0], c[0]), max(a[0], b[0], c[0]),
+                     min(a[1], b[1], c[1]), max(a[1], b[1], c[1]), a, b, c))
+    return rows
+
+
+def _xz_inside(cover, x, z) -> bool:
+    """Is ``(x, z)`` inside any triangle of ``cover``? Barycentric, sign-agnostic (the land mesh's
+    winding is not guaranteed), with an AABB reject first."""
+    for minx, maxx, minz, maxz, a, b, c in cover:
+        if x < minx or x > maxx or z < minz or z > maxz:
+            continue
+        d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+        if abs(d) < 1e-12:
+            continue
+        w0 = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (z - c[1])) / d
+        w1 = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (z - c[1])) / d
+        if w0 >= -1e-9 and w1 >= -1e-9 and (1.0 - w0 - w1) >= -1e-9:
+            return True
+    return False
+
+
+def _cut_plane(plane, bx, by, cut_cells, under=None):
+    """The block's full-cell Sea4 plane MINUS the beach-claimed lattice cells (the ladder owns them:
+    undropped deep tiles under new bands are off-language) and MINUS everything under ``under``'s
+    footprint.
+
+    **THE SEA4-UNDER-LAND LAW.** A deep-sea plane must never span beneath land. The ground query
+    (:func:`ff9mapkit.world.placement.place`) rejects any triangle hit ABOVE the ray origin, and a
+    sea-level actor casts from only ``y + 2.34375`` -- so on land standing at y=3.2 every Terrain
+    tri is rejected and the ray falls through to whatever sits underneath. Leave the plane whole and
+    it reads deep sea (topo 57), which is why a boat sailed straight through the Rung-5a island.
+    Cut it and the sea-level ray MISSES instead, and a water-area miss IS the engine's invisible
+    vehicle wall (placement.py rule 2, airship-proven). This is why the fix is NOT a beach: cliff
+    coasts and beach coasts alike simply must not have ocean underneath them."""
     from .extract import CH_POS, CH_NRM, CH_UV, CH_TAN
     ca = plane.chan_arrays
+    cover = _xz_tri_cover(under) if under is not None else None
     pos, nrm, uv, tan, flat, tidx = [], [], [], [], [], []
     for tri in plane.tris:
-        cxw = sum(ca[CH_POS][j][0] for j in tri) / 3.0 + BLOCK * bx
-        czw = sum(ca[CH_POS][j][2] for j in tri) / 3.0 - BLOCK * by
+        cxl = sum(ca[CH_POS][j][0] for j in tri) / 3.0
+        czl = sum(ca[CH_POS][j][2] for j in tri) / 3.0
+        cxw, czw = cxl + BLOCK * bx, czl - BLOCK * by
         if (math.floor(cxw / 4.0), math.floor(czw / 4.0)) in cut_cells:
+            continue
+        # CONSERVATIVE cut: drop the tri only when ALL THREE corners are under land. A centroid test
+        # removes tris that overhang the shoreline and tears a query/render hole just outside the
+        # land -- caught by the placement census (MISS) the first time this was written that way.
+        if cover is not None and all(_xz_inside(cover, ca[CH_POS][j][0], ca[CH_POS][j][2]) for j in tri):
             continue
         base = len(pos)
         for j in tri:
@@ -895,7 +942,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
              land_height: float = 3.2, rim_run: float = 1.0, n_patches: int = 2, flat: bool = False,
              ground: str = "grass", relief_amp: float = 0.0, relief_seed=None,
              beach=None, donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1",
-             game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
+             game=None, dry_run: bool = False, skip_mirror: bool = False,
+             target_disc: int | None = None, all_sea_target: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
@@ -918,8 +966,18 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     # footprint block must be TRUE open ocean. No escape hatch -- on a sea-only real block the
     # Terrain override has no transform to bind to (the fragment silently never renders), and
     # on a real land block the island would replace real continent geometry.
-    occupied = {blk: occ for blk in sorted(built["blocks"])
-                if (occ := _real_block_parts(blk, disc=disc, lod=lod, game=game))}
+    #
+    # ``all_sea_target`` opts out, and ONLY a genuinely all-sea target grid may set it. The law is a
+    # PROXY: it probes the REAL disc's per-block assets to infer "is the target grid's WMBlock IsSea?".
+    # On a Path D world in BLANK mode that proxy is broken in both directions -- s75 forces IsSea on all
+    # 480 cells, so every coord is lawful, yet the probe would refuse most of the grid purely because the
+    # unrelated disc-1 map has land at those coords; and "a land block would be shredded" is impossible
+    # by construction, since the bytes land in a namespace s74 keeps disjoint from the real tree.
+    # DELIBERATELY NOT keyed on ``target_disc != disc``: in s75 CLONE mode the synthetic grid's IsSea
+    # flags ARE the stock flags this probe measures, so the law stays exactly correct there and must keep
+    # running. Folding the skip into the retarget would fail-OPEN on precisely the mode that needs it.
+    occupied = {} if all_sea_target else {blk: occ for blk in sorted(built["blocks"])
+                                          if (occ := _real_block_parts(blk, disc=disc, lod=lod, game=game))}
     if occupied:
         raise ValueError(
             f"landmass footprint touches REAL world block(s) {occupied} -- the island cannot "
@@ -932,6 +990,11 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         raise ValueError(f"landmass NOT CLEAN -- refusing to deploy: { {k: v for k, v in report.items() if k != 'placement'} }")
     summary = {"op": "landmass", "center": list(built["center"]), "seed": built["seed"],
                "radius": base_radius, "blocks": [], "report": report}
+    # THE READ/WRITE DISC SPLIT. `disc` stays the READ disc -- which stock tree the meshes, sea plane, stamps
+    # and donor prefabs borrow real bytes from. It MUST remain 1 or 4: extract._worldmap_env has no other
+    # `worldmap/disc{N}/` bundle tree to scan and raises for anything else. `target` is purely where the
+    # produced overrides are DEPLOYED. The two differ only for a synthetic world (engine patch s74).
+    target = disc if target_disc is None else int(target_disc)
     bch = built.get("beach")
     written = []
     for blk, bm in sorted(built["blocks"].items()):
@@ -939,24 +1002,23 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         entry = {"block": [bx, by], "verts": bm.vcount, "tris": len(bm.tris)}
         is_bch = bch is not None and tuple(bch["block"]) == blk
         if not dry_run:
-            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain"))
-            if is_bch:
-                sea = _cut_plane(plane, bx, by, bch["sea4_cut"])
-            else:
-                sea = dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4")
-            written.append(M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, part="Sea4"))
+            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Terrain"))
+            # THE SEA4-UNDER-LAND LAW -- the land footprint is cut from the plane on EVERY land block,
+            # beach or cliff (see _cut_plane). Leaving it whole makes the island boat-permeable.
+            sea = _cut_plane(plane, bx, by, bch["sea4_cut"] if is_bch else frozenset(), bm)
+            written.append(M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Sea4"))
             if is_bch:
                 # the beach block: real ladder parts + the beach-bearing divert donor
                 for part, key in (("Sea1", "sea1"), ("Sea2", "wash"),
                                   ("Sea5", "sea5"), ("Beach1", "foam")):
                     written.append(M.deploy_override(_part_blockmesh(part, blk, bch[key], disc),
-                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
+                                                     mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
                 for part in ("Object", "Sea3"):
                     written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
                                                                          disc=disc, x=bx, y=by),
-                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
+                                                     mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
                 written.append(M.deploy_donor_sidecar(bch["pins_from"][0], bch["pins_from"][1],
-                                                      mod_folder=mod_folder, disc=disc, x=bx, y=by,
+                                                      mod_folder=mod_folder, disc=target, x=bx, y=by,
                                                       lod=lod, game=game))
                 entry["beach"] = {"tris": {k: len(bch[k]) for k in
                                            ("foam", "wash", "sea1", "sea5")},
@@ -966,8 +1028,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
                 for part in HIDDEN_PARTS:
                     written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
                                                                          disc=disc, x=bx, y=by),
-                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
-                written.append(M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=disc,
+                                                     mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
+                written.append(M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=target,
                                                       x=bx, y=by, lod=lod, game=game))
         summary["blocks"].append(entry)
     if not dry_run and summary["blocks"]:

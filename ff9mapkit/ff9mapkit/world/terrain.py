@@ -31,12 +31,21 @@ def _block_index_range(minx: float, maxx: float, minz: float, maxz: float):
 
 def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float | None = None,
             flatten: bool = False, height: float | None = None, disc: int = 1, falloff: str = "smooth",
-            game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
+            game=None, dry_run: bool = False, skip_mirror: bool = False,
+            target_disc: int | None = None) -> dict:
     """Reshape overworld terrain within ``radius`` world units, across every block it touches. Exactly one SHAPE:
     ``at=(x, z)`` (a radial hill/crater/plateau) or ``seg=((x0,z0),(x1,z1))`` (a ridge/valley). Exactly one OP:
     ``amount`` (signed: ``+`` raise, ``-`` lower) or ``flatten=True`` (level toward ``height``, default the local mean).
     Returns a summary; deploys a Terrain override per touched land block (unless ``dry_run``), then auto-mirrors
-    the written overrides to Disc4 (THE DISC-4 GAP; pass ``skip_mirror=True`` to opt out). RELAUNCH to apply."""
+    the written overrides to Disc4 (THE DISC-4 GAP; pass ``skip_mirror=True`` to opt out). RELAUNCH to apply.
+
+    THE READ/WRITE DISC SPLIT. ``disc`` is the READ disc and must stay 1 or 4 -- ``extract`` has no other
+    stock bundle tree. ``target_disc`` is purely where the result is DEPLOYED (a synthetic world's override
+    namespace; engine patch s74). **When they differ the READ also moves**, unlike every other split verb:
+    a synthetic world has no pristine tree, so its land exists ONLY as an already-deployed override and
+    ``read_block`` would see open sea and skip every block. Reads then come from the target's deployed
+    override and a block with none is skipped as sea. On a real disc the pristine read is unchanged --
+    deliberate, so a re-run re-shapes from stock instead of COMPOUNDING on its own last pass."""
     from . import extract as X, mesh as M
     if (at is None) == (seg is None):
         raise ValueError("give exactly one shape: at=(x,z) OR seg=((x0,z0),(x1,z1))")
@@ -52,16 +61,26 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     bx0, bx1, by0, by1 = _block_index_range(minx - radius, maxx + radius, minz - radius, maxz + radius)
     op = "flatten" if flatten else ("raise" if amount >= 0 else "lower") if seg is None else \
         ("ridge+" if amount >= 0 else "ridge-")
-    summary = {"op": op, "radius": radius, "dry_run": dry_run, "blocks": [], "skipped_sea": []}
+    rtarget = disc if target_disc is None else int(target_disc)
+    summary = {"op": op, "radius": radius, "dry_run": dry_run, "disc": disc, "target_disc": rtarget,
+               "blocks": [], "skipped_sea": []}
     written = []
     for bx in range(bx0, bx1 + 1):
         for by in range(by0, by1 + 1):
             if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
                 continue
-            try:
-                ter = X.read_block(bx, by, disc=disc, part="terrain", game=game)
-            except (ValueError, FileNotFoundError):
-                summary["skipped_sea"].append([bx, by]); continue         # sea / no terrain mesh
+            if rtarget != disc:
+                # a synthetic namespace has no pristine tree -- its land IS the deployed override
+                from .entrance import read_block_stacked
+                ter = read_block_stacked(mod_folder, bx, by, disc=rtarget, part="terrain",
+                                         game=game, missing_ok=True)
+                if ter is None:
+                    summary["skipped_sea"].append([bx, by]); continue
+            else:
+                try:
+                    ter = X.read_block(bx, by, disc=disc, part="terrain", game=game)
+                except (ValueError, FileNotFoundError):
+                    summary["skipped_sea"].append([bx, by]); continue     # sea / no terrain mesh
             wo = X.block_world_origin(bx, by)
             if flatten:
                 moved = M.flatten_region(ter, radius=radius, center=at, height=height, falloff=falloff, world_origin=wo)
@@ -73,7 +92,8 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
             if not moved:
                 continue
             if not dry_run:
-                written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain"))
+                written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain",
+                                                 disc=rtarget))
             summary["blocks"].append({"block": [bx, by], "moved": moved})
     if not dry_run and summary["blocks"]:
         from . import discmirror as DM
@@ -85,7 +105,7 @@ _DIRS = [(-1, 0), (1, 0), (0, 1), (0, -1)]
 
 
 def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", game=None,
-          dry_run: bool = False, skip_mirror: bool = False) -> dict:
+          dry_run: bool = False, skip_mirror: bool = False, target_disc: int | None = None) -> dict:
     """FAITHFUL coast: reclaim each ``(x, y)`` in ``cells`` as a VERBATIM copy of the real coastal ``donor``=(dx, dy)
     block -- copy the donor's Terrain mesh (real land shape + shore rim + real UVs + walkable topographs) to the cell's
     Terrain override, AND write a ``Donor.txt`` sidecar naming the donor so the engine's per-cell divert loads that
@@ -105,14 +125,19 @@ def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", gam
         raise ValueError(f"donor ({dx},{dy}) out of the {GRID_X}x{GRID_Y} overworld grid")
     donor_bm = X.read_block(dx, dy, disc=disc, lod=lod, part="terrain", game=game)   # real coast terrain (raises if not land)
     summary = {"op": "coast", "donor": [dx, dy], "disc": disc, "dry_run": dry_run, "cells": []}
+    _ctarget = disc if target_disc is None else int(target_disc)
     written = []
     for (bx, by) in cells:
         # verts are block-LOCAL (localPosition 0), so relocation is just re-tagging x/y/name; deploy_override +
         # RegisterBlockComponent place it by InitialX/InitialY. The donor's beach/sea come from the prefab (via the sidecar).
         bm = dataclasses.replace(donor_bm, x=bx, y=by, name=f"Block[{bx}][{by}] Terrain")
         if not dry_run:
-            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain"))
-            written.append(M.deploy_donor_sidecar(dx, dy, mod_folder=mod_folder, disc=disc, x=bx, y=by,
+            # [read/write disc split] the mesh + sidecar FILES land in `_ctarget`; the donor COORDS the sidecar
+            # names stay a REAL block, because the engine resolves those against the real prefab tree (s74's
+            # TryReadDonorPath takes the two discs separately for exactly this reason).
+            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod,
+                                             disc=_ctarget, part="Terrain"))
+            written.append(M.deploy_donor_sidecar(dx, dy, mod_folder=mod_folder, disc=_ctarget, x=bx, y=by,
                                                   lod=lod, game=game))
         summary["cells"].append({"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount})
     if not dry_run and summary["cells"]:
@@ -213,7 +238,8 @@ def _apply_cliff_rock_uvs(bm, *, density: float = 0.0125, outline=None):
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
             height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
             shore_topo: int | None = None, shore_frac: float | None = None, rim_run: float | None = None,
-            game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
+            game=None, dry_run: bool = False, skip_mirror: bool = False,
+            target_disc: int | None = None, all_sea_target: bool = False) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -263,13 +289,20 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         shore_frac = 0.6 if profile == "cliff" else 0.3
     if rim_run is None:
         rim_run = 1.0                                      # cliff wall run (u); atan(height/run): 3.2/1.0 -> ~73deg (real med 72)
+    # THE READ/WRITE DISC SPLIT: `disc` is the READ disc (palette + real-land probe); `target` is where the
+    # overrides are DEPLOYED. Equal unless a synthetic world (s74) is the target.
+    target = disc if target_disc is None else int(target_disc)
     reclaimed = set(cells)
     land = set()
-    if profile in ("island", "cliff"):
+    if profile in ("island", "cliff") and not all_sea_target:
         try:                                              # real-land set: a neighbour that is real coast is NOT water
             land = set(X.list_blocks(disc=disc, game=game))
         except Exception:                                 # noqa: BLE001 -- offline/no install -> treat non-reclaimed as water
             land = set()
+    # `all_sea_target` leaves `land` empty on purpose: on an all-sea target grid EVERY non-reclaimed neighbour
+    # really is water, so probing the unrelated real disc would invent coastline against continents that do not
+    # exist there. NOTE the guard is on the flag, NOT on `target != disc` -- an s75 CLONE target has the stock
+    # IsSea pattern, so its neighbours' real-land status is exactly right and must still be read.
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
                "dry_run": dry_run, "cells": []}
     written = []
@@ -296,7 +329,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
             bm = PAL.apply_palette_uvs(bm, topograph=topograph, disc=disc, part="terrain", game=game)
             info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount}
         if not dry_run:
-            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, part="Terrain"))
+            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, disc=target, part="Terrain"))
         summary["cells"].append(info)
     if not dry_run and summary["cells"]:
         from . import discmirror as DM

@@ -3563,7 +3563,8 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
     try:
         summary = T.reshape(args.mod_folder, at=at, seg=seg, radius=args.radius, amount=amount,
                             flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
-                            game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror)
+                            game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror,
+                            target_disc=args.target_disc)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3615,7 +3616,8 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
         summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, profile=args.profile,
                             topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
                             shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run,
-                            skip_mirror=args.skip_mirror)
+                            skip_mirror=args.skip_mirror, target_disc=args.target_disc,
+                            all_sea_target=args.all_sea_target)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3663,7 +3665,8 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
         except Exception:  # noqa: BLE001 -- donor-quality warning is best-effort
             pass
         summary = T.coast(args.mod_folder, cells=cells, donor=(dx, dy), disc=args.disc, game=args.game,
-                          dry_run=args.dry_run, skip_mirror=args.skip_mirror)
+                          dry_run=args.dry_run, skip_mirror=args.skip_mirror,
+                          target_disc=getattr(args, "target_disc", None))
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3816,7 +3819,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                       redress_orphans=args.redress_orphans,
                       enforce_texture_gates=args.enforce_texture_gates,
                       allow_texture_gates=args.allow_texture_gates, dry_run=args.dry_run,
-                      skip_mirror=args.skip_mirror)
+                      skip_mirror=args.skip_mirror, target_disc=args.target_disc,
+                      all_sea_target=args.all_sea_target)
             if (snx, sny) == (1, 1):
                 summary = TR.transplant(args.mod_folder, **kw)      # the byte-proven single-cell path
             else:
@@ -3936,6 +3940,42 @@ def _cmd_world_morphs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_coastnav(args: argparse.Namespace) -> int:
+    """Stamp VEHICLE-legality classes onto a coast's water (keel-block / standoff belt / cliff-front /
+    beach-front). Navigation only -- topograph bits, geometry byte-preserved."""
+    from .world import coastnav as CN
+    cells = None
+    if args.cells:
+        cells = [tuple(int(v) for v in c.split(",")) for c in args.cells.split(";") if c.strip()]
+    try:
+        s = CN.stamp(args.mod_folder, disc=args.disc, cells=cells, policy=args.policy,
+                     deploy=not args.dry_run, game=args.game, mirror_disc=args.mirror_disc)
+    except (ValueError, ConfigError, FileNotFoundError, AssertionError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    names = {56: "keel-block", 53: "beach-front", 55: "standoff-belt", 54: "cliff-front"}
+    verb = "would stamp" if args.dry_run else "STAMPED"
+    if not s["cells"]:
+        print(f"no water needed reclassifying on Disc{s['disc']} "
+              f"({'no sea overrides deployed there' if not cells else 'in the given cells'})")
+        return 0
+    print(f"{verb} coast navigation on Disc{s['disc']} (policy {s['policy']}) "
+          f"across {len(s['cells'])} cell(s):")
+    for c in s["cells"]:
+        bits = " ".join(f"{p['part']}:{p['verts']}v" for p in c["parts"])
+        print(f"  block ({c['block'][0]}, {c['block'][1]}): {bits}")
+    tot = "  ".join(f"{names[k]}({k})={v}" for k, v in sorted(s["totals"].items()))
+    print(f"  verts by class: {tot}")
+    if s["backup_dir"]:
+        print(f"  originals backed up to {s['backup_dir']}")
+    if 53 not in s["totals"]:
+        print("  !! NO beach-front (53) anywhere -- the get-off gate demands topo 53, so this coast "
+              "can be sailed to but NOT landed on. Intended for a cliff island; give it a low shore "
+              "if it should be a boat destination.")
+    print("  re-enter the world map to apply.")
+    return 0
+
+
 def _cmd_world_island(args: argparse.Namespace) -> int:
     """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
     grass tile language (mains + verbatim meadow stamps; flat interior by default, OPT-IN rolling relief via
@@ -3966,7 +4006,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
                   rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, ground=args.ground,
                   relief_amp=relief_amp, relief_seed=args.relief_seed,
                   beach=beach, disc=args.disc, game=args.game, dry_run=args.dry_run,
-                  skip_mirror=args.skip_mirror)
+                  skip_mirror=args.skip_mirror, target_disc=args.target_disc,
+                  all_sea_target=args.all_sea_target)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -4020,7 +4061,8 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
         (wx, wz), exact = _parse_world_point(args)
         dx, dy = (int(v) for v in args.donor.split(","))
         blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
-                                         disc=args.disc, game=args.game)
+                                         disc=args.disc, game=args.game,
+                                         target_disc=args.target_disc)
         soup = IN.soup_from_blocks(blocks)
         res = IN.carve_forest(soup, center=(wx, wz) if exact else None,
                               near=None if exact else (wx, wz), donor=(dx, dy),
@@ -4029,7 +4071,8 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
                        probe=(res["center"], 37))
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game, skip_mirror=args.skip_mirror)
+                              game=args.game, skip_mirror=args.skip_mirror,
+                              target_disc=args.target_disc)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4052,7 +4095,8 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
         (wx, wz), exact = _parse_world_point(args)
         blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz),
                                          reach=max(96.0, args.radius + 10.0),
-                                         disc=args.disc, game=args.game)
+                                         disc=args.disc, game=args.game,
+                                         target_disc=args.target_disc)
         soup = IN.soup_from_blocks(blocks)
         res = IN.build_hill(soup, center=(wx, wz) if exact else None,
                             near=None if exact else (wx, wz),
@@ -4060,7 +4104,8 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
         IN.census_gate(res["changed"], disc=args.disc, game=args.game)
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game, skip_mirror=args.skip_mirror)
+                              game=args.game, skip_mirror=args.skip_mirror,
+                              target_disc=args.target_disc)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4101,7 +4146,8 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         (wx, wz), exact = _parse_world_point(args)
         donor_blocks = _parse_block_rect(args.donor)
         blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
-                                         disc=args.disc, game=args.game)
+                                         disc=args.disc, game=args.game,
+                                         target_disc=args.target_disc)
         soup = IN.soup_from_blocks(blocks)
         res = IN.carve_mountain(soup, center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
@@ -4111,10 +4157,12 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
             # both inner writers force-skip their own auto-mirror -- the CLI unions their
             # written paths and does ONE mirror pass for the whole carve, below.
             mountain_written = IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                                                 game=args.game, skip_mirror=True)
+                                                 game=args.game, skip_mirror=True,
+                                                 target_disc=args.target_disc)
             mountain_written = list(mountain_written) + list(
                 IN.deploy_mountain_parts(res, mod_folder=args.mod_folder, disc=args.disc,
-                                         game=args.game, skip_mirror=True))
+                                         game=args.game, skip_mirror=True,
+                                         target_disc=args.target_disc))
             from .world import discmirror as DM
             DM.auto_mirror(mountain_written, mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
@@ -4473,7 +4521,8 @@ def _cmd_world_fuse(args: argparse.Namespace) -> int:
             placements.append(pl)
         out = FU.fuse_layout(args.mod_folder, placements, disc=args.disc, game=args.game,
                              allow_overwrite=args.allow_overwrite, dry_run=args.dry_run,
-                             skip_mirror=args.skip_mirror)
+                             skip_mirror=args.skip_mirror, target_disc=args.target_disc,
+                             all_sea_target=args.all_sea_target)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4541,7 +4590,8 @@ def _cmd_world_minimap(args: argparse.Namespace) -> int:
     """Composite the mod folder's deployed overworld land onto the in-game all-world map image."""
     from .world import navimap as NM
     try:
-        s = NM.composite_world_map(args.mod_folder, disc=args.disc, dry_run=args.dry_run)
+        s = NM.composite_world_map(args.mod_folder, disc=args.disc, dry_run=args.dry_run,
+                                   target_disc=args.target_disc)
     except (ValueError, FileNotFoundError, ConfigError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -7366,6 +7416,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="a ridge/valley along the world-XZ segment (X0,Z0)->(X1,Z1)")
     _op = wtr.add_mutually_exclusive_group(required=True)
     _op.add_argument("--raise", dest="raise_h", type=float, metavar="H", help="raise by H (a hill / ridge)")
+    wtr.add_argument("--target-disc", type=int, default=None, help="deploy the produced overrides into THIS disc's namespace instead of --disc's. Unlike the other split verbs the READ moves too: a synthetic world has no pristine tree, so its land is read back from the already-deployed override there and a block without one is skipped as sea. Use 9 for a Path D synthetic world.")
     _op.add_argument("--lower", type=float, metavar="H", help="lower by H (a crater / valley)")
     _op.add_argument("--flatten", action="store_true", help="flatten toward --height (default the local mean); radial")
     wtr.add_argument("--height", type=float, help="with --flatten: the target Y (default = the local mean)")
@@ -7380,6 +7431,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="RECLAIM ocean cells as walkable LAND (Path D -- new continent): synthesize a flat, "
                               "textured, walkable terrain override per sea cell. Needs the custom engine; relaunch.")
     wrc.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wrc.add_argument("--target-disc", type=int, default=None, help="deploy the produced overrides into THIS disc's namespace instead of --disc's. --disc stays the READ disc (which stock tree real bytes are borrowed from; only 1 or 4 exist). Use 9 for a Path D synthetic world, whose engine-side override namespace is deliberately disjoint from the real trees.")
+    wrc.add_argument("--all-sea-target", action="store_true", help='the target grid is ALL SEA (a blank Path D world), so skip the open-ocean/real-land probes that read the unrelated real disc. Do NOT pass this for an s75 CLONE target -- a clone carries the stock IsSea pattern, so those probes are correct there and must keep running.')
     wrc.add_argument("--cells", required=True,
                      help="sea cells to reclaim: 'x,y;x,y' (e.g. '2,5;3,5') or a range 'x0-x1,y0-y1' (a landmass). "
                           "Grid is 24x20; a lone cell is an island, a contiguous run bridges from the coast.")
@@ -7407,6 +7460,7 @@ def build_parser() -> argparse.ArgumentParser:
     wct = sub.add_parser("world-coast",
                          help="FAITHFUL coast (Path D): place a REAL FF9 coastal block at ocean cells -- copies its "
                               "terrain + animated beach/sea/foam (via a Donor.txt sidecar). --list browses donors.")
+    wct.add_argument("--target-disc", type=int, default=None, help="deploy the produced overrides into THIS disc's namespace instead of --disc's. --disc stays the READ disc (which stock tree real bytes are borrowed from; only 1 or 4 exist). Use 9 for a Path D synthetic world, whose engine-side override namespace is deliberately disjoint from the real trees.")
     wct.add_argument("--mod-folder", default=argparse.SUPPRESS,
                      help="the FolderNames mod folder to deploy into (default FF9CustomMap)")
     wct.add_argument("--cells", help="target ocean cells: 'x,y;x,y' or a range 'x0-x1,y0-y1'")
@@ -7687,6 +7741,15 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--samples", type=int, default=24,
                      help="placement-census grid resolution (default 24 = 576 ground probes)")
     wtp.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wtp.add_argument("--target-disc", type=int, default=None,
+                     help="deploy the produced overrides (and run the mod-overwrite gate) in THIS disc's "
+                          "namespace instead of --disc's. --disc stays the STOCK read disc for every donor "
+                          "byte. Use 9 for a Path D synthetic world.")
+    wtp.add_argument("--all-sea-target", action="store_true",
+                     help="the target grid is ALL SEA (a blank Path D world), so skip the open-ocean/"
+                          "real-land probe that reads the unrelated real disc. Do NOT pass this for an s75 "
+                          "CLONE target -- a clone carries the stock IsSea pattern, so the probe is correct "
+                          "there and must keep running.")
     wtp.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wtp.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
@@ -7719,6 +7782,15 @@ def build_parser() -> argparse.ArgumentParser:
                               "undulation (local prominence still = world-hill/world-forest/world-mountain). "
                               "Needs the custom engine; re-enter the world.")
     wis.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wis.add_argument("--target-disc", type=int, default=None,
+                     help="deploy the produced overrides into THIS disc's namespace instead of --disc's. --disc "
+                          "stays the READ disc (which stock tree real bytes are borrowed from; only 1 and 4 exist). "
+                          "Use 9 for a Path D synthetic world, whose engine-side override namespace (s74) is "
+                          "deliberately disjoint from the real trees.")
+    wis.add_argument("--all-sea-target", action="store_true",
+                     help="the target grid is ALL SEA (a blank Path D world), so skip THE OPEN-OCEAN TARGET LAW, "
+                          "which probes the unrelated real disc. Do NOT pass this for an s75 CLONE target -- a "
+                          "clone carries the stock IsSea pattern, so the law is correct there and must keep running.")
     _wtgt = wis.add_mutually_exclusive_group(required=True)
     _wtgt.add_argument("--cell", metavar="BX,BY", help="centre the island on ocean block BX,BY (grid 24x20)")
     _wtgt.add_argument("--center", metavar="WX,WZ",
@@ -7773,6 +7845,22 @@ def build_parser() -> argparse.ArgumentParser:
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wis.set_defaults(func=_cmd_world_island)
 
+    wcn = sub.add_parser("world-coastnav",
+                         help="stamp VEHICLE-legality classes on a coast's water (keel-block seal, "
+                              "standoff belt, cliff-front, beach-front) so boats stop at the shore "
+                              "instead of sailing through it. Navigation only; geometry untouched.")
+    wcn.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to stamp in")
+    wcn.add_argument("--disc", type=int, default=1, help="the disc NAMESPACE to stamp (9 for a Path D synthetic world)")
+    wcn.add_argument("--mirror-disc", type=int, default=None, help="also write an identical copy to this disc (the real Disc1/Disc4 parity pair); omit for a synthetic namespace")
+    wcn.add_argument("--cells", help="restrict to cells 'x,y;x,y' (default: every cell with a sea override)")
+    wcn.add_argument("--policy", choices=("land-anywhere", "cliffs-refuse"), default="land-anywhere",
+                     help="land-anywhere: every near-shore triangle is landable 53 (the Southern Ring's property). "
+                          "cliffs-refuse: stock grammar -- 53 fronts BEACHES ONLY, water fronting high walls "
+                          "becomes 54, so a cliff-ringed island can be sailed to but not disembarked on.")
+    wcn.add_argument("--dry-run", action="store_true", help="report the reclassification without writing")
+    wcn.add_argument("--game", help="path to the FF9 install")
+    wcn.set_defaults(func=_cmd_world_coastnav)
+
     wfo = sub.add_parser("world-forest",
                          help="carry a REAL canopy blob (verbatim topo-37 forest) onto a DEPLOYED kit island -- "
                               "the in-game-proven canopy-carry recipe (carve a lattice hole, seat the blob, zip "
@@ -7790,6 +7878,11 @@ def build_parser() -> argparse.ArgumentParser:
     wfo.add_argument("--reach", type=float, default=96.0,
                      help="deployed-block load window around the point in units (default 96)")
     wfo.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wfo.add_argument("--target-disc", type=int, default=None,
+                     help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "
+                          "the deployed-island READ moves too (a synthetic world's island exists only as its "
+                          "overrides); --disc stays the stock read disc for the donor canopy. Use 9 for a "
+                          "Path D synthetic world.")
     wfo.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wfo.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
@@ -7810,6 +7903,10 @@ def build_parser() -> argparse.ArgumentParser:
     whl.add_argument("--radius", type=float, default=18.0,
                      help="footprint radius in units (default 18; the real language is 20-26u diameter runs)")
     whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    whl.add_argument("--target-disc", type=int, default=None,
+                     help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "
+                          "the deployed-island READ moves too (a synthetic world's island exists only as its "
+                          "overrides). Use 9 for a Path D synthetic world.")
     whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     whl.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
@@ -7840,6 +7937,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="the bench island's ground family: the zip annulus + plain-ground checks speak "
                           "it (match the island's world-island --ground)")
     wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wmt.add_argument("--target-disc", type=int, default=None,
+                     help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "
+                          "the deployed-island READ moves too (a synthetic world's island exists only as its "
+                          "overrides); --disc stays the stock read disc for the donor massif + ensemble "
+                          "parts. Use 9 for a Path D synthetic world.")
     wmt.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wmt.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
@@ -8041,6 +8143,14 @@ def build_parser() -> argparse.ArgumentParser:
                                     "(optional rot / shift / land_margin / strips / grow_cut / grow_cut_z)")
     wfu.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
     wfu.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wfu.add_argument("--target-disc", type=int, default=None,
+                     help="deploy the layout (and run the collision pre-check) in THIS disc's namespace "
+                          "instead of --disc's. --disc stays the STOCK read disc for every donor byte. "
+                          "Use 9 for a Path D synthetic world.")
+    wfu.add_argument("--all-sea-target", action="store_true",
+                     help="the target grid is ALL SEA (a blank Path D world), so skip each placement's "
+                          "open-ocean/real-land probe that reads the unrelated real disc. Do NOT pass this "
+                          "for an s75 CLONE target -- the probe is correct there and must keep running.")
     wfu.add_argument("--allow-overwrite", action="store_true",
                      help="deploy even where target cells already have override files on disk (re-deploying "
                           "the same layout is the normal iteration flow; without this flag a collision refuses "
@@ -8077,6 +8187,10 @@ def build_parser() -> argparse.ArgumentParser:
     wmm.add_argument("--mod-folder", required=True,
                      help="the FolderNames mod folder whose WorldMap terrain to draw + where the PNG lands")
     wmm.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wmm.add_argument("--target-disc", type=int, default=None,
+                     help="scan THIS disc's deployed-override namespace instead of --disc's (use 9 for a "
+                          "Path D synthetic world). WARNING: the sprite override is per MOD FOLDER, not per "
+                          "disc -- compositing one namespace overwrites the map a composite of another produced.")
     wmm.add_argument("--dry-run", action="store_true", help="report the plan, write nothing")
     wmm.set_defaults(func=_cmd_world_minimap)
 
@@ -8117,7 +8231,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="inspect / re-table the overworld random-encounter TABLE (discmr.img): which battle "
                               "scenes spawn on which terrain. --list dumps it; --config applies edits + deploys a "
                               "discmr.img override. No DLL (AssetManager mod-override); relaunch to apply.")
-    wet.add_argument("--disc", type=int, default=1, choices=[1, 4],
+    wet.add_argument("--disc", type=int, default=1, choices=[1, 4],   # a REAL read disc: discmr.img only exists for 1/4
                      help="which disc's discmr.img (default 1; disc 4 has its own late-game table)")
     wet.add_argument("--list", action="store_true", help="inspect the table (per-topograph summary), write nothing")
     wet.add_argument("--zones", action="store_true",
