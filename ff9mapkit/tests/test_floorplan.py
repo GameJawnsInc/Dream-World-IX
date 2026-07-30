@@ -422,23 +422,32 @@ def test_off_r_is_an_integer_on_every_room():
         assert all(isinstance(v, int) for p in r.poly_room for v in p)
 
 
-def test_z_for_row_agrees_with_the_now_fixed_shipped_solver():
-    """★ THE TRIPWIRE FIRED. This test used to pin `cam.solve_z_for_canvasY(cam, 420.0) is None` at
-    pitch 15 / distance 3000 as the reason floorplan forked its own `z_for_row` -- and said, in its
-    own docstring, "if this goes red, it was fixed and floorplan.z_for_row should be reconsidered
-    (THE CALL-SITE LAW cuts both ways)". It landed 2026-07-29 (cam.py's projection-pole fix: the
-    inverse is now closed-form on the front branch, exact on every real donor camera too, not only
-    this shallow-pitch case) -- so the pin now runs the OTHER direction: the two must AGREE, to
-    the shared solver's ~1e-13 px, not the private one's ~0.05 px. Whether floorplan should retire
-    `z_for_row` in favour of the shared function is exactly THE CALL-SITE LAW's open question this
-    test was written to raise; it is not re-decided here."""
-    cam = guide.make_camera(15.0, 3000.0, fov_x_deg=42.0)
-    z_private = F.z_for_row(cam, 420.0)
-    z_shared = CAM.solve_z_for_canvasY(cam, 420.0)
-    assert z_private is not None and z_shared is not None, "both solvers answer this row now"
-    assert F.project_floor(0.0, z_private, cam)[1] == pytest.approx(420.0, abs=0.1)
-    assert CAM.to_canvas((0, 0, z_shared), cam)[1] == pytest.approx(420.0, abs=1e-6)
-    assert z_private == pytest.approx(z_shared, abs=1.0)
+def test_the_private_camera_math_fork_is_retired():
+    """★ THE TRIPWIRE, RESOLVED. This module used to carry its own `cam_params`/`z_for_row`/
+    `horizon_row` because `cam.solve_z_for_canvasY` bisected across the projection pole and lost
+    reachable low-pitch rows (measured at pitch 15 / distance 3000: rows 365/420/440 all came back
+    None). cam.py's 2026-07-29 fix (closed-form on the camera's front branch) discharged that
+    reason, so the fork is retired -- the composer now calls the shared solver directly. Pinned here
+    so a future 'simplification' does not silently recreate the private copy."""
+    assert not hasattr(F, "cam_params")
+    assert not hasattr(F, "z_for_row")
+    assert not hasattr(F, "horizon_row")
+
+
+def test_project_floor_agrees_exactly_with_the_shared_projection():
+    """`project_floor` is now a thin composition of `cam.to_canvas` + `cam.project`'s signed depth,
+    not an independent formula -- so it must agree with them to machine precision, not the private
+    form's former ~0.07 canvas px / up to 1.28e4-unit-off depth on a real (non-yaw-0) camera."""
+    cams = [guide.make_camera(15.0, 3000.0, fov_x_deg=42.0),
+            guide.make_camera(48.0, 5000.0, fov_x_deg=42.2, yaw_deg=17.0)]
+    for cam in cams:
+        for (x, z) in [(0.0, 0.0), (500.0, -800.0), (-1200.0, 400.0)]:
+            cx, cy, dep = F.project_floor(x, z, cam)
+            want_x, want_y = CAM.to_canvas((x, 0.0, z), cam)
+            want_dep = CAM.project((x, 0.0, z), cam)[2]
+            assert cx == pytest.approx(want_x, abs=1e-9)
+            assert cy == pytest.approx(want_y, abs=1e-9)
+            assert dep == pytest.approx(want_dep, abs=1e-9)
 
 
 def test_frame_floor_no_longer_raises_at_this_pitch():

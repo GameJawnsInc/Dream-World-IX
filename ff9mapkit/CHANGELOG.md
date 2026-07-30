@@ -217,6 +217,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   camera (a near-level pitch, where the back row really is past the horizon) REFUSES with the knob
   to turn instead of guessing a floor. Nothing is created on the way out.
 
+### Changed — `floorplan` retires its private camera-math fork now that the shared solver is fixed
+- `floorplan.cam_params` / `z_for_row` / `horizon_row` existed only because the shared
+  `cam.solve_z_for_canvasY` / `cam.horizon_canvas_y` used to lose reachable low-pitch rows across
+  the projection pole — a defect, not a preference, and the private form was still only ~0.05 canvas
+  px accurate (~0.07 px for `project_floor`'s depth) where the fixed shared math is exact. With the
+  pole fix landed, that reason is discharged: `fit_play_camera` now calls `cam.solve_z_for_canvasY`
+  and `cam.horizon_canvas_y` directly, and `project_floor` is a thin composition of `cam.to_canvas` +
+  `cam.project`'s signed depth rather than its own formula. This also drops the module's yaw-0-only
+  restriction — the private math was off by 25–6138 canvas px on the real donor cameras, so it could
+  never have been pointed at an imported/forked camera. `pitch_floor` stays as the composer's own
+  policy gate (refuse a camera whose horizon falls inside the canvas); its actual gate check now
+  reads `cam.horizon_canvas_y(cam) >= 0` directly, which additionally honours a nonzero
+  `centerOffset` that the old `range_h/2`-assuming formula silently ignored. No behaviour change for
+  any camera the composer builds today (pitch still refused under `p* ≈ 25.7°` at fov 42.2) — the win
+  is exactness, real-camera reach, and one owner of this math, not new pitches.
+
 ### Fixed — a `received` event now shows the REAL item-get box (the top-right "..." bug)
 - `[[event]] received = true` re-styled the author's message as the window-7 item box at the
   dialogue-default geometry — a tiny box pinned to the TOP-RIGHT corner, with no item name in

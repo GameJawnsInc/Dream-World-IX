@@ -31,8 +31,14 @@ wrong -- is ``studies/click-authoring/RUNG6.md`` §1. Read it before changing a 
     ``bgiRad``'s only writer is the battle-return backup, so it is 0 on a fresh load.
   * The camera fit MUST gate on per-vertex depth. Apparent size goes as ``1/|D + cos(p)z|``, which
     has a POLE, so a box-only test accepts a camera 740u INSIDE the room.
-  * ``cam.solve_z_for_canvasY`` and ``guide.frame_floor`` are unsound at low pitch and are NOT in
-    this module's call path (:func:`z_for_row` replaces them).
+  * The canvas-row inverse -- a painted row back to a world ``z`` -- is a Mobius function of ``z``
+    with a POLE at the camera's own depth plane; past it the engine's ``|res.z|`` divide mirrors the
+    SAME canvas row onto a point BEHIND the camera. ``cam.solve_z_for_canvasY`` /
+    ``cam.horizon_canvas_y`` used to bisect across that pole and lose reachable low-pitch rows --
+    FIXED 2026-07-29 (CHANGELOG "the painted-row inverse spanned the projection pole"): both are now
+    exact closed forms on the camera's front branch, and this module calls them DIRECTLY.
+    :func:`project_floor` is a thin composition of :func:`cam.to_canvas` + :func:`cam.project`, not
+    an independent formula -- there is no private copy of this math left in this module to fork.
   * A ``face``-less ``[[player.arrival]]`` row is not "no facing" -- the template's unconditional
     ``D9(6)`` default is 0 = SOUTH, i.e. a silent "face the camera whichever wall you came through".
 """
@@ -109,53 +115,15 @@ TOUCH_EPS = 1e-6
 
 # ------------------------------------------------------------------ C0: the closed-form projection
 
-def cam_params(c):
-    """``(pitch_rad, D, H, cx0, cy0)`` for a yaw-0 :func:`guide.make_camera` camera over ``y=0``."""
-    p = math.radians(_cam.pitch_deg(c))
-    D = -_cam.decompose(c)["C"][2] / math.cos(p)
-    return (p, D, float(c.proj),
-            c.centerOffset[0] + c.range[0] / 2.0,
-            c.range[1] / 2.0 + c.centerOffset[1])
-
-
 def project_floor(x, z, c):
-    """``(canvasX, canvasY, depth)`` for a floor point. ``depth = D + cos(p)*z``.
+    """``(canvasX, canvasY, depth)`` for a floor point on the ``y=0`` plane.
 
-    Exact: max 0.07 canvas px against :func:`cam.to_canvas` at depth >= 500 over 8 pitches x 4
-    distances. The reason to have it at all is the third return value -- ``cam.to_canvas`` folds
-    ``abs(resz)`` (scene/cam.py:166), which MIRRORS a behind-camera point into an ordinary-looking
-    in-canvas coordinate. The depth is the only thing that can see that."""
-    p, D, H, cx0, cy0 = cam_params(c)
-    dep = D + math.cos(p) * z
-    return (cx0 + x * H / abs(dep),
-            cy0 - K_VSCALE * math.sin(p) * H * z / abs(dep),
-            dep)
-
-
-def horizon_row(c):
-    """The painted-canvas row the horizon sits on (may be off-canvas, which is the healthy case)."""
-    p, D, H, cx0, cy0 = cam_params(c)
-    return cy0 - K_VSCALE * math.tan(p) * H
-
-
-def z_for_row(c, row, *, near=NEAR_W):
-    """Front-branch world ``z`` whose floor projects to painted-canvas ``row``; None if unreachable.
-
-    ★ REPLACES :func:`cam.solve_z_for_canvasY` for the composer, and the reason is a defect in that
-    function, not a preference: it brackets ``[-30000, +30000]``, which SPANS the projection pole at
-    ``z = -D/cos(pitch)``. Past the pole ``cam.py:166``'s ``num = abs(resz)`` mirrors the branch, so
-    its sign test bails and it returns None for rows that DO have a root. Measured at pitch 15 /
-    distance 3000: rows 365, 420 and 440 all return None while the true roots (z = -1646, -1896,
-    -1967) re-project to 364.97, 419.96 and 439.95. ``guide.frame_floor`` inherits the same fault
-    and RAISES at every distance for pitch 15. Both are spawned as their own fix."""
-    p, D, H, cx0, cy0 = cam_params(c)
-    s, co = math.sin(p), math.cos(p)
-    a = cy0 - row
-    den = K_VSCALE * s * H - a * co
-    if abs(den) < 1e-9:
-        return None                                    # the row IS the horizon
-    z = a * D / den
-    return None if D + co * z <= near else z
+    A thin composition of the shared projection, not an independent formula: the canvas coordinate
+    is :func:`cam.to_canvas`, exactly; the depth is :func:`cam.project`'s own signed ``result.z``,
+    exactly. The reason to have it at all is that third value -- ``to_canvas`` folds ``abs(resz)``
+    (scene/cam.py:166), which MIRRORS a behind-camera point into an ordinary-looking in-canvas
+    coordinate, and the SIGNED depth is the only thing that can see that."""
+    return (*_cam.to_canvas((x, 0, z), c), _cam.project((x, 0, z), c)[2])
 
 
 def pitch_floor(fov_x_deg, *, range_w=CANVAS_W, range_h=CANVAS_H):
@@ -689,10 +657,17 @@ def fit_play_camera(poly, *, pitch=DEFAULT_PITCH, fov=DEFAULT_FOV, margin=FIT_MA
     # pitch. The second hazard `p*` was meant to cover -- a behind-camera vertex faking a canvas
     # fit -- is caught directly and independently by the per-vertex depth gate below, so the pitch
     # gate does not have to be the one carrying it.
+    # ★ The GATE ITSELF reads off `cam.horizon_canvas_y`, not `pitch_floor`'s own atan formula --
+    # "the horizon lands inside the canvas" IS `horizon_canvas_y(cam) >= 0`, the direct statement of
+    # the rule `pitch_floor` states analytically, and unlike that formula it honours a nonzero
+    # centerOffset (`pitch_floor` assumes the canvas centre is `range_h/2`). Composer cameras are
+    # always `guide.make_camera`-built (centerOffset [0,0]), so this is a like-for-like swap, not a
+    # behaviour change; `pitch_floor` stays, to print `p*` itself in the message below. A horizon
+    # does not depend on camera distance (it drops out of `cam._row_coeffs`), so any positive probe
+    # distance does.
     pstar = pitch_floor(fov)
-    H = _guide.proj_from_fov_x(fov, CANVAS_W)
-    row = CANVAS_H / 2.0 - K_VSCALE * math.tan(math.radians(pitch)) * H
-    if pitch <= pstar:
+    row = _cam.horizon_canvas_y(_guide.make_camera(pitch, 1.0, fov_x_deg=fov))
+    if row >= 0:
         raise ComposeError(
             f"pitch {pitch:g} deg is at or under the horizon floor {pstar:.2f} deg for fov {fov:g}: "
             f"the horizon lands INSIDE the canvas (row {row:.0f}), so part of every frame has no "
@@ -708,7 +683,7 @@ def fit_play_camera(poly, *, pitch=DEFAULT_PITCH, fov=DEFAULT_FOV, margin=FIT_MA
 
     def attempt(D):
         c = _guide.make_camera(pitch, D, fov_x_deg=fov)
-        zf = z_for_row(c, front_row)
+        zf = _cam.solve_z_for_canvasY(c, front_row, near=NEAR_W, zlo=None, zhi=None)
         if zf is None:
             return None
         off = (off_x, zf - z0)                  # FRONT-ALIGN: the room's front edge on `front_row`
