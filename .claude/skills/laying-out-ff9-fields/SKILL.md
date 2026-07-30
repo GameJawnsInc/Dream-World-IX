@@ -77,6 +77,14 @@ fine in world can still stack on screen (depth foreshortening). The probe warns 
 > still stops 32u short of its painted edge ("the back edge is a bit short"). Offline it looks
 > equally wrong and flipping it breaks no test, but it moves the shipped geometry of every traced
 > field, so it is held for a traced-field **playtest**, not a green suite.
+>
+> ★ **AND THE LAW THAT FLIP TAUGHT: a RESOLUTION is never a RADIUS.** `sweep_pursuit`/`sweep_wander`
+> used to take their sampling `grain` from `WALL_CLEARANCE_W`, so raising the radius made them
+> COARSER — at 80 they went blind to a 40u notch and reported **0 blocked of 1358 pairs**, a false
+> clean. The sweep grain is now its own `routes.SWEEP_GRAIN_W = 40u`, decoupled from every radius
+> (same 40u as `sweep_polyline`'s step and `pathfind._MESH_STEP_W`). **So: clearances are 80, the
+> sampling grain is 40.** A gap narrower than 40u is still missed by design — every sweep's rate is
+> a FLOOR on the real one, never a ceiling.
 
 ## THE INVISIBLE-DOOR LESSON (zones the player cannot see)
 

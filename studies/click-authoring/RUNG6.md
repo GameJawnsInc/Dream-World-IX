@@ -205,11 +205,25 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
    `cam.COLLISION_RADIUS_W` — and it erred OPTIMISTIC (a 130u corridor measures 1820 standable cells
    at 48 and **0** at 80, so every sweep in `routes` certified patrols the engine cannot walk). That
    also settled `content/pathfind.py` disagreeing with itself (`route_polyline` took `routes`' 48,
-   `route` took `cam`'s 80); both now resolve to 80. **RE-MEASURED, not relaxed — and this study's
-   "five behavior tests" estimate was high: exactly ONE moved.** `test_behavior_pursuit.
-   test_concave_notch_is_caught_with_an_exemplar_pair`'s exemplar bound had to go wall-INCLUSIVE,
-   because at an 80u step the leg `(200,-600)->(-600,40)` lands exactly on the notch wall `x = -400`
-   (a 48u step never did) — a point ON the hole's boundary names the hole as truly as one inside it.
+   `route` took `cam`'s 80); both now resolve to 80. **RE-MEASURED, not relaxed — TWO behavior tests
+   moved.** This study's estimate of five was high, but a targeted grep-scoped measurement that found
+   only ONE was too low: the second reaches the constant INDIRECTLY and only a FULL-SUITE run caught
+   it. **Do not size this kind of blast radius by grep.**
+   (a) `test_behavior_pursuit.test_concave_notch_is_caught_with_an_exemplar_pair`'s exemplar bound
+   had to go wall-INCLUSIVE, because at an 80u step the leg `(200,-600)->(-600,40)` lands exactly on
+   the notch wall `x = -400` (a 48u step never did) — a point ON the hole's boundary names the hole
+   as truly as one inside it.
+   (b) `test_behaviordoc.test_sweep_sync_paints_verdicts_and_arms_the_resweep` exposed a **SECOND
+   defect of the same shape as the pathfind one, and a worse one**: `sweep_pursuit`/`sweep_wander`
+   defaulted `grain` — a RESOLUTION — to `WALL_CLEARANCE_W`, a RADIUS. Correcting the radius upward
+   therefore made the sweep COARSER, and at 80 no cell centre lands inside the BGLADE demo field's
+   40u notch (`(gi+0.5)*80` steps 600 → 680), so `_raster_on_mesh` filled the hole in and the sweep
+   reported **0 blocked of 1358 pairs** where every finer grain finds 130–260 — a **FALSE CLEAN**,
+   the one failure mode its own contract calls out. Fixed by `routes.SWEEP_GRAIN_W = 40.0`, decoupled
+   from every radius and equal to `sweep_polyline`'s step and `pathfind._MESH_STEP_W`.
+   ★ **THE LAW THIS PASS BOUGHT: a RESOLUTION must never be derived from a RADIUS.** A radius grows
+   with the walker; a resolution must shrink with the geometry. Both defects here were that one
+   confusion, and both were SILENT — the check kept passing while seeing less.
    ⚠ **`imagefield.COLLISION_OUTSET` stays 48 ON PURPOSE, pending a PLAYTEST.** Offline it looks
    equally wrong (it under-outsets every traced field by 32u — "the back edge is a bit short") and
    flipping it breaks **zero** tests, but it moves the shipped walkmesh geometry of every traced

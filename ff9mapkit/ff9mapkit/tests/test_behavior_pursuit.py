@@ -86,17 +86,42 @@ def test_tighter_radius_is_safer():
 
 
 def test_an_ungated_family_never_reports_a_false_clean():
-    """THE RESOLUTION PIN, and the two bugs it caught. An ungated chase's radius is the
+    """THE RESOLUTION PIN, and the THREE bugs it caught. An ungated chase's radius is the
     whole field, and sizing the sampling off THAT number (rather than off the floor that
     actually exists) drove the endpoint grid to ~4000u on a 1600u mesh; selecting those
-    endpoints by ``gi % stride == 0`` then matched no cell at all. Both failure modes
-    reported 0 pairs tested as CLEAN -- the worst possible answer for a lint."""
+    endpoints by ``gi % stride == 0`` then matched no cell at all. The third arrived on
+    2026-07-30: ``grain`` defaulted to ``WALL_CLEARANCE_W``, so correcting that RADIUS
+    48 -> 80 coarsened this RESOLUTION and the sweep went blind to a walker-sized notch.
+    All three failure modes reported CLEAN -- the worst possible answer for a lint."""
     huge = R.sweep_pursuit(DEEP, 20000, standoff=0)
-    assert huge["grain"] == R.WALL_CLEARANCE_W     # the leg grain never scales
+    assert huge["grain"] == R.SWEEP_GRAIN_W        # the leg grain never scales
+    # ...and is a RESOLUTION, not a clearance: it must not follow the wall radius, because a
+    # radius grows with the walker while a resolution has to shrink with the geometry.
+    assert R.SWEEP_GRAIN_W != R.WALL_CLEARANCE_W, (
+        "SWEEP_GRAIN_W has been re-coupled to the wall radius -- re-measuring that radius will "
+        "now silently change what every sweep can SEE. See the false clean this pinned.")
     assert huge["sources"] > 0 and huge["tested"] > 0
     assert huge["blocked"] > 0                     # and it still finds the notch
     # a family wider than the field is the same family as one exactly that wide
     assert huge["tested"] == R.sweep_pursuit(DEEP, 2000, standoff=0)["tested"]
+
+
+def test_the_sweep_grain_resolves_a_walker_sized_notch():
+    """★ THE FALSE CLEAN, pinned on the geometry that produced it (the BGLADE demo field's
+    40u notch, `tests/test_behaviordoc.stage_mesh_bytes`). At grain 80 no cell centre lands
+    in `x in (640,680)` -- `(gi+0.5)*80` steps 600 -> 680 -- so `_raster_on_mesh` fills the
+    hole in and the sweep reports 0 blocked of 1358 pairs. Every finer grain finds 130-260.
+    This is the regression test for tying a resolution to a radius."""
+    xs = (-300, 640, 680, 1000)
+    verts = [(x, 0, z) for z in (600, 60, -300) for x in xs]
+    tris = [(0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
+            (4, 5, 9), (4, 9, 8), (5, 6, 10), (5, 10, 9), (6, 7, 11), (6, 11, 10)]
+    glade = bgi.BgiWalkmesh.from_bytes(bgi.build(verts, tris).to_bytes())
+    assert R.sweep_pursuit(glade, 900, standoff=0)["blocked"] > 0, (
+        "the sweep no longer sees the 40u notch -- a gap the walker cannot pass is being "
+        "reported CLEAN, which is how an unwalkable patrol reaches a playtest")
+    # and the bound is honest about itself: a grain COARSER than the gap does miss it
+    assert R.sweep_pursuit(glade, 900, standoff=0, grain=80.0)["blocked"] == 0
 
 
 def test_small_sample_reports_counts_not_a_rate():
