@@ -262,6 +262,59 @@ name = "Rune"
 #     short cut rides the ordinary battle camera -- a framing fact for reading video, not a hazard.)
 #
 #   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef446 container override itself is hot.
+#
+# --- TIER W6b-3 / CHANNEL A: "Stock Odin Short" casts STOCK effect 424.  SAME shape as the five rows
+#     above, same donor, same three overrides, and the same forced placement -- APPENDED LAST so it takes
+#     id 203 and leaves 192-202 exactly where they are.  Rows 201/202 STAY: they are the control that
+#     shows the one running 192+ counter (`content/playable.py`) did not move.
+#   WHAT ef424 IS.  `Memoria/Assembly-CSharp/Memoria/Data/Battle/SpecialEffect.cs:94` names it
+#     `Odin__Short = 424` (its FULL twin is `Odin__Full = 261` on the next line).  It is the SHORT-summon
+#     cut of the eidolon Odin, so like ef446 -- and unlike ef429 -- it is a container ordinary stock play
+#     reaches through a party ability whenever the short-summon roll comes up.
+#   WHY ef424 IS THE W6b-3 SUBJECT.  It is CHANNEL A's FIRST CAST.  Its `so` record 0x2f9a4 is a
+#     MULTI-PART record (P = 2, recLen 0x18) whose binding ARRAY entry slot 1 binds column 704 at 8bpp --
+#     and NOTHING ELSE IN THE CONTAINER binds that column at all: `page_depth_view` returns ABSENT for
+#     both of its cells, so the incumbent binder set is EMPTY.  The verdict cell `cell.s0.x704_y384` is
+#     therefore 8bpp ONLY because W6b-3 taught the kit to read an array entry it could not read before,
+#     which is exactly why the depth ships behind `acknowledge_array_derived_depth` + a matching
+#     `expect_bpp`.  Class C: NO (one CLUT cell, (0,247)); hazards `('lower-half',)` only; program
+#     `clean`.  The cell is 73.64% index-0 with a REAL transparent value (palette entry 0 = 0x0000,
+#     stp = 0), so a zero-write there is a genuine hole and ink there is genuine light.
+#   THE ORDER RIDER, PIGGYBACKED ON THE SAME CAST.  The same record's slot 0 names column 448, which
+#     SEVEN incumbent single-part records also bind -- so `cell.s0.x448_y384` is licensed on the `so`-UV
+#     channel and needs NO acknowledgement.  Its two parts are geometrically unconfusable (part 0 = a
+#     32-prim square-section tube running z -1028..-422; part 1 = a 68-prim flat billboard plane at
+#     x == 0), so ONE cast can also ask which part reads which column.  Whatever it shows may NOT be
+#     written into a kit verdict: `ORDER_UNMEASURED` (`summons/depth_attribution.py`) is a call-sited
+#     constant and promoting it is a separate, gated decision.
+#   BINDING-IS-NOT-A-DRAW, so the ladder's order is fixed: the zero-stripe probe
+#     (`tier-w/odin_cell_probe.py`) runs FIRST and answers "is this cell drawn at all", and the ink cast
+#     (`tier-w/odin_channel_a.toml`) is deployed only if it is.  Two ef211 casts were spent learning that.
+#   vfx1 = vfx2 = 424  the SHORT cut on BOTH slots, so the short-summon roll cannot swap in ef261 and
+#                      make the cast unreadable.  ef424 has 11 GEOM blocks and NO id-4 + id-5 creature
+#                      package, so all 10 of its page-cells are SCENERY.
+#
+#   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef424 container override itself is hot.
+#
+# --- TIER W6b-3 / CHANNEL A, THE FALLBACK: "Stock Magic Hammer" casts STOCK effect 130.  SAME shape and
+#     the same forced placement -- APPENDED LAST so it takes id 204.  It is registered in the SAME
+#     RELAUNCH as 203 on purpose: if ef424's cast A comes back negative the ladder falls back to this row
+#     without a second relaunch, and a relaunch is the one cost this bench cannot pay mid-cast.
+#   WHAT ef130 IS.  `SpecialEffect.cs:143` names it `Magic_Hammer = 130` -- Quina's Blue Magic (ability
+#     99, `Actions.csv`: `Magic Hammer;99;None(0);SingleEnemy(2);...;130;10;...`).  A PLAYER SPELL, not a
+#     summon and not an enemy attack: the first of its kind on this bench.
+#   WHY IT IS THE FALLBACK AND NOT THE VEHICLE.  Its record 0x29cf8 is the corpus's WIDEST multi-part `so`
+#     (P = 7) and its verdict cell `cell.s0.x448_y384` is channel-A-only in the same way ef424's is -- but
+#     it is weaker on every axis that matters to a cast: 5 of its 7 entries are unmarkable by construction
+#     (column 576 refuses `array-dual-depth`, and no acknowledgement lifts a dual), its parts overlap
+#     heavily in y so an order read cannot separate them on screen, its part-1 u range spills out of the
+#     column at 8bpp, and its cell's palette entry 0 is 0x8000 -- OPAQUE BLACK, stp = 1 -- so the cell has
+#     NO transparent value and a zero-write paints black instead of a hole.  A second witness, not a
+#     better one.
+#   vfx1 = vfx2 = 130  forces the cast structurally; the stock row plays 130 on vfx1 and 10 on vfx2, so
+#                      equal cells are what stop the roll from changing what plays.
+#
+#   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef130 container override itself is hot.
 abilities = [
   { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 },
   { name = "Stock Phoenix", from = "Bahamut", targets = "AllEnemy", vfx1 = 211, vfx2 = 211, type = 0, power = 30, mp = 8 },
@@ -269,6 +322,8 @@ abilities = [
   { name = "Stock Shiva", from = "Bahamut", targets = "AllEnemy", vfx1 = 38, vfx2 = 38, type = 0, power = 30, mp = 8 },
   { name = "Stock Octopus", from = "Bahamut", targets = "AllEnemy", vfx1 = 429, vfx2 = 429, type = 0, power = 30, mp = 8 },
   { name = "Stock Atomos", from = "Bahamut", targets = "AllEnemy", vfx1 = 446, vfx2 = 446, type = 0, power = 30, mp = 8 },
+  { name = "Stock Odin Short", from = "Bahamut", targets = "AllEnemy", vfx1 = 424, vfx2 = 424, type = 0, power = 30, mp = 8 },
+  { name = "Stock Magic Hammer", from = "Bahamut", targets = "AllEnemy", vfx1 = 130, vfx2 = 130, type = 0, power = 30, mp = 8 },
 ]
 
 # --- THE SUMMON --------------------------------------------------------------------------------------
