@@ -54,8 +54,13 @@ def test_concave_notch_is_caught_with_an_exemplar_pair():
     assert any("leaves the walkmesh" in p for p in probs)
     assert any("e.g. pursuer at" in p for p in probs)
     for h in res["worst"]:                         # every exemplar names a real hole:
-        mx, mz = h["mid"]                          # its midpoint is INSIDE the notch
-        assert -400 < mx < 400 and -400 < mz <= 200, (mx, mz)
+        mx, mz = h["mid"]                          # its midpoint is inside the notch, wall INCLUSIVE
+        # CLOSED region, re-measured 2026-07-30 when the grain went 48 -> 80: the wedge point is
+        # where the leg meets the hole, and that can be exactly ON a notch wall. The leg
+        # (200,-600)->(-600,40) crosses x = -400 at z = -120, and an 80u step lands on it exactly
+        # (a 48u step never did, which is the only reason the strict bound survived). A point on
+        # the notch boundary names the notch just as truly as one in its interior.
+        assert -400 <= mx <= 400 and -400 <= mz <= 200, (mx, mz)
         assert h["span"] > 0 and h["dist"] > 0
 
 

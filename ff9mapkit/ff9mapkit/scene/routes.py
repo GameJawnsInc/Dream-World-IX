@@ -31,7 +31,15 @@ from __future__ import annotations
 
 import math
 
-WALL_CLEARANCE_W = 48.0        # the player controller radius (cam.COLLISION_RADIUS_W)
+# The player controller radius, IN-GAME MEASURED 2026-07-30 on calibration field 30510: walking into
+# a wall clamps the centre at exactly 80u off it (the kit's player Init runs
+# SetObjectLogicalSize(20,..) and Memoria's DoEventCode does radius = size * 4). Equal to
+# cam.COLLISION_RADIUS_W but deliberately its OWN literal, fenced by an equality assert in
+# tests/test_floorplan.py -- an alias cannot detect the drift the fence exists to catch.
+# Was 48.0 until the measurement: that value was the OPTIMISTIC direction, so every sweep here
+# certified patrols the engine physically cannot walk (a 130u corridor measures 1820 standable
+# cells at 48 and ZERO at 80).
+WALL_CLEARANCE_W = 80.0
 MIN_RATE_PAIRS = 200           # below this, report COUNTS -- a rate off 20 pairs is noise
 
 

@@ -15,9 +15,17 @@ from __future__ import annotations
 
 import heapq
 
-from ..scene import cam
+from ..scene import cam, routes as _routes
 
 _NEIGHBORS = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
+
+# How finely a leg is sampled against the MESH. Deliberately a constant, NOT derived from
+# ``clearance``: tying the step to the wall radius means a bigger radius samples SPARSER, so the
+# 2026-07-30 COLLISION_RADIUS_W correction (48 -> 80) silently coarsened this check from 48u to 80u
+# and ``_simplify`` began string-pulling legs across features it no longer resolved. Matches
+# ``routes.sweep_polyline``'s own step, so the router never checks coarser than the sweep that judges
+# its output (:func:`route_polyline` re-sweeps every routed line through exactly that oracle).
+_MESH_STEP_W = 40.0
 
 
 def _free(wmesh, x, z, obstacles, clearance, obstacle_r) -> bool:
@@ -35,13 +43,25 @@ def _free(wmesh, x, z, obstacles, clearance, obstacle_r) -> bool:
 
 
 def _clear(wmesh, a, b, obstacles, clearance, obstacle_r) -> bool:
-    """Is the straight leg a->b fully free (sampled ~every clearance)?"""
+    """Is the straight leg a->b fully free?
+
+    Obstacles are discs, so they are tested EXACTLY (point-to-segment distance) rather than
+    sampled -- the same oracle ``build._segment_hits_object`` uses to judge the emitted path. A
+    sampled disc test has no safe step: a leg that clips the rim carries a chord ~``2*sqrt(2*R*d)``
+    long, which vanishes as the penetration ``d`` does, so ANY step straddles some grazing leg.
+    Measured: the demo-room route pulled a leg passing 188.6u from a character centre (192 required)
+    and the 80u-stepped sample walked straight over the 72u chord -- the router emitted a path its
+    own validator then rejected. The mesh/wall half still samples, at the radius-independent
+    :data:`_MESH_STEP_W`."""
+    for ox, oz in obstacles:
+        if _routes.seg_dist_xz(ox, oz, a, b) < obstacle_r:
+            return False
     dx, dz = b[0] - a[0], b[1] - a[1]
     dist = (dx * dx + dz * dz) ** 0.5
-    n = max(1, int(dist / max(8.0, clearance)))
+    n = max(1, int(dist / _MESH_STEP_W))
     for k in range(n + 1):
         t = k / n
-        if not _free(wmesh, a[0] + dx * t, a[1] + dz * t, obstacles, clearance, obstacle_r):
+        if not _free(wmesh, a[0] + dx * t, a[1] + dz * t, (), clearance, obstacle_r):
             return False
     return True
 

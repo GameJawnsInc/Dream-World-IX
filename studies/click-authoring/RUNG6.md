@@ -79,7 +79,7 @@ borrowed for a chart.)
 
 | Name | Value | Source |
 |---|---|---|
-| `R_WALK` | **80.0** | the composer's own literal — now equal to `cam.COLLISION_RADIUS_W` (both 80 since 2026-07-30), but deliberately a SEPARATE object, fenced by an equality assert. A silent drift in either direction should go red, which an alias cannot do. |
+| `R_WALK` | **80.0** | the composer's own literal — now equal to `cam.COLLISION_RADIUS_W` AND `routes.WALL_CLEARANCE_W` (all three 80 since 2026-07-30), but deliberately SEPARATE objects, fenced by an equality assert over all three. A silent drift in any of them should go red, which an alias cannot do. |
 | `R_OBJ` | 96.0 | `cam.OBJECT_COLLISION_W` (`scene/cam.py:82`) — correct in the repo (arg2=24 of the same opcode) |
 | `K_VSCALE` | 14/15 | `scene/cam.py:36` |
 | `CANVAS_W`, `CANVAS_H` | 384, 448 | `scene/guide.py:24` — **not** in `cam.py` |
@@ -194,19 +194,27 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
    real — `bgiRad` is a battle-return-only field, 0 on a fresh load; the old 48 traced back to the
    now-deleted room02 bench, which conflated this radius with the legacy flat-builder's
    `orgPos=(0,0,300)` offset and the retired eyeball canvas scale).
-   ⚠ **Still do NOT change the remaining 48s as a drive-by** — but the list is SHORTER than this
+   ⚠ **Still do NOT change the remaining 48 as a drive-by** — but the list is SHORTER than this
    study first claimed, and the two bad cites are worth naming so nobody re-derives them:
    `build.py:3652` is an aspect-mismatch check with nothing to do with the radius, and
    `field_layout_probe.py:242` reads `C.COLLISION_RADIUS_W`, so the probe picked up 80 for free
-   (as did `content/pathfind.py:155`). **Verified 2026-07-30, the true remaining set is exactly
-   two literals** — `scene/routes.WALL_CLEARANCE_W = 48.0` (whose own comment claims it *is*
-   `cam.COLLISION_RADIUS_W`, which is now false) and `imagefield.COLLISION_OUTSET = 48.0` — plus
-   the layout skill's route-sweep prose, which is correct only while `routes` stays 48.
-   The split has teeth: a 130u corridor measures 1820 standable cells at 48 and **0** at 80, and
-   `routes` is the optimistic direction, so the behavior-tree sweeper will certify a patrol the
-   engine cannot walk; `content/pathfind.py` disagrees with itself (line 104 defaults to `routes`'
-   48, line 155 to `cam`'s 80). Reconciling them is its own change, with the owner — five behavior
-   tests pin against 48 and need RE-MEASURING, not relaxing.
+   (as did `content/pathfind.py:155`). **Verified 2026-07-30, the true remaining set was exactly
+   two literals** — `scene/routes.WALL_CLEARANCE_W` and `imagefield.COLLISION_OUTSET`.
+   ★ **`routes.WALL_CLEARANCE_W` RECONCILED to 80, owner-approved.** It was never independently
+   derived — a stale copy of the mis-measured value, its own comment claiming to *be*
+   `cam.COLLISION_RADIUS_W` — and it erred OPTIMISTIC (a 130u corridor measures 1820 standable cells
+   at 48 and **0** at 80, so every sweep in `routes` certified patrols the engine cannot walk). That
+   also settled `content/pathfind.py` disagreeing with itself (`route_polyline` took `routes`' 48,
+   `route` took `cam`'s 80); both now resolve to 80. **RE-MEASURED, not relaxed — and this study's
+   "five behavior tests" estimate was high: exactly ONE moved.** `test_behavior_pursuit.
+   test_concave_notch_is_caught_with_an_exemplar_pair`'s exemplar bound had to go wall-INCLUSIVE,
+   because at an 80u step the leg `(200,-600)->(-600,40)` lands exactly on the notch wall `x = -400`
+   (a 48u step never did) — a point ON the hole's boundary names the hole as truly as one inside it.
+   ⚠ **`imagefield.COLLISION_OUTSET` stays 48 ON PURPOSE, pending a PLAYTEST.** Offline it looks
+   equally wrong (it under-outsets every traced field by 32u — "the back edge is a bit short") and
+   flipping it breaks **zero** tests, but it moves the shipped walkmesh geometry of every traced
+   field, and that is an in-game judgment, not a green suite. `tests/test_floorplan.py::
+   test_the_walk_radius_is_reconciled_everywhere_but_the_trace_outset` pins both halves.
 2. **Whether front-align *looks* right in-game.** The fill numbers are unambiguous and it matches
    `frame_floor`'s own defaults, but "the room reads as a room" is a human judgment. Get a screenshot
    of the first composed room before emitting a whole dungeon.
