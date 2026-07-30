@@ -54,6 +54,7 @@ from .battledoc import BattleDoc
 from .behaviordoc import BehaviorDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
+from .floorplandoc import FloorplanDoc
 from .forms_qt import build_form, pick_catalog, read
 from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
@@ -945,6 +946,8 @@ class Workspace(QMainWindow):
             self.trace_doc.retheme(pal)                       # the backdrop canvas paints too
         if getattr(self, "place_doc", None) is not None:
             self.place_doc.retheme(pal)                       # its backdrop canvas paints too
+        if getattr(self, "floorplan_doc", None) is not None:
+            self.floorplan_doc.retheme(pal)                   # the plan chart paints too
         if getattr(self, "_find_bar", None) is not None:
             self._find_bar.retheme(pal)                       # both highlight tiers are QTextCharFormats --
                                                               # QPainter-side, so the sheet cannot reach them
@@ -1000,6 +1003,8 @@ class Workspace(QMainWindow):
             self.trace_doc.set_scale(self._text_scale)      # the backdrop canvas too
         if getattr(self, "place_doc", None) is not None:
             self.place_doc.set_scale(self._text_scale)      # its backdrop canvas too
+        if getattr(self, "floorplan_doc", None) is not None:
+            self.floorplan_doc.set_scale(self._text_scale)  # the plan chart + its findings list
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1784,6 +1789,15 @@ class Workspace(QMainWindow):
         # disk touch is the user's own 'Load the room' click.
         self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, scale=self._text_scale)
         self.tabs.addTab(self.place_doc, "Place")
+        # click-authoring Rung 6c (studies/click-authoring/RUNG6.md): lay several rooms out on a
+        # plan-view chart, declare which shared walls are doors, Compose a wired dungeon through
+        # the `floorplan` CLI verb -> open_campaign, so the composed graph is visible at once.
+        # Undo is DOC-LOCAL (a door edit spans two rooms; _UndoRec is single-member), and the doc
+        # touches no disk until the user's own Open / Compose.
+        self.floorplan_doc = FloorplanDoc(self.pal, KIT, run=self.run_job,
+                                          problems=self._show_problems, scale=self._text_scale,
+                                          on_composed=self.open_campaign)
+        self.tabs.addTab(self.floorplan_doc, "Floorplan")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
@@ -1795,7 +1809,10 @@ class Workspace(QMainWindow):
         # a setTabVisible(False) tab still works + fires the signal).
         self._rail_groups = [
             ("Home", [self._welcome_tab]),
-            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.place_doc]),
+            # Floorplan authors the TOPOLOGY; the Map renders it. They are complements, so they
+            # share the Author rail.
+            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.place_doc,
+                        self.floorplan_doc]),
             ("Assets", [self.import_field, self.trace_doc, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
             ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
@@ -4913,6 +4930,9 @@ class Workspace(QMainWindow):
             self._feed_place()
             self.crumb.set([bc.Crumb("place", w.crumb_label())])
             self._set_chip(None)
+        elif w is getattr(self, "floorplan_doc", None):   # self-contained: no _feed_*, no
+            self.crumb.set(self._content_crumbs)          # _checkpoint (its undo is DOC-LOCAL),
+            self._set_chip(None)                          # and NO disk touch on show
         elif w is getattr(self, "trace_doc", None):   # offer the OPEN field's project for a
             self.crumb.set(self._content_crumbs)      # one-click (or pristine-auto) reopen
             self._set_chip(None)

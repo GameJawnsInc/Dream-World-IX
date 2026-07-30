@@ -341,9 +341,37 @@ arrival position + facing per side, encounters, save-point siting.
   DictionaryPatch stack before minting (the kit's own collision guard runs only at
   `deploy --apply`, i.e. after you have already authored N rooms onto colliding ids).
   Two rooms deployed **additively** to 30500/30501 — the other ~407 registrations untouched.
-- **6c** — the Workspace **Floorplan** tab on the Author rail beside Map; undo is doc-local over the
-  session snapshot (`TraceDoc`'s model), which is what makes a door-pair edit atomic despite
-  `shell._UndoRec` being single-member.
+- **6c ★** — the Workspace **Floorplan** tab on the Author rail beside Map (`floorplandoc.py`):
+  `PlanCanvas` is a plan-view CHART with one isotropic px↔world pair (+z up, the layout probe's
+  frame — probed 26/26: exact inverse to 1e-6, a click on the cursor within 0.4u after a real zoom
+  and pan). Rooms mode draws and drags; Doors mode paints `shared_edges` candidates on every shared
+  wall and one click declares a door. **`compose()` runs live on every edit** (worker thread, 140 ms
+  debounce, generation-counted — it is ~0.5 s/room) so the fifteen gates paint ON the drawing.
+  Compose streams the CLI verb through `run_job`, then `open_campaign`s the result so the dungeon
+  lands as a live campaign (§5 call site 3). Undo is doc-local over the session snapshot
+  (`TraceDoc`'s model) — that is what makes a door-pair edit atomic despite `shell._UndoRec` being
+  single-member, and a half-undone pair is a gateway with no arrival. 56 fences, 140 with
+  a11y/style/smoke, 616 across the GUI family; snaps at dark/100, dark/150, light/125.
+  ⚠ Disclosed: with a finding showing the chart is 130-158 px at CALIBRE 150 — spawned as its own
+  task (a splitter carries the round-7 squeeze-persistence obligation).
+  **An adversarial review after the build found NINE defects**, two of them fixes the build claimed
+  to have made and the renders disproved. The durable ones:
+  (a) **a control DEAD ON CLICK, on the tab's whole purpose** — you could not start a room abutting
+  another, because a new room's first corner IS the neighbour's corner and the press ate it as a
+  drag-grab. **Invisible to all 47 fences and every snap: they all drove `click_world` directly and
+  so never ran the press/release resolution.** A press on something grabbable is now provisional and
+  a release with no travel is a click, fenced with synthesised real `QMouseEvent`s.
+  (b) **THE NINTH-GROUND LAW** — each room drew its name in the same token its own fill was made of:
+  **2.16:1** on nord accent, under even the 3.0 non-text floor in six of eight palettes. State is now
+  said three ways that survive a fixed ink (stroke colour, stroke width, a glyph — which also
+  survives colour blindness, as the ink never did).
+  (c) **THE DEFAULT-VALUE LAW** — with no `.ff9deploy.toml` (every fresh checkout's first run) the
+  tab reported "composes: ids 30000-30000" with Compose ENABLED, then the click refused and did
+  nothing; and `on_compose` never consulted the name validator at all. One `_envelope_problems()`
+  list is now spent by both the paint and the click.
+  (d) the tests were reading the developer's real gitignored `.ff9deploy.toml`, and it was
+  load-bearing — adding the id gate turned four "clean plan" assertions red because they had been
+  silently consuming this machine's id band. Green here, red on a colleague's checkout.
 - **6d** — the playtest. Open questions it settles are listed in RUNG6.md §6: `R_WALK = 80` vs the
   repo's 48 (a code derivation, not a measurement), whether front-align *looks* right, the 170u
   depth floor, and `entry_settle = "auto"` on a hand-drawn polygon.

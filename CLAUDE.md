@@ -81,8 +81,14 @@ walkmesh math, gateways/triggers/flags, dialogue/text, encounters + BGM + battle
 | FF9 field assets | `<game>\StreamingAssets\p0data*.bin` (UnityRaw 5.2.3; UnityPy reads them) |
 
 **Deploy layout** (detail → the `deploying-ff9-mods` skill, [[project-ff9-git-layout]]): each worktree
-**MUST pin its own deploy target** in a gitignored **`.ff9deploy.toml`** (`mod_folder` + scratch `id`);
-without one you silently share the default folder and the 4003 slot with every other session. Override via
+**MUST pin its own deploy target** in a gitignored **`.ff9deploy.toml`** (`mod_folder`; `campaign_id_base`
+if you compose a set) — without one you silently share the default folder with every other session.
+⚠ **But do NOT pin `id` there.** It is not private: `workspace/builddoc.py:172` is
+`tid = self.worktree_id or 4003`, so it RENAMES the Build tab's "Test slot NNNN" radio for whoever
+launches the Workspace from that tree — **and that is the human**. It cost a playtest: a pinned scratch id
+became the owner's default test slot, their next deploy landed there instead of the in-place target they
+meant, and it wiped a room that was mid-playtest. **Pass `--id` explicitly instead** (already mandated
+above). The same leak bites tests — pin the path through a seam, never read the real file. Override via
 `--mod-folder` / `$FF9_MOD_FOLDER`. `Memoria.ini [Mod] FolderNames` stacks folders in priority order —
 currently `"FF9CustomMap", "FF9CustomMap-world", "MoguriMain", "MoguriVideo"` — and each folder's own
 DictionaryPatch/BattlePatch is read at launch. The overworld has its own `-world` folder because campaign
@@ -269,7 +275,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   lives on an unmerged branch)
 - Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3i ★ offline (so_record multi-part fix, 5 false PRIVATE repaired; CHANNEL A discloses 65; census/G contained) → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
-- Click authoring — ★ Rungs 0-4 owner-confirmed; rung 6 (the floorplan composer) 6a+6b built, deployed 30500/30501, awaiting playtest → `studies/click-authoring/RUNG6.md`
+- Click authoring — ★ Rungs 0-4 + rung 6 gateways owner-confirmed in-game; the floorplan composer 6a-6c built, Floorplan tab shipped → `studies/click-authoring/RUNG6.md`
 - Path D, a genuinely new 3rd overworld world — PLANNED (adversarially-reviewed, unexecuted): Rung 0/1 (debug reach + a runtime-built WorldDisc) are the pivotal unknowns → `studies/path-d-new-world/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
