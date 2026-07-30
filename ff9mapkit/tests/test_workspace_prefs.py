@@ -302,6 +302,21 @@ def test_layout_prefs_carry_the_console_pane(prefs_file):
     assert p.layout() == {}
 
 
+def test_layout_prefs_carry_the_floorplan_rail(prefs_file):
+    """The Floorplan chart/findings divider rides in the same one layout pref, and inherits the same
+    ARITY-IS-PART-OF-CORRUPT guard: a 1-element list is a list of non-negative ints and would sail
+    through every other check, then detonate at an indexed read far from its cause (the console
+    pane's own bug, and the reason that loop carries an arity per key)."""
+    p = prefs_file
+    p.set_layout({"floorplan_split": [420, 118]})
+    assert p.layout() == {"floorplan_split": [420, 118]}
+    p.set_layout({"floorplan_split": [420, 0]})                  # a shut well is a legal CHOICE
+    assert p.layout() == {"floorplan_split": [420, 0]}
+    for junk in ([420], [420, 118, 9], "tall", [420, -1], [420, "x"], 7):
+        p.set_layout({"floorplan_split": junk})
+        assert p.layout() == {}, junk
+
+
 def test_a_squeezed_panel_is_not_a_preference(app):
     """One narrow session must not be permanent.
 
@@ -360,6 +375,59 @@ def test_the_restore_path_spends_the_repair(app, monkeypatch):
     w = _win(app)                                        # __init__ runs _restore_layout
     assert [76, 1138, 64] not in seen, "the squeeze was replayed -- the repair is not wired into restore"
     assert list(shell._DEFAULT_CENTRAL_SPLIT) in seen, "restore never asked for the healed layout"
+    w.close()
+
+
+def test_the_floorplan_rail_round_trips_through_the_shells_one_layout_pref(app, monkeypatch):
+    """★ THE CALL-SITE LAW, on a rail the doc owns and the shell persists.
+
+    The Floorplan tab's chart/findings divider knows its own floors (they are read off its canvas
+    chips and its list widget, so only it can), but the shell owns the ONE layout pref -- so the doc
+    exposes ``split_sizes`` / ``restore_split`` / ``repair_split`` and ``_save_layout`` /
+    ``_restore_layout`` are the call sites that spend them. A mechanism with no call site has a
+    half-life; this is the fence on both ends of that sentence.
+
+    The save half also carries the round-7 law in its cheapest form: an UNTOUCHED rail writes NO
+    key at all, because a value the app computed is not a value the user chose, and a persisted px
+    pair could never track the CALIBRE dial the way re-deriving the default does.
+    """
+    w = _win(app)
+    w.show()
+    saved = {}
+    monkeypatch.setattr(shell.prefs, "set_layout", saved.update)
+
+    assert w.floorplan_doc.split_sizes() is None, "nobody has dragged the rail yet"
+    w._save_layout()
+    assert "floorplan_split" not in saved, "an app-computed rail must not be persisted as a choice"
+
+    w.floorplan_doc._on_split_moved(0, 1)                # what splitterMoved delivers on a real drag
+    chosen = w.floorplan_doc.split_sizes()
+    assert chosen is not None
+    w._save_layout()
+    assert saved["floorplan_split"] == chosen, "the author's own balance never reached the pref"
+    w.close()
+
+
+def test_the_floorplan_rails_restore_path_spends_its_repair(app, monkeypatch):
+    """...and a saved squeeze must not survive the restore. Asserted through the doc's own seam
+    rather than through rendered sizes: this module runs offscreen, whose stub font DB reports the
+    rail's floors differently from the real one (the sibling central-split fence documents the same
+    trap), so what restore owes us is that it never HANDS a squeeze to the splitter."""
+    seen = []
+    orig = shell.FloorplanDoc.restore_split
+
+    def spy(self, sizes):
+        got = orig(self, sizes)
+        seen.append((list(sizes), got))
+        return got
+
+    monkeypatch.setattr(shell.FloorplanDoc, "restore_split", spy)
+    monkeypatch.setattr(shell.prefs, "layout", lambda: {"floorplan_split": [900, 12]})
+    w = _win(app)                                        # __init__ runs _restore_layout
+    assert seen, "restore never spent the doc's repair -- the rail pref is write-only"
+    asked, applied = seen[0]
+    assert asked == [900, 12] and applied is False, "a pinned-at-the-floor fossil was applied"
+    assert w.floorplan_doc.split_sizes() is None, "the live default must be left to re-derive"
     w.close()
 
 

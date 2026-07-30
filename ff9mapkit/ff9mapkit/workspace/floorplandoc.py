@@ -33,6 +33,14 @@ pair is a gateway with no arrival: the destination falls through to ``[player] s
 SILENTLY (``lint_player_arrivals`` catches only self-loops), which is precisely the hazard
 gate G3 exists to refuse. A snapshot stack makes the pair atomic by construction.
 
+★ **THE CHART AND THE FINDINGS WELL SHARE ONE BUDGET, AND THE AUTHOR OWNS THE DIVISION.** They sit
+in a vertical :class:`~PySide6.QtWidgets.QSplitter` (the fixed rows ride in the upper pane, so the
+reading order is unchanged and the handle lands between the two surfaces that actually trade
+pixels). The chart's floor is Qt-enforced and read from the canvas's own overlay chips
+(:meth:`PlanCanvas.chart_floor`) rather than being a fraction of the document, and a balance the
+author drags is remembered while one the app computed is not — see :meth:`FloorplanDoc.split_sizes`
+and :meth:`FloorplanDoc.repair_split` for the round-7 law paid on this rail.
+
 ★ **THE LIVE GATE FEEDBACK IS THE TAB'S REAL VALUE.** ``compose`` is pure and raises
 ``ComposeError`` carrying EVERY problem, so it runs on every edit: offending rooms and doors
 paint in the error colour, every problem is listed (an unattributable one is still listed —
@@ -62,7 +70,7 @@ from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QPushButton, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from .. import floorplan as FP
@@ -311,6 +319,27 @@ class PlanCanvas(QGraphicsView):
         self._compass.move(10, 8)          # top-left: clear of the zoom hint's corner
         self._coords.adjustSize()
         self._coords.move(10, max(4, vp.height() - self._coords.height() - 8))
+        self.setMinimumHeight(self.chart_floor())
+
+    # The plan band the floor keeps between the two chips, in CHIPS. One: the smallest height at
+    # which a room outline can be seen at all between the captions, which is what makes this a
+    # chart rather than two labels.
+    _FLOOR_BAND_CHIPS = 1
+
+    def chart_floor(self):
+        """The height under which this stops being a CHART and becomes two captions.
+
+        THE CHIPS ARE THE FLOOR. ``_place_hint`` pins the compass to the viewport's top-left and
+        the zoom hint to its bottom-right (both 8px in), so their combined height is chrome the
+        drawing never gets. Read from the LIVE labels, never written as a px constant: a chip is
+        ~19px at CALIBRE 100 and ~26 at 150, and a frozen number would either starve the chart at
+        150 or oversubscribe the tab (the round-7 law -- an oversubscribed column shaves every
+        member). Kept deliberately modest for the same reason: it must fit beside a whole gate
+        refusal in a 248px pool at 150, which is what the pool measures in an 850px window.
+        """
+        top = self._compass.sizeHint().height()
+        bot = max(self._hint.sizeHint().height(), self._coords.sizeHint().height())
+        return 8 + top + self._FLOOR_BAND_CHIPS * max(top, bot) + bot + 8
 
     # ------------------------------------------------------------------ THE frame pair
     @staticmethod
@@ -992,17 +1021,35 @@ class FloorplanDoc(QWidget):
         self._id_base_read = False
         self._note, self._note_state = "", ""         # the last gesture's own line, re-painted
         self._polished = False                        # see showEvent: measure AFTER polish
+        self._split_choice = None                     # the author's OWN chart/well balance. None
+        #                                               means the app is still choosing it, and an
+        #                                               app-chosen value is never persisted (see
+        #                                               split_sizes / repair_split)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 10)
         root.setSpacing(6)
+        # NO STANDING CHROME OVER THE CHART AT ALL -- no prose, and no crown either.
+        #
         # NO standing prose at all, not even one line. THE CHART IS THE PRIMARY SURFACE and at
         # CALIBRE 150 it had 134px of a 556px document: measured, the note cost 28px of that and
         # said nothing the status line ('Draw a room: click its corners...') and the two ToolStrip
         # tooltips do not already say at the moment they are needed. Prose that repeats a live
         # teach is not information, it is a floor under the instrument.
-        crown, _ = widgets.nameplate("", "Floorplan")
-        root.addWidget(crown)
+        #
+        # THE CROWN WENT THE SAME WAY, BY THE SAME ARGUMENT AND WITH LESS TO SAY FOR ITSELF. A bare
+        # `widgets.nameplate("", "Floorplan")` cost 46px of display serif plus 6 of layout spacing
+        # -- 21% of the 248px movable pool at CALIBRE 150 -- to restate the tab the author had just
+        # clicked, two rows and 46px above it. Every OTHER crowned doc (Build & Deploy, Co-op,
+        # Import, Place, Trace) pairs that duplicated name with a teach NOTE, which is real
+        # information and stays; five docs (Battle, Models, Save, World, Behavior) already ship
+        # with no crown at all, so a crownless doc is in the app's own language. This tab's note
+        # was removed for the reason directly above, and what remained was the duplication alone.
+        #
+        # Measured native, 1280x850 dark, chart height before -> after: at CALIBRE 100 the crown was
+        # charging 39px (refused 310 -> 349), at 125 46px (201 -> 247) and at 150 52px (127 -> 179,
+        # +41%) -- the price rose with the dial, so it was dearest exactly where the pool was
+        # smallest. The on-ramp goes 254 -> 306 at 150 and the reclaimed rail 245 -> 297.
 
         # -- the tools row: the click semantics, the Doors cluster, the gesture verbs --
         row = QHBoxLayout()
@@ -1069,7 +1116,32 @@ class FloorplanDoc(QWidget):
         self.canvas.door_selected.connect(self._on_door_selected)
         self.canvas.door_deleted.connect(self._on_door_deleted)
         self.canvas.note.connect(self._on_note)
-        root.addWidget(self.canvas, 1)
+
+        # ★ THE CHART AND THE WELL SHARE ONE HEIGHT BUDGET, AND THE AUTHOR OWNS THE DIVISION.
+        # Measured native at CALIBRE 150 in an 850px window: of a 556px document the fixed chrome
+        # takes 308 (crown 46 · two control rows 98 · band-caption row 76 · status 28 · margins and
+        # spacing 60), leaving a 248px pool -- and the well claimed 118 of it the moment a gate
+        # refused, so the chart collapsed to 130px EXACTLY when a compose problem was showing,
+        # which is exactly when the author needs to see the drawing the problem is about. There are
+        # no free pixels to find at that scale (a whole 3-line refusal genuinely needs ~108 of the
+        # 248), so the honest fix is not a cleverer cap -- it is a rail.
+        #
+        # WHY THE FIXED ROWS RIDE IN THE UPPER PANE. The chart and the well are not adjacent: the
+        # envelope, the id row and the status line sit between them, and they are all fixed-height.
+        # Putting them in the upper pane keeps the reading order EXACTLY as shipped (so the status
+        # line's "see the list below" stays true) while making the handle sit visually between the
+        # two surfaces that are actually trading pixels: every px the rail takes from the well is a
+        # px the canvas gets, because the canvas is the only stretching member above it.
+        #
+        # It also moves the chart's floor somewhere Qt ENFORCES it. The old ceiling was arithmetic
+        # -- `min(total, self.height() // 4)` in _fit_plist -- and a fraction of the DOCUMENT cannot
+        # know what else is in the column, which is how the well came to own a quarter of the
+        # height while the chart had 23%. A splitter minimum is honoured before any pane is sized.
+        self._upper = QWidget()
+        up = QVBoxLayout(self._upper)
+        up.setContentsMargins(0, 0, 0, 0)
+        up.setSpacing(6)
+        up.addWidget(self.canvas, 1)
 
         # -- the envelope: what the composed dungeon is called, and where its ids live.
         # THE ROUND-7 LAW (an oversubscribed row shaves EVERY control) is why this is TWO rows.
@@ -1108,7 +1180,7 @@ class FloorplanDoc(QWidget):
         self.mod_box.textChanged.connect(lambda _t: self._touch())
         row.addWidget(self.mod_box)
         row.addStretch(1)
-        root.addLayout(row)
+        up.addLayout(row)
 
         # -- the id row. THE ONE BAND LESSON, taught by the shared helper (never a private copy of
         # the numbers), and on its own row so the caption gets its one line.
@@ -1133,14 +1205,14 @@ class FloorplanDoc(QWidget):
         self.compose_btn.setAccessibleName("Compose the dungeon")
         self.compose_btn.clicked.connect(self.on_compose)
         row.addWidget(self.compose_btn, 0, Qt.AlignmentFlag.AlignTop)
-        root.addLayout(row)
+        up.addLayout(row)
 
         # ONE LINE, and it ELIDES. A wrapping status took a second line at every scale and a third
         # at 150 — height the chart pays for. So it is an ElideLabel with the VERDICT first and the
         # gesture echo last: an elide then loses the echo, never the judgement, and the whole
         # string survives in the tooltip.
         self.status = widgets.ElideLabel("", "muted")
-        root.addWidget(self.status)
+        up.addWidget(self.status)
         # The findings list is HIDDEN while the plan is clean and sized to its real row count
         # otherwise. THE CHART IS THE PRIMARY SURFACE and the snap measured what a standing box
         # costs it: an always-visible 5-row well left the canvas 221px of an 850px window. The
@@ -1161,7 +1233,20 @@ class FloorplanDoc(QWidget):
         #                                          _fit_plist -- sizeHintForRow reported 46 for an
         #                                          84px row and the range stayed 0..0)
         self.plist.hide()
-        root.addWidget(self.plist)
+        self.split = QSplitter(Qt.Orientation.Vertical)
+        self.split.setObjectName("floorplanSplit")     # the app sheet paints every handle 1px --
+        #                                                selector-scoped so THIS one is grabbable
+        #                                                (see style.py; the round-9 census law)
+        self.split.setAccessibleName("Chart and findings divider")
+        self.split.setToolTip("Drag to trade height between the chart and the findings below it.")
+        self.split.addWidget(self._upper)
+        self.split.addWidget(self.plist)
+        self.split.setStretchFactor(0, 1)              # every spare pixel goes to the CHART
+        self.split.setStretchFactor(1, 0)
+        self.split.setCollapsible(0, False)            # the chart never collapses to nothing...
+        self.split.setCollapsible(1, True)             # ...the well may be dragged shut: a choice
+        self.split.splitterMoved.connect(self._on_split_moved)
+        root.addWidget(self.split, 1)
         self._judged.connect(self._finish_judge)
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -1587,6 +1672,15 @@ class FloorplanDoc(QWidget):
         self.compose_btn.setText("Recompose" if self._project else "Compose…")
         self._paint_status(composed, errors, warnings)
 
+    def _well_shut(self):
+        """True when the AUTHOR dragged the findings well shut (never when the app sized it).
+
+        Read off the recorded choice, not off ``plist.height()``/``isVisible()``: a doc that has not
+        been shown yet reports both as nothing, and the status line's wording must not depend on
+        whether anyone has looked at the tab.
+        """
+        return bool(self._split_choice) and self._split_choice[1] <= 0
+
     def _paint_status(self, composed, errors, warnings):
         """One elided line: THE GESTURE NOTE LEADS, then the verdict, then the counts.
 
@@ -1606,8 +1700,15 @@ class FloorplanDoc(QWidget):
         elif self._pending_judge:
             head = "checking the gates…"
         elif errors:
-            head = (f"✕ {len(errors)} problem{'' if len(errors) == 1 else 's'} — see the list "
-                    f"below")
+            # ...and it must not promise a list the author dragged shut. The well is collapsible on
+            # purpose (that IS a choice, so the rail keeps it), which makes "see the list below" a
+            # lie in exactly the state where a refusal most needs somewhere to point.
+            # ONE WORD LONGER THAN THE PHRASE IT REPLACES, and that is a budget, not a preference:
+            # this is an ElideLabel that drops its TAIL, and the first cut ("open the findings rail
+            # below to read them") rendered as "...below to rea…" at CALIBRE 150 — eliding away the
+            # very words it was added to say, and taking the room/door counts with it.
+            where = "open the list below" if self._well_shut() else "see the list below"
+            head = f"✕ {len(errors)} problem{'' if len(errors) == 1 else 's'} — {where}"
             state = state or "error"
         elif composed is not None:
             ids = [r.field_id for r in composed.rooms]
@@ -1907,6 +2008,7 @@ class FloorplanDoc(QWidget):
         n = self.plist.count()
         self.plist.setVisible(bool(n))
         if not n:
+            self._fit_split()                       # a hidden pane takes 0; hand the rail back
             return
         fm = self.plist.fontMetrics()
         line = fm.height()
@@ -1931,4 +2033,109 @@ class FloorplanDoc(QWidget):
         first = self.plist.item(0).sizeHint().height()
         if self.height() > 200:
             total = min(total, max(first, self.height() // 4))
+        # The ceiling stays a MAXIMUM, so the well never claims more than its own content and on the
+        # rail it can only ever hand height DOWN to the chart. The floor under it is what keeps a
+        # drag from leaving a hairline that shows nothing.
         self.plist.setMaximumHeight(total + 2 * self.plist.frameWidth() + 4)
+        self._fit_split()
+
+    def _fit_split(self):
+        """Drive the rail's DEFAULT division, until the author takes it over.
+
+        ★ A SPLITTER SEEDS FROM sizeHint AND NEVER RECLAIMS WHAT maximumHeight REFUSES. This file
+        already knows the first half — a ``QListWidget``'s own sizeHint is ~256x192 whatever it holds
+        (the ``fit_dialog`` lesson) — and the rail taught the second half by regressing the very
+        thing it was built to fix. Measured at CALIBRE 100 the moment the panes went in: the handle
+        was placed at the well's 192px HINT while ``maximumHeight`` clamped the widget itself to 72,
+        so 120px became dead splitter void and the chart fell from 313 to 184. Stretch factors do not
+        help; they divide the SURPLUS, and there was none to divide. So the default is set here,
+        explicitly, from the ceiling ``_fit_plist`` just measured.
+
+        The guard is the round-7 law in its cheapest form: once ``splitterMoved`` has fired the
+        balance belongs to the author and this never speaks over it again.
+        """
+        if self._split_choice:
+            return
+        total = sum(self.split.sizes())
+        if total <= 0:
+            return                                 # not laid out yet (construction); showEvent re-runs
+        want = self.plist.maximumHeight() if self.plist.isVisible() else 0
+        want = max(0, min(want, total - self._upper.minimumSizeHint().height()))
+        self.split.setSizes([max(1, total - want), want])
+
+    # ============================================================== the rail's persisted balance
+    def pane_floor(self, i):
+        """The height pane ``i`` of the rail cannot be dragged below — READ, never written.
+
+        The same tell ``shell._repair_central_split`` reads off ``_central_split``, and read for the
+        same reason: it is font-dependent on the pane that matters. ``_upper``'s floor is the chart's
+        own :meth:`PlanCanvas.chart_floor` plus the fixed rows, so it moves with the dial (210 at
+        CALIBRE 100, 284 at 150). The well's is Qt's list-widget default, which measured a flat 74 at
+        every rung — a number no dial can hear, which is exactly why it is taken from the live widget
+        here instead of being copied into the source as a constant that would then be wrong twice.
+        """
+        return self.split.widget(i).minimumSizeHint().height()
+
+    def _on_split_moved(self, _pos, _index):
+        """The author moved the handle. From here on the balance is THEIRS, not the app's.
+
+        THE FLOOR IS QT'S, NOT OURS, and the measurement is what settled that. The first cut put a
+        ``setMinimumHeight(one line + padding)`` on the list so a drag could leave a single readable
+        row — and it was wrong twice. It fights ``setCollapsible(1, True)``: dragged past the bottom
+        the RAIL went to 0 (the chart correctly took all 72px at CALIBRE 100) while the WIDGET stayed
+        pinned at 39 and painted over the status line beneath it. And it was unreachable anyway —
+        ``qSmartMinSize`` clamps a drag at ``min(minimumSizeHint, maximumHeight)``, which is 72-74
+        here, so the branch that snapped a hairline well could never once have run. Two states are
+        what the rail actually offers, and two is enough: the content-sized well, and shut.
+
+        The status line is repainted afterwards, because it names where the findings are and the
+        author has just moved them (see :meth:`_well_shut`).
+        """
+        self._split_choice = [int(x) for x in self.split.sizes()]
+        self._paint_verdict()                      # ...through the ONE owner of "repaint the verdict"
+
+    def split_sizes(self):
+        """The author's own ``[chart column, well]`` balance, or ``None`` if they never dragged it.
+
+        ★ A VALUE THE APP COMPUTED UNDER DURESS IS NOT A VALUE THE USER CHOSE — the round-7 law,
+        ``shell._repair_central_split``'s whole reason for existing. The cheapest way to honour it is
+        to never record the app's own arithmetic in the first place: until ``splitterMoved`` fires
+        there is no preference here, so the save path writes nothing and the next launch gets the
+        LIVE default, which tracks the CALIBRE dial and the window as a saved px pair never could.
+        """
+        return list(self._split_choice) if self._split_choice else None
+
+    def restore_split(self, sizes):
+        """Apply a persisted balance, healed first. A refused value leaves the live default alone."""
+        healed = self.repair_split(sizes)
+        if healed is None:
+            return False
+        self._split_choice = list(healed)
+        self.split.setSizes(healed)
+        return True
+
+    def repair_split(self, sizes):
+        """The persisted balance to apply, or ``None`` for "ignore it, keep the live default".
+
+        The round-7 law spent on this rail. The tell is the same one, and so is where it stops:
+
+        * **Pinned at a pane's minimum == forced.** A short window — or a bigger CALIBRE than the one
+          that saved — can only take height out of the panes, which clamp to their floors, and a
+          naive save then persists the clamp as if it were a choice. The floors come from
+          :meth:`pane_floor`, read at runtime here and in the fence, never written as literals.
+        * **Collapsed to exactly 0 == chosen.** ``setCollapsible(1, True)``, so a zero well is a
+          deliberate drag and survives. A zero CHART is the opposite: pane 0 is not collapsible, so
+          no drag can produce it, and it is refused as corrupt rather than applied.
+        """
+        if not isinstance(sizes, (list, tuple)) or len(sizes) != self.split.count():
+            return None                            # arity — prefs.layout() fences it too
+        try:
+            sizes = [int(x) for x in sizes]
+        except (TypeError, ValueError):
+            return None
+        if any(x < 0 for x in sizes) or sizes[0] == 0:
+            return None                            # a non-collapsible pane at 0 was never a drag
+        for i, size in enumerate(sizes):
+            if 0 < size <= self.pane_floor(i) + 2:
+                return None                        # pinned at the minimum == forced. Heal it.
+        return sizes

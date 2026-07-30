@@ -910,7 +910,7 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
     _grab(ctx, f"place-{state}-canvas", win.place_doc.canvas)   # the SUBJECT, not just the window
     _close(win)
 
-FLOORPLAN_STATES = ("bare", "rooms", "door", "refused")
+FLOORPLAN_STATES = ("bare", "rooms", "door", "refused", "reclaimed")
 
 # The snap's own plan, in PLAN-frame world units: an L of three abutting rooms. Deterministic and
 # kit-authored (zero Square-Enix bytes, no install needed -- the composer is pure math).
@@ -932,6 +932,12 @@ def snap_floorplan(ctx: _Ctx, state: str) -> None:
     entry mark ('rooms'), the Doors tool with one DECLARED door plus the shared wall still on
     offer ('door'), or the live gate REFUSING a door shallower than 2*R_WALK -- the door and both
     its rooms in the error colour, the reason listed verbatim, Compose off ('refused').
+
+    'reclaimed' is 'refused' with the chart/findings rail dragged shut -- the author having read the
+    refusal and asked for the drawing back. It is the reason the rail exists and the only state that
+    shows what it buys (at CALIBRE 150 the chart goes 127 -> 245px), so it is pinned: a state that
+    cannot be reproduced cannot be reviewed. The status line changes with it, because "see the list
+    below" is a lie once the list is shut.
 
     'refused' shows the DOOR class deliberately. ``compose`` raises per STAGE, so a bad room
     OUTLINE never reaches the door gate at all and a plan carrying both would render only the room
@@ -955,13 +961,19 @@ def snap_floorplan(ctx: _Ctx, state: str) -> None:
         doc.name_box.setText("SUNKEN")
         for poly in (_FP_A, _FP_B, _FP_C):
             _fp_draw(doc.canvas, poly)
-    if state in ("door", "refused"):
+    if state in ("door", "refused", "reclaimed"):
         doc.tools.set_current("doors")
         doc.judge_now(sync=True)
         doc.canvas.click_world(0, 0)                   # declare the ROOM1-ROOM2 wall
-    if state == "refused":
+    if state in ("refused", "reclaimed"):
         doc.depth.setValue(100)                        # under DEPTH_MIN: refused, never clamped
     doc.judge_now(sync=True)
+    _settle(6)
+    if state == "reclaimed":
+        # through moveSplitter, not setSizes: moveSplitter is what emits splitterMoved, and the
+        # recorded CHOICE is the whole difference between a drag and the app's own arithmetic.
+        doc.split.moveSplitter(sum(doc.split.sizes()), 1)
+        _settle(6)
     _settle(6)                                     # the viewport must be SETTLED before the fit:
     doc.canvas.fit()                               # fit() measures the live viewport
     _settle(4)
