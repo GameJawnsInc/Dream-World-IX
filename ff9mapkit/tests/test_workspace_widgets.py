@@ -195,6 +195,42 @@ def test_build_form_tucks_advanced_fields_in_guided_mode(app):
         forms_qt.set_guided(True)                          # restore the module default for other tests
 
 
+def test_a_catalog_field_takes_a_typed_name_but_browse_still_fills_the_id(app):
+    """The form must not be stricter than the format it edits, and the picker must not get looser.
+
+    `[encounter] scene` accepts a battle-scene NAME (build.resolve_encounter_scenes) -- but the form parsed
+    it as an int, so typing the very value its own placeholder invited raised "expected a whole number, got
+    'BSC_CA_E013'" and Save refused legal TOML. The naive fix (drop the numeric kind) would have flipped
+    `want_id` and made Browse write a NAME into every user's file; worse, a WARM `encounter` label reads
+    "Goblin, Fang -- Evil Forest (field 250, random)", which no resolver takes. Both halves, fenced.
+    """
+    from PySide6.QtWidgets import QLineEdit, QPushButton
+
+    from ff9mapkit.editor import forms, theme
+    from ff9mapkit.workspace import forms_qt
+    pal = theme.pick_palette("dark")
+    asked = []
+    w, getters = forms_qt.build_form(
+        forms.ENCOUNTER_SPEC, {"scene": ""}, pal,
+        pick=lambda cat, cur, want_id=False: (asked.append((cat, want_id)), "296")[1])
+
+    # the placeholder no longer promises more than the parser accepts (it used to say "a encounter name or id")
+    scene_edit = next(e for e in w.findChildren(QLineEdit) if "BSC_" in e.placeholderText())
+    assert scene_edit.placeholderText() == "a scene id, or a BSC_ name"
+
+    # a typed NAME is legal: no notice, and it reaches the entity as the name (the build resolves it)
+    scene_edit.setText("BSC_CA_E013")
+    assert w.validate() == 0, "a battle-scene name must not raise a parse notice"
+    assert forms.build_entity(forms.ENCOUNTER_SPEC, {k: g() for k, g in getters.items()}) == {
+        "scene": "BSC_CA_E013"}
+
+    # ...and Browse still answers with the ID, into the same widget
+    next(b for b in w.findChildren(QPushButton) if b.text().startswith("Browse")).click()
+    assert asked == [("encounter,scene", True)], "the scene picker must keep asking for the id"
+    assert scene_edit.text() == "296"
+    assert forms.build_entity(forms.ENCOUNTER_SPEC, {k: g() for k, g in getters.items()}) == {"scene": 296}
+
+
 def test_a_bad_value_raises_a_notice_and_the_help_survives_it(app):
     """DICTION, and the bug it was really about.
 

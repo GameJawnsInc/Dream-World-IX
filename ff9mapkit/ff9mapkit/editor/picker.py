@@ -21,8 +21,10 @@ def pick(parent, *, kinds=None, title="Pick from the catalog", initial="", campa
     ``kinds`` restricts the search to those catalog kinds (e.g. ``["archetype", "creature"]``); None = all.
     ``initial`` pre-fills the search box (e.g. the field's current value). ``campaign_context`` (a
     CampaignPlan) lets the picker also surface the open campaign's members/shared flags (kind 'field'/'flag').
-    ``want_id`` returns the picked entry's numeric id instead of its name -- REQUIRED for a catalog on a
-    numeric form field (battle scene, song), which can't parse a name (the Qt picker's want_id twin)."""
+    ``want_id`` returns the picked entry's numeric id instead of its name -- what an ID-BEARING form field
+    takes (battle scene, song, model; see :func:`forms.wants_id`). Required for the id-only kinds, and still
+    right for a CATINT field that WOULD accept a typed name, because an entry LABEL is not always one: the
+    warm ``encounter`` kind reads "Goblin, Fang -- Evil Forest (field 250, random)". (Qt's want_id twin.)"""
     dlg = _PickerDialog(parent, kinds=kinds, title=title, initial=initial, campaign_context=campaign_context,
                         want_id=want_id)
     parent.wait_window(dlg.win)

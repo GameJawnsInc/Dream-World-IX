@@ -1285,13 +1285,19 @@ def validate(project: FieldProject) -> list[str]:
                     break
     for q, b in enumerate(project.raw.get("battle_bgm", [])):   # scene-keyed donor battle songs (verbatim carry)
         if not isinstance(b, dict) or "scene" not in b or "song" not in b:
-            problems.append(f"[[battle_bgm]] #{q} needs scene = <battle scene id> and song = <akao song-play id>")
+            problems.append(f"[[battle_bgm]] #{q} needs scene = <battle scene id/name> and "
+                            f"song = <akao song-play id>")
             continue
+        # scene takes a BSC_ NAME as well as an id, exactly like [encounter] (resolve_battle_bgm) -- the two
+        # name the same thing, so they must accept the same thing. Resolve HERE so an unknown name is a lint
+        # problem with the row and a suggestion, not an int() death mid-build.
         try:
-            if int(b["scene"]) < 0 or int(b["song"]) < 0:
+            _bscene, _bsong = resolve_battle_bgm_row(b, q)
+        except ValueError as e:
+            problems.append(str(e))
+        else:
+            if _bscene < 0 or _bsong < 0:
                 problems.append(f"[[battle_bgm]] #{q}: scene and song must be >= 0")
-        except (TypeError, ValueError):
-            problems.append(f"[[battle_bgm]] #{q}: scene and song must be integers")
     # [encounter] scene / scenes: a battle-scene NAME is legal (resolve_encounter_scenes), so the only
     # failure left is a name that doesn't resolve -- report it HERE, named, instead of letting it reach the
     # compile. This is the fence: the value either builds or it fails lint. The message carries the FIELD
@@ -3471,6 +3477,32 @@ def resolve_encounter_scenes(enc) -> tuple:
                 raise ValueError(f"[encounter] scenes[{k}]: {e}") from None
         pool = ids
     return scene, pool
+
+
+def resolve_battle_bgm_row(row, q=0) -> tuple:
+    """One ``[[battle_bgm]]`` row -> ``(scene_id, song)``, resolving a battle-scene NAME the way
+    :func:`resolve_encounter_scenes` does.
+
+    ``scene`` names the SAME thing here as in ``[encounter]``, so it takes the same values -- the two used to
+    disagree inside one file (``scene = "BSC_CA_E013"`` built under ``[encounter]`` and failed lint under
+    ``[[battle_bgm]]``). ``song`` stays integers-only on purpose: an akao song-play id has no name catalog.
+
+    Raises ValueError naming the row index ``q`` -- the only handle a reader has on an inline table. Both
+    ``validate`` and the ``Music:`` emitter go through here, so a name cannot lint clean and die mid-build."""
+    try:
+        scene = _catalog.resolve_scene(row["scene"])
+    except ValueError as e:
+        raise ValueError(f"[[battle_bgm]] #{q}: scene: {e}") from None
+    try:
+        song = int(row["song"])
+    except (TypeError, ValueError):
+        raise ValueError(f"[[battle_bgm]] #{q}: song must be an integer, got {row['song']!r}") from None
+    return scene, song
+
+
+def resolve_battle_bgm(rows) -> list:
+    """Every ``[[battle_bgm]]`` row as ``[(scene_id, song), ...]`` (see :func:`resolve_battle_bgm_row`)."""
+    return [resolve_battle_bgm_row(b, q) for q, b in enumerate(rows or [])]
 
 
 def _npc_model_kwargs(n) -> dict:
@@ -7981,7 +8013,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         battle = (int(resolve_encounter_scenes(e)[0]), int(e.get("battle_music", 0)))
     # [[battle_bgm]]: extra scene-keyed battle songs (a verbatim fork's carried scripted/boss battles -- the
     # custom fldMapNo loses the engine's (field, scene) lookup, so the build reproduces each via Music:).
-    bgm_pairs = [(int(b["scene"]), int(b["song"])) for b in project.raw.get("battle_bgm", [])]
+    bgm_pairs = resolve_battle_bgm(project.raw.get("battle_bgm", []))
     return FieldResult(dict_line=dict_line, battle=battle, battle_bgm=bgm_pairs, fbg=fbg, warnings=warnings,
                        name=project.name, text_block=project.text_block, mes_parts=mes_parts,
                        register_text_block=project.register_text_block, location_line=location_line,

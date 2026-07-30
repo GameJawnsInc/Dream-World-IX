@@ -8544,11 +8544,19 @@ class Workspace(QMainWindow):
         lines = []
         enc = data.get("encounter")
         if isinstance(enc, dict) and enc.get("scene") is not None:
-            sid = enc.get("scene")
-            nm = _cat.scene_name(sid) if isinstance(sid, int) else None
-            scene_txt = f"scene {sid}" + (f" — {nm}" if nm else "")
+            authored = enc.get("scene")
+            # a BSC_ NAME is as legal as an id here (build.resolve_encounter_scenes), so RESOLVE one instead of
+            # bailing to plain text -- the field that authors a name would otherwise lose both the gloss and
+            # its Battle-tab jump, the very thing this row exists for. Offline: the BSC_ table is baked.
+            try:
+                sid = _cat.resolve_scene(authored)
+            except (ValueError, TypeError):
+                sid = None                             # an unknown name -- _node_problems already warns on it
+            gloss = (_cat.scene_name(sid) if isinstance(authored, int) else f"#{sid}") if sid is not None \
+                else None
+            scene_txt = f"scene {authored}" + (f" — {gloss}" if gloss else "")
             # the resolved scene is the field's one cross-edge to a battle.toml -> make it a Battle-tab jump
-            scene_seg = self._link(f"goto:battle:{sid}", scene_txt) if isinstance(sid, int) else _esc(scene_txt)
+            scene_seg = self._link(f"goto:battle:{sid}", scene_txt) if sid is not None else _esc(scene_txt)
             lines.append(self._muted("encounter: ") + scene_seg
                          + self._muted(f" · freq {enc.get('freq', 255)}"))
         pty = data.get("party")
@@ -8636,7 +8644,9 @@ class Workspace(QMainWindow):
     def _inspect_entity(self, section, e):
         m = self._muted
         if section == "npc":
-            model = e.get("preset") or (f"model #{e['model']}" if e.get("model") is not None else "?")
+            mid = e.get("model")                        # an id OR an exact GEO name (build.resolve_npc_model)
+            model = e.get("preset") or ("?" if mid is None else
+                                        (f"model #{mid}" if isinstance(mid, int) else str(mid)))
             out = [f"NPC: {_esc(e.get('name', '?'))}", m(f"looks like: {_esc(model)}")]
             if e.get("pos") is not None:
                 out.append(m(f"pos: {_esc(e['pos'])}"))
@@ -9888,6 +9898,14 @@ def _smoke(win):
     win._inspect_link("goto:battle:67")
     assert win.tabs.currentWidget() is win.battle, "the encounter scene link jumps to the Battle tab"
     win.tabs.setCurrentWidget(win.doc_scroll)                 # restore for the rest of the inspector smoke
+    # a scene authored as a BSC_ NAME is as legal as the id (build.resolve_encounter_scenes) -> the row keeps
+    # BOTH the gloss and the Battle-tab jump. It used to fall back to plain text, so the field that authored
+    # the friendlier value silently lost the one cross-edge this row exists to offer.
+    pdoc0.data["encounter"] = {"scene": "BSC_EF_R007", "freq": 64}
+    win.tree.setCurrentItem(win._member_items["IC_COR"])      # off and back, so the Inspector really re-renders
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])
+    eb = win.insp_body.text()
+    assert 'href="goto:battle:67"' in eb and "BSC_EF_R007" in eb and "#67" in eb, eb
     del pdoc0.data["encounter"]
     win.tree.setCurrentItem(win._member_items["IC_ENT"])      # re-select with the probe encounter removed
     # do-now #1: the persistent doc-mode CHIP + breadcrumb stay truthful on EVERY tab (the indicator used to

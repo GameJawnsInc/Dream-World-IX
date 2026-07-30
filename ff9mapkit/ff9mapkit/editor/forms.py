@@ -25,6 +25,12 @@ STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT, FLAGREF, FLAGPAIR,
 SCENARIOREF, FLAGDICTLIST, BYTEDICTLIST = "scenarioref", "flagdictlist", "bytedictlist"
 ARRIVALLIST = "arrivallist"   # [[player.arrival]] rows: "entrance, x, z[, face]" per row (the dict-list idiom)
 FLOAT = "float"        # an OPTIONAL float (e.g. battle camera tweak offsets); empty -> None, like OPTINT
+# CATINT -- an Info Hub reference the BUILD resolves to a numeric id: a number -> int, a catalog NAME -> the
+# name string (kept verbatim in the .toml, exactly like FLAGREF/SCENARIOREF). Its Browse picker still fills
+# the ID (:func:`wants_id`), because a picker LABEL is not always a resolvable identifier -- the warm
+# 'encounter' kind lists "Goblin, Fang -- Evil Forest (field 250, random)". Use it wherever the build calls a
+# catalog resolver (build.resolve_encounter_scenes, build.resolve_npc_model) instead of a bare int().
+CATINT = "catint"
 # cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
 POINT, PATH, ANIM = "point", "path", "anim"
 
@@ -39,6 +45,8 @@ class Field:
     help: str = ""
     default: object = None            # for BOOL: the value omitted from the file (e.g. once=True)
     catalog: str = None               # comma-separated Info Hub kinds -> render a "Browse..." picker button
+    placeholder: str = None           # override the generated line-edit placeholder (:func:`placeholder_for`)
+                                      # -- for a catalog whose FIRST kind's labels aren't typeable identifiers
     file: str = None                  # a QFileDialog name-filter (e.g. "Audio (*.wav *.mp3)") -> the Qt
                                       # editor renders a Browse-for-file button; the tk editor shows a
                                       # plain entry (value stays an ordinary STR either way)
@@ -71,8 +79,8 @@ NPC_SPEC = [
     Field("name", "Name", STR, "a label (also links this NPC to its Blender marker)"),
     Field("preset", "Preset", PRESET, "who it looks like (any archetype/creature)",
           catalog="archetype,creature"),
-    Field("model", "Model id", OPTINT, "advanced: a custom model instead of a preset",
-          catalog="model"),
+    Field("model", "Model", CATINT, "advanced: a custom model instead of a preset — an id or an exact GEO "
+          "name", catalog="model"),
     Field("animset", "Animset id", OPTINT, "advanced: with a custom model (also add anims in the .toml)"),
     Field("dialogue", "Dialogue", STR, "the line shown when the player talks to it"),
     Field("speaker", "Speaker name", STR, "optional name before the line, e.g. Vivi (or [VIVI] for a renameable party name)"),
@@ -170,8 +178,9 @@ SPS_SPEC = [
     Field("framerate", "Frame rate", OPTINT, "16 = 1x (normal ~15 fps loop); smaller = slower; blank = default"),
 ]
 ENCOUNTER_SPEC = [
-    Field("scene", "Battle scene id", OPTINT, "e.g. 67 = Evil Forest; blank = no random battles",
-          catalog="encounter,scene"),
+    Field("scene", "Battle scene", CATINT, "which monsters spawn: an id (e.g. 67 = Evil Forest) or a BSC_ "
+          "scene name; blank = no random battles", catalog="encounter,scene",
+          placeholder="a scene id, or a BSC_ name"),
     Field("freq", "Frequency (0-255)", OPTINT, "default 255"),
     Field("battle_music", "Battle music id", OPTINT, "default 0 = battle theme"),
 ]
@@ -302,7 +311,7 @@ SECTION_HELP = {
               "key -- entry_settle, the frames held black on entry (a count, or \"auto\" = computed) -- is "
               "editable here.",
     "dialogue": "Text options. Auto-wrap breaks long dialogue lines to fit the screen (FF9 won't).",
-    "encounter": "Random battles on this field (battle scene id + frequency + battle music).",
+    "encounter": "Random battles on this field (battle scene + frequency + battle music).",
     "music": "The field's background music — an existing game song (a song id), or your own audio file "
              "minted into the mod at build.",
     "party": "Who's in the party (menu + battle) on this field -- add/remove playable characters at load. "
@@ -351,6 +360,36 @@ STEP_HELP = {
 }
 GLOBAL_STEPS = ("say", "wait", "set_flag")
 ACTOR_STEPS = ("walk", "path", "teleport", "animation", "turn", "face_player")
+
+
+# --- field rules shared by BOTH editors (Tk app.py + Qt forms_qt.py) ----------------------
+# THE CALL-SITE LAW: these two were inline expressions duplicated in each editor, and they drifted --
+# forms_qt's placeholder promised "a {catalog} name or id" on fields whose parser rejected every name.
+# One owner each, so a new kind cannot flip a picker's behaviour by accident.
+def wants_id(field) -> bool:
+    """Does this field's ``Browse…`` picker hand back the entry's numeric ID instead of its name?
+
+    True for the plain numeric kinds AND for :data:`CATINT`. A CATINT field *accepts* a typed name, but the
+    picker still fills an id, because a picker LABEL is not always a typeable identifier: the warm
+    ``encounter`` kind labels a scene "Goblin, Fang -- Evil Forest (field 250, random)", which no resolver
+    takes. Handing back the id keeps every shipped numeric example byte-identical."""
+    return field.kind in (INT, OPTINT, CATINT)
+
+
+def placeholder_for(field) -> str:
+    """The line-edit placeholder for a catalog-backed field -- it must not promise more than the PARSER
+    accepts. ``[encounter] scene`` shipped "a encounter name or id" over a parser that refused every name
+    (`expected a whole number, got 'BSC_CA_E013'`); the catalogs that are still id-only (song, sps) say so.
+    ``Field.placeholder`` overrides when the first catalog kind isn't the typeable one."""
+    if field.placeholder:
+        return field.placeholder
+    if not field.catalog:
+        return ""
+    kind = field.catalog.split(",")[0].strip()
+    art = "an" if kind[:1].lower() in "aeiou" else "a"
+    if field.kind in (INT, OPTINT):                  # numeric-only: the build int()s it, a name would die
+        return f"{art} {kind} id"
+    return f"{art} {kind} name or id"
 
 
 # --- parsers (raise ValueError with a clear message on bad input) -------------------------
@@ -636,6 +675,9 @@ def _parse_field(kind, raw):
         return parse_strlist(raw)
     if kind == SCENARIOREF:
         return parse_flagref(raw)                   # a beat number -> int, an area name -> str (resolved at build)
+    if kind == CATINT:
+        return parse_flagref(raw)                   # an id -> int, a catalog NAME -> str (resolved at build by
+                                                    # resolve_encounter_scenes / resolve_npc_model)
     if kind == FLAGDICTLIST:
         return parse_flagdictlist(raw)
     if kind == BYTEDICTLIST:
