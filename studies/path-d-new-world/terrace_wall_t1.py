@@ -23,10 +23,23 @@ col steps with band wrap + occasional same-tile repeats (the measured 46%+11% re
 dual-phase stagger between courses. Tile V-ORIENTATION is calibrated from REAL exemplar
 quads read out of the decode's own top stock blocks -- never assumed from the catalogue.
 
-Gates before any write: one-window per tri, band membership, adjacency-rate report,
-watertight (0 new once-edges), drop completeness, census MISS=0, the moat/coast margin,
-plus face renders (4 compass segments) + a planview for the offline eye. --apply deploys
-to Disc9 (backing the bench cells up under the MAIN repo's backups/) only when green.
+ROUND 3 (the remaining prediction round) rebuilds the tile layer on THE THREE INSTANCE LAWS
+(`rock_wall_instances.py`, 2026-07-30): LAW 3 -- a wall column is one MEASURED vertical
+chain foot -> body -> crest from the transition table (gated; round 1 tiled the courses
+independently and read as "stamped together"); LAW 1 -- v-orientation per tile from the
+stock MAJORITY, never one exemplar (round 1's flipped tiles); LAW 2 -- u-mirroring per
+column at the measured p=0.12 (round 1 coin-flipped). The plateau top reuses junction L3
+(`uvf_fix2.assign_mains_seeded` seeded with (quad,ori) decoded from the bench's own kept
+grass) -- never a uniform-random draw (round 1's banding). Zip winding comes from the
+chain-edge tangent (right-of-CCW-travel), exact on concave lattice jags -- an inverted
+visible tri backface-culls in game as a hole while the once-edge audit stays balanced
+(round 1's missing faces).
+
+Gates before any write: one-window per tri, data-driven tile roles, THE LAW-3 chain gate,
+the winding gate, watertight (0 new once-edges), drop completeness, census MISS=0, the
+moat/coast margin, plus face renders (4 compass segments) + stock control strips through
+the identical eye. --apply deploys to Disc9 (backing the bench cells up under the MAIN
+repo's backups/) only when green.
 
 Run from the repo root:  py -X utf8 studies/path-d-new-world/terrace_wall_t1.py [--apply]
 """
@@ -39,7 +52,7 @@ import random
 import shutil
 import sys
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -222,6 +235,9 @@ def centroid_fan(pg):
 
 
 # ---------------------------------------------------------------- tile windows + exemplars
+ANATOMY = ROOT / "studies" / "overworld-topography" / "out" / "rock_tile_instances.json"
+
+
 def load_language():
     d = json.loads(DECODE.read_text())
     pu, pv = d["phase"]
@@ -231,6 +247,36 @@ def load_language():
         blocks[tuple(g["blk"])] += 1
     top_blocks = [b for b, _ in sorted(blocks.items(), key=lambda kv: -kv[1])[:6]]
     return pu, pv, tiles, top_blocks
+
+
+def load_anatomy():
+    """The three instance laws (rock_wall_instances.py, 2026-07-30) as usable tables:
+    per-tile majority v-orientation (LAW 1), the vertical transition table + per-tile
+    crest/base roles (LAW 3). LAW 2's 12% mirror rate is applied at plan time."""
+    d = json.loads(ANATOMY.read_text())
+    v_votes = defaultdict(list)
+    crest_n = Counter()
+    base_n = Counter()
+    n_inst = Counter()
+    for inst in d["instances"]:
+        t = tuple(inst["tile"])
+        n_inst[t] += 1
+        if abs(inst["v_corr"]) >= 0.3 and inst["yspan"] >= 1.0:
+            v_votes[t].append(inst["v_corr"])
+        if inst["crest_touch"]:
+            crest_n[t] += 1
+        if inst["base_touch"]:
+            base_n[t] += 1
+    v_up = {}                                               # True = atlas v DECREASES upward
+    for t, cs in v_votes.items():
+        up = sum(1 for c in cs if c < 0)
+        v_up[t] = up * 2 >= len(cs)
+    above = defaultdict(Counter)                            # LAW 3: below-tile -> above-tile counts
+    for p in d["v_pairs"]:
+        above[tuple(p["below"])][tuple(p["above"])] += 1
+    crest_tiles = {t for t in n_inst if n_inst[t] >= 5 and crest_n[t] / n_inst[t] >= 0.5}
+    foot_tiles = {t for t in n_inst if n_inst[t] >= 5 and base_n[t] / n_inst[t] >= 0.5}
+    return v_up, above, crest_tiles, foot_tiles, n_inst
 
 
 def exemplar_orientations(pu, pv, need, top_blocks):
@@ -287,44 +333,62 @@ def exemplar_orientations(pu, pv, need, top_blocks):
     return ex
 
 
-def plan_columns(n_st, tiles):
-    """Per (course, column) -> (col,row): u-continuation with +-1 col steps, band wrap,
-    occasional same-tile repeat and row drift -- the measured windowed-continuation regime.
-    Only tiles present in the stock catalogue are used."""
+def enum_chains(above, crest_tiles, foot_tiles):
+    """THE LAW-3 CHAINS: every foot -> body -> crest path whose BOTH steps exist in the
+    measured vertical transition table (contiguous atlas descent -- T1 round 1 tiled the
+    courses independently and read as 'stamped together'). Weight = the product of the
+    observed transition counts."""
+    chains = []
+    for t0, ups in above.items():
+        if t0 not in foot_tiles:
+            continue
+        for t1, n01 in ups.items():
+            for t2, n12 in above.get(t1, {}).items():
+                if t2 in crest_tiles:
+                    chains.append(([t0, t1, t2], n01 * n12))
+    assert chains, "no measured foot->body->crest chain in the transition table"
+    return chains
+
+
+def plan_strips(n_st, chains):
+    """Per wall column: one chain (count-weighted, seeded) + a p=0.12 mirror flag (LAW 2).
+    Neighbour columns walk the body-tile atlas col by the measured +-1 / 11%-repeat regime."""
+    by_bodycol = defaultdict(list)
+    for ch, w in chains:
+        by_bodycol[ch[1][0]].append((ch, w))
+    cols_avail = sorted(by_bodycol)
     rng = random.Random(SEED ^ 0x5EED)
-    plan = []
-    for ci, role in enumerate(("crest", "body", "foot")):
-        rows, cols = BANDS[role]
-        rows = [r for r in rows]
-        cols = [c for c in cols]
-        legal = [(c, r) for c in cols for r in rows if (c, r) in tiles]
-        assert legal, f"no catalogued tiles for the {role} band"
-        cur = legal[rng.randrange(len(legal))]
-        out = []
-        for s in range(n_st):
-            out.append(cur)
-            r = rng.random()
-            if r < 0.11:
-                nxt = cur                                   # same-tile repeat (the 11%)
-            else:
-                ic = cols.index(cur[0])
-                step = 1 if r < 0.75 else -1
-                nc = cols[(ic + step) % len(cols)]          # band wrap = window translate
-                nr = cur[1]
-                if rng.random() < 0.22:
-                    ir = rows.index(nr)
-                    nr = rows[max(0, min(len(rows) - 1, ir + rng.choice((-1, 1))))]
-                nxt = (nc, nr) if (nc, nr) in tiles else cur
-            cur = nxt
-        if role == "foot":                                  # the true foot course prefers row 10
-            out = [(c, FOOT_ROW) if (c, FOOT_ROW) in tiles else (c, r) for (c, r) in out]
-        plan.append(out)
+
+    def pick(fam):
+        tot = sum(w for _, w in fam)
+        x = rng.random() * tot
+        for ch, w in fam:
+            x -= w
+            if x <= 0:
+                return ch
+        return fam[-1][0]
+
+    plan = []                                               # per column: (chain, mirrored)
+    ci = rng.randrange(len(cols_avail))
+    for s in range(n_st):
+        fam = by_bodycol[cols_avail[ci]]
+        plan.append((pick(fam), rng.random() < 0.12))
+        r = rng.random()
+        if r >= 0.11:                                       # 11% same-col repeat, else +-1 walk
+            step = 1 if r < 0.75 else -1
+            ci = (ci + step) % len(cols_avail)
     return plan
 
 
 # ---------------------------------------------------------------- zip (the SPUR bridge walk)
-def bridge(low, high, outward_of):
-    """Greedy bridge walk low->high; both are closed rings (first point re-appended)."""
+def bridge(low, high, outward_of=None):
+    """Greedy bridge walk low->high; both are closed CCW rings (first point re-appended).
+
+    WINDING (the round-1 'missing faces' fix): outward comes from the stepped CHAIN EDGE's
+    tangent -- for a CCW ring in the xz plane, outward = right-of-travel = (tz, -tx). The
+    old radial-from-centre test flips sign on concave lattice-jag switchbacks, and an
+    inverted VISIBLE tri backface-culls in game as a hole while the once-edge audit stays
+    balanced. The tangent rule is exact regardless of concavity."""
     out = []
     i, j = 0, 0
     while i < len(low) - 1 or j < len(high) - 1:
@@ -333,22 +397,24 @@ def bridge(low, high, outward_of):
             step_low = math.dist(low[i + 1], high[j]) <= math.dist(low[i], high[j + 1])
         else:
             step_low = ci
-        tri = [low[i], low[i + 1], high[j]] if step_low else [low[i], high[j + 1], high[j]]
+        if step_low:
+            tri = [low[i], low[i + 1], high[j]]
+            tan = (low[i + 1][0] - low[i][0], low[i + 1][2] - low[i][2])
+        else:
+            tri = [low[i], high[j + 1], high[j]]
+            tan = (high[j + 1][0] - high[j][0], high[j + 1][2] - high[j][2])
         if len({kk(p) for p in tri}) == 3:
+            ow = (tan[1], -tan[0])                           # right of CCW travel = outward
+            a, b, c = (np.array(p) for p in tri)
+            fn = np.cross(b - a, c - a)
+            if fn[0] * ow[0] + fn[2] * ow[1] < 0:
+                tri = [tri[0], tri[2], tri[1]]
             out.append(tri)
         if step_low:
             i += 1
         else:
             j += 1
-    fixed = []
-    for tri in out:
-        a, b, c = (np.array(p) for p in tri)
-        fn = np.cross(b - a, c - a)
-        o = outward_of(np.mean([p[0] for p in tri]), np.mean([p[2] for p in tri]))
-        if fn[0] * o[0] + fn[2] * o[1] < 0:
-            tri = [tri[0], tri[2], tri[1]]
-        fixed.append(tri)
-    return fixed
+    return out
 
 
 def main() -> int:
@@ -478,6 +544,12 @@ def main() -> int:
     th0 = [math.atan2(p[2] - CENTER[1], p[0] - CENTER[0]) for p in crest]
     if np.diff(np.unwrap(th0)).sum() < 0:
         crest = crest[::-1]
+    # THE SEAM ALIGNMENT: start the chained ring at the vert nearest bearing 0, where the
+    # station rings start -- an angular offset between the two rings folds the greedy zip
+    # at the wrap (round 3's five down-facing crest tris at one vertex, gate-caught).
+    k0 = min(range(len(crest)),
+             key=lambda k: abs(math.atan2(crest[k][2] - CENTER[1], crest[k][0] - CENTER[0])))
+    crest = crest[k0:] + crest[:k0]
     crest_c = [tuple(p) for p in crest] + [tuple(crest[0])]
 
     # ---- rings + the grass drop ---------------------------------------------------------------
@@ -534,6 +606,9 @@ def main() -> int:
     th0 = [math.atan2(p[2] - CENTER[1], p[0] - CENTER[0]) for p in foot]
     if np.diff(np.unwrap(th0)).sum() < 0:
         foot = foot[::-1]
+    k0 = min(range(len(foot)),
+             key=lambda k: abs(math.atan2(foot[k][2] - CENTER[1], foot[k][0] - CENTER[0])))
+    foot = foot[k0:] + foot[:k0]                            # seam-aligned with the station rings
     foot_c = [tuple(p) for p in foot] + [tuple(foot[0])]
     print(f"foot ring: {len(foot)} lattice verts")
 
@@ -543,50 +618,57 @@ def main() -> int:
     for i in range(n_st):
         a, b = ring2c[i], ring2c[i + 1]
         c, d = ring1c[i], ring1c[i + 1]
+        ow = (b[2] - a[2], -(b[0] - a[0]))                  # right of CCW travel = outward
         for tri in ([a, b, c], [b, d, c]):
             a2, b2, c2 = (np.array(p) for p in tri)
             fn = np.cross(b2 - a2, c2 - a2)
-            o = outward_of(float(np.mean([p[0] for p in tri])),
-                           float(np.mean([p[2] for p in tri])))
-            if fn[0] * o[0] + fn[2] * o[1] < 0:
+            if fn[0] * ow[0] + fn[2] * ow[1] < 0:
                 tri = [tri[0], tri[2], tri[1]]
             body_course.append(tri)
     foot_course = bridge(foot_c, ring2c, outward_of)        # low=jagged foot, high=ring2
     courses = [("crest", crest_course), ("body", body_course), ("foot", foot_course)]
     print("courses:", {r: len(c) for r, c in courses})
 
-    # ---- the tile-language UVs ----------------------------------------------------------------
+    # ---- the tile-language UVs (round 3: the three instance laws) -----------------------------
     pu, pv, tiles, top_blocks = load_language()
-    plan = plan_columns(n_st, tiles)
-    need = {cr for row in plan for cr in row}
+    v_up, above, crest_tiles, foot_tiles, n_inst = load_anatomy()
+    chains = enum_chains(above, crest_tiles, foot_tiles)
+    need = {t for ch, _ in chains for t in ch}
     ex = exemplar_orientations(pu, pv, need, top_blocks)
-    missing = [cr for cr in need if cr not in ex]
-    assert ex, "no calibrated exemplar quad found in any decode block -- cannot orient tiles"
-    # a tile with no real full-quad exemplar falls back to a calibrated one from the same plan row
-    for i3, row in enumerate(plan):
-        fixed_row = []
-        for cr in row:
-            if cr in ex:
-                fixed_row.append(cr)
-            else:
-                fixed_row.append(next((c for c in row if c in ex), sorted(ex)[0]))
-        plan[i3] = fixed_row
-    print(f"exemplars: {len(ex)} calibrated, {len(missing)} fell back")
+    # LAW 3 needs measured RECTS for every chain tile -- keep only fully-measured chains
+    chains_m = [(ch, w) for ch, w in chains if all(t in ex for t in ch)]
+    print(f"chains: {len(chains)} measured in the table, {len(chains_m)} fully rect-calibrated")
+    assert chains_m, "no chain has rects for all three tiles -- widen the exemplar scan"
+    plan = plan_strips(n_st, chains_m)
+
+    def v_ends(tile):
+        """(v_bottom, v_top) for a tile: rect from the exemplar, ORIENTATION from LAW 1's
+        per-tile majority -- never from the one exemplar (T1 round 1's flipped tiles)."""
+        e2 = ex[tile]
+        if tile in v_up:
+            up = v_up[tile]                                 # True = atlas v decreases upward
+        else:
+            up = e2["v_lo"] > e2["v_hi"]                    # no votes: the exemplar's own read
+        return (e2["v1"], e2["v0"]) if up else (e2["v0"], e2["v1"])
 
     y_spans = [(COURSE_Y[1], TOP_Y), (COURSE_Y[2], COURSE_Y[1]), (None, COURSE_Y[2])]
-    wall_out = []                                           # (tri, uv3, role)
-    adjacency = []
+    wall_out = []                                           # (tri, uv3, role, tile)
+    col_steps = []
     for ci, (role, ctris) in enumerate(courses):
-        prow = plan[ci]
-        u_phase = 0.5 * (ci % 2)                            # THE DUAL-PHASE STAGGER, in texture:
-        for k in range(1, n_st):                            # alternate courses' column boundaries
-            adjacency.append((prow[k][0] - prow[k - 1][0], prow[k][1] - prow[k - 1][1]))
+        chain_idx = 2 - ci                                  # chain = [foot, body, crest]
+        u_phase = 0.5 * (ci % 2)                            # THE DUAL-PHASE STAGGER, in texture
+        if ci == 1:
+            for k in range(1, n_st):
+                col_steps.append(plan[k][0][1][0] - plan[k - 1][0][1][0])
         for tri in ctris:
             thc = math.atan2(float(np.mean([p[2] for p in tri])) - CENTER[1],
                              float(np.mean([p[0] for p in tri])) - CENTER[0])
             s = ((thc % (2 * math.pi)) / (2 * math.pi) * n_st - u_phase) % n_st
             wcol = max(0, min(n_st - 1, int(s)))
-            e2 = ex[prow[wcol]]
+            chain, mirrored = plan[wcol]
+            tile = chain[chain_idx]
+            e2 = ex[tile]
+            v_bot, v_top = v_ends(tile)
             ylo, yhi = y_spans[ci]
             uvt = []
             for p in tri:
@@ -595,6 +677,8 @@ def main() -> int:
                 if sp < wcol - 0.5:                          # wrap seam
                     sp += n_st
                 su = max(0.0, min(1.0, sp - wcol))
+                if mirrored:                                 # LAW 2: p=0.12 per column
+                    su = 1.0 - su
                 if ylo is None:                              # foot: local low = the jagged foot y
                     y_lo_l = min(q[1] for q in tri)
                     y_hi_l = COURSE_Y[2]
@@ -602,43 +686,74 @@ def main() -> int:
                     y_lo_l, y_hi_l = ylo, yhi
                 h = max(0.0, min(1.0, (p[1] - y_lo_l) / max(0.8, y_hi_l - y_lo_l)))
                 uvt.append((e2["u0"] + su * (e2["u1"] - e2["u0"]),
-                            e2["v_lo"] + h * (e2["v_hi"] - e2["v_lo"])))
-            wall_out.append((tri, uvt, role, prow[wcol]))
-    n_adj = len(adjacency)
-    n_pm1 = sum(1 for (dc, dr) in adjacency if abs(dc) <= 1 and abs(dr) <= 1 and (dc, dr) != (0, 0))
-    n_same = sum(1 for a in adjacency if a == (0, 0))
-    print(f"adjacency: +-1 {n_pm1 / n_adj:.0%}, same-tile {n_same / n_adj:.0%} "
-          f"(measured stock regime ~46% + ~11%; band wraps are the remainder)")
+                            v_bot + h * (v_top - v_bot)))
+            wall_out.append((tri, uvt, role, tile))
+    n_mir = sum(1 for ch, m in plan if m)
+    n_pm1 = sum(1 for d in col_steps if abs(d) == 1)
+    n_same = sum(1 for d in col_steps if d == 0)
+    print(f"strips: {n_st} columns, {n_mir} mirrored ({n_mir / n_st:.0%}; LAW 2 says ~12%); "
+          f"col walk +-1 {n_pm1 / len(col_steps):.0%} / repeat {n_same / len(col_steps):.0%}")
+    # THE LAW-3 GATE: every column's two vertical steps exist in the measured table
+    for k, (chain, _) in enumerate(plan):
+        assert above[chain[0]].get(chain[1], 0) > 0 and above[chain[1]].get(chain[2], 0) > 0, \
+            f"column {k} chain {chain} not a measured vertical path"
+    print(f"LAW-3 gate: all {n_st} columns are measured foot->body->crest paths")
 
-    # ---- TOP UVs: one grass-family main window per tri, keyed on the centroid cell ------------
-    rngq = random.Random(SEED ^ 0xA11)
-    cell_qo = {}
+    # ---- TOP UVs: junction L3 REUSED -- never a uniform-random per-cell draw ------------------
+    # (T1 round 1 re-derived the naive version and shipped the banded top; the folded policy is
+    # uvf_fix2.assign_mains_seeded seeded with (quad,ori) ground truth DECODED from the bench's
+    # own kept grass around the plateau.)
+    sys.path.insert(0, str(ROOT / "studies" / "overworld-topography"))
+    import uvf_fix2 as UF                                   # noqa: E402
+    pre_quad, pre_ori = {}, {}
+    for ti, t in enumerate(tris):
+        if ti in drop or t["topo"] not in GRASS_TOPO:
+            continue
+        cx4, cz4 = t["cen"][0], t["cen"][2]
+        ccell = (int(cx4 // CELL), int(-cz4 // CELL))
+        if ccell in pre_quad:
+            continue
+        if math.hypot(cx4 - CENTER[0], cz4 - CENTER[1]) > R_PLAT + 24.0:
+            continue
+        qo = UF.decode_quad_ori(ccell, t["w"], [tuple(u2) for u2 in t["uv"]])
+        if qo is not None:
+            pre_quad[ccell], pre_ori[ccell] = qo
+    def tri_cell(t3):
+        """The canonical own-cell (floor(x/4), floor(-z/4)) of a tri's CENTROID -- the same
+        convention the decode + mains_uv use; deriving it from the lattice ORIGIN is one
+        cell off in j and makes every window a neighbour's (THE CELL CLIP law breaks)."""
+        cx4 = float(np.mean([p[0] for p in t3]))
+        cz4 = float(np.mean([p[2] for p in t3]))
+        return (int(cx4 // CELL), int(-cz4 // CELL))
+
+    top_cells = sorted({tri_cell(t3) for t3, _ in top_tris})
+    q2, o2 = UF.assign_mains_seeded([c for c in top_cells if c not in pre_quad],
+                                    dict(pre_quad), dict(pre_ori), seed=SEED ^ 0xF92)
+    cell_qo = {c: (pre_quad[c], pre_ori[c]) for c in top_cells if c in pre_quad}
+    cell_qo.update({c: (q2[c], o2[c]) for c in q2 if c in set(top_cells)})
+    print(f"top L3 field: {len(pre_quad)} cells decoded from the bench's own grass, "
+          f"{len(q2)} policy-resolved (assign_mains_seeded)")
     top_out = []
     for t3, cell in top_tris:
-        if cell not in cell_qo:
-            cell_qo[cell] = (rngq.randrange(2) * 1, rngq.randrange(2), rngq.randrange(4))
-        qx, qz, ori = cell_qo[cell]
-        cc = (int(cell[0] // CELL), int(-cell[1] // CELL))
-        uvt = [G.ground_uv(p[0], p[2], (cell[0] / CELL, -cell[1] / CELL), (qx, qz), ori)
-               for p in t3]
+        ccell = tri_cell(t3)
+        quad, ori = cell_qo[ccell]
+        uvt = [G.ground_uv(p[0], p[2], ccell, quad, ori) for p in t3]
         top_out.append((t3, uvt))
 
     # ---- gates --------------------------------------------------------------------------------
     fails = []
-    for tri, uvt, role, cr in wall_out:                     # one-window + band membership
-        col, row = cr
+    for tri, uvt, role, cr in wall_out:                     # one-window + data-driven roles
         e2 = ex[cr]
         for (u, v) in uvt:
             if not (e2["u0"] - 1e-4 <= u <= e2["u1"] + 1e-4 and
                     e2["v0"] - 1e-4 <= v <= e2["v1"] + 1e-4):
                 fails.append(f"one-window: {role} uv ({u:.4f},{v:.4f}) outside the measured "
-                             f"rect of ({col},{row})")
+                             f"rect of {cr}")
                 break
-        rows, cols = BANDS[role]
-        if role == "foot":
-            rows = tuple(rows) + (FOOT_ROW,)
-        if row not in rows or col not in cols:
-            fails.append(f"band: {role} tile ({col},{row}) outside its role band")
+        if role == "foot" and cr not in foot_tiles:
+            fails.append(f"role: foot tile {cr} is not base-touch-majority in stock")
+        if role == "crest" and cr not in crest_tiles:
+            fails.append(f"role: crest tile {cr} is not crest-touch-majority in stock")
     # watertight: recount over kept + wall + top
     cnt3 = defaultdict(int)
     def _acc(t3):
@@ -662,6 +777,28 @@ def main() -> int:
         for p in tri:
             if math.hypot(p[0] - CENTER[0], p[2] - CENTER[1]) > 40.0 - 6.0:
                 fails.append(f"moat: wall vert {kk(p)} within 6u of the bench outline")
+    # THE WINDING GATE (D3's spirit, ported): no VISIBLE wall tri may face inward or down,
+    # no top tri may face down; near-degenerates are exempt (they cull to nothing, no hole).
+    n_degen = 0
+    for tri, _, role, _ in wall_out:
+        a, b, c = (np.array(p) for p in tri)
+        fn = np.cross(b - a, c - a)
+        L = float(np.linalg.norm(fn))
+        if L < 2e-2:
+            n_degen += 1
+            continue
+        rad = outward_of(float(np.mean([p[0] for p in tri])), float(np.mean([p[2] for p in tri])))
+        horiz = math.hypot(fn[0], fn[2])
+        if horiz > 0.3 * L and (fn[0] * rad[0] + fn[2] * rad[1]) / max(horiz, 1e-9) < -0.6:
+            fails.append(f"winding: a visible {role} tri faces INWARD at {kk(tri[0])}")
+        if fn[1] < -0.5 * L:
+            fails.append(f"winding: a visible {role} tri faces DOWN at {kk(tri[0])}")
+    for t3, _ in top_out:
+        a, b, c = (np.array(p) for p in t3)
+        fn = np.cross(b - a, c - a)
+        if fn[1] < 0 and float(np.linalg.norm(fn)) > 2e-2:
+            fails.append(f"winding: a top tri faces DOWN at {kk(t3[0])}")
+    print(f"winding gate: {n_degen} near-degenerate wall tris (cull to nothing, exempt)")
     print(f"gates: {len(fails)} failure(s); foot-ring edges consumed: {len(consumed)}")
     for f in fails[:8]:
         print("  !!", f)

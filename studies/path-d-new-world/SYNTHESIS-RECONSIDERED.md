@@ -115,3 +115,19 @@ from iid-random, and CALIBRATE THE INSTRUMENT records a builder, two adversarial
 orchestrator all reading "stock curves, synth staircases" into a panel of *pure unmodified stock* — a
 verdict that had to be retracted. So the terrace wall should be run as a **prediction-registered** test:
 state the expected outcome before building, so the discriminant itself is what gets falsified.
+
+---
+
+## POSTSCRIPT 2026-07-30 — the test ran, and the discriminant was REFUTED
+
+The terrace wall was built and playtested twice the same day (`TERRACE-WALL-PREDICTION.md`, scored).
+Round 1 failed on implementation (solved classes re-derived); a per-instance anatomy study followed
+(`rock_wall_instances.py`, three laws); round 2 implemented the measured language faithfully — gated
+vertical chains, majority orientations, 12% mirrors, junction L3 tops — **and still failed on form**
+("obvious tiling … back to study"). The strongest-argument-against paragraph above was right: the
+tile-language/mural boundary did not survive its first prospective test. The refined lesson is the FORM
+LESSON again, one level up: correct TILES on invented MASSING still fail — stock wall silhouettes are
+coursed (plan jogs, ledge shelves, foot talus), and that 3D massing is the actual carrier of the look.
+The recommended sequence's step 2 (the carry) passed the same day; the carry-with-minted-context frame
+(Rung F) remains the only proven road. Any future synthesis rung starts from a massing/silhouette decode
+and a fresh prediction registration.
