@@ -23,8 +23,10 @@ and derives the game root, source disc, lod, and cell set PURELY by parsing thos
 
 Fully hermetic throughout: a fake mod-folder tree lives under ``tmp_path`` (``config.find_game_path``
 monkeypatched where a test needs a resolvable install at all), and the REAL asset layer is stubbed at
-``extract._worldmap_env`` (feeds ``_real_parts``' container regex) so every deployed cell reads as open
-ocean and the per-cell gate passes unconditionally. Where a test writes a REAL override
+``extract._worldmap_env`` -- whose return value feeds BOTH ``_real_parts``' container regex AND
+``extract._mesh_index`` (``read_block``'s block lookup, which ``island.landmass``'s coast-nav step walks),
+so ``_FakeEnv`` has to answer both; see its docstring. Every deployed cell then reads as open ocean and
+the per-cell gate passes unconditionally. Where a test writes a REAL override
 (``write_ff9mesh``/``deploy_override`` run for real), it proves actual bytes land on disk, not just that a
 mocked call happened.
 """
@@ -52,14 +54,56 @@ MOD = "FF9CustomMap"
 NRM = (0.0, 1.0, 0.0)
 
 
+class _FakeMeshObj:
+    """One Mesh-typed entry of ``env.objects``, as :func:`ff9mapkit.world.extract._mesh_index` reads it:
+    ``.type`` (compared against the cached ``ClassIDType.Mesh`` MEMBER -- so resolve it through the
+    production accessor rather than re-importing the enum, and lazily, to keep this module importable
+    without UnityPy) and ``.container`` (the string it indexes by). ``read()`` is deliberately fatal:
+    this double carries no vertex buffer, and every test in this file means "the stock map has NOTHING
+    here", so an attempted decode is a test-authoring bug -- not an open-ocean answer to be faked."""
+
+    def __init__(self, container: str):
+        self.container = container
+
+    @property
+    def type(self):
+        return X._class_id_mesh()
+
+    def read(self):
+        raise AssertionError(f"_FakeMeshObj({self.container!r}).read() -- this file's fake worldmap env "
+                             "carries container strings only. A test that needs real block geometry must "
+                             "stub extract.read_block (see test_discmirror.py's _patch_real_layer).")
+
+
 class _FakeEnv:
+    """Stands in for the UnityPy bundle env ``extract._worldmap_env`` returns. TWO surfaces are read off
+    a real env and this double has to keep them in agreement:
+
+    * ``.container`` -- iterated for its container-path strings by ``discmirror._real_parts``' regex scan
+      and by ``extract.list_blocks``/``list_object_blocks`` (a real ``ContainerHelper`` iterates its keys).
+    * ``.objects`` -- every object in the bundle, walked ONCE per env by ``extract._mesh_index`` to build
+      the ``{container_lower: mesh_pptr}`` index ``read_block`` resolves a block through.
+
+    Carrying only ``.container`` was survivable while nothing in these tests reached ``read_block``; when
+    ``island.landmass`` gained its coast-nav emitter step (which reads real block geometry) the double
+    started dying on ``AttributeError: no attribute 'objects'`` inside ``_mesh_index`` instead of
+    answering "no stock mesh here". Deriving ``.objects`` FROM the same container list is what stops the
+    two surfaces drifting apart again: every container this fake declares is a mesh the index can find,
+    and one it does not declare is absent from both. (A real env's ``.container`` also holds non-Mesh
+    assets and its ``.objects`` holds container-less ones; this file only ever feeds worldmap block-part
+    paths, for which the 1:1 correspondence is the faithful reading.)"""
+
     def __init__(self, container):
         self.container = list(container)
+        self.objects = [_FakeMeshObj(c) for c in self.container]
 
 
 def _patch_open_ocean(monkeypatch):
     """Both Disc1 and Disc4 report NOTHING real anywhere -- every deployed cell is open ocean on both
-    trees, so mirror()'s per-cell safety gate passes unconditionally (a verbatim copy)."""
+    trees, so mirror()'s per-cell safety gate passes unconditionally (a verbatim copy). An empty env also
+    means ``read_block`` finds no stock block, which the stacked reader treats as "nothing under the
+    override" -- exactly the open-ocean premise, and what the coast-nav stamp inside ``island.landmass``
+    walks over."""
     monkeypatch.setattr(X, "_worldmap_env", lambda disc, game=None: _FakeEnv([]))
 
 
@@ -129,6 +173,39 @@ def _mini_donor():
             part = "terrain" if (6 <= xi < 10 and 6 <= zi < 10) else "sea4"
             tiles[part] += _quad(x0, x0 + 4.0, z0, z0 + 4.0, idall=(12800.0 if part == "terrain" else 228.0))
     return {(1, 1, p): t for p, t in tiles.items() if t}
+
+
+# --------------------------------------------------------------------------- the fake env's own contract
+
+def test_fake_env_exposes_both_surfaces_extract_reads():
+    """FIXTURE CONTRACT. ``_FakeEnv`` must satisfy BOTH env surfaces the real asset layer is read through,
+    or a caller that reaches the other one blows up on ``AttributeError`` rather than getting the stubbed
+    answer this file is built on. Pins the ``.objects`` half against ``_mesh_index`` directly, including
+    its ``setdefault`` first-wins rule for a duplicate container -- real disc-1 data has NO duplicate to
+    exercise it with (measured 2026-07-30 against the live install: 2199 Mesh objects, 2199 with a
+    container, 2199 distinct -- the count and the claim in ``_mesh_index``'s own docstring both still
+    hold), so the fixture is where that semantic gets covered at all."""
+    a = "assets/resources/WorldMap/Disc1/0_1/r1/Block[3][1] Terrain.asset"
+    b = "assets/resources/WorldMap/Disc1/0_1/r1/Block[3][1] Sea4.asset"
+    env = _FakeEnv([a, b, a])                                    # a DUPLICATE container, deliberately
+
+    assert list(env.container) == [a, b, a]                      # surface 1: the regex scans' view
+    idx = X._mesh_index(env)                                     # surface 2: read_block's index
+    assert set(idx) == {a.lower(), b.lower()}                    # keyed lowercase, like the real scan
+    assert idx[a.lower()] is env.objects[0]                      # first wins -- NOT the later duplicate
+    assert all(o.type == X._class_id_mesh() for o in env.objects)
+    with pytest.raises(AssertionError, match="container strings only"):
+        env.objects[0].read()                                    # no vertex buffer to decode, loudly
+
+
+def test_open_ocean_env_reads_as_no_stock_mesh_not_attributeerror(monkeypatch):
+    """The regression this file lost a run to: ``island.landmass``'s coast-nav step reaches ``read_block``
+    through ``entrance.read_block_stacked``, which converts a missing block into ``None`` by catching
+    ``ValueError``/``FileNotFoundError``. An env double that cannot be enumerated raises neither -- the
+    ``AttributeError`` sailed straight through that handler and failed the whole build."""
+    _patch_open_ocean(monkeypatch)
+    with pytest.raises(ValueError, match="mesh not found"):
+        X.read_block(3, 1, disc=1)
 
 
 # --------------------------------------------------------------------------- auto_mirror() / mirror(): the contract
