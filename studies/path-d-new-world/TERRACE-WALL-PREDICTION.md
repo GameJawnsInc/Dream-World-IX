@@ -104,6 +104,42 @@ generators — L3 for tops, the D3 winding gate — rather than re-deriving them
 prediction itself stays open: one round remains, and it may only be spent on a build that
 faithfully implements the language.
 
+## SCORED — round 2 (the final round) in-game: FAIL → **THE DISCRIMINANT IS REFUTED**
+
+2026-07-30, same day. Round 2 (`terrace_wall_t1.py` round 3 internally) faithfully implemented
+the measured language — every column a gated LAW-3 chain from the transition table, LAW-1
+majority orientations, LAW-2 mirrors at 10%, junction L3 for the top, the winding gate (which
+caught a five-tri fold offline) — offline eye read it as coherent next to the stock control.
+Owner verdict in game: *"sharp edges at the bottom, obvious tiling, mismatched/rotated
+grass-cliff transition tiles, banded grass on top, middle section has grass-cliff tiling —
+back to study probably."* The wall is REVERTED; the bench is byte-identical pristine.
+
+**Per the semantics declared in advance: the build faithfully implemented the tile language
+and still failed on form → "expressible as an exact-linear tile language" is NOT the boundary
+that separates passing synthesis from failing synthesis.** The seven-verdict sort was ex-post
+and its first prospective test killed it. What the failure teaches, for the record:
+
+1. **The missing knowledge is 3D MASSING, not texture statistics.** Stock walls are not
+   smooth offset-ring cones with correct tiles applied: their SILHOUETTE is coursed — plan
+   jogs, ledge shelves where the grass-fringe rows live, talus at the foot. Ledge-textured
+   tiles on an unledged surface read as "grass-cliff tiling mid-wall"; a lattice-polyline
+   foot on smooth ground reads as "sharp edges". THE FORM LESSON (CLAUDE.md §8) extends:
+   even a fully decoded tile language reproduces measured properties, never the look,
+   when the underlying massing is invented.
+2. **A dead-flat shelf bands even under lawful mains** (junction L3 ran and the top still
+   striped): stock shelves carry relief (junction L4's reference-field heights); flatness +
+   uniform normals amplifies the mains' anisotropy. Grass mains — the historically PASSING
+   category — failed here too, on invented geometry. Consistent with (1).
+3. What still stands, proven the same day: **the carry**. The junction landmass shipped into
+   9013 and read "identical to the disc-1 island". The productive synthesis frontier remains
+   carry-with-minted-context (Rung F), not from-scratch massing.
+
+A future resumption is a NEW study arc (silhouette/massing decode — course plan-jogs, ledge
+shelf statistics, foot talus anatomy), not another texture round; it would need a new
+prediction registration. The owner's ruling: "back to study."
+
+---
+
 **The anatomy study ran the same day** (`studies/overworld-topography/
 rock_wall_instances.py`, 8945 instances — the count matches the first decode, which is the
 calibration): **LAW 1** v-orientation is FIXED per tile (54/62 ≥90% consistent — use the
