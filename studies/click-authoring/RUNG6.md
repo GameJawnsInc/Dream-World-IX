@@ -26,7 +26,7 @@ Each line is a value or rule that was wrong in the draft, with the measurement t
 | Player wall radius = `cam.COLLISION_RADIUS_W` = **48** | **`R_WALK = 80`** for the composer's own gates | The kit's player Init runs `SetObjectLogicalSize(20, 24, 40)`; Memoria `DoEventCode.cs:1531` does `radius = size * 4` → **80**. `cam.py:66-70`'s justification (`bgiRad*4` from the `.bgi`) is factually wrong — `bgiRad`'s only writer is the battle-return backup, so it is **0** on a fresh load. `RadiusValid`→`BGI_computeNewPoint` pins the centre at *exactly* radius. ★ **IN-GAME CONFIRMED 2026-07-30** (§6.1 resolved) — `cam.COLLISION_RADIUS_W` fixed to 80 to match. |
 | Fit the camera by **bisecting distance** on a canvas-AABB test | Bisect, **but gate every vertex on `depth >= NEAR_W`** | Apparent size goes as `1/|D + cos(p)·z|`, which has a **pole** — so size *grows* with distance below it. The fits-flag transitions **twice**. The draft's fit returns `D = 200` with `minDepth = −740` for a corridor at pitch 20: a camera 740u *inside the room*, passing the margin test comfortably, rendering the near floor mirrored through the camera plane. |
 | Centre the room on the canvas via `solve_z_for_canvasY(CANVAS_H/2)` | **Front-align** the room's front edge on row 420, with the composer's own `z_for_row` | Step 2 was a **tautology**: `to_canvas` is `range[1]/2 + centerOffset[1] − rawProj.y` and `rawProj.y = 0` at `z = 0`, so it returned 0 identically for all 28 pitch×distance pairs. Front-align won canvas fill **10/10**; canvas-middle left 96–201 dead rows (worst: a 4000×1200 room at pitch 26 occupied rows 205–247, **8.9% fill**). |
-| `cam.solve_z_for_canvasY` / `guide.frame_floor` are the tools | **Never call either.** The composer carries `z_for_row`. | Both are unsound at low pitch — `frame_floor(130, 420)` *raises at every distance* for pitch 15. This is a live defect in shipped code, spawned as its own task; `pack.new_project` swallows it, so `ff9mapkit new --pitch 15` silently ships a template mesh. |
+| `cam.solve_z_for_canvasY` / `guide.frame_floor` are the tools | ~~Never call either; the composer carries `z_for_row`.~~ → **★ REVERSED 2026-07-30: the shared solver was FIXED, and the private fork is retired (`176aa11d`).** The composer calls `cam.solve_z_for_canvasY(c, row, near=NEAR_W)` and `cam.horizon_canvas_y` again. | Both WERE unsound at low pitch: the solver bracketed `[-30000, +30000]`, which spans the projection pole at `z = −D/cos(pitch)`, so past it `cam.py`'s `num = abs(resz)` mirrored the branch and it returned None for rows that DO have a root (pitch 15 / D 3000: rows 365/420/440 all None vs true roots −1646/−1896/−1967); `frame_floor` inherited it and *raised at every distance*. **The durable lesson is the reversal, not the fork:** a private copy is right while the shared thing is broken and becomes a second owner the moment it is fixed — THE CALL-SITE LAW cuts both ways, so a fork owes a tripwire that fires when its reason expires. Ours did: two fences asserted the shipped defect and went red on the day it was repaired. |
 | An arrival needs no explicit `face` | **`face` is MANDATORY on every row, including `entrance = 0`** | `content/npc.py:372` emits **no** `D9(6)` write for a `face`-less row — and the template writes `D9(6)` unconditionally at the head of the player Init as a hard-coded **0 = SOUTH**. So `face is None` is not "no facing", it is a silent *"face the camera whichever wall you came through"*. On a south door the player walks in with their back to the room and **none** of the draft's nine gates fires. |
 | `q0 → q1` order is a convention worth honouring | **It steers the walk-out, and NO gate can check it** — assert | The Range body runs `CalculateExitPosition` (MJPOS, `DoEventCode.cs:2251-2252`) which reads **`q[0]` and `q[1]` only**, projects the player onto that segment and stores it as the walk target. Measured on a west-wall strip: correct order → exit target on the wall line; inner-edge-first → **130u backward into the room** during the fade; rotated by one → a **550u sideways slide along the jamb**. All three score `zone_fan_audit` **0.0/0.0**. |
 | `zone_fan_audit == 0` on a parallelogram, by construction | **`<= 0.02`** (the repo's own threshold, `workspace/backdrop.py:576`) | 2996/3000 legal strips score exactly 0/0 — worst spill `7.58e-4`. Equality would refuse ~1 legal door in 750. And the audit is **vacuous on degeneracy**: `depth = 0`, a zero-length seg and four collinear points each score a perfect 0/0 with 0 triangles. |
@@ -101,10 +101,15 @@ Full executable formulas live in the module docstrings of
 [`ff9mapkit/ff9mapkit/floorplan.py`](../../ff9mapkit/ff9mapkit/floorplan.py) — that file is the
 single owner. The shape:
 
-- **C0 `project_floor` / `horizon_row` / `z_for_row`** — the closed-form projection.
+- **C0 `project_floor`** — the closed-form projection.
   `project_floor(x,z) = (cx0 + xH/|dep|, cy0 − K·sin(p)·H·z/|dep|, dep)` with `dep = D + cos(p)·z`.
-  Max error **0.0706 px** vs `cam.to_canvas` at depth ≥ 500 over 8 pitches × 4 distances.
-  `z_for_row` **replaces** `cam.solve_z_for_canvasY` (see §1).
+  Max error **0.0706 px** vs `cam.to_canvas` at depth ≥ 500 over 8 pitches × 4 distances. Its reason
+  to exist is the THIRD return value: `cam.to_canvas` folds `abs(resz)`, which mirrors a
+  behind-camera point into an ordinary-looking coordinate, and only the depth can see that.
+  ⚠ **`horizon_row` and `z_for_row` lived here until `176aa11d` and are GONE.** They were a private
+  fork carried because the shared solver was unsound at low pitch; that was fixed upstream, so the
+  composer now calls `cam.solve_z_for_canvasY(c, row, near=NEAR_W, …)` and `cam.horizon_canvas_y`.
+  A private copy that outlives its reason is a second owner of one number.
 - **C1 `polygon_problem`** — verts ≥ 3 · no near-duplicate consecutive verts · **a real O(n²)
   non-adjacent segment-intersection test** · area floor · not all-collinear. The area test must run
   **before** any `_as_ccw` call: `_as_ccw` tests `signed_area >= 0`, so a zero-area polygon "keeps
@@ -141,7 +146,9 @@ single owner. The shape:
   fov 42), then bisect distance in [300, 60000] on: every vertex at `depth >= NEAR_W` **and** inside
   the canvas by `FIT_MARGIN`. Offset = **AABB centre** in x (not the centroid — they differ by
   (−250,−200) on an L, enough to push a corner to canvas x 399.8 off a 384-wide canvas) and
-  **front-align** in z (`z_for_row(FRONT_ROW) − z0`). `off_r` rounded to int once.
+  **front-align** in z (`cam.solve_z_for_canvasY(FRONT_ROW, near=NEAR_W) − z0`). `off_r` rounded to
+  int once — `bgi.build` rounds every vert, so a fractional offset lets the mesh, the quads and the
+  arrival round independently and drift apart by up to 1u.
   ⚠ `guide.make_camera` validates nothing — `distance = −3000` and `1.0` both return plausible
   projections. The composer owns the bound.
 - **C8 `interior_point`** — maximize distance-to-boundary over `standable`, clearing every avoid-zone
@@ -173,7 +180,7 @@ refused.
 | **G15** | the painted floor's canvas AABB matches the walkmesh's to within `FIT_MARGIN` |
 
 **Deleted or demoted:** the cardinal snap · `min_len = 192` · G7's equality · G4's raw error ·
-the centroid fast path · `cam.solve_z_for_canvasY` and `guide.frame_floor` (out of the call path).
+the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were out of the call path until their own defect was fixed upstream; the composer spends them again since `176aa11d`.)
 
 ---
 
