@@ -96,6 +96,6 @@ field.toml: `[[camera]]` + `[[layers]] camera=N` + `[[camera_zone]]`. Byte-exact
 ## Dead ends (proven — do not re-explore)
 
 - Per-pitch `sx/sy` canvas scale: the map is exact scale-1; the "back-edge drift" was the character
-  collision radius (`COLLISION_RADIUS_W ≈ 48`), not a map error.
+  collision radius (`COLLISION_RADIUS_W = 80`, in-game confirmed 2026-07-30), not a map error.
 - The FieldCreator editor's 5-point camera anchor on a flat floor: rank-deficient (all y=0 zeroes the
   y-columns) — mathematically degenerate. Synthesize with `synth_r_t` instead.

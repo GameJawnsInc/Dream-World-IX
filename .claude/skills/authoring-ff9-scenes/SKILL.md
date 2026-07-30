@@ -25,7 +25,7 @@ A real field's walkmesh world position = **`vert + orgPos + floor.org`** (univer
 
 ## IsInQuad dead zones & collision radius
 
-`IsInQuad`/`TreadQuad` test a FAN of consecutive vertex-triplets, not the real polygon — 3 collinear points = a zero-area triangle = a DEAD ZONE. Use a convex quad with the last vertex DOUBLED. `COLLISION_RADIUS_W ≈ 48` (= `bgiRad*4`): the player CENTRE can't reach a walkmesh edge — extend the walkmesh ~48u past the painted floor if the player should reach the visual edge.
+`IsInQuad`/`TreadQuad` test a FAN of consecutive vertex-triplets, not the real polygon — 3 collinear points = a zero-area triangle = a DEAD ZONE. Use a convex quad with the last vertex DOUBLED. `COLLISION_RADIUS_W = 80` (`SetObjectLogicalSize(20,...)` → `radius = size*4`; in-game confirmed 2026-07-30 — not `bgiRad*4`, a battle-return-only field that's 0 on a fresh load): the player CENTRE can't reach a walkmesh edge — extend the walkmesh 80u past the painted floor if the player should reach the visual edge.
 
 ## Painted art / overlay depth / occlusion
 

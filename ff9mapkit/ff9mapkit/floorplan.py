@@ -25,10 +25,12 @@ wrong -- is ``studies/click-authoring/RUNG6.md`` §1. Read it before changing a 
   * The door's inward normal is anchored to the polygon's OWN carrying edge. Deriving it from a
     point-in-polygon probe inverts on 48.5% of hand-drawn (non-coincident) walls, identically for
     both rot90 signs, because off-coincident BOTH probe points are inside or both outside.
-  * ``R_WALK = 80``, not ``cam.COLLISION_RADIUS_W`` (48). The kit's player Init runs
-    ``SetObjectLogicalSize(20, 24, 40)`` and Memoria's ``DoEventCode.cs:1531`` does
-    ``radius = size * 4``. ``cam.py:66-70``'s stated basis (``bgiRad*4`` off the ``.bgi``) is wrong:
-    ``bgiRad``'s only writer is the battle-return backup, so it is 0 on a fresh load.
+  * ``R_WALK = 80``, matching ``cam.COLLISION_RADIUS_W`` (also fixed to 80, was wrongly 48 -- its
+    stated basis, ``bgiRad*4`` off the ``.bgi``, was wrong: ``bgiRad``'s only writer is the
+    battle-return backup, so it's 0 on a fresh load). IN-GAME CONFIRMED 2026-07-30: walked into a
+    wall at world z=300 in a purpose-built calibration field (id 30510); the debug HUD read the
+    clamped stop at exactly z=220, i.e. inset 80. See ``scene/cam.py:66-77`` for the fixed
+    constant + full chain, and ``studies/click-authoring/RUNG6.md`` §6.1 for the resolved history.
   * The camera fit MUST gate on per-vertex depth. Apparent size goes as ``1/|D + cos(p)z|``, which
     has a POLE, so a box-only test accepts a camera 740u INSIDE the room.
   * ``cam.solve_z_for_canvasY`` and ``guide.frame_floor`` are unsound at low pitch and are NOT in
@@ -58,15 +60,17 @@ class ComposeError(ValueError):
 
 # ------------------------------------------------------------------ constants (sourced, not guessed)
 
-# ★ THE WALL RADIUS -- the composer's OWN constant. DO NOT substitute cam.COLLISION_RADIUS_W.
-# Chain (all four links traced): the kit's player Init runs CreateObject then
-# SetObjectLogicalSize(20, 24, 40) -> Memoria EventEngine.DoEventCode.cs:1500 `size = getv1()`
+# ★ THE WALL RADIUS. Chain (all four links traced AND byte/source verified): the kit's player
+# Init runs CreateObject then SetObjectLogicalSize(20, 24, 40) (confirmed by disassembling the
+# blank-field template, offset 731) -> Memoria EventEngine.DoEventCode.cs:1500 `size = getv1()`
 # (arg1 == 20) -> :1531 `component1.radius = size * 4` == 80 -> FieldMapActorController.cs:1057
 # RadiusValid -> WalkMesh.cs:1976 BGI_computeNewPoint pins the centre at EXACTLY radius off an
-# inaccessible edge. cam.COLLISION_RADIUS_W = 48 (scene/cam.py:71) is 64% small AND its comment's
-# basis is factually wrong (bgiRad is 0 on a fresh load; its only writer is the battle-return
-# backup at EventEngine.cs:1443). ⚠ This is a CODE derivation, not an in-game measurement -- see
-# RUNG6.md §6.1. Adopting 80 is safe either way: if 48 is right these gates are merely stricter.
+# inaccessible edge. IN-GAME CONFIRMED (2026-07-30, calibration field 30510): walked into a wall
+# at world z=300, debug HUD read the clamped stop at exactly z=220 -- inset 80, not 48.
+# cam.COLLISION_RADIUS_W (scene/cam.py:71) is now ALSO 80 (was wrongly 48 until this same pass --
+# its old comment's basis, bgiRad*4, was factually wrong: bgiRad is 0 on a fresh load, its only
+# writer is the battle-return backup at EventEngine.cs:1443). Kept as this module's own constant
+# (not imported from cam) so a future regression in cam.py can't silently loosen these gates.
 R_WALK = 80.0
 
 R_OBJ = _cam.OBJECT_COLLISION_W          # 96.0 (scene/cam.py:82) -- correct in the repo: arg2 = 24

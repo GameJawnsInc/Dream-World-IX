@@ -57,8 +57,10 @@ Full sidecar format, failure modes, and the seam research → `ff9mapkit/docs/WA
 
 `IsInQuad`/`TreadQuad` test a FAN of consecutive vertex-triplets, not the real polygon — 3 collinear
 points = a zero-area triangle = a DEAD ZONE. Author a convex quad with the last vertex DOUBLED.
-`COLLISION_RADIUS_W ≈ 48` (= `bgiRad*4`): the player CENTRE can't reach a walkmesh edge — extend the
-walkmesh ~48u past the painted floor if the player should stand at the visual edge. Trigger mechanics
+`COLLISION_RADIUS_W = 80` (`SetObjectLogicalSize(20,...)` → `radius = size*4`, in-game confirmed
+2026-07-30 — NOT `bgiRad*4`, which is a battle-return-only field, 0 on a fresh load): the player
+CENTRE can't reach a walkmesh edge — extend the walkmesh 80u past the painted floor if the player
+should stand at the visual edge. Trigger mechanics
 (tags 2/3/10, point order = walk direction) belong to the field-scripts skill / memory
 `[[project-ff9-gateway-regions]]`.
 

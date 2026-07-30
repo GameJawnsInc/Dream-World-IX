@@ -23,7 +23,7 @@ Each line is a value or rule that was wrong in the draft, with the measurement t
 | Draft said | Truth | The measurement |
 |---|---|---|
 | Derive the door's inward normal by **point-in-polygon disambiguation** | **Anchor it to the polygon's own carrying edge**; PIP is a *fence*, never the decision | PIP is decisive only when the seg lies EXACTLY on the wall — and hand-drawn walls don't. Off-coincident, both probe points are inside (overlap) or both outside (gap). Sweep of wall offset −8..+8u × both seg orders, n=66: the draft **inverted 32/66 = 48.5%**, identically for both `rot90` signs. Edge-anchored: **0/66**. |
-| Player wall radius = `cam.COLLISION_RADIUS_W` = **48** | **`R_WALK = 80`** for the composer's own gates | The kit's player Init runs `SetObjectLogicalSize(20, 24, 40)`; Memoria `DoEventCode.cs:1531` does `radius = size * 4` → **80**. `cam.py:66-70`'s justification (`bgiRad*4` from the `.bgi`) is factually wrong — `bgiRad`'s only writer is the battle-return backup, so it is **0** on a fresh load. `RadiusValid`→`BGI_computeNewPoint` pins the centre at *exactly* radius. ⚠ See §6.1 — this is a code derivation, not a measurement. |
+| Player wall radius = `cam.COLLISION_RADIUS_W` = **48** | **`R_WALK = 80`** for the composer's own gates | The kit's player Init runs `SetObjectLogicalSize(20, 24, 40)`; Memoria `DoEventCode.cs:1531` does `radius = size * 4` → **80**. `cam.py:66-70`'s justification (`bgiRad*4` from the `.bgi`) is factually wrong — `bgiRad`'s only writer is the battle-return backup, so it is **0** on a fresh load. `RadiusValid`→`BGI_computeNewPoint` pins the centre at *exactly* radius. ★ **IN-GAME CONFIRMED 2026-07-30** (§6.1 resolved) — `cam.COLLISION_RADIUS_W` fixed to 80 to match. |
 | Fit the camera by **bisecting distance** on a canvas-AABB test | Bisect, **but gate every vertex on `depth >= NEAR_W`** | Apparent size goes as `1/|D + cos(p)·z|`, which has a **pole** — so size *grows* with distance below it. The fits-flag transitions **twice**. The draft's fit returns `D = 200` with `minDepth = −740` for a corridor at pitch 20: a camera 740u *inside the room*, passing the margin test comfortably, rendering the near floor mirrored through the camera plane. |
 | Centre the room on the canvas via `solve_z_for_canvasY(CANVAS_H/2)` | **Front-align** the room's front edge on row 420, with the composer's own `z_for_row` | Step 2 was a **tautology**: `to_canvas` is `range[1]/2 + centerOffset[1] − rawProj.y` and `rawProj.y = 0` at `z = 0`, so it returned 0 identically for all 28 pitch×distance pairs. Front-align won canvas fill **10/10**; canvas-middle left 96–201 dead rows (worst: a 4000×1200 room at pitch 26 occupied rows 205–247, **8.9% fill**). |
 | `cam.solve_z_for_canvasY` / `guide.frame_floor` are the tools | **Never call either.** The composer carries `z_for_row`. | Both are unsound at low pitch — `frame_floor(130, 420)` *raises at every distance* for pitch 15. This is a live defect in shipped code, spawned as its own task; `pack.new_project` swallows it, so `ff9mapkit new --pitch 15` silently ships a template mesh. |
@@ -179,16 +179,19 @@ the centroid fast path · `cam.solve_z_for_canvasY` and `guide.frame_floor` (out
 
 ## 6. STILL GENUINELY UNKNOWN — needs 6d, the playtest
 
-1. **`R_WALK = 80` vs the repo's 48.** The code chain is airtight for the steady state and every link
-   was traced (opcode arg order, GameObject lifetime, `gMode`, the clamp geometry) — but it is a
-   **derivation, not a measurement**, and it contradicts a constant five call sites already spend.
-   Adopting 80 is safe in either direction: if 80 is right the gates are correct, if 48 is right they
-   are merely more conservative. **Measure it in 6d** — stand the player against a wall in a composed
-   room and read the clamped centre off `tools/game_snap.ps1` against the mesh.
-   ⚠ **Do NOT change the other 48s as a drive-by** — `imagefield.COLLISION_OUTSET`,
-   `routes.WALL_CLEARANCE_W`, `build.py:3652`, `content/pathfind.py:155`,
-   `field_layout_probe.py:242` and the layout skill all carry 48, across four unrelated lanes.
-   That is its own change, with the owner.
+1. ~~`R_WALK = 80` vs the repo's 48.~~ **RESOLVED 2026-07-30, in-game measured.** A purpose-built
+   calibration field (id 30510, straight wall at world z=300, steep 75° camera chosen so the two
+   hypotheses land 9.9 canvas-px apart) was deployed and walked into; the debug HUD read the
+   clamped stop at exactly **z=220** — an inset of **80**, not 48. `cam.COLLISION_RADIUS_W` has
+   been fixed to 80 to match `R_WALK`, and its comment corrected (the `bgiRad*4` basis was never
+   real — `bgiRad` is a battle-return-only field, 0 on a fresh load; the old 48 traced back to the
+   now-deleted room02 bench, which conflated this radius with the legacy flat-builder's
+   `orgPos=(0,0,300)` offset and the retired eyeball canvas scale).
+   ⚠ **Still do NOT change the other 48s as a drive-by** — `imagefield.COLLISION_OUTSET`,
+   `routes.WALL_CLEARANCE_W`, `build.py:3652`, `field_layout_probe.py:242` and the layout skill
+   still carry independent 48 literals across three unrelated lanes (`content/pathfind.py:155` and
+   `build.py:6823` read `cam.COLLISION_RADIUS_W` directly, so they picked up 80 automatically).
+   Reconciling the standalone literals is its own change, with the owner.
 2. **Whether front-align *looks* right in-game.** The fill numbers are unambiguous and it matches
    `frame_floor`'s own defaults, but "the room reads as a room" is a human judgment. Get a screenshot
    of the first composed room before emitting a whole dungeon.
