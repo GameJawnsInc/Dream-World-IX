@@ -33,6 +33,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   player cannot reach (68% of one composed room), inverting the placeholder's own purpose
   as an in-game alignment check.
 
+### Added — the Workspace **Floorplan** tab: draw the dungeon, watch the gates
+- A new tab on the Author rail beside Map. Draw room outlines on a plan-view chart,
+  click a shared wall to turn it into a door, press Compose. The composer runs on
+  **every edit**, so its gates paint on the drawing itself — an offending room or
+  door strokes in the error colour, every problem is listed in the author's own
+  words, and Compose stays disabled while any error stands. Compose then opens the
+  finished dungeon as a live campaign, so its graph is immediately visible on the
+  Map tab.
+- The chart is a chart, not a camera: one isotropic pixel↔world scale with +z up
+  the screen, matching the layout probe's frame so the two instruments agree. A
+  click lands on the cursor after any zoom or pan.
+- Undo is per-session and covers the whole plan, so declaring a door — which
+  writes both sides at once — is a single step. A half-undone door would be a
+  gateway with no arrival.
+
 ### Fixed — the layout probe called a correct field COLLIDING
 - `tools/field_layout_probe.py` compared `[player] spawn` against `[[player.arrival]]`
   rows as if they were two actors. An entrance-0 arrival is conventionally equal to the

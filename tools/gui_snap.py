@@ -910,6 +910,66 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
     _grab(ctx, f"place-{state}-canvas", win.place_doc.canvas)   # the SUBJECT, not just the window
     _close(win)
 
+FLOORPLAN_STATES = ("bare", "rooms", "door", "refused")
+
+# The snap's own plan, in PLAN-frame world units: an L of three abutting rooms. Deterministic and
+# kit-authored (zero Square-Enix bytes, no install needed -- the composer is pure math).
+_FP_A = [(-1200, -800), (0, -800), (0, 800), (-1200, 800)]
+_FP_B = [(0, -800), (1200, -800), (1200, 800), (0, 800)]
+_FP_C = [(0, 800), (1200, 800), (1200, 2000), (0, 2000)]
+
+
+def _fp_draw(canvas, pts):
+    """Draw one room through the canvas's own click seam and CLOSE it on the first corner."""
+    for p in pts:
+        canvas.click_world(*p)
+    canvas.click_world(*pts[0])
+
+
+def snap_floorplan(ctx: _Ctx, state: str) -> None:
+    """The Floorplan tab (click-authoring Rung 6c): the empty on-ramp with its compass and the
+    teach line ('bare'), three abutting rooms drawn in Rooms mode with their footprints and the
+    entry mark ('rooms'), the Doors tool with one DECLARED door plus the shared wall still on
+    offer ('door'), or the live gate REFUSING a door shallower than 2*R_WALK -- the door and both
+    its rooms in the error colour, the reason listed verbatim, Compose off ('refused').
+
+    'refused' shows the DOOR class deliberately. ``compose`` raises per STAGE, so a bad room
+    OUTLINE never reaches the door gate at all and a plan carrying both would render only the room
+    half; that half (a self-intersecting outline -> G1) is fenced in
+    tests/test_workspace_floorplan.py, and this is the paint that needed an eye on it.
+
+    The plan is kit-authored world geometry and the composer is pure math, so no install and no
+    templates are needed; the gate verdict is computed on the SYNC lane (production judges on a
+    worker thread behind a 140ms debounce, which a harness cannot idle through)."""
+    if state not in FLOORPLAN_STATES:
+        raise ValueError(f"unknown floorplan state {state!r} (know: {', '.join(FLOORPLAN_STATES)})")
+    win = _make_win(ctx)
+    doc = win.floorplan_doc
+    doc.id_box.setText("30500")                        # the scratch run this lane's pin names --
+    #                                                    BEFORE the show, so the doc's own
+    #                                                    measure-after-polish pass re-homes the
+    #                                                    caret (a caret-scrolled box reads "0500")
+    win.tabs.setCurrentWidget(win.floorplan_doc)
+    _settle(4)
+    if state != "bare":
+        doc.name_box.setText("SUNKEN")
+        for poly in (_FP_A, _FP_B, _FP_C):
+            _fp_draw(doc.canvas, poly)
+    if state in ("door", "refused"):
+        doc.tools.set_current("doors")
+        doc.judge_now(sync=True)
+        doc.canvas.click_world(0, 0)                   # declare the ROOM1-ROOM2 wall
+    if state == "refused":
+        doc.depth.setValue(100)                        # under DEPTH_MIN: refused, never clamped
+    doc.judge_now(sync=True)
+    _settle(6)                                     # the viewport must be SETTLED before the fit:
+    doc.canvas.fit()                               # fit() measures the live viewport
+    _settle(4)
+    _grab(ctx, f"floorplan-{state}", win)
+    _grab(ctx, f"floorplan-{state}-canvas", doc.canvas)   # the SUBJECT, not just the window
+    _close(win)
+
+
 _BARE_TOML = """\
 [field]
 name = "BARE"
@@ -1205,7 +1265,8 @@ def all_surfaces() -> list[str]:
             + [f"script:{s}" for s in SCRIPT_STATES]
             + [f"behavior:{s}" for s in BEHAVIOR_STATES]
             + [f"trace:{s}" for s in TRACE_STATES]
-            + [f"place:{s}" for s in PLACE_STATES])
+            + [f"place:{s}" for s in PLACE_STATES]
+            + [f"floorplan:{s}" for s in FLOORPLAN_STATES])
 
 
 def main() -> None:
@@ -1257,6 +1318,8 @@ def main() -> None:
                 snap_trace(ctx, rest)
             elif kind == "place":
                 snap_place(ctx, rest)
+            elif kind == "floorplan":
+                snap_floorplan(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface
