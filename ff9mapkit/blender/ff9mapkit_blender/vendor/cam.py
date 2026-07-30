@@ -63,12 +63,24 @@ S_CANVAS_X = 1.0
 S_CANVAS_Y = 1.0
 S_CANVAS = 1.0
 
-# Walking-character collision radius, world units. FieldMap.cs sets the controller radius to
-# bgiRad*4 (bgiRad from the .bgi; flat quads use the default ~12 -> ~48). The player CENTRE cannot
-# reach the painted floor edge -- it stops ~this far inside (most visible at the foreshortened back
-# edge; THIS was the old "back edge a bit short"). Physics, not a map error: extend the walkmesh
-# past the painted floor by ~this much if the player should be able to stand at the visual edge.
-COLLISION_RADIUS_W = 48.0
+# Walking-character collision radius, world units. The kit's player Init runs
+# SetObjectLogicalSize(20, 24, 40) (verified by disassembling the blank-field template) ->
+# Memoria EventEngine.DoEventCode.cs:1500 `size = getv1()` (arg1==20) -> :1531
+# `component1.radius = size * 4` == 80 -> FieldMapActorController.cs:1057 RadiusValid ->
+# WalkMesh.cs:1976 BGI_computeNewPoint, which pins the centre at EXACTLY radius off an
+# inaccessible edge. The player CENTRE cannot reach the painted floor edge -- it stops this far
+# inside (most visible at the foreshortened back edge; THIS was the old "back edge a bit short").
+# Physics, not a map error: extend the walkmesh past the painted floor by this much if the player
+# should be able to stand at the visual edge.
+# IN-GAME CONFIRMED (2026-07-30, R_WALK_CALIB field 30510): walked into a wall at world z=300;
+# the debug HUD read the clamped stop at exactly z=220, i.e. inset 80 -- not 48. The former
+# value here (48) was never actually traced from this code path; it was reverse-engineered as a
+# post-hoc explanation for an empirical measurement from the room02 checkerboard bench, whose own
+# instrument was separately found to conflate this radius with the legacy flat-builder's
+# orgPos=(0,0,300) offset and the since-retired eyeball canvas scale (see the room02 deletion,
+# 6f07caee). This constant now matches floorplan.R_WALK -- see floorplan.py:61-70 for the same
+# chain and studies/click-authoring/RUNG6.md §6.1 for the full history.
+COLLISION_RADIUS_W = 80.0
 
 # Object<->object collision radius, world units (DISTINCT from the controller radius above).
 # WalkMesh.Collision blocks one actor against another when their centre distance < 4*collRadA +
@@ -194,7 +206,7 @@ def to_canvas(P, cam):
     offset-less form); REAL imported cameras need their GTE centerOffset (see the block comment
     above -- the map158 donor's [26, 400] is the proven case).
     NB: this is pure geometry -- the player's COLLISION_RADIUS_W keeps the player CENTRE a constant
-    ~48 world units inside any painted edge; account for it in the walkmesh, not here."""
+    80 world units inside any painted edge; account for it in the walkmesh, not here."""
     px, py, _ = project(P, cam)                 # RAW GTE projection (offset 0,0)
     return (px + cam.centerOffset[0] + cam.range[0]/2.0,
             cam.range[1]/2.0 + cam.centerOffset[1] - py)
