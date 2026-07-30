@@ -3815,6 +3815,42 @@ def _cmd_world_morphs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_coastnav(args: argparse.Namespace) -> int:
+    """Stamp VEHICLE-legality classes onto a coast's water (keel-block / standoff belt / cliff-front /
+    beach-front). Navigation only -- topograph bits, geometry byte-preserved."""
+    from .world import coastnav as CN
+    cells = None
+    if args.cells:
+        cells = [tuple(int(v) for v in c.split(",")) for c in args.cells.split(";") if c.strip()]
+    try:
+        s = CN.stamp(args.mod_folder, disc=args.disc, cells=cells, policy=args.policy,
+                     deploy=not args.dry_run, game=args.game, mirror_disc=args.mirror_disc)
+    except (ValueError, ConfigError, FileNotFoundError, AssertionError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    names = {56: "keel-block", 53: "beach-front", 55: "standoff-belt", 54: "cliff-front"}
+    verb = "would stamp" if args.dry_run else "STAMPED"
+    if not s["cells"]:
+        print(f"no water needed reclassifying on Disc{s['disc']} "
+              f"({'no sea overrides deployed there' if not cells else 'in the given cells'})")
+        return 0
+    print(f"{verb} coast navigation on Disc{s['disc']} (policy {s['policy']}) "
+          f"across {len(s['cells'])} cell(s):")
+    for c in s["cells"]:
+        bits = " ".join(f"{p['part']}:{p['verts']}v" for p in c["parts"])
+        print(f"  block ({c['block'][0]}, {c['block'][1]}): {bits}")
+    tot = "  ".join(f"{names[k]}({k})={v}" for k, v in sorted(s["totals"].items()))
+    print(f"  verts by class: {tot}")
+    if s["backup_dir"]:
+        print(f"  originals backed up to {s['backup_dir']}")
+    if 53 not in s["totals"]:
+        print("  !! NO beach-front (53) anywhere -- the get-off gate demands topo 53, so this coast "
+              "can be sailed to but NOT landed on. Intended for a cliff island; give it a low shore "
+              "if it should be a boat destination.")
+    print("  re-enter the world map to apply.")
+    return 0
+
+
 def _cmd_world_island(args: argparse.Namespace) -> int:
     """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
     grass tile language (mains + verbatim meadow stamps; flat interior by default, OPT-IN rolling relief via
@@ -7638,6 +7674,22 @@ def build_parser() -> argparse.ArgumentParser:
     wis.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wis.set_defaults(func=_cmd_world_island)
+
+    wcn = sub.add_parser("world-coastnav",
+                         help="stamp VEHICLE-legality classes on a coast's water (keel-block seal, "
+                              "standoff belt, cliff-front, beach-front) so boats stop at the shore "
+                              "instead of sailing through it. Navigation only; geometry untouched.")
+    wcn.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to stamp in")
+    wcn.add_argument("--disc", type=int, default=1, help="the disc NAMESPACE to stamp (9 for a Path D synthetic world)")
+    wcn.add_argument("--mirror-disc", type=int, default=None, help="also write an identical copy to this disc (the real Disc1/Disc4 parity pair); omit for a synthetic namespace")
+    wcn.add_argument("--cells", help="restrict to cells 'x,y;x,y' (default: every cell with a sea override)")
+    wcn.add_argument("--policy", choices=("land-anywhere", "cliffs-refuse"), default="land-anywhere",
+                     help="land-anywhere: every near-shore triangle is landable 53 (the Southern Ring's property). "
+                          "cliffs-refuse: stock grammar -- 53 fronts BEACHES ONLY, water fronting high walls "
+                          "becomes 54, so a cliff-ringed island can be sailed to but not disembarked on.")
+    wcn.add_argument("--dry-run", action="store_true", help="report the reclassification without writing")
+    wcn.add_argument("--game", help="path to the FF9 install")
+    wcn.set_defaults(func=_cmd_world_coastnav)
 
     wfo = sub.add_parser("world-forest",
                          help="carry a REAL canopy blob (verbatim topo-37 forest) onto a DEPLOYED kit island -- "
