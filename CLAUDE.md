@@ -270,7 +270,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Summons TIER W ★: W5 ⛳, W6a ★★, W7 ★★, W6b-1 ⛳ in-game (byte→screen + per-cell map + 4bpp proven; BINDING≠DRAW + UV-shredding laws; shape-on-flat open) → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
 - Click authoring — ★ Rungs 0-3 owner-confirmed (Trace/Place tabs, s35 retired); Rung 4 regions-on-the-art + tool strip BUILT, playtest pending; open: 4/6 → `studies/click-authoring/PLAN.md`
-- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-4 ALL IN-GAME PROVEN: world 9013 renders a 480-block WorldDisc minted in C# at runtime, player + boat work. Next: real land → `studies/path-d-new-world/PLAN.md`
+- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a IN-GAME PROVEN: 9013 renders a runtime-minted WorldDisc; first authored land + coast-nav (cliffs-refuse) playtest-confirmed. Next: synthesis → `studies/path-d-new-world/`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 
