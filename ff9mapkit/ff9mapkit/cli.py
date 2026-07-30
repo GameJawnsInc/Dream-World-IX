@@ -3439,7 +3439,8 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
     try:
         summary = T.reshape(args.mod_folder, at=at, seg=seg, radius=args.radius, amount=amount,
                             flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
-                            game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror)
+                            game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror,
+                            target_disc=args.target_disc)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -7218,6 +7219,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="a ridge/valley along the world-XZ segment (X0,Z0)->(X1,Z1)")
     _op = wtr.add_mutually_exclusive_group(required=True)
     _op.add_argument("--raise", dest="raise_h", type=float, metavar="H", help="raise by H (a hill / ridge)")
+    wtr.add_argument("--target-disc", type=int, default=None, help="deploy the produced overrides into THIS disc's namespace instead of --disc's. Unlike the other split verbs the READ moves too: a synthetic world has no pristine tree, so its land is read back from the already-deployed override there and a block without one is skipped as sea. Use 9 for a Path D synthetic world.")
     _op.add_argument("--lower", type=float, metavar="H", help="lower by H (a crater / valley)")
     _op.add_argument("--flatten", action="store_true", help="flatten toward --height (default the local mean); radial")
     wtr.add_argument("--height", type=float, help="with --flatten: the target Y (default = the local mean)")
