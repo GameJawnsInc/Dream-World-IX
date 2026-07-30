@@ -826,7 +826,11 @@ def _cmd_lint(args: argparse.Namespace) -> int:
 
 def _cmd_new(args: argparse.Namespace) -> int:
     from .pack import new_project, suggest_base
-    proj = new_project(args.name, args.dest, field_id=args.id, area=args.area, pitch=args.pitch)
+    try:
+        proj = new_project(args.name, args.dest, field_id=args.id, area=args.area, pitch=args.pitch)
+    except ValueError as e:      # an unframeable camera -- new_project refuses rather than guess a quad
+        print(str(e), file=sys.stderr)
+        return 2
     fid = args.id if args.id is not None else suggest_base(args.name)
     print(f"scaffolded {proj}  (suggested field id {fid}, area {args.area})")
     print(f"  edit {proj}/{args.name.lower()}.field.toml, add art, then: ff9mapkit build "
