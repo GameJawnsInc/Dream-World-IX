@@ -3491,7 +3491,8 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
         summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, profile=args.profile,
                             topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
                             shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run,
-                            skip_mirror=args.skip_mirror)
+                            skip_mirror=args.skip_mirror, target_disc=args.target_disc,
+                            all_sea_target=args.all_sea_target)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3539,7 +3540,8 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
         except Exception:  # noqa: BLE001 -- donor-quality warning is best-effort
             pass
         summary = T.coast(args.mod_folder, cells=cells, donor=(dx, dy), disc=args.disc, game=args.game,
-                          dry_run=args.dry_run, skip_mirror=args.skip_mirror)
+                          dry_run=args.dry_run, skip_mirror=args.skip_mirror,
+                          target_disc=getattr(args, "target_disc", None))
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3842,7 +3844,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
                   rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, ground=args.ground,
                   relief_amp=relief_amp, relief_seed=args.relief_seed,
                   beach=beach, disc=args.disc, game=args.game, dry_run=args.dry_run,
-                  skip_mirror=args.skip_mirror)
+                  skip_mirror=args.skip_mirror, target_disc=args.target_disc,
+                  all_sea_target=args.all_sea_target)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -7229,6 +7232,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="RECLAIM ocean cells as walkable LAND (Path D -- new continent): synthesize a flat, "
                               "textured, walkable terrain override per sea cell. Needs the custom engine; relaunch.")
     wrc.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wrc.add_argument("--target-disc", type=int, default=None, help="deploy the produced overrides into THIS disc's namespace instead of --disc's. --disc stays the READ disc (which stock tree real bytes are borrowed from; only 1 or 4 exist). Use 9 for a Path D synthetic world, whose engine-side override namespace is deliberately disjoint from the real trees.")
+    wrc.add_argument("--all-sea-target", action="store_true", help='the target grid is ALL SEA (a blank Path D world), so skip the open-ocean/real-land probes that read the unrelated real disc. Do NOT pass this for an s75 CLONE target -- a clone carries the stock IsSea pattern, so those probes are correct there and must keep running.')
     wrc.add_argument("--cells", required=True,
                      help="sea cells to reclaim: 'x,y;x,y' (e.g. '2,5;3,5') or a range 'x0-x1,y0-y1' (a landmass). "
                           "Grid is 24x20; a lone cell is an island, a contiguous run bridges from the coast.")
@@ -7256,6 +7261,7 @@ def build_parser() -> argparse.ArgumentParser:
     wct = sub.add_parser("world-coast",
                          help="FAITHFUL coast (Path D): place a REAL FF9 coastal block at ocean cells -- copies its "
                               "terrain + animated beach/sea/foam (via a Donor.txt sidecar). --list browses donors.")
+    wct.add_argument("--target-disc", type=int, default=None, help="deploy the produced overrides into THIS disc's namespace instead of --disc's. --disc stays the READ disc (which stock tree real bytes are borrowed from; only 1 or 4 exist). Use 9 for a Path D synthetic world, whose engine-side override namespace is deliberately disjoint from the real trees.")
     wct.add_argument("--mod-folder", default=argparse.SUPPRESS,
                      help="the FolderNames mod folder to deploy into (default FF9CustomMap)")
     wct.add_argument("--cells", help="target ocean cells: 'x,y;x,y' or a range 'x0-x1,y0-y1'")
@@ -7568,6 +7574,15 @@ def build_parser() -> argparse.ArgumentParser:
                               "undulation (local prominence still = world-hill/world-forest/world-mountain). "
                               "Needs the custom engine; re-enter the world.")
     wis.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wis.add_argument("--target-disc", type=int, default=None,
+                     help="deploy the produced overrides into THIS disc's namespace instead of --disc's. --disc "
+                          "stays the READ disc (which stock tree real bytes are borrowed from; only 1 and 4 exist). "
+                          "Use 9 for a Path D synthetic world, whose engine-side override namespace (s74) is "
+                          "deliberately disjoint from the real trees.")
+    wis.add_argument("--all-sea-target", action="store_true",
+                     help="the target grid is ALL SEA (a blank Path D world), so skip THE OPEN-OCEAN TARGET LAW, "
+                          "which probes the unrelated real disc. Do NOT pass this for an s75 CLONE target -- a "
+                          "clone carries the stock IsSea pattern, so the law is correct there and must keep running.")
     _wtgt = wis.add_mutually_exclusive_group(required=True)
     _wtgt.add_argument("--cell", metavar="BX,BY", help="centre the island on ocean block BX,BY (grid 24x20)")
     _wtgt.add_argument("--center", metavar="WX,WZ",
@@ -7966,7 +7981,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="inspect / re-table the overworld random-encounter TABLE (discmr.img): which battle "
                               "scenes spawn on which terrain. --list dumps it; --config applies edits + deploys a "
                               "discmr.img override. No DLL (AssetManager mod-override); relaunch to apply.")
-    wet.add_argument("--disc", type=int, default=1, choices=[1, 4],
+    wet.add_argument("--disc", type=int, default=1, choices=[1, 4],   # a REAL read disc: discmr.img only exists for 1/4
                      help="which disc's discmr.img (default 1; disc 4 has its own late-game table)")
     wet.add_argument("--list", action="store_true", help="inspect the table (per-topograph summary), write nothing")
     wet.add_argument("--zones", action="store_true",

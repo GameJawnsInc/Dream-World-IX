@@ -895,7 +895,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
              land_height: float = 3.2, rim_run: float = 1.0, n_patches: int = 2, flat: bool = False,
              ground: str = "grass", relief_amp: float = 0.0, relief_seed=None,
              beach=None, donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1",
-             game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
+             game=None, dry_run: bool = False, skip_mirror: bool = False,
+             target_disc: int | None = None, all_sea_target: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
@@ -918,8 +919,18 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     # footprint block must be TRUE open ocean. No escape hatch -- on a sea-only real block the
     # Terrain override has no transform to bind to (the fragment silently never renders), and
     # on a real land block the island would replace real continent geometry.
-    occupied = {blk: occ for blk in sorted(built["blocks"])
-                if (occ := _real_block_parts(blk, disc=disc, lod=lod, game=game))}
+    #
+    # ``all_sea_target`` opts out, and ONLY a genuinely all-sea target grid may set it. The law is a
+    # PROXY: it probes the REAL disc's per-block assets to infer "is the target grid's WMBlock IsSea?".
+    # On a Path D world in BLANK mode that proxy is broken in both directions -- s75 forces IsSea on all
+    # 480 cells, so every coord is lawful, yet the probe would refuse most of the grid purely because the
+    # unrelated disc-1 map has land at those coords; and "a land block would be shredded" is impossible
+    # by construction, since the bytes land in a namespace s74 keeps disjoint from the real tree.
+    # DELIBERATELY NOT keyed on ``target_disc != disc``: in s75 CLONE mode the synthetic grid's IsSea
+    # flags ARE the stock flags this probe measures, so the law stays exactly correct there and must keep
+    # running. Folding the skip into the retarget would fail-OPEN on precisely the mode that needs it.
+    occupied = {} if all_sea_target else {blk: occ for blk in sorted(built["blocks"])
+                                          if (occ := _real_block_parts(blk, disc=disc, lod=lod, game=game))}
     if occupied:
         raise ValueError(
             f"landmass footprint touches REAL world block(s) {occupied} -- the island cannot "
@@ -932,6 +943,11 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         raise ValueError(f"landmass NOT CLEAN -- refusing to deploy: { {k: v for k, v in report.items() if k != 'placement'} }")
     summary = {"op": "landmass", "center": list(built["center"]), "seed": built["seed"],
                "radius": base_radius, "blocks": [], "report": report}
+    # THE READ/WRITE DISC SPLIT. `disc` stays the READ disc -- which stock tree the meshes, sea plane, stamps
+    # and donor prefabs borrow real bytes from. It MUST remain 1 or 4: extract._worldmap_env has no other
+    # `worldmap/disc{N}/` bundle tree to scan and raises for anything else. `target` is purely where the
+    # produced overrides are DEPLOYED. The two differ only for a synthetic world (engine patch s74).
+    target = disc if target_disc is None else int(target_disc)
     bch = built.get("beach")
     written = []
     for blk, bm in sorted(built["blocks"].items()):
@@ -939,24 +955,24 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         entry = {"block": [bx, by], "verts": bm.vcount, "tris": len(bm.tris)}
         is_bch = bch is not None and tuple(bch["block"]) == blk
         if not dry_run:
-            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain"))
+            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Terrain"))
             if is_bch:
                 sea = _cut_plane(plane, bx, by, bch["sea4_cut"])
             else:
                 sea = dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4")
-            written.append(M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, part="Sea4"))
+            written.append(M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Sea4"))
             if is_bch:
                 # the beach block: real ladder parts + the beach-bearing divert donor
                 for part, key in (("Sea1", "sea1"), ("Sea2", "wash"),
                                   ("Sea5", "sea5"), ("Beach1", "foam")):
                     written.append(M.deploy_override(_part_blockmesh(part, blk, bch[key], disc),
-                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
+                                                     mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
                 for part in ("Object", "Sea3"):
                     written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
                                                                          disc=disc, x=bx, y=by),
-                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
+                                                     mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
                 written.append(M.deploy_donor_sidecar(bch["pins_from"][0], bch["pins_from"][1],
-                                                      mod_folder=mod_folder, disc=disc, x=bx, y=by,
+                                                      mod_folder=mod_folder, disc=target, x=bx, y=by,
                                                       lod=lod, game=game))
                 entry["beach"] = {"tris": {k: len(bch[k]) for k in
                                            ("foam", "wash", "sea1", "sea5")},
@@ -966,8 +982,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
                 for part in HIDDEN_PARTS:
                     written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
                                                                          disc=disc, x=bx, y=by),
-                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
-                written.append(M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=disc,
+                                                     mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
+                written.append(M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=target,
                                                       x=bx, y=by, lod=lod, game=game))
         summary["blocks"].append(entry)
     if not dry_run and summary["blocks"]:
