@@ -103,3 +103,14 @@ orientation/mirror statistics, course-transition decode) and must REUSE the fold
 generators — L3 for tops, the D3 winding gate — rather than re-deriving them. The
 prediction itself stays open: one round remains, and it may only be spent on a build that
 faithfully implements the language.
+
+**The anatomy study ran the same day** (`studies/overworld-topography/
+rock_wall_instances.py`, 8945 instances — the count matches the first decode, which is the
+calibration): **LAW 1** v-orientation is FIXED per tile (54/62 ≥90% consistent — use the
+majority, never one exemplar); **LAW 2** u-mirroring is real but RARE (12.5%; T1 mirrored
+at ~50%); **LAW 3 — the discovery** — a wall column is a CONTIGUOUS VERTICAL ATLAS STRIP
+(same-col row-descent `(c,9)→(c,8)→(c,7)`, crest-capped by a measured transition table),
+not independently-tiled course bands. T1's "stamped together" verdict is LAW 3's absence.
+The remaining prediction round, when the owner reopens it, builds columns as vertical
+strips with majority orientations, ~12% seeded mirrors, the crest-cap table, junction L3
+for the top, and the D3 winding gate ported.
