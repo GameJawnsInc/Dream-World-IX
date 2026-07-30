@@ -1,0 +1,190 @@
+# TIER W rung W6b-3 CAST B -- THE ODIN CHANNEL-A CAST.  Stock Odin Short (ef424), TWO cells of ONE
+# multi-part `so` record (0x2f9a4, P = 2) marked with DIFFERENT band counts -- **the first
+# depth-BEARING edit ever shipped on a CHANNEL-A cell**, and the experiment W6b-3's SS8.3 names.
+#
+# THE EXPERIMENT.  `cell.s0.x704_y384` is bound by exactly ONE thing in the whole container: entry
+# slot 1 of a MULTI-PART `so` record's binding ARRAY -- an entry the kit could not read before W6b-3.
+# `page_depth_view` returns ABSENT for that column's cells, so the incumbent binder set is EMPTY and
+# CHANNEL G says nothing here.  The cell is READERLESS on the kit's own instrument (0 declared UV
+# samples), and 8 bpp ONLY because channel A states it.  A zero-write cannot test a depth (zeroing is
+# depth-invariant at 4 / 8 / 15 bpp alike); INK can.  What the screen shows judges the channel:
+#
+#   clean bands              -> channel A's 8 bpp IS the draw depth (a registered array entry's depth
+#                               is the drawn depth on a surface already proven live)
+#   pin-striped bands        -> a 4 bpp read (each ink byte splits into two nibble texels -- the ef446
+#                               jittery signature one level down)
+#   bands in one solid WRONG -> a 15 bpp read (byte pairs become direct words -- the cast-15 bumper
+#   hue                         strip family's mirror image)
+#
+# THE ORDER READ, RIDING THE SAME CAST FOR FREE.  The same record names TWO columns, and its two parts
+# are geometrically unconfusable: part 0 is a 32-prim square-section tube running z -1028..-422, part 1
+# a 68-prim flat billboard plane at x == 0, y -130..130.  Column 448 is bound by SEVEN incumbent
+# single-part records as well, so it is licensed on the `so`-UV channel and needs NO acknowledgement --
+# which is why the two rows below carry different keys and different band counts:
+#
+#   a surface showing 5 bands -> it sampled cell.s0.x704_y384 = record 0x2f9a4 slot 1
+#   a surface showing 3 bands -> it sampled cell.s0.x448_y384 = record 0x2f9a4 slot 0
+#   tube = 3 / plane = 5      -> consistent with IDENTITY ordering (part k <-> entry k)
+#   tube = 5 / plane = 3      -> consistent with the REVERSE
+#   only one surface bands    -> the order read is VACUOUS; the depth read still stands
+#
+#   DERIVE THAT TABLE, NEVER RECALL IT -- the first draft of these two lines was INVERTED, which would
+#   have recorded the opposite observation from the same frames.  The chain is: the record's array in
+#   FILE order is entry 0 -> tpage 0x0097 = column 448 and entry 1 -> tpage 0x009b = column 704; the
+#   marks are 3 bands on 448 and 5 on 704; the parts are part 0 =
+#   THE TUBE (32 prims) and part 1 = THE PLANE (68 prims).  So IDENTITY means part 0 -> entry 0 ->
+#   column 448 -> the TUBE shows THREE.  Read it off the chain each time; a band count is not a
+#   mnemonic.  (Every link is derivable from the user's own container: the array entries' tpage words
+#   are at record 0x2f9a4 + 8 + 4k, and the part histogram is GEOM 0x2f9bc's own primitive stream.)
+#
+#   AND THE RESULT MAY NOT BE WRITTEN INTO A KIT VERDICT.  `ORDER_UNMEASURED`
+#   (`ff9mapkit/ff9mapkit/summons/depth_attribution.py`) is a call-sited constant, and every channel-A
+#   disclosure the build prints says the entry's ORDER within the array is UNMEASURED.  One cast on one
+#   container is an OBSERVATION.  Promoting it is a separate, gated decision with its own evidence bar;
+#   until then ORDER_UNMEASURED STANDS and this spec asserts nothing about it.
+#
+# BINDING-IS-NOT-A-DRAW, SO CAST A GATES CAST B.  An `so` entry proves a model CAN sample a cell, never
+# that it is drawn: two ef211 casts and a 60 fps ef429 frame sweep were spent learning that, and
+# channel A's own ghost-layer prediction scored 0 hits / 4 misses / 2 vacuous passes over six named
+# cells.  So `odin_cell_probe.py` (the zero-stripe probe, 10 dark bands on the verdict cell and 2 on
+# the order cell) runs FIRST and answers "is either cell drawn at all".  **DO NOT DEPLOY THIS SPEC
+# until it is** -- a negative depth read on an undrawn cell measures nothing, and the probe must be
+# REVERTED before this deploy or the kit's own first-deploy snapshot records the PROBE as the pre-state
+# and its revert restores the probe forever.  The runbook is `W6B3II-ODIN-CAST.md`.
+#
+# SHIPPED AS A SEPARATE ARTIFACT, deliberately: STOCK ef424 + the two band sets, nothing else.  ef424
+# has no resident override of its own (the folder is ABSENT), so the resting state after revert is
+# stock, and stock in the same frame is this cast's control.
+#
+# BANDS, NEVER A SHAPE, on both rows.  The 704 pair has no declared UV cover at all, so the offline
+# flatness screen that licenses a shape cannot clear it -- THE UV-SHREDDING BOUND, and figures there
+# must be TRANSLATION-INVARIANT.  Column 448 does have real cover (1,506 halfwords, geom 0x2ec34) and a
+# shape would be admissible, but keeping both marks band-shaped keeps "count the bands" the single read.
+#
+# The figures and both inks are derived by `odin_band_stamp.py` (run it before this spec; it refuses a
+# non-indexed export and runs a NO-OP IDENTITY GATE on each source first):
+#
+#   704 / THE VERDICT   ink index 255, the display palette's max-luminance entry under
+#                       pal.s0.x0_y247.e256 -- rgb(255, 230, 246), near-white on a cell whose mean
+#                       luma is 1.44 of 31.  5 bands x 12 rows over ALL 128 lines (starts
+#                       6/32/58/83/109), duty 60/128 rows.  2,311 of 7,680 band texels carry ink: the
+#                       cell is 73.6 % hardware cutout and every transparent texel is SKIPPED, so the
+#                       bands read as a THINNING of the surface's own structure at 5 heights, not as 5
+#                       solid stripes.
+#   448 / THE ORDER     ink index 99, the max-luminance entry under pal.s0.x0_y242.e256 --
+#                       rgb(197, 180, 164), a colour the cell does not currently use anywhere.
+#                       3 bands x 12 rows INSIDE THE READER'S OWN COVER (starts 4/26/47), duty 36/128
+#                       rows, 3,942 of 4,608 band texels inked and 666 cutout holes SKIPPED.
+#
+# ★ COVER-AWARE PLACEMENT, AND ON THIS VEHICLE IT IS LOAD-BEARING RATHER THAN TIDY.  The order cell's
+# ONE declared reader (geom 0x2ec34, 1,506 halfwords) covers **lines 0..63 only**.  Spreading 3 bands
+# over all 128 lines -- the ef211 dome rule -- puts them at 15/58/100, and the third lands where
+# NOTHING samples: the declared reader would show 2 bands where the mark says 3, and since the order
+# read's entire content is a COUNT it would be silently wrong.  ef429's probe learned this same lesson
+# the same way.  So a COVERED cell's bands are spread across its covered row span and an UNCOVERED
+# one's over all 128 lines; the counts are untouched, only where they are drawn moves.  MEASURED after
+# the fix: all three bands 12/12 lines covered, 3,942 inked texels all on covered LINES -- and read
+# that word exactly: the cover is a HALFWORD set, not a line set, so of those 3,942 bytes the build's
+# own instrument puts 1,694 inside the cover and 2,248 (57.0 %) outside it.  Each band still lands
+# ~560 sampled texels, which is what makes the COUNT readable; the whole-cell rule's third band landed
+# ZERO.  The claim is "every band is on lines a reader samples", never "every inked texel is sampled".
+# The verdict cell has NO cover at all (0 of 8,192 halfwords) -- THE READERLESS BOUND -- so it keeps the whole-cell
+# rule, and the build's coverage instrument will correctly report 100 % of that edit as "never-sampled
+# pad".  That disclosure IS channel A's situation, not a defect in the figure: the kit has no declared
+# reader to measure against, which is precisely what the cast exists to settle.
+#
+# THE CUTOUT LAW NEEDS NO KEY ON EITHER ROW, AND THAT IS A MEASUREMENT.  The stamp skips every texel
+# whose index is transparent under the cell's own palette -- a DERIVED set, not the assumption "index 0"
+# (the order cell's palette row has a transparent TAIL: entries 100..255 are all 0x0000) -- so no texel
+# crosses the cutout boundary in either direction.  Measured: punch 0, fill 0, and 0 of the skipped
+# holes were anything other than index 0 on either cell.  `acknowledge_cutout_reshape` stays false
+# because it is provable, not because it was hoped.
+#
+# WHERE THE TWO SOURCES LIVE, AND WHY THEY LIVE APART.  `summon-reskin export-art --ef 424` emits the
+# 448 cell and an `art.manifest.json` record for it, so that row rides the full ART-DRIFT guard.  The
+# export lane REFUSES the 704 cell by name (`depth-unknown`): `repaint.export_art` calls
+# `scenery_surface` with no `array_depth`, so it has no channel-A acknowledgement and therefore no
+# picture.  Its art is derived by the stamp through the same shipped primitives with the ack threaded,
+# into a directory with NO manifest beside it -- because `_gate_manifest` refuses a target its manifest
+# carries no record for, and a manifest that CANNOT record the cell must not be allowed to veto it.
+# On that row the spec's own `expect_*` guards plus `expect_sha256` are the whole guard, which is
+# exactly what the manifest-absent path is for.
+
+[reskin]
+effect = 424
+label  = "odin-w6b3-channel-a-bands"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not data.
+# VERIFIED against BOTH sources this session: the corpus file
+# C:/gd/SCRATCH/summon-format/ef424.bytes and the install's own
+# x64/FF9_Data/resources.assets read agree to the digit, and no ef424 override exists in any mod
+# folder -- so install == corpus == stock.  `build`/`deploy` re-read the install and re-verify this;
+# the value is never taken on trust from here.
+expect_sha256 = "6a3cb4d7fb26c7cd5c497b2fd4b2364039aabb0e491ed7b26e7b6060e0400773"
+
+
+# ==============================================================================================
+# ROW 1 -- THE VERDICT.  cell.s0.x704_y384, CHANNEL A, 5 bands.  This row is the whole hypothesis.
+[[reskin.texel]]
+name = "cell.s0.x704_y384"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef424-channel-a/art-channel-a/cell.s0.x704_y384.verdictbands.png"
+
+# --- the guards, emitted by the derivation, never typed ----------------------------------------
+expect_page_offset = 0x25668     # the s0 id-0 page rect at VRAM (704,256,w=64,h=256), cell 1 of 2
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+# STATED by the author, CHECKED against the CHANNEL-A derivation -- the same 16,384 bytes are 256
+# texels wide at 4bpp, 128 at 8bpp and 64 at 15bpp, and a wrong depth packs to exactly the right byte
+# count while painting the wrong picture.  This line is the cast's whole hypothesis, and the kit
+# refuses the acknowledgement below WITHOUT it by name.
+expect_bpp         = 8
+expect_cell        = [704, 384]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+# THE ONE ACKNOWLEDGEMENT.  Unlike channel G, channel A does NOT license: no `so` reader samples this
+# cell and no record the kit could read before W6b-3 names its COLUMN.  The depth comes from an ENTRY
+# of a multi-part record's binding array, the entry's ORDER within that array is UNMEASURED, and a
+# BINDING IS NOT A DRAW.  Saying the word is the author carrying that judgement; `expect_bpp = 8`
+# above is what makes the judgement checkable.
+acknowledge_array_derived_depth = true
+# FALSE, and PROVEN false rather than hoped: the stamp skips every transparent index, so punch = 0 and
+# fill = 0.  If this ever needed to be true the figure would have changed the silhouette, which is a
+# second variable and not this cast's.
+acknowledge_cutout_reshape = false
+# DISPLAY only -- this lane writes 0 CLUT bytes; the bands are judged under the column's own palette.
+palette_from = "pal.s0.x0_y247.e256"
+note = "cast B, ROW 1: five bands of the palette's brightest entry on the CHANNEL-A verdict cell -- the depth verdict, and 5 is this cell's mark identity"
+
+
+# ==============================================================================================
+# ROW 2 -- THE ORDER RIDER.  cell.s0.x448_y384, so-UV LICENSED, 3 bands.  NO acknowledgement key.
+# That absence is the point: this column is bound by seven incumbent single-part records as well as by
+# the array's slot 0, so the shipped `so`-UV channel resolves it and the kit asks for nothing.  The row
+# is the cast's CONTROL on two axes at once -- it proves the deploy reached the file even if channel A
+# turns out never to be drawn, and its DIFFERENT band count is what makes the order read possible.
+#
+# MEASURED, so the absence is a fact and not a preference: adding `acknowledge_array_derived_depth =
+# true` to THIS row is accepted and completely INERT -- the built container is byte-identical (sha
+# 69ed527d..., 6,253 changed bytes either way) and the row's disclosures never mention channel A,
+# because `texel_page` still resolves it on `so-uv` and the ack only ever WIDENS a refusal.  So the key
+# is omitted because it says nothing here, not because saying it would be refused.  (An unnecessary ack
+# being tolerated rather than refused is the lane's own posture; noted, not relied on.)
+[[reskin.texel]]
+name = "cell.s0.x448_y384"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef424-channel-a/art/cell.s0.x448_y384.orderbands.png"
+
+# --- the guards, copied from what `export-art` emitted into art/texel.scaffold.toml ------------
+expect_page_offset = 0x005668    # the s0 id-0 page rect at VRAM (448,256,w=64,h=256), cell 1 of 2
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+expect_bpp         = 8
+expect_cell        = [448, 384]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+acknowledge_cutout_reshape = false
+# DISPLAY only.  The cell's page CLUT word resolves to (0,242) -- the reader geom 0x2ec34's own key --
+# NOT the (0,248) the array entry's clut word names.  The palette a page indexes into is a HEADER
+# FACT, so this is stated as the derivation emits it and the build refuses any other name.
+palette_from = "pal.s0.x0_y242.e256"
+note = "cast B, ROW 2: three bands on the licensed so-UV column -- the deploy's control AND the order rider; 3 is this cell's mark identity"
