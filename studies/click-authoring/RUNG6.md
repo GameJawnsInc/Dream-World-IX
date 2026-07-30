@@ -79,7 +79,7 @@ borrowed for a chart.)
 
 | Name | Value | Source |
 |---|---|---|
-| `R_WALK` | **80.0** | the composer's own; see §1 and §6.1. **NOT** `cam.COLLISION_RADIUS_W` |
+| `R_WALK` | **80.0** | the composer's own literal — now equal to `cam.COLLISION_RADIUS_W` (both 80 since 2026-07-30), but deliberately a SEPARATE object, fenced by an equality assert. A silent drift in either direction should go red, which an alias cannot do. |
 | `R_OBJ` | 96.0 | `cam.OBJECT_COLLISION_W` (`scene/cam.py:82`) — correct in the repo (arg2=24 of the same opcode) |
 | `K_VSCALE` | 14/15 | `scene/cam.py:36` |
 | `CANVAS_W`, `CANVAS_H` | 384, 448 | `scene/guide.py:24` — **not** in `cam.py` |
@@ -187,11 +187,19 @@ the centroid fast path · `cam.solve_z_for_canvasY` and `guide.frame_floor` (out
    real — `bgiRad` is a battle-return-only field, 0 on a fresh load; the old 48 traced back to the
    now-deleted room02 bench, which conflated this radius with the legacy flat-builder's
    `orgPos=(0,0,300)` offset and the retired eyeball canvas scale).
-   ⚠ **Still do NOT change the other 48s as a drive-by** — `imagefield.COLLISION_OUTSET`,
-   `routes.WALL_CLEARANCE_W`, `build.py:3652`, `field_layout_probe.py:242` and the layout skill
-   still carry independent 48 literals across three unrelated lanes (`content/pathfind.py:155` and
-   `build.py:6823` read `cam.COLLISION_RADIUS_W` directly, so they picked up 80 automatically).
-   Reconciling the standalone literals is its own change, with the owner.
+   ⚠ **Still do NOT change the remaining 48s as a drive-by** — but the list is SHORTER than this
+   study first claimed, and the two bad cites are worth naming so nobody re-derives them:
+   `build.py:3652` is an aspect-mismatch check with nothing to do with the radius, and
+   `field_layout_probe.py:242` reads `C.COLLISION_RADIUS_W`, so the probe picked up 80 for free
+   (as did `content/pathfind.py:155`). **Verified 2026-07-30, the true remaining set is exactly
+   two literals** — `scene/routes.WALL_CLEARANCE_W = 48.0` (whose own comment claims it *is*
+   `cam.COLLISION_RADIUS_W`, which is now false) and `imagefield.COLLISION_OUTSET = 48.0` — plus
+   the layout skill's route-sweep prose, which is correct only while `routes` stays 48.
+   The split has teeth: a 130u corridor measures 1820 standable cells at 48 and **0** at 80, and
+   `routes` is the optimistic direction, so the behavior-tree sweeper will certify a patrol the
+   engine cannot walk; `content/pathfind.py` disagrees with itself (line 104 defaults to `routes`'
+   48, line 155 to `cam`'s 80). Reconciling them is its own change, with the owner — five behavior
+   tests pin against 48 and need RE-MEASURING, not relaxing.
 2. **Whether front-align *looks* right in-game.** The fill numbers are unambiguous and it matches
    `frame_floor`'s own defaults, but "the room reads as a room" is a human judgment. Get a screenshot
    of the first composed room before emitting a whole dungeon.

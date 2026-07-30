@@ -36,6 +36,53 @@ def _plan(**kw):
     return base
 
 
+# ------------------------------------------------------------------ the wall radius, and its split
+
+def test_R_WALK_agrees_with_the_shared_collision_radius():
+    """★ THE TRIPWIRE. `floorplan.R_WALK` is deliberately its OWN literal, not an alias of
+    `cam.COLLISION_RADIUS_W` -- the composer derived 80 independently from the opcode chain
+    (SetObjectLogicalSize(20,..) x4) back when the shared constant still said 48, and the two agreed
+    only after the value was measured in-game on 2026-07-30 (calibration field 30510: the clamped
+    stop read exactly 80u off the wall).
+
+    A duplicate with no fence is just a second owner of one number. THIS is what makes it a
+    tripwire instead: if either side drifts, this goes red and names both. Do NOT "simplify" it to
+    `R_WALK = cam.COLLISION_RADIUS_W` -- an alias cannot detect the drift it exists to catch."""
+    assert F.R_WALK == CAM.COLLISION_RADIUS_W, (
+        f"floorplan.R_WALK={F.R_WALK} vs cam.COLLISION_RADIUS_W={CAM.COLLISION_RADIUS_W} -- the "
+        f"composer's gates (DEPTH_MIN = 2*R_WALK, arrival insets, `standable`) and the rest of the "
+        f"kit now disagree about where the player can stand")
+
+
+def test_the_48_to_80_split_is_still_live_in_two_places():
+    """★ PINS A KNOWN-WRONG STATE ON PURPOSE, so that fixing it announces itself.
+
+    The 2026-07-30 measurement corrected `cam.COLLISION_RADIUS_W` 48 -> 80 but deliberately did NOT
+    touch two standalone literals, because five behavior tests pin against 48 and need re-measuring
+    rather than relaxing. While the split stands:
+      * `routes.WALL_CLEARANCE_W = 48` is the OPTIMISTIC direction -- a 130u corridor measures 1820
+        standable cells at 48 and ZERO at 80 -- so the behavior-tree sweeper can certify a patrol
+        the engine physically cannot walk. (`content/pathfind.py` disagrees with itself for the same
+        reason: line 104 defaults to routes' 48, line 155 to cam's 80.)
+      * `imagefield.COLLISION_OUTSET = 48` under-outsets every traced field by 32u, so the walkmesh
+        stops short of the painted edge -- the "back edge is a bit short" symptom.
+
+    The day someone reconciles them this test goes red. That is the point: it is the reminder to
+    update `laying-out-ff9-fields/SKILL.md`'s route-sweep numbers and RUNG6.md §6.1 in the same
+    breath, so the docs never describe a value the code stopped using."""
+    from ff9mapkit.scene import routes as _routes
+    assert _routes.WALL_CLEARANCE_W == 48.0, (
+        "routes.WALL_CLEARANCE_W changed -- if it is now 80, reconcile the route-sweep prose in "
+        ".claude/skills/laying-out-ff9-fields/SKILL.md and drop the split note, then delete this test")
+    assert IF.COLLISION_OUTSET == 48.0, (
+        "imagefield.COLLISION_OUTSET changed -- if it is now 80, traced fields outset correctly and "
+        "the split note in the layout skill and RUNG6.md §6.1 should say so")
+    # and the hazard the split creates, measured rather than asserted from memory
+    corridor = [(0, 0), (3000, 0), (3000, 130), (0, 130)]
+    assert F.standable(corridor, R=_routes.WALL_CLEARANCE_W), "the sweeper thinks this is walkable"
+    assert F.standable(corridor, R=F.R_WALK) == set(), "and the engine says it is not"
+
+
 # ------------------------------------------------------------------ C2 + C3: the inversion class
 # The highest-value fixtures in the file. The draft's design inverted on 48.5% of these inputs.
 

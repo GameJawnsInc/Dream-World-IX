@@ -54,7 +54,7 @@ The screen mapping above holds **only at yaw 0**. Real fields ship yaws up to +/
 
 | Thing | Value | Consequence |
 |---|---|---|
-| Player controller radius | **48u** (`cam.COLLISION_RADIUS_W`) | The player CENTRE can never get within 48u of a walkmesh edge; extend the mesh 48u past painted floor edges the player should reach. |
+| Player controller radius | **80u** (`cam.COLLISION_RADIUS_W`) | The player CENTRE can never get within 80u of a walkmesh edge; extend the mesh 80u past painted floor edges the player should reach. ⚠ Was 48 until 2026-07-30 — see the split note below. |
 | Object<->object collision | **96u each** (`cam.OBJECT_COLLISION_W`) | Two characters **jam at < ~192u centre distance**. Anything under that = actors shoving each other. |
 | Standing-NPC spacing | **>= 300u** | What real fields use; 192-300u is walkable but reads cramped. Conversation partners: ~250-400u. |
 | Human height / width | **560u / ~100u** | Moogle 440, chest 300, tent 680, ladder 700 (`paint.HEIGHT_BY_NAME`). |
@@ -64,6 +64,19 @@ The screen mapping above holds **only at yaw 0**. Real fields ship yaws up to +/
 
 On-screen size is `H / |z_cam|` -- a back-of-room NPC renders visibly smaller and two actors spaced
 fine in world can still stack on screen (depth foreshortening). The probe warns on exactly this.
+
+> ⚠ **THE 48/80 SPLIT — live and unreconciled, so read the number off the code, not off memory.**
+> The controller radius was measured in-game on 2026-07-30 (calibration field 30510: the clamped
+> stop read exactly 80u off the wall) and `cam.COLLISION_RADIUS_W` was corrected **48 → 80**. But
+> two standalone literals were deliberately NOT changed in that pass and still say 48:
+> `scene/routes.WALL_CLEARANCE_W` (so every ROUTE sweep below, and `content/pathfind.py:104`) and
+> `imagefield.COLLISION_OUTSET` (so every traced/painted field's mesh outset). Anything reading
+> `cam.COLLISION_RADIUS_W` picked 80 up for free -- the layout probe, `content/pathfind.py:155`.
+> **Consequences while the split stands:** the route sweeper is OPTIMISTIC -- a 130u corridor
+> measures 1820 standable cells at 48 and **zero** at 80, so it will certify a patrol the engine
+> physically cannot walk; and a traced field's walkmesh stops 32u short of its painted edge.
+> Reconciling the two is its own change with the owner (5 behavior tests pin against 48 and need
+> re-measuring, not relaxing). Until then: **route numbers below are 48 because the sweeper is 48.**
 
 ## THE INVISIBLE-DOOR LESSON (zones the player cannot see)
 
@@ -95,13 +108,13 @@ Outputs (default `tools/scroll_out/layout_probe/<name>/`) -- **Read all three**:
 
 - **`topdown.png`** -- world X/Z from above (+z UP, matching yaw-0 screen): walkmesh floors EACH IN
   ITS OWN TINT with cross-floor SEAM edges in green (a raised terrace reads at a glance), zone
-  quads, true-scale 48u/96u collision rings, facing arrows, the camera's position (the FRONT is the
+  quads, true-scale 80u/96u collision rings, facing arrows, the camera's position (the FRONT is the
   edge nearest it), and a compass rose whose green arrow shows which world way is UP-SCREEN.
 - **`camview.png`** -- the painted-canvas view through the exact `cam.to_canvas` projection:
   walkmesh outline, zones, each marker with its projected height pole = how big the model actually
   renders at that depth.
 - **`report.txt`** -- the COMPASS table (quote it when narrating), every item world->canvas with its
-  facing named, and WARNINGS: colliding pairs (<192u), tight pairs (<300u), wall-huggers (<48u from
+  facing named, and WARNINGS: colliding pairs (<192u), tight pairs (<300u), wall-huggers (<80u from
   an edge), off-mesh, off-canvas, content inside trigger zones, world-spaced-but-screen-overlapping
   pairs.
 
