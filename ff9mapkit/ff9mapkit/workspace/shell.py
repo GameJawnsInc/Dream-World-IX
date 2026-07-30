@@ -8758,6 +8758,11 @@ class Workspace(QMainWindow):
             elif cat == "prop":                            # build: prop_archetypes (single OR composite)
                 from .. import prop_archetypes
                 ok = prop_archetypes.is_prop_archetype(value) or prop_archetypes.is_composite(value)
+            elif cat == "scene":                           # a BSC_ battle-scene NAME (a raw id passes the build)
+                try:
+                    catalog.resolve_scene(value)
+                except ValueError:
+                    ok = False
         except Exception:                                  # noqa: BLE001 -- predicate import/quirk: stay silent
             ok = True
         self._name_valid[key] = ok
@@ -8842,8 +8847,9 @@ class Workspace(QMainWindow):
     def _node_problems(self, kind, obj, member):
         """Per-node problems computed DIRECTLY from the kit's pure predicates, MIRRORING what the build
         actually accepts (so the Inspector never contradicts Check): an unknown archetype/preset (or, when
-        no archetype, an unknown GEO model NAME -- a raw model id passes); an unknown give/remove item; a
-        NON-NUMERIC battle scene (the build does int(scene)); a set_flag into a reserved gEventGlobal bit;
+        no archetype, an unknown GEO model NAME -- a raw model id passes); an unknown give/remove item; an
+        UNRESOLVABLE battle scene name (a raw id AND a known BSC_ name both pass -- the build resolves names
+        via build.resolve_encounter_scenes); a set_flag into a reserved gEventGlobal bit;
         and a choice/cutscene reference to an NPC/marker that exists in NEITHER the field.toml NOR the
         sibling scene.toml. The geometric/structural lint (off-walkmesh, seams, dialogue overflow) stays
         with Check. Never raises. Returns colored ⚠ lines."""
@@ -8924,10 +8930,18 @@ class Workspace(QMainWindow):
                         warn(f"flag index {n} is outside the safe custom band "
                              f"[{flags.FIRST_SAFE_FLAG}, {flags.CHOICE_SCRATCH_FLOOR})")
             elif kind == "encounter":
-                sc = obj.get("scene")
-                if sc is not None and not ((isinstance(sc, int) and not isinstance(sc, bool))
-                                           or (isinstance(sc, str) and sc.strip().lstrip("-").isdigit())):
-                    warn(f"battle scene must be a numeric id (got '{sc}')")
+                # the build resolves a BSC_ NAME as well as an id (build.resolve_encounter_scenes), so only
+                # an UNRESOLVABLE name is a problem -- warning on every name would contradict Check, which
+                # this predicate exists to mirror. Both keys, since the pool resolves slot by slot.
+                for _lbl, _v in ([("battle scene", obj.get("scene"))]
+                                 + [(f"battle scene pool slot {_i}", _s)
+                                    for _i, _s in enumerate(obj.get("scenes") or [])]):
+                    if _v is None:
+                        continue
+                    if isinstance(_v, bool) or not isinstance(_v, (int, str)):
+                        warn(f"{_lbl} must be a numeric id or a BSC_ name (got '{_v}')")
+                    elif not self._name_ok("scene", _v):
+                        warn(f"unknown {_lbl} '{_v}'")
             elif kind == "music":                          # mirror content.music.mint_field_theme's precedence
                 f = obj.get("file")
                 if f and obj.get("song") is not None:      # both set -> the build silently ignores file
@@ -9947,9 +9961,15 @@ def _smoke(win):
     assert win._node_problems("chest", {"item": ["Potion", 1], "flag": 8720}, "IC_ENT"), "a chest with no pos warns"
     assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1]}, "IC_ENT"), "a chest with no flag warns"
     assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "flag": 8400}, "IC_ENT"), "an out-of-band chest flag warns"
-    # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
-    assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "a non-numeric scene warns"
+    # the build resolves a BSC_ NAME as well as an id, so ONLY an unresolvable one warns -- warning on every
+    # name would make the Inspector contradict Check (which is what this predicate exists to mirror).
+    assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "an unknown scene name warns"
     assert win._node_problems("encounter", {"scene": 67}, "IC_ENT") == [], "a numeric scene id passes"
+    assert win._node_problems("encounter", {"scene": "BSC_EF_R007"}, "IC_ENT") == [], "a KNOWN BSC_ name passes"
+    assert win._node_problems("encounter", {"scene": 67, "scenes": [67, "BSC_EF_R007"]},
+                              "IC_ENT") == [], "known names in the pool pass"
+    assert win._node_problems("encounter", {"scene": 67, "scenes": [67, "NoSuchScene"]},
+                              "IC_ENT"), "an unknown name in the pool warns"
     # [music]: song+file together -> file silently loses at build, so the GUI warns; a missing file warns;
     # a real file beside the field.toml is clean (mirrors content.music.mint_field_theme's precedence)
     assert win._node_problems("music", {"song": 9}, "IC_ENT") == [], "a plain song id is clean"

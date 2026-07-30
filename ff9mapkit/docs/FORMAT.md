@@ -2015,9 +2015,9 @@ The catalog comes from Memoria's open-source `AnimationDB` (the same source as t
 
 | key | meaning |
 |---|---|
-| `scene` | battle scene id (e.g. `67` = Evil Forest, the first/weakest battles). |
+| `scene` | battle scene **id or `BSC_` name** (e.g. `67` or `"BSC_EF_R007"` — Evil Forest, the first/weakest battles). A name resolves through the catalog (`ff9mapkit scenes` lists them); an unknown one fails `lint` with did-you-mean candidates, naming the field and the key. |
 | `freq` | encounter frequency `0..255` (default `255`). |
-| `pattern`, `scenes` | advanced: pattern + explicit 4 scene ids. |
+| `pattern`, `scenes` | advanced: pattern + an explicit pool of **exactly 4** scene ids/names. |
 | `battle_music` | BattlePatch song-play id (default `0` = normal battle theme). `import` auto-detects the donor field's real battle song (from the install's `BtlEncountBgmMetaData` `(field, scene)→song` map) and prefills this when it's non-default — a fork to a custom id loses the engine's own `(fldMapNo, scene)` lookup, so the kit reproduces it via the scene-keyed `Music:` line. |
 
 Adding an encounter automatically adds the after-battle handler the field needs (otherwise the

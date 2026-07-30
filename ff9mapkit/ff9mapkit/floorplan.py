@@ -1201,16 +1201,13 @@ def compose(plan, *, taken_ids=()):
             if not (enc.get("scene") or enc.get("scenes")):
                 problems.append(f"room {n}: [encounter] needs `scene` (or `scenes`) -- freq and "
                                 f"battle_music are inert without it")
-            # Resolve the scene HERE rather than letting the build reach it. An unresolvable name
-            # currently surfaces from `build-all` as a bare `invalid literal for int() with base 10`
-            # with no field, no key and no suggestion; `catalog.resolve_scene` raises with real
-            # did-you-mean candidates. And a MODEL-BUCKET id (BSC_B3_*) crashes in-game with an
-            # InitBattleScene null-ref, which the build only WARNS about.
-            # ...and RESOLVE it to a numeric id for the emitted toml. `build.py:6379` compiles the
-            # encounter with a bare `int(e["scene"])`, so a catalog NAME -- which the lint happily
-            # resolves and reports on -- dies at build time as `invalid literal for int() with base
-            # 10`. The author's own spelling stays in the sidecar; the toml carries the id, which is
-            # what every shipped example does.
+            # Resolve the scene HERE rather than deferring to the build, for TWO reasons that both
+            # still hold now that the build resolves names itself (build.resolve_encounter_scenes):
+            #  * a composer problem should name the ROOM, which is context the build doesn't have; and
+            #  * a MODEL-BUCKET id (BSC_B3_*) crashes in-game with an InitBattleScene null-ref, which
+            #    the build only WARNS about -- here it's a hard problem before a room is ever emitted.
+            # Resolving to a numeric id also keeps the emitted toml in the shape every shipped example
+            # uses. The author's own spelling stays in the sidecar.
             from . import catalog as _cat
             enc = dict(enc)
             for key in ("scene", "scenes"):

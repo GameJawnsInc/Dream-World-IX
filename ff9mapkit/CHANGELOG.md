@@ -48,6 +48,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   writes both sides at once — is a single step. A half-undone door would be a
   gateway with no arrival.
 
+### Fixed — `[encounter] scene` accepted a battle-scene NAME at lint, then died at build
+- `scene = "BSC_CA_E013"` linted **clean** — `lint_logic` resolved the name through the
+  catalog to report on it — and then the build compiled it with a bare `int()`, so the
+  same value failed as `invalid literal for int() with base 10: 'BSC_CA_E013'` with no
+  field, no key and no suggestion. Every shipped example writes a numeric id, so nothing
+  exercised the name path through a build.
+- Names now resolve in the build (`build.resolve_encounter_scenes`), consistent with what
+  the lint already advertised and with `[[npc]] model`'s GEO names. Both consumers go
+  through the one seam — the `.eb` `SetRandomBattles` injection and the scene-keyed
+  BattlePatch `Battle:`/`Music:` line, which would otherwise have emitted an unmatchable
+  `Battle: BSC_…`. A numeric id still passes through untouched, so existing builds stay
+  byte-identical.
+- The plural `scenes` pool resolves names per slot, and both keys are **fenced**: an
+  unresolvable name is now a fatal `validate` problem naming the field, the key (with the
+  slot index for a pool) and did-you-mean candidates — so the value either builds or fails
+  lint. A pool that isn't exactly 4 slots also fails lint instead of raising mid-build.
+- Two silent-nothing gaps in the same block closed: the model-bucket (`BSC_B3_*`,
+  in-game null-ref) warning now covers the `scenes` pool, not just `scene`; and a pool
+  with **no `scene`** — which arms nothing, since `has_encounter` tests `scene` alone —
+  now warns instead of building an encounter-free field in silence.
+
 ### Fixed — the layout probe called a correct field COLLIDING
 - `tools/field_layout_probe.py` compared `[player] spawn` against `[[player.arrival]]`
   rows as if they were two actors. An entrance-0 arrival is conventionally equal to the

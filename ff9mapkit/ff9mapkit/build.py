@@ -1292,6 +1292,22 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"[[battle_bgm]] #{q}: scene and song must be >= 0")
         except (TypeError, ValueError):
             problems.append(f"[[battle_bgm]] #{q}: scene and song must be integers")
+    # [encounter] scene / scenes: a battle-scene NAME is legal (resolve_encounter_scenes), so the only
+    # failure left is a name that doesn't resolve -- report it HERE, named, instead of letting it reach the
+    # compile. This is the fence: the value either builds or it fails lint. The message carries the FIELD
+    # because build_field's own BuildError doesn't ("invalid field project"), so on a campaign build-all
+    # an unresolvable name would otherwise not say WHICH member owns it.
+    _enc_blk = project.raw.get("encounter")
+    if isinstance(_enc_blk, dict):
+        try:
+            _pool = resolve_encounter_scenes(_enc_blk)[1]
+        except ValueError as e:
+            problems.append(f"field {_field_name(project)!r} {e}")
+        else:
+            if _pool is not None and len(_pool) != 4:
+                problems.append(f"field {_field_name(project)!r} [encounter] scenes needs exactly 4 "
+                                f"battle scene ids (SetRandomBattles takes 4 slots), got {len(_pool)} "
+                                f"-- repeat an id to fill the pool, or use `scene` for a single table")
     bgf = project.field.get("bgs")               # NATIVE custom scene (Moguri/vanilla path): own .bgs + atlas
     if bgf:
         if not project.path(bgf).is_file():
@@ -2726,20 +2742,31 @@ def lint_logic(project: FieldProject) -> list[str]:
                        f"spatial marker placed in Blender whose [[npc]] logic was never authored.)")
     out += _lint_rotating_cast(raw.get("npc", []) or [])
     enc = raw.get("encounter")                     # a model-bucket [encounter] scene crashes in-game (the picker
-    if isinstance(enc, dict) and enc.get("scene") is None and (enc.get("freq") is not None
-                                                               or enc.get("battle_music") is not None):
-        out.append("[encounter] has freq/battle_music but no scene -- it does nothing (scene is the battle this "
-                   "field runs; freq/battle_music only tune it). Set a Battle scene id, or clear the section.")
-    if isinstance(enc, dict) and enc.get("scene") is not None:   # hides these, but a hand-authored id can still slip)
+    # `scene` is the key that ARMS the block: build_script's has_encounter tests it alone, so a block
+    # carrying only the tuning keys injects nothing. `scenes` counts as a tuning key here -- a pool with no
+    # `scene` was silently inert with no warning at all (the pool feeds SetRandomBattles' 4 slots, it does
+    # not stand in for `scene`), which is the same quiet-nothing as a bare freq.
+    if isinstance(enc, dict) and enc.get("scene") is None and any(enc.get(k) is not None
+                                                                 for k in ("freq", "battle_music", "scenes")):
+        _inert = ", ".join(k for k in ("freq", "battle_music", "scenes") if enc.get(k) is not None)
+        out.append(f"[encounter] has {_inert} but no scene -- it does nothing (scene is the battle this "
+                   f"field runs; the others only tune it, and `scenes` does NOT substitute for it). Set a "
+                   f"Battle scene id (or name), or clear the section.")
+    if isinstance(enc, dict) and (enc.get("scene") is not None                # hides these, but a hand-authored
+                                  or enc.get("scenes") is not None):          # id can still slip)
         from . import catalog as _cat
-        try:
-            sid = _cat.resolve_scene(enc["scene"])
-            if _cat.is_model_bucket_scene(sid):
-                out.append(f"[encounter] scene {enc['scene']!r} -> {_cat.scene_name(sid)} is a MODEL-BUCKET id "
-                           f"(BSC_B3_*), not a fightable encounter -- it crashes in-game (InitBattleScene "
-                           f"null-ref). Pick a real battle scene (the encounter picker hides the model bucket).")
+        try:                                       # the PLURAL pool is checked too -- one bad slot in `scenes`
+            _sid, _pool = resolve_encounter_scenes(enc)                       # is the same in-game null-ref
         except ValueError:
-            pass                                   # an unknown name is a separate resolve_scene error at build
+            pass                                   # an unresolvable name is a validate() PROBLEM (fatal), not a
+        else:                                      # warning -- reported there with the field + the key
+            _spell = enc.get("scenes") or []        # report the author's own spelling, judge the resolved id
+            for _key, _val, _rid in ([("scene", enc.get("scene"), _sid)] if _sid is not None else []) + \
+                                    [(f"scenes[{_k}]", _spell[_k], _r) for _k, _r in enumerate(_pool or [])]:
+                if _cat.is_model_bucket_scene(_rid):
+                    out.append(f"[encounter] {_key} {_val!r} -> {_cat.scene_name(_rid)} is a MODEL-BUCKET id "
+                               f"(BSC_B3_*), not a fightable encounter -- it crashes in-game (InitBattleScene "
+                               f"null-ref). Pick a real battle scene (the encounter picker hides the model bucket).")
     _auto = _FlagAlloc.for_project(project)    # mirror build_script's auto-allocation EXACTLY
 
     # flags that can ever become SET: event set_flag targets + each once-event's guard flag.
@@ -3408,6 +3435,42 @@ def resolve_npc_model(value):
     if isinstance(value, int) or str(value).strip().isdigit():
         return int(value)
     return _catalog.resolve_model(value)
+
+
+def resolve_encounter_scenes(enc) -> tuple:
+    """An ``[encounter]`` block's ``scene`` + optional 4-slot ``scenes`` pool as numeric ids.
+
+    Both keys take a battle-scene NAME as well as a raw id (``scene = "BSC_CA_E013"``), exactly like
+    ``[[npc]] model`` takes a GEO name -- the Info Hub picker hands out ids, but ``lint_logic`` has always
+    resolved a name to report on it, so a name lints clean and must therefore BUILD. Every consumer goes
+    through here: the two that didn't (the ``SetRandomBattles`` injection and the BattlePatch
+    ``Battle:``/``Music:`` line) each did a bare ``int()``, so a name that passed lint died mid-build as
+    `invalid literal for int() with base 10` with no field, no key and no suggestion.
+
+    Raises ValueError naming the KEY (``validate`` prefixes the field and blocks the build before any
+    bytes are written). A raw id passes through unchanged, so every shipped numeric example stays
+    byte-identical."""
+    if not isinstance(enc, dict):
+        return None, None
+    scene = enc.get("scene")
+    if scene is not None:
+        try:
+            scene = _catalog.resolve_scene(scene)
+        except ValueError as e:
+            raise ValueError(f"[encounter] scene: {e}") from None
+    pool = enc.get("scenes")
+    if pool is not None:
+        if isinstance(pool, (str, bytes)) or not isinstance(pool, (list, tuple)):
+            raise ValueError(f"[encounter] scenes must be a list of 4 battle scene ids/names, "
+                             f"got {pool!r} -- use `scene` for a single encounter table")
+        ids = []
+        for k, v in enumerate(pool):
+            try:
+                ids.append(_catalog.resolve_scene(v))
+            except ValueError as e:
+                raise ValueError(f"[encounter] scenes[{k}]: {e}") from None
+        pool = ids
+    return scene, pool
 
 
 def _npc_model_kwargs(n) -> dict:
@@ -6376,9 +6439,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # encounter (+ the after-battle reinit it requires)
     if has_encounter:
         e = project.raw["encounter"]
-        eb = _enc.inject_encounter(eb, scene=int(e["scene"]), freq=int(e.get("freq", 255)),
+        # scene/scenes accept a catalog NAME as well as an id -- resolve_encounter_scenes owns that
+        # (a bare int() here used to kill a name the lint had already blessed).
+        _e_scene, _e_pool = resolve_encounter_scenes(e)
+        eb = _enc.inject_encounter(eb, scene=int(_e_scene), freq=int(e.get("freq", 255)),
                                    pattern=int(e.get("pattern", 1)),
-                                   scenes=e.get("scenes"))
+                                   scenes=_e_pool)
         # [deathrules] on_defeat: the wipe-warp check rides the tag-10 prologue (the DLL half set the
         # marker bit at the canceled game over; this half clears it and warps). Parse errors are
         # validate()'s to report -- a broken block simply injects nothing here.
@@ -7910,7 +7976,9 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     battle = None
     e = project.raw.get("encounter")
     if isinstance(e, dict) and e.get("scene") is not None:   # scene is optional (blank = no encounter)
-        battle = (int(e["scene"]), int(e.get("battle_music", 0)))
+        # a NAME resolves here too -- the Music: line is scene-KEYED, so a name that reached the .eb as an
+        # id but stayed a name here would emit a `Battle: BSC_...` the scene-keyed dedupe can't match.
+        battle = (int(resolve_encounter_scenes(e)[0]), int(e.get("battle_music", 0)))
     # [[battle_bgm]]: extra scene-keyed battle songs (a verbatim fork's carried scripted/boss battles -- the
     # custom fldMapNo loses the engine's (field, scene) lookup, so the build reproduces each via Music:).
     bgm_pairs = [(int(b["scene"]), int(b["song"])) for b in project.raw.get("battle_bgm", [])]
