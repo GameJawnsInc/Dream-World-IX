@@ -26,7 +26,7 @@ from PySide6.QtWidgets import QApplication                              # noqa: 
 
 from ff9mapkit import floorplan as FP                                   # noqa: E402
 from ff9mapkit.workspace.floorplandoc import (                          # noqa: E402
-    FloorplanDoc, PlanCanvas, attribute_problems, candidate_doors,
+    FloorplanDoc, PlanCanvas, attribute_problems, candidate_doors, clear_of_chips, label_offsets,
 )
 from ff9mapkit.workspace.shell import pick_palette                      # noqa: E402
 
@@ -1082,3 +1082,202 @@ def test_candidate_doors_is_pure_and_survives_a_sick_outline():
     got = candidate_doors(rooms, [])
     assert len(got) == 1 and got[0]["length"] == pytest.approx(1600.0)
     assert candidate_doors([{"name": "A", "poly": [(0, 0), (1, 1)]}], []) == []
+
+
+# ------------------------------------------------- the SCREEN-FIXED chips (viewport-space ink)
+# Every other de-collision on this chart argues in SCENE space against other chart ink. ``_hint``
+# and ``_compass`` are QLabel CHILDREN OF THE VIEWPORT: they live in viewport px, paint above the
+# scene, and nothing in scene space can see them. Measured (native, dark, the refused plan) the
+# door caption printed 186x16px INSIDE the zoom hint across a band of chart heights. The reasoning
+# and the numbers live in floorplandoc's note above ``label_offsets``.
+
+def _chart_labels(canvas):
+    """``[(text, ink rect in viewport px)]`` for every label on the chart.
+
+    ★ NEVER ``parentItem()``. On these items it flips C++ ownership to the Python wrapper and
+    SEGFAULTS the run (memory project-ff9-pyside-parentitem-ownership). ``deviceTransform`` over
+    the view's ``viewportTransform`` composes the whole ItemIgnoresTransformations subtree with no
+    parent walk — and it measures INK, not the boundingRect, because a box carries the font's
+    leading and descent: an intersection is not a collision.
+    """
+    from PySide6.QtCore import QRectF
+    from PySide6.QtWidgets import QGraphicsSimpleTextItem
+    vt = canvas.viewportTransform()
+    out = []
+    for it in canvas._scene.items():
+        if isinstance(it, QGraphicsSimpleTextItem):
+            x, y, w, h = canvas._ink_box(it.text(), it.font(), it.boundingRect())
+            out.append((it.text(), it.deviceTransform(vt).mapRect(QRectF(x, y, w, h))))
+    return out
+
+
+def _bites(canvas, chips=None):
+    """``[(text, depth px)]`` — every label whose INK is under a screen-fixed chip."""
+    from ff9mapkit.workspace.floorplandoc import _overlap
+    chips = canvas._chip_rects() if chips is None else chips
+    out = []
+    for text, r in _chart_labels(canvas):
+        for c in chips:
+            ow, oh = _overlap(r.x(), r.y(), r.width(), r.height(), *c)
+            if ow > 0 and oh > 0:
+                out.append((text, min(ow, oh)))
+    return out
+
+
+def _charted(app, *, w=880, h=230):
+    """A two-room plan with a DECLARED door, on a canvas sized like the real one and fitted.
+
+    The size is passed, never asserted in px: offscreen stubs the font DB, so every WIDTH it
+    reports is fiction. Everything below asserts a RELATION between measured rects instead.
+    """
+    doc, _ = _two_rooms(app)
+    doc.tools.set_current("doors")
+    doc.judge_now(sync=True)
+    doc.canvas.click_world(0, 0)                   # declare the ROOM1-ROOM2 wall
+    doc.judge_now(sync=True)
+    doc.canvas.resize(w, h)
+    doc.canvas.fit()
+    return doc
+
+
+def test_a_label_mirror_is_about_the_ANCHOR_and_x_comes_first():
+    """The mirror is behaviordoc's own (``dx = -dx - width``): the same distance from the anchor
+    on the OTHER side, so the point the label names is still the point it points at. x BEFORE y
+    because a chip is a ~31px corner band and a y mirror moves a label by little more than its own
+    height — the door caption straddles its anchor, so its y mirror is a 6px step back into it."""
+    offs = label_offsets(10, -14, 300, 22)
+    assert offs[0] == (10, -14), "the AUTHORED offset must be the first candidate"
+    assert len(offs) == 4 and len(set(offs)) == 4
+    assert offs[1] == (-310, -14), "x mirror: left edge 10 right of anchor -> right edge 10 left"
+    assert offs[2] == (10, -8), "y mirror: top 14 above the anchor -> bottom 14 below it"
+    assert offs[3] == (-310, -8)
+    assert offs[1][1] == offs[0][1] and offs[2][0] == offs[0][0], "one axis at a time, x first"
+    centred = label_offsets(10, -14, 300, 22, centre=True)
+    assert [o[0] for o in centred] == [-150.0, -150.0], \
+        "a centred label's offset IS -w/2 -- its x mirror is itself and must drop out"
+    assert len(centred) == 2
+
+
+def test_the_chip_clearance_moves_NOTHING_when_no_chip_is_under_the_label():
+    """The safety of the whole pass. It is a chip clearance and nothing else: with no chip under
+    the label the geometry every other comment in floorplandoc was measured against must come back
+    byte for byte, or a mirror appears for a reason nobody can see."""
+    offs = label_offsets(10, -14, 300, 22)
+    ink = (0.0, 5.0, 300.0, 12.0)
+    assert clear_of_chips(offs, (437.0, 180.0), ink, []) == offs[0]
+    far = [(0.0, 400.0, 260.0, 28.0), (10.0, 8.0, 446.0, 28.0)]
+    assert clear_of_chips(offs, (437.0, 180.0), ink, far, viewport=(875.0, 226.0)) == offs[0]
+
+
+def test_a_label_whose_INK_lands_on_a_chip_flips_to_the_other_side():
+    """The measured case as numbers: the caption's anchor on the shared wall, the hint chip in the
+    viewport's bottom-right corner, the authored offset printing the caption into it."""
+    offs = label_offsets(10, -14, 300, 22)
+    ink = (0.0, 5.0, 300.0, 12.0)
+    # at the AUTHORED offset the caption's ink spans x 447..747, y 171..183; the chip's top edge
+    # cuts 3px into it, which is the shallow end of the measured band (7px at chart height 228).
+    hint = [(560.0, 180.0, 300.0, 28.0)]
+    got = clear_of_chips(offs, (437.0, 180.0), ink, hint, viewport=(875.0, 226.0))
+    assert got == offs[1], "the x mirror is the step that clears a corner band"
+    left = 437.0 + got[0] + ink[0]
+    assert left + ink[2] <= hint[0][0], "the pick must actually be CLEAR, not merely different"
+
+
+def test_an_INTERSECTION_IS_NOT_A_COLLISION():
+    """A text item's boundingRect carries the font's leading and descent — measured at CALIBRE 150
+    the door caption's box is 22.0px around 15.7px of ink, 5.4 slack above and 0.9 below. A rule
+    that flipped on BOX intersection would move labels that are visibly clear; one that ignored a
+    real bite would leave glyphs buried. Both halves, on one ink box."""
+    offs = label_offsets(10, -14, 300, 22)
+    ink = (0.0, 5.0, 300.0, 12.0)                  # box spans 0..22 local, ink only 5..17
+    # placed, the caption's BOX spans y 166..188 and its INK only 171..183.
+    box_only = [(560.0, 184.0, 300.0, 28.0)]       # 4px of box under the chip, 0px of glyph
+    assert clear_of_chips(offs, (437.0, 180.0), ink, box_only,
+                          viewport=(875.0, 226.0)) == offs[0]
+    into_the_ink = [(560.0, 180.0, 300.0, 28.0)]   # 3px of real glyph under the chip
+    assert clear_of_chips(offs, (437.0, 180.0), ink, into_the_ink,
+                          viewport=(875.0, 226.0)) != offs[0]
+
+
+def test_the_clearance_is_total_so_a_redraw_never_oscillates():
+    """Every candidate scores and ties break on the authored order, so the same geometry always
+    picks the same offset — feeding the choice back in must be a fixed point. And when NOTHING is
+    clear it still answers with a real candidate rather than giving up on the first."""
+    ink = (0.0, 5.0, 300.0, 12.0)
+    offs = label_offsets(10, -14, 300, 22)
+    hint = [(560.0, 180.0, 300.0, 28.0)]
+    got = clear_of_chips(offs, (437.0, 180.0), ink, hint, viewport=(875.0, 226.0))
+    assert got != offs[0], "this fence is only a fixed-point test if the pass actually MOVED it"
+    again = clear_of_chips([got] + [o for o in offs if o != got], (437.0, 180.0), ink, hint,
+                           viewport=(875.0, 226.0))
+    assert again == got, "the pick must be a fixed point, or a redraw can chatter between two"
+    swamped = [(-4000.0, -4000.0, 8000.0, 8000.0)]        # a chip over the whole chart
+    assert clear_of_chips(offs, (437.0, 180.0), ink, swamped) in offs
+
+
+def test_the_door_caption_clears_the_zoom_hint_on_the_REAL_paint(app):
+    """The fence with teeth: the genuine ``_label`` path, the genuine chip rect, ink measured off
+    the painted items. The chip is PARKED on the caption so the collision is produced rather than
+    waited for — what produces it in the wild is a band of chart HEIGHTS, and offscreen cannot be
+    trusted to reproduce a px band (it stubs the font DB)."""
+    doc = _charted(app)
+    caption = [(t, r) for t, r in _chart_labels(doc.canvas) if "deep" in t]
+    assert caption, "no door caption on the chart -- this fence would be vacuous"
+    text, rect = caption[0]
+    doc.canvas._hint.setGeometry(int(rect.x()), int(rect.y()),
+                                 max(1, int(rect.width())), max(1, int(rect.height())))
+    parked = doc.canvas._chip_rects()
+    assert parked, "_chip_rects saw nothing -- isVisibleTo is what keeps this from going vacuous"
+
+    doc.canvas._chip_rects = lambda: []            # the control: the clearance switched OFF
+    doc.canvas._draw()
+    assert _bites(doc.canvas, parked), "red-first: without the clearance the caption must BITE"
+
+    del doc.canvas._chip_rects                     # ...and back to production
+    doc.canvas._draw()
+    assert not _bites(doc.canvas), f"a chart label is still under a chip: {_bites(doc.canvas)}"
+    moved = [r for t, r in _chart_labels(doc.canvas) if t == text]
+    assert moved and moved[0].x() != rect.x(), "the caption must have FLIPPED, not merely redrawn"
+
+
+def test_every_chart_label_is_judged_against_the_chips():
+    """THE BLAST RADIUS. ``_label`` serves the room name / metrics / entry tiers, the shared-wall
+    caption, the door caption and the pending-corner caption — so the clearance belongs at that ONE
+    seam and no tier may reach the scene around it. Asserted on the SOURCE, because a tier that
+    called ``addSimpleText`` itself would be invisible to every state this suite can reach."""
+    import ast
+    import inspect
+    from ff9mapkit.workspace import floorplandoc
+    owners = set()
+    for fn in ast.walk(ast.parse(inspect.getsource(floorplandoc))):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Attribute) and node.attr == "addSimpleText":
+                owners.add(fn.name)
+    assert owners == {"_label"}, \
+        f"a label tier reaches the scene around the chip clearance: {sorted(owners)}"
+
+
+def test_the_clearance_re_runs_when_the_chips_MOVE(app):
+    """The chips are pinned to the viewport's CORNERS, so a resize moves them under labels that did
+    not move — and the height band this fixes is REACHED by a resize. behaviordoc's own rule: the
+    pass re-runs per draw, fit and zoom."""
+    doc = _charted(app)
+    for h in (200, 230, 260, 300, 340):
+        doc.canvas.resize(880, h)
+        doc.canvas.fit()
+        assert not _bites(doc.canvas), f"chart height {h}: {_bites(doc.canvas)}"
+
+
+def test_a_canvas_with_no_real_viewport_leaves_every_label_where_it_was(app):
+    """``_place_hint`` has not run against a real viewport yet, so the chip rects are fiction —
+    judging against them would move labels to dodge a chip that is not there."""
+    from PySide6.QtCore import QRectF
+    doc, _ = _two_rooms(app)
+    doc.canvas.resize(20, 20)
+    for text, dx, dy, centre in (("shared wall", 6, -16, False), ("100u deep", 10, -14, False),
+                                 ("ROOM1", 0, -9, True)):
+        got = doc.canvas._chip_clear(0, 0, text, doc.canvas._font(8), QRectF(0, 0, 300, 22),
+                                     dx, dy, centre)
+        assert got == label_offsets(dx, dy, 300, 22, centre=centre)[0]

@@ -198,6 +198,118 @@ def candidate_doors(rooms, doors, *, tol=8.0):
     return out
 
 
+# ---------------------------------------------------------------- the screen-fixed chip clearance
+# ★ THE CHIPS ARE NOT ON THE CHART, SO NO SCENE-SPACE REASONING CAN SEE THEM. Every other
+# de-collision in this file argues in world/scene space against other chart ink — a room outline, a
+# door strip, a neighbour's label stack (see _draw_room, _draw_candidates, _draw_doors, and their
+# shared rule: "offsetting is geometry; raising z is not"). ``_hint`` and ``_compass`` are QLabel
+# CHILDREN OF THE VIEWPORT pinned to its corners by :meth:`PlanCanvas._place_hint`; they live in
+# viewport px, are painted by Qt ABOVE the scene, and are invisible to all of it by construction.
+# That the chips own bands of the viewport is already known where the chart's HEIGHT is budgeted —
+# but a floor only says how much room the chart gets, never where a label inside it lands.
+#
+# Measured (native, 1280x850, dark, the refused plan): the door caption
+# '✕ ROOM1↔ROOM2 · 100u deep · selected' prints INSIDE the zoom hint, 186px x 16px at chart height
+# 178, easing to a 7px bite at 228 and clean past ~270; at CALIBRE 125 the same caption bites
+# 89px x 11px over chart heights ~156-226. The band is a function of chart HEIGHT alone (same
+# widget, same viewport width, same fit math), so every layout that can produce those heights
+# prints it. The other four tiers _label serves (room name / metrics / entry, the shared-wall
+# caption, the pending-corner caption) never reached a chip in the census, which is exactly why the
+# fence is on the CLASS and not on that one string.
+#
+# The cure is this file's own: OFFSET IS GEOMETRY. A label whose ink would land on a chip flips to
+# the other side of its own anchor — behaviordoc's ``dx = -dx - width`` mirror, the same "canvas
+# labels flip LEFT at the right edge" idiom — so the leader point it names stays honest.
+#
+# ...and it is judged on INK, never on the boundingRect. A text item's box carries the font's
+# leading and descent, so a label sitting one clean line above a chip still INTERSECTS it by a few
+# px: an intersection is not a collision. Measured (Segoe UI at CALIBRE 150) the door caption's box
+# is 22.0px tall around 15.7px of ink — 5.4px of slack above the glyphs and 0.9 below. Flipping on
+# box intersection would move labels that are visibly clear; ignoring the 8px box intersection at
+# chart height 228 would leave 7.1px of real glyph buried under the chip. So the box is deflated to
+# the ink Qt actually paints (``QFontMetricsF.tightBoundingRect``) and any positive intersection of
+# THAT is a collision. Fenced by test_workspace_floorplan's chip-clearance block.
+
+
+def _overlap(ax, ay, aw, ah, bx, by, bw, bh):
+    """Two rects' intersection as ``(w, h)``, ``(0, 0)`` when they do not meet."""
+    ow = min(ax + aw, bx + bw) - max(ax, bx)
+    oh = min(ay + ah, by + bh) - max(ay, by)
+    return (ow, oh) if ow > 0 and oh > 0 else (0.0, 0.0)
+
+
+def label_offsets(dx, dy, w, h, *, centre=False):
+    """A label's authored offset, then its MIRRORS about the anchor: x, then y, then both.
+
+    The mirror is behaviordoc's own (``dx = -dx - width``): the label lands the same distance from
+    the anchor on the OPPOSITE side, so the point it labels is still the point it points at.
+
+    x BEFORE y, measured: the chips are viewport-CORNER bands about 31px tall, and a y mirror moves
+    a label by little more than its own height — the door caption straddles its own anchor
+    (dy=-14, box 22px), so its y mirror is a 6px step that lands it right back in the chip, while
+    its x mirror is ``width + 2*dx`` = 326px and leaves decisively. A ``centre``d label has no x
+    side to swap to (its offset IS -w/2), so its x mirror is itself and drops out.
+
+    Pure, so the fences drive it directly.
+    """
+    xs = [-w / 2.0] if centre else [dx, -dx - w]
+    out = []
+    for oy in (dy, -dy - h):
+        for ox in xs:
+            if (ox, oy) not in out:
+                out.append((ox, oy))
+    return out
+
+
+def clear_of_chips(offsets, anchor, ink, chips, viewport=None):
+    """Which of ``offsets`` keeps a label's INK off the screen-fixed viewport chips.
+
+    ``anchor`` is ``(ax, ay)`` in viewport px; ``ink`` the label's ink box ``(x, y, w, h)`` in
+    label-local px, which the chosen offset translates; ``chips`` a list of ``(x, y, w, h)``
+    viewport rects; ``viewport`` an optional ``(w, h)`` used ONLY to prefer a mirror that stays on
+    screen.
+
+    ★ ``offsets[0]`` — the authored placement — WINS UNLESS IT ACTUALLY COLLIDES, and that early
+    return is the whole safety of this pass. It is a chip clearance and nothing else: with no chip
+    under the label the geometry every other comment in this file was measured against comes back
+    byte for byte, so a mirror can never appear for a reason nobody can see, and the tier
+    thresholds, the ``_along`` offsets and the centring all keep meaning exactly what they say.
+
+    Among the alternatives the order is behaviordoc's: clear beats overlapping, on-screen beats
+    clipped, then the shallowest bite, then the authored order. That makes the choice TOTAL — every
+    candidate scores, ties break on index — so the same geometry always picks the same offset and a
+    redraw can never oscillate between two of them.
+
+    Pure, so the fences drive it directly.
+    """
+    if not offsets:
+        return (0.0, 0.0)
+    if not chips:
+        return offsets[0]
+    ix, iy, iw, ih = ink
+    ax, ay = anchor
+
+    def bite(ox, oy):
+        """The deepest ink-vs-chip intersection this offset produces (0 = clear)."""
+        bx, by = ax + ox + ix, ay + oy + iy
+        return max([min(_overlap(bx, by, iw, ih, *c)) for c in chips], default=0.0)
+
+    if bite(*offsets[0]) <= 0:
+        return offsets[0]
+    best, best_key = offsets[0], None
+    for i, (ox, oy) in enumerate(offsets):
+        d = bite(ox, oy)
+        clipped = 0
+        if viewport is not None:
+            vw, vh = viewport
+            bx, by = ax + ox + ix, ay + oy + iy
+            clipped = 0 if (bx >= 0 and by >= 0 and bx + iw <= vw and by + ih <= vh) else 1
+        key = (1 if d > 0 else 0, clipped, d, i)
+        if best_key is None or key < best_key:
+            best, best_key = (ox, oy), key
+    return best
+
+
 class PlanCanvas(QGraphicsView):
     """The floorplan as a plan-view CHART: rooms drawn corner by corner, shared walls offered
     as door candidates, +z up-screen, one isotropic world<->px pair.
@@ -491,6 +603,10 @@ class PlanCanvas(QGraphicsView):
             self._drag = {"kind": "vert", "ri": ri, "vi": vi, "poly": list(self._rooms[ri]["poly"]),
                           "start": list(self._rooms[ri]["poly"])}
             self._update_coords()
+            # the coords chip just APPEARED, and it is one of the screen-fixed chips the labels
+            # are judged against: a press that never moves would otherwise leave it sitting on a
+            # label until the drag's own redraw.
+            self._draw()
             return True
         ri = self._pick_room(x, z)
         if ri is not None:
@@ -498,6 +614,7 @@ class PlanCanvas(QGraphicsView):
                           "poly": list(self._rooms[ri]["poly"]),
                           "start": list(self._rooms[ri]["poly"])}
             self._update_coords()
+            self._draw()
             return True
         return False
 
@@ -575,6 +692,13 @@ class PlanCanvas(QGraphicsView):
     def resizeEvent(self, ev):                     # noqa: N802 (Qt override)
         super().resizeEvent(ev)
         self._place_hint()
+        self._draw()                               # the chip clearance is SCREEN space and the
+        #                                            chips just moved with the corners, so every
+        #                                            label has to be re-judged against them
+        #                                            (behaviordoc's "re-run per draw, fit, zoom").
+        #                                            The height band this fixes is REACHED by a
+        #                                            resize, so a clearance that did not re-run
+        #                                            here would be one the author drags out of.
 
     def wheelEvent(self, event):                   # noqa: N802 (Qt override)
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -746,13 +870,68 @@ class PlanCanvas(QGraphicsView):
         ``centre`` shifts it left by HALF ITS OWN measured width, which is not a nicety: with a
         fixed left offset a room name ran right out of its own polygon and collided with its
         neighbour's (the first snap showed ``ROOM1 (entry`` overprinting ``ROOM2`` on the shared
-        wall). A plan is a chart of adjacent boxes, so every label has to stay inside its box."""
+        wall). A plan is a chart of adjacent boxes, so every label has to stay inside its box.
+
+        ★ AND THEN IT CLEARS THE VIEWPORT CHIPS. This is the ONE seam all five label tiers funnel
+        through, which is why the screen-space clearance lives here and not at any call site —
+        see the module note above :func:`label_offsets` for the measurement and the reasoning."""
         a = self._anchor(x, z)
         t = self._child(self._scene.addSimpleText(text), a)
-        t.setFont(self._font(pt, bold))
+        font = self._font(pt, bold)
+        t.setFont(font)
         t.setBrush(QBrush(QColor(color or self.pal["muted"])))
-        t.setPos(-t.boundingRect().width() / 2.0 if centre else dx, dy)
+        t.setPos(*self._chip_clear(x, z, text, font, t.boundingRect(), dx, dy, centre))
         return a
+
+    @staticmethod
+    def _ink_box(text, font, br):
+        """``(x, y, w, h)``: the ink Qt ACTUALLY PAINTS inside a text item's ``boundingRect``.
+
+        ``tightBoundingRect`` is baseline-relative and ``addSimpleText`` puts the baseline one
+        ascent below the box top, so that is the shift. Clamped back into ``br`` because a tight
+        box may reach past it (an accent, a glyph with a deep descender), and falling back to the
+        whole box when a string measures to nothing keeps an empty label judged, never skipped."""
+        from PySide6.QtGui import QFontMetricsF
+        fm = QFontMetricsF(font)
+        tb = fm.tightBoundingRect(text)
+        box = QRectF(tb.x(), fm.ascent() + tb.y(), tb.width(), tb.height()).intersected(br)
+        if box.isEmpty():
+            box = br
+        return (box.x(), box.y(), box.width(), box.height())
+
+    def _chip_rects(self):
+        """The screen-fixed chips as viewport-px rects (they are the viewport's own children).
+
+        ``isVisibleTo`` and not ``isVisible``: a canvas that has never been SHOWN reports every
+        child invisible, which would make the clearance — and any fence driving it — quietly
+        vacuous on exactly the headless path the suite runs on."""
+        vp = self.viewport()
+        out = []
+        for lab in (self._hint, self._compass, self._coords):
+            if lab.isVisibleTo(vp):
+                g = lab.geometry()
+                out.append((float(g.x()), float(g.y()), float(g.width()), float(g.height())))
+        return out
+
+    def _chip_clear(self, x, z, text, font, br, dx, dy, centre):
+        """A label's offset, mirrored off a viewport chip when the authored one lands on one."""
+        offs = label_offsets(dx, dy, br.width(), br.height(), centre=centre)
+        vp = self.viewport()
+        if vp.width() <= 40 or vp.height() <= 40:
+            return offs[0]                         # no real viewport yet: the chips are not placed
+        chips = self._chip_rects()
+        if not chips:
+            return offs[0]
+        sx, sy = self.world_to_scene(x, z)
+        # ``viewportTransform()``, not ``mapFromScene``: the latter returns an INTEGER QPoint, and
+        # that half-pixel of rounding is enough to disagree with where Qt paints the glyphs. It
+        # left a sub-pixel bite in the census at exactly one chart height — the label was judged
+        # clear at a rounded anchor and painted 0.4px into the chip. Screen-space furniture is
+        # anchored in FLOATS (the label ignores the view transform, so this maps the whole subtree).
+        base = self.viewportTransform().map(QPointF(sx, sy))
+        return clear_of_chips(offs, (float(base.x()), float(base.y())),
+                              self._ink_box(text, font, br), chips,
+                              viewport=(float(vp.width()), float(vp.height())))
 
     def _pen(self, color, width, *, dash=None, alpha=None):
         c = QColor(color)
