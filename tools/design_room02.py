@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # Phase 3b: design a NOVEL steeper-top-down room (camera + flat floor walkmesh) and emit:
-#   1) the .bgx CAMERA block (synthesized via cam_lib),
+#   1) the .bgx CAMERA block (synthesized via ff9mapkit.scene.cam),
 #   2) the walkmesh corner coords (for bgi_set_quad4.py),
 #   3) a visual PAINT GUIDE png (canvas-res) the human paints over,
 #   4) a text summary.
-# All offline. Floor depth uses the Session-8-proven vertical canvas map; this room's
-# playtest also serves to pin the global scale s on both axes.
-import math, os, cam_lib as C
+# All offline. Floor depth uses the shipped canvas map (exact, scale-1). Historically this
+# room's playtest was meant to pin a global canvas scale s -- that fit is retired; the map
+# needs no scale, only the camera's centerOffset.
+import math, os, sys
 from PIL import Image, ImageDraw, ImageFont
+
+KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
+sys.path.insert(0, KIT)
+from ff9mapkit.scene import cam as C
 
 OUT = os.path.dirname(os.path.abspath(__file__)) + "/room02_out"
 os.makedirs(OUT, exist_ok=True)
@@ -90,7 +95,6 @@ walkmesh corners (x z): {flat}
 NEXT:
  - paint_guide.png shows where the floor lands. Paint a top-down floor filling the orange quad,
    and a back wall / background above it (and optionally a thin front lip for occlusion).
- - then I wire camera.bgx + the walkmesh + your art into a new field and we test in-game
-   (this playtest also pins the global canvas scale s on both axes).
+ - then I wire camera.bgx + the walkmesh + your art into a new field and we test in-game.
 """)
 print(f"\nwrote: {OUT}/  (camera.bgx.txt, walkmesh_corners.txt, paint_guide.png, SUMMARY.txt)")

@@ -2,9 +2,13 @@
 # Vivi's hut: shared 48-deg camera + floor walkmesh, and TWO annotated paint guides
 # (exterior "Vivi's Return" / interior "Vivi's House"). Same geometry for both rooms; the
 # human paints two backgrounds to the same floor. Floor is framed low so the upper ~40% of
-# the canvas is free for the hut / walls. Uses the validated calibrated canvas map.
-import math, os, cam_lib as C
+# the canvas is free for the hut / walls. Uses the SHIPPED canvas map (ff9mapkit.scene.cam).
+import math, os, sys
 from PIL import Image, ImageDraw, ImageFont
+
+KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
+sys.path.insert(0, KIT)
+from ff9mapkit.scene import cam as C
 
 OUT = os.path.dirname(os.path.abspath(__file__)) + "/hut_out"
 os.makedirs(OUT, exist_ok=True)
@@ -22,7 +26,7 @@ cam.r, cam.t = C.synth_r_t(Cpos, C.rot_x(PITCH), H)
 zb = round(C.solve_z_for_canvasY(cam, 205.0))
 zf = round(C.solve_z_for_canvasY(cam, 432.0))
 nf = abs(C.project((0,0,zf), cam)[2])               # depth at front center
-FX = int(round(165 * nf / (C.S_CANVAS_X * H)))      # front half-width ~165 canvas px
+FX = int(round(165 * nf / H))                       # front half-width ~165 canvas px (map is scale-1)
 verts = [(-FX,0,zb),(FX,0,zb),(FX,0,zf),(-FX,0,zf)]
 def cv(P): return C.to_canvas(P, cam)
 

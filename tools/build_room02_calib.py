@@ -4,8 +4,12 @@
 #   - grid.png  : perspective-correct checkerboard floor + edges + markers (full canvas)
 #   - FBG_N11_ROOM02_TD.bgx : steeper camera + the grid overlay
 # (.bgi walkmesh is built separately from room01's via bgi_set_quad4 + bgi_fix_neighbors.)
-import math, os, cam_lib as C
+import math, os, sys
 from PIL import Image, ImageDraw, ImageFont
+
+KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
+sys.path.insert(0, KIT)
+from ff9mapkit.scene import cam as C
 
 NAME = "FBG_N11_ROOM02_TD"
 OUT = os.path.dirname(os.path.abspath(__file__)) + "/room02_out/deploy"
@@ -20,7 +24,7 @@ cam.depthOffset = 543; cam.viewport = [160, 224, 112, 336]
 cam.r, cam.t = C.synth_r_t(Cpos, C.rot_x(PITCH), H)
 
 FX = 1500
-zb, zf = 914, -2024   # FIXED to match the deployed walkmesh; grid redraws at the refined s
+zb, zf = 914, -2024   # FIXED to match the deployed walkmesh; grid redraws at the shipped scale-1 map
 print(f"floor: x +/-{FX}, z [{zf}..{zb}]  corners(canvas):")
 for nm,(x,z) in [("BL",(-FX,zb)),("BR",(FX,zb)),("FR",(FX,zf)),("FL",(-FX,zf))]:
     print(f"  {nm} {C.to_canvas((x,0,z),cam)}")

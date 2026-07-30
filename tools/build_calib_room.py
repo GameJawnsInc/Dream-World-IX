@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 # Generic calibration-room builder: author a pure-pitch camera at ANY angle/FOV, frame a flat
-# floor with the CALIBRATED canvas map (sx/sy from cam_lib, NO re-tuning), and emit grid.png +
-# .bgx. Used to validate that the canvas scales are GLOBAL (same on a different camera).
+# floor with the SHIPPED canvas map (ff9mapkit.scene.cam -- exact, scale-1), and emit grid.png +
+# .bgx. Historically this validated that the canvas scales were GLOBAL; that eyeball fit
+# (sx=0.926/sy=0.889) is retired -- the map is exactly scale-1 and carries centerOffset.
 # Usage: build_calib_room.py <NAME> <pitch_deg> <H> <D> [FX]
-import math, os, sys, cam_lib as C
+import math, os, sys
 from PIL import Image, ImageDraw, ImageFont
+
+KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
+sys.path.insert(0, KIT)
+from ff9mapkit.scene import cam as C
 
 NAME  = sys.argv[1] if len(sys.argv) > 1 else "FBG_N11_ROOM03_TD"
 PITCH = float(sys.argv[2]) if len(sys.argv) > 2 else 75.0
@@ -20,12 +25,14 @@ cam = C.Cam(); cam.proj = H; cam.centerOffset = [0, 0]; cam.range = [CW, CH]
 cam.depthOffset = 543; cam.viewport = [160, 224, 112, 336]
 cam.r, cam.t = C.synth_r_t(Cpos, C.rot_x(PITCH), H)
 
-# frame floor: canvasY 130(back)..420(front) via the CALIBRATED map
+# frame floor: canvasY 130(back)..420(front) via the shipped map
 zb = round(C.solve_z_for_canvasY(cam, 130.0))
 zf = round(C.solve_z_for_canvasY(cam, 420.0))
-# auto half-width so back edge spans ~130px from center
+# auto half-width so back edge spans ~130px from center. The map is scale-1, so canvas px per
+# world unit at depth n is just H/n -- no canvas-scale divisor (the old /S_CANVAS_X was the
+# retired eyeball fit, and it silently absorbed the player COLLISION_RADIUS_W).
 nb = abs(C.project((0,0,zb), cam)[2])              # depth at back center
-FX = int(sys.argv[5]) if len(sys.argv) > 5 else int(round(130*nb/(C.S_CANVAS_X*H)))
+FX = int(sys.argv[5]) if len(sys.argv) > 5 else int(round(130*nb/H))
 
 print(f"=== {NAME}: pitch {PITCH} (room01=49.6, room02=65), H={H}, FOV_x~{C.decompose(cam)['fov_x_deg']:.1f} ===")
 print(f"camera C={tuple(round(x) for x in Cpos)}  floor x+/-{FX}, z [{zf}..{zb}]")
