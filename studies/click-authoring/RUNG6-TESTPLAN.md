@@ -3,7 +3,6 @@
 > **Status: UNVALIDATED BY ANY HUMAN.** Written 2026-07-30 for the tab's first contact. Timings in
 > Step 5 are measured, not estimated. Findings and verdicts belong back in `PLAN.md`'s Rung 6 block.
 
-*(also saved at `C:/Users/skaki/AppData/Local/Temp/claude/C--gd-Dream-World-IX--claude-worktrees-admiring-mccarthy-8ff51a/74fa14cb-4f41-49bc-91e2-35f40504732c/scratchpad/testplan/FLOORPLAN_TESTPLAN.md`)*
 
 ## What this is
 
