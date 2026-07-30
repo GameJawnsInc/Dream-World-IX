@@ -180,3 +180,58 @@ That is Rung 5a, and the first content ever authored into a third FF9 overworld.
 **What it does NOT prove:** anything about synthesis quality. This look was already accepted; the point of
 choosing it was that any failure is *plumbing*, not art. The genuine synthesis question (the terrace wall,
 prediction-registered) comes after → [`SYNTHESIS-RECONSIDERED.md`](SYNTHESIS-RECONSIDERED.md).
+
+**Step E result (owner, 2026-07-29): PASS.** Walkable, cliffs block on foot, meadows render. One defect
+reported — the Blue Narciss sailed straight through the cliffs. Root-caused and fixed offline; see Step F.
+
+---
+
+## Step F — three questions in ONE relaunch
+
+Everything below is already built and deployed. **This needs a relaunch** (the s75 engine build). Three
+independent things have never been in-game verified; doing them separately would cost three relaunches.
+
+### F1 — the boat no longer sails through the island
+
+The Step-E defect. Root cause was **not** the cliff and **not** `--beach`: the ground query rejects any
+triangle above the ray origin, and a sea-level actor casts from only `y + 2.34375` while the land sits at
+y=3.2 — so the boat's query skipped the island entirely and read the full-cell Sea4 plane underneath as
+deep sea. The plane is now cut against the land footprint on every land block
+(THE SEA4-UNDER-LAND LAW → [[project-ff9-sea4-under-land-law]]).
+
+Offline, on the island's core block: sea-level rays reading deep sea over land went **572/576 → 7/576**.
+
+1. `~` → **Go** → `9013` → **Go**; `~` → **World** → teleport to **(800, -672)**.
+2. `~` → enable the **Blue Narciss**, sail at the island from open ocean, **all the way round it**.
+
+**PASS:** the boat is stopped at the waterline on every approach. Nosing slightly into the shoreline is
+expected and correct — the cut is deliberately conservative, leaving a one-triangle fringe.
+**FAIL:** any heading that still lets you cross onto or through the island. Note *where* — the fringe is
+the only place this should be possible, and a real failure will be a wide gap, not a nudge.
+
+### F2 — s75 CLONE mode (never tested)
+
+Your own design call: blank slate *or* a clone of the stock world you can reshape without touching stock.
+
+1. `~` → **Go** → tick **`clone the stock world`** → warp to `9013`.
+
+**PASS:** the full stock disc-1 map, with the Rung-5a island *also* present. Then confirm the point of the
+whole feature: real disc-1 is untouched — load a normal save and check the same coordinates are stock.
+**FAIL:** blank ocean (the toggle isn't reaching `Build`), or stock geometry with our island missing.
+
+⚠ **Do not pass `--all-sea-target` when minting for a clone target** — a clone carries the stock `IsSea`
+pattern, so the open-ocean probes are correct there and must keep running.
+
+### F3 — mist suppression (never tested)
+
+1. With the spike armed (either mode), warp to `9013` and look at the horizon.
+
+**PASS:** no mist layer anywhere, including over the blocks where you saw it on the stock map at
+blk[19][11]. **FAIL:** mist still renders — `UseMist()` isn't the only gate.
+
+### If F1 fails
+
+Send the heading and roughly where you crossed. The offline instrument that found this
+(`scratchpad/boat_ray_probe.py`) compares a sky-cast against a sea-level cast at the same point —
+**rays where the two disagree are exactly the permeability surface** — so a reported location is directly
+reproducible offline without another playtest.
