@@ -140,3 +140,43 @@ Three such landmines were already found and fixed pre-emptively this pass, none 
 WorldDisc substitution at all: `Form2Transforms` never being initialised, `CurrentX`/`CurrentY` left at
 zero, and `DetectUnseenBlocks` indexing `Blocks[0,-1]` because with no player the sentinel actor sits at
 the world origin.
+
+---
+
+## Step E — Rung 5a: the FIRST authored land in a Path D world
+
+Deployed 2026-07-29. A synthetic cliff island, minted by the shipped `world-island` verb (a look already
+in-game proven as island E), written into **Path D's own override namespace** for the first time:
+
+```
+py -m ff9mapkit world-island --center 800,-672 --radius 44 --lobes 1 --seed 44 \
+    --mod-folder FF9CustomMap-world --target-disc 9 --all-sea-target
+```
+
+Offline result: **all gates CLEAN** (geometry, UV language, placement census 0 MISS) across 5 blocks —
+`(11,10) (12,9) (12,10) (12,11) (13,10)`, 990 tris total, centre grounding y=3.2 on Terrain topo 0.
+Two advisory warnings (`tex-zero-uv`, `tex-one-window`); every `one-window` hit is on a block border, the
+known false positive.
+
+45 files landed under `WorldMap/Disc9/`, and the real `Disc1`+`Disc4` trees stayed byte-identical across
+all 987 files. The `discmirror` guard fired on its first production use:
+`disc-4 mirror: refused for Disc9 (not a real disc -- a synthetic override namespace is deliberately unmirrored)`.
+
+### How to look at it
+
+No rebuild needed — this is data. A first-time block needs a **world re-entry** to stream the override.
+
+1. `~` → **Go** → confirm the spike reads `[x]` for CLONE only if you want the stock map; for this test
+   leave it **BLANK** (unticked).
+2. `~` → **Go** → `9013` → **Go**.
+3. `~` → **World** → teleport to **(800, -672)** — the centre of the grid, and of the island.
+
+**PASS:** an island with a rock cliff wall and grass top, alone in the ocean, walkable at the centre.
+
+**What this proves if it lands:** the full authoring path works into a world that did not exist — read
+real bytes from disc 1, write into a namespace disjoint from it, render on a runtime-minted WorldDisc.
+That is Rung 5a, and the first content ever authored into a third FF9 overworld.
+
+**What it does NOT prove:** anything about synthesis quality. This look was already accepted; the point of
+choosing it was that any failure is *plumbing*, not art. The genuine synthesis question (the terrace wall,
+prediction-registered) comes after → [`SYNTHESIS-RECONSIDERED.md`](SYNTHESIS-RECONSIDERED.md).
