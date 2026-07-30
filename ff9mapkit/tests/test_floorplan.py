@@ -422,23 +422,36 @@ def test_off_r_is_an_integer_on_every_room():
         assert all(isinstance(v, int) for p in r.poly_room for v in p)
 
 
-def test_z_for_row_answers_where_the_shipped_solver_returns_none():
-    """★ Pins the reason the composer does not call `cam.solve_z_for_canvasY`: it brackets across the
-    projection pole, so it returns None for rows that DO have a front-branch root. Spawned as its
-    own fix -- the day it lands, this test tells you."""
+def test_z_for_row_agrees_with_the_now_fixed_shipped_solver():
+    """★ THE TRIPWIRE FIRED. This test used to pin `cam.solve_z_for_canvasY(cam, 420.0) is None` at
+    pitch 15 / distance 3000 as the reason floorplan forked its own `z_for_row` -- and said, in its
+    own docstring, "if this goes red, it was fixed and floorplan.z_for_row should be reconsidered
+    (THE CALL-SITE LAW cuts both ways)". It landed 2026-07-29 (cam.py's projection-pole fix: the
+    inverse is now closed-form on the front branch, exact on every real donor camera too, not only
+    this shallow-pitch case) -- so the pin now runs the OTHER direction: the two must AGREE, to
+    the shared solver's ~1e-13 px, not the private one's ~0.05 px. Whether floorplan should retire
+    `z_for_row` in favour of the shared function is exactly THE CALL-SITE LAW's open question this
+    test was written to raise; it is not re-decided here."""
     cam = guide.make_camera(15.0, 3000.0, fov_x_deg=42.0)
-    z = F.z_for_row(cam, 420.0)
-    assert z is not None, "the composer's solver finds it"
-    assert F.project_floor(0.0, z, cam)[1] == pytest.approx(420.0, abs=0.1)
-    assert CAM.solve_z_for_canvasY(cam, 420.0) is None, (
-        "the shipped solver still returns None here -- if this goes red, it was fixed and "
-        "floorplan.z_for_row should be reconsidered (THE CALL-SITE LAW cuts both ways)")
+    z_private = F.z_for_row(cam, 420.0)
+    z_shared = CAM.solve_z_for_canvasY(cam, 420.0)
+    assert z_private is not None and z_shared is not None, "both solvers answer this row now"
+    assert F.project_floor(0.0, z_private, cam)[1] == pytest.approx(420.0, abs=0.1)
+    assert CAM.to_canvas((0, 0, z_shared), cam)[1] == pytest.approx(420.0, abs=1e-6)
+    assert z_private == pytest.approx(z_shared, abs=1.0)
 
 
-def test_frame_floor_still_raises_at_low_pitch():
+def test_frame_floor_no_longer_raises_at_this_pitch():
+    """★ THE OTHER HALF OF THE TRIPWIRE. `guide.frame_floor` used to raise at pitch 15 / distance
+    3000 for EVERY distance -- not because the floor was actually unreachable, but because it
+    inherited solve_z_for_canvasY's pole-spanning bisection (see cam.py's 2026-07-29 fix; fenced in
+    ff9mapkit/tests/test_cameras.py::test_frame_floor_low_pitch_frames_on_the_requested_rows). It now
+    succeeds and lands on the requested rows, matching floorplan's own private frame at the same
+    camera."""
     cam = guide.make_camera(15.0, 3000.0, fov_x_deg=42.0)
-    with pytest.raises(Exception):
-        guide.frame_floor(cam)
+    fr = guide.frame_floor(cam)          # defaults: back=130, front=420
+    assert CAM.to_canvas((0, 0, fr.zb), cam)[1] == pytest.approx(130.0, abs=1.0)
+    assert CAM.to_canvas((0, 0, fr.zf), cam)[1] == pytest.approx(420.0, abs=1.0)
 
 
 def test_a_room_laid_out_far_from_the_plan_origin_still_emits_in_range():

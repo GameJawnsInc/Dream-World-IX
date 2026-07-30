@@ -109,6 +109,34 @@ def test_new_project_writes_placeholder_art(tmp_path):
     assert data["walkmesh"]["quad"] != [[-1400, -2400], [1400, -2400], [1400, -800], [-1400, -800]]
 
 
+@pytest.mark.parametrize("pitch", [15.0, 20.0, 48.0])
+def test_new_project_quad_matches_its_own_camera(tmp_path, pitch):
+    """THE USER-VISIBLE CONSEQUENCE: the scaffold's walkmesh must land on the canvas rows its OWN
+    toml declares. `new --pitch 15` used to swallow the frame_floor failure and fall back to a
+    hard-coded quad, so the room looked fine and shipped a mesh that did not match its camera."""
+    from ff9mapkit.scene import cam as C, guide as G
+    proj = pack.new_project("LOWCAM", tmp_path, pitch=pitch, area=11)
+    data = tomllib.loads((proj / "lowcam.field.toml").read_text(encoding="utf-8"))
+    cfg, quad = data["camera"], data["walkmesh"]["quad"]
+    assert quad != [[-1400, -2400], [1400, -2400], [1400, -800], [-1400, -800]]   # the old fallback
+    cam = G.make_camera(cfg["pitch"], cfg["distance"], fov_x_deg=cfg["fov"])
+    rows = [C.to_canvas((x, 0, z), cam)[1] for x, z in quad]                      # BL, BR, FR, FL
+    assert max(abs(r - cfg["frame"]["back"]) for r in rows[:2]) < 1.0
+    assert max(abs(r - cfg["frame"]["front"]) for r in rows[2:]) < 1.0
+    assert quad[2][1] < data["player"]["spawn"][1] < quad[0][1]                   # spawn is inside
+
+
+def test_new_project_refuses_an_unframeable_camera(tmp_path):
+    """An unframeable pitch must REFUSE, not scaffold a plausible-looking guess -- and must leave no
+    half-made project behind. At pitch 2 the horizon (Y~208) really is below the template back row
+    205, so no floor quad exists; the message has to say which knob to turn."""
+    with pytest.raises(ValueError, match="cannot frame"):
+        pack.new_project("LEVELCAM", tmp_path, pitch=2.0, area=11)
+    assert not (tmp_path / "LEVELCAM").exists()
+    pack.new_project("LEVELCAM", tmp_path, pitch=15.0, area=11)      # the named fix works
+    assert (tmp_path / "LEVELCAM" / "levelcam.field.toml").is_file()
+
+
 def test_new_project_builds_clean(tmp_path):
     """A fresh scaffold (placeholder art) builds with no errors AND no problem warnings -- the
     from-scratch path is end-to-end out of the box. The scaffold's entry_settle = "auto" surfaces

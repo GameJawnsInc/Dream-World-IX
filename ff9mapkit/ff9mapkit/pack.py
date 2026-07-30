@@ -154,33 +154,40 @@ def new_project(name: str, dest, *, field_id: int | None = None, area: int = 11,
                 pitch: float = 48.0, title: str | None = None, placeholder_art: bool = True) -> Path:
     """Scaffold a new field project under ``dest/<name>/``. Returns the project dir.
 
-    With ``placeholder_art`` (default), derives the walkmesh quad from the template camera frame and
-    writes PLACEHOLDER ``art/back.png`` + ``art/floor.png`` (pure stdlib, no PIL) so the project
-    BUILDS and is walkable straight away -- the human then replaces the art with painted layers. If
-    the camera frame can't be solved (an extreme ``pitch``), falls back to a no-art scaffold.
+    The walkmesh quad is ALWAYS derived from the template camera frame, so the scaffold's mesh
+    matches the camera its own toml declares. With ``placeholder_art`` (default) it also writes
+    PLACEHOLDER ``art/back.png`` + ``art/floor.png`` (pure stdlib, no PIL) so the project BUILDS and
+    is walkable straight away -- the human then replaces the art with painted layers.
+
+    Raises ValueError if that camera cannot frame the template rows (a near-level ``pitch``: the
+    floor's back row is then above the horizon, and no quad exists). This used to be swallowed, and
+    the scaffold silently fell back to a HARD-CODED quad -- so `ff9mapkit new --pitch 15` shipped a
+    plausible-looking room whose mesh did not match its camera, and (because the old solver was
+    broken below ~30 deg pitch, not because 15 deg is unframeable) that was the common case, not the
+    extreme one. A scaffold that cannot be framed must say so, not guess a floor.
     """
     title = title or name
     if field_id is None:
         field_id = suggest_base(name)
     proj_dir = Path(dest) / name
-    (proj_dir / "art").mkdir(parents=True, exist_ok=True)
     fname = f"{name.lower()}.field.toml"
 
-    quad = [[-1400, -2400], [1400, -2400], [1400, -800], [-1400, -800]]   # fallback
-    spawn_z = -1350
+    from .scene import guide, placeholder
+    camera = guide.make_camera(pitch, _DISTANCE, fov_x_deg=_FOV)
+    try:                            # solved BEFORE any mkdir, so a refusal leaves nothing behind
+        frame = guide.frame_floor(camera, back_canvas_y=_BACK, front_canvas_y=_FRONT)
+    except ValueError as e:
+        raise ValueError(f"camera pitch {pitch:g} deg cannot frame the scaffold's template floor "
+                         f"(canvas rows {_BACK}/{_FRONT} at distance {_DISTANCE:g}, fov "
+                         f"{_FOV}): {e}") from e
+    (proj_dir / "art").mkdir(parents=True, exist_ok=True)
+    quad = [[int(x), int(z)] for (x, z) in guide.walkmesh_corners(frame)]
+    spawn_z = int(round((frame.zb + frame.zf) / 2))
     wrote_art = False
     if placeholder_art:
-        try:
-            from .scene import guide, placeholder
-            camera = guide.make_camera(pitch, _DISTANCE, fov_x_deg=_FOV)
-            frame = guide.frame_floor(camera, back_canvas_y=_BACK, front_canvas_y=_FRONT)
-            quad = [[int(x), int(z)] for (x, z) in guide.walkmesh_corners(frame)]
-            spawn_z = int(round((frame.zb + frame.zf) / 2))
-            placeholder.write_placeholders(camera, frame, proj_dir / "art" / "back.png",
-                                           proj_dir / "art" / "floor.png")
-            wrote_art = True
-        except (ValueError, ZeroDivisionError):
-            pass   # extreme camera -> keep the fallback quad + no placeholder art
+        placeholder.write_placeholders(camera, frame, proj_dir / "art" / "back.png",
+                                       proj_dir / "art" / "floor.png")
+        wrote_art = True
 
     quad_toml = "[" + ", ".join(f"[{x}, {z}]" for x, z in quad) + "]"
     (proj_dir / fname).write_text(
