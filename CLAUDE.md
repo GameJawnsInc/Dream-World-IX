@@ -280,6 +280,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
 - Click authoring — ★ Rungs 0-4 + rung 6 gateways owner-confirmed in-game; the floorplan composer 6a-6c built, Floorplan tab shipped → `studies/click-authoring/RUNG6.md`
 - Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a proven; wall synth: junction-aware round PARTIAL (faces/seams/foot pass in-game; the CREST RIM is the one undecoded junction) — next = rim-grammar study → `studies/path-d-new-world/JUNCTION-AWARE-PREDICTION.md`
+- Interactive docs base (docsite/) — DESIGN DRAFTED, awaiting ratification: reference + tutorial site with job-regenerated GUI screenshots via gui_snap → `studies/interactive-docs/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 
