@@ -151,7 +151,8 @@ def render_shot(gs, name: str, shot: dict, theme: str, out_dir: Path) -> dict:
     else:
         scratch = Path(tempfile.mkdtemp(prefix="docshot_"))
         ctx = _ctx(gs, theme, shot, scratch)
-        getattr(gs, f"snap_{fam}")(ctx, state)
+        fn = {"dlg": "snap_dialog"}.get(fam, f"snap_{fam}")   # gui_snap's one irregular name
+        getattr(gs, fn)(ctx, state)
         take = shot.get("take") or f"{fam}-{state}"
         src = scratch / f"{take}_{theme}_{ctx.scale}.png"
         assert src.is_file(), (f"{name}: surface {surface} produced no take {take!r} "
@@ -185,6 +186,24 @@ def _fixture_verbatim_fork(gs) -> Path:
     return proj
 
 
+def _viewport_clip(w, win, QPoint) -> str | None:
+    """The name of the first ancestor scroll viewport that clips any part of `w`, else None.
+    Pure geometry (mapTo against each viewport), deliberately not visibleRegion(): paint-derived
+    answers are unreliable under WA_DontShowOnScreen (the builddoc _inplace_available lesson)."""
+    from PySide6.QtWidgets import QAbstractScrollArea
+    p = w.parentWidget()
+    while p is not None and p is not win:
+        if isinstance(p, QAbstractScrollArea):
+            vp = p.viewport()
+            t = w.mapTo(vp, QPoint(0, 0))
+            if not (0 <= t.x() and 0 <= t.y()
+                    and t.x() + w.width() <= vp.width()
+                    and t.y() + w.height() <= vp.height()):
+                return type(p).__name__ + " viewport"
+        p = p.parentWidget()
+    return None
+
+
 def _pin_grab(gs, win, shot: dict, png: Path, QPoint) -> dict:
     """Apply painted-path pins, resolve annotation rects, grab the window, close it."""
     try:
@@ -208,13 +227,18 @@ def _pin_grab(gs, win, shot: dict, png: Path, QPoint) -> dict:
                 f"annotation target {a['widget']} is not visible in this state"
             top = w.mapTo(win, QPoint(0, 0))
             rect = [top.x(), top.y(), w.width(), w.height()]
-            # FULL containment, or fail: a target scrolled out of the window still maps to
-            # coordinates, and a ring at the clipped edge silently points at nothing (caught
-            # live on the Import button under an 850px window).
+            # FULL containment, or fail -- in the WINDOW and in EVERY ancestor scroll viewport.
+            # Window bounds alone are not enough: a widget below a scroll area's fold still maps
+            # to in-window coordinates while the viewport clips its pixels, so the ring points at
+            # nothing (the owner caught exactly this on the Build tab's fourth radio).
             assert 0 <= rect[0] and 0 <= rect[1] \
                 and rect[0] + rect[2] <= win.width() and rect[1] + rect[3] <= win.height(), \
                 (f"annotation target {a['widget']} is clipped at {rect} in a "
                  f"{win.width()}x{win.height()} window -- raise the shot height or drop the note")
+            clip = _viewport_clip(w, win, QPoint)
+            assert clip is None, \
+                (f"annotation target {a['widget']} is scrolled out of its {clip} -- "
+                 f"raise the shot height or drop the note")
             notes.append({"widget": a["widget"], "label": a.get("label", ""),
                           "kind": a.get("kind", "ring"), "rect": rect})
         img = win.grab().toImage()

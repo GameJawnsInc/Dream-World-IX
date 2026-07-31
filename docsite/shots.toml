@@ -19,6 +19,21 @@ annotate = [
   { widget = "import_field.import_btn",    label = "4" },
 ]
 
+[shot.home-ready]
+surface = "home:ready"
+take = "home-ready"
+used_by = ["SETUP.md"]
+
+# NOTE a dlg:new-journey shot is WANTED here but blocked twice: the dialog paints the cwd into
+# its Folder box (black-box surfaces cannot pin painted paths -- needs a dlg adapter), and its
+# own teach text revealed tutorial 07's "Pick FF9 regions…" step is stale (region forking moved
+# to Import). Spawned as its own accuracy-pass task; re-add the shot there.
+
+[shot.fork-regions]
+surface = "dlg:fork-regions"
+take = "dlg-fork-regions"
+used_by = ["ff9mapkit/docs/tutorials/07-gui-journey.md"]
+
 [shot.editor-npc]
 surface = "form:npc"
 take = "form-npc"
@@ -26,6 +41,7 @@ used_by = ["ff9mapkit/docs/tutorials/06-gui-field.md"]
 
 [shot.build-deploy]
 surface = "tab:build"
+height = 1000         # all four Build-to radios must sit inside the scroll viewport (ring ④)
 # a verbatim fork of a REAL field must be open or the In-place route (the tutorial's headline
 # option) does not exist on the surface at all -- and no bundled example can be one (a real
 # verbatim fork carries SE bytes), so shots.py builds a kit-authored fixture fork

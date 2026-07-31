@@ -250,6 +250,8 @@ py apps\ff9_workspace.pyw            # from a repo checkout
 py apps\ff9_workspace.pyw --smoke    # headless self-check
 ```
 
+![The Workspace Home screen with the setup checklist and quick-start cards](docsite/assets/shots/home-ready_light.png)
+
 Built around a **journey ▸ campaign ▸ field ▸ object** tree with a breadcrumb, a tabbed document
 area, a right-hand Inspector (with live field-art thumbnails), and a bottom Output/Problems
 console:

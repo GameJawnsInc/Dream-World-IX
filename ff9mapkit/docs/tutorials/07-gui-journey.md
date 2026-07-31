@@ -21,6 +21,8 @@ Start with a small slice — one or two arcs; regions can be added at any time.
    the opening arcs.
 5. **OK** writes a `journeys.toml` into the folder and opens the Journey Editor.
 
+![The FF9 region catalog — every forkable zone by story-state visit, with seed ids and field counts](../../../docsite/assets/shots/fork-regions_light.png)
+
 ## 2. Fork the game data
 
 If base templates are not yet extracted, the Import tab's **Regenerate base templates** button
