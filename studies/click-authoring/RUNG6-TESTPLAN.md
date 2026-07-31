@@ -133,11 +133,14 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - **Right-click** a room (Rooms mode) → `Rename…`, `Make ROOM2 the entry room`, `Delete ROOM2`. Use Rename, cancel the rest.
 - **Ctrl+scroll** to zoom, **Ctrl+0** to fit, **Ctrl+1** for 1:1.
 - Left-drag on empty chart space.
+- **Grab a corner two rooms SHARE** (one you snapped onto its neighbour) and drag it.
 
 **Expect this**
 - While dragging, a floating chip shows live coordinates: `ROOM2 corner 1 · x -1200 · z 800` (or `ROOM2 · centre x … · z …` for a whole-room drag). It hides on release.
 - The right-click menu has exactly three items; `Make … the entry room` is **greyed out** on the room that is already the entry.
 - Ctrl+0 frames everything; left-drag on empty space **pans**.
+- **A shared corner moves BOTH rooms** and the coordinate chip says `· welded to 1 more`. That is deliberate: two corners are stacked only because you snapped them into a shared wall, so pulling one out alone would tear the wall apart — and re-making it would mean landing the other within 8u by hand, which is the thing snapping exists to spare you. One **Undo** puts both back. To separate two welded rooms, drag one room **bodily** (grab its middle, not a corner).
+- ⚠ This replaced the behaviour you hit in the first session: a stacked corner used to be grabbable only for the room drawn **first**, so the second room's corner could not be selected at all. If a stacked corner is ever un-grabbable again, that is the old tie-break returning.
 
 **Suspect a bug if**
 - ⚠ **The room snaps back to where it was when you let go.** This *was* a confirmed defect — a background gate check finishing mid-drag discarded the gesture silently, with no message and no undo entry — and it has since been **fixed**: the drag now outranks a verdict landing under it, and the gate is ~15× faster besides, so the window barely exists. **It is fenced, but no human has confirmed the fix.** If you see it even once, stop and tell me, with roughly how many rooms were on the chart. A barely-moved grab that then leaves a stray corner behind is the same bug wearing its other face.
@@ -256,6 +259,14 @@ Then **relaunch the game** (a brand-new id needs one launch to register), and `~
 **Suspect a bug if**
 - Black screen (an id collision), you spawn outside the walkable area, or the camera is looking at nothing.
 - Take a screenshot either way — that framing judgement is the thing I most want your eyes on.
+
+⛔ **CHECK THE `Mod` BOX BEFORE YOU DEPLOY.** The tab lets you type any folder name, and the engine
+only reads folders listed in `Memoria.ini`'s `[Mod] FolderNames` — today that is exactly
+`"FF9CustomMap", "FF9CustomMap-world", "MoguriMain", "MoguriVideo"`. Deploy into anything else and
+the build lands on disk, the game reads none of it, and you get *no error and no change*. The first
+composed dungeon was authored with `Mod = FF9CustomMap-dung`, which is not registered and does not
+exist. Either set the box back to **`FF9CustomMap`**, or add your folder to **both** `FolderNames`
+and `Priorities` and **relaunch**. (The tab does not yet gate this — say the word and it will.)
 
 **Hard rules for this step:**
 - ⛔ **Never** `deploy-campaign --apply` on this. It `rmtree`s the whole mod folder and this install holds ~400 registrations from other sessions. One `deploy_field.py … --id N` per room, always with `--id`.

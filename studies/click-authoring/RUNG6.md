@@ -342,6 +342,36 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
   and the next. This is the SECOND time that exact gap shipped a defect on this tab (the first was
   the control DEAD ON CLICK). A gesture fence that does not go through Qt's own event path is
   testing the model, not the instrument.
+- **6c-firstcontact-2 ★ 2026-07-31** — steps 3 and 4 of the same first session, two more findings
+  and one non-finding.
+  1. ★ **STACKED CORNERS WELD; THEY DO NOT COMPETE FOR THE CLICK.** *"I can't drag a corner handle
+     of ROOM2 when it's stacked onto a ROOM1 corner... might need some way to settle stacked handle
+     selection, I can't think of a good one."* `_pick_vertex` broke the tie by room order with a
+     strict `<`, so the room drawn SECOND could never win and its corner was unreachable. **The
+     answer is not to settle the selection.** Two corners are coincident for exactly one reason —
+     the author snapped them into a shared wall — so picking one and moving it alone TEARS THE
+     ABUTMENT APART, and re-making it means landing the other inside `shared_edges`' 8u by hand,
+     the very thing snapping exists because nobody can do. The weld moves as one, the shared wall
+     survives the edit, and there is nothing to disambiguate. Escape hatch: a whole-room drag still
+     separates them. ⚠ **A weld must be ONE undo step** — emitting the singular `room_reshaped`
+     once per moved room pushed one history entry EACH, and a single undo then restored half an
+     abutment. Hence the batched `rooms_reshaped`, for the same reason a door pair is atomic.
+  2. ★ **`BAND_REACH` 4·R_WALK → 2·R_WALK, THE PLAYER'S OWN DIAMETER.** The spawn-in-a-door's-band
+     WARN fired twice on the first real dungeon anyone drew — two rooms, one door, nothing wrong
+     with it — at 183u and 244u, claiming "one step could fire it". The gap is
+     `(the room's extent perpendicular to the wall)/2 − strip depth`, so a 320u reach warns about
+     **every room under ~1140u across**. Grounded now instead of tuned: inside one body-length,
+     involuntary displacement (entry settle, wall clamp, a single input frame) really can bridge
+     it; beyond that the player walks there on purpose and the message is false. The motivating
+     incident (a spawn 10u outside a sign zone) is still caught by 16×. **Never widen it to silence
+     a real finding — move the spawn instead.**
+  3. NOT a defect: *"there's no option to rubber-band an existing corner onto another room's
+     corner"* — retested by the owner, it does snap. Dragging a corner has snapped since
+     6c-firstcontact; it was simply invisible while stacked corners could not be grabbed at all.
+  ★ **THE FENCE DISCIPLINE HELD THIS TIME.** Each new fence was run against the reverted behaviour
+  and confirmed RED before being kept — 2 red on un-welding, 1 red on per-room emission, 2 red on
+  the 320u reach. The previous round shipped fences that passed on the broken code; that is what
+  this step exists to prevent.
 - **6d** — deploy **per room** with `tools/deploy_field.py --id N` (additive: it rmtrees only that
   one FBG scene subdir and merges `DictionaryPatch.txt` by ownership). **Never**
   `deploy_campaign --apply` — that rmtrees the whole mod folder, and this install's `FF9CustomMap`

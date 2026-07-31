@@ -119,6 +119,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   writes both sides at once — is a single step. A half-undone door would be a
   gateway with no arrival.
 
+### Fixed — a corner two rooms share can now be grabbed, and moving it keeps them joined
+- When you snapped one room's corner onto another's, the resulting stacked handles
+  were picked by room order, so only the room drawn first could be grabbed — the other
+  room's corner could not be selected at all.
+- Coincident corners now move together. That is the point of them: they are stacked
+  only because you snapped them into a shared wall, and dragging one out alone would
+  tear that wall apart — leaving you to re-make it by landing the other corner within
+  eight units by hand, which is the thing snapping exists to spare you. The coordinate
+  chip says when a corner is welded, one Undo puts the whole group back, and dragging a
+  room bodily still separates it from its neighbour.
+
+### Fixed — the spawn-near-a-door warning fired on ordinary rooms
+- The composer warns when a room's spawn sits in line with a trigger zone and close
+  enough that "one step could fire it". The reach was four times the player's radius,
+  and the distance it measures is fixed by the room's size — so it warned about every
+  room under about 1140 units across. A first two-room dungeon with a single door and
+  nothing wrong with it collected two of these.
+- The reach is now the player's own diameter, which is what the message actually
+  claims: inside one body-length, being displaced into the zone is possible; beyond it
+  the player has to walk there deliberately. A spawn genuinely a step from a trigger is
+  still caught, with a wide margin.
+
 ### Fixed — the Floorplan chart moved under the cursor while you were drawing on it
 - Every corner you placed recomputed the chart's extent from the outline *in progress*,
   so the first corner of a room collapsed that extent to a fraction of its size and the

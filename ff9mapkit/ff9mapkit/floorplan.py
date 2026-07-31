@@ -111,13 +111,20 @@ PITCH_SLACK = 1.0         # degrees of margin above the hard horizon-in-canvas t
 DEFAULT_PITCH = 48.0      # pack.new_project's scaffold pitch (pack.py:150); safe by 22deg over p*
 DEFAULT_FOV = 42.2        # pack.new_project's scaffold fov
 STANDABLE_WARN = 0.35     # warn under this standable/total area ratio
-BAND_REACH = 4 * R_WALK   # 320u -- how far "one sideways step" reaches, for the axis-band WARN.
-                          # A TUNED JUDGMENT, not a derivation: the law it serves says "a spawn at
-                          # the same depth as a zone row is one sideways step from firing it", and a
-                          # band test with no lateral cap fires on EVERY door in EVERY dungeon
-                          # (a spawn is in its own room's door band by construction -- that is how
-                          # the player reaches the door). For scale, actors jam under 192u and the
-                          # skill's standing spacing is >=300u, so 320u is a few steps, not a room.
+BAND_REACH = 2 * R_WALK   # 160u -- how far "one step" reaches, for the axis-band WARN. THE PLAYER'S
+                          # OWN DIAMETER: inside it, one body-length of involuntary displacement
+                          # (the entry settle, a wall clamp, a single input frame) bridges the gap,
+                          # which is exactly what the warning claims. Beyond it the player has to
+                          # walk there on purpose, and saying "one step could fire it" is false.
+                          # ★ WAS 4*R_WALK = 320, a tuned judgment, and 320 was measurably wrong:
+                          # the gap is (the room's extent perpendicular to the wall)/2 minus the
+                          # strip depth, so a 320 reach warns about EVERY room under ~1140u across.
+                          # The first real dungeon anyone drew -- two rooms, one door, nothing wrong
+                          # with it -- got two warnings, at 183u and 244u. A warning that fires on
+                          # the ordinary case teaches nothing and hides the one that matters. The
+                          # incident this gate exists for (a spawn 10u outside a sign zone) is still
+                          # caught by a wide margin. Never widen this to silence a real finding:
+                          # if a spawn is genuinely a step from a trigger, MOVE THE SPAWN.
 TOUCH_EPS = 1e-6
 
 

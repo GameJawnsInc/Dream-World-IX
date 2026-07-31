@@ -354,6 +354,14 @@ class PlanCanvas(QGraphicsView):
 
     room_drawn = Signal(object)            # a CLOSED outline: [(x, z), ...] plan-frame world units
     room_reshaped = Signal(int, object)    # (room index, its new polygon) — vertex OR whole-room drag
+    rooms_reshaped = Signal(object)        # [(room index, polygon), ...] — ONE welded gesture that
+    #                                        moved SEVERAL rooms. Separate from `room_reshaped`
+    #                                        rather than a list-shaped replacement for it, because
+    #                                        the host must push exactly ONE undo entry for the
+    #                                        group: emitting the singular signal twice pushed two,
+    #                                        and a single undo then restored one room and not the
+    #                                        other -- half an abutment, which is a shared wall that
+    #                                        no longer exists. Same reason a door pair is atomic.
     room_rename = Signal(int)              # the room menu's Rename… — the host asks + writes
     room_entry = Signal(int)               # …Make this the entry
     room_deleted = Signal(int)             # …Delete
@@ -528,9 +536,11 @@ class PlanCanvas(QGraphicsView):
         was = self._drag
         self._rooms = [{"name": str(r.get("name") or ""), "poly": _poly_pts(r.get("poly") or ())}
                        for r in rooms]
-        ri = None if was is None else was["ri"]
-        if was is not None and not (0 <= ri < len(self._rooms)
-                                    and self._rooms[ri]["poly"] == list(was["start"])):
+        def _intact(rec):
+            i = rec["ri"]
+            return 0 <= i < len(self._rooms) and self._rooms[i]["poly"] == list(rec["start"])
+
+        if was is not None and not all(_intact(r) for r in [was, *(was.get("also") or ())]):
             # The drag record is an INDEX, and `start` is the outline as it stood when the press
             # landed. If the fed plan no longer shows that room unchanged at that index -- deleted,
             # reordered, or edited from somewhere else -- the index now aims at somebody else's
@@ -574,10 +584,15 @@ class PlanCanvas(QGraphicsView):
 
     # ------------------------------------------------------------------ picking (world space)
     def _poly(self, ri):
-        """Room ``ri``'s polygon, with a live drag's override applied."""
+        """Room ``ri``'s polygon, with a live drag's override applied -- including a WELDED drag,
+        which overrides more than one room at once (see :meth:`press_world`)."""
         d = self._drag
-        if d is not None and d["ri"] == ri:
-            return d["poly"]
+        if d is not None:
+            if d["ri"] == ri:
+                return d["poly"]
+            for w in d.get("also") or ():
+                if w["ri"] == ri:
+                    return w["poly"]
         return self._rooms[ri]["poly"]
 
     def _pick_vertex(self, x, z, *, px=None):
@@ -616,7 +631,7 @@ class PlanCanvas(QGraphicsView):
         f = (a[0] + t * dx, a[1] + t * dz)
         return f, math.hypot(pt[0] - f[0], pt[1] - f[1])
 
-    def snap(self, x, z, *, skip_room=None):
+    def snap(self, x, z, *, skip_room=None, skip_rooms=()):
         """``((x, z), what)`` -- the point pulled onto an existing CORNER, else onto an existing
         WALL, when one is within :data:`_SNAP_PX`. ``what`` is ``"corner"``, ``"wall"`` or None.
 
@@ -632,9 +647,10 @@ class PlanCanvas(QGraphicsView):
         not capture onto its own neighbours, which would collapse the room into a duplicated corner
         and be refused by G1."""
         tol = self.world_tol(_SNAP_PX)
+        skip = set(skip_rooms) | ({skip_room} if skip_room is not None else set())
         best = None
         for ri in range(len(self._rooms)):
-            if ri == skip_room:
+            if ri in skip:
                 continue
             for (vx, vz) in self._poly(ri):
                 d = math.hypot(x - vx, z - vz)
@@ -643,7 +659,7 @@ class PlanCanvas(QGraphicsView):
         if best is not None:
             return best[1], "corner"
         for ri in range(len(self._rooms)):
-            if ri == skip_room:
+            if ri in skip:
                 continue
             poly = list(self._poly(ri))
             for i in range(len(poly)):
@@ -725,6 +741,37 @@ class PlanCanvas(QGraphicsView):
         self._hover = None
         self.room_drawn.emit(poly)
 
+    def _welded_with(self, ri, vi, *, eps=1.0):
+        """Every OTHER room's corner sitting on this one -- the corners that move with it.
+
+        ★ WHY STACKED CORNERS WELD INSTEAD OF COMPETING FOR THE CLICK. Two corners are coincident
+        for exactly one reason: the author snapped them together to make the rooms share a wall.
+        `_pick_vertex` broke that tie by room order, so the room drawn SECOND could not be grabbed
+        at all -- first contact reported "I can't drag a corner handle of ROOM2 when it's stacked
+        onto a ROOM1 corner", and asked for a way to settle the selection.
+
+        The better answer is not to settle it. Picking one corner and moving it alone TEARS THE
+        ABUTMENT APART, and re-making it means landing the other corner within `shared_edges`' 8u
+        by hand -- the very thing snapping exists because nobody can do. So the whole weld moves,
+        the shared wall survives the edit, and there is nothing to disambiguate.
+
+        To separate two welded rooms, drag one room BODILY (grab its middle, not its corner) --
+        that moves all of its own corners and leaves the neighbour's behind."""
+        out = []
+        try:
+            px, pz = self._poly(ri)[vi]
+        except (IndexError, TypeError):
+            return out
+        for oi in range(len(self._rooms)):
+            if oi == ri:
+                continue
+            for ovi, (ox, oz) in enumerate(self._poly(oi)):
+                if math.hypot(ox - px, oz - pz) <= eps:
+                    out.append({"ri": oi, "vi": ovi,
+                                "poly": list(self._rooms[oi]["poly"]),
+                                "start": list(self._rooms[oi]["poly"])})
+        return out
+
     def press_world(self, x, z):
         """Begin a drag if something grabbable is under the point. True = the press is ours.
 
@@ -735,7 +782,8 @@ class PlanCanvas(QGraphicsView):
         if hit is not None:
             ri, vi = hit
             self._drag = {"kind": "vert", "ri": ri, "vi": vi, "poly": list(self._rooms[ri]["poly"]),
-                          "start": list(self._rooms[ri]["poly"])}
+                          "start": list(self._rooms[ri]["poly"]),
+                          "also": self._welded_with(ri, vi)}
             self._update_coords()
             # the coords chip just APPEARED, and it is one of the screen-fixed chips the labels
             # are judged against: a press that never moves would otherwise leave it sitting on a
@@ -759,10 +807,18 @@ class PlanCanvas(QGraphicsView):
         if d["kind"] == "vert":
             # Snap a dragged corner too -- pulling one room's corner onto its neighbour's wall is
             # the other half of how an abutment gets made, and by hand it lands 1px = ~9u out.
-            (sx, sz), _what = self.snap(x, z, skip_room=d["ri"])
+            # Every welded room is excluded from being a snap target: they are all moving together,
+            # so snapping to one of them would just pin the corner to where it already is.
+            skip = {d["ri"]} | {w["ri"] for w in (d.get("also") or ())}
+            (sx, sz), _what = self.snap(x, z, skip_rooms=skip)
+            pt = (int(round(sx)), int(round(sz)))
             poly = list(d["start"])
-            poly[d["vi"]] = (int(round(sx)), int(round(sz)))
+            poly[d["vi"]] = pt
             d["poly"] = poly
+            for w in d.get("also") or ():          # the weld moves as one
+                wp = list(w["start"])
+                wp[w["vi"]] = pt
+                w["poly"] = wp
         else:
             dx = int(round(x - d["grab"][0]))
             dz = int(round(z - d["grab"][1]))
@@ -794,15 +850,26 @@ class PlanCanvas(QGraphicsView):
         self.end_drag()
 
     def end_drag(self):
-        """Commit: EXACTLY one callback, and only when the geometry actually changed."""
+        """Commit: one callback PER ROOM THAT ACTUALLY MOVED, and none otherwise.
+
+        A welded corner drag moves two rooms (see :meth:`_welded_with`), so this is no longer
+        exactly one emission. The host's undo is a whole-session snapshot, so a weld still lands as
+        ONE undo step -- which is right: half an un-welded abutment is a shared wall that no longer
+        exists, the same reason a door pair is atomic."""
         d, self._drag = self._drag, None
         self._coords.hide()
         if not d:
             return
-        if [tuple(p) for p in d["poly"]] != [tuple(p) for p in d["start"]]:
-            self.room_reshaped.emit(d["ri"], [tuple(p) for p in d["poly"]])
-        else:
+        moved = [(rec["ri"], [tuple(p) for p in rec["poly"]])
+                 for rec in [d, *(d.get("also") or ())]
+                 if [tuple(p) for p in rec["poly"]] != [tuple(p) for p in rec["start"]]]
+        if not moved:
             self._draw()
+            return
+        if len(moved) == 1:
+            self.room_reshaped.emit(*moved[0])
+        else:
+            self.rooms_reshaped.emit(moved)
 
     def _update_coords(self):
         d = self._drag
@@ -811,7 +878,9 @@ class PlanCanvas(QGraphicsView):
         name = self._rooms[d["ri"]]["name"] if 0 <= d["ri"] < len(self._rooms) else "room"
         if d["kind"] == "vert":
             x, z = d["poly"][d["vi"]]
-            self._coords.setText(f"{name} corner {d['vi']} · x {x} · z {z}")
+            n_weld = len(d.get("also") or ())
+            weld = (f" · welded to {n_weld} more" if n_weld else "")
+            self._coords.setText(f"{name} corner {d['vi']} · x {x} · z {z}{weld}")
         else:
             x0, z0, x1, z1 = FP.bbox(d["poly"])
             self._coords.setText(f"{name} · centre x {int(round((x0 + x1) / 2))} · "
@@ -1452,6 +1521,7 @@ class FloorplanDoc(QWidget):
         self.canvas = PlanCanvas(palette, scale=scale)
         self.canvas.room_drawn.connect(self._on_room_drawn)
         self.canvas.room_reshaped.connect(self._on_room_reshaped)
+        self.canvas.rooms_reshaped.connect(self._on_rooms_reshaped)
         self.canvas.room_rename.connect(self._on_room_rename)
         self.canvas.room_entry.connect(self._on_room_entry)
         self.canvas.room_deleted.connect(self._on_room_deleted)
@@ -1831,6 +1901,22 @@ class FloorplanDoc(QWidget):
         self._push_history()
         self._session["rooms"][ri]["poly"] = [(int(round(x)), int(round(z))) for x, z in poly]
         self._refresh(f"{self._session['rooms'][ri]['name']} reshaped")
+
+    def _on_rooms_reshaped(self, pairs):
+        """A WELDED corner drag: several rooms, ONE undo step.
+
+        The corners were coincident because the author snapped them into a shared wall, so the
+        rooms move together and must come back together. Pushing history per room would let one
+        undo restore half an abutment -- a shared wall that no longer exists on one side."""
+        rooms = self._session["rooms"]
+        pairs = [(ri, poly) for ri, poly in pairs if 0 <= ri < len(rooms)]
+        if not pairs:
+            return
+        self._push_history()
+        for ri, poly in pairs:
+            rooms[ri]["poly"] = [(int(round(x)), int(round(z))) for x, z in poly]
+        names = " + ".join(rooms[ri]["name"] for ri, _p in pairs)
+        self._refresh(f"{names} reshaped together — their shared corner moved as one")
 
     def _on_room_rename(self, ri):
         if not 0 <= ri < len(self._session["rooms"]):

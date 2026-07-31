@@ -1944,3 +1944,153 @@ def test_the_viewport_still_receives_button_less_hover(app):
     assert any(h is not None for h in seen), "no hover reached the canvas through Qt's own delivery"
     assert len({h for h in seen if h is not None}) > 1, (
         "the rubber band's target never moved across six delivered hovers")
+
+
+# ========================================================= first contact, step 3: stacked handles
+# "I can't drag a corner handle of ROOM2 when it's stacked onto a ROOM1 corner. might need some way
+# to settle stacked handle selection, I can't think of a good one."
+#
+# The answer was not to settle the selection. Coincident corners exist for exactly one reason --
+# the author snapped them into a shared wall -- so they move together and there is nothing to
+# disambiguate.
+
+
+def _two_abutting(app):
+    """Two rooms sharing the x=0 wall, their corners EXACTLY coincident."""
+    doc, _ = _two_rooms(app)
+    doc.judge_now(sync=True)
+    return doc, doc.canvas
+
+
+def test_a_stacked_corner_can_be_grabbed_at_all(app):
+    """★ The defect: `_pick_vertex` broke the tie by room order with a STRICT `<`, so the room
+    drawn second could never win, and its corner was simply unreachable."""
+    doc, c = _two_abutting(app)
+    stacked = (0, -800)
+    assert any(tuple(v) == stacked for v in c._poly(0)), "fixture: ROOM1 should own this corner"
+    assert any(tuple(v) == stacked for v in c._poly(1)), "fixture: ROOM2 should own it too"
+
+    assert c.press_world(*stacked) is True
+    d = c._drag
+    welded = {(w["ri"], w["vi"]) for w in (d.get("also") or ())}
+    assert welded, "the stacked corner was grabbed alone -- the other room's corner is unreachable"
+    assert {d["ri"]} | {ri for ri, _vi in welded} == {0, 1}, "both rooms must be in the weld"
+    c.end_drag()
+
+
+def test_a_welded_corner_drag_keeps_the_abutment(app):
+    """★ WHY WELDING BEATS SETTLING THE SELECTION. Moving one of two coincident corners tears the
+    shared wall apart, and re-making it means landing the other corner inside `shared_edges`' 8u
+    tolerance by hand -- the exact thing snapping exists because nobody can do. So the whole weld
+    moves and the abutment survives being edited."""
+    doc, c = _two_abutting(app)
+
+    def shared():
+        r = doc._session["rooms"]
+        return FP.shared_edges([(float(a), float(b)) for a, b in r[0]["poly"]],
+                               [(float(a), float(b)) for a, b in r[1]["poly"]])
+
+    assert shared(), "fixture: the rooms should start out sharing a wall"
+    c.press_world(0, -800)
+    c.drag_world(-200, -1100)
+    assert c._poly(0)[1] == c._poly(1)[0], "the weld came apart DURING the drag"
+    c.release_world(-200, -1100, travel_px=99)
+    doc.judge_now(sync=True)
+
+    r = doc._session["rooms"]
+    assert tuple(r[0]["poly"][1]) == (-200, -1100)
+    assert tuple(r[1]["poly"][0]) == (-200, -1100), "only one side of the weld was committed"
+    assert shared(), "the shared wall did not survive the drag"
+
+
+def test_a_weld_is_one_undo_step(app):
+    """★ A weld that undoes by halves is worse than no weld. Emitting the singular `room_reshaped`
+    once per moved room pushed one history entry EACH, so a single undo restored one room and left
+    the other moved -- half an abutment, which is a shared wall that no longer exists on one side.
+    The batched signal exists for exactly this."""
+    doc, c = _two_abutting(app)
+    before = ([tuple(p) for p in doc._session["rooms"][0]["poly"]],
+              [tuple(p) for p in doc._session["rooms"][1]["poly"]])
+    depth = len(doc._history)
+
+    c.press_world(0, -800)
+    c.drag_world(-200, -1100)
+    c.release_world(-200, -1100, travel_px=99)
+    doc.judge_now(sync=True)
+    assert len(doc._history) == depth + 1, (
+        f"a welded drag pushed {len(doc._history) - depth} undo entries, not 1")
+
+    doc.on_undo()
+    doc.judge_now(sync=True)
+    after = ([tuple(p) for p in doc._session["rooms"][0]["poly"]],
+             [tuple(p) for p in doc._session["rooms"][1]["poly"]])
+    assert after == before, "one undo did not restore BOTH sides of the weld"
+
+
+def test_a_lone_corner_still_emits_the_singular_signal(app):
+    """The batched signal is additive: an ordinary un-welded corner drag must be unchanged, because
+    every other fence and the whole snap-back guard ride `room_reshaped`."""
+    doc, c = _two_abutting(app)
+    single, batched = [], []
+    c.room_reshaped.connect(lambda ri, poly: single.append(ri))
+    c.rooms_reshaped.connect(lambda pairs: batched.append(pairs))
+
+    c.press_world(-1200, -800)               # ROOM1's far corner: nothing is stacked on it
+    assert not (c._drag.get("also") or []), "fixture: this corner should not be welded"
+    c.drag_world(-1400, -900)
+    c.release_world(-1400, -900, travel_px=99)
+    assert single == [0] and not batched
+
+
+def test_dragging_a_room_bodily_still_separates_a_weld(app):
+    """The escape hatch, and the honest limit of welding: corners snapped together can no longer be
+    pulled apart one at a time, so the way out has to be a whole-room drag. If this stops working
+    an author can weld two rooms and never un-weld them."""
+    doc, c = _two_abutting(app)
+    ri = c._pick_room(600, 0)                       # inside ROOM2, away from any handle
+    assert ri == 1, f"fixture: expected to grab ROOM2, got {ri}"
+    c.press_world(600, 0)
+    assert c._drag["kind"] == "room"
+    c.drag_world(1400, 0)
+    c.release_world(1400, 0, travel_px=99)
+    doc.judge_now(sync=True)
+    r = doc._session["rooms"]
+    assert tuple(r[0]["poly"][1]) != tuple(r[1]["poly"][0]), "the rooms did not come apart"
+
+
+# ---------------------------------------------------------- step 4: the band warning's reach
+
+def test_the_band_warning_does_not_fire_on_an_ordinary_dungeon(app):
+    """★ "on Step 4, i got this warning when placing the door between 2 aligned edges."
+
+    The gap this warning measures is (the room's extent perpendicular to the door wall) / 2 minus
+    the strip depth -- so the old 4*R_WALK = 320u reach warned about EVERY room under ~1140u
+    across. The first real two-room dungeon anyone drew got two of them, at 183u and 244u, with
+    nothing whatever wrong with it. A warning that fires on the ordinary case hides the one that
+    matters. The reach is now the player's own DIAMETER: inside it, one body-length of involuntary
+    displacement bridges the gap, which is what the message claims."""
+    plan = {"name": "T", "id_base": 30500,
+            "rooms": [{"name": "A", "poly": [[0, 0], [1000, 0], [1000, 900], [0, 900]]},
+                      {"name": "B", "poly": [[1000, 0], [2000, 0], [2000, 900], [1000, 900]]}],
+            "doors": [{"a": "A", "b": "B", "seg": [[1000, 200], [1000, 700]]}]}
+    c = FP.compose(plan)
+    band = [w for w in c.warnings if "band" in w]
+    assert not band, f"an ordinary two-room dungeon warned: {band}"
+
+
+def test_the_band_warning_still_catches_a_spawn_a_step_from_a_trigger(app):
+    """...and it must still fire when the claim is TRUE. Never widen the reach to silence a real
+    finding: if a spawn really is a step from a trigger, the answer is to move the spawn."""
+    zone = [(0, 0), (400, 0), (400, 200), (0, 200)]
+    for gap, want in ((10.0, True), (100.0, True), (400.0, False)):
+        out = FP.band_warnings((200.0, 200.0 + gap), [{"zone": zone, "label": "a door"}])
+        assert bool(out) is want, f"gap {gap}u: expected warn={want}, got {out}"
+
+
+def test_the_band_reach_is_the_players_own_diameter(app):
+    """A tripwire on the number itself. It is 2 * R_WALK for a stated reason -- one body-length of
+    displacement -- not a value tuned until the noise stopped. If someone re-tunes it, this says so
+    out loud and points at why 320 was wrong."""
+    assert FP.BAND_REACH == 2 * FP.R_WALK, (
+        f"BAND_REACH is {FP.BAND_REACH}, not 2*R_WALK={2 * FP.R_WALK}. The old 4*R_WALK warned "
+        f"about every room under ~1140u across; widen it again and the gate goes back to noise.")
