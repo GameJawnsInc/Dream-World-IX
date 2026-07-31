@@ -36,6 +36,11 @@ def test_parse_zone_requires_4_or_5_points():
 @pytest.mark.parametrize("spec,entity", [
     (forms.NPC_SPEC, {"name": "Vivi", "preset": "vivi", "pos": [0, -700], "dialogue": "hi",
                       "requires_flag": 200}),
+    # the ANIMSET kind: a DICT value through a text widget (str() wrote "{'stand': 560}" and the parser
+    # then refused its own output). Slot order is the canonical one, so the line is stable across saves.
+    (forms.NPC_SPEC, {"name": "Inn", "model": "GEO_NPC_F0_BAR",
+                      "anims": {"stand": 560, "walk": 571, "run": 571, "left": 560, "right": 560}}),
+    (forms.NPC_SPEC, {"name": "Inn", "model": 8, "anims": {"stand": 148}}),   # a partial set round-trips
     (forms.GATEWAY_SPEC, {"name": "door", "to": 4000, "entrance": 0,
                           "zone": [[-1100, -2400], [1100, -2400], [1100, -1750], [-1100, -1750]]}),
     (forms.EVENT_SPEC, {"name": "chest", "message": "got it", "give_item": [232, 1], "gil": 1000,
@@ -337,6 +342,44 @@ def test_a_placeholder_never_promises_a_name_the_parser_refuses():
                 parses_name = False
             assert offers_name == parses_name, \
                 f"{f.key}: the placeholder offers name={offers_name} but the parser accepts {parses_name}"
+
+
+# ---- ANIMSET: the five movement slots as one text field -----------------------------------
+def test_parse_animset_slots_and_ids():
+    assert forms.parse_animset("") is None
+    assert forms.parse_animset("stand=560, walk=571") == {"stand": 560, "walk": 571}
+    assert forms.parse_animset(" STAND = 560 ; run:571 ") == {"stand": 560, "run": 571}   # both separators
+    assert forms.format_animset({"walk": 571, "stand": 560}) == "stand=560, walk=571", \
+        "the canonical slot order, so re-saving an unedited form cannot reorder the author's line"
+
+
+def test_parse_animset_refuses_a_bad_slot_or_a_gesture_name():
+    """The .eb anim setters are u16 and content.npc._anim16 int()s the value, so a NAME here would die
+    mid-build with no field named; and an unknown slot would be silently dropped by _complete_anims
+    (it back-fills from `stand`) -- the NPC would ship the wrong clip with no error anywhere."""
+    for bad in ("stand=idle", "stnad=560", "560", "stand"):
+        with pytest.raises(ValueError):
+            forms.parse_animset(bad)
+
+
+def test_the_animset_field_is_wired_into_the_npc_spec():
+    """THE CALL-SITE LAW: a kind nothing spends is a kind that does not exist."""
+    f = next(f for f in forms.NPC_SPEC if f.key == "anims")
+    assert f.kind == forms.ANIMSET and f.catalog == "animset" and f.advanced
+    assert not forms.wants_id(f), "the animset picker writes a whole LINE, not one id"
+    assert f.placeholder and "name" not in f.placeholder, \
+        "placeholder_for's default would promise a NAME this parser refuses (the audit below)"
+
+
+def test_the_workspace_only_catalogs_grow_no_dead_tk_button():
+    """The tk editor's picker indexes the Info Hub; the animation kinds are a Workspace dialog. A
+    Browse the picker cannot answer is a dead control (six shipped that way in round 6)."""
+    anims = next(f for f in forms.NPC_SPEC if f.key == "anims")
+    pose = next(f for f in forms.PROP_SPEC if f.key == "pose")
+    model = next(f for f in forms.NPC_SPEC if f.key == "model")
+    assert not forms.tk_browsable(anims) and not forms.tk_browsable(pose)
+    assert forms.tk_browsable(model), "the Info Hub kinds keep their tk Browse"
+    assert pose.catalog == "anim", "the prop pose reaches the gesture picker (own-form-first at build)"
 
 
 # ---- [startup]: scenario beat + list-of-table flag/word/byte writes -----------------------

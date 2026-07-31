@@ -33,6 +33,17 @@ FLOAT = "float"        # an OPTIONAL float (e.g. battle camera tweak offsets); e
 CATINT = "catint"
 # cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
 POINT, PATH, ANIM = "point", "path", "anim"
+# ANIMSET -- the five movement slots of an [[npc]] as ONE text field: "stand=560, walk=571" <-> {slot: id}.
+# The only DICT-valued form kind: every other kind is a scalar or a list, and str()-ing a dict through
+# entity_to_values wrote `{'stand': 560}` into the widget and back out as a parse error.
+ANIMSET = "animset"
+# the slots the field engine drives (content.npc.ANIM_ORDER), spelled where the form layer can see them
+# without importing the .eb writer.
+ANIM_SLOTS = ("stand", "walk", "run", "left", "right")
+# Catalog kinds whose picker is a WORKSPACE dialog (a rendered clip preview), not the Info Hub index.
+# The tk editor has no such dialog, so its form renders NO Browse for them -- a button whose picker
+# cannot answer is a dead control, and the round-6 census counted six of those.
+GUI_ONLY_CATALOGS = frozenset({"anim", "animset"})
 
 PRESETS = _archetypes.names()         # built-in archetype names for the combo (also accepts a custom string)
 
@@ -82,6 +93,10 @@ NPC_SPEC = [
     Field("model", "Model", CATINT, "advanced: a custom model instead of a preset — an id or an exact GEO "
           "name", catalog="model"),
     Field("animset", "Animset id", OPTINT, "advanced: with a custom model (also add anims in the .toml)"),
+    Field("anims", "Movement clips", ANIMSET,
+          "advanced: pin the five movement clips this NPC plays — Browse previews the model's own clips; "
+          "blank = resolved from the model/preset",
+          catalog="animset", advanced=True, placeholder="stand=560, walk=571"),
     Field("dialogue", "Dialogue", STR, "the line shown when the player talks to it"),
     Field("speaker", "Speaker name", STR, "optional name before the line, e.g. Vivi (or [VIVI] for a renameable party name)"),
     Field("tail", "Window tail", STR, _TAIL_HELP + ". Default UPR."),
@@ -147,7 +162,7 @@ PROP_SPEC = [
     Field("model", "Model", STR, "advanced: a prop model id or exact GEO name instead of an archetype",
           catalog="model"),
     Field("pose", "Pose", STR, "advanced: a static pose — an action name or a raw clip id; blank = the "
-          "archetype's resting pose"),
+          "archetype's resting pose", catalog="anim"),
     Field("pos", "Position (x, z)", COORD, "where it sits on the floor (on the walkmesh)"),
     Field("face", "Facing (0-255)", OPTINT, "rotate it (0=south, 64=west, 128=north, 192=east)"),
     Field("collision", "Solid (blocks walking)", BOOL, "off = a walk-through prop (floor markers, dense "
@@ -372,8 +387,22 @@ def wants_id(field) -> bool:
     True for the plain numeric kinds AND for :data:`CATINT`. A CATINT field *accepts* a typed name, but the
     picker still fills an id, because a picker LABEL is not always a typeable identifier: the warm
     ``encounter`` kind labels a scene "Goblin, Fang -- Evil Forest (field 250, random)", which no resolver
-    takes. Handing back the id keeps every shipped numeric example byte-identical."""
+    takes. Handing back the id keeps every shipped numeric example byte-identical.
+
+    :data:`ANIMSET` answers **False**: its picker writes a whole ``stand=…, walk=…`` LINE, not one id, and
+    the ``anim`` (gesture) picker writes the action NAME the build resolves through the actor's own rig.
+    Both are still id-BEARING underneath -- ``wants_id`` is about what the widget receives, not what the
+    engine eats."""
     return field.kind in (INT, OPTINT, CATINT)
+
+
+def tk_browsable(field) -> bool:
+    """Does the TK editor's Info-Hub picker know this field's catalog? (See :data:`GUI_ONLY_CATALOGS`.)
+
+    The tk form used to render Browse for ANY ``catalog=`` field, so a Workspace-only kind would grow a
+    button whose picker indexes nothing and answers nothing."""
+    kinds = [k.strip() for k in (field.catalog or "").split(",") if k.strip()]
+    return any(k not in GUI_ONLY_CATALOGS for k in kinds)
 
 
 def placeholder_for(field) -> str:
@@ -642,6 +671,49 @@ def parse_anim(raw):
     return int(s) if _is_int(s) else s
 
 
+def parse_animset(raw):
+    """``[[npc]] anims``: ``"stand=560, walk=571"`` -> ``{"stand": 560, "walk": 571}``. Empty -> None.
+
+    Slot names are validated against :data:`ANIM_SLOTS` -- the .eb Init writes exactly those five setters,
+    so a typo'd slot would be silently dropped by ``content.npc._complete_anims`` (it fills from ``stand``)
+    and the NPC would ship the wrong clip with no error anywhere.
+
+    Values are whole CLIP IDS, not gesture names: the anim-setter args are u16 and ``content.npc._anim16``
+    ``int()``s the value, so a name typed here would die mid-build rather than at the form. The Browse
+    picker fills the ids (and previews them first)."""
+    s = _str(raw).strip()
+    if s == "":
+        return None
+    out = {}
+    for row in re.split(r"[,;\n]+", s):
+        row = row.strip()
+        if not row:
+            continue
+        slot, sep, val = row.partition("=") if "=" in row else row.partition(":")
+        slot, val = slot.strip().lower(), val.strip()
+        if not sep or not slot:
+            raise ValueError(f"animations: each entry is \"slot = id\", got {row!r} "
+                             f"(slots: {', '.join(ANIM_SLOTS)})")
+        if slot not in ANIM_SLOTS:
+            raise ValueError(f"animations: unknown slot {slot!r} (use {', '.join(ANIM_SLOTS)})")
+        try:
+            out[slot] = int(val)
+        except ValueError:
+            raise ValueError(f"animations: {slot} needs a whole clip id, got {val!r}") from None
+    return out or None
+
+
+def format_animset(v):
+    """``{'stand': 560, ...}`` -> ``"stand=560, walk=571"`` in the canonical slot order (round-trips with
+    :func:`parse_animset`). A hand-authored non-dict / non-numeric value is shown VERBATIM rather than
+    reformatted -- the form must never quietly rewrite something it cannot parse back."""
+    if not isinstance(v, dict):
+        return _str(v)
+    known = [f"{slot}={v[slot]}" for slot in ANIM_SLOTS if slot in v]
+    extra = [f"{k}={v[k]}" for k in v if k not in ANIM_SLOTS]
+    return ", ".join(known + extra)
+
+
 def _parse_field(kind, raw):
     """Parse one widget value to its TOML value (or None to omit). Raises ValueError on bad input."""
     if kind in (STR, PRESET):
@@ -684,6 +756,8 @@ def _parse_field(kind, raw):
         return parse_bytedictlist(raw)
     if kind == ARRIVALLIST:
         return parse_arrivallist(raw)
+    if kind == ANIMSET:
+        return parse_animset(raw)
     raise ValueError(f"unknown field kind {kind!r}")
 
 
@@ -732,6 +806,8 @@ def entity_to_values(spec, entity: dict) -> dict:
             vals[f.key] = format_bytedictlist(v)
         elif f.kind == ARRIVALLIST:
             vals[f.key] = format_arrivallist(v)
+        elif f.kind == ANIMSET:
+            vals[f.key] = format_animset(v)       # a DICT -- str() would write "{'stand': 560}" into the widget
         else:
             vals[f.key] = str(v)              # FLAGREF/SCENARIOREF (int or name), STR, INT, OPTINT, PRESET
     return vals

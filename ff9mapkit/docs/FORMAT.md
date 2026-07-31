@@ -270,7 +270,7 @@ automatically, so a forked field keeps its per-door arrivals out of the box.
 | `preset` / `archetype` | a built-in **archetype** name → model + auto-resolved animations. Playable cast (`vivi`, `zidane`, `garnet`, …) + **every** field-NPC type (`black_mage`, `guard`, `innkeeper`, `puck`, `chocobo`, …). List with `ff9mapkit archetypes`; full reference with roles + in-game locations in [`docs/ARCHETYPES.md`](ARCHETYPES.md). For any other model use `model`. |
 | `model` | explicit alternative to `preset`: a model **id**, *or* an exact **GEO name** (`"GEO_NPC_F0_BAR"` — browse with `ff9mapkit models`) resolved to the id via the Info Hub catalog. **Its animations auto-resolve** from the catalog's model→animation join (idle/walk/run/turn), so a model name *alone* gives a fully-animated NPC — no `anims` needed. A bad name fails the build with a clear error; a raw id outside the model table is a lint warning. |
 | `animset` | the model's **head height** (positions the dialogue box; cosmetic). |
-| `anims` | OPTIONAL `{ stand, walk, run, left, right }` gesture-id **override** — only to hand-pick gestures; if omitted, a `model` auto-resolves its own (see them with `ff9mapkit models <name>`; the build warns on an unknown anim id). |
+| `anims` | OPTIONAL `{ stand, walk, run, left, right }` clip-id **override** — only to hand-pick gestures; if omitted, a `model` auto-resolves its own (see them with `ff9mapkit models <name>`). Values are whole **clip ids**, not gesture names (the `.eb` anim setters take a u16). The build warns on an unknown id, and on an id that is not one of *this* model's own clips (a foreign rig's clip binds by bone name and can pose the model wrong); ids in the mint band `60000-65535` are exempt, since they register at launch. In the Workspace this field has a **Browse…** that previews the rig's clips and fills the whole line — its text form there is `stand=560, walk=571` (blank slot = auto). |
 | `pos` | `[x, z]`. |
 | `dialogue` | a line shown when talked to (assigned a non-colliding high text id automatically). |
 | `text_id` | use an explicit text id instead of `dialogue`. |
@@ -434,7 +434,7 @@ pose  = "close"           # optional pose (see below)
 |---|---|
 | `prop` | a built-in **prop archetype** → model + its canonical resting pose (`chest`, `tent`, `save_book`, `feather`, `balloon`, `ladder`, `book`, `cask`/`barrel`, `lever`, `vat`, `pickaxe`, `aircab`, `letter`, `cactus`, `sword`, …). Full list with locations: [`docs/ARCHETYPES.md`](ARCHETYPES.md). For anything else use `model`. |
 | `model` | explicit alternative to `prop`: a prop model **id** or exact **GEO name** (`"GEO_ACC_F0_TBX"`). |
-| `pose` | OPTIONAL static pose — an **action name** (`"close"`, `"save_open"`) resolved via the model→anim catalog, **or a raw clip id**. Omitted → a sensible resting pose. A prop's *true* pose is often a raw clip the name-join doesn't list (the save book rests at `1872`); `tools/extract_prop_poses.py` harvests the canonical one from shipping fields (already baked into the archetypes). |
+| `pose` | OPTIONAL static pose — an **action name** (`"close"`, `"save_open"`) resolved via the model→anim catalog, **or a raw clip id**. Omitted → a sensible resting pose. A held pose is a **one-shot**, so a name resolves against the model's **own form first**; a name only the cross-form join answers still builds (backward compat) but `lint` names the trap and the own-form alternatives — a different form code is a different skeleton. A prop's *true* pose is often a raw clip the name-join doesn't list (the save book rests at `1872`); `tools/extract_prop_poses.py` harvests the canonical one from shipping fields (already baked into the archetypes). In the Workspace, **Browse…** previews this prop's own clips. |
 | `pos` | `[x, z]` world position (on the walkmesh). |
 | `face` | OPTIONAL facing (0..255; 0=south, 64=west, 128=north, 192=east). |
 | `requires_flag` | OPTIONAL GlobBool index (or a `[[flag]]` name) — the prop only appears when that story flag is set (same gating as `[[npc]]`). |
@@ -2004,10 +2004,32 @@ ff9mapkit animations vivi -f talk # filter; add --ids to see the numeric id of e
 ```
 
 Then `{ animation = "glad" }`. The name is matched against the actor NPC's `preset` (so a `vivi` actor
-draws from Vivi's set). Five **core** aliases work for every character: `idle` `walk` `run`
-`turn_left` `turn_right`. A name that doesn't exist for that character is a build error (with
-suggestions). A raw id still works, and an actor with a *custom model* (no preset) must use ids.
+draws from Vivi's set). A name that doesn't exist for that character is a build error (with
+suggestions), and a raw id always works.
 The catalog comes from Memoria's open-source `AnimationDB` (the same source as the field registry).
+
+**Names work for *every* actor, not just the playable presets.** An actor with a plain `model =` (or an
+`archetype`), and the `"player"` actor, resolve a name against **that rig's own clips**:
+
+* the model's **own-form** gestures first — a different form code is a different *skeleton*, and a
+  one-shot played across forms poses the model wrong in-game, so a cross-form name is **refused** with
+  the own-form alternatives listed (use a raw id if you really mean it);
+* then the five **movement slots** (`stand` `walk` `run` `left` `right`), which are the one place a
+  sibling form's clip is proven safe;
+* `"player"` resolves against `[player] model` — absent means the cloned stock avatar (Zidane).
+
+These **alias words** mean the same gesture on either kind of actor (one shared table):
+
+| you write | it means |
+|---|---|
+| `idle`, `stand` | the model's idle clip |
+| `walk` / `run` | the walk / run clip |
+| `turn_left`, `turn_l`, `left` | turn left |
+| `turn_right`, `turn_r`, `right` | turn right |
+
+In the Workspace, an `animation` step's **Browse…** previews the clips that step's actor can actually
+play (rendered frames, play/pause/scrub) and writes the name for you — it scopes itself off the same
+model precedence the build uses, so what you preview is what ships.
 
 ---
 

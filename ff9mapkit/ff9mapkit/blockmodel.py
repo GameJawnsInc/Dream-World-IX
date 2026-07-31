@@ -11,6 +11,11 @@ one the build spends. So the rule lives HERE, Qt-free and install-free (identifi
 
 ``[player]`` is the same question with a different default: its ``model`` key re-skins the avatar, and
 its absence means the stock cloned player, who is Zidane (:data:`PLAYER_DEFAULT_GEO`).
+
+``[[prop]]`` (``kind="prop"``) is the same question again with a third vocabulary: a named ``prop``
+archetype carries the model (and its resting pose), and a bare ``model =`` is the escape hatch. A prop
+has no movement slots -- what it *does* have is a one-shot ``pose``, which is why a pose picker needs
+this answer as much as an NPC's gesture picker does.
 """
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ from typing import NamedTuple, Optional
 
 from . import archetypes as _archetypes
 from . import catalog as _catalog
+from . import prop_archetypes as _prop_archetypes
 
 PLAYER_DEFAULT_GEO = "GEO_MAIN_F0_ZDN"      # the avatar a field with no `[player] model` clones
 
@@ -49,7 +55,7 @@ def resolve_model_value(value):
 
 
 def resolve_block_model(block, *, kind: str = "npc", strict: bool = True) -> BlockModel:
-    """One ``[[npc]]`` (or ``[player]``, ``kind="player"``) block -> its :class:`BlockModel`.
+    """One ``[[npc]]`` (or ``[player]`` / ``[[prop]]`` -- ``kind=``) block -> its :class:`BlockModel`.
 
     ``strict`` (the build's setting) lets an unresolvable model NAME raise, exactly as the build needs
     it to; ``strict=False`` (a GUI's setting) captures the message into ``reason`` and answers with
@@ -64,6 +70,19 @@ def resolve_block_model(block, *, kind: str = "npc", strict: bool = True) -> Blo
 
 
 def _resolve(b: dict, kind: str) -> BlockModel:
+    if kind == "prop":
+        pv = b.get("prop")
+        if pv:
+            if _prop_archetypes.is_composite(pv):
+                return BlockModel(None, "prop", "none", None, None,
+                                  f"the {str(pv).strip().lower()!r} composite ships its parts' own baked "
+                                  f"poses -- pose= is inert on it")
+            mid = _prop_archetypes.resolve(pv)[0]     # raises ValueError on an unknown name (strict=False catches)
+            return BlockModel(mid, "prop", "none", None, None, None)
+        mid = resolve_model_value(b.get("model"))
+        reason = None if mid is not None else "no prop = or model = on this block"
+        return BlockModel(mid, "model" if mid is not None else "none", "none", None, None, reason)
+
     if kind == "player":
         mv = b.get("model")
         mid = resolve_model_value(mv) if mv is not None else _catalog.resolve_model(PLAYER_DEFAULT_GEO)

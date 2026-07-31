@@ -29,6 +29,7 @@ Lookup detail for `working-on-the-ff9-workspace`. The narrative record is
 | `conceptmap.py` / `concepts.py` | The "how it all fits" diagram and the newcomer concept cards |
 | `builddoc.py` `importdoc.py` `battledoc.py` `modelsdoc.py` `savedoc.py` `setupdialog.py` `tuningdialog.py` | The per-tab / per-dialog documents |
 | `fieldcards.py` `modelcards.py` `thumbs.py` `icons.py` `anim.py` `gamewin.py` | Card pickers, the thumbnail cache, the SVG icon family, the ONE motion module, the post-deploy game-raise |
+| `animframes.py` `clipplayer.py` `animpicker.py` | The animation-preview trio: the clip-frame service (clip-shaped queue, `supersede()` cancels, warm disk answers sync), the transport + playback mixin BOTH surfaces spend (`ModelsDoc`, `AnimPickerDialog`), and the picker dialog itself (gesture / movement / slots) |
 
 ## `ff9mapkit/ff9mapkit/editor/` (the shared, mostly Qt-free backend)
 
@@ -45,7 +46,8 @@ time) · `picker.py` `dialogs.py` `feedback.py` `breadcrumb.py` `graphview.py` `
 home:fresh|midway|ready|veteran|open
 tab:build|import|models|battle|story|items          (tab:coop and tab:world are pinned-only)
 dlg:new-field|new-campaign|new-journey|fork-regions|import-fields|setup|prefs|about
-    |concept-map|infohub|updates|fork-battle|campaign-newgame
+    |concept-map|infohub|updates|fork-battle|campaign-newgame|anim-picker|animset-picker
+models:cliplist|player
 coop:nogame|stock|s36|s37|ready|live                 map:empty|plain|art
 world:guide|nogame|atlas                             console:log|find|miss|jobs
 drift:none|synced|ahead|campaign                     script:tree|panel
@@ -57,6 +59,12 @@ floorplan:bare|rooms|door|refused                    form:encounter|encounter-na
 `form:*` renders the field editor's LOGIC FORMS over a writable copy of the boletta example (guided
 forced OFF, so `advanced` fields are inline instead of inside a collapsed drawer) and grabs
 `doc_host`, not the window — a hint or placeholder judged inside an 850px window shot is unreadable.
+
+`models:*` and `dlg:anim*-picker` render the animation preview, seeded by `_pin_anim_cache` (a scratch
+`FF9MAPKIT_DATA` holding the still + 16 deterministic frame PNGs + the clip meta, with `NO_THUMBS`
+lifted for the surface only). The two dialog surfaces open through their REAL call sites — the
+`[[npc]]` form's `anims` Browse and the cutscene step's `animation` Browse, reached with `snap_form`'s
+field-open scaffolding — because a bare `_make_win` has no open field to browse from.
 
 `script:*` renders the verbatim Script presentation over a KIT-AUTHORED synthetic .eb (zero SE bytes —
 the builder is owned by `tests/test_workspace_script_tree.py` and loaded by path), so it works in a

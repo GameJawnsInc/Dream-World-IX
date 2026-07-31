@@ -5,6 +5,41 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — see an animation before you attach it (Workspace)
+- **The Models tab plays a model's clips.** The comma blob of action names is a clip LIST (the five
+  movement slots first, then the model's own gestures, cross-form rows marked "other form"); picking a
+  row renders that clip and plays it in the preview box — play/pause, a frame scrubber, and an honest
+  counter (`f 9/16 · 30fps`, and `preview 15fps` when a long clip is strided). Frames render in the
+  background and the loop EXTENDS as they land, so a clip starts playing before it finishes filling;
+  Reset puts the still back. Frames are disk-cached per `(model, clip, frame)` under `anim_frames/`,
+  bounded at 60 rendered frames per clip (~2.7 MB). Bundled clips only for now — a minted or loose
+  `.anim` says so instead of pretending. Plus one "Copy anims= snippet" button.
+- **Pickers, so nobody hand-hunts a clip id again.** An `[[npc]]`'s movement clips, a `[[prop]]`'s
+  `pose`, and a cutscene `animation` step all grow a **Browse…** that lists what *that block's rig* can
+  actually play, previews it, and writes the value back. Scope comes from one shared model-precedence
+  helper (`blockmodel.resolve_block_model` — archetype/preset → explicit `model =`, `[player]` → the
+  stock avatar), the same answer the build ships, so a picker can never be scoped to a different model
+  than the field uses. A gesture picker refuses cross-form clips; the movement picker shows them
+  marked; the five-slot editor's blank slot means AUTO and says what auto would fill.
+- **Cutscene animation NAMES now work for model actors and the player**, closing FORMAT.md's documented
+  gap (a name used to require a playable preset, so every plain-model NPC had to use raw ids). A name
+  resolves through the actor's own rig: own-form gestures first, then the five movement slots; a
+  cross-form name is refused, listing the own-form alternatives. One alias table is shared by both
+  actor kinds — `idle`/`stand`, `walk`, `run`, `turn_left`/`turn_l`/`left`, `turn_right`/`turn_r`/
+  `right` — and `lint` runs the very same resolver, so a name that lints clean cannot die mid-build.
+- **Lint:** minted clip keys (`60000-65535`) no longer false-positive the AnimationDB check (they
+  register at launch via DictionaryPatch), and an `[[npc]] anims` id that is not one of the resolved
+  model's own clips now warns — a foreign rig's clip binds by bone name and can pose the model wrong.
+
+### Changed — `[[prop]] pose` resolves the model's OWN FORM first
+- A held pose is a one-shot, and a different form code is a different **skeleton**: playing another
+  form's clip twists the model in-game. `pose = "<name>"` now resolves through the model's own-form
+  gestures before the any-form join. A name only the cross-form join can answer **still builds**
+  (backward compat) but emits a lint warning naming the trap and the own-form alternatives.
+- **This can change the resolved clip id** for a `[[prop]]`/held model whose form is not `F0` and whose
+  pose name exists in more than one form — that is the fix (the old id was the twisted pose). Numeric
+  poses, and anything on an `F0` rig, are unchanged.
+
 ### Added — `world-coastnav`: vehicle-legality classes on a synthetic coast
 - The Southern Ring's in-game-proven coast-nav stamp (R5d sail-through seal + R5e standoff
   belt) is a kit verb: re-derives every deployed sea override's water-triangle topograph into

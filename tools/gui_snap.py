@@ -572,6 +572,7 @@ class _pin_anim_cache:
         self.geo = geo
         self.anim = None
         self.geo_id = None
+        self.label = None                        # the pinned clip's ROW LABEL (what a picker field holds)
 
     def __enter__(self):
         self._env = {k: os.environ.get(k) for k in ("FF9MAPKIT_DATA", "FF9MAPKIT_NO_THUMBS")}
@@ -596,6 +597,7 @@ class _pin_anim_cache:
         rows = catalog.clip_inventory(m.id)
         assert rows, f"{self.geo} has no catalogued clips -- snap void"
         self.geo_id, self.anim = m.id, rows[0]["anim_id"]        # the 'stand' movement slot
+        self.label = rows[0]["label"]
         still, sidecar = thumbcache.model_thumb_paths(m.id)
         still.parent.mkdir(parents=True, exist_ok=True)
         self._figure(still, 0, _SNAP_FRAMES, still=True)
@@ -1428,7 +1430,85 @@ def _open_campaign_newgame(win) -> None:
     bd._confirm_campaign_deploy(4100, "Reach each screen in-game via ~ -> Warp.")
 
 
+def _child_named(root, cls, name):
+    """One widget by its ACCESSIBLE NAME -- the handle a form's Browse buttons carry (they all read
+    "Browse…"). Raises rather than returning None: a snap that silently found no opener is the
+    dead-opener incident this file already paid for once (`on_fork_battle` behind a hasattr guard)."""
+    for w in root.findChildren(cls):
+        if w.accessibleName() == name:
+            return w
+    raise AssertionError(f"no {cls.__name__} named {name!r} on this surface -- snap void")
+
+
+def _anim_field_project(pin) -> Path:
+    """A writable boletta copy whose NPC wears the PINNED model and whose cutscene step is an
+    ANIMATION on it -- so both animation Browse call sites open scoped to a rig whose frames the pin
+    seeded (an unscoped picker would photograph an empty list and prove nothing)."""
+    src = REPO / "ff9mapkit" / "examples" / "boletta"
+    assert src.is_dir(), "cannot find the boletta example -- snap void"
+    dst = _SCRATCH / "form_anim"
+    if dst.exists():
+        shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(src, dst)                     # NEVER the bundled example: a form Save rewrites the oracle
+    proj = dst / "boletta.field.toml"
+    txt = proj.read_text(encoding="utf-8")
+    assert "model = 6300" in txt, "boletta's npc no longer carries `model = 6300` -- snap void"
+    txt = txt.replace("model = 6300", f'model = "{pin.geo}"')
+    txt += ('\n[cutscene]\nactors = ["Boletta"]\nsteps = [ { animation = "%s" } ]\n'
+            % pin.label)
+    proj.write_text(txt, encoding="utf-8")
+    return proj
+
+
+def _snap_anim_dialog(ctx: _Ctx, key: str) -> None:
+    """The two animation pickers, opened through their REAL call sites (a bare _make_win has no open
+    field, so a hand-called constructor would photograph a surface no user can reach):
+
+      * ``anim-picker``    -- the CUTSCENE step's Browse, on an `animation` step whose actor is the
+        field's own NPC (shell._mount_cutscene -> shell._actor_model_hint);
+      * ``animset-picker`` -- the [[npc]] form's `anims` Browse (forms_qt's browse closure ->
+        shell._pick's early return).
+
+    Wrapped in _pin_anim_cache so the gesture picker's preview pane paints a REAL frame from a warm
+    cache instead of "rendering…".
+    """
+    from PySide6.QtWidgets import QComboBox, QLineEdit, QPushButton
+    from ff9mapkit.editor import forms as _forms
+    guided = ctx.guided
+    ctx.guided = False                            # `anims` is an advanced field: a collapsed drawer has no button
+    with _pin_anim_cache() as pin:
+        proj = _anim_field_project(pin)
+        win = _make_win(ctx)
+        win.model_thumbs.hold()                   # the Models tab's cold refill must not race the grab
+        try:
+            assert win.open_field(proj), f"dlg-{key}: open_field refused the copy -- snap void"
+            with _grab_next_dialog(ctx, f"dlg-{key}") as g:
+                if key == "animset-picker":
+                    win._goto_tree_section("GLADE", "npc")
+                    win._select_object("GLADE", "npc:0")
+                    _settle(6)
+                    _child_named(win, QPushButton, "Browse Movement clips").click()
+                else:
+                    win._goto_tree_section("GLADE", "cutscene")
+                    _settle(6)
+                    combo = _child_named(win, QComboBox, "Cutscene step type")
+                    combo.setCurrentIndex(list(_forms.STEP_KIND).index("animation"))
+                    _child_named(win, QLineEdit, "Cutscene step value").setText(pin.label)
+                    _child_named(win, QLineEdit, "Cutscene step actor").setText("Boletta")
+                    _settle()
+                    _child_named(win, QPushButton,
+                                 "Browse animations this actor's model can play").click()
+            if g.count == 0:
+                print(f"  dlg-{key}: NO dialog opened (flow bailed before exec)")
+        finally:
+            win.model_thumbs.release()
+            ctx.guided = guided
+        _close(win)
+
+
 def snap_dialog(ctx: _Ctx, key: str) -> None:
+    if key in ("anim-picker", "animset-picker"):
+        return _snap_anim_dialog(ctx, key)
     openers = {
         "new-field":     lambda w: w.on_new_field(),
         "new-campaign":  lambda w: w.on_new_campaign(),
@@ -1461,7 +1541,8 @@ FORM_STATES = ("encounter", "encounter-named", "music", "npc")
 HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",
-           "about", "concept-map", "infohub", "updates", "fork-battle", "campaign-newgame")
+           "about", "concept-map", "infohub", "updates", "fork-battle", "campaign-newgame",
+           "anim-picker", "animset-picker")
 
 
 def all_surfaces() -> list[str]:

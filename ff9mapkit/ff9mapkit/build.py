@@ -15,6 +15,7 @@ validated by diffing against known-good assets before ever launching the game.
 
 from __future__ import annotations
 
+import difflib as _difflib
 import math
 import shutil
 import struct
@@ -6648,10 +6649,75 @@ def behavior_walkmesh(project: FieldProject):
 
 
 def _actor_token(actor_npc):
-    """The animation-catalog model token for a cutscene actor NPC (its ``preset``), or ``None`` if it
-    can't be inferred (a custom model => animation steps must use numeric ids)."""
+    """The animation-catalog model token for a cutscene actor NPC (its ``preset``), or ``None`` when the
+    actor is not one of the 8 playable characters -- then :func:`_resolve_actor_animation` falls through
+    to the actor's MODEL."""
     preset = (actor_npc.get("preset") or actor_npc.get("archetype")) if actor_npc else None
     return preset if preset in _animations.TOKENS else None
+
+
+def _actor_model(project, who, actor_npc):
+    """The MODEL a cutscene actor wears, through the ONE precedence the build already spends
+    (:func:`ff9mapkit.blockmodel.resolve_block_model`): an ``[[npc]]``'s archetype/preset/model, or --
+    for ``who == "player"`` -- the ``[player] model``, whose absence means the cloned stock avatar
+    (Zidane). ``strict=False``: an unresolvable model name is ``validate``'s fatal, not this
+    resolver's, and it must not turn a gesture lookup into a stack trace."""
+    if who == "player":
+        return _blockmodel.resolve_block_model(project.raw.get("player") or {}, kind="player",
+                                               strict=False).model
+    if actor_npc is None:
+        return None
+    return _blockmodel.resolve_block_model(actor_npc, strict=False).model
+
+
+def _resolve_model_gesture(mid, action):
+    """A gesture NAME on a plain MODEL actor (no playable preset) -> the clip id it plays.
+
+    OWN-FORM clips first (THE CROSS-FORM CLIP TRAP: a different form code is a different skeleton, and a
+    one-shot played across forms twists the model in-game), then the five MOVEMENT slots
+    (:func:`ff9mapkit.catalog.npc_anims`), which are the one place the any-form join is proven. A name
+    only the cross-form join could answer is REFUSED, naming the own-form alternatives -- silently
+    playing it is exactly the defect ``[[prop]] pose`` was carrying."""
+    key = _animations.normalize_action(action)         # THE ONE alias table (animations.CORE)
+    own = _catalog.own_form_gestures(mid)
+    if key in own:
+        return own[key]
+    slot = next((s for s, act in _catalog.NPC_SLOT_ACTION.items() if act == key), None)
+    mv = _catalog.npc_anims(mid) or {}
+    if slot is not None and slot in mv:
+        return mv[slot]
+    rig = _catalog.model(mid)
+    name = rig.name if rig else str(mid)
+    cross = _catalog.animations_for_model(mid)
+    if key in cross:
+        raise ValueError(
+            f"animation {action!r} is a CROSS-FORM clip for {name} "
+            f"({_catalog.animation_name(cross[key])}) -- a different form code is a different skeleton, "
+            f"so a one-shot played across forms poses the model wrong in-game. Own-form gestures: "
+            f"{', '.join(sorted(own)) or 'none'}.")
+    hints = _difflib.get_close_matches(key, own, n=6, cutoff=0.4)
+    extra = (f" Did you mean: {', '.join(hints)}?" if hints else
+             f" Run `ff9mapkit models {name}` to list what it can play.")
+    raise ValueError(f"unknown animation {action!r} for {name}.{extra}")
+
+
+def _resolve_actor_animation(project, who, actor_npc, action):
+    """One cutscene ``animation`` NAME -> a clip id, for EITHER kind of actor. Shared by the build and
+    :func:`_validate_conductor`, so what lints is what compiles.
+
+    A playable-PRESET actor resolves exactly as it always did (``animations.resolve`` on the character
+    token), so every shipped scene stays byte-identical. Anything else -- a plain model NPC, an
+    archetype NPC, or ``"player"`` -- now resolves through the model that actor WEARS instead of
+    erroring; that limitation was FORMAT.md's documented gap."""
+    token = _actor_token(actor_npc)
+    if token is not None:
+        return _animations.resolve(token, action)
+    mid = _actor_model(project, who, actor_npc)
+    if mid is None:
+        raise ValueError(f"cutscene animation {action!r} is a name, but actor {who!r} has neither a "
+                         f"playable preset nor a model to resolve it against -- use a numeric anim id, "
+                         f"or give that block a preset / model.")
+    return _resolve_model_gesture(mid, action)
 
 
 def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
@@ -6691,15 +6757,11 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
         if act == "animation":
             a = s.get("animation")
             if isinstance(a, str) and not a.strip().isdigit():
-                token = _actor_token(npc_by_name.get(who))
-                if token is None:
-                    problems.append(f"{lbl} step {k} animation {a!r} is a name, but actor {who!r} has no "
-                                    f"known preset -- use a numeric id or give that [[npc]] a preset.")
-                else:
-                    try:
-                        _animations.resolve(token, a)
-                    except ValueError as e:
-                        problems.append(f"{lbl} step {k}: {e}")
+                try:                                       # the SAME resolver the build runs, so a name
+                    _resolve_actor_animation(project, who,  # that lints clean cannot die mid-build
+                                             npc_by_name.get(who), a)
+                except ValueError as e:
+                    problems.append(f"{lbl} step {k}: {e}")
         for mk in ("walk", "teleport"):                    # a named move target must resolve to a point
             if mk == act and isinstance(s.get(mk), str):
                 try:
@@ -6779,12 +6841,8 @@ def _resolve_conductor_steps(steps, project, cast=(), walkmesh=None, beat=None):
     for i, s in enumerate(out):                            # animation names -> ids (per-step actor model)
         a = s.get("animation")
         if a is not None and not isinstance(a, bool) and not isinstance(a, int) and not str(a).strip().isdigit():
-            actor_npc = npc_by_name.get(s.get("actor"))
-            token = _actor_token(actor_npc)
-            if token is None:
-                raise ValueError(f"cutscene animation {a!r} is a name, but actor {s.get('actor')!r} has no "
-                                 f"known preset -- use a numeric anim id, or give that [[npc]] a preset.")
-            out[i] = {**s, "animation": _animations.resolve(token, a)}
+            who = s.get("actor")
+            out[i] = {**s, "animation": _resolve_actor_animation(project, who, npc_by_name.get(who), a)}
     # per-actor movement resolution + autoroute (the proven single-actor pipeline, applied per cast member)
     for name in dict.fromkeys(s.get("actor") for s in out if s.get("actor")):
         actor_npc = _pseudo_player_npc(project) if name == "player" else npc_by_name.get(name)

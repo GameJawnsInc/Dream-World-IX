@@ -210,6 +210,9 @@ def test_a_catalog_field_takes_a_typed_name_but_browse_still_fills_the_id(app):
     from ff9mapkit.workspace import forms_qt
     pal = theme.pick_palette("dark")
     asked = []
+    # the POSITIONAL pick signature is the contract for every non-animation field: only the animation
+    # kinds get the extra model_hint keyword, and this stub would raise if that leaked (fenced from the
+    # other side in test_anim_picker's browse-closure test).
     w, getters = forms_qt.build_form(
         forms.ENCOUNTER_SPEC, {"scene": ""}, pal,
         pick=lambda cat, cur, want_id=False: (asked.append((cat, want_id)), "296")[1])
