@@ -105,9 +105,29 @@ for comp in d["profiles"]:
             turns.append(signed_turn(P[-1], P[0], P[1]))
         feas = [H[i] >= NEED_H for i in chain]
         t_open = [signed_turn(P[i - 1], P[i], P[i + 1]) for i in range(1, len(P) - 1)]
-        chain_geo.append((P, [0.0] + t_open + [0.0],
-                          [math.dist(P[i], P[i + 1]) for i in range(len(P) - 1)],
-                          feas, comp["blk"]))
+        # THE TIER GATE (instrument calibration, found by the strip builder's mesh dump):
+        # nearest-neighbour chaining stitches wall runs from DIFFERENT tiers into one chain
+        # -- blk [22,14]'s n=14 chain has a 15.8u crest spread, so its bend was tier-noise,
+        # not wall-line curvature. Stock's own law (the round-4 amendment): crests are
+        # LEVEL per run. Split chains at crest jumps > 2.5u; window-search level sub-chains.
+        crest_abs = [cols[i]["cen"][1] + cols[i]["prof"][-1][1] for i in chain]
+        sub = [0]
+        for ci in range(1, len(chain)):
+            if abs(crest_abs[ci] - crest_abs[ci - 1]) > 2.5:
+                sub.append(ci)
+        sub.append(len(chain))
+        for q0, q1 in zip(sub, sub[1:]):
+            if q1 - q0 < 8:
+                continue
+            Ps = P[q0:q1]
+            ts_ = [signed_turn(Ps[i - 1], Ps[i], Ps[i + 1]) for i in range(1, len(Ps) - 1)]
+            if ts_ and float(np.median(np.abs(ts_))) > 60.0:
+                continue                                    # plan zigzag: not a wall line
+            chain_geo.append((Ps, [0.0] + ts_ + [0.0],
+                              [math.dist(Ps[i], Ps[i + 1]) for i in range(len(Ps) - 1)],
+                              feas[q0:q1], comp["blk"], (q0, q1),
+                              round(max(crest_abs[q0:q1]) - min(crest_abs[q0:q1]), 1),
+                              len(chain)))
         # maximal contiguous feasible sub-runs (in-chain, no wrap)
         runs, cur = [], 0
         for f in feas + [False]:
@@ -168,14 +188,14 @@ print(f"handedness check (nrm-on-right traversal, strongly-bent chains |bend|>45
 # radius-40 bench caps the crest radius: reach = R + drop/tan(50deg) (~11.7u foot flare)
 # + ~6u ground annulus <= ~36u  =>  R <= ~17u. Positive net bend is required (plateau
 # handedness); basin-negative chains may still donate positive-bend corner windows.
-print("\n== WINDOW COMPOSITIONS (burial seat, kink <= 25 deg/seam) ==")
-# R cap: a radius-46 island occupies the SAME 6 bench blocks (x 366..466 within 320..512,
-# z north margin 18u of sea) -- reach = R + ~11.7 flare + ~6 annulus + margin => R <= ~23.
-WIN_R = (12.0, 23.0)
+print("\n== WINDOW COMPOSITIONS (burial seat, kink <= 25 deg/seam, TIER-GATED chains) ==")
+# R cap: a radius-48 island occupies the SAME 6 bench blocks -- reach = R + ~11.7 flare
+# + ~6 annulus + margin => R <= ~26. S up to 5 (the level pool carries less bend/strip).
+WIN_R = (12.0, 26.0)
 KINK_MAX = 25.0
 wins = []
 for ci, c in enumerate(chain_geo):
-    P, turns, steps, feas, blk = c
+    P, turns, steps, feas, blk, qrange, cspread, nchain = c
     n = len(P)
     for i in range(n):
         if not feas[i]:
@@ -190,7 +210,8 @@ for ci, c in enumerate(chain_geo):
                 if L > 2 * math.pi * WIN_R[1]:
                     break
                 B = sum(turns[t] for t in range(a + 1, b))
-                wins.append((round(B, 1), round(L, 1), ci, a, b, blk))
+                wins.append((round(B, 1), round(L, 1), ci, a + qrange[0], b + qrange[0],
+                             blk, cspread, nchain))
         break                                               # windows of the FIRST feasible
                                                             # stretch only (greedy, plenty)
 wins_u = {}
@@ -199,38 +220,33 @@ for w in wins:                                              # dedupe: best bend 
     if key not in wins_u or w[0] > wins_u[key][0]:
         wins_u[key] = w
 wins = sorted(wins_u.values(), key=lambda w: -w[0])
-print(f"windows (n>=8 cols, feasible, deduped): {len(wins)}; "
+print(f"windows (n>=8 cols, feasible, LEVEL, deduped): {len(wins)}; "
       f"best bend {wins[0][0]} deg over {wins[0][1]}u (blk {wins[0][5]})" if wins else "none")
 
-best3 = []
-top = wins[:260]
-for i1 in range(len(top)):
-    b1, l1 = top[i1][0], top[i1][1]
-    if b1 <= 0:
-        break
-    for i2 in range(i1 + 1, len(top)):
-        if top[i2][2] == top[i1][2]:
+best_c = []
+pos = [w for w in wins if w[0] > 0]
+for S in (3, 4, 5):
+    pool = pos[:200] if S == 3 else pos[:26]
+    for combo in itertools.combinations(range(len(pool)), S):
+        ws = [pool[i] for i in combo]
+        if len({w[2] for w in ws}) < S:
             continue
-        b2, l2 = top[i2][0], top[i2][1]
-        for i3 in range(i2 + 1, len(top)):
-            if top[i3][2] in (top[i1][2], top[i2][2]):
-                continue
-            b3, l3 = top[i3][0], top[i3][1]
-            L = l1 + l2 + l3
-            R = L / (2 * math.pi)
-            if not (WIN_R[0] <= R <= WIN_R[1]):
-                continue
-            kink = (360.0 - (b1 + b2 + b3)) / 3
-            if abs(kink) > KINK_MAX:
-                continue
-            best3.append((abs(kink), kink, R, [top[i1], top[i2], top[i3]]))
-best3.sort(key=lambda x: x[0])
-for ak, kink, R, ws in best3[:10]:
-    desc = " + ".join(f"blk{w[5]}[{w[3]}:{w[4]}]({w[4] - w[3]}c,{w[1]}u,{w[0]}deg)" for w in ws)
-    print(f"  R={R:.1f}u kink={kink:+.1f} deg/seam: {desc}")
-if not best3:
-    print("  NO 3-window composition closes within the kink budget at bench radius -- "
-          "the rung needs a bigger bench island or a relaxed budget")
+        L = sum(w[1] for w in ws)
+        R = L / (2 * math.pi)
+        if not (WIN_R[0] <= R <= WIN_R[1]):
+            continue
+        kink = (360.0 - sum(w[0] for w in ws)) / S
+        if abs(kink) > KINK_MAX:
+            continue
+        best_c.append((abs(kink), kink, R, S, ws))
+best_c.sort(key=lambda x: (x[0], x[3]))
+for ak, kink, R, S, ws in best_c[:12]:
+    desc = " + ".join(f"blk{w[5]}chain{w[7]}[{w[3]}:{w[4]}]({w[4] - w[3] + 1}c,{w[1]}u,"
+                      f"{w[0]}deg,lvl{w[6]})" for w in ws)
+    print(f"  S={S} R={R:.1f}u kink={kink:+.1f} deg/seam: {desc}")
+if not best_c:
+    print("  NO level-chain composition closes within the kink budget -- the level pool's "
+          "positive bend cannot reach 360; the lane needs a design change, not a build")
 
 print("\n== COMPOSITIONS (2-5 maximal runs -> closed ring, coarse view) ==")
 cand = sorted([c for c in chains if c["max_run"] >= 8 and not c["closes"]],
