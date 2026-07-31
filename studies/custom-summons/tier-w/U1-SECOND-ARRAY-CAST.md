@@ -1019,3 +1019,43 @@ needs it.
 both casts' videos/frames/logs/analysis under `…\repaint-w6b\u1-second-array\`, the s76 engine
 round permanent (`memoria-patches/s76-sfx-state-payload.patch`). `ORDER_UNMEASURED` and every kit
 constant ship exactly as they were.
+
+
+### 11.1 THE IMPACT SCOPING — the data under owner decision (2). Critic: ok=true, ZERO gaps
+
+Offline, conditional-altitude throughout ("IF the ef038 mechanism generalises"), both labellings
+side by side, v not modelled. Record: `…\u1-second-array\impact-scoping\REPORT-IMPACT.md` +
+`u-displacement-impact.tsv` (293 rows × 40 cols). Calibration: exact reconciliation with the dual
+census (372/502/126/309/649/28), 309/309 row identity with census-B, and ZERO difference from the
+kit's own `cell_readers` at zero displacement over 80/80 containers. Both sanity checks pass (ef038
+reproduces the cast, controls included; ef211's dome binder is A=0/B=0 = undisplaced, so the W6b-2
+flagship stays correctly explained).
+
+* **The exposure is concentrated and SILENT**: 16 (SWAPPED) / 19 (ORIGINAL) of the 187
+  so-uv-LICENSED cells would lose EVERY effective reader — `export-art` hands an author those pages
+  as fully-licensed TODAY, and a perfect repaint on one would be invisible with no error anywhere.
+  Named individually in the report. Granularity matters: a cell only goes dark if EVERY reader
+  displaces — ef038 (640,256) kept its 7 undisplaced controls, which is exactly why cast 1 read
+  VISIBLE_UNBANDED rather than blank.
+* **Under SWAPPED every displaced sample lands on a DECLARED cell (144/144, 0 undeclared)** — and a
+  new corpus-scale asymmetry points the same way as the screen: 0/156 displacing slots leave their
+  page vs a permutation null of 16.6 (P<0.0005), while ORIGINAL sits dead on its null (40/224).
+  Carried as an OBSERVATION of C3's non-discriminating class — it measures no engine; it must not
+  choose the labelling for a derivation.
+* ★ **THE ef424 ORDER-CELL LEAD** (conditional): `cell.s0.x448_y384`'s ONLY incumbent reader
+  (0x2ec24, forced part, A=0x0080/B=0) displaces to column 512 under SWAPPED — leaving the order
+  cell with no effective reader. A U-axis explanation for the k=2 mark that was never positively
+  located (~0.35), where the refuted V-story baked off the page. A lead, not a claim.
+* **Erratum, flagged not overruled**: §9.3's H_U corpus stats "224/224" and "153/153" do not
+  reproduce under the page predicate (184/224, 135/153); its "150/153 declared" reproduces exactly.
+  The intended predicate is not recoverable from the text.
+
+**THE RECOMMENDATION (the round's, endorsed): OPTION 2 — DISCLOSE/ANNOTATE, strictly additive** —
+`so_record` gains the second-array pairs it currently discards, `CellHazards` gains an informational
+per-reader field naming both candidate effective columns, one appended refusal class fires on a cell
+ALL of whose readers carry a mover (the `spill-vs-own-page` precedent), the conditionality triple
+(0.84 / 0.68 / v-unresolved) carried IN the quotable constant per the `ARRAY_CAVEAT` pattern. No
+constant moves, no emission changes, every re-derivation-pinned gate keeps measuring its population.
+**Option 3 (derivation modelling) stays gated behind one cheap instrument: log `tag->u0..u3/v0..v3`
+at `SFXRender.cs:342-380`** (the §9.3-named field) — a log-only cast then settles H_U per-slot
+without a screen read. Options 1/3 and the gate are the owner's call; nothing here was implemented.
