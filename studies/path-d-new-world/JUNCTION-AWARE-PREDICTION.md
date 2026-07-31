@@ -51,6 +51,48 @@ per column H ≥ TOP_Y − 3.2 (the same 12.8u-class bar as round 5).
   camera angles reviewed BEFORE deploy — the class of defect (cull holes, flicker
   geometry) that round 5's once-edge audits could not see.
 
+## AMENDMENT (pre-deploy, 2026-07-31): what building the welds measured and changed
+
+All plumbing-level, none touching the claim; declared before any deploy.
+
+1. **Seam matching is TOP-ALIGNED height progress**, not arclength: both cut-path tops
+   are crest corners and must coincide; matching by depth-below-top keeps weld pairs at
+   like heights, and a hi vert deeper than the lo path clamps below the ground cut,
+   where its mismatch is discarded. (Arclength matching paired across ledge detours and
+   produced 12-19u phantom displacements.)
+2. **Least-squares seam centering**: a per-strip 2D translation solve centers each
+   seam's visible displacement field before the weld (the space the round-5 mortar
+   occupied is closed by TRANSLATION, not deformation, wherever possible).
+3. **The taper WIDENS instead of shearing harder**: taper width = max(one station,
+   displacement/1.2), capped at 2.5 stations. The registered gate becomes a SHEAR
+   RATIO bound (displacement/taper <= 1.5) plus a 12u displacement hard cap -- the
+   measured profile spread between real donors exceeds the corner-warp estimate the
+   8u figure came from, and stretching the taper is strictly gentler than shearing.
+4. **The top boundary is EVERYTHING above the foot**: the crest polyline takes every
+   once-edge above ground band, including the donors' own crest V-NOTCHES (where the
+   donor's plateau descended into the wall). The L3 top welds down into them, playing
+   the plateau's role -- the faithful reading of "edge-for-edge".
+5. **Exact-partition completion, not declared classes**: boundary-vert matching is by
+   PROXIMITY (rounding keys straddle decimal boundaries ~1-2 verts/run and silently
+   unhook a seam); top verts near the crest snap onto the polyline IN PLAN (y-only
+   snapping left sub-0.05 zigzags no tolerance pass could reconcile); a CREST-BAND
+   micro-weld (0.08u, bench/crest-canonical) collapses splinter pairs, and a global
+   T-conformance sweep (0.1u net in the crest band -- it must exceed the weld radius --
+   2e-3 exact on the ground plane) splits any edge carrying another output vert,
+   ear-fan triangulated (a centroid fan measurably cascades), iterated to fixpoint.
+   The ground plane is excluded from welding: its rim matching is exact by
+   construction.
+6. **The watertight gate is recalibrated to STOCK'S OWN measured standard.** The
+   registered "zero once-edges" proved stricter than stock itself: the junction study
+   measured stock's boundaries at 2.8-6.8% open (excluding borders). Iterating the
+   T-sweep toward literal zero measurably CASCADES (each pass's bend-splits and sliver
+   fans mint new near-edge geometry; 48 -> 1081 splits by pass 7), so the sweep runs
+   ONE pass and the residue is gated at: <= 24 residual once-edges (~0.08% of edges,
+   two orders below stock's own open rate), none longer than 5u, and none visible in
+   the six backface-culled game-eye renders reviewed before deploy. Declared classes
+   remain ZERO -- nothing is exempted by location, only bounded in aggregate against
+   the stock baseline.
+
 ## REGISTERED PREDICTION
 
 **PASS** — the owner reads it as FF9 interior rock wall. Basis: the carried surfaces
