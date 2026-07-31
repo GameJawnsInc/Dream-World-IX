@@ -81,8 +81,14 @@ walkmesh math, gateways/triggers/flags, dialogue/text, encounters + BGM + battle
 | FF9 field assets | `<game>\StreamingAssets\p0data*.bin` (UnityRaw 5.2.3; UnityPy reads them) |
 
 **Deploy layout** (detail → the `deploying-ff9-mods` skill, [[project-ff9-git-layout]]): each worktree
-**MUST pin its own deploy target** in a gitignored **`.ff9deploy.toml`** (`mod_folder` + scratch `id`);
-without one you silently share the default folder and the 4003 slot with every other session. Override via
+**MUST pin its own deploy target** in a gitignored **`.ff9deploy.toml`** (`mod_folder`; `campaign_id_base`
+if you compose a set) — without one you silently share the default folder with every other session.
+⚠ **But do NOT pin `id` there.** It is not private: `workspace/builddoc.py:172` is
+`tid = self.worktree_id or 4003`, so it RENAMES the Build tab's "Test slot NNNN" radio for whoever
+launches the Workspace from that tree — **and that is the human**. It cost a playtest: a pinned scratch id
+became the owner's default test slot, their next deploy landed there instead of the in-place target they
+meant, and it wiped a room that was mid-playtest. **Pass `--id` explicitly instead** (already mandated
+above). The same leak bites tests — pin the path through a seam, never read the real file. Override via
 `--mod-folder` / `$FF9_MOD_FOLDER`. `Memoria.ini [Mod] FolderNames` stacks folders in priority order —
 currently `"FF9CustomMap", "FF9CustomMap-world", "MoguriMain", "MoguriVideo"` — and each folder's own
 DictionaryPatch/BattlePatch is read at launch. The overworld has its own `-world` folder because campaign
@@ -211,6 +217,9 @@ Each cost real rounds. Full record in the linked study/memory; do not re-litigat
   verbatim fork IS supported → [[project-ff9-npc-on-verbatim]].
 - **From-scratch massif SYNTHESIS** — falsified over 8 rounds. **THE FORM LESSON:** statistics reproduce
   the rock organization's measured properties, never its *look*. Use the carry (`world-mountain`).
+- **The terrace wall from the decoded tile LANGUAGE** — refuted the tile-language discriminant in 2
+  registered rounds: correct tiles on INVENTED MASSING still fail at form (the silhouette is the look's
+  carrier). → `studies/path-d-new-world/TERRACE-WALL-PREDICTION.md`.
 - **Real content through a synthetic frame is still synthesis** — killed both the v3 bend-carry and the
   dunes label-stamp. A verbatim stamp must carry the **MESH** (verts+uvs+tangents), not row labels.
 - **The beach-mint ladder** (`world-island --beach`) — falsified over 4 playtests. **SUPERSEDED, goal
@@ -269,8 +278,8 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   lives on an unmerged branch)
 - Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3i kit fix ★; W6b-3ii Odin ladder ★★ — channel A DRAWN, depth BPP8 cast-proven at 0.96, install back to stock → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
-- Click authoring — ★ Rungs 0-4 owner-confirmed (regions on BOTH lanes in-game; tool strip shipped); received-box fix awaits one look; open: 6 → `studies/click-authoring/PLAN.md`
-- Path D, a genuinely new 3rd overworld world — PLANNED (adversarially-reviewed, unexecuted): Rung 0/1 (debug reach + a runtime-built WorldDisc) are the pivotal unknowns → `studies/path-d-new-world/PLAN.md`
+- Click authoring — ★ Rungs 0-4 + rung 6 gateways owner-confirmed in-game; the floorplan composer 6a-6c built, Floorplan tab shipped → `studies/click-authoring/RUNG6.md`
+- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a proven; junction carry into 9013 owner-confirmed identical; terrace synth CLOSED (discriminant refuted; next study = massing) → `studies/path-d-new-world/`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

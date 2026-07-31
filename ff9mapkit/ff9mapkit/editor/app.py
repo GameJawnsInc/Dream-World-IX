@@ -455,12 +455,12 @@ class EditorApp:
 
     def _pick_catalog(self, field, var):
         """Open the Info Hub picker for a catalog-backed field; write the chosen name into its widget.
-        Passes the open campaign so a ``catalog="flag"`` field can pick a shared [[flag]] by name. A
-        NUMERIC field (battle scene, song) takes the entry's ID -- a name would fail the int parse on save."""
+        Passes the open campaign so a ``catalog="flag"`` field can pick a shared [[flag]] by name. An
+        ID-BEARING field (battle scene, song, model) takes the entry's ID instead -- see
+        :func:`forms.wants_id`, the one owner of that rule (the Qt form asks the same question)."""
         kinds = [k.strip() for k in field.catalog.split(",")] if field.catalog else None
         name = picker.pick(self.root, kinds=kinds, title=f"Pick {field.label}", initial=var.get().strip(),
-                           campaign_context=self.campaign_plan,
-                           want_id=field.kind in (forms.INT, forms.OPTINT))
+                           campaign_context=self.campaign_plan, want_id=forms.wants_id(field))
         if name:
             var.set(name)
 

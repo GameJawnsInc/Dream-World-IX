@@ -160,6 +160,55 @@ synthesis recipe for the terrace-wall rung:
 **⇒ THE TERRACE-WALL RUNG IS UNBLOCKED: full synthesis recipe in hand** (courses of ~4.7u
 quads; crest/body/base band rows; u-continuation with band wrap).
 
+## The INSTANCE anatomy (decoded 2026-07-30 — `rock_wall_instances.py`, after T1's failure)
+
+The first decode never asked per-INSTANCE questions; terrace-wall T1 failed in game on
+exactly those (flipped tiles, stamped-together sides — `studies/path-d-new-world/
+TERRACE-WALL-PREDICTION.md`). Same grouping verbatim (8945 instances — the count is the
+calibration), three laws:
+
+- **LAW 1 — V-ORIENTATION IS FIXED PER TILE**: 54/62 well-sampled tiles are ≥90%
+  orientation-consistent (the 8 mixed are low-count accessory tiles). Take orientation
+  from the per-tile MAJORITY, never from one exemplar.
+- **LAW 2 — MIRRORING IS RARE, NOT ABSENT**: 12.5% of horizontally-adjacent pairs invert
+  their u-sense (same-tile pairs 15.6%). A mirror-free wall and a coin-flip wall are both
+  off-language.
+- **LAW 3 — A WALL COLUMN IS A CONTIGUOUS VERTICAL ATLAS STRIP**: the dominant vertical
+  transitions are same-column row-descent, `(c,9)→(c,8)→(c,7)` (~130+ instances each),
+  capped body→crest by specific pairs (`(7,7)→(5,4)` ×111, `(8,7)→(6,4)` ×106, and the
+  `(0-1,7)→(0-1,6)` family). Courses are NOT independently-tiled bands — v continues down
+  one atlas column per wall column, then the crest caps via the measured transition table
+  (`out/rock_tile_instances.json` holds the full table + per-instance orientations).
+
+## THE MASSING DECODE (2026-07-30 — `rock_wall_massing.py`, after the discriminant refutation)
+
+The refutation said the silhouette is the look's carrier; this measures it, same wall
+components as the two tile decodes. Numbers over 8,945 instances / 3,908 welded pairs /
+2,616 foot edges (`out/rock_wall_massing.json`, profile renders in `out/massing/`):
+
+- **THE 50° LAW.** Interior plateau walls batter at med **50.1°** (p25 43 / p75 57), uniform
+  bottom-to-top. **NOT the coastal 73°** — T1 put a coastal cliff profile on an interior
+  wall; the slope itself was off-language before any tile landed.
+- **Courses weld COPLANAR**: dihedral med 6.8°, 71% under 10°, only 3% jogged ≥25°; the
+  face retreats ~2.9u per course. The wall is a smooth battered sheet, not stacked ledges.
+- **Ledges are DISCRETE features**: sparse (~1 per 44 quads) and deep (med 5.6u, p90 8u) —
+  event-like shelves, not per-course trim.
+- **THE FOOT IS SMOOTH**: turn med 17.4°, right angles **1%**, med edge 4.0u, 67% of verts
+  lattice-touching. T1's right-angle lattice jag ("sharp edges at the bottom") is
+  quantitatively off-language — feet touch the lattice but never zigzag it.
+- **The crest is level but plan-wiggly**: height jitter med 0.4u, turn med 28.6°.
+- **Profiles** (per-column silhouettes, normalized): one consistent mean batter per
+  component with ORGANIC per-column wobble — irregular in-out jogs and ledge placements
+  unique to each column. T1's columns were geometrically identical.
+
+**THE VERDICT the study exists for:** the MEAN massing is lawfully compressible (batter,
+course heights, retreat, foot smoothness, crest jitter — a small parameter set), but the
+per-column wobble is the look's carrier and is organic — the precise class THE FORM LESSON
+says statistics cannot fake. If the wall rung ever reopens, the grounded next idea is
+**PROFILE-CARRY** — Rung F applied to walls: carry REAL columns' profiles (or whole wall
+strips) verbatim onto a minted plan, and only then dress with the instance-law tiles. Not a
+wobble generator, and it needs its own prediction registration.
+
 ## The TERRACE arc — round 4: THE TWO-LEVEL ISLAND (deployed, awaits playtest)
 
 `two_level_f.py` **DEPLOYED 2026-07-12** (762 tris, block (3,17)): island F as

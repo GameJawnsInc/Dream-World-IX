@@ -2015,9 +2015,9 @@ The catalog comes from Memoria's open-source `AnimationDB` (the same source as t
 
 | key | meaning |
 |---|---|
-| `scene` | battle scene id (e.g. `67` = Evil Forest, the first/weakest battles). |
+| `scene` | battle scene **id or `BSC_` name** (e.g. `67` or `"BSC_EF_R007"` — Evil Forest, the first/weakest battles). A name resolves through the catalog (`ff9mapkit scenes` lists them); an unknown one fails `lint` with did-you-mean candidates, naming the field and the key. |
 | `freq` | encounter frequency `0..255` (default `255`). |
-| `pattern`, `scenes` | advanced: pattern + explicit 4 scene ids. |
+| `pattern`, `scenes` | advanced: pattern + an explicit pool of **exactly 4** scene ids/names. |
 | `battle_music` | BattlePatch song-play id (default `0` = normal battle theme). `import` auto-detects the donor field's real battle song (from the install's `BtlEncountBgmMetaData` `(field, scene)→song` map) and prefills this when it's non-default — a fork to a custom id loses the engine's own `(fldMapNo, scene)` lookup, so the kit reproduces it via the scene-keyed `Music:` line. |
 
 Adding an encounter automatically adds the after-battle handler the field needs (otherwise the
@@ -2032,8 +2032,8 @@ Per-scene battle music, keyed on the **battle scene id** (not the field). Each b
 
 | key | meaning |
 |---|---|
-| `scene` | the battle scene id this song applies to. |
-| `song` | the akao song-play id (e.g. `35` = a boss/special battle theme). |
+| `scene` | the battle scene **id or `BSC_` name** this song applies to — the same values [`[encounter]`](#encounter-optional) takes, resolved the same way (an unknown name fails `lint`, naming the row). |
+| `song` | the akao song-play id (e.g. `35` = a boss/special battle theme). Integers only — a song-play id has no name catalog. |
 
 Why it exists: FF9 picks a field battle's song by `(fldMapNo, scene)`, so a fork to a custom id loses
 the donor's *scripted* (boss) battle theme — the custom `fldMapNo` isn't in the engine's map. This

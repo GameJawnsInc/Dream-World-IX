@@ -54,7 +54,7 @@ The screen mapping above holds **only at yaw 0**. Real fields ship yaws up to +/
 
 | Thing | Value | Consequence |
 |---|---|---|
-| Player controller radius | **48u** (`cam.COLLISION_RADIUS_W`) | The player CENTRE can never get within 48u of a walkmesh edge; extend the mesh 48u past painted floor edges the player should reach. |
+| Player controller radius | **80u** (`cam.COLLISION_RADIUS_W` = `routes.WALL_CLEARANCE_W` = `floorplan.R_WALK`) | The player CENTRE can never get within 80u of a walkmesh edge; extend the mesh 80u past painted floor edges the player should reach. ⚠ Was 48 until measured in-game 2026-07-30 — one literal still lags, see the split note below. |
 | Object<->object collision | **96u each** (`cam.OBJECT_COLLISION_W`) | Two characters **jam at < ~192u centre distance**. Anything under that = actors shoving each other. |
 | Standing-NPC spacing | **>= 300u** | What real fields use; 192-300u is walkable but reads cramped. Conversation partners: ~250-400u. |
 | Human height / width | **560u / ~100u** | Moogle 440, chest 300, tent 680, ladder 700 (`paint.HEIGHT_BY_NAME`). |
@@ -64,6 +64,27 @@ The screen mapping above holds **only at yaw 0**. Real fields ship yaws up to +/
 
 On-screen size is `H / |z_cam|` -- a back-of-room NPC renders visibly smaller and two actors spaced
 fine in world can still stack on screen (depth foreshortening). The probe warns on exactly this.
+
+> ⚠ **THE 48/80 SPLIT — now HALF closed. The walk radius is 80 everywhere; ONE literal still says 48.**
+> The controller radius was measured in-game on 2026-07-30 (calibration field 30510: the clamped
+> stop read exactly 80u off the wall) and `cam.COLLISION_RADIUS_W` was corrected **48 → 80**.
+> `scene/routes.WALL_CLEARANCE_W` has since been reconciled to **80** on owner sign-off — it was
+> never independently derived, just a stale copy of the mis-measured value, and it erred OPTIMISTIC
+> (a 130u corridor measures 1820 standable cells at 48 and **zero** at 80, so every route sweep
+> certified patrols the engine cannot walk). **So the route numbers below are 80, and
+> `content/pathfind.py` no longer disagrees with itself** — its two entry points both resolve to 80.
+> **Still 48, deliberately: `imagefield.COLLISION_OUTSET`** — so a traced/painted field's walkmesh
+> still stops 32u short of its painted edge ("the back edge is a bit short"). Offline it looks
+> equally wrong and flipping it breaks no test, but it moves the shipped geometry of every traced
+> field, so it is held for a traced-field **playtest**, not a green suite.
+>
+> ★ **AND THE LAW THAT FLIP TAUGHT: a RESOLUTION is never a RADIUS.** `sweep_pursuit`/`sweep_wander`
+> used to take their sampling `grain` from `WALL_CLEARANCE_W`, so raising the radius made them
+> COARSER — at 80 they went blind to a 40u notch and reported **0 blocked of 1358 pairs**, a false
+> clean. The sweep grain is now its own `routes.SWEEP_GRAIN_W = 40u`, decoupled from every radius
+> (same 40u as `sweep_polyline`'s step and `pathfind._MESH_STEP_W`). **So: clearances are 80, the
+> sampling grain is 40.** A gap narrower than 40u is still missed by design — every sweep's rate is
+> a FLOOR on the real one, never a ceiling.
 
 ## THE INVISIBLE-DOOR LESSON (zones the player cannot see)
 
@@ -95,13 +116,13 @@ Outputs (default `tools/scroll_out/layout_probe/<name>/`) -- **Read all three**:
 
 - **`topdown.png`** -- world X/Z from above (+z UP, matching yaw-0 screen): walkmesh floors EACH IN
   ITS OWN TINT with cross-floor SEAM edges in green (a raised terrace reads at a glance), zone
-  quads, true-scale 48u/96u collision rings, facing arrows, the camera's position (the FRONT is the
+  quads, true-scale 80u/96u collision rings, facing arrows, the camera's position (the FRONT is the
   edge nearest it), and a compass rose whose green arrow shows which world way is UP-SCREEN.
 - **`camview.png`** -- the painted-canvas view through the exact `cam.to_canvas` projection:
   walkmesh outline, zones, each marker with its projected height pole = how big the model actually
   renders at that depth.
 - **`report.txt`** -- the COMPASS table (quote it when narrating), every item world->canvas with its
-  facing named, and WARNINGS: colliding pairs (<192u), tight pairs (<300u), wall-huggers (<48u from
+  facing named, and WARNINGS: colliding pairs (<192u), tight pairs (<300u), wall-huggers (<80u from
   an edge), off-mesh, off-canvas, content inside trigger zones, world-spaced-but-screen-overlapping
   pairs.
 
@@ -115,7 +136,7 @@ A `[[marker]]` may carry **`path = [[x,z], ...]`** (+ `closed = true` for a patr
 polyline a scripted walker (patrol, march, flee line, cutscene walk) will actually travel. Markers
 stay build-inert; the probe DRAWS each route on both PNGs and **walkability-SWEEPS every leg**
 (~40u samples), warning with world coordinates on any off-mesh span (drawn in red) and on legs
-that pass under 48u from a walkmesh edge. Declare a route for EVERY scripted multi-point walk --
+that pass under 80u from a walkmesh edge. Declare a route for EVERY scripted multi-point walk --
 the BTRAID bench shipped a patrol ring whose two off-mesh legs stalled guards in-game, invisible
 to point checks; the sweep finds that class offline in seconds.
 
@@ -123,7 +144,7 @@ Movement facts the sweep encodes (engine: walkers move STRAIGHT at their target 
 contact -- there is NO pathfinding):
 - **Convex obstacles are survivable; concave ones are not.** A walker clipping a round monument
   slides around it (ugly but progresses); one entering a bay, notch, or spur WEDGES and stalls.
-  Off-mesh spans = must-fix; sub-48u grazes along a long PARALLEL wall = usually a tolerable
+  Off-mesh spans = must-fix; sub-80u grazes along a long PARALLEL wall = usually a tolerable
   slide -- judge with the picture.
 - **Snap walk targets to points with real wall clearance (~100u+), not merely on-mesh.** A bare
   point-in-triangle test happily accepts a 1u edge sliver; a unit sent there is shoved off it

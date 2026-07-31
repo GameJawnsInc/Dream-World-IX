@@ -1156,6 +1156,124 @@ def test_validate_rejects_bad_battle_bgm(tmp_path):
     assert any("battle_bgm" in p for p in validate(FieldProject.load(bad)))
 
 
+def test_battle_bgm_scene_takes_a_name_like_encounter_does(tmp_path):
+    # `scene` names the SAME thing in [[battle_bgm]] as in [encounter], so it must accept the same values --
+    # one file used to build `scene = "BSC_CA_E013"` under [encounter] and fail lint on it here.
+    proj = FieldProject.load(EXAMPLE)
+    proj.raw["battle_bgm"] = [{"scene": "BSC_CA_E013", "song": 35}]     # BSC_CA_E013 == 296
+    assert validate(proj) == [], "a KNOWN BSC_ name must lint clean"
+    out = tmp_path / "mod"
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    bp = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    assert "Battle: 296" in bp and "Music: 35" in bp, bp        # the NAME reached the scene-keyed line as an id
+
+
+def test_validate_names_the_row_of_an_unknown_battle_bgm_scene(tmp_path):
+    # the fence: it builds, or it fails LINT with the row index and a suggestion -- never an int() death
+    # mid-build. song stays integers-only (an akao song-play id has no name catalog) and says so.
+    bad = tmp_path / "bad.field.toml"
+    bad.write_text('[field]\nid=4003\nname="X"\narea=11\n[camera]\npitch=48\n'
+                   '[[battle_bgm]]\nscene = 330\nsong = 35\n'
+                   '[[battle_bgm]]\nscene = "BSC_NOPE"\nsong = 35\n', encoding="utf-8")
+    probs = validate(FieldProject.load(bad))
+    assert any("#1" in p and "BSC_NOPE" in p for p in probs), probs
+    assert not any("#0" in p for p in probs), "the good row must not be blamed"
+    worse = tmp_path / "worse.field.toml"
+    worse.write_text('[field]\nid=4003\nname="X"\narea=11\n[camera]\npitch=48\n'
+                     '[[battle_bgm]]\nscene = 330\nsong = "Rufus\'s Welcoming Ceremony"\n', encoding="utf-8")
+    assert any("song must be an integer" in p for p in validate(FieldProject.load(worse)))
+
+
+# ---- [encounter] scene/scenes take a NAME as well as an id -------------------------------------
+# The trap this closes: `lint_logic` resolved a catalog name to report on it (so a name linted CLEAN),
+# but both build consumers did a bare `int()` -- the same value then died as `invalid literal for int()
+# with base 10: 'BSC_CA_E013'` with no field, no key and no suggestion. Every shipped example writes a
+# numeric id, so nothing exercised the name path through a build. Now: it builds, or it fails lint named.
+
+def _enc_build(tmp_path, tag, enc_body):
+    """Build the oracle project with an [encounter] body swapped in -> (its .eb bytes, BattlePatch text)."""
+    import tomllib
+    proj = FieldProject.load(EXAMPLE)
+    proj.raw["encounter"] = tomllib.loads(f"[encounter]\n{enc_body}\n")["encounter"]
+    out = tmp_path / tag
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    L = ModLayout(out)
+    return (L.eb_path("us", "EVT_HUT_INT.eb.bytes").read_bytes(),
+            L.battle_patch.read_text(encoding="utf-8"))
+
+
+def test_encounter_scene_name_builds_byte_identical_to_its_id(tmp_path):
+    # BSC_CA_E013 == 296. The NAME must reach the .eb's SetRandomBattles immediates AND the scene-keyed
+    # BattlePatch Battle:/Music: line as that id -- byte-for-byte what the numeric form emits.
+    from ff9mapkit import catalog
+    sid = catalog.resolve_scene("BSC_CA_E013")
+    by_id, bp_id = _enc_build(tmp_path, "byid", f"scene = {sid}\nfreq = 48")
+    by_name, bp_name = _enc_build(tmp_path, "byname", 'scene = "BSC_CA_E013"\nfreq = 48')
+    assert by_name == by_id, "a named [encounter] scene must compile to the same bytes as its id"
+    assert bp_name == bp_id and f"Battle: {sid}" in bp_id
+
+
+def test_encounter_scenes_pool_resolves_names(tmp_path):
+    # the PLURAL 4-slot pool takes names too (it feeds the same SetRandomBattles op, one id per slot)
+    from ff9mapkit import catalog
+    sid = catalog.resolve_scene("BSC_CA_E013")
+    by_id, _ = _enc_build(tmp_path, "poolid", f"scene = 67\nscenes = [{sid}, 67, {sid}, 67]")
+    by_name, _ = _enc_build(tmp_path, "poolnm",
+                            'scene = 67\nscenes = ["BSC_CA_E013", 67, "BSC_CA_E013", 67]')
+    assert by_name == by_id
+
+
+@pytest.mark.parametrize("body, key", [
+    ('scene = "BSC_NOPE"', "[encounter] scene"),
+    ('scene = 67\nscenes = [67, "BSC_NOPE", 67, 67]', "[encounter] scenes[1]"),
+])
+def test_validate_rejects_an_unresolvable_encounter_scene_name(tmp_path, body, key):
+    # the fence: an unknown name never reaches the compile -- it fails lint naming the FIELD and the KEY
+    # (the field, because build_field's own BuildError says only "invalid field project"), with did-you-means.
+    bad = tmp_path / "bad.field.toml"
+    bad.write_text(f'[field]\nid=4003\nname="ENCX"\narea=11\n[camera]\npitch=48\n[encounter]\n{body}\n',
+                   encoding="utf-8")
+    hits = [p for p in validate(FieldProject.load(bad)) if key in p]
+    assert hits, f"no problem naming {key}"
+    assert "'ENCX'" in hits[0] and "unknown battle scene" in hits[0] and "Did you mean" in hits[0]
+
+
+def test_validate_rejects_a_short_encounter_scenes_pool(tmp_path):
+    # SetRandomBattles takes exactly 4 slots; a short pool used to raise ValueError mid-build
+    bad = tmp_path / "bad.field.toml"
+    bad.write_text('[field]\nid=4003\nname="ENCX"\narea=11\n[camera]\npitch=48\n'
+                   "[encounter]\nscene = 67\nscenes = [67, 67]\n", encoding="utf-8")
+    assert any("[encounter] scenes needs exactly 4" in p and "'ENCX'" in p
+               for p in validate(FieldProject.load(bad)))
+
+
+def test_lint_logic_warns_a_scenes_pool_with_no_scene_is_inert(tmp_path):
+    # `scene` is what ARMS the block (build_script's has_encounter tests it alone), so a pool-only
+    # [encounter] injects NOTHING -- and used to say so only if freq/battle_music was also present.
+    from ff9mapkit.build import lint_logic
+    p = tmp_path / "poolonly.field.toml"
+    p.write_text('[field]\nid=4003\nname="PO"\narea=11\n[camera]\npitch=48\n'
+                 "[encounter]\nscenes = [67, 67, 67, 67]\n", encoding="utf-8")
+    warns = [w for w in lint_logic(FieldProject.load(p)) if "[encounter]" in w]
+    assert warns and "scenes" in warns[0] and "no scene" in warns[0]
+
+
+def test_lint_logic_flags_a_model_bucket_scene_by_name_and_in_the_pool(tmp_path):
+    # the pre-existing model-bucket warning (BSC_B3_* crashes in-game) must survive name resolution AND
+    # now cover the plural pool -- one bad slot is the same InitBattleScene null-ref.
+    from ff9mapkit.build import lint_logic
+    def warns(body):
+        p = tmp_path / f"mb{abs(hash(body))}.field.toml"
+        p.write_text(f'[field]\nid=4003\nname="MB"\narea=11\n[camera]\npitch=48\n[encounter]\n{body}\n',
+                     encoding="utf-8")
+        proj = FieldProject.load(p)
+        assert validate(proj) == [], "a REAL bucket name resolves -- it's a warning, not a schema error"
+        return [w for w in lint_logic(proj) if "MODEL-BUCKET" in w]
+    assert warns("scene = 472")                                  # by id (the pre-existing check)
+    assert warns('scene = "BSC_B3_160"')                         # 472 by name
+    assert warns('scene = 67\nscenes = [67, 67, "BSC_B3_160", 67]')   # NEW: a bad slot in the pool
+
+
 def test_battle_bgm_warns_on_conflicting_song(tmp_path):
     # same scene, DIFFERENT songs -> first-wins emission + a build warning (the override is scene-keyed/global)
     proj = FieldProject.load(EXAMPLE)

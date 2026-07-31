@@ -5,6 +5,134 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-coastnav`: vehicle-legality classes on a synthetic coast
+- The Southern Ring's in-game-proven coast-nav stamp (R5d sail-through seal + R5e standoff
+  belt) is a kit verb: re-derives every deployed sea override's water-triangle topograph into
+  KEEL-BLOCK 56 (under high ground — the seal) / STANDOFF BELT 55 (within 3.5u of a wall) /
+  BEACH 53 / CLIFF-FRONT 54, topo bits only, geometry and look byte-preserved. Two landability
+  policies: `land-anywhere` (the ring's plateau isles) and `cliffs-refuse` (stock grammar —
+  53 fronts beaches only, so a cliff-ringed island can be sailed to but never disembarked on).
+  `--disc`/`--mirror-disc` aware; dry-run by default.
+- The hour-class runtime is gone, killed twice over — measured on the same five cells as the
+  hour-class baseline, results byte-identical per the gate probe:
+  1. a uniform-grid triangle index under the stacked ground query (bucketed 2D AABBs, first-hit
+     order preserved exactly — calibrated 0/1500 mismatches against the linear scan): ~6×;
+  2. the real villain, found by profile, was not Python math at all: **97% of the remaining time
+     was UnityPy re-parsing p0data bundles** — on a synthetic disc the loader's stock fallback
+     rescanned every bundle per missing part (`_worldmap_env` cached only winners). The loader
+     now reads a synthetic namespace's deployed overrides directly, and a no-bundle disc is
+     memoized per process. Full five-cell pass: **635s → 0.8s**.
+- `island.landmass` (`world-island`) stamps its own cells with the navigation classes **by
+  default** after every real deploy — before the Disc-4 mirror, so parity carries the stamped
+  bytes. A fresh mint no longer ships boat-permeable straddling triangles, a missing standoff
+  belt, or a get-off-less coast. `--coastnav-policy {land-anywhere,cliffs-refuse}` picks the
+  landability language; `--skip-coastnav` opts out (A/B work only). Re-stamping is idempotent.
+- `terrain.reclaim` deliberately does NOT stamp: per the engine source a sidecar-less reclaimed
+  cell resolves to the inland donor (no sea sub-meshes) and never loads `SeaBlockPrefab`, so it
+  holds no water at all — miss-sealed at the cell edge by the invisible-wall rule, with no
+  in-cell fringe to classify.
+
+### Added — the read/write disc split reaches every world verb
+- `world-transplant`, `world-fuse`, `world-forest`, `world-hill`, `world-mountain` and
+  `world-minimap` take `--target-disc` (and, where the open-ocean probe applies,
+  `--all-sea-target`), completing the split `world-terrain`/`world-reclaim`/`world-coast`/
+  `world-island` shipped with: `--disc` stays the stock read disc, the overrides land in the
+  target namespace (9 = a Path D synthetic world). The interior verbs move their deployed-
+  island READ too, like `terrain.reshape` — before this, a carve near a synthetic island
+  silently read and reshaped whatever real disc-1 override sat at those coordinates.
+
+### Added — `ff9mapkit floorplan`: a hand-drawn multi-room plan becomes a wired dungeon
+- One verb turns a `floorplan.json` (room outlines + declared doors, in one shared plan
+  frame) into a buildable campaign: one FF9 field per room, gateways both ways, an
+  arrival position **and facing** per side, encounters, and save-point siting. Each room
+  gets its own member directory with a `field.toml`, a `walkmesh.obj` and placeholder art
+  clipped to the room's real footprint, plus a `campaign.toml` and the re-editable
+  sidecar. `build-all` then compiles the whole set, and each room deploys **additively**
+  with `deploy_field.py --id N` (never `deploy-campaign --apply`, which replaces a whole
+  mod folder wholesale).
+- THE DRAWN-MESH LAW holds throughout: the human's polygon IS the walkmesh, and the
+  composer only handles topology. It offers candidate shared walls; the author declares
+  which are doors.
+- Fifteen gates refuse a plan that cannot become a legal dungeon, and they refuse rather
+  than warn — a self-intersecting outline, a room with nowhere to stand or a walkable area
+  split by a too-narrow neck, overlapping rooms, a door too shallow for the player's
+  centre to enter, an arrival that would strand or instantly re-warp the player, an
+  arrival with no facing, a room that will not fit its own camera, two trigger zones that
+  would starve each other, and an id already registered in the live game. Warnings cover
+  the judgment calls (an unreachable room, a cramped floor, an arrival a step from another
+  zone).
+- The id pre-flight reads the live `DictionaryPatch` stack **before** minting ids, so a
+  collision surfaces while you are authoring rather than at deploy time — and an
+  unreadable stack reports UNKNOWN, never "clear".
+- `scene.placeholder.write_placeholders` accepts `floor_tris=` and clips the checkerboard
+  to the real walkable footprint. Its rectangular frame previously painted ground the
+  player cannot reach (68% of one composed room), inverting the placeholder's own purpose
+  as an in-game alignment check.
+
+### Added — the Workspace **Floorplan** tab: draw the dungeon, watch the gates
+- A new tab on the Author rail beside Map. Draw room outlines on a plan-view chart,
+  click a shared wall to turn it into a door, press Compose. The composer runs on
+  **every edit**, so its gates paint on the drawing itself — an offending room or
+  door strokes in the error colour, every problem is listed in the author's own
+  words, and Compose stays disabled while any error stands. Compose then opens the
+  finished dungeon as a live campaign, so its graph is immediately visible on the
+  Map tab.
+- The chart is a chart, not a camera: one isotropic pixel↔world scale with +z up
+  the screen, matching the layout probe's frame so the two instruments agree. A
+  click lands on the cursor after any zoom or pan.
+- Undo is per-session and covers the whole plan, so declaring a door — which
+  writes both sides at once — is a single step. A half-undone door would be a
+  gateway with no arrival.
+
+### Fixed — `[encounter] scene` accepted a battle-scene NAME at lint, then died at build
+- `scene = "BSC_CA_E013"` linted **clean** — `lint_logic` resolved the name through the
+  catalog to report on it — and then the build compiled it with a bare `int()`, so the
+  same value failed as `invalid literal for int() with base 10: 'BSC_CA_E013'` with no
+  field, no key and no suggestion. Every shipped example writes a numeric id, so nothing
+  exercised the name path through a build.
+- Names now resolve in the build (`build.resolve_encounter_scenes`), consistent with what
+  the lint already advertised and with `[[npc]] model`'s GEO names. Both consumers go
+  through the one seam — the `.eb` `SetRandomBattles` injection and the scene-keyed
+  BattlePatch `Battle:`/`Music:` line, which would otherwise have emitted an unmatchable
+  `Battle: BSC_…`. A numeric id still passes through untouched, so existing builds stay
+  byte-identical.
+- The plural `scenes` pool resolves names per slot, and both keys are **fenced**: an
+  unresolvable name is now a fatal `validate` problem naming the field, the key (with the
+  slot index for a pool) and did-you-mean candidates — so the value either builds or fails
+  lint. A pool that isn't exactly 4 slots also fails lint instead of raising mid-build.
+- Two silent-nothing gaps in the same block closed: the model-bucket (`BSC_B3_*`,
+  in-game null-ref) warning now covers the `scenes` pool, not just `scene`; and a pool
+  with **no `scene`** — which arms nothing, since `has_encounter` tests `scene` alone —
+  now warns instead of building an encounter-free field in silence.
+
+### Fixed — the form editor was stricter than the format it edits (and its placeholder said so)
+- Once `[encounter] scene` took a battle-scene NAME (above), the form editor still parsed it as an
+  int: typing `BSC_CA_E013` — the very thing the line edit's own placeholder invited, "a encounter
+  name or id" — was refused at **Save** with `expected a whole number`, on a value that is legal TOML
+  and builds. `[[npc]] model` had the same split all along: the build resolves a GEO name, `FORMAT.md`
+  documents one, and the Inspector's preflight validates one, but the form rejected it.
+- Both are now the new `forms.CATINT` kind — a number stays an id, a name stays a **name** (the build
+  resolves it, so re-opening and saving no longer rewrites the author's file). Two rules the two
+  editors used to duplicate inline now have one owner each: `forms.wants_id` (Browse still fills the
+  numeric **id**, unchanged for every user — a warm `encounter` picker LABEL reads "Goblin, Fang —
+  Evil Forest (field 250, random)", which no resolver takes) and `forms.placeholder_for`, which can no
+  longer promise a name the field's own parser would refuse. The id-only catalogs say so: `song` and
+  the carried-effect picker now read "a song id" / "a sps id".
+- `[[battle_bgm]] scene` takes a `BSC_` name too. It named the same thing as `[encounter] scene` and
+  accepted less, so one file could build a name in one block and fail lint on it in the other; both
+  now go through one resolver, and an unknown name fails lint naming the ROW. `song` stays
+  integers-only — an akao song-play id has no name catalog — and the error says that.
+- The Inspector RESOLVES a named scene instead of falling back to plain text, so the field that
+  authors the friendlier value keeps both the `— #67` gloss and the Battle-tab jump the row exists
+  for. New pinned snap surfaces `form:encounter` / `form:encounter-named` / `form:music` / `form:npc`
+  — the logic forms had none, which is how a placeholder could contradict its own parser unseen.
+
+### Fixed — the layout probe called a correct field COLLIDING
+- `tools/field_layout_probe.py` compared `[player] spawn` against `[[player.arrival]]`
+  rows as if they were two actors. An entrance-0 arrival is conventionally equal to the
+  spawn, so a correct field reported "0u apart -- COLLIDING". The player is exactly one of
+  them at a time; NPC-vs-spawn collisions still report.
+
 ### Added — the `so` record is a multi-part ARRAY: a reader fix, the witness partition, CHANNEL A (W6b-3)
 - **The reader was wrong, and the consequence was a wrong ANSWER, not a missing one.** An `so` binding
   record is `8 + 8P` bytes carrying a **P-entry binding array** (`P` runs 0–7 in the corpus);
@@ -148,6 +276,56 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   **Set message…** (on the photo lane there is no other editor for a drawn zone's words),
   and a zone still carrying the drawn-zone placeholder warns on the canvas and in the lint
   ("it ships as a literal '...' popup") unless it's a `received` item box.
+
+### Fixed — the painted-row inverse spanned the projection pole (low-pitch cameras lost their floor)
+- **`cam.solve_z_for_canvasY` bisected across a discontinuity.** `project` divides by `num =
+  abs(res.z)`, so past the projection pole at `res.z = 0` the SAME canvas row is re-produced,
+  MIRRORED, by points behind the camera. The solver bracketed `[-30000, +30000]` — a window that
+  SPANS that pole — so its two-endpoint sign test came back same-sign and returned `None` for rows
+  that had a perfectly good front-branch root. Measured at pitch 15 / distance 3000: rows 365, 420
+  and 440 all returned `None` (true roots -1650/-1900/-1970, which re-project to exactly those
+  rows). It is **not only a shallow-camera bug**: swept over world z genuinely IN FRONT of the seven
+  real donor cameras in the regression suite, the old solver lost **112 of 886 samples — all 32 on
+  TRNO0_inv**, whose `r[2][2] < 0` puts its entire front branch at negative z.
+- **Replaced by the exact closed form.** `canvasY(z)` along a world line is a Möbius function of z,
+  so the inverse needs no search: `z = (a*E - A*H)/(B*H - a*G)` on the front branch, with the
+  coefficients read straight out of `project`. Exact for ANY camera — yaw, roll, a real imported
+  `centerOffset` — not only pure-pitch synthesis: it round-trips `to_canvas` to ~1e-13 px and to
+  **zero misses on all seven real cameras**. `zlo`/`zhi` keep their old meaning as a reachable
+  window (the default ±30000 is the walkmesh's own Int16 coordinate budget).
+- **`horizon_canvas_y` is now exact too.** It probed `z = +1e7`, which rides the same `abs(res.z)`
+  mirror — on TRNO0_inv it reported row 321 for a true horizon of -13, a 334-row lie under the
+  Workspace's "no floor above" line and `imagefield`'s row cap. And 1e7 is not infinity: the
+  residual is O(1/z), still 6.5 rows out on the map158 donor. It is now the analytic asymptote.
+- **`guide.frame_floor` stopped lying about why.** It raised at EVERY distance for pitch 15 and 20
+  with "canvas Y=420 is above the horizon … horizon at canvas Y~100" — false by 320 rows, because
+  the `None` came from the bracket, not from the horizon. It now quotes the reason
+  `cam.canvas_row_z` gives (row past the horizon / root behind the camera / root outside the
+  window) and names the side of the horizon that is actually reachable — which takes
+  `sign(G·det)`, not `sign(G)`: the obvious guess is wrong on TRNO0_inv and on any `det < 0` camera.
+- **`ff9mapkit new --pitch 15` no longer ships a mesh that doesn't match its camera.**
+  `pack.new_project` wrapped the frame in `except (ValueError, ZeroDivisionError): pass` and fell
+  back to a HARD-CODED quad, so the scaffold looked fine and shipped a walkmesh belonging to no
+  camera — and because the solver was broken below ~30° pitch, that was the common case, not the
+  extreme one. The quad is now ALWAYS derived from the scaffold's own camera, and an unframeable
+  camera (a near-level pitch, where the back row really is past the horizon) REFUSES with the knob
+  to turn instead of guessing a floor. Nothing is created on the way out.
+
+### Changed — `floorplan` retires its private camera-math fork now that the shared solver is fixed
+- `floorplan.cam_params` / `z_for_row` / `horizon_row` existed only because the shared
+  `cam.solve_z_for_canvasY` / `cam.horizon_canvas_y` used to lose reachable low-pitch rows across
+  the projection pole — a defect, not a preference, and the private form was still only ~0.05 canvas
+  px accurate (~0.07 px for `project_floor`'s depth) where the fixed shared math is exact. With the
+  pole fix landed, that reason is discharged: `fit_play_camera` now calls `cam.solve_z_for_canvasY`
+  and `cam.horizon_canvas_y` directly, and `project_floor` is a thin composition of `cam.to_canvas` +
+  `cam.project`'s signed depth rather than its own formula. This also drops the module's yaw-0-only
+  restriction — the private math was off by 25–6138 canvas px on the real donor cameras, so it could
+  never have been pointed at an imported/forked camera. `pitch_floor` stays as the composer's own
+  policy gate (refuse a camera whose horizon falls inside the canvas); its actual gate check now
+  reads `cam.horizon_canvas_y(cam) >= 0` directly, which additionally honours a nonzero
+  `centerOffset` that the old `range_h/2`-assuming formula silently ignored. No behaviour change for
+  any camera the composer builds today (pitch still refused under `p* ≈ 25.7°` at fov 42.2) — the win
+  is exactness, real-camera reach, and one owner of this math, not new pitches.
 
 ### Fixed — a `received` event now shows the REAL item-get box (the top-right "..." bug)
 - `[[event]] received = true` re-styled the author's message as the window-7 item box at the

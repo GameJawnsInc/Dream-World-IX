@@ -275,7 +275,10 @@ SCREEN_W = 384                              # visible field width; a wider paint
 
 def scroll_floor_frame(c, back_canvas_y, front_canvas_y, margin_px=24):
     """frame_floor whose half-width is solved so the FRONT row spans the (wide) canvas edge to edge."""
-    zf = cam.solve_z_for_canvasY(c, front_canvas_y)
+    zf, why = cam.canvas_row_z(c, front_canvas_y)
+    if zf is None:              # else the width bisection below dies on None with a bare TypeError
+        raise ValueError(f"floor front edge (canvas Y={front_canvas_y:g}) has no world z at this "
+                         f"camera (horizon at canvas Y~{cam.horizon_canvas_y(c):.0f}): {why}.")
     target = c.range[0] - margin_px
     lo, hi = 0.0, 40000.0
     flo = cam.to_canvas((lo, 0, zf), c)[0] - target

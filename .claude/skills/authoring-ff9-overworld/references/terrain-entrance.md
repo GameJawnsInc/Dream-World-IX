@@ -93,7 +93,13 @@ FULL-CELL plane under the whole island (THE FULL-CELL SEA REVELATION), so there 
 working fix is **THE VERGE RULE**: any walkable synth piece within 2u of the outline emits as blocked topo-49
 (the superseded v2 was a ~4u-inland MOAT). Also verbatim: "never explain away a gate finding; MISS must be 0
 EVERYWHERE in the cell (land AND water)" — a ground-query miss area is also an INVISIBLE VEHICLE WALL + void
-render.
+render. **2026-07-30 reconciliation (this passage is NOT contradicted by THE SEA4-UNDER-LAND LAW):** the
+full-cell plane the revelation protects is the *fringe* — `island._cut_plane`'s `under` drops only tris
+**wholly** beneath land (an AND over all 3 corners), so every waterline-straddling tri stays and the outline
+seam the old clipping tore open never appears; where a tri does drop, Terrain covers the ground query first
+in registration order, so MISS stays 0. The cut fixes boat PERMEABILITY (sea under land = a hull sails
+through the island — memory `project-ff9-sea4-under-land-law`), and `world-coastnav`'s keel/belt classes
+close the straddling-tri remainder the conservative cut leaves. Run both; neither law reverts the other.
 
 ## Entrances — `world-entrance`
 

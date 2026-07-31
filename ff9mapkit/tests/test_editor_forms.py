@@ -276,12 +276,67 @@ def test_party_spec_builds_party_table_and_omits_empty():
 
 
 def test_encounter_scene_advertises_the_battle_scene_catalog():
-    # the scene field is OPTINT (blank = no encounter, so opening the form on a battle-less field doesn't
-    # soft-lock) but advertises the battle-scene catalog so the editor renders a Browse picker that returns
-    # the id. It points at the rich, install-backed 'encounter' kind FIRST (real monster/place labels when
-    # the battle index is warm), with the baked install-free 'scene' kind as the never-empty fallback.
+    # the scene field is CATINT -- blank = no encounter (so opening the form on a battle-less field doesn't
+    # soft-lock), a number is an id, and a battle-scene NAME stays a name (build.resolve_encounter_scenes
+    # resolves it). It advertises the battle-scene catalog so the editor renders a Browse picker, pointing at
+    # the rich install-backed 'encounter' kind FIRST (real monster/place labels when the battle index is warm)
+    # with the baked install-free 'scene' kind as the never-empty fallback.
     scene = next(f for f in forms.ENCOUNTER_SPEC if f.key == "scene")
-    assert scene.kind == forms.OPTINT and scene.catalog == "encounter,scene"
+    assert scene.kind == forms.CATINT and scene.catalog == "encounter,scene"
+    # ...and Browse still fills the ID: a warm 'encounter' LABEL ("Goblin, Fang -- Evil Forest (field 250,
+    # random)") is not a value any resolver takes, so the picker can only safely hand back the number.
+    assert forms.wants_id(scene), "the battle-scene picker must keep answering with the id"
+
+
+def test_a_typed_battle_scene_name_saves_as_a_name():
+    # THE REGRESSION: commit 04b1e3e4 made `scene = "BSC_CA_E013"` legal TOML that builds, but the form's
+    # OPTINT parser refused it at Save with "expected a whole number" -- the editor was stricter than the
+    # format it edits, while its own placeholder invited the name.
+    assert forms.build_entity(forms.ENCOUNTER_SPEC, {"scene": "BSC_CA_E013"}) == {"scene": "BSC_CA_E013"}
+    assert forms.build_entity(forms.ENCOUNTER_SPEC, {"scene": "67"}) == {"scene": 67}   # an id stays an id
+    assert forms.build_entity(forms.ENCOUNTER_SPEC, {"scene": ""}) == {}                # blank = no battles
+    # round-trip: a name survives the form both ways, so re-opening and saving cannot rewrite the author's file
+    e = {"scene": "BSC_CA_E013", "freq": 64}
+    assert forms.build_entity(forms.ENCOUNTER_SPEC, forms.entity_to_values(forms.ENCOUNTER_SPEC, e)) == e
+
+
+def test_npc_model_takes_a_geo_name_like_the_build_does():
+    # the same defect, same spec file: build.resolve_npc_model has always taken an exact GEO name (and the
+    # Inspector's _node_problems validates a typed one), but the form's OPTINT refused it.
+    model = next(f for f in forms.NPC_SPEC if f.key == "model")
+    assert model.kind == forms.CATINT and forms.wants_id(model)
+    assert forms.build_entity(forms.NPC_SPEC, {"name": "n", "model": "GEO_NPC_F0_BAR"}) == {
+        "name": "n", "model": "GEO_NPC_F0_BAR"}
+    assert forms.build_entity(forms.NPC_SPEC, {"name": "n", "model": "8"}) == {"name": "n", "model": 8}
+
+
+def test_a_placeholder_never_promises_a_name_the_parser_refuses():
+    """THE CALL-SITE LAW, on a sentence: forms_qt promised "a {catalog} name or id" for EVERY catalog field,
+    including the numeric ones whose parser rejected every name. The promise now tracks the parser."""
+    scene = next(f for f in forms.ENCOUNTER_SPEC if f.key == "scene")
+    song = next(f for f in forms.MUSIC_SPEC if f.key == "song")
+    npc_model = next(f for f in forms.NPC_SPEC if f.key == "model")
+    flag = next(f for f in forms.EVENT_SPEC if f.key == "requires_flag")
+    assert forms.placeholder_for(song) == "a song id", "song is int-only at build -- don't offer a name"
+    assert "name" in forms.placeholder_for(npc_model), "a GEO name is legal here"
+    assert "BSC_" in forms.placeholder_for(scene), "the explicit override names the TYPEABLE kind"
+    assert forms.placeholder_for(flag) == "a flag name or id"
+    assert forms.placeholder_for(next(f for f in forms.EVENT_SPEC if f.key == "gil")) == "", "no catalog"
+    # every catalog field's promise must match what its own parser accepts -- no exceptions to hand-audit
+    for spec in (forms.FIELD_SPEC, forms.NPC_SPEC, forms.GATEWAY_SPEC, forms.EVENT_SPEC, forms.CHEST_SPEC,
+                 forms.PROP_SPEC, forms.SPS_SPEC, forms.ENCOUNTER_SPEC, forms.MUSIC_SPEC, forms.PLAYER_SPEC):
+        for f in spec:
+            if not f.catalog:
+                continue
+            offers_name = "name" in forms.placeholder_for(f)
+            try:
+                forms.build_entity(spec, {**{g.key: "" for g in spec}, f.key: "SomeCatalogName",
+                                          **{g.key: "0" for g in spec if g.kind == forms.INT}})
+                parses_name = True
+            except ValueError:
+                parses_name = False
+            assert offers_name == parses_name, \
+                f"{f.key}: the placeholder offers name={offers_name} but the parser accepts {parses_name}"
 
 
 # ---- [startup]: scenario beat + list-of-table flag/word/byte writes -----------------------

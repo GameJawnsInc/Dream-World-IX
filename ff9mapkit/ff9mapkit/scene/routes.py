@@ -31,7 +31,29 @@ from __future__ import annotations
 
 import math
 
-WALL_CLEARANCE_W = 48.0        # the player controller radius (cam.COLLISION_RADIUS_W)
+# The player controller radius, IN-GAME MEASURED 2026-07-30 on calibration field 30510: walking into
+# a wall clamps the centre at exactly 80u off it (the kit's player Init runs
+# SetObjectLogicalSize(20,..) and Memoria's DoEventCode does radius = size * 4). Equal to
+# cam.COLLISION_RADIUS_W but deliberately its OWN literal, fenced by an equality assert in
+# tests/test_floorplan.py -- an alias cannot detect the drift the fence exists to catch.
+# Was 48.0 until the measurement: that value was the OPTIMISTIC direction, so every sweep here
+# certified patrols the engine physically cannot walk (a 130u corridor measures 1820 standable
+# cells at 48 and ZERO at 80).
+WALL_CLEARANCE_W = 80.0
+
+# The RESOLUTION every sweep rasterises and samples at -- a length scale, NOT a clearance, and
+# deliberately NOT `WALL_CLEARANCE_W`. It must resolve a walker-sized GAP, so it has to get FINER as
+# geometry gets tighter, whereas a radius gets COARSER as the walker gets bigger: tying one to the
+# other means correcting the radius upward silently blinds the sweep. That is exactly what the
+# 2026-07-30 48 -> 80 correction did -- the demo field's 40u notch fell between cell centres
+# (`(gi+0.5)*80` steps straight over `x in (640,680)`), `_raster_on_mesh` filled the hole in, and
+# `sweep_pursuit` reported 0 blocked of 1358 pairs where every finer grain finds 130-260. A FALSE
+# CLEAN, the one failure mode `sweep_pursuit`'s own contract calls out. Matches
+# `sweep_polyline`'s step and `content.pathfind._MESH_STEP_W`, so every walkability check in the kit
+# resolves the same detail. A gap narrower than this is still missed -- the sweeps err quiet by
+# design, so their rate is a floor -- but the bound no longer moves when a radius is re-measured.
+SWEEP_GRAIN_W = 40.0
+
 MIN_RATE_PAIRS = 200           # below this, report COUNTS -- a rate off 20 pairs is noise
 
 
@@ -295,7 +317,7 @@ def _in_box(x, z, box) -> bool:
 
 
 def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float | None = None,
-                  grain: float = WALL_CLEARANCE_W, bedges=None, source_box=None,
+                  grain: float = SWEEP_GRAIN_W, bedges=None, source_box=None,
                   target_box=None, worst: int = 3, max_samples: int = 3_000_000) -> dict:
     """Sweep the FAMILY of straight legs a dynamic feed (chase / wander) can walk.
 
@@ -308,9 +330,11 @@ def sweep_pursuit(wmesh, radius: float, *, standoff: float = 0.0, spacing: float
     up to the standoff ring. A leg that leaves the walkmesh is a position pair at which
     the pursuer walks into a wall.
 
-    TWO resolutions, deliberately decoupled: ``grain`` (default the collision radius) is
+    TWO resolutions, deliberately decoupled: ``grain`` (default :data:`SWEEP_GRAIN_W`) is
     what the walkmesh raster and the leg sampling use -- it must resolve a walker-sized
-    gap, so it NEVER scales with ``radius``; ``spacing`` is only how far apart the
+    gap, so it scales with NEITHER ``radius`` NOR the wall clearance (it was the clearance
+    until 2026-07-30, and correcting that radius 48 -> 80 silently blinded this sweep to a
+    40u notch: 0 blocked of 1358 pairs, a false clean); ``spacing`` is only how far apart the
     sampled ENDPOINTS sit. Both the default spacing (a fifth of the family, or of the
     floor, whichever is smaller) and the ``max_samples`` widening are clamped to the
     OCCUPIABLE EXTENT: a family can never be wider than the field, and sizing off
@@ -483,7 +507,7 @@ def describe_pursuit_problems(name: str, res: dict) -> list:
     return out
 
 
-def sweep_wander(wmesh, cx, cz, radius, *, grain: float = WALL_CLEARANCE_W, bedges=None,
+def sweep_wander(wmesh, cx, cz, radius, *, grain: float = SWEEP_GRAIN_W, bedges=None,
                  clearance: float = WALL_CLEARANCE_W, worst: int = 3,
                  max_samples: int = 1_500_000) -> dict:
     """Sweep a ``wander`` box the way the ENGINE actually plays it.

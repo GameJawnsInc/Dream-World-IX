@@ -116,7 +116,8 @@ camera; `ff9mapkit/tests/test_workspace_backdrop.py` pins the widget half. Note:
 
 ### Rung 1 — floor tracing (parity with `--trace`) ★ DONE + PLAYTESTED 2026-07-28
 Click to add polygon vertices, drag handles to adjust, pitch slider re-deriving the horizon from the
-real camera math, live outset preview (+48u `COLLISION_RADIUS_W`), then call `build_image_field`.
+real camera math, live outset preview (+48u `imagefield.COLLISION_OUTSET` — NOT `COLLISION_RADIUS_W`,
+which is 80 since 2026-07-30; the trace outset is held at 48 pending a playtest), then call `build_image_field`.
 **Verify:** `tools/gui_snap.py` → **read the PNG**; then build → `deploy_field.py --id <scratch>` →
 walk it. Parity target: the hallway photo, re-done entirely in the GUI.
 
@@ -319,10 +320,79 @@ prop default "chest" → "barrel" (looked openable, wasn't); drawn events get **
 on the quad menu (the photo lane has no other editor for a zone's words) + a canvas/lint warn
 while the "..." placeholder would ship as a literal popup.
 
-### Rung 6 (DEFERRED — the intended expansion, owner-decided 2026-07-28)
+### Rung 6 — the multi-room / floorplan composer ★ 6a+6b BUILT 2026-07-29, ⚠ awaiting playtest
 **A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
 rooms on this canvas, declare which edges are doors, and get a wired dungeon: gateways both ways,
 arrival position + facing per side, encounters, save-point siting.
+
+> **The verified math, every constant sourced, and the record of what an adversarial pass caught:
+> [`RUNG6.md`](RUNG6.md). Read it before changing a number** — the draft's own values were wrong in
+> five ways that each looked right, and §1 is the table of what the measurements killed.
+>
+> ⚠ **The Floorplan TAB has never been used by a human.** 73 fences, 20 rendered PNGs, zero minutes
+> of hands — and it changed three times AFTER its adversarial review (the splitter, the deleted
+> nameplate, the viewport-chip label clearance) without being looked at whole since. Risk-ordered
+> first-contact plan: **[`RUNG6-TESTPLAN.md`](RUNG6-TESTPLAN.md)**; its findings come back here.
+> Two things it already establishes: the offline pipeline is sound (a 3-room plan composes, lints
+> and builds clean), and **the live gate is a stall past ~4 rooms** — 1.02 s for one full-size room,
+> 16.45 s for eight, because `standable` grid-samples every bounding box at 8u and is re-walked per
+> room, per door strip and again to site the spawn. Cache it per room and re-judge only what changed.
+
+- **6a ★** — `ff9mapkit/ff9mapkit/floorplan.py`, the pure Qt-free core: the closed-form projection,
+  polygon health, `standable`, the edge-anchored inward normal, the engine's own facing formula,
+  candidate shared walls, the door strip, arrival + facing, the camera fit, interior siting, and
+  fifteen gates. 96 fences in `tests/test_floorplan.py`. Minted **THE TWO-FRAME LAW** (see RUNG6.md
+  §2) — the plan layout is an authoring fiction, so every artifact of a room rides the same integer
+  `off_r`, art included.
+- **6b ★** — `ff9mapkit floorplan <plan.json>`: one member dir per room with its field.toml,
+  walkmesh.obj and **polygon-clipped** placeholder art, plus `campaign.toml` and the re-editable
+  `floorplan.json` sidecar. Proven offline end to end — compose → `lint-campaign` OK 0 warnings →
+  each room 0 errors → `build-all` emits a real dist. The id pre-flight reads the LIVE
+  DictionaryPatch stack before minting (the kit's own collision guard runs only at
+  `deploy --apply`, i.e. after you have already authored N rooms onto colliding ids).
+  Two rooms deployed **additively** to 30500/30501 — the other ~407 registrations untouched.
+- **6c ★** — the Workspace **Floorplan** tab on the Author rail beside Map (`floorplandoc.py`):
+  `PlanCanvas` is a plan-view CHART with one isotropic px↔world pair (+z up, the layout probe's
+  frame — probed 26/26: exact inverse to 1e-6, a click on the cursor within 0.4u after a real zoom
+  and pan). Rooms mode draws and drags; Doors mode paints `shared_edges` candidates on every shared
+  wall and one click declares a door. **`compose()` runs live on every edit** (worker thread, 140 ms
+  debounce, generation-counted — it is ~0.5 s/room) so the fifteen gates paint ON the drawing.
+  Compose streams the CLI verb through `run_job`, then `open_campaign`s the result so the dungeon
+  lands as a live campaign (§5 call site 3). Undo is doc-local over the session snapshot
+  (`TraceDoc`'s model) — that is what makes a door-pair edit atomic despite `shell._UndoRec` being
+  single-member, and a half-undone pair is a gateway with no arrival. 56 fences, 140 with
+  a11y/style/smoke, 616 across the GUI family; snaps at dark/100, dark/150, light/125.
+  ⚠ Disclosed: with a finding showing the chart is 130-158 px at CALIBRE 150 — spawned as its own
+  task (a splitter carries the round-7 squeeze-persistence obligation).
+  **An adversarial review after the build found NINE defects**, two of them fixes the build claimed
+  to have made and the renders disproved. The durable ones:
+  (a) **a control DEAD ON CLICK, on the tab's whole purpose** — you could not start a room abutting
+  another, because a new room's first corner IS the neighbour's corner and the press ate it as a
+  drag-grab. **Invisible to all 47 fences and every snap: they all drove `click_world` directly and
+  so never ran the press/release resolution.** A press on something grabbable is now provisional and
+  a release with no travel is a click, fenced with synthesised real `QMouseEvent`s.
+  (b) **THE NINTH-GROUND LAW** — each room drew its name in the same token its own fill was made of:
+  **2.16:1** on nord accent, under even the 3.0 non-text floor in six of eight palettes. State is now
+  said three ways that survive a fixed ink (stroke colour, stroke width, a glyph — which also
+  survives colour blindness, as the ink never did).
+  (c) **THE DEFAULT-VALUE LAW** — with no `.ff9deploy.toml` (every fresh checkout's first run) the
+  tab reported "composes: ids 30000-30000" with Compose ENABLED, then the click refused and did
+  nothing; and `on_compose` never consulted the name validator at all. One `_envelope_problems()`
+  list is now spent by both the paint and the click.
+  (d) the tests were reading the developer's real gitignored `.ff9deploy.toml`, and it was
+  load-bearing — adding the id gate turned four "clean plan" assertions red because they had been
+  silently consuming this machine's id band. Green here, red on a colleague's checkout.
+- **6d** — the playtest. Open questions it settles are listed in RUNG6.md §6: `R_WALK = 80` vs the
+  repo's 48 (a code derivation, not a measurement), whether front-align *looks* right, the 170u
+  depth floor, and `entry_settle = "auto"` on a hand-drawn polygon.
+
+En route, two defects outside this rung were found and spawned as their own tasks, plus one fixed
+here: `cam.solve_z_for_canvasY` and `guide.frame_floor` are **unsound at low pitch** (`frame_floor`
+raises at every distance for pitch 15, and `pack.new_project` swallows it — so `ff9mapkit new
+--pitch 15` silently ships a template mesh); `[encounter] scene` accepts a catalog NAME that the
+lint resolves and the build then kills with a bare `int()` error; and the layout probe compared the
+spawn against an entrance-0 arrival and called a correct field COLLIDING (fixed — the player is
+exactly one of them at a time).
 
 > ★ **THE DRAWN-MESH LAW — the human draws the walkmesh; the composer never infers one.**
 > Auto-deriving a walkmesh from an arbitrary field drawing is a research problem (segmentation,
@@ -433,9 +503,9 @@ GUI claim from source; that is the documented recurring failure in this package.
    (d) ★ PLAYTEST-CONFIRMED 2026-07-29 — the owner placed a prop + an NPC on a VERBATIM fork
    in the Place tab, deployed to 4003, and saw both in-game (the live-install load path, the
    raycast, the write-back, AND the build's below-band verbatim seating, proven in one pass).
-   **RUNG 3 CLOSED.** Still open on the board: Rung 4 ★ BUILT awaiting playtest (see its block),
-   and Rung 6 (the multi-room composer, now unblocked — its "do not start before Rung 3 is real"
-   gate is satisfied).
+   **RUNG 3 CLOSED.** Rung 4 followed and is owner-confirmed on both lanes; Rung 6 was taken up
+   2026-07-29 once its "do not start before Rung 3 is real" gate was satisfied — 6a+6b built, see
+   its block and [`RUNG6.md`](RUNG6.md).
 5. **Rung 2** ★ BUILT 2026-07-29, ★ CORE MECHANISM PLAYTEST-CONFIRMED (contact mode + the
    Cut-outs strip in the Trace tab; owner aligned a snip on a real hallway photo and confirmed
    it composites correctly in-game — "that worked when i aligned it correctly"). Two full

@@ -1,0 +1,61 @@
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -78,7 +78,7 @@
+     private String _wzText = "0";       // [ff9mapkit] overworld teleport target Z (world units, NEGATIVE going down the grid)
+     private String _dumpBxText = "";    // [ff9mapkit] block-dump cell X (blank = the block under the player)
+     private String _dumpByText = "";    // [ff9mapkit] block-dump cell Y
+-    private String _forceWorldText = "9009";  // [ff9mapkit] debug: reload the overworld on a chosen dispatcher (9000-9012)
++    private String _forceWorldText = "9009";  // [ff9mapkit] debug: reload the overworld on a chosen dispatcher (9000-9012 real; s70 widened this to any 1-32767 so a NEW Path D world id is reachable)
+     private Int32 _discPriorSC = -1;    // [ff9mapkit] disc switch: prior ScenarioCounter to restore on toggle-back (-1 = none saved)
+     private Int32 _discPriorWorld = -1; // [ff9mapkit] disc switch: prior wldMapNo to restore on toggle-back
+     private Boolean _vehicleForceAll;   // [ff9mapkit] debug override: enable EVERY vehicle mode regardless of the per-state allow-list (may CRASH). Session-only, default OFF -- never persisted, so it can't stay silently armed.
+@@ -1145,7 +1145,8 @@
+         GUILayout.BeginHorizontal();
+         ForceWorldButton("9007"); ForceWorldButton("9008"); ForceWorldButton("9009"); ForceWorldButton("9011");
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("Full reload (fades, ~1s) — lands at the state's spawn, not your exact spot.", _hint);
++        GUILayout.Label("Full reload (fades, ~1s) — lands at the state's spawn, not your exact spot. Any id 1-32767 is accepted (s70); ids outside 9000-9012 are EXPERIMENTAL and expected to fail at the EventDB lookup unless a WorldScene line registered them.", _hint);
++
+ 
+         // [ff9mapkit] Recovery for the overworld 'no controlled actor' BLACK SCREEN (project-ff9-overworld-actor-brick).
+         Section("Recovery");
+@@ -1400,11 +1401,22 @@
+     // crash on a non-benign state (the separate, still-open bug this helps test).
+     private void ForceWorldState(String text)
+     {
+-        if (!Int32.TryParse(text.Trim(), out Int32 id) || id < 9000 || id > 9012)
++        // [ff9mapkit s70] PATH D REACHABILITY. This guard used to be `id < 9000 || id > 9012`, which made a
++        // BRAND-NEW world-state dispatcher id unreachable in-game -- and this button is the ONLY route: the
++        // other candidate (WMBeeMenu's "Jump To") is a same-world POSITION teleport, and its host "Bee" object
++        // is destroyed on every WorldMap load anyway (WMScriptDirector.HonoAwake). The engine's own dispatch
++        // path has no such range check -- ff9InitStateWorldMap just does `FF9DBAll.EventDB[MapNo]` (ff9.cs:9306)
++        // -- so any id a mod registered works, and an UNregistered id fails informatively with a
++        // KeyNotFoundException raised AFTER WMWorld.Initialize()/OnInitialize() have already run. That ordering
++        // (WMScriptDirector.cs:40/:44 before :57) is what makes the Path D rung-0 and rung-1 signals separable
++        // in one log. Upper bound stays 32767: wldMapNo is Int16 (FF9StateGlobal), and ArmWorldReload's cast is
++        // unguarded, so a larger number would silently wrap onto a DIFFERENT -- possibly real -- dispatcher.
++        if (!Int32.TryParse(text.Trim(), out Int32 id) || id < 1 || id > 32767)
+         {
+-            _status = "reload world: need an id 9000-9012";
++            _status = "reload world: need an id 1-32767 (the 13 real states are 9000-9012)";
+             return;
+         }
++        Boolean experimental = id < 9000 || id > 9012;
+         try
+         {
+             if (!ArmWorldReload(id))
+@@ -1412,7 +1424,12 @@
+                 _status = "reload world: overworld only";
+                 return;
+             }
+-            _status = "reloading overworld -> " + id + " ...";
++            // Memoria.Prime.Log is the ONLY channel that reaches Memoria.log -- plain Debug.Log does not
++            // (no Unity->Memoria log bridge exists; Unity's own traces land in x64\FF9_Data\output_log.txt).
++            Memoria.Prime.Log.Message("[PathD s70] force world state -> " + id + (experimental ? " (EXPERIMENTAL, outside 9000-9012)" : ""));
++            _status = experimental
++                ? "reloading overworld -> " + id + " (EXPERIMENTAL id -- unregistered = EventDB miss) ..."
++                : "reloading overworld -> " + id + " ...";
+         }
+         catch (Exception ex)
+         {

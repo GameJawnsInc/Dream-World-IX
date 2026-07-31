@@ -910,6 +910,78 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
     _grab(ctx, f"place-{state}-canvas", win.place_doc.canvas)   # the SUBJECT, not just the window
     _close(win)
 
+FLOORPLAN_STATES = ("bare", "rooms", "door", "refused", "reclaimed")
+
+# The snap's own plan, in PLAN-frame world units: an L of three abutting rooms. Deterministic and
+# kit-authored (zero Square-Enix bytes, no install needed -- the composer is pure math).
+_FP_A = [(-1200, -800), (0, -800), (0, 800), (-1200, 800)]
+_FP_B = [(0, -800), (1200, -800), (1200, 800), (0, 800)]
+_FP_C = [(0, 800), (1200, 800), (1200, 2000), (0, 2000)]
+
+
+def _fp_draw(canvas, pts):
+    """Draw one room through the canvas's own click seam and CLOSE it on the first corner."""
+    for p in pts:
+        canvas.click_world(*p)
+    canvas.click_world(*pts[0])
+
+
+def snap_floorplan(ctx: _Ctx, state: str) -> None:
+    """The Floorplan tab (click-authoring Rung 6c): the empty on-ramp with its compass and the
+    teach line ('bare'), three abutting rooms drawn in Rooms mode with their footprints and the
+    entry mark ('rooms'), the Doors tool with one DECLARED door plus the shared wall still on
+    offer ('door'), or the live gate REFUSING a door shallower than 2*R_WALK -- the door and both
+    its rooms in the error colour, the reason listed verbatim, Compose off ('refused').
+
+    'reclaimed' is 'refused' with the chart/findings rail dragged shut -- the author having read the
+    refusal and asked for the drawing back. It is the reason the rail exists and the only state that
+    shows what it buys (at CALIBRE 150 the chart goes 127 -> 245px), so it is pinned: a state that
+    cannot be reproduced cannot be reviewed. The status line changes with it, because "see the list
+    below" is a lie once the list is shut.
+
+    'refused' shows the DOOR class deliberately. ``compose`` raises per STAGE, so a bad room
+    OUTLINE never reaches the door gate at all and a plan carrying both would render only the room
+    half; that half (a self-intersecting outline -> G1) is fenced in
+    tests/test_workspace_floorplan.py, and this is the paint that needed an eye on it.
+
+    The plan is kit-authored world geometry and the composer is pure math, so no install and no
+    templates are needed; the gate verdict is computed on the SYNC lane (production judges on a
+    worker thread behind a 140ms debounce, which a harness cannot idle through)."""
+    if state not in FLOORPLAN_STATES:
+        raise ValueError(f"unknown floorplan state {state!r} (know: {', '.join(FLOORPLAN_STATES)})")
+    win = _make_win(ctx)
+    doc = win.floorplan_doc
+    doc.id_box.setText("30500")                        # the scratch run this lane's pin names --
+    #                                                    BEFORE the show, so the doc's own
+    #                                                    measure-after-polish pass re-homes the
+    #                                                    caret (a caret-scrolled box reads "0500")
+    win.tabs.setCurrentWidget(win.floorplan_doc)
+    _settle(4)
+    if state != "bare":
+        doc.name_box.setText("SUNKEN")
+        for poly in (_FP_A, _FP_B, _FP_C):
+            _fp_draw(doc.canvas, poly)
+    if state in ("door", "refused", "reclaimed"):
+        doc.tools.set_current("doors")
+        doc.judge_now(sync=True)
+        doc.canvas.click_world(0, 0)                   # declare the ROOM1-ROOM2 wall
+    if state in ("refused", "reclaimed"):
+        doc.depth.setValue(100)                        # under DEPTH_MIN: refused, never clamped
+    doc.judge_now(sync=True)
+    _settle(6)
+    if state == "reclaimed":
+        # through moveSplitter, not setSizes: moveSplitter is what emits splitterMoved, and the
+        # recorded CHOICE is the whole difference between a drag and the app's own arithmetic.
+        doc.split.moveSplitter(sum(doc.split.sizes()), 1)
+        _settle(6)
+    _settle(6)                                     # the viewport must be SETTLED before the fit:
+    doc.canvas.fit()                               # fit() measures the live viewport
+    _settle(4)
+    _grab(ctx, f"floorplan-{state}", win)
+    _grab(ctx, f"floorplan-{state}-canvas", doc.canvas)   # the SUBJECT, not just the window
+    _close(win)
+
+
 _BARE_TOML = """\
 [field]
 name = "BARE"
@@ -1075,6 +1147,59 @@ def snap_console(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
+def snap_form(ctx: _Ctx, state: str) -> None:
+    """The field editor's LOGIC FORMS -- the surface that had no pinned snap at all, which is how a field
+    could ship a placeholder ("a encounter name or id") that its own parser refused.
+
+    Each state opens a writable copy of the boletta example with the section under test appended, selects
+    that section's tree row through the shipped jump (``_goto_tree_section``), and grabs the FORM, not the
+    window: a hint judged inside an 850px screenshot is the downscaled-review mistake. Guided mode is forced
+    OFF here so the 'advanced' fields (the NPC model) are inline instead of inside a collapsed drawer -- a
+    field hidden behind a disclosure cannot be read in a still.
+    """
+    if state not in FORM_STATES:
+        raise ValueError(f"unknown form state {state!r} (know: {', '.join(FORM_STATES)})")
+    body = {
+        # blank scene -> the PLACEHOLDER is the subject (it must not promise a name the parser refuses)
+        "encounter": '[encounter]\nfreq = 64\n',
+        # a battle-scene NAME: legal TOML since the build resolves it -- it must render with NO error notice
+        "encounter-named": '[encounter]\nscene = "BSC_EF_R007"\nfreq = 64\n',
+        # the id-only catalogs (song) must say "id", not "name or id" -- the honest half of the same rule
+        "music": "[music]\nloop_start = 0\n",
+        # [[npc]] model takes an exact GEO name too (build.resolve_npc_model), same defect, same spec file
+        "npc": None,
+    }[state]
+    src = REPO / "ff9mapkit" / "examples" / "boletta"
+    assert src.is_dir(), "cannot find the boletta example -- snap void"
+    dst = _SCRATCH / f"form_{state}"
+    if dst.exists():
+        shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(src, dst)                     # NEVER the bundled example: a form Save rewrites the oracle
+    proj = dst / "boletta.field.toml"
+    if body:
+        proj.write_text(proj.read_text(encoding="utf-8") + "\n" + body, encoding="utf-8")
+    elif state == "npc":                          # the example's NPC by GEO NAME instead of its numeric id
+        txt = proj.read_text(encoding="utf-8")
+        assert "model = 6300" in txt, "boletta's npc no longer carries `model = 6300` -- snap void"
+        proj.write_text(txt.replace("model = 6300", 'model = "GEO_NPC_F0_BAR"'), encoding="utf-8")
+    guided = ctx.guided
+    ctx.guided = False                            # advanced fields inline -- a collapsed drawer is unreadable
+    try:
+        win = _make_win(ctx)
+        assert win.open_field(proj), f"form:{state}: open_field refused the copy -- snap void"
+        if state == "npc":
+            win._goto_tree_section("GLADE", "npc")       # expand the group (the lazy tree builds on select)
+            win._select_object("GLADE", "npc:0")         # ...then the ENTRY: the group header has no form
+            assert win._payload(win.tree.currentItem())[2] == "npc:0", "form:npc: never reached the NPC row"
+        else:
+            win._goto_tree_section("GLADE", state.split("-")[0])
+        _settle(6)
+        _grab(ctx, f"form-{state}", win.doc_host)   # the document BODY, not the window (read the hints, not a thumb)
+        _close(win)
+    finally:
+        ctx.guided = guided
+
+
 def snap_tab(ctx: _Ctx, tab: str) -> None:
     if tab == "coop":
         # tab:coop unpinned rendered THIS machine's real [Netsync] state -- including the developer's
@@ -1190,6 +1315,7 @@ def snap_dialog(ctx: _Ctx, key: str) -> None:
         _close(win)
 
 
+FORM_STATES = ("encounter", "encounter-named", "music", "npc")
 HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",
@@ -1205,7 +1331,9 @@ def all_surfaces() -> list[str]:
             + [f"script:{s}" for s in SCRIPT_STATES]
             + [f"behavior:{s}" for s in BEHAVIOR_STATES]
             + [f"trace:{s}" for s in TRACE_STATES]
-            + [f"place:{s}" for s in PLACE_STATES])
+            + [f"place:{s}" for s in PLACE_STATES]
+            + [f"floorplan:{s}" for s in FLOORPLAN_STATES]
+            + [f"form:{s}" for s in FORM_STATES])
 
 
 def main() -> None:
@@ -1257,6 +1385,10 @@ def main() -> None:
                 snap_trace(ctx, rest)
             elif kind == "place":
                 snap_place(ctx, rest)
+            elif kind == "floorplan":
+                snap_floorplan(ctx, rest)
+            elif kind == "form":
+                snap_form(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface

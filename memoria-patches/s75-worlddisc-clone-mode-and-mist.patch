@@ -1,0 +1,210 @@
+diff --git a/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs b/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs
+--- a/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs
++++ b/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs
+@@ -70,6 +70,33 @@
+             return Engaged;
+         }
+ 
++        /// <summary>
++        /// [s75] BLANK vs CLONE. Blank = 480 all-sea cells, a true empty canvas. Clone = copy the STOCK world's
++        /// per-cell flags off the real baked hierarchy, so the synthetic grid renders the stock world map while
++        /// still resolving its per-cell OVERRIDES through Path D's own namespace (s74). That combination is what
++        /// makes a stock world reshapeable NON-DESTRUCTIVELY: the edits live in Path D's files, the real disc is
++        /// never touched. Session-only, default Blank.
++        /// </summary>
++        public static Boolean CloneStockWorld = false;
++
++        /// <summary>
++        /// [s75] Mist off on a synthetic world (owner decision). Read by WorldConfiguration.UseMist().
++        /// Session-only so it can be flipped without a rebuild. NOT purely cosmetic -- see the note there:
++        /// w_frameFog is part of the encounter lookup key.
++        /// </summary>
++        public static Boolean SuppressMist = true;
++
++        /// <summary>
++        /// [s75] Whether to suppress the stock CELL-KEYED landmarks (Water Shrine 219, the Daguerreo bridge 389,
++        /// quicksand 91/115). True on a BLANK world -- a genuinely new continent must not inherit Daguerreo's
++        /// bridge merely for reusing its grid coordinates. False on a CLONE, which is deliberately reproducing
++        /// the stock world and wants them. Always false off a synthetic disc, so real play is untouched.
++        /// </summary>
++        public static Boolean SuppressStockLandmarks
++        {
++            get { return Engaged && !CloneStockWorld; }
++        }
++
+         /// <summary>The live world id, defensively -- Initialize() runs early enough to be worth the guard.</summary>
+         public static Int32 CurrentWorldId()
+         {
+@@ -86,8 +113,30 @@
+         /// <summary>
+         /// Build a complete synthetic block grid and return its root. Caller assigns it to WMWorld.WorldDisc.
+         /// </summary>
+-        public static Transform Build()
++        /// <param name="stockDisc">
++        /// [s75] The REAL baked WorldDisc, captured by the caller BEFORE it reassigns its reference. We never
++        /// destroy or deactivate it, so its 480 WMBlocks are still readable here and can donate their flags in
++        /// CLONE mode. Pass null (or run in Blank mode) for the empty canvas.
++        /// </param>
++        public static Transform Build(Transform stockDisc)
+         {
++            // [s75] In clone mode, index the donor's cells by grid coord up front. BuildBlockArray is the same
++            // helper every ordinary disc-1/4 boot already runs against this hierarchy, so it is proven safe here.
++            WMBlock[,] donor = null;
++            if (CloneStockWorld && stockDisc != (UnityEngine.Object)null)
++            {
++                try
++                {
++                    donor = WMWorld.BuildBlockArray(stockDisc);
++                }
++                catch (Exception ex)
++                {
++                    // A clone that cannot read its donor must fall back to the empty canvas, never crash the load.
++                    donor = null;
++                    Memoria.Prime.Log.Error("[PathD s75] clone donor unreadable, falling back to blank: " + ex.Message);
++                }
++            }
++
+             GameObject rootGo = new GameObject("WorldDisc_SPIKE");
+             // Identity + unparented on purpose. Nothing in WMWorld requires a parent (it only ever enumerates
+             // `worldDisc.transform`'s direct children at :1680 and `root.transform` at :1115), and inheriting a
+@@ -127,14 +176,30 @@
+                     // not noise. All those paths are stock and null-guarded.
+                     b.Number = y * GridW + x;
+ 
+-                    // The whole point of the minimal payload: every cell takes LoadBlock's `if (block.IsSea)`
+-                    // branch (:495), which routes to the already-in-game-proven sea / s34-reclaim path instead
+-                    // of a per-cell prefab lookup that would need assets we have not authored.
+-                    b.IsSea = true;
++                    // BLANK: every cell takes LoadBlock's `if (block.IsSea)` branch, routing to the proven
++                    // sea / s34-reclaim path instead of a per-cell prefab lookup for assets we never authored.
++                    // CLONE: copy the stock cell's own flags, so land cells fall through to LoadBlock's else-branch
++                    // and load their REAL WorldDisc{currentDisc} block prefab -- the stock world map, rendered
++                    // under our override namespace. Only TWO flags matter: IsSea drives the branch, and
++                    // IsSwitchable gates SetForm() -- skipping it silently breaks the Water Shrine / Mognet
++                    // Central / Chocobo's Paradise "opened" visuals, whose Form2 art LoadBlock builds regardless.
++                    // Every Has* flag is a write-only OUTPUT of LoadBlock; HasSpecialObject is dead project-wide.
++                    WMBlock src = (donor != null) ? donor[x, y] : null;
++                    if (src != (UnityEngine.Object)null)
++                    {
++                        b.IsSea        = src.IsSea;
++                        b.IsSwitchable = src.IsSwitchable;
++                        b.Number       = src.Number;   // keep the donor's own identity, not our computed one
++                    }
++                    else
++                    {
++                        b.IsSea        = true;
++                        b.IsSwitchable = false;  // SetForm no-ops (WMBlock.cs:99)
++                    }
+ 
+-                    b.IsSwitchable     = false;  // SetForm no-ops (WMBlock.cs:99)
+                     b.HasSpecialObject = false;
+                     b.IsReady          = false;
++
+                     b.StartedLoadAsync = false;
+                     b.IsInsideSight    = false;
+ 
+diff --git a/Assembly-CSharp/Memoria/World/WorldConfiguration.cs b/Assembly-CSharp/Memoria/World/WorldConfiguration.cs
+--- a/Assembly-CSharp/Memoria/World/WorldConfiguration.cs
++++ b/Assembly-CSharp/Memoria/World/WorldConfiguration.cs
+@@ -222,6 +222,18 @@
+ 
+         public static Boolean UseMist()
+         {
++            // [ff9mapkit s75] DWIX PATH D: a synthetic world is mist-free by owner decision. This is the ONLY clean
++            // lever -- mist is not position-keyed and has NO script route: w_frameFog's sole source is
++            // w_weatherFogCheck() -> UseMist(), which stock-tests the SCENARIO COUNTER, and no
++            // w_frameSetParameter/RunWorldCode case writes w_frameFog at all (its one weather case hardwires
++            // fog=2, "keep current"). Placed ahead of the data hook so a Path D world is unambiguous; gated on
++            // Engaged, which Latch() ALWAYS assigns, so a real disc-1/4 load reads false by construction and stock
++            // mist behaviour is byte-identical.
++            // WARNING -- NOT purely cosmetic: w_frameFog is part of the ENCOUNTER lookup key
++            // (ff9.w_worldGetBattleScenePtr), so a mist-free world draws each zone's fog=0 encounter twin instead
++            // of its fog=1 one. Near Dali's topograph-10 ground that is battle scene 245 instead of 247.
++            if (Memoria.World.WorldDiscSpike.Engaged && Memoria.World.WorldDiscSpike.SuppressMist)
++                return false;
+             // Custom usage condition
+             if (_customMistModifier.HasCondition)
+                 return _customMistModifier.IsActive;
+diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+--- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
++++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+@@ -114,8 +114,12 @@
+         // engaged load can never leak into the next real disc-1/4 load.
+         if (Memoria.World.WorldDiscSpike.Latch(Memoria.World.WorldDiscSpike.CurrentWorldId()))
+         {
+-            this.WorldDisc = Memoria.World.WorldDiscSpike.Build();
+-            Log.Message("[PathD s71] WorldDisc replaced by a synthetic WorldDisc_SPIKE (480 IsSea blocks)");
++            // [s75] Hand Build() the REAL hierarchy BEFORE overwriting the reference -- in CLONE mode it donates
++            // each stock cell's flags. It is never destroyed or deactivated here, only unreferenced.
++            this.WorldDisc = Memoria.World.WorldDiscSpike.Build(this.WorldDisc);
++            Log.Message("[PathD s71] WorldDisc replaced by a synthetic WorldDisc_SPIKE ("
++                + (Memoria.World.WorldDiscSpike.CloneStockWorld ? "CLONE of the stock world" : "BLANK, 480 IsSea")
++                + "; mist " + (Memoria.World.WorldDiscSpike.SuppressMist ? "OFF" : "on") + ")");
+         }
+         this.InitialBlocks = WMWorld.BuildBlockArray(this.WorldDisc);
+         this.MainCamera = GameObject.Find("WorldCamera").GetComponent<Camera>();
+@@ -594,7 +598,7 @@
+             RegisterBlockComponent(block, prefab.ObjectForm2, false, true);
+         if (prefab.TerrainForm2)
+             RegisterBlockComponent(block, prefab.TerrainForm2, false, true);
+-        if (block.Number == 219 && !Memoria.World.WorldDiscSpike.Engaged)   // [s74] no stock Water Shrine on a Path D disc
++        if (block.Number == 219 && !Memoria.World.WorldDiscSpike.SuppressStockLandmarks)   // [s74] no stock Water Shrine on a Path D disc
+         {
+             block.SetTextureFilterMode(); // declared before sea/beach/quicksand, or they become static (theirs is declared in WMRenderTextureBank and WMBlocks)
+             GameObject waterShrineGo = AssetManager.Load<GameObject>("WorldMap/Prefabs/Effects/WaterShrine", false);
+@@ -696,7 +700,7 @@
+         // worked), but a genuinely new continent must not contain Daguerreo's bridge (389), the Water Shrine (219)
+         // or Cleyra's quicksand (91/115) just because it reused those grid coordinates. Found by an owner sailing
+         // the all-sea 9013 world -- see studies/path-d-new-world/INHERITED-STOCK-BEHAVIOR.md. Identity when off.
+-        if (block.Number == 389 && !Memoria.World.WorldDiscSpike.Engaged)
++        if (block.Number == 389 && !Memoria.World.WorldDiscSpike.SuppressStockLandmarks)
+         {
+             GameObject block516Go = AssetManager.Load<GameObject>("EmbeddedAsset/WorldMap_Local/Prefabs/Block[5][16] Object", false);
+             if (block516Go)
+@@ -711,7 +715,7 @@
+             }
+         }
+         block.SetTextureFilterMode(); // declared before sea/beach/quicksand, or they become static (theirs is declared in WMRenderTextureBank and WMBlocks)
+-        if (block.Number == 91 && !Memoria.World.WorldDiscSpike.Engaged)   // [s74] no stock quicksand on a Path D disc
++        if (block.Number == 91 && !Memoria.World.WorldDiscSpike.SuppressStockLandmarks)   // [s74] no stock quicksand on a Path D disc
+         {
+             GameObject quicksandGo = AssetManager.Load<GameObject>("WorldMap/Prefabs/Effects/Quicksand", false);
+             if (quicksandGo)
+@@ -722,7 +726,7 @@
+                 quicksandCopy.transform.localPosition = new Vector3(8f, 1.66f, -60f);
+             }
+         }
+-        if (block.Number == 115 && !Memoria.World.WorldDiscSpike.Engaged)   // [s74] no stock quicksand on a Path D disc
++        if (block.Number == 115 && !Memoria.World.WorldDiscSpike.SuppressStockLandmarks)   // [s74] no stock quicksand on a Path D disc
+         {
+             GameObject quicksandGo = AssetManager.Load<GameObject>("WorldMap/Prefabs/Effects/Quicksand", false);
+             if (quicksandGo)
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -1160,7 +1160,24 @@
+             Memoria.Prime.Log.Message("[PathD s71] synthetic WorldDisc spike " + (Memoria.World.WorldDiscSpike.Active ? "ARMED" : "disarmed"));
+         }
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("Builds 480 all-sea WMBlocks from scratch. Expect an ocean containing ONLY the reclaimed cells that already have loose Terrain.ff9mesh overrides — that is the success picture, not a bug.", _hint);
++        // [ff9mapkit s75] BLANK vs CLONE, and the mist switch. Clone copies the STOCK world's per-cell flags onto
++        // the synthetic grid, so the stock map renders while its per-cell overrides still resolve through Path D's
++        // OWN namespace (s74) -- i.e. a stock world becomes reshapeable without touching the real disc.
++        GUILayout.BeginHorizontal();
++        if (GUILayout.Button((Memoria.World.WorldDiscSpike.CloneStockWorld ? "[x]  " : "[  ]  ") + "clone the stock world (else blank ocean)", _toggleBtn, GUILayout.ExpandWidth(false)))
++        {
++            Memoria.World.WorldDiscSpike.CloneStockWorld = !Memoria.World.WorldDiscSpike.CloneStockWorld;
++            Memoria.Prime.Log.Message("[PathD s75] synthetic disc mode -> " + (Memoria.World.WorldDiscSpike.CloneStockWorld ? "CLONE" : "BLANK"));
++        }
++        GUILayout.EndHorizontal();
++        GUILayout.BeginHorizontal();
++        if (GUILayout.Button((Memoria.World.WorldDiscSpike.SuppressMist ? "[x]  " : "[  ]  ") + "mist OFF on the synthetic world", _toggleBtn, GUILayout.ExpandWidth(false)))
++        {
++            Memoria.World.WorldDiscSpike.SuppressMist = !Memoria.World.WorldDiscSpike.SuppressMist;
++            Memoria.Prime.Log.Message("[PathD s75] synthetic-world mist -> " + (Memoria.World.WorldDiscSpike.SuppressMist ? "OFF" : "on"));
++        }
++        GUILayout.EndHorizontal();
++        GUILayout.Label("BLANK builds 480 all-sea cells. CLONE copies the stock world's flags, so it renders the real map but reads its cell overrides from Path D's own namespace — reshape a stock world without touching it. Mist-off also swaps each zone to its fog=0 encounter twin.", _hint);
+ 
+         // [ff9mapkit] Recovery for the overworld 'no controlled actor' BLACK SCREEN (project-ff9-overworld-actor-brick).
+         Section("Recovery");

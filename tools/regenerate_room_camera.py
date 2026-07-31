@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Faithfulness check: read a room's .bgx camera, decompose it to human-meaningful
 # geometry (position C, orientation R_ortho, FOV), then RE-SYNTHESIZE the camera
-# block from those values via cam_lib.synth_r_t and rewrite the .bgx.
+# block from those values via ff9mapkit.scene.cam.synth_r_t and rewrite the .bgx.
 #
 # If the tool is faithful, the regenerated camera == the known-good camera (within
 # Int16 rounding) and the room renders identically in-game.
@@ -10,7 +10,11 @@
 # all comments, OVERLAY blocks, and other camera fields are preserved verbatim.
 #
 # Usage: regenerate_room_camera.py <in.bgx> <out.bgx>
-import sys, math, cam_lib as C
+import os, sys, math
+
+KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
+sys.path.insert(0, KIT)
+from ff9mapkit.scene import cam as C
 
 inp, outp = sys.argv[1], sys.argv[2]
 cams = C.parse_bgx_cameras(inp)

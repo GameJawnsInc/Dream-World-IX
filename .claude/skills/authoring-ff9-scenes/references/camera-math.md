@@ -38,6 +38,24 @@ donor `fbg_n11_ldbm_map158_lb_plz_0` (centerOffset [26, 400]; regression in
 `ff9mapkit/tests/test_cameras.py::test_map158_center_offset_regression`). `cam.to_canvas(P, cam)`
 is the implementation; `solve_z_for_canvasY` is the inverse (painted floor row → world z).
 
+### The inverse is CLOSED FORM, and its pole is the trap
+
+`canvasY(z)` along a world line is Möbius in z, so `solve_z_for_canvasY` solves it directly —
+`z = (a*E - A*H)/(B*H - a*G)`, coefficients read out of `project` (see the block comment at
+`cam.py:203`). **Never re-derive it by search.** `project` divides by `num = abs(res.z)`, so past the
+projection pole at `res.z = 0` the same canvas row is re-produced MIRRORED by points BEHIND the
+camera; any bracket that spans the pole is unsound. That is a real, paid-for bug, not a hypothetical:
+the former bisection over `[-30000, +30000]` returned `None` for rows with valid roots at pitch ≤ ~30
+(so `ff9mapkit new --pitch 15` silently scaffolded a hard-coded quad matching no camera) and lost
+112 of 886 in-front samples across the six real donor cameras. Two corollaries:
+
+- **A canvas coordinate alone cannot tell you a point is in front of the camera** — the mirror makes
+  a behind-camera point land at an ordinary-looking row. `project(P, cam)[2]` (SIGNED `res.z`) is the
+  only thing that can see it; check it whenever the answer feeds geometry.
+- Use `cam.canvas_row_z` (returns `(z, reason)`) when you need to TELL the user why a row has no
+  floor — `guide.frame_floor` quotes it. `horizon_canvas_y` is the analytic asymptote; do not probe
+  it with a large z (that rides the same mirror, and 1e7 is still 6.5 rows out on the map158 donor).
+
 Engine offsets (what the GTE actually receives — `FieldMap.cs`, quoted from the memory):
 `offX = centerOffset.x + w/2 - HalfFieldWidth`, `offY = -centerOffset.y - h/2 + HalfFieldHeight`
 (HalfFieldWidth=160, HalfFieldHeight=112). Actor depth = `result.z/4 + depthOffset`.
@@ -78,6 +96,6 @@ field.toml: `[[camera]]` + `[[layers]] camera=N` + `[[camera_zone]]`. Byte-exact
 ## Dead ends (proven — do not re-explore)
 
 - Per-pitch `sx/sy` canvas scale: the map is exact scale-1; the "back-edge drift" was the character
-  collision radius (`COLLISION_RADIUS_W ≈ 48`), not a map error.
+  collision radius (`COLLISION_RADIUS_W = 80`, in-game confirmed 2026-07-30), not a map error.
 - The FieldCreator editor's 5-point camera anchor on a flat floor: rank-deficient (all y=0 zeroes the
   y-columns) — mathematically degenerate. Synthesize with `synth_r_t` instead.

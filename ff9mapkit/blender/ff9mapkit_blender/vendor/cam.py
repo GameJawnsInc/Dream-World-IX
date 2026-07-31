@@ -63,12 +63,24 @@ S_CANVAS_X = 1.0
 S_CANVAS_Y = 1.0
 S_CANVAS = 1.0
 
-# Walking-character collision radius, world units. FieldMap.cs sets the controller radius to
-# bgiRad*4 (bgiRad from the .bgi; flat quads use the default ~12 -> ~48). The player CENTRE cannot
-# reach the painted floor edge -- it stops ~this far inside (most visible at the foreshortened back
-# edge; THIS was the old "back edge a bit short"). Physics, not a map error: extend the walkmesh
-# past the painted floor by ~this much if the player should be able to stand at the visual edge.
-COLLISION_RADIUS_W = 48.0
+# Walking-character collision radius, world units. The kit's player Init runs
+# SetObjectLogicalSize(20, 24, 40) (verified by disassembling the blank-field template) ->
+# Memoria EventEngine.DoEventCode.cs:1500 `size = getv1()` (arg1==20) -> :1531
+# `component1.radius = size * 4` == 80 -> FieldMapActorController.cs:1057 RadiusValid ->
+# WalkMesh.cs:1976 BGI_computeNewPoint, which pins the centre at EXACTLY radius off an
+# inaccessible edge. The player CENTRE cannot reach the painted floor edge -- it stops this far
+# inside (most visible at the foreshortened back edge; THIS was the old "back edge a bit short").
+# Physics, not a map error: extend the walkmesh past the painted floor by this much if the player
+# should be able to stand at the visual edge.
+# IN-GAME CONFIRMED (2026-07-30, R_WALK_CALIB field 30510): walked into a wall at world z=300;
+# the debug HUD read the clamped stop at exactly z=220, i.e. inset 80 -- not 48. The former
+# value here (48) was never actually traced from this code path; it was reverse-engineered as a
+# post-hoc explanation for an empirical measurement from the room02 checkerboard bench, whose own
+# instrument was separately found to conflate this radius with the legacy flat-builder's
+# orgPos=(0,0,300) offset and the since-retired eyeball canvas scale (see the room02 deletion,
+# 6f07caee). This constant now matches floorplan.R_WALK -- see floorplan.py:61-70 for the same
+# chain and studies/click-authoring/RUNG6.md §6.1 for the full history.
+COLLISION_RADIUS_W = 80.0
 
 # Object<->object collision radius, world units (DISTINCT from the controller radius above).
 # WalkMesh.Collision blocks one actor against another when their centre distance < 4*collRadA +
@@ -194,33 +206,119 @@ def to_canvas(P, cam):
     offset-less form); REAL imported cameras need their GTE centerOffset (see the block comment
     above -- the map158 donor's [26, 400] is the proven case).
     NB: this is pure geometry -- the player's COLLISION_RADIUS_W keeps the player CENTRE a constant
-    ~48 world units inside any painted edge; account for it in the walkmesh, not here."""
+    80 world units inside any painted edge; account for it in the walkmesh, not here."""
     px, py, _ = project(P, cam)                 # RAW GTE projection (offset 0,0)
     return (px + cam.centerOffset[0] + cam.range[0]/2.0,
             cam.range[1]/2.0 + cam.centerOffset[1] - py)
 
 
-def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-30000.0, zhi=30000.0):
+# ---------- the inverse map: a painted-canvas row -> world z ----------
+# canvasY(z) along a vertical world line (x, y, *) is a MOBIUS function of z, so its inverse is
+# CLOSED FORM — no search is needed, and searching was actively WRONG. `project` is affine in z:
+#       res(z) = R_ff9*F(x,y,z) + t = w0 + z*wz    w0 = R_ff9*(x,-y,0) + t ; wz = R_ff9 column 2
+# and to_canvas folds that into (writing a := cy0 - canvasY, cy0 := range.h/2 + centerOffset.y):
+#       a(z) = (A + B*z) * H / |E + G*z|    A = -w0[1], B = -wz[1], E = w0[2], G = wz[2], H = proj
+# `E + G*z` IS the GTE's res.z (camera-space depth), and `project` divides by num = |res.z| — so
+# past the PROJECTION POLE at E + G*z = 0 the very same canvas row is re-produced, MIRRORED, by
+# points BEHIND the camera. The old implementation bisected [-30000, +30000], a bracket that SPANS
+# that pole: its two-endpoint sign test saw the same sign at both ends and returned None for rows
+# that DO have a valid front-branch root. Measured cost — at pitch 15 / distance 3000 every row
+# below ~363 was lost (365/420/440 -> None; true roots -1650/-1900/-1970, which re-project to
+# 365.0/420.0/440.0), which is what silently sent `ff9mapkit new --pitch 15` to a hard-coded quad;
+# and across the seven real donor cameras 112 of 886 samples taken at world z genuinely IN FRONT of
+# the camera came back None — ALL 32 of them on TRNO0_inv, whose r[2][2] < 0 puts its whole front
+# branch at negative z. Solving the FRONT branch only (E + G*z > 0, where the |.| is the identity):
+#       z = (a*E - A*H) / (B*H - a*G)
+# Exact for ANY camera — yaw, roll, a real imported centerOffset — not only pure-pitch synthesis:
+# it round-trips to_canvas to ~1e-13 px over 8 pitches x 4 distances, and to ZERO misses on all
+# seven real cameras. (A pitch-only closed form built on decompose() would be ~0.07 px and would
+# not survive the yawed/inverted real cameras; these coefficients come straight out of `project`.)
+_ROW_EPS = 1e-9                   # |B*H - a*G| at or below this: the row IS the horizon
+
+
+def _row_coeffs(cam, x=0.0, y=0.0):
+    """(A, B, E, G) of the canvas-row map above, for the vertical world line (x, y, *)."""
+    Rf = cam.Rf()
+    w0 = [mv(Rf, (x, -y, 0.0))[i] + cam.t[i] for i in range(3)]
+    wz = [Rf[i][2] for i in range(3)]
+    return (-w0[1], -wz[1], w0[2], wz[2])
+
+
+def canvas_row_z(cam, canvasY, x=0.0, y=0.0, zlo=-30000.0, zhi=30000.0, near=1.0):
+    """``(z, reason)``: the world z whose foot projects to a painted-canvas row, plus WHY on a miss.
+
+    ``reason`` is None on success, else one factual sentence naming the refusal — so a caller can
+    say something TRUE. (guide.frame_floor used to blame "above the horizon" for every None; that
+    was the bug's most visible lie, reporting rows 320 rows BELOW the horizon as above it.)
+    ``near`` refuses a root within that many world units of the camera plane, where the projection
+    is degenerate (the engine divides by res.z). ``zlo``/``zhi`` bound the answer to a reachable
+    window, exactly as the old bisection bracket did -- the default +/-30000 is the walkmesh's own
+    Int16 coordinate budget with headroom (see scene.bgi), so a root outside it could not be built
+    anyway; pass None for either to lift it.
+    """
+    A, B, E, G = _row_coeffs(cam, x, y)
+    H = float(cam.proj)
+    a = (cam.range[1]/2.0 + cam.centerOffset[1]) - canvasY
+    den = B*H - a*G
+    if abs(den) <= _ROW_EPS:
+        if abs(B) <= _ROW_EPS and abs(G) <= _ROW_EPS:
+            return None, ("world z does not move this canvas row at this camera (it looks along "
+                          "the x axis, so depth runs horizontally across the screen) -- no pitch "
+                          "or row change helps")
+        return None, "this row IS the camera's horizon, so no finite world z projects there"
+    z = (a*E - A*H) / den
+    # The camera-space depth AT the root collapses to an identity with no row dependence at all:
+    #       E + G*z = H*(E*B - A*G)/den = H*det/den          (det := E*B - A*G)
+    # so WHICH side of the horizon is reachable is fixed by sign(G*det) -- it inverts on a camera
+    # with G < 0 (the real TRNO0_inv) and again on det < 0. Deriving the hint from sign(G) alone
+    # was wrong on 1298 of the rows swept across the seven real cameras.
+    dep = E + G*z
+    if dep <= near:
+        det = E*B - A*G
+        if G*det == 0.0:
+            return None, (f"its only root (z={z:.0f}) is behind the camera (camera-space depth "
+                          f"{dep:.1f}), and so is every other row's at this camera")
+        side = "larger" if G*det > 0 else "smaller"
+        return None, (f"its only root (z={z:.0f}) is behind the camera (camera-space depth "
+                      f"{dep:.1f}): steepen the pitch, or move the row to a {side} Y -- the rows "
+                      f"on the {side}-Y side of the horizon (Y~{horizon_canvas_y(cam, x):.0f}) are "
+                      f"this camera's reachable ones")
+    if (zlo is not None and z < zlo) or (zhi is not None and z > zhi):
+        lo = "-inf" if zlo is None else f"{zlo:g}"
+        hi = "inf" if zhi is None else f"{zhi:g}"
+        return None, (f"its root (z={z:.0f}) is outside the reachable window [{lo}, {hi}]: the "
+                      f"camera sits that far out, or the row that near the horizon "
+                      f"(Y~{horizon_canvas_y(cam, x):.0f}) -- either way a walkmesh coordinate "
+                      f"there would not fit Int16")
+    return z, None
+
+
+def solve_z_for_canvasY(cam, canvasY, x=0.0, y=0.0, zlo=-30000.0, zhi=30000.0, near=1.0):
     """Inverse: find the world z (at given x,y) whose foot projects to a painted-canvas row.
-    Bisection on the monotonic canvasY(z). Returns z, or None if the row is unreachable (the
-    floor never projects there at this camera — i.e. above the horizon, or beyond the z search)."""
-    def cy(z): return to_canvas((x, y, z), cam)[1]
-    a, b = zlo, zhi
-    fa, fb = cy(a)-canvasY, cy(b)-canvasY
-    if fa == 0: return a
-    if fb == 0: return b
-    if (fa > 0) == (fb > 0): return None
-    for _ in range(80):
-        m = 0.5*(a+b); fm = cy(m)-canvasY
-        if abs(fm) < 1e-4: return m
-        if (fm > 0) == (fa > 0): a, fa = m, fm
-        else: b, fb = m, fm
-    return 0.5*(a+b)
+    Exact closed form on the camera's FRONT branch (see the block comment above). Returns z, or
+    None if no floor point projects there — :func:`canvas_row_z` returns the same root WITH the
+    reason, which is what you want for an error message."""
+    return canvas_row_z(cam, canvasY, x, y, zlo, zhi, near)[0]
+
 
 def horizon_canvas_y(cam, x=0.0):
-    """The painted-canvas Y the floor (y=0 plane) approaches as z -> +inf: the camera's horizon.
-    Floor rows ABOVE this (smaller canvasY) are unreachable — there's no floor point there."""
-    return to_canvas((x, 0.0, 1.0e7), cam)[1]
+    """The painted-canvas Y the floor (y=0 plane) approaches as it recedes: the camera's horizon.
+    Floor rows on the far side of this are unreachable — there's no floor point there.
+
+    EXACT: the front-branch asymptote of the row map above is a -> B*H/G as |z| -> inf, so the
+    horizon is cy0 - B*H/G. (The former z = +1e7 probe rode the same |res.z| mirror as the old
+    solver: on the real TRNO0_inv camera, whose r[2][2] < 0 puts +z BEHIND it, z = +1e7 is past the
+    pole and it reported row 321 for a true horizon of -13.) ``x`` is accepted for compatibility
+    and cannot move the answer: parallel planes share one vanishing line, and A/E — the only
+    coefficients that depend on x,y — drop out of the limit."""
+    A, B, E, G = _row_coeffs(cam, x, 0.0)
+    cy0, H = cam.range[1]/2.0 + cam.centerOffset[1], float(cam.proj)
+    if abs(G) > _ROW_EPS:
+        return cy0 - B*H/G
+    # G == 0: world z does not change depth, so the y=0 plane has NO vanishing line at all.
+    if abs(B) > _ROW_EPS:
+        return float("-inf")            # every canvas row is floor — nothing is above the horizon
+    return cy0 - A*H/abs(E)             # ...and z does not move the row either: it IS that row
 
 # ---------- decomposition: R_ff9 -> (k-per-row, R_ortho, camera pos C, R_view) ----------
 def decompose(cam):

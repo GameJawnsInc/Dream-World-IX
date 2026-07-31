@@ -54,6 +54,7 @@ from .battledoc import BattleDoc
 from .behaviordoc import BehaviorDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
+from .floorplandoc import FloorplanDoc
 from .forms_qt import build_form, pick_catalog, read
 from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
@@ -945,6 +946,8 @@ class Workspace(QMainWindow):
             self.trace_doc.retheme(pal)                       # the backdrop canvas paints too
         if getattr(self, "place_doc", None) is not None:
             self.place_doc.retheme(pal)                       # its backdrop canvas paints too
+        if getattr(self, "floorplan_doc", None) is not None:
+            self.floorplan_doc.retheme(pal)                   # the plan chart paints too
         if getattr(self, "_find_bar", None) is not None:
             self._find_bar.retheme(pal)                       # both highlight tiers are QTextCharFormats --
                                                               # QPainter-side, so the sheet cannot reach them
@@ -1000,6 +1003,8 @@ class Workspace(QMainWindow):
             self.trace_doc.set_scale(self._text_scale)      # the backdrop canvas too
         if getattr(self, "place_doc", None) is not None:
             self.place_doc.set_scale(self._text_scale)      # its backdrop canvas too
+        if getattr(self, "floorplan_doc", None) is not None:
+            self.floorplan_doc.set_scale(self._text_scale)  # the plan chart + its findings list
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1784,6 +1789,15 @@ class Workspace(QMainWindow):
         # disk touch is the user's own 'Load the room' click.
         self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, scale=self._text_scale)
         self.tabs.addTab(self.place_doc, "Place")
+        # click-authoring Rung 6c (studies/click-authoring/RUNG6.md): lay several rooms out on a
+        # plan-view chart, declare which shared walls are doors, Compose a wired dungeon through
+        # the `floorplan` CLI verb -> open_campaign, so the composed graph is visible at once.
+        # Undo is DOC-LOCAL (a door edit spans two rooms; _UndoRec is single-member), and the doc
+        # touches no disk until the user's own Open / Compose.
+        self.floorplan_doc = FloorplanDoc(self.pal, KIT, run=self.run_job,
+                                          problems=self._show_problems, scale=self._text_scale,
+                                          on_composed=self.open_campaign)
+        self.tabs.addTab(self.floorplan_doc, "Floorplan")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
@@ -1795,7 +1809,10 @@ class Workspace(QMainWindow):
         # a setTabVisible(False) tab still works + fires the signal).
         self._rail_groups = [
             ("Home", [self._welcome_tab]),
-            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.place_doc]),
+            # Floorplan authors the TOPOLOGY; the Map renders it. They are complements, so they
+            # share the Author rail.
+            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.place_doc,
+                        self.floorplan_doc]),
             ("Assets", [self.import_field, self.trace_doc, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
             ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
@@ -4913,6 +4930,9 @@ class Workspace(QMainWindow):
             self._feed_place()
             self.crumb.set([bc.Crumb("place", w.crumb_label())])
             self._set_chip(None)
+        elif w is getattr(self, "floorplan_doc", None):   # self-contained: no _feed_*, no
+            self.crumb.set(self._content_crumbs)          # _checkpoint (its undo is DOC-LOCAL),
+            self._set_chip(None)                          # and NO disk touch on show
         elif w is getattr(self, "trace_doc", None):   # offer the OPEN field's project for a
             self.crumb.set(self._content_crumbs)      # one-click (or pristine-auto) reopen
             self._set_chip(None)
@@ -8113,6 +8133,11 @@ class Workspace(QMainWindow):
                 self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")), _LAYOUT_VERSION)
             if lay.get("central_split"):
                 self._central_split.setSizes(self._repair_central_split(lay["central_split"]))
+            # The Floorplan tab's chart/findings rail. The doc owns both the repair and the floors
+            # (they are read from its own canvas chips and list font, so only it can know them); the
+            # shell owns the one layout pref, so this is the call site that spends them.
+            if lay.get("floorplan_split") and getattr(self, "floorplan_doc", None) is not None:
+                self.floorplan_doc.restore_split(lay["floorplan_split"])
             csplit = lay.get("console_split")
             collapsed = bool(lay.get("console_collapsed", False))
             if csplit:
@@ -8137,13 +8162,21 @@ class Workspace(QMainWindow):
         try:
             collapsed = not self._console_open
             sizes = self._console_sizes if collapsed else self._vsplit.sizes()
-            prefs.set_layout({
+            out = {
                 "geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
                 "state": bytes(self.saveState(_LAYOUT_VERSION).toBase64()).decode("ascii"),
                 "central_split": [int(x) for x in self._central_split.sizes()],
                 "console_split": [int(x) for x in (sizes or [])],
                 "console_collapsed": collapsed,
-            })
+            }
+            # `split_sizes()` is None until the author actually drags the rail, and the key is then
+            # ABSENT rather than written -- a value the app computed is not a preference, so the next
+            # launch re-derives it from the live font and window instead of inheriting our arithmetic.
+            fp = (self.floorplan_doc.split_sizes()
+                  if getattr(self, "floorplan_doc", None) is not None else None)
+            if fp:
+                out["floorplan_split"] = [int(x) for x in fp]
+            prefs.set_layout(out)
         except Exception:   # noqa: BLE001
             pass
 
@@ -8524,11 +8557,19 @@ class Workspace(QMainWindow):
         lines = []
         enc = data.get("encounter")
         if isinstance(enc, dict) and enc.get("scene") is not None:
-            sid = enc.get("scene")
-            nm = _cat.scene_name(sid) if isinstance(sid, int) else None
-            scene_txt = f"scene {sid}" + (f" — {nm}" if nm else "")
+            authored = enc.get("scene")
+            # a BSC_ NAME is as legal as an id here (build.resolve_encounter_scenes), so RESOLVE one instead of
+            # bailing to plain text -- the field that authors a name would otherwise lose both the gloss and
+            # its Battle-tab jump, the very thing this row exists for. Offline: the BSC_ table is baked.
+            try:
+                sid = _cat.resolve_scene(authored)
+            except (ValueError, TypeError):
+                sid = None                             # an unknown name -- _node_problems already warns on it
+            gloss = (_cat.scene_name(sid) if isinstance(authored, int) else f"#{sid}") if sid is not None \
+                else None
+            scene_txt = f"scene {authored}" + (f" — {gloss}" if gloss else "")
             # the resolved scene is the field's one cross-edge to a battle.toml -> make it a Battle-tab jump
-            scene_seg = self._link(f"goto:battle:{sid}", scene_txt) if isinstance(sid, int) else _esc(scene_txt)
+            scene_seg = self._link(f"goto:battle:{sid}", scene_txt) if sid is not None else _esc(scene_txt)
             lines.append(self._muted("encounter: ") + scene_seg
                          + self._muted(f" · freq {enc.get('freq', 255)}"))
         pty = data.get("party")
@@ -8616,7 +8657,9 @@ class Workspace(QMainWindow):
     def _inspect_entity(self, section, e):
         m = self._muted
         if section == "npc":
-            model = e.get("preset") or (f"model #{e['model']}" if e.get("model") is not None else "?")
+            mid = e.get("model")                        # an id OR an exact GEO name (build.resolve_npc_model)
+            model = e.get("preset") or ("?" if mid is None else
+                                        (f"model #{mid}" if isinstance(mid, int) else str(mid)))
             out = [f"NPC: {_esc(e.get('name', '?'))}", m(f"looks like: {_esc(model)}")]
             if e.get("pos") is not None:
                 out.append(m(f"pos: {_esc(e['pos'])}"))
@@ -8738,6 +8781,11 @@ class Workspace(QMainWindow):
             elif cat == "prop":                            # build: prop_archetypes (single OR composite)
                 from .. import prop_archetypes
                 ok = prop_archetypes.is_prop_archetype(value) or prop_archetypes.is_composite(value)
+            elif cat == "scene":                           # a BSC_ battle-scene NAME (a raw id passes the build)
+                try:
+                    catalog.resolve_scene(value)
+                except ValueError:
+                    ok = False
         except Exception:                                  # noqa: BLE001 -- predicate import/quirk: stay silent
             ok = True
         self._name_valid[key] = ok
@@ -8822,8 +8870,9 @@ class Workspace(QMainWindow):
     def _node_problems(self, kind, obj, member):
         """Per-node problems computed DIRECTLY from the kit's pure predicates, MIRRORING what the build
         actually accepts (so the Inspector never contradicts Check): an unknown archetype/preset (or, when
-        no archetype, an unknown GEO model NAME -- a raw model id passes); an unknown give/remove item; a
-        NON-NUMERIC battle scene (the build does int(scene)); a set_flag into a reserved gEventGlobal bit;
+        no archetype, an unknown GEO model NAME -- a raw model id passes); an unknown give/remove item; an
+        UNRESOLVABLE battle scene name (a raw id AND a known BSC_ name both pass -- the build resolves names
+        via build.resolve_encounter_scenes); a set_flag into a reserved gEventGlobal bit;
         and a choice/cutscene reference to an NPC/marker that exists in NEITHER the field.toml NOR the
         sibling scene.toml. The geometric/structural lint (off-walkmesh, seams, dialogue overflow) stays
         with Check. Never raises. Returns colored ⚠ lines."""
@@ -8904,10 +8953,18 @@ class Workspace(QMainWindow):
                         warn(f"flag index {n} is outside the safe custom band "
                              f"[{flags.FIRST_SAFE_FLAG}, {flags.CHOICE_SCRATCH_FLOOR})")
             elif kind == "encounter":
-                sc = obj.get("scene")
-                if sc is not None and not ((isinstance(sc, int) and not isinstance(sc, bool))
-                                           or (isinstance(sc, str) and sc.strip().lstrip("-").isdigit())):
-                    warn(f"battle scene must be a numeric id (got '{sc}')")
+                # the build resolves a BSC_ NAME as well as an id (build.resolve_encounter_scenes), so only
+                # an UNRESOLVABLE name is a problem -- warning on every name would contradict Check, which
+                # this predicate exists to mirror. Both keys, since the pool resolves slot by slot.
+                for _lbl, _v in ([("battle scene", obj.get("scene"))]
+                                 + [(f"battle scene pool slot {_i}", _s)
+                                    for _i, _s in enumerate(obj.get("scenes") or [])]):
+                    if _v is None:
+                        continue
+                    if isinstance(_v, bool) or not isinstance(_v, (int, str)):
+                        warn(f"{_lbl} must be a numeric id or a BSC_ name (got '{_v}')")
+                    elif not self._name_ok("scene", _v):
+                        warn(f"unknown {_lbl} '{_v}'")
             elif kind == "music":                          # mirror content.music.mint_field_theme's precedence
                 f = obj.get("file")
                 if f and obj.get("song") is not None:      # both set -> the build silently ignores file
@@ -9854,6 +9911,14 @@ def _smoke(win):
     win._inspect_link("goto:battle:67")
     assert win.tabs.currentWidget() is win.battle, "the encounter scene link jumps to the Battle tab"
     win.tabs.setCurrentWidget(win.doc_scroll)                 # restore for the rest of the inspector smoke
+    # a scene authored as a BSC_ NAME is as legal as the id (build.resolve_encounter_scenes) -> the row keeps
+    # BOTH the gloss and the Battle-tab jump. It used to fall back to plain text, so the field that authored
+    # the friendlier value silently lost the one cross-edge this row exists to offer.
+    pdoc0.data["encounter"] = {"scene": "BSC_EF_R007", "freq": 64}
+    win.tree.setCurrentItem(win._member_items["IC_COR"])      # off and back, so the Inspector really re-renders
+    win.tree.setCurrentItem(win._member_items["IC_ENT"])
+    eb = win.insp_body.text()
+    assert 'href="goto:battle:67"' in eb and "BSC_EF_R007" in eb and "#67" in eb, eb
     del pdoc0.data["encounter"]
     win.tree.setCurrentItem(win._member_items["IC_ENT"])      # re-select with the probe encounter removed
     # do-now #1: the persistent doc-mode CHIP + breadcrumb stay truthful on EVERY tab (the indicator used to
@@ -9927,9 +9992,15 @@ def _smoke(win):
     assert win._node_problems("chest", {"item": ["Potion", 1], "flag": 8720}, "IC_ENT"), "a chest with no pos warns"
     assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1]}, "IC_ENT"), "a chest with no flag warns"
     assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "flag": 8400}, "IC_ENT"), "an out-of-band chest flag warns"
-    # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
-    assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "a non-numeric scene warns"
+    # the build resolves a BSC_ NAME as well as an id, so ONLY an unresolvable one warns -- warning on every
+    # name would make the Inspector contradict Check (which is what this predicate exists to mirror).
+    assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "an unknown scene name warns"
     assert win._node_problems("encounter", {"scene": 67}, "IC_ENT") == [], "a numeric scene id passes"
+    assert win._node_problems("encounter", {"scene": "BSC_EF_R007"}, "IC_ENT") == [], "a KNOWN BSC_ name passes"
+    assert win._node_problems("encounter", {"scene": 67, "scenes": [67, "BSC_EF_R007"]},
+                              "IC_ENT") == [], "known names in the pool pass"
+    assert win._node_problems("encounter", {"scene": 67, "scenes": [67, "NoSuchScene"]},
+                              "IC_ENT"), "an unknown name in the pool warns"
     # [music]: song+file together -> file silently loses at build, so the GUI warns; a missing file warns;
     # a real file beside the field.toml is clean (mirrors content.music.mint_field_theme's precedence)
     assert win._node_problems("music", {"song": 9}, "IC_ENT") == [], "a plain song id is clean"

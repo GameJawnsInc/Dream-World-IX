@@ -1,0 +1,85 @@
+diff --git a/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs b/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs
+--- a/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs
++++ b/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs
+@@ -26,12 +26,63 @@
+         public const Single BlockSize = 64f;  // one cell edge in world units (OnInitialize: 16384 * 0.00390625f)
+ 
+         /// <summary>
+-        /// SESSION-ONLY, default OFF. Flipped from the debug menu's Go/World tab; never persisted, so it cannot
+-        /// stay silently armed across relaunches on an install shared by many concurrent worktrees. Read once per
+-        /// world load at the top of <c>WMWorld.Initialize()</c>.
++        /// SESSION-ONLY manual override, default OFF. Flipped from the debug menu's Go/World tab; never persisted,
++        /// so it cannot stay silently armed across relaunches on an install shared by many concurrent worktrees.
++        /// Lets a synthetic disc be forced onto ANY world id for experiments. Real Path D worlds do not need it --
++        /// they engage automatically via <see cref="IsPathDWorldId"/>.
+         /// </summary>
+         public static Boolean Active = false;
+ 
++        // [s73] The reserved Path D world-id band. 9000-9012 are the engine's own 13 world states; EventDB is ONE
++        // flat namespace shared with FieldScene/BattleScene (last-write-wins, no collision check), so this band is
++        // reserved for custom `WorldScene` dispatchers and must not be minted as fields. Verified clear across both
++        // live DictionaryPatch.txt files apart from 9013, which is Path D's own.
++        public const Int32 PathDFirstWorldId = 9013;
++        public const Int32 PathDLastWorldId = 9099;
++
++        // [s74] The override-namespace sentinel. Path D keeps currentDisc == 1 so every GetDisc()/vehicle/asset
++        // consumer keeps working, but its per-cell OVERRIDE lookups must not share a file namespace with real
++        // disc-1 edits -- without this, a Path D cell at (5,5) reads the same file as a real disc-1 edit to block
++        // (5,5), which is exactly why the Southern Ring's 56 disc-1 cells appear in world 9013 today. Safe because
++        // ff9.w_frameDisc is only ever 0/1/4 and the only WorldMap/Disc<N> folders that exist on disk are 1 and 4.
++        public const Int32 SentinelDisc = 9;
++
++        /// <summary>True for an id inside the reserved Path D band.</summary>
++        public static Boolean IsPathDWorldId(Int32 wldMapNo)
++        {
++            return wldMapNo >= PathDFirstWorldId && wldMapNo <= PathDLastWorldId;
++        }
++
++        /// <summary>
++        /// Whether the CURRENT world load is running a synthetic disc. Latched once per load by <see cref="Latch"/>
++        /// so every later consumer (the override-disc tag, the special-object guard) agrees with the substitution
++        /// decision even if the debug toggle is flipped mid-load.
++        /// </summary>
++        public static Boolean Engaged;
++
++        /// <summary>
++        /// Decide, once per world load, whether this world gets a synthetic disc. ALWAYS assigns, so a previous
++        /// engaged load can never leak into a real disc-1/4 load. Call at the top of <c>WMWorld.Initialize()</c>.
++        /// </summary>
++        public static Boolean Latch(Int32 wldMapNo)
++        {
++            Engaged = Active || IsPathDWorldId(wldMapNo);
++            return Engaged;
++        }
++
++        /// <summary>The live world id, defensively -- Initialize() runs early enough to be worth the guard.</summary>
++        public static Int32 CurrentWorldId()
++        {
++            try
++            {
++                return FF9StateSystem.Common.FF9.wldMapNo;
++            }
++            catch (Exception)
++            {
++                return -1;
++            }
++        }
++
+         /// <summary>
+         /// Build a complete synthetic block grid and return its root. Caller assigns it to WMWorld.WorldDisc.
+         /// </summary>
+diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+--- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
++++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+@@ -109,7 +109,10 @@
+         // Block31/115/219, ResetBlockForms and ff9.cs's grid lookups silently address the wrong one. The real
+         // WorldDisc is left alone rather than deactivated -- its blocks are never LoadBlock'd so they render
+         // nothing, and disabling a hierarchy WMWorld may itself live under would be fatal.
+-        if (Memoria.World.WorldDiscSpike.Active)
++        // [s73] Latch ONCE per load: a synthetic disc engages automatically for any id in the reserved Path D band
++        // (9013-9099), or manually via the debug toggle for experiments on other ids. Latch() always assigns, so an
++        // engaged load can never leak into the next real disc-1/4 load.
++        if (Memoria.World.WorldDiscSpike.Latch(Memoria.World.WorldDiscSpike.CurrentWorldId()))
+         {
+             this.WorldDisc = Memoria.World.WorldDiscSpike.Build();
+             Log.Message("[PathD s71] WorldDisc replaced by a synthetic WorldDisc_SPIKE (480 IsSea blocks)");

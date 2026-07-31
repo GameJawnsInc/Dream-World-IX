@@ -160,13 +160,26 @@ def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: i
     return dest
 
 
-def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: str = "Terrain") -> Path:
+def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: str = "Terrain",
+                    disc: int | None = None) -> Path:
     """Write ``bm`` as a loose ``.ff9mesh`` override into ``<game>/<mod_folder>/<override_relpath>`` -- where the
     custom engine (WorldMeshOverride) picks it up at world load. ``part`` = the block layer (``"Terrain"`` default,
     or ``"Object"`` for the building mesh). The mod_folder must be a stacked ``FolderNames`` entry (e.g.
-    ``FF9CustomMap``). Returns the written path."""
+    ``FF9CustomMap``). Returns the written path.
+
+    THE READ/WRITE DISC SPLIT (Path D). ``bm.disc`` is the disc the mesh was READ from -- the stock tree whose
+    real bytes it borrows -- and for ordinary disc-1/4 authoring that is also where it belongs. A Path D world
+    keeps ``currentDisc == 1`` (so every GetDisc/vehicle/asset consumer keeps working) but resolves its per-cell
+    overrides against a SENTINEL namespace (engine patch s74, ``WorldDiscSpike.SentinelDisc``), so its cells cannot
+    collide with real disc-1 edits at the same coords. Pass ``disc=`` to send the write there while the mesh keeps
+    borrowing real bytes from ``bm.disc``. Default ``None`` == ``bm.disc`` == byte-identical to previous behaviour.
+
+    This is deliberately THE one write seam rather than retagging ``bm`` at each call site: several builders
+    re-wrap a mesh with ``dataclasses.replace(...)`` WITHOUT carrying ``disc`` (e.g. island's ``_cut_plane``), so a
+    per-call retag silently loses the target on those paths."""
     require_block_in_grid(bm.x, bm.y, context=f"deploy_override {part}")
-    dest = config.find_game_path(game) / mod_folder / override_relpath(bm.disc, bm.x, bm.y, lod, part)
+    dest = config.find_game_path(game) / mod_folder / override_relpath(
+        bm.disc if disc is None else int(disc), bm.x, bm.y, lod, part)
     return write_ff9mesh(bm, dest)
 
 

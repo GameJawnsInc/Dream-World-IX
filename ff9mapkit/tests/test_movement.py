@@ -176,13 +176,24 @@ def test_validate_path_legs_checked_for_stall(tmp_path):
 
 # --- auto-pathing -------------------------------------------------------------------------
 def test_pathfind_routes_around_obstacle():
+    # The radii are read from the constants `route()` ITSELF defaults to, not re-pinned as literals:
+    # this test used to hardcode 48, which stopped being the wall radius when the in-game measurement
+    # (2026-07-30, calibration field 30510) corrected `cam.COLLISION_RADIUS_W` 48 -> 80. A stale
+    # literal here checks a radius nothing uses.
+    from ff9mapkit.scene import cam, routes
+    R, OBS_R = cam.COLLISION_RADIUS_W, 2 * cam.OBJECT_COLLISION_W
     wm = _big_wmesh()
-    straight_clear = pathfind._clear(wm, (-900, -700), (900, -700), [(0, -700)], 48, 192)
+    straight_clear = pathfind._clear(wm, (-900, -700), (900, -700), [(0, -700)], R, OBS_R)
     assert not straight_clear                                   # a straight line hits the player
     r = pathfind.route(wm, (-900, -700), (900, -700), obstacles=[(0, -700)])
     assert r and len(r) > 1                                     # a multi-leg detour
     pts = [(-900, -700)] + r
-    assert all(pathfind._clear(wm, pts[i], pts[i + 1], [(0, -700)], 48, 192) for i in range(len(pts) - 1))
+    assert all(pathfind._clear(wm, pts[i], pts[i + 1], [(0, -700)], R, OBS_R) for i in range(len(pts) - 1))
+    # ...and the same invariant measured EXACTLY, independent of `_clear`'s own sampling -- the
+    # regression this file caught was a leg passing 188.6u from the obstacle centre that `_clear`'s
+    # 80u-stepped sample walked straight over. An oracle that shares the code under test cannot see that.
+    assert all(routes.seg_dist_xz(0, -700, pts[i], pts[i + 1]) >= OBS_R
+               for i in range(len(pts) - 1))
     assert r[-1] == (900, -700)                                 # ends at the exact goal
 
 

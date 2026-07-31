@@ -1,0 +1,175 @@
+diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+--- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
++++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+@@ -166,6 +166,13 @@
+             this.LoadState = WMWorldLoadState.Finished;
+             this.LoadState = WMWorldLoadState.Initializing;
+         }
++        // [ff9mapkit s74] Settle the override-namespace tag now that currentDisc is final, and BEFORE any block
++        // loads. A synthetic Path D disc gets its own file namespace so its cells cannot collide with real disc-1/4
++        // override files (and so the 56 live disc-1 cells stop bleeding into it); every real load mirrors
++        // currentDisc, making this a no-op for normal play.
++        this.overrideDiscTag = Memoria.World.WorldDiscSpike.Engaged
++            ? Memoria.World.WorldDiscSpike.SentinelDisc
++            : this.currentDisc;
+         this.LoadEffects();
+         this.LoadSPS();
+     }
+@@ -515,8 +522,10 @@
+             // REAL COASTAL block if a "Donor.txt" sidecar names one -- carrying its beach/sea/foam -- else the plain
+             // inland fallback). RegisterBlockComponent's override (keyed on this block's InitialX/InitialY) swaps our
+             // terrain mesh in as the cell's render + walkmesh. Identity when no override exists.
++            // [s74] The override PROBE uses overrideDiscTag (the loose-file namespace); `disc` stays the REAL asset
++            // disc and is passed on so ResolveReclaimDonor can still resolve a donor's Resources prefab.
+             if (this.LandDonorPrefab != (UnityEngine.Object)null
+-                && Memoria.World.WorldMeshOverride.HasLandOverride(disc, initialX, initialY))
++                && Memoria.World.WorldMeshOverride.HasLandOverride(this.overrideDiscTag, initialX, initialY))
+                 this.LoadBlock(this.ResolveReclaimDonor(disc, initialX, initialY), block);
+             else
+                 this.LoadBlock(this.SeaBlockPrefab, block);
+@@ -535,7 +544,11 @@
+     // coords) -> the plain inland LandDonorPrefab. Never null when the caller already passed HasLandOverride.
+     private GameObject ResolveReclaimDonor(Int32 disc, Int32 x, Int32 y)
+     {
+-        String donorPath = Memoria.World.WorldMeshOverride.TryReadDonorPath(disc, x, y);
++        // [s74] TWO discs, deliberately. The Donor.txt SIDECAR is a loose override file -> overrideDiscTag; the path
++        // it returns is a REAL Resources block prefab -> `disc`. Collapsing these (the obvious one-arg call) makes
++        // every donor resolve to a nonexistent WorldDisc9 prefab, AssetManager.Load returns null, and the fallback
++        // below silently degrades every coastal cell to the plain inland donor -- losing beach/sea/foam with NO error.
++        String donorPath = Memoria.World.WorldMeshOverride.TryReadDonorPath(this.overrideDiscTag, disc, x, y);
+         if (String.IsNullOrEmpty(donorPath))
+             return this.LandDonorPrefab;
+         if (this.CoastalDonorCache == null)
+@@ -581,7 +594,7 @@
+             RegisterBlockComponent(block, prefab.ObjectForm2, false, true);
+         if (prefab.TerrainForm2)
+             RegisterBlockComponent(block, prefab.TerrainForm2, false, true);
+-        if (block.Number == 219)
++        if (block.Number == 219 && !Memoria.World.WorldDiscSpike.Engaged)   // [s74] no stock Water Shrine on a Path D disc
+         {
+             block.SetTextureFilterMode(); // declared before sea/beach/quicksand, or they become static (theirs is declared in WMRenderTextureBank and WMBlocks)
+             GameObject waterShrineGo = AssetManager.Load<GameObject>("WorldMap/Prefabs/Effects/WaterShrine", false);
+@@ -678,7 +691,12 @@
+         if (block.Number == 397)
+         {
+         }
+-        if (block.Number == 389)
++        // [ff9mapkit s74] DWIX PATH D: suppress the stock CELL-KEYED special objects on a synthetic disc. `Number`
++        // stays stock row-major (cell identity, and their appearance on the first spike proved cell addressing
++        // worked), but a genuinely new continent must not contain Daguerreo's bridge (389), the Water Shrine (219)
++        // or Cleyra's quicksand (91/115) just because it reused those grid coordinates. Found by an owner sailing
++        // the all-sea 9013 world -- see studies/path-d-new-world/INHERITED-STOCK-BEHAVIOR.md. Identity when off.
++        if (block.Number == 389 && !Memoria.World.WorldDiscSpike.Engaged)
+         {
+             GameObject block516Go = AssetManager.Load<GameObject>("EmbeddedAsset/WorldMap_Local/Prefabs/Block[5][16] Object", false);
+             if (block516Go)
+@@ -693,7 +711,7 @@
+             }
+         }
+         block.SetTextureFilterMode(); // declared before sea/beach/quicksand, or they become static (theirs is declared in WMRenderTextureBank and WMBlocks)
+-        if (block.Number == 91)
++        if (block.Number == 91 && !Memoria.World.WorldDiscSpike.Engaged)   // [s74] no stock quicksand on a Path D disc
+         {
+             GameObject quicksandGo = AssetManager.Load<GameObject>("WorldMap/Prefabs/Effects/Quicksand", false);
+             if (quicksandGo)
+@@ -704,7 +722,7 @@
+                 quicksandCopy.transform.localPosition = new Vector3(8f, 1.66f, -60f);
+             }
+         }
+-        if (block.Number == 115)
++        if (block.Number == 115 && !Memoria.World.WorldDiscSpike.Engaged)   // [s74] no stock quicksand on a Path D disc
+         {
+             GameObject quicksandGo = AssetManager.Load<GameObject>("WorldMap/Prefabs/Effects/Quicksand", false);
+             if (quicksandGo)
+@@ -799,8 +817,8 @@
+         // editor-only WMWorldPrefabMaker.LoadMesh never runs). The override drives BOTH the walkmesh below AND the
+         // rendered mesh (one object). InitialX/InitialY = the block's grid coords; transform.name = the part ("Terrain").
+         Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(String.Format(
+-            "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] {4}", this.currentDisc, block.InitialY, block.InitialX,
+-            block.InitialY, transform.name));
++            "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] {4}", this.overrideDiscTag, block.InitialY, block.InitialX,
++            block.InitialY, transform.name));   // [s74] loose-file namespace, not the asset disc
+         if (ff9Override != (UnityEngine.Object)null)
+         {
+             mesh = ff9Override;
+@@ -811,7 +829,7 @@
+             // water gradient), render this sub-mesh with a CLONED material using that texture instead of the shared
+             // stock material -- a custom ocean becomes a seamless gradient, no discrete tile shades. Cell-scoped.
+             Texture2D custTex = Memoria.World.WorldMeshOverride.TryLoadTexture(
+-                this.currentDisc, block.InitialX, block.InitialY, transform.name);
++                this.overrideDiscTag, block.InitialX, block.InitialY, transform.name);   // [s74] loose-file namespace
+             if (custTex != (UnityEngine.Object)null)
+             {
+                 MeshRenderer mr = copy.GetComponent<MeshRenderer>();
+@@ -846,8 +864,8 @@
+     private void RegisterBareObjectOverride(WMBlock block, Transform template)
+     {
+         Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(String.Format(
+-            "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Object", this.currentDisc, block.InitialY, block.InitialX,
+-            block.InitialY));
++            "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Object", this.overrideDiscTag, block.InitialY, block.InitialX,
++            block.InitialY));   // [s74] loose-file namespace, not the asset disc
+         if (ff9Override == (UnityEngine.Object)null)
+             return;
+         Transform copy = UnityEngine.Object.Instantiate<Transform>(template);
+@@ -1268,7 +1286,7 @@
+                         // reclaimed cell renders as land on first load then reverts to ocean after it streams out of
+                         // sight and back (this branch re-tests IsSea every re-entry). Both sites must stay identical.
+                         if (this.LandDonorPrefab != (UnityEngine.Object)null
+-                            && Memoria.World.WorldMeshOverride.HasLandOverride(this.currentDisc, wmblock.InitialX, wmblock.InitialY))
++                            && Memoria.World.WorldMeshOverride.HasLandOverride(this.overrideDiscTag, wmblock.InitialX, wmblock.InitialY))   // [s74] must mirror LoadBlock's probe
+                             this.LoadBlock(this.ResolveReclaimDonor(this.currentDisc, wmblock.InitialX, wmblock.InitialY), wmblock);
+                         else
+                             this.LoadBlock(this.SeaBlockPrefab, wmblock);
+@@ -2104,6 +2122,13 @@
+ 
+     private Int32 currentDisc = -1;
+ 
++    // [ff9mapkit s74] DWIX PATH D -- the OVERRIDE-NAMESPACE disc tag. Used ONLY for per-cell loose-file override
++    // lookups (.ff9mesh / .png / Donor.txt); every REAL asset path and all disc state keep using currentDisc.
++    // Mirrors currentDisc on a normal disc-1/4 load, so real play is byte-identical. MUST stay `private` with no
++    // [SerializeField]: WMWorld is baked into a prefab and any new SERIALIZED field shifts its layout, so the baked
++    // component deserializes corrupt (black screen) -- same reason currentDisc above is private.
++    private Int32 overrideDiscTag = -1;
++
+     public Single offsetY = -44.68f;
+ 
+     public Single FineOffsetX = 0.78f;
+diff --git a/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
+--- a/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
++++ b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
+@@ -88,10 +88,24 @@
+         // Same folder search + base key as Exists(), but File.ReadAllText the ".txt" instead of File.Exists a ".ff9mesh".
+         public static String TryReadDonorPath(Int32 disc, Int32 x, Int32 y)
+         {
++            return TryReadDonorPath(disc, disc, x, y);
++        }
++
++        // [ff9mapkit s74] DWIX PATH D -- the same lookup with the two roles of `disc` SPLIT.
++        //   overrideDisc = the loose-file namespace the Donor.txt SIDECAR is read from (a Path D sentinel, or the
++        //                  real disc for normal play).
++        //   assetDisc    = the REAL disc whose Resources block-prefab tree the returned donor path points into.
++        // They were one argument, which is a silent-failure trap: a sentinel overrideDisc threaded through the
++        // return at the bottom yields "WorldMap/Prefabs/WorldDisc9/..." -- a tree that does not exist -- so
++        // AssetManager.Load returns null and WMWorld.ResolveReclaimDonor quietly falls back to the plain inland
++        // donor, dropping every beach/sea/foam carry with nothing logged. The 3-arg overload above keeps every
++        // existing caller identical.
++        public static String TryReadDonorPath(Int32 overrideDisc, Int32 assetDisc, Int32 x, Int32 y)
++        {
+             if (AssetManager.FolderHighToLow == null)
+                 return null;
+             String rel = AssetManagerUtil.GetResourcesAssetsPath(true) + "/"
+-                + String.Format("WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Donor", disc, y, x, y) + ".txt";
++                + String.Format("WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Donor", overrideDisc, y, x, y) + ".txt";
+             foreach (AssetManager.AssetFolder folder in AssetManager.FolderHighToLow)
+             {
+                 if (folder == null || String.IsNullOrEmpty(folder.FolderPath))
+@@ -109,7 +123,7 @@
+                     }
+                     Int32 dx = Int32.Parse(parts[0].Trim());
+                     Int32 dy = Int32.Parse(parts[1].Trim());
+-                    return String.Format("WorldMap/Prefabs/WorldDisc{0}/r{1}/Block[{2}][{3}]", disc, dy, dx, dy);
++                    return String.Format("WorldMap/Prefabs/WorldDisc{0}/r{1}/Block[{2}][{3}]", assetDisc, dy, dx, dy);
+                 }
+                 catch (Exception ex)
+                 {

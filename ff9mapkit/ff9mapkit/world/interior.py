@@ -153,17 +153,25 @@ def soup_from_blocks(blocks: dict) -> dict:
 
 
 def read_deployed_blocks(mod_folder: str, *, near, reach: float, disc: int = 1,
-                         lod: str = "0_1", game=None) -> dict:
+                         lod: str = "0_1", game=None, target_disc: int | None = None) -> dict:
     """Read every deployed ``Block[x][y] Terrain.ff9mesh`` override whose block rect
     intersects the ``near +- reach`` window. Blocks without an override are OCEAN and
     load nothing (the safety is downstream: the footprint-lawful gates, the rim-clearance
     margins, the carve leak assert, and the crack gate all refuse work that would leave
     the deployed island). Refuses only when NO override exists in the window -- these
     verbs reshape DEPLOYED kit islands only (reshaping a real block is ``world-terrain``'s
-    job)."""
+    job).
+
+    THE READ/WRITE DISC SPLIT. Like ``terrain.reshape`` -- and unlike the borrow verbs -- the
+    interior verbs work ON the deployed island, so with ``target_disc`` set the READ moves to that
+    namespace too: a synthetic world's island exists ONLY as its deployed overrides, and a Disc1
+    read here would hand the carve real disc-1 land while the caller believes it is on a synthetic
+    world. ``disc`` stays the STOCK read disc for the donor/census paths (``carve_*``,
+    ``census_gate``), which is why it is a separate parameter."""
     from .. import config
+    rtarget = disc if target_disc is None else int(target_disc)
     gp = Path(config.find_game_path(game))
-    root = gp / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{disc}" / lod
+    root = gp / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{rtarget}" / lod
     wx, wz = near
     bx0, bx1 = int(math.floor((wx - reach) / BLOCK)), int(math.floor((wx + reach) / BLOCK))
     by0, by1 = int(math.floor(-(wz + reach) / BLOCK)), int(math.floor(-(wz - reach) / BLOCK))
@@ -172,7 +180,7 @@ def read_deployed_blocks(mod_folder: str, *, near, reach: float, disc: int = 1,
         for by in range(by0, by1 + 1):
             p = root / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh"
             if p.exists():
-                out[(bx, by)] = M.blockmesh_from_ff9mesh(p, disc=disc, x=bx, y=by,
+                out[(bx, by)] = M.blockmesh_from_ff9mesh(p, disc=rtarget, x=bx, y=by,
                                                          lod=lod, part="terrain")
     if not out:
         raise ValueError(f"no deployed Terrain overrides near world ({wx:.0f},{wz:.0f}) "
@@ -2463,7 +2471,8 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None):
 
 
 def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
-                          game=None, skip_mirror: bool = False, log=print) -> list:
+                          game=None, skip_mirror: bool = False, log=print,
+                          target_disc: int | None = None) -> list:
     """Deploy an ENSEMBLE carve's auxiliary part overrides: every span block gets ALL
     of :data:`ENSEMBLE_PARTS` (carried content or a hidden blank -- the donor prefab's
     own parts would otherwise FREE-RIDE verbatim at rot0/shift0), plus a ``Donor.txt``
@@ -2477,6 +2486,7 @@ def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_
     donor_ref = res.get("donor_ref")
     if donor_ref is None:
         return []
+    rtarget = disc if target_disc is None else int(target_disc)   # THE READ/WRITE DISC SPLIT
     out = []
     span = [tuple(b) for b in res["report"]["blocks"]]
     for blk in span:
@@ -2484,15 +2494,15 @@ def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_
         for part in ENSEMBLE_PARTS:
             bmP = changed_parts.get(blk, {}).get(part)
             if bmP is None:
-                bmP = M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}", disc=disc,
+                bmP = M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}", disc=rtarget,
                                           x=bx, y=by, lod=lod)
             p = M.deploy_override(bmP, mod_folder=mod_folder, game=game, lod=lod,
-                                  part=part)
+                                  part=part, disc=rtarget)
             if len(bmP.tris):
                 log(f"deployed {part} -> {p} ({len(bmP.tris)} tris)")
             out.append(p)
         out.append(M.deploy_donor_sidecar(donor_ref[0], donor_ref[1], mod_folder=mod_folder,
-                                          disc=disc, x=bx, y=by, lod=lod, game=game))
+                                          disc=rtarget, x=bx, y=by, lod=lod, game=game))
     log(f"Donor.txt -> {donor_ref} on {len(span)} span block(s) "
         f"(+ blanks for uncarried parts)")
     from . import discmirror as DM
@@ -2501,7 +2511,8 @@ def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_
 
 
 def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
-                   game=None, backup: bool = True, skip_mirror: bool = False, log=print) -> list:
+                   game=None, backup: bool = True, skip_mirror: bool = False, log=print,
+                   target_disc: int | None = None) -> list:
     """Deploy every block whose bytes actually change (byte-compare converge). An
     existing override backs up beside itself as ``<name>.ff9mesh.bak-<ts>`` (a suffixed
     name never matches the engine's override pattern). When anything actually deployed,
@@ -2511,8 +2522,11 @@ def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
     of both writers' written paths)."""
     from .. import config
     import tempfile
+    rtarget = disc if target_disc is None else int(target_disc)   # THE READ/WRITE DISC SPLIT:
+    # the byte-compare/backup root and the write must aim at the SAME namespace -- comparing
+    # against Disc1 while writing Disc9 would defeat the converge check AND back up the wrong file.
     gp = Path(config.find_game_path(game))
-    root = gp / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{disc}" / lod
+    root = gp / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{rtarget}" / lod
     ts = time.strftime("%Y%m%d-%H%M%S")
     out = []
     with tempfile.TemporaryDirectory(prefix="ff9_interior_") as tmpdir:
@@ -2526,7 +2540,8 @@ def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
             if backup and dep.exists():
                 import shutil
                 shutil.copyfile(dep, dep.with_name(dep.name + f".bak-{ts}"))
-            p = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain")
+            p = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain",
+                                  disc=rtarget)
             log(f"deployed -> {p} ({len(bm.tris)} tris)")
             out.append(p)
     if not out:

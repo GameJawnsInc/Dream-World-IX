@@ -573,6 +573,23 @@ _QSS = Template(
     QSplitter::handle { background: $border; }
     QSplitter::handle:horizontal { width: 1px; }
     QSplitter::handle:vertical { height: 1px; }
+    /* The Floorplan tab's chart/findings rail (floorplandoc.py). Scoped, because this is the one
+       splitter whose whole value is being DRAGGED -- the others divide panes the user rarely moves.
+       Two things the app-wide rule cannot give it:
+         - a grab target. 1px is a mechanism the author cannot spend; 7px of transparent strip is
+           grabbable while the drawn line stays a hairline.
+         - a colour that says "control". `border` is DECORATIVE-DIVIDER ink and measures 1.25-1.49:1
+           against `surface` across the 8 palettes -- the magnified 6x strip showed a flat band with
+           no rail in it, which is what sub-3.0 looks like. `muted` is 5.08-6.99:1 in every palette,
+           so it clears the 3.0 NON-TEXT floor (WCAG 1.4.11) with margin. (No leading dollars in
+           this comment: Template substitutes inside comments too, and would KeyError on a rename.)
+       :hover goes to `text`, not `accent`: accent is only 2.47:1 on nord, so hovering would have
+       made the rail HARDER to see there. text is 5.72-15.18 and beats muted in all 8 -- monotone by
+       measurement, not by hope. Fenced by test_workspace_floorplan.test_the_rail_is_visible_and_grabbable. */
+    QSplitter#floorplanSplit::handle:vertical {
+        height: 7px; background: transparent; border-top: 1px solid $muted;
+    }
+    QSplitter#floorplanSplit::handle:vertical:hover { border-top: 1px solid $text; }
     QLabel { background: transparent; }
     QStatusBar { background: $surface; color: $muted; border-top: 1px solid $border; }
     QStatusBar::item { border: none; }
