@@ -119,6 +119,48 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   writes both sides at once — is a single step. A half-undone door would be a
   gateway with no arrival.
 
+### Fixed — two rooms snapped into a shared wall were refused as overlapping
+- Assembling two rooms so they share a wall — the thing snapping exists to make
+  possible — reported "rooms ROOM1 and ROOM2 overlap: they share floor area", with
+  nothing visibly wrong and nothing the author could adjust.
+- The segment test underneath treats a cross product of exactly zero as one side
+  rather than as contact, so two walls meeting at a shared corner read as a
+  crossing. That inclusiveness is wanted elsewhere — an outline whose wall ends on
+  another of its own walls is degenerate, and it is what catches two parallel
+  rooms overlapping in a band where no corner is strictly inside anything — so the
+  overlap check now ignores wall pairs that meet at a shared corner, which is what
+  an abutment is, instead of the shared test being weakened. Tightening that test
+  was tried first and measurably broke both of the cases it protects.
+- The bug is as old as the composer and could not be reached until now: corners
+  aimed by hand land close enough to count as a shared wall but never on the same
+  exact coordinate, so nothing ever produced the exact contact that triggers it.
+- Attaching a corner to the middle of a wall is exact too: the stored coordinates
+  are whole numbers and a wall is usually diagonal, so rounding could put the
+  corner a fraction of a unit inside its neighbour — a real, invisible overlap.
+  The rounding now always goes to the outside, where a sub-unit gap is harmless.
+
+### Fixed — a corner two rooms share can now be grabbed, and moving it keeps them joined
+- When you snapped one room's corner onto another's, the resulting stacked handles
+  were picked by room order, so only the room drawn first could be grabbed — the other
+  room's corner could not be selected at all.
+- Coincident corners now move together. That is the point of them: they are stacked
+  only because you snapped them into a shared wall, and dragging one out alone would
+  tear that wall apart — leaving you to re-make it by landing the other corner within
+  eight units by hand, which is the thing snapping exists to spare you. The coordinate
+  chip says when a corner is welded, one Undo puts the whole group back, and dragging a
+  room bodily still separates it from its neighbour.
+
+### Fixed — the spawn-near-a-door warning fired on ordinary rooms
+- The composer warns when a room's spawn sits in line with a trigger zone and close
+  enough that "one step could fire it". The reach was four times the player's radius,
+  and the distance it measures is fixed by the room's size — so it warned about every
+  room under about 1140 units across. A first two-room dungeon with a single door and
+  nothing wrong with it collected two of these.
+- The reach is now the player's own diameter, which is what the message actually
+  claims: inside one body-length, being displaced into the zone is possible; beyond it
+  the player has to walk there deliberately. A spawn genuinely a step from a trigger is
+  still caught, with a wide margin.
+
 ### Fixed — the Floorplan chart moved under the cursor while you were drawing on it
 - Every corner you placed recomputed the chart's extent from the outline *in progress*,
   so the first corner of a room collapsed that extent to a fraction of its size and the
@@ -129,10 +171,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   added, the same spot being impossible to click twice, and the first point appearing to
   land at the origin. That last one is the same bug wearing a disguise — the point never
   moved, the chart did, until the point was sitting where the origin marker had been.
-- The chart now holds still. Its extent can grow but never shrink out from under the
-  view, Ctrl+0 still frames the rooms rather than wherever you had zoomed to, and
-  scrollbars stay hidden — a bar appearing would shrink the viewport and move everything
-  again.
+- A second, subtler slide sat behind the first: with a corner placed, simply moving the
+  mouse dragged the chart about a pixel per redraw — and the rubber band redraws on every
+  mouse move — until it hit a limit and stopped. That one only happened when the chart's
+  width was an odd number of pixels, which is why it survived a test suite whose window
+  is always an even width.
+- The chart now holds still in both cases. Its extent is derived from the rooms alone and
+  never from where the view happens to be looking, it grows but never shrinks out from
+  under you, Ctrl+0 still frames the rooms rather than wherever you had panned to, and
+  scrollbars stay hidden.
 
 ### Added — corners and walls snap, so two rooms can actually be made to share one
 - Two rooms are offered as a door only if their walls lie within 8 world units, and the

@@ -111,13 +111,20 @@ PITCH_SLACK = 1.0         # degrees of margin above the hard horizon-in-canvas t
 DEFAULT_PITCH = 48.0      # pack.new_project's scaffold pitch (pack.py:150); safe by 22deg over p*
 DEFAULT_FOV = 42.2        # pack.new_project's scaffold fov
 STANDABLE_WARN = 0.35     # warn under this standable/total area ratio
-BAND_REACH = 4 * R_WALK   # 320u -- how far "one sideways step" reaches, for the axis-band WARN.
-                          # A TUNED JUDGMENT, not a derivation: the law it serves says "a spawn at
-                          # the same depth as a zone row is one sideways step from firing it", and a
-                          # band test with no lateral cap fires on EVERY door in EVERY dungeon
-                          # (a spawn is in its own room's door band by construction -- that is how
-                          # the player reaches the door). For scale, actors jam under 192u and the
-                          # skill's standing spacing is >=300u, so 320u is a few steps, not a room.
+BAND_REACH = 2 * R_WALK   # 160u -- how far "one step" reaches, for the axis-band WARN. THE PLAYER'S
+                          # OWN DIAMETER: inside it, one body-length of involuntary displacement
+                          # (the entry settle, a wall clamp, a single input frame) bridges the gap,
+                          # which is exactly what the warning claims. Beyond it the player has to
+                          # walk there on purpose, and saying "one step could fire it" is false.
+                          # ★ WAS 4*R_WALK = 320, a tuned judgment, and 320 was measurably wrong:
+                          # the gap is (the room's extent perpendicular to the wall)/2 minus the
+                          # strip depth, so a 320 reach warns about EVERY room under ~1140u across.
+                          # The first real dungeon anyone drew -- two rooms, one door, nothing wrong
+                          # with it -- got two warnings, at 183u and 244u. A warning that fires on
+                          # the ordinary case teaches nothing and hides the one that matters. The
+                          # incident this gate exists for (a spawn 10u outside a sign zone) is still
+                          # caught by a wide margin. Never widen this to silence a real finding:
+                          # if a spawn is genuinely a step from a trigger, MOVE THE SPAWN.
 TOUCH_EPS = 1e-6
 
 
@@ -224,11 +231,28 @@ def _cross3(o, p, q):
 
 
 def segments_cross(a, b, c, d):
-    """PROPER crossing of ``ab`` and ``cd``. Collinear-overlapping and shared-endpoint touching both
-    return False, which is what makes two rooms allowed to ABUT along a shared wall."""
+    """``ab`` and ``cd`` share a point: a proper crossing, OR an endpoint resting on the other.
+
+    ⚠ THE NAME UNDERSTATES IT, DELIBERATELY, AND THE OLD DOCSTRING LIED. It used to claim
+    "shared-endpoint touching returns False, which is what makes two rooms allowed to ABUT" -- it
+    does not: a cross product of EXACTLY ZERO is filed with the negative side by `(d1 > 0) !=
+    (d2 > 0)`, so a touch counts. That inclusiveness is CORRECT for :func:`polygon_problem`, where
+    a wall ending exactly on a non-adjacent wall is a degenerate outline, and it is load-bearing in
+    :func:`polys_overlap` for parallel shapes whose overlap band has every corner ON a boundary and
+    so trips neither a proper crossing nor a vertex-inside test.
+
+    It was the wrong test for ABUTMENT, and :func:`polys_overlap` is where that is now handled --
+    by skipping edge pairs that share an endpoint, rather than by weakening this. Tightening it to
+    strictly-proper was measured to break both: a self-touching outline was accepted, and two
+    genuinely overlapping 45deg strips were called disjoint."""
     d1, d2 = _cross3(c, d, a), _cross3(c, d, b)
     d3, d4 = _cross3(a, b, c), _cross3(a, b, d)
     return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+
+
+def _shares_endpoint(ea, eb):
+    """The two segments have an endpoint in common (exactly -- both are stored as ints)."""
+    return any(p == q for p in ea for q in eb)
 
 
 def polys_overlap(A, B, *, eps=TOUCH_EPS):
@@ -241,6 +265,16 @@ def polys_overlap(A, B, *, eps=TOUCH_EPS):
     polygons too, which SAT is not, and rooms are routinely L-shaped."""
     for ea in edges(A):
         for eb in edges(B):
+            # ★ SKIP EDGE PAIRS THAT SHARE AN ENDPOINT -- that is an ABUTMENT, not an overlap, and
+            # it is the whole reason two rooms snapped together were refused as "sharing floor
+            # area". `segments_cross` files a zero cross product with the negative side, so a wall
+            # and its neighbour's next wall meeting at a welded corner read as a crossing. Latent
+            # for the composer's whole life: hand-aimed corners land within `shared_edges`' 8u but
+            # never on the same integer, so nothing produced exact contact until snapping did.
+            # Safe to skip: if the rooms really do interpenetrate near that corner, some other edge
+            # pair crosses, or a vertex of one is strictly inside the other, and both are tested.
+            if _shares_endpoint(ea, eb):
+                continue
             if segments_cross(ea[0], ea[1], eb[0], eb[1]):
                 return True
     for p in A:

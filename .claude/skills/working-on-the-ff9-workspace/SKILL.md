@@ -48,6 +48,35 @@ startup. So when you add a token, widget, or helper, **fence its call sites**
 (`tests/test_gui_wave2_wiring.py`, `test_field_cards.py`, `test_model_cards.py` are the shape). A
 mechanism with no fence has a half-life.
 
+## NEVER COMPUTE A VIEW INPUT FROM A VIEW OUTPUT
+
+> A `QGraphicsView`'s scene rect, zoom or scroll must be derived from the DOCUMENT, never from
+> `mapToScene(viewport().rect())`, `viewportTransform()`, or a scrollbar value. Any such loop
+> ratchets, because Qt's own re-centring is integer arithmetic.
+
+The Floorplan chart slid out from under the author while she drew: ~1px per redraw, and the rubber
+band redraws once per mouse move, so it crept until it hit a scroll limit and stopped. The rect had
+been `geometry ∪ mapToScene(viewport().rect())`. `mapToScene(QRect)` maps `rect.adjusted(0,0,1,1)`
+(`qgraphicsview.cpp:2400`), so that union always strictly contains the viewport → Qt takes its
+"whole scene fits, centre it" branch → `leftIndent = maxSize.width()/2 - (viewRect.left() +
+viewRect.right())/2` (`:409`) is an **int** division → on an ODD extent the re-centre lands ½px off
+→ the view moves → the visible rect moves → the next union differs → same-sign bias again.
+
+Three traps this class carries, all paid for:
+
+- **Parity is the gate, so an even-width test viewport sees NOTHING.** The suite's canvas is 1250px
+  wide because the layout silently overrides `resize()`. Parametrize view fences over an odd AND an
+  even viewport width, or the fence passes on the broken code.
+- **It is NOT the transformation anchor.** `setSceneRect` cannot re-anchor — `centerView` has
+  exactly three call sites (`resizeEvent`, `showEvent`, `setTransform`) — and the drift is identical
+  under `NoAnchor`.
+- ⚠ **`setTransformationAnchor(AnchorUnderMouse)` is load-bearing for HOVER.** It is what calls
+  `viewport()->setMouseTracking(true)` (`:1372-1381`), and nothing else in the package enables
+  tracking. "Tidying" it to `NoAnchor` silences every button-less `MouseMove` — rubber bands, hover
+  previews, coordinate chips — and the suite stays green, because mouse fences call
+  `mouseMoveEvent` directly and bypass Qt's delivery entirely. **At least one fence per canvas must
+  drive `QApplication.sendEvent(view.viewport(), ...)`.**
+
 ## A law in a docstring is a wish
 
 `widgets.option`'s docstring has said "never put prose inside a widget" since Phase 4. Co-op then

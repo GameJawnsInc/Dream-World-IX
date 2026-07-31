@@ -310,11 +310,93 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
      dragged vertex never captures onto its own room), and the rubber band previews the snapped
      point so the jump is the affordance. A/B on identical clicks 3-5px off a wall: **0 candidates
      before, the whole 1049u wall offered after.**
+  3. ★ **AND IT SLID AGAIN — THE INTEGER-TRUNCATION RATCHET.** Fixing (1) stopped the chart JUMPING
+     when a corner was placed; the owner's video showed it still SLIDING while the mouse merely
+     moved. (1)'s fix had made the scene rect `geometry ∪ mapToScene(viewport().rect())` — **a view
+     input computed from a view output**, which ratchets: `mapToScene(QRect)` maps
+     `rect.adjusted(0,0,1,1)` (`qgraphicsview.cpp:2400`) so the union always strictly contains the
+     viewport → Qt takes its "whole scene fits, centre it" branch → `leftIndent = maxSize.width()/2
+     - (viewRect.left()+viewRect.right())/2` at `:409`, an **integer** division → on an ODD viewport
+     extent the re-centre lands ½px off → the view moves → the visible rect moves → the next
+     redraw's union differs → same-sign bias again. **One pixel per redraw, and the rubber band
+     redraws once per mouse move.** Reproduced offscreen at viewport width 1251: −1px/move,
+     monotone, stopping dead when the drift finally pushed the union past viewport-shaped and the
+     scrollbar gained a real range — the owner's video, mechanism and all.
+     Fix: `_ensure_rect` grows the rect only when the geometry has actually left it, never from the
+     view. **THE LAW: never compute a view input from a view output.**
+     ⚠ **TWO WRONG ANSWERS COST A ROUND EACH.** (a) *The transformation anchor.* `setSceneRect`
+     cannot re-anchor — `centerView` has exactly three call sites (`resizeEvent`, `showEvent`,
+     `setTransform`) — and the drift is byte-identical under `NoAnchor`. Worse, switching to
+     `NoAnchor` is an **active regression**: that line is the only thing calling
+     `viewport()->setMouseTracking(true)` (`:1372-1381`), so it silences button-less `MouseMove`
+     and kills the rubber band, the snap preview and the coords chip outright — with the whole
+     suite still green, because every mouse fence calls `mouseMoveEvent` directly and bypasses
+     delivery. (b) *An unbalanced `ScrollHandDrag` press/release.* Every path is balanced; the
+     signature reproduces with `NoButton` throughout.
+  ★ **PARITY IS WHY IT WAS INVISIBLE.** The suite's viewport is 1250 — EVEN, always, because
+  `_laid_out_canvas`'s `resize(880, 420)` is silently overridden by the layout. At an even width
+  the union is value-identical every frame and `setSceneRect` early-outs, so a fence written there
+  passes on the broken code. The fences are now parametrized odd/even and verified RED at odd.
   ★ **THE METHOD LESSON.** All 47 pre-existing fences drove `click_world` — the world-space seam —
   so not one of them could see a defect that lived entirely in what the VIEW did between one click
   and the next. This is the SECOND time that exact gap shipped a defect on this tab (the first was
   the control DEAD ON CLICK). A gesture fence that does not go through Qt's own event path is
   testing the model, not the instrument.
+- **6c-firstcontact-2 ★ 2026-07-31** — steps 3 and 4 of the same first session, two more findings
+  and one non-finding.
+  1. ★ **STACKED CORNERS WELD; THEY DO NOT COMPETE FOR THE CLICK.** *"I can't drag a corner handle
+     of ROOM2 when it's stacked onto a ROOM1 corner... might need some way to settle stacked handle
+     selection, I can't think of a good one."* `_pick_vertex` broke the tie by room order with a
+     strict `<`, so the room drawn SECOND could never win and its corner was unreachable. **The
+     answer is not to settle the selection.** Two corners are coincident for exactly one reason —
+     the author snapped them into a shared wall — so picking one and moving it alone TEARS THE
+     ABUTMENT APART, and re-making it means landing the other inside `shared_edges`' 8u by hand,
+     the very thing snapping exists because nobody can do. The weld moves as one, the shared wall
+     survives the edit, and there is nothing to disambiguate. Escape hatch: a whole-room drag still
+     separates them. ⚠ **A weld must be ONE undo step** — emitting the singular `room_reshaped`
+     once per moved room pushed one history entry EACH, and a single undo then restored half an
+     abutment. Hence the batched `rooms_reshaped`, for the same reason a door pair is atomic.
+  2. ★ **`BAND_REACH` 4·R_WALK → 2·R_WALK, THE PLAYER'S OWN DIAMETER.** The spawn-in-a-door's-band
+     WARN fired twice on the first real dungeon anyone drew — two rooms, one door, nothing wrong
+     with it — at 183u and 244u, claiming "one step could fire it". The gap is
+     `(the room's extent perpendicular to the wall)/2 − strip depth`, so a 320u reach warns about
+     **every room under ~1140u across**. Grounded now instead of tuned: inside one body-length,
+     involuntary displacement (entry settle, wall clamp, a single input frame) really can bridge
+     it; beyond that the player walks there on purpose and the message is false. The motivating
+     incident (a spawn 10u outside a sign zone) is still caught by 16×. **Never widen it to silence
+     a real finding — move the spawn instead.**
+  3. NOT a defect: *"there's no option to rubber-band an existing corner onto another room's
+     corner"* — retested by the owner, it does snap. Dragging a corner has snapped since
+     6c-firstcontact; it was simply invisible while stacked corners could not be grabbed at all.
+  ★ **THE FENCE DISCIPLINE HELD THIS TIME.** Each new fence was run against the reverted behaviour
+  and confirmed RED before being kept — 2 red on un-welding, 1 red on per-room emission, 2 red on
+  the 320u reach. The previous round shipped fences that passed on the broken code; that is what
+  this step exists to prevent.
+- **6c-firstcontact-3 ★ 2026-07-31** — *"that welding broke it i think. i assembled 2 rooms and now
+  it says they overlap."* ★ **WELDING DID NOT BREAK IT — SNAPPING EXPOSED IT, AND IT WAS AS OLD AS
+  THE COMPOSER.** `segments_cross` files a cross product of EXACTLY ZERO with the negative side
+  (`(d1 > 0) != (d2 > 0)`), so two walls meeting at a **shared corner** — `d2 = d3 = 0` — satisfy
+  both halves and a TOUCH reads as a CROSSING. `polys_overlap` then refuses the abutment that
+  snapping exists to create. Latent for the composer's whole life because nothing could produce
+  exact contact: hand-aimed corners land within `shared_edges`' 8u but never on the same integer.
+  ★ **THE FIX WENT TO THE CALLER, AND THAT WAS NOT THE FIRST CHOICE.** Tightening `segments_cross`
+  to strictly-proper — which is what its own docstring claimed it already did — was tried and
+  **measured to break two things at once**: a self-touching outline (a wall ending exactly on a
+  non-adjacent wall) was accepted by `polygon_problem`, and two genuinely overlapping 45° strips
+  were called disjoint, because a parallel overlap band can have every corner ON a boundary so that
+  nothing properly crosses and no vertex is strictly inside. The inclusiveness is load-bearing in
+  BOTH callers. So `polys_overlap` skips edge pairs that **share an endpoint** — that is what an
+  abutment IS — and the primitive keeps its documented-by-behaviour meaning, with the lie removed
+  from its docstring. Safe because a real interpenetration near a shared corner still trips another
+  edge pair or a vertex-inside test.
+  ★ **AND THE SAME EXACTNESS PROMISE HAD A SECOND HOLE.** A snap to a WALL lands a float foot which
+  is then stored as an int; walls are generally diagonal, so almost no integer point lies on one,
+  and rounding put the corner up to 0.71u **inside** the neighbour — a genuine sub-unit overlap the
+  gate was right to refuse and the author could neither see nor fix (measured: 10 of 39 attach
+  points along one diagonal wall). Rounding now always breaks OUTWARD: a sub-unit gap is harmless
+  where `shared_edges` tolerates 8u, a sub-unit overlap is fatal. 0 of 38 after.
+  **THE DURABLE LESSON: a dormant defect is not an absent one, and the feature that exposes one is
+  not the feature that caused it.**
 - **6d** — deploy **per room** with `tools/deploy_field.py --id N` (additive: it rmtrees only that
   one FBG scene subdir and merges `DictionaryPatch.txt` by ownership). **Never**
   `deploy_campaign --apply` — that rmtrees the whole mod folder, and this install's `FF9CustomMap`

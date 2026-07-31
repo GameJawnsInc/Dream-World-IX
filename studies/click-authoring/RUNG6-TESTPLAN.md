@@ -98,7 +98,10 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - Double-click closes but self-click doesn't, or vice versa.
 - The duplicate-corner click silently adds a corner (no message).
 - Escape does nothing while an outline is pending.
-- ⚠ **The chart moves between clicks.** It should now be completely still while you draw — the corner lands under the cursor and nothing else shifts. First contact hit this hard ("the view shifts when adding new points", "the first point is always put at the origin", "it's hard to click the same spot twice") and it was all one defect: the chart's extent was being recomputed from the outline in progress, so the first corner collapsed it and Qt re-centred the whole view. **It is fixed and fenced, but you are the first to check it with a real mouse** — if you see any drift at all, that is the bug returning. (The point never actually went to the origin; the chart moved until the point was sitting where the origin marker had been.)
+- ⚠ **The chart moves at all.** It should now be completely still while you draw — the corner lands under the cursor, and *moving the mouse afterwards changes nothing but the rubber band*. This took **two** fixes, because there were two different slides stacked on each other:
+  1. A **jump when a corner was placed**: the chart's extent was recomputed from the outline in progress, so the first corner collapsed it and Qt re-centred the whole view. That is why the point looked like it went to the origin — the point never moved, the chart did, until the point sat where the origin marker had been.
+  2. A **continuous creep while the mouse merely moved**, which you filmed. The first fix had made the extent depend on where the view was looking, and that ratchets: Qt re-centres with integer arithmetic, so on an odd-numbered chart width it lands half a pixel out, the view shifts, the extent shifts with it, and round it goes — about a pixel per redraw, and the rubber band redraws on every mouse move. It stopped when it hit a scroll limit, which is the "then it stops" you saw.
+  **Both are fixed and fenced (the fences now run at odd *and* even chart widths, since the even case hides the bug entirely). You are still the first to check either with a real mouse** — any drift at all, in either shape, and I want to know.
 
 ---
 
@@ -130,11 +133,14 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - **Right-click** a room (Rooms mode) → `Rename…`, `Make ROOM2 the entry room`, `Delete ROOM2`. Use Rename, cancel the rest.
 - **Ctrl+scroll** to zoom, **Ctrl+0** to fit, **Ctrl+1** for 1:1.
 - Left-drag on empty chart space.
+- **Grab a corner two rooms SHARE** (one you snapped onto its neighbour) and drag it.
 
 **Expect this**
 - While dragging, a floating chip shows live coordinates: `ROOM2 corner 1 · x -1200 · z 800` (or `ROOM2 · centre x … · z …` for a whole-room drag). It hides on release.
 - The right-click menu has exactly three items; `Make … the entry room` is **greyed out** on the room that is already the entry.
 - Ctrl+0 frames everything; left-drag on empty space **pans**.
+- **A shared corner moves BOTH rooms** and the coordinate chip says `· welded to 1 more`. That is deliberate: two corners are stacked only because you snapped them into a shared wall, so pulling one out alone would tear the wall apart — and re-making it would mean landing the other within 8u by hand, which is the thing snapping exists to spare you. One **Undo** puts both back. To separate two welded rooms, drag one room **bodily** (grab its middle, not a corner).
+- ⚠ This replaced the behaviour you hit in the first session: a stacked corner used to be grabbable only for the room drawn **first**, so the second room's corner could not be selected at all. If a stacked corner is ever un-grabbable again, that is the old tie-break returning.
 
 **Suspect a bug if**
 - ⚠ **The room snaps back to where it was when you let go.** This *was* a confirmed defect — a background gate check finishing mid-drag discarded the gesture silently, with no message and no undo entry — and it has since been **fixed**: the drag now outranks a verdict landing under it, and the gate is ~15× faster besides, so the window barely exists. **It is fenced, but no human has confirmed the fix.** If you see it even once, stop and tell me, with roughly how many rooms were on the chart. A barely-moved grab that then leaves a stray corner behind is the same bug wearing its other face.
@@ -159,6 +165,7 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - Back at 250 everything returns to blue and Compose re-enables.
 
 **Suspect a bug if**
+- ⚠ **Two rooms you assembled report `rooms X and Y overlap -- they share floor area`.** They should not: an exactly-shared wall is an abutment, and that is the whole point of snapping. This fired on the first assembled pair and was a bug as old as the composer — a cross product of exactly zero was filed as a crossing, so two walls meeting at a shared corner read as an intersection. Nothing could reach it until snapping made contact exact. Fixed and fenced; **if you see it again, keep the drawing** — the overlap is either real (drag a room bodily and look) or the tripwire has gone.
 - Compose stays **enabled** while rooms are red. That is the gate failing to hold the door.
 - The depth spinbox refuses to accept 100. (It shouldn't — a too-shallow value is *meant* to reach the gate and be refused out loud rather than silently clamped.)
 - Clicking a wall declares a door on the *wrong* pair of rooms.
@@ -253,6 +260,14 @@ Then **relaunch the game** (a brand-new id needs one launch to register), and `~
 **Suspect a bug if**
 - Black screen (an id collision), you spawn outside the walkable area, or the camera is looking at nothing.
 - Take a screenshot either way — that framing judgement is the thing I most want your eyes on.
+
+⛔ **CHECK THE `Mod` BOX BEFORE YOU DEPLOY.** The tab lets you type any folder name, and the engine
+only reads folders listed in `Memoria.ini`'s `[Mod] FolderNames` — today that is exactly
+`"FF9CustomMap", "FF9CustomMap-world", "MoguriMain", "MoguriVideo"`. Deploy into anything else and
+the build lands on disk, the game reads none of it, and you get *no error and no change*. The first
+composed dungeon was authored with `Mod = FF9CustomMap-dung`, which is not registered and does not
+exist. Either set the box back to **`FF9CustomMap`**, or add your folder to **both** `FolderNames`
+and `Priorities` and **relaunch**. (The tab does not yet gate this — say the word and it will.)
 
 **Hard rules for this step:**
 - ⛔ **Never** `deploy-campaign --apply` on this. It `rmtree`s the whole mod folder and this install holds ~400 registrations from other sessions. One `deploy_field.py … --id N` per room, always with `--id`.
