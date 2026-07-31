@@ -1192,3 +1192,72 @@ def test_cancel_is_polled_often_enough_to_matter():
 
 def test_compose_without_a_cancel_hook_is_unchanged():
     assert _verdict(_plan(), cancel=None) == _verdict(_plan())
+
+
+# ============================================ the abutment that "overlapped" (first contact, step 4)
+# "that welding broke it i think. i assembled 2 rooms and now it says they overlap"
+#
+# Welding did not break it. `segments_cross` had filed a cross product of EXACTLY ZERO -- an
+# endpoint resting on the other segment -- on the negative side, so a TOUCH read as a CROSSING.
+# It was latent for the composer's whole life because nothing could produce exact contact: hand
+# aimed corners land within `shared_edges`' 8u but never on the same integer. Snapping made
+# abutments exact and the first author to use it was told their rooms shared floor area.
+
+
+def test_the_shared_corner_that_read_as_a_crossing():
+    """★ THE ZERO. Two walls meeting at a shared corner give cross products of EXACTLY 0, and
+    `(d1 > 0) != (d2 > 0)` files 0 with the negative side -- so both halves of `segments_cross`
+    come out True and a touch reads as a crossing. THAT IS STILL TRUE and deliberately so (the
+    primitive is inclusive on purpose); this pins the pair that exposed it, so the next reader can
+    see why `polys_overlap` skips shared endpoints instead of trusting this."""
+    wall = ((0.0, 0.0), (1600.0, -60.0))
+    nextwall = ((1600.0, -60.0), (1700.0, 1200.0))     # shares the corner (1600, -60)
+    assert F.segments_cross(*wall, *nextwall), "the inclusive primitive is the documented one"
+    assert F._shares_endpoint(wall, nextwall), "...and THIS is what tells an abutment from a cross"
+
+
+def test_two_rooms_sharing_a_wall_exactly_do_not_overlap():
+    """The gate as the author meets it: snap ROOM2's corners onto ROOM1's, and the two must be an
+    abutment, not an overlap. This is the exact pair the first session hit."""
+    A = [(0.0, 0.0), (1600.0, -60.0), (1900.0, -1500.0), (-300.0, -1400.0)]
+    B = [(0.0, 0.0), (1600.0, -60.0), (1700.0, 1200.0), (-500.0, 1000.0)]
+    assert not F.polys_overlap(A, B), "an exactly-shared wall was read as shared floor area"
+    assert F.shared_edges(A, B), "...and the shared wall must still be offered as a door"
+
+
+def test_a_real_overlap_is_still_refused():
+    """The tightening must not blunt the gate: rooms that genuinely interpenetrate still fail."""
+    A = [(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0), (0.0, 1000.0)]
+    B = [(500.0, 500.0), (1500.0, 500.0), (1500.0, 1500.0), (500.0, 1500.0)]
+    assert F.polys_overlap(A, B)
+    C = [(200.0, 200.0), (800.0, 200.0), (800.0, 800.0), (200.0, 800.0)]      # fully contained
+    assert F.polys_overlap(A, C)
+
+
+def test_an_outline_that_merely_touches_itself_is_still_refused():
+    """★ HALF OF WHY THE PRIMITIVE STAYS INCLUSIVE. A wall that ENDS exactly on a non-adjacent wall
+    is a degenerate outline even though nothing properly crosses -- and snapping makes that shape
+    reachable by hand for the first time. Tightening `segments_cross` to strictly-proper accepted
+    it, which is one of the two measured regressions that sent the fix to the caller instead."""
+    poly = [(0, 0), (1000, 0), (1000, 1000), (500, 0), (0, 1000)]   # vertex 3 lands ON wall 0
+    assert F.polygon_problem(poly) is not None, "a self-touching outline was accepted"
+    bowtie = [(0, 0), (1000, 1000), (1000, 0), (0, 1000)]
+    assert F.polygon_problem(bowtie) is not None, "a bowtie was accepted"
+
+
+def test_the_overlap_judge_skips_shared_endpoints_rather_than_weakening_the_primitive():
+    """★ WHERE THE FIX HAD TO GO. `segments_cross` counts a touch as a crossing, and that
+    inclusiveness is LOAD-BEARING twice over: `polygon_problem` needs it (a wall ending on a
+    non-adjacent wall is a degenerate outline) and `polys_overlap` needs it for PARALLEL shapes,
+    whose overlap band can have every corner sitting on a boundary so that nothing properly crosses
+    and no vertex is strictly inside. Tightening the primitive was MEASURED to break both -- a
+    self-touching outline was accepted, and two genuinely overlapping 45deg strips were called
+    disjoint. That is why the abutment fix is here and not there.
+
+    So the abutment case is fixed at the CALLER: edge pairs that share an endpoint are skipped,
+    because that is what an abutment IS."""
+    a, b = (0.0, 0.0), (100.0, 0.0)
+    c, d = (50.0, 0.0), (50.0, 100.0)                 # a T-junction: touches, does not cross
+    assert F.segments_cross(a, b, c, d), "the primitive stays inclusive -- see the docstring"
+    assert F._shares_endpoint(((0.0, 0.0), (100.0, 0.0)), ((100.0, 0.0), (100.0, 50.0)))
+    assert not F._shares_endpoint(((0.0, 0.0), (100.0, 0.0)), ((50.0, 1.0), (50.0, 50.0)))

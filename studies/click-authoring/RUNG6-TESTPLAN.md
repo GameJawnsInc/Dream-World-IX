@@ -165,6 +165,7 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - Back at 250 everything returns to blue and Compose re-enables.
 
 **Suspect a bug if**
+- ⚠ **Two rooms you assembled report `rooms X and Y overlap -- they share floor area`.** They should not: an exactly-shared wall is an abutment, and that is the whole point of snapping. This fired on the first assembled pair and was a bug as old as the composer — a cross product of exactly zero was filed as a crossing, so two walls meeting at a shared corner read as an intersection. Nothing could reach it until snapping made contact exact. Fixed and fenced; **if you see it again, keep the drawing** — the overlap is either real (drag a room bodily and look) or the tripwire has gone.
 - Compose stays **enabled** while rooms are red. That is the gate failing to hold the door.
 - The depth spinbox refuses to accept 100. (It shouldn't — a too-shallow value is *meant* to reach the gate and be refused out loud rather than silently clamped.)
 - Clicking a wall declares a door on the *wrong* pair of rooms.

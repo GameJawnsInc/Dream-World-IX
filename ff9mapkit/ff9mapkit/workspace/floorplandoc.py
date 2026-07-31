@@ -665,8 +665,38 @@ class PlanCanvas(QGraphicsView):
             for i in range(len(poly)):
                 f, d = self._foot((x, z), poly[i], poly[(i + 1) % len(poly)])
                 if d <= tol and (best is None or d < best[0]):
-                    best = (d, f)
-        return (best[1], "wall") if best is not None else ((x, z), None)
+                    best = (d, f, poly)
+        if best is None:
+            return (x, z), None
+        return self._integral_outside(best[1], best[2]), "wall"
+
+    @staticmethod
+    def _integral_outside(foot, poly):
+        """The foot of a wall snap, as the INTEGER point nearest it that is not INSIDE ``poly``.
+
+        ★ SNAPPING PROMISES EXACTNESS AND INTEGERS TAKE IT AWAY. Every stored coordinate is an int,
+        but a wall is a general diagonal, so almost no integer point lies exactly on one: rounding
+        the foot moves it up to 0.71u off the line, and half the time that is INTO the neighbour.
+        The room then genuinely overlaps by a sliver, `polys_overlap` is right to refuse it, and the
+        author is told their two rooms share floor area over half a unit they cannot see or fix.
+        Measured over a diagonal wall, 39 attach points: 10 landed inside.
+
+        A sub-unit GAP is harmless where a sub-unit overlap is fatal -- `shared_edges` admits walls
+        up to 8u apart, and `polys_overlap` forbids any shared area at all. So the tie is broken
+        outward, always. Corner snaps need none of this: an existing corner is already an integer,
+        so landing on it is exact."""
+        fx, fz = foot
+        cands = sorted({(int(math.floor(fx)), int(math.floor(fz))),
+                        (int(math.ceil(fx)), int(math.floor(fz))),
+                        (int(math.floor(fx)), int(math.ceil(fz))),
+                        (int(math.ceil(fx)), int(math.ceil(fz))),
+                        (int(round(fx)), int(round(fz)))},
+                       key=lambda p: math.hypot(p[0] - fx, p[1] - fz))
+        for p in cands:
+            if not (FP.point_in_poly(p[0], p[1], poly)
+                    and FP.dist_to_boundary(p[0], p[1], poly) > 0.0):
+                return p
+        return cands[0]
 
     def _pick_candidate(self, x, z):
         tol = self.world_tol(_PICK_PX)

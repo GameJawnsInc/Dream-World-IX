@@ -119,6 +119,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   writes both sides at once — is a single step. A half-undone door would be a
   gateway with no arrival.
 
+### Fixed — two rooms snapped into a shared wall were refused as overlapping
+- Assembling two rooms so they share a wall — the thing snapping exists to make
+  possible — reported "rooms ROOM1 and ROOM2 overlap: they share floor area", with
+  nothing visibly wrong and nothing the author could adjust.
+- The segment test underneath treats a cross product of exactly zero as one side
+  rather than as contact, so two walls meeting at a shared corner read as a
+  crossing. That inclusiveness is wanted elsewhere — an outline whose wall ends on
+  another of its own walls is degenerate, and it is what catches two parallel
+  rooms overlapping in a band where no corner is strictly inside anything — so the
+  overlap check now ignores wall pairs that meet at a shared corner, which is what
+  an abutment is, instead of the shared test being weakened. Tightening that test
+  was tried first and measurably broke both of the cases it protects.
+- The bug is as old as the composer and could not be reached until now: corners
+  aimed by hand land close enough to count as a shared wall but never on the same
+  exact coordinate, so nothing ever produced the exact contact that triggers it.
+- Attaching a corner to the middle of a wall is exact too: the stored coordinates
+  are whole numbers and a wall is usually diagonal, so rounding could put the
+  corner a fraction of a unit inside its neighbour — a real, invisible overlap.
+  The rounding now always goes to the outside, where a sub-unit gap is harmless.
+
 ### Fixed — a corner two rooms share can now be grabbed, and moving it keeps them joined
 - When you snapped one room's corner onto another's, the resulting stacked handles
   were picked by room order, so only the room drawn first could be grabbed — the other

@@ -231,11 +231,28 @@ def _cross3(o, p, q):
 
 
 def segments_cross(a, b, c, d):
-    """PROPER crossing of ``ab`` and ``cd``. Collinear-overlapping and shared-endpoint touching both
-    return False, which is what makes two rooms allowed to ABUT along a shared wall."""
+    """``ab`` and ``cd`` share a point: a proper crossing, OR an endpoint resting on the other.
+
+    ⚠ THE NAME UNDERSTATES IT, DELIBERATELY, AND THE OLD DOCSTRING LIED. It used to claim
+    "shared-endpoint touching returns False, which is what makes two rooms allowed to ABUT" -- it
+    does not: a cross product of EXACTLY ZERO is filed with the negative side by `(d1 > 0) !=
+    (d2 > 0)`, so a touch counts. That inclusiveness is CORRECT for :func:`polygon_problem`, where
+    a wall ending exactly on a non-adjacent wall is a degenerate outline, and it is load-bearing in
+    :func:`polys_overlap` for parallel shapes whose overlap band has every corner ON a boundary and
+    so trips neither a proper crossing nor a vertex-inside test.
+
+    It was the wrong test for ABUTMENT, and :func:`polys_overlap` is where that is now handled --
+    by skipping edge pairs that share an endpoint, rather than by weakening this. Tightening it to
+    strictly-proper was measured to break both: a self-touching outline was accepted, and two
+    genuinely overlapping 45deg strips were called disjoint."""
     d1, d2 = _cross3(c, d, a), _cross3(c, d, b)
     d3, d4 = _cross3(a, b, c), _cross3(a, b, d)
     return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+
+
+def _shares_endpoint(ea, eb):
+    """The two segments have an endpoint in common (exactly -- both are stored as ints)."""
+    return any(p == q for p in ea for q in eb)
 
 
 def polys_overlap(A, B, *, eps=TOUCH_EPS):
@@ -248,6 +265,16 @@ def polys_overlap(A, B, *, eps=TOUCH_EPS):
     polygons too, which SAT is not, and rooms are routinely L-shaped."""
     for ea in edges(A):
         for eb in edges(B):
+            # ★ SKIP EDGE PAIRS THAT SHARE AN ENDPOINT -- that is an ABUTMENT, not an overlap, and
+            # it is the whole reason two rooms snapped together were refused as "sharing floor
+            # area". `segments_cross` files a zero cross product with the negative side, so a wall
+            # and its neighbour's next wall meeting at a welded corner read as a crossing. Latent
+            # for the composer's whole life: hand-aimed corners land within `shared_edges`' 8u but
+            # never on the same integer, so nothing produced exact contact until snapping did.
+            # Safe to skip: if the rooms really do interpenetrate near that corner, some other edge
+            # pair crosses, or a vertex of one is strictly inside the other, and both are tested.
+            if _shares_endpoint(ea, eb):
+                continue
             if segments_cross(ea[0], ea[1], eb[0], eb[1]):
                 return True
     for p in A:

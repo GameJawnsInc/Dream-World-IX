@@ -372,6 +372,31 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
   and confirmed RED before being kept — 2 red on un-welding, 1 red on per-room emission, 2 red on
   the 320u reach. The previous round shipped fences that passed on the broken code; that is what
   this step exists to prevent.
+- **6c-firstcontact-3 ★ 2026-07-31** — *"that welding broke it i think. i assembled 2 rooms and now
+  it says they overlap."* ★ **WELDING DID NOT BREAK IT — SNAPPING EXPOSED IT, AND IT WAS AS OLD AS
+  THE COMPOSER.** `segments_cross` files a cross product of EXACTLY ZERO with the negative side
+  (`(d1 > 0) != (d2 > 0)`), so two walls meeting at a **shared corner** — `d2 = d3 = 0` — satisfy
+  both halves and a TOUCH reads as a CROSSING. `polys_overlap` then refuses the abutment that
+  snapping exists to create. Latent for the composer's whole life because nothing could produce
+  exact contact: hand-aimed corners land within `shared_edges`' 8u but never on the same integer.
+  ★ **THE FIX WENT TO THE CALLER, AND THAT WAS NOT THE FIRST CHOICE.** Tightening `segments_cross`
+  to strictly-proper — which is what its own docstring claimed it already did — was tried and
+  **measured to break two things at once**: a self-touching outline (a wall ending exactly on a
+  non-adjacent wall) was accepted by `polygon_problem`, and two genuinely overlapping 45° strips
+  were called disjoint, because a parallel overlap band can have every corner ON a boundary so that
+  nothing properly crosses and no vertex is strictly inside. The inclusiveness is load-bearing in
+  BOTH callers. So `polys_overlap` skips edge pairs that **share an endpoint** — that is what an
+  abutment IS — and the primitive keeps its documented-by-behaviour meaning, with the lie removed
+  from its docstring. Safe because a real interpenetration near a shared corner still trips another
+  edge pair or a vertex-inside test.
+  ★ **AND THE SAME EXACTNESS PROMISE HAD A SECOND HOLE.** A snap to a WALL lands a float foot which
+  is then stored as an int; walls are generally diagonal, so almost no integer point lies on one,
+  and rounding put the corner up to 0.71u **inside** the neighbour — a genuine sub-unit overlap the
+  gate was right to refuse and the author could neither see nor fix (measured: 10 of 39 attach
+  points along one diagonal wall). Rounding now always breaks OUTWARD: a sub-unit gap is harmless
+  where `shared_edges` tolerates 8u, a sub-unit overlap is fatal. 0 of 38 after.
+  **THE DURABLE LESSON: a dormant defect is not an absent one, and the feature that exposes one is
+  not the feature that caused it.**
 - **6d** — deploy **per room** with `tools/deploy_field.py --id N` (additive: it rmtrees only that
   one FBG scene subdir and merges `DictionaryPatch.txt` by ownership). **Never**
   `deploy_campaign --apply` — that rmtrees the whole mod folder, and this install's `FF9CustomMap`
