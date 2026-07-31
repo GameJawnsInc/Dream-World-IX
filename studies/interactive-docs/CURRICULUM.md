@@ -99,5 +99,11 @@ in-game claims (gateway walk-through, chest latch across saves, encounter return
 landing) come from the verified reference, not a fresh run; one hedged micro-step (S7's
 campaign add-field menu action) is menu-territory the inventory cannot verify. Owner: run the
 spine start to finish and every misfire becomes a one-line fix.
-Next: C1 (extraction from current 01/02), the generated track-ladder landing, B ladders by
-interest, D migrations (moves + prereq chips), 06/08's remaining content absorption.
+★ **C1 SHIPPED** (c1-cli-fork-edit-deploy — S1-S2 terminal-native, command-gated, links into
+01/02 for depth). ★ **Frontmatter migration DONE**: all of 01-14 carry [tutorial] chips;
+09/10/11/12/14 = track D; transitional pages (01-08) claim no ladder position until absorbed.
+★ **tutorials_index_gate**: an unlisted frontmattered tutorial or a misordered track fails the
+build — the hand-kept README can no longer rot silently (this defers the generated landing
+until the transitional pages settle into tracks).
+Next: the S-track PLAYTEST (owner) · C2-C4 · B ladders by interest · 08's choice/cast-scene
+content into its track home · then the generated track-ladder landing replaces the hand tables.
