@@ -44,10 +44,18 @@ and :meth:`FloorplanDoc.repair_split` for the round-7 law paid on this rail.
 ★ **THE LIVE GATE FEEDBACK IS THE TAB'S REAL VALUE.** ``compose`` is pure and raises
 ``ComposeError`` carrying EVERY problem, so it runs on every edit: offending rooms and doors
 paint in the error colour, every problem is listed (an unattributable one is still listed —
-never swallowed), and Compose is disabled with a tooltip saying why. It is not free (~0.5s per
-room, dominated by :func:`~ff9mapkit.floorplan.standable`'s grid sampling), so it runs
-debounced on a worker thread with a generation counter, exactly like BehaviorDoc's sweep; a
-stale verdict never paints and Compose never rides one.
+never swallowed), and Compose is disabled with a tooltip saying why. It runs debounced on a worker
+thread with a generation counter, exactly like BehaviorDoc's sweep; a stale verdict never paints
+and Compose never rides one.
+
+★ **AND IT IS ONLY LIVE BECAUSE IT IS INCREMENTAL.** Re-deriving the whole plan on every gesture
+cost what DRAWING the plan cost -- ~17s on an eight-room dungeon -- because there was nothing to
+carry between judges. A stall wearing a live gate's clothes. This doc carries ONE
+:class:`~ff9mapkit.floorplan.GeomCache` across judges and hands ``compose`` a ``cancel`` hook, so a
+gesture costs only what it changed: **~0.6s, and FLAT in room count** (the same at twelve rooms as
+at three), with an all-hit re-judge in milliseconds. The flatness is the fix; the raw number is just
+today's machine. See :meth:`FloorplanDoc.judge_now` for why the cache key has to be the polygon's
+coordinates and nothing else.
 
 Laws honoured: no I/O at construction or on tab show (the startup-spend law — the only disk
 touches are the user's own Open and Compose clicks); dialogs are INSTANCE dialogs behind
@@ -491,8 +499,18 @@ class PlanCanvas(QGraphicsView):
 
         ``refit`` on a NEW document only: a same-document re-render keeps the user's zoom and
         pan (the map's own contract)."""
+        was = self._drag
         self._rooms = [{"name": str(r.get("name") or ""), "poly": _poly_pts(r.get("poly") or ())}
                        for r in rooms]
+        ri = None if was is None else was["ri"]
+        if was is not None and not (0 <= ri < len(self._rooms)
+                                    and self._rooms[ri]["poly"] == list(was["start"])):
+            # The drag record is an INDEX, and `start` is the outline as it stood when the press
+            # landed. If the fed plan no longer shows that room unchanged at that index -- deleted,
+            # reordered, or edited from somewhere else -- the index now aims at somebody else's
+            # outline, and a release would write this gesture onto the wrong room. An index-range
+            # check alone is NOT enough: deleting an earlier room keeps every index in range.
+            self._drag = None
         self._doors = [dict(d) for d in doors]
         self._cands = [dict(c) for c in candidates]
         self._bad_rooms = set(bad_rooms)
@@ -500,8 +518,19 @@ class PlanCanvas(QGraphicsView):
         self._bad_doors = set(bad_doors)
         self._entry = entry
         self._sel_door = selected_door
-        self._drag = None                  # a re-feed replaces the geometry a drag was editing
-        self._coords.hide()
+        if self._drag is None:
+            self._coords.hide()
+        # ★ A RE-FEED USED TO EAT AN IN-PROGRESS DRAG (this line was `self._drag = None`).
+        # The live gate runs on a worker; when its verdict landed mid-drag, `_paint_verdict` fed the
+        # canvas, the drag record was discarded, and `_draw` repainted the room at its PRE-DRAG
+        # outline. The room visibly snapped back with no message, no `room_reshaped`, and no undo
+        # entry -- `mouseReleaseEvent` tests `if self._drag`, so the release never committed
+        # anything. Worse, a release that had barely travelled was then re-read as a CLICK, which in
+        # Rooms mode silently starts a new outline. The generation guard could not save it: a drag
+        # never bumps `_gen`, so the verdict was never stale.
+        # Making the gate fast shrinks this window; it does not close it. The drag is the author's
+        # live gesture and it OUTRANKS a feed -- a verdict is about the plan as it was, and this
+        # room's outline is currently the mouse's to own until the button comes up.
         if refit:
             self.resetTransform()
             self._zoom = 1.0
@@ -1196,6 +1225,8 @@ class FloorplanDoc(QWidget):
         self._gen = 0                                 # judge generation: a stale verdict never paints
         self._pending_judge = False
         self._verdict = None                          # (composed|None, errors, warnings)
+        self._cache = FP.GeomCache()                  # ACROSS judges -- see judge_now. Shared by
+        #                                               every worker thread, so it locks internally.
         self._id_base_cache = None                    # .ff9deploy.toml, read on FIRST USE only
         self._id_base_read = False
         self._note, self._note_state = "", ""         # the last gesture's own line, re-painted
@@ -1343,9 +1374,16 @@ class FloorplanDoc(QWidget):
         self.name_box.setAccessibleName("Dungeon name")
         self.name_box.setToolTip("The composed campaign's name (its campaign.toml).")
         nl.setBuddy(self.name_box)
-        self.name_box.textChanged.connect(lambda _t: self._touch(judge=True))
-        #                                  judge=True: the name becomes a FOLDER, and _name_problem
-        #                                  is one of the gates -- see there
+        self.name_box.textChanged.connect(lambda _t: self._touch())
+        #  ★ NOT judge=True. The name becomes a FOLDER and `_name_problem` IS one of the gates --
+        #  but that gate lives in `_envelope_problems`, which `_paint_verdict` spends on the GUI
+        #  thread on EVERY repaint, judge or no judge. The old comment here claimed the re-judge was
+        #  what enforced it; it never was. `compose` reads `name` in exactly one place (the composed
+        #  campaign's own name) and it does not reach a single grid sample -- so a keystroke was
+        #  buying nothing and costing a whole compose. Measured: typing a nine-character name at any
+        #  normal speed spawned NINE workers (the 140ms debounce only coalesces faster than that),
+        #  and because compose is pure Python under the GIL they stacked -- 2.7s of asked-for work
+        #  took 13.2s, with the Compose button disabled throughout.
         row.addWidget(self.name_box)
         ml = QLabel("Mod")
         row.addWidget(ml)
@@ -1755,15 +1793,24 @@ class FloorplanDoc(QWidget):
     def judge_now(self, *, sync=False):
         """Run ``compose`` over the current plan. Default lane is a WORKER THREAD.
 
-        It is not free — measured ~0.5s per room, dominated by ``standable``'s 8u grid sampling
-        — so a three-room plan would freeze the GUI for a second and a half on every gesture.
         ``compose`` is pure Python with no Qt and no disk, so a thread is safe by construction.
         ``sync=True`` is the deterministic lane the fences, the snaps and Compose itself use.
 
         A generation counter drops a stale verdict (BehaviorDoc's sweep idiom): the plan a
         gesture changed is not the plan the in-flight worker was judging, and painting the old
         verdict would say a fixed problem is still there — or, worse, say a new one is not.
-        """
+
+        ★ IT SPENDS ``self._cache``, AND THAT IS THE WHOLE POINT. A gesture changes ONE room, and
+        without a cache carried across judges this re-derived all eight — ~17s per gesture on an
+        eight-room plan, the same as drawing it from scratch, because nothing survived a judge. That
+        is not a live gate, it is a stall. With it, a re-judge costs only what the gesture actually
+        changed and is FLAT in room count: ~0.6s at three rooms and the same at twelve. The key is the polygon's own COORDINATES, which is the only thing that
+        decides "unchanged" here — room dicts are mutated in place (same ``id``, new poly) by
+        ``_on_room_reshaped``, and undo pops a ``deepcopy`` (new ``id``, same poly), so identity
+        fails in both directions, and rename-in-place kills a name key.
+
+        ★ IT SPENDS ``cancel`` TOO. Cancellation is what stops a superseded judge from running to
+        completion just to have its answer thrown away by the generation check below."""
         self._gen += 1
         gen = self._gen
         plan = self.plan()
@@ -1774,15 +1821,27 @@ class FloorplanDoc(QWidget):
             return
         self._pending_judge = True
         if sync:
-            self._finish_judge((gen,) + self._judge_work(plan))
+            self._finish_judge((gen,) + self._judge_work(plan, cache=self._cache))
             return
         threading.Thread(target=self._judge_worker, args=(gen, plan), daemon=True).start()
 
     @staticmethod
-    def _judge_work(plan):
-        """``(composed|None, errors, warnings)`` — pure, so it is safe off the GUI thread."""
+    def _judge_work(plan, *, cache=None, cancel=None):
+        """``(composed|None, errors, warnings)`` — pure, so it is safe off the GUI thread.
+
+        Static, and the extras are keyword-only with ``None`` defaults, because the fences call
+        this UNBOUND with one positional argument."""
         try:
-            c = FP.compose(plan)
+            c = FP.compose(plan, cache=cache, cancel=cancel)
+        except FP.ComposeCancelled:
+            # ★ MUST precede the bare handler below. `ComposeCancelled` is deliberately not a
+            # `ComposeError`, so the catch-all would render a superseded judge as a red finding
+            # reading "the composer could not judge this plan: ComposeCancelled:" — a refusal the
+            # plan never earned. Today `_finish_judge`'s generation check happens to drop that
+            # payload before it paints, which makes this a latent defect rather than a visible one:
+            # exactly the kind that surfaces the day someone calls judge_now(sync=True) on a stale
+            # generation. A cancelled judge found NOTHING; it says so.
+            return (None, [], [])
         except FP.ComposeError as e:
             return (None, list(e.problems), [])
         except Exception as e:                     # noqa: BLE001 -- a half-drawn plan must never
@@ -1791,7 +1850,7 @@ class FloorplanDoc(QWidget):
         return (c, [], list(c.warnings))
 
     def _judge_worker(self, gen, plan):
-        res = self._judge_work(plan)
+        res = self._judge_work(plan, cache=self._cache, cancel=lambda: gen != self._gen)
         try:
             self._judged.emit((gen,) + res)
         except RuntimeError:                       # the doc died under the worker
@@ -1972,6 +2031,9 @@ class FloorplanDoc(QWidget):
         self._session = {"rooms": rooms, "doors": doors,
                          "entry": (str(data["entry"]) if data.get("entry") in known else
                                    (rooms[0]["name"] if rooms else None))}
+        self._cache.reset()      # Open replaces the drawing outright, so the old one's memoized
+        #                          poses can never be asked for again -- and this is the one edit
+        #                          that also wipes the undo stack, so nothing can bring them back.
         self._history = []
         self._sel_door = None
         self.name_box.setText(str(data.get("name") or "DUNGEON"))

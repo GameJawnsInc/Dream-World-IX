@@ -46,7 +46,11 @@ wrong -- is ``studies/click-authoring/RUNG6.md`` §1. Read it before changing a 
 """
 from __future__ import annotations
 
+import contextlib
 import math
+import threading
+from bisect import bisect_left, bisect_right
+from collections import OrderedDict
 from dataclasses import dataclass, field as _dc_field
 
 from . import imagefield as _if
@@ -304,17 +308,284 @@ def standable(poly, *, R=R_WALK, step=GRID_STEP):
     1.43deg moves it 913u, and 0.14deg moves it 9552u. A plain L-shape (90deg reflex) outsets
     cleanly, so no convex fixture can catch this. Grid sampling has no miter and cannot blow up.
     ``outset_polygon`` is still right for the ART path -- gate it there with a miter limit."""
-    x0, z0, x1, z1 = bbox(poly)
-    out = set()
-    x = x0
-    while x <= x1 + step:
-        z = z0
-        while z <= z1 + step:
-            if point_in_poly(x, z, poly) and dist_to_boundary(x, z, poly) >= R:
-                out.add((int(math.floor(x / step)), int(math.floor(z / step))))
-            z += step
-        x += step
+    return set(standable_map(poly, R=R, step=step))
+
+
+def _edge_data(poly):
+    """``(ax, az, dx, dz, L2)`` per edge -- everything :func:`dist_to_boundary` recomputes per
+    sample that does not actually depend on the sample, hoisted out of the per-cell loop."""
+    n = len(poly)
+    out = []
+    for i in range(n):
+        ax, az = poly[i]
+        bx, bz = poly[(i + 1) % n]
+        dx, dz = bx - ax, bz - az
+        out.append((ax, az, dx, dz, dx * dx + dz * dz))
     return out
+
+
+def _min_dist_to_edges(x, z, ed):
+    """:func:`dist_to_boundary` against pre-built :func:`_edge_data` -- same value, bit for bit,
+    without rebuilding every edge's ``dx/dz/L2`` once per sample."""
+    best = float("inf")
+    for (ax, az, dx, dz, L2) in ed:
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((x - ax) * dx + (z - az) * dz) / L2))
+        d = math.hypot(x - (ax + t * dx), z - (az + t * dz))
+        if d < best:
+            best = d
+    return best
+
+
+def _axis(lo, hi, step):
+    """The EXACT sample sequence ``v = lo; while v <= hi + step: v += step`` walks.
+
+    Repeated addition, deliberately -- NOT ``lo + k * step``. The two disagree in the last bits, and
+    a cell key is ``floor(v / step)``, so a last-bit difference can move a sample across a cell
+    boundary and change a gate's verdict for no reason anyone could ever debug."""
+    out, v = [], lo
+    while v <= hi + step:
+        out.append(v)
+        v += step
+    return out
+
+
+def _row_crossings(poly, z):
+    """Sorted x where the horizontal line at ``z`` crosses ``poly``; inside is
+    ``[xs[2k], xs[2k+1])``.
+
+    Half-OPEN on purpose: that is exactly the set :func:`point_in_poly`'s strict ``x < xin`` test
+    calls inside, so a scanline and a per-point test agree cell for cell."""
+    xs = []
+    n = len(poly)
+    for i in range(n):
+        x1, z1 = poly[i]
+        x2, z2 = poly[(i + 1) % n]
+        if (z1 > z) != (z2 > z):
+            xs.append(x1 + (z - z1) * (x2 - x1) / ((z2 - z1) or 1e-12))
+    xs.sort()
+    return xs
+
+
+def standable_map(poly, *, R=R_WALK, step=GRID_STEP):
+    """``{(i, j): distance from the SAMPLE to the nearest wall}`` over :func:`standable`'s cells.
+
+    ⚠ THE DISTANCE IS MEASURED AT THE SAMPLE, NOT AT THE CELL CENTRE, and the two are different
+    points -- the sample is ``x0 + k*step`` walked from this polygon's own bbox, the centre is
+    ``(i + 0.5) * step`` on the absolute grid. So this number is NOT a drop-in for
+    :func:`interior_point`'s ranking distance, however much it looks like one. Swapping it in moved
+    the spawn a whole cell on 4 of 22 random plans that composed. It is returned because it is free
+    here and a caller that genuinely wants the sample's clearance should not re-measure it.
+
+    ★ THE SCANLINE. Cells outside the polygon are skipped by row rather than rejected one at a time,
+    and the distance loop exits the moment any edge is closer than ``R`` (the cell has already
+    failed; the exact minimum is then nobody's business).
+
+    ★ THE ARITHMETIC IS PINNED to :func:`dist_to_boundary`'s, term for term -- the division rather
+    than a hoisted reciprocal, and ``x - (ax + t*dx)`` rather than ``(x - ax) - t*dx``. Both
+    shortcuts are algebraically identical, ~1e-13 apart in floating point, and measured to move the
+    distance on 60 of 240 random polygons. That is nothing to a gate and everything to "the verdict
+    did not change". Differentially swept against the original double loop over 240 rect/L/U/blob
+    polygons x 4 radii x 3 steps: cell sets and distances BITWISE identical, 2.4x faster.
+    ``tests/test_floorplan.py`` keeps that sweep."""
+    x0, z0, x1, z1 = bbox(poly)
+    xs_grid = _axis(x0, x1, step)
+    ed = _edge_data(poly)
+    out = {}
+    for z in _axis(z0, z1, step):
+        xs = _row_crossings(poly, z)
+        for k in range(0, len(xs) - 1, 2):
+            lo, hi = xs[k], xs[k + 1]
+            for gi in range(bisect_left(xs_grid, lo), len(xs_grid)):
+                x = xs_grid[gi]
+                if x >= hi:
+                    break
+                best = None
+                for (ax, az, dx, dz, L2) in ed:
+                    t = 0.0 if L2 == 0 else max(
+                        0.0, min(1.0, ((x - ax) * dx + (z - az) * dz) / L2))
+                    d = math.hypot(x - (ax + t * dx), z - (az + t * dz))
+                    if d < R:
+                        best = None
+                        break
+                    if best is None or d < best:
+                        best = d
+                if best is not None:
+                    out[(int(math.floor(x / step)), int(math.floor(z / step)))] = best
+    return out
+
+
+class GeomCache:
+    """The live gate's memo: every ANSWER a compose needs about a room, keyed on its coordinates.
+
+    ★ WHY IT EXISTS. The Floorplan tab re-runs the WHOLE of :func:`compose` 140ms after every
+    gesture, so nudging one corner of an eight-room plan re-derived seven untouched rooms from
+    scratch. Keying on the polygon's own coordinates rather than on a room's identity is what makes
+    that one mechanism: an unchanged room is a hit even though the tab rebuilds the plan dict from
+    scratch every judge, a dragged room is a miss because it genuinely changed, and undo -- which
+    restores a ``deepcopy``, a new object with the old coordinates -- is a hit.
+
+    ★ IT MEMOIZES THE REDUCTIONS, NOT THE GEOMETRY, AND THAT IS THE DESIGN, NOT AN ECONOMY.
+    The first version cached the fat intermediates -- the cell map, the strip's point list, the
+    component sets -- and it was wrong twice over:
+
+      * **Memory.** One tab retained **1.28 GB** after ~9 seconds of dragging a two-room plan
+        (64 poses x a 58,000-cell map), and roughly half of it was never read: ``compose`` consumes
+        the component list as ``len(comps)`` and ``len(comps[0])``, and the strip's point list as
+        ``if not pts``. Nothing ever looked at the objects.
+      * **The cliff.** ``compose`` touches each key exactly ONCE per judge, in a fixed order --
+        a cyclic scan, which is the one access pattern an LRU is pathological on. Above the cap the
+        hit rate is not degraded, it is EXACTLY ZERO: the entry evicted is always the one wanted
+        next. Measured on a chain of rooms with one door each, at ``limit=64``: 32 doors -> 291/291
+        hits, 0.04s; **33 doors -> 102/300 hits and 9.0s**. A 25-room grid dungeon put a gesture
+        back at 4.3s. The playtest could not have found it -- the test plan only goes to 12 rooms.
+
+    So the durable stores hold tuples of ints and floats, which makes ``limit`` cheap enough to sit
+    far above any plan a human will draw, and the cliff unreachable rather than merely further away.
+
+    ★ THE FULL MAPS ARE TRANSIENT, SCOPED TO ONE COMPOSE (:meth:`scope`). Within a judge the same
+    room's grid is wanted twice -- once for its health, once to site its spawn -- so dropping the
+    map entirely would double the COLD path. Holding it past the compose is what cost the gigabyte.
+    It lives for exactly as long as it is useful.
+
+    ⚠ Values are SHARED, not copied. They are immutable tuples, which is what makes that safe.
+
+    ``limit`` bounds each store: a slow drag mints a new polygon every judge, and an unbounded memo
+    would hold every intermediate pose of every room for the life of the session."""
+
+    def __init__(self, limit=4096):
+        self.limit = int(limit)
+        self.hits = 0
+        self.misses = 0
+        self._lock = threading.Lock()
+        self._room = OrderedDict()          # poly -> (standable cells, components, largest)
+        self._strip = OrderedDict()         # (poly, quad) -> (fraction, any standable at all)
+        self._fan = OrderedDict()           # quad -> (gap/spill audit, fan triangle COUNT)
+        self._interior = OrderedDict()      # (poly, avoid) -> ("ok", pt) | ("refused", messages)
+        self._maps = {}                     # TRANSIENT -- see scope()
+
+    def _stores(self):
+        return (self._room, self._strip, self._fan, self._interior)
+
+    def reset(self):
+        """Forget everything. The tab calls this when the document is replaced -- a closed
+        drawing's poses have no claim on the next one's memory."""
+        with self._lock:
+            for store in self._stores():
+                store.clear()
+            self._maps.clear()
+            self.hits = self.misses = 0
+
+    @contextlib.contextmanager
+    def scope(self):
+        """Hold full cell maps for the duration of ONE compose, then drop them."""
+        try:
+            yield self
+        finally:
+            with self._lock:
+                self._maps.clear()
+
+    def _map(self, poly, R=R_WALK, step=GRID_STEP):
+        """The full ``standable_map``, transient. Deliberately NOT one of the durable stores."""
+        key = (self._key(poly), R, step)
+        with self._lock:
+            m = self._maps.get(key)
+        if m is None:
+            m = standable_map(poly, R=R, step=step)
+            with self._lock:
+                self._maps[key] = m
+        return m
+
+    @staticmethod
+    def _key(poly):
+        return tuple((float(x), float(z)) for x, z in poly)
+
+    def _get(self, store, key, make):
+        """★ LOCKED, because the ONE caller that matters is multi-threaded. The Floorplan tab runs
+        each judge on its own daemon thread and a burst of gestures leaves several alive at once;
+        they share this instance. ``OrderedDict`` is not safe across a
+        ``move_to_end`` / ``__setitem__`` / ``popitem`` interleave, and ``hits``/``misses`` would
+        lose updates.
+
+        The lock is DROPPED across ``make()``. Two threads racing the same key both compute it and
+        the second write wins -- the values are equal, the functions are pure, and duplicating one
+        grid walk is far cheaper than serializing every judge behind a 300ms one."""
+        with self._lock:
+            if key in store:
+                self.hits += 1
+                store.move_to_end(key)
+                return store[key]
+            self.misses += 1
+        val = make()
+        with self._lock:
+            store[key] = val
+            store.move_to_end(key)
+            while len(store) > self.limit:
+                store.popitem(last=False)
+        return val
+
+    def room_stats(self, poly, R=R_WALK, step=GRID_STEP):
+        """``(standable cell count, number of components, largest component's cell count)`` --
+        G13's whole appetite, in three ints. The map and the component SETS behind them are
+        transient; nothing downstream has ever looked at either."""
+        def make():
+            cells = self._map(poly, R, step)
+            comps = components(cells)
+            return (len(cells), len(comps), len(comps[0]) if comps else 0)
+
+        return self._get(self._room, (self._key(poly), R, step), make)
+
+    def strip_standable(self, poly, quad, R=R_WALK, step=None):
+        """``(fraction of the strip that is standable, whether ANY of it is)`` -- G9's appetite.
+
+        The point list itself is up to 75,000 tuples per door side and its only reader is
+        ``if not pts``, so keeping it was 238 MB spent on a boolean."""
+        def make():
+            frac, pts = strip_standable_fraction(poly, quad, R=R, step=step)
+            return (frac, bool(pts))
+
+        return self._get(self._strip, (self._key(poly), self._key(quad), R, step), make)
+
+    def fan(self, quad):
+        """``(G7's gap/spill audit, G9's fan-triangle COUNT)`` for one quad.
+
+        Both together because both are pure functions of the same quad, and once every grid walk
+        on the plan is a hit the audit becomes ~90% of what a re-judge still costs -- 56,000
+        `_in_tri` calls per judge, for quads that did not move."""
+        def make():
+            return (_if.zone_fan_audit(quad), len(_if.fan_triangles(quad)))
+
+        return self._get(self._fan, self._key(quad), make)
+
+    def interior_point(self, poly, avoid, R=R_WALK, step=GRID_STEP):
+        """Memoized :func:`interior_point`, INCLUDING its refusal.
+
+        Caching the grid walk alone left most of the cost on the table: the per-cell loop that
+        ranks cells and clears the avoid zones is its own full pass over every cell of the room,
+        and it re-ran for all eight rooms when the author dragged one. The key carries the avoid
+        polygons, so a door edit correctly misses on the rooms that door touches and hits on the
+        rest.
+
+        The refusal is memoized too, as its MESSAGES rather than the exception object -- a raise
+        is as much a verdict as a point, and re-raising one live exception would keep growing its
+        traceback across judges."""
+        key = (self._key(poly), tuple(self._key(a) for a in avoid), R, step)
+
+        def make():
+            try:
+                return ("ok", interior_point(poly, avoid, R=R, step=step, cache=self))
+            except ComposeError as e:
+                return ("refused", tuple(e.problems))
+
+        kind, payload = self._get(self._interior, key, make)
+        if kind == "refused":
+            raise ComposeError(*payload)
+        return payload
+
+
+class ComposeCancelled(Exception):
+    """Raised out of :func:`compose` when its ``cancel`` callback says the verdict is already
+    stale. Deliberately NOT a :class:`ComposeError` -- a cancelled judge has found no problem with
+    the plan, and painting it as one would put a phantom refusal on the drawing."""
 
 
 def components(cells):
@@ -524,21 +795,48 @@ def strip_standable_fraction(poly, quad, *, R=R_WALK, step=None):
     than looked up in :func:`standable`'s cell set. A cell-key join looks natural and is wrong: the
     two grids have different phases, so a strip sample 79u off the wall and a room sample 80u off
     the wall land in the SAME 8u cell, and a depth-79 door -- which has no standable area at all --
-    reported as standable. Sampled at a quarter of the room grid so a thin band is not missed."""
+    reported as standable. Sampled at a quarter of the room grid so a thin band is not missed.
+
+    ★ That quarter-step is why this is not a minor cost: a 1200x250 strip is ~75,000 samples, which
+    is the same order as a whole 2400x1800 room, and a plan pays it TWICE per door. Rows are
+    scanlined against the quad and the room the same way :func:`standable_map` does, and the
+    room-distance loop exits at the first edge closer than ``R``. Same arithmetic, same samples,
+    same counts -- ``tot`` and the returned points are pinned by the fences. The one deliberate
+    change is that ``hit`` now comes out row-major rather than column-major; no caller reads its
+    order (every one of them tests emptiness or the fraction), and the sweep asserts the SET."""
     if step is None:
         step = GRID_STEP / 4.0
     x0, z0, x1, z1 = bbox(quad)
     tot, hit = 0, []
     i0, i1 = int(math.floor(x0 / step)), int(math.ceil(x1 / step))
     j0, j1 = int(math.floor(z0 / step)), int(math.ceil(z1 / step))
-    for i in range(i0, i1 + 1):
-        for j in range(j0, j1 + 1):
-            x, z = (i + 0.5) * step, (j + 0.5) * step
-            if not point_in_poly(x, z, quad):
-                continue
-            tot += 1
-            if point_in_poly(x, z, poly) and dist_to_boundary(x, z, poly) >= R:
-                hit.append((x, z))
+    xs_grid = [(i + 0.5) * step for i in range(i0, i1 + 1)]
+    ed = _edge_data(poly)
+    for j in range(j0, j1 + 1):
+        z = (j + 0.5) * step
+        xs = _row_crossings(quad, z)
+        if not xs:
+            continue
+        # The ROOM's crossings for this row, once -- `point_in_poly(x, z, poly)` per sample was a
+        # million calls on a five-room plan, all of them re-walking the same edges at the same z.
+        # An odd number of crossings strictly greater than x is exactly what that test computes.
+        rxs = _row_crossings(poly, z)
+        for k in range(0, len(xs) - 1, 2):
+            lo, hi = xs[k], xs[k + 1]
+            for gi in range(bisect_left(xs_grid, lo), len(xs_grid)):
+                x = xs_grid[gi]
+                if x >= hi:
+                    break
+                tot += 1
+                if (len(rxs) - bisect_right(rxs, x)) % 2 == 0:
+                    continue
+                for (ax, az, dx, dz, L2) in ed:
+                    t = 0.0 if L2 == 0 else max(
+                        0.0, min(1.0, ((x - ax) * dx + (z - az) * dz) / L2))
+                    if math.hypot(x - (ax + t * dx), z - (az + t * dz)) < R:
+                        break
+                else:
+                    hit.append((x, z))
     return ((len(hit) / tot) if tot else 0.0), hit
 
 
@@ -719,7 +1017,7 @@ def fit_play_camera(poly, *, pitch=DEFAULT_PITCH, fov=DEFAULT_FOV, margin=FIT_MA
 
 # ------------------------------------------------------------------ C8: siting a point well inside
 
-def interior_point(poly, avoid, *, R=R_WALK, step=GRID_STEP):
+def interior_point(poly, avoid, *, R=R_WALK, step=GRID_STEP, cache=None):
     """The spawn / save-point site: the standable cell furthest from any wall that also clears every
     ``avoid`` zone by ``R``.
 
@@ -728,15 +1026,46 @@ def interior_point(poly, avoid, *, R=R_WALK, step=GRID_STEP):
     and :5960 -- lands exactly ON the reflex corner and tests OUTSIDE the polygon; the area
     (shoelace) centroid is inside. For a U/horseshoe room BOTH fall outside. An L is the normal case
     for a hand-drawn plan (a plain rectangle needs no composer), so the grid search is the
-    load-bearing implementation, not a rare fallback."""
+    load-bearing implementation, not a rare fallback.
+
+    ★ THE RANKING DISTANCE IS MEASURED HERE, AT THE CELL CENTRE -- deliberately, and NOT reused
+    from :func:`standable_map`. Those are two different points: the map's distance is measured at
+    the grid SAMPLE that decided the cell was standable (``x0 + k*step`` walked from the polygon's
+    own bbox), while the cell CENTRE is ``(i + 0.5) * step`` on the absolute grid. Reusing the
+    map's number therefore re-ranks the search, and it is not academic -- measured over 400 random
+    plans it moved the spawn one whole cell on 4 of the 22 that composed. The cheap-looking reuse
+    is a behaviour change wearing an optimization's clothes.
+
+    ``cache`` (a :class:`GeomCache`) is still worth passing: it makes the grid WALK a hit when this
+    room is unchanged since the last compose, which is what the tab's live gate spends."""
     x0, z0, x1, z1 = bbox(poly)
     cx, cz = (x0 + x1) / 2.0, (z0 + z1) / 2.0
     best = None
-    for (i, j) in sorted(standable(poly, R=R, step=step)):
+    ed = _edge_data(poly)                    # hoisted: the per-cell loop below re-derived it ~58k
+    # Each avoid zone gets its edges hoisted too, plus its own bbox GROWN BY R. A cell outside that
+    # grown box is farther than R from the zone along one axis alone, so it cannot possibly be
+    # within R of the polygon -- four comparisons stand in for a point-in-poly plus four hypots.
+    # This is where the time was: a door strip is tiny and a room is not, so the overwhelming
+    # majority of cells are nowhere near any zone and were paying full price to find that out.
+    avoid_pre = []
+    for a in avoid:
+        bx0, bz0, bx1, bz1 = bbox(a)
+        avoid_pre.append((bx0 - R, bz0 - R, bx1 + R, bz1 + R, a, _edge_data(a)))
+    cells = (cache._map(poly, R, step) if cache is not None
+             else standable_map(poly, R=R, step=step))
+    for (i, j) in sorted(cells):
         x, z = (i + 0.5) * step, (j + 0.5) * step
-        if any(dist_point_to_poly((x, z), a) < R for a in avoid):
+        blocked = False
+        for (bx0, bz0, bx1, bz1, a, aed) in avoid_pre:
+            if x < bx0 or x > bx1 or z < bz0 or z > bz1:
+                continue
+            # literally `dist_point_to_poly(pt, a) < R`, with the edges pre-built
+            if (0.0 if point_in_poly(x, z, a) else _min_dist_to_edges(x, z, aed)) < R:
+                blocked = True
+                break
+        if blocked:
             continue
-        d = dist_to_boundary(x, z, poly)
+        d = _min_dist_to_edges(x, z, ed)
         # tie-break toward the AABB centre: on a rectangle hundreds of cells tie at the maximum,
         # and "whichever the scan saw first" puts the spawn visibly off-centre for no reason.
         key = (round(d, 3), -math.hypot(x - cx, z - cz))
@@ -823,7 +1152,7 @@ def _door_key(d):
     return (d["a"], d["b"], tuple(map(tuple, d["seg"])))
 
 
-def compose(plan, *, taken_ids=()):
+def compose(plan, *, taken_ids=(), cache=None, cancel=None):
     """A floorplan dict -> a :class:`Composed` dungeon. Pure: no disk, no Qt, no game install.
 
     ``plan`` is the ``floorplan.json`` shape::
@@ -835,7 +1164,28 @@ def compose(plan, *, taken_ids=()):
 
     Every gate is a compose-time ERROR unless the docstring says WARN. THE DEFAULT-VALUE LAW: a
     minted value is real, or loudly refused. Problems are collected per stage and raised together,
-    so the author sees every fixable thing at once."""
+    so the author sees every fixable thing at once.
+
+    ``cache`` is a :class:`GeomCache` to reuse across calls -- pass one from a live editor so the
+    rooms a gesture did not touch are not re-walked. Omitted, a private one is still made, because
+    even a single compose asks for the same room's grid more than once.
+
+    ``cancel`` is a zero-arg predicate polled once per room and once per door; when it goes true
+    this raises :class:`ComposeCancelled`. The live gate uses it so a superseded judge stops
+    burning a core instead of running to completion to have its answer thrown away."""
+    cache = GeomCache() if cache is None else cache
+    with cache.scope():                  # full cell maps live for THIS compose and no longer
+        return _compose(plan, taken_ids=taken_ids, cache=cache, cancel=cancel)
+
+
+def _compose(plan, *, taken_ids, cache, cancel):
+    """:func:`compose`'s body. Split out only so the transient-map scope can wrap it without
+    indenting three hundred lines; everything worth knowing is in :func:`compose`'s docstring."""
+
+    def _check():
+        if cancel is not None and cancel():
+            raise ComposeCancelled()
+
     name = str(plan.get("name") or "DUNGEON")
     mod_folder = str(plan.get("mod_folder") or "FF9CustomMap")
     rooms_in = list(plan.get("rooms") or [])
@@ -849,6 +1199,7 @@ def compose(plan, *, taken_ids=()):
     problems = []
     seen = set()
     for r in rooms_in:
+        _check()
         rn = str(r.get("name") or "").strip()
         if not rn:
             problems.append("a room has no name")
@@ -861,19 +1212,18 @@ def compose(plan, *, taken_ids=()):
         if why:
             problems.append(f"room {rn}: {why}")                                    # G1
             continue
-        cells = standable(poly)                                                     # G13
-        if not cells:
+        n_cells, n_comps, largest = cache.room_stats(poly)                          # G13
+        if not n_cells:
             problems.append(f"room {rn}: nowhere in it is {R_WALK:g}u clear of a wall -- the player "
                             f"centre could not stand anywhere. It needs to be at least "
                             f"{2 * R_WALK:g}u across.")
             continue
-        comps = components(cells)
-        if len(comps) > 1:
-            problems.append(f"room {rn}: its walkable area is {len(comps)} disconnected pieces "
-                            f"(the largest is {len(comps[0])} cells of {len(cells)}) -- a neck "
+        if n_comps > 1:
+            problems.append(f"room {rn}: its walkable area is {n_comps} disconnected pieces "
+                            f"(the largest is {largest} cells of {n_cells}) -- a neck "
                             f"narrower than {2 * R_WALK:g}u splits it and the player cannot cross")
             continue
-        ratio = len(cells) * GRID_STEP * GRID_STEP / max(abs(_if._signed_area(poly)), 1.0)
+        ratio = n_cells * GRID_STEP * GRID_STEP / max(abs(_if._signed_area(poly)), 1.0)
         if ratio < STANDABLE_WARN:
             warnings.append(f"room {rn}: only {ratio * 100:.0f}% of its floor is standable (the "
                             f"player centre stops {R_WALK:g}u off every wall) -- it may feel like a "
@@ -925,6 +1275,7 @@ def compose(plan, *, taken_ids=()):
     strips = {n: [] for n in order}          # room -> [{zone,label,door,role}]
     doors = []
     for k, d in enumerate(doors_in):
+        _check()
         a, b = str(d.get("a") or ""), str(d.get("b") or "")
         if a not in polys or b not in polys:
             problems.append(f"door {k}: names an unknown room ({a!r} -> {b!r})")
@@ -976,8 +1327,8 @@ def compose(plan, *, taken_ids=()):
             # strip unreachable. There is deliberately no "connected to the room's main component"
             # check on top: G13 already refuses any room whose standable set is disconnected, so
             # after it there is exactly one component and such a test could never fire.
-            frac, pts = strip_standable_fraction(polys[who], quad)                  # G9
-            if not pts:
+            frac, any_standable = cache.strip_standable(polys[who], quad)           # G9
+            if not any_standable:
                 problems.append(
                     f"door {a}-{b} on {who}'s side: no part of the {depth:g}u strip is standable -- "
                     f"the room pinches to under {R_WALK:g}u of clearance at that wall, so the strip "
@@ -985,7 +1336,7 @@ def compose(plan, *, taken_ids=()):
                     f"room there, or move the door.")
                 ok = False
                 continue
-            audit = _if.zone_fan_audit(quad)                                        # G7
+            audit, n_tris = cache.fan(quad)                                         # G7
             if max(audit["gap"], audit["spill"]) > FAN_TOL:
                 problems.append(
                     f"door {a}-{b} on {who}'s side: the engine's IsInQuad fan disagrees with the "
@@ -993,9 +1344,9 @@ def compose(plan, *, taken_ids=()):
                     f"(tolerance {FAN_TOL})")
                 ok = False
                 continue
-            if len(_if.fan_triangles(quad)) < 2:                                    # G9 degeneracy
+            if n_tris < 2:                                                          # G9 degeneracy
                 problems.append(f"door {a}-{b} on {who}'s side: the quad is degenerate "
-                                f"({len(_if.fan_triangles(quad))} triangles). Note the fan audit "
+                                f"({n_tris} triangles). Note the fan audit "
                                 f"scores a perfect 0/0 on a degenerate quad, so it is not the "
                                 f"backstop for this.")
                 ok = False
@@ -1023,10 +1374,11 @@ def compose(plan, *, taken_ids=()):
     arrivals = {n: [] for n in order}
     spawns, saves = {}, {}
     for n in order:
+        _check()
         zones = strips[n]
         quads = [z["zone"] for z in zones]
         try:
-            spawn = interior_point(polys[n], quads)
+            spawn = cache.interior_point(polys[n], quads)
         except ComposeError as e:
             problems.append(f"room {n}: {e}")
             continue
@@ -1058,7 +1410,7 @@ def compose(plan, *, taken_ids=()):
             spawn_box = [(spawn[0] - half, spawn[1] - half), (spawn[0] + half, spawn[1] - half),
                          (spawn[0] + half, spawn[1] + half), (spawn[0] - half, spawn[1] + half)]
             try:
-                site = interior_point(polys[n], quads + [spawn_box])
+                site = cache.interior_point(polys[n], quads + [spawn_box])
                 press = [(site[0] - half, site[1] - half), (site[0] + half, site[1] - half),
                          (site[0] + half, site[1] + half), (site[0] - half, site[1] + half)]
                 if dist_point_to_poly(spawn, press) < R_WALK:      # enforced, not assumed

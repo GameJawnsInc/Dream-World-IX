@@ -882,3 +882,305 @@ def test_compose_collects_every_problem_not_just_the_first():
                                {"name": "B", "poly": [(0, 0), (100, 0), (100, 5)]}],
                         doors=[]))
     assert len(e.value.problems) >= 2, e.value.problems
+
+
+# ================================================================== the live gate's speed work
+# The Floorplan tab re-runs the WHOLE of `compose` after every gesture, so `compose`'s cost IS the
+# tab's responsiveness. Every gesture cost what DRAWING the plan cost -- ~17s on eight rooms --
+# because nothing survived a judge. A stall, not a live gate. It is now ~0.6s and FLAT in room
+# count. Everything in this
+# block exists because that work is a byte-level rewrite of the gate's core, and the one invariant
+# it must never move is THE VERDICT.
+#
+# Reproduce the numbers with `py studies/click-authoring/gate_bench.py` (and `--drag 8`).
+
+
+def _reference_standable_map(poly, *, R=F.R_WALK, step=F.GRID_STEP):
+    """The ORIGINAL double loop, pinned here verbatim, as the oracle for the scanline rewrite.
+
+    Do not tidy it, do not share helpers with the implementation, and do not "keep it in sync" --
+    its whole value is that it is the code that shipped BEFORE the optimization, so the fast path
+    has something independent to be caught against."""
+    x0, z0, x1, z1 = F.bbox(poly)
+    out = {}
+    x = x0
+    while x <= x1 + step:
+        z = z0
+        while z <= z1 + step:
+            if F.point_in_poly(x, z, poly):
+                d = F.dist_to_boundary(x, z, poly)
+                if d >= R:
+                    out[(int(math.floor(x / step)), int(math.floor(z / step)))] = d
+            z += step
+        x += step
+    return out
+
+
+def _sweep_polys():
+    """rect / L / U / trapezoid / corridor / jittered n-gons -- plus deliberately awkward offsets.
+    The cell grid is ABSOLUTE (`floor(x/step)`) while the sample walk starts at the polygon's own
+    bbox, so where a room sits relative to the origin decides which samples land in which cell, and
+    a fractional offset is what makes the two samplers able to disagree at all.
+
+    ★ Deliberately SMALL rooms. What this sweep tests -- the scanline's half-open spans against
+    `point_in_poly`'s strict `x < xin`, and the arithmetic pinning -- is sensitive to SHAPE and
+    OFFSET, not to size, and the oracle is the slow double loop the rewrite replaced. At real room
+    sizes the sweep cost 165s and would simply have been deleted by the first person in a hurry."""
+    out = [[(-600, -225), (0, -225), (0, 225), (-600, 225)],
+           [(0, -225), (600, -225), (600, 225), (0, 225)],
+           [(0, 0), (700, 0), (700, 300), (300, 300), (300, 700), (0, 700)],          # an L
+           [(0, 0), (900, 0), (900, 700), (600, 700), (600, 280),
+            (300, 280), (300, 700), (0, 700)],                                        # a U
+           [(-334.5, 177.25), (365.5, 177.25), (365.5, 702.25), (-334.5, 702.25)],    # off-grid
+           [(300, 300), (900, 300), (900, 460), (300, 460)],           # a corridor, mostly empty
+           [(0, 0), (800, 0), (650, 560), (150, 560)],                 # trapezoid: no axis edge
+           [(0, 0), (640, 0), (640, 200), (360, 200), (360, 640), (0, 640)]]
+    for i in range(8):                                   # bevels and diagonals
+        n = 3 + i % 6
+        cx, cz, rad = 130.0 * i - 300.0, 90.0 * i, 260.0 + 47.0 * i
+        out.append([(cx + rad * math.cos(2 * math.pi * k / n + 0.21 * i),
+                     cz + rad * math.sin(2 * math.pi * k / n + 0.21 * i)) for k in range(n)])
+    return [p for p in out if F.polygon_problem(p) is None]
+
+
+def test_the_scanline_sampler_is_bitwise_the_original_double_loop():
+    """★ THE SWEEP `standable_map`'s docstring PROMISES. Without it the composer's core sampler is
+    a rewrite with nothing watching it -- and this suite was measured staying green against a
+    materially different cell set, so "everything passed" is not the fence.
+
+    BITWISE, not approximately: the cell SET and every distance. The rewrite deliberately keeps the
+    division rather than a hoisted reciprocal, and `x - (ax + t*dx)` rather than `(x - ax) - t*dx`,
+    precisely so this can be an equality -- both "identical" shortcuts were measured moving the
+    distance on 60 of 240 polygons, and `interior_point` ranks on `round(d, 3)`."""
+    checked = nonempty = 0
+    for poly in _sweep_polys():
+        for R in (F.R_WALK, 48.0, 96.0, 20.0):
+            for step in (F.GRID_STEP, 4.0, 16.0):
+                ref = _reference_standable_map(poly, R=R, step=step)
+                got = F.standable_map(poly, R=R, step=step)
+                assert set(got) == set(ref), (
+                    f"cell set moved at R={R} step={step}: "
+                    f"{len(set(ref) - set(got))} missing, {len(set(got) - set(ref))} extra")
+                assert got == ref, f"distances drifted at R={R} step={step}"
+                checked += 1
+                nonempty += bool(ref)
+    assert checked >= 150, f"the sweep only ran {checked} cases"
+    # a sweep that compared empty against empty would pass while asserting nothing at all
+    assert nonempty >= checked // 2, f"only {nonempty}/{checked} cases had any standable cell"
+
+
+def test_standable_is_still_exactly_the_maps_key_set():
+    for poly in (ROOM_A, L_SHAPE, U_SHAPE):
+        assert F.standable(poly) == set(F.standable_map(poly))
+
+
+def test_the_sample_distance_is_not_the_cell_centre_distance():
+    """★ THE TRAP THAT LOOKS LIKE A FREE OPTIMIZATION. `standable_map` returns the distance at the
+    grid SAMPLE (walked from the polygon's own bbox); `interior_point` ranks on the distance at the
+    absolute CELL CENTRE, `(i + 0.5) * step`. Reusing the map's number instead of re-measuring is
+    the obvious win, and it MOVED THE SPAWN a whole cell on 4 of 22 random plans that composed.
+
+    This fence exists so the next reader who spots that "redundant" second measurement learns why
+    it is there from a red test rather than from a playtest."""
+    poly = [(-1234.5, 777.25), (1165.5, 777.25), (1165.5, 2577.25), (-1234.5, 2577.25)]
+    m = F.standable_map(poly)
+    step = F.GRID_STEP
+    differ = [c for c in m
+              if m[c] != F.dist_to_boundary((c[0] + 0.5) * step, (c[1] + 0.5) * step, poly)]
+    assert differ, ("the two measurements happened to agree on this fixture -- pick a polygon whose "
+                    "bbox is off the sample grid, or this fence is asserting nothing")
+
+
+# ------------------------------------------------------------------ GeomCache: a memo, not a verdict
+
+def _verdict(plan, **kw):
+    """Everything a caller of `compose` can observe, flattened."""
+    try:
+        c = F.compose(plan, **kw)
+    except F.ComposeError as e:
+        return ("refused", tuple(e.problems))
+    return ("ok", c.name, c.entry, tuple(c.warnings),
+            tuple((r.name, r.field_id, r.off_r, r.pitch, r.distance, repr(r.toml), repr(r.verts))
+                  for r in c.rooms))
+
+
+def _corpus():
+    """One of each verdict shape the cache has to survive -- clean, self-intersecting, no standable
+    interior, overlapping, a door too shallow, an unreachable room, an L and a U."""
+    return [
+        _plan(),
+        _plan(doors=[{"a": "HALL", "b": "CELL", "seg": [list(DOOR[0]), list(DOOR[1])],
+                      "depth": 100.0}]),
+        _plan(doors=[]),                                          # unreachable CELL -> a warning
+        _plan(rooms=[{"name": "A", "poly": [(0, 0), (900, 0), (900, 900), (450, -300), (0, 900)]}],
+              doors=[]),                                          # self-intersecting
+        _plan(rooms=[{"name": "A", "poly": [(0, 0), (3000, 0), (3000, 120), (0, 120)]}],
+              doors=[]),                                          # nowhere to stand
+        _plan(rooms=[{"name": "A", "poly": [(0, 0), (2400, 0), (2400, 1800), (0, 1800)]},
+                     {"name": "B", "poly": [(1200, 0), (3600, 0), (3600, 1800), (1200, 1800)]}],
+              doors=[]),                                          # overlapping
+        _plan(rooms=[{"name": "L", "poly": L_SHAPE}], doors=[]),
+        _plan(rooms=[{"name": "U", "poly": U_SHAPE, "savepoint": True}], doors=[]),
+    ]
+
+
+def test_a_warm_cache_never_changes_a_verdict():
+    """★ THE ONE INVARIANT THE WHOLE OPTIMIZATION RIDES ON. A `GeomCache` carried across judges is
+    the difference between ~17s and ~0.6s per gesture, and it is worth exactly nothing if a hit can
+    say something a miss would not.
+
+    Every plan is judged three ways -- cold, through a cache that has never seen it, and through a
+    cache warmed on the WHOLE corpus first, so a refusal is memoized before a success asks about the
+    same room and vice versa. `GeomCache.interior_point` memoizes its `ComposeError` as messages,
+    and that path has both directions to get wrong."""
+    corpus = _corpus()
+    cold = [_verdict(p) for p in corpus]
+
+    fresh = F.GeomCache()
+    assert [_verdict(p, cache=fresh) for p in corpus] == cold, "a cold cache changed a verdict"
+
+    warm = F.GeomCache()
+    for p in corpus:
+        _verdict(p, cache=warm)
+    assert [_verdict(p, cache=warm) for p in corpus] == cold, "a warm cache changed a verdict"
+    assert warm.hits > 0, "the corpus never exercised a hit -- this fence is asserting nothing"
+
+    twice = F.GeomCache()                     # the same plan judged again, which is what typing does
+    for p, want in zip(corpus, cold):
+        assert _verdict(p, cache=twice) == want
+        assert _verdict(p, cache=twice) == want
+
+
+def test_the_cache_evicts_and_a_re_judge_after_eviction_is_still_right():
+    """A slow drag mints a new polygon every judge, so an unbounded memo would grow for the whole
+    session. The LRU cap is the guard -- and a plan judged again after its entries were evicted must
+    give the same answer. Eviction may cost time; it may never cost truth."""
+    plan = _plan()
+    want = _verdict(plan)
+    tiny = F.GeomCache(limit=1)
+    for k in range(6):                        # six distinct plans, evicting each other out
+        _verdict(_plan(rooms=[{"name": "A", "poly": [(0, 0), (2400 + k, 0),
+                                                     (2400 + k, 1800), (0, 1800)]}], doors=[]),
+                 cache=tiny)
+    assert _verdict(plan, cache=tiny) == want
+    for store in tiny._stores():
+        assert len(store) <= 1, f"the LRU cap did not hold: {len(store)} entries"
+    assert not tiny._maps, "the transient cell maps outlived their compose"
+
+
+def test_the_cache_still_hits_on_a_plan_bigger_than_its_cap():
+    """★ THE CLIFF. `compose` touches each key exactly ONCE per judge, in a fixed order — a cyclic
+    scan, which is the one access pattern an LRU is pathological on. Above the cap the hit rate is
+    not degraded, it is EXACTLY ZERO: the entry evicted is always the one wanted next.
+
+    Measured on the first version of this cache, chained rooms with one door each at `limit=64`:
+    32 doors -> 291/291 hits in 0.04s; **33 doors -> 102/300 hits and 9.0 seconds**. A 25-room grid
+    dungeon put one gesture back at 4.3s, and the tab's own test plan only goes to 12 rooms, so no
+    playtest could have found it. The fix was to memoize the REDUCTIONS rather than the geometry,
+    which made entries small enough for a cap no real plan can reach.
+
+    This judges a plan with more doors than the OLD cap through one cache twice and demands the
+    second judge be almost entirely hits. It fails on any design that stores fat values."""
+    n = 40
+    w, h, span = 900.0, 1100.0, 700.0
+    rooms = [{"name": f"R{i + 1}", "poly": [[i * w, 0.0], [i * w + w, 0.0],
+                                            [i * w + w, h], [i * w, h]]} for i in range(n)]
+    doors = [{"a": f"R{i}", "b": f"R{i + 1}",
+              "seg": [[i * w, (h - span) / 2], [i * w, (h + span) / 2]]} for i in range(1, n)]
+    plan = _plan(rooms=rooms, doors=doors, entry="R1")
+
+    cache = F.GeomCache()
+    first = _verdict(plan, cache=cache)
+    hits, misses = cache.hits, cache.misses
+    second = _verdict(plan, cache=cache)
+    gained_h, gained_m = cache.hits - hits, cache.misses - misses
+
+    assert second == first
+    assert gained_h + gained_m > 200, "the plan is too small to exercise the cap"
+    assert gained_m == 0, (
+        f"re-judging an unchanged {n}-room plan missed {gained_m} of {gained_h + gained_m} — the "
+        f"LRU is evicting what the next judge asks for next (cap {cache.limit})")
+
+
+def test_the_cache_does_not_retain_the_grid_maps_between_judges():
+    """★ THE GIGABYTE. Holding full cell maps across judges retained **1.28 GB** in one tab after
+    about nine seconds of dragging a two-room plan — 64 poses x a 58,000-cell map — and roughly
+    half of it was never read at all: `compose` consumes the component list as `len()` and the
+    strip's point list as `if not pts`.
+
+    The durable stores now hold tuples of ints and floats; the full maps are scoped to one compose.
+    This pins BOTH halves: nothing map-shaped survives a compose, and the durable entries stay
+    small no matter how long the drag."""
+    import sys
+
+    cache = F.GeomCache()
+    poly = [[0, 0], [2400, 0], [2400, 1800], [0, 1800]]
+    for k in range(12):                       # twelve drag poses of one full-size room
+        p = [[x, z] for x, z in poly]
+        p[2][0] += k
+        _verdict(_plan(rooms=[{"name": "A", "poly": p}], doors=[]), cache=cache)
+
+    assert not cache._maps, "a full cell map outlived its compose"
+    for store in cache._stores():
+        for value in store.values():
+            assert sys.getsizeof(value) < 1024, f"a durable entry is {sys.getsizeof(value)} bytes"
+            for part in (value if isinstance(value, tuple) else ()):
+                assert not isinstance(part, (dict, set, list)), (
+                    f"a durable entry holds a {type(part).__name__} — that is the container whose "
+                    f"retention cost 1.28 GB")
+
+
+def test_the_geom_cache_survives_concurrent_judges():
+    """★ The tab hands ONE cache to N daemon worker threads -- `judge_now` starts one per gesture
+    and a burst leaves several alive at once. `OrderedDict` is not safe across an interleaved
+    `move_to_end` / `__setitem__` / `popitem`, so `GeomCache._get` locks. Unlocked, this is the kind
+    of defect that surfaces once a week on somebody else's machine."""
+    import threading
+
+    corpus = _corpus()
+    want = [_verdict(p) for p in corpus]
+    shared = F.GeomCache()
+    got = [None] * (len(corpus) * 4)
+    errors = []
+
+    def run(slot, plan):
+        try:
+            got[slot] = _verdict(plan, cache=shared)
+        except Exception as e:                             # noqa: BLE001
+            errors.append(f"{type(e).__name__}: {e}")
+
+    threads = [threading.Thread(target=run, args=(i * len(corpus) + j, p))
+               for i in range(4) for j, p in enumerate(corpus)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(120)
+    assert not errors, errors
+    assert got == want * 4
+
+
+# ------------------------------------------------------------------ cancellation
+
+def test_a_cancelled_compose_is_not_a_refusal():
+    """`ComposeCancelled` is deliberately NOT a `ComposeError`: a superseded judge has found no
+    problem with the plan, and anything treating it as one paints a refusal the author never
+    earned. The tab's `_judge_work` catches it explicitly, ahead of its catch-all, for this."""
+    with pytest.raises(F.ComposeCancelled):
+        F.compose(_plan(), cancel=lambda: True)
+    assert not isinstance(F.ComposeCancelled(), F.ComposeError)
+
+
+def test_cancel_is_polled_often_enough_to_matter():
+    """A hook nobody polls is a wish. This pins that the poll happens per ROOM (and per door), not
+    once at the top: worst-case cancel latency is one room's work, not a whole plan's."""
+    calls = []
+    plan = _plan(rooms=[{"name": f"R{i}", "poly": [(3000 * i, 0), (3000 * i + 2400, 0),
+                                                   (3000 * i + 2400, 1800), (3000 * i, 1800)]}
+                        for i in range(4)], doors=[])
+    with pytest.raises(F.ComposeCancelled):
+        F.compose(plan, cancel=lambda: (calls.append(1), len(calls) > 3)[1])
+    assert len(calls) == 4, f"cancel was polled {len(calls)} times over a 4-room plan"
+
+
+def test_compose_without_a_cancel_hook_is_unchanged():
+    assert _verdict(_plan(), cancel=None) == _verdict(_plan())
