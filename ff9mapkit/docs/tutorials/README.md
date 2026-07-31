@@ -26,8 +26,10 @@ The same competence as the core track, terminal-native.
 | # | Step | Result |
 |---|---|---|
 | C1 | [The CLI: fork, edit, deploy](c1-cli-fork-edit-deploy.md) | S1–S2's build, done from the terminal |
+| C2 | [`field.toml` by hand](c2-field-toml-by-hand.md) | Read and write the project file directly |
+| C3 | [Deploy automation](c3-deploy-automation.md) | Slots, reverts, mod-folder resolution, relaunch rules |
 
-C2–C4 planned: `field.toml` by hand · deploy automation · the GUI ↔ CLI bridge.
+C4 planned: the GUI ↔ CLI bridge, anchored by the Output console.
 
 ## The rest (being reorganized into tracks)
 
@@ -37,7 +39,7 @@ Workspace GUI tutorial (07) covers the journey flow visually.
 | # | Tutorial | Goal | Needs |
 |---|---|---|---|
 | 01 | [First fork](01-first-fork.md) | Fork a real field, add an NPC, play it | UnityPy |
-| 02 | [The dev loop](02-dev-loop.md) | Iterate without relaunching (deploy + ~) | repo checkout |
+| 02 | [The dev loop](02-dev-loop.md) | Moved — now C3 above | |
 | 03 | [Original-art field](03-original-art-field.md) | A from-scratch field with your own painted background | an image editor |
 | 04 | [Fork a region into a campaign](04-campaign.md) | `import-chain` a connected slice of FF9 into one mod | UnityPy |
 | 05 | [Assemble a journey](05-journey.md) | Chain campaigns behind a World-Hub selector, wire New Game | campaigns from 04 |

@@ -52,5 +52,5 @@ core mechanism of the toolkit used once. The rest of the documentation assumes t
   minigames, models and characters, battle design, or forking FF9 itself
   ([tutorial 07](07-gui-journey.md) territory).
 - **The CLI track** — everything the core track did, terminal-native: start at
-  [tutorial 01](01-first-fork.md) and [02](02-dev-loop.md).
+  [C1 — The CLI: fork, edit, deploy](c1-cli-fork-edit-deploy.md).
 - **The reference** — [`field.toml`](../FORMAT.md), block by block.

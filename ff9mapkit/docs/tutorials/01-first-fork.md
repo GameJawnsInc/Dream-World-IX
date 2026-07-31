@@ -103,6 +103,6 @@ Verify: the field renders, the NPC is present, and talking to it shows the new l
 
 ## Next
 
-- Iterate faster (no relaunch per change): [02 — The dev loop](02-dev-loop.md)
+- Iterate faster (no relaunch per change): [C3 — Deploy automation](c3-deploy-automation.md)
 - Add choices and cutscenes: [08 — Dialogue choices & a cutscene](08-dialogue-cutscene.md)
 - Everything a `field.toml` can declare: [FORMAT.md](../FORMAT.md)

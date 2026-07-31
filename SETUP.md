@@ -195,7 +195,7 @@ text namespaces: [`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RE
 ## 4. The dev loop
 
 The fast iteration loop — **edit → deploy → ~ reload**, no relaunch per change — is
-[tutorial 02](ff9mapkit/docs/tutorials/02-dev-loop.md). Summary:
+[C3 — Deploy automation](ff9mapkit/docs/tutorials/c3-deploy-automation.md). Summary:
 
 ```powershell
 py tools\deploy_field.py myroom\MYROOM.field.toml    # sandbox any field.toml into test slot 4003

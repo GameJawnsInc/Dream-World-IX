@@ -105,9 +105,8 @@ here opens in the Workspace (**Open Save** → the `field.toml`).
 
 ## Next
 
-- C2 — `field.toml` by hand: what every form was writing *(not yet written; the
-  [reference](../FORMAT.md) covers the format block by block)*.
+- [C2 — `field.toml` by hand](c2-field-toml-by-hand.md): what every form was writing.
 - Deploy internals — slots, reverts, mod-folder resolution, relaunch rules:
-  [02 — The dev loop](02-dev-loop.md).
+  [C3 — Deploy automation](c3-deploy-automation.md).
 - The full first-fork walkthrough with install-folder registration:
   [01 — First fork](01-first-fork.md).
