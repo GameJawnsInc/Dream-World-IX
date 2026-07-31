@@ -73,3 +73,63 @@ lever (per the mesa registration, the foot lever does not close the carry verdic
 If no law emerges — stock's band placement is as arbitrary as arclength — the re-mint
 rests, and the alternative lanes are the seat STITCH (keep the donor's own foot band
 instead of burying it) or a donor-foot-band carry.
+
+---
+
+## FINDINGS (measured 2026-07-31 — 48 blocks / 62 components / 904 course-seam edges / 846 side edges)
+
+One instrument pass, no iterations. Artifacts: `out/rock_wall_base.json`,
+`out/base_strip.png`.
+
+**B1 — THE BAND-CONTINUATION LAW. The transitional band is never PLACED — it is the
+column's own uv continuation.** At the course seam, row-10 tris are **100.0%
+u-continuous AND 100.0% v-continuous** with the course above (|du| med 0.0, p99 0.0
+col; dv = 0.0) — across 1,090 seam verts, not one exception. The dominant pair is
+(10 below ← 9 above): 480 of 904 seams; col relation same 687/217. The band literally
+continues each column's contiguous vertical atlas strip (LAW 3 extended into the
+base, in the strongest possible form). By contrast, OTHER-row bottom tris re-phase
+freely: only 41.6% u-continuous, |du| med **4.08 cols ≈ the band's 4-col width**
+(re-phasing by whole band-widths is art-identical), dv med −4.97 (fresh rows).
+Shared vertex indices are 0% on both — continuity is by VALUE on duplicated verts.
+
+**B2 — column quantization is real but SOFT.** Foot edges span ~1 column (med 0.97,
+59.8% exactly 1 ±0.1); row-10 runs med 1.97 cols, gaps med 1.0 col, ~50%
+near-integer; transitions sit on a column boundary 58.8% of the time (med 0.05 col).
+The sharpest fact: **71.2% of transitions carry u straight THROUGH** — the gap
+continues the same u march with only the ROW swapped, so rock texture stays
+continuous across band on/off boundaries. Our arclength stations broke this at every
+transition.
+
+**B3 — the v-seam is a COPY, not a pin.** The band's top edge samples v-row
+**10.16 on BOTH sides** (p25 = p75 = 10.16): row 9 runs 0.16 rows past its nominal
+boundary and row 10 begins at exactly that value. Our formula's 10.12 was close
+numerically but wrong in kind — the law is zero-freedom uv-copy from the course
+above, not an independent pin.
+
+**B4 — adjacency + corners.** Side (vertical) seams inside the bottom course are
+68-75% u-continuous; the discontinuities cluster at |du| ≈ 4 cols (band-width
+re-phases). Mixed-row side edges are 86.4% continuous — even where the row flips,
+the u-phase carries. And the band AVOIDS corners: at foot verts with ≥45° plan turn,
+both-flanks-row-10 drops to 25.4% vs the 50.0% all-verts baseline (half rate) — the
+tips-avoidance R5 saw, generalized to sharp turns.
+
+**The render (`out/base_strip.png`) is the mesa donor itself** — (15,14) owns the
+census's longest foot chain, and its bottom course is nearly SOLID row-10 in
+one-column cells with single other-row cells interleaved. The 53% share is a pooled
+census number; per-donor share varies widely, and OUR donor's band was
+near-continuous before the bury seat cut it away.
+
+## VERDICT — the success criterion is met
+
+The placement law is nameable and total: **keep every u; the band is the strip
+continued.** The lawful re-mint (the next registration, not built here): per
+bottom-course column of the carried mesa, COPY the seam uv from the donor course
+above verbatim (no stationing of any kind), wear row 10 by continuing v downward
+from the copied seam value, carry u straight through any band gaps, put transitions
+on column boundaries, and keep the band off sharp foot corners. One honest caveat
+for the build round: the level cut's seam v is donor-arbitrary (the cut broke course
+quantization), so where the seam v is far from row-9's terminal zone (~10.16) the
+lawful choices are a mid-face continuation (what the donor already wears) or a
+whole-band-width re-phase — never a fresh station. The alternative lane if
+texture-only proves insufficient: re-seat (stitch) to restore the donor's own
+near-solid band.
