@@ -105,5 +105,8 @@ spine start to finish and every misfire becomes a one-line fix.
 ★ **tutorials_index_gate**: an unlisted frontmattered tutorial or a misordered track fails the
 build — the hand-kept README can no longer rot silently (this defers the generated landing
 until the transitional pages settle into tracks).
-Next: the S-track PLAYTEST (owner) · C2-C4 · B ladders by interest · 08's choice/cast-scene
-content into its track home · then the generated track-ladder landing replaces the hand tables.
+★ **C2 SHIPPED** (c2-field-toml-by-hand — [field] anatomy, [x] vs [[x]], the core track as one
+TOML example, lint, the scene split). ★ **02 → C3 PROMOTED** (c3-deploy-automation, redirect stub,
+8 inbound links repointed). Track C = C1-C3.
+Next: the S-track PLAYTEST (owner) · C4 (the GUI↔CLI bridge) · B ladders by interest · 08's
+choice/cast-scene content into its track home · then the generated track-ladder landing.
