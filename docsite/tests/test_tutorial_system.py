@@ -105,7 +105,7 @@ def test_cli_gate_accepts_placeholders_and_globals():
 
 
 def test_spine_tutorials_declare_and_render_chips(tmp_path):
-    for name, wants_ui in (("s1-stand-in-the-game.md", True), ("s2-someone-lives-here.md", False)):
+    for name, wants_ui in (("s1-fork-and-deploy.md", True), ("s2-add-an-npc.md", False)):
         src = B.REPO / "ff9mapkit" / "docs" / "tutorials" / name
         page = B.page_from_source(src)
         assert page.meta and page.meta.get("track") == "S", f"{name} lost its frontmatter"
@@ -114,5 +114,5 @@ def test_spine_tutorials_declare_and_render_chips(tmp_path):
         assert 'class="tut-reqs"' in page.body and 'class="chip track"' in page.body
         assert "```toml" not in page.body and "[tutorial]" not in page.body
     assert B.page_from_source(B.REPO / "ff9mapkit" / "docs" / "tutorials"
-                              / "s2-someone-lives-here.md").meta["builds_on"] == \
-        ["s1-stand-in-the-game"]
+                              / "s2-add-an-npc.md").meta["builds_on"] == \
+        ["s1-fork-and-deploy"]

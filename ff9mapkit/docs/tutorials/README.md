@@ -3,21 +3,21 @@
 Prerequisite for all of them: the kit installed and pointed at an FF9 install (`ff9mapkit setup`,
 or the manual steps in [SETUP.md](../../../SETUP.md) §1–2).
 
-## The spine — start here
+## The core track — start here
 
 One continuing build in the Workspace GUI: each step extends the mod made in the previous one,
-and ends with something visible in the game. (The Workspace fronts the same engine as the CLI —
-the CLI-side tutorials below cover the terminal twin of everything here.)
+and ends with a verifiable result in the game. (The Workspace fronts the same engine as the
+CLI — the CLI-side tutorials below cover the terminal equivalent of everything here.)
 
-| # | Step | The win |
+| # | Step | Result |
 |---|---|---|
-| S1 | [Stand in the game](s1-stand-in-the-game.md) | Walk a forked room under your own id |
-| S2 | [Someone lives here](s2-someone-lives-here.md) | Talk to an NPC you wrote; the dev loop |
-| S3 | [A door of your own](s3-a-door-of-your-own.md) | Two rooms, gateways both ways |
-| S4 | [The world remembers](s4-the-world-remembers.md) | A chest that stays looted; a flag-gated NPC |
-| S5 | [Lights, camera](s5-lights-camera.md) | A once-only entry scene + your own soundtrack |
-| S6 | [Danger](s6-danger.md) | Random battles, tuned, won |
-| S7 | [Ship it](s7-ship-it.md) | A campaign, New Game landing in it, a friend-installable zip |
+| S1 | [Fork and deploy a field](s1-fork-and-deploy.md) | A forked room in-game under your own id |
+| S2 | [Add an NPC and dialogue](s2-add-an-npc.md) | A talking NPC; the edit → deploy → reload loop |
+| S3 | [Connect two fields with gateways](s3-gateways.md) | Two rooms, walkable both ways |
+| S4 | [Story flags: a chest and a gated NPC](s4-story-flags.md) | Save-persistent state |
+| S5 | [A cutscene and music](s5-cutscene-and-music.md) | A once-only entry scene + a BGM pick |
+| S6 | [Random encounters](s6-encounters.md) | Battles: scene pool + frequency |
+| S7 | [Package a campaign](s7-package-a-campaign.md) | A campaign, a New Game entry, a distributable zip |
 
 ## The rest (being reorganized into tracks)
 

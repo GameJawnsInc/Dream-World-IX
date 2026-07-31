@@ -1,4 +1,4 @@
-# S1 — Stand in the game
+# S1 — Fork and deploy a field
 
 ```toml
 [tutorial]
@@ -20,18 +20,19 @@ label = "Import field"
 widget = "import_field.import_btn"
 ```
 
-The first step of the spine: by the end, FINAL FANTASY IX loads a field that belongs to your mod,
-under your own id, and your party walks it. Every later tutorial builds on the room made here.
+By the end of this step, FINAL FANTASY IX loads a field that belongs to your mod, under your own
+id, and your party walks it. Every later tutorial in the core track builds on the room made here.
 
-The whole spine works inside the **Workspace** — the desktop GUI. One thing to know up front: the
+The whole track works inside the **Workspace** — the desktop GUI. One thing to know up front: the
 Workspace is a front-end over the same engine as the `ff9mapkit` command line. Every action it
-runs streams into the Output console at the bottom, and everything here has a terminal twin —
-the [CLI track](../../../SETUP.md#7-cli-command-reference) picks that thread up later.
+runs streams into the Output console at the bottom, and everything here has a terminal
+equivalent — the [CLI track](../../../SETUP.md#7-cli-command-reference) picks that thread up
+later.
 
 **Starting from:** a set-up toolkit ([Setup](../../../SETUP.md) §1–§3). Launch the Workspace:
 `ff9mapkit-workspace` (installed copy) or `py apps\ff9_workspace.pyw` (repo checkout).
 
-## 1. Green lights on Home
+## 1. Check setup on Home
 
 The **Home** tab is the setup checklist. The first two rows — game install found, base templates
 extracted — must show done; fix them from the Setup & Health dialog if not (the toolkit ships no
@@ -55,7 +56,7 @@ A *fork* copies one real FF9 screen — art, walkable floor, camera — into an 
 
 The forked project opens in the left-hand tree.
 
-## 3. Put it in the game
+## 3. Deploy
 
 ![The Build & Deploy tab with a verbatim fork open — ① In-place on the real field, ② Test slot, ③ Install to game, ④ Build only](../../../docsite/assets/shots/build-deploy_light.png)
 
@@ -63,23 +64,22 @@ Open **Ship ▸ Build & Deploy**. For a first fork the two routes that matter:
 
 - **In-place on the real field** (①) — your fork replaces the donor room in-game, reachable the
   normal way. Reversible; pre-selected for a verbatim fork.
-- **Test slot** (②) — a throwaway scratch id, the fast lane used from here on.
+- **Test slot** (②) — a throwaway scratch id, used for the rest of the track.
 
 Press **Deploy** (or **F9**). The Output console shows the build; the first deploy of a new id
 needs one game relaunch (it registers the id) — after that, never again.
 
-## 4. Walk it
+## 4. Verify in-game
 
 In the game, press **~** (tilde) to open the debug menu → **Warp to field** → your id (an
-in-place deploy needs no warp — just enter the room normally). The field renders, the party
-walks the same floor the original did.
+in-place deploy needs no warp — enter the room normally).
 
-**What you should see:** your room, your id, your party standing in it. If the screen is black,
-the id was never registered — relaunch once, and see
-[Troubleshooting](../TROUBLESHOOTING.md) for the rest.
+**What you should see:** the forked room renders under your id, and the party walks the same
+floor the original did. If the screen is black, the id was never registered — relaunch once, and
+see [Troubleshooting](../TROUBLESHOOTING.md) for the rest.
 
 ## Next
 
-- [S2 — Someone lives here](s2-someone-lives-here.md): give the room a resident and learn the
+- [S2 — Add an NPC and dialogue](s2-add-an-npc.md): put a character in the room and learn the
   edit → deploy → reload loop.
 - What a fork actually carries: [fork fidelity](../FORK_FIDELITY.md).

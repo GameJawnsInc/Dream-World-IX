@@ -33,15 +33,18 @@ tutorials are.
 
 ### Track S — the spine ("Your first mod", GUI, ~7 steps)
 
+> Titles below are the shipped plain-descriptive ones (owner direction: no cute step
+> names; user-facing docs say "the core track", not "the spine").
+
 | # | Working title | The win (in-game) | Introduces | Surfaces |
 |---|---|---|---|---|
-| S1 | Stand in the game | Walk a field that is YOURS, under your own id | Home checklist · fork (Suggest a test room) · deploy (test slot / in-place) · ~ reload | Home, Assets▸Import, Ship▸Build |
-| S2 | Someone lives here | Talk to an NPC you wrote | Editor forms · NPC + dialogue + wrap preview · the one-change-per-test loop | Editor, Problems |
-| S3 | A door of your own | Walk between two of your rooms and back | second fork · gateways both ways · arrival spots + facing | Editor, Map |
-| S4 | The world remembers | A chest opens ONCE; an NPC appears only after it | events · flags (GLOB vs per-visit, the safe band) · gated dialogue · choices | Editor, State |
-| S5 | Lights, camera | An entry cutscene plays over your own music pick | cutscene steps (one conductor) · music swap | Editor |
-| S6 | Danger | Win a battle triggered in your field | encounter zones + freq · battle scene pick (cards) · after-battle reentry | Editor, Battle |
-| S7 | Ship it | A friend-installable zip; New Game lands in your mod | campaign assembly · New Game entry · Build only + Package | Map, Ship▸Build |
+| S1 | Fork and deploy a field | Walk a field that is YOURS, under your own id | Home checklist · fork (Suggest a test room) · deploy (test slot / in-place) · ~ reload | Home, Assets▸Import, Ship▸Build |
+| S2 | Add an NPC and dialogue | Talk to an NPC you wrote | Editor forms · NPC + dialogue + wrap preview · the one-change-per-test loop | Editor, Problems |
+| S3 | Connect two fields with gateways | Walk between two of your rooms and back | second fork · gateways both ways · arrival spots + facing | Editor, Map |
+| S4 | Story flags: a chest and a gated NPC | A chest opens ONCE; an NPC appears only after it | events · flags (GLOB vs per-visit, the safe band) · gated dialogue · choices | Editor, State |
+| S5 | A cutscene and music | An entry cutscene plays over your own music pick | cutscene steps (one conductor) · music swap | Editor |
+| S6 | Random encounters | Win a battle triggered in your field | encounter zones + freq · battle scene pick (cards) · after-battle reentry | Editor, Battle |
+| S7 | Package a campaign | A friend-installable zip; New Game lands in your mod | campaign assembly · New Game entry · Build only + Package | Map, Ship▸Build |
 
 Spine boundary = "the basics mastered": the reader has run the full author→deploy→verify loop
 seven times and touched every core surface once.
@@ -80,7 +83,7 @@ FORKING_FF9 precedent — links in the wild never break).
 
 ## System support this needs (small, TUTORIAL-SYSTEM.md owns the details once built)
 
-- Frontmatter grows `track = "S"`, `step = 2`, `builds_on = ["s1-stand-in-the-game"]`.
+- Frontmatter grows `track = "S"`, `step = 2`, `builds_on = ["s1-fork-and-deploy"]`.
 - A GENERATED Tutorials landing renders the tracks as ladders from frontmatter (replaces the
   hand-kept tutorials/README on the site; the deferred index, now justified).
 - The template gains the checkpoint block ("Starting from: …; to mint it fresh: …").

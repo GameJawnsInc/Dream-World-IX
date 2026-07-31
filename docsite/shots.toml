@@ -8,7 +8,7 @@
 [shot.import-fork]
 surface = "tab:import"
 height = 960          # the Import tab's own sizeHint is ~911 -- at 850 the Import button clips
-used_by = ["ff9mapkit/docs/tutorials/s1-stand-in-the-game.md"]
+used_by = ["ff9mapkit/docs/tutorials/s1-fork-and-deploy.md"]
 pin = [
   { widget = "import_field.out", text = "C:\\FF9Projects\\imported" },
 ]
@@ -22,7 +22,7 @@ annotate = [
 [shot.home-ready]
 surface = "home:ready"
 take = "home-ready"
-used_by = ["SETUP.md", "ff9mapkit/docs/tutorials/s1-stand-in-the-game.md"]
+used_by = ["SETUP.md", "ff9mapkit/docs/tutorials/s1-fork-and-deploy.md"]
 
 # Ready for the tutorial revamp (used_by fills in when the rewritten 07 embeds it). Dialog
 # pins/annotations address controls by LABEL (a11y name or text) -- dialogs hold no attr paths.
@@ -41,27 +41,27 @@ used_by = ["ff9mapkit/docs/tutorials/07-gui-journey.md"]
 [shot.editor-gateway]
 surface = "form:gateway"
 take = "form-gateway"
-used_by = ["ff9mapkit/docs/tutorials/s3-a-door-of-your-own.md"]
+used_by = ["ff9mapkit/docs/tutorials/s3-gateways.md"]
 
 [shot.editor-chest]
 surface = "form:chest"
 take = "form-chest"
-used_by = ["ff9mapkit/docs/tutorials/s4-the-world-remembers.md"]
+used_by = ["ff9mapkit/docs/tutorials/s4-story-flags.md"]
 
 [shot.editor-cutscene]
 surface = "form:cutscene"
 take = "form-cutscene"
-used_by = ["ff9mapkit/docs/tutorials/s5-lights-camera.md"]
+used_by = ["ff9mapkit/docs/tutorials/s5-cutscene-and-music.md"]
 
 [shot.editor-encounter]
 surface = "form:encounter-named"
 take = "form-encounter-named"
-used_by = ["ff9mapkit/docs/tutorials/s6-danger.md"]
+used_by = ["ff9mapkit/docs/tutorials/s6-encounters.md"]
 
 [shot.editor-npc]
 surface = "form:npc"
 take = "form-npc"
-used_by = ["ff9mapkit/docs/tutorials/s2-someone-lives-here.md"]
+used_by = ["ff9mapkit/docs/tutorials/s2-add-an-npc.md"]
 
 [shot.build-deploy]
 surface = "tab:build"
@@ -70,7 +70,7 @@ height = 1000         # all four Build-to radios must sit inside the scroll view
 # option) does not exist on the surface at all -- and no bundled example can be one (a real
 # verbatim fork carries SE bytes), so shots.py builds a kit-authored fixture fork
 open = "fixture:verbatim-fork"
-used_by = ["ff9mapkit/docs/tutorials/s1-stand-in-the-game.md"]
+used_by = ["ff9mapkit/docs/tutorials/s1-fork-and-deploy.md"]
 pin = [
   { widget = "build_deploy.rb_test", text = "Test slot 30001" },
   { widget = "build_deploy.rb_game", text = "Install to game: FF9CustomMap" },
