@@ -559,3 +559,151 @@ cast asks what stock ef038 does to VRAM, with nothing of ours in the way.
 **Resting state:** ef038 override DELETED (= stock, verified), `ef211` untouched, rows 192–204 on the
 bench, video + frames + all analysis under `…\repaint-w6b\u1-second-array\`, the `[SfxProbe]` log
 archived in `capture-logs\`. **No constant moved; `ORDER_UNMEASURED` ships exactly as it was.**
+
+### 9.3 ★★ THE s76 CONTROL CAST — READ AND ADJUDICATED. The mechanism is an INSTRUMENT DEFECT, and the census was the wrong instrument
+
+Stock ef038, probe NOT deployed, log-only, after the s76 relaunch. Log archived at
+`capture-logs\sfxmeshprobe.s76-control-cast.log` (24 MB, 485,919 rows). Read by a verifier pass and an
+explainer pass, then adjudicated — the load-bearing numbers re-run from the saved scripts and, with two recorded
+exceptions (the gate-ladder chain and the 76/76 repair claim were re-run from the explainer's own
+scripts, not independently re-implemented), re-derived by an independent third parser; the critic's
+full findings ride the report as an addendum. Scripts + JSON: `…\u1-second-array\s76-read\`
+(`verify\`, `explain\`, `adjudicate\`). **No constant moved. Nothing written to the install, the repo,
+or the Memoria clone.**
+
+**THE THREE CENSUS FACTS.**
+
+* **`DR_MOVE`: 641 rows on ef038, every one `MV`** — real VRAM blits, no framebuffer grabs. `path`
+  re-derived from `SFXRender.cs:464` rather than trusting the logged token: **0/641** disagreements.
+  The `SpecialEffect.Slow` `ry` adjustment (`:466-467`) is doubly inapplicable — it lives inside the SS
+  branch, and `Slow = 126 ≠ 38`. The same 641 appear in the U1 cast: **the move stream is invariant
+  between the marked and stock casts.**
+* **The traffic is THREE scrolling-texture animations, not a wipe.** Block 1 (f86-138, **105** moves)
+  rolls a strip horizontally at −2 px/frame on pages tx=8/9. Block 2 (f237-380, **536** moves) is two
+  vertical barrel rolls: column 640 at +1 row/frame (**284** moves; lower cell = read-only MASTER →
+  upper cell = write-only COPY) and column 704 at +2 (**252** moves, mirror direction), phase-locked at
+  f254. **The parent's 357 and 284 were both wrong** — 357 = 105 + 252, two different blocks on two
+  different page pairs; its exemplar dest ranges `(512,514)`/`(512,536)` do not occur at all.
+* **`DR_TPAGE` never names tx=10 — anywhere.** Whole-log histogram over all 41,607 rows, all effects:
+  `tx ∈ {0, 6, 7, 13}`. The parent's five ef038 classes reproduce to the row (bitfields re-derived from
+  the raw word, 0 mismatches). Counts EXACT.
+
+**⚠ THE HEADLINE INFERENCE IS REFUTED — and by one bit, not by attribution.** `SFXKey.GetCurrentABRTex`
+(`SFXKey.cs:19-30`) is the ONLY consumer of the `DR_TPAGE` state, and a tree-wide grep gives it exactly
+ONE call site: `SFXRender.cs:400`, the `SPRT` path — which **unconditionally** ORs `FILTER_BILINEAR`.
+The six textured-polygon paths (`:342, 349, 356, 364, 372, 380`) call
+`GetABRTex(code, clut, tag->tpage)` — the primitive's OWN page word — and never touch `currentTexPage`.
+The probe already logs that key (`keyHex = SFXMeshBase._key`). So **a textured MESH key with zero
+FILTER bits provably did not come from the `DR_TPAGE` channel.** Partitioning ef038's 9,200 MESH rows
+on that bit, with no residue:
+
+| channel | meshes | pages |
+|---|---|---|
+| SPRT (provably `DR_TPAGE` state) | 3,914 | tx=6, tx=7 |
+| POLYGON (provably own `tag->tpage`) | 4,437 | tx=3, 4, 5, 7, **8**, **10** |
+| untextured (`GetCurrentABR`) | 849 | tx=0 |
+
+**`SPRT_pages == the census's textured pages` → `true`.** Not inference — set equality. **The
+`DR_TPAGE` census IS the SPRITE census**, and must be renamed as such wherever §9 or any W6b-2 text
+quotes it; reading it as the effect's page ledger is what produced the relocation hypothesis. The
+verifier's paradox (pages selected ∩ pages moved = ∅) dissolves: `DR_MOVE` writes tx=8 and tx=10, which
+are exactly the two polygon-channel pages carrying animation, and the per-frame `ClearKey`
+(`PSXTextureMgr.cs:243`) is paid for readers that genuinely exist. tx=9/tx=11 have no key because an
+8bpp page is two columns wide and they are the high halves of tx=8/tx=10.
+
+**★ THE MARKED PAGE DREW. `tx=10, ty=1, 8bpp`, CLUTs `0x3DC0` (573 meshes, 112,354 tris, f214-361) and
+`0x3D40` (190 meshes, 24,902 tris, f214-278)** — 763 meshes in the stock cast, **661 in the marked U1
+cast** — at the bound page, the bound depth, and *exactly* the two CLUTs the 27 so-records declare.
+**BINDING-IS-NOT-A-DRAW is not the explanation, and the vehicle was never the problem.**
+
+**★ THE ACTUAL DEFECT — G1, THE PAGE-SPAN GATE.** `GetTexture` builds every page as **256×256 texels**
+(`PSXTextureMgr.cs:179`), and `CreateBufferColor32` steps `w>>2 / w>>1 / w` halfwords per row at
+4/8/15 bpp from base `TX<<6`, `TY<<8` (`PSXTexture.cs:44-45, :51/:71/:91`). So **tpage
+`tx=10,ty=1,tp=1` = VRAM x 640..767, y 256..511 = ALL FOUR declared cells** — (640,256), (640,384),
+(704,256), (704,384), each a real 32 KB id-0 rect (payload offsets `0x146c…0x2146c`, `0x8000` apart).
+**U1 marked TWO.** The MESH key names the page; only `u,v` choose the cell. A reader at `u ≥ 128`
+samples column 704 — uploaded, blitted 252×/cast, and unmarked, hence indistinguishable from "not
+sampled". Column 704 has no direct binder anywhere in ef038, so the only page word in the whole cast
+that can address that 32 KB rect is tx=10 with `u ≥ 128`. Something reads it.
+
+**THE BLIT WIPE — REFUTED AS STATED, and insufficient in any form.** Block 1 tops out at **x=639** on
+both source and destination, one halfword short of 640; §9.2's own falsification criterion is met.
+Block 2 *does* overwrite the entire upper marked cell on 143 consecutive frames from f237 — a real
+confound the parent under-read, and one that would have collapsed the 12-THIN/4-FAT discriminant for
+the whole back half of the effect — **but the marked page is sampled on f214-236, before the first
+blit**: 164 meshes / 31,330 tris (stock), **134 meshes / 24,917 tris in the marked cast**. Substitution
+of one mark for the other cannot produce ZERO. The tx=10 keys carry no FILTER bit — point sampling —
+so nothing was blurred away either.
+
+**THE CORRECTED VEHICLE CRITERION.** Old: *P=1, 8bpp, A=0x0080, forced part, no wrap.* Add:
+
+* **G1 — page span.** `span_cols = {4bpp:1, 8bpp:2, 15bpp:4}` columns of 64 halfwords from `tx*64`.
+  Passes iff **exactly one** column in the span is a declared rect — **or** the instrument marks
+  **every** declared column in the span.
+* **G2 — cell completeness.** Both 128-row cells of every such column are declared (U1 satisfied this
+  for 640).
+
+Pure container arithmetic — no cast, no engine. **ALL SIX §6.2 FALLBACKS FAIL G1**: ef038 `0x29dbc`,
+ef407 `0x2a8c8`, ef498 `0x57620`, ef179 `0xa8ce8`/`0xa6a08`/`0xa4728`, ef381 `0x80820` — every one 8bpp
+with a declared second column. And the list was not unlucky, it was **doomed by construction**: over
+649 binding slots, 8bpp = 393 → `+A=0x80+P=1` = **76** → **`+G1` = 0**, because **364 of 393** 8bpp
+bindings span two declared columns. The sketch required 8bpp (so OFFSET==SELECT), and 8bpp is exactly
+the depth at which a page covers two columns.
+
+**★ THE REPAIR — and it does not need a new vehicle.** Mark **all four cells of the page** with four
+distinct gratings. **All 76** candidates pass, ef038 included. Same one cast, four marks instead of
+two, and it upgrades the read from a 2-way to a **4-way** discriminator — resolving A (the v axis) and
+B (the u axis) together. ef038 stays cheapest: bench row 200, no `Actions.csv` row, no relaunch.
+
+**CHANNEL P — at the altitude the evidence supports.** P is **silent on ef038 and on ef211** (0 op-22
+`Hi_RegisterTexEffModel` const-folded hits each, of 233 across 77 containers — figures CARRIED from
+the prior round's `texel-w6b\w6b2	page_sweep.json`, critic-confirmed against that artifact but not
+re-derived this round), so the intended
+cross-check **cannot be run**. P and G are near-disjoint by construction — 77 P-containers vs 80
+G-containers, overlap 13; ef038 and ef211 are both G-only — which is why P was DISCLOSE-only. They are
+not rivals for the sampled-page question either: op-22 registers a *model's* page word, the same class
+`tag->tpage` carries, so **P and G both speak for the POLYGON channel while the census speaks for the
+SPRITE channel**. What can be said, and only this: on the **one** container where a runtime
+sampled-page census now exists, all **8** of ef038's declared `(tx,ty,tp,clut)` signatures are real
+draws at the declared page, depth and CLUT — **BINDING-IS-A-DRAW held 8/8**, an observation on one
+container, not a corpus law. **"P DISCLOSES vs G LICENSES" survives unchanged; no posture change is
+recommended, and any would need a second container. Owner's call, flagged not made.**
+
+**HONEST LIMITS — what one stock cast cannot establish.**
+
+1. **Which of the four cells was sampled.** The MESH key names page + depth + CLUT. It carries no
+   `u,v`. Everything about *which cell* — the whole G1 story included — is inference from geometry,
+   not measurement.
+2. **H_U is a HYPOTHESIS, labelled as such.** That halfword B is a per-slot U displacement **in
+   texels** is consistent (224/224 non-zero-B slots keep `u` inside the page; at 8bpp `B=128` lands
+   exactly on the second column in 153/153, a declared rect in 150/153) and scores both in-game results
+   (ef211's dome A=0,**B=0** → marks SEEN; ef038's disc A=128,**B=128** → marks UNSEEN). It is **not
+   proven.** Contrary datum, stated: ef038's **7 A=0/B=0 control readers** (clut `0x3D40`, 161 meshes
+   in the marked cast) should still have shown their marks — unless the operator scored that family's
+   HOLE-class marks as blank, which §5 warns about in writing. **Re-opening R_UOFF in
+   `second-array-lead\REPORT.md` §3 is an owner call** (its closure rests on "both u-shift conventions
+   move slots OFF declared columns", which is false under the texel convention).
+3. **Neither log proves the U1 override was resident during the marked cast.** A zero-writing probe is
+   invisible to row counts by design; the two casts differ ~7-13 % in mesh counts with identical frame
+   ranges (48..391). Ordinary variance, but not residency proof — closable with a one-byte non-zero
+   canary in an unbound corner of the rect.
+4. **Not re-derived:** the CLUT strips (`0x3D40` → VRAM (0,245), `0x3DC0` → (0,247)) are not among
+   ef038's 12 declared rects; whatever uploads them was not traced, and the probe's entry-0 colour
+   derivation depends on it.
+5. **Two labelling defects in `explain\mesh.keys.json`** (headline unaffected, recorded so no one
+   re-quotes them): its `tris` column is a `(tx,ty,tp)` PAGE aggregate printed in a per-key row (true
+   per-key for the marked page: `0x3DC0` = **112,354**, not 137,256; `0x3D40` = **24,902**), and its
+   "18 distinct keys" is a `(tx,ty,tp,clut)` collapse of **20** real keys — discarding exactly the
+   FILTER bit that settles the round.
+
+**NEXT STEP — one, and it is cheap.** Re-cast U1 on ef038 with **all four cells of page tx=10 marked**
+— `(640,256) (640,384) (704,256) (704,384)`, four distinct gratings. Same vehicle, same protocol, no
+relaunch, no engine change, no constant moved. Bracket it with the **MESH-key preflight** (free, needs
+no new patch): one stock log-only cast, decode `MESH keyHex` bits 16-22 + 0-14, require the candidate's
+`(tx,ty,tp,clut)` to appear — strictly stronger than the `DR_TPAGE` census, and it would have caught
+this round before a container was written. **The proposed s77 `tag->tpage` probe is UNNECESSARY** — the
+MESH key already gives the page. If H_U is ever to be settled from a log rather than a screen, the
+thing to log is `tag->u0..u3 / v0..v3` on `SFXRender.cs:342-380`.
+
+**Resting state:** unchanged from §9.2 — ef038 override DELETED (stock), `ef211` untouched, rows
+192-204 on the bench. **No constant moved; `ORDER_UNMEASURED` ships exactly as it was.**
