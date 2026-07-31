@@ -542,6 +542,148 @@ def snap_map(ctx: _Ctx, state: str) -> None:
         _close(win)
 
 
+# ------------------------------------------------------------------------------------- model states
+MODEL_STATES = ("cliplist", "player")
+
+_SNAP_MODEL = "GEO_MAIN_F0_VIV"                  # id 8 -- the catalog anchor, on every machine
+_SNAP_FRAMES = 16                                # rendered frames the pin seeds for the clip
+
+
+class _pin_anim_cache:
+    """The `models:*` surfaces' cache pin: FF9MAPKIT_DATA -> a scratch cache seeded with everything
+    the Models tab's preview column reads, thumbs ENABLED for this surface only (the module-top
+    NO_THUMBS pin returns on exit -- and it is read at ModelsDoc CONSTRUCTION, so the pin has to be
+    up before ``_make_win``).
+
+    THREE things get seeded, because the player needs all three and a hole in any of them shows as an
+    empty box rather than an error:
+      * the STATIC model thumb + its counts sidecar -- what the detail pane paints before a clip is
+        armed, and the target Reset restores;
+      * one deterministic PNG per rendered frame (a flat gradient + a marker that MOVES with the frame
+        index, so a still of the player provably shows a frame and not the thumb -- no fonts, whose
+        rasters differ per machine);
+      * the clip's meta json (frame_count / sample_rate / stride / fps / rendered_frames), which is
+        what drives the transport and the counter.
+    Everything lands WARM, so ``request_clip`` answers from disk with no worker and no signal -- which
+    is also the point: the grab proves the warm-clip contract on a fresh session.
+    """
+
+    def __init__(self, geo: str = _SNAP_MODEL):
+        self.geo = geo
+        self.anim = None
+        self.geo_id = None
+
+    def __enter__(self):
+        self._env = {k: os.environ.get(k) for k in ("FF9MAPKIT_DATA", "FF9MAPKIT_NO_THUMBS")}
+        os.environ["FF9MAPKIT_DATA"] = str(_SCRATCH / "anim_cache")
+        os.environ["FF9MAPKIT_NO_THUMBS"] = "0"
+        self._seed()
+        return self
+
+    def __exit__(self, *exc):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        return False
+
+    def _seed(self) -> None:
+        from ff9mapkit import catalog
+        from ff9mapkit.models import thumbcache
+        m = catalog.model(self.geo)
+        assert m is not None, f"no model {self.geo} in the catalog -- snap void"
+        rows = catalog.clip_inventory(m.id)
+        assert rows, f"{self.geo} has no catalogued clips -- snap void"
+        self.geo_id, self.anim = m.id, rows[0]["anim_id"]        # the 'stand' movement slot
+        still, sidecar = thumbcache.model_thumb_paths(m.id)
+        still.parent.mkdir(parents=True, exist_ok=True)
+        self._figure(still, 0, _SNAP_FRAMES, still=True)
+        sidecar.write_text(json.dumps({"geo": m.name, "id": m.id, "bones": 48, "meshes": 3,
+                                       "verts": 1284, "textures": ["viv_body", "viv_face"]}),
+                           encoding="utf-8")
+        frames = list(range(_SNAP_FRAMES))
+        thumbcache.anim_frame_path(m.id, self.anim, 0).parent.mkdir(parents=True, exist_ok=True)
+        for f in frames:
+            self._figure(thumbcache.anim_frame_path(m.id, self.anim, f), f, _SNAP_FRAMES)
+        thumbcache.anim_meta_path(m.id, self.anim).write_text(json.dumps({
+            "geo": m.name, "id": m.id, "anim": self.anim, "anim_key": "snap", "folder": m.id,
+            "label": rows[0]["label"], "frame_count": _SNAP_FRAMES, "sample_rate": 30.0,
+            "stride": 1, "fps": 30.0, "fit": [-1.0, 1.0, -1.0, 1.0], "rendered_frames": frames,
+        }), encoding="utf-8")
+        print(f"  models:* seeded {self.geo} (id {m.id}) clip {self.anim} -- "
+              f"1 still + {len(frames)} frames + meta")
+
+    @staticmethod
+    def _figure(out: Path, i: int, n: int, *, still: bool = False) -> None:
+        """A deterministic 256x256 'model': a vertical gradient plus a disc that swings with the frame
+        index (the still's disc sits centred and grey). No fonts -- font rasters differ per machine."""
+        import math
+
+        from PIL import Image, ImageDraw
+
+        from ff9mapkit.models import thumbcache
+        size = thumbcache.MODEL_THUMB
+        im = Image.new("RGB", (size, size))
+        px = im.load()
+        for y in range(size):
+            t = y / size
+            row = (int(46 * (1 - t) + 26 * t), int(52 * (1 - t) + 30 * t), int(66 * (1 - t) + 38 * t))
+            for x in range(size):
+                px[x, y] = row
+        d = ImageDraw.Draw(im)
+        if still:
+            cx, cy, fill = size / 2, size / 2, (150, 156, 168)
+        else:
+            a = 2 * math.pi * i / max(1, n)
+            cx, cy, fill = size / 2 + 52 * math.sin(a), size / 2 - 30 * math.cos(a), (232, 196, 96)
+        d.ellipse([cx - 34, cy - 34, cx + 34, cy + 34], fill=fill)
+        d.line([size / 2, cy + 20, size / 2, size - 34], fill=(120, 128, 146), width=9)
+        im.save(out, "PNG")
+
+
+def snap_models(ctx: _Ctx, state: str) -> None:
+    """The Models tab's animation preview: the clip list armed and idle, and the player mid-clip."""
+    if state not in MODEL_STATES:
+        raise ValueError(f"unknown model state {state!r} (know: {', '.join(MODEL_STATES)})")
+    from PySide6.QtWidgets import QScrollArea
+    with _pin_anim_cache() as pin:
+        win = _make_win(ctx)
+        # HOLD the still-render worker for the whole surface: the tab enqueues its top-of-list batch
+        # (_THUMB_BATCH == 96) at construction, and on this cold scratch cache that fill would race
+        # the grab -- rows repainting mid-photograph.
+        win.model_thumbs.hold()
+        try:
+            win.tabs.setCurrentWidget(win.models_doc)
+            md = win.models_doc
+            md.search.setText(pin.geo)
+            _settle()
+            assert md.listw.count() == 1, f"the search did not narrow to {pin.geo} -- snap void"
+            md.listw.setCurrentRow(0)
+            _settle()
+            assert md.clip_list.count() > 5, "the clip list is empty -- snap void"
+            right = md.findChildren(QScrollArea)[0].widget()
+            if state == "cliplist":
+                _grab(ctx, "models-cliplist", win)
+                _grab(ctx, "models-cliplist-detail", right)
+            else:
+                rows = [md.clip_list.item(i).data(Qt.ItemDataRole.UserRole)
+                        for i in range(md.clip_list.count())]
+                md.clip_list.setCurrentRow(rows.index(pin.anim))
+                _settle()
+                assert md._armed == (pin.geo, pin.anim), "the row did not arm the player -- snap void"
+                assert len(md._seq) == _SNAP_FRAMES, \
+                    f"the pinned clip painted {len(md._seq)}/{_SNAP_FRAMES} frames -- warm read broke"
+                md.anim_slider.setValue(_SNAP_FRAMES // 2)   # a MID-clip frame: a still of frame 0
+                _settle()                                    # is indistinguishable from the thumb
+                _grab(ctx, "models-player", win)
+                _grab(ctx, "models-player-detail", right)
+                _grab_strip(ctx, "models-player-transport", md.anim_strip)
+        finally:
+            win.model_thumbs.release()
+        _close(win)
+
+
 # ------------------------------------------------------------------------------------------- surfaces
 def snap_home(ctx: _Ctx, state: str) -> None:
     pins = {"fresh":   dict(game=False, templates=False),
@@ -1326,6 +1468,7 @@ def all_surfaces() -> list[str]:
     return ([f"home:{s}" for s in HOME_STATES] + [f"tab:{t}" for t in TABS]
             + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES]
             + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES]
+            + [f"models:{s}" for s in MODEL_STATES]
             + [f"console:{s}" for s in CONSOLE_STATES]
             + [f"drift:{s}" for s in DRIFT_STATES]
             + [f"script:{s}" for s in SCRIPT_STATES]
@@ -1373,6 +1516,8 @@ def main() -> None:
                 snap_map(ctx, rest)
             elif kind == "world":
                 snap_world(ctx, rest)
+            elif kind == "models":
+                snap_models(ctx, rest)
             elif kind == "console":
                 snap_console(ctx, rest)
             elif kind == "drift":

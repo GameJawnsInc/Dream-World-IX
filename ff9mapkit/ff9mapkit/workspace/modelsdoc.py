@@ -3,8 +3,10 @@
 Browser (left): every GEO model the kit knows (catalog.models), searchable + group-filtered, with
 REAL rendered thumbnails (models/preview.py via thumbs.ModelThumbService -- per-user disk cache;
 a machine without the install degrades to text rows). Detail (right): the preview still, catalog
-facts + the render's counts sidecar, the model->animation join, appearance caveats (story-evolved
-forms / the Garnet hair-swap), overworld actor identity, and a ready snippet. Actions: the whole
+facts + the render's counts sidecar, the model->animation join as a CLIP LIST that arms a little
+frame player (workspace/animframes.py streams the rendered frames; they paint into the still's own
+box and Reset puts the still back), appearance caveats (story-evolved forms / the Garnet hair-swap),
+overworld actor identity, and ready snippets. Actions: the whole
 DLL-free round-trip in ONE place -- export a Blender-editable .glb, import the edited .glb back,
 mint a new id (>=6000), dump editable .anim clips -- each streaming ``py -m ff9mapkit model-*``
 through the shell's job runner. (Moved here from the Import tab, which now points at this tab.)
@@ -17,19 +19,24 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-                               QScrollArea, QSplitter, QVBoxLayout, QWidget)
+                               QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
 from .. import catalog
 from ..models.appearance import appearance_notes
-from . import modelcards, thumbs as thumbs_mod, widgets
+from . import animframes, icons, modelcards, thumbs as thumbs_mod, widgets
 
 _ICON = 56                                       # list-row icon size (px)
 _DETAIL_IMG = 224                                # detail-pane preview size (px)
 _THUMB_BATCH = 96                                # thumbnails auto-requested per filter result (top of list)
+_CLIP_LIST_H = 150                               # clip-list cap (px) BEFORE a fill: a QListWidget's
+#                                                  sizeHint is 256x192 whatever its row count (the
+#                                                  dep_list idiom). A filled list re-caps on whole
+_CLIP_ROWS = 5                                   # rows measured in the list's OWN font (CALIBRE),
+_CLIP_LIST_CHROME = 5                            # + the QSS well's border(1) + padding(4) per side
 
 _GROUPS = modelcards.GROUPS                      # one list, one order (the card picker shares it)
 
@@ -37,7 +44,8 @@ _GROUPS = modelcards.GROUPS                      # one list, one order (the card
 class ModelsDoc(QWidget):
     """Browse every FF9 model with rendered previews + run the whole edit round-trip on the selection."""
 
-    def __init__(self, pal, kit_root, *, run, problems=None, model_thumbs=None, parent=None):
+    def __init__(self, pal, kit_root, *, run, problems=None, model_thumbs=None, anim_frames=None,
+                 parent=None):
         super().__init__(parent)
         self.pal = pal
         self.kit = str(kit_root)
@@ -46,6 +54,18 @@ class ModelsDoc(QWidget):
         self.thumbs = model_thumbs if model_thumbs is not None else thumbs_mod.ModelThumbService(self)
         self.thumbs.ready.connect(self._thumb_ready)
         self.thumbs.missed.connect(self._thumb_missed)
+        # the clip player's frame source -- injected in tests (a double with the same surface), so no
+        # test can reach a worker thread or this machine's install through it
+        self.anims = anim_frames if anim_frames is not None else animframes.AnimFrameService(self)
+        self.anims.frameReady.connect(self._frame_ready)
+        self.anims.clipDone.connect(self._clip_done)
+        self.anims.clipMissed.connect(self._clip_missed)
+        self._armed = None                       # (geo name, anim id) the strip is playing, or None
+        self._seq = []                           # [(frame index, png path)] -- the CONTIGUOUS cached
+        self._clip_meta = None                   # prefix from frame 0, extended as frames land
+        self._play_timer = QTimer(self)
+        self._play_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._play_timer.timeout.connect(self._advance)
         self._current = None                     # the selected catalog.Model (or None)
         self._items = {}                         # geo name -> QListWidgetItem (the CURRENT filter's rows)
         self._icons = {}                         # geo name -> QIcon (decode each cache PNG ONCE, not per refill)
@@ -155,10 +175,6 @@ class ModelsDoc(QWidget):
         self.d_notes = widgets.caption("")   # appearance caveats -> a small cautionary note
         self.d_notes.setProperty("state", "warn")
         facts_col.addWidget(self.d_notes)
-        self.d_anims = QLabel("")
-        self.d_anims.setWordWrap(True)
-        self.d_anims.setProperty("role", "muted")
-        facts_col.addWidget(self.d_anims)
         facts_col.addStretch(1)
         img_row.addLayout(facts_col, 1)
         rv.addLayout(img_row)
@@ -169,9 +185,15 @@ class ModelsDoc(QWidget):
         self.copy_snip_btn = QPushButton("Copy [[npc]] snippet")
         self.copy_snip_btn.clicked.connect(self._copy_snippet)
         copy_row.addWidget(self.copy_snip_btn)
+        self.copy_anims_btn = QPushButton("Copy anims= snippet")
+        self.copy_anims_btn.setToolTip("The five movement slots this model resolves to, as a TOML "
+                                       "inline table to paste into an [[npc]] block.")
+        self.copy_anims_btn.clicked.connect(self._copy_anims)
+        copy_row.addWidget(self.copy_anims_btn)
         copy_row.addStretch(1)
         rv.addLayout(copy_row)
 
+        rv.addWidget(self._anim_box())
         rv.addWidget(self._actions_box())
         rv.addWidget(self._playable_box())
         rv.addWidget(self._deployed_box())
@@ -194,6 +216,269 @@ class ModelsDoc(QWidget):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 2)
         split.setSizes([340, 640])
+
+    def _anim_box(self):
+        """The clip list + the player transport -- a FULL-WIDTH row of the detail pane.
+
+        NOT inside the 224px preview column: that column is `d_img`'s fixed box, and the round-13
+        lesson is that a control squeezed under its content minimum in this pane CLIPS rather than
+        scrolls. The rendered frames paint into `d_img` itself (Reset puts the still back), so the
+        strip owns only the transport -- one play/pause toggle, one reset, the scrub slider and an
+        elided counter that says the HONEST rate (a strided clip plays slower than its sample rate).
+        """
+        box = widgets.section("Preview an animation")
+        v = box.content_layout
+        self.clip_list = QListWidget()
+        self.clip_list.setAccessibleName("Animation clips for this model")
+        self.clip_list.setMaximumHeight(_CLIP_LIST_H)     # see _CLIP_LIST_H (the dep_list idiom)
+        self.clip_list.currentItemChanged.connect(self._on_clip)
+        v.addWidget(self.clip_list)
+
+        self.anim_strip = QWidget()
+        srow = QHBoxLayout(self.anim_strip)
+        srow.setContentsMargins(0, 0, 0, 0)
+        srow.setSpacing(8)
+        # Transport controls wear SVG icons (icons.py), NEVER the unicode media glyphs -- U+23F5 and
+        # friends fall back to the Windows emoji face and render as colour blobs (the Behavior tab
+        # paid for that one on a snap; the owner's rule is no emoji, the SVGs exist for this).
+        self.anim_play = QPushButton()
+        self.anim_play.setProperty("role", "quiet")
+        self.anim_play.setCheckable(True)
+        self.anim_play.setIcon(icons.icon("play", self.pal["text"]))
+        self.anim_play.setAccessibleName("Play or pause the animation preview")
+        self.anim_play.setToolTip("Play / pause the frames rendered so far (it loops)")
+        self.anim_play.toggled.connect(self._on_play_toggled)
+        srow.addWidget(self.anim_play)
+        self.anim_reset_btn = QPushButton()
+        self.anim_reset_btn.setProperty("role", "quiet")
+        self.anim_reset_btn.setIcon(icons.icon("reset", self.pal["text"]))
+        self.anim_reset_btn.setAccessibleName("Stop and show the still preview")
+        self.anim_reset_btn.setToolTip("Stop, rewind to frame 0, and put the still preview back")
+        self.anim_reset_btn.clicked.connect(self.reset_player)
+        srow.addWidget(self.anim_reset_btn)
+        self.anim_slider = QSlider(Qt.Orientation.Horizontal)
+        self.anim_slider.setObjectName("animFrameSlider")   # carries the reserved focus ring (style.py)
+        self.anim_slider.setAccessibleName("Animation frame")
+        self.anim_slider.setAccessibleDescription(
+            "Scrub the frames rendered so far for the selected clip")
+        self.anim_slider.setToolTip("Scrub the rendered frames")
+        self.anim_slider.setRange(0, 0)
+        self.anim_slider.setMinimumWidth(120)               # never starved to a sliver by the counter
+        self.anim_slider.valueChanged.connect(self._on_scrub)
+        srow.addWidget(self.anim_slider, 1)
+        self.anim_count = widgets.ElideLabel("", "muted", mono=True, min_ch=12)
+        # ELIDE, BUT BE BUDGETED. ElideLabel ships QSizePolicy.Ignored so a compound caption can yield
+        # all the way to "…" -- and QWidgetItem ZEROES an Ignored item's sizeHint width, while
+        # qSmartMinSize still honours the explicit min_ch minimum. That inverts the invariant
+        # qGeomCalc assumes (hint >= min), and its SURPLUS branch hands such an item its hint: 0. The
+        # counter was laid out at x == the strip's full width -- entirely off the edge, snap-caught
+        # (min_ch only ever bit in the squeeze branch, which is why the Behavior strip, where these
+        # labels own a whole row, never showed it). Preferred keeps the ShrinkFlag -- it still yields
+        # down to the same min_ch floor, and the elide still runs in resizeEvent.
+        self.anim_count.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        srow.addWidget(self.anim_count)
+        v.addWidget(self.anim_strip)
+        self.anim_note = widgets.caption("Pick a model, then a clip.")
+        v.addWidget(self.anim_note)
+        self._set_transport(False)
+        if not thumbs_mod.enabled():             # the tab's own idiom (see count_lbl / _on_select)
+            self.anim_strip.hide()
+            self.anim_note.setText("Previews off — the clip list is still browsable "
+                                   "(ids paste straight into anims=).")
+        return box
+
+    # ------------------------------------------------------------------ the clip player
+    def _set_transport(self, on, *, reason=""):
+        """Enable/disable the transport as ONE decision (a 1-frame clip is armed but unplayable)."""
+        for w in (self.anim_play, self.anim_reset_btn, self.anim_slider):
+            w.setEnabled(bool(on))
+        if reason:
+            self.anim_note.setText(reason)
+
+    def _refill_clips(self, m):
+        """The model's clip inventory -> rows 'label · id N' (+ 'other form' where the clip's ANH
+        names a DIFFERENT form code: a different form is a different skeleton). Install-free."""
+        self.clip_list.blockSignals(True)         # a refill must not arm the first row by itself
+        self.clip_list.clear()
+        rows = catalog.clip_inventory(m.id) if m is not None else []
+        for r in rows:
+            label = f"{r['label']}  ·  id {r['anim_id']}"
+            if not r["own_form"]:
+                label += "  ·  other form"
+            it = QListWidgetItem(label)
+            it.setData(Qt.ItemDataRole.UserRole, r["anim_id"])
+            self.clip_list.addItem(it)
+        self.clip_list.blockSignals(False)
+        if not rows:
+            self.anim_note.setText("No clips catalogued for this model (a numbered battle-only "
+                                   "token or a static prop).")
+            return
+        # cap on a WHOLE number of rows, measured from the list's REAL row height so the cap hears
+        # CALIBRE (a px constant is deaf by construction -- the fixed 150 sliced the 5th row in half)
+        row_h = self.clip_list.sizeHintForRow(0)
+        if row_h > 0:
+            self.clip_list.setMaximumHeight(row_h * _CLIP_ROWS + 2 * _CLIP_LIST_CHROME)
+        if thumbs_mod.enabled():                 # NO_THUMBS keeps its own "previews off" line
+            self.anim_note.setText(f"{len(rows)} clip(s) — pick one to render and play it.")
+
+    def _on_clip(self, item, _prev=None):
+        if item is None or self._current is None:
+            return
+        self.arm_clip(self._current.name, item.data(Qt.ItemDataRole.UserRole))
+
+    def arm_clip(self, geo_name, anim_id):
+        """Point the strip at one (model, clip). Supersedes whatever was filling, then either paints
+        a WARM clip synchronously (request_clip's return value IS the answer -- no signal arrives for
+        a disk hit) or waits for the streamed frames."""
+        self.stop_playback()
+        self.anims.supersede()
+        self._armed = (str(geo_name), int(anim_id))
+        self._seq = []
+        self._clip_meta = None
+        self.anim_slider.blockSignals(True)
+        self.anim_slider.setRange(0, 0)
+        self.anim_slider.setValue(0)
+        self.anim_slider.blockSignals(False)
+        self.anim_count.setText("")
+        if not thumbs_mod.enabled():
+            self._set_transport(False)
+            return
+        meta = self.anims.request_clip(geo_name, anim_id)
+        if meta is not None:                      # warm disk: no worker, no signals -- read it here
+            self._clip_meta = meta
+            for f in meta.get("rendered_frames") or []:
+                png = self.anims.cached_frame(geo_name, anim_id, f)
+                if png:
+                    self._add_frame(f, png)
+            self._finish_clip()
+            return
+        why = self.anims.missed_reason(geo_name, anim_id)
+        if why:                                   # a remembered miss enqueues nothing: say so NOW
+            self._set_transport(False, reason=f"No preview for this clip — {why}")
+            return
+        self._set_transport(False, reason="Rendering frames… (they play as they land)")
+
+    def _add_frame(self, frame_idx, png):
+        """Extend the contiguous cached prefix. The fill streams in ascending frame order, so the
+        arrival order IS the play order; the strip never gates on 'all frames'."""
+        self._seq.append((int(frame_idx), str(png)))
+        self.anim_slider.blockSignals(True)
+        self.anim_slider.setRange(0, len(self._seq) - 1)
+        self.anim_slider.blockSignals(False)
+        if len(self._seq) == 1:
+            self._show_frame(0)
+        if len(self._seq) > 1:
+            self._set_transport(True)
+        self._update_counter()
+
+    def _show_frame(self, pos):
+        """Paint one position of the prefix into the detail image. A missing/undecodable frame HOLDS
+        the previous picture (``_set_detail_image`` ignores a null pixmap) rather than blanking."""
+        if not (0 <= pos < len(self._seq)):
+            return
+        self._set_detail_image(self._seq[pos][1])
+        self._update_counter()
+
+    def _update_counter(self):
+        if not self._seq:
+            self.anim_count.setText("")
+            return
+        meta = self._clip_meta or {}
+        fps = float(meta.get("fps") or meta.get("sample_rate") or 30.0)
+        stride = int(meta.get("stride") or 1)
+        rate = f"preview {fps:g}fps" if stride > 1 else f"{fps:g}fps"
+        pos = min(max(self.anim_slider.value(), 0), len(self._seq) - 1)
+        self.anim_count.setText(f"f {pos + 1}/{len(self._seq)} · {rate}")
+
+    def _play_interval(self) -> int:
+        fps = float((self._clip_meta or {}).get("fps") or 30.0)
+        return max(16, int(round(1000.0 / fps)) if fps > 0 else 33)
+
+    def _on_play_toggled(self, on):
+        if on and len(self._seq) > 1:
+            self._play_timer.start(self._play_interval())
+        else:
+            self._play_timer.stop()
+        self.anim_play.setIcon(icons.icon("pause" if self._play_timer.isActive() else "play",
+                                          self.pal["text"]))
+
+    def _advance(self):
+        if len(self._seq) < 2:
+            return
+        self.anim_slider.setValue((self.anim_slider.value() + 1) % len(self._seq))   # LOOP the prefix
+
+    def _on_scrub(self, value):
+        self._show_frame(int(value))
+
+    def stop_playback(self):
+        self._play_timer.stop()
+        if self.anim_play.isChecked():
+            self.anim_play.blockSignals(True)     # no re-entry into _on_play_toggled
+            self.anim_play.setChecked(False)
+            self.anim_play.blockSignals(False)
+        self.anim_play.setIcon(icons.icon("play", self.pal["text"]))
+
+    def reset_player(self):
+        """Stop, rewind, and put the STILL preview back (ModelThumbService's cached PNG -- already
+        warm on disk whenever the detail pane painted one)."""
+        self.stop_playback()
+        self.anim_slider.blockSignals(True)
+        self.anim_slider.setValue(0)
+        self.anim_slider.blockSignals(False)
+        self._update_counter()
+        if self._current is not None:
+            png = self.thumbs.cached(self._current.name)
+            if png:
+                self._set_detail_image(png)
+
+    def _rate_note(self) -> str:
+        """The honest rate in PROSE. The counter beside the slider is an ElideLabel, so at the wide
+        CALIBRE rungs it can lose its tail ('30f…') -- and the rate is the one part that must not go
+        missing, because a strided clip really is playing slower than the clip runs in-game. This
+        line word-wraps at full width, so it always survives."""
+        meta = self._clip_meta or {}
+        fps = float(meta.get("fps") or meta.get("sample_rate") or 30.0)
+        stride = int(meta.get("stride") or 1)
+        total = int(meta.get("frame_count") or len(self._seq))
+        if stride > 1:
+            return (f"{total} frames sampled every {stride} → {len(self._seq)} rendered, "
+                    f"played at {fps:g}fps")
+        return f"{len(self._seq)} frames at {fps:g}fps"
+
+    def _finish_clip(self):
+        n = len(self._seq)
+        if n > 1:
+            self._set_transport(True, reason=f"Ready — {self._rate_note()} (it loops).")
+        elif n == 1:
+            self._set_transport(False, reason="A single-frame clip (a held pose) — nothing to play.")
+        else:
+            self._set_transport(False, reason="No frames rendered for this clip.")
+        self._update_counter()
+
+    # ---- service slots: the identity fence lives HERE, at the paint ----
+    def _frame_ready(self, geo, anim, frame, png):
+        if self._armed != (str(geo), int(anim)):
+            return                                # a superseded clip's late frame paints NOTHING
+        self._add_frame(frame, png)
+
+    def _clip_done(self, geo, anim):
+        if self._armed != (str(geo), int(anim)):
+            return
+        self._clip_meta = self.anims.cached_meta(geo, anim)
+        self._finish_clip()
+
+    def _clip_missed(self, geo, anim, reason):
+        if self._armed != (str(geo), int(anim)):
+            return
+        self.stop_playback()
+        self._set_transport(False, reason=f"No preview for this clip — {reason}")
+
+    def hideEvent(self, ev):
+        """Leaving the tab stops the clock and cancels the fill -- a background clip render must not
+        outlive the surface that asked for it."""
+        self.stop_playback()
+        self.anims.supersede()
+        super().hideEvent(ev)
 
     def _actions_box(self):
         """The DLL-free round-trip, keyed on the selected model. Same argv shapes the Import tab's old
@@ -512,8 +797,8 @@ class ModelsDoc(QWidget):
         it = self._items.get(name)
         if it is not None:
             it.setIcon(self._icons[name])
-        if self._current is not None and self._current.name == name:
-            self._set_detail_image(png)
+        if self._current is not None and self._current.name == name and self._armed is None:
+            self._set_detail_image(png)          # never over a playing clip's frame
 
     def _thumb_missed(self, name):
         """A render landed as a miss: when the sidecar says UNSHIPPED, grow the absent set (and, with
@@ -547,6 +832,10 @@ class ModelsDoc(QWidget):
         if m is None:
             return
         self._current = m
+        self.stop_playback()                     # a model switch cancels the old model's fill
+        self.anims.supersede()
+        self._armed, self._seq, self._clip_meta = None, [], None
+        self._set_transport(False)
         self.d_title.setText(f"{m.name}  ·  id {m.id}")
         world = catalog.world_character(m.name)
         sub = f"{m.kind}  ·  group {m.group} / form {m.form}"
@@ -582,14 +871,8 @@ class ModelsDoc(QWidget):
         notes = appearance_notes(m.name, minted=False)
         self.d_notes.setText("\n".join(notes))
         self.d_notes.setVisible(bool(notes))
-        if acts:
-            labels = sorted(acts)
-            head = ", ".join(labels[:14])
-            more = f"  (+{len(labels) - 14} more)" if len(labels) > 14 else ""
-            self.d_anims.setText(f"Actions: {head}{more}")
-        else:
-            self.d_anims.setText("Actions: none catalogued (a numbered battle-only token or a static prop)")
-        return absent
+        self._refill_clips(m)                    # the comma-blob of action names is a LIST now, and
+        return absent                            # every row arms the player (Stage B)
 
     def _set_detail_image(self, png):
         pm = QPixmap(png)
@@ -617,6 +900,20 @@ class ModelsDoc(QWidget):
             if not m.field:
                 text = f"# NOTE: {m.name} is a battle/world form — field NPCs usually wear an F* model.\n" + text
         QGuiApplication.clipboard().setText(text)
+
+    def _copy_anims(self):
+        """The five movement slots this model resolves to, as a TOML INLINE TABLE -- the line an
+        [[npc]] pastes to pin its animations instead of leaning on auto-resolution."""
+        m = self._current
+        if not m:
+            return
+        a = catalog.npc_anims(m.id)
+        if not a:
+            return self._warn("No movement clips",
+                              f"{m.name} has no field movement gestures to resolve the five slots "
+                              "from (a battle-only or effect model). Give explicit ids instead.")
+        body = ", ".join(f"{slot} = {a[slot]}" for slot in catalog.NPC_SLOT_ACTION if slot in a)
+        QGuiApplication.clipboard().setText(f"anims = {{ {body} }}\n")
 
     # ------------------------------------------------------------------ actions
     def set_glb(self, path):

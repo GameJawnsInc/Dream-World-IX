@@ -9549,7 +9549,18 @@ def _smoke(win):
     md.listw.setCurrentRow(0)
     assert md._current is not None and md._current.id == 8
     assert "id 8" in md.d_title.text()
-    assert "Actions:" in md.d_anims.text() and "idle" in md.d_anims.text()
+    # the model->animation join is a CLIP LIST now (it arms the frame player), not a comma blob: the
+    # five movement slots come first, then the model's own gestures, every row carrying the id it fills
+    _clips = [md.clip_list.item(i).text() for i in range(md.clip_list.count())]
+    assert len(_clips) > 5, f"clip list under-populated for Vivi: {_clips[:5]}"
+    assert _clips[0].startswith("stand") and "id 148" in _clips[0], _clips[0]
+    assert any(c.startswith("idle") for c in _clips), "the model's own gestures are missing"
+    assert md.clip_list.item(0).data(Qt.ItemDataRole.UserRole) == 148, "a row must carry its anim id"
+    assert md._armed is None, "a refill must not arm the player by itself"
+    md.clip_list.setCurrentRow(0)                              # arms it -- NO_THUMBS keeps it inert
+    assert md._armed == ("GEO_MAIN_F0_VIV", 148)
+    md._copy_anims()
+    assert QApplication.clipboard().text().startswith("anims = { stand = 148,")
     md.search.setText("")
     md.group.setCurrentIndex(5)                                # Weapons (WEP)
     assert 0 < md.listw.count() < 120
