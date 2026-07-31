@@ -102,6 +102,48 @@ across both prior rounds now has a measured law behind it (faces/seams/foot pass
 in-game already; the rim and the shade were the two open classes, and both are now
 decoded, not guessed).
 
+## BUILD NOTES (pre-playtest, declared with the deploy — 14 offline iterations)
+
+The claim and gates are unchanged. Mechanism deltas found while building, all measured
+against stock before adoption:
+
+1. **The top construction converged to the DELAUNAY FORM of the displaced row.** The
+   literal cell-based construction (classify lattice verts rim/proj/interior, emit
+   whole cells, fill pockets) minted a thin-wedge class wherever a diagonal crest run
+   passed just inside a lattice row, and a corridor class at a donor promontory —
+   five successive mechanisms (greedy zip, offset-searched DP zip, 2-opt flips,
+   index-fanned conformance, ear-fanned pockets) each fixed one site and exposed
+   another. The closed form: **Delaunay over [crest verts + interior lattice verts
+   ≥ 1.2u from the crest], clipped to the crest polygon** — the lattice interior
+   reproduces intact half-cells on its own, corridors get max-min-angle ladders, and
+   the boundary is the crest cycle edge-for-edge. Two small local passes complete it:
+   a SLOT CAP (a concave wedge whose Delaunay tri centroid-clips away leaves a
+   see-through slot — capped against its kept-boundary neighbor) and INTERIOR
+   RELAXATION (a sliver tri's interior vert may move ≤ 1.2u — the far field's OWN
+   measured off-grid envelope, R1: 35% off-grid, p90 1.22u).
+2. **CREST SILHOUETTE REPAIR:** the seam welds leave sub-2u crest edges and
+   doubling-backs (turn > 150° on short legs) — debris stock's crest never shows
+   (segments p25 = 4.0, turns p99 139). Repaired by merging the debris verts into
+   the wall (position substitution ≤ 3.5u, the displacement envelope's own order);
+   4 verts merged this build.
+3. **The sliver gate, decomposed against stock:** the registered ≤ 3% compound gate
+   held, but the honest baseline is now measured finer — stock ring-1's 2.1% =
+   THIN (angle < 15°) 1.4% + SMALL (area-only) 0.7%. Final build: 1 sliver on 79 top
+   tris (1.2% compound) — one 0.85u² tri deep in a 3u-wide donor promontory corridor,
+   all-crest-vert (nothing may move), at stock's own thin rate.
+4. **Final gate state (deployed build):** closure gap 0.35u; seam turns 68-86°; weld
+   displacements ≤ 10.94u (cap 12); rim displacement med 0.92 / p99 2.39 / max 2.40
+   (stock: 0.80 / 2.41); home jumps 0; watertight residue **1 once-edge** of 8483
+   (0.012% — round 6 deployed with 4); foot fringe 54% share (stock 53%).
+5. **The culled-render NE anomaly is explained and accepted:** a far-side donor
+   promontory's outer faces, correctly wound (carried normals agree) and correctly
+   culled, read as a floating tri under the offline renderer's PARALLEL rays at 17°
+   elevation — an eye-at-infinity view. A ground perspective eye cannot reproduce it
+   (the near wall's angular height occludes the far rim) and the elevated world
+   camera looks down, which removes the sky-gap ray geometry. Forensics in the build
+   log (6 connector tris, all donor-lawful). If the playtest shows a floater THERE,
+   this note is falsified with it.
+
 ## Falsification semantics — declared in advance
 
 - **PASS** → the wall rung closes SOLVED at strip granularity; `world-terrace`

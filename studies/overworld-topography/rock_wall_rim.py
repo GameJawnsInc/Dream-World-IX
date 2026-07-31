@@ -456,8 +456,12 @@ print(f"   ring-1 tris per crest edge: {n_ring1_tris / max(1, n_crest_edges):.2f
 for k, lab in (("ring", "ring-1"), ("far", "far plateau")):
     ar, ma = r1_shape[k]["area"], r1_shape[k]["mina"]
     sliv = sum(1 for a_, m_ in zip(ar, ma) if a_ < 2.0 or m_ < 15.0) / max(1, len(ar))
+    n_thin = sum(1 for a_, m_ in zip(ar, ma) if m_ < 15.0)
+    n_small = sum(1 for a_, m_ in zip(ar, ma) if a_ < 2.0 and m_ >= 15.0)
     print(f"   {lab:11s} shape: area med {pct(ar, 50)}u2 p25 {pct(ar, 25)} p75 {pct(ar, 75)}; "
-          f"min-angle med {pct(ma, 50)} p10 {pct(ma, 10)}; SLIVER frac {sliv:.1%}")
+          f"min-angle med {pct(ma, 50)} p10 {pct(ma, 10)}; SLIVER frac {sliv:.1%} "
+          f"= THIN(angle<15) {n_thin / max(1, len(ar)):.1%} + SMALL(area-only) "
+          f"{n_small / max(1, len(ar)):.1%}")
 print(f"   inner boundary vs crest: align angle med {pct(inner_align, 50)} "
       f"p90 {pct(inner_align, 90)} (0 = parallel); offset med {pct(inner_off, 50)}u "
       f"p25 {pct(inner_off, 25)} p75 {pct(inner_off, 75)}")
