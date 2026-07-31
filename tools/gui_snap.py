@@ -1321,6 +1321,10 @@ def snap_form(ctx: _Ctx, state: str) -> None:
                     'zone = [[300, -400], [700, -400], [700, -800], [300, -800]]\n'),
         "chest": ('[[chest]]\npos = [0, 80]\nitem = ["Potion", 1]\nflag = "chest_potion"\n\n'
                   '[[flag]]\nname = "chest_potion"\nindex = 8720\n'),
+        # S5's subject: a minimal narration cutscene (say / wait / say), once-guarded
+        "cutscene": ('[cutscene]\nonce = true\nsteps = [\n'
+                     '  { say = "The hut is silent..." },\n  { wait = 30 },\n'
+                     '  { say = "...for now." },\n]\n'),
     }[state]
     src = REPO / "ff9mapkit" / "examples" / "boletta"
     assert src.is_dir(), "cannot find the boletta example -- snap void"
@@ -1557,7 +1561,7 @@ def snap_dialog(ctx: _Ctx, key: str) -> None:
         _close(win)
 
 
-FORM_STATES = ("encounter", "encounter-named", "music", "npc", "gateway", "chest")
+FORM_STATES = ("encounter", "encounter-named", "music", "npc", "gateway", "chest", "cutscene")
 HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",

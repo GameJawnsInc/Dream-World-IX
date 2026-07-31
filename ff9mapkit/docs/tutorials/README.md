@@ -15,7 +15,9 @@ the CLI-side tutorials below cover the terminal twin of everything here.)
 | S2 | [Someone lives here](s2-someone-lives-here.md) | Talk to an NPC you wrote; the dev loop |
 | S3 | [A door of your own](s3-a-door-of-your-own.md) | Two rooms, gateways both ways |
 | S4 | [The world remembers](s4-the-world-remembers.md) | A chest that stays looted; a flag-gated NPC |
-| S5–S7 | *being written* | a cutscene · a battle · ship a zip |
+| S5 | [Lights, camera](s5-lights-camera.md) | A once-only entry scene + your own soundtrack |
+| S6 | [Danger](s6-danger.md) | Random battles, tuned, won |
+| S7 | [Ship it](s7-ship-it.md) | A campaign, New Game landing in it, a friend-installable zip |
 
 ## The rest (being reorganized into tracks)
 

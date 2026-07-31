@@ -73,7 +73,11 @@ a11y gap). The New Journey figure ships pinned and ready for the rewritten 07 to
 hidden in a surface's default state (the New Journey "Pick FF9 regions…" button lives under the
 Multi-campaign Type — a one-state screenshot once mis-called it removed). So the gate proves
 existence + spelling, never state-reachability; a step's "click X after choosing Y" ordering is
-the author's claim, verified by the figure of that state, not by the inventory.
+the author's claim, verified by the figure of that state, not by the inventory. Two more known
+edges: MENUS are not harvested (menu-item names in prose are unverified — playtest territory),
+and a status-painting label enters the inventory with whatever value the harvest saw (the Build
+tab's "New Game currently points at field N" — expect `--check` chatter when live state moves;
+an exclude-list is the fix if it gets noisy).
 
 ## What the revamp does per tutorial
 

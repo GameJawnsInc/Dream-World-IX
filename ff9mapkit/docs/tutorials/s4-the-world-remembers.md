@@ -57,7 +57,6 @@ furniture.
 
 ## Next
 
-- S5 — Lights, camera: an entry cutscene over your own music pick *(next on the spine; not yet
-  written)*.
+- [S5 — Lights, camera](s5-lights-camera.md): an entry cutscene over your own music pick.
 - The full flag story (bands, naming, campaign-wide flags):
   [story flags & branching](../FORMAT.md#story-flags--branching).

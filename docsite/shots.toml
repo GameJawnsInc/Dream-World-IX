@@ -48,6 +48,16 @@ surface = "form:chest"
 take = "form-chest"
 used_by = ["ff9mapkit/docs/tutorials/s4-the-world-remembers.md"]
 
+[shot.editor-cutscene]
+surface = "form:cutscene"
+take = "form-cutscene"
+used_by = ["ff9mapkit/docs/tutorials/s5-lights-camera.md"]
+
+[shot.editor-encounter]
+surface = "form:encounter-named"
+take = "form-encounter-named"
+used_by = ["ff9mapkit/docs/tutorials/s6-danger.md"]
+
 [shot.editor-npc]
 surface = "form:npc"
 take = "form-npc"
