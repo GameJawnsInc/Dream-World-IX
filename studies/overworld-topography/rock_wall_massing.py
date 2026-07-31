@@ -304,7 +304,13 @@ for (bx, by) in blocks:
                 prof.append((round(off, 2), round(py - base["ymin"], 2)))
         prof = sorted(set(prof), key=lambda p: p[1])
         if len(prof) >= 4:
-            col_profiles.append(prof)
+            # base centroid in WORLD coords + the outward normal -- the profile-carry rung
+            # needs columns ORDERABLE along the wall and re-seatable in plan
+            col_profiles.append(dict(
+                prof=prof,
+                cen=[round(float(base["cen"][0] + ox), 2), round(float(base["cen"][1]), 2),
+                     round(float(base["cen"][2] + oz), 2)],
+                nrm=[round(float(nm[0]), 4), round(float(nm[1]), 4)]))
     if col_profiles:
         profiles_all.append(dict(blk=[bx, by], profiles=col_profiles))
         comp_meta.append(dict(blk=[bx, by], n_cols=len(col_profiles)))
@@ -346,7 +352,8 @@ for ci, comp in enumerate(big):
     img = Image.new("RGB", (Wp, Hp), (24, 26, 30))
     dr = ImageDraw.Draw(img)
     SC = 14.0
-    for prof in comp["profiles"]:
+    for prow in comp["profiles"]:
+        prof = prow["prof"]
         pts = [(60 + p[0] * SC, Hp - 40 - p[1] * SC) for p in prof]
         dr.line(pts, fill=(120, 200, 140), width=1)
         for q in pts:
