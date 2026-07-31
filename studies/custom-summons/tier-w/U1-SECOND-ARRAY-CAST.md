@@ -1,14 +1,15 @@
 # W6b-3 (iii) — THE U1 SECOND-ARRAY CAST. ef038 `Shiva`, bench row 200, both halves of column 640
 
-> ★ **STATE — CAST 1 RAN 2026-07-30 AND WAS READ: `VISIBLE_UNBANDED` (0.88), §6's THIRD OUTCOME.
-> The cast is UNINTERPRETABLE FOR U1 IN EITHER DIRECTION, and the probe is REVERTED — the install is
-> back to stock** (`ef038` deleted, `ef211` untouched `cbcc9fde…`, rows 192–204 stay). Column-640
-> geometry demonstrably DREW (61–69 % of the whole column-640 prim pool per frame in the disc window)
-> yet **no surface carried EITHER mark and the C1 control failed on the `nothing` branch**. The
-> mechanism lead: **641 `DR_MOVE` VRAM-move packets on ef038 where the static census records ZERO**,
-> the first block completing before any scored surface appears — §6's "runtime write hiding in the
-> unwalked program bytes", observed in the capture rather than in theory. **Read §9**; full record +
-> the critic's addendum: `…\u1-second-array\castread\REPORT-U1.md`.
+> ★★ **STATE — THE ARC IS COMPLETE AND THE INSTALL IS STOCK. U1 IS ANSWERED (§11): the engine
+> APPLIES the second array — `B_ANSWERED_A_NOT` (0.84), a +128-texel U displacement (one 8bpp
+> column, 640→704) measured on screen; the SWAPPED labelling (the halfword the container calls A is
+> the one that moves u) rides separately at 0.68; the PITCH/v axis stays unresolved.** The road:
+> cast 1 (§9) returned VISIBLE_UNBANDED; the s76 engine round + control cast (§9.3) proved it an
+> INSTRUMENT DEFECT (G1 THE PAGE-SPAN GATE — an 8bpp tpage spans all four declared cells; cast 1
+> marked two) and refuted the blit-wipe mechanism; cast 2 (§10, the four-cell repair) resolved the
+> orientation axis. Install: `ef038` deleted (= stock), `ef211` untouched, rows 192–204 stay. Owner
+> decisions live in §11 (R_UOFF re-open · kit u-displacement modelling · a pitch-axis cast 3).
+> Records: `…\u1-second-array\{castread\REPORT-U1, s76-read\REPORT-S76, cast2-read\REPORT-U1-CAST2}.md`.
 >
 > **This cast answers a question the offline round could not.** `second-array-lead/REPORT.md`
 > refuted H_V (halfword A as a universal per-slot texture V-offset) at 0.85 and left R_FLAGS (a
@@ -947,3 +948,74 @@ R7 5% OF FACES HAVE DEGENERATE UV. 86 of 1,718 faces have a dP/du - dP/dv angle 
 R8 THE ONE ROLL DELTA OF +112. `roll.reconstruction.json` records column 640's deltas as {+1: 141, +112: 1} — one frame jumps 112 rows. It changes nothing for a roll-invariant vertical grating, and is why the +112 frame is not worth chasing, but it is a fact in the reconstruction that no text mentions.
 
 R9 THE `--cells` SEAM. `generate(..., cells=[...])` can write a strict SUBSET of the four marks and the legend records `written: false` for the rest; the CLI exposes `--cells`. A partial run would stage a container whose PROTOCOL claims four marks while the bytes carry fewer. The byte proof and the legend would both show it, but nothing REFUSES it. Deploy without `--cells`.
+
+
+---
+
+## 11. ★★ CAST 2 — CAST, READ, GAP-CLOSED: **THE SECOND ARRAY IS APPLIED.** `B_ANSWERED_A_NOT` (0.84)
+
+Owner video `shiva_u1.cast2.2026-07-31.mkv` (1,134 unique frames), read by two scoring lenses, an
+adversarial verifier (0.82), a gap-closure round on the critic's two load-bearing findings, and a
+second critic pass. Full record + BOTH addenda: `…\cast2-read\REPORT-U1-CAST2.md`; owner figures
+`cast2-read\annotated\` (start at `00-HEADLINE-the-read.png`). Timing anchored structurally (the
+PRIM-98 full-screen TILE frames matched to the video's blue washes, nine consecutive frames exact).
+
+**THE VERDICT — U1 IS ANSWERED POSITIVELY ON THIS CONTAINER**, in the confound-limited wording §4.4
+demands: *something in the second array displaces the sampled CELL* — by **+128 texels in u, exactly
+one 8bpp column, 640→704**. The carrying measurements, reproduced exactly by every pass:
+
+* **S_SPIKE — labelling-independent, and it stands alone.** 16/16 answer-window frames HORIZONTAL
+  (DELTA 88.3–89.8° against a measured body axis of 89.6–91.7°), backed by instrument-free profile
+  statistics (ROW profile periodic at 28–73 px, pk/med 8.7–15.6; COLUMN profile a single shading
+  lobe) and direct inspection. Every one of the 27 readers binds column 640, so bands ACROSS the body
+  = a column-704 cell sampled = unreachable with the second array inert.
+* **S_BLADE** (the wrap-reader pair), clean window: 14/18 HORIZONTAL, DELTA 78.3–89.4°, 4 borderline.
+* **The mark identified photometrically on screen**: over bare cave (24.3 luma) the plate's dark
+  bands measure p10 42.2–42.4 against 39.7 predicted for `clut 0x3dc0` entry 0 = rgba(8,16,32) drawn
+  additively — the cutout (24.3) and abr-0 (19.8) alternatives excluded. The marked page's own zeroed
+  texels, rendered — this also closes cast-2 residency without the canary.
+* The projection-independence check ran on the video itself: the two carrying surfaces lie ~90° apart
+  on screen and give the same texture-space answer.
+
+**THE SWAPPED LABELLING — 0.68, carried separately.** `0x79168` (A=0x0080, B=0x0000) reads
+HORIZONTAL, which the declared A→v/B→u labelling forbids — §10.5 C1's RESULT branch: **the halfword
+the container labels A is the one that displaces u.** The closure round removed the loudest
+objection by measurement: the two-layer composite (built from the container's own texels, palettes
+and blends; harness validated by reproducing all 12 calibrate8 cells to Δ 0.0000) shows a
+true-HORIZONTAL bright layer plus the co-drawn `0x3d40` twin falls BELOW the control meter's refusal
+floor (2.99 < 3.088) — so that meter's "ambiguous" was never evidence against HORIZONTAL — and the
+VERTICAL counterfactual cannot reach 22 of the 26 observed frames (ceiling 0.58 vs observed
+0.49–1.93). NOT fully reproduced: an unexplained 1.5–2× twin-weight factor remains, which is why the
+labelling sits at 0.68 rather than riding the verdict. It also refutes cell-local u-wrap on this
+container (u+128 landed in the NEXT column, not back on 640).
+
+**PITCH — the v axis — UNRESOLVED.** Coarse-vs-fine never separated on the scored surfaces (the
+plates unscorable; §10.5 C5's partial branch fired exactly as designed). Whether the OTHER halfword
+is applied on v stays open; f235–237 carry no marked-page draw, so §10.2's roll-onset signature was
+unobservable as specified.
+
+**THE EXCLUDED SURFACE, disposed honestly.** The contested left-plate crop turned out to be **the
+DISC (`0x29dbc`) carrying the mark** — but its measured DELTA (32–41°) sits at the §10.5 C5
+perspective floor for its tilt, non-discriminating in either direction; dropped from the orientation
+vote for that measured reason. ⚠ The re-check critic then found the closure's own prose defects —
+the strip-only control was never actually scored (its MINPIX gate rejected every frame), the
+tilt-72.4° figure has no traceable measurement, the attribution ranges hold for 16/20 not 20/20
+rows, and two "clean window" frame sets differ between documents — **recorded verbatim in ADDENDUM 2
+as standing limits (THE REGRESS STOP)**: the surface stays excluded under every disposition, no
+finding touches the surviving basis, and the arc stops re-litigating prose while the carrying
+numbers reproduce.
+
+**WHAT MOVES AND WHAT DOES NOT.** No constant moves; nothing is promoted. The confound stands (A
+20/20 with CLUT+blend, B 19/20), so H_U-vs-H_V attribution is NOT made; R4's cell-local-wrap caveat
+still applies to v. **Owner decisions now live**: (1) re-open R_UOFF in
+`second-array-lead\REPORT.md` §3 — its closure rested on "both u-shift conventions move slots OFF
+declared columns", refuted here under the texel convention; (2) whether the kit's attribution/refusal
+surfaces need to model a second-array u-displacement (a reader's EFFECTIVE cell ≠ its bound cell on
+displaced slots — the census/licensing consequences are real but unscoped); (3) whether the pitch
+axis is worth a cast 3 (a v-axis-only instrument on a G1-passing design), or rests until a vehicle
+needs it.
+
+**Resting state:** ef038 override DELETED (= stock, verified; `ef211` untouched), rows 192–204 stay,
+both casts' videos/frames/logs/analysis under `…\repaint-w6b\u1-second-array\`, the s76 engine
+round permanent (`memoria-patches/s76-sfx-state-payload.patch`). `ORDER_UNMEASURED` and every kit
+constant ship exactly as they were.
