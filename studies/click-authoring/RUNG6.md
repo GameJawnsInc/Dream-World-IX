@@ -310,6 +310,33 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
      dragged vertex never captures onto its own room), and the rubber band previews the snapped
      point so the jump is the affordance. A/B on identical clicks 3-5px off a wall: **0 candidates
      before, the whole 1049u wall offered after.**
+  3. ★ **AND IT SLID AGAIN — THE INTEGER-TRUNCATION RATCHET.** Fixing (1) stopped the chart JUMPING
+     when a corner was placed; the owner's video showed it still SLIDING while the mouse merely
+     moved. (1)'s fix had made the scene rect `geometry ∪ mapToScene(viewport().rect())` — **a view
+     input computed from a view output**, which ratchets: `mapToScene(QRect)` maps
+     `rect.adjusted(0,0,1,1)` (`qgraphicsview.cpp:2400`) so the union always strictly contains the
+     viewport → Qt takes its "whole scene fits, centre it" branch → `leftIndent = maxSize.width()/2
+     - (viewRect.left()+viewRect.right())/2` at `:409`, an **integer** division → on an ODD viewport
+     extent the re-centre lands ½px off → the view moves → the visible rect moves → the next
+     redraw's union differs → same-sign bias again. **One pixel per redraw, and the rubber band
+     redraws once per mouse move.** Reproduced offscreen at viewport width 1251: −1px/move,
+     monotone, stopping dead when the drift finally pushed the union past viewport-shaped and the
+     scrollbar gained a real range — the owner's video, mechanism and all.
+     Fix: `_ensure_rect` grows the rect only when the geometry has actually left it, never from the
+     view. **THE LAW: never compute a view input from a view output.**
+     ⚠ **TWO WRONG ANSWERS COST A ROUND EACH.** (a) *The transformation anchor.* `setSceneRect`
+     cannot re-anchor — `centerView` has exactly three call sites (`resizeEvent`, `showEvent`,
+     `setTransform`) — and the drift is byte-identical under `NoAnchor`. Worse, switching to
+     `NoAnchor` is an **active regression**: that line is the only thing calling
+     `viewport()->setMouseTracking(true)` (`:1372-1381`), so it silences button-less `MouseMove`
+     and kills the rubber band, the snap preview and the coords chip outright — with the whole
+     suite still green, because every mouse fence calls `mouseMoveEvent` directly and bypasses
+     delivery. (b) *An unbalanced `ScrollHandDrag` press/release.* Every path is balanced; the
+     signature reproduces with `NoButton` throughout.
+  ★ **PARITY IS WHY IT WAS INVISIBLE.** The suite's viewport is 1250 — EVEN, always, because
+  `_laid_out_canvas`'s `resize(880, 420)` is silently overridden by the layout. At an even width
+  the union is value-identical every frame and `setSceneRect` early-outs, so a fence written there
+  passes on the broken code. The fences are now parametrized odd/even and verified RED at odd.
   ★ **THE METHOD LESSON.** All 47 pre-existing fences drove `click_world` — the world-space seam —
   so not one of them could see a defect that lived entirely in what the VIEW did between one click
   and the next. This is the SECOND time that exact gap shipped a defect on this tab (the first was

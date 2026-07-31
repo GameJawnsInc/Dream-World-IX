@@ -129,10 +129,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   added, the same spot being impossible to click twice, and the first point appearing to
   land at the origin. That last one is the same bug wearing a disguise — the point never
   moved, the chart did, until the point was sitting where the origin marker had been.
-- The chart now holds still. Its extent can grow but never shrink out from under the
-  view, Ctrl+0 still frames the rooms rather than wherever you had zoomed to, and
-  scrollbars stay hidden — a bar appearing would shrink the viewport and move everything
-  again.
+- A second, subtler slide sat behind the first: with a corner placed, simply moving the
+  mouse dragged the chart about a pixel per redraw — and the rubber band redraws on every
+  mouse move — until it hit a limit and stopped. That one only happened when the chart's
+  width was an odd number of pixels, which is why it survived a test suite whose window
+  is always an even width.
+- The chart now holds still in both cases. Its extent is derived from the rooms alone and
+  never from where the view happens to be looking, it grows but never shrinks out from
+  under you, Ctrl+0 still frames the rooms rather than wherever you had panned to, and
+  scrollbars stay hidden.
 
 ### Added — corners and walls snap, so two rooms can actually be made to share one
 - Two rooms are offered as a door only if their walls lie within 8 world units, and the

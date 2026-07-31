@@ -98,7 +98,10 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - Double-click closes but self-click doesn't, or vice versa.
 - The duplicate-corner click silently adds a corner (no message).
 - Escape does nothing while an outline is pending.
-- ⚠ **The chart moves between clicks.** It should now be completely still while you draw — the corner lands under the cursor and nothing else shifts. First contact hit this hard ("the view shifts when adding new points", "the first point is always put at the origin", "it's hard to click the same spot twice") and it was all one defect: the chart's extent was being recomputed from the outline in progress, so the first corner collapsed it and Qt re-centred the whole view. **It is fixed and fenced, but you are the first to check it with a real mouse** — if you see any drift at all, that is the bug returning. (The point never actually went to the origin; the chart moved until the point was sitting where the origin marker had been.)
+- ⚠ **The chart moves at all.** It should now be completely still while you draw — the corner lands under the cursor, and *moving the mouse afterwards changes nothing but the rubber band*. This took **two** fixes, because there were two different slides stacked on each other:
+  1. A **jump when a corner was placed**: the chart's extent was recomputed from the outline in progress, so the first corner collapsed it and Qt re-centred the whole view. That is why the point looked like it went to the origin — the point never moved, the chart did, until the point sat where the origin marker had been.
+  2. A **continuous creep while the mouse merely moved**, which you filmed. The first fix had made the extent depend on where the view was looking, and that ratchets: Qt re-centres with integer arithmetic, so on an odd-numbered chart width it lands half a pixel out, the view shifts, the extent shifts with it, and round it goes — about a pixel per redraw, and the rubber band redraws on every mouse move. It stopped when it hit a scroll limit, which is the "then it stops" you saw.
+  **Both are fixed and fenced (the fences now run at odd *and* even chart widths, since the even case hides the bug entirely). You are still the first to check either with a real mouse** — any drift at all, in either shape, and I want to know.
 
 ---
 

@@ -388,12 +388,22 @@ class PlanCanvas(QGraphicsView):
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        # NO SCROLLBARS. The scene rect only ever grows within a session (see _stable_rect), so
+        # NO SCROLLBARS. The scene rect only ever grows within a session (see _ensure_rect), so
         # AsNeeded would pop a bar mid-drawing -- and a bar appearing SHRINKS the viewport, which
-        # moves the chart under the cursor all over again, which is the whole defect. Navigation is
-        # left-drag to pan, Ctrl+scroll to zoom, Ctrl+0 to fit; the corner chip says so.
+        # both moves the chart and FLIPS ITS WIDTH'S PARITY, the gate on the drift ratchet
+        # _ensure_rect exists to defeat. Navigation is left-drag to pan, Ctrl+scroll to zoom,
+        # Ctrl+0 to fit; the corner chip says so.
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # ★ THIS LINE IS ALSO WHAT DELIVERS HOVER. `setTransformationAnchor(AnchorUnderMouse)` calls
+        # `viewport()->setMouseTracking(true)` (qgraphicsview.cpp:1372-1381), and nothing else in
+        # this package ever enables tracking -- so without it Qt stops delivering button-less
+        # `MouseMove` at all: no rubber band, no snap preview, no coordinate chip. It reads as the
+        # canvas being dead rather than as a missing anchor, and every mouse fence here calls
+        # `mouseMoveEvent` directly, so the whole suite stays green while the tab loses its only
+        # preview of where a corner will land. Measured: tracking False -> 0 hover events of 300.
+        # DO NOT "tidy" this to NoAnchor. If it ever must change, call `setMouseTracking(True)`
+        # explicitly in the same edit.
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(palette["surface"]))
         self.setAccessibleName("Floorplan chart")
@@ -964,9 +974,9 @@ class PlanCanvas(QGraphicsView):
         self._draw()
         r = self._scene_bounds()                   # the GEOMETRY's own box, NOT sceneRect(): that
         #                                            one is deliberately allowed to grow past the
-        #                                            geometry so the view is never re-anchored
-        #                                            (see _stable_rect), and fitting THAT would
-        #                                            zoom out to whatever the author had panned to.
+        #                                            geometry (see _ensure_rect), so fitting THAT
+        #                                            would zoom out to whatever slack a session had
+        #                                            accumulated instead of framing the rooms.
         if r.isEmpty():
             return
         vw, vh = max(1, self.viewport().width()), max(1, self.viewport().height())
@@ -975,7 +985,10 @@ class PlanCanvas(QGraphicsView):
         self.resetTransform()
         self.scale(z, z)
         self._zoom = z
-        self._scene.setSceneRect(r)                # drop the accumulated slack before centring
+        # Re-derive from the geometry, then pad by a full extent on each side: that drops whatever
+        # slack a session accumulated, gives the author room to pan, and leaves the rect large
+        # enough that `_ensure_rect` will not need to touch it again for many gestures.
+        self._scene.setSceneRect(r.adjusted(-r.width(), -r.height(), r.width(), r.height()))
         self.centerOn(r.center())
         self._draw()                               # ...and again: the labels are zoom-dependent
 
@@ -1096,33 +1109,52 @@ class PlanCanvas(QGraphicsView):
         b = self.world_to_scene(x1 + pad, z0 - pad)
         return QRectF(a[0], a[1], b[0] - a[0], b[1] - a[1])
 
-    def _stable_rect(self):
-        """The geometry's box UNIONED WITH WHAT IS ALREADY ON SCREEN.
+    def _ensure_rect(self):
+        """Grow the scene rect ONLY when something has actually left it, and then in a coarse step.
 
-        ★ THE CHART MUST NOT MOVE WHILE THE AUTHOR IS DRAWING, and it did. `_scene_bounds` follows
-        the geometry, and the geometry includes the outline IN PROGRESS -- so the first corner of a
-        new room collapsed the scene rect from 480 units to 58 (one point, `pad` on each side), Qt
-        centred a rect now far smaller than the viewport, and the whole chart jumped under the
-        cursor. Measured on the real widget: the first click moved world (0,0) 375px right and
-        253px down, and four clicks aimed at a screen RECTANGLE produced a garbage quadrilateral
-        because every click after the first landed in a different frame.
+        ★ THE CURE IS NOT A CLEVERER RECT, IT IS NOT SETTING ONE -- and the mechanism is worth
+        knowing exactly, because two plausible wrong answers cost a round each.
 
-        Its first report read as "the first point is always put at the origin" -- which is exactly
-        what it looks like: the point does not move, the chart does, until the point is sitting dead
-        centre where the origin crosshair used to be.
+        The scene rect used to be `geometry UNIONED WITH mapToScene(viewport().rect())`. That is a
+        VIEW INPUT COMPUTED FROM A VIEW OUTPUT, and it ratchets:
 
-        Uniting with the visible region means the rect can never shrink out from under the view, so
-        nothing re-anchors and nothing is clamped. It only ever grows within a session; `fit()`
-        (Ctrl+0) drops the slack and re-derives from the geometry alone."""
-        r = self._scene_bounds()
-        vis = self.mapToScene(self.viewport().rect()).boundingRect()
-        return r.united(vis) if vis.isValid() and not vis.isEmpty() else r
+          * `QGraphicsView::mapToScene(QRect)` maps `rect.adjusted(0, 0, 1, 1)`
+            (qgraphicsview.cpp:2400), so the union ALWAYS strictly contains the viewport.
+          * That forces `recalculateContentSize` into its "the whole scene fits, centre it" branch,
+            which sets the scroll range to [0, 0] and computes
+            `leftIndent = maxSize.width() / 2 - (viewRect.left() + viewRect.right()) / 2` (:409).
+            `maxSize.width()` is an **int**, so `/ 2` TRUNCATES.
+          * On an ODD viewport width the re-centre therefore lands half a pixel off. The view moves;
+            the visible rect moves with it; the next redraw's union is a different rect, so
+            `setSceneRect` actually fires; and the re-centre biases the same way again.
+
+        One pixel per redraw, forever -- and the rubber band redraws once per mouse move. First
+        contact saw ~200px of leftward slide in under a second from a single placed corner and no
+        button held, then a hard stop the moment the drifting geometry pushed the union past
+        viewport-shaped and the scrollbar gained a real range. Reproduced offscreen at viewport
+        width 1251: exactly -1px per move, monotone, stopping at the limit.
+
+        ⚠ IT IS NOT THE TRANSFORMATION ANCHOR. `setSceneRect` cannot re-anchor -- `centerView` has
+        exactly three call sites (`resizeEvent`, `showEvent`, `setTransform`) -- and the drift is
+        byte-identical under `NoAnchor` and `AnchorUnderMouse`. The gate is the viewport's PARITY,
+        not the cursor, which is why an even-width test viewport sees nothing at all.
+
+        So: grow-only, never a function of where the view is looking, with a pad of one full extent
+        on each side so the next several gestures cannot touch it either. `fit()` (Ctrl+0) is the
+        one place it is re-derived from the geometry."""
+        need = self._scene_bounds()
+        cur = self._scene.sceneRect()
+        if not cur.isEmpty() and cur.contains(need):
+            return
+        r = need if cur.isEmpty() else need.united(cur)
+        m = max(r.width(), r.height())
+        self._scene.setSceneRect(r.adjusted(-m, -m, m, m))
 
     def _draw(self):
         sc = self._scene
         self._kids = []                            # the old scene's children die WITH the clear
         sc.clear()
-        sc.setSceneRect(self._stable_rect())
+        self._ensure_rect()
         self._draw_origin()
         for ri, room in enumerate(self._rooms):
             self._draw_room(ri, room)

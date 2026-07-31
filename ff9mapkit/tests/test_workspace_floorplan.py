@@ -22,7 +22,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt                                           # noqa: E402
+from PySide6.QtCore import QPointF, QRectF, Qt                          # noqa: E402
+from PySide6.QtGui import QMouseEvent                                   # noqa: E402
 from PySide6.QtWidgets import QApplication                              # noqa: E402
 
 from ff9mapkit import floorplan as FP                                   # noqa: E402
@@ -1676,12 +1677,26 @@ def _origin_on_screen(canvas):
     return (p.x(), p.y())
 
 
-def _laid_out_canvas(app, doc, w=880, h=420):
+def _laid_out_canvas(app, doc, w=880, h=420, *, viewport_w=None):
+    """★ ``viewport_w`` FORCES THE VIEWPORT'S WIDTH, AND ITS PARITY IS LOAD-BEARING.
+
+    ``doc.canvas.resize(w, h)`` is silently overridden by the layout -- the real viewport is 1250,
+    an EVEN number, every single time. That matters more than it sounds: the chart-drift defect
+    class lives in Qt's re-centring branch, whose `leftIndent` is an INTEGER division, so it can
+    only bias on an ODD extent. Every canvas fence in this file therefore ran under the one
+    condition that makes the whole class invisible, and a fence written against it passed happily
+    on the broken code. Pass an odd width to actually exercise it."""
     doc.resize(1280, 900)
     doc.show()
     app.processEvents()
     doc.canvas.resize(w, h)
     app.processEvents()
+    if viewport_w is not None:
+        c = doc.canvas
+        c.setFixedWidth(viewport_w + (c.width() - c.viewport().width()))
+        app.processEvents()
+        assert c.viewport().width() == viewport_w, (
+            f"could not force the viewport to {viewport_w}; got {c.viewport().width()}")
     doc.canvas.fit()
     app.processEvents()
     return doc.canvas
@@ -1830,3 +1845,102 @@ def test_the_rubber_band_previews_the_snapped_point(app):
                                      Qt.KeyboardModifier.NoModifier))
     assert c._hover == pytest.approx(corner, abs=0.01), (
         f"the rubber band previewed {c._hover}, not the corner the click would snap to")
+
+
+# ------------------------------------------------------- the ratchet, and the two ways to miss it
+
+@pytest.mark.parametrize("viewport_w", [1207, 1208], ids=["odd", "even"])
+def test_hovering_never_moves_the_chart_at_either_viewport_parity(app, viewport_w):
+    """★ THE SLIDE FIRST CONTACT FILMED, and the fence that can actually see it.
+
+    The scene rect used to be `geometry UNIONED WITH mapToScene(viewport().rect())` -- a view input
+    computed from a view output. `mapToScene(QRect)` maps `rect.adjusted(0,0,1,1)`, so that union
+    always strictly contains the viewport, which forces Qt's "whole scene fits, centre it" branch,
+    whose `leftIndent = maxSize.width()/2 - (viewRect.left()+viewRect.right())/2` is an INTEGER
+    division. On an ODD extent the re-centre lands half a pixel off, the view moves, the visible
+    rect moves with it, the next redraw computes a different union, and it biases the same way
+    again -- one pixel per redraw, and the rubber band redraws once per mouse move.
+
+    ⚠ PARITY IS THE WHOLE POINT OF THE PARAMETRIZE. The suite's natural viewport is 1250, EVEN, the
+    one width at which this defect cannot occur: the union comes out value-identical every frame,
+    `QGraphicsScene::setSceneRect` early-outs, and a fence written at that width passes on the
+    broken code. Measured on the unfixed source: even -> (0, 0), odd -> -40px and climbing.
+
+    ⚠ IT IS NOT THE TRANSFORMATION ANCHOR -- `setSceneRect` cannot re-anchor, and the drift is
+    identical under `NoAnchor`. Do not "fix" this by touching the anchor: that line is also the only
+    thing enabling mouse tracking (see PlanCanvas.__init__), and turning it off silences hover
+    entirely while leaving this whole suite green."""
+    doc, _ = _doc(app)
+    c = _laid_out_canvas(app, doc, viewport_w=viewport_w)
+    _click(c, 400, 220)
+    app.processEvents()
+
+    before = _origin_on_screen(c)
+    rect0 = QRectF(c._scene.sceneRect())
+    for px, py in [(420, 230), (470, 250), (520, 240), (560, 210), (600, 200), (640, 230),
+                   (600, 280), (540, 300), (480, 280), (430, 240)] * 6:
+        p = QPointF(px, py)
+        c.mouseMoveEvent(QMouseEvent(QMouseEvent.Type.MouseMove, p, c.viewport().mapToGlobal(p),
+                                     Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                                     Qt.KeyboardModifier.NoModifier))
+    app.processEvents()
+
+    after = _origin_on_screen(c)
+    assert after == pytest.approx(before, abs=1.0), (
+        f"viewport {viewport_w} ({'odd' if viewport_w % 2 else 'even'}): 60 hover redraws slid the "
+        f"chart by {after[0] - before[0]:+.0f},{after[1] - before[1]:+.0f}px")
+    assert c._scene.sceneRect() == rect0, (
+        "a hover changed the scene rect -- that is the ratchet's first turn")
+
+
+def test_the_scene_rect_is_never_derived_from_where_the_view_is_looking(app):
+    """The invariant behind the fence above, asserted directly: scroll the view, redraw, and the
+    rect must not care. A rect that follows the viewport is a feedback loop whatever the arithmetic
+    happens to do this Qt version."""
+    doc, _ = _two_rooms(app)
+    c = _laid_out_canvas(app, doc, viewport_w=1207)
+    doc.judge_now(sync=True)
+    rect0 = QRectF(c._scene.sceneRect())
+    c.horizontalScrollBar().setValue(c.horizontalScrollBar().value() + 40)
+    c.verticalScrollBar().setValue(c.verticalScrollBar().value() + 25)
+    c._draw()
+    app.processEvents()
+    assert c._scene.sceneRect() == rect0, (
+        f"scrolling the view changed the scene rect {rect0} -> {c._scene.sceneRect()}")
+
+
+def test_the_viewport_still_receives_button_less_hover(app):
+    """★ THE REGRESSION THAT ALMOST SHIPPED, and it needed Qt's real delivery path to see.
+
+    `setTransformationAnchor(AnchorUnderMouse)` is the ONLY thing in this package that enables
+    `setMouseTracking` on the chart's viewport, and Qt delivers button-less `MouseMove` only to
+    tracking widgets. Switching the anchor to `NoAnchor` -- which looks like pure hygiene, and which
+    fixes nothing here -- silences the rubber band, the snap preview and the coordinate chip
+    completely. Measured: 0 hover events of 300.
+
+    Every other mouse fence in this file calls `c.mouseMoveEvent(...)` as a plain method, which
+    bypasses delivery entirely, so all of them stayed green with hover dead. This one posts through
+    `QApplication.sendEvent` to the viewport, which is the only way the gate is in the blast
+    radius."""
+    from PySide6.QtWidgets import QApplication as _QApp
+
+    doc, _ = _doc(app)
+    c = _laid_out_canvas(app, doc)
+    assert c.viewport().hasMouseTracking(), (
+        "the chart's viewport is not tracking the mouse -- Qt will not deliver a button-less move, "
+        "so the rubber band and the snap preview are dead")
+
+    _click(c, 400, 220)
+    app.processEvents()
+    seen = []
+    for px in range(420, 480, 6):
+        p = QPointF(px, 240)
+        _QApp.sendEvent(c.viewport(),
+                        QMouseEvent(QMouseEvent.Type.MouseMove, p, c.viewport().mapToGlobal(p),
+                                    Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                                    Qt.KeyboardModifier.NoModifier))
+        seen.append(c._hover)
+    app.processEvents()
+    assert any(h is not None for h in seen), "no hover reached the canvas through Qt's own delivery"
+    assert len({h for h in seen if h is not None}) > 1, (
+        "the rubber band's target never moved across six delivered hovers")
