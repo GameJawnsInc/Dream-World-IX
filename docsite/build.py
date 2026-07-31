@@ -168,17 +168,26 @@ def parse_tutorial_front(text: str) -> tuple[dict | None, str]:
     return meta, text[:m.start()] + text[m.end():]
 
 
+TRACK_NAMES = {"S": "The spine", "B": "Going deeper", "C": "The CLI track", "D": "How-tos"}
+
+
 def _meta_strip_html(meta: dict) -> str:
     bits = []
     if meta.get("goal"):
         bits.append(f'<p class="tut-goal">{_html.escape(meta["goal"])}</p>')
+    chips = ""
+    if meta.get("track"):
+        t = TRACK_NAMES.get(meta["track"], meta["track"])
+        step = f" · step {meta['step']}" if meta.get("step") else ""
+        chips += f'<span class="chip track">{_html.escape(t + step)}</span>'
     reqs = meta.get("requires", [])
     if reqs:
-        chips = "".join(f'<span class="chip" title="{_html.escape(REQUIRE_LEGEND.get(r, r))}">'
-                        f"{_html.escape(r)}</span>" for r in reqs)
-        time = (f'<span class="chip time">~{_html.escape(str(meta["time"]))}</span>'
-                if meta.get("time") else "")
-        bits.append(f'<p class="tut-reqs">needs {chips}{time}</p>')
+        chips += "".join(f'<span class="chip" title="{_html.escape(REQUIRE_LEGEND.get(r, r))}">'
+                         f"{_html.escape(r)}</span>" for r in reqs)
+    if meta.get("time"):
+        chips += f'<span class="chip time">~{_html.escape(str(meta["time"]))}</span>'
+    if chips:
+        bits.append(f'<p class="tut-reqs">{chips}</p>')
     return "".join(bits)
 
 

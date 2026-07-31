@@ -1,10 +1,24 @@
 # Tutorials
 
-Single-goal walkthroughs, each independently completable. Prerequisite for all of them: the kit
-installed and pointed at an FF9 install (`ff9mapkit setup`, or the manual steps in
-[SETUP.md](../../../SETUP.md) §1–2).
+Prerequisite for all of them: the kit installed and pointed at an FF9 install (`ff9mapkit setup`,
+or the manual steps in [SETUP.md](../../../SETUP.md) §1–2).
 
-The CLI is the canonical surface; the Workspace GUI tutorials (06/07) cover the same flows visually.
+## The spine — start here
+
+One continuing build in the Workspace GUI: each step extends the mod made in the previous one,
+and ends with something visible in the game. (The Workspace fronts the same engine as the CLI —
+the CLI-side tutorials below cover the terminal twin of everything here.)
+
+| # | Step | The win |
+|---|---|---|
+| S1 | [Stand in the game](s1-stand-in-the-game.md) | Walk a forked room under your own id |
+| S2 | [Someone lives here](s2-someone-lives-here.md) | Talk to an NPC you wrote; the dev loop |
+| S3–S7 | *being written* | doors · story flags · a cutscene · a battle · ship a zip |
+
+## The rest (being reorganized into tracks)
+
+Single-goal walkthroughs, each independently completable. The CLI is the canonical surface; the
+Workspace GUI tutorial (07) covers the journey flow visually.
 
 | # | Tutorial | Goal | Needs |
 |---|---|---|---|
@@ -13,7 +27,7 @@ The CLI is the canonical surface; the Workspace GUI tutorials (06/07) cover the 
 | 03 | [Original-art field](03-original-art-field.md) | A from-scratch field with your own painted background | an image editor |
 | 04 | [Fork a region into a campaign](04-campaign.md) | `import-chain` a connected slice of FF9 into one mod | UnityPy |
 | 05 | [Assemble a journey](05-journey.md) | Chain campaigns behind a World-Hub selector, wire New Game | campaigns from 04 |
-| 06 | [One field in the Workspace](06-gui-field.md) | The GUI version of 01 | PySide6 (`gui` extra) |
+| 06 | [One field in the Workspace](06-gui-field.md) | Moved — now S1 + S2 above | |
 | 07 | [Fork FF9 in the Workspace](07-gui-journey.md) | Fork a multi-arc slice of the game in the GUI, edit a line, deploy | PySide6, UnityPy |
 | 08 | [Dialogue choices & a cutscene](08-dialogue-cutscene.md) | A branching choice menu + a scripted actor scene | a field from 01/03 |
 | 09 | [Custom battle background](09-battle-background.md) | Fork a 3D battle map, retexture/reshape it, fight in it | UnityPy |

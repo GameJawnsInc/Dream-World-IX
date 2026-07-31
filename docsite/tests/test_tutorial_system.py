@@ -104,10 +104,15 @@ def test_cli_gate_accepts_placeholders_and_globals():
     assert B.cli_gate(pages, B.the_parser()) == []
 
 
-def test_pilot_tutorial_declares_and_renders_chips(tmp_path):
-    src = B.REPO / "ff9mapkit" / "docs" / "tutorials" / "06-gui-field.md"
-    page = B.page_from_source(src)
-    assert page.meta and page.meta.get("ui"), "tutorial 06 lost its frontmatter"
-    assert B.ui_gate({page.rel: page}) == []
-    assert 'class="tut-reqs"' in page.body and 'class="chip"' in page.body
-    assert "```toml" not in page.body and "[tutorial]" not in page.body
+def test_spine_tutorials_declare_and_render_chips(tmp_path):
+    for name, wants_ui in (("s1-stand-in-the-game.md", True), ("s2-someone-lives-here.md", False)):
+        src = B.REPO / "ff9mapkit" / "docs" / "tutorials" / name
+        page = B.page_from_source(src)
+        assert page.meta and page.meta.get("track") == "S", f"{name} lost its frontmatter"
+        assert bool(page.meta.get("ui")) == wants_ui
+        assert B.ui_gate({page.rel: page}) == []
+        assert 'class="tut-reqs"' in page.body and 'class="chip track"' in page.body
+        assert "```toml" not in page.body and "[tutorial]" not in page.body
+    assert B.page_from_source(B.REPO / "ff9mapkit" / "docs" / "tutorials"
+                              / "s2-someone-lives-here.md").meta["builds_on"] == \
+        ["s1-stand-in-the-game"]
