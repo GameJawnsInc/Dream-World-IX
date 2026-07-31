@@ -129,6 +129,7 @@ bot_row_hist = Counter()                                    # R5
 row10_fv, row10_h, bot_other_h = [], [], []
 row10_span, row10_vy_up = [], []                            # unwrapped v-row span / orientation
 top_span, top_vy_up = [], []                                # same for the wall TOP course
+run10_len, rungap_len = [], []                              # row-10 run / gap lengths (u, along foot)
 n_blocks = n_comps = 0
 render_comps = []                                           # top-3 largest, for the PNG
 
@@ -395,6 +396,29 @@ for (bx, by) in X.list_blocks(disc=1):
         else:
             bot_other_h.append(h)
 
+    # ---- R5b: row-10 RUN LENGTHS along the ordered foot chains ------------------------------
+    erow = {}
+    for e, wt, gt in foot_edges:
+        erow[frozenset((e[0], e[1]))] = tile_of([U[i] for i in tri_idx[wt]])[1]
+    comp_foot = defaultdict(list)
+    for e, wt, gt in foot_edges:
+        comp_foot[comp_of[wt]].append(e)
+    for root, fes in comp_foot.items():
+        for ch in build_chains(fes):
+            runs = []                                       # (is_row10, u_length) runs
+            for i in range(len(ch) - 1):
+                key = frozenset((kk(ch[i]), kk(ch[i + 1])))
+                if key not in erow:
+                    continue
+                is10 = erow[key] == 10
+                L = math.hypot(ch[i + 1][0] - ch[i][0], ch[i + 1][2] - ch[i][2])
+                if runs and runs[-1][0] == is10:
+                    runs[-1][1] += L
+                else:
+                    runs.append([is10, L])
+            for is10, L in runs[1:-1]:                      # interior runs only (ends are cut)
+                (run10_len if is10 else rungap_len).append(round(L, 1))
+
     # ---- render capture (top-3 by crest size, data-complete) --------------------------------
     for rc in render_comps:
         if rc["block"] == (bx, by) and rc["_blockdata"] is None:
@@ -487,6 +511,8 @@ print(f"   wall TOP course unwrapped v-row span: med {pct(top_span, 50)} p90 "
       f"{pct(top_span, 90)}; v grows with HEIGHT: "
       f"{np.mean(top_vy_up):.1%} of {len(top_vy_up)} tris" if top_vy_up else "")
 print(f"   non-row-10 bottom tris: height med {pct(bot_other_h, 50)}u")
+print(f"   row-10 RUN lengths along the foot (interior runs): {dist(run10_len, 'run', 'u')}")
+print(f"   non-row-10 GAP lengths:                            {dist(rungap_len, 'gap', 'u')}")
 
 atlas_lum = {}
 try:
@@ -643,6 +669,10 @@ OUT.write_text(json.dumps(dict(
             row10_fv=dict(p10=pct(row10_fv, 10), med=pct(row10_fv, 50), p90=pct(row10_fv, 90)),
             row10_span=dict(med=pct(row10_span, 50), p90=pct(row10_span, 90)),
             row10_v_grows_with_height=round(float(np.mean(row10_vy_up)), 3) if row10_vy_up else None,
+            run10=dict(med=pct(run10_len, 50), p25=pct(run10_len, 25), p75=pct(run10_len, 75),
+                       p90=pct(run10_len, 90), n=len(run10_len)),
+            rungap=dict(med=pct(rungap_len, 50), p25=pct(rungap_len, 25),
+                        p75=pct(rungap_len, 75), p90=pct(rungap_len, 90), n=len(rungap_len)),
             other_h_med=pct(bot_other_h, 50), atlas_lum=atlas_lum)),
     indent=0))
 print(f"artifacts -> {OUT}")

@@ -61,6 +61,40 @@ visible in the culled renders), plus NEW RIM GATES from the study's numbers:
    T-junctions (rim verts are shared strip verts, not welded matches); the aggregate
    residue budget is spent elsewhere or not at all.
 
+## AMENDMENT (pre-build, 2026-07-31): the two mechanism freedoms are CLOSED by measurement
+
+The owner asked for more study unless confident; both declared freedoms were doing
+load-bearing work, and both are now measured. Declared before any builder edit.
+
+1. **The correspondence is INHERITED, not solved — THE LATTICE-HOME POSE.** The
+   registered "rasterize + bijective correspondence solve" freedom is replaced: the
+   strips ARE stock walls, so their top verts are already displaced lattice verts in
+   the donor frame. `probe_strip_lattice_homes.py` confirms it on all four real
+   strips: crest lattice residual med 0.77-1.04u (stock: 0.80), p99 ≤ 2.40 (stock:
+   2.41), on-grid 20-38% (stock: 28%), and **ZERO jump steps** (no consecutive top
+   verts more than one lattice cell apart). Therefore the pose group snaps to the
+   lattice symmetry — yaw in 90° steps, translation in 4u steps — which transports
+   each strip-top vert's donor home onto the bench lattice: the rim row IS the
+   strip-top verts seated at their transported homes; the interior fill is intact
+   bench cells inside the rim cycle. No solve.
+2. **SAME-home collisions are lawful course FANS, not defects.** 0-4 per strip: two
+   adjacent top verts sharing a nearest lattice vert yield a course triangle fan —
+   stock's own rim course mixes triangles into the quad row (0.95 tris/edge, area
+   p25 6.0 vs the pure-quad 8.0). A JUMP at build time (none observed) is handled by
+   the 4u translation freedom or one inserted undisplaced rim vert, and counts
+   against the displacement-envelope gate.
+3. **Costs of the snapped pose, declared:** (a) the seam-centering solve is now
+   4u-quantized — the taper absorbs the residual, and the PROVEN seam gates (shear
+   ratio ≤ 1.5, 12u cap) must still close offline, with cut-column freedom (±2) as
+   the first lever; (b) the four strips' lattice paths must CLOSE around the ring
+   within seam adjacency. Either failing offline is a PLUMBING STOP before any
+   deploy, not a verdict.
+4. **The foot intermittency pattern is now measured, replacing the declared freedom:**
+   stock's row-10 runs are station-scale patches — run length med 7.8u (p25 4.0,
+   p75 24.7, tail to ~80u) alternating with gaps med 6.3u (p75 10.3). The mint
+   samples run/gap lengths from these ranges (deterministic seed); gated: share
+   45-60%, run and gap medians within ±50% of stock's.
+
 ## REGISTERED PREDICTION
 
 **PASS** — the owner reads it as FF9 interior rock wall. Basis: every complaint class
