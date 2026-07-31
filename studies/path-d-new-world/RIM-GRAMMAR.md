@@ -75,3 +75,76 @@ instances / massing / junctions); read-only vs stock disc-1; instrument
 R1 resolves to a NAMEABLE construction law + R2 yields numeric silhouette targets →
 a rim-aware build round becomes registrable. If no law emerges (stock's rim turns out
 as arbitrary as a clip), the minted-plan wall lane rests at whole-feature carry.
+
+---
+
+## FINDINGS (measured 2026-07-31 — 48 blocks / 62 components / 951 crest edges)
+
+One instrument iteration was needed and is declared: the first R4 pass assigned distant
+along-wall verts to far-away crest edges (a fake 19u "setback"); the rerun caps the
+plan distance at 8u. R5 gained the unwrapped v-span/orientation measures and the atlas
+crops after the first pass showed raw fv statistics were phase-ambiguous.
+
+**R1 — THE DISPLACED-ROW LAW. Stock never clips.** The plateau is the intact 4u
+lattice everywhere; the crest is formed by DISPLACING the outermost lattice row's
+verts onto the wall's top boundary:
+- crest verts sit OFF-grid — plan residual med 0.80u, only 28% on-grid, p99 2.4u —
+  while the ring-1 inner boundary sits back ON-grid (61.5% ≈ the far field's 64.5%,
+  med 0.0u): the displacement is one row deep;
+- ring-1 tris stay full half-cells — area med 7.5u² vs far 8.0, min-angle med 41.6°
+  vs 45.0°, sliver rate 2.1% vs the 0.9% far-field baseline. NO clip tail;
+- 0.95 ring-1 tris per crest edge — a single-quad-deep course;
+- the inner boundary is the lattice's own hypotenuse SAWTOOTH (align med 50° at
+  lattice scale, offset med 1.66u), not a smooth inset curve: the coherence lives in
+  the TRI LAYOUT, not in a literal parallel ring.
+The render (`out/rim_courses.png`) shows it plainly: one coherent course of uniform
+tris along a smooth crest, in all three largest components.
+
+**R2 — the silhouette targets a mint must hit:**
+- segment length med 4.14u, **p25 = 4.00u — never shorter than a cell** (the
+  no-sliver signature), p90 5.51, p99 6.52;
+- plan turn med 14.9°: 50% < 15°, 82% < 30°, only 4.9% ≥ 90°; sign alternation of
+  large turns 46.5% = coin-flip (no systematic zigzag);
+- the crest is NOT level: per-edge |dy| med 0.25u p90 0.73, detrended |y| dev med
+  0.21u p90 0.68 — a gentle ±0.7u wander. (Our dead-flat TOP_Y is itself un-stock.)
+
+**R3 — the crest vocabulary lives on the WALL side (the twin of the foot's row 10).**
+The plateau side is plain grass to the weld (ring-1 tiles = ring-2 = far field, cols
+0-1 rows 24-25; |dv| med 0.02 — no orientation preference; J1's "no rim vocabulary"
+holds for the plateau). The WALL's crest course wears a dedicated band — **cols 4-7,
+rows 3-4** — whose art is rock with a painted GRASS LIP (`out/rim_atlas_bands.png`),
+and the course pins **fv = 0.0 at the crest** (p25 = p75 = 0.0), v growing DOWNWARD,
+one full row per course (span med 1.00): the grass lip lands exactly on the weld line.
+Course height med 4.44u p90 5.53. This explains playtest "pokey grass"/seam sparkle:
+carried strips carry this painted lip in their top course; any weld that doesn't put
+that fv=0 edge on the crest smears the lip mid-face.
+
+**R4 — the jut budget + course quantization:** near-crest (drop ≤ 1.5u) outward
+excursion beyond the crest line: med 0.73u, p90 5.68, p99 7.34, **max 7.81u** —
+station-scale CONNECTED ledges are lawful; nothing floats. The drop band 1.5-2.5u is
+EMPTY (zero verts within 8u plan of the crest): verts live ON course rows (the crest
+row, then the next at ~4.4u) — vertical pitch is quantized.
+
+**R5 — the dark-band bug, root-caused (flip-validated by the atlas crops):** row 10
+IS inherently dark — mean luminance 67-73 vs mid-face 112-165; the art is deep-shadow
+rock with the grass fringe at its high-v edge. Stock keeps it from reading as a dark
+stripe three ways, all of which our mint violated:
+1. **INTERMITTENT** — only 53% of stock's bottom-course tris wear row 10; the rest
+   wear ordinary rows (3/9/5/6...). Ours retiled 100% — a solid dark ring.
+2. **SHORTER** — stock's row-10 course is 3.71u med; ours minted 4.6u.
+3. **PHASE** — stock samples v ∈ [row 10.12 → 11.09] (span 0.97, v grows downward,
+   0.0% grow-with-height): shifted +0.12 rows past our [10 → 11], cropping the tile's
+   dark top strip and grabbing the bright grass strip past the row boundary
+   (lum ~80-90) at the weld. Our fringe ORIENTATION (high-v on the weld) was correct.
+
+## VERDICT — the success criterion is met
+
+R1 names the law and R2-R5 complete the numbers: **a rim-aware round is REGISTRABLE.**
+The build shape it implies (for the next registration, not built here): mint the
+plateau as the INTACT lattice and rasterize the crest ring onto the lattice graph —
+then the strips' own top verts BECOME that rim row (1:1 vertex identification inside
+the measured envelope: displacement ≤ ~2.4u plan, segments 4-6.5u, turns mostly <30°,
+y wander ±0.7u) — never clip lattice tris against a curve. Keep the carried top course
+welded with its fv=0 grass-lip edge on the crest; retile the foot at ~53% share /
+3.7u / +0.12 v-phase. Everything upstream (strips, crease seams, level foot weld)
+is already in-game proven and carries unchanged.
