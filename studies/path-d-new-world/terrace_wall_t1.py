@@ -23,7 +23,15 @@ col steps with band wrap + occasional same-tile repeats (the measured 46%+11% re
 dual-phase stagger between courses. Tile V-ORIENTATION is calibrated from REAL exemplar
 quads read out of the decode's own top stock blocks -- never assumed from the catalogue.
 
-ROUND 3 (the remaining prediction round) rebuilds the tile layer on THE THREE INSTANCE LAWS
+ROUND 4 = PROFILE-CARRY (its own registration: PROFILE-CARRY-PREDICTION.md). The massing is
+no longer minted: each wall column carries a REAL stock column's silhouette -- a contiguous
+donor run in stock order (wobble correlation preserved), similarity-seated k in [0.92, 1.08]
+with the shelf height chosen where the donor fits inside stock's pinned band. The foot is the
+carried smooth node line, joined to the kept lowland by a near-flat cell-clipped GRASS APRON
+(never a rock zip on a lattice jag). The massing decode's numbers run as GATES on our own
+output (foot turn angles, no right angles).
+
+ROUND 3 (the spent prediction round) rebuilt the tile layer on THE THREE INSTANCE LAWS
 (`rock_wall_instances.py`, 2026-07-30): LAW 3 -- a wall column is one MEASURED vertical
 chain foot -> body -> crest from the transition table (gated; round 1 tiled the courses
 independently and read as "stamped together"); LAW 1 -- v-orientation per tile from the
@@ -236,6 +244,61 @@ def centroid_fan(pg):
 
 # ---------------------------------------------------------------- tile windows + exemplars
 ANATOMY = ROOT / "studies" / "overworld-topography" / "out" / "rock_tile_instances.json"
+MASSING = ROOT / "studies" / "overworld-topography" / "out" / "rock_wall_massing.json"
+K_BAND = (0.92, 1.08)                                       # the registered similarity-seat band
+SHELF_BAND = (15.7, 18.3)                                   # stock's pinned shelf y band
+LOWLAND = 3.2
+
+
+def load_donor_run(n_max, n_min=10):
+    """THE CARRIED SILHOUETTES, BURIAL SEAT (the registration's amendment): a CONTIGUOUS run
+    of real wall columns from ONE stock component, in stock (angular) order. **k = 1.0 for
+    the whole run** -- one rigid pose, crest-anchored at a shelf height in stock's band; a
+    column's surplus height BURIES below the bench floor, exactly as stock walls meet their
+    own undulating ground. A window is feasible iff EVERY column is at least
+    (shelf - lowland) + 0.3 tall. THE SITE FOLLOWS THE DONOR: longest feasible run wins,
+    then the deepest drop. Returns (columns, top_y, meta); columns carry the FULL crest-
+    anchored polyline (offset outward-positive, h from crest 0 DOWNWARD)."""
+    d = json.loads(MASSING.read_text())
+    best = None
+    for n_st in range(n_max, n_min - 1, -1):
+        for comp in d["profiles"]:
+            cols = comp["profiles"]
+            if len(cols) < n_st:
+                continue
+            ccx = float(np.mean([c["cen"][0] for c in cols]))
+            ccz = float(np.mean([c["cen"][2] for c in cols]))
+            ordered = sorted(cols, key=lambda c: math.atan2(c["cen"][2] - ccz, c["cen"][0] - ccx))
+            Hs = [c["prof"][-1][1] for c in ordered]
+            m = len(ordered)
+            for s in range(m):                              # windows, wrap allowed once
+                wH = [Hs[(s + i) % m] for i in range(n_st)]
+                drop = min(min(wH) - 0.3, SHELF_BAND[1] - LOWLAND)
+                if drop < SHELF_BAND[0] - LOWLAND:
+                    continue                                # a too-short column in the window
+                if best is None or (n_st, drop) > (best[0], best[1]):
+                    best = (n_st, drop, comp["blk"], s,
+                            [ordered[(s + i) % m] for i in range(n_st)])
+        if best is not None:
+            break                                           # longest feasible length wins
+    assert best is not None, (f"no stock component holds even {n_min} contiguous columns all "
+                              f">= the shelf drop -- the registration refuses")
+    n_st, drop, blk, s0, win = best
+    top_y = LOWLAND + drop
+    columns = []
+    for c in win:
+        prof = c["prof"]
+        if prof[-1][0] > prof[0][0]:                        # normalize: crest = most-negative
+            prof = [(-o, h) for (o, h) in prof]             # (the measured normal's sign is
+        H = prof[-1][1]                                     # arbitrary per component)
+        off_crest = prof[-1][0]
+        # crest-anchored, k=1: depth d = H - h runs 0 (crest) .. H (donor foot); offset
+        # outward-positive. The polyline is carried WHOLE; ring sampling happens at course
+        # depths in main.
+        poly_ca = sorted(((o - off_crest, H - h) for (o, h) in prof), key=lambda q: q[1])
+        columns.append(dict(poly=poly_ca, H=round(H, 2)))
+    return columns, top_y, dict(blk=blk, start=s0, drop=round(drop, 2), k=1.0,
+                                Hs=[c["H"] for c in columns])
 
 
 def load_language():
@@ -427,6 +490,18 @@ def main() -> int:
     assert tris, "bench island not deployed at Disc9 (run the world-island mint first)"
     print(f"bench: {len(tris)} tris across {len(bms)} cells")
 
+    # ---- THE CARRIED SILHOUETTES (round 4, PROFILE-CARRY-PREDICTION.md) ----------------------
+    # THE SITE FOLLOWS THE DONOR: the run length found in stock sets the column count, and
+    # the plateau perimeter is sized to give those columns their ~4.4u stock width.
+    columns, top_y, dmeta = load_donor_run(24)
+    n_st = len(columns)
+    global TOP_Y, R_PLAT
+    TOP_Y = top_y                                           # the shelf seats where the donor fits
+    R_PLAT = n_st * STATION / (2 * math.pi * 1.03)          # 1.03 ~ the blob's mean inflation
+    print(f"donor run: block {dmeta['blk']} start {dmeta['start']}, {n_st} contiguous columns "
+          f"(H {min(dmeta['Hs'])}-{max(dmeta['Hs'])}u, k=1.0 rigid, surplus buried); "
+          f"shelf y {top_y:.2f} (drop {dmeta['drop']}) -> plateau r~{R_PLAT:.1f}")
+
     poly = None
     for ds in range(40):
         cand = blob_poly(SEED + ds)
@@ -436,8 +511,9 @@ def main() -> int:
             break
     assert poly is not None, "no sliver-free blob seed in 40 tries -- widen the search"
     per = sum(math.dist(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly)))
-    n_st = max(12, round(per / STATION))
-    print(f"plateau blob r~{R_PLAT} perimeter {per:.1f}u -> {n_st} columns")
+    assert 3.6 <= per / n_st <= 5.4, f"station spacing {per / n_st:.2f}u off the stock quad width"
+    print(f"plateau blob r~{R_PLAT:.1f} perimeter {per:.1f}u -> {n_st} columns "
+          f"({per / n_st:.2f}u each)")
 
     def outward_of(px, pz):
         d = (px - CENTER[0], pz - CENTER[1])
@@ -552,13 +628,47 @@ def main() -> int:
     crest = crest[k0:] + crest[:k0]
     crest_c = [tuple(p) for p in crest] + [tuple(crest[0])]
 
-    # ---- rings + the grass drop ---------------------------------------------------------------
-    # both rings share station phase -- the stock dual-phase stagger is a TEXTURE phase
-    # (implemented in the per-course u mapping below), NOT a ring rotation: rotating the
-    # geometry shears every body quad half a column (round-1's diagonal smear).
-    ring1 = ring_at(poly, RUN, COURSE_Y[1], n_st, phase=0.0)
-    ring2 = ring_at(poly, 2 * RUN, COURSE_Y[2], n_st, phase=0.0)
+    # ---- THE CARRIED RINGS: per-column node positions from the donor profiles -----------------
+    # (round 4: the smooth offset rings are GONE -- each column's outward offsets at the
+    # course fractions are the donor column's own, similarity-seated. Station phase is shared;
+    # the dual-phase stagger stays a TEXTURE phase.)
+    def sample_off(pca, dth):
+        """Offset of the carried crest-anchored polyline at depth ``dth`` below the crest --
+        piecewise-linear ALONG the real curve, never a fit."""
+        if dth <= pca[0][1]:
+            return pca[0][0]
+        for j in range(1, len(pca)):
+            if pca[j][1] >= dth:
+                (o0, d0), (o1, d1) = pca[j - 1], pca[j]
+                t = 0.0 if d1 <= d0 else (dth - d0) / (d1 - d0)
+                return o0 + t * (o1 - o0)
+        return pca[-1][0]
+
+    drop = TOP_Y - LOWLAND
+    ring_depths = (drop, 9.2, 4.6)                          # foot(=ground crossing), r2, r1 --
+    ring1, ring2, ring_foot = [], [], []                    # course lines LEVEL, like stock
+    for i in range(n_st):
+        th = 2 * math.pi * i / n_st
+        r_a = poly_radius(poly, th)
+        ax, az = CENTER[0] + r_a * math.cos(th), CENTER[1] + r_a * math.sin(th)
+        owx, owz = math.cos(th), math.sin(th)
+        pca = columns[i]["poly"]
+        o_f, o_2, o_1 = (sample_off(pca, d) for d in ring_depths)
+        ring_foot.append((ax + owx * o_f, LOWLAND, az + owz * o_f))
+        ring2.append((ax + owx * o_2, TOP_Y - 9.2, az + owz * o_2))
+        ring1.append((ax + owx * o_1, TOP_Y - 4.6, az + owz * o_1))
+    col_h = [[LOWLAND, TOP_Y - 9.2, TOP_Y - 4.6, TOP_Y] for _ in range(n_st)]
     ring1c, ring2c = ring1 + [ring1[0]], ring2 + [ring2[0]]
+    ring_footc = ring_foot + [ring_foot[0]]
+
+    def foot_radius(th):
+        a = (th % (2 * math.pi)) / (2 * math.pi) * n_st
+        i0 = int(a) % n_st
+        i1 = (i0 + 1) % n_st
+        f = a - int(a)
+        r0 = math.hypot(ring_foot[i0][0] - CENTER[0], ring_foot[i0][2] - CENTER[1])
+        r1 = math.hypot(ring_foot[i1][0] - CENTER[0], ring_foot[i1][2] - CENTER[1])
+        return r0 * (1 - f) + r1 * f
 
     drop = set()
     dropped_cells = set()
@@ -567,7 +677,7 @@ def main() -> int:
             continue
         px, pz = t["cen"][0], t["cen"][2]
         th = math.atan2(pz - CENTER[1], px - CENTER[0])
-        if math.hypot(px - CENTER[0], pz - CENTER[1]) <= poly_radius(poly, th) + DROP_R_EXTRA:
+        if math.hypot(px - CENTER[0], pz - CENTER[1]) <= foot_radius(th) + 1.0:
             drop.add(ti)
             dropped_cells.add(t["blk"])
     assert drop, "nothing to drop -- wrong site?"
@@ -582,12 +692,15 @@ def main() -> int:
         for a, b in ((0, 1), (1, 2), (2, 0)):
             cnt2[tuple(sorted((ps[a], ps[b])))] += 1
     pre_once_all = {e for e, n in cnt2.items() if n == 1}
-    hole = []
-    for e in pre_once_all:
-        mx, mz = (e[0][0] + e[1][0]) / 2, (e[0][2] + e[1][2]) / 2
-        th = math.atan2(mz - CENTER[1], mx - CENTER[0])
-        if math.hypot(mx - CENTER[0], mz - CENTER[1]) <= poly_radius(poly, th) + DROP_R_EXTRA + 3.0:
-            hole.append(e)
+    # the hole ring = EXACTLY the kept|dropped shared edges (the SPUR's own definition --
+    # "the edges that lost one tri"; a radius filter both truncates and over-collects)
+    e2t_all = defaultdict(list)
+    for ti, t in enumerate(tris):
+        ps = [kk(v) for v in t["w"]]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            e2t_all[tuple(sorted((ps[a], ps[b])))].append(ti)
+    hole = [e for e, ts in e2t_all.items()
+            if len(ts) == 2 and (ts[0] in drop) != (ts[1] in drop)]
     adj2 = defaultdict(list)
     for a, b in hole:
         adj2[a].append(b)
@@ -609,25 +722,100 @@ def main() -> int:
     k0 = min(range(len(foot)),
              key=lambda k: abs(math.atan2(foot[k][2] - CENTER[1], foot[k][0] - CENTER[0])))
     foot = foot[k0:] + foot[:k0]                            # seam-aligned with the station rings
-    foot_c = [tuple(p) for p in foot] + [tuple(foot[0])]
-    print(f"foot ring: {len(foot)} lattice verts")
+    hole_c = [tuple(p) for p in foot] + [tuple(foot[0])]
+    print(f"kept-grass hole ring: {len(foot)} verts (the APRON's inner boundary)")
 
-    # ---- the three courses --------------------------------------------------------------------
-    crest_course = bridge(ring1c, crest_c, outward_of)      # low=ring1, high=crest verts
-    body_course = []
-    for i in range(n_st):
-        a, b = ring2c[i], ring2c[i + 1]
-        c, d = ring1c[i], ring1c[i + 1]
-        ow = (b[2] - a[2], -(b[0] - a[0]))                  # right of CCW travel = outward
-        for tri in ([a, b, c], [b, d, c]):
-            a2, b2, c2 = (np.array(p) for p in tri)
-            fn = np.cross(b2 - a2, c2 - a2)
-            if fn[0] * ow[0] + fn[2] * ow[1] < 0:
-                tri = [tri[0], tri[2], tri[1]]
-            body_course.append(tri)
-    foot_course = bridge(foot_c, ring2c, outward_of)        # low=jagged foot, high=ring2
+    # ---- the three courses (all quads between CARRIED rings) + THE GROUND APRON ---------------
+    def ring_quads(lo_c, hi_c):
+        out = []
+        for i in range(n_st):
+            a, b = lo_c[i], lo_c[i + 1]
+            c, d = hi_c[i], hi_c[i + 1]
+            ow = (b[2] - a[2], -(b[0] - a[0]))              # right of CCW travel = outward
+            for tri in ([a, b, c], [b, d, c]):
+                a2, b2, c2 = (np.array(p) for p in tri)
+                fn = np.cross(b2 - a2, c2 - a2)
+                if fn[0] * ow[0] + fn[2] * ow[1] < 0:
+                    tri = [tri[0], tri[2], tri[1]]
+                out.append(tri)
+        return out
+
+    crest_course = bridge(ring1c, crest_c)                  # low=ring1, high=crest verts
+    body_course = ring_quads(ring2c, ring1c)
+    foot_course = ring_quads(ring_footc, ring2c)            # the carried foot line, not a jag
     courses = [("crest", crest_course), ("body", body_course), ("foot", foot_course)]
     print("courses:", {r: len(c) for r, c in courses})
+
+    # THE GROUND APRON: near-flat GRASS from the kept-grass hole out to the carried foot line
+    # (the round-2 verdict's "sharp edges at the bottom" was a rock zip here; stock feet meet
+    # lowland through ground, and the massing law says the foot line itself turns gently).
+    apron_raw = bridge(hole_c, ring_footc)
+    # winding: an apron tri must face UP
+    apron_raw = [t3 if np.cross(np.array(t3[1]) - np.array(t3[0]),
+                                np.array(t3[2]) - np.array(t3[0]))[1] >= 0
+                 else [t3[0], t3[2], t3[1]] for t3 in apron_raw]
+    # THE CELL CLIP, as an exact PARTITION: slice every apron tri at interior 4u lattice
+    # lines. Both sides of a slice share the crossing points by construction (same segment,
+    # same interpolation), so adjacent fragments weld exactly -- the earlier clip DROPPED
+    # sub-1e-6 fragments and left every neighbour of a dropped sliver unpaired (the 92-edge
+    # watertight failure, owner histogram foot/apron/kept).
+    def slice_poly(pg, ax, val, keep_le):
+        out = []
+        n = len(pg)
+        for i in range(n):
+            a, b = pg[i], pg[(i + 1) % n]
+            ain = (a[ax] <= val + 1e-9) if keep_le else (a[ax] >= val - 1e-9)
+            bin_ = (b[ax] <= val + 1e-9) if keep_le else (b[ax] >= val - 1e-9)
+            if ain:
+                out.append(a)
+            if ain != bin_ and abs(b[ax] - a[ax]) > 1e-12:
+                t = (val - a[ax]) / (b[ax] - a[ax])
+                out.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])))
+        return out
+
+    def clip_tri_cells(t3):
+        pg0 = [(p[0], p[2]) for p in t3]
+        pieces = [pg0]
+        for ax in (0, 1):
+            vs = sorted({p[ax] for pg in pieces for p in pg})
+            v0 = math.floor(min(vs) / CELL) * CELL + CELL
+            lines = []
+            v = v0
+            while v < max(vs) - 1e-9:
+                lines.append(v)
+                v += CELL
+            for val in lines:
+                nxt = []
+                for pg in pieces:
+                    for keep_le in (True, False):
+                        part = slice_poly(pg, ax, val, keep_le)
+                        if len(part) >= 3 and poly_area2(part) > 1e-9:
+                            nxt.append(part)
+                pieces = nxt
+        out3 = []
+        a3, b3, c3 = (np.array(p) for p in t3)
+        n3 = np.cross(b3 - a3, c3 - a3)
+        for pg in pieces:
+            def y_at(q):
+                if abs(n3[1]) > 1e-9:
+                    return a3[1] - (n3[0] * (q[0] - a3[0]) + n3[2] * (q[1] - a3[2])) / n3[1]
+                return float(np.mean([p[1] for p in t3]))
+            for tt in centroid_fan(pg):
+                sub = [(q[0], y_at(q), q[-1]) for q in tt]
+                if np.cross(np.array(sub[1]) - np.array(sub[0]),
+                            np.array(sub[2]) - np.array(sub[0]))[1] < 0:
+                    sub = [sub[0], sub[2], sub[1]]
+                out3.append(sub)
+        return out3
+
+    # THE SEAM CUT (after the 92-edge three-surface T-junction hunt): the apron ships
+    # UN-CLIPPED. Its edges are then EXACT chain segments on both boundaries, so the whole
+    # base welds by construction, like rounds 1-3. Cost, accepted and flagged for the eye:
+    # an apron tri spanning a cell boundary wears ONE centroid-keyed window and its overhang
+    # can clamp-stretch -- a narrow ground band under the wall, judged in the renders.
+    apron = apron_raw
+    print(f"apron: {len(apron)} bridge tris, un-clipped (seam-free by construction)")
+
 
     # ---- the tile-language UVs (round 3: the three instance laws) -----------------------------
     pu, pv, tiles, top_blocks = load_language()
@@ -651,7 +839,6 @@ def main() -> int:
             up = e2["v_lo"] > e2["v_hi"]                    # no votes: the exemplar's own read
         return (e2["v1"], e2["v0"]) if up else (e2["v0"], e2["v1"])
 
-    y_spans = [(COURSE_Y[1], TOP_Y), (COURSE_Y[2], COURSE_Y[1]), (None, COURSE_Y[2])]
     wall_out = []                                           # (tri, uv3, role, tile)
     col_steps = []
     for ci, (role, ctris) in enumerate(courses):
@@ -669,7 +856,9 @@ def main() -> int:
             tile = chain[chain_idx]
             e2 = ex[tile]
             v_bot, v_top = v_ends(tile)
-            ylo, yhi = y_spans[ci]
+            # per-COLUMN course spans from the CARRIED node heights (col_h[i] =
+            # [LOWLAND, h1, h2, TOP_Y]); courses iterate crest(0)/body(1)/foot(2)
+            y_lo_l, y_hi_l = col_h[wcol][2 - ci], col_h[wcol][3 - ci]
             uvt = []
             for p in tri:
                 thp = math.atan2(p[2] - CENTER[1], p[0] - CENTER[0])
@@ -679,11 +868,6 @@ def main() -> int:
                 su = max(0.0, min(1.0, sp - wcol))
                 if mirrored:                                 # LAW 2: p=0.12 per column
                     su = 1.0 - su
-                if ylo is None:                              # foot: local low = the jagged foot y
-                    y_lo_l = min(q[1] for q in tri)
-                    y_hi_l = COURSE_Y[2]
-                else:
-                    y_lo_l, y_hi_l = ylo, yhi
                 h = max(0.0, min(1.0, (p[1] - y_lo_l) / max(0.8, y_hi_l - y_lo_l)))
                 uvt.append((e2["u0"] + su * (e2["u1"] - e2["u0"]),
                             v_bot + h * (v_top - v_bot)))
@@ -727,11 +911,13 @@ def main() -> int:
         return (int(cx4 // CELL), int(-cz4 // CELL))
 
     top_cells = sorted({tri_cell(t3) for t3, _ in top_tris})
-    q2, o2 = UF.assign_mains_seeded([c for c in top_cells if c not in pre_quad],
+    apron_cells = sorted({tri_cell(t3) for t3 in apron})
+    dress_cells = sorted(set(top_cells) | set(apron_cells))
+    q2, o2 = UF.assign_mains_seeded([c for c in dress_cells if c not in pre_quad],
                                     dict(pre_quad), dict(pre_ori), seed=SEED ^ 0xF92)
-    cell_qo = {c: (pre_quad[c], pre_ori[c]) for c in top_cells if c in pre_quad}
-    cell_qo.update({c: (q2[c], o2[c]) for c in q2 if c in set(top_cells)})
-    print(f"top L3 field: {len(pre_quad)} cells decoded from the bench's own grass, "
+    cell_qo = {c: (pre_quad[c], pre_ori[c]) for c in dress_cells if c in pre_quad}
+    cell_qo.update({c: (q2[c], o2[c]) for c in q2 if c in set(dress_cells)})
+    print(f"L3 field (top + apron): {len(pre_quad)} cells decoded from the bench's own grass, "
           f"{len(q2)} policy-resolved (assign_mains_seeded)")
     top_out = []
     for t3, cell in top_tris:
@@ -739,6 +925,12 @@ def main() -> int:
         quad, ori = cell_qo[ccell]
         uvt = [G.ground_uv(p[0], p[2], ccell, quad, ori) for p in t3]
         top_out.append((t3, uvt))
+    apron_out = []
+    for t3 in apron:
+        ccell = tri_cell(t3)
+        quad, ori = cell_qo[ccell]
+        uvt = [G.ground_uv(p[0], p[2], ccell, quad, ori) for p in t3]
+        apron_out.append((t3, uvt))
 
     # ---- gates --------------------------------------------------------------------------------
     fails = []
@@ -767,10 +959,46 @@ def main() -> int:
         _acc(tri)
     for t3, _ in top_out:
         _acc(t3)
+    for t3, _ in apron_out:
+        _acc(t3)
     post_once = {e for e, n in cnt3.items() if n == 1}
     grew = post_once - pre_once_all
     if grew:
         fails.append(f"watertight: {len(grew)} NEW once-edges (sample {list(grew)[:2]})")
+        def _owner(e):
+            owners = []
+            def has(t3):
+                ps = [kk(p) for p in t3]
+                return any(tuple(sorted((ps[a], ps[b]))) == e for a, b in ((0, 1), (1, 2), (2, 0)))
+            if any(has(t3) for t3, _ in apron_out):
+                owners.append("apron")
+            for role, ct in courses:
+                if any(has(t3) for t3 in ct):
+                    owners.append(role)
+            if any(has(t["w"]) for ti, t in enumerate(tris) if ti not in drop):
+                owners.append("kept")
+            if any(has(t3) for t3, _ in top_out):
+                owners.append("top")
+            if e in hole_set:
+                owners.append("HOLEEDGE")
+            return owners or ["?"]
+        own_hist = Counter(tuple(_owner(e)) for e in list(grew)[:120])
+        print(f"   watertight owners: {dict(own_hist)}")
+        # nearest-edge forensics on 3 samples: what SHOULD have paired, and how far off is it
+        apron_edges = []
+        for t3, _ in apron_out:
+            ps = [kk(p) for p in t3]
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                apron_edges.append(tuple(sorted((ps[a], ps[b]))))
+        for e in list(grew)[:3]:
+            mid = np.array([(e[0][j] + e[1][j]) / 2 for j in range(3)])
+            near = sorted(apron_edges, key=lambda q: float(np.linalg.norm(
+                np.array([(q[0][j] + q[1][j]) / 2 for j in range(3)]) - mid)))[:2]
+            print(f"   GREW {_owner(e)} {e}")
+            for q in near:
+                d = float(np.linalg.norm(np.array([(q[0][j] + q[1][j]) / 2
+                                                   for j in range(3)]) - mid))
+                print(f"     nearest apron edge d={d:.3f}: {q}")
     consumed = [e for e in pre_once_all - post_once]
     # moat / coast margin: every new vert stays >= 6u inside the bench outline (radius 40)
     for tri, _, _, _ in wall_out:
@@ -793,12 +1021,31 @@ def main() -> int:
             fails.append(f"winding: a visible {role} tri faces INWARD at {kk(tri[0])}")
         if fn[1] < -0.5 * L:
             fails.append(f"winding: a visible {role} tri faces DOWN at {kk(tri[0])}")
-    for t3, _ in top_out:
+    for t3, _ in top_out + apron_out:
         a, b, c = (np.array(p) for p in t3)
         fn = np.cross(b - a, c - a)
         if fn[1] < 0 and float(np.linalg.norm(fn)) > 2e-2:
-            fails.append(f"winding: a top tri faces DOWN at {kk(t3[0])}")
+            fails.append(f"winding: a top/apron tri faces DOWN at {kk(t3[0])}")
     print(f"winding gate: {n_degen} near-degenerate wall tris (cull to nothing, exempt)")
+    # THE MASSING-LAW GATES (the decode's numbers as gates on OUR foot line + batter):
+    fturn = []
+    for i in range(n_st):
+        a = np.array(ring_foot[(i - 1) % n_st])
+        b = np.array(ring_foot[i])
+        c = np.array(ring_foot[(i + 1) % n_st])
+        v1, v2 = (b - a)[[0, 2]], (c - b)[[0, 2]]
+        L1, L2 = np.linalg.norm(v1), np.linalg.norm(v2)
+        if L1 > 1e-6 and L2 > 1e-6:
+            fturn.append(math.degrees(math.acos(max(-1.0, min(1.0,
+                                                              float(v1 @ v2) / (L1 * L2))))))
+    if fturn:
+        med_t = float(np.median(fturn))
+        n_right = sum(1 for a2 in fturn if 80 <= a2 <= 100)
+        if med_t > 30.0 or n_right:
+            fails.append(f"massing: foot line med turn {med_t:.1f} deg / {n_right} right angles "
+                         f"(stock: med 17.4, right angles 1%)")
+        print(f"massing gates: foot turn med {med_t:.1f} deg, right angles {n_right}; "
+              f"columns rigid k=1.0, donor H {min(dmeta['Hs'])}-{max(dmeta['Hs'])}u (carried)")
     print(f"gates: {len(fails)} failure(s); foot-ring edges consumed: {len(consumed)}")
     for f in fails[:8]:
         print("  !!", f)
@@ -806,6 +1053,7 @@ def main() -> int:
     # ---- assemble + census + renders ----------------------------------------------------------
     ID_ROCK = float(X.encode_id(topograph=ROCK))
     ID_SHELF = float(X.encode_id(topograph=SHELF))
+    ID_APRON = float(X.encode_id(topograph=0))              # walkable lowland grass
     acc = defaultdict(lambda: np.zeros(3))
     def _nacc(t3):
         a, b, c = (np.array(p) for p in t3)
@@ -815,6 +1063,8 @@ def main() -> int:
     for tri, _, _, _ in wall_out:
         _nacc(tri)
     for t3, _ in top_out:
+        _nacc(t3)
+    for t3, _ in apron_out:
         _nacc(t3)
     for ti, t in enumerate(tris):
         if ti not in drop:
@@ -846,6 +1096,10 @@ def main() -> int:
         c = cell_of(t3)
         for k in range(3):
             emit(c, t3[k], uvt[k], snrm(t3[k]), [ID_SHELF, 0.0, 0.0, 1.0])
+    for t3, uvt in apron_out:
+        c = cell_of(t3)
+        for k in range(3):
+            emit(c, t3[k], uvt[k], snrm(t3[k]), [ID_APRON, 0.0, 0.0, 1.0])
     changed = {}
     for cell, (pos, nrm, uv, tan) in by_cell.items():
         flat = list(range(len(pos)))
@@ -881,7 +1135,7 @@ def main() -> int:
     _l = math.sqrt(sum(q * q for q in LDIR))
     LDIR = tuple(q / _l for q in LDIR)
 
-    def render_strip(items, path, center, bearing, HW=20.0, HH=17.0, SC=22):
+    def render_strip(items, path, center, bearing, HW=36.0, HH=21.0, SC=13):
         """Vertex-lit elevation strip: per-pixel barycentric UV + Gouraud lambda from the
         supplied per-vertex normals -- the engine's own shading model, so stock and synth
         read through the SAME eye."""
@@ -927,7 +1181,7 @@ def main() -> int:
         img.save(path)
 
     synth_items = [(tri, uvt, [snrm(p) for p in tri]) for tri, uvt, _, _ in wall_out]
-    synth_items += [(t3, uvt, [snrm(p) for p in t3]) for t3, uvt in top_out]
+    synth_items += [(t3, uvt, [snrm(p) for p in t3]) for t3, uvt in top_out + apron_out]
     for name, bearing in (("E", 0.0), ("N", math.pi / 2), ("W", math.pi), ("S", -math.pi / 2)):
         render_strip(synth_items, OUTD / f"face_{name}.png", CENTER, bearing)
 
