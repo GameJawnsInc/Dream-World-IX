@@ -143,12 +143,16 @@ def animation_name(anim_id) -> Optional[str]:
         return None
 
 
-def _split_anh(name: str):
-    """(group, form, token, action_lower) for an ``ANH_..`` name, or None."""
+def split_anh(name: str):
+    """(group, form, token, action_lower) for an ``ANH_..`` name, or None. THE label helper -- every
+    surface that turns a clip id into a readable action goes through it (there is no second copy)."""
     p = name.split("_")                         # ANH MAIN F0 VIV TALK 3 1
     if len(p) < 5 or p[0] != "ANH":
         return None
     return p[1], p[2], p[3], "_".join(p[4:]).lower()
+
+
+_split_anh = split_anh                          # the pre-public name, kept working for existing callers
 
 
 def _form_rank(form: str):
@@ -170,7 +174,7 @@ def animations_for_model(name_or_id) -> dict:
         return {}
     best = {}                                   # action -> (form_rank, id)
     for aid, nm in ANIMATIONS.items():
-        s = _split_anh(nm)
+        s = split_anh(nm)
         if not s or s[0] != m.group or s[2] != m.token:
             continue
         rank = (_form_rank(s[1]), aid)
@@ -197,7 +201,7 @@ def own_form_gestures(name_or_id) -> dict:
         return {}
     best = {}
     for aid, nm in ANIMATIONS.items():
-        s = _split_anh(nm)
+        s = split_anh(nm)
         if not s or s[0] != m.group or s[1] != m.form or s[2] != m.token:
             continue
         if s[3] not in best or aid < best[s[3]]:
@@ -266,7 +270,7 @@ def animation_folder(anim_id) -> Optional[int]:
     ``MON_B3_109 -> 5461``). None for an unknown id, a non-``ANH_`` name, or a token-model the GEO table
     lacks (the engine's by-name load would miss those too)."""
     nm = animation_name(anim_id)
-    s = _split_anh(nm) if nm else None
+    s = split_anh(nm) if nm else None
     if not s:
         return None
     owner = f"GEO_{s[0]}_{s[1]}_{s[2]}"
@@ -365,11 +369,47 @@ def npc_anims(name_or_id, *, use_catalog: bool = True) -> dict:
     out = {}
     for slot, baked in NPC_PARAMS[mid]["anims"].items():
         nm = animation_name(baked)
-        s = _split_anh(nm) if nm else None
+        s = split_anh(nm) if nm else None
         if s and s[0] == m.group and s[2] == m.token:
             out[slot] = min(animation_aliases(baked))    # the model's own clip -> its canonical row
         else:
             out[slot] = byname.get(slot, baked)          # foreign token -> the model's own gesture (or keep)
+    return out
+
+
+def clip_inventory(name_or_id) -> list:
+    """Every clip a model can be previewed/authored with, as
+    ``[{label, anim_id, kind, own_form}, ...]`` -- the picker/list feed. INSTALL-FREE (identifier data
+    only), so a GUI thread may call it.
+
+    Two tiers, movement first:
+
+    * ``kind="movement"`` -- the five slots the field engine drives (:func:`npc_anims`), labelled by
+      SLOT (stand/walk/run/left/right). These may legitimately cross forms: the proven baked chain
+      really does hand a rig a sibling form's movement clip.
+    * ``kind="gesture"`` -- one row per action label from :func:`own_form_gestures` (which WINS its
+      label) unioned with :func:`animations_for_model`.
+
+    ``own_form`` is False when the clip's ANH name carries a DIFFERENT form code than the model's --
+    THE CROSS-FORM CLIP TRAP: a different form is a different skeleton, and a one-shot gesture played
+    across forms twists the model in-game. A gesture picker must gate on this flag; the movement tier
+    shows it only as a note. Every ``anim_id`` is CANONICAL (``min(animation_aliases)``) -- the row the
+    kit's proven presets and the ``ff9mapkit models`` listing use."""
+    m = model(name_or_id)
+    if not m:
+        return []
+
+    def row(label, aid, kind):
+        canon = min(animation_aliases(aid))
+        s = split_anh(animation_name(canon) or "")
+        return {"label": label, "anim_id": canon, "kind": kind,
+                "own_form": s[1] == m.form if s else True}
+
+    mv = npc_anims(m.id)                         # slot order is NPC_SLOT_ACTION's, not the baked dict's
+    out = [row(slot, mv[slot], "movement") for slot in NPC_SLOT_ACTION if slot in mv]
+    gestures = dict(animations_for_model(m.id))
+    gestures.update(own_form_gestures(m.id))     # a same-rig clip WINS its label over a cross-form one
+    out += [row(label, gestures[label], "gesture") for label in sorted(gestures)]
     return out
 
 
