@@ -158,3 +158,44 @@ against stock before adoption:
   axis (share/pattern/phase); it does not reopen or close the rim verdict.
 
 One round. Scored on the owner's verdict, whichever way it lands.
+
+## SCORED — FAIL on form; THE MINTED-PLAN LANE CLOSES (2026-07-31)
+
+Playtest verdict, two sites, both named with coordinates:
+
+1. **(428, −507), blk[6][7]** — *"the cliff is weirdly sliced, causing a stretched
+   face along the cliff."* THE SEAM TAPER MADE VISIBLE: seam 0 carried this build's
+   largest weld displacement (10.94u, inside the 12u gate) sheared across one station
+   — the crease-weld's standing cost ("slightly stretched cliff" was already noted in
+   the junction round's playtest 1 and carried as a scoring cost). The gate bounded
+   it; the eye still reads it.
+2. **(396, −504), blk[6][7]** — *"weird extra triangle part… an extra triangular
+   grass piece."* THE WEST FINGER: a donor crest promontory sliced by the cut window
+   into a 2-3u corridor the donor never shipped alone — its corridor top reads as a
+   flat grass triangle and the slot cap as a rock flap lying on the ground. An
+   ENDPOINT stock never has, minted by the cut.
+
+No watertight class was named (no holes, gaps, or flicker — the audits' first fully
+clean round in-game), and neither the dark foot band nor crest jaggedness recurred.
+Both named defects are FORM defects of the COMPOSITION ITSELF: the seam weld's
+displacement budget and the cut windows' artificial terminations.
+
+**The registered closure clause fires.** This was the declared last minted-plan
+presentation: strips cut mid-wall and recomposed — with every join now built to a
+measured law — still do not read as FF9 at the joins' own scale. **The minted-plan
+wall lane CLOSES to whole-feature carry.**
+
+**The owner's diagnosis, recorded as the next decode's frame:** *"some parts don't
+lift from base to rim cleanly. we may need more research on how to build connective
+walls that have logical endpoints instead of trying to build the top to fit. both
+sides have a responsibility."* Exactly: stock walls TERMINATE lawfully (their ends
+are geometry, not cuts), and their plateau side is built WITH the wall, not fitted
+to it afterward. Neither has ever been measured — every study so far measured wall
+INTERIORS (tiles, instances, massing, junctions, rim) and every build cut strips
+mid-wall, minting endpoints stock never ships.
+
+**Banked from this round regardless:** the lattice-group pose + inherited homes
+(probe-validated, in-game clean), the crest silhouette repair, the Delaunay
+displaced-row top (watertight to 1 edge in 8483 — the machinery for any future
+plateau mint), the measured foot pattern (no shade complaint), and the culled-render
+NE-anomaly note (no floater was reported — the eye-at-infinity explanation held).

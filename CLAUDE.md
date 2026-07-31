@@ -279,7 +279,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3ii Odin ladder ★★ BPP8 0.96; U1 ★★ the 2nd-array U-displacement cast-proven on ef038, pitch axis open → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
 - Click authoring — ★ Rungs 0-4 + rung 6 gateways owner-confirmed in-game; the floorplan composer 6a-6c built, Floorplan tab shipped → `studies/click-authoring/RUNG6.md`
-- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a proven; junction-aware round PARTIAL; RIM GRAMMAR DECODED (the displaced-row law: displace the lattice rim row, never clip) — next = the rim-aware round → `studies/path-d-new-world/RIM-GRAMMAR.md`
+- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a proven; the MINTED-PLAN wall lane CLOSED after 3 presentations (rim-aware FAIL: seam stretch + cut-endpoint debris) — next = the endpoint-grammar study for whole-feature carry → `studies/path-d-new-world/RIM-AWARE-PREDICTION.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 
