@@ -90,3 +90,43 @@ seam is grass-to-grass at matched height.
 - **PLUMBING failure** → fix or stop, no verdict (standard).
 
 One round. Scored on the owner's verdict, whichever way it lands.
+
+## BUILD NOTES (pre-deploy, 2026-07-31) — the declared freedoms, resolved by measurement
+
+Builder `apron_carry.py` (the mesa_carry pipeline with the level cut and fringe
+REMOVED); probe `probe_mesa_apron.py`; three offline iterations, gates GREEN.
+
+- **Freedom 1 (apron extent), resolved:** collar = donor grass-class tris within
+  **6u** of the weld, adjacency-flooded over the 5-block donor neighborhood, **and
+  clipped to the bench's own grass coverage** (every vert over bench grass, ≥2u from
+  the coast band). The donor's meadow continues past where the bench island has
+  grass — on the west/southwest the bench coast comes in to ~40-46u and a 10u collar
+  overlapped it (run-1's 262-edge residue). Where the bench runs out, the collar
+  ends and bench grass welds directly to the donor weld line (the registered
+  fallback, applied locally; 17 tris clipped). 168 apron tris carried.
+- **Freedom 2 (west border), resolved:** the merged 5-block soup lets the crest
+  component cross the border by shared verts — the 4-tri (14,14) continuation joins
+  the carry with no special-casing, and its apron (24 tris in (14,14)) floods
+  normally. No trim needed; 0 whisker edges.
+- **Freedom 3 (rim simplification), resolved:** verbatim polyline, with plan-
+  COLLINEAR runs merged into chords (zero-deviation merge — the on_chord machinery
+  reasons per chord; unmerged collinear edges left bench fragments unsplit at shared
+  rim verts). y interpolates per sub-edge (plan-straight, height-kinked chords).
+- **The blend is conforming by construction:** the field is sampled ONLY at original
+  bench verts (275 lifted, max 4.01u over the 12u falloff, coast-shared verts
+  banned); every derived point — fragment corner, crossing, conformance split,
+  sweep split — interpolates its parent's lifted verts. (Run 1 evaluated the field
+  per point; every kept/cut boundary cracked.)
+- **Gate dispositions, declared:** massing and reach are REPORT-ONLY this round —
+  the massing gate's subject (a minted ground silhouette) does not exist (the
+  visible rock-to-ground line is the donor's own weld line, med turn 19.3°, zero
+  right angles; the grass-to-grass rim is a height-blended boundary with no
+  silhouette), and the reach gate's fit is enforced structurally by the grass clip.
+  A declared once-edge class exists for stock's own carried cracks (0 hits this
+  build). Watertight residue: **19 once-edges of 5,168 (0.37%), none > 5u** (bound
+  24; stock's own open rate 2.8-6.8%).
+- **Numbers for the record:** seat dy −0.14 (donor stature; the bury's −4.35
+  undone); crest ~26.2 bench, top 28.1 (~23-25u above ground — the tallest wall we
+  have shipped, declared in the registration); band(10+11) share at the weld
+  **100%**; weld line y 3.0..7.4; 8 forest-abutted weld edges (forest excluded as a
+  feature class; the boundary closed with zero hole loops after the grass clip).
