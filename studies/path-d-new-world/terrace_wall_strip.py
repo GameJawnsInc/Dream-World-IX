@@ -185,7 +185,12 @@ def load_bench():
 # ---------------------------------------------------------------- the massing instrument
 # Component + instance + column extraction VERBATIM from rock_wall_massing.py (the three
 # tile studies and this builder share one instrument); returns enough to cut strip MESH.
+_EW_CACHE = {}                                              # window variants re-cut per block
+
+
 def extract_wall(bx, by):
+    if (bx, by) in _EW_CACHE:
+        return _EW_CACHE[(bx, by)]
     bm = X.read_block(bx, by, disc=1, part="terrain")
     V = bm.chan_arrays[X.CH_POS]
     U = bm.chan_arrays[X.CH_UV]
@@ -323,9 +328,11 @@ def extract_wall(bx, by):
             nrm=(float(nm[0]), float(nm[2])),
             ymax=max(inst_data[q]["ymax"] for q in chain),
             ymin=min(inst_data[q]["ymin"] for q in chain)))
-    return dict(bm=bm, V=V, U=U, N=N, T=T, tri_idx=tri_idx, topo=topo, ox=ox, oz=oz,
-                comp_of=comp_of, wall_tris=wall_tris, inst_data=inst_data,
-                inst_of_tri=inst_of_tri, columns=columns, edge_tris=edge_tris)
+    W_out = dict(bm=bm, V=V, U=U, N=N, T=T, tri_idx=tri_idx, topo=topo, ox=ox, oz=oz,
+                 comp_of=comp_of, wall_tris=wall_tris, inst_data=inst_data,
+                 inst_of_tri=inst_of_tri, columns=columns, edge_tris=edge_tris)
+    _EW_CACHE[(bx, by)] = W_out
+    return W_out
 
 
 def chain_columns(columns):
@@ -588,20 +595,22 @@ def cut_strip(blk, a, b, n_chain):
 
 
 # ---------------------------------------------------------------- pose + closure
-def solve_ring(strips):
-    """Chain the three strips loop-to-loop; distribute the bearing residual as seam kinks
-    (k1, k2 searched, k3 = residual) minimising the position-closure gap. Returns per-strip
-    (yaw, tx, tz) with the ring centred on CENTER, plus the per-seam kinks and the gap."""
+def solve_ring(variants):
+    """THE LATTICE-GROUP POSE (the rim-aware amendment): yaw is restricted to 90-deg
+    steps so each strip's donor-lattice structure lands ON the bench lattice and the
+    crest verts keep their displaced-row homes (RIM-GRAMMAR R1; probe-validated on all
+    four donors). Closure can no longer be tuned by continuous kinks, so the declared
+    lever moves first: per-donor WINDOW VARIANTS (end column shifted -2..+2) join the
+    search. ``variants`` = per-donor list of cut strips. Searches cyclic order x yaw
+    combo x variant combo; returns (order, vsel, poses, shift, turns, gap) with poses
+    per CHOSEN strip and turns = the seam plan-turn each crease weld must absorb."""
     def bearing(p, q):
         return math.degrees(math.atan2(q[1] - p[1], q[0] - p[0]))
 
-    # canonical per-strip geometry: the BASE polyline with half-station COLINEAR anchor
-    # extensions at both ends. (Loop CENTROIDS sit at mid-height of a battered face --
-    # displaced outward from the base line -- and added ~13 deg of spurious turn per
-    # joint; colinear anchors add zero turn, and the loops meet at the shared anchor by
-    # the seam snap.)
-    geos = []
-    for s in strips:
+    def geo_of(s):
+        """Canonical strip geometry: the BASE polyline with half-station COLINEAR anchor
+        extensions at both ends (loop centroids sit mid-face and add spurious turn;
+        colinear anchors are bearing-neutral) + the corner-law end profiles."""
         P = s["P"]
         half = s["st"] / 2.0
 
@@ -609,27 +618,9 @@ def solve_ring(strips):
             d = (p_end[0] - p_prev[0], p_end[1] - p_prev[1])
             L = math.hypot(*d) or 1.0
             return (p_end[0] + d[0] / L * half, p_end[1] + d[1] / L * half)
-        # COLINEAR half-station extensions to the actual cut planes (bearing-neutral):
-        # column centroids sit half a station short of the cut on each side, and without
-        # the ext the strips would be posed a station apart instead of abutting
         pl = [ext(P[0], P[1])] + P + [ext(P[-1], P[-2])]
-        b_in = bearing(pl[0], pl[1])
-        b_out = bearing(pl[-2], pl[-1])
-        bend_eff = sum(signed_turn(pl[i - 1], pl[i], pl[i + 1])
-                       for i in range(1, len(pl) - 1))
-        # TRANSLATION chains on the cut-loop CENTROIDS (the cross-sections weld face to
-        # face, as stock corners share a column); BEARINGS chain on the base line + kinks.
-        # Base-point chaining splays the crests apart: each face leans ~10u inward by its
-        # own batter, so kink rotation + batter spread separated matched-y verts by 6-16u.
-        lc_in = (float(np.mean([p[0] for p in s["loop_s"]])),
-                 float(np.mean([p[2] for p in s["loop_s"]])))
-        lc_out = (float(np.mean([p[0] for p in s["loop_e"]])),
-                  float(np.mean([p[2] for p in s["loop_e"]])))
 
         def end_profile(loop):
-            """Lean profile of a cut cross-section: horizontal offset from the TOP point
-            at each depth below it (the corner law's profile-match term compares these --
-            stock's crease has zero mismatch because adjacent stations SHARE the edge)."""
             top = max(loop, key=lambda p: p[1])
             rev = loop[::-1] if loop[-1][1] >= loop[0][1] else loop
             prof = {}
@@ -644,9 +635,10 @@ def solve_ring(strips):
                         prof[d] = math.hypot(px - top[0], pz - top[2])
                         break
             return prof
-        geos.append(dict(pl=pl, b_in=b_in, b_out=b_out, bend_eff=bend_eff,
-                         lc_in=lc_in, lc_out=lc_out,
-                         prof_s=end_profile(s["loop_s"]), prof_e=end_profile(s["loop_e"])))
+        d2 = s.get("_delta", (0, 0))
+        return dict(pl=pl, b_in=bearing(pl[0], pl[1]), b_out=bearing(pl[-2], pl[-1]),
+                    prof_s=end_profile(s["loop_s"]), prof_e=end_profile(s["loop_e"]),
+                    delta=d2, dpen=abs(d2[0]) + abs(d2[1]))
 
     def prof_mismatch(pe, ps):
         common = sorted(set(pe) & set(ps))
@@ -654,78 +646,76 @@ def solve_ring(strips):
             return 4.0                                      # no overlap: worst-case-ish
         return math.sqrt(sum((pe[d] - ps[d]) ** 2 for d in common) / len(common))
 
-    def place(ks, geos_o):
-        """Returns (poses, gap): poses = per strip (yaw_deg, pivot, target) mapping donor
-        xz -> ring xz. Chaining anchors on the BASE polyline endpoints, strips abutting;
-        the cross-sections splay with lean/kink and the seam WELD absorbs whatever
-        results (bounded by the displacement gate). Loop-centroid chaining skews when a
-        cut loop is partial-height and broke position closure."""
+    geos_all = [[geo_of(s) for s in vs] for vs in variants]
+
+    def fold(a):
+        while a > 180.0:
+            a -= 360.0
+        while a < -180.0:
+            a += 360.0
+        return a
+
+    def chain(geos_o, qs):
+        """Abutting chain under ABSOLUTE yaws qs: entry anchor at cur_pt, exit carried
+        rigidly. Returns (poses, gap, anchors). No kinks -- the seam turns are whatever
+        the yaw steps leave, absorbed by the crease welds (and gated)."""
         poses = []
+        anchors = []
         cur_pt = (0.0, 0.0)
-        cur_bear = 0.0
-        first_in = None
-        for i, g in enumerate(geos_o):
-            yaw = cur_bear - g["b_in"]
-            r = math.radians(yaw)
+        for g, q in zip(geos_o, qs):
+            r = math.radians(q)
             cs, sn = math.cos(r), math.sin(r)
             p0 = g["pl"][0]
+            poses.append((q, p0, cur_pt))
+            anchors.append(cur_pt)
+            dx, dz = g["pl"][-1][0] - p0[0], g["pl"][-1][1] - p0[1]
+            cur_pt = (cur_pt[0] + dx * cs - dz * sn, cur_pt[1] + dx * sn + dz * cs)
+        anchors.append(cur_pt)
+        gap = math.hypot(cur_pt[0] - anchors[0][0], cur_pt[1] - anchors[0][1])
+        return poses, gap, anchors
 
-            def xf(p, cs=cs, sn=sn, p0=p0, cur_pt=cur_pt):
-                dx, dz = p[0] - p0[0], p[1] - p0[1]
-                return (cur_pt[0] + dx * cs - dz * sn, cur_pt[1] + dx * sn + dz * cs)
-            poses.append((yaw, p0, cur_pt))
-            if first_in is None:
-                first_in = cur_pt
-            cur_pt = xf(g["pl"][-1])
-            exit_bear = g["b_out"] + yaw
-            cur_bear = exit_bear + ks[i]
-            # NO seam gap: the crease weld shares the edge -- strips abut station to
-            # station, and the closure gap is absorbed by the last seam's weld taper
-        gap = math.hypot(cur_pt[0] - first_in[0], cur_pt[1] - first_in[1])
-        return poses, gap
-
-    # total ring turn = per-strip loop-to-loop bend (the unwrapped b_out - b_in) + kinks.
-    # THE ORDER IS OURS: bend is lumpy along real strips, so position closure depends on
-    # the cyclic order -- search all (S-1)! orders, then kinks coarse-to-fine per order.
+    # THE SEARCH: cyclic order x window-variant combo x 90-deg yaw combo (q0 = 0 -- a
+    # global 90-deg rotation is a symmetry of the bench lattice). Guards: the anchor
+    # loop must be CCW (faces outward) with total seam turn ~ +360, and no seam turn
+    # beyond the corner law's measured band.
     import itertools as _it
-    S = len(strips)
-    resid = 360.0 - sum(g["bend_eff"] for g in geos)
+    S = len(variants)
     best_all = None
     for order in [(0,) + perm for perm in _it.permutations(range(1, S))]:
-        geos_o = [geos[i] for i in order]
-        # the corner law's profile-match term: prefer the cyclic order whose meeting
-        # cross-sections agree (constant per order -- kinks don't change it)
-        mism = sum(prof_mismatch(geos_o[i]["prof_e"], geos_o[(i + 1) % S]["prof_s"])
-                   for i in range(S))
-        best = None
-        for step in (5.0, 1.0, 0.1):
-            if best is None:
-                spans = [np.arange(-KINK_MAX, KINK_MAX + 0.1, 5.0)] * (S - 1)
-            else:
-                spans = [np.arange(k0 - step * 4.5, k0 + step * 4.55, step)
-                         for k0 in best[1][:-1]]
-            for combo in _it.product(*spans):
-                klast = resid - sum(combo)
-                ks = tuple(float(k) for k in combo) + (round(float(klast), 2),)
-                if any(abs(k) > KINK_MAX for k in ks):
+        for vcombo in _it.product(*[range(len(geos_all[d])) for d in order]):
+            geos_o = [geos_all[d][vcombo[k3]] for k3, d in enumerate(order)]
+            mism = sum(prof_mismatch(geos_o[i]["prof_e"], geos_o[(i + 1) % S]["prof_s"])
+                       for i in range(S))
+            if mism > 6.0:
+                continue                                    # a weld-cap bust in waiting
+            vpen = 0.15 * sum(g["dpen"] for g in geos_o)
+            for q_rest in _it.product((0.0, 90.0, 180.0, 270.0), repeat=S - 1):
+                qs = (0.0,) + q_rest
+                turns = [fold((geos_o[(i + 1) % S]["b_in"] + qs[(i + 1) % S])
+                              - (geos_o[i]["b_out"] + qs[i])) for i in range(S)]
+                if any(abs(t2) > 155.0 for t2 in turns):
+                    continue                                # beyond J2's measured band
+                if not (300.0 <= sum(turns) <= 420.0):
+                    continue                                # not a simple CCW ring
+                poses, gap, anchors = chain(geos_o, qs)
+                area2 = sum(anchors[i][0] * anchors[i + 1][1]
+                            - anchors[i + 1][0] * anchors[i][1]
+                            for i in range(len(anchors) - 1))
+                if area2 <= 800.0:                          # inside-out or collapsed ring
                     continue
-                _, gap = place(ks, geos_o)
-                # uniform kinks are the lawful look (and bound the corner warp) -- a soft
-                # penalty keeps the solve from slamming kinks to the budget edge
-                score = gap + 0.02 * sum(abs(k - resid / S) for k in ks)
-                if best is None or score < best[0]:
-                    best = (score, ks, gap)
-            if best is None:
-                break
-        if best is not None:
-            total = best[0] + 0.05 * mism
-            if best_all is None or total < best_all[0]:
-                best_all = (total, best[1], best[2], order, mism)
-    assert best_all is not None, "no order + kink assignment within the budget"
-    _, kinks_t, gap, order, mism = best_all
-    print(f"closure: seam profile mismatch {mism:.2f}u RMS total over the chosen order")
-    geos_o = [geos[i] for i in order]
-    poses, _ = place(kinks_t, geos_o)
+                tpen = 0.5 * sum(max(0.0, abs(t2) - 130.0) for t2 in turns)
+                score = gap + 0.1 * mism + tpen + vpen
+                if best_all is None or score < best_all[0]:
+                    best_all = (score, order, vcombo, qs, turns, gap, mism)
+    assert best_all is not None, ("no lattice-group pose closes the ring -- the "
+                                  "declared plumbing stop (window lever exhausted)")
+    _, order, vcombo, qs, turns, gap, mism = best_all
+    geos_o = [geos_all[d][vcombo[k3]] for k3, d in enumerate(order)]
+    print(f"closure: seam profile mismatch {mism:.2f}u RMS; yaws "
+          f"{tuple(int(q) for q in qs)} deg; window deltas "
+          f"{[g['delta'] for g in geos_o]}; seam turns "
+          f"{[round(t2, 1) for t2 in turns]} deg")
+    poses, _, _ = chain(geos_o, qs)
 
     # centre the ring: transform all column points, shift centroid to CENTER
     ring_pts = []
@@ -738,7 +728,7 @@ def solve_ring(strips):
     cx = float(np.mean([p[0] for p in ring_pts]))
     cz = float(np.mean([p[1] for p in ring_pts]))
     shift = (CENTER[0] - cx, CENTER[1] - cz)
-    return order, poses, shift, kinks_t, gap
+    return order, list(vcombo), poses, shift, turns, gap
 
 
 def xf_point(p, yaw, p0, t0, shift, dy):
@@ -831,11 +821,34 @@ def main() -> int:
                   for t in tris if t["topo"] in GRASS_TOPO)
     print(f"bench: {len(tris)} tris across {len(bms)} cells; grass reach ~{grass_r:.1f}u")
 
-    strips = [cut_strip(blk, a, b, n) for (blk, a, b, n) in DONORS]
+    # window VARIANTS (end column -2..+2): the rim-aware amendment's declared closure
+    # lever -- lattice-group yaw cannot tune the ring shut, the windows can
+    variants = []
+    for (blk, a, b, n) in DONORS:
+        vs = []
+        for da in (-1, 0, 1):
+            for db in (-2, -1, 0, 1, 2):
+                if (b + db) - (a + da) < 3 or a + da < 0:
+                    continue
+                try:
+                    s2 = cut_strip(blk, a + da, b + db, n)
+                except AssertionError:
+                    continue
+                s2["_delta"] = (da, db)
+                vs.append(s2)
+        assert vs, f"donor {blk}: no valid window variant"
+        variants.append(vs)
+    print(f"variants: {[len(vs) for vs in variants]} windows per donor")
+
+    # ---- pose + closure (order x window x 90-deg yaw -- the lattice-group solve) -----------
+    order, vsel, poses, shift, turns, gap = solve_ring(variants)
+    strips = [variants[d][v] for d, v in zip(order, vsel)]
     for s in strips:
-        print(f"strip blk {s['blk']}: {s['n']} cols, {len(s['recs'])} tris, "
-              f"len {s['length']:.1f}u bend {s['bend']:+.1f} deg, depth_min "
-              f"{s['depth_min']:.1f}u, loops {len(s['loop_s'])}/{len(s['loop_e'])} verts")
+        print(f"strip blk {s['blk']} (d{s['_delta']}): {s['n']} cols, "
+              f"{len(s['recs'])} tris, len {s['length']:.1f}u bend {s['bend']:+.1f} deg, "
+              f"depth_min {s['depth_min']:.1f}u")
+    print(f"closure: order {[s['blk'] for s in strips]}, position gap {gap:.2f}u "
+          f"(absorbed by the last seam's weld taper)")
 
     # ---- the burial seat (the round-4 amendment, unchanged) --------------------------------
     drop = min(min(s["depth_min"] for s in strips) - 0.3, SHELF_BAND[1] - LOWLAND)
@@ -844,13 +857,6 @@ def main() -> int:
     top_y = LOWLAND + drop
     print(f"seat: TOP_Y {top_y:.2f} (drop {drop:.2f}), k=1.0 rigid, surplus CUT at the "
           f"ground plane (no burial)")
-
-    # ---- pose + closure (the cyclic ORDER is part of the solve) ----------------------------
-    order, poses, shift, kinks, gap = solve_ring(strips)
-    strips = [strips[i] for i in order]
-    print(f"closure: order {[strips[i]['blk'] for i in range(len(strips))]}, kinks "
-          f"{tuple(round(k, 1) for k in kinks)} deg, position gap {gap:.2f}u "
-          f"(absorbed by the last seam's weld taper)")
 
     # ---- h_pairs seam legality (the decoded language as an ORACLE), on the CHOSEN order ----
     hp = json.loads(ANATOMY.read_text())["h_pairs"]
@@ -919,6 +925,21 @@ def main() -> int:
         s["_pose"] = (yaw, p0, (t0[0] + T[k3][0], t0[1] + T[k3][1]), dy)
     print(f"seam centering: per-strip translations "
           f"{[(round(t2[0], 2), round(t2[1], 2)) for t2 in T]}u")
+
+    # ---- THE LATTICE MICRO-SHIFT (the rim-aware amendment): after centering, nudge ---------
+    # each strip so its donor-lattice image lands ON the bench 4u lattice -- the crest
+    # verts then keep their displaced-row homes (residual envelope = stock's). <= 2.83u
+    # per strip, absorbed by the seam welds; the de-centering cost is declared.
+    micro = []
+    for s in strips:
+        yaw, p0, t0, dy = s["_pose"]
+        assert abs(yaw % 90.0) < 1e-6, f"non-lattice yaw {yaw}"
+        q3 = xf_point((0.0, 0.0, 0.0), yaw, p0, t0, shift, 0.0)
+        mx = ((q3[0] + 2.0) % 4.0) - 2.0
+        mz = ((q3[2] + 2.0) % 4.0) - 2.0
+        s["_pose"] = (yaw, p0, (t0[0] - mx, t0[1] - mz), dy)
+        micro.append((round(-mx, 2), round(-mz, 2)))
+    print(f"lattice micro-shift: {micro}u (donor lattice -> bench lattice)")
 
     posed = []                                              # per strip: list of tri records
     for s in strips:
@@ -1374,49 +1395,88 @@ def main() -> int:
           f"(ledge dips: ground patches inside, welded); {len(snap_all)} verts snapped "
           f"<= {SIMPLIFY_TOL}u")
 
-    # ---- the crest polyline (the top fill's clip polygon) ----------------------------------
-    cnt = defaultdict(int)
-    for rec in wall:
-        ps = [kk(r[0]) for r in rec]
-        for a, b in ((0, 1), (1, 2), (2, 0)):
-            cnt[tuple(sorted((ps[a], ps[b])))] += 1
-    # the ACTUAL top once-edge path (the registration's edge-for-edge law): with full
-    # seam + foot welds, every once-edge above the ground plane IS top boundary --
-    # including the donor's own crest V-notches (where the donor's plateau descended
-    # into the wall; the L3 top welds down into them, playing the plateau's role)
-    crest_edges = [e for e, n in cnt.items()
-                   if n == 1 and min(e[0][1], e[1][1]) > LOWLAND + 2.0]
-    adj = defaultdict(list)
-    for a, b in crest_edges:
-        adj[a].append(b)
-        adj[b].append(a)
-    # NO notch stitch (round 5's mortar artifact): with true seam welds the crest path
-    # must close through the merged seam tops on its own -- a break here is a weld bug
-    deg_bad = [p for p, l in adj.items() if len(l) != 2]
-    if deg_bad:
-        for p in deg_bad[:8]:
-            print(f"  DBG crest degree-{len(adj[p])} at {p}: nbrs {adj[p][:3]}")
-            near = sorted(adj.keys(), key=lambda q: math.dist(q, p))[1:3]
-            for q in near:
-                print(f"      nearest crest pt {q} d={math.dist(q, p):.3f}")
-            for e, n_e in cnt.items():
-                if n_e == 1 and min(math.dist(e[0], p), math.dist(e[1], p)) < 4.0:
-                    print(f"      once-edge near: {e}")
-    assert not deg_bad, (f"crest not a simple cycle ({len(deg_bad)} odd-degree pts, "
-                         f"e.g. {deg_bad[:3]})")
-    start = crest_edges[0][0]
-    crest = [start]
-    prev = None
-    while True:
-        nxts = [p for p in adj[crest[-1]] if p != prev]
-        if not nxts or nxts[0] == start:
+    # ---- the crest polyline (the displaced row's outer cycle) ------------------------------
+    def build_crest():
+        cnt = defaultdict(int)
+        for rec in wall:
+            ps = [kk(r[0]) for r in rec]
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                cnt[tuple(sorted((ps[a], ps[b])))] += 1
+        # the ACTUAL top once-edge path (the edge-for-edge law): every once-edge above
+        # the ground band IS top boundary, including the donor's own crest V-notches
+        crest_edges = [e for e, n in cnt.items()
+                       if n == 1 and min(e[0][1], e[1][1]) > LOWLAND + 2.0]
+        adj = defaultdict(list)
+        for a, b in crest_edges:
+            adj[a].append(b)
+            adj[b].append(a)
+        deg_bad = [p for p, l in adj.items() if len(l) != 2]
+        if deg_bad:
+            for p in deg_bad[:8]:
+                print(f"  DBG crest degree-{len(adj[p])} at {p}: nbrs {adj[p][:3]}")
+        assert not deg_bad, (f"crest not a simple cycle ({len(deg_bad)} odd-degree "
+                             f"pts, e.g. {deg_bad[:3]})")
+        start = crest_edges[0][0]
+        cr = [start]
+        prev = None
+        while True:
+            nxts = [p for p in adj[cr[-1]] if p != prev]
+            if not nxts or nxts[0] == start:
+                break
+            prev = cr[-1]
+            cr.append(nxts[0])
+        assert len(cr) == len({kk(p) for p in cr}), "crest revisits a vertex"
+        th0 = [math.atan2(p[2] - CENTER[1], p[0] - CENTER[0]) for p in cr]
+        if np.diff(np.unwrap(th0)).sum() < 0:
+            cr = cr[::-1]
+        return cr
+
+    crest = build_crest()
+
+    # ---- CREST SILHOUETTE REPAIR (R2's own laws applied to OUR cycle) ----------------------
+    # The seam welds leave debris stock's crest never shows: sub-2u edges and
+    # doubling-backs (turn > 150 deg on short legs) -- R2 measured segments p25 = 4.0u
+    # and turns p99 139. Merge each debris vert INTO THE WALL (position substitution,
+    # < 3.5u at the crest -- the displacement envelope's own order), rebuild, repeat.
+    n_rep = 0
+    for _r5 in range(10):
+        nC5 = len(crest)
+        vmap5 = {}
+        for i5 in range(nC5):
+            a5 = crest[i5]
+            b5 = crest[(i5 + 1) % nC5]
+            if math.hypot(b5[0] - a5[0], b5[2] - a5[2]) < 2.0:
+                vmap5[kk(b5)] = tuple(a5)
+                break
+        if not vmap5:
+            for i5 in range(nC5):
+                p5 = crest[i5]
+                a5 = crest[(i5 - 1) % nC5]
+                b5 = crest[(i5 + 1) % nC5]
+                v15 = (p5[0] - a5[0], p5[2] - a5[2])
+                v25 = (b5[0] - p5[0], b5[2] - p5[2])
+                L15 = math.hypot(*v15)
+                L25 = math.hypot(*v25)
+                if L15 < 1e-9 or L25 < 1e-9 or (L15 > 3.5 and L25 > 3.5):
+                    continue
+                ang5 = math.degrees(math.acos(max(-1.0, min(1.0,
+                       (v15[0] * v25[0] + v15[1] * v25[1]) / (L15 * L25)))))
+                if ang5 > 150.0:
+                    vmap5[kk(p5)] = tuple(a5 if L15 <= L25 else b5)
+                    break
+        if not vmap5:
             break
-        prev = crest[-1]
-        crest.append(nxts[0])
-    assert len(crest) == len({kk(p) for p in crest}), "crest revisits a vertex"
-    th0 = [math.atan2(p[2] - CENTER[1], p[0] - CENTER[0]) for p in crest]
-    if np.diff(np.unwrap(th0)).sum() < 0:
-        crest = crest[::-1]
+        nw5 = []
+        for rec5 in wall:
+            nr5 = [(vmap5.get(kk(r5[0]), r5[0]), r5[1], r5[2], r5[3]) for r5 in rec5]
+            if len({kk(r5[0]) for r5 in nr5}) == 3:
+                nw5.append(nr5)
+        wall = nw5
+        n_rep += 1
+        crest = build_crest()
+    if n_rep:
+        print(f"crest repair: {n_rep} debris vert(s) merged into the wall (short "
+              f"seam-split edges / doubling-backs)")
 
     # ---- NOTCH BRIDGES: keep the deep V-notches OUT of the lattice fill --------------------
     # A crest run dipping > 3u below the seat is a donor V-notch (its plateau descended
@@ -1482,55 +1542,291 @@ def main() -> int:
                 best = (d, y, i2, t)
         return best
 
-    def snap_crest(px, pz):
-        """ONE rule for every top vert: within 0.05 of the crest polyline, snap the
-        PLAN position onto the polyline (and collapse onto a crest VERT within 0.1);
-        y takes the crest lerp. Round 6 lesson: y-only snapping left sub-0.05 plan
-        zigzags along the crest that every tolerance-based conformance pass missed --
-        a micro-gap class invisible offline, cull-flicker slivers in game."""
-        db, yb, i2, t = crest_y_at(px, pz)
-        if db >= 0.05:
-            return (px, top_y, pz)
-        n2 = len(crest)
-        a, b = crest[i2], crest[(i2 + 1) % n2]
-        qx = a[0] + t * (b[0] - a[0])
-        qz = a[2] + t * (b[2] - a[2])
-        qy = a[1] + t * (b[1] - a[1])
-        for cv in (a, b):
-            if math.hypot(qx - cv[0], qz - cv[2]) < 0.10:
-                return (cv[0], cv[1], cv[2])
-        return (qx, qy, qz)
+    # ---- THE DISPLACED-ROW TOP, DELAUNAY FORM (the rim law -- RIM-GRAMMAR.md R1) -----------
+    # Stock's plateau is the intact lattice with its rim row displaced onto the crest.
+    # Ten build iterations showed hand-made cell/zip/pocket constructions each mint a
+    # thin-wedge class somewhere (a diagonal crest run just inside a lattice row, a
+    # 3u corridor finger). ONE mechanism subsumes them: Delaunay over [crest verts +
+    # interior lattice verts], clipped to the crest polygon. The lattice interior
+    # reproduces intact half-cells on its own; wedges and corridors get the
+    # max-min-angle triangulation (ladders, not fans); the boundary is the crest
+    # cycle edge-for-edge -- verified below, and the watertight audit backstops.
+    def _plan_qual(t3n):
+        P2 = [np.array([p[0], p[2]]) for p in t3n]
+        e1q = P2[1] - P2[0]
+        e2q = P2[2] - P2[0]
+        ar2 = 0.5 * abs(float(e1q[0] * e2q[1] - e1q[1] * e2q[0]))
+        mina = 180.0
+        for q2 in range(3):
+            v1 = P2[(q2 + 1) % 3] - P2[q2]
+            v2 = P2[(q2 + 2) % 3] - P2[q2]
+            L1, L2n = np.linalg.norm(v1), np.linalg.norm(v2)
+            if L1 < 1e-9 or L2n < 1e-9:
+                return 0.0, 0.0
+            mina = min(mina, math.degrees(math.acos(
+                max(-1.0, min(1.0, float(v1 @ v2) / (L1 * L2n))))))
+        return ar2, mina
+
+    rim_disp = []
+    for p in crest:
+        hx, hz = CELL * round(p[0] / CELL), CELL * round(p[2] / CELL)
+        rim_disp.append(math.hypot(p[0] - hx, p[2] - hz))
 
     xs = [p[0] for p in crest_poly]
     zs = [p[1] for p in crest_poly]
-    top_tris = []
-    x = math.floor(min(xs) / CELL) * CELL
-    while x < max(xs):
-        z = math.floor(min(zs) / CELL) * CELL
-        while z < max(zs):
-            corners = [(x, z), (x + CELL, z), (x + CELL, z + CELL), (x, z + CELL)]
-            ins = [pinp(px, pz, crest_poly) for (px, pz) in corners]
-            if all(ins):
-                quad = [snap_crest(px, pz) for (px, pz) in corners]
-                for t3 in ([quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]):
-                    if len({kk(p) for p in t3}) == 3:
-                        top_tris.append(t3)
-            else:
-                # clip even when NO corner is inside: the crest can dip through a cell
-                # without capturing a corner, and a skipped sliver leaves the wall's
-                # crest edge with no top counterpart
-                pg = clip_cell(crest_poly, x, z)
-                if len(pg) >= 3 and poly_area2(pg) > 1e-6:
-                    pg3 = [snap_crest(p[0], p[1]) for p in pg]
-                    pg3 = [p for q2, p in enumerate(pg3)
-                           if kk(p) != kk(pg3[q2 - 1])]     # snap-collapsed dupes
-                    if len(pg3) >= 3:
-                        for t3 in centroid_fan(pg3):
-                            t3 = [tuple(q) for q in t3]
-                            if len({kk(p) for p in t3}) == 3:
-                                top_tris.append(t3)
+    n_cc = len(crest)
+    inner_pts = []
+    x = CELL * math.floor(min(xs) / CELL)
+    while x <= max(xs) + CELL:
+        z = CELL * math.floor(min(zs) / CELL)
+        while z <= max(zs) + CELL:
+            if pinp(x, z, crest_poly) and crest_y_at(x, z)[0] >= 1.2:
+                inner_pts.append((x, z))
             z += CELL
         x += CELL
+
+    from scipy.spatial import Delaunay as _DT
+    P2d = np.array([[p[0], p[2]] for p in crest] + list(inner_pts))
+    dt2 = _DT(P2d)
+    pos3 = [tuple(p) for p in crest] + [(px9, top_y, pz9) for (px9, pz9) in inner_pts]
+    top_tris = []
+    n_course = n_intact = 0
+    for simp in dt2.simplices:
+        i7, j7, k7 = (int(q7) for q7 in simp)
+        cx7 = float(P2d[[i7, j7, k7], 0].mean())
+        cz7 = float(P2d[[i7, j7, k7], 1].mean())
+        if not pinp(cx7, cz7, crest_poly):
+            continue
+        t3n = [pos3[i7], pos3[j7], pos3[k7]]
+        if len({kk(p) for p in t3n}) < 3:
+            continue
+        top_tris.append([tuple(p) for p in t3n])
+        if min(i7, j7, k7) < n_cc:
+            n_course += 1
+        else:
+            n_intact += 1
+    # boundary verification: every crest edge must be a kept-tri edge
+    eset7 = set()
+    for t3n in top_tris:
+        ks7 = [kk(p) for p in t3n]
+        for a7, b7 in ((0, 1), (1, 2), (2, 0)):
+            eset7.add(tuple(sorted((ks7[a7], ks7[b7]))))
+    ecnt7 = Counter()
+    for t3n in top_tris:
+        ks7 = [kk(p) for p in t3n]
+        for a7, b7 in ((0, 1), (1, 2), (2, 0)):
+            ecnt7[tuple(sorted((ks7[a7], ks7[b7])))] += 1
+    miss7 = [i7 for i7 in range(n_cc)
+             if tuple(sorted((kk(crest[i7]), kk(crest[(i7 + 1) % n_cc]))))
+             not in eset7]
+    if miss7:
+        # LOCAL SLOT REPAIR: a concave wedge whose Delaunay tri centroid-clips away
+        # leaves its crest edge with no top counterpart -- a SEE-THROUGH slot in the
+        # culled game-eye (run 11's NE "floating triangle" was the far wall seen
+        # through one). Cap each with the shared kept-boundary neighbor.
+        nbr7 = defaultdict(set)
+        pos7 = {}
+        for t3n in top_tris:
+            ks7 = [kk(p) for p in t3n]
+            for a7, b7 in ((0, 1), (1, 2), (2, 0)):
+                nbr7[ks7[a7]].add(ks7[b7])
+                nbr7[ks7[b7]].add(ks7[a7])
+            for p in t3n:
+                pos7[kk(p)] = tuple(p)
+        for i7 in miss7:
+            eA = kk(crest[i7])
+            eB = kk(crest[(i7 + 1) % n_cc])
+            cands7 = [k7 for k7 in (nbr7.get(eA, set()) & nbr7.get(eB, set()))
+                      if k7 not in (eA, eB)
+                      and ecnt7.get(tuple(sorted((eA, k7))), 0) == 1
+                      and ecnt7.get(tuple(sorted((eB, k7))), 0) == 1]
+            if cands7:
+                X7 = min(cands7, key=lambda k7: math.dist(pos7[k7], crest[i7]))
+                t3n = [tuple(crest[i7]), tuple(crest[(i7 + 1) % n_cc]), pos7[X7]]
+                if len({kk(p) for p in t3n}) == 3:
+                    top_tris.append([tuple(p) for p in t3n])
+                    n_course += 1
+                    for a7, b7 in ((0, 1), (1, 2), (2, 0)):
+                        ecnt7[tuple(sorted((kk(t3n[a7]), kk(t3n[b7]))))] += 1
+                    print(f"top: slot at crest[{i7}] capped with its boundary "
+                          f"neighbor tri")
+                    continue
+            print(f"top: !! slot at crest[{i7}] has NO local cap -- left open "
+                  f"(will show in the culled renders)")
+        eset7 = {e7 for e7, n7 in ecnt7.items()}
+        n_miss = sum(1 for i7 in range(n_cc)
+                     if tuple(sorted((kk(crest[i7]), kk(crest[(i7 + 1) % n_cc]))))
+                     not in eset7)
+        if n_miss:
+            print(f"top: !! {n_miss} crest edge(s) STILL missing after slot repair")
+
+    # targeted 2-opt: Delaunay maximises ANGLES but not AREAS -- a sub-2u2 course tri
+    # beside a fat neighbor flips into two mediums. Crest cycle edges (the wall weld)
+    # never flip; a flip must keep the quad's plan area (non-convex folds rejected).
+    crest_cyc_edges = {tuple(sorted((kk(crest[i7]), kk(crest[(i7 + 1) % n_cc]))))
+                       for i7 in range(n_cc)}
+
+    def _sliv8(t3n):
+        ar8, ma8 = _plan_qual(t3n)
+        return 1 if (ar8 < 2.0 or ma8 < 15.0) else 0
+    n_flip8 = 0
+    for _p8 in range(6):
+        emap8 = defaultdict(list)
+        for ti8, t3n in enumerate(top_tris):
+            ks8 = [kk(p) for p in t3n]
+            for a8, b8 in ((0, 1), (1, 2), (2, 0)):
+                emap8[tuple(sorted((ks8[a8], ks8[b8])))].append(ti8)
+        did8 = False
+        for e8, ts8 in emap8.items():
+            if len(ts8) != 2 or e8 in crest_cyc_edges:
+                continue
+            tA = top_tris[ts8[0]]
+            tB = top_tris[ts8[1]]
+            if _sliv8(tA) + _sliv8(tB) == 0:
+                continue
+            oppA = [p for p in tA if kk(p) not in e8]
+            oppB = [p for p in tB if kk(p) not in e8]
+            if len(oppA) != 1 or len(oppB) != 1:
+                continue
+            eP = [p for p in tA if kk(p) in e8]
+            nA = [oppA[0], oppB[0], eP[0]]
+            nB = [oppA[0], eP[1], oppB[0]]
+            arA, maA = _plan_qual(nA)
+            arB, maB = _plan_qual(nB)
+            a_old = _plan_qual(tA)[0] + _plan_qual(tB)[0]
+            if abs((arA + arB) - a_old) > 1e-3:
+                continue
+            old_s = _sliv8(tA) + _sliv8(tB)
+            new_s = (1 if (arA < 2.0 or maA < 15.0) else 0) \
+                + (1 if (arB < 2.0 or maB < 15.0) else 0)
+            old_m = min(_plan_qual(tA)[1], _plan_qual(tB)[1])
+            if new_s < old_s or (new_s == old_s and min(maA, maB) > old_m + 1e-6):
+                top_tris[ts8[0]] = [tuple(p) for p in nA]
+                top_tris[ts8[1]] = [tuple(p) for p in nB]
+                did8 = True
+                n_flip8 += 1
+        if not did8:
+            break
+    if n_flip8:
+        print(f"top: 2-opt flipped {n_flip8} diagonal(s) against the sliver count")
+
+    # INTERIOR RELAXATION: stock's plateau interior is NOT rigidly on-grid (R1 far
+    # field: 35% off-grid, residual p90 1.22u) -- the lattice relaxes near the rim.
+    # A sliver tri's interior (non-crest) vert may move <= 1.2u to whatever position
+    # fattens its worst incident tri, accepted only if the local sliver count drops
+    # and no incident tri flips its plan winding.
+    kidx0 = {kk(p) for p in crest}
+
+    def _psign9(t3n):
+        return ((t3n[1][0] - t3n[0][0]) * (t3n[2][2] - t3n[0][2])
+                - (t3n[1][2] - t3n[0][2]) * (t3n[2][0] - t3n[0][0]))
+    n_relax = 0
+    for _rx in range(6):
+        moved9 = False
+        for ti9 in [t9 for t9, t3n in enumerate(top_tris) if _sliv8(t3n)]:
+            for p9 in list(top_tris[ti9]):
+                kp9 = kk(p9)
+                if kp9 in kidx0:
+                    continue
+                inc9 = [tj9 for tj9, tt9 in enumerate(top_tris)
+                        if any(kk(q9) == kp9 for q9 in tt9)]
+                base_s = sum(_sliv8(top_tris[tj9]) for tj9 in inc9)
+                sgn0 = [_psign9(top_tris[tj9]) for tj9 in inc9]
+                best9 = None
+                for ang9 in range(8):
+                    for rr9 in (0.4, 0.8, 1.2):
+                        np9 = (p9[0] + rr9 * math.cos(ang9 * math.pi / 4.0), p9[1],
+                               p9[2] + rr9 * math.sin(ang9 * math.pi / 4.0))
+                        cand9 = [[tuple(np9) if kk(q9) == kp9 else tuple(q9)
+                                  for q9 in top_tris[tj9]] for tj9 in inc9]
+                        if any(s0 * _psign9(c9) <= 1e-9
+                               for s0, c9 in zip(sgn0, cand9)):
+                            continue                        # a winding flip: folded
+                        ns9 = sum(_sliv8(c9) for c9 in cand9)
+                        mq9 = min(_plan_qual(c9)[1] for c9 in cand9)
+                        if ns9 < base_s and (best9 is None
+                                             or (ns9, -mq9) < best9[0]):
+                            best9 = ((ns9, -mq9), np9, cand9)
+                if best9:
+                    _, np9, cand9 = best9
+                    for tj9, c9 in zip(inc9, cand9):
+                        top_tris[tj9] = c9
+                    n_relax += 1
+                    moved9 = True
+                    break
+            if moved9:
+                break
+        if not moved9:
+            break
+    if n_relax:
+        print(f"top: interior relaxation moved {n_relax} vert(s) (<= 1.2u, the "
+              f"far-field's own off-grid envelope)")
+
+    # debug plan render of the top sheet
+    from PIL import Image as _Im
+    from PIL import ImageDraw as _Dr
+    sc9 = 900.0 / max(max(xs) - min(xs) + 8, max(zs) - min(zs) + 8)
+
+    def M9(px, pz):
+        return ((px - min(xs) + 4) * sc9, (pz - min(zs) + 4) * sc9)
+    img9 = _Im.new("RGB", (960, 960), (24, 26, 30))
+    dr9 = _Dr.Draw(img9)
+    for t3n in top_tris:
+        ar9, ma9 = _plan_qual(t3n)
+        col9 = (220, 60, 60) if (ar9 < 2.0 or ma9 < 15.0) else (90, 200, 120)
+        dr9.polygon([M9(p[0], p[2]) for p in t3n], outline=col9)
+    for i9 in range(n_cc):
+        a9 = crest[i9]
+        b9 = crest[(i9 + 1) % n_cc]
+        dr9.line([M9(a9[0], a9[2]), M9(b9[0], b9[2])], fill=(245, 220, 90), width=2)
+        dr9.text(M9(a9[0], a9[2]), str(i9), fill=(255, 255, 255))
+    img9.save(OUTD / "top_plan.png")
+    print(f"top plan debug -> {OUTD / 'top_plan.png'}")
+
+    # cycle-position maps (the sliver debug tags below use them)
+    kidx = {kk(p): float(i2) for i2, p in enumerate(crest)}
+    projpos = {}
+    print(f"top: displaced-row sheet -- {n_intact} intact + {n_course} course cell "
+          f"tris; rim displacement med {float(np.median(rim_disp)):.2f}u p99 "
+          f"{float(np.percentile(rim_disp, 99)):.2f} max {max(rim_disp):.2f}u")
+
+    # rim gate stats (RIM-AWARE-PREDICTION gates 1-3), measured BEFORE the notch fans
+    # (fans drape near-vertically; plan-quality tests do not apply to them)
+    n_sliver = 0
+    for t3n in top_tris:
+        ar2, mina = _plan_qual(t3n)
+        if ar2 < 2.0 or mina < 15.0:
+            n_sliver += 1
+            cx4 = np.mean([p[0] for p in t3n])
+            cz4 = np.mean([p[2] for p in t3n])
+            tags = []
+            for p in t3n:
+                kp = kk(p)
+                if kp in kidx:
+                    tags.append(f"C{int(kidx[kp])}")
+                elif kp in projpos:
+                    tags.append(f"P{projpos[kp]:.1f}")
+                else:
+                    tags.append("L")
+            print(f"   SLIVER at ({cx4:.1f}, {cz4:.1f}): area {ar2:.2f}u2 "
+                  f"min-angle {mina:.1f} deg  verts "
+                  f"{[(tags[q2], kk(p)) for q2, p in enumerate(t3n)]}")
+    sliver_frac = n_sliver / max(1, len(top_tris))
+    n_jump = 0
+    for i2 in range(n_cc):
+        pA, pB = crest[i2], crest[(i2 + 1) % n_cc]
+        if math.dist(pA, pB) > 7.0:
+            continue                                        # a notch bridge is long by design
+        hA = (CELL * round(pA[0] / CELL), CELL * round(pA[2] / CELL))
+        hB = (CELL * round(pB[0] / CELL), CELL * round(pB[2] / CELL))
+        if max(abs(hA[0] - hB[0]), abs(hA[1] - hB[1])) > CELL + 1e-6:
+            n_jump += 1
+    rim_gate_stats = dict(disp_p50=float(np.median(rim_disp)),
+                          disp_p99=float(np.percentile(rim_disp, 99)),
+                          disp_max=float(max(rim_disp)),
+                          sliver=sliver_frac, n_sliver=n_sliver, jumps=n_jump)
+    print(f"top: sliver frac {sliver_frac:.1%} ({n_sliver} tris; stock ring-1: 2.1%), "
+          f"home jumps {n_jump}")
     # the notch fans: [A, carried dipped run, B] closed by the bridge B->A -- carried
     # verts verbatim, so the wall's notch once-edges match without any refinement. The
     # bridge edge is subdivided EXPLICITLY at every lattice-fill vert lying on it (the
@@ -1614,7 +1910,11 @@ def main() -> int:
     for t3 in top_tris:
         for p in t3:
             db, yb, i2, t = crest_y_at(p[0], p[2])
-            if db < 0.05 and kk((p[0], yb, p[2])) not in crest_set:
+            # 3D proximity, not plan: a notch-fan vert projects onto the BRIDGE edge in
+            # plan from 5u below -- welding the wall at its plan shadow minted a phantom
+            # level vert and the round's only long once-edges (the first-run forensics)
+            if db < 0.05 and abs(p[1] - yb) < 1.0 \
+                    and kk((p[0], yb, p[2])) not in crest_set:
                 top_bverts.append((i2, t, (p[0], yb, p[2])))
     seg_pts = defaultdict(list)
     for i2, t, p3 in top_bverts:
@@ -1830,31 +2130,56 @@ def main() -> int:
                 best = (d, fl_s[q2] + t * math.dist(a2p, b2p))
         return best[1]
 
-    ST_F, H_F = 4.4, 4.6                                    # station / one fringe course
-    n_ret = 0
+    # THE MEASURED FOOT PATTERN (the rim-aware amendment, closing the dark-band bug):
+    # stock's row-10 band is INTERMITTENT (53% share, runs med 7.8u / gaps med 6.3u),
+    # one 3.7u course (round 6 minted 4.6), sampled at v phase [row 10.12 -> 11.09]
+    # (grabbing the bright grass strip past the row boundary AT the weld). Deterministic
+    # run/gap schedule with stock's medians and long-run share (52.9%).
+    ST_F, H_F = 4.4, 3.7                                    # station / one fringe course
+    RUNS_T = (7.8, 4.0, 24.7, 7.8, 4.0, 12.0)               # med 7.8 (stock: 7.8)
+    GAPS_T = (6.3, 4.3, 10.3, 6.3, 4.3, 20.9, 10.3)         # med 6.3 (stock: 6.3)
+    run_ivs = []
+    s_pos = 0.0
+    qr = qg = 0
+    while s_pos < fl_s[-1]:
+        rl = RUNS_T[qr % len(RUNS_T)]
+        run_ivs.append((s_pos, s_pos + rl))
+        s_pos += rl + GAPS_T[qg % len(GAPS_T)]
+        qr += 1
+        qg += 1
+
+    def in_fringe(s_q):
+        return any(s0 <= s_q < s1 for (s0, s1) in run_ivs)
+
+    n_ret = n_cand = 0
     ret_wall = []
     for rec in wall:
         ys3 = [r[0][1] for r in rec]
         if min(ys3) > LOWLAND + 1e-6 or max(ys3) > LOWLAND + 6.0:
             ret_wall.append(rec)
             continue
+        n_cand += 1
         cx3 = float(np.mean([r[0][0] for r in rec]))
         cz3 = float(np.mean([r[0][2] for r in rec]))
         s_c = foot_s(cx3, cz3)
+        if not in_fringe(s_c):
+            ret_wall.append(rec)                            # stock's gaps: plain mid-face
+            continue
         u0 = pu_ph + (6 + (int(s_c // ST_F) % 4)) * TILE_U
-        v0 = pv_ph + 10 * TILE_V
         s_org = (s_c // ST_F) * ST_F
         nr = []
         for (w, uv, n3, t4) in rec:
             fu = max(0.015, min(0.985, (foot_s(w[0], w[2]) - s_org) / ST_F))
             fh = max(0.0, min(1.0, (w[1] - LOWLAND) / H_F))
-            nr.append((w, (u0 + fu * TILE_U, v0 + (0.985 - fh * 0.97) * TILE_V),
+            nr.append((w, (u0 + fu * TILE_U,
+                           pv_ph + (10.12 + (1.0 - fh) * 0.97) * TILE_V),
                        n3, t4))
         ret_wall.append(nr)
         n_ret += 1
     wall = ret_wall
-    print(f"foot fringe: {n_ret} bottom-course tris retiled to the row-10 band "
-          f"(cols 6-9, fringe edge on the weld line)")
+    fr_share = n_ret / max(1, n_cand)
+    print(f"foot fringe: {n_ret}/{n_cand} bottom-course tris retiled ({fr_share:.0%} "
+          f"share; stock 53%), 3.7u course, v phase [10.12 -> 11.09]")
 
     def enrich_rim_edges(pg):
         """Insert the chords' union points into any piece edge lying on a chord, so the
@@ -2244,6 +2569,21 @@ def main() -> int:
         if n_bad > n_ok:
             fails.append(f"seam {i}: h_pairs mostly unlawful ({n_bad} vs {n_ok}) {bad}")
 
+    # THE RIM GATES (RIM-AWARE-PREDICTION.md): displacement envelope vs stock's own
+    # (med 0.80 / p99 2.41), sliver fraction vs stock's ring-1 (2.1%), zero home jumps
+    if rim_gate_stats["disp_p50"] > 1.2:
+        fails.append(f"rim: displacement p50 {rim_gate_stats['disp_p50']:.2f}u > 1.2u")
+    if rim_gate_stats["disp_p99"] > 2.5:
+        fails.append(f"rim: displacement p99 {rim_gate_stats['disp_p99']:.2f}u > 2.5u")
+    if rim_gate_stats["sliver"] > 0.03:
+        fails.append(f"rim: top-sheet sliver fraction {rim_gate_stats['sliver']:.1%} "
+                     f"> 3% ({rim_gate_stats['n_sliver']} tris)")
+    if rim_gate_stats["jumps"]:
+        fails.append(f"rim: {rim_gate_stats['jumps']} home JUMPs on non-bridge crest "
+                     f"edges (the inherited correspondence broke)")
+    if not (0.45 <= fr_share <= 0.60):
+        fails.append(f"foot: fringe share {fr_share:.0%} outside stock's 45-60% band")
+
     def outward_of(px, pz):
         d = (px - CENTER[0], pz - CENTER[1])
         L = math.hypot(*d) or 1.0
@@ -2430,7 +2770,7 @@ def main() -> int:
     print(f"census MISS=0 across {len(changed)} changed cells")
 
     # ---- renders ----------------------------------------------------------------------------
-    render(wall, top_out, cut_out, kept_out)
+    render(wall, top_out, cut_out, kept_out, crest)
 
     print(f"gates: {len(fails)} failure(s)")
     for f in fails[:10]:
@@ -2467,7 +2807,7 @@ def _cell_window(ccell, ti, tris, pre_quad, pre_ori, UF):
     return qo
 
 
-def render(wall, top_out, cut_out, kept_out):
+def render(wall, top_out, cut_out, kept_out, crest):
     atlas_p = GAME / "MoguriMain" / "StreamingAssets" / "assets" / "resources" / \
         "worldmap" / "textures" / "res(1_24)_terrain.png"
     atlas = Image.open(atlas_p).convert("RGBA")
@@ -2493,13 +2833,14 @@ def render(wall, top_out, cut_out, kept_out):
     LDIR = tuple(q / _l for q in LDIR)
 
     def render_strip(items, path, center, bearing, HW=44.0, HH=23.0, SC=12, cull=False,
-                     elev=0.0):
+                     elev=0.0, paint_culled=False):
         RW, RH = int(2 * HW * SC), int(HH * SC)
         img = Image.new("RGB", (RW, RH), (152, 178, 208))
         zbuf = np.full((RW, RH), -1e9)
         cb, sb = math.cos(bearing), math.sin(bearing)
         cph, sph = math.cos(elev), math.sin(elev)
         for tri, uvt, nrm3 in items:
+            painted = False
             if cull:
                 # THE GAME-EYE PASS: the game backface-culls by winding; the offline
                 # z-buffer does not -- round 5's cull holes were invisible here. Skip
@@ -2507,7 +2848,9 @@ def render(wall, top_out, cut_out, kept_out):
                 a3, b3, c3 = (np.array(p) for p in tri)
                 fn3 = np.cross(b3 - a3, c3 - a3)
                 if fn3[0] * cb * cph + fn3[1] * sph + fn3[2] * sb * cph <= 0:
-                    continue
+                    if not paint_culled:
+                        continue
+                    painted = True                          # debug: show culled in red
             pts = []
             for p, u2 in zip(tri, uvt):
                 rx, ry, rz = p[0] - center[0], p[1] - LOWLAND, p[2] - center[1]
@@ -2543,8 +2886,11 @@ def render(wall, top_out, cut_out, kept_out):
                     uu = w1 * pts[0][3][0] + w2 * pts[1][3][0] + w3 * pts[2][3][0]
                     vv = w1 * pts[0][3][1] + w2 * pts[1][3][1] + w3 * pts[2][3][1]
                     lam = w1 * lams[0] + w2 * lams[1] + w3 * lams[2]
-                    col2 = at_b(uu, vv)
-                    img.putpixel((px_, py_), tuple(int(ch * lam) for ch in col2))
+                    if painted:
+                        img.putpixel((px_, py_), (210, 40, 40))
+                    else:
+                        col2 = at_b(uu, vv)
+                        img.putpixel((px_, py_), tuple(int(ch * lam) for ch in col2))
         img.save(path)
 
     items = [([r[0] for r in rec], [r[1] for r in rec], [r[2] for r in rec])
@@ -2561,6 +2907,30 @@ def render(wall, top_out, cut_out, kept_out):
         render_strip(items, OUTD / f"face_{name}.png", CENTER, bearing)
     # THE GAME-EYE PASS: backface-culled, slightly elevated (game-like) views -- holes,
     # single-winding membranes, and inward-facing tris show as sky here
+    # NE-lobe forensics: the culldbg red wedge = away-facing connector tris that the
+    # game will cull, floating the lobe. Which tris, and were their verts weld-moved?
+    ne_i = max(range(len(crest)), key=lambda q9: crest[q9][0] - crest[q9][2])
+    ne_p = crest[ne_i]
+    print(f"NE lobe: crest[{ne_i}] at {kk(ne_p)}; neighbors "
+          f"{[kk(crest[(ne_i + d9) % len(crest)]) for d9 in (-2, -1, 1, 2)]}")
+    cb9, sb9 = math.cos(math.pi / 4), math.sin(math.pi / 4)
+    sph9, cph9 = math.sin(0.30), math.cos(0.30)
+    for rec in wall:
+        t3n = [r[0] for r in rec]
+        cx9 = float(np.mean([p[0] for p in t3n]))
+        cz9 = float(np.mean([p[2] for p in t3n]))
+        cy9 = float(np.mean([p[1] for p in t3n]))
+        if math.hypot(cx9 - ne_p[0], cz9 - ne_p[2]) > 7.0 or cy9 < ne_p[1] - 8.0:
+            continue
+        a9, b9, c9 = (np.array(p) for p in t3n)
+        fn9 = np.cross(b9 - a9, c9 - a9)
+        if fn9[0] * cb9 * cph9 + fn9[1] * sph9 + fn9[2] * sb9 * cph9 <= 0:
+            nrm9 = np.mean([r[2] for r in rec], axis=0)
+            print(f"   CULLED connector: verts {[kk(p) for p in t3n]} "
+                  f"geo-n ({fn9[0]:.1f},{fn9[1]:.1f},{fn9[2]:.1f}) "
+                  f"carried-n ({nrm9[0]:.2f},{nrm9[1]:.2f},{nrm9[2]:.2f})")
+    render_strip(items, OUTD / "culldbg_NE.png", CENTER, math.pi / 4,
+                 cull=True, elev=0.30, paint_culled=True)
     for name, bearing in (("E", 0.0), ("NE", math.pi / 4), ("N", math.pi / 2),
                           ("W", math.pi), ("SW", -3 * math.pi / 4),
                           ("S", -math.pi / 2)):
