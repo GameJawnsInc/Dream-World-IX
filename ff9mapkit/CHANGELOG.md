@@ -5,6 +5,42 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-coastnav`: vehicle-legality classes on a synthetic coast
+- The Southern Ring's in-game-proven coast-nav stamp (R5d sail-through seal + R5e standoff
+  belt) is a kit verb: re-derives every deployed sea override's water-triangle topograph into
+  KEEL-BLOCK 56 (under high ground — the seal) / STANDOFF BELT 55 (within 3.5u of a wall) /
+  BEACH 53 / CLIFF-FRONT 54, topo bits only, geometry and look byte-preserved. Two landability
+  policies: `land-anywhere` (the ring's plateau isles) and `cliffs-refuse` (stock grammar —
+  53 fronts beaches only, so a cliff-ringed island can be sailed to but never disembarked on).
+  `--disc`/`--mirror-disc` aware; dry-run by default.
+- The hour-class runtime is gone, killed twice over — measured on the same five cells as the
+  hour-class baseline, results byte-identical per the gate probe:
+  1. a uniform-grid triangle index under the stacked ground query (bucketed 2D AABBs, first-hit
+     order preserved exactly — calibrated 0/1500 mismatches against the linear scan): ~6×;
+  2. the real villain, found by profile, was not Python math at all: **97% of the remaining time
+     was UnityPy re-parsing p0data bundles** — on a synthetic disc the loader's stock fallback
+     rescanned every bundle per missing part (`_worldmap_env` cached only winners). The loader
+     now reads a synthetic namespace's deployed overrides directly, and a no-bundle disc is
+     memoized per process. Full five-cell pass: **635s → 0.8s**.
+- `island.landmass` (`world-island`) stamps its own cells with the navigation classes **by
+  default** after every real deploy — before the Disc-4 mirror, so parity carries the stamped
+  bytes. A fresh mint no longer ships boat-permeable straddling triangles, a missing standoff
+  belt, or a get-off-less coast. `--coastnav-policy {land-anywhere,cliffs-refuse}` picks the
+  landability language; `--skip-coastnav` opts out (A/B work only). Re-stamping is idempotent.
+- `terrain.reclaim` deliberately does NOT stamp: per the engine source a sidecar-less reclaimed
+  cell resolves to the inland donor (no sea sub-meshes) and never loads `SeaBlockPrefab`, so it
+  holds no water at all — miss-sealed at the cell edge by the invisible-wall rule, with no
+  in-cell fringe to classify.
+
+### Added — the read/write disc split reaches every world verb
+- `world-transplant`, `world-fuse`, `world-forest`, `world-hill`, `world-mountain` and
+  `world-minimap` take `--target-disc` (and, where the open-ocean probe applies,
+  `--all-sea-target`), completing the split `world-terrain`/`world-reclaim`/`world-coast`/
+  `world-island` shipped with: `--disc` stays the stock read disc, the overrides land in the
+  target namespace (9 = a Path D synthetic world). The interior verbs move their deployed-
+  island READ too, like `terrain.reshape` — before this, a carve near a synthetic island
+  silently read and reshaped whatever real disc-1 override sat at those coordinates.
+
 ### Added — `ff9mapkit floorplan`: a hand-drawn multi-room plan becomes a wired dungeon
 - One verb turns a `floorplan.json` (room outlines + declared doors, in one shared plan
   frame) into a buildable campaign: one FF9 field per room, gateways both ways, an

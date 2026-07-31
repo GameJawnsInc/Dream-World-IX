@@ -217,6 +217,9 @@ Each cost real rounds. Full record in the linked study/memory; do not re-litigat
   verbatim fork IS supported → [[project-ff9-npc-on-verbatim]].
 - **From-scratch massif SYNTHESIS** — falsified over 8 rounds. **THE FORM LESSON:** statistics reproduce
   the rock organization's measured properties, never its *look*. Use the carry (`world-mountain`).
+- **The terrace wall from the decoded tile LANGUAGE** — refuted the tile-language discriminant in 2
+  registered rounds: correct tiles on INVENTED MASSING still fail at form (the silhouette is the look's
+  carrier). → `studies/path-d-new-world/TERRACE-WALL-PREDICTION.md`.
 - **Real content through a synthetic frame is still synthesis** — killed both the v3 bend-carry and the
   dunes label-stamp. A verbatim stamp must carry the **MESH** (verts+uvs+tangents), not row labels.
 - **The beach-mint ladder** (`world-island --beach`) — falsified over 4 playtests. **SUPERSEDED, goal
@@ -273,10 +276,10 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3i ★ offline (so_record multi-part fix, 5 false PRIVATE repaired; CHANNEL A discloses 65; census/G contained) → `studies/custom-summons/tier-w/PLAN.md`
+- Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3i kit fix ★; W6b-3ii Odin ladder ★★ — channel A DRAWN, depth BPP8 cast-proven at 0.96, install back to stock → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
 - Click authoring — ★ Rungs 0-4 + rung 6 gateways owner-confirmed in-game; the floorplan composer 6a-6c built, Floorplan tab shipped → `studies/click-authoring/RUNG6.md`
-- Path D, a genuinely new 3rd overworld world — PLANNED (adversarially-reviewed, unexecuted): Rung 0/1 (debug reach + a runtime-built WorldDisc) are the pivotal unknowns → `studies/path-d-new-world/PLAN.md`
+- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a proven; junction carry into 9013 owner-confirmed identical; terrace synth CLOSED (discriminant refuted; next study = massing) → `studies/path-d-new-world/`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

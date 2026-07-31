@@ -116,7 +116,8 @@ camera; `ff9mapkit/tests/test_workspace_backdrop.py` pins the widget half. Note:
 
 ### Rung 1 — floor tracing (parity with `--trace`) ★ DONE + PLAYTESTED 2026-07-28
 Click to add polygon vertices, drag handles to adjust, pitch slider re-deriving the horizon from the
-real camera math, live outset preview (+48u `COLLISION_RADIUS_W`), then call `build_image_field`.
+real camera math, live outset preview (+48u `imagefield.COLLISION_OUTSET` — NOT `COLLISION_RADIUS_W`,
+which is 80 since 2026-07-30; the trace outset is held at 48 pending a playtest), then call `build_image_field`.
 **Verify:** `tools/gui_snap.py` → **read the PNG**; then build → `deploy_field.py --id <scratch>` →
 walk it. Parity target: the hallway photo, re-done entirely in the GUI.
 

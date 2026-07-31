@@ -1,0 +1,179 @@
+diff --git a/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs b/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs
+new file mode 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/World/WorldDiscSpike.cs
+@@ -0,0 +1,117 @@
++using System;
++using System.Collections.Generic;
++using UnityEngine;
++
++namespace Memoria.World
++{
++    /// <summary>
++    /// DWIX PATH D -- Rung 1 SPIKE (throwaway diagnostic, house style: s63-world-scene-probe / s67-rig-probe).
++    ///
++    /// Answers exactly ONE question: can a brand-new 24x20 <see cref="WMBlock"/> hierarchy be MINTED IN C# AT
++    /// RUNTIME and substituted for <c>WMWorld.WorldDisc</c> -- the single serialized Transform the whole game
++    /// hangs both existing discs off -- and survive Initialize/OnInitialize/Wrap/the block streamer? If yes, a
++    /// genuinely third overworld needs no baked Unity asset and Path D is buildable. If no, Path D falls back to
++    /// authoring a real WorldDisc AssetBundle, a capability this toolkit does not have.
++    ///
++    /// WHY THERE IS NO SMALLER VERSION OF THIS: OnInitialize's position-write loop (WMWorld.cs:450-459) walks the
++    /// full 24x20 with no null guard, so day one already needs a complete, gap-free 480-cell grid -- "just one
++    /// block" is not a reachable intermediate state.
++    ///
++    /// Remove or re-gate once the question is answered.
++    /// </summary>
++    public static class WorldDiscSpike
++    {
++        public const Int32 GridW = 24;        // WMWorld hardcodes 24x20 at :450-452, :1675, :1613-1614
++        public const Int32 GridH = 20;
++        public const Single BlockSize = 64f;  // one cell edge in world units (OnInitialize: 16384 * 0.00390625f)
++
++        /// <summary>
++        /// SESSION-ONLY, default OFF. Flipped from the debug menu's Go/World tab; never persisted, so it cannot
++        /// stay silently armed across relaunches on an install shared by many concurrent worktrees. Read once per
++        /// world load at the top of <c>WMWorld.Initialize()</c>.
++        /// </summary>
++        public static Boolean Active = false;
++
++        /// <summary>
++        /// Build a complete synthetic block grid and return its root. Caller assigns it to WMWorld.WorldDisc.
++        /// </summary>
++        public static Transform Build()
++        {
++            GameObject rootGo = new GameObject("WorldDisc_SPIKE");
++            // Identity + unparented on purpose. Nothing in WMWorld requires a parent (it only ever enumerates
++            // `worldDisc.transform`'s direct children at :1680 and `root.transform` at :1115), and inheriting a
++            // non-identity parent scale would distort every cell. OnInitialize writes each block's WORLD position.
++            rootGo.transform.position = Vector3.zero;
++            rootGo.transform.rotation = Quaternion.identity;
++            rootGo.transform.localScale = Vector3.one;
++
++            for (Int32 y = 0; y < GridH; y++)
++            {
++                for (Int32 x = 0; x < GridW; x++)
++                {
++                    // NOTHING but WMBlock children may hang off this root: BuildBlockArray (WMWorld.cs:1683-1684)
++                    // calls GetComponent<WMBlock>() on EVERY child and dereferences .InitialX with no null check,
++                    // so one stray sibling object is an immediate NRE before OnInitialize is ever reached.
++                    GameObject cell = new GameObject(String.Format("Block[{0}][{1}]", x, y));
++                    cell.transform.parent = rootGo.transform;
++                    cell.transform.localRotation = Quaternion.identity;
++                    cell.transform.localScale = Vector3.one;
++                    cell.transform.position = new Vector3(x * BlockSize, 0f, -y * BlockSize);
++
++                    WMBlock b = cell.AddComponent<WMBlock>();
++
++                    b.InitialX = x;   // BuildBlockArray :1684; LoadBlock :492-493; the s34 override key :787
++                    b.InitialY = y;
++
++                    // REQUIRED, and absent from the plan's sketch. Stock seeds these alongside Initial* (see
++                    // WMWorldPrefabMaker.cs:27-30). Left at 0, GetAbsoluteBlock (:310) returns Blocks[0,0] for
++                    // every position and DetectUnseenBlocks (:1618-1619) resolves its window around cell 0.
++                    b.CurrentX = x;
++                    b.CurrentY = y;
++
++                    // Stock row-major numbering (WMWorldPrefabMaker.cs:171-172). Deliberately NOT zeroed: a
++                    // handful of cells (31, 91, 115, 219, 389, ...) carry stock special-object cases in
++                    // LoadBlock (:569-710). On an all-sea grid they render a water shrine / quicksand / a
++                    // building floating in the ocean -- which is POSITIVE evidence that cell addressing works,
++                    // not noise. All those paths are stock and null-guarded.
++                    b.Number = y * GridW + x;
++
++                    // The whole point of the minimal payload: every cell takes LoadBlock's `if (block.IsSea)`
++                    // branch (:495), which routes to the already-in-game-proven sea / s34-reclaim path instead
++                    // of a per-cell prefab lookup that would need assets we have not authored.
++                    b.IsSea = true;
++
++                    b.IsSwitchable     = false;  // SetForm no-ops (WMBlock.cs:99)
++                    b.HasSpecialObject = false;
++                    b.IsReady          = false;
++                    b.StartedLoadAsync = false;
++                    b.IsInsideSight    = false;
++
++                    // MANDATORY, and the single most likely way this spike dies for a reason that says nothing
++                    // about WorldDisc substitution. These four are declared with NO initializer (WMBlock.cs:238-241)
++                    // and a runtime AddComponent does not run Unity's deserialization path that fills them.
++                    // LoadBlock re-creates only THREE of them (WMWorld.cs:552-555) and never Form2Transforms,
++                    // while ApplyForm() foreaches Form2Transforms unconditionally (WMBlock.cs:119-123) on every
++                    // block. Assigning all four is free -- LoadBlock overwrites three of them moments later.
++                    b.Form1WalkMeshes = new List<WMMesh>();
++                    b.Form2WalkMeshes = new List<WMMesh>();
++                    b.Form1Transforms = new List<Transform>();
++                    b.Form2Transforms = new List<Transform>();
++                }
++            }
++
++            // A landmine that has NOTHING to do with the synthetic grid but would be misread as this spike
++            // failing: with no dispatcher there is no player, so w_moveActorPtr stays the dummy character
++            // (created at WMScriptDirector.cs:32) sitting at the world origin. WMWorld parks SkyDome_Sky on it,
++            // Wrap() early-returns on the dummy so the torus never recentres the grid, and DetectUnseenBlocks
++            // then indexes Blocks[currentX - i, currentY - j] with maxDist up to 8 (:1600-1610) -> Blocks[0,-1]
++            // -> IndexOutOfRangeException. Park the sentinel mid-grid so the +-8 window stays inside the array.
++            // Write .transform.position, NOT .pos -- the pos setter also writes originalActor.pos[].
++            if (ff9.w_moveDummyCharacter != (UnityEngine.Object)null)
++                ff9.w_moveDummyCharacter.transform.position =
++                    new Vector3(12 * BlockSize + 32f, 0f, -(10 * BlockSize + 32f));
++
++            return rootGo.transform;
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+--- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
++++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+@@ -102,6 +102,18 @@
+             this.TranslatingObjectsGroup.parent = gameObject2.transform;
+         }
+         this.BlockShift = new Vector3(0f, 0f, 0f);
++        // [ff9mapkit s71-SPIKE] DWIX PATH D rung 1 (THROWAWAY): swap in a block hierarchy minted in C# at runtime
++        // instead of the one baked into the WorldMap scene. Default OFF; armed only from the debug menu, so a
++        // normal disc-1/4 load is byte-for-byte unaffected. MUST land before the BuildBlockArray call below:
++        // InitialBlocks (here) and Blocks (OnInitialize, :449) have to be built from the SAME hierarchy, or
++        // Block31/115/219, ResetBlockForms and ff9.cs's grid lookups silently address the wrong one. The real
++        // WorldDisc is left alone rather than deactivated -- its blocks are never LoadBlock'd so they render
++        // nothing, and disabling a hierarchy WMWorld may itself live under would be fatal.
++        if (Memoria.World.WorldDiscSpike.Active)
++        {
++            this.WorldDisc = Memoria.World.WorldDiscSpike.Build();
++            Log.Message("[PathD s71] WorldDisc replaced by a synthetic WorldDisc_SPIKE (480 IsSea blocks)");
++        }
+         this.InitialBlocks = WMWorld.BuildBlockArray(this.WorldDisc);
+         this.MainCamera = GameObject.Find("WorldCamera").GetComponent<Camera>();
+         GameObject original2 = AssetManager.Load<GameObject>("EmbeddedAsset/WorldMap_Local/MoveFromBundle/kWorldPackEffectSky_Sky", false);
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -1147,6 +1147,20 @@
+         GUILayout.EndHorizontal();
+         GUILayout.Label("Full reload (fades, ~1s) — lands at the state's spawn, not your exact spot. Any id 1-32767 is accepted (s70); ids outside 9000-9012 are EXPERIMENTAL and expected to fail at the EventDB lookup unless a WorldScene line registered them.", _hint);
+ 
++        // [ff9mapkit s71-SPIKE] PATH D rung 1: mint the 24x20 WMBlock grid in C# at runtime and hand it to
++        // WMWorld.WorldDisc instead of the one baked into the WorldMap scene -- the pivotal unknown of the whole
++        // Path D plan (can a third overworld's geometry exist at all without a baked Unity asset?). SESSION-ONLY
++        // and default OFF, copying the _vehicleForceAll idiom: this install is shared by many concurrent agent
++        // worktrees, so a persisted gate could stay silently armed and corrupt somebody else's disc-1/4 play.
++        // Takes effect on the NEXT world load -- arm it, then fire a "Go" above.
++        GUILayout.BeginHorizontal();
++        if (GUILayout.Button((Memoria.World.WorldDiscSpike.Active ? "[x]  " : "[  ]  ") + "Path D: synthetic WorldDisc (next world load)", _toggleBtn, GUILayout.ExpandWidth(false)))
++        {
++            Memoria.World.WorldDiscSpike.Active = !Memoria.World.WorldDiscSpike.Active;
++            Memoria.Prime.Log.Message("[PathD s71] synthetic WorldDisc spike " + (Memoria.World.WorldDiscSpike.Active ? "ARMED" : "disarmed"));
++        }
++        GUILayout.EndHorizontal();
++        GUILayout.Label("Builds 480 all-sea WMBlocks from scratch. Expect an ocean containing ONLY the reclaimed cells that already have loose Terrain.ff9mesh overrides — that is the success picture, not a bug.", _hint);
+ 
+         // [ff9mapkit] Recovery for the overworld 'no controlled actor' BLACK SCREEN (project-ff9-overworld-actor-brick).
+         Section("Recovery");
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1379,6 +1379,7 @@
+     <Compile Include="Memoria\Test\Values\Unity\Vector4Message.cs" />
+     <Compile Include="Memoria\World\WorldConfiguration.cs" />
+     <Compile Include="Memoria\World\WorldMeshOverride.cs" />
++    <Compile Include="Memoria\World\WorldDiscSpike.cs" />
+     <Compile Include="Memoria\World\WorldEffect.cs" />
+     <Compile Include="Memoria\World\WorldPlace.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncClient.cs" />

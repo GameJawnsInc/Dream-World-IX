@@ -54,32 +54,40 @@ def test_R_WALK_agrees_with_the_shared_collision_radius():
         f"kit now disagree about where the player can stand")
 
 
-def test_the_48_to_80_split_is_still_live_in_two_places():
-    """★ PINS A KNOWN-WRONG STATE ON PURPOSE, so that fixing it announces itself.
+def test_the_walk_radius_is_reconciled_everywhere_but_the_trace_outset():
+    """★ THE SPLIT, HALF CLOSED. Pins what is reconciled AND what deliberately is not.
 
-    The 2026-07-30 measurement corrected `cam.COLLISION_RADIUS_W` 48 -> 80 but deliberately did NOT
-    touch two standalone literals, because five behavior tests pin against 48 and need re-measuring
-    rather than relaxing. While the split stands:
-      * `routes.WALL_CLEARANCE_W = 48` is the OPTIMISTIC direction -- a 130u corridor measures 1820
-        standable cells at 48 and ZERO at 80 -- so the behavior-tree sweeper can certify a patrol
-        the engine physically cannot walk. (`content/pathfind.py` disagrees with itself for the same
-        reason: line 104 defaults to routes' 48, line 155 to cam's 80.)
-      * `imagefield.COLLISION_OUTSET = 48` under-outsets every traced field by 32u, so the walkmesh
-        stops short of the painted edge -- the "back edge is a bit short" symptom.
+    The 2026-07-30 measurement corrected `cam.COLLISION_RADIUS_W` 48 -> 80 and left two standalone
+    literals behind. `routes.WALL_CLEARANCE_W` was reconciled to 80 on owner sign-off, because it
+    was never an independently-derived number -- just a stale copy of the value that got measured
+    wrong -- and it erred OPTIMISTIC: a 130u corridor measures 1820 standable cells at 48 and ZERO
+    at 80, so every sweep in `routes` certified patrols the engine physically cannot walk. That flip
+    also settled `content/pathfind.py` disagreeing with itself (`route_polyline` defaults to routes',
+    `route` to cam's); both now resolve to 80.
 
-    The day someone reconciles them this test goes red. That is the point: it is the reminder to
-    update `laying-out-ff9-fields/SKILL.md`'s route-sweep numbers and RUNG6.md §6.1 in the same
-    breath, so the docs never describe a value the code stopped using."""
+    Re-measured rather than relaxed, as the reconciliation required: exactly ONE behavior test moved
+    (`test_behavior_pursuit.test_concave_notch_is_caught_with_an_exemplar_pair`, whose exemplar bound
+    had to go wall-INCLUSIVE -- an 80u step lands exactly on the notch wall where a 48u step never
+    did). RUNG6.md §6.1's estimate of five was high.
+
+    `imagefield.COLLISION_OUTSET` stays 48 ON PURPOSE. Offline it looks equally wrong (it
+    under-outsets every traced field by 32u -- the "back edge is a bit short" symptom) and flipping
+    it breaks ZERO tests, but it changes the shipped walkmesh geometry of every traced field, and
+    that is an in-game judgment nobody has made yet. It needs a traced-field playtest, not a green
+    suite. The day it flips, this test goes red -- the reminder to update the layout skill's outset
+    prose and RUNG6.md §6.1 in the same breath, so the docs never describe a value the code dropped."""
     from ff9mapkit.scene import routes as _routes
-    assert _routes.WALL_CLEARANCE_W == 48.0, (
-        "routes.WALL_CLEARANCE_W changed -- if it is now 80, reconcile the route-sweep prose in "
-        ".claude/skills/laying-out-ff9-fields/SKILL.md and drop the split note, then delete this test")
+    assert _routes.WALL_CLEARANCE_W == CAM.COLLISION_RADIUS_W == F.R_WALK == 80.0, (
+        f"the walk radius drifted apart again: routes={_routes.WALL_CLEARANCE_W} "
+        f"cam={CAM.COLLISION_RADIUS_W} floorplan={F.R_WALK} -- all three are the SAME measured "
+        f"engine constant (calibration field 30510), kept as separate literals so drift goes red here")
     assert IF.COLLISION_OUTSET == 48.0, (
-        "imagefield.COLLISION_OUTSET changed -- if it is now 80, traced fields outset correctly and "
-        "the split note in the layout skill and RUNG6.md §6.1 should say so")
-    # and the hazard the split creates, measured rather than asserted from memory
+        "imagefield.COLLISION_OUTSET changed -- if it is now 80, a traced field's back edge should "
+        "finally reach the painted floor. Confirm that IN-GAME, then update the outset note in "
+        ".claude/skills/laying-out-ff9-fields/SKILL.md and RUNG6.md §6.1 and delete this assert")
+    # the hazard the REMAINING half creates, measured rather than asserted from memory
     corridor = [(0, 0), (3000, 0), (3000, 130), (0, 130)]
-    assert F.standable(corridor, R=_routes.WALL_CLEARANCE_W), "the sweeper thinks this is walkable"
+    assert F.standable(corridor, R=IF.COLLISION_OUTSET), "the trace outset thinks this is walkable"
     assert F.standable(corridor, R=F.R_WALK) == set(), "and the engine says it is not"
 
 

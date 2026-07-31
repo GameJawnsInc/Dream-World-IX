@@ -220,20 +220,61 @@ def test_build_landmass_rock_uvs_are_wrap_safe():
     assert n_rock > 50
 
 
-def test_landmass_deploy_orchestration(monkeypatch):
-    overrides, sidecars = [], []
+def _mock_landmass_deploy(monkeypatch):
+    """Mock every write + the coast-nav stamp; returns (overrides, sidecars, stamps)."""
+    from ff9mapkit.world import coastnav as CN
+    overrides, sidecars, stamps = [], [], []
     monkeypatch.setattr(M, "deploy_override",
                         lambda bm, **k: overrides.append((bm.x, bm.y, k.get("part"))))
     monkeypatch.setattr(M, "deploy_donor_sidecar",
                         lambda dx, dy, **k: sidecars.append((dx, dy, k["x"], k["y"])))
     monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: _synth_plane())
     monkeypatch.setattr(I, "_real_block_parts", lambda blk, **k: {})
+    monkeypatch.setattr(CN, "stamp",
+                        lambda mod_folder, **k: stamps.append((mod_folder, k)) or
+                        {"policy": k.get("policy"), "totals": {56: 1}})
+    return overrides, sidecars, stamps
+
+
+def test_landmass_deploy_orchestration(monkeypatch):
+    overrides, sidecars, stamps = _mock_landmass_deploy(monkeypatch)
     s = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True)
     assert s["op"] == "landmass" and [b["block"] for b in s["blocks"]] == [[3, 1]]
     parts = sorted(p for (_, _, p) in overrides)
     assert parts == sorted(["Terrain", "Sea4", *I.HIDDEN_PARTS])
     assert all(o[0] == 3 and o[1] == 1 for o in overrides)
     assert sidecars == [(0, 0, 3, 1)]
+
+
+# --- THE COAST-NAV EMITTER DEFAULT (Path D handoff step 5) ---------------------------------------
+
+
+def test_landmass_stamps_coastnav_by_default(monkeypatch):
+    """A fresh mint must not ship boat-permeable water: the emitter stamps its OWN cells, in the
+    TARGET namespace, without per-file backups (the pre-stamp state is this call's own output)."""
+    _, _, stamps = _mock_landmass_deploy(monkeypatch)
+    s = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True, target_disc=9)
+    assert len(stamps) == 1
+    mod_folder, kw = stamps[0]
+    assert mod_folder == "MOD"
+    assert kw["cells"] == [(3, 1)], "the stamp must cover exactly the mint's own blocks"
+    assert kw["disc"] == 9, "the stamp must run in the namespace the mint deployed into"
+    assert kw["policy"] == "land-anywhere" and kw["deploy"] is True and kw["backup"] is False
+    assert s["coastnav"]["totals"] == {56: 1}
+
+
+def test_landmass_coastnav_policy_passes_through(monkeypatch):
+    _, _, stamps = _mock_landmass_deploy(monkeypatch)
+    I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True,
+               coastnav_policy="cliffs-refuse")
+    assert stamps[0][1]["policy"] == "cliffs-refuse"
+
+
+def test_landmass_coastnav_opt_out_and_dry_run_do_not_stamp(monkeypatch):
+    _, _, stamps = _mock_landmass_deploy(monkeypatch)
+    s1 = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True, coastnav=False)
+    s2 = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True, dry_run=True)
+    assert stamps == [] and "coastnav" not in s1 and "coastnav" not in s2
 
 
 def _once_edge_violations(built):
