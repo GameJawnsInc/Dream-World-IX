@@ -132,3 +132,45 @@ no base holes) — plus a punch list with coordinates:
 Within-round fixes proceeding (the fix-or-stop clause): seal the notch, un-walk its
 chute, hunt the crest flakes and seam sparkle, and pull the declared row-10 lever.
 "Stretched cliff" is the widened taper's visible cost — recorded for the scoring.
+
+## SCORED — PARTIAL; the RIM is the one junction left undecoded (2026-07-31)
+
+Playtest 2 (after the fix batch: notch sealed + unwalkable, row-10 fringe, residuals
+8→4). Owner: *"the bottom is a darker shade of cliff than the middle or top. still
+seeing issues on top with making a coherent seam around the plateau... the shape is
+still jagged and there's still floating/jutting triangles... need to think harder about
+how a rim can be formed... we've been through a couple rounds — should we stop and do
+more studying?"* Wall REVERTED; bench pristine
+(`backups/terrace-strip-prewall.20260731-003703`).
+
+**The score, against the registered semantics:**
+
+- **PASSED SILENTLY** (no complaint in either playtest of this round): the carried
+  faces, the crease SEAMS (round 5's mortar blur class — gone; no seam named in
+  playtest 2), the FOOT WELD (no base holes/dots; the fringe is present and correctly
+  placed — its SHADE is wrong, a mint-value bug, not a law failure).
+- **FAILED ON FORM, isolated to ONE junction: THE CREST RIM.** Jagged silhouette,
+  incoherent plateau seam, floating/jutting tris — through five sub-iterations of weld
+  machinery. This is the partial clause landing one junction over from where it was
+  written: strip carry works, seam grammar works, foot grammar works; RIM GRAMMAR is
+  the missing decode.
+- On the second-plumbing-stop clause: the build is watertight to 0.037% and the rim's
+  failure is now FORM of a minted junction, not open plumbing — the clause does not
+  cleanly fire, and the honest reading either way is the owner's own: STOP AND STUDY.
+
+**Why the rim keeps failing — the specific unasked question:** J1 measured the crest
+STATISTICALLY (weld rate, fringe dy, no rim tile vocabulary) but never decoded the
+rim's CONSTRUCTION: our top sheet is a 4u LATTICE CLIPPED against the crest polyline
+(arbitrary slivers, jagged flow); stock's plateau mesh at the rim may instead run an
+INSET RING of tris parallel to the crest (a coherent edge flow) — nobody has looked.
+The next study must measure, per stock wall: the rim ring's tri layout (parallel-inset
+vs lattice-clipped), silhouette statistics (plan turn / segment length / y-jitter of
+the crest ring — the jaggedness numbers ours must hit), the top-course anatomy as a
+COURSE (the grass-fringe row + first plateau ring, sizes and orientation), overhang
+bounds, and the bottom-course SHADE (which atlas rows/v-ranges stock's foot really
+wears — the fringe mint read darker than the carried mid-face).
+
+Banked regardless: the seam-weld machinery (top-aligned matching, centering, fold
+repair), the level-cut foot weld + rim union refinement, the notch bridge + fan, the
+pristine-bench guard, and the exact-partition toolset (micro-weld, T-sweep with
+topology-safe fans, and their measured tolerance/cascade envelope).
