@@ -1,13 +1,15 @@
 # W6b-3 (iii) — THE U1 SECOND-ARRAY CAST. ef038 `Shiva`, bench row 200, both halves of column 640
 
-> ★ **STATE — STAGED AND REHEARSED, NOT YET CAST. THE INSTALL IS UNTOUCHED.** The marked container is
-> built (`1f20d798…`, from stock `8f71a91b…`), the byte delta is proved exactly, the whole deploy
-> path is rehearsed against a temp folder — both ledger branches, both orders, revert twice, every
-> refusal — and five offline prediction panels are rendered. Nothing has been written to the game
-> install or to any real mod folder. `FF9CustomMap\FF9_Data\SpecialEffects\` still holds exactly one
-> entry, `ef211` (530,432 B, sha `cbcc9fde…`, the W6b-2 pool wheel, DO NOT TOUCH); **`ef038` is
-> ABSENT**, so this ladder's revert is a DELETE and the resting state after it is stock. Bench rows
-> 192–204 are live and this cast needs **no relaunch**.
+> ★★ **STATE — THE ARC IS COMPLETE AND THE INSTALL IS STOCK. U1 IS ANSWERED (§11): the engine
+> APPLIES the second array — `B_ANSWERED_A_NOT` (0.84), a +128-texel U displacement (one 8bpp
+> column, 640→704) measured on screen; the SWAPPED labelling (the halfword the container calls A is
+> the one that moves u) rides separately at 0.68; the PITCH/v axis stays unresolved.** The road:
+> cast 1 (§9) returned VISIBLE_UNBANDED; the s76 engine round + control cast (§9.3) proved it an
+> INSTRUMENT DEFECT (G1 THE PAGE-SPAN GATE — an 8bpp tpage spans all four declared cells; cast 1
+> marked two) and refuted the blit-wipe mechanism; cast 2 (§10, the four-cell repair) resolved the
+> orientation axis. Install: `ef038` deleted (= stock), `ef211` untouched, rows 192–204 stay. Owner
+> decisions live in §11 (R_UOFF re-open · kit u-displacement modelling · a pitch-axis cast 3).
+> Records: `…\u1-second-array\{castread\REPORT-U1, s76-read\REPORT-S76, cast2-read\REPORT-U1-CAST2}.md`.
 >
 > **This cast answers a question the offline round could not.** `second-array-lead/REPORT.md`
 > refuted H_V (halfword A as a universal per-slot texture V-offset) at 0.85 and left R_FLAGS (a
@@ -474,3 +476,546 @@ log archived beside them.
 6. **The byte proof is run by a second program that does not import the first**, and restates `MARKS` on
    purpose, so a drift between the probe's constants and this study's is a loud disagreement rather than
    a silent agreement.
+
+---
+
+## 9. ★ CAST 1 — RAN 2026-07-30, AND THE READ IS THE THIRD OUTCOME: **`VISIBLE_UNBANDED` (0.88)**
+
+Owner video `shiva_u1.cast1.2026-07-30.mkv` (941 unique frames), scored by two independent lenses, an
+adversarial third read that re-measured everything, and a completeness critic whose findings are
+appended to the record: `…\u1-second-array\castread\REPORT-U1.md`. Owner-facing annotated figures in
+`castread\annotated\` (`03-disc-real-vs-both-marks.png` is the one to look at).
+
+* **The column DRAWS — BOUND-NEVER-DRAWN is refuted by counting, not by attribution.** During the disc
+  window ef038 submits a median of 1,048–1,183 textured prims per frame = **61–69 % of the whole
+  column-640 pool**; the disc itself is on screen at 147k px, mean luma 190, across 14 clean frames.
+  (Per-record attribution FAILED by two methods — IoU ≈ 0.70 for every candidate — so "the star IS
+  `0x29dbc`" was never established; the verdict does not need it.)
+* **NOTHING BANDS, on either family.** The decisive instrument is pitch-, chirp- and orientation-free
+  (the near-black fraction of the surface's own added light): captured disc **0.50 %** vs **37.24 %**
+  predicted under the fine mark (74×) and **24.78 %** under the fat (50×), cross-validated against the
+  pure texture-space decode to 1.5 points. The live container carried the marks (byte-verified at cast
+  time). Per §6's discipline: **neither marked cell was sampled. C1 failed on the `nothing` branch, so
+  the cast is uninterpretable for U1 in EITHER direction** — not a FINE result, not a COARSE result,
+  and neither H_V nor R_FLAGS gains anything. The read scores §6's relaunch-and-recast retry as SPENT
+  (its R7).
+* **⚠ THE MECHANISM LEAD — `DR_MOVE` where the census says ZERO.** The probe log carries **641
+  VRAM-move-class packets** on ef038 in two contiguous blocks (effect frames 86–138 and 237–380); the
+  static direction-law census records NONE for ef038, and its walk reached only 44.98 % of the program
+  image. **The first block completes BEFORE any scored surface appears** — an early VRAM blit over the
+  (640,256) page rect would wipe both marks and produce exactly this cast. It also voids the
+  texanim-disjointness argument's premise (not its conclusion). `DR_TPAGE` is logged with no payload
+  word (41,539 bare rows), which is why record-level segmentation and the twin-pair co-draw question
+  stay open.
+* **Instrument lessons, kept:** both first-pass scorers used flat matched filters that a 5:1 chirped
+  mark defeats outright (injected: scored 0.64 vs the real frame's 2.57) — their negatives were right,
+  their reasoning was not safe; the area-fraction statistic honors the §5 "do not count bands" clause
+  by construction. The critic's pitch-clamp finding (H=240) invalidates the adversarial pass's own
+  secondary corroboration and one figure caption, not the verdict. The §5 "cast it FIRST" condition was
+  violated on its face (the capture opens mid-battle); mitigation recorded in the report.
+* **The control family is structurally weak without a stock reference**: the `0x3d40` cell is already
+  28.8 % transparent, so its hole-comb moves a statistic ~1.9× against a baseline this arc has never
+  captured. What carries the control read instead: C2 (one rect, one upload — the 20 answer readers are
+  decisively unmarked) and optical suppression by the bright twins.
+
+### 9.1 Next steps, in cost order — the first one changed
+
+1. ~~**⚠ ENGINE (owner GO/NO-GO — DLL rebuild): log the `DR_MOVE`/`MoveImage` payload rects**~~
+   **→ ★ DONE — owner said GO; s76 BUILT + DEPLOYED 2026-07-30** (`memoria-patches/
+   s76-sfx-state-payload.patch`, one file, +67/−6, additive-only on the CapturePrims gating; both
+   arches sha `b6ce810f…`; pre-build backup `20260730-222511`; 0 committed parsers break — the one
+   break was the SCRATCH `a22_drawproof.py` `endswith` idiom, which would have failed SILENTLY TO
+   ZERO on the next capture and is fixed in place; full record in the README row). `DR_TPAGE` rows
+   now carry `tpage,tx,ty,abr,tp,len` (the marked page (640,256) = `tx=10,ty=1`) and `DR_MOVE` rows
+   carry their rects — **a block of `SS` rather than `MV` packets would REFUTE the blit mechanism,
+   not confirm it**. RELAUNCH required (DLL change), then the §9.2 control cast.
+2. **Dump the emulated VRAM page at (640,256) at cast time** and diff against the two marked cells —
+   separates a wrong cells→VRAM mapping from a runtime overwrite from a cached decode.
+3. **A STOCK reference cast of ef038** (probe already reverted; recast + capture) — the only thing that
+   ever makes the A=0x0000 control family scoreable on its own pixels.
+4. **Only then** the §6.2 fallback vehicles (ef407 first) — every one inherits the same unproven
+   cells→VRAM→sampler link this cast just exposed.
+5. **Do NOT bundle the §4.4 second leg** (flip A, watch blend state). One change per in-game test; this
+   cast has not earned that step.
+
+### 9.2 The s76 control cast — the next in-game step (LOG-ONLY, no video needed)
+
+**RELAUNCH FF9 first** (a DLL rebuild is a relaunch case; the game was closed for the build, so the
+next launch picks s76 up). The install is stock — the probe is NOT deployed, on purpose: the control
+cast asks what stock ef038 does to VRAM, with nothing of ours in the way.
+
+1. Warp `30301` → STEINIV → `Rune` → **"Stock Shiva"** (row 200), fresh encounter, FIRST action.
+2. **Archive `sfxmeshprobe.log` to `capture-logs\` immediately** — this read is entirely in the log.
+3. THE READ: the `STATE` rows now carry payloads. Under the blit hypothesis, `MV`-class `DR_MOVE`
+   rows appear in the early block (effect frames ~86–138) with **destination rects intersecting the
+   marked page — `tx=10, ty=1` in `DR_TPAGE` terms, VRAM (640,256)–(703,383)** — before any scenery
+   draws. Moves that never touch that rect, **or a block of `SS` rather than `MV` packets, REFUTE
+   the blit mechanism** and the search moves to the cells→VRAM-mapping / cached-decode branches
+   (next steps 2–3 above). Either way the twin-pair co-draw question gets its answer free from the
+   `DR_TPAGE` code words.
+4. Only as a separate second test (one change per cast): redeploy the probe
+   (`py u1_cell_probe.py --deploy`, no relaunch) and recast — the marked cast, now fully
+   instrumented.
+
+**Resting state:** ef038 override DELETED (= stock, verified), `ef211` untouched, rows 192–204 on the
+bench, video + frames + all analysis under `…\repaint-w6b\u1-second-array\`, the `[SfxProbe]` log
+archived in `capture-logs\`. **No constant moved; `ORDER_UNMEASURED` ships exactly as it was.**
+
+### 9.3 ★★ THE s76 CONTROL CAST — READ AND ADJUDICATED. The mechanism is an INSTRUMENT DEFECT, and the census was the wrong instrument
+
+Stock ef038, probe NOT deployed, log-only, after the s76 relaunch. Log archived at
+`capture-logs\sfxmeshprobe.s76-control-cast.log` (24 MB, 485,919 rows). Read by a verifier pass and an
+explainer pass, then adjudicated — the load-bearing numbers re-run from the saved scripts and, with two recorded
+exceptions (the gate-ladder chain and the 76/76 repair claim were re-run from the explainer's own
+scripts, not independently re-implemented), re-derived by an independent third parser; the critic's
+full findings ride the report as an addendum. Scripts + JSON: `…\u1-second-array\s76-read\`
+(`verify\`, `explain\`, `adjudicate\`). **No constant moved. Nothing written to the install, the repo,
+or the Memoria clone.**
+
+**THE THREE CENSUS FACTS.**
+
+* **`DR_MOVE`: 641 rows on ef038, every one `MV`** — real VRAM blits, no framebuffer grabs. `path`
+  re-derived from `SFXRender.cs:464` rather than trusting the logged token: **0/641** disagreements.
+  The `SpecialEffect.Slow` `ry` adjustment (`:466-467`) is doubly inapplicable — it lives inside the SS
+  branch, and `Slow = 126 ≠ 38`. The same 641 appear in the U1 cast: **the move stream is invariant
+  between the marked and stock casts.**
+* **The traffic is THREE scrolling-texture animations, not a wipe.** Block 1 (f86-138, **105** moves)
+  rolls a strip horizontally at −2 px/frame on pages tx=8/9. Block 2 (f237-380, **536** moves) is two
+  vertical barrel rolls: column 640 at +1 row/frame (**284** moves; lower cell = read-only MASTER →
+  upper cell = write-only COPY) and column 704 at +2 (**252** moves, mirror direction), phase-locked at
+  f254. **The parent's 357 and 284 were both wrong** — 357 = 105 + 252, two different blocks on two
+  different page pairs; its exemplar dest ranges `(512,514)`/`(512,536)` do not occur at all.
+* **`DR_TPAGE` never names tx=10 — anywhere.** Whole-log histogram over all 41,607 rows, all effects:
+  `tx ∈ {0, 6, 7, 13}`. The parent's five ef038 classes reproduce to the row (bitfields re-derived from
+  the raw word, 0 mismatches). Counts EXACT.
+
+**⚠ THE HEADLINE INFERENCE IS REFUTED — and by one bit, not by attribution.** `SFXKey.GetCurrentABRTex`
+(`SFXKey.cs:19-30`) is the ONLY consumer of the `DR_TPAGE` state, and a tree-wide grep gives it exactly
+ONE call site: `SFXRender.cs:400`, the `SPRT` path — which **unconditionally** ORs `FILTER_BILINEAR`.
+The six textured-polygon paths (`:342, 349, 356, 364, 372, 380`) call
+`GetABRTex(code, clut, tag->tpage)` — the primitive's OWN page word — and never touch `currentTexPage`.
+The probe already logs that key (`keyHex = SFXMeshBase._key`). So **a textured MESH key with zero
+FILTER bits provably did not come from the `DR_TPAGE` channel.** Partitioning ef038's 9,200 MESH rows
+on that bit, with no residue:
+
+| channel | meshes | pages |
+|---|---|---|
+| SPRT (provably `DR_TPAGE` state) | 3,914 | tx=6, tx=7 |
+| POLYGON (provably own `tag->tpage`) | 4,437 | tx=3, 4, 5, 7, **8**, **10** |
+| untextured (`GetCurrentABR`) | 849 | tx=0 |
+
+**`SPRT_pages == the census's textured pages` → `true`.** Not inference — set equality. **The
+`DR_TPAGE` census IS the SPRITE census**, and must be renamed as such wherever §9 or any W6b-2 text
+quotes it; reading it as the effect's page ledger is what produced the relocation hypothesis. The
+verifier's paradox (pages selected ∩ pages moved = ∅) dissolves: `DR_MOVE` writes tx=8 and tx=10, which
+are exactly the two polygon-channel pages carrying animation, and the per-frame `ClearKey`
+(`PSXTextureMgr.cs:243`) is paid for readers that genuinely exist. tx=9/tx=11 have no key because an
+8bpp page is two columns wide and they are the high halves of tx=8/tx=10.
+
+**★ THE MARKED PAGE DREW. `tx=10, ty=1, 8bpp`, CLUTs `0x3DC0` (573 meshes, 112,354 tris, f214-361) and
+`0x3D40` (190 meshes, 24,902 tris, f214-278)** — 763 meshes in the stock cast, **661 in the marked U1
+cast** — at the bound page, the bound depth, and *exactly* the two CLUTs the 27 so-records declare.
+**BINDING-IS-NOT-A-DRAW is not the explanation, and the vehicle was never the problem.**
+
+**★ THE ACTUAL DEFECT — G1, THE PAGE-SPAN GATE.** `GetTexture` builds every page as **256×256 texels**
+(`PSXTextureMgr.cs:179`), and `CreateBufferColor32` steps `w>>2 / w>>1 / w` halfwords per row at
+4/8/15 bpp from base `TX<<6`, `TY<<8` (`PSXTexture.cs:44-45, :51/:71/:91`). So **tpage
+`tx=10,ty=1,tp=1` = VRAM x 640..767, y 256..511 = ALL FOUR declared cells** — (640,256), (640,384),
+(704,256), (704,384), each a real 32 KB id-0 rect (payload offsets `0x146c…0x2146c`, `0x8000` apart).
+**U1 marked TWO.** The MESH key names the page; only `u,v` choose the cell. A reader at `u ≥ 128`
+samples column 704 — uploaded, blitted 252×/cast, and unmarked, hence indistinguishable from "not
+sampled". Column 704 has no direct binder anywhere in ef038, so the only page word in the whole cast
+that can address that 32 KB rect is tx=10 with `u ≥ 128`. Something reads it.
+
+**THE BLIT WIPE — REFUTED AS STATED, and insufficient in any form.** Block 1 tops out at **x=639** on
+both source and destination, one halfword short of 640; §9.2's own falsification criterion is met.
+Block 2 *does* overwrite the entire upper marked cell on 143 consecutive frames from f237 — a real
+confound the parent under-read, and one that would have collapsed the 12-THIN/4-FAT discriminant for
+the whole back half of the effect — **but the marked page is sampled on f214-236, before the first
+blit**: 164 meshes / 31,330 tris (stock), **134 meshes / 24,917 tris in the marked cast**. Substitution
+of one mark for the other cannot produce ZERO. The tx=10 keys carry no FILTER bit — point sampling —
+so nothing was blurred away either.
+
+**THE CORRECTED VEHICLE CRITERION.** Old: *P=1, 8bpp, A=0x0080, forced part, no wrap.* Add:
+
+* **G1 — page span.** `span_cols = {4bpp:1, 8bpp:2, 15bpp:4}` columns of 64 halfwords from `tx*64`.
+  Passes iff **exactly one** column in the span is a declared rect — **or** the instrument marks
+  **every** declared column in the span.
+* **G2 — cell completeness.** Both 128-row cells of every such column are declared (U1 satisfied this
+  for 640).
+
+Pure container arithmetic — no cast, no engine. **ALL SIX §6.2 FALLBACKS FAIL G1**: ef038 `0x29dbc`,
+ef407 `0x2a8c8`, ef498 `0x57620`, ef179 `0xa8ce8`/`0xa6a08`/`0xa4728`, ef381 `0x80820` — every one 8bpp
+with a declared second column. And the list was not unlucky, it was **doomed by construction**: over
+649 binding slots, 8bpp = 393 → `+A=0x80+P=1` = **76** → **`+G1` = 0**, because **364 of 393** 8bpp
+bindings span two declared columns. The sketch required 8bpp (so OFFSET==SELECT), and 8bpp is exactly
+the depth at which a page covers two columns.
+
+**★ THE REPAIR — and it does not need a new vehicle.** Mark **all four cells of the page** with four
+distinct gratings. **All 76** candidates pass, ef038 included. Same one cast, four marks instead of
+two, and it upgrades the read from a 2-way to a **4-way** discriminator — resolving A (the v axis) and
+B (the u axis) together. ef038 stays cheapest: bench row 200, no `Actions.csv` row, no relaunch.
+
+**CHANNEL P — at the altitude the evidence supports.** P is **silent on ef038 and on ef211** (0 op-22
+`Hi_RegisterTexEffModel` const-folded hits each, of 233 across 77 containers — figures CARRIED from
+the prior round's `texel-w6b\w6b2	page_sweep.json`, critic-confirmed against that artifact but not
+re-derived this round), so the intended
+cross-check **cannot be run**. P and G are near-disjoint by construction — 77 P-containers vs 80
+G-containers, overlap 13; ef038 and ef211 are both G-only — which is why P was DISCLOSE-only. They are
+not rivals for the sampled-page question either: op-22 registers a *model's* page word, the same class
+`tag->tpage` carries, so **P and G both speak for the POLYGON channel while the census speaks for the
+SPRITE channel**. What can be said, and only this: on the **one** container where a runtime
+sampled-page census now exists, all **8** of ef038's declared `(tx,ty,tp,clut)` signatures are real
+draws at the declared page, depth and CLUT — **BINDING-IS-A-DRAW held 8/8**, an observation on one
+container, not a corpus law. **"P DISCLOSES vs G LICENSES" survives unchanged; no posture change is
+recommended, and any would need a second container. Owner's call, flagged not made.**
+
+**HONEST LIMITS — what one stock cast cannot establish.**
+
+1. **Which of the four cells was sampled.** The MESH key names page + depth + CLUT. It carries no
+   `u,v`. Everything about *which cell* — the whole G1 story included — is inference from geometry,
+   not measurement.
+2. **H_U is a HYPOTHESIS, labelled as such.** That halfword B is a per-slot U displacement **in
+   texels** is consistent (224/224 non-zero-B slots keep `u` inside the page; at 8bpp `B=128` lands
+   exactly on the second column in 153/153, a declared rect in 150/153) and scores both in-game results
+   (ef211's dome A=0,**B=0** → marks SEEN; ef038's disc A=128,**B=128** → marks UNSEEN). It is **not
+   proven.** Contrary datum, stated: ef038's **7 A=0/B=0 control readers** (clut `0x3D40`, 161 meshes
+   in the marked cast) should still have shown their marks — unless the operator scored that family's
+   HOLE-class marks as blank, which §5 warns about in writing. **Re-opening R_UOFF in
+   `second-array-lead\REPORT.md` §3 is an owner call** (its closure rests on "both u-shift conventions
+   move slots OFF declared columns", which is false under the texel convention).
+3. **Neither log proves the U1 override was resident during the marked cast.** A zero-writing probe is
+   invisible to row counts by design; the two casts differ ~7-13 % in mesh counts with identical frame
+   ranges (48..391). Ordinary variance, but not residency proof — closable with a one-byte non-zero
+   canary in an unbound corner of the rect.
+4. **Not re-derived:** the CLUT strips (`0x3D40` → VRAM (0,245), `0x3DC0` → (0,247)) are not among
+   ef038's 12 declared rects; whatever uploads them was not traced, and the probe's entry-0 colour
+   derivation depends on it.
+5. **Two labelling defects in `explain\mesh.keys.json`** (headline unaffected, recorded so no one
+   re-quotes them): its `tris` column is a `(tx,ty,tp)` PAGE aggregate printed in a per-key row (true
+   per-key for the marked page: `0x3DC0` = **112,354**, not 137,256; `0x3D40` = **24,902**), and its
+   "18 distinct keys" is a `(tx,ty,tp,clut)` collapse of **20** real keys — discarding exactly the
+   FILTER bit that settles the round.
+
+**NEXT STEP — one, and it is cheap.** Re-cast U1 on ef038 with **all four cells of page tx=10 marked**
+— `(640,256) (640,384) (704,256) (704,384)`, four distinct gratings. Same vehicle, same protocol, no
+relaunch, no engine change, no constant moved. Bracket it with the **MESH-key preflight** (free, needs
+no new patch): one stock log-only cast, decode `MESH keyHex` bits 16-22 + 0-14, require the candidate's
+`(tx,ty,tp,clut)` to appear — strictly stronger than the `DR_TPAGE` census, and it would have caught
+this round before a container was written. **The proposed s77 `tag->tpage` probe is UNNECESSARY** — the
+MESH key already gives the page. If H_U is ever to be settled from a log rather than a screen, the
+thing to log is `tag->u0..u3 / v0..v3` on `SFXRender.cs:342-380`.
+
+**Resting state:** unchanged from §9.2 — ef038 override DELETED (stock), `ef211` untouched, rows
+192-204 on the bench. **No constant moved; `ORDER_UNMEASURED` ships exactly as it was.**
+
+## 10. ★ CAST 2 — THE G1 REPAIR, STAGED. Four marks, two axes, one cast, no new vehicle
+
+§9.3's "NEXT STEP — one, and it is cheap" is built and byte-proven, and it is staged only: **nothing is
+deployed, the install is still stock** (`FF9CustomMap\FF9_Data\SpecialEffects\` holds exactly `ef211`,
+530,432 B; no `ef038`), the repo is clean, and **no constant moved — `ORDER_UNMEASURED` ships exactly as
+it was.** Everything below is derived at the machine with a citation; nothing is restated from memory.
+
+**Staged sha `424761cd4a1e77620472e9ca70107322f402f2cf037c5cb7fc46e0bdec8da46e`, 555,008 B.**
+
+### 10.1 The four marks, and why each is what it is
+
+Cast 1 marked two of the four cells the page spans. Cast 2 marks all four, and spends the extra pair on a
+SECOND axis rather than on more of the same one:
+
+| cell | (A?, B?) | mark | duty | what a surface showing it says |
+|---|---|---|---|---|
+| `cell.s0.x640_y256` @`0x1946c` | (no, no) — **the control cell** | **COARSE VERTICAL**, 4 × 12 texels | 48/128 | neither halfword moves the sample |
+| `cell.s0.x640_y384` @`0x1d46c` | (yes, no) | **FINE VERTICAL**, 12 × 4 | 48/128 | A moves it, B does not |
+| `cell.s0.x704_y256` @`0x2146c` | (no, yes) | **COARSE HORIZONTAL**, 4 × 12 | 48/128 | B moves it (H_U), A does not |
+| `cell.s0.x704_y384` @`0x2546c` | (yes, yes) | **FINE HORIZONTAL**, 12 × 4 | 48/128 | both are applied |
+
+**ORIENTATION answers B and PITCH answers A, independently.** Duty is EXACTLY equal on all four — 37.5 %
+— so neither axis has a brightness covariate and §5's DO-NOT-COUNT clause is strictly stronger than in
+cast 1 (which ran 37.5 % against 25 %). COUNT 3:1, THICKNESS 1:3, and all six pairs are checked distinct
+by code.
+
+**Orientation carries the COLUMN axis because of the barrel roll, not in spite of it.** A vertical roll
+copies whole rows, so it translates a horizontal grating — same pitch, moving phase, it CRAWLS — and
+leaves a full-height vertical stripe PIXEL-IDENTICAL. So a column's orientation is on screen in every
+frame and the roll cannot touch it, while a COPY cell's pitch becomes its master's at the roll onset.
+Master and copy of a column must therefore share an axis; the probe refuses loudly if they ever do not.
+**Column 704 gets the roll-visible HORIZONTAL orientation on three measured grounds**: it is where the
+answer class lands if H_U holds, it rolls at +2 rows/frame against 640's +1, and its pre-roll window is
+the longer one (f214..253 against f214..236). Column 640 gets VERTICAL, which leaves the control a
+stable, never-scrolling grating whose pitch flips ONCE, at exactly f237 — a temporal signature that the
+marked page is what is on screen.
+
+**The pitch pair is chosen against a measured blur curve, not taste.** At the derived on-screen scale the
+FINE class's near-black lift over stock is 33.8 / 24.0 / 12.9 / **0.65** points at σ = 0 / 1.5 / 3 / 4
+screen px, while COARSE holds 35.7 / 32.4 / 28.0 / 25.0 and is still at 19.6 by σ = 6. Of every
+equal-duty candidate pair, 12 × 4 against 4 × 12 keeps the largest separation at every sigma while
+keeping four features rather than three. (Recorded disagreement: §9's report gives 3.93 % for the fine
+mark at σ 1.5; that pass blurred the texture-space decode, roughly 3× harsher than screen px at this
+scale. `cast2\build\blurprice.derivation.json`.)
+
+**On-screen scale, from cast 1's own disc.** The disc `0x29dbc` samples 15,053 distinct texels and cast 1
+measured its mask at ~147,000 px → 3.12 px per texel. A FINE feature is ~12.5 px on a ~33 px period; a
+COARSE one ~37.5 px on a ~100 px period — both inside the 8–130 px band cast 1's sweep could resolve.
+
+**Nothing is starved**, measured over all 27 readers: the worst-case fraction of a reader's faces
+crossing a feature is 89.5 % / 97.2 % / 92.1 % / 97.2 % on the four cells.
+
+⚠ **"VERTICAL" AND "HORIZONTAL" ARE TEXTURE-SPACE WORDS.** Each surface's UV mapping decides where they
+land on screen, and on the orb they land nearly horizontal in both classes. What is projection-
+independent — and is the actual claim — is that the two orientation classes differ by NINETY DEGREES ON
+THE SAME SURFACE under any camera. Score against the §10.5 panels, never against the words.
+
+### 10.2 The control, rebuilt — and cast 1's contradiction addressed
+
+§9.3's honest limit 2 recorded a contrary datum: the 7 A=0/B=0 controls should have shown their marks and
+did not, on an instrument that moved a 28.8 %-transparent baseline by ~1.9× against a stock reference
+this arc has never captured. Cast 2 does not argue with that; it re-instruments it.
+
+* **A threshold-free statistic with a stock floor of ZERO.** Under `0x3d40` the stock control cell has **0
+  of 128 fully-transparent COLUMNS** and 4 fully-transparent ROWS — which is why the control's mark is
+  VERTICAL and not horizontal. Marked, it has **48**. Secondary: opacity 71.2 % → 45.2 %, near-black area
+  fraction 47.41 % → 63.81 %.
+* **The COARSE class for the control**, because a 12-texel feature is ~37.5 screen px and survives the
+  blur that erases a 4-texel one (§10.1).
+* **A BRIGHT-FAMILY COLUMN CONTROL, which cast 1 did not have at all.** The column-640 census splits three
+  ways once B is read: **(A,B) = (0,0) × 7, (0x80,0) × 1, (0x80,0x80) × 19**. That single (0x80, 0x00)
+  slot is the wrap reader `0x79168`, on the OPAQUE `0x3dc0` palette: B cannot move it, so it must show a
+  VERTICAL grating on the answer family's own palette in every frame. Score its orientation only — its v
+  runs to 255, so its pitch is mixed by construction.
+* **From f237 the control cell shows the master's FINE vertical stripes** — still VERTICAL, and the pitch
+  change AT f237 is itself evidence the marked page is being sampled.
+
+### 10.3 The residency canary — §9.3's honest limit 3, closed
+
+One non-zero block per cell: **ink index 247 (`0xf7`)**, derived as the brightest index OPAQUE under BOTH
+of the column's CLUTs — rgba(164,172,172) luma 169 under `0x3dc0`, rgba(156,172,172) luma 167 under
+`0x3d40`. ~144 texels per cell, at a per-cell corner, **shaped to fit between that cell's own stripes** (a
+coarse cell leaves 20-texel gaps → 12 × 12; a fine one leaves 7 → a 7 × 21 bar), inside the sampled row
+span, and provably disjoint from every stripe. It moves a BRIGHT-tail statistic, orthogonal to the
+near-black statistic the marks move. **It is not part of the read**, and the emitted protocol says so in
+capitals — but a bright patch anywhere on an ef038 scenery surface proves the override was live in the
+process, which no row count can.
+
+### 10.4 The 4-way outcome, and what each branch is worth
+
+| (A?, B?) | cell | clean window f214..236 | after the roll |
+|---|---|---|---|
+| (no, no) | (640,256) | COARSE VERTICAL | FINE VERTICAL from f237, static |
+| (yes, no) | (640,384) | FINE VERTICAL | unchanged — MASTER |
+| (no, yes) | (704,256) | COARSE HORIZONTAL | unchanged — MASTER, STATIC |
+| (yes, yes) | (704,384) | FINE HORIZONTAL | COARSE HORIZONTAL from f254, **CRAWLING +2 rows/frame** |
+
+On the answer family's `0x3dc0` the near-black area fraction moves 4.33 → 38.90 % (9.0×), 1.78 → 37.73 %
+(21.2×), 0.49 → 37.55 % (**76×**) and 0.45 → 37.58 % (**83×**) on the four cells — the 704 pair has the
+cleanest baseline in the container, so the H_U-positive outcome carries the strongest signal.
+
+**ORIENTATION IS VALID IN EVERY FRAME. PITCH IS VALID IN THE CLEAN WINDOW** (f214..236, where both CLUT
+families draw: 67/67 meshes, 24,917 tris in the marked cast), **and after it only on column 704 and only
+by MOTION.** A late capture answers B and may not answer A — which is still a strict gain over cast 1,
+which answered neither. So: **capture from the very start of the effect.** §5's "cast it FIRST and ALONE"
+was violated on its face last time.
+
+* **HORIZONTAL on the answer class** → B is applied, cast 1's null is fully explained, and **R_UOFF in
+  `second-array-lead\REPORT.md` §3 must be re-opened** (its closure rests on a claim §9.3 shows is false
+  under the texel convention). Pitch then says whether A is applied too.
+* **VERTICAL on the answer class** → H_U refuted on this container; A alone answers, on pitch, exactly as
+  cast 1 intended.
+* **Orientation clear, pitch ambiguous** → B answered, A not. Report it that way; do not round it.
+* **Control family blank** → not interpretable. Discard, as in cast 1.
+* **VISIBLE but UNGRATED on every class** → cast 1's third outcome again — but with all four cells of the
+  page marked **G1 can no longer explain it.** What is left is a displaced upload, a cached decode, or a
+  cells→VRAM mapping that is not what the container declares, and the canary separates "resident but the
+  marks are elsewhere" from "not resident".
+* **The confound is unchanged**: A is perfectly confounded with CLUT and blend (20/20, 7/7) and B nearly
+  so (19 of 20). The reportable claim is always *"something in the second array moves the sampled CELL"*,
+  never "H_V confirmed" or "H_U confirmed".
+
+### 10.5 What is staged, and where
+
+| artifact | path |
+|---|---|
+| the instrument (to move into tier-w) | `…\u1-second-array\cast2\u1_cell_probe.py` |
+| marked container + PROTOCOL.txt + derivation | `…\u1-second-array\cast2\cellprobe\` |
+| prediction panels (5 PNGs) | `…\u1-second-array\cast2\predict-cast2\` |
+| build/derivation harness — **not part of the shipped file** | `…\u1-second-array\cast2\build\` |
+
+```
+py u1_cell_probe.py                     # CAST 2 (default): stages container + protocol + derivation
+py u1_cell_probe.py --cast 1 --root <d> # regenerate cast 1's container byte-for-byte (regression)
+py <scratch>\cast2\build\verify_bytes.py        # the INDEPENDENT byte proof (does not import the probe)
+py <scratch>\cast2\build\roll_check.py          # the ROLL constants, re-derived from the s76 read
+py <scratch>\cast2\build\predict_u1_cast2.py    # the five prediction panels
+py <scratch>\cast2\build\derive_design.py       # every design number, with its citation
+py <scratch>\cast2\build\derive_blurprice.py    # the blur curve that picks the pitch pair
+```
+
+**The panels** (`predict-cast2\`) render every surface from its own GEOM UV stream under all four
+hypothesis pairs, plus a **pre/post-f237 sheet** showing the roll's effect on each read. The sampler IS
+G1: one 256 × 256 page assembled from the four cells, sampled at `page[(v + A_on·A) % 256][(u + B_on·B)
+% 256]`. **A and B are parameters, never the constant 128** — cast 1's one renderer defect — and the
+sheet computes and prints the proof: the (A=0, B=0) controls are **pixel-identical across all four
+panes**, diff 0.
+
+**Location independence is proven, not asserted**: run from a simulated tier-w layout (temp dir plus a
+junction to the real kit, with both roots resolving inside it) the container sha is `424761cd…`,
+identical to the SCRATCH staging, and the two PROTOCOL.txt bodies diff clean apart from their path lines.
+
+### 10.6 The byte proof
+
+```
+AUTHORED          25,158 B  =  24,576 stripe  +  582 canary
+stripe ∩ canary        0 B
+already 0x00 in stock  143 stripe bytes;  already the ink: 0 canary bytes
+CHANGED vs stock  25,015 B  =  4.507 % of the container
+outside the authored sets 0 · missing 0 · wrong-value 0
+SET EQUALITY  changed == {o ∈ stripes : stock[o] ≠ 0} ∪ {o ∈ canary : stock[o] ≠ ink}  →  True
+length 555,008 → 555,008;  the probe still parses as an `so` container
+0 changed bytes lie outside the four marked cells
+```
+
+Run twice: once inside the probe, once by `verify_bytes.py`, **which does not import it and restates
+`MARKS`, the canary geometry, the joint census and the page span on purpose** — so a drift between the
+instrument's constants and this study's is a loud disagreement rather than a silent agreement. Both agree
+exactly.
+
+### 10.7 What the pins gained, and what the rehearsal exercised
+
+`pin_source` still refuses by name, by stock sha, by both 640 cells' depth/channel/offset/cover, by the
+column-640 slot count and A histogram, and by the wrap-record identity. Cast 2 adds four, and **each was
+exercised by defeating it one at a time**: the **B and joint (A,B) histograms**; **column 704 must have
+ZERO binding slots**; the 704 pair's **file offsets plus the kit's own DEPTH-UNKNOWN REFUSAL, pinned
+positively** (a container where they resolve has a second-column binder and needs the G1 argument
+re-derived); and the **page span itself**, with the byte↔texel map asserted over all 256 texels of the
+page. ★ ef407, the structural near-clone, is refused under BOTH casts.
+
+The deploy rehearsal (§1 item 7, against a temp folder the game never reads) ran twelve gates green:
+both ledger branches, both ORDERS including the §8.2 stale-snapshot order, revert twice on each, the
+`ModFileList.txt` refusal with zero files written, both foreign-`--from` refusals, the structural pins
+with the sha pin defeated, the four cast-2 pins defeated one at a time, and the `--cast 1` guard rails.
+**`--cast 1` refuses `--deploy` outright and refuses to run without an explicit `--root`** — its default
+root holds the artefacts §9's read was scored against, and regenerating over them would replace the
+artefact with a reproduction of it.
+
+### 10.8 The revert ladder — unchanged, with one addition
+
+Unchanged from §7, with **a per-CAST staging root** (`…\cast2\cellprobe`) because the ledger markers and
+the emitted revert live in the root and two casts must never share one. `ef038` is ABSENT now, so the
+ledger will record `pre.existed = false`, the revert **DELETES**, and the resting state afterwards is
+stock. **Revert BEFORE any `summon-reskin deploy` touches this root** — §2, THE LEDGER TRAP. Cast 1's own
+root and its `revert_probe.py` are untouched and stay consistent.
+
+**Resting state while this is staged:** ef038 override ABSENT (= stock, verified), `ef211` untouched, rows
+192–204 on the bench, every cast-2 artifact under `…\u1-second-array\cast2\`. Nothing was written to the
+install, the repo or the Memoria clone.
+
+### 10.5 Verifier corrections (C1-C6) and residual risks — THE READING RULES, folded before any scoring
+
+**All six corrections are wording-level; none changes a container byte. C1 and C2 are load-bearing for
+the read and the scorer must honor them over any conflicting sentence in PROTOCOL.txt or the draft
+above** (recorded verbatim in `…\cast2\PROTOCOL-CORRECTIONS.md`):
+
+All six are WORDING-level, in `PROTOCOL.txt` and the study §10 draft. None changes a byte of the container, the marks, the pins or the capture instructions, so none blocks the deploy. C1 and C2 should land before the read is scored.
+
+C1 (PROTOCOL, "THE THREE JOINT CLASSES" and question 3) — 0x79168 is framed as a control that "MUST show a VERTICAL grating". It is not a control; it is the cast's ONLY discriminator of the A->v / B->u LABELLING. Under a swapped labelling (the halfword named A moves u, B moves v) the 19 answer readers STILL land on (704,384) FINE HORIZONTAL — the answer class cannot tell the two apart — and only 0x79168 changes, to COARSE HORIZONTAL. Its own UV supports the read (angle median 89.8 deg, min 78.1). Reword to: "record its ORIENTATION. VERTICAL confirms the A->v / B->u labelling. HORIZONTAL is a RESULT — the halfword labelled A is the one that moves u — not a control failure and not grounds to discard."
+
+C2 (STUDY §10.3 and the VISIBLE-but-UNGRATED branch in both the protocol and the study) — the residency canary does NOT close honest limit 3 in the branch it is sold for. The canary lives inside the four marked cells (byte proof: 0 changed bytes outside them), so canary-invisible <=> marks-invisible. In the "the texels came from somewhere else" branch the canary is equally absent and cannot separate "resident but the marks are elsewhere" from "not resident". It adds real power only where the grating is blurred or unresolvable but a 12x12 blob survives (sigma >~ 4 px). Rewrite "the canary then says which" to that narrower claim.
+
+C3 (PROTOCOL, "THE PREDICTED READ PER CELL") — the canary drops the control cell's full-transparent-ROW count: stock 4 -> stripes-only 7 -> with-canary 1. The headline statistic (COLUMNS 0 -> 48) is untouched, but the printed "4/0 -> 1/48" reads like a defect without one line saying the canary is what ate the three rows.
+
+C4 (PROTOCOL, the roll section) — add: after the 704 roll a wrapped COARSE band can present as FIVE runs, two half-width, at some phases (measured at r=16: tops [0,26,58,90,122], thicknesses {6,12}). Harmless under DO-NOT-COUNT; a scorer counting bands would trip on it.
+
+C5 (PROTOCOL, "RECORD THREE THINGS SEPARATELY") — the branch list has "orientation clear, pitch ambiguous -> B answered, A not" but not the converse. Two of the six pairs are separated by ORIENTATION ALONE, and the perspective floor (2*atan(cos tilt): 53 deg at 60 deg tilt, 29 at 75, 20 at 80) means a strongly foreshortened surface can lose orientation while keeping pitch. Add "pitch clear, orientation ambiguous -> A answered, B not".
+
+C6 (DISCLOSURE, protocol scale note and study §10.1) — say out loud that 3.12 px/texel inherits cast 1's 147,000 px disc mask, which §9 records was NEVER attributed to record 0x29dbc (per-record attribution failed by two methods, IoU ~ 0.70). My model-space route reproduces 2.89-3.21 px/texel but from the same 147k input, so it is a consistency check, not an independent anchor.
+
+**Residual risks, stated before the cast:**
+
+R1 SCALE. If the true on-screen scale is materially smaller than 3.12 px/texel (see C6 — the anchor is an unattributed mask), the FINE class at ~6 px feature is likely unresolvable and the cast degrades to orientation-only. The protocol already handles that outcome; it just should not be a surprise.
+
+R2 "PITCH BY MOTION" AFTER f254 IS A WEAK READ. Distinguishing a crawling COARSE band from a static one on a surface that is itself rotating and translating under the battle camera is hard. Treat post-clean-window A as corroboration only; the A answer really does live in f214..236, which is ~23 effect frames and only ~134 of the cast's 661 marked-page meshes. Capture from the very start of the effect, per the protocol.
+
+R3 THE CONTROL IS BETTER BUT STILL NOT LOUD. 36.7% of each control reader's own opaque texels are removed, but the rendered panes look subtle because the 0x3D40 shard is already lacy. If the control family scores blank again, the protocol's "discard" rule fires and the cast is spent — and cast 2 does not repair the fact that this arc has never captured a STOCK reference of these surfaces (§9.1 step 3 is still unspent). The new bright-family control 0x79168 is the real mitigation.
+
+R4 CELL-LOCAL WRAP CONFLATION, INHERITED AND UNRESOLVABLE HERE. If the engine wraps u or v modulo 128 (the CELL) rather than 256 (the PAGE), then "applied" and "not applied" are the identity and produce the same screen class. A VERTICAL/COARSE read therefore means "H_U is inert ON THIS CONTAINER", never "the engine never displaces u". The protocol says "refuted on this container"; keep it that way.
+
+R5 THE CONFOUND IS UNCHANGED. A is perfectly confounded with CLUT and blend (20/20, 7/7) and B nearly so (19 of 20 A=0x80 slots carry B=0x80) — I re-derived the joint-by-CLUT table: (0,0) is 7/7 on 0x3d40, (0x80,0) is 1/1 on 0x3dc0, (0x80,0x80) is 19/19 on 0x3dc0. The reportable claim stays "something in the second array moves the sampled CELL".
+
+R6 CLUT PROVENANCE STILL UNTRACED (§9.3 honest limit 4). The two CLUT strips are not among ef038's 12 declared rects, so every "how a zeroed texel looks" statement — dark bands vs holes, and the canary's colour — rests on palettes whose upload path was never traced.
+
+R7 5% OF FACES HAVE DEGENERATE UV. 86 of 1,718 faces have a dP/du - dP/dv angle under 30 degrees (52 under 20), all on shard tails. Orientation is unreliable on those slivers; score the disc, the shard bodies and the icicles, not the tails. Zero disc faces are affected.
+
+R8 THE ONE ROLL DELTA OF +112. `roll.reconstruction.json` records column 640's deltas as {+1: 141, +112: 1} — one frame jumps 112 rows. It changes nothing for a roll-invariant vertical grating, and is why the +112 frame is not worth chasing, but it is a fact in the reconstruction that no text mentions.
+
+R9 THE `--cells` SEAM. `generate(..., cells=[...])` can write a strict SUBSET of the four marks and the legend records `written: false` for the rest; the CLI exposes `--cells`. A partial run would stage a container whose PROTOCOL claims four marks while the bytes carry fewer. The byte proof and the legend would both show it, but nothing REFUSES it. Deploy without `--cells`.
+
+
+---
+
+## 11. ★★ CAST 2 — CAST, READ, GAP-CLOSED: **THE SECOND ARRAY IS APPLIED.** `B_ANSWERED_A_NOT` (0.84)
+
+Owner video `shiva_u1.cast2.2026-07-31.mkv` (1,134 unique frames), read by two scoring lenses, an
+adversarial verifier (0.82), a gap-closure round on the critic's two load-bearing findings, and a
+second critic pass. Full record + BOTH addenda: `…\cast2-read\REPORT-U1-CAST2.md`; owner figures
+`cast2-read\annotated\` (start at `00-HEADLINE-the-read.png`). Timing anchored structurally (the
+PRIM-98 full-screen TILE frames matched to the video's blue washes, nine consecutive frames exact).
+
+**THE VERDICT — U1 IS ANSWERED POSITIVELY ON THIS CONTAINER**, in the confound-limited wording §4.4
+demands: *something in the second array displaces the sampled CELL* — by **+128 texels in u, exactly
+one 8bpp column, 640→704**. The carrying measurements, reproduced exactly by every pass:
+
+* **S_SPIKE — labelling-independent, and it stands alone.** 16/16 answer-window frames HORIZONTAL
+  (DELTA 88.3–89.8° against a measured body axis of 89.6–91.7°), backed by instrument-free profile
+  statistics (ROW profile periodic at 28–73 px, pk/med 8.7–15.6; COLUMN profile a single shading
+  lobe) and direct inspection. Every one of the 27 readers binds column 640, so bands ACROSS the body
+  = a column-704 cell sampled = unreachable with the second array inert.
+* **S_BLADE** (the wrap-reader pair), clean window: 14/18 HORIZONTAL, DELTA 78.3–89.4°, 4 borderline.
+* **The mark identified photometrically on screen**: over bare cave (24.3 luma) the plate's dark
+  bands measure p10 42.2–42.4 against 39.7 predicted for `clut 0x3dc0` entry 0 = rgba(8,16,32) drawn
+  additively — the cutout (24.3) and abr-0 (19.8) alternatives excluded. The marked page's own zeroed
+  texels, rendered — this also closes cast-2 residency without the canary.
+* The projection-independence check ran on the video itself: the two carrying surfaces lie ~90° apart
+  on screen and give the same texture-space answer.
+
+**THE SWAPPED LABELLING — 0.68, carried separately.** `0x79168` (A=0x0080, B=0x0000) reads
+HORIZONTAL, which the declared A→v/B→u labelling forbids — §10.5 C1's RESULT branch: **the halfword
+the container labels A is the one that displaces u.** The closure round removed the loudest
+objection by measurement: the two-layer composite (built from the container's own texels, palettes
+and blends; harness validated by reproducing all 12 calibrate8 cells to Δ 0.0000) shows a
+true-HORIZONTAL bright layer plus the co-drawn `0x3d40` twin falls BELOW the control meter's refusal
+floor (2.99 < 3.088) — so that meter's "ambiguous" was never evidence against HORIZONTAL — and the
+VERTICAL counterfactual cannot reach 22 of the 26 observed frames (ceiling 0.58 vs observed
+0.49–1.93). NOT fully reproduced: an unexplained 1.5–2× twin-weight factor remains, which is why the
+labelling sits at 0.68 rather than riding the verdict. It also refutes cell-local u-wrap on this
+container (u+128 landed in the NEXT column, not back on 640).
+
+**PITCH — the v axis — UNRESOLVED.** Coarse-vs-fine never separated on the scored surfaces (the
+plates unscorable; §10.5 C5's partial branch fired exactly as designed). Whether the OTHER halfword
+is applied on v stays open; f235–237 carry no marked-page draw, so §10.2's roll-onset signature was
+unobservable as specified.
+
+**THE EXCLUDED SURFACE, disposed honestly.** The contested left-plate crop turned out to be **the
+DISC (`0x29dbc`) carrying the mark** — but its measured DELTA (32–41°) sits at the §10.5 C5
+perspective floor for its tilt, non-discriminating in either direction; dropped from the orientation
+vote for that measured reason. ⚠ The re-check critic then found the closure's own prose defects —
+the strip-only control was never actually scored (its MINPIX gate rejected every frame), the
+tilt-72.4° figure has no traceable measurement, the attribution ranges hold for 16/20 not 20/20
+rows, and two "clean window" frame sets differ between documents — **recorded verbatim in ADDENDUM 2
+as standing limits (THE REGRESS STOP)**: the surface stays excluded under every disposition, no
+finding touches the surviving basis, and the arc stops re-litigating prose while the carrying
+numbers reproduce.
+
+**WHAT MOVES AND WHAT DOES NOT.** No constant moves; nothing is promoted. The confound stands (A
+20/20 with CLUT+blend, B 19/20), so H_U-vs-H_V attribution is NOT made; R4's cell-local-wrap caveat
+still applies to v. **Owner decisions now live**: (1) re-open R_UOFF in
+`second-array-lead\REPORT.md` §3 — its closure rested on "both u-shift conventions move slots OFF
+declared columns", refuted here under the texel convention; (2) whether the kit's attribution/refusal
+surfaces need to model a second-array u-displacement (a reader's EFFECTIVE cell ≠ its bound cell on
+displaced slots — the census/licensing consequences are real but unscoped); (3) whether the pitch
+axis is worth a cast 3 (a v-axis-only instrument on a G1-passing design), or rests until a vehicle
+needs it.
+
+**Resting state:** ef038 override DELETED (= stock, verified; `ef211` untouched), rows 192–204 stay,
+both casts' videos/frames/logs/analysis under `…\repaint-w6b\u1-second-array\`, the s76 engine
+round permanent (`memoria-patches/s76-sfx-state-payload.patch`). `ORDER_UNMEASURED` and every kit
+constant ship exactly as they were.

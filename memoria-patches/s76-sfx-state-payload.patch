@@ -1,0 +1,97 @@
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+@@ -231,7 +231,10 @@ namespace Memoria
+                         _writer.WriteLine("# MESH,effectId,frame,index,keyHex,vertCount,triCount,cx,cy,cz,ex,ey,ez");
+                         _writer.WriteLine("# CAM,frame,px,py,pz,rx,ry,rz");
+                         _writer.WriteLine("# PRIM,effectId,frame,index,code,vertHint,otz,x,y");
+-                        _writer.WriteLine("# STATE,effectId,frame,index,code,label");
++                        _writer.WriteLine("# STATE,effectId,frame,index,code,label[,payload...]");
++                        _writer.WriteLine("#   [s76] DR_TPAGE appends tpage,tx,ty,abr,tp,len -- tpage = low16 of code[0]; tx=tpage&15 (VRAM page X, x64px), ty=(tpage>>4)&1 (x256px), abr=(tpage>>5)&3, tp=(tpage>>7)&3 (0=4bpp,1=8bpp,2=15bpp); len=P_TAG len (code 225 with len==2 is DR_MODE to PSXGPU, DR_TPAGE to SFXRender)");
++                        _writer.WriteLine("#   [s76] DR_MOVE appends rx,ry,rw,rh,x,y,path,len -- SOURCE rect origin+size and DEST origin exactly as SFXRender.DR_MOVE decodes them (ry signed); path MV = SFXMoveImage/PSXTextureMgr.MoveImage (VRAM blit), SS = SFXScreenShot (framebuffer grab, taken when rx<320 && ry<240)");
++                        _writer.WriteLine("#   DR_AREA/DR_OFFSET/UNKNOWN_* STATE rows are unchanged (6 fields). STATE rows are RAGGED by label -- parse positionally, never with endswith(label).");
+                         _writer.WriteLine("# PRIMSUM,effectId,frame,count,minX,minY,maxX,maxY");
+                         _writer.WriteLine("# ROOT,effectId,frame,active,m00,m01,m02,m10,m11,m12,m20,m21,m22,tx,ty,tz  (rotation 1/4096 fixed, translation world units)");
+                         _writer.WriteLine("# MODEL,effectId,frame,kind,slot,active,hasMotion,hasParent,aux0,aux1,aux2,ax,ay,az,wx,wy,wz,m00,m01,m02,m10,m11,m12,m20,m21,m22,bones32  [s53]");
+@@ -721,11 +724,38 @@ namespace Memoria
+         // switches on (mirrored below by `tag->code & 252`, 1:1 with that switch).
+         //
+         // The DR_* rendering-STATE tags (DR_TPAGE/DR_AREA/DR_OFFSET/DR_MOVE -- matched by EXACT
+-        // `tag->code`, never by the masked switch) carry no vertex and are logged as STATE rows
+-        // with no coordinate read. DR_TPAGE in particular is only an 8-byte struct (the tag word
+-        // + one code word); its own offset 8 would already be the START of the NEXT primitive in
+-        // the stream, so it is deliberately excluded from the generic vertex read -- not merely
+-        // skipped for tidiness.
++        // `tag->code`, never by the masked switch) carry no vertex, so none of them takes the
++        // GENERIC offset-8 vertex read. DR_TPAGE in particular is only an 8-byte struct (the tag
++        // word + one code word); its own offset 8 would already be the START of the NEXT
++        // primitive in the stream, so it is deliberately excluded from the generic vertex read --
++        // not merely skipped for tidiness. That exclusion is unchanged and still load-bearing.
++        //
++        // [s76] Two of those four DO now carry a logged PAYLOAD, read PER-TYPE (never generically)
++        // and only for their exact code. Both mirror SFXRender's own decode field-for-field, so
++        // the probe reads nothing the frame does not already read on the same pointer:
++        //   - DR_TPAGE (225): the tpage word is the low 16 bits of the word at byte 4 -- the SAME
++        //     word whose top byte IS the `code` byte this probe already dereferences (P_TAG's
++        //     r0/g0/b0/code word == DR_TPAGE.code[0]; see PSX_LIBGPU.cs:148-191 + :1098-1103).
++        //     So the read stays INSIDE the 8 bytes the probe already requires to exist -- it adds
++        //     no new memory exposure whatsoever. Decode matches SFXRender.cs:428-431 (the value
++        //     handed to SFXKey.SetCurrentTPage) and the bit fields match PSXGPU.cs:25-43
++        //     (GetFlagTX/TY/ABR/TP). VRAM texel origin = (tx*64, ty*256), which is what makes this
++        //     word the discriminator for "which page did this primitive sample".
++        //   - DR_MOVE (231): the six values are the words at bytes 8/12/16 (code[1..3] of a
++        //     5-word DR_MOVE, PSX_LIBGPU.cs:1081-1086), decoded exactly as SFXRender.cs:455-462
++        //     does -- which dereferences those same three words on this same pointer two
++        //     statements after LogPrim() returns, unconditionally. The probe therefore cannot
++        //     fault where the frame would not. `path` records SFXRender's own branch at :464-472:
++        //     SS = SFXScreenShot (framebuffer grab, rx<320 && ry<240), MV = SFXMoveImage ->
++        //     PSXTextureMgr.MoveImage (the real VRAM blit). Note :466-467 additionally shifts
++        //     ry -= 128 for SpecialEffect.Slow; the logged ry is the RAW value and the row already
++        //     carries effectId, so that adjustment stays reconstructable rather than baked in.
++        // Both also log tag->getLen() so a short/anomalous packet is VISIBLE instead of silent --
++        // and because PSXGPU.cs:607-609 classifies code 225 with len==2 as DR_MODE while
++        // SFXRender.cs:302-309 routes every 225 to DR_TPAGE() regardless. An offline reader must
++        // not treat a len!=1 row as a page select without checking.
++        // Row COUNT is unchanged by all of this (fields are APPENDED to the existing STATE row),
++        // so the PrimCap accounting and its truncation contract below are byte-for-byte untouched.
+         //
+         // VOLUME (a real concern -- a full cast logged 19,436 s47 MESH rows, one per BATCHED
+         // mesh; nothing is batched yet at this hook, so the raw primitive count can run
+@@ -793,6 +823,37 @@ namespace Memoria
+                     w.WriteLine(String.Format(CultureInfo.InvariantCulture,
+                         "PRIM,{0},{1},{2},{3},{4},{5:F4},{6},{7}",
+                         effectId, frame, index, code, label, SFXMesh.GzDepth, x, y));
++                else if (code == 225)
++                {
++                    // DR_TPAGE (DR_MODE to PSXGPU when len==2 -- see PSXGPU.cs:607-609).
++                    // cw[1] is the word at byte 4 == DR_TPAGE.code[0]; its low 16 bits are the
++                    // tpage word, exactly as SFXRender.cs:430 reads it. Inside the 8 bytes the
++                    // probe already requires -- no new memory exposure.
++                    UInt32* cw = (UInt32*)tag;
++                    UInt16 tpage = (UInt16)(cw[1] & 0xFFFFu);
++                    w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                        "STATE,{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10}",
++                        effectId, frame, index, code, label,
++                        (Int32)tpage, tpage & 15, (tpage >> 4) & 1, (tpage >> 5) & 3, (tpage >> 7) & 3,
++                        tag->getLen()));
++                }
++                else if (code == 231)
++                {
++                    // DR_MOVE -- mirrors SFXRender.cs:455-472 field-for-field. cw[2..4] are the
++                    // words at bytes 8/12/16 == DR_MOVE.code[1..3]; SFXRender dereferences those
++                    // exact words on this same pointer two statements after we return.
++                    UInt32* cw = (UInt32*)tag;
++                    Int32 rx = (Int32)(cw[2] >> 16);
++                    Int32 ry = (Int32)((Int16)(cw[2] & 0xFFFFu));
++                    Int32 rw = (Int32)(cw[3] >> 16);
++                    Int32 rh = (Int32)(cw[3] & 0xFFFFu);
++                    Int32 dx = (Int32)(cw[4] >> 16);
++                    Int32 dy = (Int32)(cw[4] & 0xFFFFu);
++                    w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                        "STATE,{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12}",
++                        effectId, frame, index, code, label, rx, ry, rw, rh, dx, dy,
++                        (rx < 320 && ry < 240) ? "SS" : "MV", tag->getLen()));
++                }
+                 else
+                     w.WriteLine(String.Format(CultureInfo.InvariantCulture,
+                         "STATE,{0},{1},{2},{3},{4}",

@@ -505,5 +505,15 @@ scenery must be re-authored *together*.
   first vehicle, ratification a separate gated decision. §7.3's second-array V-offset worry:
   examined offline, **REFUTED 0.85** (the 0x0080 is slot 0/448's, not the verdict cell's;
   best-supported reading = a depth-keyed render-state bit; `…\second-array-lead\REPORT.md`).
-  Resting: ef424 REVERTED TO STOCK (two-step ladder, shas verified), rows 203/204 stay. OPEN:
-  U1 — does the engine apply second-array halfword A at all (one-cast sketch in the lead report).
+  Resting: ef424 REVERTED TO STOCK (two-step ladder, shas verified), rows 203/204 stay. ~~OPEN:
+  U1~~ → **U1 ANSWERED ★★ (record `U1-SECOND-ARRAY-CAST.md`): the engine APPLIES the second array**
+  — cast 1 on ef038 returned VISIBLE_UNBANDED, the s76 engine round (DR_MOVE rects + DR_TPAGE code
+  word, `memoria-patches/s76-sfx-state-payload.patch`) proved the null an INSTRUMENT DEFECT and
+  minted **G1 THE PAGE-SPAN GATE** (an 8bpp tpage spans TWO declared columns = four cells; the
+  whole 8bpp+A=0x80+P=1 vehicle class fails it, 76→0; repair = mark all four), and cast 2 (the
+  four-cell instrument, orientation answers u / pitch answers v) measured **`B_ANSWERED_A_NOT`
+  0.84: a +128-texel U displacement, one 8bpp column, 640→704**, with the SWAPPED labelling (the
+  "A" halfword moves u) at 0.68 and the v axis unresolved. Confound-limited wording stands
+  ("something in the second array moves the sampled cell"); no constant moved. OWNER DECISIONS:
+  re-open R_UOFF; whether kit attribution must model u-displacement (effective cell ≠ bound cell);
+  a pitch-axis cast 3 or rest.
