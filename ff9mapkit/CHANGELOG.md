@@ -84,6 +84,46 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   writes both sides at once — is a single step. A half-undone door would be a
   gateway with no arrival.
 
+### Fixed — the Floorplan tab's live gate was a stall: a gesture cost ~17s, now ~0.6s
+- Every edit re-derived the **whole** plan from scratch, so on an eight-room dungeon every
+  single gesture cost what drawing the plan cost — about 17 seconds, with Compose disabled
+  throughout. Typing a name spawned one background check per keystroke, nine of them for a
+  nine-character name, which then stacked. Past about four rooms the feature that makes the
+  tab worth using stopped being usable.
+- A gesture now re-derives only what it touched, and **costs the same on a twelve-room plan
+  as on a three-room one** — about 0.6s either way. Re-checking a plan whose geometry did
+  not move is 4–18ms, and the first judge of a freshly drawn eight-room plan is ~4s.
+- Four changes, largest win first: the tab carries one geometry cache **across** checks
+  (keyed on each room's own coordinates, which is the only thing that decides "unchanged"
+  here — room records are edited in place, and undo restores a copy, so object identity
+  is wrong in both directions); the two grid samplers walk the polygon by rows instead of
+  testing every cell of its bounding box; the spawn search rejects cells against a grown
+  bounding box before measuring; and a check that has been superseded now stops instead of
+  running to completion. `ff9mapkit floorplan` on the command line gets the same speedup.
+- The cache memoizes the *answers* — cell counts, fractions, sites — not the geometry
+  behind them, and the full grids live only for the duration of one check. The first cut
+  kept the grids, which retained over a gigabyte after a few seconds of dragging and, worse,
+  fell off a cliff at 33 doors: a check touches each entry exactly once in a fixed order, so
+  past the cache's size limit the entry evicted is always the one wanted next and the hit
+  rate is not reduced but zero. A 25-room dungeon went back to 4.3s per gesture. Both are
+  fenced now.
+- **The gates say exactly what they said before.** Every step was gated on a 400-plan
+  differential against the previous implementation — errors, warnings, ids, spawns,
+  arrivals, facings, camera fits and door quads, all identical — and the row sampler is
+  fenced bitwise against the original double loop it replaced.
+- Reproduce any number with `studies/click-authoring/gate_bench.py` — `--drag N` measures
+  before and after in one run, loading the previous implementation from git rather than
+  guessing at it.
+
+### Fixed — a background check finishing mid-drag silently ate the drag (Floorplan tab)
+- Dragging a room or a corner while the live gate was running could end with the room
+  snapping back to where it started: the check's result re-fed the chart, which discarded
+  the in-progress drag, so the mouse release committed nothing — no move, no undo entry,
+  no message. A release that had barely travelled was then re-read as a click, which in
+  Rooms mode silently started a new outline. It needed a slow check to reproduce, which
+  the fix above makes rare, so it is fixed outright rather than left to chance: the
+  author's live gesture now outranks a result landing under it.
+
 ### Fixed — `[encounter] scene` accepted a battle-scene NAME at lint, then died at build
 - `scene = "BSC_CA_E013"` linted **clean** — `lint_logic` resolved the name through the
   catalog to report on it — and then the build compiled it with a bare `int()`, so the

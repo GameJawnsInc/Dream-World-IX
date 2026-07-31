@@ -1500,3 +1500,148 @@ def test_a_canvas_with_no_real_viewport_leaves_every_label_where_it_was(app):
         got = doc.canvas._chip_clear(0, 0, text, doc.canvas._font(8), QRectF(0, 0, 300, 22),
                                      dx, dy, centre)
         assert got == label_offsets(dx, dy, 300, 22, centre=centre)[0]
+
+
+# ============================================================ the live gate: fast, and still live
+# `compose` re-ran WHOLE on every gesture: ~17s per drag on an eight-room plan -- the same as
+# drawing it -- and one worker per
+# keystroke stacking under the GIL. The tab now carries one `GeomCache` across judges and hands the
+# composer a `cancel` hook. These pin the three things that buys, and the one thing it must not
+# cost -- a verdict that differs from the one a cold judge would have painted.
+
+
+def test_the_doc_carries_one_cache_across_judges(app):
+    """★ THE CALL-SITE LAW. `GeomCache` existing in `floorplan.py` is worth nothing; SPENDING it
+    here is the whole optimization. A gesture changes one room, so a second judge of a plan whose
+    geometry did not move must be almost entirely hits.
+
+    Measured before this: ~17s per gesture on eight rooms, the same as a cold judge, because there
+    was no cache to carry. After: ~0.6s, and FLAT in room count.
+    """
+    doc, _ = _two_rooms(app)
+    doc.judge_now(sync=True)
+    before = (doc._cache.hits, doc._cache.misses)
+    doc.judge_now(sync=True)                            # the same geometry, judged again
+    after = (doc._cache.hits, doc._cache.misses)
+    assert after[0] > before[0], "the second judge recomputed everything -- the cache is not spent"
+    assert after[1] == before[1], f"a re-judge of unchanged geometry missed {after[1] - before[1]}"
+
+
+def test_a_cached_judge_paints_the_same_verdict_as_a_cold_one(app):
+    """The cache may cost time and may never cost truth. Two docs, one warm and one cold, must
+    agree on every visible piece of the verdict -- which rooms are refused, which are warned, the
+    findings text, and whether Compose is enabled."""
+    warm, _ = _two_rooms(app)
+    warm.judge_now(sync=True)
+    warm.judge_now(sync=True)
+    cold, _ = _two_rooms(app)
+    cold._cache = FP.GeomCache()                        # a cache that has never seen this plan
+    cold.judge_now(sync=True)
+
+    def seen(d):
+        return (d.canvas._bad_rooms, d.canvas._warn_rooms, d.canvas._bad_doors,
+                [d.plist.item(i).text() for i in range(d.plist.count())],
+                d.compose_btn.isEnabled(), _status(d))
+
+    assert seen(warm) == seen(cold)
+
+
+def test_a_cancelled_judge_is_not_painted_as_a_refusal(app):
+    """★ `ComposeCancelled` is deliberately NOT a `ComposeError`, so `_judge_work`'s catch-all would
+    render a superseded judge as a red finding reading "the composer could not judge this plan:
+    ComposeCancelled:" -- a refusal the author never earned. Today `_finish_judge`'s generation
+    check happens to drop that payload before it paints, which makes it latent rather than visible:
+    exactly the kind that surfaces the day somebody judges synchronously on a stale generation.
+
+    A cancelled judge found NOTHING. It says so."""
+    plan = {"name": "D", "rooms": [{"name": "ROOM1", "poly": _A}], "doors": [], "id_base": 30500}
+    composed, errors, warnings = FloorplanDoc._judge_work(plan, cancel=lambda: True)
+    assert composed is None
+    assert errors == [], f"a cancelled judge painted {errors}"
+    assert warnings == []
+
+
+def test_judge_work_is_still_callable_unbound_with_one_positional_arg(app):
+    """The cache and cancel arrive as keyword-only extras with `None` defaults precisely so this
+    stays true -- several fences (and any future one) call it as a plain function."""
+    plan = {"name": "D", "rooms": [{"name": "ROOM1", "poly": _A}], "doors": [], "id_base": 30500}
+    composed, errors, _w = FloorplanDoc._judge_work(plan)
+    assert composed is not None and not errors
+
+
+def test_the_dungeon_name_does_not_re_judge_the_geometry(app, monkeypatch):
+    """★ Typing a nine-character name spawned NINE full composes -- the 140ms debounce only
+    coalesces keystrokes faster than that, and compose is pure Python under the GIL, so they
+    stacked: 2.7s of asked-for work took 13.2s with Compose disabled throughout.
+
+    `compose` reads `name` in exactly one place (the composed campaign's own name) and it reaches
+    no grid sample. The gate the old comment invoked, `_name_problem`, lives in
+    `_envelope_problems`, which `_paint_verdict` spends on EVERY repaint whether or not a judge
+    ran -- so the name box needs a repaint, not a re-judge."""
+    doc, _ = _two_rooms(app)
+    doc.judge_now(sync=True)
+    calls = []
+    real = FP.compose
+    monkeypatch.setattr(FP, "compose", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    for ch in "GREATHALL":
+        doc.name_box.setText(doc.name_box.text() + ch)
+    assert calls == [], f"{len(calls)} composes for nine keystrokes"
+
+    # ...and the name gate still fires, because it never depended on the judge
+    doc.name_box.setText("bad name/with slash")
+    assert any("name" in doc.plist.item(i).text().lower() for i in range(doc.plist.count())) or \
+        not doc.compose_btn.isEnabled(), "the name gate stopped being enforced"
+
+
+def test_a_verdict_landing_mid_drag_does_not_eat_the_drag(app):
+    """★ THE SNAP-BACK, fenced. `PlanCanvas.set_plan` used to do `self._drag = None` on every feed
+    -- and the live gate feeds it from a worker. A verdict landing mid-drag discarded the gesture
+    silently: `mouseReleaseEvent` tests `if self._drag`, so the release committed nothing, no
+    `room_reshaped` was emitted, no undo entry was pushed, and `_draw` repainted the room at its
+    PRE-DRAG outline. The generation guard could not save it, because a drag never bumps `_gen`.
+
+    Second-order, on the same line: a release that had barely travelled was then re-read as a
+    CLICK, which in Rooms mode silently starts a new outline under the author's cursor.
+
+    Making the gate fast shrinks this window. It does not close it. The drag outranks the feed."""
+    doc, _ = _two_rooms(app)
+    doc.judge_now(sync=True)
+    canvas = doc.canvas
+    before = list(canvas._rooms[0]["poly"])
+
+    assert canvas.press_world(*_A[0]) is True, "the corner handle was not grabbable"
+    canvas.drag_world(_A[0][0] - 300, _A[0][1] - 300)
+    assert canvas._drag is not None
+
+    doc._paint_verdict()                                # what a worker's verdict does, exactly
+
+    assert canvas._drag is not None, "the verdict ate the drag"
+    assert canvas._poly(0) != before, "the drag's live outline was reverted under the author"
+    canvas.release_world(_A[0][0] - 300, _A[0][1] - 300)
+    assert canvas._drag is None
+    assert doc._session["rooms"][0]["poly"] != before, "the release did not commit the drag"
+
+
+def test_a_feed_that_no_longer_shows_the_dragged_room_clears_the_drag(app):
+    """The other half, and it is why the guard is not an index-range check. The drag record is an
+    INDEX into the fed rooms plus the outline that was under the cursor when the press landed. A
+    feed that no longer shows THAT room unchanged at THAT index must drop the gesture -- deleting an
+    earlier room keeps every index in range while sliding a different room under it, and a release
+    would then write this drag onto somebody else's outline.
+
+    ``_B[1]``, not ``_B[0]``: the rooms abut, so their shared corner picks ROOM1's handle and the
+    test would silently be dragging the wrong room."""
+    doc, _ = _two_rooms(app)
+    canvas = doc.canvas
+    assert canvas.press_world(*_B[1]) is True
+    assert canvas._drag["ri"] == 1, "grab a corner ROOM1 does not also own"
+    canvas.drag_world(_B[1][0] + 100, _B[1][1] + 100)
+
+    canvas.set_plan([{"name": "ROOM1", "poly": _A}], [])       # ROOM2 is gone: index out of range
+    assert canvas._drag is None
+
+    assert canvas.press_world(*_A[0]) is True                  # now index 0, still in range...
+    canvas.drag_world(_A[0][0] - 50, _A[0][1] - 50)
+    assert canvas._drag is not None
+    canvas.set_plan([{"name": "ROOM2", "poly": _B}], [])       # ...but a DIFFERENT room sits there
+    assert canvas._drag is None, "an index-range check alone would have kept this drag"

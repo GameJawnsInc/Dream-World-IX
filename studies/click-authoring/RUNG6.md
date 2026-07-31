@@ -248,6 +248,46 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
   lands as a live campaign and its graph is immediately visible (PLAN.md §5 call site 3). Undo is
   **doc-local** over the session snapshot (`TraceDoc`'s `_push_history` model), not shell checkpoints
   — which is what makes a door-pair edit atomic despite `_UndoRec` being single-member.
+- **6c-perf ★ 2026-07-30** — the live gate was a **stall**, not a gate: `compose` re-derived the
+  whole plan on every gesture — ~17 s on eight rooms, the SAME as drawing it, because nothing
+  survived a judge — with one worker per keystroke stacking under the GIL. Now **~0.6 s per gesture
+  and FLAT in room count** (the same at 3 rooms and at 12; the flatness is the fix, the raw number
+  is today's machine), all-hit re-judge 4–18 ms, cold first judge ~17 s → ~4 s. Four changes, in
+  descending order of what
+  they bought: a `GeomCache` the tab carries **across** judges (keyed on the polygon's own
+  coordinates — room dicts are mutated in place and undo pops a deepcopy, so identity fails in both
+  directions); scanline samplers in `standable_map` / `strip_standable_fraction`; hoisted edge data
+  plus an R-grown bbox reject in `interior_point`'s avoid test; and a `cancel` hook polled per room
+  and per door. Bench: `studies/click-authoring/gate_bench.py` (`--drag 8`, `--profile 5`).
+  **Three traps this cost, each now fenced:**
+  1. **`standable_map`'s distance is NOT `interior_point`'s ranking distance.** One is measured at
+     the grid SAMPLE (walked from the polygon's bbox), the other at the absolute CELL CENTRE.
+     Reusing it is the obvious free win and it moved the spawn a whole cell on 4 of 22 plans.
+  2. **The arithmetic had to be pinned term for term** — the division rather than a hoisted
+     reciprocal, `x - (ax + t*dx)` rather than `(x - ax) - t*dx`. Algebraically identical, ~1e-13
+     apart, and measured moving the distance on 60 of 240 polygons.
+  3. **`GeomCache` must lock.** The tab hands one instance to N daemon workers, and `OrderedDict`
+     is not safe across an interleaved `move_to_end`/`__setitem__`/`popitem`.
+  4. ★ **CACHE THE ANSWER, NOT THE GEOMETRY.** The first cut memoized the fat intermediates — the
+     cell map, the strip's point list, the component sets — and an adversarial pass killed it twice
+     over. **Memory:** one tab retained **1.28 GB** after ~9 s of dragging a two-room plan, and
+     ~half of it was never read (`compose` consumes the component list as `len()` and the strip's
+     points as `if not pts`). **The cliff:** `compose` touches each key exactly ONCE per judge in a
+     fixed order — a cyclic scan, the one access pattern an LRU is pathological on — so past the cap
+     the hit rate is not degraded but **exactly zero**, the evicted entry always being the one
+     wanted next. At `limit=64`: 32 doors → 291/291 hits in 0.04 s; **33 doors → 102/300 and 9.0 s**;
+     a 25-room grid dungeon back to 4.3 s per gesture. Storing only the reductions (three ints, a
+     fraction, a bool, a point) made entries small enough for a cap no real plan reaches, and the
+     full maps now live for one compose and no longer: **1.28 GB → 0.3 MB, and 40 doors 9.58 s →
+     0.07 s.** THE GENERAL LESSON: *a memo's entry size is part of its correctness, because it sets
+     the cap, and a cap the access pattern can cycle past is not a slow cache — it is no cache.*
+  5. **A published "before" must come from the BEFORE code.** The first draft measured the new
+     module with its cache disabled and called that the old cost; it was ~6.6 s against a true ~17 s,
+     and it was self-refuting on its face — it claimed a gesture had been *cheaper* than a cold
+     judge at a commit where a gesture WAS a cold judge. `gate_bench.py --drag N` now loads HEAD's
+     module from git and prints both halves.
+  Every step was gated on a 400-plan differential against the pre-change module — **0 verdict
+  changes** — because the invariant is that the gates say exactly what they said before, faster.
 - **6d** — deploy **per room** with `tools/deploy_field.py --id N` (additive: it rmtrees only that
   one FBG scene subdir and merges `DictionaryPatch.txt` by ownership). **Never**
   `deploy_campaign --apply` — that rmtrees the whole mod folder, and this install's `FF9CustomMap`

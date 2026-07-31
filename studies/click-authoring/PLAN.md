@@ -334,9 +334,23 @@ arrival position + facing per side, encounters, save-point siting.
 > nameplate, the viewport-chip label clearance) without being looked at whole since. Risk-ordered
 > first-contact plan: **[`RUNG6-TESTPLAN.md`](RUNG6-TESTPLAN.md)**; its findings come back here.
 > Two things it already establishes: the offline pipeline is sound (a 3-room plan composes, lints
-> and builds clean), and **the live gate is a stall past ~4 rooms** — 1.02 s for one full-size room,
-> 16.45 s for eight, because `standable` grid-samples every bounding box at 8u and is re-walked per
-> room, per door strip and again to site the spawn. Cache it per room and re-judge only what changed.
+> and builds clean), and **the live gate was a stall past ~4 rooms** — every gesture cost what
+> DRAWING the plan cost, ~17 s on eight rooms, because `compose` re-derived the WHOLE plan on every
+> edit and nothing survived a judge.
+>
+> ★ **FIXED 2026-07-30, before first contact** (`gate_bench.py --drag N` reproduces both halves; it
+> loads the pre-change module from git rather than guessing at it — the first draft of these numbers
+> quoted a "before" that was the NEW module minus its cache, and no version of the code ever took
+> it). Scanline samplers + a `GeomCache` the tab carries across judges + a `cancel` hook.
+> **A gesture went ~17 s → ~0.6 s and is now FLAT in room count** (the same at 3 rooms and at 12 —
+> the flatness is the fix, the raw number is just today's machine); an all-hit re-judge is 4–18 ms;
+> the cold first judge ~17 s → ~4 s at eight rooms. The
+> mid-drag **snap-back** went with it — `set_plan` was clearing `_drag` on every feed, so a verdict
+> landing under a drag ate the gesture with no undo entry. **THE LESSON WORTH KEEPING:** the obvious
+> win — reuse `standable_map`'s distance as `interior_point`'s ranking distance — is a *behaviour
+> change wearing an optimization's clothes; they are measured at the grid SAMPLE and at the CELL
+> CENTRE respectively, and it moved the spawn a whole cell on 4 of 22 plans. Every step was gated on
+> a 400-plan differential against the pre-change module: 0 verdict changes.
 
 - **6a ★** — `ff9mapkit/ff9mapkit/floorplan.py`, the pure Qt-free core: the closed-form projection,
   polygon health, `standable`, the edge-anchored inward normal, the engine's own facing formula,
@@ -362,6 +376,11 @@ arrival position + facing per side, encounters, save-point siting.
   (`TraceDoc`'s model) — that is what makes a door-pair edit atomic despite `shell._UndoRec` being
   single-member, and a half-undone pair is a gateway with no arrival. 56 fences, 140 with
   a11y/style/smoke, 616 across the GUI family; snaps at dark/100, dark/150, light/125.
+  ★ **The live gate is now fast enough to stay live** (see the blockquote above): `judge_now` spends
+  one `GeomCache` across judges and passes `cancel`, so a gesture re-derives only what it touched;
+  the `Dungeon` box no longer re-judges geometry at all (its gate always ran on the repaint, never
+  on the judge); and `_judge_work` catches `ComposeCancelled` ahead of its catch-all, so a
+  superseded judge cannot paint a refusal the author never earned.
   ⚠ Disclosed: with a finding showing the chart is 130-158 px at CALIBRE 150 — spawned as its own
   task (a splitter carries the round-7 squeeze-persistence obligation).
   **An adversarial review after the build found NINE defects**, two of them fixes the build claimed
