@@ -288,6 +288,33 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
      module from git and prints both halves.
   Every step was gated on a 400-plan differential against the pre-change module — **0 verdict
   changes** — because the invariant is that the gates say exactly what they said before, faster.
+- **6c-firstcontact ★ 2026-07-30** — the first human to draw on the tab reported four things in
+  twenty minutes; **three of them were one defect and the fourth was a missing affordance.**
+  1. ★ **THE CHART RE-CENTRED ITSELF ON EVERY CORNER.** `_scene_bounds` follows the geometry and the
+     geometry includes the outline IN PROGRESS, so the first corner collapsed the scene rect from
+     480 world units to 58 (one point plus its pad); Qt centred a rect now far smaller than the
+     viewport and the whole chart jumped. Measured on the real widget: the first click moved world
+     (0,0) **375px right and 253px down**, and four clicks aimed at a screen RECTANGLE produced a
+     garbage quadrilateral because every click after the first landed in a new frame. That single
+     cause produced all three reports — *"the view shifts when adding new points"*, *"it's hard to
+     click the same spot twice"*, and *"the first point is always put at the origin"* (the point
+     never moved; the chart did, until the point sat where the origin crosshair had been).
+     Fix: the scene rect is the geometry UNIONED WITH THE VISIBLE REGION, so it can never shrink out
+     from under the view; `fit()` re-derives from the geometry alone; scrollbars are off, since a bar
+     appearing would shrink the viewport and move the chart all over again. Drift is now 0px.
+  2. ★ **THE 8u DOOR TOLERANCE WAS NOT A TARGET A HUMAN COULD HIT** — *"is getting the edges close
+     together for a door supposed to be so hard?"*. `shared_edges` admits a shared wall only within
+     8 WORLD units and the chart opens at ~9 units per screen pixel, so a pixel-perfect click is out
+     of tolerance **before the mouse moves**, and the only feedback is "No shared wall here". Fix:
+     corners and walls CAPTURE a placed or dragged point within 12 screen px (corner beats wall; a
+     dragged vertex never captures onto its own room), and the rubber band previews the snapped
+     point so the jump is the affordance. A/B on identical clicks 3-5px off a wall: **0 candidates
+     before, the whole 1049u wall offered after.**
+  ★ **THE METHOD LESSON.** All 47 pre-existing fences drove `click_world` — the world-space seam —
+  so not one of them could see a defect that lived entirely in what the VIEW did between one click
+  and the next. This is the SECOND time that exact gap shipped a defect on this tab (the first was
+  the control DEAD ON CLICK). A gesture fence that does not go through Qt's own event path is
+  testing the model, not the instrument.
 - **6d** — deploy **per room** with `tools/deploy_field.py --id N` (additive: it rmtrees only that
   one FBG scene subdir and merges `DictionaryPatch.txt` by ownership). **Never**
   `deploy_campaign --apply` — that rmtrees the whole mod folder, and this install's `FF9CustomMap`

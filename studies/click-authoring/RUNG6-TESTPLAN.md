@@ -7,6 +7,14 @@
 > fixed rather than left in your way — **the live-gate stall** (a gesture cost ~17s on an eight-room
 > plan; it is now ~0.6s and flat in room count) and **the mid-drag snap-back**. Steps 3 and 5 say
 > what to look for instead. Everything else stands as written.
+>
+> **Revised again, AFTER the first session's first twenty minutes.** Three of that session's four
+> reports were one defect — the chart re-centred itself on every corner, so the view shifted, the
+> first point appeared to land at the origin, and the same spot could not be clicked twice. Fixed:
+> the chart now holds absolutely still while you draw. The fourth ("is getting the edges close
+> together for a door supposed to be so hard?") was a missing affordance, not a mistake you were
+> making: **corners and walls now snap.** Steps 1 and 2 are rewritten; step 2 no longer opens with
+> "zoom in first", because you no longer have to.
 
 
 ## What this is
@@ -90,26 +98,27 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - Double-click closes but self-click doesn't, or vice versa.
 - The duplicate-corner click silently adds a corner (no message).
 - Escape does nothing while an outline is pending.
+- ⚠ **The chart moves between clicks.** It should now be completely still while you draw — the corner lands under the cursor and nothing else shifts. First contact hit this hard ("the view shifts when adding new points", "the first point is always put at the origin", "it's hard to click the same spot twice") and it was all one defect: the chart's extent was being recomputed from the outline in progress, so the first corner collapsed it and Qt re-centred the whole view. **It is fixed and fenced, but you are the first to check it with a real mouse** — if you see any drift at all, that is the bug returning. (The point never actually went to the origin; the chart moved until the point was sitting where the origin marker had been.)
 
 ---
 
 ### Step 2 — Draw a second room abutting the first (~8 min)
 
-**Do this**
-- **Zoom in first**: Ctrl+scroll up two or three notches. This matters — see below.
-- Draw ROOM2 sharing a wall with ROOM1: place its first corner **directly on top of one of ROOM1's existing corner handles** (a still, deliberate click — do not let the mouse travel).
-- Finish and close it.
+**Do this** — no zooming needed any more, aim roughly.
+- Draw ROOM2 sharing a wall with ROOM1: place its first corner **near** one of ROOM1's corner handles — within about a centimetre is plenty — then its other corners, and close it. Deliberately be a few pixels off; that is the point of this step.
 
 **Expect this**
+- As the cursor comes within ~12px of an existing corner or wall, the **rubber band jumps onto it**. That jump is the snap showing you what the click will do. Clicking then lands the corner *exactly* there, and the status says `snapped to an existing corner —…`.
 - The click on ROOM1's handle starts ROOM2's outline. It does **not** grab and drag ROOM1's corner.
 - Once both rooms exist the shared wall draws as a **dashed** line.
 - ROOM2 goes **amber** with a `!`, and the findings list says `unreachable from ROOM1: ROOM2 — no chain of doors leads there, so the player can only arrive by a debug warp`. That warning is correct; you haven't made a door yet.
 
 **Suspect a bug if**
 - The click on ROOM1's corner *moves ROOM1's corner* instead of starting a new outline. This is the precise defect the last review caught; it is fenced now, but only for one synthesised case. **Report immediately if you see it.**
-- No dashed shared wall appears even though the walls look flush.
+- No dashed shared wall appears even though the walls look flush — with snapping on, that should now be very hard to produce. If you manage it, I want the drawing.
+- The band snaps somewhere you did not want and you cannot get away from it. (There is deliberately no snap-off modifier yet — if you find yourself fighting it, that is a finding.)
 
-**Why zoom first:** two rooms must abut within **8 world units** to be offered as a door. At the zoom the chart opens at, one screen pixel is already ~9 units — a single-pixel miss is out of tolerance. Rooms 9u apart offer *nothing at all*, and the only feedback is a note saying no shared wall is here. If Doors mode offers you nothing in step 3, this is almost certainly why: zoom in and nudge a corner.
+**What changed and why:** this step used to open with "zoom in first". Two rooms must abut within **8 world units** to be offered as a door, and at the chart's opening zoom one screen pixel is already ~9 — so a pixel-perfect click was *out of tolerance before the mouse moved*, and rooms 9u apart offered nothing at all with no way to see why. Your "is getting the edges close together supposed to be so hard?" was that. Corners and walls now capture a point within ~12 screen px, so abutment is exact rather than nearly-right. Measured on identical clicks 3–5px off a wall: **before, zero door candidates; after, the whole 1049u wall offered.**
 
 ---
 
