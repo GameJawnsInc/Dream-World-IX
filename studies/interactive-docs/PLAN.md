@@ -19,8 +19,19 @@ review of the rendered site.** What shipped (branch `claude/interactive-docs-des
   fork — SE bytes). Gates: `py -m pytest docsite/tests -q` (22) — they FAIL, never skip, when
   assets are missing.
 
-**Next:** rung 1b (block data layer), rung 3 (executed tutorials), figures for tutorial 07 +
-Home/dialogs, rung 5 deployment (owner, confirm-first). Design details below are as-ratified.
+**Owner-review round (same session):** ring ④ on the Build figure pointed at a radio the SCROLL
+VIEWPORT clipped — window-bounds containment was the wrong instrument. THE VIEWPORT LAW: a
+callout rect must sit inside the window AND every ancestor scroll viewport (pure geometry, never
+visibleRegion — paint-derived answers lie under WA_DontShowOnScreen). +2 figures shipped
+(home-ready → SETUP §6, fork-regions → tutorial 07); a dlg:new-journey figure was PULLED — the
+dialog paints the cwd into its Folder box (black-box surfaces cannot pin; a dlg ADAPTER is the
+fix) and its teach text falsified tutorial 07's "Pick FF9 regions…" step (region forking moved to
+Import) — the pipeline caught a stale shipped recipe on its second outing. Accuracy pass spawned
+as its own task (re-add the figure there). 10 committed PNGs `--check` clean.
+
+**Next:** the tutorial-07 accuracy task (spawned), rung 1b (block data layer), rung 3 (executed
+tutorials), a dlg shot adapter, rung 5 deployment (owner, confirm-first). Design below is
+as-ratified.
 
 The charter: replace "a heap of AI-written `.md`s browsed raw in the repo" with an **explorable
 documentation site, in its own module**, holding three things in one place:
