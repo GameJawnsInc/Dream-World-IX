@@ -1,0 +1,47 @@
+# The Manual's figure manifest. One entry per figure; themes default to the committed pair
+# (light + mist). Annotation `widget` values are attribute paths on the Workspace window --
+# resolved at grab time, so a reskin re-anchors every callout and a vanished widget FAILS the
+# run (the drift alarm). `pin` entries neutralize machine-specific painted text (paths, slot
+# ids) so every machine reproduces the same pixels. Surfaces must be on shots.py's provenance
+# allowlist: kit-authored fixtures only, zero Square-Enix pixels.
+
+[shot.import-fork]
+surface = "tab:import"
+height = 960          # the Import tab's own sizeHint is ~911 -- at 850 the Import button clips
+used_by = ["ff9mapkit/docs/tutorials/06-gui-field.md"]
+pin = [
+  { widget = "import_field.out", text = "C:\\FF9Projects\\imported" },
+]
+annotate = [
+  { widget = "import_field.field",         label = "1" },
+  { widget = "import_field.preview_btn",   label = "2" },
+  { widget = "import_field.mode_verbatim", label = "3" },
+  { widget = "import_field.import_btn",    label = "4" },
+]
+
+[shot.editor-npc]
+surface = "form:npc"
+take = "form-npc"
+used_by = ["ff9mapkit/docs/tutorials/06-gui-field.md"]
+
+[shot.build-deploy]
+surface = "tab:build"
+# a verbatim fork of a REAL field must be open or the In-place route (the tutorial's headline
+# option) does not exist on the surface at all -- and no bundled example can be one (a real
+# verbatim fork carries SE bytes), so shots.py builds a kit-authored fixture fork
+open = "fixture:verbatim-fork"
+used_by = ["ff9mapkit/docs/tutorials/06-gui-field.md"]
+pin = [
+  { widget = "build_deploy.rb_test", text = "Test slot 30001" },
+  { widget = "build_deploy.rb_game", text = "Install to game: FF9CustomMap" },
+  # PIN EVERY PAINTED PATH: the fixture fork lives in this run's scratch dir; both places that
+  # paint its path get a neutral one (cosmetic -- signals blocked, state untouched)
+  { widget = "build_deploy.path", text = "C:\\FF9Projects\\GLADE\\GLADE.field.toml" },
+  { statusbar = "GLADE — standalone field — C:\\FF9Projects\\GLADE\\GLADE.field.toml" },
+]
+annotate = [
+  { widget = "build_deploy.rb_inplace", label = "1" },
+  { widget = "build_deploy.rb_test",    label = "2" },
+  { widget = "build_deploy.rb_game",    label = "3" },
+  { widget = "build_deploy.rb_other",   label = "4" },
+]

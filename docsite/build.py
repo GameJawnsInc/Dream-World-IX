@@ -277,7 +277,7 @@ _SHOT_IMG_RE = re.compile(
 
 
 def upgrade_shot_figures(page_html: str, page_rel: str, shots_dir: Path,
-                         errors: list[str]) -> tuple[str, list[str]]:
+                         errors: list[str], assets: dict | None = None) -> tuple[str, list[str]]:
     """An <img> pointing into docsite/assets/shots/ (which GitHub renders as a plain picture)
     becomes a themed <figure>: light+dark variants swapped by CSS, plus an SVG overlay drawn from
     the shot's sidecar (widget-anchored annotation rects resolved at grab time by shots.py).
@@ -296,8 +296,17 @@ def upgrade_shot_figures(page_html: str, page_rel: str, shots_dir: Path,
         w, h = meta["size"]
         pair = meta.get("theme_pair", {})
         light_rel = src
-        dark_rel = src.replace(f"_{theme}.png", f"_{pair.get('dark', 'mist')}.png") \
+        dark_theme = pair.get("dark", "mist")
+        dark_rel = src.replace(f"_{theme}.png", f"_{dark_theme}.png") \
             if theme == pair.get("light", "light") else src
+        # The markdown references only the light PNG (GitHub shows that one); the dark twin the
+        # figure swaps to must be carried into the site as an asset too, or dark theme 404s.
+        twin = shots_dir / f"{shot}_{dark_theme}.png"
+        if not twin.is_file():
+            errors.append(f"{page_rel}: shot figure {shot} is missing its dark twin {twin.name}")
+            return m.group(0)
+        if assets is not None:
+            assets[f"docsite/assets/shots/{twin.name}"] = twin
         notes = []
         for i, a in enumerate(meta.get("annotations", []), 1):
             x, y, rw, rh = a["rect"]
@@ -504,7 +513,7 @@ def build(out_dir: Path) -> dict[str, Page]:
     shot_refs: dict[str, list[str]] = {}
     for rel, page in pages.items():
         html = rw.rewrite(page)
-        html, used = upgrade_shot_figures(html, rel, shots_dir, rw.errors)
+        html, used = upgrade_shot_figures(html, rel, shots_dir, rw.errors, rw.assets)
         rendered[rel] = html
         if used:
             shot_refs[rel] = used

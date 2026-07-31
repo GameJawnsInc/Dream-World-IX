@@ -14,13 +14,15 @@ extracted), fix them from that dialog first.
 
 ## 1. Fork a field
 
-1. Open the **Import** tab.
-2. In **Fork a real field**, type a donor name or use **Find…** (or **Suggest a test room…** for
-   a vetted starter). A background thumbnail previews the pick.
-3. **Preview fidelity** runs the offline fork report; **Study logic…** opens the donor's decoded
-   script with the story-beat roster slider — both before anything is written.
-4. Pick a **Fork mode** (verbatim = most faithful; see [FORK_FIDELITY.md](../FORK_FIDELITY.md)),
-   choose an output directory, and click **Import field**.
+![The Assets ▸ Import tab — ① the donor field, ② Preview fidelity, ③ the fork mode, ④ Import field](../../../docsite/assets/shots/import-fork_light.png)
+
+1. Open the **Assets ▸ Import** tab.
+2. In **Fork a real field** (①), type a donor name or use **Find…** (or **Suggest a test
+   room…** for a vetted starter). A background thumbnail previews the pick.
+3. **Preview fidelity** (②) runs the offline fork report; **Study logic…** opens the donor's
+   decoded script with the story-beat roster slider — both before anything is written.
+4. Pick a **Fork mode** (③; verbatim = most faithful, see [FORK_FIDELITY.md](../FORK_FIDELITY.md)),
+   choose an output directory under **Write to:**, and click **Import field** (④).
 
 The forked project opens in the left-hand tree.
 
@@ -31,9 +33,15 @@ Dialogue, Music, …). Add an NPC, set its `pos` inside the walkmesh (the Inspec
 art and bounds), give it a dialogue line — the wrap preview renders the line in FF9's real window
 geometry. **Ctrl-S** saves; Problems (bottom console) shows lint findings live.
 
+![An NPC entry in the Editor forms — name, model, dialogue with the live wrap preview, position, and story-flag gates](../../../docsite/assets/shots/editor-npc_light.png)
+
 ## 3. Build & deploy
 
-Open the **Build & Deploy** tab. Under **Build to (field)** choose:
+Open the **Ship ▸ Build & Deploy** tab.
+
+![The Build & Deploy tab with a verbatim fork open — ① In-place on the real field, ② Test slot, ③ Install to game, ④ Build only](../../../docsite/assets/shots/build-deploy_light.png)
+
+Under **Build to (field)** choose:
 
 - **In-place on field N** — appears only for a **verbatim fork of a real field** (its
   `[verbatim_eb] donor` is a base-game id). Deploys under the donor's own id so the engine loads your

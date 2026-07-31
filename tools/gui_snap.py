@@ -687,12 +687,16 @@ def snap_models(ctx: _Ctx, state: str) -> None:
 
 
 # ------------------------------------------------------------------------------------------- surfaces
+# Home's setup-state pins, module-level for the same reason as TAB_ATTRS.
+HOME_PINS = {"fresh":   dict(game=False, templates=False),
+             "midway":  dict(game=True,  templates=False),
+             "ready":   dict(game=True,  templates=True),
+             "veteran": dict(game=True,  templates=True),
+             "open":    dict(game=True,  templates=True)}
+
+
 def snap_home(ctx: _Ctx, state: str) -> None:
-    pins = {"fresh":   dict(game=False, templates=False),
-            "midway":  dict(game=True,  templates=False),
-            "ready":   dict(game=True,  templates=True),
-            "veteran": dict(game=True,  templates=True),
-            "open":    dict(game=True,  templates=True)}[state]
+    pins = HOME_PINS[state]
     recent = _example_recent() if state in ("veteran", "open") else None
     with _pin_setup_state(**pins):
         win = _make_win(ctx, recent=recent)
@@ -1344,6 +1348,13 @@ def snap_form(ctx: _Ctx, state: str) -> None:
         ctx.guided = guided
 
 
+# The tab -> Workspace-attribute map, module-level so docsite/shots.py (the Manual's screenshot
+# job) can open the same surfaces without re-owning the mapping.
+TAB_ATTRS = {"build": "build_deploy", "import": "import_field",
+             "models": "models_doc", "battle": "battle", "story": "story_state",
+             "items": "item_equip"}
+
+
 def snap_tab(ctx: _Ctx, tab: str) -> None:
     if tab == "coop":
         # tab:coop unpinned rendered THIS machine's real [Netsync] state -- including the developer's
@@ -1354,9 +1365,7 @@ def snap_tab(ctx: _Ctx, tab: str) -> None:
     if tab == "world":
         print("  tab:world is owned by world:<state> (guide | nogame | atlas -- see --list)")
         return
-    attr = {"build": "build_deploy", "import": "import_field",
-            "models": "models_doc", "battle": "battle", "story": "story_state",
-            "items": "item_equip"}[tab]
+    attr = TAB_ATTRS[tab]
     win = _make_win(ctx)
     win.tabs.setCurrentWidget(getattr(win, attr))
     _grab(ctx, f"tab-{tab}", win)
