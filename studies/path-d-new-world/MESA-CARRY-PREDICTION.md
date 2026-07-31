@@ -60,3 +60,23 @@ with two silent playtests behind it.
   fires as the next single change; it does not close the verdict.
 
 One round. Scored on the owner's verdict, whichever way it lands.
+
+## PLAYTEST 1 (2026-07-31): THE TOP PASSES; the declared foot lever fires
+
+Owner: *"the top looks great, we still lack the grass<->cliff transition at the
+bottom and there are a couple stretched faces near the base (one visible in the
+screenshot)."*
+
+- **THE TOP PASSES EXPLICITLY** — the junction three composition rounds could not
+  buy (jagged rims, incoherent seams, pokey grass) reads right when it is stock's
+  own, carried whole. The carry claim's core is confirmed in-game.
+- **Both residuals sit at the BASE and both trace to the declared BURY cost**: the
+  seat cut away the donor's row-10 transition band, so the visible bottom course is
+  mid-face rock to the weld (no fringe) and, where the level cut sampled mid-texture,
+  reads stretched.
+- **The registered lever fires as the round's ONE change**: re-mint the foot band on
+  the cut bottom course with the rim round's MEASURED intermittent fringe (53%
+  share, 3.7u course, v phase +0.12 -- the recipe that drew zero shade complaints in
+  its own playtest), spliced verbatim from terrace_wall_strip.py. Geometry untouched.
+  If the stretched faces survive the retile, they get coordinates and their own look
+  next round. Per the registration this lever does not close the verdict.

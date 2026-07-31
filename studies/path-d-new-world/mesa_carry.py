@@ -491,6 +491,100 @@ def main() -> int:
     print(f"rim weld: {len(gsnap)} ground verts canonicalized to wall points, "
           f"{n_gadd} ground crossings added to chords, {n_foot_split} wall foot splits")
 
+    # ---- THE ROW-10 FOOT FRINGE (the foot law's texture half -- the declared lever) --------
+    # J3: the grass->rock transition art lives in the WALL's bottom-course tiles (atlas
+    # row 10, cols 6-9); the ground runs plain to the weld. Foot-touching wall tris
+    # retile to that band: u marches ~4.4u stations along the foot loop (cols chained
+    # 6->9), v maps height so the painted fringe (the tile's down-mountain, larger-v
+    # edge) sits exactly ON the weld line.
+    pu_ph, pv_ph = json.loads(DECODE.read_text())["phase"]
+    fl0p = [(p[0], p[2]) for p in floops[0]]
+    fl_s = [0.0]
+    for q2 in range(1, len(fl0p) + 1):
+        fl_s.append(fl_s[-1] + math.dist(fl0p[q2 - 1], fl0p[q2 % len(fl0p)]))
+
+    def foot_s(px, pz):
+        best = None
+        for q2 in range(len(fl0p)):
+            a2p, b2p = fl0p[q2], fl0p[(q2 + 1) % len(fl0p)]
+            dx2, dz2 = b2p[0] - a2p[0], b2p[1] - a2p[1]
+            L2p = (dx2 * dx2 + dz2 * dz2) or 1.0
+            t = max(0.0, min(1.0, ((px - a2p[0]) * dx2 + (pz - a2p[1]) * dz2) / L2p))
+            d = math.hypot(px - (a2p[0] + t * dx2), pz - (a2p[1] + t * dz2))
+            if best is None or d < best[0]:
+                best = (d, fl_s[q2] + t * math.dist(a2p, b2p))
+        return best[1]
+
+    # THE MEASURED FOOT PATTERN (the rim-aware amendment, closing the dark-band bug):
+    # stock's row-10 band is INTERMITTENT (53% share, runs med 7.8u / gaps med 6.3u),
+    # one 3.7u course (round 6 minted 4.6), sampled at v phase [row 10.12 -> 11.09]
+    # (grabbing the bright grass strip past the row boundary AT the weld). Deterministic
+    # run/gap schedule with stock's medians and long-run share (52.9%).
+    ST_F, H_F = 4.4, 3.7                                    # station / one fringe course
+    RUNS_T = (7.8, 4.0, 24.7, 7.8, 4.0, 12.0)               # med 7.8 (stock: 7.8)
+    GAPS_T = (6.3, 4.3, 10.3, 6.3, 4.3, 20.9, 10.3)         # med 6.3 (stock: 6.3)
+    run_ivs = []
+    s_pos = 0.0
+    qr = qg = 0
+    while s_pos < fl_s[-1]:
+        rl = RUNS_T[qr % len(RUNS_T)]
+        run_ivs.append((s_pos, s_pos + rl))
+        s_pos += rl + GAPS_T[qg % len(GAPS_T)]
+        qr += 1
+        qg += 1
+
+    def in_fringe(s_q):
+        return any(s0 <= s_q < s1 for (s0, s1) in run_ivs)
+
+    # the mesa's foot loop is shorter than the strip ring's -- the fixed schedule's
+    # edge effects push the share out of band; a deterministic PHASE OFFSET tunes it
+    Lf = fl_s[-1]
+    cand_s = []
+    for rec in wall:
+        ys3 = [r[0][1] for r in rec]
+        if min(ys3) > LOWLAND + 1e-6 or max(ys3) > LOWLAND + 6.0:
+            continue
+        cand_s.append(foot_s(float(np.mean([r[0][0] for r in rec])),
+                             float(np.mean([r[0][2] for r in rec]))))
+    f_off = 0.0
+    for off_try in (0.0, 2.1, 3.1, 4.2, 6.3, 8.4, 9.4, 12.6, 15.7, 18.9, 22.0, 25.1):
+        sh = sum(1 for s_q in cand_s
+                 if in_fringe((s_q + off_try) % Lf)) / max(1, len(cand_s))
+        if 0.45 <= sh <= 0.60:
+            f_off = off_try
+            break
+    print(f"   fringe schedule offset {f_off}u (share tuned on the mesa's own loop)")
+    n_ret = n_cand = 0
+    ret_wall = []
+    for rec in wall:
+        ys3 = [r[0][1] for r in rec]
+        if min(ys3) > LOWLAND + 1e-6 or max(ys3) > LOWLAND + 6.0:
+            ret_wall.append(rec)
+            continue
+        n_cand += 1
+        cx3 = float(np.mean([r[0][0] for r in rec]))
+        cz3 = float(np.mean([r[0][2] for r in rec]))
+        s_c = foot_s(cx3, cz3)
+        if not in_fringe((s_c + f_off) % Lf):
+            ret_wall.append(rec)                            # stock's gaps: plain mid-face
+            continue
+        u0 = pu_ph + (6 + (int(s_c // ST_F) % 4)) * TILE_U
+        s_org = (s_c // ST_F) * ST_F
+        nr = []
+        for (w, uv, n3, t4) in rec:
+            fu = max(0.015, min(0.985, (foot_s(w[0], w[2]) - s_org) / ST_F))
+            fh = max(0.0, min(1.0, (w[1] - LOWLAND) / H_F))
+            nr.append((w, (u0 + fu * TILE_U,
+                           pv_ph + (10.12 + (1.0 - fh) * 0.97) * TILE_V),
+                       n3, t4))
+        ret_wall.append(nr)
+        n_ret += 1
+    wall = ret_wall
+    fr_share = n_ret / max(1, n_cand)
+    print(f"foot fringe: {n_ret}/{n_cand} bottom-course tris retiled ({fr_share:.0%} "
+          f"share; stock 53%), 3.7u course, v phase [10.12 -> 11.09]")
+
+
     def enrich_rim_edges(pg):
         """Insert the chords' union points into any piece edge lying on a chord, so the
         piece's rim edges match the wall's refined foot edges vert for vert."""
