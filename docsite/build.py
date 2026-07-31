@@ -140,6 +140,46 @@ class Page:
     census: dict[str, int] = field(default_factory=dict)
     search_text: str = ""
     generated: bool = False
+    raw: str = ""               # source markdown (gates read this, never the html)
+    meta: dict | None = None    # the [tutorial] frontmatter, when present
+
+
+# The tutorial frontmatter: the FIRST ```toml fence whose body opens with [tutorial]. TOML, not
+# YAML, on purpose (the yaml-frontmatter silent-truncation trap); a plain code fence, so GitHub
+# renders it as an informative block while the site strips it and renders chips instead.
+_TUT_FENCE_RE = re.compile(r"^```toml\s*\n(\[tutorial\]\n.*?)^```\s*$\n?", re.S | re.M)
+
+REQUIRE_LEGEND = {
+    "game": "an FF9 install",
+    "templates": "extracted base templates",
+    "gui": "the gui extra (Workspace)",
+    "assets": "the assets extra (UnityPy)",
+    "engine-bundle": "the Dream World IX engine bundle",
+    "blender": "Blender + the add-on",
+    "repo": "a repo checkout",
+}
+
+
+def parse_tutorial_front(text: str) -> tuple[dict | None, str]:
+    m = _TUT_FENCE_RE.search(text)
+    if not m:
+        return None, text
+    meta = tomllib.loads(m.group(1))["tutorial"]
+    return meta, text[:m.start()] + text[m.end():]
+
+
+def _meta_strip_html(meta: dict) -> str:
+    bits = []
+    if meta.get("goal"):
+        bits.append(f'<p class="tut-goal">{_html.escape(meta["goal"])}</p>')
+    reqs = meta.get("requires", [])
+    if reqs:
+        chips = "".join(f'<span class="chip" title="{_html.escape(REQUIRE_LEGEND.get(r, r))}">'
+                        f"{_html.escape(r)}</span>" for r in reqs)
+        time = (f'<span class="chip time">~{_html.escape(str(meta["time"]))}</span>'
+                if meta.get("time") else "")
+        bits.append(f'<p class="tut-reqs">needs {chips}{time}</p>')
+    return "".join(bits)
 
 
 def render_markdown(text: str) -> str:
@@ -148,14 +188,18 @@ def render_markdown(text: str) -> str:
 
 
 def page_from_source(src: Path) -> Page:
-    text = src.read_text(encoding="utf-8")
+    raw = src.read_text(encoding="utf-8")
+    meta, text = parse_tutorial_front(raw)
     m = re.search(r"^#\s+(.+)$", text, re.M)
     title = _TAG_RE.sub("", m.group(1)).replace("`", "").strip() if m else src.stem
     body = render_markdown(text)
     body, toc, census = assign_heading_ids(body)
+    if meta:
+        strip = _meta_strip_html(meta)
+        body = re.sub(r"(</h1>)", r"\1" + strip.replace("\\", "\\\\"), body, count=1)
     plain = _html.unescape(_TAG_RE.sub(" ", body))
     return Page(src=src, rel=out_rel(src), title=title, body=body, toc=toc, census=census,
-                search_text=re.sub(r"\s+", " ", plain)[:20000])
+                search_text=re.sub(r"\s+", " ", plain)[:20000], raw=raw, meta=meta)
 
 
 # ----------------------------------------------------------------------------------- link rewriting
@@ -327,19 +371,110 @@ def upgrade_shot_figures(page_html: str, page_rel: str, shots_dir: Path,
     return _SHOT_IMG_RE.sub(_sub, page_html), used
 
 
+# --------------------------------------------------------------- the tutorial gates (rot -> error)
+
+def ui_gate(pages: dict[str, Page]) -> list[str]:
+    """Every `[[tutorial.ui]]` declaration must (a) name a widget path present in the harvested
+    inventory, (b) carry that widget's REAL current label, and (c) actually be used in the prose.
+    This is how a renamed/moved/removed control fails the build instead of rotting in a step --
+    the tutorial-07 'Pick FF9 regions…' class. Inventory: py docsite/uiharvest.py (committed)."""
+    declaring = [p for p in pages.values() if p.meta and p.meta.get("ui")]
+    if not declaring:
+        return []
+    inv_path = HERE / "assets" / "ui-inventory.json"
+    if not inv_path.is_file():
+        return ["ui-inventory.json missing -- run: py docsite/uiharvest.py"]
+    flat: dict[str, dict] = {}
+    for ents in json.loads(inv_path.read_text(encoding="utf-8"))["surfaces"].values():
+        flat.update(ents)
+    errors = []
+    for p in declaring:
+        # the PROSE, not raw: raw still holds the frontmatter, whose own `label = "..."` line
+        # would satisfy a naive containment check and kill this gate silently. Whitespace
+        # NORMALIZED: markdown hard-wraps mid-label ("Suggest a test\n   room…" -- caught live).
+        _, prose = parse_tutorial_front(p.raw)
+        prose = re.sub(r"\s+", " ", prose)
+        for d in p.meta["ui"]:
+            label, widget = d.get("label", ""), d.get("widget", "")
+            ent = flat.get(widget)
+            if ent is None:
+                errors.append(f"{p.rel}: [[tutorial.ui]] widget {widget!r} is not in the "
+                              f"inventory -- the control moved or vanished (or re-harvest)")
+                continue
+            truths = {ent.get("text"), ent.get("a11y"), ent.get("placeholder")} - {None}
+            if label not in truths:
+                errors.append(f"{p.rel}: label {label!r} no longer matches {widget} "
+                              f"(now: {sorted(truths)})")
+            if re.sub(r"\s+", " ", label) not in prose:
+                errors.append(f"{p.rel}: declared label {label!r} never appears in the prose")
+    return errors
+
+
+_FENCE_RE = re.compile(r"^```(bash|sh|shell|powershell|console)\s*\n(.*?)^```", re.S | re.M)
+_GLOBAL_FLAGS = {"--game", "--mod-folder"}
+
+
+def cli_gate(pages: dict[str, Page], parser: argparse.ArgumentParser) -> list[str]:
+    """Every `ff9mapkit <verb> --flag` line inside a shell fence, in EVERY page, validated
+    against the real argument parser: the verb must exist and each --flag must belong to it.
+    Placeholder-bearing lines (<...>) skip flag-by-flag checks but still verb-check."""
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    global_opts = {s for a in parser._actions for s in a.option_strings} | _GLOBAL_FLAGS
+    errors = []
+    for p in pages.values():
+        if not p.raw:
+            continue
+        for fm in _FENCE_RE.finditer(p.raw):
+            for line in fm.group(2).splitlines():
+                line = line.strip()
+                m = re.match(r"^(?:py -m )?ff9mapkit\s+(.*)$", line)
+                if not m:
+                    continue
+                toks = m.group(1).split()
+                while toks and (toks[0] in global_opts or toks[0].startswith("-")):
+                    toks = toks[2:] if toks[0] in _GLOBAL_FLAGS else toks[1:]
+                if not toks:
+                    continue
+                verb = toks[0]
+                if "<" in verb or "{" in verb or verb.startswith("$"):
+                    continue
+                if verb not in sub.choices:
+                    errors.append(f"{p.rel}: no such verb `ff9mapkit {verb}` ({line})")
+                    continue
+                opts = {s for a in sub.choices[verb]._actions for s in a.option_strings}
+                for t in toks[1:]:
+                    if t.startswith("--"):
+                        flag = t.split("=", 1)[0]
+                        if flag not in opts and flag not in global_opts:
+                            errors.append(f"{p.rel}: `ff9mapkit {verb}` has no {flag} ({line})")
+    return errors
+
+
 # ------------------------------------------------------------------------------- the CLI reference
+
+_PARSER = None
+
+
+def the_parser() -> argparse.ArgumentParser:
+    """The kit's real CLI parser, built once -- the single truth the reference pages AND the
+    command gate read."""
+    global _PARSER
+    if _PARSER is None:
+        sys.path.insert(0, str(REPO / "ff9mapkit"))   # local package shadows any editable install
+        argv0, sys.argv = sys.argv, ["ff9mapkit"]     # argparse bakes prog from argv[0]
+        try:
+            from ff9mapkit import cli as _cli
+            _PARSER = _cli.build_parser()
+        finally:
+            sys.argv = argv0
+    return _PARSER
+
 
 def build_cli_pages() -> list[Page]:
     """One page per CLI verb, from `cli.build_parser()` introspection -- never from prose. The
     grouped human curation stays SETUP.md section 7's job for now; these pages are the complete,
     always-current census (the gate: the index row count IS the parser's verb count)."""
-    sys.path.insert(0, str(REPO / "ff9mapkit"))  # the local package shadows any editable install
-    argv0, sys.argv = sys.argv, ["ff9mapkit"]    # argparse bakes prog from argv[0] at construction
-    try:
-        from ff9mapkit import cli as _cli
-        parser = _cli.build_parser()
-    finally:
-        sys.argv = argv0
+    parser = the_parser()
     sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
     one_liners = {c.dest: (c.help or "") for c in sub._choices_actions}
     pages: list[Page] = []
@@ -517,8 +652,10 @@ def build(out_dir: Path) -> dict[str, Page]:
         rendered[rel] = html
         if used:
             shot_refs[rel] = used
+    rw.errors += ui_gate(pages)
+    rw.errors += cli_gate(pages, the_parser())
     if rw.errors:
-        raise SystemExit("link errors (" + str(len(rw.errors)) + "):\n  " + "\n  ".join(rw.errors))
+        raise SystemExit("build errors (" + str(len(rw.errors)) + "):\n  " + "\n  ".join(rw.errors))
 
     nav = load_nav(pages)
     if out_dir.exists():

@@ -29,9 +29,22 @@ fix) and its teach text falsified tutorial 07's "Pick FF9 regions…" step (regi
 Import) — the pipeline caught a stale shipped recipe on its second outing. Accuracy pass spawned
 as its own task (re-add the figure there). 10 committed PNGs `--check` clean.
 
-**Next:** the tutorial-07 accuracy task (spawned), rung 1b (block data layer), rung 3 (executed
-tutorials), a dlg shot adapter, rung 5 deployment (owner, confirm-first). Design below is
-as-ratified.
+**THE TUTORIAL SYSTEM (owner-directed pivot: "whole revamp of the tutorials — build the
+system"):** ★ BUILT, contract = `TUTORIAL-SYSTEM.md` (sibling file). Three ties to truth, each
+with a teeth-proven gate: figures (shots, above) · UI names (`docsite/uiharvest.py` → committed
+`ui-inventory.json`, 129 controls; `[[tutorial.ui]]` declarations verified at build — widget
+exists, label current, label used in prose whitespace-normalized) · commands (every `ff9mapkit`
+line in every shell fence verb+flag-checked against `cli.build_parser()`; 72 corpus lines, clean;
+calibrated by planted defects). Frontmatter = a `[tutorial]` TOML fence (TOML dodges the YAML
+trap; GitHub renders it as an informative block, the site strips it into goal + requirement
+chips). Template `docsite/templates/tutorial.md`; pilot = tutorial 06. The spot-fix tutorial-07
+task was withdrawn — 07 gets rewritten on these rails. En route: the gate's own teeth test caught
+its dead prose-containment check (raw included the declaration), and the corpus caught the
+hard-wrap class (a label split across a markdown line break).
+
+**Next:** the revamp itself (owner-authored on the rails; 07 first), rung 3 runnable fences,
+the dlg adapter (dialog shots + dialog inventory), rung 1b (block data layer), rung 5 deployment
+(owner, confirm-first). Design below is as-ratified.
 
 The charter: replace "a heap of AI-written `.md`s browsed raw in the repo" with an **explorable
 documentation site, in its own module**, holding three things in one place:

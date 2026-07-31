@@ -112,6 +112,15 @@ footer { margin-top: 3.5rem; padding-top: 1rem; border-top: 1px solid var(--bord
 .args td:first-child, .cli-index td:first-child { white-space: nowrap; }
 .usage { font-size: .85rem; }
 
+/* -------- tutorial frontmatter chips -------- */
+.tut-goal { font-size: 1.05rem; color: var(--muted); margin: .2rem 0 .6rem; }
+.tut-reqs { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center;
+            color: var(--muted); font-size: .85rem; margin: .4rem 0 1.2rem; }
+.chip { display: inline-block; padding: .1rem .6rem; border: 1px solid var(--border);
+        border-radius: 999px; background: var(--surface); color: var(--ink);
+        font-size: .8rem; cursor: default; }
+.chip.time { border-style: dashed; }
+
 /* -------- shot figures (auto-generated GUI screenshots) -------- */
 figure.shot { margin: 1.4rem 0; }
 .shot-frame { position: relative; border: 1px solid var(--border); border-radius: 12px;

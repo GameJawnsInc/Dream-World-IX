@@ -1,5 +1,31 @@
 # 06 — One field in the Workspace
 
+```toml
+[tutorial]
+goal = "Fork a real field, edit it in forms, and deploy — all inside the Workspace window."
+requires = ["game", "gui", "assets"]
+
+[[tutorial.ui]]
+label = "Find…"
+widget = "import_field.find_btn"
+
+[[tutorial.ui]]
+label = "Suggest a test room…"
+widget = "import_field.rooms_btn"
+
+[[tutorial.ui]]
+label = "Preview fidelity"
+widget = "import_field.preview_btn"
+
+[[tutorial.ui]]
+label = "Study logic…"
+widget = "import_field.study_btn"
+
+[[tutorial.ui]]
+label = "Import field"
+widget = "import_field.import_btn"
+```
+
 The GUI version of [tutorial 01](01-first-fork.md): fork a real field, edit it in forms, and
 deploy — all inside the Workspace window.
 

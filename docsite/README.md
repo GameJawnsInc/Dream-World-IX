@@ -38,6 +38,16 @@ every tutorial figure updates; a callout whose widget vanished fails the run ins
 mis-pointing. Shot surfaces render from kit-authored fixtures only — no game install is read and
 no Square-Enix pixels enter the repository.
 
+## The tutorial system
+
+The revamp contract lives at
+[`studies/interactive-docs/TUTORIAL-SYSTEM.md`](../studies/interactive-docs/TUTORIAL-SYSTEM.md);
+start a new tutorial from [`templates/tutorial.md`](templates/tutorial.md). Three ties to truth:
+figures (shots, above), UI names (`py docsite/uiharvest.py` harvests every referenceable
+Workspace label into `assets/ui-inventory.json`; tutorials declare the labels they use and the
+build verifies them), and commands (every `ff9mapkit` line in every shell fence is verb- and
+flag-checked against the real parser at build time).
+
 ## Tests
 
 ```
