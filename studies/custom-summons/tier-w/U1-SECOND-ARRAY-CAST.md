@@ -519,10 +519,15 @@ appended to the record: `…\u1-second-array\castread\REPORT-U1.md`. Owner-facin
 
 ### 9.1 Next steps, in cost order — the first one changed
 
-1. **⚠ ENGINE (owner GO/NO-GO — DLL rebuild): log the `DR_MOVE`/`MoveImage` payload rects** (source +
-   destination) in the SfxMeshProbe patch, and the `DR_TPAGE` code word in the same edit (free, and it
-   settles the twin-pair co-draw question). One log field; it discriminates the leading mechanism
-   directly — did something blit over (640,256) before the surfaces drew?
+1. ~~**⚠ ENGINE (owner GO/NO-GO — DLL rebuild): log the `DR_MOVE`/`MoveImage` payload rects**~~
+   **→ ★ DONE — owner said GO; s76 BUILT + DEPLOYED 2026-07-30** (`memoria-patches/
+   s76-sfx-state-payload.patch`, one file, +67/−6, additive-only on the CapturePrims gating; both
+   arches sha `b6ce810f…`; pre-build backup `20260730-222511`; 0 committed parsers break — the one
+   break was the SCRATCH `a22_drawproof.py` `endswith` idiom, which would have failed SILENTLY TO
+   ZERO on the next capture and is fixed in place; full record in the README row). `DR_TPAGE` rows
+   now carry `tpage,tx,ty,abr,tp,len` (the marked page (640,256) = `tx=10,ty=1`) and `DR_MOVE` rows
+   carry their rects — **a block of `SS` rather than `MV` packets would REFUTE the blit mechanism,
+   not confirm it**. RELAUNCH required (DLL change), then the §9.2 control cast.
 2. **Dump the emulated VRAM page at (640,256) at cast time** and diff against the two marked cells —
    separates a wrong cells→VRAM mapping from a runtime overwrite from a cached decode.
 3. **A STOCK reference cast of ef038** (probe already reverted; recast + capture) — the only thing that
@@ -531,6 +536,25 @@ appended to the record: `…\u1-second-array\castread\REPORT-U1.md`. Owner-facin
    cells→VRAM→sampler link this cast just exposed.
 5. **Do NOT bundle the §4.4 second leg** (flip A, watch blend state). One change per in-game test; this
    cast has not earned that step.
+
+### 9.2 The s76 control cast — the next in-game step (LOG-ONLY, no video needed)
+
+**RELAUNCH FF9 first** (a DLL rebuild is a relaunch case; the game was closed for the build, so the
+next launch picks s76 up). The install is stock — the probe is NOT deployed, on purpose: the control
+cast asks what stock ef038 does to VRAM, with nothing of ours in the way.
+
+1. Warp `30301` → STEINIV → `Rune` → **"Stock Shiva"** (row 200), fresh encounter, FIRST action.
+2. **Archive `sfxmeshprobe.log` to `capture-logs\` immediately** — this read is entirely in the log.
+3. THE READ: the `STATE` rows now carry payloads. Under the blit hypothesis, `MV`-class `DR_MOVE`
+   rows appear in the early block (effect frames ~86–138) with **destination rects intersecting the
+   marked page — `tx=10, ty=1` in `DR_TPAGE` terms, VRAM (640,256)–(703,383)** — before any scenery
+   draws. Moves that never touch that rect, **or a block of `SS` rather than `MV` packets, REFUTE
+   the blit mechanism** and the search moves to the cells→VRAM-mapping / cached-decode branches
+   (next steps 2–3 above). Either way the twin-pair co-draw question gets its answer free from the
+   `DR_TPAGE` code words.
+4. Only as a separate second test (one change per cast): redeploy the probe
+   (`py u1_cell_probe.py --deploy`, no relaunch) and recast — the marked cast, now fully
+   instrumented.
 
 **Resting state:** ef038 override DELETED (= stock, verified), `ef211` untouched, rows 192–204 on the
 bench, video + frames + all analysis under `…\repaint-w6b\u1-second-array\`, the `[SfxProbe]` log
