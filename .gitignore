@@ -277,3 +277,7 @@ examples/stolen-ember/**/*.carrytext.json
 examples/stolen-ember/dist/
 /ff9mapkit/ff9mapkit/data/thumbs
 /ff9mapkit/ff9mapkit/data/model_thumbs
+
+# docsite: rendered output + QA screenshots (the committed inputs are docsite/assets, pages, static)
+/docsite/_site/
+/docsite/_qa_*.png

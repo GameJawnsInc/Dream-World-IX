@@ -1,0 +1,57 @@
+# The Manual's sidebar: curation ORDERS pages, it never gates existence -- a page missing from
+# every section below lands in an automatic "More" bucket instead of vanishing (a gating list
+# rots). A listed-but-missing file FAILS the build. The generated CLI reference adds itself.
+
+[[section]]
+title = "Start"
+pages = ["README.md", "SETUP.md"]
+
+[[section]]
+title = "Tutorials"
+pages = [
+  "ff9mapkit/docs/tutorials/README.md",
+  "ff9mapkit/docs/tutorials/*.md",
+]
+
+[[section]]
+title = "Understand"
+pages = [
+  "ff9mapkit/docs/PIPELINE.md",
+  "ff9mapkit/docs/ENGINE.md",
+  "ff9mapkit/docs/TECHNICAL.md",
+  "ff9mapkit/docs/FORK_FIDELITY.md",
+  "ff9mapkit/docs/OBJECT_CARRY.md",
+  "ff9mapkit/docs/TEXT_CARRY.md",
+  "ff9mapkit/docs/PLAYER_GRAFT.md",
+  "ff9mapkit/docs/CAMPAIGN_IMPORT.md",
+  "ff9mapkit/docs/JOURNEYS.md",
+  "ff9mapkit/docs/OVERWORLD_ENGINE.md",
+  "ff9mapkit/docs/DIALOGUE.md",
+  "ff9mapkit/docs/ATE_SYSTEM.md",
+  "ff9mapkit/docs/BEHAVIOR.md",
+  "ff9mapkit/docs/BATTLE_DESIGN.md",
+  "ff9mapkit/docs/ATB_DESIGN.md",
+  "ff9mapkit/docs/SUMMONS.md",
+  "ff9mapkit/docs/SPS.md",
+  "ff9mapkit/docs/SCRIPTS_DLL.md",
+  "ff9mapkit/docs/CUSTOM_MODELS.md",
+  "ff9mapkit/docs/ANIMATION_EDITING.md",
+  "ff9mapkit/docs/WALKMESH_EDITING.md",
+  "ff9mapkit/docs/SAVEPOINT.md",
+]
+
+[[section]]
+title = "Reference"
+pages = [
+  "ff9mapkit/docs/FORMAT.md",
+  "reference/cli/index.html",
+  "ff9mapkit/docs/GLOSSARY.md",
+  "ff9mapkit/docs/ARCHETYPES.md",
+  "ff9mapkit/docs/GLOBAL_RESOURCES.md",
+  "ff9mapkit/docs/FEATURES.md",
+  "ff9mapkit/docs/FORK_REPORT.md",
+  "ff9mapkit/docs/FORK_IDGATE_MAP.md",
+  "ff9mapkit/docs/KNOWN_ISSUES.md",
+  "ff9mapkit/docs/TROUBLESHOOTING.md",
+  "ff9mapkit/docs/PROVENANCE.md",
+]
