@@ -128,6 +128,39 @@ def test_npc_anims_empty_for_non_field_model():
     assert C.npc_anims(mon.id) == {}              # a battle-only monster has no field gestures
 
 
+# --- clip_inventory: the two-tier picker feed --------------------------------
+def test_clip_inventory_movement_tier_is_the_five_slots_in_order():
+    inv = C.clip_inventory(8)
+    mv = [r for r in inv if r["kind"] == "movement"]
+    assert [r["label"] for r in mv] == ["stand", "walk", "run", "left", "right"]
+    assert {r["label"]: r["anim_id"] for r in mv} == C.npc_anims(8)
+    assert inv[:5] == mv, "movement leads the list; gestures follow"
+
+
+def test_clip_inventory_gesture_tier_covers_both_joins():
+    inv = C.clip_inventory(8)
+    gest = {r["label"]: r["anim_id"] for r in inv if r["kind"] == "gesture"}
+    union = dict(C.animations_for_model(8))
+    union.update(C.own_form_gestures(8))          # a same-rig clip WINS its label
+    assert gest == {k: min(C.animation_aliases(v)) for k, v in union.items()}
+
+
+def test_clip_inventory_ids_are_canonical_and_own_form_is_marked():
+    """THE CROSS-FORM CLIP TRAP, surfaced as a flag: GEO_NPC_F1_CSO's attack_cid_* clips exist only in
+    the F3 form, and a gesture picker has to be able to refuse them."""
+    cso = C.resolve_model("GEO_NPC_F1_CSO")
+    rows = {r["label"]: r for r in C.clip_inventory(cso) if r["kind"] == "gesture"}
+    assert rows["attack_cid_3"]["own_form"] is False
+    assert "_F3_" in C.animation_name(rows["attack_cid_3"]["anim_id"])
+    assert rows["idle"]["own_form"] is True and "_F1_" in C.animation_name(rows["idle"]["anim_id"])
+    for r in C.clip_inventory(cso):              # every id is the canonical (lowest same-name) row
+        assert r["anim_id"] == min(C.animation_aliases(r["anim_id"]))
+
+
+def test_clip_inventory_is_empty_for_an_unknown_model():
+    assert C.clip_inventory(999999) == [] and C.clip_inventory("GEO_NOPE") == []
+
+
 # --- battle scenes -----------------------------------------------------------
 def test_battle_scenes_and_resolve():
     rows = C.battle_scenes()

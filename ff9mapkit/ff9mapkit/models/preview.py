@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 
-__all__ = ["render_model", "render_token", "DEFAULT_YAW", "DEFAULT_PITCH"]
+__all__ = ["render_model", "render_token", "projected_bounds", "DEFAULT_YAW", "DEFAULT_PITCH"]
 
 DEFAULT_YAW = 30.0     # degrees about the vertical (Y) axis; a 3/4 view
 DEFAULT_PITCH = 12.0   # degrees about X; a slight look-down
@@ -132,7 +132,37 @@ def _stand_pose(geo_id: int, bones: list, game=None, env5=None) -> list:
     return posed
 
 
-def _skinned_struct(token: str, game=None, bundle=None, *, pose: bool = True, env5=None) -> dict:
+def _pose_bones_at(bones: list, clip: dict, t: float) -> list:
+    """Bones re-posed from a clip SAMPLED at time ``t`` (seconds) -- the animated-preview sibling of
+    :func:`_stand_pose`'s frame-0 read.
+
+    Each bone path the clip keys is matched to the skeleton by bone NUMBER (the engine binds by name),
+    and each present rot/pos/scale channel is linearly interpolated at ``t``
+    (:func:`~ff9mapkit.models.anim._sample_curve` -- exact between keys, clamped at both ends, which is
+    what the engine itself does). A bone the clip doesn't key, or a channel it doesn't carry, KEEPS its
+    rest TRS: playback only touches what a clip animates. The input list is never mutated."""
+    from . import anim as _anim
+
+    if not clip or not clip.get("bones"):
+        return bones
+    by_num = {ch.get("bone"): ch for ch in clip["bones"].values() if ch.get("bone") is not None}
+    posed = []
+    for bn in bones:
+        ch = by_num.get(int(bn["name"][4:])) if bn["name"].startswith("bone") else None
+        b2 = dict(bn)
+        if ch:
+            for chan in ("rot", "pos", "scale"):
+                if ch.get(chan):
+                    v = _anim._sample_curve(ch[chan], t)
+                    if v is not None:
+                        b2[chan] = list(v)      # the struct's TRS is a LIST everywhere else -- keep it one
+        posed.append(b2)
+    return posed
+
+
+def _skinned_struct(token: str, game=None, bundle=None, *, pose: bool = True, env5=None,
+                    collected: "dict | None" = None, textures: "dict | None" = None,
+                    clip: "dict | None" = None, folder_id=None, anim_key=None, t: float = 0.0) -> dict:
     """Read a model and pose it by TRUE linear-blend skinning -> a render_model struct.
 
     Uses the raw prefab data (:func:`extract._collect`): bone world transforms composed from the
@@ -141,14 +171,27 @@ def _skinned_struct(token: str, game=None, bundle=None, *, pose: bool = True, en
     ``read_model`` rigid G-bake can only approximate. With ``pose`` (default) the bone TRS comes
     from frame 0 of the model's stand clip (see :func:`_stand_pose`). Static prefabs
     (weapons/props: no skin) pass through :func:`extract.read_static_model` verbatim.
+
+    The animated-preview path reuses one model across many frames, so the two expensive per-call reads
+    are injectable: ``collected`` is an already-walked :func:`extract._collect` dict and ``textures`` an
+    already-decoded ``{stem: Image}`` (both container scans -- re-paying them per frame dominates the
+    render). ``clip`` (a raw clip dict) or ``anim_key`` (+ ``folder_id``, read out of ``env5``) poses the
+    bones at time ``t`` instead of at the stand pose. Every one of these defaults to None/0.0 and the
+    untouched call renders exactly what it renders today.
     """
     from . import extract
 
-    c = extract._collect(token, game, bundle=bundle)
+    c = collected if collected is not None else extract._collect(token, game, bundle=bundle)
     if not c["smrs"]:
         return extract.read_static_model(token, game=game, bundle=c["bundle"])
 
-    bones = _stand_pose(c["geo_id"], c["bones"], game=game, env5=env5) if pose else c["bones"]
+    if clip is None and anim_key is not None and env5 is not None:
+        from . import _gltf_io
+        clip = _gltf_io.read_clip(env5, c["geo_id"] if folder_id is None else folder_id, anim_key)
+    if clip is not None:
+        bones = _pose_bones_at(c["bones"], clip, t)
+    else:
+        bones = _stand_pose(c["geo_id"], c["bones"], game=game, env5=env5) if pose else c["bones"]
     # bone world transforms (bones[] is pre-order, so parents resolve before children)
     world: dict = {}
     for bn in bones:
@@ -202,8 +245,10 @@ def _skinned_struct(token: str, game=None, bundle=None, *, pose: bool = True, en
                        "normals": normals if src_normals else None,
                        "uvs": mesh["uvs"], "submeshes": subs})
 
-    textures = extract._read_textures(c["bundle"], c["prefab_id"], texture_stems)   # stems live under the PREFAB
-    extract._swap_alt_outfit_textures(c["geo"], c["geo_id"], c["bundle"], textures)
+    if textures is None:
+        # stems live under the PREFAB
+        textures = extract._read_textures(c["bundle"], c["prefab_id"], texture_stems)
+        extract._swap_alt_outfit_textures(c["geo"], c["geo_id"], c["bundle"], textures)
     return {"geo": c["geo"], "geo_id": c["geo_id"], "type_int": c["type_int"],
             "bones": c["bones"], "meshes": meshes, "materials": materials, "textures": textures}
 
@@ -263,14 +308,37 @@ def _affine_screen_to_tex(s, t):
     return (a, b, c, d, e, f)
 
 
+def projected_bounds(model: dict, *, yaw: float = DEFAULT_YAW, pitch: float = DEFAULT_PITCH):
+    """``(minx, maxx, miny, maxy)`` of a struct's drawn triangle corners under the SAME rotation
+    :func:`render_model` uses -- i.e. the box that call would auto-fit to. None for an empty model.
+
+    This is the unit of :func:`render_model`'s ``fit=``: a clip's frames each fit differently (a walk
+    cycle's silhouette breathes), so an animated preview unions these across every posed frame and
+    renders them all against the one box, or the model visibly pulses and drifts frame to frame."""
+    tris = _gather_triangles(model)
+    if not tris:
+        return None
+    R = _mat_mul(_rot_x(pitch), _rot_y(yaw))
+    xs, ys = [], []
+    for t in tris:
+        for v in t[:3]:
+            p = _mat_vec(R, v)
+            xs.append(p[0]); ys.append(p[1])
+    return (min(xs), max(xs), min(ys), max(ys)) if xs else None
+
+
 def render_model(model: dict, *, size: int = 256, yaw: float = DEFAULT_YAW,
                  pitch: float = DEFAULT_PITCH, shade: bool = True, margin: float = 0.07,
-                 supersample: int = 2):
+                 supersample: int = 2, fit=None):
     """A :func:`~ff9mapkit.models.extract.read_model` struct -> an RGBA ``PIL.Image`` preview.
 
     Orthographic 3/4 view on a transparent background, textured where the model carries textures
     (flat gray where not). ``yaw``/``pitch`` orbit the model; ``supersample`` renders at Nx and
     downscales (the antialiasing). Pure CPU; a character model renders in well under a second.
+
+    ``fit`` overrides the auto-fit box with a caller's ``(minx, maxx, miny, maxy)`` in the same rotated
+    space :func:`projected_bounds` reports -- the STABLE-FRAMING lever an animated preview needs
+    (default None auto-fits this call's own verts, exactly as before).
     """
     from PIL import Image, ImageChops, ImageDraw
 
@@ -289,7 +357,7 @@ def render_model(model: dict, *, size: int = 256, yaw: float = DEFAULT_YAW,
     ys = [p[1] for t in xf for p in t[:3]]
     if not xs:
         return Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    minx, maxx, miny, maxy = fit if fit is not None else (min(xs), max(xs), min(ys), max(ys))
     span = max(maxx - minx, maxy - miny) or 1.0
     scale = W * (1.0 - 2.0 * margin) / span
     # centre the model in the canvas (Y-down model space maps straight onto image rows)

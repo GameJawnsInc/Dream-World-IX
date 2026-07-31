@@ -970,6 +970,7 @@ class ImportDoc(QWidget):
         sv = strip.content_layout
         srow = QHBoxLayout()
         slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setAccessibleName("Story beat (ScenarioCounter)")   # a slider is a real Tab stop
         slider.setRange(0, len(rows) - 1)
         slider.setPageStep(1)
         slider.setTickPosition(QSlider.TickPosition.TicksBelow)

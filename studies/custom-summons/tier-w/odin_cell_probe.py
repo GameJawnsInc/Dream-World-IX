@@ -335,8 +335,22 @@ def main(argv=None) -> int:
             "by hand, then re-run." % mod)
     root = Path(a.root)
     pre = root / ("ef%03d" % EFFECT)
+    absent_flag = root / "pre.ABSENT"
     print("\n  live override    %s" % live)
+    # ⚠ THE STALE-SNAPSHOT DEFECT, found by rehearsing the U1 deploy path (U1-SECOND-ARRAY-CAST.md
+    # §8 item 2) and ported back here.  The emitted revert decides by `pre.exists()`.  A root that
+    # has ALREADY been deployed into once keeps whichever marker that run left behind, so a PRESENT
+    # run followed by an ABSENT run would leave the old `pre` snapshot lying beside the new
+    # `pre.ABSENT` -- and the revert would RESTORE somebody else's container instead of deleting
+    # ours.  The two markers are mutually exclusive by construction: whichever branch runs CLEARS
+    # the other one first, and says so.
+    stale = [p for p in (pre, absent_flag) if p.exists()]
+    if stale:
+        print("  prior ledger     %s -- from an earlier deploy into this root; it is CLEARED below "
+              "so the" % ", ".join(p.name for p in stale))
+        print("                   emitted revert can never restore a stale snapshot.")
     if live.exists():
+        absent_flag.unlink(missing_ok=True)
         pre.write_bytes(live.read_bytes())
         pre_sha = hashlib.sha256(pre.read_bytes()).hexdigest()
         print("  OBSERVED         PRESENT, %d B sha %s -- NOT the expected state.  Recon read this "
@@ -347,7 +361,8 @@ def main(argv=None) -> int:
               "cast is underneath this one.")
         state = {"existed": True, "sha256": pre_sha, "backup": str(pre)}
     else:
-        (root / "pre.ABSENT").write_text(
+        pre.unlink(missing_ok=True)
+        absent_flag.write_text(
             "no override existed before the probe; revert = delete\n", encoding="utf-8")
         print("  OBSERVED         ABSENT (as expected) -- revert DELETES; the resting state is stock.")
         state = {"existed": False, "sha256": None, "backup": None}
@@ -379,9 +394,12 @@ def main(argv=None) -> int:
         "live = pathlib.Path(%r)\n"
         "pre = pathlib.Path(%r)\n"
         "if pre.exists():\n"
+        "    live.parent.mkdir(parents=True, exist_ok=True)\n"
         "    live.write_bytes(pre.read_bytes()); print('restored', live)\n"
+        "elif live.exists():\n"
+        "    live.unlink(); print('deleted', live)\n"
         "else:\n"
-        "    live.unlink(missing_ok=True); print('deleted', live)\n"
+        "    print('already reverted (absent):', live)\n"
         % (EFFECT, str(live), str(pre)), encoding="utf-8")
     # AND IT IS COMPILED HERE, not hoped over: a revert script that does not parse is worse than none.
     compile(rv.read_text(encoding="utf-8"), str(rv), "exec")

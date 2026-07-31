@@ -79,7 +79,7 @@ borrowed for a chart.)
 
 | Name | Value | Source |
 |---|---|---|
-| `R_WALK` | **80.0** | the composer's own literal — now equal to `cam.COLLISION_RADIUS_W` (both 80 since 2026-07-30), but deliberately a SEPARATE object, fenced by an equality assert. A silent drift in either direction should go red, which an alias cannot do. |
+| `R_WALK` | **80.0** | the composer's own literal — now equal to `cam.COLLISION_RADIUS_W` AND `routes.WALL_CLEARANCE_W` (all three 80 since 2026-07-30), but deliberately SEPARATE objects, fenced by an equality assert over all three. A silent drift in any of them should go red, which an alias cannot do. |
 | `R_OBJ` | 96.0 | `cam.OBJECT_COLLISION_W` (`scene/cam.py:82`) — correct in the repo (arg2=24 of the same opcode) |
 | `K_VSCALE` | 14/15 | `scene/cam.py:36` |
 | `CANVAS_W`, `CANVAS_H` | 384, 448 | `scene/guide.py:24` — **not** in `cam.py` |
@@ -194,19 +194,41 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
    real — `bgiRad` is a battle-return-only field, 0 on a fresh load; the old 48 traced back to the
    now-deleted room02 bench, which conflated this radius with the legacy flat-builder's
    `orgPos=(0,0,300)` offset and the retired eyeball canvas scale).
-   ⚠ **Still do NOT change the remaining 48s as a drive-by** — but the list is SHORTER than this
+   ⚠ **Still do NOT change the remaining 48 as a drive-by** — but the list is SHORTER than this
    study first claimed, and the two bad cites are worth naming so nobody re-derives them:
    `build.py:3652` is an aspect-mismatch check with nothing to do with the radius, and
    `field_layout_probe.py:242` reads `C.COLLISION_RADIUS_W`, so the probe picked up 80 for free
-   (as did `content/pathfind.py:155`). **Verified 2026-07-30, the true remaining set is exactly
-   two literals** — `scene/routes.WALL_CLEARANCE_W = 48.0` (whose own comment claims it *is*
-   `cam.COLLISION_RADIUS_W`, which is now false) and `imagefield.COLLISION_OUTSET = 48.0` — plus
-   the layout skill's route-sweep prose, which is correct only while `routes` stays 48.
-   The split has teeth: a 130u corridor measures 1820 standable cells at 48 and **0** at 80, and
-   `routes` is the optimistic direction, so the behavior-tree sweeper will certify a patrol the
-   engine cannot walk; `content/pathfind.py` disagrees with itself (line 104 defaults to `routes`'
-   48, line 155 to `cam`'s 80). Reconciling them is its own change, with the owner — five behavior
-   tests pin against 48 and need RE-MEASURING, not relaxing.
+   (as did `content/pathfind.py:155`). **Verified 2026-07-30, the true remaining set was exactly
+   two literals** — `scene/routes.WALL_CLEARANCE_W` and `imagefield.COLLISION_OUTSET`.
+   ★ **`routes.WALL_CLEARANCE_W` RECONCILED to 80, owner-approved.** It was never independently
+   derived — a stale copy of the mis-measured value, its own comment claiming to *be*
+   `cam.COLLISION_RADIUS_W` — and it erred OPTIMISTIC (a 130u corridor measures 1820 standable cells
+   at 48 and **0** at 80, so every sweep in `routes` certified patrols the engine cannot walk). That
+   also settled `content/pathfind.py` disagreeing with itself (`route_polyline` took `routes`' 48,
+   `route` took `cam`'s 80); both now resolve to 80. **RE-MEASURED, not relaxed — TWO behavior tests
+   moved.** This study's estimate of five was high, but a targeted grep-scoped measurement that found
+   only ONE was too low: the second reaches the constant INDIRECTLY and only a FULL-SUITE run caught
+   it. **Do not size this kind of blast radius by grep.**
+   (a) `test_behavior_pursuit.test_concave_notch_is_caught_with_an_exemplar_pair`'s exemplar bound
+   had to go wall-INCLUSIVE, because at an 80u step the leg `(200,-600)->(-600,40)` lands exactly on
+   the notch wall `x = -400` (a 48u step never did) — a point ON the hole's boundary names the hole
+   as truly as one inside it.
+   (b) `test_behaviordoc.test_sweep_sync_paints_verdicts_and_arms_the_resweep` exposed a **SECOND
+   defect of the same shape as the pathfind one, and a worse one**: `sweep_pursuit`/`sweep_wander`
+   defaulted `grain` — a RESOLUTION — to `WALL_CLEARANCE_W`, a RADIUS. Correcting the radius upward
+   therefore made the sweep COARSER, and at 80 no cell centre lands inside the BGLADE demo field's
+   40u notch (`(gi+0.5)*80` steps 600 → 680), so `_raster_on_mesh` filled the hole in and the sweep
+   reported **0 blocked of 1358 pairs** where every finer grain finds 130–260 — a **FALSE CLEAN**,
+   the one failure mode its own contract calls out. Fixed by `routes.SWEEP_GRAIN_W = 40.0`, decoupled
+   from every radius and equal to `sweep_polyline`'s step and `pathfind._MESH_STEP_W`.
+   ★ **THE LAW THIS PASS BOUGHT: a RESOLUTION must never be derived from a RADIUS.** A radius grows
+   with the walker; a resolution must shrink with the geometry. Both defects here were that one
+   confusion, and both were SILENT — the check kept passing while seeing less.
+   ⚠ **`imagefield.COLLISION_OUTSET` stays 48 ON PURPOSE, pending a PLAYTEST.** Offline it looks
+   equally wrong (it under-outsets every traced field by 32u — "the back edge is a bit short") and
+   flipping it breaks **zero** tests, but it moves the shipped walkmesh geometry of every traced
+   field, and that is an in-game judgment, not a green suite. `tests/test_floorplan.py::
+   test_the_walk_radius_is_reconciled_everywhere_but_the_trace_outset` pins both halves.
 2. **Whether front-align *looks* right in-game.** The fill numbers are unambiguous and it matches
    `frame_floor`'s own defaults, but "the room reads as a room" is a human judgment. Get a screenshot
    of the first composed room before emitting a whole dungeon.
@@ -226,6 +248,73 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
   lands as a live campaign and its graph is immediately visible (PLAN.md §5 call site 3). Undo is
   **doc-local** over the session snapshot (`TraceDoc`'s `_push_history` model), not shell checkpoints
   — which is what makes a door-pair edit atomic despite `_UndoRec` being single-member.
+- **6c-perf ★ 2026-07-30** — the live gate was a **stall**, not a gate: `compose` re-derived the
+  whole plan on every gesture — ~17 s on eight rooms, the SAME as drawing it, because nothing
+  survived a judge — with one worker per keystroke stacking under the GIL. Now **~0.6 s per gesture
+  and FLAT in room count** (the same at 3 rooms and at 12; the flatness is the fix, the raw number
+  is today's machine), all-hit re-judge 4–18 ms, cold first judge ~17 s → ~4 s. Four changes, in
+  descending order of what
+  they bought: a `GeomCache` the tab carries **across** judges (keyed on the polygon's own
+  coordinates — room dicts are mutated in place and undo pops a deepcopy, so identity fails in both
+  directions); scanline samplers in `standable_map` / `strip_standable_fraction`; hoisted edge data
+  plus an R-grown bbox reject in `interior_point`'s avoid test; and a `cancel` hook polled per room
+  and per door. Bench: `studies/click-authoring/gate_bench.py` (`--drag 8`, `--profile 5`).
+  **Three traps this cost, each now fenced:**
+  1. **`standable_map`'s distance is NOT `interior_point`'s ranking distance.** One is measured at
+     the grid SAMPLE (walked from the polygon's bbox), the other at the absolute CELL CENTRE.
+     Reusing it is the obvious free win and it moved the spawn a whole cell on 4 of 22 plans.
+  2. **The arithmetic had to be pinned term for term** — the division rather than a hoisted
+     reciprocal, `x - (ax + t*dx)` rather than `(x - ax) - t*dx`. Algebraically identical, ~1e-13
+     apart, and measured moving the distance on 60 of 240 polygons.
+  3. **`GeomCache` must lock.** The tab hands one instance to N daemon workers, and `OrderedDict`
+     is not safe across an interleaved `move_to_end`/`__setitem__`/`popitem`.
+  4. ★ **CACHE THE ANSWER, NOT THE GEOMETRY.** The first cut memoized the fat intermediates — the
+     cell map, the strip's point list, the component sets — and an adversarial pass killed it twice
+     over. **Memory:** one tab retained **1.28 GB** after ~9 s of dragging a two-room plan, and
+     ~half of it was never read (`compose` consumes the component list as `len()` and the strip's
+     points as `if not pts`). **The cliff:** `compose` touches each key exactly ONCE per judge in a
+     fixed order — a cyclic scan, the one access pattern an LRU is pathological on — so past the cap
+     the hit rate is not degraded but **exactly zero**, the evicted entry always being the one
+     wanted next. At `limit=64`: 32 doors → 291/291 hits in 0.04 s; **33 doors → 102/300 and 9.0 s**;
+     a 25-room grid dungeon back to 4.3 s per gesture. Storing only the reductions (three ints, a
+     fraction, a bool, a point) made entries small enough for a cap no real plan reaches, and the
+     full maps now live for one compose and no longer: **1.28 GB → 0.3 MB, and 40 doors 9.58 s →
+     0.07 s.** THE GENERAL LESSON: *a memo's entry size is part of its correctness, because it sets
+     the cap, and a cap the access pattern can cycle past is not a slow cache — it is no cache.*
+  5. **A published "before" must come from the BEFORE code.** The first draft measured the new
+     module with its cache disabled and called that the old cost; it was ~6.6 s against a true ~17 s,
+     and it was self-refuting on its face — it claimed a gesture had been *cheaper* than a cold
+     judge at a commit where a gesture WAS a cold judge. `gate_bench.py --drag N` now loads HEAD's
+     module from git and prints both halves.
+  Every step was gated on a 400-plan differential against the pre-change module — **0 verdict
+  changes** — because the invariant is that the gates say exactly what they said before, faster.
+- **6c-firstcontact ★ 2026-07-30** — the first human to draw on the tab reported four things in
+  twenty minutes; **three of them were one defect and the fourth was a missing affordance.**
+  1. ★ **THE CHART RE-CENTRED ITSELF ON EVERY CORNER.** `_scene_bounds` follows the geometry and the
+     geometry includes the outline IN PROGRESS, so the first corner collapsed the scene rect from
+     480 world units to 58 (one point plus its pad); Qt centred a rect now far smaller than the
+     viewport and the whole chart jumped. Measured on the real widget: the first click moved world
+     (0,0) **375px right and 253px down**, and four clicks aimed at a screen RECTANGLE produced a
+     garbage quadrilateral because every click after the first landed in a new frame. That single
+     cause produced all three reports — *"the view shifts when adding new points"*, *"it's hard to
+     click the same spot twice"*, and *"the first point is always put at the origin"* (the point
+     never moved; the chart did, until the point sat where the origin crosshair had been).
+     Fix: the scene rect is the geometry UNIONED WITH THE VISIBLE REGION, so it can never shrink out
+     from under the view; `fit()` re-derives from the geometry alone; scrollbars are off, since a bar
+     appearing would shrink the viewport and move the chart all over again. Drift is now 0px.
+  2. ★ **THE 8u DOOR TOLERANCE WAS NOT A TARGET A HUMAN COULD HIT** — *"is getting the edges close
+     together for a door supposed to be so hard?"*. `shared_edges` admits a shared wall only within
+     8 WORLD units and the chart opens at ~9 units per screen pixel, so a pixel-perfect click is out
+     of tolerance **before the mouse moves**, and the only feedback is "No shared wall here". Fix:
+     corners and walls CAPTURE a placed or dragged point within 12 screen px (corner beats wall; a
+     dragged vertex never captures onto its own room), and the rubber band previews the snapped
+     point so the jump is the affordance. A/B on identical clicks 3-5px off a wall: **0 candidates
+     before, the whole 1049u wall offered after.**
+  ★ **THE METHOD LESSON.** All 47 pre-existing fences drove `click_world` — the world-space seam —
+  so not one of them could see a defect that lived entirely in what the VIEW did between one click
+  and the next. This is the SECOND time that exact gap shipped a defect on this tab (the first was
+  the control DEAD ON CLICK). A gesture fence that does not go through Qt's own event path is
+  testing the model, not the instrument.
 - **6d** — deploy **per room** with `tools/deploy_field.py --id N` (additive: it rmtrees only that
   one FBG scene subdir and merges `DictionaryPatch.txt` by ownership). **Never**
   `deploy_campaign --apply` — that rmtrees the whole mod folder, and this install's `FF9CustomMap`

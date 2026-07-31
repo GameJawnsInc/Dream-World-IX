@@ -2,6 +2,19 @@
 
 > **Status: UNVALIDATED BY ANY HUMAN.** Written 2026-07-30 for the tab's first contact. Timings in
 > Step 5 are measured, not estimated. Findings and verdicts belong back in `PLAN.md`'s Rung 6 block.
+>
+> **Revised 2026-07-30, before first contact:** two of the defects this plan told you to expect were
+> fixed rather than left in your way — **the live-gate stall** (a gesture cost ~17s on an eight-room
+> plan; it is now ~0.6s and flat in room count) and **the mid-drag snap-back**. Steps 3 and 5 say
+> what to look for instead. Everything else stands as written.
+>
+> **Revised again, AFTER the first session's first twenty minutes.** Three of that session's four
+> reports were one defect — the chart re-centred itself on every corner, so the view shifted, the
+> first point appeared to land at the origin, and the same spot could not be clicked twice. Fixed:
+> the chart now holds absolutely still while you draw. The fourth ("is getting the edges close
+> together for a door supposed to be so hard?") was a missing affordance, not a mistake you were
+> making: **corners and walls now snap.** Steps 1 and 2 are rewritten; step 2 no longer opens with
+> "zoom in first", because you no longer have to.
 
 
 ## What this is
@@ -85,26 +98,27 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - Double-click closes but self-click doesn't, or vice versa.
 - The duplicate-corner click silently adds a corner (no message).
 - Escape does nothing while an outline is pending.
+- ⚠ **The chart moves between clicks.** It should now be completely still while you draw — the corner lands under the cursor and nothing else shifts. First contact hit this hard ("the view shifts when adding new points", "the first point is always put at the origin", "it's hard to click the same spot twice") and it was all one defect: the chart's extent was being recomputed from the outline in progress, so the first corner collapsed it and Qt re-centred the whole view. **It is fixed and fenced, but you are the first to check it with a real mouse** — if you see any drift at all, that is the bug returning. (The point never actually went to the origin; the chart moved until the point was sitting where the origin marker had been.)
 
 ---
 
 ### Step 2 — Draw a second room abutting the first (~8 min)
 
-**Do this**
-- **Zoom in first**: Ctrl+scroll up two or three notches. This matters — see below.
-- Draw ROOM2 sharing a wall with ROOM1: place its first corner **directly on top of one of ROOM1's existing corner handles** (a still, deliberate click — do not let the mouse travel).
-- Finish and close it.
+**Do this** — no zooming needed any more, aim roughly.
+- Draw ROOM2 sharing a wall with ROOM1: place its first corner **near** one of ROOM1's corner handles — within about a centimetre is plenty — then its other corners, and close it. Deliberately be a few pixels off; that is the point of this step.
 
 **Expect this**
+- As the cursor comes within ~12px of an existing corner or wall, the **rubber band jumps onto it**. That jump is the snap showing you what the click will do. Clicking then lands the corner *exactly* there, and the status says `snapped to an existing corner —…`.
 - The click on ROOM1's handle starts ROOM2's outline. It does **not** grab and drag ROOM1's corner.
 - Once both rooms exist the shared wall draws as a **dashed** line.
 - ROOM2 goes **amber** with a `!`, and the findings list says `unreachable from ROOM1: ROOM2 — no chain of doors leads there, so the player can only arrive by a debug warp`. That warning is correct; you haven't made a door yet.
 
 **Suspect a bug if**
 - The click on ROOM1's corner *moves ROOM1's corner* instead of starting a new outline. This is the precise defect the last review caught; it is fenced now, but only for one synthesised case. **Report immediately if you see it.**
-- No dashed shared wall appears even though the walls look flush.
+- No dashed shared wall appears even though the walls look flush — with snapping on, that should now be very hard to produce. If you manage it, I want the drawing.
+- The band snaps somewhere you did not want and you cannot get away from it. (There is deliberately no snap-off modifier yet — if you find yourself fighting it, that is a finding.)
 
-**Why zoom first:** two rooms must abut within **8 world units** to be offered as a door. At the zoom the chart opens at, one screen pixel is already ~9 units — a single-pixel miss is out of tolerance. Rooms 9u apart offer *nothing at all*, and the only feedback is a note saying no shared wall is here. If Doors mode offers you nothing in step 3, this is almost certainly why: zoom in and nudge a corner.
+**What changed and why:** this step used to open with "zoom in first". Two rooms must abut within **8 world units** to be offered as a door, and at the chart's opening zoom one screen pixel is already ~9 — so a pixel-perfect click was *out of tolerance before the mouse moved*, and rooms 9u apart offered nothing at all with no way to see why. Your "is getting the edges close together supposed to be so hard?" was that. Corners and walls now capture a point within ~12 screen px, so abutment is exact rather than nearly-right. Measured on identical clicks 3–5px off a wall: **before, zero door candidates; after, the whole 1049u wall offered.**
 
 ---
 
@@ -123,7 +137,7 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - Ctrl+0 frames everything; left-drag on empty space **pans**.
 
 **Suspect a bug if**
-- ⚠ **The room snaps back to where it was when you let go.** This is a *known confirmed defect* and I want to know whether you actually hit it in practice: a background gate check finishing mid-drag cancels the drag silently, with no message and no undo entry. It needs a plan big enough for the check to be slow (3+ rooms) and a slow drag. If it happens, note roughly how many rooms were on the chart.
+- ⚠ **The room snaps back to where it was when you let go.** This *was* a confirmed defect — a background gate check finishing mid-drag discarded the gesture silently, with no message and no undo entry — and it has since been **fixed**: the drag now outranks a verdict landing under it, and the gate is ~15× faster besides, so the window barely exists. **It is fenced, but no human has confirmed the fix.** If you see it even once, stop and tell me, with roughly how many rooms were on the chart. A barely-moved grab that then leaves a stray corner behind is the same bug wearing its other face.
 - The coordinate chip stays on screen after you release, or overlaps the "Ctrl+scroll zooms" chip in the bottom-right corner. (This one is genuinely unverified — no static screenshot can render a hover chip.)
 - Ctrl+scroll scrolls the page instead of zooming.
 
@@ -160,29 +174,41 @@ Steps 1–3 are gesture work that looks trivial and is not. Every automated fenc
 - After each gesture, watch the status line and the Compose button.
 - Then click into the **Dungeon** box and type a long name like `GREATHALL` at normal typing speed.
 
-**Expect this** — measured twice on this machine, and **room SIZE dominates**, because the clearance
-test grid-samples each room's bounding box at 8-unit steps (a 2400×1800 room is ~67,500 samples,
-re-walked per room, per door strip, and again to site the spawn):
+**Expect this.** ⚠ **This step's original numbers described a stall that has since been fixed** —
+they are kept below only so you can tell whether the fix actually landed on your machine. The gate
+still re-runs on **every** edit, on a worker thread, 140ms after you stop; what changed is that it
+now only re-derives **what your gesture actually touched**.
 
-| rooms | small rooms (1200×1600) | full-size rooms (2400×1800) |
-|---|---|---|
-| 1 | 0.42s | **1.02s** |
-| 2 | 2.5s | **3.75s** |
-| 3 | 3.9s | **5.46s** |
-| 5 | 7.8s | **9.11s** |
-| 8 | — | **16.45s** |
+Rooms of 2400×1800, one door per shared wall; the drag row moves a corner of a **middle** room, so
+it re-derives two door strips rather than one. "Before" is the actual pre-change code, loaded from
+git (`gate_bench.py --drag 8` prints both halves). This machine is shared with other work, so treat
+these as ±30%; the shape is what matters, not the third digit.
 
-- The gate re-runs on **every** edit, on a worker thread, 140ms after you stop.
-- So: live at one room, awkward at two, and past four every gesture leaves Compose disabled with the
-  status stuck on `checking the gates…` for the better part of ten seconds. **At a real dungeon's
-  size this is not a live gate, it is a stall.**
-- Typing fires a full re-check **per keystroke** and nothing cancels a superseded one — they stack.
-  The whole Workspace can drop to a crawl while several run at once.
+| what you just did | 3 rooms | 8 rooms | 12 rooms | before, 8 rooms |
+|---|---|---|---|---|
+| first judge, plan drawn from scratch | ~1.9s | ~4.3s | ~6.3s | ~17s |
+| **drag/reshape one room** | **~0.6s** | **~0.6s** | **~0.6s** | **~17s** |
+| a keystroke in `First id` | 4ms | 12ms | 18ms | ~17s |
+| a keystroke in `Dungeon` | — not judged at all — | | | ~17s |
 
-**You do not need to characterise this — it is a confirmed design problem and the numbers above are
-mine, not an estimate.** The only thing wanted from you here is the judgement call: **is live gating
-worth keeping at all once it is fast** (the fix is straightforward — cache `standable` per room and
-only re-judge what changed), **or would you rather it were a button you press?**
+Two things to notice. **A gesture costs the same whether there are 3 rooms on the chart or 12** —
+that flatness is the whole fix, not the raw number. And the "before" column is one value because
+before this there was no cache to carry: *every* edit was a first judge.
+
+Typing the dungeon name no longer re-checks geometry at all (it never needed to — the name gate runs
+on every repaint regardless), and a superseded check now stops instead of running to completion, so
+they no longer stack.
+
+**What I want from you here is the feel, not the numbers:**
+
+- After you let go of a room, does the chart settle fast enough that the gate reads as *live* — or
+  is there still a beat where you're waiting on it?
+- Does `checking the gates…` ever sit there long enough to be annoying at four-plus rooms?
+- The **first** judge of a freshly drawn plan is still ~4s at eight rooms. That one is unavoidable
+  (nothing to reuse on the first draw) — but does it land at a bad moment?
+
+If any of that is still bad, say so plainly; the numbers above are from this machine and yours is
+the one that counts.
 
 ---
 
@@ -255,7 +281,7 @@ Then **relaunch the game** (a brand-new id needs one launch to register), and `~
 1. In the first 60 seconds, was it obvious what to do — or did you have to hunt for the instruction line?
 2. Does drawing feel *direct*? Does the room go where your mouse went?
 3. When a gate refused you (the 100u door), did the message tell you enough to fix it without asking anyone?
-4. Is the wait after each edit tolerable at 4 rooms, or does the live gate need to become an on-demand button?
+4. Is the wait after each edit tolerable at 4 rooms? (It was a genuine stall; it was fixed before you got here, and a gesture should now cost the same at 12 rooms as at 3. Does it read that way?)
 5. The deleted nameplate — better with the extra chart height, or does the tab read as anonymous?
 6. Would you actually reach for this to lay out a dungeon, or would you still hand-write the `field.toml`s?
 7. What did you expect to be able to do and couldn't? (Grid? Snapping? Typed dimensions? Corridors?)

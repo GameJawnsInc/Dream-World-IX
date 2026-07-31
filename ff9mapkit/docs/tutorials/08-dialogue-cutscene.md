@@ -79,6 +79,12 @@ steps = [
 ]
 ```
 
+A gesture name works for **any** actor, not only the playable presets: an NPC wearing a plain
+`model =`, or the `"player"`, resolves the name against that rig's own clips (`ff9mapkit models
+<GEO name>` lists them, and the alias words `idle` / `walk` / `run` / `left` / `right` work
+everywhere). In the Workspace, the `animation` step's **Browse…** plays the actor's clips and writes
+the name for you.
+
 Without `actors`, the cutscene is pure narration (`say` / `wait` / `set_flag` steps). Either flavor
 may end in a `then_warp = <field id>`. With a bigger cast (`actors = ["vivi", "guard", "player"]` —
 `"player"` is a normal cast member) each actor step names its actor

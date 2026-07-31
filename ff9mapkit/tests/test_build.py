@@ -1305,6 +1305,76 @@ def test_npc_model_kwargs_explicit_anims_override_archetype():
     assert _npc_model_kwargs({"model": "GEO_NPC_F0_TMM", "anims": ov})["anims"] == ov
 
 
+# --- the model/anims precedence is ONE function, shared with the GUI ------------------------------
+# `build._npc_model_kwargs` now delegates to `blockmodel.resolve_block_model`, so an animation picker
+# scopes itself to the SAME rig the build ships. The fence is byte-shaped: the lifted helper must
+# answer identically to the code it replaced, block for block -- `_npc_model_kwargs` is the build's
+# only spender of the rule, so agreeing here IS "the build output is unchanged".
+
+def _legacy_npc_model_kwargs(n):
+    """build._npc_model_kwargs exactly as it read before the lift (the oracle)."""
+    from ff9mapkit import archetypes as _archetypes
+    from ff9mapkit import catalog as _catalog
+    from ff9mapkit.build import resolve_npc_model
+    arch = n.get("archetype") or n.get("preset")
+    if arch is not None:
+        model, animset, anims, _dlg = _archetypes.resolve(arch)
+        return {"model": model,
+                "animset": n.get("animset") if n.get("animset") is not None else animset,
+                "anims": n.get("anims") or anims}
+    mid = resolve_npc_model(n.get("model"))
+    anims = n.get("anims")
+    if mid is not None and not anims:
+        anims = _catalog.npc_anims(mid) or None
+    return {"model": mid, "animset": n.get("animset"), "anims": anims}
+
+
+@pytest.mark.parametrize("block", [
+    {"archetype": "innkeeper"},                                    # an archetype NPC (the majority)
+    {"archetype": "innkeeper", "anims": {"stand": 654}},           # ...with the explicit override
+    {"archetype": "innkeeper", "animset": 87},
+    {"preset": "vivi"},                                            # a playable preset
+    {"preset": "vivi", "anims": {"stand": 148}},
+    {"preset": "zidane"},                                          # model=None: keeps the cloned player
+    {"model": "GEO_NPC_F0_TMM"},                                   # a bare model= (name)
+    {"model": 8},                                                  # ...and a raw id
+    {"model": 999999},                                             # an off-table raw id still passes through
+    {"model": "GEO_NPC_F0_TMM", "anims": {"stand": 654}, "animset": 3},
+    {"name": "no model at all"},
+    {"model": None, "anims": {}},                                  # the falsy-anims corner
+])
+def test_lifted_model_precedence_answers_exactly_as_the_code_it_replaced(block):
+    from ff9mapkit.build import _npc_model_kwargs
+    assert _npc_model_kwargs(block) == _legacy_npc_model_kwargs(block)
+
+
+def test_resolve_block_model_answers_for_zidane_and_the_player_block():
+    from ff9mapkit import blockmodel as BM
+    from ff9mapkit import catalog as C
+
+    z = BM.resolve_block_model({"preset": "zidane"})
+    assert z.model is None and z.source == "preset" and "cloned player" in z.reason
+
+    viv = BM.resolve_block_model({"preset": "vivi"})
+    assert viv.model == 8 and viv.anims_source == "archetype" and viv.reason is None
+
+    bare = BM.resolve_block_model({"model": "GEO_NPC_F0_TMM"})
+    assert (bare.source, bare.anims_source) == ("model", "catalog")
+
+    # [player]: the model key re-skins the avatar; ABSENT means the stock cloned player, who is Zidane
+    p = BM.resolve_block_model({}, kind="player")
+    assert p.model == C.resolve_model(BM.PLAYER_DEFAULT_GEO) == 98 and p.source == "player-default"
+    named = BM.resolve_block_model({"model": "GEO_MAIN_F0_VIV"}, kind="player")
+    assert named.model == 8 and named.source == "player"
+    assert named.anims == C.npc_anims(8)          # what build's [player] model= injection ships
+
+    # strict=False never raises at a picker -- it reports instead
+    with pytest.raises(ValueError):
+        BM.resolve_block_model({"model": "GEO_NOPE"})
+    soft = BM.resolve_block_model({"model": "GEO_NOPE"}, strict=False)
+    assert soft.model is None and "GEO_NOPE" in soft.reason
+
+
 # --- build must not silently unregister a shared mod folder's other fields ---------------------------
 def test_build_refuses_to_unregister_a_shared_folders_other_fields(tmp_path):
     """`build` writes a WHOLE mod, so its DictionaryPatch rewrite owns the output folder. Pointed at a

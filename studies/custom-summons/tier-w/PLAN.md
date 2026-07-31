@@ -491,3 +491,19 @@ scenery must be re-authored *together*.
   the recon-lane pin; re-pinned **0.6443** (`QUAD-ORDER-DELTA.md` §6, `w6q_QUANTIZE.md` §4). The order
   clause + the 4-cell cast shortlist stay study-side; LICENSE still needs (i) the order measured
   and (ii) a cast.
+- **W6b-3ii — THE ODIN CHANNEL-A CAST LADDER ★★ CAST-PROVEN AND ADJUDICATED (record
+  `W6B3II-ODIN-CAST.md` §9; verdict `…\repaint-w6b\ef424-channel-a\castC-read\REPORT-CASTC.md`,
+  audited v1 preserved).** ef424 `(704,384)` — readerless, named by NO channel except A — is the
+  **first channel-A cell to come back DRAWN** (cast A: k=10 zero-probe grating counted on screen
+  against a hostile 0-for-6 ghost-table prior), and cast C settles the depth POSITIVELY: **BPP8 at
+  0.96, ink = palette index 240 rgb(222,115,115), band count 5** — the 10:5 cell identity held
+  across casts, the hue closure tracks the backdrop trend r=+0.977 under 8bpp with BOTH rivals
+  anti-correlated, and base-240 (the honest hue twin) is excluded hue-free. Cast B's own three-way
+  key was VOID (ink 0xFF is depth-invariant — §8.1's lesson) and the fix was ONE variable, ink
+  0xF0. The order rider read IDENTITY on both counting casts (blade = slot 1) — **written, NOT
+  promoted; `ORDER_UNMEASURED` ships as-is, I8 passing**; the licence bar's cast leg now has its
+  first vehicle, ratification a separate gated decision. §7.3's second-array V-offset worry:
+  examined offline, **REFUTED 0.85** (the 0x0080 is slot 0/448's, not the verdict cell's;
+  best-supported reading = a depth-keyed render-state bit; `…\second-array-lead\REPORT.md`).
+  Resting: ef424 REVERTED TO STOCK (two-step ladder, shas verified), rows 203/204 stay. OPEN:
+  U1 — does the engine apply second-array halfword A at all (one-cast sketch in the lead report).

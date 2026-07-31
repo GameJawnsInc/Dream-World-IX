@@ -157,6 +157,34 @@ def _wrap_preview_panel(line_edit, get_text, wrap_width):
     return panel
 
 
+def _is_model_scoped(field) -> bool:
+    """Does this field's picker need to know WHICH MODEL the block wears? (The animation kinds do; no
+    other catalog does, which is why ``model_hint`` is passed only for these -- ``pick`` keeps its
+    positional signature everywhere else.)"""
+    return bool(field.catalog) and bool(
+        forms.GUI_ONLY_CATALOGS & {k.strip() for k in field.catalog.split(",")})
+
+
+def _model_hint(getters):
+    """The block's model, resolved from the form's LIVE values through the same precedence the build
+    spends (:func:`ff9mapkit.blockmodel.resolve_block_model`) -- so an animation picker can never scope
+    itself to a different rig than the field ships.
+
+    ``strict=False``: a half-typed model name must open the picker unscoped with a reason, not raise
+    into a Browse click."""
+    from ..blockmodel import resolve_block_model
+    block = {}
+    for key in ("model", "preset", "archetype", "prop"):
+        g = getters.get(key)
+        v = g() if g is not None else None
+        if isinstance(v, str):
+            v = v.strip()
+        if v not in (None, "", False):
+            block[key] = v
+    kind = "prop" if "prop" in block else "npc"
+    return resolve_block_model(block, kind=kind, strict=False)
+
+
 def _changed_signal(widget):
     """The 'value changed' signal of a form widget (QLineEdit/QPlainTextEdit textChanged, QComboBox
     currentTextChanged, QCheckBox toggled), or None."""
@@ -204,7 +232,16 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
 
     def browse(field, getter, setter):
         # an id-bearing field (e.g. the encounter battle scene) wants the picked entry's id, not its name
-        val = pick(field.catalog, getter(), want_id=forms.wants_id(field))
+        if _is_model_scoped(field):
+            # An ANIMATION picker is meaningless without the rig: "which clips can this block play" is a
+            # question about the model the block WEARS, and that is a precedence (archetype/preset ->
+            # explicit model=), not a field. Resolve it off the form's OWN live values through the same
+            # helper the build spends, and pass it ONLY here -- every other `pick` call site keeps the
+            # positional (catalog, current, want_id) signature.
+            val = pick(field.catalog, getter(), want_id=forms.wants_id(field),
+                       model_hint=_model_hint(getters))
+        else:
+            val = pick(field.catalog, getter(), want_id=forms.wants_id(field))
         if val:
             setter(val)
 
@@ -254,6 +291,9 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             row.setContentsMargins(0, 0, 0, 0)
             row.addWidget(widget, 1)
             b = QPushButton("Browse…")
+            # every Browse in a form reads "Browse…" -- name them per FIELD or a screen reader (and the
+            # snap harness) hears the same button five times over.
+            b.setAccessibleName(f"Browse {f.label}")
             b.clicked.connect(lambda _=False, ff=f, g=getters[f.key], st=setter: browse(ff, g, st))
             row.addWidget(b)
             v.addLayout(row)
@@ -262,6 +302,7 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             row.setContentsMargins(0, 0, 0, 0)
             row.addWidget(widget, 1)
             b = QPushButton("Browse…")
+            b.setAccessibleName(f"Browse {f.label}")
             b.clicked.connect(lambda _=False, ff=f, st=setter: browse_file(ff, st))
             row.addWidget(b)
             v.addLayout(row)

@@ -5,6 +5,41 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — see an animation before you attach it (Workspace)
+- **The Models tab plays a model's clips.** The comma blob of action names is a clip LIST (the five
+  movement slots first, then the model's own gestures, cross-form rows marked "other form"); picking a
+  row renders that clip and plays it in the preview box — play/pause, a frame scrubber, and an honest
+  counter (`f 9/16 · 30fps`, and `preview 15fps` when a long clip is strided). Frames render in the
+  background and the loop EXTENDS as they land, so a clip starts playing before it finishes filling;
+  Reset puts the still back. Frames are disk-cached per `(model, clip, frame)` under `anim_frames/`,
+  bounded at 60 rendered frames per clip (~2.7 MB). Bundled clips only for now — a minted or loose
+  `.anim` says so instead of pretending. Plus one "Copy anims= snippet" button.
+- **Pickers, so nobody hand-hunts a clip id again.** An `[[npc]]`'s movement clips, a `[[prop]]`'s
+  `pose`, and a cutscene `animation` step all grow a **Browse…** that lists what *that block's rig* can
+  actually play, previews it, and writes the value back. Scope comes from one shared model-precedence
+  helper (`blockmodel.resolve_block_model` — archetype/preset → explicit `model =`, `[player]` → the
+  stock avatar), the same answer the build ships, so a picker can never be scoped to a different model
+  than the field uses. A gesture picker refuses cross-form clips; the movement picker shows them
+  marked; the five-slot editor's blank slot means AUTO and says what auto would fill.
+- **Cutscene animation NAMES now work for model actors and the player**, closing FORMAT.md's documented
+  gap (a name used to require a playable preset, so every plain-model NPC had to use raw ids). A name
+  resolves through the actor's own rig: own-form gestures first, then the five movement slots; a
+  cross-form name is refused, listing the own-form alternatives. One alias table is shared by both
+  actor kinds — `idle`/`stand`, `walk`, `run`, `turn_left`/`turn_l`/`left`, `turn_right`/`turn_r`/
+  `right` — and `lint` runs the very same resolver, so a name that lints clean cannot die mid-build.
+- **Lint:** minted clip keys (`60000-65535`) no longer false-positive the AnimationDB check (they
+  register at launch via DictionaryPatch), and an `[[npc]] anims` id that is not one of the resolved
+  model's own clips now warns — a foreign rig's clip binds by bone name and can pose the model wrong.
+
+### Changed — `[[prop]] pose` resolves the model's OWN FORM first
+- A held pose is a one-shot, and a different form code is a different **skeleton**: playing another
+  form's clip twists the model in-game. `pose = "<name>"` now resolves through the model's own-form
+  gestures before the any-form join. A name only the cross-form join can answer **still builds**
+  (backward compat) but emits a lint warning naming the trap and the own-form alternatives.
+- **This can change the resolved clip id** for a `[[prop]]`/held model whose form is not `F0` and whose
+  pose name exists in more than one form — that is the fix (the old id was the twisted pose). Numeric
+  poses, and anything on an `F0` rig, are unchanged.
+
 ### Added — `world-coastnav`: vehicle-legality classes on a synthetic coast
 - The Southern Ring's in-game-proven coast-nav stamp (R5d sail-through seal + R5e standoff
   belt) is a kit verb: re-derives every deployed sea override's water-triangle topograph into
@@ -83,6 +118,73 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Undo is per-session and covers the whole plan, so declaring a door — which
   writes both sides at once — is a single step. A half-undone door would be a
   gateway with no arrival.
+
+### Fixed — the Floorplan chart moved under the cursor while you were drawing on it
+- Every corner you placed recomputed the chart's extent from the outline *in progress*,
+  so the first corner of a room collapsed that extent to a fraction of its size and the
+  view re-centred — the whole chart jumped, measured at 375px right and 253px down on the
+  first click alone. Four clicks aimed at a rectangle on screen produced a misshapen room,
+  because every click after the first landed in a different frame.
+- It reported as three separate problems and was one: the view shifting as points were
+  added, the same spot being impossible to click twice, and the first point appearing to
+  land at the origin. That last one is the same bug wearing a disguise — the point never
+  moved, the chart did, until the point was sitting where the origin marker had been.
+- The chart now holds still. Its extent can grow but never shrink out from under the
+  view, Ctrl+0 still frames the rooms rather than wherever you had zoomed to, and
+  scrollbars stay hidden — a bar appearing would shrink the viewport and move everything
+  again.
+
+### Added — corners and walls snap, so two rooms can actually be made to share one
+- Two rooms are offered as a door only if their walls lie within 8 world units, and the
+  chart opens at roughly 9 units per screen pixel — so a pixel-perfect click was outside
+  the tolerance before the mouse even moved, and all you got was "No shared wall here"
+  with nothing to correct. Placing a room against its neighbour was a matter of zooming
+  in and nudging until it took.
+- A corner or wall within ~12 screen pixels now captures the point you are placing or
+  dragging, exactly, and the rubber band previews where it will land so you can see the
+  capture before you commit. Corners win over walls, and a corner being dragged never
+  snaps to its own room. Measured on identical clicks 3–5px off a shared wall: no door
+  offered before, the entire 1049-unit wall offered after.
+
+### Fixed — the Floorplan tab's live gate was a stall: a gesture cost ~17s, now ~0.6s
+- Every edit re-derived the **whole** plan from scratch, so on an eight-room dungeon every
+  single gesture cost what drawing the plan cost — about 17 seconds, with Compose disabled
+  throughout. Typing a name spawned one background check per keystroke, nine of them for a
+  nine-character name, which then stacked. Past about four rooms the feature that makes the
+  tab worth using stopped being usable.
+- A gesture now re-derives only what it touched, and **costs the same on a twelve-room plan
+  as on a three-room one** — about 0.6s either way. Re-checking a plan whose geometry did
+  not move is 4–18ms, and the first judge of a freshly drawn eight-room plan is ~4s.
+- Four changes, largest win first: the tab carries one geometry cache **across** checks
+  (keyed on each room's own coordinates, which is the only thing that decides "unchanged"
+  here — room records are edited in place, and undo restores a copy, so object identity
+  is wrong in both directions); the two grid samplers walk the polygon by rows instead of
+  testing every cell of its bounding box; the spawn search rejects cells against a grown
+  bounding box before measuring; and a check that has been superseded now stops instead of
+  running to completion. `ff9mapkit floorplan` on the command line gets the same speedup.
+- The cache memoizes the *answers* — cell counts, fractions, sites — not the geometry
+  behind them, and the full grids live only for the duration of one check. The first cut
+  kept the grids, which retained over a gigabyte after a few seconds of dragging and, worse,
+  fell off a cliff at 33 doors: a check touches each entry exactly once in a fixed order, so
+  past the cache's size limit the entry evicted is always the one wanted next and the hit
+  rate is not reduced but zero. A 25-room dungeon went back to 4.3s per gesture. Both are
+  fenced now.
+- **The gates say exactly what they said before.** Every step was gated on a 400-plan
+  differential against the previous implementation — errors, warnings, ids, spawns,
+  arrivals, facings, camera fits and door quads, all identical — and the row sampler is
+  fenced bitwise against the original double loop it replaced.
+- Reproduce any number with `studies/click-authoring/gate_bench.py` — `--drag N` measures
+  before and after in one run, loading the previous implementation from git rather than
+  guessing at it.
+
+### Fixed — a background check finishing mid-drag silently ate the drag (Floorplan tab)
+- Dragging a room or a corner while the live gate was running could end with the room
+  snapping back to where it started: the check's result re-fed the chart, which discarded
+  the in-progress drag, so the mouse release committed nothing — no move, no undo entry,
+  no message. A release that had barely travelled was then re-read as a click, which in
+  Rooms mode silently started a new outline. It needed a slow check to reproduce, which
+  the fix above makes rare, so it is fixed outright rather than left to chance: the
+  author's live gesture now outranks a result landing under it.
 
 ### Fixed — `[encounter] scene` accepted a battle-scene NAME at lint, then died at build
 - `scene = "BSC_CA_E013"` linted **clean** — `lint_logic` resolved the name through the

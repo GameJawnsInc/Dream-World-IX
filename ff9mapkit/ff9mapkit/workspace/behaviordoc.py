@@ -1446,6 +1446,7 @@ class BehaviorDoc(QWidget):
         self.sim_reset.clicked.connect(lambda: self._sim_show(0))
         srow.addWidget(self.sim_reset)
         self.sim_slider = QSlider(Qt.Orientation.Horizontal)
+        self.sim_slider.setAccessibleName("Simulated tick")     # a slider is a real Tab stop
         self.sim_slider.setToolTip("Scrub the simulated timeline")
         self.sim_slider.valueChanged.connect(self._sim_scrub)
         # the scrub bar is the strip's central affordance: floor it so the labels can

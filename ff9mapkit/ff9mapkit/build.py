@@ -15,6 +15,7 @@ validated by diffing against known-good assets before ever launching the game.
 
 from __future__ import annotations
 
+import difflib as _difflib
 import math
 import shutil
 import struct
@@ -63,6 +64,7 @@ from . import abilities as _abilities
 from . import animations as _animations
 from . import deploystack as _deploystack     # the REAL-mesID table (vanilla_fields_on); imports no build code
 from . import archetypes as _archetypes
+from . import blockmodel as _blockmodel          # THE model/anims precedence, shared with the GUI
 from . import prop_archetypes as _prop_archetypes
 from ._held_poses import HELD_POSES                  # (carrier_model, prop_model) -> (bone, held_pose)
 from . import catalog as _catalog
@@ -2999,16 +3001,66 @@ def lint_logic(project: FieldProject) -> list[str]:
     # (it may be valid -- the tables aren't a hard whitelist -- but a typo usually isn't).
     def _is_raw_int(v):
         return (isinstance(v, int) and not isinstance(v, bool)) or (isinstance(v, str) and v.strip().lstrip("-").isdigit())
+    from .models.anim import _NEW_ANIM_KEY_BASE, _NEW_ANIM_KEY_MAX      # lazy: models.anim imports catalog
     mint_ids = {int(mb["id"]) for mb in (raw.get("mint", []) or []) if "id" in mb and _is_raw_int(mb["id"])}
+    _own_clips: dict = {}                     # model id -> every id naming one of its clips (memo: the
+                                              # join sweeps the whole ANH table, and blocks repeat models)
+
+    def _playable_ids(mid):
+        if mid not in _own_clips:
+            ids = set()
+            for a in (_catalog.animations_for_model(mid) or {}).values():
+                ids.update(_catalog.animation_aliases(a))
+            _own_clips[mid] = ids
+        return _own_clips[mid]
+
     for i, n in enumerate(raw.get("npc", [])):
+        who = f"[[npc]] {n.get('name', '#' + str(i))!r}"
         mv = n.get("model")
         if mv is not None and _is_raw_int(mv) and int(mv) not in mint_ids and _catalog.model(int(mv)) is None:
-            out.append(f"[[npc]] {n.get('name', '#' + str(i))!r} model id {int(mv)} isn't in the model table "
+            out.append(f"{who} model id {int(mv)} isn't in the model table "
                        f"-- it may not render. Run `ff9mapkit models` to find a valid id/name.")
+        # what THIS block's rig can play, so a wrong-model clip is caught offline (not as a frozen NPC).
+        # strict=False: a half-typed model is validate()'s fatal, not this pass's business.
+        rig = None
+        if n.get("anims"):
+            _rid = _blockmodel.resolve_block_model(n, strict=False).model
+            rig = _catalog.model(_rid) if _rid is not None else None
+        playable = _playable_ids(rig.id) if rig else set()
         for slot, aid in (n.get("anims") or {}).items():
+            # the MINT BAND is registered at launch by a DictionaryPatch `3DModelAnimation` line, so it is
+            # deliberately absent from the baked AnimationDB -- warning on it false-positives every minted clip
+            if _is_raw_int(aid) and _NEW_ANIM_KEY_BASE <= int(aid) <= _NEW_ANIM_KEY_MAX:
+                continue
             if _catalog.animation_name(aid) is None:
-                out.append(f"[[npc]] {n.get('name', '#' + str(i))!r} anims[{slot!r}] = {aid!r} isn't a known "
+                out.append(f"{who} anims[{slot!r}] = {aid!r} isn't a known "
                            f"animation id. Run `ff9mapkit models <name>` to list a model's gestures.")
+            elif playable and int(aid) not in playable:
+                out.append(f"{who} anims[{slot!r}] = {_catalog.animation_name(aid)} ({int(aid)}) is not one of "
+                           f"{rig.name}'s own clips -- a foreign rig's clip binds by bone name and can pose "
+                           f"the model wrong. Run `ff9mapkit models {rig.name}` to list what it can play.")
+    # [[prop]] pose: a held pose is a ONE-SHOT, so it belongs to the model's OWN form. A name only the
+    # any-form join answers still builds (backward compat) -- but it plays a different skeleton's clip.
+    for i, p in enumerate(raw.get("prop", [])):
+        pv = p.get("pose")
+        if not isinstance(pv, str) or pv.strip().isdigit():
+            continue
+        if p.get("prop") and _prop_archetypes.is_composite(p["prop"]):
+            continue                               # a composite ships its parts' baked poses; pose= is inert
+        try:
+            pmid = _prop_archetypes.resolve(p["prop"])[0] if p.get("prop") else resolve_npc_model(p.get("model"))
+        except (ValueError, KeyError, TypeError):
+            continue                               # an unresolvable prop model is validate()'s problem
+        if pmid is None:
+            continue
+        own = _catalog.own_form_gestures(pmid)
+        cross = _catalog.animations_for_model(pmid)
+        if pv not in own and pv in cross:
+            rig = _catalog.model(pmid)
+            out.append(f"[[prop]] {p.get('prop') or p.get('name') or '#' + str(i)!r} pose {pv!r} is a "
+                       f"CROSS-FORM clip ({_catalog.animation_name(cross[pv])}) -- a different form code is a "
+                       f"different skeleton, so a one-shot pose from it can twist the model. "
+                       f"{rig.name if rig else pmid}'s own-form poses: {', '.join(sorted(own)) or 'none'}.")
     for _cb in _cutscene.blocks(raw.get("cutscene")):
         for k, s in enumerate(_cb.get("steps", [])):
             a = s.get("animation")
@@ -3433,14 +3485,12 @@ def resolve_npc_model(value):
     resolved via :mod:`ff9mapkit.catalog`. ``None`` -> ``None`` (keep the cloned player's model). Raises
     ValueError with near-miss suggestions on an unknown name (``validate`` surfaces this cleanly before
     the build runs). A raw id outside the model table passes through here and is flagged as a lint
-    warning. (For a playable character by friendly name use ``preset = "vivi"`` instead.)"""
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        raise ValueError("[[npc]] model cannot be a boolean")
-    if isinstance(value, int) or str(value).strip().isdigit():
-        return int(value)
-    return _catalog.resolve_model(value)
+    warning. (For a playable character by friendly name use ``preset = "vivi"`` instead.)
+
+    The rule itself lives in :func:`ff9mapkit.blockmodel.resolve_model_value` -- the GUI resolves the
+    same values off the same code, so a picker can never scope itself to a different model than the
+    build ships."""
+    return _blockmodel.resolve_model_value(value)
 
 
 def resolve_encounter_scenes(enc) -> tuple:
@@ -3506,45 +3556,49 @@ def resolve_battle_bgm(rows) -> list:
 
 
 def _npc_model_kwargs(n) -> dict:
-    """``{model, animset, anims}`` for one ``[[npc]]`` block -- the ONE place the archetype/override
-    precedence lives (both the synthesized-field and verbatim-fork injectors use it).
+    """``{model, animset, anims}`` for one ``[[npc]]`` block (both the synthesized-field and
+    verbatim-fork injectors call it), straight off :func:`ff9mapkit.blockmodel.resolve_block_model`.
 
     A named ``archetype``/``preset`` resolves the MODEL, but an explicit ``anims=``/``animset=`` on the
     block keeps the last word on clips -- silently dropping the override shipped an untested clip set on
     the stolen-ember innkeeper (the A/B the user thought they ran never reached the game). A bare
-    ``model=`` resolves missing anims from the Info Hub join (:func:`ff9mapkit.catalog.npc_anims`)."""
-    arch = n.get("archetype") or n.get("preset")           # a named archetype (playable cast or NPC type)
-    if arch is not None:
-        model, animset, anims, _dlg = _archetypes.resolve(arch)
-        return {"model": model,
-                "animset": n.get("animset") if n.get("animset") is not None else animset,
-                "anims": n.get("anims") or anims}
-    mid = resolve_npc_model(n.get("model"))
-    anims = n.get("anims")
-    if mid is not None and not anims:
-        anims = _catalog.npc_anims(mid) or None            # any model by name -> its own gestures (Info Hub)
-    return {"model": mid, "animset": n.get("animset"), "anims": anims}
+    ``model=`` resolves missing anims from the Info Hub join (:func:`ff9mapkit.catalog.npc_anims`).
+    That precedence is ONE function, shared with every surface that has to show what a block wears."""
+    r = _blockmodel.resolve_block_model(n)
+    return {"model": r.model, "animset": r.animset, "anims": r.anims}
 
 
 def _resolve_prop_pose(mid, pose):
     """A ``[[prop]] pose`` -> the animation id the prop is held at. ``pose`` may be an action NAME
     ('close', 'save_open' -- resolved via the model->anim catalog), a raw id, or None. When omitted we
     pick a sensible *resting* pose, preferring a real idle/closed state over the 'b'/'p' bind pose (the
-    bind pose reads as an OPEN chest / a bare moogle feather -- the in-game-verified gotcha)."""
+    bind pose reads as an OPEN chest / a bare moogle feather -- the in-game-verified gotcha).
+
+    A held pose is a ONE-SHOT, so it resolves through the model's OWN form first (THE CROSS-FORM CLIP
+    TRAP: a different form code is a different skeleton -- ``animations_for_model``'s any-form join is
+    an allowance the five movement slots earned, not one a held pose can borrow). A name only the
+    cross-form join can answer still resolves, so every existing toml keeps building; ``lint_logic``
+    names the trap and the own-form alternatives when that happens."""
+    own = _catalog.own_form_gestures(mid) if mid is not None else {}
     actions = _catalog.animations_for_model(mid) if mid is not None else {}
     if isinstance(pose, str):
         if pose.strip().isdigit():
             return int(pose)                       # a raw clip id as a string (e.g. a real SetStandAnimation id)
-        if pose in actions:
-            return actions[pose]
+        for table in (own, actions):
+            if pose in table:
+                return table[pose]
         raise ValueError(f"[[prop]] pose {pose!r} isn't an action of this model "
                          f"(have: {', '.join(sorted(actions)) or 'none'})")
     if pose is not None:
         return int(pose)
-    for cand in ("idle", "close", "stand", "save_open", "b", "p"):   # resting-state preference
-        if cand in actions:
-            return actions[cand]
-    return actions[sorted(actions)[0]] if actions else 0
+    for table in (own, actions):
+        for cand in ("idle", "close", "stand", "save_open", "b", "p"):   # resting-state preference
+            if cand in table:
+                return table[cand]
+    for table in (own, actions):
+        if table:
+            return table[sorted(table)[0]]
+    return 0
 
 
 def _resolve_held_model(value):
@@ -6595,10 +6649,75 @@ def behavior_walkmesh(project: FieldProject):
 
 
 def _actor_token(actor_npc):
-    """The animation-catalog model token for a cutscene actor NPC (its ``preset``), or ``None`` if it
-    can't be inferred (a custom model => animation steps must use numeric ids)."""
+    """The animation-catalog model token for a cutscene actor NPC (its ``preset``), or ``None`` when the
+    actor is not one of the 8 playable characters -- then :func:`_resolve_actor_animation` falls through
+    to the actor's MODEL."""
     preset = (actor_npc.get("preset") or actor_npc.get("archetype")) if actor_npc else None
     return preset if preset in _animations.TOKENS else None
+
+
+def _actor_model(project, who, actor_npc):
+    """The MODEL a cutscene actor wears, through the ONE precedence the build already spends
+    (:func:`ff9mapkit.blockmodel.resolve_block_model`): an ``[[npc]]``'s archetype/preset/model, or --
+    for ``who == "player"`` -- the ``[player] model``, whose absence means the cloned stock avatar
+    (Zidane). ``strict=False``: an unresolvable model name is ``validate``'s fatal, not this
+    resolver's, and it must not turn a gesture lookup into a stack trace."""
+    if who == "player":
+        return _blockmodel.resolve_block_model(project.raw.get("player") or {}, kind="player",
+                                               strict=False).model
+    if actor_npc is None:
+        return None
+    return _blockmodel.resolve_block_model(actor_npc, strict=False).model
+
+
+def _resolve_model_gesture(mid, action):
+    """A gesture NAME on a plain MODEL actor (no playable preset) -> the clip id it plays.
+
+    OWN-FORM clips first (THE CROSS-FORM CLIP TRAP: a different form code is a different skeleton, and a
+    one-shot played across forms twists the model in-game), then the five MOVEMENT slots
+    (:func:`ff9mapkit.catalog.npc_anims`), which are the one place the any-form join is proven. A name
+    only the cross-form join could answer is REFUSED, naming the own-form alternatives -- silently
+    playing it is exactly the defect ``[[prop]] pose`` was carrying."""
+    key = _animations.normalize_action(action)         # THE ONE alias table (animations.CORE)
+    own = _catalog.own_form_gestures(mid)
+    if key in own:
+        return own[key]
+    slot = next((s for s, act in _catalog.NPC_SLOT_ACTION.items() if act == key), None)
+    mv = _catalog.npc_anims(mid) or {}
+    if slot is not None and slot in mv:
+        return mv[slot]
+    rig = _catalog.model(mid)
+    name = rig.name if rig else str(mid)
+    cross = _catalog.animations_for_model(mid)
+    if key in cross:
+        raise ValueError(
+            f"animation {action!r} is a CROSS-FORM clip for {name} "
+            f"({_catalog.animation_name(cross[key])}) -- a different form code is a different skeleton, "
+            f"so a one-shot played across forms poses the model wrong in-game. Own-form gestures: "
+            f"{', '.join(sorted(own)) or 'none'}.")
+    hints = _difflib.get_close_matches(key, own, n=6, cutoff=0.4)
+    extra = (f" Did you mean: {', '.join(hints)}?" if hints else
+             f" Run `ff9mapkit models {name}` to list what it can play.")
+    raise ValueError(f"unknown animation {action!r} for {name}.{extra}")
+
+
+def _resolve_actor_animation(project, who, actor_npc, action):
+    """One cutscene ``animation`` NAME -> a clip id, for EITHER kind of actor. Shared by the build and
+    :func:`_validate_conductor`, so what lints is what compiles.
+
+    A playable-PRESET actor resolves exactly as it always did (``animations.resolve`` on the character
+    token), so every shipped scene stays byte-identical. Anything else -- a plain model NPC, an
+    archetype NPC, or ``"player"`` -- now resolves through the model that actor WEARS instead of
+    erroring; that limitation was FORMAT.md's documented gap."""
+    token = _actor_token(actor_npc)
+    if token is not None:
+        return _animations.resolve(token, action)
+    mid = _actor_model(project, who, actor_npc)
+    if mid is None:
+        raise ValueError(f"cutscene animation {action!r} is a name, but actor {who!r} has neither a "
+                         f"playable preset nor a model to resolve it against -- use a numeric anim id, "
+                         f"or give that block a preset / model.")
+    return _resolve_model_gesture(mid, action)
 
 
 def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
@@ -6638,15 +6757,11 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
         if act == "animation":
             a = s.get("animation")
             if isinstance(a, str) and not a.strip().isdigit():
-                token = _actor_token(npc_by_name.get(who))
-                if token is None:
-                    problems.append(f"{lbl} step {k} animation {a!r} is a name, but actor {who!r} has no "
-                                    f"known preset -- use a numeric id or give that [[npc]] a preset.")
-                else:
-                    try:
-                        _animations.resolve(token, a)
-                    except ValueError as e:
-                        problems.append(f"{lbl} step {k}: {e}")
+                try:                                       # the SAME resolver the build runs, so a name
+                    _resolve_actor_animation(project, who,  # that lints clean cannot die mid-build
+                                             npc_by_name.get(who), a)
+                except ValueError as e:
+                    problems.append(f"{lbl} step {k}: {e}")
         for mk in ("walk", "teleport"):                    # a named move target must resolve to a point
             if mk == act and isinstance(s.get(mk), str):
                 try:
@@ -6726,12 +6841,8 @@ def _resolve_conductor_steps(steps, project, cast=(), walkmesh=None, beat=None):
     for i, s in enumerate(out):                            # animation names -> ids (per-step actor model)
         a = s.get("animation")
         if a is not None and not isinstance(a, bool) and not isinstance(a, int) and not str(a).strip().isdigit():
-            actor_npc = npc_by_name.get(s.get("actor"))
-            token = _actor_token(actor_npc)
-            if token is None:
-                raise ValueError(f"cutscene animation {a!r} is a name, but actor {s.get('actor')!r} has no "
-                                 f"known preset -- use a numeric anim id, or give that [[npc]] a preset.")
-            out[i] = {**s, "animation": _animations.resolve(token, a)}
+            who = s.get("actor")
+            out[i] = {**s, "animation": _resolve_actor_animation(project, who, npc_by_name.get(who), a)}
     # per-actor movement resolution + autoroute (the proven single-actor pipeline, applied per cast member)
     for name in dict.fromkeys(s.get("actor") for s in out if s.get("actor")):
         actor_npc = _pseudo_player_npc(project) if name == "player" else npc_by_name.get(name)

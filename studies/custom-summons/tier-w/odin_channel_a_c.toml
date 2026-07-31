@@ -1,0 +1,288 @@
+# TIER W rung W6b-3 CAST C -- THE ODIN DEPTH DISCRIMINATOR.  Stock Odin Short (ef424), the SAME five
+# bands on the SAME CHANNEL-A cell as cast B, inked with the byte `0xF0` instead of `0xFF`.
+#
+# ==================================================================================================
+# WHY THIS SPEC EXISTS: CAST B WAS READ, AND THE READ DID NOT DISCRIMINATE
+# ==================================================================================================
+# Cast B (container sha 69ed527d..., live on the install now) was cast and the video scored.  It
+# CONFIRMED two things and it must keep the credit for them:
+#
+#   * the cell is DRAWN and the surface is `cell.s0.x704_y384` -- cast A gave 10 cycles and cast B 5
+#     on the same pixels over the same 282 px span, a threshold-free 2:1 that no stock feature can
+#     produce, because a stock feature cannot change its spatial frequency between two casts;
+#   * BLADE (GEOM part 1) -> slot 1 -> column 704, IDENTITY ordering -- which rests on the band COUNT
+#     and is therefore DEPTH-INVARIANT, so it survives however the depth question resolves.
+#
+# An adversarial refutation then proved cast B CANNOT answer the DEPTH, and the reason is arithmetic
+# rather than optics.  All three of cast B's verdict rows are void:
+#
+#   * every one of its 2,311 changed bytes is `0xFF`.  At 4bpp that byte is nibbles (15, 15) -- TWO
+#     IDENTICAL TEXELS -- so a 4bpp read renders the bands PERFECTLY SOLID.  "Clean vs pin-striped"
+#     was never a discriminator;
+#   * 87.4 % of the ink's 15bpp words are `0xFFFF` = pure white, so a 15bpp read gives WHITE bands at
+#     the SAME rows.  Colour does not separate 8 from 15 either;
+#   * band COUNT, ROW POSITION and SOLIDITY are DEPTH-INVARIANT BY CONSTRUCTION -- the stamp writes
+#     whole byte ROWS, and a byte row is a texel row at 4, 8 and 15 bpp alike.
+#
+# What the depth verdict actually rested on, at confidence 0.87, was ONE argument about the
+# SURROUNDING STOCK ART: it renders as a coherent dark-red spearhead, 99.9 % red-family, which no
+# 4bpp/CLUT-0 read (28.3 % blue) and no 15bpp read (29 % green, 24 % blue) can produce.  **That
+# argument uses no ink at all.**  It was available from cast A, or from an unmodified game.  The ink
+# cast bought the cell identity and the ordering; it did not buy the depth.
+#
+# ==================================================================================================
+# THE FIX, AND IT IS THE REFUTER'S OWN DESIGN: RE-STAMP WITH `0xF0`
+# ==================================================================================================
+# THE THREE-WAY TABLE, CARRIED VERBATIM FROM THE REFUTATION:
+#
+#   | depth                     | `0xF0` renders as                                                 |
+#   |---------------------------|-------------------------------------------------------------------|
+#   | **8bpp**                  | index 240 = **rgb(222,115,115) SALMON**, luma 147 -- well below   |
+#   |                           | saturation, so its hue survives additive blending (reads          |
+#   |                           | ~(255,170,170), clearly pink)                                     |
+#   | **4bpp** (natural CLUT    | nibbles (0, 15) -> **TRANSPARENT alternating with rgb(24,0,8)**   |
+#   |  base)                    | -- the band becomes a 50%-duty 1-texel **transparent comb**       |
+#   |                           | ⚠ AND READ THE NEXT PARAGRAPH: the comb is what happens to the    |
+#   |                           | BAND, but at 4bpp the WHOLE CELL is already destroyed             |
+#   | **15bpp**                 | word `0xF0F0` -> **rgb(131,57,230) VIOLET-BLUE** -- and only 0.1% |
+#   |                           | of the javelin body is blue, so it is unmissable                  |
+#
+# Salmon / shredded nothing / violet.  Three mutually exclusive, unmistakable outcomes, and unlike
+# cast B the 8bpp row is a property of THE INK rather than of the stock art around it.
+#
+# ⚠ ONE CORRECTION TO THE REFUTER'S 4bpp ROW, MEASURED OFF THE PATCHED BYTES AND NOT NEGOTIABLE.
+# "The surface visibly THINS" describes what the ink does to the BAND in isolation.  It is not what
+# the owner would see, because a 4bpp read does not leave a blade to thin: decoding the SAME 16,384
+# bytes at 4bpp/CLUT-0 gives 17.9 % opaque at mean luma 11 -- a dark, shredded, mostly-transparent
+# smear with no recognisable spearhead anywhere in it (the stock cell scores the same way: 23.8 % /
+# luma 13).  So the 4bpp SCREEN READ is "there is no spearhead", not "the spearhead has five thin
+# spots".  The distinction costs nothing here -- both readings are "not salmon bands" -- but a read
+# key whose words the render contradicts is exactly the defect that voided cast B, and it is fixed
+# rather than inherited.  It also means the 4bpp row buys very little: casts A and B ALREADY showed a
+# coherent ornate spearhead, which no 4bpp read can produce.  ★ WHAT CAST C ACTUALLY BUYS THAT
+# NOTHING BEFORE IT COULD is the POSITIVE 8bpp row -- an ink-borne measurement of the draw depth AND
+# of the ink's palette identity, where cast B's whole depth verdict rested on the stock art.
+#
+# EVERY NUMBER IN THAT TABLE WAS RE-DERIVED FROM THE USER'S OWN CONTAINER BEFORE THIS SPEC WAS
+# WRITTEN, and `odin_band_stamp.py --cast c` prints all of them per run (`*** OTHER DEPTHS`) rather
+# than restating a table -- because cast B's verdict key WAS a written table and it was wrong in both
+# of its non-8bpp rows.  Measured: `pal.s0.x0_y247.e256[240] = 0xb9db = rgb(222,115,115)` OPAQUE;
+# `[0] = 0x0000` TRANSPARENT and `[15] = 0x8403 = rgb(24,0,8)`; the direct word `0xF0F0` decodes to
+# rgb(131,57,230).  One honest discrepancy, disclosed: the refutation's "luma 147" is Rec.601, while
+# this ladder's own ranking luma (`2R+5G+B`, /8) gives 141.8 -- both far below the ~200 where the
+# additive pass would clip the hue away, which is the only property the table depends on.
+#
+# IT ALSO SETTLES WHAT CAST B LEFT UNDECIDABLE.  Cast B could not confirm the ink's palette identity:
+# its bands clipped at R=255 and the observed hue (G/R 0.994) actually fitted 15bpp BETTER than the
+# authored 8bpp tint (G/R 0.902).  Luma 142-147 does not clip, so cast C's hue is a measurement.
+#
+# ★ THE SCREEN NUMBER, CALIBRATED ON CAST B'S OWN MEASUREMENT rather than assumed.  Cast B's ink was
+# (255,230,246) and its band interiors read (253.8,252.4,253.4) with G clipping only 22.9 % of the
+# time; solving `screen = clip(gain*src + backdrop)` on the darkest measured backdrop bin (40-70)
+# gives gain ~= 0.86, and that gain reproduces cast B's three clip RATES as the backdrop distribution
+# P(bd>=35)=.66 / P(bd>=43)=.61 / P(bd>=57)=.23.  Put cast C's (222,115,115) through the same model:
+#
+#     backdrop 40 -> (231,139,139)      backdrop 70 -> (255,169,169)      G/R about 0.60
+#
+# so the refutation's "~(255,170,170)" is the BRIGHT end of the range, not the centre.  Either way it
+# is unmistakably pink: against cast B's measured white the separation is dCr = +45 and dY = -72, and
+# against the stock body dY = +88 -- on a chroma plane that 4:2:0 halves to 960x540 while a band is
+# 22-30 px FWHM, i.e. still 11-15 chroma samples wide.  ★ AND THE ONE FAILURE MODE THAT KILLED CAST B
+# IS QUANTITATIVELY EXCLUDED: cast C's G channel only clips when the local backdrop reaches 156, and
+# cast B's own statistics put P(backdrop >= 57) at 0.229 -- 156 is deep in the tail.  The hue survives.
+#
+# THE COUNT STAYS AT FIVE, DELIBERATELY.  Cast A gave 10 cycles and cast B 5 on those same pixels; a
+# 2:1 with no threshold in it is the strongest single result either slice produced, and it is what
+# makes the cell IDENTITY self-verifying rather than assumed.  Changing the count would spend that to
+# buy nothing.  Cast C moves ONE thing.
+#
+# ==================================================================================================
+# WHAT THE OWNER READS, AND WHAT EACH ANSWER MEANS
+# ==================================================================================================
+#   SALMON / PINK bands, 5 of them, on a blade     -> CHANNEL A's 8 bpp IS THE DRAW DEPTH.  The 0.87
+#     whose art is still the ornate spearhead and     becomes a direct measurement, and the ink's
+#     still SEE-THROUGH between its gaps              palette identity (index 240) is measured too.
+#   NO recognisable spearhead at all -- a dark,    -> a 4 bpp read against the NATURAL CLUT base.
+#     shredded, mostly-transparent smear with no      The channel states a depth the draw does not use
+#     bright bar anywhere                             -- THE DEPTH COROLLARY, live.
+#   VIOLET-BLUE bands                              -> a 15 bpp read.  The bytes are direct colour.
+#   5 bands that are neither pink, nor absent, nor  -> the contrived residue: a 4bpp read against some
+#     violet -- e.g. alternating salmon/near-white,   OTHER 16-entry CLUT window.  Record the frames
+#     or the head suddenly fully OPAQUE with no       and STOP.  (The base-240 window is the only one
+#     cave visible through it                        whose index 15 is cast B's ink; its index 0 is
+#                                                    OPAQUE, so it would also destroy the cutout --
+#                                                    which is its own tell.  See the predict sheet.)
+#   nothing changes vs cast B                      -> STOP.  The deploy did not land, or the page was
+#                                                     not re-uploaded.  Check the live sha first.
+#
+# THE OFFLINE PREDICTION IS PART OF THE INSTRUMENT, not decoration.  All four readings are rendered
+# from the ACTUAL patched bytes into
+# `C:/gd/SCRATCH/summon-format/repaint-w6b/ef424-channel-a/predict-c/`, with a side-by-side sheet that
+# also shows each one composited additively over a dark backdrop -- which is what the screen does.
+# Compare the video to the sheet; do not compare it to a memory of this comment.
+#
+# ==================================================================================================
+# WHY ROW 2 IS STILL HERE AND IS BYTE-FOR-BYTE CAST B'S
+# ==================================================================================================
+# The 448 bands were NOT located on screen in either cast, so for THIS read they are dead weight --
+# and dead weight was the argument for dropping the row.  It loses.  Four reasons, in order of weight:
+#
+#   1. ★ ONE CHANGE PER IN-GAME TEST.  Keeping row 2 unchanged makes cast C minus cast B exactly the
+#      verdict cell's ink -- 2,311 bytes, one cell, one variable, every one of them `0xFF`->`0xF0`.
+#      Drop the row and the delta becomes 6,249 bytes across two cells, and a screen difference could
+#      be either edit.  The rule exists for precisely this case.
+#      ⚠ 2,311 IS THE CAST-C-MINUS-CAST-B COUNT AND 2,307 IS THE CAST-C-MINUS-STOCK COUNT ON THIS
+#      CELL; they differ because 4 of the 2,311 band texels were ALREADY index 240 in the stock art,
+#      so cast B moved them (to 0xFF) but cast C returns them to the value stock already had.  Both
+#      numbers are measured, they answer different questions, and they must not be interchanged.
+#   2. THE COUNT-BASED IDENTITY STAYS SELF-VERIFYING.  "5 bands here, 3 there" is what tells the two
+#      columns apart on screen.  Remove the 3 and the 5 is no longer contrasted against anything.
+#   3. IT IS ALSO A NEGATIVE CONTROL WITH A KNOWN ANSWER.  Row 2 renders in a DIFFERENT hue family
+#      (index 99 = rgb(197,180,164), warm grey, reading ~cream after the additive pass) from row 1's
+#      salmon, so if the 448 lane ever does surface it cannot be mistaken for the verdict.  It was
+#      already used this way in the cast-B refutation, whose near-white mask required min >= 235 and
+#      therefore could not have picked up 448 ink.
+#   4. `0xF0` IS NOT EVEN AVAILABLE THERE.  Index 240 is TRANSPARENT under `pal.s0.x0_y242.e256`
+#      (that row's entries 100..255 are all 0x0000), so `--ink-byte 0xF0` applied to both cells is
+#      REFUSED BY NAME.  "Re-stamp both with 0xF0" is not a road that exists.
+#
+# So row 2 is regenerated by the same script in the same run and its PNG is byte-identical to the one
+# cast B shipped (sha 70f3c096...).  Nothing about it is re-decided here.
+#
+# ==================================================================================================
+# THE LADDER POSITION, UNCHANGED FROM CAST B
+# ==================================================================================================
+# BINDING-IS-NOT-A-DRAW gated cast B and cast A cleared it: the cell is drawn.  Cast C inherits that
+# clearance and needs no new probe -- and it MUST NOT be preceded by one, because a probe container
+# live under a kit deploy is THE LEDGER TRAP (the kit's first-deploy snapshot is taken once per root
+# and never overwritten).  This spec stages into its OWN root `stage-c`, never `stage/`, whose
+# first-deploy snapshot belongs to cast B and records the pre-state as ABSENT.  Deploying cast C from
+# cast B's root would re-use cast B's ledger; deploying it from its own root records a NEW pre-state,
+# which at deploy time will be CAST B's container rather than ABSENT.  READ WHAT THE LEDGER PRINTS AND
+# REVERT IN THE ORDER IT NAMES.
+#
+# ORDER_UNMEASURED STILL STANDS.  Cast A's identity-ordering read is an OBSERVATION written into the
+# study, not a promoted constant; `w6b3i_gates` I8 (THE ORDER CLAUSE IS NOT SHIPPED) must keep passing
+# and this spec asserts nothing about it.
+#
+# BANDS, NEVER A SHAPE.  The 704 pair has NO declared UV cover at all -- THE UV-SHREDDING BOUND -- so
+# the offline flatness screen that licenses a shape cannot clear it and figures there must be
+# TRANSLATION-INVARIANT.  Five horizontal bands are.
+#
+# THE CUTOUT LAW NEEDS NO KEY, AND IT IS MEASURED RATHER THAN HOPED.  The stamp skips every texel whose
+# index is transparent under the cell's OWN palette -- a DERIVED set, not the assumption "index 0".
+# Measured on this figure: 5,369 holes SKIPPED (69.9 % of the band area), 0 of them anything other than
+# index 0, punch 0 and fill 0.  So the bands are a BRIGHTENING of the surface's own structure at five
+# heights, not five solid stripes -- 2,311 inked texels of 7,680 band texels, and 4 of those were
+# ALREADY index 240 in the stock art, which is why the container's changed-byte count on this cell is
+# 2,307 rather than 2,311.  Expect a thinner, pinker javelin, not a poster.
+#
+# ==================================================================================================
+# WHERE THE ART COMES FROM (unchanged from cast B, and stated because the manifest cannot)
+# ==================================================================================================
+# `summon-reskin export-art --ef 424` emits the 448 cell and an `art.manifest.json` record for it, so
+# row 2 rides the full ART-DRIFT guard.  The export lane REFUSES the 704 cell by name
+# (`depth-unknown`): `repaint.export_art` calls `scenery_surface` with no `array_depth`, so it has no
+# channel-A acknowledgement and therefore no picture.  Its art is derived by `odin_band_stamp.py`
+# through the same shipped primitives with the ack threaded, into a directory with NO manifest beside
+# it -- because `_gate_manifest` refuses a target its manifest carries no record for, and a manifest
+# that CANNOT record the cell must not be allowed to veto it.  On that row this spec's own `expect_*`
+# guards plus `expect_sha256` are the whole guard, which is exactly what the manifest-absent path is
+# for.
+#
+# EVERY `expect_*` BELOW WAS EMITTED, NOT TYPED: `py odin_band_stamp.py --cast c --emit-spec-guards`
+# prints this block from the same `texel_page` derivation the build re-runs, and the lines were copied
+# from its output.  A guard recalled from a sibling spec is a guard that can agree with the wrong page.
+#
+# REGENERATE EVERYTHING FROM THE COMMITTED SOURCES (no staged byte is committable):
+#
+#   py -m ff9mapkit summon-reskin export-art --ef 424 --out <...>/ef424-channel-a/art
+#   py odin_band_stamp.py --cast c
+#   py predict_cast_c.py
+#   py -m ff9mapkit summon-reskin build  ../studies/custom-summons/tier-w/odin_channel_a_c.toml ^
+#      --out <...>/ef424-channel-a/stage-c
+#   py -m ff9mapkit summon-reskin verify ../studies/custom-summons/tier-w/odin_channel_a_c.toml ^
+#      --out <...>/ef424-channel-a/stage-c
+
+[reskin]
+effect = 424
+label  = "odin-w6b3-channel-a-bands-castc"
+# The drift guard: sha256 of the pristine stock container in the user's own install.  A HASH, not data.
+# EMITTED by `--emit-spec-guards` off `C:/gd/SCRATCH/summon-format/ef424.bytes`, which cast B verified
+# is byte-identical to the install's own `x64/FF9_Data/resources.assets` read.  ⚠ THE BASE IS STILL
+# STOCK EVEN THOUGH CAST B IS LIVE: this guards the BASE container, and cast B's edit lives in the mod
+# folder as an override, not in the base.  `build`/`deploy` re-read the install and re-verify this, so
+# the value is never taken on trust from here -- and if the base ever drifts (Steam / Moguri) the build
+# refuses rather than patching something else.
+expect_sha256 = "6a3cb4d7fb26c7cd5c497b2fd4b2364039aabb0e491ed7b26e7b6060e0400773"
+
+
+# ==============================================================================================
+# ROW 1 -- THE DISCRIMINATOR.  cell.s0.x704_y384, CHANNEL A, 5 bands, ink byte 0xF0.
+# This row is the whole hypothesis, and it is the ONLY thing that moves between cast B and cast C.
+[[reskin.texel]]
+name = "cell.s0.x704_y384"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef424-channel-a/art-channel-a/cell.s0.x704_y384.verdictbands.inkf0.png"
+
+# --- the guards, EMITTED by the derivation, never typed -----------------------------------------
+expect_page_offset = 0x25668     # the s0 id-0 page rect at VRAM (704,256,w=64,h=256), cell 1 of 2
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+# STATED by the author, CHECKED against the CHANNEL-A derivation -- the same 16,384 bytes are 256
+# texels wide at 4bpp, 128 at 8bpp and 64 at 15bpp, and a wrong depth packs to exactly the right byte
+# count while painting the wrong picture.  This line is the cast's whole hypothesis, and the kit
+# refuses the acknowledgement below WITHOUT it by name.  ★ AND ON CAST C IT IS ALSO THE PREDICTION:
+# the three depths this number could take now produce three DIFFERENT screens, which is the entire
+# reason the ink byte changed.
+expect_bpp         = 8
+expect_cell        = [704, 384]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+# THE ONE ACKNOWLEDGEMENT.  Unlike channel G, channel A does NOT license: no `so` reader samples this
+# cell and no record the kit could read before W6b-3 names its COLUMN.  The depth comes from an ENTRY
+# of a multi-part record's binding array, the entry's ORDER within that array is UNMEASURED, and a
+# BINDING IS NOT A DRAW.  Saying the word is the author carrying that judgement; `expect_bpp = 8`
+# above is what makes the judgement checkable -- and cast C is what makes it FALSIFIABLE.
+acknowledge_array_derived_depth = true
+# FALSE, and PROVEN false rather than hoped: the stamp skips every transparent index, so punch = 0 and
+# fill = 0.  Cast C strengthens the reason -- at 4bpp the low nibble of 0xF0 IS the cutout index, so
+# the 4bpp outcome is a legible THINNING only because the silhouette was left alone.  A cutout reshape
+# here would have made the 4bpp and 8bpp screens confusable.
+acknowledge_cutout_reshape = false
+# DISPLAY only -- this lane writes 0 CLUT bytes; the bands are judged under the column's own palette.
+# That is load-bearing on cast C: index 240 is the ink BECAUSE this row colours it rgb(222,115,115),
+# and the container remains the palette authority.
+palette_from = "pal.s0.x0_y247.e256"
+note = "cast C, ROW 1: five bands of literal byte 0xF0 on the CHANNEL-A verdict cell -- salmon at 8bpp, a transparent comb at 4bpp, violet-blue at 15bpp; 5 is still this cell's mark identity"
+
+
+# ==============================================================================================
+# ROW 2 -- THE ORDER RIDER / CONTROL.  cell.s0.x448_y384, so-UV LICENSED, 3 bands.  NO ack key.
+# BYTE-FOR-BYTE CAST B'S ROW: same source PNG (sha 70f3c096...), same derived ink (index 99, the
+# max-luminance entry of pal.s0.x0_y242.e256), same 3 x 12 bands inside the reader's own cover.
+# Nothing here is re-decided by cast C -- see the header for why it stays.
+#
+# The absence of `acknowledge_array_derived_depth` is a fact, not a preference: `texel_page` resolves
+# this column on `so-uv` (seven incumbent single-part records bind it), so the kit asks for nothing.
+# Cast B MEASURED that adding the key here is accepted and completely INERT -- byte-identical output,
+# no channel-A disclosure -- so it is omitted because it says nothing, not because it would be refused.
+[[reskin.texel]]
+name = "cell.s0.x448_y384"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef424-channel-a/art/cell.s0.x448_y384.orderbands.png"
+
+# --- the guards, EMITTED by the derivation, never typed -----------------------------------------
+expect_page_offset = 0x05668    # the s0 id-0 page rect at VRAM (448,256,w=64,h=256), cell 1 of 2
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+expect_bpp         = 8
+expect_cell        = [448, 384]
+
+# --- the authored decisions -------------------------------------------------------------------
+enabled = true
+acknowledge_cutout_reshape = false
+# DISPLAY only.  The cell's page CLUT word resolves to (0,242) -- the reader geom 0x2ec34's own key --
+# NOT the (0,248) the array entry's clut word names.  The palette a page indexes into is a HEADER
+# FACT, so this is stated as the derivation emits it and the build refuses any other name.
+palette_from = "pal.s0.x0_y242.e256"
+note = "cast C, ROW 2: three bands on the licensed so-UV column, UNCHANGED from cast B -- the deploy's control, the order rider, and the reason cast C minus cast B is one cell"

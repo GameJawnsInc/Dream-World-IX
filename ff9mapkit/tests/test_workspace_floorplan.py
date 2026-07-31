@@ -1500,3 +1500,333 @@ def test_a_canvas_with_no_real_viewport_leaves_every_label_where_it_was(app):
         got = doc.canvas._chip_clear(0, 0, text, doc.canvas._font(8), QRectF(0, 0, 300, 22),
                                      dx, dy, centre)
         assert got == label_offsets(dx, dy, 300, 22, centre=centre)[0]
+
+
+# ============================================================ the live gate: fast, and still live
+# `compose` re-ran WHOLE on every gesture: ~17s per drag on an eight-room plan -- the same as
+# drawing it -- and one worker per
+# keystroke stacking under the GIL. The tab now carries one `GeomCache` across judges and hands the
+# composer a `cancel` hook. These pin the three things that buys, and the one thing it must not
+# cost -- a verdict that differs from the one a cold judge would have painted.
+
+
+def test_the_doc_carries_one_cache_across_judges(app):
+    """★ THE CALL-SITE LAW. `GeomCache` existing in `floorplan.py` is worth nothing; SPENDING it
+    here is the whole optimization. A gesture changes one room, so a second judge of a plan whose
+    geometry did not move must be almost entirely hits.
+
+    Measured before this: ~17s per gesture on eight rooms, the same as a cold judge, because there
+    was no cache to carry. After: ~0.6s, and FLAT in room count.
+    """
+    doc, _ = _two_rooms(app)
+    doc.judge_now(sync=True)
+    before = (doc._cache.hits, doc._cache.misses)
+    doc.judge_now(sync=True)                            # the same geometry, judged again
+    after = (doc._cache.hits, doc._cache.misses)
+    assert after[0] > before[0], "the second judge recomputed everything -- the cache is not spent"
+    assert after[1] == before[1], f"a re-judge of unchanged geometry missed {after[1] - before[1]}"
+
+
+def test_a_cached_judge_paints_the_same_verdict_as_a_cold_one(app):
+    """The cache may cost time and may never cost truth. Two docs, one warm and one cold, must
+    agree on every visible piece of the verdict -- which rooms are refused, which are warned, the
+    findings text, and whether Compose is enabled."""
+    warm, _ = _two_rooms(app)
+    warm.judge_now(sync=True)
+    warm.judge_now(sync=True)
+    cold, _ = _two_rooms(app)
+    cold._cache = FP.GeomCache()                        # a cache that has never seen this plan
+    cold.judge_now(sync=True)
+
+    def seen(d):
+        return (d.canvas._bad_rooms, d.canvas._warn_rooms, d.canvas._bad_doors,
+                [d.plist.item(i).text() for i in range(d.plist.count())],
+                d.compose_btn.isEnabled(), _status(d))
+
+    assert seen(warm) == seen(cold)
+
+
+def test_a_cancelled_judge_is_not_painted_as_a_refusal(app):
+    """★ `ComposeCancelled` is deliberately NOT a `ComposeError`, so `_judge_work`'s catch-all would
+    render a superseded judge as a red finding reading "the composer could not judge this plan:
+    ComposeCancelled:" -- a refusal the author never earned. Today `_finish_judge`'s generation
+    check happens to drop that payload before it paints, which makes it latent rather than visible:
+    exactly the kind that surfaces the day somebody judges synchronously on a stale generation.
+
+    A cancelled judge found NOTHING. It says so."""
+    plan = {"name": "D", "rooms": [{"name": "ROOM1", "poly": _A}], "doors": [], "id_base": 30500}
+    composed, errors, warnings = FloorplanDoc._judge_work(plan, cancel=lambda: True)
+    assert composed is None
+    assert errors == [], f"a cancelled judge painted {errors}"
+    assert warnings == []
+
+
+def test_judge_work_is_still_callable_unbound_with_one_positional_arg(app):
+    """The cache and cancel arrive as keyword-only extras with `None` defaults precisely so this
+    stays true -- several fences (and any future one) call it as a plain function."""
+    plan = {"name": "D", "rooms": [{"name": "ROOM1", "poly": _A}], "doors": [], "id_base": 30500}
+    composed, errors, _w = FloorplanDoc._judge_work(plan)
+    assert composed is not None and not errors
+
+
+def test_the_dungeon_name_does_not_re_judge_the_geometry(app, monkeypatch):
+    """★ Typing a nine-character name spawned NINE full composes -- the 140ms debounce only
+    coalesces keystrokes faster than that, and compose is pure Python under the GIL, so they
+    stacked: 2.7s of asked-for work took 13.2s with Compose disabled throughout.
+
+    `compose` reads `name` in exactly one place (the composed campaign's own name) and it reaches
+    no grid sample. The gate the old comment invoked, `_name_problem`, lives in
+    `_envelope_problems`, which `_paint_verdict` spends on EVERY repaint whether or not a judge
+    ran -- so the name box needs a repaint, not a re-judge."""
+    doc, _ = _two_rooms(app)
+    doc.judge_now(sync=True)
+    calls = []
+    real = FP.compose
+    monkeypatch.setattr(FP, "compose", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    for ch in "GREATHALL":
+        doc.name_box.setText(doc.name_box.text() + ch)
+    assert calls == [], f"{len(calls)} composes for nine keystrokes"
+
+    # ...and the name gate still fires, because it never depended on the judge
+    doc.name_box.setText("bad name/with slash")
+    assert any("name" in doc.plist.item(i).text().lower() for i in range(doc.plist.count())) or \
+        not doc.compose_btn.isEnabled(), "the name gate stopped being enforced"
+
+
+def test_a_verdict_landing_mid_drag_does_not_eat_the_drag(app):
+    """★ THE SNAP-BACK, fenced. `PlanCanvas.set_plan` used to do `self._drag = None` on every feed
+    -- and the live gate feeds it from a worker. A verdict landing mid-drag discarded the gesture
+    silently: `mouseReleaseEvent` tests `if self._drag`, so the release committed nothing, no
+    `room_reshaped` was emitted, no undo entry was pushed, and `_draw` repainted the room at its
+    PRE-DRAG outline. The generation guard could not save it, because a drag never bumps `_gen`.
+
+    Second-order, on the same line: a release that had barely travelled was then re-read as a
+    CLICK, which in Rooms mode silently starts a new outline under the author's cursor.
+
+    Making the gate fast shrinks this window. It does not close it. The drag outranks the feed."""
+    doc, _ = _two_rooms(app)
+    doc.judge_now(sync=True)
+    canvas = doc.canvas
+    before = list(canvas._rooms[0]["poly"])
+
+    assert canvas.press_world(*_A[0]) is True, "the corner handle was not grabbable"
+    canvas.drag_world(_A[0][0] - 300, _A[0][1] - 300)
+    assert canvas._drag is not None
+
+    doc._paint_verdict()                                # what a worker's verdict does, exactly
+
+    assert canvas._drag is not None, "the verdict ate the drag"
+    assert canvas._poly(0) != before, "the drag's live outline was reverted under the author"
+    canvas.release_world(_A[0][0] - 300, _A[0][1] - 300)
+    assert canvas._drag is None
+    assert doc._session["rooms"][0]["poly"] != before, "the release did not commit the drag"
+
+
+def test_a_feed_that_no_longer_shows_the_dragged_room_clears_the_drag(app):
+    """The other half, and it is why the guard is not an index-range check. The drag record is an
+    INDEX into the fed rooms plus the outline that was under the cursor when the press landed. A
+    feed that no longer shows THAT room unchanged at THAT index must drop the gesture -- deleting an
+    earlier room keeps every index in range while sliding a different room under it, and a release
+    would then write this drag onto somebody else's outline.
+
+    ``_B[1]``, not ``_B[0]``: the rooms abut, so their shared corner picks ROOM1's handle and the
+    test would silently be dragging the wrong room."""
+    doc, _ = _two_rooms(app)
+    canvas = doc.canvas
+    assert canvas.press_world(*_B[1]) is True
+    assert canvas._drag["ri"] == 1, "grab a corner ROOM1 does not also own"
+    canvas.drag_world(_B[1][0] + 100, _B[1][1] + 100)
+
+    canvas.set_plan([{"name": "ROOM1", "poly": _A}], [])       # ROOM2 is gone: index out of range
+    assert canvas._drag is None
+
+    assert canvas.press_world(*_A[0]) is True                  # now index 0, still in range...
+    canvas.drag_world(_A[0][0] - 50, _A[0][1] - 50)
+    assert canvas._drag is not None
+    canvas.set_plan([{"name": "ROOM2", "poly": _B}], [])       # ...but a DIFFERENT room sits there
+    assert canvas._drag is None, "an index-range check alone would have kept this drag"
+
+
+# ==================================================== first contact, 2026-07-30: the drawing gesture
+# The first human to use this tab reported, in order: "it's hard to click the same spot twice", "the
+# view shifts when adding new points", "the first point is always put at the origin", and "is getting
+# the edges close together for a door supposed to be so hard?".
+#
+# The first three are ONE defect and the fourth is a missing affordance. Neither was reachable by any
+# fence here, because every fence drove `click_world` -- the world-space seam -- and the defect lived
+# entirely in what the VIEW did between one click and the next.
+
+
+def _click(canvas, px, py):
+    """A real press/release pair at a viewport pixel -- the path a mouse takes, not the seam."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QMouseEvent
+    p = QPointF(px, py)
+    for typ, handler in ((QMouseEvent.Type.MouseButtonPress, canvas.mousePressEvent),
+                         (QMouseEvent.Type.MouseButtonRelease, canvas.mouseReleaseEvent)):
+        handler(QMouseEvent(typ, p, canvas.viewport().mapToGlobal(p), Qt.MouseButton.LeftButton,
+                            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+
+
+def _origin_on_screen(canvas):
+    """Where world (0,0) currently sits in viewport pixels -- i.e. where the chart IS."""
+    from PySide6.QtCore import QPointF
+    o = canvas.world_to_scene(0.0, 0.0)
+    p = canvas.mapFromScene(QPointF(*o))
+    return (p.x(), p.y())
+
+
+def _laid_out_canvas(app, doc, w=880, h=420):
+    doc.resize(1280, 900)
+    doc.show()
+    app.processEvents()
+    doc.canvas.resize(w, h)
+    app.processEvents()
+    doc.canvas.fit()
+    app.processEvents()
+    return doc.canvas
+
+
+def test_the_chart_does_not_move_while_a_room_is_being_drawn(app):
+    """★ THE DEFECT FIRST CONTACT HIT, and the reason its three reports are one bug.
+
+    `_scene_bounds` follows the geometry and the geometry includes the outline IN PROGRESS, so the
+    first corner collapsed the scene rect from 480 world units to 58 -- one point plus its pad. Qt
+    then centred a rect far smaller than the viewport and the whole chart jumped: measured, world
+    (0,0) moved 375px right and 253px down on the FIRST click.
+
+    That is why "the first point is always put at the origin": the point does not move, the chart
+    does, until the point sits dead centre where the origin crosshair used to be. And it is why
+    clicking the same spot twice was hard -- every click after the first landed in a new frame.
+
+    Four clicks at a screen RECTANGLE must produce a world RECTANGLE. Before the fix they produced
+    a garbage quadrilateral."""
+    doc, _ = _doc(app)
+    c = _laid_out_canvas(app, doc)
+    before = _origin_on_screen(c)
+
+    for px, py in [(250, 120), (600, 120), (600, 320), (250, 320)]:
+        _click(c, px, py)
+        app.processEvents()
+        now = _origin_on_screen(c)
+        assert now == pytest.approx(before, abs=1.0), (
+            f"the chart moved {now[0] - before[0]:+.0f},{now[1] - before[1]:+.0f}px under the "
+            f"author while they were drawing")
+
+    pts = c.pending()
+    assert len(pts) == 4
+    xs = sorted({round(x) for x, _z in pts})
+    zs = sorted({round(z) for _x, z in pts})
+    assert len(xs) == 2 and len(zs) == 2, (
+        f"four clicks on a screen rectangle produced {pts} -- not a rectangle in world space")
+
+
+def test_ctrl_zero_still_frames_the_geometry_after_the_view_has_wandered(app):
+    """The scene rect is now allowed to grow past the geometry so the view is never re-anchored
+    (see `_stable_rect`). That slack accumulates as the author pans -- so `fit()` has to re-derive
+    from `_scene_bounds()` and not from `sceneRect()`, or Ctrl+0 would frame wherever they had
+    wandered to instead of framing the rooms.
+
+    Asserted on the visible result, not on the rect: after Ctrl+0 the geometry is fully on screen
+    AND fills a fair share of it."""
+    doc, _ = _two_rooms(app)
+    c = _laid_out_canvas(app, doc)
+    doc.judge_now(sync=True)
+    c.fit()
+    app.processEvents()
+    fit_zoom = c._zoom
+
+    for _ in range(8):                    # zoom OUT, which is what actually grows the union:
+        f = 1 / 1.15                      # panning cannot, since the view is clamped to the rect
+        c.scale(f, f)
+        c._zoom *= f
+        c._draw()
+    app.processEvents()
+    geom = c._scene_bounds()
+    assert c._scene.sceneRect().width() > geom.width() * 2, (
+        "the view never actually took on slack, so this fence is asserting nothing")
+
+    c.fit()
+    app.processEvents()
+    vis = c.mapToScene(c.viewport().rect()).boundingRect()
+    assert vis.contains(geom), "Ctrl+0 left the rooms off screen"
+    assert c._zoom == pytest.approx(fit_zoom, rel=0.05), (
+        f"Ctrl+0 framed the accumulated slack, not the rooms (zoom {c._zoom} vs {fit_zoom})")
+
+
+def test_a_corner_snaps_onto_a_neighbours_corner_and_wall(app):
+    """★ "is getting the edges close together for a door supposed to be so hard?" -- no.
+
+    `shared_edges` admits two rooms as sharing a wall only within 8 WORLD units, and at the chart's
+    opening zoom one screen pixel is already ~9. A pixel-perfect click is therefore OUT of tolerance
+    before the mouse even moves, and the author gets "No shared wall here" with nothing to correct.
+
+    Measured A/B on identical clicks 3-5px off a shared wall: snapping off -> shared_edges offers
+    ZERO candidates; snapping on -> one candidate spanning the whole 1049u wall."""
+    doc, _ = _doc(app)
+    c = _laid_out_canvas(app, doc)
+    for p in [(300, 150), (600, 150), (600, 330), (300, 330)]:
+        _click(c, *p)
+    _click(c, 300, 150)
+    app.processEvents()
+    doc.judge_now(sync=True)
+    r1 = doc._session["rooms"][0]["poly"]
+
+    for p in [(604, 153), (880, 147), (877, 334), (603, 327)]:      # sloppy, 3-5px off the wall
+        _click(c, *p)
+    _click(c, 604, 153)
+    app.processEvents()
+    doc.judge_now(sync=True)
+    r2 = doc._session["rooms"][1]["poly"]
+
+    shared = FP.shared_edges([(float(a), float(b)) for a, b in r1],
+                             [(float(a), float(b)) for a, b in r2])
+    assert shared, (f"no shared wall from clicks 3-5px off it: ROOM1 {r1} ROOM2 {r2} -- snapping "
+                    f"is what makes the 8u tolerance reachable by hand")
+    assert shared[0]["length"] > 900, f"only {shared[0]['length']:.0f}u of the wall was shared"
+
+
+def test_snapping_prefers_a_corner_over_a_wall_and_never_eats_its_own_room(app):
+    """A corner lies ON two walls, so it has to win, or starting a room on a neighbour's corner
+    would slide along the wall instead. And a dragged vertex must not capture onto its OWN room --
+    that collapses the outline into a duplicated corner, which G1 refuses."""
+    doc, _ = _two_rooms(app)
+    c = _laid_out_canvas(app, doc)
+    doc.judge_now(sync=True)
+
+    corner = c._poly(0)[1]
+    got, what = c.snap(corner[0] + c.world_tol(2), corner[1] + c.world_tol(2))
+    assert what == "corner" and got == pytest.approx(corner, abs=0.01)
+
+    (ax, az), (bx, bz) = c._poly(0)[0], c._poly(0)[1]
+    mid = ((ax + bx) / 2.0, (az + bz) / 2.0)
+    got, what = c.snap(mid[0], mid[1] + c.world_tol(3))
+    assert what == "wall", f"a point beside a wall snapped as {what}"
+    assert got == pytest.approx(mid, abs=max(1.0, c.world_tol(1)))
+
+    own = c._poly(0)[0]
+    _got, what = c.snap(own[0] + c.world_tol(2), own[1] + c.world_tol(2), skip_room=0)
+    assert what != "corner" or _got != pytest.approx(own, abs=0.01), (
+        "a dragged vertex captured onto its own room")
+
+
+def test_the_rubber_band_previews_the_snapped_point(app):
+    """The band is the ONLY preview of where the corner lands, so it must show the snapped point --
+    a band that says one thing while the click does another is worse than no snapping at all."""
+    doc, _ = _two_rooms(app)
+    c = _laid_out_canvas(app, doc)
+    doc.judge_now(sync=True)
+    c.click_world(-5000, -5000)                    # an outline in progress, far from everything
+    corner = c._poly(0)[1]
+    near = (corner[0] + c.world_tol(2), corner[1] + c.world_tol(2))
+    from PySide6.QtCore import QPointF
+    p = QPointF(*c.world_to_widget(*near)) if hasattr(c, "world_to_widget") else None
+    if p is None:                                  # no widget-space forward map: drive the seam
+        c._hover = c.snap(*near)[0]
+    else:
+        from PySide6.QtGui import QMouseEvent
+        c.mouseMoveEvent(QMouseEvent(QMouseEvent.Type.MouseMove, p, c.viewport().mapToGlobal(p),
+                                     Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                                     Qt.KeyboardModifier.NoModifier))
+    assert c._hover == pytest.approx(corner, abs=0.01), (
+        f"the rubber band previewed {c._hover}, not the corner the click would snap to")

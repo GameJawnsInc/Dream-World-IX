@@ -14,15 +14,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtGui import QAccessible                                          # noqa: E402
-from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QApplication,  # noqa: E402
-                               QComboBox, QLineEdit, QListWidget, QPlainTextEdit,
-                               QTextEdit, QTreeWidget, QWidget)
+from PySide6.QtWidgets import (QAbstractButton, QAbstractSlider, QAbstractSpinBox,  # noqa: E402
+                               QApplication, QComboBox, QLineEdit, QListWidget, QPlainTextEdit,
+                               QScrollBar, QTextEdit, QTreeWidget, QWidget)
 
 from ff9mapkit.workspace.shell import Workspace, _apply_app_theme             # noqa: E402
 
-# the actionable control types a screen-reader user tabs to / operates
+# the actionable control types a screen-reader user tabs to / operates. QAbstractSlider joined when
+# the Models tab grew a frame scrubber -- and retro-covered the Trace pitch and Behavior sim sliders,
+# which had been real Tab stops with no announced name for as long as they had existed.
 _WATCH = (QAbstractButton, QLineEdit, QComboBox, QAbstractSpinBox, QPlainTextEdit,
-          QTextEdit, QListWidget, QTreeWidget)
+          QTextEdit, QListWidget, QTreeWidget, QAbstractSlider)
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +65,11 @@ def _qt_internal(wd) -> bool:
         return True                                      # the internal editor of a combo / spin box
     if isinstance(wd, QAbstractButton) and isinstance(parent, QLineEdit):
         return True                                      # QLineEdit's clear-button affordance
+    # a QScrollBar IS a QAbstractSlider, so it arrived with the slider watch -- but it is a viewport's
+    # own Qt-managed affordance: we neither create it nor should name it, the SCROLLED widget is the
+    # named thing, and a screen reader announces a scroll bar by ROLE.
+    if isinstance(wd, QScrollBar):
+        return True
     return False
 
 

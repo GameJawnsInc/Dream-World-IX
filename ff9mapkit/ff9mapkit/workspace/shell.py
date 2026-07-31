@@ -66,9 +66,11 @@ from .worlddoc import WorldDoc
 from .style import qss, space, type_px
 from . import thumbs as _thumbs, widgets
 from . import anim
+from . import animpicker
 from . import concepts
 from . import logfind
 from . import icons
+from .animframes import AnimFrameService
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
 from .widgets import (PlaceholderListWidget, install_wheel_guard, nameplate,
@@ -599,6 +601,10 @@ class Workspace(QMainWindow):
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
         self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
         self.model_thumbs = ModelThumbService(self)           # 3D-model previews (async, disk-cached)
+        # ONE clip-frame service for the whole window: the Models tab's player and every animation
+        # PICKER share it, so a clip filled for the tab is already warm in the dialog (and two threads
+        # never race the same PNG). It spawns nothing until something arms a clip.
+        self.anim_frames = AnimFrameService(self)             # rendered animation frames (async, disk-cached)
         self.thumbs.ready.connect(self._on_thumb_ready)
         # HOLD both workers before any tab can enqueue a build (ModelsDoc's construction-time refill
         # queues its top-of-list batch RIGHT NOW on a cold cache), with the LONG startup grace: main()
@@ -1747,7 +1753,7 @@ class Workspace(QMainWindow):
         # the custom-3D-models pillar's front door: browse every model with rendered previews + run the
         # whole DLL-free edit round-trip (export .glb / import / mint / clips) on the selection.
         self.models_doc = ModelsDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
-                                    model_thumbs=self.model_thumbs)
+                                    model_thumbs=self.model_thumbs, anim_frames=self.anim_frames)
         self.tabs.addTab(self.models_doc, "Models")
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
@@ -7173,13 +7179,21 @@ class Workspace(QMainWindow):
         self._show_problems(fb.Verdict(fb.OK, f"Deleted {label} from {member}",
                                        f"wrote {self.member_paths[member].name}"), [])
 
-    def _pick(self, catalog, current, want_id=False):
+    def _pick(self, catalog, current, want_id=False, model_hint=None):
         """``build_form``'s picker: open the Qt catalog picker over the open campaign's context. For the
         ``flag`` catalog it ALSO surfaces the OPEN FIELD's own ``[[flag]]`` table (so Browse isn't empty on a
         standalone field); for the ``sps`` catalog it surfaces the open field's OWN carried effects (so the
         Effects form's "Clone carried effect" Browse shows 42/43 with previews). ``want_id`` returns the picked
-        entry's numeric id (e.g. an encounter battle scene, or a carried effect)."""
+        entry's numeric id (e.g. an encounter battle scene, or a carried effect).
+
+        The ANIMATION kinds return EARLY, before ``pick_catalog``: they are not Info Hub kinds at all (an
+        unknown kind reaching ``CatalogPicker`` opens a "0 matches" list), and their picker needs one thing
+        the Hub has no notion of -- WHICH RIG the block wears, which ``model_hint`` carries as the same
+        :class:`~ff9mapkit.blockmodel.BlockModel` the build resolves."""
         kinds = [k.strip() for k in catalog.split(",")] if catalog else []
+        if "anim" in kinds or "animset" in kinds:
+            return animpicker.pick_animation(self, self.pal, kinds=kinds, current=current,
+                                             model_hint=model_hint, anim_frames=self.anim_frames)
         ctx = self._flag_pick_context() if "flag" in kinds else self.plan
         sps_ctx = self._current_field_sps_context() if "sps" in kinds else None
         return pick_catalog(self, catalog, current, ctx, self.pal, want_id=want_id, sps_context=sps_ctx,
@@ -7195,6 +7209,36 @@ class Workspace(QMainWindow):
             return None
         d = Path(p).parent / "sps"
         return {member: d} if d.is_dir() and any(d.glob("*.sps.bytes")) else None
+
+    def _actor_model_hint(self, member, who, cast=()):
+        """Which MODEL a cutscene step's actor wears -- the scope an animation picker needs, resolved the
+        three ways a step names an actor:
+
+        * a named cast member -> that ``[[npc]]``'s block (archetype/preset/model precedence);
+        * ``"player"`` -> the field's ``[player]`` block (no ``model =`` -> the stock avatar, Zidane);
+        * BLANK -> the sole cast member, exactly as the build's own sole-actor default reads it.
+
+        Anything else answers ``model=None`` with a ``reason``: the picker then opens unscoped and says
+        why, instead of showing an empty list."""
+        from ..blockmodel import BlockModel, resolve_block_model
+        doc = self._safe_doc(member) if member else None
+        data = doc.data if doc is not None else {}
+        name = str(who or "").strip()
+        if not name:
+            names = [str(a).strip() for a in (cast or []) if str(a).strip()]
+            if len(names) == 1:                      # a cast of ONE fills an untagged actor step (build.py)
+                name = names[0]
+        if not name:
+            return BlockModel(None, "none", "none", None, None,
+                              "this step has no actor and the cast isn't a single member, so there is no "
+                              "rig to scope the clips to")
+        if name == "player":
+            return resolve_block_model(data.get("player") or {}, kind="player", strict=False)
+        for n in data.get("npc", []) or []:
+            if str(n.get("name") or "") == name:
+                return resolve_block_model(n, strict=False)
+        return BlockModel(None, "none", "none", None, None,
+                          f"actor {name!r} is not an [[npc]] in this field (or \"player\")")
 
     def _flag_pick_context(self):
         """A picker context whose ``.flags`` covers the WHOLE flag hierarchy in scope: the OPEN FIELD's own
@@ -7592,11 +7636,13 @@ class Workspace(QMainWindow):
         sv = QVBoxLayout(side)
         sv.setContentsMargins(0, 0, 0, 0)
         type_combo = QComboBox()
+        type_combo.setAccessibleName("Cutscene step type")
         for k in forms.STEP_KIND:
             type_combo.addItem(forms.STEP_LABEL[k], k)
         # the 'say' step is dialogue -> a multi-line box (Enter / typed \n = an in-window line break);
         # every other step is a short single value -> a line edit. Only one shows at a time.
         value_line = QLineEdit()
+        value_line.setAccessibleName("Cutscene step value")
         value_text = QPlainTextEdit()
         value_text.setTabChangesFocus(True)
         value_text.setFixedHeight(64)
@@ -7604,13 +7650,36 @@ class Workspace(QMainWindow):
         value_text.setVisible(False)
         hint = widgets.caption("")
         actor_line = QLineEdit()                   # the per-step actor tag (a cast member drives this step)
+        actor_line.setAccessibleName("Cutscene step actor")
         actor_line.setPlaceholderText("blank = sole cast member / narration voice")
         actor_line.setToolTip("Which cast member (an `actors` name or \"player\") this step drives / speaks "
                               "as. With a cast of one, leave blank (steps default to it).")
+        # ANIMATION steps get a Browse beside the value: a gesture is the one step kind whose legal
+        # values depend on WHICH RIG the actor wears, and nobody can be expected to know that a moogle
+        # can 'talk_3_1' but not 'glad'. It shows for that step type only (same show/hide seam the
+        # say-step's multi-line box uses) -- on a 'wait' step it would be a button that cannot answer.
+        anim_browse = QPushButton("Browse…")
+        anim_browse.setAccessibleName("Browse animations this actor's model can play")
+        anim_browse.setToolTip("Preview the clips this step's actor can play and pick one by name.")
+        anim_browse.setVisible(False)
+
+        def browse_anim():
+            cast = forms.parse_strlist(getters["actors"]() if "actors" in getters else "") or []
+            hint_block = self._actor_model_hint(member, actor_line.text(), cast)
+            val = animpicker.pick_animation(self, self.pal, kinds=["anim"], current=value_line.text(),
+                                            model_hint=hint_block, anim_frames=self.anim_frames,
+                                            label="actor")
+            if val:
+                value_line.setText(val)
+        anim_browse.clicked.connect(browse_anim)
+        vrow = QHBoxLayout()
+        vrow.setContentsMargins(0, 0, 0, 0)
+        vrow.addWidget(value_line, 1)
+        vrow.addWidget(anim_browse)
         sv.addWidget(QLabel("Type:"))
         sv.addWidget(type_combo)
         sv.addWidget(QLabel("Value:"))
-        sv.addWidget(value_line)
+        sv.addLayout(vrow)
         sv.addWidget(value_text)
         sv.addWidget(QLabel("Actor:"))
         sv.addWidget(actor_line)
@@ -7634,6 +7703,7 @@ class Workspace(QMainWindow):
                 value_line.setText(value_text.toPlainText().replace("\n", " "))
             value_text.setVisible(say)
             value_line.setVisible(not say)
+            anim_browse.setVisible(type_combo.currentData() == "animation")
 
         def reload_steps(select=None):
             steps_list.clear()
@@ -9549,7 +9619,18 @@ def _smoke(win):
     md.listw.setCurrentRow(0)
     assert md._current is not None and md._current.id == 8
     assert "id 8" in md.d_title.text()
-    assert "Actions:" in md.d_anims.text() and "idle" in md.d_anims.text()
+    # the model->animation join is a CLIP LIST now (it arms the frame player), not a comma blob: the
+    # five movement slots come first, then the model's own gestures, every row carrying the id it fills
+    _clips = [md.clip_list.item(i).text() for i in range(md.clip_list.count())]
+    assert len(_clips) > 5, f"clip list under-populated for Vivi: {_clips[:5]}"
+    assert _clips[0].startswith("stand") and "id 148" in _clips[0], _clips[0]
+    assert any(c.startswith("idle") for c in _clips), "the model's own gestures are missing"
+    assert md.clip_list.item(0).data(Qt.ItemDataRole.UserRole) == 148, "a row must carry its anim id"
+    assert md._armed is None, "a refill must not arm the player by itself"
+    md.clip_list.setCurrentRow(0)                              # arms it -- NO_THUMBS keeps it inert
+    assert md._armed == ("GEO_MAIN_F0_VIV", 148)
+    md._copy_anims()
+    assert QApplication.clipboard().text().startswith("anims = { stand = 148,")
     md.search.setText("")
     md.group.setCurrentIndex(5)                                # Weapons (WEP)
     assert 0 < md.listw.count() < 120

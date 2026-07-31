@@ -459,6 +459,10 @@ _QSS = Template(
        CALIBRE dial, the sim stepper) off Fusion's native groove/handle painting. */
     QSlider#tracePitch { border: 1px solid transparent; border-radius: 6px; }
     QSlider#tracePitch:focus { border: 1px solid $focus; }
+    /* The Models tab's animation-frame scrubber -- the SECOND id-scoped slider, and it is id-scoped
+       for the same reason as the first: the rule above deliberately refuses to go app-wide. */
+    QSlider#animFrameSlider { border: 1px solid transparent; border-radius: 6px; }
+    QSlider#animFrameSlider:focus { border: 1px solid $focus; }
     /* NB: pseudo-ELEMENT before pseudo-CLASS -- `::indicator:focus`, NEVER `:focus::indicator`. Qt does
        not reject the wrong order: `Selector::pseudoElement()` reads the FIRST pseudo, sees the known class
        `focus`, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`, so the match test

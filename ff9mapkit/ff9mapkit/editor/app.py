@@ -434,7 +434,10 @@ class EditorApp:
                 var = tk.StringVar(value=str(values.get(f.key, "") or ""))
                 mk = ((lambda h: ttk.Combobox(h, textvariable=var, values=forms.PRESETS))
                       if f.kind == forms.PRESET else (lambda h: ttk.Entry(h, textvariable=var)))
-                if getattr(f, "catalog", None):           # a catalog-backed field gets a "Browse..." picker
+                # a catalog-backed field gets a "Browse..." picker -- but only for the kinds THIS editor's
+                # Info-Hub picker actually indexes (forms.tk_browsable): the Workspace-only kinds (a clip
+                # preview dialog) would otherwise grow a button here whose picker answers nothing.
+                if getattr(f, "catalog", None) and forms.tk_browsable(f):
                     host = ttk.Frame(parent)
                     host.grid(row=r, column=1, sticky="we")
                     host.columnconfigure(0, weight=1, minsize=130)   # don't let the button squash the widget

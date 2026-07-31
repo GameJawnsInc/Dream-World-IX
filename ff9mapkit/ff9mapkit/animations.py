@@ -35,12 +35,28 @@ _VALID_TOKENS = set(TOKENS.values())
 
 # Universal gestures that exist for every playable character (friendly alias -> action label). These
 # are the standard field-movement clips the engine itself uses; safe on any main-character model.
+#
+# THE ONE ALIAS TABLE. A cutscene actor is either a playable PRESET (resolved here, against the
+# character's anim catalog) or a plain MODEL / the player (resolved in build against that rig's own
+# clips + its five movement slots) -- and the same written word has to mean the same gesture on
+# either, or "walk" would work on Vivi and fail on the innkeeper. Both paths normalize through
+# :func:`normalize_action`, so this dict is the only place the vocabulary lives. ``left``/``right``
+# are here because they are what the movement SLOTS are called (catalog.NPC_SLOT_ACTION) and the
+# animation picker labels its rows by slot.
 CORE = {
     "idle": "IDLE", "stand": "IDLE",
     "walk": "WALK", "run": "RUN",
-    "turn_left": "TURN_L", "turn_l": "TURN_L",
-    "turn_right": "TURN_R", "turn_r": "TURN_R",
+    "turn_left": "TURN_L", "turn_l": "TURN_L", "left": "TURN_L",
+    "turn_right": "TURN_R", "turn_r": "TURN_R", "right": "TURN_R",
 }
+
+
+def normalize_action(action) -> str:
+    """A written gesture word -> the canonical lower-case ACTION LABEL both catalogs key on
+    ('Turn-Left' / 'turn_l' / 'left' -> 'turn_l'). Anything not in :data:`CORE` is just normalized
+    (case, '-'/space -> '_') and handed back."""
+    key = str(action).strip().lower().replace("-", "_").replace(" ", "_")
+    return CORE.get(key, key).lower()
 
 
 def _token(model) -> str:
@@ -98,9 +114,7 @@ def resolve(model, action) -> int:
     s = str(action).strip()
     if s.isdigit():
         return int(s)
-    key = s.lower().replace("-", "_").replace(" ", "_")
-    if key in CORE:
-        key = CORE[key].lower()
+    key = normalize_action(s)                  # THE ONE alias table (shared with build's model-actor path)
     cat = catalog(model)
     if key in cat:
         return cat[key]
