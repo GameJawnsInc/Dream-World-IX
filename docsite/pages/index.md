@@ -11,7 +11,7 @@ screenshots.
 |---|---|
 | Set the toolkit up | [Setup](SETUP.md) |
 | Build my first mod (GUI, start here) | [S1 — Fork and deploy a field](ff9mapkit/docs/tutorials/s1-fork-and-deploy.md) · [the core track](ff9mapkit/docs/tutorials/README.md) |
-| Fork a real FF9 field (CLI) | [Tutorial 01 — first fork](ff9mapkit/docs/tutorials/01-first-fork.md) |
+| Do the same from the terminal (CLI) | [C1 — The CLI: fork, edit, deploy](ff9mapkit/docs/tutorials/c1-cli-fork-edit-deploy.md) |
 | Learn the edit → deploy → reload loop | [Tutorial 02 — the dev loop](ff9mapkit/docs/tutorials/02-dev-loop.md) |
 | Build a field from scratch, with original art | [Tutorial 03 — an original-art field](ff9mapkit/docs/tutorials/03-original-art-field.md) |
 | Chain fields into a campaign or journey | [Tutorial 04](ff9mapkit/docs/tutorials/04-campaign.md) · [Tutorial 05](ff9mapkit/docs/tutorials/05-journey.md) |

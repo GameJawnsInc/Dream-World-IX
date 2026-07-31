@@ -1,5 +1,12 @@
 # 10 — Edit a character model in Blender
 
+```toml
+[tutorial]
+track = "D"
+goal = "Round-trip a character model through Blender (mesh + textures)."
+requires = ["game", "blender"]
+```
+
 Round-trip a real FF9 model through Blender: export it (mesh, rig, textures, animations) as glTF,
 edit it, and bring it back — either as an **override** of the original or as a **new minted model
 id** that leaves the original untouched. All of it runs on **stock Memoria** (the engine's

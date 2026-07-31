@@ -1,5 +1,11 @@
 # 04 — Fork a region into a campaign
 
+```toml
+[tutorial]
+goal = "import-chain a connected slice of FF9 into one mod."
+requires = ["game", "assets"]
+```
+
 `import-chain` walks FF9's door graph from a seed field and forks the whole connected slice —
 fields, gateways, encounters, music — into one multi-field mod with a single `campaign.toml`.
 This example forks the Ice Cavern (fields 300–311; 312 sits in the next zone and is reported as

@@ -1,5 +1,11 @@
 # 05 — Assemble a journey
 
+```toml
+[tutorial]
+goal = "Chain campaigns behind a World-Hub selector and wire New Game."
+requires = ["game", "assets"]
+```
+
 A **journey** chains one or more campaigns into a playable arc behind a generated **World Hub** —
 a selector field where New Game lands, the player picks a journey, its starting state is seeded,
 and the warp fires. One `journeys.toml` declares all of it.

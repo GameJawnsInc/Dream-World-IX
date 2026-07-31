@@ -1,5 +1,12 @@
 # 12 — Create a creature from scratch
 
+```toml
+[tutorial]
+track = "D"
+goal = "An original mesh, rig, and animset on a minted id, placed as an NPC."
+requires = ["game", "assets"]
+```
+
 Author a **wholly-original creature** — its mesh, rig, weights, texture, and animation all yours,
 zero FF9-derived bytes — and place it in a field as a talking, idling NPC. All of it runs on
 **stock Memoria** (loose-FBX loader + loose `.anim` clips + DictionaryPatch registrations).

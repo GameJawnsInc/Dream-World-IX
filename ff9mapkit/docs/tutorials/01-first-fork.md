@@ -1,5 +1,11 @@
 # 01 — First fork: a real field with your own NPC
 
+```toml
+[tutorial]
+goal = "Fork a real field, add an NPC, and play it — the full walkthrough with install-folder registration."
+requires = ["game", "assets"]
+```
+
 Fork one of FF9's ~674 real fields onto a custom field id, add an NPC with new dialogue, and play
 it. No painting, no Blender — the fork carries the real field's art, walkmesh, camera, exits,
 encounters, and music.

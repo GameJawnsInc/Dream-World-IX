@@ -1,5 +1,12 @@
 # 09 — Custom battle background
 
+```toml
+[tutorial]
+track = "D"
+goal = "Fork a 3D battle map, retexture or reshape it, fight in it."
+requires = ["game", "assets"]
+```
+
 Fork one of FF9's 3D battle maps ("BBG"), retexture or reshape it, and fight in it. A battle map
 is a real textured 3D mesh — unlike a field's painted plane — and ships as a loose FBX that
 Memoria loads from the mod folder: **stock engine, no DLL**.

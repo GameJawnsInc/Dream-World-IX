@@ -116,3 +116,21 @@ def test_spine_tutorials_declare_and_render_chips(tmp_path):
     assert B.page_from_source(B.REPO / "ff9mapkit" / "docs" / "tutorials"
                               / "s2-add-an-npc.md").meta["builds_on"] == \
         ["s1-fork-and-deploy"]
+
+
+def test_tutorials_index_gate_flags_unlisted_and_misordered():
+    from pathlib import Path
+    def tut(name, track=None, step=None):
+        meta = {"goal": "g"}
+        if track:
+            meta.update(track=track, step=step)
+        return B.Page(src=Path("ff9mapkit/docs/tutorials") / name, rel=f"ff9mapkit/docs/tutorials/{name[:-3]}.html",
+                      title=name, body="", raw="", meta=meta)
+    idx = B.Page(src=Path("ff9mapkit/docs/tutorials/README.md"), rel=B._TUT_INDEX,
+                 title="idx", body="", raw="see x2-b.md then x1-a.md")
+    pages = {p.rel: p for p in (idx, tut("x1-a.md", "X", 1), tut("x2-b.md", "X", 2), tut("x3-c.md"))}
+    errs = B.tutorials_index_gate(pages)
+    assert any("x3-c.md" in e for e in errs), errs                      # unlisted -> named
+    assert any("out of step order" in e for e in errs), errs            # x2 before x1 -> flagged
+    idx.raw = "x1-a.md then x2-b.md and x3-c.md"
+    assert B.tutorials_index_gate(pages) == []

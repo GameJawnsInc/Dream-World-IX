@@ -1,5 +1,12 @@
 # 11 — Transplant your own model onto a summon (Blender round-trip)
 
+```toml
+[tutorial]
+track = "D"
+goal = "Wear a stock summon's real bones and camera with your own model."
+requires = ["game", "blender"]
+```
+
 Wear a stock FF9 summon's real cast — its live bones, its native camera, its damage timing — with
 your **own** model, instead of the donor creature. This is the experimental, engine-adjacent
 sibling of tutorial 10 (character models): same round-trip shape (export → edit in Blender →

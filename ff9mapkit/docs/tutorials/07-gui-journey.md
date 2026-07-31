@@ -1,5 +1,11 @@
 # 07 — Fork FF9 in the Workspace
 
+```toml
+[tutorial]
+goal = "Fork a multi-arc slice of the game in the Workspace, edit a line, deploy."
+requires = ["game", "gui", "assets"]
+```
+
 Fork a multi-arc slice of *Final Fantasy IX* into a journey, change one line of its real dialogue,
 deploy it, and play it back — entirely in the Workspace GUI. This is the full
 **fork → edit → deploy → play** loop at game scale.

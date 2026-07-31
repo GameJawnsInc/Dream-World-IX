@@ -1,5 +1,11 @@
 # 03 — An original-art field from scratch
 
+```toml
+[tutorial]
+goal = "A from-scratch field with your own painted background."
+requires = ["game", "image-editor"]
+```
+
 Author a field with a background you paint yourself: choose a camera, paint over a generated
 guide, and walk on geometry projected through the same camera. This is the condensed recipe; the
 full workflow reference (multi-layer depth, occlusion, scrolling, multi-camera) is

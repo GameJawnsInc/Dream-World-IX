@@ -1,5 +1,11 @@
 # 02 — The dev loop: edit → deploy → ~
 
+```toml
+[tutorial]
+goal = "Iterate without relaunching: deploy to a test slot, reload with the in-game debug menu."
+requires = ["game", "repo", "engine-bundle"]
+```
+
 The fast iteration loop. After the first registration, a field change is testable in seconds with
 no game relaunch.
 

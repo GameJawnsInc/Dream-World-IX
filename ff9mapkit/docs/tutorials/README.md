@@ -19,6 +19,16 @@ CLI — the CLI-side tutorials below cover the terminal equivalent of everything
 | S6 | [Random encounters](s6-encounters.md) | Battles: scene pool + frequency |
 | S7 | [Package a campaign](s7-package-a-campaign.md) | A campaign, a New Game entry, a distributable zip |
 
+## Track C — the CLI
+
+The same competence as the core track, terminal-native.
+
+| # | Step | Result |
+|---|---|---|
+| C1 | [The CLI: fork, edit, deploy](c1-cli-fork-edit-deploy.md) | S1–S2's build, done from the terminal |
+
+C2–C4 planned: `field.toml` by hand · deploy automation · the GUI ↔ CLI bridge.
+
 ## The rest (being reorganized into tracks)
 
 Single-goal walkthroughs, each independently completable. The CLI is the canonical surface; the

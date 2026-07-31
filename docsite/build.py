@@ -157,6 +157,7 @@ REQUIRE_LEGEND = {
     "engine-bundle": "the Dream World IX engine bundle",
     "blender": "Blender + the add-on",
     "repo": "a repo checkout",
+    "image-editor": "an image editor",
 }
 
 
@@ -168,7 +169,7 @@ def parse_tutorial_front(text: str) -> tuple[dict | None, str]:
     return meta, text[:m.start()] + text[m.end():]
 
 
-TRACK_NAMES = {"S": "The spine", "B": "Going deeper", "C": "The CLI track", "D": "How-tos"}
+TRACK_NAMES = {"S": "The core track", "B": "Going deeper", "C": "The CLI track", "D": "How-tos"}
 
 
 def _meta_strip_html(meta: dict) -> str:
@@ -560,6 +561,37 @@ def _verb_page_html(name: str, sp: argparse.ArgumentParser, one_liner: str) -> s
     return "".join(out)
 
 
+_TUT_INDEX = "ff9mapkit/docs/tutorials/README.html"
+
+
+def tutorials_index_gate(pages: dict[str, Page]) -> list[str]:
+    """The tutorials index must list every tutorial that declares frontmatter, and list a track's
+    steps in step order. Existence comes from the pages themselves (a gating list rots); the
+    hand-kept README only curates — this gate keeps it from silently omitting or shuffling."""
+    idx = pages.get(_TUT_INDEX)
+    if idx is None:
+        return [f"tutorials index {_TUT_INDEX} missing"]
+    errors = []
+    by_track: dict[str, list[tuple[int, str, int]]] = {}
+    for rel, p in pages.items():
+        if not p.meta or p.src is None or p.src.parent.name != "tutorials" or rel == _TUT_INDEX:
+            continue
+        name = p.src.name
+        at = idx.raw.find(name)
+        if at < 0:
+            errors.append(f"tutorials/README.md does not link {name} (it declares [tutorial])")
+            continue
+        if p.meta.get("track") and p.meta.get("step"):
+            by_track.setdefault(p.meta["track"], []).append((int(p.meta["step"]), name, at))
+    for track, rows in sorted(by_track.items()):
+        rows.sort()
+        positions = [at for _step, _name, at in rows]
+        if positions != sorted(positions):
+            order = " ".join(name for _s, name, _a in rows)
+            errors.append(f"track {track}: README lists steps out of step order (expect {order})")
+    return errors
+
+
 # ------------------------------------------------------------------------------------- navigation
 
 def load_nav(pages: dict[str, Page]) -> list[dict]:
@@ -678,6 +710,7 @@ def build(out_dir: Path) -> dict[str, Page]:
             shot_refs[rel] = used
     rw.errors += ui_gate(pages)
     rw.errors += cli_gate(pages, the_parser())
+    rw.errors += tutorials_index_gate(pages)
     if rw.errors:
         raise SystemExit("build errors (" + str(len(rw.errors)) + "):\n  " + "\n  ".join(rw.errors))
 

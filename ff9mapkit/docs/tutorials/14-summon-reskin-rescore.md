@@ -1,5 +1,12 @@
 # 14 — Recolour and reframe a stock summon in place (`summon-reskin` / `summon-rescore`)
 
+```toml
+[tutorial]
+track = "D"
+goal = "Edit a stock summon's palette and camera in place, no new model."
+requires = ["game"]
+```
+
 Edit a **stock** FF9 summon's own cinematic — its palette, its camera — with no donor swap and no
 new model at all. Where tutorial 11 wears a stock summon's bones with *your own* creature,
 `summon-reskin` and `summon-rescore` edit the stock creature's own container bytes in place: a CLUT
