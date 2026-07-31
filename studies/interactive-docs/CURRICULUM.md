@@ -108,5 +108,7 @@ until the transitional pages settle into tracks).
 ★ **C2 SHIPPED** (c2-field-toml-by-hand — [field] anatomy, [x] vs [[x]], the core track as one
 TOML example, lint, the scene split). ★ **02 → C3 PROMOTED** (c3-deploy-automation, redirect stub,
 8 inbound links repointed). Track C = C1-C3.
-Next: the S-track PLAYTEST (owner) · C4 (the GUI↔CLI bridge) · B ladders by interest · 08's
+★ **C4 SHIPPED** (c4-gui-cli-bridge — the action→verb map, deploy verbs parser-verified, the
+Output console as the living reference). **TRACK C COMPLETE (C1–C4).**
+Next: the S-track PLAYTEST (owner) · B ladders by interest · 08's
 choice/cast-scene content into its track home · then the generated track-ladder landing.

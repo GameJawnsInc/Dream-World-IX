@@ -28,8 +28,7 @@ The same competence as the core track, terminal-native.
 | C1 | [The CLI: fork, edit, deploy](c1-cli-fork-edit-deploy.md) | S1–S2's build, done from the terminal |
 | C2 | [`field.toml` by hand](c2-field-toml-by-hand.md) | Read and write the project file directly |
 | C3 | [Deploy automation](c3-deploy-automation.md) | Slots, reverts, mod-folder resolution, relaunch rules |
-
-C4 planned: the GUI ↔ CLI bridge, anchored by the Output console.
+| C4 | [The GUI ↔ CLI bridge](c4-gui-cli-bridge.md) | Every Workspace action mapped to its verb |
 
 ## The rest (being reorganized into tracks)
 
