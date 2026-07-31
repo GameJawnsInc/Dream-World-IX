@@ -118,3 +118,40 @@ are unchanged.
   buildable from carried mesh strips; productization (`world-terrace`) becomes eligible.
 
 One round. Scored on the owner's verdict, whichever way it lands.
+
+## SCORED — PLUMBING STOP, claim UNJUDGED (2026-07-31)
+
+Two playtests. The first found five defect classes (stretched crest faces, cull-flickering
+spikes, ground holes, orange base spikes, gutter-white tris) — each was root-caused and
+fixed (crest-weld uv lerp, double-sided caps, per-class cap attribute sources, mortar
+u-clamp + course-v). The second still showed: **floaty grass bits at the crest** (the
+carried crest-cap rows — in the donor they weld to the plateau fringe behind them, which
+this carry deliberately did not bring), **missing faces + dirt at the base**, **blurred
+mortar columns**, and ~1px white dots along the cliff. Owner: *"the top is the issue …
+might be time for more studying, we've been spinning on this synth."* Wall REVERTED; the
+bench is pristine radius-47 (`backups/terrace-strip-prewall.20260731-003703`).
+
+Per the pre-declared semantics this is the PLUMBING branch: **no verdict on the claim.**
+The strip-carry claim (whole-mesh strips recomposed read as FF9) was never presented in a
+judgeable state. What the round established anyway:
+
+1. **The carried faces themselves drew ZERO complaints** — no banding, no tiling, no
+   flipped tiles, no stretching on any carried rock surface, across both playtests. Every
+   named defect lives on a MINTED JUNCTION: the mortar columns, the sliver caps, the
+   crest ring, the ground rim. At full mesh fidelity the failure moved from the carried
+   content to the joins — the synthesis debt is now concentrated entirely in JUNCTION
+   GRAMMAR, which no study has decoded.
+2. **Round 3's "banded grass on top" is root-caused and dead** (mains_uv needs floor(z/4)
+   cell keys; the negated key collapses u — confirmed fixed in-game, both playtests).
+3. The offline gate suite cannot see what the game sees (winding/cull, mip-blur, bleed):
+   gates were green while the game showed holes. A future round needs a game-eye
+   instrument, not more once-edge audits.
+4. Mechanisms proven and reusable: the tier-gated donor inventory, the closure solve
+   (order + kinks, 0.2u gap), the h_pairs seam oracle (all four seams lawful unshifted),
+   pocket carry, the exact ground partition.
+
+**The lane's state:** stopped for STUDY, per the owner. The missing decode the defects
+point at: how stock JOINS wall meshes — the crest junction (what stands behind the
+crest-cap rows), the corner column (how uv crosses a turn), and the wall|ground weld.
+Alternatively the wall lane rests (the profile-carry FAIL branch's other arm) and Path D
+continues on whole-feature carries, which remain undefeated. The owner decides.
