@@ -87,8 +87,14 @@ FORKING_FF9 precedent — links in the wild never break).
 - Everything else already exists: figures per step (shots), label declarations (inventory),
   command gates, requirement chips.
 
-## Authoring order (once ratified)
+## Authoring order (ratified "go for it")
 
-S1 → S2 first (they inherit tutorial 06's proven figures), then S3–S7 in order (each needs its
-predecessor's artifact to write against), then C1 (mostly extraction from current 01/02), then
-B ladders by owner interest, then D migrations (mostly moves + prereq chips).
+★ **S1–S7 ALL DRAFTED** (same session), every step figure-illustrated from pinned surfaces
+(gateway/chest/cutscene form states added to gui_snap en route) and gate-green; the form
+screenshots corrected draft labels at S3/S4/S5/S6 before commit. **⚠ PLAYTEST PENDING** — the
+in-game claims (gateway walk-through, chest latch across saves, encounter return, New Game
+landing) come from the verified reference, not a fresh run; one hedged micro-step (S7's
+campaign add-field menu action) is menu-territory the inventory cannot verify. Owner: run the
+spine start to finish and every misfire becomes a one-line fix.
+Next: C1 (extraction from current 01/02), the generated track-ladder landing, B ladders by
+interest, D migrations (moves + prereq chips), 06/08's remaining content absorption.
