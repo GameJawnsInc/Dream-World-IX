@@ -47,8 +47,9 @@ from ff9mapkit.summons import container as EC                    # noqa: E402
 EFFECT = 211
 DEFAULT_ROOT = r"C:\gd\SCRATCH\summon-format\repaint-w6b\ef211-cellprobe"
 DEFAULT_CORPUS = r"C:\gd\SCRATCH\summon-format\ef211.bytes"
-GAME_OVERRIDE = (r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX"
-                 r"\FF9CustomMap\FF9_Data\SpecialEffects\ef211")
+MOD_ROOT = (r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX"
+            r"\FF9CustomMap")
+GAME_OVERRIDE = os.path.join(MOD_ROOT, "FF9_Data", "SpecialEffects", "ef%03d" % EFFECT)
 STRIPE_ROWS = 6                     # byte-rows per stripe (128 B each); bold enough to read on video
 ROW_BYTES = 128
 CELL_ROWS = 128
@@ -72,6 +73,11 @@ def main(argv=None) -> int:
     ap.add_argument("--root", default=DEFAULT_ROOT)
     ap.add_argument("--deploy", action="store_true",
                     help="snapshot the live override and write the probe container over it")
+    ap.add_argument("--mod-folder", default=MOD_ROOT,
+                    help="the mod folder --deploy writes into.  Defaults to the live FF9CustomMap; "
+                         "point it at a temp dir to REHEARSE the whole ledger + revert path without "
+                         "touching the install (the rehearsal prints REHEARSAL, so a real run can "
+                         "never be mistaken for one)")
     ap.add_argument("--only", default=None, metavar="CELL",
                     help="stripe ONLY this cell (e.g. cell.s0.x576_y384), keeping its canonical "
                          "stripe count from the full-census legend -- the surgical confirm: exactly "
@@ -107,14 +113,41 @@ def main(argv=None) -> int:
     print("staged           %s" % out)
 
     if a.deploy:
-        live = Path(GAME_OVERRIDE)
+        mod = Path(a.mod_folder)
+        live = mod / "FF9_Data" / "SpecialEffects" / ("ef%03d" % EFFECT)
+        rehearsal = str(mod.resolve()).lower() != str(Path(MOD_ROOT).resolve()).lower()
+        if not rehearsal and str(live) != GAME_OVERRIDE:
+            # GAME_OVERRIDE is a PIN, not documentation: if the derived destination ever stops
+            # agreeing with the constant this file names, the constant is a comment and the write
+            # is somewhere else.
+            raise SystemExit("FAIL: the derived destination %s does not match this script's own "
+                             "GAME_OVERRIDE pin %s -- refusing to write to a path the file does "
+                             "not name." % (live, GAME_OVERRIDE))
+        if rehearsal:
+            print("*** REHEARSAL -- --mod-folder is %s, NOT the live install.  Nothing the game "
+                  "reads will change." % mod)
+            mod.mkdir(parents=True, exist_ok=True)
         pre = root / "pre.ef211"
+        absent_flag = root / "pre.ABSENT"
+        # ⚠ THE STALE-SNAPSHOT DEFECT, found by rehearsing the U1 deploy path (U1-SECOND-ARRAY-
+        # CAST.md §8 item 2) and ported back here.  The emitted revert decides by `pre.exists()`.
+        # A root that has ALREADY been deployed into once keeps whichever marker that run left
+        # behind, so a PRESENT run followed by an ABSENT run would leave the old `pre` snapshot
+        # lying beside the new `pre.ABSENT` -- and the revert would RESTORE somebody else's
+        # container instead of deleting ours.  The two markers are mutually exclusive by
+        # construction: whichever branch runs CLEARS the other one first, and says so.
+        stale = [p for p in (pre, absent_flag) if p.exists()]
+        if stale:
+            print("prior ledger     %s -- from an earlier deploy into this root; it is CLEARED "
+                  "below so the emitted revert can never restore a stale snapshot."
+                  % ", ".join(p.name for p in stale))
         if live.exists():
+            absent_flag.unlink(missing_ok=True)
             pre.write_bytes(live.read_bytes())
             print("snapshot         %s (the pre-probe override, %d B)" % (pre, pre.stat().st_size))
         else:
-            pre_note = root / "pre.ABSENT"
-            pre_note.write_text("no override existed before the probe; revert = delete\n")
+            pre.unlink(missing_ok=True)
+            absent_flag.write_text("no override existed before the probe; revert = delete\n")
             print("snapshot         (no prior override -- revert deletes)")
         live.parent.mkdir(parents=True, exist_ok=True)
         live.write_bytes(probe)
@@ -127,9 +160,14 @@ def main(argv=None) -> int:
             "live = pathlib.Path(%r)\n"
             "pre = pathlib.Path(%r)\n"
             "if pre.exists():\n"
+            "    live.parent.mkdir(parents=True, exist_ok=True)\n"
             "    live.write_bytes(pre.read_bytes()); print('restored', live)\n"
+            "elif live.exists():\n"
+            "    live.unlink(); print('deleted', live)\n"
             "else:\n"
-            "    live.unlink(missing_ok=True); print('deleted', live)\n" % (str(live), str(pre)))
+            "    print('already reverted (absent):', live)\n" % (str(live), str(pre)))
+        # compiled here, not hoped over: a revert script that does not parse is worse than none.
+        compile(rv.read_text(), str(rv), "exec")
         print("revert with      py %s" % rv)
     return 0
 

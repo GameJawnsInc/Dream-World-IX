@@ -454,10 +454,12 @@ log archived beside them.
    `pre.ABSENT` — and the revert would **restore somebody else's container into a slot that should be
    deleted**. Silent, with no symptom until an unrelated session casts the effect. The two markers are
    now mutually exclusive by construction and the clearing is printed. The fix has since been **ported
-   back to `odin_cell_probe.py`** (exclusive markers + printed clearing + the idempotent three-branch
-   revert), with both deploy orders rehearsed against a temp mod folder — PRESENT-then-ABSENT, the
-   reproducing order, now deletes; ABSENT-then-PRESENT restores byte-identically. ef424's historical
-   ledger root was left untouched (it rests consistent: `pre.ABSENT` only).
+   back to `odin_cell_probe.py` and `phoenix_cell_probe.py`** (exclusive markers + printed clearing +
+   the idempotent three-branch revert; phoenix also gained the `--mod-folder` rehearsal seam it
+   lacked), with both deploy orders rehearsed against a temp mod folder on each — PRESENT-then-ABSENT,
+   the reproducing order, now deletes; ABSENT-then-PRESENT restores byte-identically. Both historical
+   ledger roots were left untouched and rest consistent (ef424: `pre.ABSENT` only; ef211: `pre.ef211`
+   only).
 3. **A PREDICTION-PANEL DEFECT, found by the panel itself.** The first renderer applied a flat +128
    under hypothesis (i) to *every* reader, which drew the A=0x0000 negative control **moving** — and the
    whole cast rests on that control **not** moving. Hypothesis (i) is `baked_v = raw_v + A`, so `A` is a
