@@ -112,3 +112,23 @@ maps to a junction this build rebuilds to stock's measured law.
   productization becomes eligible.
 
 One round. Scored on the owner's verdict, whichever way it lands.
+
+## PLAYTEST 1 (2026-07-31): mixed-positive, three localized defect sites
+
+Owner: *"top is mostly walkable, shape is better, still have some seam failures and
+pokey grass"* — none of round 5's defect classes (no floaty crest bits, no mortar blur,
+no base holes) — plus a punch list with coordinates:
+
+1. **(402, −494)** — an open gap + a super steep WALKABLE triangle cutting halfway down:
+   THE BRIDGED NOTCH. The two residual once-edges at x=404 are visible as the gap, and
+   the notch fan carries the walkable shelf topograph, so its chute walks.
+2. **(425, −518)** — a small triangle jutting over the cliff + ~white pixels along the
+   cliff-grass seam + more jutting in the background + slightly stretched cliff.
+3. **(442, −512)** — the cliff foot lacks the grass transition band (the owner's
+   reference screenshot shows the fringe look) + stretched faces. This NAMES THE FOOT
+   TEXTURE: the registration's DECLARED DEFERRED lever (the row-10 bottom-course
+   retile) is now triggered.
+
+Within-round fixes proceeding (the fix-or-stop clause): seal the notch, un-walk its
+chute, hunt the crest flakes and seam sparkle, and pull the declared row-10 lever.
+"Stretched cliff" is the widened taper's visible cost — recorded for the scoring.

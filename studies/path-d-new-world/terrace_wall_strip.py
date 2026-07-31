@@ -815,11 +815,18 @@ def point_at(path, ts2, t):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--probe", action="store_true",
+                    help="dump final tris near the playtest defect coordinates")
     args = ap.parse_args()
     OUTD.mkdir(parents=True, exist_ok=True)
 
     tris, bms = load_bench()
     assert tris, "bench island not deployed at Disc9 (run the world-island mint first)"
+    n_rock_in = sum(1 for t in tris if t["topo"] == ROCK)
+    assert n_rock_in == 0, (
+        f"bench is NOT pristine ({n_rock_in} rock tris present -- a prior deploy is "
+        f"live). Restore backups/terrace-strip-prewall.* first; building against a "
+        f"walled bench compounds garbage (the round-5 lesson).")
     grass_r = max(math.hypot(t["cen"][0] - CENTER[0], t["cen"][2] - CENTER[1])
                   for t in tris if t["topo"] in GRASS_TOPO)
     print(f"bench: {len(tris)} tris across {len(bms)} cells; grass reach ~{grass_r:.1f}u")
@@ -1420,25 +1427,35 @@ def main() -> int:
     # ear fan over [bridge + the carried dipped run], welded edge-for-edge on both.
     rot = max(range(len(crest)), key=lambda q2: crest[q2][1])
     crest = crest[rot:] + crest[:rot]
-    bridged = []
-    notch_patches = []
-    q2 = 0
     n_c = len(crest)
+    runs2 = []
+    q2 = 0
     while q2 < n_c:
-        p = crest[q2]
-        if p[1] >= top_y - 3.0:
-            bridged.append(p)
+        if crest[q2][1] >= top_y - 3.0:
             q2 += 1
             continue
-        A = bridged[-1]
-        run = []
+        r0 = q2
         while q2 < n_c and crest[q2][1] < top_y - 3.0:
-            run.append(crest[q2])
             q2 += 1
-        B = crest[q2 % n_c]
-        notch_patches.append([A] + run + [B])
+        runs2.append((r0, q2))                              # [r0, q2) dipping
+    # WIDEN each mouth by one crest vert per side: the raw bridged polygon nearly
+    # self-touches at a notch mouth, and Sutherland-Hodgman clips of the resulting
+    # sliver cells DISAGREE between neighbouring cells (the playtest's open gap at
+    # (402, -494)). A wider mouth hands the whole pinch to the single notch fan.
+    runs2 = [(max(1, r0 - 1), min(n_c, r1 + 1)) for (r0, r1) in runs2]
+    in_run = [False] * n_c
+    for r0, r1 in runs2:
+        for q2 in range(r0, r1):
+            in_run[q2] = True
+    bridged = [crest[q2] for q2 in range(n_c) if not in_run[q2]]
+    notch_patches = []
+    for r0, r1 in runs2:
+        A = crest[r0 - 1]
+        B = crest[r1 % n_c]
+        notch_patches.append([A] + [crest[q2] for q2 in range(r0, r1)] + [B])
+    notch_polys = [[(p[0], p[2]) for p in pt] for pt in notch_patches]
     if notch_patches:
-        print(f"crest: {len(notch_patches)} notch(es) bridged, depths "
+        print(f"crest: {len(notch_patches)} notch(es) bridged (mouths widened), depths "
               f"{[round(top_y - min(p[1] for p in pt), 1) for pt in notch_patches]}u, "
               f"mouths {[round(math.dist(pt[0], pt[-1]), 1) for pt in notch_patches]}u")
     crest = bridged
@@ -1515,10 +1532,25 @@ def main() -> int:
             z += CELL
         x += CELL
     # the notch fans: [A, carried dipped run, B] closed by the bridge B->A -- carried
-    # verts verbatim, so the wall's notch once-edges match without any refinement; the
-    # bridge edge is sealed against the lattice fill by the global T-sweep
+    # verts verbatim, so the wall's notch once-edges match without any refinement. The
+    # bridge edge is subdivided EXPLICITLY at every lattice-fill vert lying on it (the
+    # sweep's tolerance games are not needed when the crossing set is known exactly).
     for patch in notch_patches:
-        ring3 = [(tuple(p),) for p in patch]
+        A3, B3 = patch[0], patch[-1]
+        ab = (A3[0] - B3[0], A3[1] - B3[1], A3[2] - B3[2])
+        L2b = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2 or 1.0
+        mids3 = []
+        for t3 in top_tris:
+            for p in t3:
+                t = ((p[0] - B3[0]) * ab[0] + (p[1] - B3[1]) * ab[1]
+                     + (p[2] - B3[2]) * ab[2]) / L2b
+                if not (1e-4 < t < 1 - 1e-4):
+                    continue
+                q3 = (B3[0] + t * ab[0], B3[1] + t * ab[1], B3[2] + t * ab[2])
+                if math.dist(p, q3) <= 2e-3 and kk(p) not in (kk(A3), kk(B3)):
+                    mids3.append((t, tuple(p)))
+        mids3 = sorted({(round(t, 6), p) for t, p in mids3})
+        ring3 = [(tuple(p),) for p in patch] + [(p,) for _t, p in mids3]
         for t3f in ear_fan(ring3):
             t3 = [it[0] for it in t3f]
             if len({kk(p) for p in t3}) == 3:
@@ -1774,6 +1806,56 @@ def main() -> int:
     print(f"rim weld: {len(gsnap)} ground verts canonicalized to wall points, "
           f"{n_gadd} ground crossings added to chords, {n_foot_split} wall foot splits")
 
+    # ---- THE ROW-10 FOOT FRINGE (the foot law's texture half -- the declared lever) --------
+    # J3: the grass->rock transition art lives in the WALL's bottom-course tiles (atlas
+    # row 10, cols 6-9); the ground runs plain to the weld. Foot-touching wall tris
+    # retile to that band: u marches ~4.4u stations along the foot loop (cols chained
+    # 6->9), v maps height so the painted fringe (the tile's down-mountain, larger-v
+    # edge) sits exactly ON the weld line.
+    pu_ph, pv_ph = json.loads(DECODE.read_text())["phase"]
+    fl0p = [(p[0], p[2]) for p in floops[0]]
+    fl_s = [0.0]
+    for q2 in range(1, len(fl0p) + 1):
+        fl_s.append(fl_s[-1] + math.dist(fl0p[q2 - 1], fl0p[q2 % len(fl0p)]))
+
+    def foot_s(px, pz):
+        best = None
+        for q2 in range(len(fl0p)):
+            a2p, b2p = fl0p[q2], fl0p[(q2 + 1) % len(fl0p)]
+            dx2, dz2 = b2p[0] - a2p[0], b2p[1] - a2p[1]
+            L2p = (dx2 * dx2 + dz2 * dz2) or 1.0
+            t = max(0.0, min(1.0, ((px - a2p[0]) * dx2 + (pz - a2p[1]) * dz2) / L2p))
+            d = math.hypot(px - (a2p[0] + t * dx2), pz - (a2p[1] + t * dz2))
+            if best is None or d < best[0]:
+                best = (d, fl_s[q2] + t * math.dist(a2p, b2p))
+        return best[1]
+
+    ST_F, H_F = 4.4, 4.6                                    # station / one fringe course
+    n_ret = 0
+    ret_wall = []
+    for rec in wall:
+        ys3 = [r[0][1] for r in rec]
+        if min(ys3) > LOWLAND + 1e-6 or max(ys3) > LOWLAND + 6.0:
+            ret_wall.append(rec)
+            continue
+        cx3 = float(np.mean([r[0][0] for r in rec]))
+        cz3 = float(np.mean([r[0][2] for r in rec]))
+        s_c = foot_s(cx3, cz3)
+        u0 = pu_ph + (6 + (int(s_c // ST_F) % 4)) * TILE_U
+        v0 = pv_ph + 10 * TILE_V
+        s_org = (s_c // ST_F) * ST_F
+        nr = []
+        for (w, uv, n3, t4) in rec:
+            fu = max(0.015, min(0.985, (foot_s(w[0], w[2]) - s_org) / ST_F))
+            fh = max(0.0, min(1.0, (w[1] - LOWLAND) / H_F))
+            nr.append((w, (u0 + fu * TILE_U, v0 + (0.985 - fh * 0.97) * TILE_V),
+                       n3, t4))
+        ret_wall.append(nr)
+        n_ret += 1
+    wall = ret_wall
+    print(f"foot fringe: {n_ret} bottom-course tris retiled to the row-10 band "
+          f"(cols 6-9, fringe edge on the weld line)")
+
     def enrich_rim_edges(pg):
         """Insert the chords' union points into any piece edge lying on a chord, so the
         piece's rim edges match the wall's refined foot edges vert for vert."""
@@ -1949,6 +2031,7 @@ def main() -> int:
     # no new geometry -- iterated to fixpoint. Anything still open after this is a REAL
     # hole and gates red.
     ID_SHELF = float(X.encode_id(topograph=SHELF))
+    ID_ROCK = float(X.encode_id(topograph=ROCK))
     final = []                                              # (rec, blk); rec=[(p,uv,n,t4)]
     for t3, uv3, n3, tan3, blk in kept_out:
         final.append(([(tuple(t3[k3]), tuple(uv3[k3]), tuple(n3[k3]), tuple(tan3[k3]))
@@ -1959,9 +2042,34 @@ def main() -> int:
     for rec in wall:
         final.append(([(tuple(r[0]), tuple(r[1]), tuple(r[2]), tuple(r[3]))
                        for r in rec], None))
+    def near_notch(cx3, cz3):
+        # a notch dart is too THIN for its own centroid-containment test -- proximity
+        # to any patch vert is the reliable membership predicate
+        if any(pinp(cx3, cz3, np_) for np_ in notch_polys):
+            return True
+        return any(math.hypot(cx3 - p[0], cz3 - p[2]) < 2.0
+                   for pt in notch_patches for p in pt)
+
+    n_chute = 0
     for t3, uvt in top_out:
-        final.append(([(tuple(t3[k3]), tuple(uvt[k3]), (0.0, 1.0, 0.0),
-                        (ID_SHELF, 0.0, 0.0, 1.0)) for k3 in range(3)], None))
+        cx3 = float(np.mean([p[0] for p in t3]))
+        cz3 = float(np.mean([p[2] for p in t3]))
+        # a notch chute stays GRASS to the eye but ROCK to the feet: the playtest
+        # walked a 5u near-vertical fan tri because it carried the shelf topograph
+        tid = ID_SHELF
+        nrm_t = (0.0, 1.0, 0.0)
+        if near_notch(cx3, cz3):
+            tid = ID_ROCK
+            n_chute += 1
+            a3n, b3n, c3n = (np.array(p) for p in t3)
+            fn3 = np.cross(b3n - a3n, c3n - a3n)
+            L3n = float(np.linalg.norm(fn3))
+            if L3n > 1e-9:                                  # a chute lights by its slope
+                nrm_t = tuple(float(v) / L3n for v in fn3)
+        final.append(([(tuple(t3[k3]), tuple(uvt[k3]), nrm_t,
+                        (tid, 0.0, 0.0, 1.0)) for k3 in range(3)], None))
+    if n_chute:
+        print(f"   notch chutes: {n_chute} top tris carry ROCK topograph (unwalkable)")
 
     # THE MICRO-WELD: any two output verts within 0.05 collapse to one canonical
     # position (bench-original wins, then a crest vert, then the smallest key) -- the
@@ -2159,7 +2267,19 @@ def main() -> int:
         if Ln > 1e-6 and float(fn @ nv) / (L * Ln) < -0.3:
             fails.append(f"winding: a wall tri OPPOSES its carried normals at "
                          f"{kk(t3[0])} (area {L / 2:.3f}u2, verts {[kk(p) for p in t3]})")
+    def near_notch(cx3, cz3):
+        # a notch dart is too THIN for its own centroid-containment test -- proximity
+        # to any patch vert is the reliable membership predicate
+        if any(pinp(cx3, cz3, np_) for np_ in notch_polys):
+            return True
+        return any(math.hypot(cx3 - p[0], cz3 - p[2]) < 2.0
+                   for pt in notch_patches for p in pt)
+
     for t3, _ in top_out:
+        cx3 = float(np.mean([p[0] for p in t3]))
+        cz3 = float(np.mean([p[2] for p in t3]))
+        if near_notch(cx3, cz3):
+            continue                                        # a chute DRAPES; it may lean
         a, b, c = (np.array(p) for p in t3)
         fn = np.cross(b - a, c - a)
         if fn[1] < 0 and float(np.linalg.norm(fn)) > 2e-2:
@@ -2240,6 +2360,18 @@ def main() -> int:
                 ks3 = [kk(r[0]) for r in rec]
                 if e0[0] in ks3 or e0[1] in ks3:
                     print(f"     tri: {ks3}")
+
+    if args.probe:
+        for (qx3, qz3, tag3) in ((402.0, -494.0, "notch gap"),
+                                 (425.0, -518.0, "jutting flake"),
+                                 (442.0, -512.0, "foot fringe")):
+            print(f"   PROBE {tag3} ({qx3}, {qz3}):")
+            for rec, _blk in final:
+                cx3 = float(np.mean([r[0][0] for r in rec]))
+                cz3 = float(np.mean([r[0][2] for r in rec]))
+                cy3 = float(np.mean([r[0][1] for r in rec]))
+                if math.hypot(cx3 - qx3, cz3 - qz3) < 2.5 and cy3 > 10.0:
+                    print(f"     {[kk(r[0]) for r in rec]}")
 
     # massing gates on the composed ground line (the visible foot = the outer foot loop)
     fl0 = [(p[0], p[2]) for p in floops[0]]
