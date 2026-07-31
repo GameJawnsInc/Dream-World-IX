@@ -1,13 +1,14 @@
 # W6b-3 (iii) — THE U1 SECOND-ARRAY CAST. ef038 `Shiva`, bench row 200, both halves of column 640
 
-> ★ **STATE — STAGED AND REHEARSED, NOT YET CAST. THE INSTALL IS UNTOUCHED.** The marked container is
-> built (`1f20d798…`, from stock `8f71a91b…`), the byte delta is proved exactly, the whole deploy
-> path is rehearsed against a temp folder — both ledger branches, both orders, revert twice, every
-> refusal — and five offline prediction panels are rendered. Nothing has been written to the game
-> install or to any real mod folder. `FF9CustomMap\FF9_Data\SpecialEffects\` still holds exactly one
-> entry, `ef211` (530,432 B, sha `cbcc9fde…`, the W6b-2 pool wheel, DO NOT TOUCH); **`ef038` is
-> ABSENT**, so this ladder's revert is a DELETE and the resting state after it is stock. Bench rows
-> 192–204 are live and this cast needs **no relaunch**.
+> ★ **STATE — CAST 1 RAN 2026-07-30 AND WAS READ: `VISIBLE_UNBANDED` (0.88), §6's THIRD OUTCOME.
+> The cast is UNINTERPRETABLE FOR U1 IN EITHER DIRECTION, and the probe is REVERTED — the install is
+> back to stock** (`ef038` deleted, `ef211` untouched `cbcc9fde…`, rows 192–204 stay). Column-640
+> geometry demonstrably DREW (61–69 % of the whole column-640 prim pool per frame in the disc window)
+> yet **no surface carried EITHER mark and the C1 control failed on the `nothing` branch**. The
+> mechanism lead: **641 `DR_MOVE` VRAM-move packets on ef038 where the static census records ZERO**,
+> the first block completing before any scored surface appears — §6's "runtime write hiding in the
+> unwalked program bytes", observed in the capture rather than in theory. **Read §9**; full record +
+> the critic's addendum: `…\u1-second-array\castread\REPORT-U1.md`.
 >
 > **This cast answers a question the offline round could not.** `second-array-lead/REPORT.md`
 > refuted H_V (halfword A as a universal per-slot texture V-offset) at 0.85 and left R_FLAGS (a
@@ -474,3 +475,63 @@ log archived beside them.
 6. **The byte proof is run by a second program that does not import the first**, and restates `MARKS` on
    purpose, so a drift between the probe's constants and this study's is a loud disagreement rather than
    a silent agreement.
+
+---
+
+## 9. ★ CAST 1 — RAN 2026-07-30, AND THE READ IS THE THIRD OUTCOME: **`VISIBLE_UNBANDED` (0.88)**
+
+Owner video `shiva_u1.cast1.2026-07-30.mkv` (941 unique frames), scored by two independent lenses, an
+adversarial third read that re-measured everything, and a completeness critic whose findings are
+appended to the record: `…\u1-second-array\castread\REPORT-U1.md`. Owner-facing annotated figures in
+`castread\annotated\` (`03-disc-real-vs-both-marks.png` is the one to look at).
+
+* **The column DRAWS — BOUND-NEVER-DRAWN is refuted by counting, not by attribution.** During the disc
+  window ef038 submits a median of 1,048–1,183 textured prims per frame = **61–69 % of the whole
+  column-640 pool**; the disc itself is on screen at 147k px, mean luma 190, across 14 clean frames.
+  (Per-record attribution FAILED by two methods — IoU ≈ 0.70 for every candidate — so "the star IS
+  `0x29dbc`" was never established; the verdict does not need it.)
+* **NOTHING BANDS, on either family.** The decisive instrument is pitch-, chirp- and orientation-free
+  (the near-black fraction of the surface's own added light): captured disc **0.50 %** vs **37.24 %**
+  predicted under the fine mark (74×) and **24.78 %** under the fat (50×), cross-validated against the
+  pure texture-space decode to 1.5 points. The live container carried the marks (byte-verified at cast
+  time). Per §6's discipline: **neither marked cell was sampled. C1 failed on the `nothing` branch, so
+  the cast is uninterpretable for U1 in EITHER direction** — not a FINE result, not a COARSE result,
+  and neither H_V nor R_FLAGS gains anything. The read scores §6's relaunch-and-recast retry as SPENT
+  (its R7).
+* **⚠ THE MECHANISM LEAD — `DR_MOVE` where the census says ZERO.** The probe log carries **641
+  VRAM-move-class packets** on ef038 in two contiguous blocks (effect frames 86–138 and 237–380); the
+  static direction-law census records NONE for ef038, and its walk reached only 44.98 % of the program
+  image. **The first block completes BEFORE any scored surface appears** — an early VRAM blit over the
+  (640,256) page rect would wipe both marks and produce exactly this cast. It also voids the
+  texanim-disjointness argument's premise (not its conclusion). `DR_TPAGE` is logged with no payload
+  word (41,539 bare rows), which is why record-level segmentation and the twin-pair co-draw question
+  stay open.
+* **Instrument lessons, kept:** both first-pass scorers used flat matched filters that a 5:1 chirped
+  mark defeats outright (injected: scored 0.64 vs the real frame's 2.57) — their negatives were right,
+  their reasoning was not safe; the area-fraction statistic honors the §5 "do not count bands" clause
+  by construction. The critic's pitch-clamp finding (H=240) invalidates the adversarial pass's own
+  secondary corroboration and one figure caption, not the verdict. The §5 "cast it FIRST" condition was
+  violated on its face (the capture opens mid-battle); mitigation recorded in the report.
+* **The control family is structurally weak without a stock reference**: the `0x3d40` cell is already
+  28.8 % transparent, so its hole-comb moves a statistic ~1.9× against a baseline this arc has never
+  captured. What carries the control read instead: C2 (one rect, one upload — the 20 answer readers are
+  decisively unmarked) and optical suppression by the bright twins.
+
+### 9.1 Next steps, in cost order — the first one changed
+
+1. **⚠ ENGINE (owner GO/NO-GO — DLL rebuild): log the `DR_MOVE`/`MoveImage` payload rects** (source +
+   destination) in the SfxMeshProbe patch, and the `DR_TPAGE` code word in the same edit (free, and it
+   settles the twin-pair co-draw question). One log field; it discriminates the leading mechanism
+   directly — did something blit over (640,256) before the surfaces drew?
+2. **Dump the emulated VRAM page at (640,256) at cast time** and diff against the two marked cells —
+   separates a wrong cells→VRAM mapping from a runtime overwrite from a cached decode.
+3. **A STOCK reference cast of ef038** (probe already reverted; recast + capture) — the only thing that
+   ever makes the A=0x0000 control family scoreable on its own pixels.
+4. **Only then** the §6.2 fallback vehicles (ef407 first) — every one inherits the same unproven
+   cells→VRAM→sampler link this cast just exposed.
+5. **Do NOT bundle the §4.4 second leg** (flip A, watch blend state). One change per in-game test; this
+   cast has not earned that step.
+
+**Resting state:** ef038 override DELETED (= stock, verified), `ef211` untouched, rows 192–204 on the
+bench, video + frames + all analysis under `…\repaint-w6b\u1-second-array\`, the `[SfxProbe]` log
+archived in `capture-logs\`. **No constant moved; `ORDER_UNMEASURED` ships exactly as it was.**
