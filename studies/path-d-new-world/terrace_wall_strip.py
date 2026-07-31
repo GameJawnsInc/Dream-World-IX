@@ -853,18 +853,41 @@ def main() -> int:
         Lo = math.hypot(*ow) or 1.0
         ow = (ow[0] / Lo, ow[1] / Lo)
 
-        def u_cont(p_hi, u_edge_v):
-            """The mortar continues the OUT column's tile, mirrored back into its own
-            atlas window (LAW 2's u-mirror is in-language; continuing PAST the cut edge
-            would bleed into the next atlas tile)."""
-            u_e, v_e = u_edge_v
+        # the lo chain's course-correct (y -> u, v) map: each segment between consecutive
+        # lo verts is one course (one tile), so lerping within a segment stays in-tile
+        # and the tile changes at course boundaries exactly as a real column's does
+        lo_yuv = sorted(((q[1],) + tuple(at_lo[K2(q)][1]) for q in lo if K2(q) in at_lo
+                         and X.decode_id(int(round(at_lo[K2(q)][3][0])))
+                         ["topograph"] == ROCK))
+        if not lo_yuv:
+            lo_yuv = sorted(((q[1],) + tuple(at_lo[K2(q)][1]) for q in lo
+                             if K2(q) in at_lo))
+
+        def u_cont(p_hi, _unused=None):
+            """The mortar continues the OUT column's tile: v follows the column's own
+            course structure at the vert's y; u pushes into the tile (LAW-2 mirror) and
+            CLAMPS inside the window -- an overshoot lands in the atlas's transparent
+            gutters (the in-game white spikes)."""
+            y = p_hi[1]
+            if y <= lo_yuv[0][0]:
+                _, u_e, v_e = lo_yuv[0]
+            elif y >= lo_yuv[-1][0]:
+                _, u_e, v_e = lo_yuv[-1]
+            else:
+                for q1 in range(1, len(lo_yuv)):
+                    if lo_yuv[q1][0] >= y:
+                        y0, u0, v0 = lo_yuv[q1 - 1]
+                        y1, u1, v1 = lo_yuv[q1]
+                        tt = 0.0 if y1 <= y0 else (y - y0) / (y1 - y0)
+                        u_e, v_e = u0 + tt * (u1 - u0), v0 + tt * (v1 - v0)
+                        break
             t_u0 = pu_ph + math.floor((u_e - pu_ph) / TILE_U) * TILE_U
-            # nearest lo vert to this hi vert, plan distance = how far into the mortar
             d = min(math.hypot(p_hi[0] - q[0], p_hi[2] - q[2]) for q in lo)
             du = min(d / max(strips[i]["st"], 1e-6), 0.95) * TILE_U
             centre = t_u0 + TILE_U / 2
             sign = 1.0 if u_e < centre else -1.0
-            return (u_e + sign * du, v_e)
+            u_out = min(t_u0 + TILE_U - 0.002, max(t_u0 + 0.002, u_e + sign * du))
+            return (u_out, v_e)
         i2 = j2 = 0
         while i2 < len(lo) - 1 or j2 < len(hi) - 1:
             ci, cj = i2 < len(lo) - 1, j2 < len(hi) - 1
@@ -1096,9 +1119,17 @@ def main() -> int:
                 ec = 3 - ea - eb
                 seen_w = {kk(wa), kk(wb)}
                 seq = [rec[ea]]
+                eL = math.dist(wa, wb) or 1.0
                 for _, p3 in pts:
                     if kk(p3) not in seen_w:                # no zero-length edges
-                        seq.append((p3, rec[ea][1], rec[ea][2], rec[ea][3]))
+                        # LERP uv+normal along the edge -- endpoint-A's uv verbatim
+                        # smears every split tri (the in-game "stretched crest band")
+                        tt = min(1.0, max(0.0, math.dist(wa, p3) / eL))
+                        uv_m = tuple(rec[ea][1][j] + tt * (rec[eb][1][j] - rec[ea][1][j])
+                                     for j in range(2))
+                        n_m = tuple(rec[ea][2][j] + tt * (rec[eb][2][j] - rec[ea][2][j])
+                                    for j in range(3))
+                        seq.append((p3, uv_m, n_m, rec[ea][3]))
                         seen_w.add(kk(p3))
                 seq.append(rec[eb])
                 if len(seq) == 2:
@@ -1518,15 +1549,32 @@ def main() -> int:
         caps = []
 
         def near_attr(p, want_rock):
+            """Rock caps sample ROCK wall records only (a pocket's dirt uv painted the
+            orange spikes); ground caps sample the GRASS ground records."""
             best = None
-            for rec in wall:
-                for (w, uv, n3, t4) in rec:
-                    if want_rock and \
-                            X.decode_id(int(round(t4[0])))["topograph"] != ROCK:
-                        continue
-                    d = math.dist(w, p)
+            if want_rock:
+                for rec in wall:
+                    for (w, uv, n3, t4) in rec:
+                        if X.decode_id(int(round(t4[0])))["topograph"] != ROCK:
+                            continue
+                        d = math.dist(w, p)
+                        if best is None or d < best[0]:
+                            best = (d, uv, n3, t4)
+                        if best[0] < 0.05:
+                            return best
+                return best
+            for t3g, uv3g, n3g, tan3g, _ in kept_out:
+                for k3g in range(3):
+                    d = math.dist(t3g[k3g], p)
                     if best is None or d < best[0]:
-                        best = (d, uv, n3, t4)
+                        best = (d, uv3g[k3g], n3g[k3g], tan3g[k3g])
+                    if best[0] < 0.05:
+                        return best
+            for t3g, uv3g, srcg in cut_out:
+                for k3g in range(3):
+                    d = math.dist(t3g[k3g], p)
+                    if best is None or d < best[0]:
+                        best = (d, uv3g[k3g], srcg["n"][0], srcg["tan"][0])
                     if best[0] < 0.05:
                         return best
             return best
@@ -1549,10 +1597,13 @@ def main() -> int:
                 t3 = [cen, ring[q0], ring[(q0 + 1) % len(ring)]]
                 rec = []
                 for p in t3:
-                    got = near_attr(p, want_rock) or near_attr(p, False)
+                    got = near_attr(p, want_rock) or near_attr(p, not want_rock)
                     _, uv, n3, t4 = got
                     rec.append((tuple(p), uv, n3, t4))
                 caps.append(rec)
+                # DOUBLE-SIDED: a single-winding membrane backface-culls from one side
+                # in game -- a hole from here, a floating flake from there
+                caps.append([rec[0], rec[2], rec[1]])
         if caps:
             wall.extend(caps)
             grew_bad = [e for e in grew_bad if e not in capped_edges]
