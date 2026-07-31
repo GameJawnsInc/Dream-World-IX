@@ -1515,32 +1515,36 @@ def _snap_anim_dialog(ctx: _Ctx, key: str) -> None:
         _close(win)
 
 
+# The dialog -> opener map, module-level so docsite/shots.py + docsite/uiharvest.py open the
+# same surfaces without re-owning the flows (the TAB_ATTRS pattern).
+DIALOG_OPENERS = {
+    "new-field":     lambda w: w.on_new_field(),
+    "new-campaign":  lambda w: w.on_new_campaign(),
+    "new-journey":   lambda w: w.on_new_journey(),
+    "fork-regions":  lambda w: w.import_field.open_region_catalog(),
+    "import-fields": lambda w: w.import_field.on_find(),
+    "setup":         lambda w: w._open_setup(),
+    "prefs":         lambda w: w._open_preferences(),
+    "about":         lambda w: w._open_about(),
+    "concept-map":   lambda w: w._show_concept_map(),
+    "infohub":       lambda w: w._open_catalog(),
+    "updates":       lambda w: w._open_update_dialog(),
+    # the real opener is _fork_dialog (the first cut guessed `on_fork_battle` behind a hasattr guard,
+    # which made this surface permanently, silently dead -- caught by the round's adversarial review)
+    "fork-battle":   lambda w: w.battle._fork_dialog(),
+    # the named 3-button 'a campaign deploy will wipe your New Game entry' confirm -- fabricate a plan
+    # + a casualty so the modal has something to name (BuildDoc._confirm_campaign_deploy).
+    "campaign-newgame": _open_campaign_newgame,
+}
+
+
 def snap_dialog(ctx: _Ctx, key: str) -> None:
     if key in ("anim-picker", "animset-picker"):
         return _snap_anim_dialog(ctx, key)
-    openers = {
-        "new-field":     lambda w: w.on_new_field(),
-        "new-campaign":  lambda w: w.on_new_campaign(),
-        "new-journey":   lambda w: w.on_new_journey(),
-        "fork-regions":  lambda w: w.import_field.open_region_catalog(),
-        "import-fields": lambda w: w.import_field.on_find(),
-        "setup":         lambda w: w._open_setup(),
-        "prefs":         lambda w: w._open_preferences(),
-        "about":         lambda w: w._open_about(),
-        "concept-map":   lambda w: w._show_concept_map(),
-        "infohub":       lambda w: w._open_catalog(),
-        "updates":       lambda w: w._open_update_dialog(),
-        # the real opener is _fork_dialog (the first cut guessed `on_fork_battle` behind a hasattr guard,
-        # which made this surface permanently, silently dead -- caught by the round's adversarial review)
-        "fork-battle":   lambda w: w.battle._fork_dialog(),
-        # the named 3-button 'a campaign deploy will wipe your New Game entry' confirm -- fabricate a plan
-        # + a casualty so the modal has something to name (BuildDoc._confirm_campaign_deploy).
-        "campaign-newgame": _open_campaign_newgame,
-    }
     with _pin_setup_state(game=True, templates=True):
         win = _make_win(ctx)
         with _grab_next_dialog(ctx, f"dlg-{key}") as g:
-            openers[key](win)
+            DIALOG_OPENERS[key](win)
         if g.count == 0:
             print(f"  dlg-{key}: NO dialog opened (flow bailed before exec)")
         _close(win)

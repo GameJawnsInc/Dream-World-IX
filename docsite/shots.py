@@ -49,8 +49,10 @@ except ImportError:  # pragma: no cover
 # list DELIBERATELY, one review at a time -- an allowlist cannot rot open.
 ALLOWED_FAMILIES = {"tab", "home", "form", "dlg", "script", "console", "drift"}
 # Families the in-process adapter can open (window in hand -> annotations + pins work). The rest
-# run black-box through their gui_snap function and cannot carry annotations.
-ADAPTER_FAMILIES = {"tab", "home"}
+# run black-box through their gui_snap function and cannot carry annotations. Dialog widgets are
+# addressed by LABEL (a11y name or rendered text -- dialogs hold no attr paths), the same handle
+# gui_snap's _child_named drives them by.
+ADAPTER_FAMILIES = {"tab", "home", "dlg"}
 
 THEME_PAIR = {"light": "light", "dark": "mist"}   # the committed pair; the site swaps by theme
 
@@ -125,7 +127,19 @@ def render_shot(gs, name: str, shot: dict, theme: str, out_dir: Path) -> dict:
 
     if fam in ADAPTER_FAMILIES:
         ctx = _ctx(gs, theme, shot, out_dir)
-        if fam == "home":
+        if fam == "dlg":
+            sys.path.insert(0, str(HERE))
+            from uiharvest import capture_next_dialog
+            with gs._pin_setup_state(game=True, templates=True):
+                win = gs._make_win(ctx)
+                got: list[dict] = []
+                with capture_next_dialog(gs, lambda d: got.append(
+                        _pin_grab_dialog(gs, d, shot, png, QPoint))):
+                    gs.DIALOG_OPENERS[state](win)
+                assert got, f"{name}: {surface} opened no dialog"
+                meta.update(got[0])
+                gs._close(win)
+        elif fam == "home":
             with gs._pin_setup_state(**gs.HOME_PINS[state]):
                 win = gs._make_win(ctx, recent=gs._example_recent()
                                    if state in ("veteran", "open") else None)
@@ -202,6 +216,56 @@ def _viewport_clip(w, win, QPoint) -> str | None:
                 return type(p).__name__ + " viewport"
         p = p.parentWidget()
     return None
+
+
+def _child_by_label(dlg, label: str, kind: str | None = None):
+    """The unique child whose a11y name, text, or placeholder equals `label` -- the dialog
+    counterpart of an attr path. `kind` (a class name, e.g. "QLineEdit") disambiguates when one
+    label honestly names a pair (a dir row's edit + its Browse button share a caption). Zero
+    matches = the drift alarm; still-plural = fix the app's a11y names, not the manifest."""
+    from PySide6.QtWidgets import QWidget
+    hits = []
+    for w in dlg.findChildren(QWidget):
+        if kind and type(w).__name__ != kind:
+            continue
+        names = {getattr(w, "accessibleName", lambda: "")(),
+                 getattr(w, "text", lambda: "")() if hasattr(w, "text") else "",
+                 getattr(w, "placeholderText", lambda: "")() if hasattr(w, "placeholderText") else ""}
+        if label in {n.replace("&", "") for n in names if n}:
+            hits.append(w)
+    assert hits, f"no dialog control labeled {label!r} -- the UI moved (the drift alarm)"
+    assert len(hits) == 1, (f"{len(hits)} controls answer to {label!r} -- add kind= to the "
+                            f"manifest entry, or give one an accessibleName in the app")
+    return hits[0]
+
+
+def _pin_grab_dialog(gs, dlg, shot: dict, png: Path, QPoint) -> dict:
+    """Pins + annotations + grab for a LIVE dialog (called inside the patched exec)."""
+    for pin in shot.get("pin", []):
+        w = _child_by_label(dlg, pin["widget"], pin.get("kind"))
+        w.blockSignals(True)
+        w.setText(pin["text"])
+        w.blockSignals(False)
+    gs._settle()
+    notes = []
+    for a in shot.get("annotate", []):
+        w = _child_by_label(dlg, a["widget"], a.get("kind"))
+        top = w.mapTo(dlg, QPoint(0, 0))
+        rect = [top.x(), top.y(), w.width(), w.height()]
+        assert 0 <= rect[0] and 0 <= rect[1] \
+            and rect[0] + rect[2] <= dlg.width() and rect[1] + rect[3] <= dlg.height(), \
+            f"annotation {a['widget']!r} is clipped at {rect} in the dialog"
+        clip = _viewport_clip(w, dlg, QPoint)
+        assert clip is None, f"annotation {a['widget']!r} is scrolled out of its {clip}"
+        notes.append({"widget": a["widget"], "label": a.get("label", ""),
+                      "kind": a.get("kind", "ring"), "rect": rect})
+    img = dlg.grab().toImage()
+    assert img.width() > 50, "grabbed nothing"
+    sx = img.width() / dlg.width()
+    for n in notes:
+        n["rect"] = [round(v * sx) for v in n["rect"]]
+    img.save(str(png))
+    return {"size": [img.width(), img.height()], "annotations": notes}
 
 
 def _pin_grab(gs, win, shot: dict, png: Path, QPoint) -> dict:

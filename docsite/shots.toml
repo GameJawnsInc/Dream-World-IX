@@ -24,10 +24,14 @@ surface = "home:ready"
 take = "home-ready"
 used_by = ["SETUP.md"]
 
-# NOTE a dlg:new-journey shot is WANTED here but blocked twice: the dialog paints the cwd into
-# its Folder box (black-box surfaces cannot pin painted paths -- needs a dlg adapter), and its
-# own teach text revealed tutorial 07's "Pick FF9 regions…" step is stale (region forking moved
-# to Import). Spawned as its own accuracy-pass task; re-add the shot there.
+# Ready for the tutorial revamp (used_by fills in when the rewritten 07 embeds it). Dialog
+# pins/annotations address controls by LABEL (a11y name or text) -- dialogs hold no attr paths.
+[shot.new-journey]
+surface = "dlg:new-journey"
+used_by = []
+pin = [
+  { widget = "Choose a folder for the journeys.toml", kind = "QLineEdit", text = "C:\\FF9Projects\\my-journey" },
+]
 
 [shot.fork-regions]
 surface = "dlg:fork-regions"

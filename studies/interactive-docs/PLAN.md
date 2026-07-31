@@ -25,9 +25,13 @@ callout rect must sit inside the window AND every ancestor scroll viewport (pure
 visibleRegion — paint-derived answers lie under WA_DontShowOnScreen). +2 figures shipped
 (home-ready → SETUP §6, fork-regions → tutorial 07); a dlg:new-journey figure was PULLED — the
 dialog paints the cwd into its Folder box (black-box surfaces cannot pin; a dlg ADAPTER is the
-fix) and its teach text falsified tutorial 07's "Pick FF9 regions…" step (region forking moved to
-Import) — the pipeline caught a stale shipped recipe on its second outing. Accuracy pass spawned
-as its own task (re-add the figure there). 10 committed PNGs `--check` clean.
+fix) and its teach text SEEMED to falsify tutorial 07's "Pick FF9 regions…" step. **CORRECTED by the
+inventory:** that button EXISTS, hidden under the dialog's default Type (Bare) — 07's step 2
+picks Multi-campaign first. A one-state screenshot cannot falsify a stateful flow (the
+calibration law, again); the harvest records hidden controls precisely so existence-truth
+survives state. 07 still gets rewritten on the rails (the teach note says region-as-campaign
+forking moved to Import — the flow deserves re-verification), but it was not proven wrong.
+10 committed PNGs `--check` clean.
 
 **THE TUTORIAL SYSTEM (owner-directed pivot: "whole revamp of the tutorials — build the
 system"):** ★ BUILT, contract = `TUTORIAL-SYSTEM.md` (sibling file). Three ties to truth, each

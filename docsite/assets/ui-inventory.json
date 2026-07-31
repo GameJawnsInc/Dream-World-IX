@@ -539,6 +539,392 @@
     "kind": "QLabel",
     "text": "Open a SavedData_ww.dat (or a Memoria extra-save / save JSON) to inspect or edit."
    }
+  },
+  "dlg:new-field": {
+   "Name": {
+    "kind": "QLabel",
+    "text": "Name"
+   },
+   "MY_ROOM": {
+    "kind": "QLineEdit",
+    "placeholder": "MY_ROOM"
+   },
+   "Destination": {
+    "kind": "QLabel",
+    "text": "Destination"
+   },
+   "Choose where to scaffold the field": {
+    "kind": "QPushButton",
+    "text": "Browse…",
+    "a11y": "Choose where to scaffold the field"
+   },
+   "Field id": {
+    "kind": "QLabel",
+    "text": "Field id"
+   },
+   "auto (suggested)": {
+    "kind": "QLineEdit",
+    "placeholder": "auto (suggested)"
+   },
+   "Custom band 4000–32767 (real ids are locked).": {
+    "kind": "Prose",
+    "text": "Custom band 4000–32767 (real ids are locked).",
+    "a11y": "Custom band 4000–32767 (real ids are locked)."
+   },
+   "Area (≥10)": {
+    "kind": "QLabel",
+    "text": "Area (≥10)"
+   },
+   "Camera pitch": {
+    "kind": "QLabel",
+    "text": "Camera pitch"
+   },
+   "Downward camera tilt in degrees (0 = level; ~48 is typical). Leave as-is if unsure.": {
+    "kind": "Prose",
+    "text": "Downward camera tilt in degrees (0 = level; ~48 is typical). Leave as-is if unsure.",
+    "a11y": "Downward camera tilt in degrees (0 = level; ~48 is typical). Leave as-is if unsure."
+   },
+   "OK": {
+    "kind": "QPushButton",
+    "text": "OK"
+   },
+   "Cancel": {
+    "kind": "QPushButton",
+    "text": "Cancel"
+   }
+  },
+  "dlg:new-campaign": {
+   "Name": {
+    "kind": "QLabel",
+    "text": "Name"
+   },
+   "My Campaign": {
+    "kind": "QLineEdit",
+    "placeholder": "My Campaign"
+   },
+   "Folder": {
+    "kind": "QLabel",
+    "text": "Folder"
+   },
+   "Choose the campaign folder (campaign.toml goes here)": {
+    "kind": "QPushButton",
+    "text": "Browse…",
+    "a11y": "Choose the campaign folder (campaign.toml goes here)"
+   },
+   "Mod folder": {
+    "kind": "QLabel",
+    "text": "Mod folder"
+   },
+   "First field id": {
+    "kind": "QLabel",
+    "text": "First field id"
+   },
+   "Custom band 4000–32767 (real ids are locked).": {
+    "kind": "Prose",
+    "text": "Custom band 4000–32767 (real ids are locked).",
+    "a11y": "Custom band 4000–32767 (real ids are locked)."
+   },
+   "OK": {
+    "kind": "QPushButton",
+    "text": "OK"
+   },
+   "Cancel": {
+    "kind": "QPushButton",
+    "text": "Cancel"
+   }
+  },
+  "dlg:new-journey": {
+   "Type": {
+    "kind": "QLabel",
+    "text": "Type"
+   },
+   "Bare — the hub warps straight to ONE field": {
+    "kind": "QRadioButton",
+    "text": "Bare — the hub warps straight to ONE field"
+   },
+   "Multi-campaign arc — chain forked campaigns": {
+    "kind": "QRadioButton",
+    "text": "Multi-campaign arc — chain forked campaigns"
+   },
+   "World Hub — a menu that lists installed journeys, pick one at New Game": {
+    "kind": "QRadioButton",
+    "text": "World Hub — a menu that lists installed journeys, pick one at New Game"
+   },
+   "Hub name": {
+    "kind": "QLabel",
+    "text": "Hub name"
+   },
+   "My Hub": {
+    "kind": "QLineEdit",
+    "placeholder": "My Hub"
+   },
+   "Folder": {
+    "kind": "QLabel",
+    "text": "Folder"
+   },
+   "Choose a folder for the journeys.toml": {
+    "kind": "QPushButton",
+    "text": "Browse…",
+    "a11y": "Choose a folder for the journeys.toml"
+   },
+   "Hub field id": {
+    "kind": "QLabel",
+    "text": "Hub field id"
+   },
+   "auto (suggested)": {
+    "kind": "QLineEdit",
+    "placeholder": "auto (suggested)"
+   },
+   "Custom band 4000–32767 (real ids are locked).": {
+    "kind": "Prose",
+    "text": "Custom band 4000–32767 (real ids are locked).",
+    "a11y": "Custom band 4000–32767 (real ids are locked)."
+   },
+   "Hub art (borrow a real field)": {
+    "kind": "QLabel",
+    "text": "Hub art (borrow a real field)"
+   },
+   "First journey id": {
+    "kind": "QLabel",
+    "text": "First journey id"
+   },
+   "First journey name": {
+    "kind": "QLabel",
+    "text": "First journey name"
+   },
+   "Campaign folders": {
+    "kind": "QLabel",
+    "text": "Campaign folders"
+   },
+   "dali, dali_outside   (folders you've forked)": {
+    "kind": "QLineEdit",
+    "placeholder": "dali, dali_outside   (folders you've forked)"
+   },
+   "Pick FF9 regions…": {
+    "kind": "QPushButton",
+    "text": "Pick FF9 regions…"
+   },
+   "Entry field id": {
+    "kind": "QLabel",
+    "text": "Entry field id"
+   },
+   "Scenario": {
+    "kind": "QLabel",
+    "text": "Scenario"
+   },
+   "optional story beat": {
+    "kind": "QLineEdit",
+    "placeholder": "optional story beat"
+   },
+   "Leave blank unless a fork/report gave you a beat number.": {
+    "kind": "Prose",
+    "text": "Leave blank unless a fork/report gave you a beat number.",
+    "a11y": "Leave blank unless a fork/report gave you a beat number."
+   },
+   "OK": {
+    "kind": "QPushButton",
+    "text": "OK"
+   },
+   "Cancel": {
+    "kind": "QPushButton",
+    "text": "Cancel"
+   }
+  },
+  "dlg:fork-regions": {
+   "Select all": {
+    "kind": "QPushButton",
+    "text": "Select all"
+   },
+   "Select none": {
+    "kind": "QPushButton",
+    "text": "Select none"
+   },
+   "Use selected": {
+    "kind": "QPushButton",
+    "text": "Use selected"
+   },
+   "Cancel": {
+    "kind": "QPushButton",
+    "text": "Cancel"
+   }
+  },
+  "dlg:import-fields": {
+   "Search…": {
+    "kind": "QLineEdit",
+    "placeholder": "Search…"
+   },
+   "300 matches in realfield (capped — type to narrow)": {
+    "kind": "QLabel",
+    "text": "300 matches in realfield (capped — type to narrow)"
+   },
+   "Use this": {
+    "kind": "QPushButton",
+    "text": "Use this"
+   },
+   "Cancel": {
+    "kind": "QPushButton",
+    "text": "Cancel"
+   },
+   "Card view…": {
+    "kind": "QPushButton",
+    "text": "Card view…"
+   }
+  },
+  "dlg:setup": {
+   "✓": {
+    "kind": "QLabel",
+    "text": "✓"
+   },
+   "Kit version": {
+    "kind": "QLabel",
+    "text": "Kit version"
+   },
+   "1.0.0b17": {
+    "kind": "QLabel",
+    "text": "1.0.0b17"
+   },
+   "UnityPy": {
+    "kind": "QLabel",
+    "text": "UnityPy"
+   },
+   "present": {
+    "kind": "QLabel",
+    "text": "present"
+   },
+   "PySide6": {
+    "kind": "QLabel",
+    "text": "PySide6"
+   },
+   "6.11.1": {
+    "kind": "QLabel",
+    "text": "6.11.1"
+   },
+   "ffmpeg": {
+    "kind": "QLabel",
+    "text": "ffmpeg"
+   },
+   "…ce_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.EXE": {
+    "kind": "QLabel",
+    "text": "…ce_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.EXE"
+   },
+   "FF9 install": {
+    "kind": "QLabel",
+    "text": "FF9 install"
+   },
+   "C:\\FF9": {
+    "kind": "QLabel",
+    "text": "C:\\FF9"
+   },
+   "✕": {
+    "kind": "QLabel",
+    "text": "✕"
+   },
+   "FF9_Launcher.exe": {
+    "kind": "QLabel",
+    "text": "FF9_Launcher.exe"
+   },
+   "StreamingAssets": {
+    "kind": "QLabel",
+    "text": "StreamingAssets"
+   },
+   "⚠": {
+    "kind": "QLabel",
+    "text": "⚠"
+   },
+   "Memoria engine": {
+    "kind": "QLabel",
+    "text": "Memoria engine"
+   },
+   "Base templates": {
+    "kind": "QLabel",
+    "text": "Base templates"
+   },
+   "extracted": {
+    "kind": "QLabel",
+    "text": "extracted"
+   },
+   "Mod folder": {
+    "kind": "QLabel",
+    "text": "Mod folder"
+   },
+   "C:\\FF9\\FF9CustomMap  (created on first deploy)": {
+    "kind": "QLabel",
+    "text": "C:\\FF9\\FF9CustomMap  (created on first deploy)"
+   },
+   "Locate game…": {
+    "kind": "QPushButton",
+    "text": "Locate game…"
+   },
+   "Run setup": {
+    "kind": "QPushButton",
+    "text": "Run setup"
+   },
+   "Install engine patches…": {
+    "kind": "QPushButton",
+    "text": "Install engine patches…"
+   },
+   "Re-check": {
+    "kind": "QPushButton",
+    "text": "Re-check"
+   },
+   "Setup output streams here.": {
+    "kind": "QPlainTextEdit",
+    "placeholder": "Setup output streams here."
+   },
+   "Close": {
+    "kind": "QPushButton",
+    "text": "Close"
+   }
+  },
+  "dlg:prefs": {
+   "Theme": {
+    "kind": "QLabel",
+    "text": "Theme"
+   },
+   "Density": {
+    "kind": "QLabel",
+    "text": "Density"
+   },
+   "Text size": {
+    "kind": "QLabel",
+    "text": "Text size"
+   },
+   "Beginner mode": {
+    "kind": "QLabel",
+    "text": "Beginner mode"
+   },
+   "Motion": {
+    "kind": "QLabel",
+    "text": "Motion"
+   },
+   "Applies instantly. “Match system” follows your Windows light/dark setting.": {
+    "kind": "QLabel",
+    "text": "Applies instantly. “Match system” follows your Windows light/dark setting."
+   },
+   "Reopen the last project on launch": {
+    "kind": "QCheckBox",
+    "text": "Reopen the last project on launch"
+   },
+   "Ask before reversible deploys (test slot / in-place fork)": {
+    "kind": "QCheckBox",
+    "text": "Ask before reversible deploys (test slot / in-place fork)"
+   },
+   "Bring the FF9 window to the front after a deploy": {
+    "kind": "QCheckBox",
+    "text": "Bring the FF9 window to the front after a deploy"
+   },
+   "Update checks apply to installed copies — you're running from a source checkout (update with git pull).": {
+    "kind": "QLabel",
+    "text": "Update checks apply to installed copies — you're running from a source checkout (update with git pull)."
+   },
+   "OK": {
+    "kind": "QPushButton",
+    "text": "OK"
+   },
+   "Cancel": {
+    "kind": "QPushButton",
+    "text": "Cancel"
+   }
   }
  }
 }

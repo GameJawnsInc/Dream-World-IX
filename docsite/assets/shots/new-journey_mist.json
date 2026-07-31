@@ -1,0 +1,16 @@
+{
+ "shot": "new-journey",
+ "surface": "dlg:new-journey",
+ "theme": "mist",
+ "scale": 100,
+ "kit_version": "1.0.0b17",
+ "theme_pair": {
+  "light": "light",
+  "dark": "mist"
+ },
+ "annotations": [],
+ "size": [
+  681,
+  614
+ ]
+}

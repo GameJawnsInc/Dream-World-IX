@@ -60,8 +60,20 @@ same pinned fixtures as shots. `--check` diffs a fresh harvest against the commi
 it (and shots `--check`) after any Workspace change; the site build then names every tutorial
 whose declared labels no longer hold.
 
-Coverage today: the six ribbon-tab docs (129 controls). Dialogs join when the dlg adapter lands
-(also unblocks pinning painted paths in dialog shots — the New Journey Folder-box leak).
+Coverage today: the six ribbon-tab docs + seven dialogs (new-field, new-campaign, new-journey,
+fork-regions, import-fields, setup, prefs) — 220 controls. **Dialogs hold no attr paths** (their
+widgets are built from locals), so dialog controls are LABEL-keyed (a11y name preferred, else
+text — the `_child_named` handle gui_snap already drives dialogs by), declarations scope to the
+dialog (`widget = "dlg:new-journey"`), and shot pins/annotations on dialogs address controls by
+label with an optional `kind = "QLineEdit"` disambiguator (a dir row's edit and Browse button
+share a caption by design — `_dir_row` now sets both accessible names, which was also a real
+a11y gap). The New Journey figure ships pinned and ready for the rewritten 07 to embed.
+
+**The gate's boundary, stated:** the inventory records controls that exist, INCLUDING ones
+hidden in a surface's default state (the New Journey "Pick FF9 regions…" button lives under the
+Multi-campaign Type — a one-state screenshot once mis-called it removed). So the gate proves
+existence + spelling, never state-reachability; a step's "click X after choosing Y" ordering is
+the author's claim, verified by the figure of that state, not by the inventory.
 
 ## What the revamp does per tutorial
 
@@ -76,8 +88,6 @@ Coverage today: the six ribbon-tab docs (129 controls). Dialogs join when the dl
 - **Runnable fences** (rung 3): execute offline-safe command blocks against a scratch project at
   build time and embed transcripts. The command gate above already kills the typo/stale-flag
   class corpus-wide; execution adds semantic proof and stays a local ratchet (needs templates).
-- **The dlg adapter** in shots.py/uiharvest.py (dialog figures with pinned paths + dialog
-  controls in the inventory).
 - **Label styling**: rendering declared labels as UI chips in prose (pure presentation; the
   gates don't need it).
 - **Generated tutorials index** from frontmatter (order/requirements table) — nav lists them

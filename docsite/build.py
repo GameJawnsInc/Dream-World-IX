@@ -384,9 +384,11 @@ def ui_gate(pages: dict[str, Page]) -> list[str]:
     inv_path = HERE / "assets" / "ui-inventory.json"
     if not inv_path.is_file():
         return ["ui-inventory.json missing -- run: py docsite/uiharvest.py"]
+    surfaces = json.loads(inv_path.read_text(encoding="utf-8"))["surfaces"]
     flat: dict[str, dict] = {}
-    for ents in json.loads(inv_path.read_text(encoding="utf-8"))["surfaces"].values():
-        flat.update(ents)
+    for skey, ents in surfaces.items():
+        if not skey.startswith("dlg:"):          # dialog entries are label-keyed, looked up scoped
+            flat.update(ents)
     errors = []
     for p in declaring:
         # the PROSE, not raw: raw still holds the frontmatter, whose own `label = "..."` line
@@ -396,15 +398,28 @@ def ui_gate(pages: dict[str, Page]) -> list[str]:
         prose = re.sub(r"\s+", " ", prose)
         for d in p.meta["ui"]:
             label, widget = d.get("label", ""), d.get("widget", "")
-            ent = flat.get(widget)
-            if ent is None:
-                errors.append(f"{p.rel}: [[tutorial.ui]] widget {widget!r} is not in the "
-                              f"inventory -- the control moved or vanished (or re-harvest)")
-                continue
-            truths = {ent.get("text"), ent.get("a11y"), ent.get("placeholder")} - {None}
-            if label not in truths:
-                errors.append(f"{p.rel}: label {label!r} no longer matches {widget} "
-                              f"(now: {sorted(truths)})")
+            if widget.startswith("dlg:"):
+                # dialog controls carry no attr paths (built from locals) -- the declaration
+                # scopes to the dialog and the label IS the identity, exactly as gui_snap's
+                # _child_named drives dialogs
+                ents = surfaces.get(widget)
+                if ents is None:
+                    errors.append(f"{p.rel}: dialog {widget!r} is not in the inventory")
+                    continue
+                truths = {t for e in ents.values()
+                          for t in (e.get("text"), e.get("a11y"), e.get("placeholder")) if t}
+                if label not in truths:
+                    errors.append(f"{p.rel}: {widget} has no control labeled {label!r}")
+            else:
+                ent = flat.get(widget)
+                if ent is None:
+                    errors.append(f"{p.rel}: [[tutorial.ui]] widget {widget!r} is not in the "
+                                  f"inventory -- the control moved or vanished (or re-harvest)")
+                    continue
+                truths = {ent.get("text"), ent.get("a11y"), ent.get("placeholder")} - {None}
+                if label not in truths:
+                    errors.append(f"{p.rel}: label {label!r} no longer matches {widget} "
+                                  f"(now: {sorted(truths)})")
             if re.sub(r"\s+", " ", label) not in prose:
                 errors.append(f"{p.rel}: declared label {label!r} never appears in the prose")
     return errors

@@ -45,6 +45,22 @@ def test_inventory_is_committed_and_sane():
     assert len(flat) > 50, "the harvest collapsed"
     assert flat["import_field.find_btn"]["text"] == "Find…"
     assert flat["import_field.field"]["a11y"] == "Field id or name"
+    nj = inv["surfaces"]["dlg:new-journey"]
+    assert len(nj) > 10, "the dialog harvest collapsed"
+    assert "Multi-campaign arc — chain forked campaigns" in nj
+
+
+def test_ui_gate_dialog_scoped_declaration():
+    good = FRONT.replace('label = "Find…"\nwidget = "import_field.find_btn"',
+                         'label = "Hub name"\nwidget = "dlg:new-journey"') \
+                .replace("**Find…**", "**Hub name**")
+    assert B.ui_gate(_page(good)) == []
+    # (the first draft used "Pick FF9 regions…" as the absent label -- and the gate correctly
+    # REFUSED to fail it: that button exists in the dialog, hidden under the default Type. The
+    # inventory harvests state-hidden controls on purpose; existence, not visibility, is its claim.)
+    bad = good.replace('"Hub name"', '"No Such Control"').replace("**Hub name**",
+                                                                  "**No Such Control**")
+    assert any("no control labeled" in e for e in B.ui_gate(_page(bad)))
 
 
 def _page(raw: str) -> dict:
