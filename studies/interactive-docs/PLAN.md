@@ -1,6 +1,26 @@
 # The interactive documentation base — design
 
-**Status: DESIGN DRAFTED — awaiting owner ratification. Nothing is built beyond the §8 spike.**
+**Status: RATIFIED ("go for it") — rungs 0, 1a, and 2 BUILT, all gates green, awaiting owner
+review of the rendered site.** What shipped (branch `claude/interactive-docs-design-b3720c`):
+
+- **Rung 0 ★** — `docsite/build.py` renders the corpus (README/SETUP/ff9mapkit-docs + a
+  task-routed front page) into `docsite/_site/`: sidebar nav (`nav.toml` curation + auto-bucket),
+  client search, light/dark, GitHub-parity heading slugs. The link/anchor gate FAILS the build —
+  and its first run caught real rot: FORMAT.md's `#item_text` anchor (broken on GitHub too) and
+  gallery/README's 13 dead image embeds. Preview: `py -m http.server -d docsite/_site`.
+- **Rung 1a ★** — the CLI reference: one page per verb (127) from `cli.build_parser()`
+  introspection, count-gated. Remaining 1b: the per-block data layer + example-linting.
+- **Rung 2 ★** — `docsite/shots.py` + `shots.toml`: figures rendered by gui_snap in light+mist,
+  widget-anchored annotations resolved at grab time into JSON sidecars (the site bakes SVG rings
+  over clean PNGs), painted-path pins (cosmetic setText under blocked signals + statusbar),
+  full-containment assert (caught the Import button clipping at 850px), provenance allowlist,
+  `--check` proved byte-identical fresh-process re-renders. Tutorial 06 embeds three figures;
+  the Build-tab one opens a kit-authored verbatim-fork FIXTURE (no bundled example can be a real
+  fork — SE bytes). Gates: `py -m pytest docsite/tests -q` (22) — they FAIL, never skip, when
+  assets are missing.
+
+**Next:** rung 1b (block data layer), rung 3 (executed tutorials), figures for tutorial 07 +
+Home/dialogs, rung 5 deployment (owner, confirm-first). Design details below are as-ratified.
 
 The charter: replace "a heap of AI-written `.md`s browsed raw in the repo" with an **explorable
 documentation site, in its own module**, holding three things in one place:
