@@ -1,0 +1,227 @@
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+@@ -38,6 +38,7 @@ namespace Memoria
+     //   CAM,<frame>,<px>,<py>,<pz>,<rx>,<ry>,<rz>
+     //   PRIM,<effectId>,<frame>,<index>,<code>,<vertHint>,<otz>,<x>,<y>            [s48, drawable tags]
+     //   STATE,<effectId>,<frame>,<index>,<code>,<label>                           [s48, DR_* tags]
++    //   UVR,<effectId>,<frame>,<index>,<keyHex>,<src>,<prims>,<uMin>,<uMax>,<vMin>,<vMax>,<tpage>,<clut>  [s77, textured meshes]
+     //   PRIMSUM,<effectId>,<frame>,<count>,<minX>,<minY>,<maxX>,<maxY>            [s48, PrimSummary=1 mode]
+     //   ROOT,<effectId>,<frame>,<active>,<m00..m22>,<tx>,<ty>,<tz>                [s52, CaptureRoot=1 -- the native summon creature's root world transform]
+     // effectId = (Int32)SFX.currentEffectID (the SpecialEffect enum, cast to its underlying int);
+@@ -229,6 +230,9 @@ namespace Memoria
+                         _writer = new StreamWriter(stream);
+                         _writer.WriteLine("# ff9mapkit s47+s48 sfx probe (mesh/camera/raw-primitive capture)");
+                         _writer.WriteLine("# MESH,effectId,frame,index,keyHex,vertCount,triCount,cx,cy,cz,ex,ey,ez");
++                        _writer.WriteLine("# UVR,effectId,frame,index,keyHex,src,prims,uMin,uMax,vMin,vMax,tpage,clut  [s77]");
++                        _writer.WriteLine("#   One row per TEXTURED MESH row (key & 0x8000), same effectId/frame/index/keyHex -- join 1:1. Per-(mesh key, frame) MIN/MAX of the primitives' OWN u,v bytes (0-255), NOT per-vertex. src: P = one of the six GetABRTex polygon paths (SFXRender.cs:342-380, prim-carried tpage), S = SPRT (current page; tpage=-1 sentinel, span [u0,u0+w-1]x[v0,v0+h-1] with the DISPATCH w/h), M = both. prims = contributing primitive count; prims=1 with uMin==uMax is a point sample. UVs are RAW (pre-SFXMesh).");
++                        _writer.WriteLine("#   tp=1 (8bpp) pages are 128 texels wide, so u>=128 samples page tx+1; v stays 0-255 inside one 256-line page. Untextured meshes emit NO UVR row; a textured MESH row with no UVR row means CapturePrims=0.");
+                         _writer.WriteLine("# CAM,frame,px,py,pz,rx,ry,rz");
+                         _writer.WriteLine("# PRIM,effectId,frame,index,code,vertHint,otz,x,y");
+                         _writer.WriteLine("# STATE,effectId,frame,index,code,label[,payload...]");
+@@ -280,6 +284,21 @@ namespace Memoria
+                         "MESH,{0},{1},{2},{3:X8},{4},{5},{6:F4},{7:F4},{8:F4},{9:F4},{10:F4},{11:F4}",
+                         effectId, frame, i, mesh._key, vertCount, triCount,
+                         c.x, c.y, c.z, e.x, e.y, e.z));
++                    // s77: the per-(key,frame) UV range, 1:1 beside this key's MESH row (same
++                    // effectId,frame,index,keyHex -- join on any of them). Textured meshes only;
++                    // a textured MESH row with NO UVR row means CapturePrims=0.
++                    if (CapturePrims && (mesh._key & SFXKey.HAS_TEXTURE) != 0u)
++                    {
++                        UvAcc acc;
++                        if (_uv.TryGetValue(mesh._key, out acc) && acc.pass == _uvPass && acc.uMax >= 0)
++                        {
++                            String src = acc.srcMask == 3 ? "M" : (acc.srcMask == 2 ? "S" : "P");
++                            w.WriteLine(String.Format(CultureInfo.InvariantCulture,
++                                "UVR,{0},{1},{2},{3:X8},{4},{5},{6},{7},{8},{9},{10},{11}",
++                                effectId, frame, i, mesh._key, src, acc.prims,
++                                acc.uMin, acc.uMax, acc.vMin, acc.vMax, acc.tpage, acc.clut));
++                        }
++                    }
+                 }
+                 w.Flush();
+             }
+@@ -791,6 +810,98 @@ namespace Memoria
+                 String label = TypeLabel(code, out hasVertex);
+                 Int32 frame = SFX.frameIndex;
+                 Int32 effectId = (Int32)SFX.currentEffectID;
++                // ---- s77: per-mesh UV-range accumulation --------------------------------------
++                // MUST run BEFORE the PrimSummary early-return and BEFORE the PrimCap drop below:
++                // after either, the UVR set would degrade SILENTLY (empty under PrimSummary=1,
++                // stale mid-cast past PrimCap) -- and a truncated UVR read as complete is the
++                // dangerous direction. Offsets per struct from PSX_LIBGPU.cs (tpage +22 on FT,
++                // +26 on GT -- the per-vertex rgbc words push GT's later vertices out; a generic
++                // offset table would read the WRONG bytes for half the textured population). Keys
++                // mirror SFXRender.Add()'s dispatch exactly: 36/44/52/60 plain, 76 |FILTER_POINT,
++                // 68/72 |FILTER_BILINEAR|FULL_BLUR_TXTURE, SPRT via the current-page key.
++                if (index == 0)
++                    _uvPass++;
++                {
++                    Byte* pb = (Byte*)tag;
++                    switch (code & 252)
++                    {
++                        case 36:  // POLY_FT3
++                        {
++                            UInt16 clut = *(UInt16*)(pb + 14);
++                            UInt16 tpage = *(UInt16*)(pb + 22);
++                            UvAcc acc = UvEntry(AbrTexKey(code, clut, tpage), clut);
++                            acc.prims++; acc.srcMask |= 1; acc.tpage = tpage;
++                            UvFold(acc, pb[12], pb[13]);
++                            UvFold(acc, pb[20], pb[21]);
++                            UvFold(acc, pb[28], pb[29]);
++                            break;
++                        }
++                        case 44:  // POLY_FT4 (plain)
++                        case 68:  // POLY_FT4 via PolyBFT4: |FILTER_BILINEAR|FULL_BLUR_TXTURE
++                        case 76:  // POLY_FT4 via PolyFT4(FILTER_POINT)
++                        {
++                            UInt16 clut = *(UInt16*)(pb + 14);
++                            UInt16 tpage = *(UInt16*)(pb + 22);
++                            UInt32 key = AbrTexKey(code, clut, tpage);
++                            if ((code & 252) == 68)
++                                key |= SFXKey.FILTER_BILINEAR | SFXKey.FULL_BLUR_TXTURE;
++                            else if ((code & 252) == 76)
++                                key |= SFXKey.FILTER_POINT;
++                            UvAcc acc = UvEntry(key, clut);
++                            acc.prims++; acc.srcMask |= 1; acc.tpage = tpage;
++                            UvFold(acc, pb[12], pb[13]);
++                            UvFold(acc, pb[20], pb[21]);
++                            UvFold(acc, pb[28], pb[29]);
++                            UvFold(acc, pb[36], pb[37]);
++                            break;
++                        }
++                        case 52:  // POLY_GT3
++                        {
++                            UInt16 clut = *(UInt16*)(pb + 14);
++                            UInt16 tpage = *(UInt16*)(pb + 26);
++                            UvAcc acc = UvEntry(AbrTexKey(code, clut, tpage), clut);
++                            acc.prims++; acc.srcMask |= 1; acc.tpage = tpage;
++                            UvFold(acc, pb[12], pb[13]);
++                            UvFold(acc, pb[24], pb[25]);
++                            UvFold(acc, pb[36], pb[37]);
++                            break;
++                        }
++                        case 60:  // POLY_GT4 (plain)
++                        case 72:  // POLY_GT4 via PolyBGT4: |FILTER_BILINEAR|FULL_BLUR_TXTURE
++                        {
++                            UInt16 clut = *(UInt16*)(pb + 14);
++                            UInt16 tpage = *(UInt16*)(pb + 26);
++                            UInt32 key = AbrTexKey(code, clut, tpage);
++                            if ((code & 252) == 72)
++                                key |= SFXKey.FILTER_BILINEAR | SFXKey.FULL_BLUR_TXTURE;
++                            UvAcc acc = UvEntry(key, clut);
++                            acc.prims++; acc.srcMask |= 1; acc.tpage = tpage;
++                            UvFold(acc, pb[12], pb[13]);
++                            UvFold(acc, pb[24], pb[25]);
++                            UvFold(acc, pb[36], pb[37]);
++                            UvFold(acc, pb[48], pb[49]);
++                            break;
++                        }
++                        case 100: // SPRT (w,h from the struct)
++                        case 116: // SPRT 8x8
++                        case 124: // SPRT 16x16
++                        {
++                            UInt16 clut = *(UInt16*)(pb + 14);
++                            Int32 sw, sh;
++                            if ((code & 252) == 116) { sw = 8; sh = 8; }
++                            else if ((code & 252) == 124) { sw = 16; sh = 16; }
++                            else { sw = *(Int16*)(pb + 16); sh = *(Int16*)(pb + 18); }
++                            // RAW pre-dispatch span: SFXRender.SPRT() may rescale w for the
++                            // 80x110 widescreen blit AFTER this point, but never touches u0/v0.
++                            UvAcc acc = UvEntry(CurrentAbrTexKey(code, clut) | SFXKey.FILTER_BILINEAR, clut);
++                            acc.prims++; acc.srcMask |= 2;
++                            UvFold(acc, pb[12], pb[13]);
++                            if (sw > 0 && sh > 0)
++                                UvFold(acc, pb[12] + sw - 1, pb[13] + sh - 1);
++                            break;
++                        }
++                    }
++                }
+                 Int32 x = 0, y = 0;
+                 if (hasVertex)
+                 {
+@@ -909,6 +1020,84 @@ namespace Memoria
+         private static Int32 _primRowCount;
+         private static Boolean _primCapWarned;
+ 
++        // ---- s77: per-mesh UV-range accumulation ----------------------------------------------
++        // One UvAcc per textured mesh key, folded from the primitives' OWN u,v bytes in LogPrim
++        // and emitted as a UVR row beside the key's MESH row in LogFrame. PASS-STAMP REUSE, not
++        // Clear(): _uvPass advances at each frame's first primitive (index == 0); an entry whose
++        // pass is stale is re-initialised in place on first touch. ~20 entries ever allocated
++        // (measured on the cast-2 archive), zero steady-state GC -- and because nothing clears at
++        // emit, a repeated Render() over an unchanged commandBuffer re-emits the same correct UVR
++        // rows beside the same MESH rows.
++        private sealed class UvAcc
++        {
++            public Int32 pass, prims, uMin, uMax, vMin, vMax, srcMask, tpage, clut;
++        }
++
++        private static readonly Dictionary<UInt32, UvAcc> _uv = new Dictionary<UInt32, UvAcc>();
++        private static Int32 _uvPass;
++
++        private static UvAcc UvEntry(UInt32 key, Int32 clut)
++        {
++            UvAcc acc;
++            if (!_uv.TryGetValue(key, out acc))
++            {
++                acc = new UvAcc();
++                acc.pass = Int32.MinValue;
++                _uv[key] = acc;
++            }
++            if (acc.pass != _uvPass)
++            {
++                acc.pass = _uvPass;
++                acc.prims = 0;
++                acc.uMin = 256; acc.uMax = -1;
++                acc.vMin = 256; acc.vMax = -1;
++                acc.srcMask = 0;
++                acc.tpage = -1;
++            }
++            acc.clut = clut;
++            return acc;
++        }
++
++        private static void UvFold(UvAcc acc, Int32 u, Int32 v)
++        {
++            if (u < acc.uMin) acc.uMin = u;
++            if (u > acc.uMax) acc.uMax = u;
++            if (v < acc.vMin) acc.vMin = v;
++            if (v > acc.vMax) acc.vMax = v;
++        }
++
++        // Verbatim mirror of SFXKey.GetABRTex (SFXKey.cs:32-45) MINUS the tmpABR write: the real
++        // method pokes SFXKey.tmpABR, which SFXMesh.cs:85 reads into _alpha -- an instrument must
++        // not touch shared render state. Drifts only if SFXKey.cs:32-45 ever changes -- the same
++        // mirror contract TypeLabel() already carries for Add()'s switch.
++        private static UInt32 AbrTexKey(Byte code, UInt16 clut, UInt16 tpage)
++        {
++            UInt32 pg = (UInt32)((UInt32)((Int32)(tpage & 0x1F) | (tpage >> 2 & 0x60)) << 16);
++            UInt32 abr = (UInt32)(tpage >> 5 & 3);
++            UInt32 key;
++            if (pg >> 5 == 2u)
++                key = SFXKey.HAS_TEXTURE;
++            else
++                key = (UInt32)(clut | SFXKey.HAS_TEXTURE);
++            if ((code & 2) != 0)
++                key |= (abr == 2u) ? SFXKey.ABR_SUB : SFXKey.ABR_ADD;
++            return key | pg;
++        }
++
++        // Mirror of SFXKey.GetCurrentABRTex (SFXKey.cs:19-30) minus the tmpABR write.
++        // currentTexPage/currentTexABR are pure static READS, set by this frame's own DR_TPAGE.
++        private static UInt32 CurrentAbrTexKey(Byte code, UInt16 clut)
++        {
++            UInt32 key;
++            if (SFXKey.currentTexPage >> 5 == 2u)
++                key = SFXKey.HAS_TEXTURE;
++            else
++                key = (UInt32)(clut | SFXKey.HAS_TEXTURE);
++            if ((code & 2) != 0)
++                key |= (SFXKey.currentTexABR == 2u) ? SFXKey.ABR_SUB : SFXKey.ABR_ADD;
++            return key | SFXKey.currentTexPage;
++        }
++
+         private static Int32 _sumFrame = Int32.MinValue;
+         private static Int32 _sumEffectId;
+         private static Int32 _sumCount;

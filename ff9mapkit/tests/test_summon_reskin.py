@@ -181,15 +181,20 @@ def _build_creature_id4(npart: int, pal256_list, texanim: int = 0) -> bytes:
     return bytes(header) + pages + cluts
 
 
-def _so_geom(tpage: int, clut: int) -> bytes:
+def _so_geom(tpage: int, clut: int, second=(0, 0)) -> bytes:
     """One 16-byte ``so`` binding record + the smallest GEOM block :func:`KC.scan_geom` accepts.
 
     Degenerate on purpose -- 1 bone, 1 mesh, every primitive bucket empty -- but it satisfies the
     scanner's whole acceptance law: the ``pBoneTable == 0x14`` needle, ``pMeshTable == 0x18 +
     (boneCount-1)*4``, and all four chain identities (each pool starts at the 4-byte-aligned end of
     the previous, which for empty pools means they coincide).
+
+    ``second`` is the record's SECOND array pair at ``+arrayB`` (W6b-3 iii). It DEFAULTS to ``(0, 0)``
+    -- the value this fixture always wrote -- so every existing decode is byte-identical, and it is a
+    parameter only so a test can build a MOVER without a second fixture.
     """
-    so = struct.pack("<HHHH", 0x6F73, 1, 0x10, 0x0C) + struct.pack("<HHHH", tpage, clut, 0, 0)
+    so = (struct.pack("<HHHH", 0x6F73, 1, 0x10, 0x0C) + struct.pack("<HH", tpage, clut)
+          + struct.pack("<HH", second[0], second[1]))
     g = bytearray(0x48)
     g[0:4] = bytes([0x00, 0x00, 1, 1])                        # flags, zero, boneCount, meshCount
     struct.pack_into("<II", g, 0x04, 0, 0)
@@ -201,18 +206,23 @@ def _so_geom(tpage: int, clut: int) -> bytes:
     return so + bytes(g)
 
 
-def _so_geom_multi(parts) -> bytes:
+def _so_geom_multi(parts, second=None) -> bytes:
     """A **MULTI-PART** ``so`` record (``P = len(parts)``) plus the same degenerate GEOM block.
 
     ★ SYNTHESISED, NEVER COPIED.  The header is
     ``struct.pack("<HHHH", 0x6F73, 1, 8 + 8P, 8 + 4P)`` and every pair is invented, so nothing in this
     file is a run of bytes lifted out of a real ``ef*.bytes`` -- the provenance rule the whole summon
     lane is held to.  ``P == 0`` yields the 8-byte record, which is a RECORD and not an absence.
+
+    ``second`` is the SECOND array (W6b-3 iii), one ``(u16, u16)`` per part; ``None`` writes the
+    all-zero array this fixture always wrote, so every existing decode is byte-identical.
     """
     P = len(parts)
+    sec = list(second if second is not None else [(0, 0)] * P)
+    assert len(sec) == P, "the second array is one pair per part -- that is what `arrayB` asserts"
     so = struct.pack("<HHHH", 0x6F73, 1 if P else 0, 8 + 8 * P, 8 + 4 * P)
     so += b"".join(struct.pack("<HH", tp, cw) for tp, cw in parts)
-    so += b"".join(struct.pack("<HH", 0, 0) for _ in parts)   # the OPAQUE second array at +arrayB
+    so += b"".join(struct.pack("<HH", a, b) for a, b in sec)  # the SECOND array at +arrayB
     assert len(so) == 8 + 8 * P
     return so + _so_geom(0, 0)[0x10:]                         # the GEOM block, one derivation
 
@@ -1903,6 +1913,95 @@ def test_so_record_terminates_on_hostile_blob():
     assert RS.so_record(_so_geom_multi(over), 8 + 8 * (RS.MAX_SO_PARTS + 1)) is None
     assert RS.so_record(b"\x00" * 4096, 4096) is None, "no magic anywhere: terminates, does not raise"
     assert RS.so_record(b"\x73\x6f", 2) is None, "geom_base under the smallest record: no read below 0"
+
+
+# ============================================ W6b-3 (iii): THE SECOND ARRAY, READ AND NOT INTERPRETED
+def test_so_record_returns_the_SECOND_ARRAY_at_the_offsets_arrayB_asserts():
+    """R1.  The pairs come out of ``at + 8 + 4P + 4k`` -- the offset the acceptance test just proved
+    -- and the whole walk stays INSIDE ``at + len``.  Asserted at ``P == 1`` and at ``P == 7``, where
+    an off-by-one in the base would silently return the TPAGE array a second time."""
+    one = _so_geom(0x88, _CELL_8BPP, second=(0x0080, 0x0000))
+    rec = RS.so_record(one, 0x10)
+    assert rec["second"] == [(0x0080, 0x0000)]
+    assert rec["parts"] == [(0x88, _CELL_8BPP)], "and the FIRST array is untouched"
+
+    pairs = tuple((0x88, 0x100 + k) for k in range(7))
+    sec = tuple((0x10 * (k + 1), 0x20 * (k + 1)) for k in range(7))
+    raw = _so_geom_multi(pairs, second=sec)
+    rec7 = RS.so_record(raw, 8 + 8 * 7)
+    assert rec7["second"] == list(sec) and rec7["parts"] == list(pairs)
+    # every pair is inside the record the acceptance test accepted -- 8 + 4P .. 8 + 8P
+    for P, r in ((1, rec), (7, rec7)):
+        assert len(r["second"]) == P
+        assert r["at"] + 8 + 4 * P + 4 * P == r["at"] + r["len"]
+
+
+def test_so_record_P0_invariant_survives_the_second_array():
+    """R2.  A ``P == 0`` record is still a RECORD and now also has an EMPTY second array: no
+    ``tpage``/``clut`` keys, ``parts == []``, ``second == []``, and ``attribution``'s coverage
+    counters are exactly what :func:`test_so_record_p0_still_counts_as_coverage` pins."""
+    rec = RS.so_record(_so_geom_multi(()), 8)
+    assert rec["parts"] == [] and rec["second"] == []
+    assert "tpage" not in rec and "clut" not in rec
+    with_p0 = build_synth_creatureless_container(bindings=DEFAULT_BINDINGS + ((),))
+    a = RS.attribution(with_p0)
+    assert (a.geom_total, a.geom_with_so) == (4, 4) and a.complete
+
+
+def test_Binding_mover_REFUSES_TO_INDEX_a_multi_part_second_array():
+    """★ R3 -- THE ORDER LAW, ENFORCED AT THE CALL SITE RATHER THAN DESCRIBED.
+
+    Pairing second-array entry *k* with binding slot *k* is exactly the claim ``ORDER_UNMEASURED``
+    says nothing corroborates, so :attr:`reskin.Binding.mover` answers ``None`` on a NOVEL binding NO
+    MATTER what the array holds -- a positional read is UNAVAILABLE, not merely discouraged.
+    ``second_pairs`` still carries the WHOLE array on every slot, for identification.
+    """
+    mixed = ((0x08, _CELL_4BPP), ((0x88, _CELL_8BPP), (0x89, _CELL_8BPP)))
+    blob = build_synth_creatureless_container(bindings=mixed)
+    inc = RS.attribution(blob, witness=RS.WITNESS_INCUMBENT).bindings
+    nov = RS.attribution(blob, witness=RS.WITNESS_NOVEL).bindings
+    assert len(inc) == 1 and len(nov) == 2
+    assert inc[0].mover == (0, 0), "an INCUMBENT record's array is arity 1: the pick is order-free"
+    assert all(b.mover is None for b in nov), "a NOVEL record's array may not be read positionally"
+    assert all(len(b.second_pairs) == 2 for b in nov), "...and it is still CARRIED for identification"
+    assert nov[0].second_pairs == nov[1].second_pairs, "the WHOLE array on every slot, never a pick"
+
+
+def test_Binding_mover_carries_a_real_pair_on_an_incumbent_record():
+    """R3b.  The other half of the order law: where the arity makes the pick free, the pick is made
+    and the value is the bytes -- otherwise the accessor would be a refusal that never answers."""
+    blob = build_synth_creatureless_container()
+    base = RS.attribution(blob, witness=RS.WITNESS_INCUMBENT).bindings
+    assert base and all(b.mover == (0, 0) for b in base), "the default fixture writes a zero array"
+    one = _so_geom(0x88, _CELL_8BPP, second=(0x0080, 0x0040))
+    rec = RS.so_record(one, 0x10)
+    b = RS.Binding(geom=0x10, slot=0, record_at=rec["at"], chunk_slot=0, tpage=0x88,
+                   page=(0, 0), bpp=8, clut_word=_CELL_8BPP, cell=(0, 0), entries=256,
+                   witness=RS.WITNESS_INCUMBENT, second_pairs=tuple(rec["second"]))
+    assert b.mover == (0x0080, 0x0040)
+
+
+@needs_corpus
+def test_the_second_array_moves_NOTHING_ELSE_on_a_real_container():
+    """★ R4.  On a real corpus container every OTHER field of every binding is field-for-field what
+    it was, and the two new ones are the only difference.  The field list is spelled out rather than
+    compared with ``==`` on the dataclass, so a future field cannot slip through unasserted."""
+    blob = (CORPUS / "ef424.bytes").read_bytes()
+    a = RS.attribution(blob, include_direct=True)
+    assert a.bindings, "the fixture for this assertion has to have bindings"
+    old = ("geom", "slot", "record_at", "chunk_slot", "tpage", "page", "bpp", "clut_word", "cell",
+           "entries", "witness")
+    new = ("second_pairs",)
+    from dataclasses import fields
+    assert tuple(f.name for f in fields(RS.Binding)) == old + new, \
+        "W6b-3 (iii) adds exactly ONE field, at the end, with a default"
+    # ...and the OLD ones still decode to what a pre-change reader saw: re-derived here from the
+    # record's FIRST array alone, which is the only thing the old reader ever read.
+    for b in a.bindings:
+        rec = RS.so_record(blob, b.geom)
+        assert rec is not None and rec["parts"][b.slot] == (b.tpage, b.clut_word)
+        assert b.page == ((b.tpage & 0x0F) * 64, ((b.tpage >> 4) & 1) * 256)
+        assert b.record_at + rec["len"] == b.geom
 
 
 def test_witness_class_fails_closed():
