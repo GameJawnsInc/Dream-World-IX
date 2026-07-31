@@ -1,0 +1,61 @@
+{
+ "shot": "build-deploy",
+ "surface": "tab:build",
+ "theme": "light",
+ "scale": 100,
+ "kit_version": "1.0.0b17",
+ "theme_pair": {
+  "light": "light",
+  "dark": "mist"
+ },
+ "annotations": [
+  {
+   "widget": "build_deploy.rb_inplace",
+   "label": "1",
+   "kind": "ring",
+   "rect": [
+    300,
+    480,
+    728,
+    26
+   ]
+  },
+  {
+   "widget": "build_deploy.rb_test",
+   "label": "2",
+   "kind": "ring",
+   "rect": [
+    300,
+    514,
+    728,
+    26
+   ]
+  },
+  {
+   "widget": "build_deploy.rb_game",
+   "label": "3",
+   "kind": "ring",
+   "rect": [
+    300,
+    690,
+    728,
+    26
+   ]
+  },
+  {
+   "widget": "build_deploy.rb_other",
+   "label": "4",
+   "kind": "ring",
+   "rect": [
+    300,
+    789,
+    182,
+    26
+   ]
+  }
+ ],
+ "size": [
+  1280,
+  1000
+ ]
+}

@@ -1,0 +1,16 @@
+{
+ "shot": "editor-gateway",
+ "surface": "form:gateway",
+ "theme": "light",
+ "scale": 100,
+ "kit_version": "1.0.0b17",
+ "theme_pair": {
+  "light": "light",
+  "dark": "mist"
+ },
+ "annotations": [],
+ "size": [
+  903,
+  572
+ ]
+}

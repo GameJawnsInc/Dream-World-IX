@@ -1,5 +1,11 @@
 # 01 — First fork: a real field with your own NPC
 
+```toml
+[tutorial]
+goal = "Fork a real field, add an NPC, and play it — the full walkthrough with install-folder registration."
+requires = ["game", "assets"]
+```
+
 Fork one of FF9's ~674 real fields onto a custom field id, add an NPC with new dialogue, and play
 it. No painting, no Blender — the fork carries the real field's art, walkmesh, camera, exits,
 encounters, and music.
@@ -97,6 +103,6 @@ Verify: the field renders, the NPC is present, and talking to it shows the new l
 
 ## Next
 
-- Iterate faster (no relaunch per change): [02 — The dev loop](02-dev-loop.md)
+- Iterate faster (no relaunch per change): [C3 — Deploy automation](c3-deploy-automation.md)
 - Add choices and cutscenes: [08 — Dialogue choices & a cutscene](08-dialogue-cutscene.md)
 - Everything a `field.toml` can declare: [FORMAT.md](../FORMAT.md)

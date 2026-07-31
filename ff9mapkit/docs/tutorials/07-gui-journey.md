@@ -1,5 +1,11 @@
 # 07 — Fork FF9 in the Workspace
 
+```toml
+[tutorial]
+goal = "Fork a multi-arc slice of the game in the Workspace, edit a line, deploy."
+requires = ["game", "gui", "assets"]
+```
+
 Fork a multi-arc slice of *Final Fantasy IX* into a journey, change one line of its real dialogue,
 deploy it, and play it back — entirely in the Workspace GUI. This is the full
 **fork → edit → deploy → play** loop at game scale.
@@ -20,6 +26,8 @@ Start with a small slice — one or two arcs; regions can be added at any time.
 4. Click **Pick FF9 regions…** and select a starting slice — *Prima Vista → Evil Forest* covers
    the opening arcs.
 5. **OK** writes a `journeys.toml` into the folder and opens the Journey Editor.
+
+![The FF9 region catalog — every forkable zone by story-state visit, with seed ids and field counts](../../../docsite/assets/shots/fork-regions_light.png)
 
 ## 2. Fork the game data
 

@@ -687,12 +687,16 @@ def snap_models(ctx: _Ctx, state: str) -> None:
 
 
 # ------------------------------------------------------------------------------------------- surfaces
+# Home's setup-state pins, module-level for the same reason as TAB_ATTRS.
+HOME_PINS = {"fresh":   dict(game=False, templates=False),
+             "midway":  dict(game=True,  templates=False),
+             "ready":   dict(game=True,  templates=True),
+             "veteran": dict(game=True,  templates=True),
+             "open":    dict(game=True,  templates=True)}
+
+
 def snap_home(ctx: _Ctx, state: str) -> None:
-    pins = {"fresh":   dict(game=False, templates=False),
-            "midway":  dict(game=True,  templates=False),
-            "ready":   dict(game=True,  templates=True),
-            "veteran": dict(game=True,  templates=True),
-            "open":    dict(game=True,  templates=True)}[state]
+    pins = HOME_PINS[state]
     recent = _example_recent() if state in ("veteran", "open") else None
     with _pin_setup_state(**pins):
         win = _make_win(ctx, recent=recent)
@@ -1312,6 +1316,15 @@ def snap_form(ctx: _Ctx, state: str) -> None:
         "music": "[music]\nloop_start = 0\n",
         # [[npc]] model takes an exact GEO name too (build.resolve_npc_model), same defect, same spec file
         "npc": None,
+        # the spine tutorials' teaching subjects (S3/S4): a filled gateway + a named-flag chest
+        "gateway": ('[[gateway]]\nto = 30002\nentrance = 0\n'
+                    'zone = [[300, -400], [700, -400], [700, -800], [300, -800]]\n'),
+        "chest": ('[[chest]]\npos = [0, 80]\nitem = ["Potion", 1]\nflag = "chest_potion"\n\n'
+                  '[[flag]]\nname = "chest_potion"\nindex = 8720\n'),
+        # S5's subject: a minimal narration cutscene (say / wait / say), once-guarded
+        "cutscene": ('[cutscene]\nonce = true\nsteps = [\n'
+                     '  { say = "The hut is silent..." },\n  { wait = 30 },\n'
+                     '  { say = "...for now." },\n]\n'),
     }[state]
     src = REPO / "ff9mapkit" / "examples" / "boletta"
     assert src.is_dir(), "cannot find the boletta example -- snap void"
@@ -1331,17 +1344,26 @@ def snap_form(ctx: _Ctx, state: str) -> None:
     try:
         win = _make_win(ctx)
         assert win.open_field(proj), f"form:{state}: open_field refused the copy -- snap void"
-        if state == "npc":
-            win._goto_tree_section("GLADE", "npc")       # expand the group (the lazy tree builds on select)
-            win._select_object("GLADE", "npc:0")         # ...then the ENTRY: the group header has no form
-            assert win._payload(win.tree.currentItem())[2] == "npc:0", "form:npc: never reached the NPC row"
+        sect = state.split("-")[0]
+        if sect in ("npc", "gateway", "chest"):           # array tables: the group header has no
+            win._goto_tree_section("GLADE", sect)         # form, select the ENTRY row
+            win._select_object("GLADE", f"{sect}:0")
+            assert win._payload(win.tree.currentItem())[2] == f"{sect}:0", \
+                f"form:{state}: never reached the {sect} row"
         else:
-            win._goto_tree_section("GLADE", state.split("-")[0])
+            win._goto_tree_section("GLADE", sect)
         _settle(6)
         _grab(ctx, f"form-{state}", win.doc_host)   # the document BODY, not the window (read the hints, not a thumb)
         _close(win)
     finally:
         ctx.guided = guided
+
+
+# The tab -> Workspace-attribute map, module-level so docsite/shots.py (the Manual's screenshot
+# job) can open the same surfaces without re-owning the mapping.
+TAB_ATTRS = {"build": "build_deploy", "import": "import_field",
+             "models": "models_doc", "battle": "battle", "story": "story_state",
+             "items": "item_equip"}
 
 
 def snap_tab(ctx: _Ctx, tab: str) -> None:
@@ -1354,9 +1376,7 @@ def snap_tab(ctx: _Ctx, tab: str) -> None:
     if tab == "world":
         print("  tab:world is owned by world:<state> (guide | nogame | atlas -- see --list)")
         return
-    attr = {"build": "build_deploy", "import": "import_field",
-            "models": "models_doc", "battle": "battle", "story": "story_state",
-            "items": "item_equip"}[tab]
+    attr = TAB_ATTRS[tab]
     win = _make_win(ctx)
     win.tabs.setCurrentWidget(getattr(win, attr))
     _grab(ctx, f"tab-{tab}", win)
@@ -1506,38 +1526,42 @@ def _snap_anim_dialog(ctx: _Ctx, key: str) -> None:
         _close(win)
 
 
+# The dialog -> opener map, module-level so docsite/shots.py + docsite/uiharvest.py open the
+# same surfaces without re-owning the flows (the TAB_ATTRS pattern).
+DIALOG_OPENERS = {
+    "new-field":     lambda w: w.on_new_field(),
+    "new-campaign":  lambda w: w.on_new_campaign(),
+    "new-journey":   lambda w: w.on_new_journey(),
+    "fork-regions":  lambda w: w.import_field.open_region_catalog(),
+    "import-fields": lambda w: w.import_field.on_find(),
+    "setup":         lambda w: w._open_setup(),
+    "prefs":         lambda w: w._open_preferences(),
+    "about":         lambda w: w._open_about(),
+    "concept-map":   lambda w: w._show_concept_map(),
+    "infohub":       lambda w: w._open_catalog(),
+    "updates":       lambda w: w._open_update_dialog(),
+    # the real opener is _fork_dialog (the first cut guessed `on_fork_battle` behind a hasattr guard,
+    # which made this surface permanently, silently dead -- caught by the round's adversarial review)
+    "fork-battle":   lambda w: w.battle._fork_dialog(),
+    # the named 3-button 'a campaign deploy will wipe your New Game entry' confirm -- fabricate a plan
+    # + a casualty so the modal has something to name (BuildDoc._confirm_campaign_deploy).
+    "campaign-newgame": _open_campaign_newgame,
+}
+
+
 def snap_dialog(ctx: _Ctx, key: str) -> None:
     if key in ("anim-picker", "animset-picker"):
         return _snap_anim_dialog(ctx, key)
-    openers = {
-        "new-field":     lambda w: w.on_new_field(),
-        "new-campaign":  lambda w: w.on_new_campaign(),
-        "new-journey":   lambda w: w.on_new_journey(),
-        "fork-regions":  lambda w: w.import_field.open_region_catalog(),
-        "import-fields": lambda w: w.import_field.on_find(),
-        "setup":         lambda w: w._open_setup(),
-        "prefs":         lambda w: w._open_preferences(),
-        "about":         lambda w: w._open_about(),
-        "concept-map":   lambda w: w._show_concept_map(),
-        "infohub":       lambda w: w._open_catalog(),
-        "updates":       lambda w: w._open_update_dialog(),
-        # the real opener is _fork_dialog (the first cut guessed `on_fork_battle` behind a hasattr guard,
-        # which made this surface permanently, silently dead -- caught by the round's adversarial review)
-        "fork-battle":   lambda w: w.battle._fork_dialog(),
-        # the named 3-button 'a campaign deploy will wipe your New Game entry' confirm -- fabricate a plan
-        # + a casualty so the modal has something to name (BuildDoc._confirm_campaign_deploy).
-        "campaign-newgame": _open_campaign_newgame,
-    }
     with _pin_setup_state(game=True, templates=True):
         win = _make_win(ctx)
         with _grab_next_dialog(ctx, f"dlg-{key}") as g:
-            openers[key](win)
+            DIALOG_OPENERS[key](win)
         if g.count == 0:
             print(f"  dlg-{key}: NO dialog opened (flow bailed before exec)")
         _close(win)
 
 
-FORM_STATES = ("encounter", "encounter-named", "music", "npc")
+FORM_STATES = ("encounter", "encounter-named", "music", "npc", "gateway", "chest", "cutscene")
 HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",

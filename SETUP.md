@@ -195,7 +195,7 @@ text namespaces: [`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RE
 ## 4. The dev loop
 
 The fast iteration loop — **edit → deploy → ~ reload**, no relaunch per change — is
-[tutorial 02](ff9mapkit/docs/tutorials/02-dev-loop.md). Summary:
+[C3 — Deploy automation](ff9mapkit/docs/tutorials/c3-deploy-automation.md). Summary:
 
 ```powershell
 py tools\deploy_field.py myroom\MYROOM.field.toml    # sandbox any field.toml into test slot 4003
@@ -249,6 +249,8 @@ ff9mapkit-workspace                  # installed launcher (also the Start-Menu s
 py apps\ff9_workspace.pyw            # from a repo checkout
 py apps\ff9_workspace.pyw --smoke    # headless self-check
 ```
+
+![The Workspace Home screen with the setup checklist and quick-start cards](docsite/assets/shots/home-ready_light.png)
 
 Built around a **journey ▸ campaign ▸ field ▸ object** tree with a breadcrumb, a tabbed document
 area, a right-hand Inspector (with live field-art thumbnails), and a bottom Output/Problems

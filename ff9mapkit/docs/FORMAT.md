@@ -1331,7 +1331,7 @@ for_dead = false            # usable on a KO'd target (Phoenix-Down style)
   error** (`ff9mapkit lint`).
 - **★ RELAUNCH to apply:** item CSVs load once at game **startup** — ~ → Reload field will NOT pick up a stat
   change. Deploy, then relaunch.
-- **Item NAME / DESCRIPTION text** is its own block — see [`[[item_text]]`](#item_text) below (a text channel,
+- **Item NAME / DESCRIPTION text** is its own block — see [`[[item_text]]`](#item_text--an-items-menu-name--description-text-optional-repeatable) below (a text channel,
   not a CSV: e.g. a retuned Potion's `[[item_effect]] power` changes how much it heals, while `[[item_text]]`
   changes the menu text that *says* so).
 - **Deferred (a later follow-up):** minting **net-new** item ids (>254, needs a DLL).

@@ -1,0 +1,61 @@
+{
+ "shot": "import-fork",
+ "surface": "tab:import",
+ "theme": "light",
+ "scale": 100,
+ "kit_version": "1.0.0b17",
+ "theme_pair": {
+  "light": "light",
+  "dark": "mist"
+ },
+ "annotations": [
+  {
+   "widget": "import_field.field",
+   "label": "1",
+   "kind": "ring",
+   "rect": [
+    300,
+    409,
+    420,
+    35
+   ]
+  },
+  {
+   "widget": "import_field.preview_btn",
+   "label": "2",
+   "kind": "ring",
+   "rect": [
+    300,
+    452,
+    115,
+    33
+   ]
+  },
+  {
+   "widget": "import_field.mode_verbatim",
+   "label": "3",
+   "kind": "ring",
+   "rect": [
+    317,
+    535,
+    694,
+    26
+   ]
+  },
+  {
+   "widget": "import_field.import_btn",
+   "label": "4",
+   "kind": "ring",
+   "rect": [
+    933,
+    845,
+    95,
+    33
+   ]
+  }
+ ],
+ "size": [
+  1280,
+  960
+ ]
+}

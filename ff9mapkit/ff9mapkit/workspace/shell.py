@@ -3587,12 +3587,17 @@ class Workspace(QMainWindow):
             self._last_new_dir = d
 
     def _dir_row(self, line_edit, caption):
-        """A folder QLineEdit + a Browse… button, as one row widget (for the New dialogs)."""
+        """A folder QLineEdit + a Browse… button, as one row widget (for the New dialogs).
+        The caption doubles as the pair's accessible name -- without it the edit is nameless and
+        every Browse… in a dialog is indistinguishable (to a screen reader and to the docs'
+        UI-inventory harvest alike)."""
         row = QWidget()
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
+        line_edit.setAccessibleName(caption)
         h.addWidget(line_edit, 1)
         b = QPushButton("Browse…")
+        b.setAccessibleName(caption)
         b.clicked.connect(lambda _=False: self._pick_dir(line_edit, caption))
         h.addWidget(b)
         return row

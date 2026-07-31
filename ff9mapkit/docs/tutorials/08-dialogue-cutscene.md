@@ -1,5 +1,11 @@
 # 08 — Dialogue choices & a cutscene
 
+```toml
+[tutorial]
+goal = "A branching choice menu and a scripted actor scene."
+requires = ["game"]
+```
+
 Add the two core interaction primitives to a field: a branching **choice menu** on an NPC, and a
 scripted **actor cutscene** that plays on entry. Both are declarative `field.toml` blocks.
 

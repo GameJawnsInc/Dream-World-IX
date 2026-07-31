@@ -1,5 +1,11 @@
 # 03 — An original-art field from scratch
 
+```toml
+[tutorial]
+goal = "A from-scratch field with your own painted background."
+requires = ["game", "image-editor"]
+```
+
 Author a field with a background you paint yourself: choose a camera, paint over a generated
 guide, and walk on geometry projected through the same camera. This is the condensed recipe; the
 full workflow reference (multi-layer depth, occlusion, scrolling, multi-camera) is
@@ -68,7 +74,7 @@ ff9mapkit build MY_ROOM\my_room.field.toml --out dist --mod-name MyRoom
 Install and reach it as in [01 §5](01-first-fork.md#5-reach-it-in-game). A from-scratch field runs
 on **stock, unmodified Memoria** — no engine bundle required.
 
-Iterate on art alignment with the [dev loop](02-dev-loop.md): repaint → redeploy → ~ → Go →
+Iterate on art alignment with the [dev loop](c3-deploy-automation.md): repaint → redeploy → ~ → Go →
 Reload field. Final alignment (does the art land on the floor?) can only be judged in-game.
 
 ## Next
