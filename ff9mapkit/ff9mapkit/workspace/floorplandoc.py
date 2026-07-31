@@ -92,6 +92,16 @@ _HANDLE_R = 4                  # a room vertex handle's screen radius (px, zoom-
 _CLICK_SLOP_PX = 4             # press->release travel at/under this is a CLICK, past it a pan
 _CLOSE_PX = 12                 # a click this close (screen px) to the first corner CLOSES the room
 _PICK_PX = 10                  # screen-px reach when picking a door / candidate segment
+_SNAP_PX = 12                  # screen-px reach at which an existing corner or wall CAPTURES a
+#                                point being placed or dragged. ★ THE DOOR TOLERANCE IS NOT A
+#                                TARGET YOU CAN HIT BY HAND. `shared_edges` admits two rooms as
+#                                sharing a wall only within 8 WORLD units, and at the zoom the
+#                                chart opens at one screen pixel is already ~9 -- so a
+#                                pixel-perfect click is out of tolerance and the author gets "no
+#                                shared wall here" with nothing to correct. First contact reported
+#                                it as "is getting the edges close together supposed to be so
+#                                hard?". It is not: snapping makes abutment EXACT (0u), so the
+#                                tolerance stops being something anyone has to aim at.
 _HISTORY_CAP = 100
 _BARE_SPAN = 4000.0            # the empty chart's framed world span, so a bare tab has a scale
 
@@ -378,6 +388,12 @@ class PlanCanvas(QGraphicsView):
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        # NO SCROLLBARS. The scene rect only ever grows within a session (see _stable_rect), so
+        # AsNeeded would pop a bar mid-drawing -- and a bar appearing SHRINKS the viewport, which
+        # moves the chart under the cursor all over again, which is the whole defect. Navigation is
+        # left-drag to pan, Ctrl+scroll to zoom, Ctrl+0 to fit; the corner chip says so.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(palette["surface"]))
         self.setAccessibleName("Floorplan chart")
@@ -581,6 +597,51 @@ class PlanCanvas(QGraphicsView):
         t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dz) / L2))
         return math.hypot(pt[0] - (a[0] + t * dx), pt[1] - (a[1] + t * dz))
 
+    @staticmethod
+    def _foot(pt, a, b):
+        """The nearest point of segment ``a-b`` to ``pt``, and how far away it is."""
+        dx, dz = b[0] - a[0], b[1] - a[1]
+        L2 = dx * dx + dz * dz
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dz) / L2))
+        f = (a[0] + t * dx, a[1] + t * dz)
+        return f, math.hypot(pt[0] - f[0], pt[1] - f[1])
+
+    def snap(self, x, z, *, skip_room=None):
+        """``((x, z), what)`` -- the point pulled onto an existing CORNER, else onto an existing
+        WALL, when one is within :data:`_SNAP_PX`. ``what`` is ``"corner"``, ``"wall"`` or None.
+
+        ★ THIS IS WHAT MAKES A DOOR REACHABLE. Two rooms become door candidates only if their walls
+        lie within 8 WORLD units of each other, and at the chart's opening zoom one screen pixel is
+        already ~9 -- so aiming by hand is out of tolerance before the mouse even moves. Snapping
+        makes the abutment exact instead of nearly-right.
+
+        Corners beat walls because a corner lies ON two walls and is the stronger intent: the
+        canonical gesture is starting a new room's first corner on the neighbour's existing one.
+
+        ``skip_room`` excludes a room from being its own snap target -- a vertex being dragged must
+        not capture onto its own neighbours, which would collapse the room into a duplicated corner
+        and be refused by G1."""
+        tol = self.world_tol(_SNAP_PX)
+        best = None
+        for ri in range(len(self._rooms)):
+            if ri == skip_room:
+                continue
+            for (vx, vz) in self._poly(ri):
+                d = math.hypot(x - vx, z - vz)
+                if d <= tol and (best is None or d < best[0]):
+                    best = (d, (vx, vz))
+        if best is not None:
+            return best[1], "corner"
+        for ri in range(len(self._rooms)):
+            if ri == skip_room:
+                continue
+            poly = list(self._poly(ri))
+            for i in range(len(poly)):
+                f, d = self._foot((x, z), poly[i], poly[(i + 1) % len(poly)])
+                if d <= tol and (best is None or d < best[0]):
+                    best = (d, f)
+        return (best[1], "wall") if best is not None else ((x, z), None)
+
     def _pick_candidate(self, x, z):
         tol = self.world_tol(_PICK_PX)
         best = None
@@ -620,21 +681,26 @@ class PlanCanvas(QGraphicsView):
                 self.note.emit("No shared wall here. Two rooms must ABUT along a wall (within "
                                "8u, near-parallel) before it can become a door.")
             return
-        pt = (int(round(x)), int(round(z)))
+        # CLOSING beats snapping: the first corner is tested against the RAW click, so a room whose
+        # first corner sits on a neighbour's wall can still be closed without the wall stealing it.
         if len(self._pending) >= 3:
             first = self._pending[0]
             if math.hypot(x - first[0], z - first[1]) <= self.world_tol(_CLOSE_PX):
                 self._close_pending()
                 return
-        if self._pending and math.hypot(x - self._pending[-1][0],
-                                        z - self._pending[-1][1]) < 1.0:
+        (sx, sz), what = self.snap(x, z)
+        pt = (int(round(sx)), int(round(sz)))
+        if self._pending and math.hypot(sx - self._pending[-1][0],
+                                        sz - self._pending[-1][1]) < 1.0:
             self.note.emit("That is the corner you just placed — a duplicated corner is refused "
                            "by gate G1, so it is not added.")
             return
         self._pending.append(pt)
         self._draw()
         n = len(self._pending)
-        self.note.emit(f"{n} corner{'' if n == 1 else 's'} placed — "
+        head = (f"snapped to an existing {what} — this corner is EXACTLY on it, which is what makes "
+                f"the wall offerable as a door. " if what else "")
+        self.note.emit(head + f"{n} corner{'' if n == 1 else 's'} placed — "
                        + ("keep clicking; a room needs at least 3." if n < 3 else
                           "click the first corner again (or double-click) to close the room."))
 
@@ -681,8 +747,11 @@ class PlanCanvas(QGraphicsView):
         if not d:
             return
         if d["kind"] == "vert":
+            # Snap a dragged corner too -- pulling one room's corner onto its neighbour's wall is
+            # the other half of how an abutment gets made, and by hand it lands 1px = ~9u out.
+            (sx, sz), _what = self.snap(x, z, skip_room=d["ri"])
             poly = list(d["start"])
-            poly[d["vi"]] = (int(round(x)), int(round(z)))
+            poly[d["vi"]] = (int(round(sx)), int(round(sz)))
             d["poly"] = poly
         else:
             dx = int(round(x - d["grab"][0]))
@@ -806,7 +875,12 @@ class PlanCanvas(QGraphicsView):
             event.accept()
             return
         if self._mode == "rooms" and self._pending:
-            self._hover = self.widget_to_world(event.position())
+            hx, hz = self.widget_to_world(event.position())
+            # SNAP THE HOVER TOO. The rubber band is the only preview of where the corner will
+            # land, so it has to show the snapped point -- otherwise the band says one thing and
+            # the click does another, and the author cannot see that a wall is about to capture
+            # them. The visible jump IS the affordance; there is no other cue for it.
+            self._hover = self.snap(hx, hz)[0]
             self._draw()                           # the rubber band follows the cursor
         super().mouseMoveEvent(event)
 
@@ -888,7 +962,11 @@ class PlanCanvas(QGraphicsView):
         # fits the PREVIOUS plan's box -- and the snap showed exactly that: three rooms sitting in
         # a 120px cluster inside a 877x304 viewport, fitted against a stale rect.
         self._draw()
-        r = self._scene.sceneRect()
+        r = self._scene_bounds()                   # the GEOMETRY's own box, NOT sceneRect(): that
+        #                                            one is deliberately allowed to grow past the
+        #                                            geometry so the view is never re-anchored
+        #                                            (see _stable_rect), and fitting THAT would
+        #                                            zoom out to whatever the author had panned to.
         if r.isEmpty():
             return
         vw, vh = max(1, self.viewport().width()), max(1, self.viewport().height())
@@ -897,6 +975,7 @@ class PlanCanvas(QGraphicsView):
         self.resetTransform()
         self.scale(z, z)
         self._zoom = z
+        self._scene.setSceneRect(r)                # drop the accumulated slack before centring
         self.centerOn(r.center())
         self._draw()                               # ...and again: the labels are zoom-dependent
 
@@ -1017,11 +1096,33 @@ class PlanCanvas(QGraphicsView):
         b = self.world_to_scene(x1 + pad, z0 - pad)
         return QRectF(a[0], a[1], b[0] - a[0], b[1] - a[1])
 
+    def _stable_rect(self):
+        """The geometry's box UNIONED WITH WHAT IS ALREADY ON SCREEN.
+
+        ★ THE CHART MUST NOT MOVE WHILE THE AUTHOR IS DRAWING, and it did. `_scene_bounds` follows
+        the geometry, and the geometry includes the outline IN PROGRESS -- so the first corner of a
+        new room collapsed the scene rect from 480 units to 58 (one point, `pad` on each side), Qt
+        centred a rect now far smaller than the viewport, and the whole chart jumped under the
+        cursor. Measured on the real widget: the first click moved world (0,0) 375px right and
+        253px down, and four clicks aimed at a screen RECTANGLE produced a garbage quadrilateral
+        because every click after the first landed in a different frame.
+
+        Its first report read as "the first point is always put at the origin" -- which is exactly
+        what it looks like: the point does not move, the chart does, until the point is sitting dead
+        centre where the origin crosshair used to be.
+
+        Uniting with the visible region means the rect can never shrink out from under the view, so
+        nothing re-anchors and nothing is clamped. It only ever grows within a session; `fit()`
+        (Ctrl+0) drops the slack and re-derives from the geometry alone."""
+        r = self._scene_bounds()
+        vis = self.mapToScene(self.viewport().rect()).boundingRect()
+        return r.united(vis) if vis.isValid() and not vis.isEmpty() else r
+
     def _draw(self):
         sc = self._scene
         self._kids = []                            # the old scene's children die WITH the clear
         sc.clear()
-        sc.setSceneRect(self._scene_bounds())
+        sc.setSceneRect(self._stable_rect())
         self._draw_origin()
         for ri, room in enumerate(self._rooms):
             self._draw_room(ri, room)

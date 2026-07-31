@@ -119,6 +119,33 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   writes both sides at once — is a single step. A half-undone door would be a
   gateway with no arrival.
 
+### Fixed — the Floorplan chart moved under the cursor while you were drawing on it
+- Every corner you placed recomputed the chart's extent from the outline *in progress*,
+  so the first corner of a room collapsed that extent to a fraction of its size and the
+  view re-centred — the whole chart jumped, measured at 375px right and 253px down on the
+  first click alone. Four clicks aimed at a rectangle on screen produced a misshapen room,
+  because every click after the first landed in a different frame.
+- It reported as three separate problems and was one: the view shifting as points were
+  added, the same spot being impossible to click twice, and the first point appearing to
+  land at the origin. That last one is the same bug wearing a disguise — the point never
+  moved, the chart did, until the point was sitting where the origin marker had been.
+- The chart now holds still. Its extent can grow but never shrink out from under the
+  view, Ctrl+0 still frames the rooms rather than wherever you had zoomed to, and
+  scrollbars stay hidden — a bar appearing would shrink the viewport and move everything
+  again.
+
+### Added — corners and walls snap, so two rooms can actually be made to share one
+- Two rooms are offered as a door only if their walls lie within 8 world units, and the
+  chart opens at roughly 9 units per screen pixel — so a pixel-perfect click was outside
+  the tolerance before the mouse even moved, and all you got was "No shared wall here"
+  with nothing to correct. Placing a room against its neighbour was a matter of zooming
+  in and nudging until it took.
+- A corner or wall within ~12 screen pixels now captures the point you are placing or
+  dragging, exactly, and the rubber band previews where it will land so you can see the
+  capture before you commit. Corners win over walls, and a corner being dragged never
+  snaps to its own room. Measured on identical clicks 3–5px off a shared wall: no door
+  offered before, the entire 1049-unit wall offered after.
+
 ### Fixed — the Floorplan tab's live gate was a stall: a gesture cost ~17s, now ~0.6s
 - Every edit re-derived the **whole** plan from scratch, so on an eight-room dungeon every
   single gesture cost what drawing the plan cost — about 17 seconds, with Compose disabled
