@@ -39,6 +39,39 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **This can change the resolved clip id** for a `[[prop]]`/held model whose form is not `F0` and whose
   pose name exists in more than one form — that is the fix (the old id was the twisted pose). Numeric
   poses, and anything on an `F0` rig, are unchanged.
+### Added — summon-reskin: the `so` record's SECOND ARRAY, disclosed
+- `so_record` now returns the `P × {u16, u16}` block at `+arrayB` that it used to walk past and
+  discard by name (`second`), and `Binding` carries it as `second_pairs`. Nothing interprets it:
+  the read is inside a record the reader already accepted (`arrayB == 8 + 4P` is the acceptance
+  test), and the `P == 0` invariant is untouched.
+- **Why it is disclosed and not modelled.** A marked cast of ef038 measured something in that
+  array **displacing the sampled cell by +128 texels in u — exactly one 8bpp column, 640 → 704 —
+  on ONE container, at confidence 0.84.** Three riders are open and all three are carried
+  verbatim in a quotable constant (`depth_attribution.U_DISPLACEMENT_CAVEAT`): generalisation
+  beyond that one container; **which** halfword moves `u`, which rides separately at **0.68**, so
+  BOTH readings are printed side by side and **neither is preferred**; and the **v axis, which is
+  UNRESOLVED and is not modelled at all**.
+- `CellHazards.second_array` names, per reader, the non-zero pair and BOTH candidate effective
+  columns — purely informational, and empty wherever the caller did not consult a W6b-2+ channel.
+  One new refusal class, `second-array-mover`, is **appended alongside** (the `spill-vs-own-page`
+  precedent, never displacing the refusal an author would otherwise be shown) on a cell **all** of
+  whose readers carry a non-zero pair: the conservative, labelling-independent predicate.
+  `export-art`'s manifest and scaffold print the disclosure before the paint, and a build gate
+  refuses an enabled row on such a cell until it says
+  `acknowledge_second_array_displacement = true` — a literal boolean, and the one acknowledgement
+  in this lane that pairs with **no** `expect_bpp`, because it admits a question about READERSHIP
+  and there is no derived number to check it against.
+- **The emission set does not move**: same pages, same names, same depths, same bytes. The class
+  is in neither `_UNADDRESSABLE` nor `_EXPORT_BLOCKING` (addressability delta 0, export delta 0),
+  it adds no `hazards.names` slug and no `DEPTH_SOURCES` token, no published constant moves, and
+  under the census channel set it is not stated at all.
+- Measured over the 372-container corpus and re-derivation-pinned: **52 cells in 29 containers**
+  fire, **47 of them fully open today** (`export-art` hands them back as licensed paintable pages
+  with no other refusal). The set is a strict superset of the two per-labelling lost-cell lists
+  (16 / 19, union 35) and contains both completely. `ef038 cell.s0.x640_y256` — 20 movers and
+  seven zero-pair controls — is deliberately NOT in it, and a cell read only through a multi-part
+  record cannot be tested at all, because pairing an array entry to a binding slot is the order
+  this kit does not claim.
 
 ### Added — `world-coastnav`: vehicle-legality classes on a synthetic coast
 - The Southern Ring's in-game-proven coast-nav stamp (R5d sail-through seal + R5e standoff
