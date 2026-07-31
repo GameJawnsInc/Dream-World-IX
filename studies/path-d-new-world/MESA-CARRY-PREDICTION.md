@@ -80,3 +80,32 @@ screenshot)."*
   its own playtest), spliced verbatim from terrace_wall_strip.py. Geometry untouched.
   If the stretched faces survive the retile, they get coordinates and their own look
   next round. Per the registration this lever does not close the verdict.
+
+## PLAYTEST 2 (2026-07-31): the fringe re-mint FAILS -- MISMATCHED FACES; the BASE
+## TILE GRAMMAR is its own missing study
+
+Owner: *"nope, mismatched faces. thinking we're going to have to do another study on
+the bases. we've handled aligning the cliff faces from the ground to the plateau in
+terms of form, but we might be doing slightly wrong with how the base game handles
+the transitional tiles at the bottom that differ from the top."*
+
+- The re-minted band reads as PATCHWORK against the carried faces: retiled tris sit
+  beside carried tris with no tile continuity, plus green-smeared tris at the cut.
+  The recipe (arclength-marched u stations, height-mapped v, intermittent runs) is
+  statistically stock (row/share/phase all measured) but PLACEMENT-wrong.
+- **The round's standing result is untouched: THE TOP AND THE FORM PASS** -- the
+  whole-mesa carry is the vehicle; only the base texture lever remains open.
+- **The candidate law for the next study to REGISTER (not assume): the column law
+  extends into the base.** The instances study decoded that a wall column is a
+  CONTIGUOUS VERTICAL ATLAS STRIP; stock's bottom transitional course most likely
+  INHERITS each column's u-phase (continuing the strip above it into the band row),
+  and its runs/gaps are probably COLUMN-quantized -- while our retile marches its own
+  arclength stations, breaking tile continuity at every course boundary and at every
+  retiled/carried adjacency. THE BASE-TILE GRAMMAR study must measure, per stock
+  bottom-course tri: u-phase vs the mid-face course DIRECTLY ABOVE (same column?
+  continuous u?), band membership in column units, the v-seam at the row boundary vs
+  our fv formula, and how the band interacts with the fringe art at carried-face
+  adjacencies.
+- **Bench state: the fringed mesa is LEFT LIVE** (the owner may keep looking; the
+  top is the arc's best result). Before ANY rebuild: restore
+  `backups/terrace-strip-prewall.20260731-182852` -- the pristine guard enforces it.
