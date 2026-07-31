@@ -1316,6 +1316,11 @@ def snap_form(ctx: _Ctx, state: str) -> None:
         "music": "[music]\nloop_start = 0\n",
         # [[npc]] model takes an exact GEO name too (build.resolve_npc_model), same defect, same spec file
         "npc": None,
+        # the spine tutorials' teaching subjects (S3/S4): a filled gateway + a named-flag chest
+        "gateway": ('[[gateway]]\nto = 30002\nentrance = 0\n'
+                    'zone = [[300, -400], [700, -400], [700, -800], [300, -800]]\n'),
+        "chest": ('[[chest]]\npos = [0, 80]\nitem = ["Potion", 1]\nflag = "chest_potion"\n\n'
+                  '[[flag]]\nname = "chest_potion"\nindex = 8720\n'),
     }[state]
     src = REPO / "ff9mapkit" / "examples" / "boletta"
     assert src.is_dir(), "cannot find the boletta example -- snap void"
@@ -1335,12 +1340,14 @@ def snap_form(ctx: _Ctx, state: str) -> None:
     try:
         win = _make_win(ctx)
         assert win.open_field(proj), f"form:{state}: open_field refused the copy -- snap void"
-        if state == "npc":
-            win._goto_tree_section("GLADE", "npc")       # expand the group (the lazy tree builds on select)
-            win._select_object("GLADE", "npc:0")         # ...then the ENTRY: the group header has no form
-            assert win._payload(win.tree.currentItem())[2] == "npc:0", "form:npc: never reached the NPC row"
+        sect = state.split("-")[0]
+        if sect in ("npc", "gateway", "chest"):           # array tables: the group header has no
+            win._goto_tree_section("GLADE", sect)         # form, select the ENTRY row
+            win._select_object("GLADE", f"{sect}:0")
+            assert win._payload(win.tree.currentItem())[2] == f"{sect}:0", \
+                f"form:{state}: never reached the {sect} row"
         else:
-            win._goto_tree_section("GLADE", state.split("-")[0])
+            win._goto_tree_section("GLADE", sect)
         _settle(6)
         _grab(ctx, f"form-{state}", win.doc_host)   # the document BODY, not the window (read the hints, not a thumb)
         _close(win)
@@ -1550,7 +1557,7 @@ def snap_dialog(ctx: _Ctx, key: str) -> None:
         _close(win)
 
 
-FORM_STATES = ("encounter", "encounter-named", "music", "npc")
+FORM_STATES = ("encounter", "encounter-named", "music", "npc", "gateway", "chest")
 HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",

@@ -53,6 +53,5 @@ it honest, and both come from hard-won experience:
 
 ## Next
 
-- S3 — A door of your own: a second room and gateways between them *(next on the spine; not yet
-  written)*.
+- [S3 — A door of your own](s3-a-door-of-your-own.md): a second room and gateways between them.
 - Every NPC knob this step skipped: [`[[npc]]` in the reference](../FORMAT.md#npc-optional-repeatable).

@@ -13,7 +13,9 @@ the CLI-side tutorials below cover the terminal twin of everything here.)
 |---|---|---|
 | S1 | [Stand in the game](s1-stand-in-the-game.md) | Walk a forked room under your own id |
 | S2 | [Someone lives here](s2-someone-lives-here.md) | Talk to an NPC you wrote; the dev loop |
-| S3–S7 | *being written* | doors · story flags · a cutscene · a battle · ship a zip |
+| S3 | [A door of your own](s3-a-door-of-your-own.md) | Two rooms, gateways both ways |
+| S4 | [The world remembers](s4-the-world-remembers.md) | A chest that stays looted; a flag-gated NPC |
+| S5–S7 | *being written* | a cutscene · a battle · ship a zip |
 
 ## The rest (being reorganized into tracks)
 

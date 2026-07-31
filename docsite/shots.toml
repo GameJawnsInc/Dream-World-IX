@@ -38,6 +38,16 @@ surface = "dlg:fork-regions"
 take = "dlg-fork-regions"
 used_by = ["ff9mapkit/docs/tutorials/07-gui-journey.md"]
 
+[shot.editor-gateway]
+surface = "form:gateway"
+take = "form-gateway"
+used_by = ["ff9mapkit/docs/tutorials/s3-a-door-of-your-own.md"]
+
+[shot.editor-chest]
+surface = "form:chest"
+take = "form-chest"
+used_by = ["ff9mapkit/docs/tutorials/s4-the-world-remembers.md"]
+
 [shot.editor-npc]
 surface = "form:npc"
 take = "form-npc"
