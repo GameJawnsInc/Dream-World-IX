@@ -32,11 +32,27 @@ the one-copy law). Three conventions on top, all degrading gracefully on GitHub:
    ```
 
 2. **UI declarations** — every control the prose names in **bold** gets a `[[tutorial.ui]]`
-   entry: `label` (the exact rendered string) + `widget` (the attr path — the same vocabulary
-   shots.toml callouts use). The build fails when: the widget is gone from the inventory, the
-   label no longer matches its real text/a11y/placeholder, or the label never appears in the
-   prose. Renames become build errors pointing at the exact tutorial — never silent rot, and
-   never silent auto-rewrite either (a label swap mid-sentence is a human's edit to make).
+   entry: `label` (the exact rendered string) + `widget` (which control it is). Three widget
+   shapes, one per surface family:
+
+   ```toml
+   [[tutorial.ui]]
+   label = "Import field"
+   widget = "import_field.import_btn"     # a ribbon-tab control, by attr path (shots.toml's vocabulary)
+
+   [[tutorial.ui]]
+   label = "Hub name"
+   widget = "dlg:new-journey"             # a dialog control, scoped to the dialog
+
+   [[tutorial.ui]]
+   label = "Appears when flag set"
+   widget = "form:npc.requires_flag"      # ONE field of ONE editor form, by the form spec's key
+   ```
+
+   The build fails when: the widget is gone from the inventory, the label no longer matches its
+   real text/a11y/placeholder, or the label never appears in the prose. Renames become build
+   errors pointing at the exact tutorial — never silent rot, and never silent auto-rewrite either
+   (a label swap mid-sentence is a human's edit to make).
 
 3. **Figures** — plain image links into `docsite/assets/shots/<name>_light.png`, declared in
    `shots.toml` with `used_by` back-pointing. GitHub renders the light PNG; the site upgrades to
@@ -53,21 +69,36 @@ in-game ones, honest about which is which (offline ≠ in-game proof).
 
 ## The inventory
 
-`docsite/assets/ui-inventory.json` (committed) — per surface, per attr-path: kind + the nameable
+`docsite/assets/ui-inventory.json` (committed) — per surface, per key: kind + the nameable
 strings (button/radio/checkbox/groupbox text, a11y name, placeholder; mnemonic `&` stripped;
-value-carrying widgets contribute a11y/placeholder only, never their value). Harvested from the
-same pinned fixtures as shots. `--check` diffs a fresh harvest against the committed file — run
-it (and shots `--check`) after any Workspace change; the site build then names every tutorial
-whose declared labels no longer hold.
+value-carrying widgets contribute a11y/placeholder only, never their value). `--check` diffs a
+fresh harvest against the committed file — run it (and shots `--check`) after any Workspace
+change; the site build then names every tutorial whose declared labels no longer hold.
+
+Two harvests feed one file. The **rendered** half (`tab:` / `dlg:`) drives the real Workspace
+headlessly from the same pinned fixtures as shots, because a tab's controls only exist once Qt
+builds them. The **declared** half (`form:`) reads `ff9mapkit/editor/forms.py`'s `<THING>_SPEC`
+module globals directly — those specs are the data the Qt form renders from, so no Qt is needed
+and no fixture is involved. Surface keys are derived mechanically (`CHOICE_OPTION_SPEC` →
+`form:choice-option`), so a spec added to forms.py enters the inventory on the next harvest with
+no code edit.
 
 Coverage today: the six ribbon-tab docs + seven dialogs (new-field, new-campaign, new-journey,
-fork-regions, import-fields, setup, prefs) — 220 controls. **Dialogs hold no attr paths** (their
-widgets are built from locals), so dialog controls are LABEL-keyed (a11y name preferred, else
-text — the `_child_named` handle gui_snap already drives dialogs by), declarations scope to the
-dialog (`widget = "dlg:new-journey"`), and shot pins/annotations on dialogs address controls by
-label with an optional `kind = "QLineEdit"` disambiguator (a dir row's edit and Browse button
-share a caption by design — `_dir_row` now sets both accessible names, which was also a real
-a11y gap). The New Journey figure ships pinned and ready for the rewritten 07 to embed.
+fork-regions, import-fields, setup, prefs) + 19 editor forms — 342 controls, of which 122 are
+form fields.
+
+**Dialogs hold no attr paths** (their widgets are built from locals), so dialog controls are
+LABEL-keyed (a11y name preferred, else text — the `_child_named` handle gui_snap already drives
+dialogs by), declarations scope to the dialog (`widget = "dlg:new-journey"`), and shot
+pins/annotations on dialogs address controls by label with an optional `kind = "QLineEdit"`
+disambiguator (a dir row's edit and Browse button share a caption by design — `_dir_row` now sets
+both accessible names, which was also a real a11y gap). The New Journey figure ships pinned and
+ready for the rewritten 07 to embed.
+
+**Form fields DO hold a stable key** — the spec `Field.key`, which is also the `field.toml` key
+the form writes — so a form declaration is precise to one field: `form:npc.requires_flag`, not
+the whole NPC form. An unknown surface, an unknown key, and a stale label each produce their own
+build error, and the stale-label one prints the label as it reads now.
 
 **The gate's boundary, stated:** the inventory records controls that exist, INCLUDING ones
 hidden in a surface's default state (the New Journey "Pick FF9 regions…" button lives under the

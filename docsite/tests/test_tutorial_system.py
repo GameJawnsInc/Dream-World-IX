@@ -48,6 +48,10 @@ def test_inventory_is_committed_and_sane():
     nj = inv["surfaces"]["dlg:new-journey"]
     assert len(nj) > 10, "the dialog harvest collapsed"
     assert "Multi-campaign arc — chain forked campaigns" in nj
+    forms = {k: v for k, v in inv["surfaces"].items() if k.startswith("form:")}
+    assert len(forms) > 15, "the editor-form harvest collapsed"
+    assert forms["form:npc"]["requires_flag"]["text"] == "Appears when flag set"
+    assert forms["form:choice-option"]["text"]["text"] == "Option text"   # <THING>_SPEC -> dashes
 
 
 def test_ui_gate_dialog_scoped_declaration():
@@ -61,6 +65,31 @@ def test_ui_gate_dialog_scoped_declaration():
     bad = good.replace('"Hub name"', '"No Such Control"').replace("**Hub name**",
                                                                   "**No Such Control**")
     assert any("no control labeled" in e for e in B.ui_gate(_page(bad)))
+
+
+# An editor-FORM declaration: `form:<section>.<field key>`, the shape the core track's prose needs
+# (its labels come from forms.py's <THING>_SPEC data, not from a rendered Qt tab).
+FORM_FRONT = FRONT.replace('label = "Find…"\nwidget = "import_field.find_btn"',
+                           'label = "Appears when flag set"\n'
+                           'widget = "form:npc.requires_flag"') \
+                  .replace("**Find…**", "**Appears when flag set**")
+
+
+def test_ui_gate_form_field_declaration():
+    assert B.ui_gate(_page(FORM_FRONT)) == []
+
+
+def test_ui_gate_teeth_form_declarations():
+    def errs(old: str, new: str) -> list[str]:
+        return B.ui_gate(_page(FORM_FRONT.replace(old, new)))
+    # an unknown form, an unknown field key, a whole-form path, and a stale label -- each named
+    assert any("form surface 'form:goblin' is not in the inventory" in e
+               for e in errs("form:npc.", "form:goblin."))
+    assert any("has no field 'requires_flg'" in e for e in errs("requires_flag", "requires_flg"))
+    assert any("names a whole form" in e for e in errs("form:npc.requires_flag", "form:npc"))
+    stale = errs("Appears when flag set", "Shows when flag set")     # frontmatter AND prose
+    assert any("no longer matches form:npc.requires_flag" in e
+               and "Appears when flag set" in e for e in stale), stale
 
 
 def _page(raw: str) -> dict:
