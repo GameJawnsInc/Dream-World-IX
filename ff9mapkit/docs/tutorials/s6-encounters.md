@@ -7,6 +7,18 @@ step = 6
 builds_on = ["s5-cutscene-and-music"]
 goal = "Random battles in your field — choose what spawns and how often, and win one."
 requires = ["game", "gui", "assets"]
+
+[[tutorial.ui]]
+label = "Battle scene"
+widget = "form:encounter.scene"
+
+[[tutorial.ui]]
+label = "Frequency (0-255)"
+widget = "form:encounter.freq"
+
+[[tutorial.ui]]
+label = "Battle music id"
+widget = "form:encounter.battle_music"
 ```
 
 This step arms random encounters, using the weakest battle pool in the game so a starter party
