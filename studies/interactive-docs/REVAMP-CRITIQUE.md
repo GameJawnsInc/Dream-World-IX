@@ -41,6 +41,29 @@ the cost of a sentence each. Once those land, the first structural item to actua
 S4-S7 checkpoint-recipe rewrite, since it's the most corroborated finding across all three lenses and
 blocks the curriculum's own stated design principle.
 
+## Landed after this critique: the instrument gap none of the three lenses saw
+
+The lenses reviewed prose, so none of them checked what the gates actually COVER. The
+`[[tutorial.ui]]` gate — the mechanism that makes a renamed control fail the build — turned out to
+gate three labels in S1 and nothing else: its inventory harvested tabs and dialogs, but not the
+Editor's forms, which is where the core track's prose lives.
+
+Closed (`0c60c7c2`, `80bd8e8e`, `42b7b5f7`, `0ae21367`, `9aedf59f`, `845adc9a`):
+
+- `uiharvest.harvest_forms()` reads `editor/forms.py`'s `<THING>_SPEC` globals directly — plain
+  data, no Qt — so all 19 form surfaces / 122 fields entered the inventory, and a spec added later
+  is picked up mechanically. Declarations are precise to one field: `form:npc.requires_flag`.
+- S2-S6 now declare 26 form labels. Writing them caught four label drifts the screenshots had not:
+  prose said "Position", "Zone", "Song id" where the real labels are "Position (x, z)",
+  "Zone (x z; x z; ...)", "Field BGM song id".
+- A staleness blind spot was found by adversarial check and closed: the gate proved
+  tutorial → inventory, but nothing proved inventory → live code, so renaming a label without
+  re-harvesting left every gate green. `test_form_inventory_is_fresh_against_the_live_specs`
+  re-harvests and diffs. The Qt-harvested `tab:`/`dlg:` halves cannot be closed this way and remain
+  a `uiharvest --check` chore.
+
+Still ungated: S7 and all of Track C declare zero labels.
+
 ## Structural findings, ranked
 
 ### 1. S4-S7 need real checkpoint recipes, and the continuing-build vs. cold-start tension needs one clarifying sentence
