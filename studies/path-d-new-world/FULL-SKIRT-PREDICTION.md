@@ -122,3 +122,37 @@ Deployed to the Disc9 bench; pre-deploy pristine backed up →
 `backups/terrace-strip-prewall.20260801-141155`. Awaiting the owner's verdict per
 the registered semantics (targets named in advance: the blob's look, the east lip;
 declared residuals: the coast sector, the west high-weld stretch).
+
+## PLAYTEST 1 (2026-08-01): two seams, both DECLARED classes turning out visible
+
+Owner: *"seam at (422,-480), only visible looking toward the ocean"* (the donor
+cross-border mismatch — my "both lips present, invisible" declaration was WRONG:
+per-block rendering hid it in the donor world; re-based on one bench, the slit
+shows sky, direction-dependent by backface culling) + *"(383,-520): one
+rectangular seam from the last pass, a big triangular seam where the coast meets
+the mountain, pixel seams at the base"* (the triangle = lawn dropped under the
+floating wall bottom at the coast sector = sky through the gap). No complaint
+about the connection, the lawn, the tiles, or the blob.
+
+## THE OVERLAY — the terminal form (deployed 2026-08-01, gates green at ZERO)
+
+Chasing the seams exposed the pattern: **every keep/drop boundary without a weld
+is a hole factory, and every weld against a raised rim tents the sheet.** Each fix
+relocated the class (polygon over-claim → coverage → near-ground coverage → the
+weld's plan line; kept-weld → 181 floats; conforming weld → vertical facets). The
+fixed point of the defect-follows-authorship law is to author NOTHING:
+
+- **The bench ships BYTE-VERBATIM.** 0 cut, 0 dropped, no rim weld, no
+  conformance, no micro-weld; the sweep exempts bench non-lawn classes. The lawn
+  is CONTINUOUS under everything — under the collar, under the mesa.
+- **The carried skirt lies ON the lawn** — stock's own sheet-overlap idiom (the
+  bench's own coast band ships the same class). Steps at the boundary: med 0.40,
+  p90 0.92 (the rim relaxation's cap doing its job).
+- **The lawn beneath closes every hairline sightline** — a slit now shows grass,
+  not sky. This is what actually fixes both photographed seams.
+- The one remaining byte motion: the donor-internal border weld (≤0.35u, border
+  lines only, declared).
+
+Gates: watertight **0 unexplained** (79 once-edges = the declared overlay
+boundary, all accounted); tears 0; walk 0/0; FRINGE 100%; band 100%; census
+MISS=0. Pre-deploy pristine → `backups/terrace-strip-prewall.20260801-160534`.
