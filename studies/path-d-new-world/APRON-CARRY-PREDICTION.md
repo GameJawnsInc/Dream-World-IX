@@ -130,3 +130,25 @@ REMOVED); probe `probe_mesa_apron.py`; three offline iterations, gates GREEN.
   have shipped, declared in the registration); band(10+11) share at the weld
   **100%**; weld line y 3.0..7.4; 8 forest-abutted weld edges (forest excluded as a
   feature class; the boundary closed with zero hole loops after the grass clip).
+
+## PLAYTEST 1 (2026-07-31): THE CONNECTION PASSES; the apron-surface lever fires
+
+Owner (from the west coast, on foot at the mesa's base): *"weird brown tiles and
+some seams. the connection is nice though."*
+
+- **The round's claim is confirmed** — the grass↔cliff transition ("the
+  connection") reads right at donor stature with the donor's own band. Neither
+  named defect is on the wall or the weld: both are on the APRON'S SURFACE.
+- **Root cause, probed (`probe_apron_tiles.py`):** the apron carried the donor's
+  HOME tiles — 20 tris of a different atlas family (col 5, rows 8-11: the donor
+  meadow's dirt/talus band = the "weird brown tiles"), and its grass cells carry
+  the donor's own tile phases, which cannot pattern-match the bench's positional
+  L3 field at the rim (= the seams).
+- **The registered outer-weld lever fires as the round's ONE change:** retile the
+  apron's GROUND uv to the DESTINATION's L3 field (`G.ground_uv` over the bench's
+  own seeded cell decode — the exact mapping the surrounding bench grass wears, so
+  the pattern is continuous across the rim by construction). Lawful framing:
+  grass tiling is POSITIONAL law in this engine (L3 assigns per destination cell);
+  the apron's carried value is its GEOMETRY and the weld line, not its home tile
+  phases. Wall uv untouched — carry purity of the band stands. Geometry, normals,
+  and topograph tags stay donor.

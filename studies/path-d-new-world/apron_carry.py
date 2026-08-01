@@ -757,12 +757,40 @@ def main() -> int:
         qo = UF.decode_quad_ori(ccell, t["w"], [tuple(u2) for u2 in t["uv"]])
         if qo is not None:
             pre_quad[ccell], pre_ori[ccell] = qo
-    top_cells = sorted({tri_cell(t3) for t3 in top_tris})
+    # THE APRON RETILE (playtest-1's lever): the apron's ground wears the
+    # DESTINATION's L3 tiling. Grass tiling is POSITIONAL law -- the donor's home
+    # tiles brought its dirt band (col 5 rows 8-11, the "weird brown tiles") and its
+    # own tile phases (the rim pattern seams). uv = ground_uv over the bench's own
+    # seeded cell decode, so the pattern continues across the rim by construction.
+    # Geometry / normals / topograph tags stay donor; WALL uv untouched.
+    def rec_is_apron_ground(rec):
+        try:
+            return X.decode_id(int(round(rec[0][3][0])))["topograph"] in GRASS_TOPO
+        except Exception:
+            return False
+
+    apr_cells = {tri_cell([r[0] for r in rec]) for rec in wall
+                 if rec_is_apron_ground(rec)}
+    top_cells = sorted({tri_cell(t3) for t3 in top_tris} | apr_cells)
     q2, o2 = UF.assign_mains_seeded([c for c in top_cells if c not in pre_quad],
                                     dict(pre_quad), dict(pre_ori), seed=SEED ^ 0xF92)
     cell_qo = {c: (pre_quad[c], pre_ori[c]) for c in top_cells if c in pre_quad}
     cell_qo.update({c: (q2[c], o2[c]) for c in q2 if c in set(top_cells)})
     print(f"L3 top: {len(pre_quad)} cells decoded from bench grass, {len(q2)} policy-resolved")
+    n_ret = 0
+    wall_rt = []
+    for rec in wall:
+        if not rec_is_apron_ground(rec):
+            wall_rt.append(rec)
+            continue
+        ccell = tri_cell([r[0] for r in rec])
+        quad, ori = cell_qo[ccell]
+        wall_rt.append([(r[0], tuple(G.ground_uv(r[0][0], r[0][2], ccell, quad, ori)),
+                         r[2], r[3]) for r in rec])
+        n_ret += 1
+    wall = wall_rt
+    print(f"apron retile: {n_ret} ground tris -> the bench's own L3 field "
+          f"({len(apr_cells)} cells)")
     top_out = []
     for t3 in top_tris:
         ccell = tri_cell(t3)
