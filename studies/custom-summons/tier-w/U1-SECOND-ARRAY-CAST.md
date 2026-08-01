@@ -1134,6 +1134,21 @@ section. (D) `CHANGELOG.md` quotes the caveat's framing. (E) `second-array-lead\
 addendum — basis superseded in class. **Updating (A)+(B) is the natural follow-on to the Option-3
 decision; (C)–(E) are prose corrections this section already supersedes in place.**
 
+> **★ APPLIED (the ledger above is CLOSED; this stamp is the only edit to this section).** (A)+(B)
+> were rewritten to the 0.97 two-axis read across 6 files, and (D) with them. NO number, NO
+> derivation and NO emitted byte moved — `depth_attribution.py` and `reskin.py` are string-stripped
+> **AST-identical** to their pre-edit state, the corpus roll is page-for-page and refusal-for-refusal
+> identical over all 372 containers, and the 4 frozen boards re-ran byte-identical. The pins were
+> STRENGTHENED, not re-aimed: absence-assertions on the four refuted tokens now make a silent revert
+> fail loud. Two adversarial passes ran; one caught a number the rewrite MINTED wrong (`60` of 151
+> movers not-8bpp — the true value is **52**, `{4:41, 8:99, 15:11}`), re-derived independently three
+> times and corrected before commit. Riders now standing at FIVE, not three: generalisation, the
+> OPERATION (add-128 vs top-bit-toggle — indistinguishable on ef038's `{0,128}`), depth, wrap-clamp,
+> and per-slot-only-where-slot-equals-record. (C) and (E) stay as written — dated records this
+> section supersedes in place.
+
+
+
 **Resting state:** install stock everywhere except the engine (s76+s77 permanent instruments, both
 arches `44d4b974…`, backups `20260730-222511` / `20260731-192628`); rows 192–204 stay; every log,
 patch, report and script archived under `…\repaint-w6b\`. No kit constant moved.

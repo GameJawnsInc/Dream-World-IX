@@ -119,16 +119,18 @@ W6b-3 (iii) -- THE SECOND ARRAY: A DISCLOSURE ABOUT **READERSHIP**, NOT A DEPTH
 --------------------------------------------------------------------------------
 Every channel above answers *"at what depth are these bytes read?"*. The ``so`` record's SECOND array
 -- the ``P x {u16, u16}`` block the reader walked past until this rung -- raises a different question:
-**is this cell read at all?** A marked cast of ef038 measured something in it displacing the sampled
-cell by ``+128`` texels in u, exactly one 8bpp column (640 -> 704), at confidence **0.84 on ONE
-container**; WHICH halfword does it is a separate question riding at **0.68**, and the **v axis is
-UNRESOLVED**. So the kit reads the halfwords and models NOTHING with them:
+**is this cell read at all?** A stock log-only cast of ef038, read through the U1 s77 instrument,
+MEASURED it as a **per-slot texel displacement** -- pair position 0 onto ``u``, pair position 1 onto
+``v``, ``+128`` texels each (one 8bpp column, 640 -> 704) -- at **0.97 on ONE container**, with the
+displacement baked into the submitted primitive and ABSENT from the container's stored UV pool. So
+every span this module holds is the UNDISPLACED coordinate, and the kit still models NOTHING with it:
 
-* :attr:`CellHazards.second_array` carries, per reader, the non-zero pair and **BOTH** candidate
+* :attr:`CellHazards.second_array` carries, per reader, the non-zero pair and both candidate
   effective columns -- purely informational, and empty wherever the caller did not consult;
 * ``second-array-mover`` refuses -- **appended alongside, never displacing** -- a cell ALL of whose
   readers carry a non-zero pair (52 corpus cells in 29 containers, 47 of them fully open today). It
-  is the CONSERVATIVE, labelling-independent predicate: it never asks which halfword moves ``u``;
+  is labelling-independent BY CONSTRUCTION -- it never asks which halfword moves which axis and never
+  applies a displacement -- which is why the measurement moved none of those three numbers;
 * it is in NEITHER ``_UNADDRESSABLE`` nor ``_EXPORT_BLOCKING``, and :data:`ACK_SECOND_ARRAY` pairs
   with **no** ``expect_bpp``. **The emission set does not move**: same pages, names, depths, bytes.
 * the conditionality travels IN the constant
@@ -911,9 +913,12 @@ class SecondArrayRead:
 
     **PURELY INFORMATIONAL.** Nothing in this record feeds a depth, a cover, a page or a byte; the
     only predicate that reads it is :attr:`CellHazards.every_reader_moves`, which counts entries and
-    never interprets one. BOTH readings are carried because the labelling rides at 0.68
-    (:data:`ff9mapkit.summons.depth_attribution.U_DISPLACEMENT_CAVEAT`) and picking one is exactly
-    what this rung refuses to do.
+    never interprets one. U1's s77 read settled the labelling -- :attr:`a`, at pair position 0, is
+    the one that displaces ``u`` (:data:`ff9mapkit.summons.depth_attribution.U_DISPLACEMENT_CAVEAT`)
+    -- so :attr:`swapped_columns` is the MEASURED reading and :attr:`original_columns` is RETAINED,
+    not preferred: it is the retired hypothesis's arithmetic, kept visible so a reader who met this
+    disclosure before the cast can still reconcile what they were shown. Neither feeds a byte, so
+    keeping the retired column costs nothing and dropping it would cost an audit trail.
 
     ⚠ :attr:`swapped_columns` / :attr:`original_columns` are a **SPAN**, derived from the reader's
     stored ``u`` RANGE rather than from a re-rasterised displaced cover -- because putting a
@@ -924,14 +929,16 @@ class SecondArrayRead:
     """
     geom: int                     # identification
     record_at: int                # the `so` record's own file offset -- identification only
-    a: int                        # the pair's halfword at position 0 (the container's "A")
-    b: int                        # ...and at position 1
+    a: int                        # the pair's halfword at position 0 (the container's "A") -- the
+                                  # one U1 MEASURED onto u
+    b: int                        # ...and at position 1, the one it measured onto v
     bpp: int
-    u: Tuple[int, int]            # the reader's stored u range, the span both readings displace
+    u: Tuple[int, int]            # the reader's UNDISPLACED stored u range -- the file holds the raw
+                                  # coordinate; the displacement is baked into the submitted prim
     bound_column: int             # the column its tpage names -- what the kit models today
-    swapped_texels: int           # == a, the SWAPPED reading's u displacement
+    swapped_texels: int           # == a, the MEASURED reading's u displacement
     swapped_columns: Tuple[int, ...]
-    original_texels: int          # == b, the ORIGINAL reading's
+    original_texels: int          # == b, the RETIRED reading's -- b onto u, which the cast refuted
     original_columns: Tuple[int, ...]
 
     @property
@@ -1167,10 +1174,13 @@ class CellHazards:
         CONSERVATIVE, LABELLING-INDEPENDENT one.
 
         It asks only *"does every `so` reader of this cell carry a NON-ZERO second-array pair?"*: it
-        never asks WHICH halfword moves ``u`` and it never applies a displacement, which is what
-        keeps it true under both live readings of a labelling that rides at 0.68. **52 corpus cells
-        in 29 containers** (:data:`ff9mapkit.summons.depth_attribution.SECOND_ARRAY_MOVER_CELLS`), a
-        strict SUPERSET of the two per-labelling lost-cell lists.
+        never asks which halfword moves which axis and it never applies a displacement, which is
+        exactly why U1's s77 read -- which settled the labelling, and the ``v`` axis with it -- moved
+        this number not at all. **52 corpus cells in 29 containers**
+        (:data:`ff9mapkit.summons.depth_attribution.SECOND_ARRAY_MOVER_CELLS`), and re-rolling the
+        MEASURED two-axis arithmetic over the same corpus reproduces that set exactly. What stays
+        conservative is the ADOPTION, not the arithmetic: the mechanism is one container old, so this
+        predicate discloses and refuses rather than displacing anything.
 
         ``bool(self.readers)`` is the same non-vacuity guard :attr:`spill_vs_own_page` uses and it is
         load-bearing: on a readerless channel-G / A / P cell the *"every reader"* quantifier would
@@ -1358,11 +1368,13 @@ _REFUSAL_TEXT = {
         "SECOND-ARRAY MOVER ON EVERY READER: %s.  THE PAGE IS NOT WITHDRAWN AND NOTHING ABOUT IT "
         "MOVES -- same name, same depth, same bytes, still exported.  What is disclosed is that "
         "EVERY `so` reader of this cell carries a NON-ZERO halfword in the record's SECOND array, "
-        "and on ONE container a marked cast measured such a halfword displacing the sampled cell by "
-        "one column in u.  If that mechanism generalises, then under at least one of the two live "
-        "labellings this cell has NO effective reader -- and a perfectly built repaint of it would "
-        "be INVISIBLE IN GAME with no error anywhere, which is the failure this class exists to make "
-        "loud.  BOTH candidate effective columns are stated per reader and NEITHER IS PREFERRED.  "
+        "and on ONE container a stock log-only cast MEASURED such a halfword displacing the texels "
+        "its reader samples -- pair position 0 onto u, pair position 1 onto v, +128 texels each.  "
+        "WHEREVER THAT MECHANISM HOLDS, this cell has NO effective reader at the coordinates this "
+        "kit names -- and a perfectly built repaint of it would be INVISIBLE IN GAME with no error "
+        "anywhere, which is the failure this class exists to make loud.  Both candidate effective "
+        "columns are still stated per reader: SWAPPED is the MEASURED labelling, and ORIGINAL is "
+        "RETAINED as the retired reading rather than offered as an alternative.  "
         "THE GRANULARITY IS THE WHOLE READER SET: one reader with a zero pair keeps the cell out of "
         "this class, which is why ef038 `cell.s0.x640_y256` -- 20 movers and SEVEN zero-pair "
         "controls -- is not in it.  AND THE REACH IS THE INCUMBENT RECORDS ONLY: a cell read solely "
@@ -1671,8 +1683,8 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                 faces=m.faces, u=m.u, v=m.v,
                 halfwords_here=len(m.cover.get(pc.cell, ())), columns=m.columns,
                 own_column=(m.page[0] == pc.x), mover=mv))
-            # BOTH readings, side by side, NEITHER preferred -- the labelling rides at 0.68 and
-            # choosing between them is precisely what this rung declines to do.
+            # SWAPPED is the MEASURED reading (U1 s77: pair position 0 onto u) and ORIGINAL is the
+            # RETIRED one, carried beside it so the disclosure stays auditable.  Neither is applied.
             if mv[0] or mv[1]:
                 sa_notes.append(SecondArrayRead(
                     geom=m.geom, record_at=m.record_at, a=mv[0], b=mv[1], bpp=m.bpp,
@@ -3472,7 +3484,8 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
                         for r in hz.readers],
             "spill_in": [r.geom for r in hz.spill_in],
             "spill_out": list(hz.spill_out),
-            # W6b-3 (iii): the SECOND-ARRAY disclosure, per reader, BOTH readings, neither preferred.
+            # W6b-3 (iii): the SECOND-ARRAY disclosure, per reader -- the MEASURED `swapped` reading
+            # and the RETIRED `original` one, both recorded, neither applied.
             # `second_array_all_readers` is the refusal's own predicate, recorded beside the evidence
             # so a manifest can be audited without re-deriving it.
             "second_array_all_readers": hz.every_reader_moves,
@@ -3755,25 +3768,28 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
             L.append("# SPILL-OUT: this cell's own reader(s) also sample column(s) %s -- name every"
                      % ", ".join(str(c) for c in e["spill_out"]))
             L.append("#   one of them, or the author is handed half a picture.")
-        # ---- W6b-3 (iii): THE SECOND-ARRAY DISCLOSURE.  Printed only where the class FIRES, both
-        # readings, neither preferred, and the page unchanged -- the sentence an author needs BEFORE
-        # they paint, not after the playtest.
+        # ---- W6b-3 (iii): THE SECOND-ARRAY DISCLOSURE.  Printed only where the class FIRES, the
+        # MEASURED reading named as such beside the retired one, and the page unchanged -- the
+        # sentence an author needs BEFORE they paint, not after the playtest.
         if e.get("second_array_all_readers"):
             L.append("# SECOND-ARRAY MOVER on EVERY reader of this cell -- a DISCLOSURE, and the "
                      "page is unchanged.")
             for n in e["second_array"]:
                 L.append("#   reader GEOM %#x (record %#x, slot identification only)  A=%#06x  B=%#06x"
                          % (n["geom"], n["record_at"], n["a"], n["b"]))
-                for tag, why, half in (("SWAPPED ", "pair position 0 moves u", n["swapped"]),
-                                       ("ORIGINAL", "pair position 1 moves u", n["original"])):
+                for tag, why, half in (
+                        ("SWAPPED ", "MEASURED: pair position 0 displaces u", n["swapped"]),
+                        ("ORIGINAL", "RETIRED: pair position 1 onto u", n["original"])):
                     L.append("#     %s reading (%s): %+d texels -> column(s) %s%s"
                              % (tag, why, half["texels"],
                                 ", ".join(str(c) for c in half["columns"]),
                                 "" if half["moved"] else " (unmoved)"))
-            L.append("#   BOTH readings are printed and NEITHER is preferred: the labelling rides "
-                     "at 0.68.")
-            L.append("#   If the mechanism generalises, under one of them this cell has NO effective "
-                     "reader and a")
+            L.append("#   SWAPPED is the MEASURED labelling (U1 s77 on ef038, 0.97); ORIGINAL is "
+                     "the RETIRED reading,")
+            L.append("#   kept beside it only so this disclosure stays auditable.  A non-zero pair "
+                     "position 1 also")
+            L.append("#   moves the read half a page, into the OTHER STACKED CELL of the column.")
+            L.append("#   Wherever the mechanism holds this cell has NO effective reader and a")
             L.append("#   perfect repaint here is invisible in game.  To paint it anyway say")
             L.append("#     `%s = true`  (the key above)." % DA.ACK_MOVER_KEY)
             L += _wrap_comment(DA.U_DISPLACEMENT_CAVEAT, "#   ")
@@ -4327,8 +4343,9 @@ def _gate_second_array(targets: Sequence["TexelTarget"]) -> Dict[str, str]:
     ⚠ **IT WITHDRAWS NOTHING AND CHANGES NO BYTE.** The page resolved, the depth is what it was, and a
     build that says :data:`ff9mapkit.summons.depth_attribution.ACK_MOVER_KEY` writes byte-for-byte
     what the same build wrote before this class existed. What the ack buys is that the author read the
-    disclosure -- and what the disclosure says is that under one live reading of a labelling nobody
-    has settled, this cell may have no effective reader at all.
+    disclosure -- and what the disclosure says is that a mechanism MEASURED on ef038 puts this cell's
+    readers somewhere other than where this kit names them, so wherever that mechanism holds the cell
+    has no effective reader at all.
     """
     notes: Dict[str, str] = {}
     for t in targets:
@@ -4337,9 +4354,9 @@ def _gate_second_array(targets: Sequence["TexelTarget"]) -> Dict[str, str]:
         hz = t.page.hazards
         if hz is None or not hz.every_reader_moves:
             continue
-        # BOTH readings in the message, NEITHER preferred -- the same disclosure the refusal and the
-        # scaffold carry, because an author who meets this at BUILD time must not get a shorter
-        # version of it than one who met it at export time.
+        # The MEASURED reading and the retired one, both in the message -- the same disclosure the
+        # refusal and the scaffold carry, because an author who meets this at BUILD time must not get
+        # a shorter version of it than one who met it at export time.
         detail = "; ".join(
             "GEOM %#x (record %#x, A=%#06x B=%#06x, %dbpp, u %d..%d): its tpage names column %d, "
             "SWAPPED reads column(s) %s and ORIGINAL reads column(s) %s"
@@ -4352,9 +4369,9 @@ def _gate_second_array(targets: Sequence["TexelTarget"]) -> Dict[str, str]:
                 "THE SECOND-ARRAY GATE, %s: EVERY `so` reader of VRAM cell %s carries a NON-ZERO "
                 "second-array halfword -- %s.  Nothing about the page is withdrawn and no byte of "
                 "this build would move; what the kit declines to do is let you spend a repaint on a "
-                "cell that may have no effective reader without saying so first.  BOTH candidate "
-                "effective columns are stated above and NEITHER is preferred, because the labelling "
-                "is not settled.  Say `%s = true` on this row if you judge the cell still read -- an "
+                "cell that may have no effective reader without saying so first.  SWAPPED is the "
+                "MEASURED labelling and ORIGINAL is stated above as the RETIRED reading, not as an "
+                "alternative.  Say `%s = true` on this row if you judge the cell still read -- an "
                 "acknowledgement is stated, never inferred, and this one pairs with NO `expect_bpp`: "
                 "it admits no depth, so there is no number for a guard to check.  %s"
                 % (t.name, list(t.page.cell) if t.page.cell else None, detail, DA.ACK_MOVER_KEY,
@@ -4442,7 +4459,7 @@ def _scenery_disclosures(t: "TexelTarget") -> List[str]:
         # ★ THE ACKNOWLEDGED CASE STILL SAYS WHAT WAS ACKNOWLEDGED.  `_gate_second_array` has already
         # refused an unacknowledged row by the time this runs, so reaching here means the author said
         # the word -- and a disclosure that goes quiet the moment it is acknowledged is a disclosure
-        # nobody can audit afterwards.  BOTH readings, neither preferred.
+        # nobody can audit afterwards.  The MEASURED reading and the retired one, both named.
         L.append("SECOND-ARRAY MOVER on all %d reader(s): %s.  %s"
                  % (len(hz.readers),
                     "; ".join("GEOM %#x A=%#06x B=%#06x -> SWAPPED column(s) %s, ORIGINAL "
