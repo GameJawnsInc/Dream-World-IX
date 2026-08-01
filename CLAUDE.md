@@ -190,6 +190,14 @@ fork gates → `building-the-memoria-engine`.
   produced confident wrong verdicts here. A probe that cannot reproduce the lifecycle cannot falsify a
   lifecycle bug; an empty tempdir is not a clean room.
 - **A law in a docstring is a wish** — a rule not enforced at the call site is not enforced.
+- **A GREEN GATE SUITE IS A REGRESSION HARNESS, NOT AN ORACLE.** Measured over the Path-D wall arc: **0 of 13**
+  playtest verdicts were predicted by a gate, because every gate scores an element against stock's MARGINALS
+  and none asks whether stock ever builds that SHAPE. A gate can be green and wrong in the same number.
+  → `studies/path-d-new-world/GROUND-JUNCTION-SYNTHESIS.md`
+- **THE DEFECT FOLLOWS THE AUTHORSHIP.** 12 of 13 verdicts / 32 of 37 named defects in that arc landed on
+  whatever the round had most recently authored. The cheapest way to stop minting defects is to stop minting
+  surface — and the ground/uv/normal fix you are about to write may be for a mechanism the engine does not
+  even read (WorldMap/Terrain binds NO normal).
 - **A parse-level defect is invisible to review.** A `: ` or ` #` inside an unquoted YAML frontmatter
   scalar silently truncates or kills a skill/memory description, with no error anywhere. Verify by
   parsing. → [[project-ff9-yaml-frontmatter-trap]].
@@ -279,7 +287,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3ii ★★ BPP8 0.96; U1 ★★★ CLOSED — the 2nd array = per-slot (du,dv) texel displacement, mechanism-read 0.97 on ef038 → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
 - Click authoring — ★ Rungs 0-4 + rung 6 gateways owner-confirmed in-game; the floorplan composer 6a-6c built, Floorplan tab shipped → `studies/click-authoring/RUNG6.md`
-- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a; MESA CARRY: the TOP PASSES; base grammar DECODED (THE BAND-CONTINUATION LAW) — next = the lawful base re-mint → `studies/path-d-new-world/BASE-TILE-GRAMMAR.md`
+- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a; MESA CARRY: the TOP PASSES. ⚠ THE GROUND JUNCTION IS THE OPEN PROBLEM and 8 rounds relocated it, never removed it — read `studies/path-d-new-world/GROUND-JUNCTION-SYNTHESIS.md` BEFORE any wall/ground work
 - Interactive docs (docsite/) — site+CLI-ref+shots+tutorial system BUILT, gates green; core track S1-S7 drafted (playtest pending), CLI track C1-C4 shipped → `studies/interactive-docs/`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
