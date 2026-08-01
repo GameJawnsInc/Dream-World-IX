@@ -823,9 +823,65 @@ def main() -> int:
         t = ((p2[0] - ax) * (bx - ax) + (p2[1] - az) * (bz - az)) / L2
         return t if 1e-4 < t < 1 - 1e-4 else None
 
+    # THE SHINGLE CUT (THE SEA4-UNDER-LAND LAW, obeyed late): ground UNDER ground
+    # captures the walk ray and the movement cache -- the overlay's continuous
+    # under-lawn grounded the actor at 3.2 THROUGH the mountain (playtest). The
+    # law's fix is CUTTING the under-sheet. Drop lawn tris wholly inside the
+    # carried footprint (plan), BELOW the carried surface, with >= SHINGLE margin
+    # from the boundary: the kept strip tucks under the collar rim (boundary slits
+    # still show grass), while the hidden cut edge breaks the ground-query cache so
+    # the actor re-grounds on the carried surface (pop-up steps med 0.4 p90 0.92
+    # vs the engine's 2.34375 allowance).
+    SHINGLE = 1.2
+    bseg9 = []
+    for l9 in posed_loops:
+        for q9 in range(len(l9)):
+            a9, b9 = l9[q9], l9[(q9 + 1) % len(l9)]
+            bseg9.append((a9[0], a9[2], b9[0], b9[2]))
+
+    def bdist9(px9, pz9):
+        best9 = 1e9
+        for (ax9, az9, bx9, bz9) in bseg9:
+            dx9, dz9 = bx9 - ax9, bz9 - az9
+            L29 = (dx9 * dx9 + dz9 * dz9) or 1.0
+            t9 = max(0.0, min(1.0, ((px9 - ax9) * dx9 + (pz9 - az9) * dz9) / L29))
+            best9 = min(best9, math.hypot(px9 - (ax9 + t9 * dx9),
+                                          pz9 - (az9 + t9 * dz9)))
+        return best9
+
+    def surf_above9(px9, pz9, y9):
+        for t3c in cov_hash.get((int(px9 // 4), int(pz9 // 4)), ()):
+            (x1, z1), (x2, z2), (x3, z3) = ((p[0], p[2]) for p in t3c)
+            det9 = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
+            if abs(det9) < 1e-12:
+                continue
+            w29 = ((px9 - x1) * (z3 - z1) - (x3 - x1) * (pz9 - z1)) / det9
+            w39 = ((x2 - x1) * (pz9 - z1) - (px9 - x1) * (z2 - z1)) / det9
+            if w29 >= -1e-6 and w39 >= -1e-6 and w29 + w39 <= 1 + 1e-6:
+                y9s = ((1 - w29 - w39) * t3c[0][1] + w29 * t3c[1][1]
+                       + w39 * t3c[2][1])
+                if y9s > y9 + 0.05:
+                    return True
+        return False
+
+    drop9 = set()
+    for ti9, t9r in enumerate(tris):
+        if t9r["topo"] not in GRASS_TOPO:
+            continue
+        if math.hypot(t9r["cen"][0] - CENTER[0],
+                      t9r["cen"][2] - CENTER[1]) > rim_r_max + 8.0:
+            continue
+        if (all(surf_above9(p[0], p[2], p[1]) for p in t9r["w"])
+                and all(bdist9(p[0], p[2]) >= SHINGLE for p in t9r["w"])):
+            drop9.add(ti9)
+    print(f"   shingle cut: {len(drop9)} lawn tris dropped under the carried "
+          f"footprint ({SHINGLE}u margin strip tucks under the rim)")
+
     kept_out = []                                           # (t3, uv3, n3, tan3, blk)
     n_kept_split = 0
     for ti in grass_keep:
+        if ti in drop9:
+            continue
         t = tris[ti]
         d0 = math.hypot(t["cen"][0] - CENTER[0], t["cen"][2] - CENTER[1])
         if t["topo"] not in (GRASS_TOPO | {53, 54, 55, 56}) or d0 > rim_r_max + 16.0:
@@ -1390,6 +1446,16 @@ def main() -> int:
                 if abs(y8 - p8[1]) <= 0.12:
                     return True
         return False
+
+    # THE SHINGLE CLASS: the under-lawn's cut edge, hidden beneath the carried
+    # surface by construction (both endpoints covered from above)
+    shg9 = [e for e in grew_bad
+            if surf_above9(e[0][0], e[0][2], e[0][1] - 0.02)
+            and surf_above9(e[1][0], e[1][2], e[1][1] - 0.02)]
+    if shg9:
+        print(f"   {len(shg9)} once-edges are the SHINGLE cut edge (hidden under "
+              f"the carried surface)")
+        grew_bad = [e for e in grew_bad if e not in set(shg9)]
 
     ovl = [e for e in grew_bad if on_carried(e[0]) and on_carried(e[1])]
     if ovl:
