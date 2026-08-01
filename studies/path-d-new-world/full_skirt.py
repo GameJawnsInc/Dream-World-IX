@@ -358,6 +358,37 @@ def main() -> int:
     if n_relax:
         print(f"   rim relaxation: {n_relax} high-rim collar tris released to bare "
               f"weld (cap = rim med {ref_med:.2f} + {RIM_CAP})")
+
+    # THE BORDER WELD: re-basing two donor blocks into ONE bench mesh removes the
+    # per-block rendering that hid stock's own ~0.1-0.35u cross-border mismatch --
+    # in-game it reads as a see-through slit from the seaward side (playtest:
+    # (422,-480), direction-dependent = backface culling on the open lip). Border
+    # vert clusters with the same plan key and y-spread <= 0.35 snap to the
+    # lowest-block value. Declared carried-byte motion: border lines only, <=0.35u.
+    bcl = defaultdict(list)
+    for t in (carry | apron):
+        for k7 in range(3):
+            p7 = soup[t]["w"][k7]
+            if (min(p7[0] % 64.0, 64.0 - p7[0] % 64.0) < 1e-3
+                    or min(p7[2] % 64.0, 64.0 - p7[2] % 64.0) < 1e-3):
+                bcl[(round(p7[0], 3), round(p7[2], 3))].append(
+                    (t, k7, p7[1], soup[t]["blk"]))
+    n_sn = 0
+    for key7, mem in bcl.items():
+        ys7 = sorted({round(m[2], 6) for m in mem})
+        if len(ys7) < 2 or ys7[-1] - ys7[0] > 0.35:
+            continue
+        if len({m[3] for m in mem}) < 2:
+            continue
+        y_c = min(mem, key=lambda m: m[3])[2]
+        for (t, k7, y7, b7) in mem:
+            if abs(y7 - y_c) > 1e-9:
+                w7 = soup[t]["w"][k7]
+                soup[t]["w"][k7] = (w7[0], y_c, w7[2])
+                n_sn += 1
+    if n_sn:
+        print(f"   border weld: {n_sn} carried border verts canonicalized "
+              f"(<=0.35u, declared)")
     carrall = carry | apron
 
     # ---- rim loops (donor frame; plan is pose-invariant) + THE SEAT ------------------------
@@ -561,8 +592,12 @@ def main() -> int:
                 keep_neg.append(m)
         return keep_pos, keep_neg
 
-    rim_lines = [((c[0][0], c[0][2]), (c[1][0] - c[0][0], c[1][2] - c[0][2]))
-                 for c in all_chords]
+    # THE OVERLAY: no slicing, no rim weld. The pristine lawn ships CONTINUOUS and
+    # byte-verbatim under everything; the carried skirt lies on top (steps capped by
+    # the relaxation, med ~0.2u) -- stock's own sheet-overlap idiom, and the lawn
+    # beneath closes every hairline sightline (both photographed seams were
+    # see-throughs into dropped-lawn voids).
+    rim_lines = []
     grass_keep, grass_cut, dropped = [], [], 0
     rim_r_max = max(math.hypot(p[0] - CENTER[0], p[1] - CENTER[1]) for p in outer_poly)
 
@@ -580,6 +615,9 @@ def main() -> int:
                 cov_hash[(cx5, cz5)].append(t3c)
 
     def covered(px5, pz5):
+        # NEAR-GROUND cover only: a wall face floating high above the lawn does not
+        # cover it -- dropping lawn under a floating wall bottom opened a sky
+        # triangle where the wall crosses the coast band (playtest: (383,-520)).
         for t3c in cov_hash.get((int(px5 // 4), int(pz5 // 4)), ()):
             (x1, z1), (x2, z2), (x3, z3) = ((p[0], p[2]) for p in t3c)
             det5 = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
@@ -588,13 +626,20 @@ def main() -> int:
             w25 = ((px5 - x1) * (z3 - z1) - (x3 - x1) * (pz5 - z1)) / det5
             w35 = ((x2 - x1) * (pz5 - z1) - (px5 - x1) * (z2 - z1)) / det5
             if w25 >= -1e-9 and w35 >= -1e-9 and w25 + w35 <= 1 + 1e-9:
-                return True
+                y5 = ((1 - w25 - w35) * t3c[0][1] + w25 * t3c[1][1]
+                      + w35 * t3c[2][1])
+                if y5 <= LOWLAND + 1.0:
+                    return True
         return False
 
     def keep_pg(pg):
-        cx3 = sum(p[0] for p in pg) / len(pg)
-        cz3 = sum(p[1] for p in pg) / len(pg)
-        return not covered(cx3, cz3)
+        # DROP NOTHING. Any keep/drop boundary without a weld is a hole factory --
+        # the polygon test over-claimed (run 1), near-ground cover relocated the
+        # boundary to the weld's plan line (run 8). The lawn sheet stays CONTINUOUS
+        # everywhere; carried surfaces sit on top and hide it. Flat coplanar
+        # continuation is the class the coarsening A/B measured as visually inert,
+        # and the engine's down-ray hits the higher surface first.
+        return True
     for ti, t in enumerate(tris):
         if t["topo"] not in GRASS_TOPO:
             grass_keep.append(ti)
@@ -715,15 +760,7 @@ def main() -> int:
     # BOTH paths -- kept tris and cut fragments -- interpolate the same welded
     # surface. Iteration 3 welded only the kept path; fragments lerped the unwelded
     # parent, cracking every shared edge (the 53-edge cut/kept pair class).
-    vweld = {}
-    for t in tris:
-        if t["topo"] not in GRASS_TOPO:
-            continue
-        for p in t["w"]:
-            key5 = (round(p[0], 4), round(p[2], 4))
-            if key5 in rimy and abs(rimy[key5] - p[1]) > 1e-9:
-                vweld[kk(p)] = rimy[key5]
-    print(f"   conforming weld: {len(vweld)} original bench verts take rim y")
+    vweld = {}                                              # OVERLAY: the lawn never moves
 
     def parent_dispy(t, p2):
         """y of plan point p2 on the parent tri's WELDED surface (affine)."""
@@ -759,14 +796,10 @@ def main() -> int:
 
     grass_cut = [(ti, [enrich_rim_edges(pg) for pg in pieces])
                  for ti, pieces in grass_cut]
+    # OVERLAY: the conformance vocabulary is EMPTY -- there are no fragments to
+    # pair with, so splitting kept tris at rim verts is vestigial damage (it split
+    # the bench's own coast-nav seal faces; the bench ships VERBATIM).
     frag_verts2 = {}
-    for ti, pieces in grass_cut:
-        for pg in pieces:
-            for q in pg:
-                frag_verts2[(round(q[0], 3), round(q[1], 3))] = q
-    for chain2 in chord_pts:
-        for _t2, p in chain2:
-            frag_verts2[(round(p[0], 3), round(p[2], 3))] = (p[0], p[2])
 
     def affine_attr(t, p2, chan):
         (x1, z1), (x2, z2), (x3, z3) = ((t["w"][k][0], t["w"][k][2]) for k in range(3))
@@ -1015,18 +1048,12 @@ def main() -> int:
     clusters = defaultdict(list)
     for k3 in uniq_v:
         clusters[mfind(k3)].append(k3)
+    # OVERLAY: the micro-weld is OFF -- nothing welds across the carried/bench
+    # boundary (it merged a carried rim vert into a bench seal vert and re-keyed
+    # the seal faces into a once-edge). Carried-internal splinters are donor bytes
+    # and ship verbatim; the bench ships untouched.
     vmap = {}
     n_mw = 0
-    for _root, ks in clusters.items():
-        if len(ks) < 2:
-            continue
-        canon = (sorted(k3 for k3 in ks if k3 in bench_verts)
-                 or sorted(k3 for k3 in ks if k3 in crest_keys)
-                 or sorted(ks))[0]
-        for k3 in ks:
-            if k3 != canon:
-                vmap[k3] = uniq_v[canon]
-                n_mw += 1
     if vmap:
         out_mw = []
         n_dropped = 0
@@ -1047,7 +1074,7 @@ def main() -> int:
     # invisible because nothing separates them.
 
     prev_sw = None
-    for sweep_pass in range(1):
+    for sweep_pass in range(2):                             # pass 2 pairs the verts pass 1 minted
         H2 = defaultdict(list)
         for rec, _blk in final:
             for r in rec:
@@ -1086,6 +1113,16 @@ def main() -> int:
         out_f = []
         n_sw = 0
         for rec, blk in final:
+            # OVERLAY: bench passthrough that is not lawn (coast-nav stamps 53-56,
+            # sea, beach) ships VERBATIM -- the sweep must not split it against
+            # carried verts (it cut the seal faces at an apron rim vert)
+            try:
+                tp9 = X.decode_id(int(round(rec[0][3][0])))["topograph"]
+            except Exception:
+                tp9 = None
+            if tp9 in (53, 54, 55, 56):
+                out_f.append((rec, blk))
+                continue
             ins_all = [[], [], []]
             seen3 = {kk(r[0]) for r in rec}
             for k3 in range(3):
@@ -1330,6 +1367,37 @@ def main() -> int:
                     and abs(e[0][ax] - e[1][ax]) < 5e-3):
                 return True
         return False
+
+    # THE OVERLAY CLASS: the carried skirt's boundary lies ON the continuous lawn --
+    # once by design; the sheet beneath closes every sightline (stock ships the same
+    # class at 2.8-6.8%; the bench's own coast band is built this way).
+    cw8 = {kk(r[0]) for rec in wall for r in rec}
+
+    def on_carried(p8):
+        if kk(p8) in cw8:
+            return True
+        # geometric membership: sweep-split sub-edges insert verts ON carried edges
+        for t3c in cov_hash.get((int(p8[0] // 4), int(p8[2] // 4)), ()):
+            (x1, z1), (x2, z2), (x3, z3) = ((p[0], p[2]) for p in t3c)
+            det8 = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
+            if abs(det8) < 1e-12:
+                continue
+            w28 = ((p8[0] - x1) * (z3 - z1) - (x3 - x1) * (p8[2] - z1)) / det8
+            w38 = ((x2 - x1) * (p8[2] - z1) - (p8[0] - x1) * (z2 - z1)) / det8
+            if w28 >= -1e-6 and w38 >= -1e-6 and w28 + w38 <= 1 + 1e-6:
+                y8 = ((1 - w28 - w38) * t3c[0][1] + w28 * t3c[1][1]
+                      + w38 * t3c[2][1])
+                if abs(y8 - p8[1]) <= 0.12:
+                    return True
+        return False
+
+    ovl = [e for e in grew_bad if on_carried(e[0]) and on_carried(e[1])]
+    if ovl:
+        st8 = [abs(p[1] - LOWLAND) for e in ovl for p in e]
+        print(f"   {len(ovl)} once-edges are the OVERLAY boundary (carried rim over "
+              f"the continuous lawn; step med {float(np.median(st8)):.2f} "
+              f"p90 {float(np.percentile(st8, 90)):.2f}u)")
+        grew_bad = [e for e in grew_bad if e not in set(ovl)]
 
     bord = [e for e in grew_bad if on_border64(e)]
     bord_ok = set()
