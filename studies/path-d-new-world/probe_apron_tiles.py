@@ -112,3 +112,31 @@ for t in apron:
             cells[("BROWN", cell)] += 0                     # marker only
 print(f"apron: {len(apron)} tris; {browns} read BROWN-ish (r > 0.92*g)")
 print(f"tile cells used: {cells.most_common(12)}")
+
+# ---- THE SLOPE-UV LAW: does stock grass uv track PLAN or SURFACE distance? ------------------
+flat_r, steep_r = [], []                                    # tiles per unit (plan, surf) pairs
+for t in apron:
+    ws, uvs = soup[t]["w"], soup[t]["uv"]
+    a = np.array(ws[1]) - np.array(ws[0])
+    b = np.array(ws[2]) - np.array(ws[0])
+    n = np.cross(a, b)
+    L = np.linalg.norm(n)
+    if L < 1e-9:
+        continue
+    slope = math.degrees(math.acos(min(1.0, abs(n[1]) / L)))
+    for i, j in ((0, 1), (1, 2), (2, 0)):
+        plan = math.hypot(ws[j][0] - ws[i][0], ws[j][2] - ws[i][2])
+        surf = math.dist(ws[i], ws[j])
+        duv = math.hypot((uvs[j][0] - uvs[i][0]) / TILE_U,
+                         (uvs[j][1] - uvs[i][1]) / TILE_V)
+        if plan < 0.5 or duv < 1e-6:
+            continue
+        (steep_r if slope > 18.0 else flat_r).append((duv / plan * 4.0, duv / surf * 4.0))
+for name, rows in (("flat(<18deg)", flat_r), ("steep(>18deg)", steep_r)):
+    if rows:
+        pp = [r[0] for r in rows]
+        ss = [r[1] for r in rows]
+        print(f"{name}: n={len(rows)}  tiles/4u-PLAN med {np.median(pp):.3f} "
+              f"(p25 {np.percentile(pp,25):.3f} p75 {np.percentile(pp,75):.3f})  "
+              f"tiles/4u-SURF med {np.median(ss):.3f} "
+              f"(p25 {np.percentile(ss,25):.3f} p75 {np.percentile(ss,75):.3f})")

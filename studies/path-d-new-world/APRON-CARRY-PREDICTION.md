@@ -152,3 +152,43 @@ some seams. the connection is nice though."*
   the apron's carried value is its GEOMETRY and the weld line, not its home tile
   phases. Wall uv untouched — carry purity of the band stands. Geometry, normals,
   and topograph tags stay donor.
+
+## PLAYTEST 2 (2026-07-31): brown fixed; the surface lever's DECLARED ITERATION
+
+Owner (three screenshots — west base (384,−511), SE base (444,−519), north base
+(419,−490)): *"seam + stretched grass"* (west) — *"cliff base colliding with
+raised-grass cliff, covering the base"* (SE) — *"seam + stretched grass on the
+other side of that hill"* (north). Brown not re-named — the retile held. Every
+defect is on the outer ground junction: the registered "soften/widen the outer
+blend" lever, one iteration, applied as a bundle (one surface, one lever):
+
+- **Stretched grass, root-caused by measurement** (`probe_apron_tiles.py`, the
+  slope-uv addendum): stock grass uv tracks SURFACE distance (steep tris hold the
+  flat per-surface rate 0.981 vs 0.982 while the per-plan rate inflates). The L3
+  retile was plan-projected — up to ~20-40% stretch on the steep collar. The apron
+  RESTORES its donor uv (surface-lawful, full carry purity back); only the donor
+  meadow's DIRT band (col 5 rows 8-11 — playtest-1's brown) re-rows into the
+  donor's own grass family, phases preserved (keep-u/swap-the-row on ground; the
+  family self-tiles, so row parity folds 8-11 into 24-25 with every seam exact).
+- **The seams, identified by elimination + the residue dump:** they survived BOTH
+  uv schemes → not texture. Screenshot 1's west seam = the donor blocks' own
+  cross-border hairline at posed x=384 (0.03u y-mismatch, stock's own, under the
+  strict weld net); screenshot 3's north seam = a TRIANGULAR HOLE at (420,−490)
+  (a donor step face whose class the apron flood excluded). Three targeted
+  passes: a BORDER STITCH (64-grid border lines, 0.12u net), a HOLE CAPPER
+  (once-edge 3-cycles = missing facets), and a RESIDUE STITCH (parallel
+  once-edge chains, repair restricted to the residue so it cannot crawl). Plus
+  one smooth ground-normal field over the whole touched surface (apron +
+  fragments + lifted bench, area-weighted from final geometry) — the lighting
+  half of the seam class.
+- **The raised-grass cliff:** BLEND_R 12 → 24 (the minted ramp drops from
+  ~25-35° to ≤ ~14°, stock-walkable grass) and the collar back at the registered
+  APRON_D=10 with the bench-grass clip (more donor ground owns the approach).
+  Step patches: donor pocket faces whose verts/edges are already carried join
+  automatically.
+- **Watertight: 5 residual once-edges of 7,404 (0.07%)** — down from the
+  reviewed build's 19; the sweep's two-arm tolerance is measured-optimal (both
+  loosening alternatives made it crawl: 128 and 40 residuals).
+
+Per the registration this was the outer-weld lever's single iteration: if the
+surface still fails, the lane rests pending a ground-approach study.

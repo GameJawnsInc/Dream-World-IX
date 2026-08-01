@@ -27,10 +27,12 @@ from terrace_wall_strip import kk, OUTD, DECODE, ANATOMY    # noqa: F401 -- expl
 
 DONOR_BLK = (15, 14)
 NEIGH = [(14, 14), (16, 14), (15, 13), (15, 15)]
-APRON_D = 6.0                                               # apron collar reach from the weld (plan;
-                                                            # 10.0 pushed the west rim to 48u on a
-                                                            # 50.6u bench -- the reach gate's call)
-BLEND_R = 12.0                                              # bench-side smoothstep radius
+APRON_D = 10.0                                              # apron collar reach (plan; the bench-grass
+                                                            # clip guards the coast, so the full
+                                                            # registered collar is back)
+BLEND_R = 24.0                                              # bench-side smoothstep radius (12 minted a
+                                                            # 25-35deg "raised-grass cliff"; 24 keeps
+                                                            # the ramp under ~14deg, stock-walkable)
 PLATEAU_T = {10, 11, 12}                                    # plateau topograph classes (the wall studies')
 
 
@@ -257,6 +259,28 @@ def main() -> int:
           f"(by block {dict(ap_blk)}); {n_clip[0]} tris clipped at the bench's own "
           f"grass edge; forest EXCLUDED at the weld: {n_forest_weld} edges"
           + (f", forest y {min(forest_y):.1f}..{max(forest_y):.1f}" if forest_y else ""))
+    # STEP PATCHES: a donor tri whose verts are ALL already carried is a pocket face
+    # (the donor's own step/flank connecting two carried sheets -- e.g. the 2u
+    # vertical slit at posed (420,-490), a non-grass facet the class flood excluded).
+    # Carrying it closes the hole and cannot extend the boundary. Fixpoint loop.
+    while True:
+        got_c = apron | carry
+        av = {kk(p) for t in got_c for p in soup[t]["w"]}
+        shared_e = Counter()
+        for e, ts in ET.items():
+            ins = [t for t in ts if t in got_c]
+            outs = [t for t in ts if t not in got_c]
+            if ins and outs:
+                for t in outs:
+                    shared_e[t] += 1
+        patch = {si for si in range(len(soup)) if si not in got_c
+                 and (all(kk(p) in av for p in soup[si]["w"])
+                      or shared_e.get(si, 0) >= 2)}
+        if not patch:
+            break
+        print(f"   step patches: {len(patch)} donor tris included (topo "
+              f"{Counter(soup[t]['topo'] for t in patch).most_common(4)})")
+        apron |= patch
     carrall = carry | apron
 
     # ---- rim loops (donor frame; plan is pose-invariant) + THE SEAT ------------------------
@@ -757,40 +781,48 @@ def main() -> int:
         qo = UF.decode_quad_ori(ccell, t["w"], [tuple(u2) for u2 in t["uv"]])
         if qo is not None:
             pre_quad[ccell], pre_ori[ccell] = qo
-    # THE APRON RETILE (playtest-1's lever): the apron's ground wears the
-    # DESTINATION's L3 tiling. Grass tiling is POSITIONAL law -- the donor's home
-    # tiles brought its dirt band (col 5 rows 8-11, the "weird brown tiles") and its
-    # own tile phases (the rim pattern seams). uv = ground_uv over the bench's own
-    # seeded cell decode, so the pattern continues across the rim by construction.
-    # Geometry / normals / topograph tags stay donor; WALL uv untouched.
+    # THE DIRT RE-ROW (playtest-2's lever, the 'brown' half): the apron keeps its
+    # DONOR uv -- the slope-uv probe measured stock grass tracking SURFACE distance,
+    # so the L3 plan projection was the "stretched grass" (up to ~20-40% on the steep
+    # collar); donor uv is surface-lawful by construction. Only the donor meadow's
+    # DIRT band (atlas col 5 rows 8-11, the "weird brown tiles") re-rows into the
+    # donor's own grass family, phases preserved -- the base-tile study's keep-u/
+    # swap-the-row idiom applied to ground. Row parity folds 8-11 into 24-25 (the
+    # family self-tiles), col 5 -> 0 uniformly; every uv delta is tile-exact, so
+    # continuity inside the band survives the swap.
     def rec_is_apron_ground(rec):
         try:
             return X.decode_id(int(round(rec[0][3][0])))["topograph"] in GRASS_TOPO
         except Exception:
             return False
 
-    apr_cells = {tri_cell([r[0] for r in rec]) for rec in wall
-                 if rec_is_apron_ground(rec)}
-    top_cells = sorted({tri_cell(t3) for t3 in top_tris} | apr_cells)
+    n_rerow = 0
+    wall_rr = []
+    for rec in wall:
+        if not rec_is_apron_ground(rec):
+            wall_rr.append(rec)
+            continue
+        us = [r[1][0] for r in rec]
+        vs = [r[1][1] for r in rec]
+        ccol = int(math.floor((min(us) - pu_ph) / TILE_U + 0.5))
+        crow = int(math.floor((min(vs) - pv_ph) / TILE_V + 0.5))
+        if ccol == 5 and 8 <= crow <= 11:
+            du_t = -5 * TILE_U
+            dv_t = ((24 + (crow % 2)) - crow) * TILE_V
+            wall_rr.append([(r[0], (r[1][0] + du_t, r[1][1] + dv_t), r[2], r[3])
+                            for r in rec])
+            n_rerow += 1
+        else:
+            wall_rr.append(rec)
+    wall = wall_rr
+    print(f"dirt re-row: {n_rerow} apron tris (col 5 rows 8-11) -> the grass family, "
+          f"phases preserved")
+    top_cells = sorted({tri_cell(t3) for t3 in top_tris})
     q2, o2 = UF.assign_mains_seeded([c for c in top_cells if c not in pre_quad],
                                     dict(pre_quad), dict(pre_ori), seed=SEED ^ 0xF92)
     cell_qo = {c: (pre_quad[c], pre_ori[c]) for c in top_cells if c in pre_quad}
     cell_qo.update({c: (q2[c], o2[c]) for c in q2 if c in set(top_cells)})
     print(f"L3 top: {len(pre_quad)} cells decoded from bench grass, {len(q2)} policy-resolved")
-    n_ret = 0
-    wall_rt = []
-    for rec in wall:
-        if not rec_is_apron_ground(rec):
-            wall_rt.append(rec)
-            continue
-        ccell = tri_cell([r[0] for r in rec])
-        quad, ori = cell_qo[ccell]
-        wall_rt.append([(r[0], tuple(G.ground_uv(r[0][0], r[0][2], ccell, quad, ori)),
-                         r[2], r[3]) for r in rec])
-        n_ret += 1
-    wall = wall_rt
-    print(f"apron retile: {n_ret} ground tris -> the bench's own L3 field "
-          f"({len(apr_cells)} cells)")
     top_out = []
     for t3 in top_tris:
         ccell = tri_cell(t3)
@@ -910,6 +942,82 @@ def main() -> int:
         print(f"   micro-weld: {n_mw} splinter verts merged, {n_dropped} collapsed "
               f"tris dropped")
 
+    # THE BORDER STITCH: donor cross-border hairlines. The two donor blocks tile
+    # their shared 64-grid border line DIFFERENTLY (stock's own ~0.03u y-mismatch);
+    # a vert on the line splits any other tri edge running along the SAME line when
+    # within 0.12u -- deterministic on both sides, scope = border lines only. This
+    # was the owner's screenshot-1 seam at posed x=384.
+    def border_line(p):
+        bx_ = p[0] % 64.0
+        bz_ = p[2] % 64.0
+        if min(bx_, 64.0 - bx_) < 1e-3:
+            return ("x", round(p[0] / 64.0) * 64.0)
+        if min(bz_, 64.0 - bz_) < 1e-3:
+            return ("z", round(p[2] / 64.0) * 64.0)
+        return None
+
+    bverts = defaultdict(dict)
+    for rec, _b in final:
+        for r in rec:
+            bl = border_line(r[0])
+            if bl:
+                bverts[bl][kk(r[0])] = r[0]
+    out_bs = []
+    n_bs = 0
+    for rec, blk in final:
+        ins_all = [[], [], []]
+        seen_b = {kk(r[0]) for r in rec}
+        for k3 in range(3):
+            a_r, b_r = rec[k3], rec[(k3 + 1) % 3]
+            bla, blb = border_line(a_r[0]), border_line(b_r[0])
+            if bla is None or bla != blb:
+                continue
+            ab = tuple(b_r[0][q3] - a_r[0][q3] for q3 in range(3))
+            L2b = sum(v * v for v in ab)
+            if L2b < 1e-12:
+                continue
+            got_b = {}
+            for kp, p in bverts[bla].items():
+                if kp in seen_b or kp in got_b:
+                    continue
+                t = sum((p[q3] - a_r[0][q3]) * ab[q3] for q3 in range(3)) / L2b
+                if not (1e-4 < t < 1 - 1e-4):
+                    continue
+                q = tuple(a_r[0][q3] + t * ab[q3] for q3 in range(3))
+                if math.dist(p, q) <= 0.12:
+                    got_b[kp] = (t, p)
+            ins_all[k3] = sorted(got_b.values())
+        if not any(ins_all):
+            out_bs.append((rec, blk))
+            continue
+        n_bs += sum(len(i3) for i3 in ins_all)
+        poly = []
+        for k3 in range(3):
+            a_r, b_r = rec[k3], rec[(k3 + 1) % 3]
+            poly.append(a_r)
+            for t, p in ins_all[k3]:
+                uv_m = tuple(a_r[1][q3] + t * (b_r[1][q3] - a_r[1][q3])
+                             for q3 in range(2))
+                n_m = tuple(a_r[2][q3] + t * (b_r[2][q3] - a_r[2][q3])
+                            for q3 in range(3))
+                poly.append((tuple(p), uv_m, n_m, a_r[3]))
+        hitset = {k3 for k3 in range(3) if ins_all[k3]}
+        if len(hitset) == 1:
+            c_key = kk(rec[(next(iter(hitset)) + 2) % 3][0])
+        elif hitset == {0, 1}:
+            c_key = kk(rec[1][0])
+        elif hitset == {1, 2}:
+            c_key = kk(rec[2][0])
+        else:
+            c_key = kk(rec[0][0])
+        start = next(q3 for q3 in range(len(poly)) if kk(poly[q3][0]) == c_key)
+        cyc = poly[start:] + poly[:start]
+        for q3 in range(1, len(cyc) - 1):
+            out_bs.append(([cyc[0], cyc[q3], cyc[q3 + 1]], blk))
+    final = out_bs
+    if n_bs:
+        print(f"   border stitch: {n_bs} splits along donor 64-grid border lines")
+
     prev_sw = None
     for sweep_pass in range(1):
         H2 = defaultdict(list)
@@ -940,6 +1048,10 @@ def main() -> int:
             if not (1e-4 < t < 1 - 1e-4):
                 return None
             q = (a[0] + t * ab[0], a[1] + t * ab[1], a[2] + t * ab[2])
+            # the PROVEN two-arm rule (runs 5-6 measured both alternatives: loosening
+            # lifted ground makes the sweep CRAWL 486 splits / 128 residue, loosening
+            # carried edges 265/40; the border+hole classes get their own targeted
+            # passes instead)
             tol = 0.065 if min(a[1], b2[1]) > LOWLAND + 2.0 else 2e-3
             return t if math.dist(p, q) <= tol else None
 
@@ -993,6 +1105,166 @@ def main() -> int:
             print("   T-sweep DIVERGING -- stopped; the audit will show the state")
             break
         prev_sw = n_sw
+
+    # THE HOLE CAPPER: a 3-cycle of once-edges is a missing TRIANGLE -- e.g. the
+    # (420,-490) donor step face whose class the apron flood excluded (the owner's
+    # screenshot-3 slit). Cap it with its ring verts' own attrs; a 0.1u-wide facet.
+    cnt0 = defaultdict(int)
+    for t in tris:
+        ps = [kk(p) for p in t["w"]]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            cnt0[tuple(sorted((ps[a], ps[b])))] += 1
+    pre_once = {e for e, n in cnt0.items() if n == 1}
+    ecnt = defaultdict(int)
+    for rec, _b in final:
+        psc = [kk(r[0]) for r in rec]
+        for a2, b2 in ((0, 1), (1, 2), (2, 0)):
+            ecnt[tuple(sorted((psc[a2], psc[b2])))] += 1
+    onceE = [e for e, n2 in ecnt.items()
+             if n2 == 1 and e[0] != e[1] and e not in pre_once]
+    oadj = defaultdict(set)
+    for a2, b2 in onceE:
+        oadj[a2].add(b2)
+        oadj[b2].add(a2)
+    attr_of = {}
+    for rec, _b in final:
+        for r in rec:
+            attr_of.setdefault(kk(r[0]), r)
+    capped = 0
+    done_cyc = set()
+    for a2 in list(oadj):
+        for b2 in list(oadj[a2]):
+            for c2 in list(oadj[b2]):
+                if c2 == a2 or a2 not in oadj[c2]:
+                    continue
+                keyc = tuple(sorted((a2, b2, c2)))
+                if keyc in done_cyc:
+                    continue
+                done_cyc.add(keyc)
+                rec_c = [attr_of[a2], attr_of[b2], attr_of[c2]]
+                t3c = [np.array(k3) for k3 in (a2, b2, c2)]
+                fn = np.cross(t3c[1] - t3c[0], t3c[2] - t3c[0])
+                nv = np.mean([r[2] for r in rec_c], axis=0)
+                if float(fn @ nv) < 0:
+                    rec_c = [rec_c[0], rec_c[2], rec_c[1]]
+                final.append((rec_c, None))
+                capped += 1
+    if capped:
+        print(f"   hole capper: {capped} once-edge 3-cycles capped")
+
+    # THE RESIDUE STITCH: parallel once-edge chains 0.01-0.05u apart -- a carried
+    # long edge on one side, its neighbour's subdivided chain hairline-off on the
+    # other (below the strict net). Repair is RESTRICTED to the residue itself:
+    # split any once-edge at another once-edge's endpoint lying on it within 0.05u.
+    # Bounded by construction -- only once-edges participate, so it cannot crawl.
+    n_rs_total = 0
+    for _rs in range(3):
+        ecnt2 = defaultdict(int)
+        for rec, _b in final:
+            psc = [kk(r[0]) for r in rec]
+            for a2, b2 in ((0, 1), (1, 2), (2, 0)):
+                ecnt2[tuple(sorted((psc[a2], psc[b2])))] += 1
+        onceS = {e for e, n2 in ecnt2.items()
+                 if n2 == 1 and e[0] != e[1] and e not in pre_once}
+        if not onceS:
+            break
+        opts = {p for e in onceS for p in e}
+        out_rs = []
+        n_rs = 0
+        for rec, blk in final:
+            psc = [kk(r[0]) for r in rec]
+            ins_all = [[], [], []]
+            for k3 in range(3):
+                ek = tuple(sorted((psc[k3], psc[(k3 + 1) % 3])))
+                if ek not in onceS:
+                    continue
+                a_r, b_r = rec[k3], rec[(k3 + 1) % 3]
+                ab = tuple(b_r[0][q3] - a_r[0][q3] for q3 in range(3))
+                L2s = sum(v * v for v in ab)
+                if L2s < 1e-12:
+                    continue
+                got_s = {}
+                for p in opts:
+                    if p in psc or p in got_s:
+                        continue
+                    t = sum((p[q3] - a_r[0][q3]) * ab[q3] for q3 in range(3)) / L2s
+                    if not (1e-4 < t < 1 - 1e-4):
+                        continue
+                    q = tuple(a_r[0][q3] + t * ab[q3] for q3 in range(3))
+                    if math.dist(p, q) <= 0.05:
+                        got_s[p] = (t, p)
+                ins_all[k3] = sorted(got_s.values())
+            if not any(ins_all):
+                out_rs.append((rec, blk))
+                continue
+            n_rs += sum(len(i3) for i3 in ins_all)
+            poly = []
+            for k3 in range(3):
+                a_r, b_r = rec[k3], rec[(k3 + 1) % 3]
+                poly.append(a_r)
+                for t, p in ins_all[k3]:
+                    uv_m = tuple(a_r[1][q3] + t * (b_r[1][q3] - a_r[1][q3])
+                                 for q3 in range(2))
+                    n_m = tuple(a_r[2][q3] + t * (b_r[2][q3] - a_r[2][q3])
+                                for q3 in range(3))
+                    poly.append((tuple(p), uv_m, n_m, a_r[3]))
+            hitset = {k3 for k3 in range(3) if ins_all[k3]}
+            if len(hitset) == 1:
+                c_key = kk(rec[(next(iter(hitset)) + 2) % 3][0])
+            elif hitset == {0, 1}:
+                c_key = kk(rec[1][0])
+            elif hitset == {1, 2}:
+                c_key = kk(rec[2][0])
+            else:
+                c_key = kk(rec[0][0])
+            start = next(q3 for q3 in range(len(poly)) if kk(poly[q3][0]) == c_key)
+            cyc = poly[start:] + poly[:start]
+            for q3 in range(1, len(cyc) - 1):
+                out_rs.append(([cyc[0], cyc[q3], cyc[q3 + 1]], blk))
+        final = out_rs
+        n_rs_total += n_rs
+        if not n_rs:
+            break
+    if n_rs_total:
+        print(f"   residue stitch: {n_rs_total} splits on once-edge chains")
+
+    # ---- GROUND NORMAL HARMONIZATION (playtest-2's lever, the 'seam' half) -----------------
+    # The seams survived BOTH uv schemes (donor tiles, then continuous L3) -- they are
+    # not texture; they are the LIGHTING discontinuity where donor slope normals meet
+    # the bench's flat-up normals at the rim (and fragments carried a single parent
+    # corner normal). One smooth field: every ground vert takes the area-weighted
+    # average of its adjacent ground faces, from FINAL geometry. Wall normals untouched.
+    R_N = rim_r_max + BLEND_R + 4.0
+    acc_n = defaultdict(lambda: np.zeros(3))
+    for rec, _b in final:
+        if not rec_is_apron_ground(rec):
+            continue
+        t3n = [np.array(r[0]) for r in rec]
+        c0 = (t3n[0] + t3n[1] + t3n[2]) / 3.0
+        if math.hypot(c0[0] - CENTER[0], c0[2] - CENTER[1]) > R_N:
+            continue
+        fn = np.cross(t3n[1] - t3n[0], t3n[2] - t3n[0])
+        if fn[1] < 0:
+            fn = -fn                                        # ground faces up
+        for r in rec:
+            acc_n[kk(r[0])] += fn                           # cross magnitude = area weight
+    nmap = {}
+    for k3, v in acc_n.items():
+        Ln = float(np.linalg.norm(v))
+        if Ln > 1e-9:
+            nmap[k3] = (float(v[0] / Ln), float(v[1] / Ln), float(v[2] / Ln))
+    n_sm = 0
+    out_n = []
+    for rec, blk in final:
+        if rec_is_apron_ground(rec):
+            nr = [(r[0], r[1], nmap.get(kk(r[0]), r[2]), r[3]) for r in rec]
+            out_n.append((nr, blk))
+            n_sm += any(nmap.get(kk(r[0])) is not None for r in rec)
+        else:
+            out_n.append((rec, blk))
+    final = out_n
+    print(f"ground normals: {len(nmap)} verts smoothed into one field "
+          f"({n_sm} ground tris updated)")
 
     # ---- gates ------------------------------------------------------------------------------
     fails = []
@@ -1052,12 +1324,6 @@ def main() -> int:
         ps = [kk(p) for p in t3]
         for a, b in ((0, 1), (1, 2), (2, 0)):
             cnt3[tuple(sorted((ps[a], ps[b])))] += 1
-    cnt0 = defaultdict(int)
-    for t in tris:
-        ps = [kk(p) for p in t["w"]]
-        for a, b in ((0, 1), (1, 2), (2, 0)):
-            cnt0[tuple(sorted((ps[a], ps[b])))] += 1
-    pre_once = {e for e, n in cnt0.items() if n == 1}
     for rec, _blk in final:
         _acc([r[0] for r in rec])
     post_once = {e for e, n in cnt3.items() if n == 1}
@@ -1078,12 +1344,46 @@ def main() -> int:
     if n_stock_open:
         print(f"   {n_stock_open} once-edges are STOCK'S OWN open cracks carried "
               f"verbatim (declared class)")
+
+    # DECLARED class 2: the BENCH'S OWN pre-existing open boundary, re-keyed. The
+    # island's grass/coast boundary was open before we arrived (it is in pre_once);
+    # subdividing the grass side re-emits it as sub-edges with new keys. A residual
+    # whose endpoints both lie ON one pre-existing once-edge is that boundary, not a
+    # weld miss.
+    pre_arr = [(np.array(A), np.array(B)) for (A, B) in pre_once]
+
+    def on_pre_once(e):
+        for A, B in pre_arr:
+            ab = B - A
+            L2p = float(ab @ ab)
+            if L2p < 1e-12:
+                continue
+            hit = True
+            for P in e:
+                t = float((np.array(P) - A) @ ab) / L2p
+                if not (-1e-6 <= t <= 1 + 1e-6):
+                    hit = False
+                    break
+                if math.dist(P, tuple(A + t * ab)) > 5e-3:
+                    hit = False
+                    break
+            if hit:
+                return True
+        return False
+
+    rekeyed = [e for e in grew_bad if on_pre_once(e)]
+    if rekeyed:
+        print(f"   {len(rekeyed)} once-edges are the bench's own PRE-EXISTING open "
+              f"boundary re-keyed by subdivision (declared class)")
+        grew_bad = [e for e in grew_bad if e not in set(rekeyed)]
     n_dg = sum(1 for e in grew if degen(e))
     n_all_edges = len(cnt3)
     rate = len(grew_bad) / max(1, n_all_edges)
     print(f"watertight: {len(grew)} new once-edges = {n_dg} degenerate + "
           f"{len(grew_bad)} residual of {n_all_edges} edges ({rate:.4%}; STOCK's own "
           f"measured open rate is 2.8-6.8%)")
+    for e in grew_bad:                                      # the full residue, for the record
+        print(f"   once: {e[0]} -- {e[1]}  ({math.dist(e[0], e[1]):.2f}u)")
     long_bad = [e for e in grew_bad if math.dist(e[0], e[1]) > 5.0]
     if len(grew_bad) > 24:
         fails.append(f"watertight: {len(grew_bad)} residual once-edges exceed the "
