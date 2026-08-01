@@ -372,3 +372,47 @@ owner has been naming most loudly.
 Still owed before any registration: the owner's three in-game stills (the seam class
 has never been reproduced by any instrument, and it is now the only class without a
 measured carrier).
+
+---
+
+## THE LOCALISATION SNAPS — the owner delivered, and the model CLOSED
+
+Two stills: (375,−508) showing both white seam lines on the lawn, and (439,−496)
+showing the hill. Byte-hunt results (`probe_white_streaks.py` + scratchpad
+once-edge/coverage locators, live vs pristine):
+
+- **Gutter-sampling FALSIFIED**: 0 bright/white-sampling grass tris on either mesh —
+  the white is not atlas texture.
+- **Overlapping sheets FALSIFIED**: 0 double-covered plan points (1u grid, ring-wide)
+  — the white is not z-fighting.
+- **THE SEAMS ARE HAIRLINE TEARS.** The live mesh holds **85 new once-edges vs
+  pristine's baseline, and they come in near-duplicate PAIRS** — parallel chains
+  offset by ~1-10 mm (e.g. `(380.52,3.12,−520)→(384,3.66,−520.34)` twice, y differing
+  at the 3rd decimal): the two LIPS of a sub-centimeter slit, left where the stitch
+  passes' tolerances fought (micro-weld 0.06 / sweep 0.065 / strict 2e-3 — the exact
+  gap class the synthesis named). Through the slit, the pale sky/backdrop = a thin
+  white dashed line. **Both photographed lines sit on located tear clusters**: line A
+  ↔ the x 372-384 pairs (z −496..−520, the donor block border), line B ↔ the
+  (423-434, −491..−506) east-collar cluster.
+
+**THE COMPLETE CAUSAL MODEL — every owner-named class, mechanism-assigned:**
+
+| class | carrier | evidence |
+|---|---|---|
+| the hill / raised-grass bank | the lift field's SHAPE (S5's off-language mound) | A/B: survives coarsening |
+| the seams | hairline TEARS (stitch-tolerance splinter pairs); white = backdrop through the slit | byte-located at both photographed positions |
+| meadowy corner tiles | sub-cell WINDOW MIXING on the shattered sheet (25.9% mixed-quadrant cells vs stock 2.3%) | A/B: mottling vanishes when coarsened; medium confidence |
+
+All three are artifacts of ONE construction choice: the per-vertex lift + partition +
+stitch cascade. The pristine bench has none of the three. The buried-mesa round — the
+only round with no cascade on the lawn — drew zero lawn complaints. The recurrence
+question the owner asked ("why do we keep getting problems iteration after
+iteration") is now answered at every level: the loop authored new surface each round
+(12/13), the gates could not see shape (0/13), and the machinery every round leaned
+on — the per-vertex reconciliation — is itself the generator of all three defect
+classes. **The next build's spec is therefore a deletion, not an addition: no bench
+vertex may be moved per-point, no partition, no stitch pass.** The lawful junction
+shapes on the table (S5 + the A/B): a level host with no lift (the bury family, whose
+only faults were foot-texture classes now decoded by the band-continuation law), a
+sustained ~1u datum, or the cell rule WITHOUT surface-sampled heights. Choosing among
+them is the owner's call — each trades differently on the transition band.
