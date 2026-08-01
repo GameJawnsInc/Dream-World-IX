@@ -65,3 +65,32 @@ ONLY within the declared 4.4u coast sector → within registration; PLUMBING →
 stop.
 
 One round. Scored on the owner's verdict.
+
+## BUILD STATE (2026-08-01) — four offline iterations, GATES STILL RED, NOT deployed
+
+What landed first try and held through every iteration: **FRINGE 100%** (37/37
+grass-adjacent weld edges sample the strip — the pinned target), band 100%, the blob
+carried whole (64, closing the forest weld 1:1), the east extension riding the hill
+down (rim p90 4.3 vs 7.35 unextended), dirt re-row 19, render-only facets 0.
+
+The iteration ledger (each fix principled, each exposing the next sector):
+1. 55 once-edges — the rim POLYGON over-claimed in clip notches (27 kept-holes) and
+   the INFINITE-LINE slicer minted distant coast slivers → replaced with the
+   COVERAGE test + segment-bbox chord filter.
+2. 181 — the south/east extension patches FLOAT where their rim coincides with
+   lattice lines (no fragment forms → no weld) → the shared-vertex weld extended to
+   KEPT verts at rim keys + THE RIM RELAXATION (high-rim collar releases to the
+   declared bare-weld class).
+3. 66 — the mirror sector: the SOUTH rim DIPS below the lawn (donor ground 1.9-2.3)
+   → relaxation made symmetric, cap 1.0 (1.2 minted 2.37u spans vs the 2.34375
+   climb ceiling).
+4. **53 once-edges, 3 tear pairs, 2 climb edges at 2.38 — RED.** Remaining classes:
+   the west coast strip (the long edge at (375,-526)), residual lattice-rim
+   mismatches SW/S, and short mixed rise-dip spans at the relaxed sectors.
+
+The honest reading so far: the no-lift junction works exactly where the probes said
+(the rim near the lawn) and fights exactly where the collar meets terrain the flat
+lawn cannot absorb — high east (handled: extension + relaxation), low south (the
+donor depression, partially handled), the west coast strip (open). The remaining
+work is sector forensics on ~53 edges, not new design. Nothing has been deployed;
+the bench still holds the band-seat build; the branch holds everything.
