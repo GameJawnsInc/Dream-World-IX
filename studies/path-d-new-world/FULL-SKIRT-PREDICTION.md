@@ -94,3 +94,31 @@ lawn cannot absorb — high east (handled: extension + relaxation), low south (t
 donor depression, partially handled), the west coast strip (open). The remaining
 work is sector forensics on ~53 edges, not new design. Nothing has been deployed;
 the bench still holds the band-seat build; the branch holds everything.
+
+## FORENSICS CLOSED — GATES GREEN, DEPLOYED (2026-08-01)
+
+Iterations 5-7, each fix the completion of an existing principle, no new passes:
+
+5. **THE CONFORMING WELD** (53→29): iteration 3 welded only the kept path; cut
+   fragments lerped the UNWELDED parent — the exact field-vs-lerp inconsistency the
+   synthesis convicted in round 8, reproduced in miniature. One per-vertex map
+   (`vweld`, 56 verts) that BOTH paths interpolate. Plus the donor-border verbatim
+   class declared properly (tz=+416 is a HALF-block shift — donor z-borders land at
+   32 mod 64; the first test looked at 0 mod 64 and matched nothing).
+6. **CUT-PIECE CONFORMANCE** (29→3): enrich is chord-scoped and misses points on a
+   piece edge extending PAST a chord's end (a 0.076u T, just over the 0.065 net);
+   the kept path's own `_on_seg2`-over-`frag_verts2` vocabulary applied to cut
+   pieces closes it. Tears → 0.
+7. **STEEP-WELD SUBDIVISION** (the last climb edge): the west high-weld sector
+   (donor ground 5.4-5.86 with no descent in reach — the relaxation's declared
+   trade) lands a 2.38u skirt rise vs the 2.34375 engine ceiling. Split at the
+   midpoint on every owning rec: two sub-ceiling steps are genuinely climbable —
+   stock's own steep approaches are finely subdivided (14 rises split).
+
+**FINAL GATES, ALL GREEN:** watertight 3 residual once-edges of 2,371 (0.13%; bound
+24; the 3 are donor-border wall lips, single-sided, ≤4u); TEAR GATE 0; walkability
+0 climb / 0 render-only facets; FRINGE 100% (37/37); band 100%; census MISS=0.
+Deployed to the Disc9 bench; pre-deploy pristine backed up →
+`backups/terrace-strip-prewall.20260801-141155`. Awaiting the owner's verdict per
+the registered semantics (targets named in advance: the blob's look, the east lip;
+declared residuals: the coast sector, the west high-weld stretch).

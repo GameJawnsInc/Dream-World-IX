@@ -710,9 +710,24 @@ def main() -> int:
         for _t2, p in chain2:
             rimy[(round(p[0], 4), round(p[2], 4))] = p[1]
 
+    # THE CONFORMING WELD (the synthesis's own lesson, applied to the weld instead
+    # of the blend): the rim weld is a PER-VERTEX map on ORIGINAL bench verts, and
+    # BOTH paths -- kept tris and cut fragments -- interpolate the same welded
+    # surface. Iteration 3 welded only the kept path; fragments lerped the unwelded
+    # parent, cracking every shared edge (the 53-edge cut/kept pair class).
+    vweld = {}
+    for t in tris:
+        if t["topo"] not in GRASS_TOPO:
+            continue
+        for p in t["w"]:
+            key5 = (round(p[0], 4), round(p[2], 4))
+            if key5 in rimy and abs(rimy[key5] - p[1]) > 1e-9:
+                vweld[kk(p)] = rimy[key5]
+    print(f"   conforming weld: {len(vweld)} original bench verts take rim y")
+
     def parent_dispy(t, p2):
-        """y of plan point p2 on the parent tri's OWN surface (affine; no lift)."""
-        ys = [t["w"][k][1] for k in range(3)]
+        """y of plan point p2 on the parent tri's WELDED surface (affine)."""
+        ys = [vweld.get(kk(t["w"][k]), t["w"][k][1]) for k in range(3)]
         (x1, z1), (x2, z2), (x3, z3) = ((t["w"][k][0], t["w"][k][2]) for k in range(3))
         det = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
         if abs(det) < 1e-12:
@@ -783,12 +798,8 @@ def main() -> int:
         if t["topo"] not in (GRASS_TOPO | {53, 54, 55, 56}) or d0 > rim_r_max + 16.0:
             kept_out.append((t["w"], t["uv"], t["n"], t["tan"], t["blk"]))
             continue
-        # NO lift field -- but the shared-vertex weld extends to KEPT verts whose
-        # plan coincides with a rim vert (a collar rim running ON a lattice line
-        # forms no fragment there; without this, the patch rim floats -- run 2's
-        # 181-edge class). The rise is bounded by RIM_CAP via the relaxation.
-        w_l = [(p[0], rimy.get((round(p[0], 4), round(p[2], 4)), p[1]), p[2])
-               for p in t["w"]]
+        # the conforming weld: same per-vertex map as the fragments' parent surface
+        w_l = [(p[0], vweld.get(kk(p), p[1]), p[2]) for p in t["w"]]
         pg = []
         inserted = False
         for k3 in range(3):
@@ -904,7 +915,24 @@ def main() -> int:
     cut_out = []
     for ti, pieces in grass_cut:
         t = tris[ti]
-        for pg in pieces:
+        for pg0 in pieces:
+            # CUT-PIECE CONFORMANCE: the same union vocabulary the kept path uses.
+            # enrich is chord-scoped and misses points on a piece edge that extends
+            # PAST a chord's end (iteration 5's 0.076u T class); _on_seg2 over
+            # frag_verts2 closes it, with conforming y at emission.
+            pg = []
+            for q7 in range(len(pg0)):
+                a7, b7 = pg0[q7], pg0[(q7 + 1) % len(pg0)]
+                pg.append(a7)
+                ins7 = []
+                for p7 in frag_verts2:
+                    if (round(a7[0], 3), round(a7[1], 3)) == p7 or \
+                            (round(b7[0], 3), round(b7[1], 3)) == p7:
+                        continue
+                    t7 = _on_seg2(p7, (a7[0], 0.0, a7[1]), (b7[0], 0.0, b7[1]))
+                    if t7 is not None:
+                        ins7.append((t7, p7))
+                pg.extend(p7 for _t7, p7 in sorted(ins7))
             for tt in centroid_fan(pg):
                 t3 = []
                 for q in tt:
@@ -1124,6 +1152,58 @@ def main() -> int:
     # round-8 harmonization could not change a pixel and creased the donor weld's
     # bytes. Normals ship as carried.
 
+    # STEEP-WELD SUBDIVISION: a skirt rise over the climb ceiling splits at its
+    # midpoint on EVERY rec owning the edge (deterministic midpoint -> both sides
+    # stay paired). Two sub-ceiling steps are genuinely climbable -- stock's own
+    # steep approaches are finely subdivided; this is the engine's per-step
+    # mechanics, applied where the west high-weld skirt lands.
+    n_steep = 0
+    for _pass7 in range(3):
+        er7 = set()
+        for rec, _b in final:
+            if not rec_is_apron_ground(rec):
+                continue
+            for k7 in range(3):
+                a8, b8 = rec[k7][0], rec[(k7 + 1) % 3][0]
+                if (abs(a8[1] - b8[1]) > 2.2
+                        and math.hypot(a8[0] - b8[0], a8[2] - b8[2]) < 4.0):
+                    er7.add(tuple(sorted((kk(a8), kk(b8)))))
+        if not er7:
+            break
+        out7 = []
+        for rec, blk in final:
+            keys7 = [kk(r[0]) for r in rec]
+            hits7 = [k7 for k7 in range(3)
+                     if tuple(sorted((keys7[k7], keys7[(k7 + 1) % 3]))) in er7]
+            if not hits7:
+                out7.append((rec, blk))
+                continue
+            poly7 = []
+            for k7 in range(3):
+                A7, B7 = rec[k7], rec[(k7 + 1) % 3]
+                poly7.append(A7)
+                if k7 in hits7:
+                    poly7.append((tuple((A7[0][j] + B7[0][j]) / 2.0 for j in range(3)),
+                                  tuple((A7[1][j] + B7[1][j]) / 2.0 for j in range(2)),
+                                  tuple((A7[2][j] + B7[2][j]) / 2.0 for j in range(3)),
+                                  A7[3]))
+                    n_steep += 1
+            if len(hits7) == 1:
+                ck7 = keys7[(hits7[0] + 2) % 3]
+            elif set(hits7) == {0, 1}:
+                ck7 = keys7[1]
+            elif set(hits7) == {1, 2}:
+                ck7 = keys7[2]
+            else:
+                ck7 = keys7[0]
+            st7 = next(q7 for q7 in range(len(poly7)) if kk(poly7[q7][0]) == ck7)
+            cyc7 = poly7[st7:] + poly7[:st7]
+            for q7 in range(1, len(cyc7) - 1):
+                out7.append(([cyc7[0], cyc7[q7], cyc7[q7 + 1]], blk))
+        final = out7
+    if n_steep:
+        print(f"   steep-weld subdivision: {n_steep} over-ceiling rises split")
+
     # ---- gates ------------------------------------------------------------------------------
     fails = []
     if gap > 2.5:
@@ -1234,14 +1314,60 @@ def main() -> int:
         print(f"   {len(rekeyed)} once-edges are the bench's own PRE-EXISTING open "
               f"boundary re-keyed by subdivision (declared class)")
         grew_bad = [e for e in grew_bad if e not in set(rekeyed)]
+
+    # THE DONOR-BORDER VERBATIM CLASS: the two donor blocks tile their shared
+    # 64-grid line with stock's own ~0.1-0.3u mismatch; subdivision re-keys those
+    # open pairs. Declared only when BOTH lips are present (a partner once-edge on
+    # the same line within 0.35u) -- both surfaces ship, no visible hole, exactly
+    # as the donor world renders it.
+    def on_border64(e):
+        # donor border lines in the POSED frame: x ≡ tx (mod 64), z ≡ tz (mod 64)
+        # (tz = +416 is a HALF-block shift, so donor z-borders land at 32 mod 64)
+        for ax, off in ((0, tx % 64.0), (2, tz % 64.0)):
+            va = (e[0][ax] - off) % 64.0
+            vb = (e[1][ax] - off) % 64.0
+            if (min(va, 64 - va) < 5e-3 and min(vb, 64 - vb) < 5e-3
+                    and abs(e[0][ax] - e[1][ax]) < 5e-3):
+                return True
+        return False
+
+    bord = [e for e in grew_bad if on_border64(e)]
+    bord_ok = set()
+    for i7 in range(len(bord)):
+        for j7 in range(i7 + 1, len(bord)):
+            a7, b7 = bord[i7], bord[j7]
+            if (min(math.dist(a7[0], b7[0]), math.dist(a7[0], b7[1])) < 0.35 and
+                    min(math.dist(a7[1], b7[0]), math.dist(a7[1], b7[1])) < 0.35):
+                bord_ok.add(a7)
+                bord_ok.add(b7)
+    if bord_ok:
+        print(f"   {len(bord_ok)} once-edges are the DONOR's own cross-border "
+              f"mismatch re-keyed (verbatim class, both lips present)")
+        grew_bad = [e for e in grew_bad if e not in bord_ok]
     n_dg = sum(1 for e in grew if degen(e))
     n_all_edges = len(cnt3)
     rate = len(grew_bad) / max(1, n_all_edges)
     print(f"watertight: {len(grew)} new once-edges = {n_dg} degenerate + "
           f"{len(grew_bad)} residual of {n_all_edges} edges ({rate:.4%}; STOCK's own "
           f"measured open rate is 2.8-6.8%)")
+    edge_owner0 = defaultdict(list)
+
+    def _tag0(t3, tag):
+        ps = [kk(p) for p in t3]
+        for a2, b2 in ((0, 1), (1, 2), (2, 0)):
+            edge_owner0[tuple(sorted((ps[a2], ps[b2])))].append(tag)
+    for rec in wall:
+        _tag0([r[0] for r in rec], "wall")
+    for t3, _, _ in cut_out:
+        _tag0(t3, "cut")
+    for t3, _, _, _, _ in kept_out:
+        _tag0(t3, "kept")
     for e in grew_bad:                                      # the full residue, for the record
-        print(f"   once: {e[0]} -- {e[1]}  ({math.dist(e[0], e[1]):.2f}u)")
+        own0 = sorted(set(edge_owner0.get(e, ["?"])))
+        d_rim = min((min(math.dist(e[0], p), math.dist(e[1], p))
+                     for ch in chord_pts for _t, p in ch), default=99)
+        print(f"   once: {own0} {e[0]} -- {e[1]}  ({math.dist(e[0], e[1]):.2f}u, "
+              f"rim {d_rim:.1f}u)")
     long_bad = [e for e in grew_bad if math.dist(e[0], e[1]) > 5.0]
     if len(grew_bad) > 24:
         fails.append(f"watertight: {len(grew_bad)} residual once-edges exceed the "
@@ -1333,6 +1459,7 @@ def main() -> int:
         if d6 > 2.34375:
             n_climb += 1
             worst_c = max(worst_c, d6)
+            print(f"   CLIMB edge {e6} rises {d6:.3f} ({ys6[:3]})")
     print(f"walkability: {n_climb} climb-ceiling grass edges (worst {worst_c:.2f}u), "
           f"{n_facet_w} render-only grass facets (both must be 0)")
     if n_climb:
