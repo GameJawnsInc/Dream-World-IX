@@ -190,6 +190,14 @@ fork gates → `building-the-memoria-engine`.
   produced confident wrong verdicts here. A probe that cannot reproduce the lifecycle cannot falsify a
   lifecycle bug; an empty tempdir is not a clean room.
 - **A law in a docstring is a wish** — a rule not enforced at the call site is not enforced.
+- **A GREEN GATE SUITE IS A REGRESSION HARNESS, NOT AN ORACLE.** Measured over the Path-D wall arc: **0 of 13**
+  playtest verdicts were predicted by a gate, because every gate scores an element against stock's MARGINALS
+  and none asks whether stock ever builds that SHAPE. A gate can be green and wrong in the same number.
+  → `studies/path-d-new-world/GROUND-JUNCTION-SYNTHESIS.md`
+- **THE DEFECT FOLLOWS THE AUTHORSHIP.** 12 of 13 verdicts / 32 of 37 named defects in that arc landed on
+  whatever the round had most recently authored. The cheapest way to stop minting defects is to stop minting
+  surface — and the ground/uv/normal fix you are about to write may be for a mechanism the engine does not
+  even read (WorldMap/Terrain binds NO normal).
 - **A parse-level defect is invisible to review.** A `: ` or ` #` inside an unquoted YAML frontmatter
   scalar silently truncates or kills a skill/memory description, with no error anywhere. Verify by
   parsing. → [[project-ff9-yaml-frontmatter-trap]].
@@ -276,10 +284,10 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3ii Odin ladder ★★ BPP8 0.96; U1 ★★ the 2nd-array U-displacement cast-proven on ef038, pitch axis open → `studies/custom-summons/tier-w/PLAN.md`
+- Summons TIER W ★: W5-W7+W6q cast-proven; W6b-3ii ★★ BPP8 0.96; U1 ★★★ CLOSED — the 2nd array = per-slot (du,dv) texel displacement, mechanism-read 0.97 on ef038 → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
 - Click authoring — ★ Rungs 0-4 + rung 6 gateways owner-confirmed in-game; the floorplan composer 6a-6c built, Floorplan tab shipped → `studies/click-authoring/RUNG6.md`
-- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a proven; minted-plan wall lane CLOSED; ENDPOINT GRAMMAR DECODED (the taper law; the (15,14) mesa = whole-feature candidate) — next = the whole-mesa carry round → `studies/path-d-new-world/ENDPOINT-GRAMMAR.md`
+- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a; MESA CARRY: the TOP PASSES. ⚠ THE GROUND JUNCTION IS THE OPEN PROBLEM and 8 rounds relocated it, never removed it — read `studies/path-d-new-world/GROUND-JUNCTION-SYNTHESIS.md` BEFORE any wall/ground work
 - Interactive docs (docsite/) — site+CLI-ref+shots+tutorial system BUILT, gates green; core track S1-S7 drafted (playtest pending), CLI track C1-C4 shipped; UI gate now covers editor FORM labels (`form:<spec>.<key>`, Qt-free, freshness-tested) → `studies/interactive-docs/` (critique + ranked structural items: `REVAMP-CRITIQUE.md`)
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).

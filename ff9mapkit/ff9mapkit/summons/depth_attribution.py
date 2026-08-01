@@ -104,6 +104,12 @@ __all__ = [
     "GAIN_ARRAY", "ARRAY_MULTIVALUED_CELLS", "ARRAY_IN_REACH_DUAL", "ARRAY_COLUMN_CONFLICT_CELLS",
     "ARRAY_CLASS_C", "ARRAY_CLEAN", "ARRAY_PROGRAM_WRITE", "ARRAY_DEFLATION_OVERLAP",
     "A2_SCOPE_NOTE",
+    # ---- W6b-3 (iii): THE SECOND ARRAY, DISCLOSED.  ADDITIVE ONLY, on exactly the terms channel A
+    # was: no constant above moves, no import-time assert above changes, and NOTHING here enters a
+    # depth, a cover, a page or an emitted byte.  This is a DISCLOSURE about READERSHIP, which is a
+    # different question from every depth channel in this module.
+    "ACK_MOVER_KEY", "U_DISPLACEMENT_CAVEAT", "U_DISPLACEMENT_ACK_WARNING",
+    "SECOND_ARRAY_MOVER_CELLS", "SECOND_ARRAY_MOVER_OPEN", "SECOND_ARRAY_MOVER_CONTAINERS",
 ]
 
 # ---------------------------------------------------------------- THE COUNT PINS (asserted at import)
@@ -365,6 +371,76 @@ ACK_WARNING = (
     "container's own id-3 program -- and NOT from any `so` reader.  %s  %s  The kit checks that your "
     "`expect_bpp` matches the derivation and checks nothing else; the judgement that this depth is "
     "the depth the SCREEN reads is yours." % (ACK_KEY, REGISTRATION_CAVEAT, DEPTH_COROLLARY))
+
+# ======================================================= W6b-3 (iii): THE SECOND ARRAY, DISCLOSED
+# ★ NOT A DEPTH CHANNEL, AND THAT IS THE WHOLE POINT.  Every constant above answers *"at what depth
+# are these bytes read?"*; this one answers *"is this cell read AT ALL?"* -- so it deliberately gets
+# no `DEPTH_SOURCES` token, no `expect_bpp` pairing and no place in any residue arithmetic.  The `so`
+# record's SECOND array (the `P x {u16, u16}` block at `+arrayB` that `so_record` walked past and
+# discarded until this rung) carries something that, on ONE container, a marked cast measured
+# DISPLACING THE SAMPLED CELL.  The kit models NOTHING with it: it reads the halfwords, prints both
+# candidate readings side by side, and refuses -- behind a key -- a cell ALL of whose readers carry
+# one.  `SURFACE_CELLS`, `DEPTH_UNKNOWN`, `GAIN_PROGRAM`, `GAIN_SO_PAGE`, `GAIN_ARRAY`,
+# `RESIDUE_LINE` and `ARRAY_RESIDUE_LINE` are all exactly as true after this rung as before it.
+
+#: THE SPEC KEY for the second-array disclosure.  Literal-boolean-only, like every other
+#: acknowledgement in this lane.  It admits nothing about a DEPTH and demands no ``expect_bpp``: what
+#: it acknowledges is that the cell's READERSHIP may not be what the container's own binding says.
+ACK_MOVER_KEY = "acknowledge_second_array_displacement"
+
+#: ★ THE CONDITIONALITY, CARRIED AS A CALL-SITED CONSTANT -- a caveat nothing quotes is a wish, and
+#: this one has THREE open riders that a one-line summary would collapse.  ⚠ It is spent through
+#: :func:`~ff9mapkit.summons.repaint._refusal`'s ``txt % detail`` path, so it may never contain a
+#: literal ``%``: that is how a measurement quietly becomes a typo.
+U_DISPLACEMENT_CAVEAT = (
+    "THE SECOND ARRAY DISPLACES THE SAMPLED CELL -- ON ONE CONTAINER, AT 0.84, AND THIS KIT MODELS "
+    "NOTHING WITH IT.  A marked cast of ef038 (Shiva; U1 cast 2, the four-mark G1 repair) read "
+    "`B_ANSWERED_A_NOT` at confidence 0.84: something in the `so` record's SECOND array moves the "
+    "sampled cell by +128 texels in u -- exactly one 8bpp column, 640 to 704.  THREE THINGS RIDE "
+    "SEPARATELY AND ALL THREE ARE OPEN.  (1) GENERALISATION: one container, one cast.  Nothing here "
+    "says the mechanism holds off ef038, and every consequence this kit prints is prefixed IF IT "
+    "GENERALISES.  (2) THE LABELLING SITS AT 0.68: WHICH halfword moves u is not settled, so BOTH "
+    "readings are printed side by side and NEITHER is preferred -- SWAPPED means the halfword at "
+    "pair position 0, the one the container calls A, displaces u; ORIGINAL means position 1 does.  "
+    "(3) THE v AXIS IS UNRESOLVED: coarse-vs-fine never separated on the scored surfaces, so whether "
+    "the other halfword displaces v is unknown and v IS NOT MODELLED HERE AT ALL.  WHAT THIS IS FOR: "
+    "the kit everywhere equates a binding's BOUND cell with the cell the hardware SAMPLES, and this "
+    "is the disclosure that the identity may not hold on a reader carrying a non-zero halfword.  No "
+    "cover, no depth, no page, no name and no emitted byte moves on it -- adopting the displacement "
+    "into the derivation would force the labelling choice at 0.68 and ship a u-only half model, and "
+    "it is gated behind ONE cheap instrument: log `tag->u0..u3 / v0..v3` at SFXRender.cs:342-380 and "
+    "the log settles u AND v AND the labelling together, on any container, with no screen read.  THE "
+    "SHARPEST SINGLE STATEMENT OF WHAT IS UNMODELLED: ef038 `cell.s0.x704_y256` -- the cell that cast "
+    "measured as SAMPLED -- is refused by this kit today as `depth-unknown`.  BINDING-IS-NOT-A-DRAW "
+    "and THE DEPTH COROLLARY are unchanged by all of it: what a record states is what something "
+    "BINDS, and where the hardware reads is a second question this constant is the answer to only on "
+    "one container")
+
+#: what saying :data:`ACK_MOVER_KEY` means, printed on every build that uses it.
+U_DISPLACEMENT_ACK_WARNING = (
+    "%s = true: EVERY `so` reader of this cell carries a NON-ZERO second-array halfword, so under a "
+    "live but unadopted reading of that array this cell may have NO effective reader and a perfect "
+    "repaint of it may be invisible in game with no error anywhere.  %s  The kit checks nothing here "
+    "and withdraws nothing: the page, its depth and its bytes are exactly what they were, and the "
+    "judgement that this cell is still read is yours."
+    % (ACK_MOVER_KEY, U_DISPLACEMENT_CAVEAT))
+
+#: THE FIRING SET, RE-DERIVATION-PINNED (``u1_gates`` U2 re-rolls all three from the 372 containers
+#: through :func:`~ff9mapkit.summons.repaint.scenery_surface` and asserts equality).  *A constant
+#: nobody re-checks is a claim* -- and these three are the only numbers this rung mints.
+#:
+#: The predicate is the CONSERVATIVE, LABELLING-INDEPENDENT one: a DECLARED page-cell with at least
+#: one ``so`` reader, EVERY one of whose readers carries a non-zero second-array pair. It never asks
+#: WHICH halfword moves u and it never applies a displacement, so it is a strict SUPERSET of the two
+#: per-labelling lost-cell lists (16 SWAPPED / 19 ORIGINAL, union 35 -- all 35 contained, zero
+#: missed) by 17 cells whose movers would not actually vacate the cell under either arithmetic.
+SECOND_ARRAY_MOVER_CELLS = 52
+#: ...of which how many carry NO export-blocking refusal of any other class today, i.e. how many
+#: ``export-art`` hands back as fully-open paintable pages. The other 5 are 4 ``program-vram-write``
+#: and 1 ``same-bytes-two-depths``.
+SECOND_ARRAY_MOVER_OPEN = 47
+#: ...over how many of the corpus's 372 containers.
+SECOND_ARRAY_MOVER_CONTAINERS = 29
 
 
 # ---------------------------------------------------------------- THE TABLE

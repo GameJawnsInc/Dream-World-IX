@@ -514,6 +514,11 @@ scenery must be re-authored *together*.
   four-cell instrument, orientation answers u / pitch answers v) measured **`B_ANSWERED_A_NOT`
   0.84: a +128-texel U displacement, one 8bpp column, 640→704**, with the SWAPPED labelling (the
   "A" halfword moves u) at 0.68 and the v axis unresolved. Confound-limited wording stands
-  ("something in the second array moves the sampled cell"); no constant moved. OWNER DECISIONS:
-  re-open R_UOFF; whether kit attribution must model u-displacement (effective cell ≠ bound cell);
-  a pitch-axis cast 3 or rest.
+  ("something in the second array moves the sampled cell"); no constant moved. **→ ★★★ CLOSED AT
+  THE MECHANISM by the s77 UVR read (record §12): the second array = a per-slot texel DISPLACEMENT
+  baked into the primitive stream — pair position 0 moves u, position 1 moves v, +0x80 = +128
+  texels — 0.97 on ef038, all four (A,B) cells on independent populations, byte order MEASURED,
+  critic ok=true zero gaps. Screen inferences retired; pitch resolved (no cast 3); cast-1's null
+  fully mechanical; Option-3 gate MET.** OWNER DECISIONS: the §12 stale-text ledger (the
+  U_DISPLACEMENT_CAVEAT triple now contradicts the measurement — a coordinated 4-file edit);
+  Option-3 adoption; a second-container log-only cast to make the mechanism a LAW.

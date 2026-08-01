@@ -374,7 +374,10 @@ def so_record(blob: bytes, geom_base: int) -> Optional[dict]:
         +0x04 u16 recLen    == 8 + 8P   -- recordBase + recLen == geomBase (502/502)
         +0x06 u16 arrayB    == 8 + 4P   -- ★ THE INDEPENDENT HALFWORD the acceptance test rests on
         +0x08     P x { u16 tpage, u16 clut }   stride 4
-        +arrayB   P x { u16, u16 }              OPAQUE (scored as an in-record null: 0/309, 0/264)
+        +arrayB   P x { u16, u16 }              RETURNED as `second`, UNINTERPRETED (scored as an
+                                                in-record null: 0/309, 0/264; U1 cast 2 says
+                                                something in it DISPLACES the sampled cell -- see
+                                                ``depth_attribution.U_DISPLACEMENT_CAVEAT``)
 
     **THE ACCEPTANCE TEST IS THREE INDEPENDENT HALFWORDS**, and only two of them carry load.
     ``recLen == 8 + 8P`` is near-tautological given ``P := (recLen - 8) // 8`` -- it asserts only
@@ -408,7 +411,15 @@ def so_record(blob: bytes, geom_base: int) -> Optional[dict]:
     ``nparts >= 2`` record and you are silently under-reading -- and ``nparts`` is exactly what makes
     that detectable.
 
-    Returns ``{at, len, textured, nparts, witness, parts, [tpage, clut]}``; see
+    ★ **W6b-3 (iii): THE SECOND ARRAY IS RETURNED, AND NOTHING INTERPRETS IT.** ``second`` is the P
+    ``(u16, u16)`` pairs at ``+arrayB`` -- bytes this reader already walked past, inside a record it
+    already accepted (``arrayB == 8 + 4P`` is asserted above, so the array base is ``at + 8 + 4P``
+    and the record ends at ``at + 8 + 8P``). A marked cast of ef038 measured something in it
+    DISPLACING the sampled cell by one 8bpp column; the kit models nothing with it and DISCLOSES it
+    (:data:`ff9mapkit.summons.depth_attribution.U_DISPLACEMENT_CAVEAT`). ``P == 0`` yields ``[]``,
+    so the P = 0 invariant above is untouched.
+
+    Returns ``{at, len, textured, nparts, witness, parts, second, [tpage, clut]}``; see
     :data:`WITNESS_INCUMBENT` / :data:`WITNESS_NOVEL` for what ``witness`` decides.
     """
     for P in range(0, MAX_SO_PARTS + 1):                     # nearest-first; P=0 shadows nothing
@@ -420,8 +431,13 @@ def so_record(blob: bytes, geom_base: int) -> Optional[dict]:
                 and _u16(blob, o + 4) == rec_len                  # recordBase + recLen == geomBase
                 and _u16(blob, o + 6) == 8 + 4 * P):              # arrayB -- THE INDEPENDENT HALFWORD
             parts = [(_u16(blob, o + 8 + 4 * k), _u16(blob, o + 10 + 4 * k)) for k in range(P)]
+            # THE SECOND ARRAY, read at the offset the acceptance test just proved: `arrayB` agreed
+            # `8 + 4P` two lines up, so this walk is INSIDE the accepted record by construction and
+            # cannot read past `o + rec_len`.  UNINTERPRETED here and everywhere below it.
+            second = [(_u16(blob, o + 8 + 4 * P + 4 * k), _u16(blob, o + 10 + 4 * P + 4 * k))
+                      for k in range(P)]
             rec = {"at": o, "len": rec_len, "textured": _u16(blob, o + 2),
-                   "nparts": P, "parts": parts,
+                   "nparts": P, "parts": parts, "second": second,
                    "witness": WITNESS_INCUMBENT if P <= 1 else WITNESS_NOVEL}
             if parts:
                 rec["tpage"], rec["clut"] = parts[0]
@@ -467,6 +483,25 @@ class Binding:
     #: :data:`WITNESS_INCUMBENT` or :data:`WITNESS_NOVEL` -- CARRIED off the record rather than
     #: re-derived from ``slot`` at each call site, because slot 0 of a ``P >= 2`` record is novel too.
     witness: str = WITNESS_INCUMBENT
+    #: W6b-3 (iii): the record's WHOLE second array, in FILE ORDER -- **IDENTIFICATION ONLY**, and
+    #: never indexed by :attr:`slot`. See :attr:`mover` for why that is enforced rather than asked.
+    second_pairs: Tuple[Tuple[int, int], ...] = ()
+
+    @property
+    def mover(self) -> Optional[Tuple[int, int]]:
+        """This binding's own second-array pair -- or ``None`` where the ORDER would have to be assumed.
+
+        ★ **THE ORDER LAW, ENFORCED AT THE CALL SITE RATHER THAN ASKED FOR.** Pairing second-array
+        entry *k* with binding slot *k* is exactly the claim
+        :data:`ff9mapkit.summons.depth_attribution.ORDER_UNMEASURED` says nothing corroborates, so
+        this accessor REFUSES TO ANSWER on a NOVEL record instead of indexing into
+        :attr:`second_pairs`. On an INCUMBENT one ``P <= 1``, the array holds exactly one pair, and
+        *"this binding's pair"* is an arity-1 identity rather than an ordering claim -- which is why
+        the disclosure lane is incumbent-only and says so in its own refusal text.
+        """
+        if self.witness != WITNESS_INCUMBENT or not self.second_pairs:
+            return None
+        return self.second_pairs[0]
 
     @property
     def direct(self) -> bool:
@@ -629,7 +664,11 @@ def attribution(blob: bytes, include_direct: bool = False,
             common = dict(geom=g.base, slot=k, record_at=rec["at"],
                           chunk_slot=owner_slot(g.base), tpage=tp,
                           page=((tp & 0x0F) * 64, ((tp >> 4) & 1) * 256),
-                          witness=rec["witness"])
+                          witness=rec["witness"],
+                          # W6b-3 (iii): the WHOLE second array on EVERY slot of the record, never a
+                          # per-slot pick -- the pick is `Binding.mover`, which answers only where
+                          # `P <= 1` makes it arity-1 rather than an order claim.
+                          second_pairs=tuple(rec["second"]))
             if bpp == 15:                                    # direct colour: no palette to bind
                 if not include_direct:
                     continue

@@ -1556,13 +1556,17 @@ def _scenery_id0(rects=SCEN_RECTS, clut4=SCEN_CLUT4, clut8=SCEN_CLUT8) -> bytes:
     return bytes(buf) + bytes(stream)
 
 
-def _uv_geom(tpage: int, clut: int, uv) -> bytes:
+def _uv_geom(tpage: int, clut: int, uv, second=(0, 0)) -> bytes:
     """One 16-byte ``so`` record + a GEOM block carrying ONE FT4 quad over the uv rect ``uv``.
 
     ``test_summon_reskin._so_geom`` builds an ``so``-bound GEOM with EMPTY pools, which is all a
     palette-attribution test needs -- but the scenery texel lane joins on UV COVER, so a model with no
     UVs samples nothing and every cell would read as depth-unknown.  This is that fixture plus the one
     thing this lane cannot do without.
+
+    ``second`` is the record's SECOND array pair (W6b-3 iii), DEFAULTING to the ``(0, 0)`` this
+    fixture has always written -- so every existing scenery assertion is byte-identical -- and it is a
+    parameter only so a test can synthesise a MOVER without a second fixture.
     """
     u0, v0, u1, v1 = uv
     nf, nv = 1, 4
@@ -1587,7 +1591,8 @@ def _uv_geom(tpage: int, clut: int, uv) -> bytes:
     # Z-ORDER (v0 v1 over v2 v3), matching the measured stock convention -- see _creature_geom_payload
     for k, (u, v) in enumerate(((u0, v0), (u1, v0), (u0, v1), (u1, v1))):
         struct.pack_into("<H", g, p_uv + 2 * k, u | (v << 8))
-    so = struct.pack("<HHHH", 0x6F73, 1, 0x10, 0x0C) + struct.pack("<HHHH", tpage, clut, 0, 0)
+    so = (struct.pack("<HHHH", 0x6F73, 1, 0x10, 0x0C) + struct.pack("<HH", tpage, clut)
+          + struct.pack("<HH", second[0], second[1]))
     return so + bytes(g)
 
 
@@ -1603,7 +1608,7 @@ SCEN_MODELS = (
 )
 
 
-def _so_multi_geom(parts, uv=(0, 0, 10, 10)) -> bytes:
+def _so_multi_geom(parts, uv=(0, 0, 10, 10), second=None) -> bytes:
     """A **MULTI-PART** ``so`` record (``P = len(parts)``) + a UV-bearing GEOM block -- W6b-3's
     CHANNEL A fixture.
 
@@ -1613,9 +1618,11 @@ def _so_multi_geom(parts, uv=(0, 0, 10, 10)) -> bytes:
     rather than re-typed, so a change to the scanner's acceptance law cannot leave this fixture behind.
     """
     P = len(parts)
+    sec = list(second if second is not None else [(0, 0)] * P)
+    assert len(sec) == P, "the second array is one pair per part -- that is what `arrayB` asserts"
     so = struct.pack("<HHHH", 0x6F73, 1, 8 + 8 * P, 8 + 4 * P)
     so += b"".join(struct.pack("<HH", tp, cw) for tp, cw in parts)
-    so += b"".join(struct.pack("<HH", 0, 0) for _ in parts)   # the OPAQUE second array at +arrayB
+    so += b"".join(struct.pack("<HH", a, b) for a, b in sec)  # the SECOND array at +arrayB
     assert len(so) == 8 + 8 * P
     return so + _uv_geom(0, 0, uv)[0x10:]
 
@@ -4608,3 +4615,272 @@ def test_the_INHERITED_clause_is_gated_on_the_COLUMN_and_not_on_the_writers_rect
     g_up = dataclasses.replace(upper, depth_source="so-page")
     assert "INHERITED FROM THE COLUMN" not in "  ".join(RP._scenery_disclosures(
         RP.TexelTarget(name=g_up.name, enabled=True, source="", page=g_up)))
+
+
+# ======================================== W6b-3 (iii): THE SECOND ARRAY, DISCLOSED (a READERSHIP
+# question, never a depth).  The synthetic half proves the SHAPE; the corpus-gated half proves the
+# POPULATION.  Nothing in this section may move a page, a name, a depth or a byte.
+#: a MOVER on the one declared cell nothing else reads -- so "every reader moves" is reachable with a
+#: single model and the granularity twin below can add a zero-pair reader to break it.
+MOVER_A = (0x0080, 0x0000)
+
+
+def _mover_model(x=448, y=256, bpp=8, clut=(0, 245), uv=(0, 0, 100, 60), second=MOVER_A) -> bytes:
+    """One extra UV-bound model on cell ``(x, y)`` whose ``so`` record carries ``second``."""
+    return _uv_geom(_tpage(x, y, bpp), _clut_word(*clut), uv, second=second)
+
+
+def test_the_second_array_field_is_CONSULTATION_GATED():
+    """★ P1.  The second array lives in the SAME record ``so-uv`` already reads, so nothing but the
+    gate stops it being stated under the CENSUS default -- and stating it there would make
+    ``scenery_surface``'s census output no longer byte-for-byte W6b-1's, which is the population
+    `w6b_gates` G6 / `w6q_gates` G1+G16 / `w6b2i_gates` I5 are written ABOUT.  A channel a caller
+    declined to consult must be unable to say anything at all, including "no"."""
+    blob = build_scenery_container(extra_models=_mover_model())
+    c_pages, c_ref = RP.scenery_surface(blob, 999)                     # CENSUS_CHANNELS
+    assert all(p.hazards.second_array == () for p in c_pages), \
+        "an unconsulted instrument contributes NO DATA, not merely no verdict"
+    assert all(not p.hazards.every_reader_moves for p in c_pages)
+    assert not any(r.klass == "second-array-mover" for r in c_ref)
+    l_pages, l_ref = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
+    hit = [p for p in l_pages if p.cell == (448, 256)]
+    assert len(hit) == 1 and hit[0].depth_source == "so-uv"
+    assert len(hit[0].hazards.second_array) == 1 and hit[0].hazards.every_reader_moves
+    assert [r.klass for r in l_ref if r.cell == (448, 256)] == ["second-array-mover"]
+    # ...and the census page set is EXACTLY what it is without the extra model's second array
+    plain = build_scenery_container(extra_models=_mover_model(second=(0, 0)))
+    p2, _ = RP.scenery_surface(plain, 999)
+    assert [(p.name, p.bpp, p.depth_source) for p in c_pages] == \
+           [(p.name, p.bpp, p.depth_source) for p in p2]
+
+
+def test_the_predicate_is_the_WHOLE_READER_SET_ef038s_20_over_7_in_miniature():
+    """★ P2.  THE GRANULARITY IS THE WHOLE READER SET: one reader with a zero pair keeps the cell out
+    of the class.  This is ef038 ``cell.s0.x640_y256`` -- 20 movers and SEVEN zero-pair controls, the
+    exact split that made U1 cast 1 read ``VISIBLE_UNBANDED`` rather than blank -- reproduced on
+    synthetic bytes at arity two."""
+    both = build_scenery_container(
+        extra_models=_mover_model(uv=(0, 0, 100, 60)) + _mover_model(uv=(0, 60, 100, 100)))
+    pages, ref = RP.scenery_surface(both, 999, channels=RP.LICENSED_CHANNELS)
+    hz = [p for p in pages if p.cell == (448, 256)][0].hazards
+    assert len(hz.readers) == 2 and len(hz.second_array) == 2 and hz.every_reader_moves
+    assert any(r.klass == "second-array-mover" for r in ref)
+
+    one_clean = build_scenery_container(
+        extra_models=_mover_model(uv=(0, 0, 100, 60))
+        + _mover_model(uv=(0, 60, 100, 100), second=(0, 0)))
+    pages2, ref2 = RP.scenery_surface(one_clean, 999, channels=RP.LICENSED_CHANNELS)
+    hz2 = [p for p in pages2 if p.cell == (448, 256)][0].hazards
+    assert len(hz2.readers) == 2 and len(hz2.second_array) == 1, "the mover is still DISCLOSED"
+    assert not hz2.every_reader_moves, "...and the cell is NOT in the class"
+    assert not any(r.klass == "second-array-mover" for r in ref2)
+
+
+def test_a_readerless_cell_is_not_VACUOUSLY_in_the_class():
+    """P2b.  ``bool(readers)`` is load-bearing: without it every channel-G / A / P cell would satisfy
+    'every reader moves' by having none."""
+    blob = build_scenery_container()
+    pages, _ = RP.scenery_surface(blob, P_SINGLE_EF, channels=RP.LICENSED_CHANNELS,
+                                  program_depth=True)
+    dark = [p for p in pages if p.depth_source == "program"]
+    assert dark, "the fixture must actually produce a readerless page for this to mean anything"
+    assert all(not p.hazards.readers and not p.hazards.every_reader_moves for p in dark)
+
+
+def test_BOTH_candidate_columns_are_stated_and_NEITHER_is_preferred():
+    """★ P3.  A column is 64 halfwords, i.e. ``{4bpp: 256, 8bpp: 128, 15bpp: 64}`` texels -- so the
+    cast's ``+128`` is HALF a 4bpp column, EXACTLY ONE at 8bpp (640 -> 704) and TWO at 15bpp.  All
+    three asserted off the same pair, so the arithmetic is CHECKED rather than typed."""
+    per_col = {b: RS.PAGE_CELL_W * KT.TEXELS_PER_HW[b] for b in (4, 8, 15)}
+    assert per_col == {4: 256, 8: 128, 15: 64}
+    # 8bpp, u 0..127, bound column 448: SWAPPED (A = 0x80) lands on 512, ORIGINAL (B = 0) stays
+    got = RP._effective_columns(448, (0, 127), 8, 0x80)
+    assert got == (512,) and RP._effective_columns(448, (0, 127), 8, 0) == (448,)
+    # the same +128 at the other two depths, from the same table
+    assert RP._effective_columns(448, (0, 127), 4, 0x80) == (448,), "half a 4bpp column: no crossing"
+    assert RP._effective_columns(448, (0, 63), 15, 0x80) == (576,), "two 15bpp columns"
+    # ...and the record carries both readings with the SAME evidence and no preference
+    blob = build_scenery_container(extra_models=_mover_model(uv=(0, 0, 127, 60)))
+    pages, _ = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
+    n = [p for p in pages if p.cell == (448, 256)][0].hazards.second_array[0]
+    assert (n.a, n.b) == MOVER_A and (n.swapped_texels, n.original_texels) == MOVER_A
+    assert n.bound_column == 448
+    assert n.swapped_columns == (512,) and n.original_columns == (448,)
+    assert n.swapped_moved is True and n.original_moved is False
+
+
+def test_the_page_is_NOT_WITHDRAWN_by_the_new_class():
+    """★ P4.  EMISSION SET UNCHANGED, proven rather than asserted: same pages, same names, same
+    depths -- and the class is in NEITHER ``_UNADDRESSABLE`` nor ``_EXPORT_BLOCKING``, so
+    ``texel_page`` still resolves and ``export_art`` still writes the PNG."""
+    assert "second-array-mover" not in RP._UNADDRESSABLE
+    assert "second-array-mover" not in RP._EXPORT_BLOCKING
+    mover = build_scenery_container(extra_models=_mover_model())
+    plain = build_scenery_container(extra_models=_mover_model(second=(0, 0)))
+    a = RP.scenery_texel_pages(mover, 999)
+    b = RP.scenery_texel_pages(plain, 999)
+    assert [(p.name, p.cell, p.bpp, p.depth_source, p.page_offset, p.page_bytes) for p in a] == \
+           [(p.name, p.cell, p.bpp, p.depth_source, p.page_offset, p.page_bytes) for p in b], \
+        "the mover moves NO page, NO name, NO depth and NO offset"
+    assert RP.texel_page(mover, DARK_CELL, 999).cell == (448, 256)
+
+
+def test_the_refusal_TEXT_is_quotable_and_carries_no_literal_percent():
+    """★ P5.  A caveat nothing quotes is a wish -- and a literal ``%`` in a class text is how a
+    measurement quietly becomes a typo, because ``_refusal`` formats it with ``txt % detail``."""
+    txt = RP._REFUSAL_TEXT["second-array-mover"]
+    assert "%" not in txt.replace("%s", ""), "one %s for the detail, and no other percent anywhere"
+    assert txt.count("%s") == 1
+    assert DA.U_DISPLACEMENT_CAVEAT in txt, "the conditionality travels IN the constant"
+    assert DA.ACK_MOVER_KEY in txt
+    assert "THE GRANULARITY IS THE WHOLE READER SET" in txt and "cell.s0.x640_y256" in txt
+    assert "THE REACH IS THE INCUMBENT RECORDS ONLY" in txt, "the blind spot is stated, not omitted"
+    for piece in ("0.84", "0.68", "UNRESOLVED", "cell.s0.x704_y256"):
+        assert piece in DA.U_DISPLACEMENT_CAVEAT, piece
+    # the three author-facing consumption sites each spend it
+    blob = build_scenery_container(extra_models=_mover_model())
+    _pages, ref = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
+    got = [r for r in ref if r.klass == "second-array-mover"][0]
+    assert DA.U_DISPLACEMENT_CAVEAT in got.reason and "SWAPPED -> column(s) 512" in got.reason
+    assert DA.U_DISPLACEMENT_CAVEAT in "\n".join(
+        RP.depth_attribution_lines(blob, 999, _pages))
+
+
+def test_the_second_array_ack_is_a_LITERAL_BOOLEAN_and_fails_closed_when_misspelled():
+    """★ P6.  An acknowledgement is stated, never inferred from a truthy string -- and an
+    unregistered near-miss spelling fails CLOSED two lines into ``build``."""
+    assert DA.ACK_MOVER_KEY in RP._TEXEL_KEYS
+    blob = build_scenery_container(extra_models=_mover_model())
+    with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
+        RP.build(_spec_dict(blob, _ack_rows(**{DA.ACK_MOVER_KEY: "true"})), "t", blob=blob)
+    with pytest.raises(RP.RepaintError, match="unknown key"):
+        RP.build(_spec_dict(blob, _ack_rows(**{"acknowledge_second_array_displacment": True})),
+                 "t", blob=blob)
+    # ...and stated properly it parses (the row is disabled, so nothing else is under test here)
+    b = RP.build(_spec_dict(blob, _ack_rows(**{DA.ACK_MOVER_KEY: True})), "t", blob=blob)
+    assert b.targets[0].ack_second_array is True and b.patched == blob
+
+
+def test_THE_BUILD_GATE_refuses_by_name_and_the_ack_moves_NO_BYTE(tmp_path):
+    """★ P7.  The two-layer shape ``u``-spill already has: a refusal CLASS carries the reason and a
+    build GATE carries the obligation.  And the emission identity is PROVEN, not asserted -- the
+    acknowledged build is compared byte-for-byte against the same build with the gate's own predicate
+    stubbed out, i.e. against what this row produced before the class existed."""
+    blob = build_scenery_container(extra_models=_mover_model())
+    px = _page_bytes(blob, DARK_CELL)
+    src = _write_png(tmp_path, blob, DARK_CELL, px)
+    row = {"name": DARK_CELL, "enabled": True, "source": str(src), "expect_bpp": 8}
+    with pytest.raises(RP.RepaintError, match="THE SECOND-ARRAY GATE"):
+        RP.build(_spec_dict(blob, [dict(row)]), str(tmp_path / "s.toml"), blob=blob)
+    ok = RP.build(_spec_dict(blob, [dict(row, **{DA.ACK_MOVER_KEY: True})]),
+                  str(tmp_path / "s.toml"), blob=blob)
+    # THE COUNTERFACTUAL: the same row, with the gate unable to fire -- i.e. the pre-class kit
+    was = RP._gate_second_array
+    try:
+        RP._gate_second_array = lambda targets: {}
+        before = RP.build(_spec_dict(blob, [dict(row)]), str(tmp_path / "s.toml"), blob=blob)
+    finally:
+        RP._gate_second_array = was
+    assert ok.patched == before.patched, "the ack buys a DISCLOSURE, never a different byte"
+    assert any("SECOND-ARRAY MOVER on every reader" in n for n in ok.targets[0].hazard_notes)
+    assert any(DA.U_DISPLACEMENT_ACK_WARNING in n for n in ok.targets[0].hazard_notes), \
+        "the ACKNOWLEDGED case still says what was acknowledged"
+
+
+def test_export_art_PRINTS_the_disclosure_in_the_manifest_and_the_scaffold(tmp_path):
+    """★ P8.  The author meets this BEFORE they paint, not after the playtest: both readings in the
+    manifest, both in the scaffold, and the ack line only on a firing row."""
+    blob = build_scenery_container(extra_models=_mover_model())
+    RP.export_art(blob, 999, out_dir=tmp_path, scaffold=True, overlays=False)
+    man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
+    hit = [e for e in man["scenery"] if e["name"] == DARK_CELL][0]
+    assert hit["second_array_all_readers"] is True
+    n = hit["second_array"][0]
+    assert (n["a"], n["b"]) == list(MOVER_A) or (n["a"], n["b"]) == MOVER_A
+    assert n["swapped"] == {"texels": 0x80, "columns": [512], "moved": True}
+    assert n["original"] == {"texels": 0, "columns": [448], "moved": False}
+    assert n["bound_column"] == 448 and n["record_at"] > 0
+    others = [e for e in man["scenery"] if e["name"] != DARK_CELL]
+    assert others and all(e["second_array_all_readers"] is False for e in others)
+    assert any(r["class"] == "second-array-mover" for r in man["refused"])
+    txt = (tmp_path / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert "%s = false" % DA.ACK_MOVER_KEY in txt
+    assert txt.count("%s = false" % DA.ACK_MOVER_KEY) == 1, "only on the firing row"
+    assert "SECOND-ARRAY MOVER on EVERY reader" in txt
+    assert "SWAPPED  reading (pair position 0 moves u): +128 texels -> column(s) 512" in txt
+    assert "ORIGINAL reading (pair position 1 moves u): +0 texels -> column(s) 448 (unmoved)" in txt
+    assert "NEITHER is preferred" in txt
+    assert max(len(ln) for ln in txt.splitlines()) < 120
+    import tomllib as _toml
+    rows = _toml.loads(txt)["reskin"]["texel"]
+    assert all(set(r) <= RP._TEXEL_KEYS for r in rows), "every emitted key is a KNOWN key"
+    assert RP.build({"reskin": {"effect": 999, "expect_sha256": hashlib.sha256(blob).hexdigest(),
+                                "texel": rows}}, str(tmp_path / "s.toml"),
+                    blob=blob).patched == blob
+
+
+def test_hazard_NAMES_is_untouched_by_the_new_class():
+    """P8b.  ``names`` is the W6b HAZARD vocabulary and is an EXACT-TUPLE pin in six shipped places;
+    the second array is a DISCLOSURE with its own field, class and key, and adds no slug."""
+    blob = build_scenery_container(extra_models=_mover_model())
+    pages, _ = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
+    hz = [p for p in pages if p.cell == (448, 256)][0].hazards
+    assert hz.every_reader_moves and "second-array-mover" not in hz.names
+
+
+@needs_corpus
+def test_the_firing_set_over_the_WHOLE_CORPUS_reconciles_with_the_impact_scoping():
+    """★★ P9 -- THE HEADLINE, derived at call time from the container and never tabled.
+
+    52 cells in 29 containers, 47 of them carrying no export-blocking refusal of any other class.
+    The predicate is the CONSERVATIVE all-movers one, so the set is a strict SUPERSET of the impact
+    scoping's two per-labelling lost-cell lists (16 SWAPPED / 19 ORIGINAL) and CONTAINS both
+    completely -- that is the reconciliation, and it is what says the disclosure reaches every cell
+    either live labelling would darken.  ef038 ``x640_y256`` (20 movers, 7 controls) is ABSENT, and
+    three of the four shipped cast cells are absent too.
+    """
+    fire, open_cells = {}, 0
+    for ef, blob in _corpus_effects():
+        pages, refused = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS)
+        by_cell = {}
+        for r in refused:
+            by_cell.setdefault(r.cell, set()).add(r.klass)
+        hits = {c for c, ks in by_cell.items() if "second-array-mover" in ks}
+        if not hits:
+            continue
+        fire["ef%03d" % ef] = hits
+        for c in hits:
+            if not (by_cell[c] - {"second-array-mover"}) & RP._EXPORT_BLOCKING:
+                open_cells += 1
+        emitted = {p.cell: p.depth_source for p in pages}
+        assert all(emitted.get(c) == "so-uv" for c in hits), \
+            "every firing cell is a LICENSED so-uv page today -- that is why the class exists"
+    n = sum(len(v) for v in fire.values())
+    assert (n, len(fire), open_cells) == (DA.SECOND_ARRAY_MOVER_CELLS,
+                                          DA.SECOND_ARRAY_MOVER_CONTAINERS,
+                                          DA.SECOND_ARRAY_MOVER_OPEN) == (52, 29, 47)
+    # the scoping's two per-labelling lists, INCUMBENT scope, contained completely
+    swapped = {("ef038", (640, 384)), ("ef061", (640, 256)), ("ef082", (512, 256)),
+               ("ef082", (512, 384)), ("ef179", (704, 256)), ("ef226", (576, 256)),
+               ("ef381", (384, 384)), ("ef384", (448, 256)), ("ef384", (448, 384)),
+               ("ef387", (640, 256)), ("ef407", (640, 384)), ("ef424", (448, 384)),
+               ("ef447", (384, 384)), ("ef492", (448, 256)), ("ef492", (448, 384)),
+               ("ef499", (448, 256))}
+    original = {("ef038", (512, 256)), ("ef082", (640, 256)), ("ef082", (704, 256)),
+                ("ef203", (640, 256)), ("ef205", (576, 256)), ("ef206", (512, 256)),
+                ("ef225", (640, 256)), ("ef296", (512, 256)), ("ef387", (512, 256)),
+                ("ef405", (448, 256)), ("ef405", (576, 256)), ("ef405", (640, 256)),
+                ("ef427", (640, 256)), ("ef438", (576, 256)), ("ef446", (448, 256)),
+                ("ef446", (512, 256)), ("ef490", (512, 256)), ("ef502", (576, 256)),
+                ("ef509", (448, 256))}
+    mine = {(c, cell) for c, cells in fire.items() for cell in cells}
+    assert len(swapped) == 16 and len(original) == 19 and len(swapped | original) == 35
+    assert not (swapped - mine) and not (original - mine), "zero missed, under EITHER labelling"
+    assert len(mine - (swapped | original)) == 17, "and 17 conservative extras, by design"
+    # THE GRANULARITY, on the cast's own cell, and the shipped casts that stay clean
+    assert ("ef038", (640, 256)) not in mine, "20 movers and SEVEN controls: NOT in the class"
+    for clean in (("ef211", (704, 384)), ("ef211", (704, 256)), ("ef211", (576, 384)),
+                  ("ef211", (640, 256)), ("ef429", (448, 256)), ("ef130", (448, 384)),
+                  ("ef424", (704, 384))):
+        assert clean not in mine, clean
+    assert ("ef424", (448, 384)) in mine, "the ONE shipped-cast cell that does fire -- by name"
