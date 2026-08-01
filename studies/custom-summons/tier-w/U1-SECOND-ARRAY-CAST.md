@@ -1,15 +1,18 @@
 # W6b-3 (iii) — THE U1 SECOND-ARRAY CAST. ef038 `Shiva`, bench row 200, both halves of column 640
 
-> ★★ **STATE — THE ARC IS COMPLETE AND THE INSTALL IS STOCK. U1 IS ANSWERED (§11): the engine
-> APPLIES the second array — `B_ANSWERED_A_NOT` (0.84), a +128-texel U displacement (one 8bpp
-> column, 640→704) measured on screen; the SWAPPED labelling (the halfword the container calls A is
-> the one that moves u) rides separately at 0.68; the PITCH/v axis stays unresolved.** The road:
-> cast 1 (§9) returned VISIBLE_UNBANDED; the s76 engine round + control cast (§9.3) proved it an
-> INSTRUMENT DEFECT (G1 THE PAGE-SPAN GATE — an 8bpp tpage spans all four declared cells; cast 1
-> marked two) and refuted the blit-wipe mechanism; cast 2 (§10, the four-cell repair) resolved the
-> orientation axis. Install: `ef038` deleted (= stock), `ef211` untouched, rows 192–204 stay. Owner
-> decisions live in §11 (R_UOFF re-open · kit u-displacement modelling · a pitch-axis cast 3).
-> Records: `…\u1-second-array\{castread\REPORT-U1, s76-read\REPORT-S76, cast2-read\REPORT-U1-CAST2}.md`.
+> ★★★ **STATE — THE ARC IS CLOSED AT THE MECHANISM (§12). The second array is a per-slot texel
+> DISPLACEMENT baked into the primitive stream: pair position 0 moves u, position 1 moves v, +0x80 =
+> +128 texels each — measured at 0.97 on ef038 by the s77 UVR read, all four (A,B) cells on
+> independent populations, critic ok=true ZERO gaps.** The 0.68 screen labelling is RETIRED for a
+> measurement; the pitch/v axis is RESOLVED (no cast 3 needed); cast 1's null is fully mechanical;
+> the Option-3 gate is MET on ef038. The road: cast 1 (§9) VISIBLE_UNBANDED → s76 + the control cast
+> (§9.3): G1 THE PAGE-SPAN GATE, blit-wipe refuted → cast 2 (§10-§11): orientation resolved 0.84 →
+> s77 (§12): the mechanism. BINDING LIMIT: one container — a second container's log-only cast makes
+> it a law. Install stock except the s76+s77 engine instruments; rows 192–204 stay. **Owner
+> decisions: the §12 stale-text ledger (the U_DISPLACEMENT_CAVEAT triple is now outdated), the
+> Option-3 follow-on, R_UOFF's status line, a second-container generalisation cast.**
+> Records: `…\u1-second-array\{castread\REPORT-U1, s76-read\REPORT-S76, cast2-read\REPORT-U1-CAST2,
+> s77-read\REPORT-S77-READ}.md`.
 >
 > **This cast answers a question the offline round could not.** `second-array-lead/REPORT.md`
 > refuted H_V (halfword A as a universal per-slot texture V-offset) at 0.85 and left R_FLAGS (a
@@ -1059,3 +1062,78 @@ constant moves, no emission changes, every re-derivation-pinned gate keeps measu
 **Option 3 (derivation modelling) stays gated behind one cheap instrument: log `tag->u0..u3/v0..v3`
 at `SFXRender.cs:342-380`** (the §9.3-named field) — a log-only cast then settles H_U per-slot
 without a screen read. Options 1/3 and the gate are the owner's call; nothing here was implemented.
+
+
+---
+
+## 12. ★★★ THE s77 UVR READ — THE MECHANISM, MEASURED. Both halfwords, both axes, 0.97
+
+The owner-authorized s77 engine round (`memoria-patches/s77-sfx-uv-range.patch` — the UVR row:
+per-mesh min/max of the primitives' OWN u,v bytes, joined 1:1 to textured MESH rows) went live, and
+ONE stock log-only Shiva cast closed the arc. Log `capture-logs\sfxmeshprobe.s77-uv-cast.log`
+(8,587 UVR rows, on the predicted budget); read by the parent, adversarially verified by an
+independent pass whose critic returned **ok=true with ZERO gaps** (the arc's second flawless pass);
+record `…\u1-second-array\s77-read\REPORT-S77-READ.md`, scripts + JSON beside it.
+
+**THE MECHANISM (0.97 on this container): the second array is a per-slot texel displacement, baked
+into the primitive stream — pair position 0 displaces u, pair position 1 displaces v, +0x80 = +128
+texels each.** All four cells of the (A,B) 2×2, zero residue, each on an independent population:
+
+| (pos0, pos1) | population | logged u | logged v |
+|---|---|---|---|
+| (0, 0) | the 7 controls, whole key, 48 frames | raw [0,126] | raw [1,127] |
+| (0x80, 0) | rec `0x79168` ALONE, 25 wrap-frames | **raw+128** [130,253] | raw [1,255] |
+| (0, 0x80) | rec `0x86700`, 53/53 frames | raw | **raw+128** (vMin 193 = 65+128) |
+| (0x80, 0x80) | the 19 confined answer readers, 112 frames | **+128** [128,255] | **+128** (vMin 129 = 1+128) |
+
+The fourth population (`0x86700` — the one reader cast 2's S7 predicted invisible) is what kills the
+last rival model ("pos-0 gates everything"): `MODEL_II_MATCHES = false`. The wrap reader alone
+settles the labelling with no other family and no model: it carries pos0=0x80/pos1=0 and moves in u,
+not v — under the container's declared A→v/B→u labelling it could not move in u at all. **The 0.68
+screen inference is RETIRED in favour of a measurement.** The verifier also ran an attack nobody had
+named — the u-is-low-byte decode every prior round ASSUMED — and measured it via the control
+family's asymmetric raw bounds (u [0,126] vs v [1,127]: only one byte order predicts that). Four
+named attacks all survived structurally (no SPRT contamination — the FILTER bit discriminant is
+provable, not observed; repeat-render dedup identical on 18/18 keys; family mislabelling impossible
+by construction — the key is computed from each primitive's own tpage+clut; the 25-frame set is an
+IDENTIFICATION, u [130,253] being unreachable by any confined reader).
+
+**What this closes, at its earned altitude:**
+
+* **Cast 1's null — fully mechanical, no free parameter** (0.97 this container): 20 of 27 readers
+  sample column 704 (unmarked in cast 1); the 7 that sample the marked cell render their mark as
+  transparent HOLES (§5 warned in writing they'd be scored blank). VISIBLE_UNBANDED was the correct
+  observation of a page two-thirds unmarked and one-third invisible.
+* **The pitch axis (§11 "UNRESOLVED") — resolved**: v IS displaced, read directly on two independent
+  populations. A pitch-axis cast 3 is NO LONGER NEEDED.
+* **Cast 2 retro-validated three ways**, and its open per-record attribution closed for the 0x3DC0
+  layer: the 25 wrap-alone frames sit inside cast 2's own S_BLADE clean window (f229–234, 162 prims
+  = 6×27) — Gap-B's two-layer weld is now measured, not modelled.
+* **R_UOFF**: its refutation-of-closure changes CLASS (screen → byte stream). **The ef424
+  order-cell lead's PREMISE is confirmed** (the lead itself still needs its own container's read).
+* **The Option-3 gate (§11.1) is MET on ef038** — the instrument the scoping demanded is built,
+  deployed, cast, and read.
+* ⚠ **The pre-registered read was UNDER-SPECIFIED and is recorded as such**: the README's branch A
+  (`uMin ≥ 128`) and branch B (`uMax < 128`) were both observed — split by FAMILY, which is the
+  in-cast control doing exactly its job — but the pre-registration as written enumerated neither.
+  The substantive finding is the strong branch: baked into the prim stream, NOT sampler-side.
+
+**Binding limits:** ONE CONTAINER, ONE CAST — the only thing between this and a law; a second
+container's log-only cast makes it general. Magnitude-vs-flag not separable here (ef038 carries only
+{0, 0x80}; any container with another value settles it in one cast). Wrap/clamp behaviour untested
+(every displaced span fits the byte). The 0x3D40 pool still doesn't isolate `0x79ae8` per-record.
+
+**★ THE STALE-TEXT LEDGER — OWNER DECISIONS, nothing touched** (full detail in the report §limits):
+(A) `depth_attribution.U_DISPLACEMENT_CAVEAT` — riders (2) "labelling 0.68, neither preferred" and
+(3) "v axis unresolved, not modelled" are now the OPPOSITE of the measurement, and "0.84" is the
+wrong altitude for u on this container; editing it is a COORDINATED change (7 repaint call sites +
+reskin + 4 test assertions + u1_gates pins, and the constant may never contain `%`).
+(B) `U_DISPLACEMENT_ACK_WARNING` inherits all of it. (C) §11's "0.68, carried separately" /
+"PITCH — UNRESOLVED" / owner-decision (3), and §11.1's Option-3 gate sentence — superseded by this
+section. (D) `CHANGELOG.md` quotes the caveat's framing. (E) `second-array-lead\REPORT.md` §3 +
+addendum — basis superseded in class. **Updating (A)+(B) is the natural follow-on to the Option-3
+decision; (C)–(E) are prose corrections this section already supersedes in place.**
+
+**Resting state:** install stock everywhere except the engine (s76+s77 permanent instruments, both
+arches `44d4b974…`, backups `20260730-222511` / `20260731-192628`); rows 192–204 stay; every log,
+patch, report and script archived under `…\repaint-w6b\`. No kit constant moved.
