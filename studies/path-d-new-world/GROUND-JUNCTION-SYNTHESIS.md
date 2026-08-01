@@ -323,3 +323,52 @@ and stock, the only gate in this arc with demonstrated discriminating power) and
 **walkability pass** (ground-query MISS, the 2.34375u climb ceiling, and no
 render-only grass facet). Both are cheap, both are permanent, and both measure what
 the eye and the engine judge rather than what the mesh reports about itself.
+
+---
+
+## THE COARSENING A/B — run same-day (`critic_coarsen_ab.py`, out/coarsen_ab/)
+
+Both banked gates shipped first (`bench_audit.py`: 4 failures on the live bytes, 0 on
+pristine — the arc's first gate that is red on a build the owner faulted and green on
+ones he did not). Then the null test: A = deployed bytes, B = the ring coarsened to
+one quad per 4u cell (pristine L3 decode, corner heights sampled from A's own
+surface), C = pristine, rendered UNLIT (engine-faithful per S3) from nine vantages
+including the owner's three screenshot positions.
+
+**Eye calibration (binding precondition): partly met.** A reproduces offline: the SE
+terraced grass bank covering the wall base (strong — the exact class of the owner's
+screenshot 2), the west green spike, and faint dark mottling on the east shelf
+(weak). A does NOT reproduce the thin bright seam lines at these camera/resolution
+combinations — that class stays owner-eye-only offline.
+
+**VERDICT — the null test SPLIT the causal claim, and the biggest class is NOT
+tessellation:**
+
+1. **"Raised-grass cliff covering the base" SURVIVES coarsening essentially
+   unchanged** — B's bank is the same stepped terrace as A's, because the carrier is
+   the MINTED HEIGHT FIELD (the Voronoi smoothstep mound), which corner-height
+   sampling preserves at cell scale. This is S5's off-language ramp, seen in pixels.
+   Consequence: **the panel's cell-granular junction, whose corner heights sample the
+   current field, would have shipped this class straight into a tenth verdict** — the
+   A/B just spent two hours instead of a playtest to find that out.
+2. **"Meadowy corner tiles" WEAKLY supports the tessellation/window-mixing carrier** —
+   A's east shelf mottling vanishes in B's uniform lawn (down_ring view) — but the
+   offline reproduction is too faint to be decisive on its own.
+3. **"Seams" UNDECIDED offline** — not reproduced in A at these vantages; geometry
+   (the lift field's steps, the border-stitch hairlines, the open slits whose
+   coordinates matched two of the owner's seam sightings at x=384 and (420,−490))
+   remains the leading suspect by elimination, since uv, family, and shading are
+   measured out.
+
+**The load-bearing conclusion: THE LIFT FIELD IS THE PRIMARY CARRIER.** The strongest
+named class is its shape; most residual geometry classes are its splinters; and the
+one round whose lawn drew zero complaints (the buried mesa, playtest 1) is exactly
+the round with no lift field. Any next build must DELETE the mound outright — S5's
+lawful shapes are a level terrace at a sustained ~1-1.5u offset, or no stature
+change at all — rather than re-tessellate under it. Coarsening alone is not a fix;
+tessellation remains a real off-language axis (GATE T stands) but it is not what the
+owner has been naming most loudly.
+
+Still owed before any registration: the owner's three in-game stills (the seam class
+has never been reproduced by any instrument, and it is now the only class without a
+measured carrier).

@@ -150,7 +150,8 @@ for c in cells:
     x0, z0 = c[0] * CELL, c[1] * CELL
     P = [(x0, z0), (x0 + CELL, z0), (x0 + CELL, z0 + CELL), (x0, z0 + CELL)]
     P3 = [(x, corner_y(x, z), z) for (x, z) in P]
-    for tri in ((P3[0], P3[1], P3[2]), (P3[0], P3[2], P3[3])):
+    # winding: +y face normals (the game-eye pass culls by geometric winding)
+    for tri in ((P3[0], P3[2], P3[1]), (P3[0], P3[3], P3[2])):
         uvt = [G.ground_uv(p[0], p[2], c, quad, ori) for p in tri]
         cx = sum(p[0] for p in tri) / 3
         cz = sum(p[2] for p in tri) / 3
@@ -238,9 +239,18 @@ VIEWS = [
     ("close_Wbase", (400.0, -511.0), 0.0, 24.0, 14.0, 20, 0.14),
     ("close_SEbase", (436.0, -514.0), 3 * math.pi / 4, 24.0, 14.0, 20, 0.14),
     ("close_Nbase", (419.0, -498.0), -math.pi / 2, 24.0, 14.0, 20, 0.14),
+    # the owner's LAST screenshot was high-elevation; the patchwork lives on the lawn
+    ("high_S", CENTER, -math.pi / 2, 44.0, 40.0, 12, 0.85),
+    ("down_ring", CENTER, -math.pi / 2, 44.0, 44.0, 12, 1.45),
 ]
+only = sys.argv[1] if len(sys.argv) > 1 else None           # e.g. "B" to re-render one mesh
+vonly = sys.argv[2] if len(sys.argv) > 2 else None          # e.g. "high" for one view group
 for name, cen, br, hw, hh, sc, el in VIEWS:
+    if vonly and not name.startswith(vonly):
+        continue
     for tag, mesh in (("A_deployed", A), ("B_coarse", B), ("C_pristine", C)):
+        if only and not tag.startswith(only):
+            continue
         render(mesh, OUT / f"{name}__{tag}.png", cen, br, HW=hw, HH=hh, SC=sc, elev=el)
         print(f"   {name}__{tag}.png")
 print(f"renders -> {OUT}")
