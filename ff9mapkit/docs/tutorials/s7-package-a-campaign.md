@@ -41,16 +41,24 @@ menu, no debug key.
 Switch the Build tab to **Build only — compile every member to the campaign's dist/**, then
 **Package (zip)…**. The result is a plain mod folder in a zip: a player unzips it into their FF9
 install, adds its name to `Memoria.ini`'s `FolderNames`, and plays — no toolkit on their machine.
+If either room is a verbatim fork, its full in-game fidelity (letterbox, some after-battle fixes)
+needs the Dream World IX engine bundle too — point your friend at [ENGINE.md](../ENGINE.md).
 
 **The core track ends here.** The finished mod has two connected rooms, an NPC, persistent story
-state, an entry scene, a soundtrack, battles, a New Game entry, and a distributable zip — each
-core mechanism of the toolkit used once. The rest of the documentation assumes this much.
+state, an entry scene, a soundtrack, battles, a New Game entry, and a distributable zip — one pass
+through most of the toolkit's core mechanisms. Two recognizable ones are still untouched: a
+`[[savepoint]]` (see [SAVEPOINT.md](../SAVEPOINT.md)) and branching `[[choice]]` dialogue (see
+[tutorial 08](08-dialogue-cutscene.md)). The rest of the documentation assumes this much.
 
 ## Where to next
 
-- **Going deeper** — pick a track: worlds, click-authoring from a picture, NPC behavior and
-  minigames, models and characters, battle design, or forking FF9 itself
-  ([tutorial 07](07-gui-journey.md) territory).
+- **Going deeper** — pick a track: [worlds](../OVERWORLD_ENGINE.md) (no numbered tutorial yet),
+  click-authoring from a picture ([tutorial 03](03-original-art-field.md)'s painted-BG path), NPC
+  behavior and minigames ([BEHAVIOR.md](../BEHAVIOR.md), no numbered tutorial yet),
+  [models and characters](10-custom-model.md) (plus
+  [`examples/thirteenth-character/`](../../examples/thirteenth-character/README.txt) for a playable
+  character, no numbered tutorial yet), [battle design](09-battle-background.md), or forking FF9
+  itself ([tutorial 07](07-gui-journey.md) territory).
 - **The CLI track** — everything the core track did, terminal-native: start at
   [C1 — The CLI: fork, edit, deploy](c1-cli-fork-edit-deploy.md).
 - **The reference** — [`field.toml`](../FORMAT.md), block by block.

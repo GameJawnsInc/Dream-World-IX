@@ -20,7 +20,7 @@ Open `myroom\MYROOM.field.toml`. The parts every field has:
 
 ```toml
 [field]
-id = 30001            # the custom field id (>= 4000; scratch band 30000+)
+id = 30001            # the custom field id (>= 4000; scratch band 30000+; avoid 9000-9012 -- reserved for the engine's world-map dispatchers; keep <= 32767, the fldMapNo Int16 ceiling)
 name = "MYROOM"       # names the script + background folder
 area = 11             # must be >= 10 (the loader reads exactly two digits)
 ```

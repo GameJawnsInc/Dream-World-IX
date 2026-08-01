@@ -10,6 +10,17 @@ pages = ["README.md", "SETUP.md"]
 title = "Tutorials"
 pages = [
   "ff9mapkit/docs/tutorials/README.md",
+  "ff9mapkit/docs/tutorials/s1-fork-and-deploy.md",
+  "ff9mapkit/docs/tutorials/s2-add-an-npc.md",
+  "ff9mapkit/docs/tutorials/s3-gateways.md",
+  "ff9mapkit/docs/tutorials/s4-story-flags.md",
+  "ff9mapkit/docs/tutorials/s5-cutscene-and-music.md",
+  "ff9mapkit/docs/tutorials/s6-encounters.md",
+  "ff9mapkit/docs/tutorials/s7-package-a-campaign.md",
+  "ff9mapkit/docs/tutorials/c1-cli-fork-edit-deploy.md",
+  "ff9mapkit/docs/tutorials/c2-field-toml-by-hand.md",
+  "ff9mapkit/docs/tutorials/c3-deploy-automation.md",
+  "ff9mapkit/docs/tutorials/c4-gui-cli-bridge.md",
   "ff9mapkit/docs/tutorials/*.md",
 ]
 
