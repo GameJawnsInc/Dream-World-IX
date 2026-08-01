@@ -54,6 +54,40 @@ def test_inventory_is_committed_and_sane():
     assert forms["form:choice-option"]["text"]["text"] == "Option text"   # <THING>_SPEC -> dashes
 
 
+def test_form_inventory_is_fresh_against_the_live_specs():
+    """The ui_gate proves tutorial -> inventory. This proves inventory -> the LIVE forms.py.
+
+    Without it the two halves can agree with each other while the real GUI has moved on: renaming a
+    Field's label WITHOUT re-running the harvest left the build green at 191 pages and every gate
+    passing -- precisely the rot the gate exists to catch, one layer further back. Closing it is only
+    possible for `form:` surfaces, because harvest_forms() is plain data; the Qt-harvested tab:/dlg:
+    halves need a driven app, so their freshness stays a `uiharvest --check` chore.
+    """
+    import uiharvest as U
+
+    live = U.harvest_forms()
+    committed = {k: v for k, v in json.loads(
+        (B.HERE / "assets" / "ui-inventory.json").read_text(encoding="utf-8")
+    )["surfaces"].items() if k.startswith("form:")}
+    if live == committed:
+        return
+    drift = [f"  surface {k} vanished from forms.py" for k in committed.keys() - live.keys()]
+    drift += [f"  surface {k} is new in forms.py" for k in live.keys() - committed.keys()]
+    for k in live.keys() & committed.keys():
+        for fk in committed[k].keys() - live[k].keys():
+            drift.append(f"  {k}.{fk} vanished from forms.py")
+        for fk in live[k].keys() - committed[k].keys():
+            drift.append(f"  {k}.{fk} is new in forms.py")
+        for fk in live[k].keys() & committed[k].keys():
+            if live[k][fk] != committed[k][fk]:
+                drift.append(f"  {k}.{fk}: committed {committed[k][fk]} -> live {live[k][fk]}")
+    raise AssertionError(
+        "docsite/assets/ui-inventory.json is STALE against ff9mapkit/ff9mapkit/editor/forms.py.\n"
+        + "\n".join(sorted(drift))
+        + "\nRe-run: py docsite/uiharvest.py   (then check whether any tutorial prose quoted the "
+          "old label -- the ui_gate will say so)")
+
+
 def test_ui_gate_dialog_scoped_declaration():
     good = FRONT.replace('label = "Find…"\nwidget = "import_field.find_btn"',
                          'label = "Hub name"\nwidget = "dlg:new-journey"') \
