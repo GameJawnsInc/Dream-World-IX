@@ -27,6 +27,10 @@ standalone path at the bottom.
    py tools\deploy_field.py myroom\MYROOM.field.toml --id 5000    # a different slot
    ```
 
+   Pick any id outside **9000-9012** (reserved for the engine's world-map dispatchers -- a field id
+   there black-screens) and at or below **32767** (`fldMapNo` is Int16); the 30000-32767 scratch band
+   is safest for throwaway slots.
+
    `deploy_field.py` sandboxes any `field.toml` into the test slot: it overrides the build to the
    target id + a fixed name in memory (the source file is untouched), reverts that slot's previous
    deploy, backs up the live `DictionaryPatch.txt`/`.mes`, and writes a per-id
@@ -36,16 +40,16 @@ standalone path at the bottom.
 
 3. **Reload in-game with the debug menu.** Press the **`~` tilde/backquote key** (F6 in engine
    bundles before 2026-07-20 — it moved because stock Memoria binds F6 to a cheat hotkey) to open a
-   draggable popup with four context-adaptive tabs — **Go / Cheats / Flags / Time** — available in
-   fields, battles, and on the overworld:
+   draggable popup with context-adaptive tabs — **Go / Cheats / Flags** — available in fields and
+   battles, plus a **World** tab on the overworld:
 
    - **Go** — *Reload field* (re-reads the current field's `.eb`/`.mes`/scene/walkmesh/art from
      disk) and *Warp to field* (any registered id, with a search filter and optional
      arrival-entrance / ScenarioCounter overrides). These two drive the loop.
-   - **Cheats** — boosters, heal, give items.
+   - **Cheats** — boosters, heal, give items, and a **Time** sub-panel (0.25–4× time scale).
    - **Flags** — get/set/clear/snapshot `gEventGlobal` story flags. The reliable proof that an
      event fired even when dialogue text is shadowed by another mod folder.
-   - **Time** — 0.25–4× time scale.
+   - **World** (overworld only) — teleport, vehicle swap, disc switch.
 
    After an edit: redeploy → **~ → Go → Reload field**.
 

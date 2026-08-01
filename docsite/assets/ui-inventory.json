@@ -925,6 +925,534 @@
     "kind": "QPushButton",
     "text": "Cancel"
    }
+  },
+  "form:field": {
+   "id": {
+    "kind": "int",
+    "text": "Field ID"
+   },
+   "name": {
+    "kind": "str",
+    "text": "Name"
+   },
+   "area": {
+    "kind": "int",
+    "text": "Area"
+   },
+   "text_block": {
+    "kind": "optint",
+    "text": "Text block"
+   },
+   "title": {
+    "kind": "str",
+    "text": "Title"
+   },
+   "location": {
+    "kind": "str",
+    "text": "Location"
+   },
+   "borrow_bg": {
+    "kind": "str",
+    "text": "Borrow BG"
+   }
+  },
+  "form:npc": {
+   "name": {
+    "kind": "str",
+    "text": "Name"
+   },
+   "preset": {
+    "kind": "preset",
+    "text": "Preset"
+   },
+   "model": {
+    "kind": "catint",
+    "text": "Model"
+   },
+   "animset": {
+    "kind": "optint",
+    "text": "Animset id"
+   },
+   "anims": {
+    "kind": "animset",
+    "text": "Movement clips",
+    "placeholder": "stand=560, walk=571"
+   },
+   "dialogue": {
+    "kind": "str",
+    "text": "Dialogue"
+   },
+   "speaker": {
+    "kind": "str",
+    "text": "Speaker name"
+   },
+   "tail": {
+    "kind": "str",
+    "text": "Window tail"
+   },
+   "pos": {
+    "kind": "coord",
+    "text": "Position (x, z)"
+   },
+   "requires_flag": {
+    "kind": "flagref",
+    "text": "Appears when flag set"
+   },
+   "requires_flag_clear": {
+    "kind": "flagref",
+    "text": "Appears when flag clear"
+   }
+  },
+  "form:gateway": {
+   "name": {
+    "kind": "str",
+    "text": "Name"
+   },
+   "to": {
+    "kind": "int",
+    "text": "To field id"
+   },
+   "entrance": {
+    "kind": "optint",
+    "text": "Entrance"
+   },
+   "zone": {
+    "kind": "zone",
+    "text": "Zone (x z; x z; ...)"
+   },
+   "requires_flag": {
+    "kind": "flagref",
+    "text": "Opens when flag set"
+   },
+   "requires_flag_clear": {
+    "kind": "flagref",
+    "text": "Opens when flag clear"
+   }
+  },
+  "form:event": {
+   "name": {
+    "kind": "str",
+    "text": "Name"
+   },
+   "message": {
+    "kind": "str",
+    "text": "Message"
+   },
+   "speaker": {
+    "kind": "str",
+    "text": "Speaker name"
+   },
+   "tail": {
+    "kind": "str",
+    "text": "Window tail"
+   },
+   "give_item": {
+    "kind": "pair",
+    "text": "Give item (id, count)"
+   },
+   "received": {
+    "kind": "bool",
+    "text": "Item-get window"
+   },
+   "require_space": {
+    "kind": "bool",
+    "text": "Skip if bag full"
+   },
+   "gil": {
+    "kind": "optint",
+    "text": "Gil"
+   },
+   "set_flag": {
+    "kind": "flagpair",
+    "text": "Set flag (name/idx, val)"
+   },
+   "once": {
+    "kind": "bool",
+    "text": "Fire once"
+   },
+   "zone": {
+    "kind": "zone",
+    "text": "Zone (x z; x z; ...)"
+   },
+   "requires_flag": {
+    "kind": "flagref",
+    "text": "Fires when flag set"
+   },
+   "requires_flag_clear": {
+    "kind": "flagref",
+    "text": "Fires when flag clear"
+   }
+  },
+  "form:chest": {
+   "pos": {
+    "kind": "coord",
+    "text": "Position (x, z)"
+   },
+   "model": {
+    "kind": "str",
+    "text": "Chest model"
+   },
+   "item": {
+    "kind": "itemcount",
+    "text": "Reward item (id/name, count)"
+   },
+   "gil": {
+    "kind": "optint",
+    "text": "Reward gil"
+   },
+   "flag": {
+    "kind": "flagref",
+    "text": "Opened-flag"
+   },
+   "requires_flag": {
+    "kind": "flagref",
+    "text": "Appears when flag set"
+   },
+   "requires_flag_clear": {
+    "kind": "flagref",
+    "text": "Appears when flag clear"
+   },
+   "face": {
+    "kind": "optint",
+    "text": "Facing (0-255)"
+   },
+   "message": {
+    "kind": "str",
+    "text": "Custom box text"
+   },
+   "box": {
+    "kind": "pair",
+    "text": "Box size (width, lines)"
+   },
+   "tail": {
+    "kind": "str",
+    "text": "Window tail"
+   }
+  },
+  "form:prop": {
+   "name": {
+    "kind": "str",
+    "text": "Name"
+   },
+   "prop": {
+    "kind": "str",
+    "text": "Prop"
+   },
+   "model": {
+    "kind": "str",
+    "text": "Model"
+   },
+   "pose": {
+    "kind": "str",
+    "text": "Pose"
+   },
+   "pos": {
+    "kind": "coord",
+    "text": "Position (x, z)"
+   },
+   "face": {
+    "kind": "optint",
+    "text": "Facing (0-255)"
+   },
+   "collision": {
+    "kind": "bool",
+    "text": "Solid (blocks walking)"
+   },
+   "requires_flag": {
+    "kind": "flagref",
+    "text": "Appears when flag set"
+   },
+   "requires_flag_clear": {
+    "kind": "flagref",
+    "text": "Appears when flag clear"
+   },
+   "attach_to": {
+    "kind": "str",
+    "text": "Attach to NPC"
+   },
+   "bone": {
+    "kind": "optint",
+    "text": "Attachment bone"
+   }
+  },
+  "form:sps": {
+   "id": {
+    "kind": "int",
+    "text": "Effect ID"
+   },
+   "template": {
+    "kind": "str",
+    "text": "Template"
+   },
+   "clone_sps": {
+    "kind": "optint",
+    "text": "Clone carried effect"
+   },
+   "pos": {
+    "kind": "coord",
+    "text": "Position (x, z)"
+   },
+   "slot": {
+    "kind": "optint",
+    "text": "SPS slot"
+   },
+   "abr": {
+    "kind": "optint",
+    "text": "Blend mode"
+   },
+   "framerate": {
+    "kind": "optint",
+    "text": "Frame rate"
+   }
+  },
+  "form:encounter": {
+   "scene": {
+    "kind": "catint",
+    "text": "Battle scene",
+    "placeholder": "a scene id, or a BSC_ name"
+   },
+   "freq": {
+    "kind": "optint",
+    "text": "Frequency (0-255)"
+   },
+   "battle_music": {
+    "kind": "optint",
+    "text": "Battle music id"
+   }
+  },
+  "form:music": {
+   "song": {
+    "kind": "optint",
+    "text": "Field BGM song id"
+   },
+   "file": {
+    "kind": "str",
+    "text": "File (custom track)"
+   },
+   "loop_start": {
+    "kind": "optint",
+    "text": "Loop start (samples)"
+   },
+   "loop_end": {
+    "kind": "optint",
+    "text": "Loop end (samples)"
+   }
+  },
+  "form:party": {
+   "add": {
+    "kind": "strlist",
+    "text": "Add members"
+   },
+   "remove": {
+    "kind": "strlist",
+    "text": "Remove members"
+   }
+  },
+  "form:playable": {
+   "id": {
+    "kind": "optint",
+    "text": "Character id"
+   },
+   "name": {
+    "kind": "str",
+    "text": "Name"
+   },
+   "borrow": {
+    "kind": "str",
+    "text": "Borrow from"
+   },
+   "recruit": {
+    "kind": "bool",
+    "text": "Recruit at field load"
+   },
+   "custom_battle_model": {
+    "kind": "bool",
+    "text": "Custom battle model"
+   },
+   "custom_battle_anims": {
+    "kind": "bool",
+    "text": "Custom battle animset"
+   },
+   "anim_edits": {
+    "kind": "str",
+    "text": "Animset edits (.glb)"
+   },
+   "portrait": {
+    "kind": "str",
+    "text": "Portrait PNG"
+   },
+   "battle_model_from": {
+    "kind": "str",
+    "text": "Battle model donor"
+   },
+   "battle_model_id": {
+    "kind": "optint",
+    "text": "Minted model id"
+   }
+  },
+  "form:startup": {
+   "scenario": {
+    "kind": "scenarioref",
+    "text": "Scenario beat"
+   },
+   "flags": {
+    "kind": "flagdictlist",
+    "text": "Set story flags"
+   },
+   "words": {
+    "kind": "bytedictlist",
+    "text": "Word writes (advanced)"
+   },
+   "bytes": {
+    "kind": "bytedictlist",
+    "text": "Byte writes (advanced)"
+   }
+  },
+  "form:cutscene": {
+   "actors": {
+    "kind": "strlist",
+    "text": "Cast"
+   },
+   "once": {
+    "kind": "bool",
+    "text": "Play once"
+   },
+   "requires_scenario": {
+    "kind": "scenarioref",
+    "text": "Requires beat"
+   },
+   "requires_flag": {
+    "kind": "flagref",
+    "text": "Requires flag set"
+   },
+   "set_scenario": {
+    "kind": "scenarioref",
+    "text": "Then set beat"
+   },
+   "then_warp": {
+    "kind": "optint",
+    "text": "Then warp to field"
+   },
+   "warmup": {
+    "kind": "optint",
+    "text": "Warmup frames"
+   }
+  },
+  "form:marker": {
+   "name": {
+    "kind": "str",
+    "text": "Name"
+   },
+   "pos": {
+    "kind": "coord",
+    "text": "Position (x, z)"
+   }
+  },
+  "form:flag": {
+   "name": {
+    "kind": "str",
+    "text": "Name"
+   },
+   "index": {
+    "kind": "int",
+    "text": "gEventGlobal bit"
+   }
+  },
+  "form:choice": {
+   "npc": {
+    "kind": "str",
+    "text": "NPC"
+   },
+   "zone": {
+    "kind": "zone",
+    "text": "Zone (x z; x z; ...)"
+   },
+   "trigger": {
+    "kind": "str",
+    "text": "Trigger (zone)"
+   },
+   "once": {
+    "kind": "bool",
+    "text": "Fires once ever"
+   },
+   "prompt": {
+    "kind": "str",
+    "text": "Prompt"
+   },
+   "speaker": {
+    "kind": "str",
+    "text": "Speaker name"
+   },
+   "tail": {
+    "kind": "str",
+    "text": "Window tail"
+   },
+   "default": {
+    "kind": "optint",
+    "text": "Default row"
+   },
+   "cancel": {
+    "kind": "optint",
+    "text": "Cancel row"
+   }
+  },
+  "form:choice-option": {
+   "text": {
+    "kind": "str",
+    "text": "Option text"
+   },
+   "disabled": {
+    "kind": "bool",
+    "text": "Hidden"
+   },
+   "requires_flag": {
+    "kind": "flagref",
+    "text": "Show if flag set"
+   },
+   "requires_flag_clear": {
+    "kind": "flagref",
+    "text": "Show if flag clear"
+   },
+   "reply": {
+    "kind": "str",
+    "text": "Reply"
+   },
+   "give_item": {
+    "kind": "itemcount",
+    "text": "Give item"
+   },
+   "gil": {
+    "kind": "optint",
+    "text": "Gil"
+   },
+   "set_flag": {
+    "kind": "flagpair",
+    "text": "Set flag (name/idx, val)"
+   }
+  },
+  "form:dialogue": {
+   "wrap": {
+    "kind": "optint",
+    "text": "Auto-wrap width"
+   }
+  },
+  "form:player": {
+   "spawn": {
+    "kind": "coord",
+    "text": "Spawn (x, z)"
+   },
+   "face": {
+    "kind": "optint",
+    "text": "Spawn facing (0-255)"
+   },
+   "model": {
+    "kind": "flagref",
+    "text": "Walk-as model"
+   },
+   "arrival": {
+    "kind": "arrivallist",
+    "text": "Per-door arrivals"
+   }
   }
  }
 }

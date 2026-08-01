@@ -375,8 +375,9 @@ def so_record(blob: bytes, geom_base: int) -> Optional[dict]:
         +0x06 u16 arrayB    == 8 + 4P   -- ★ THE INDEPENDENT HALFWORD the acceptance test rests on
         +0x08     P x { u16 tpage, u16 clut }   stride 4
         +arrayB   P x { u16, u16 }              RETURNED as `second`, UNINTERPRETED (scored as an
-                                                in-record null: 0/309, 0/264; U1 cast 2 says
-                                                something in it DISPLACES the sampled cell -- see
+                                                in-record null: 0/309, 0/264; U1's s77 read MEASURED
+                                                it as a per-slot texel displacement, position 0 onto
+                                                u and position 1 onto v, on ONE container -- see
                                                 ``depth_attribution.U_DISPLACEMENT_CAVEAT``)
 
     **THE ACCEPTANCE TEST IS THREE INDEPENDENT HALFWORDS**, and only two of them carry load.
@@ -414,10 +415,14 @@ def so_record(blob: bytes, geom_base: int) -> Optional[dict]:
     ★ **W6b-3 (iii): THE SECOND ARRAY IS RETURNED, AND NOTHING INTERPRETS IT.** ``second`` is the P
     ``(u16, u16)`` pairs at ``+arrayB`` -- bytes this reader already walked past, inside a record it
     already accepted (``arrayB == 8 + 4P`` is asserted above, so the array base is ``at + 8 + 4P``
-    and the record ends at ``at + 8 + 8P``). A marked cast of ef038 measured something in it
-    DISPLACING the sampled cell by one 8bpp column; the kit models nothing with it and DISCLOSES it
-    (:data:`ff9mapkit.summons.depth_attribution.U_DISPLACEMENT_CAVEAT`). ``P == 0`` yields ``[]``,
-    so the P = 0 invariant above is untouched.
+    and the record ends at ``at + 8 + 8P``). A stock log-only cast of ef038 MEASURED it as a per-slot
+    TEXEL DISPLACEMENT -- pair position 0 onto ``u``, pair position 1 onto ``v``, +128 texels each,
+    on ONE container -- baked into the submitted primitive and absent from the stored UV pool, so
+    ``u``/``v`` here remain the UNDISPLACED coordinates. The kit still models nothing with it and
+    DISCLOSES it (:data:`ff9mapkit.summons.depth_attribution.U_DISPLACEMENT_CAVEAT`). ⚠ That read
+    settles POSITION-WITHIN-A-PAIR, not array ORDER: it says nothing about mapping entry *k* to part
+    *k*, so ``ORDER_UNMEASURED`` above is untouched by it. ``P == 0`` yields ``[]``, so the P = 0
+    invariant above is untouched too.
 
     Returns ``{at, len, textured, nparts, witness, parts, second, [tpage, clut]}``; see
     :data:`WITNESS_INCUMBENT` / :data:`WITNESS_NOVEL` for what ``witness`` decides.

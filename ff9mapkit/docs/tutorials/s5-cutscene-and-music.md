@@ -7,6 +7,30 @@ step = 5
 builds_on = ["s4-story-flags"]
 goal = "An entry cutscene that plays once, over a music pick of your own."
 requires = ["game", "gui", "assets"]
+
+[[tutorial.ui]]
+label = "Play once"
+widget = "form:cutscene.once"
+
+[[tutorial.ui]]
+label = "Cast"
+widget = "form:cutscene.actors"
+
+[[tutorial.ui]]
+label = "Requires beat"
+widget = "form:cutscene.requires_scenario"
+
+[[tutorial.ui]]
+label = "Then set beat"
+widget = "form:cutscene.set_scenario"
+
+[[tutorial.ui]]
+label = "Field BGM song id"
+widget = "form:music.song"
+
+[[tutorial.ui]]
+label = "File (custom track)"
+widget = "form:music.file"
 ```
 
 A **cutscene** is the one thing the other forms can't express — steps that run *in order*, with
@@ -34,7 +58,7 @@ on its own.
 Deploy, **~ → Reload**, walk in. **What you should see:** the party stops, the lines play in
 order, control returns — and a second visit skips the scene (the once-flag at work; to watch it
 again during authoring, deploy again and reload — a redeploy starts the field's state fresh in
-the scratch slot).
+the **Test slot**, [S1](s1-fork-and-deploy.md)'s name for this same scratch id).
 
 A scene can also drive NPCs — walk them, turn them, have them speak — by naming them under
 **Cast**; gated to story beats (**Requires beat** / **Then set beat**) it becomes FF9's own
@@ -45,9 +69,9 @@ story-event dispatch. Both are in
 
 The **Music** section sets the field's BGM:
 
-- **Song id** — any of FF9's tracks (Browse… lists them by name). Plays on entry and resumes
-  after battles. Hot-reloads with the normal loop.
-- **Your own audio file** — a wav/mp3/ogg path; the build transcodes it and mints a new song id
+- **Field BGM song id** — any of FF9's tracks (Browse… lists them by name). Plays on entry and
+  resumes after battles. Hot-reloads with the normal loop.
+- **File (custom track)** — a wav/mp3/ogg path; the build transcodes it and mints a new song id
   into the mod. Note: custom audio loads at game **startup**, so this one needs a full game
   restart to hear — ~ reload is not enough.
 

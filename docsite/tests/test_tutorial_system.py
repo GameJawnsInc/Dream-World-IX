@@ -48,6 +48,44 @@ def test_inventory_is_committed_and_sane():
     nj = inv["surfaces"]["dlg:new-journey"]
     assert len(nj) > 10, "the dialog harvest collapsed"
     assert "Multi-campaign arc — chain forked campaigns" in nj
+    forms = {k: v for k, v in inv["surfaces"].items() if k.startswith("form:")}
+    assert len(forms) > 15, "the editor-form harvest collapsed"
+    assert forms["form:npc"]["requires_flag"]["text"] == "Appears when flag set"
+    assert forms["form:choice-option"]["text"]["text"] == "Option text"   # <THING>_SPEC -> dashes
+
+
+def test_form_inventory_is_fresh_against_the_live_specs():
+    """The ui_gate proves tutorial -> inventory. This proves inventory -> the LIVE forms.py.
+
+    Without it the two halves can agree with each other while the real GUI has moved on: renaming a
+    Field's label WITHOUT re-running the harvest left the build green at 191 pages and every gate
+    passing -- precisely the rot the gate exists to catch, one layer further back. Closing it is only
+    possible for `form:` surfaces, because harvest_forms() is plain data; the Qt-harvested tab:/dlg:
+    halves need a driven app, so their freshness stays a `uiharvest --check` chore.
+    """
+    import uiharvest as U
+
+    live = U.harvest_forms()
+    committed = {k: v for k, v in json.loads(
+        (B.HERE / "assets" / "ui-inventory.json").read_text(encoding="utf-8")
+    )["surfaces"].items() if k.startswith("form:")}
+    if live == committed:
+        return
+    drift = [f"  surface {k} vanished from forms.py" for k in committed.keys() - live.keys()]
+    drift += [f"  surface {k} is new in forms.py" for k in live.keys() - committed.keys()]
+    for k in live.keys() & committed.keys():
+        for fk in committed[k].keys() - live[k].keys():
+            drift.append(f"  {k}.{fk} vanished from forms.py")
+        for fk in live[k].keys() - committed[k].keys():
+            drift.append(f"  {k}.{fk} is new in forms.py")
+        for fk in live[k].keys() & committed[k].keys():
+            if live[k][fk] != committed[k][fk]:
+                drift.append(f"  {k}.{fk}: committed {committed[k][fk]} -> live {live[k][fk]}")
+    raise AssertionError(
+        "docsite/assets/ui-inventory.json is STALE against ff9mapkit/ff9mapkit/editor/forms.py.\n"
+        + "\n".join(sorted(drift))
+        + "\nRe-run: py docsite/uiharvest.py   (then check whether any tutorial prose quoted the "
+          "old label -- the ui_gate will say so)")
 
 
 def test_ui_gate_dialog_scoped_declaration():
@@ -61,6 +99,31 @@ def test_ui_gate_dialog_scoped_declaration():
     bad = good.replace('"Hub name"', '"No Such Control"').replace("**Hub name**",
                                                                   "**No Such Control**")
     assert any("no control labeled" in e for e in B.ui_gate(_page(bad)))
+
+
+# An editor-FORM declaration: `form:<section>.<field key>`, the shape the core track's prose needs
+# (its labels come from forms.py's <THING>_SPEC data, not from a rendered Qt tab).
+FORM_FRONT = FRONT.replace('label = "Find…"\nwidget = "import_field.find_btn"',
+                           'label = "Appears when flag set"\n'
+                           'widget = "form:npc.requires_flag"') \
+                  .replace("**Find…**", "**Appears when flag set**")
+
+
+def test_ui_gate_form_field_declaration():
+    assert B.ui_gate(_page(FORM_FRONT)) == []
+
+
+def test_ui_gate_teeth_form_declarations():
+    def errs(old: str, new: str) -> list[str]:
+        return B.ui_gate(_page(FORM_FRONT.replace(old, new)))
+    # an unknown form, an unknown field key, a whole-form path, and a stale label -- each named
+    assert any("form surface 'form:goblin' is not in the inventory" in e
+               for e in errs("form:npc.", "form:goblin."))
+    assert any("has no field 'requires_flg'" in e for e in errs("requires_flag", "requires_flg"))
+    assert any("names a whole form" in e for e in errs("form:npc.requires_flag", "form:npc"))
+    stale = errs("Appears when flag set", "Shows when flag set")     # frontmatter AND prose
+    assert any("no longer matches form:npc.requires_flag" in e
+               and "Appears when flag set" in e for e in stale), stale
 
 
 def _page(raw: str) -> dict:
@@ -105,11 +168,11 @@ def test_cli_gate_accepts_placeholders_and_globals():
 
 
 def test_spine_tutorials_declare_and_render_chips(tmp_path):
-    for name, wants_ui in (("s1-fork-and-deploy.md", True), ("s2-add-an-npc.md", False)):
+    for name in ("s1-fork-and-deploy.md", "s2-add-an-npc.md"):
         src = B.REPO / "ff9mapkit" / "docs" / "tutorials" / name
         page = B.page_from_source(src)
         assert page.meta and page.meta.get("track") == "S", f"{name} lost its frontmatter"
-        assert bool(page.meta.get("ui")) == wants_ui
+        assert page.meta.get("ui"), f"{name} declares no [[tutorial.ui]] controls"
         assert B.ui_gate({page.rel: page}) == []
         assert 'class="tut-reqs"' in page.body and 'class="chip track"' in page.body
         assert "```toml" not in page.body and "[tutorial]" not in page.body

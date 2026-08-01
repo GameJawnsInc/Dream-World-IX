@@ -48,6 +48,13 @@ Workspace label into `assets/ui-inventory.json`; tutorials declare the labels th
 build verifies them), and commands (every `ff9mapkit` line in every shell fence is verb- and
 flag-checked against the real parser at build time).
 
+A `[[tutorial.ui]]` declaration names its control one of three ways: `import_field.import_btn`
+(a ribbon-tab control, by attr path), `dlg:new-journey` (a dialog control, scoped to the dialog),
+or `form:npc.requires_flag` (one field of one editor form, by the form spec's key). The tab and
+dialog halves are harvested by driving the Workspace headlessly; the form half is read straight
+out of `ff9mapkit/editor/forms.py`'s `<THING>_SPEC` lists, so it needs no Qt and picks up a newly
+added spec automatically.
+
 ## Tests
 
 ```

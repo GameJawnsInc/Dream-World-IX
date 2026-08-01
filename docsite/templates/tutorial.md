@@ -9,10 +9,17 @@ requires = ["game", "gui"]        # keys: game, templates, gui, assets, engine-b
 
 # Every GUI control the prose names, declared here. The build verifies each against the
 # harvested inventory (docsite/assets/ui-inventory.json): wrong/renamed/vanished label = build
-# error. Widget paths are the same attr paths shots.toml callouts use.
+# error. Three widget shapes:
+#   a ribbon-tab control  -> the attr path, the same vocabulary shots.toml callouts use
+#   a dialog control      -> "dlg:<dialog>", scoped to the dialog (the label is the identity)
+#   an editor form field  -> "form:<section>.<field key>", naming exactly one field of one form
 [[tutorial.ui]]
 label = "Import field"
 widget = "import_field.import_btn"
+
+[[tutorial.ui]]
+label = "Appears when flag set"
+widget = "form:npc.requires_flag"
 ```
 
 One or two sentences of orientation: what this builds on ([tutorial NN](NN-slug.md)) and what the

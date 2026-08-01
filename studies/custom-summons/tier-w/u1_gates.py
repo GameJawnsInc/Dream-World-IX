@@ -16,11 +16,16 @@ rung is **green BEFORE == green AFTER** on all four, plus green here.
 
     THE SECOND ARRAY IS READ AND DISCLOSED.  NOTHING IS MODELLED WITH IT, AND NO EMITTED BYTE MOVES.
 
-The evidence it discloses is cast-proven on ONE container at **0.84**; WHICH halfword displaces `u`
-rides separately at **0.68**, so BOTH readings are printed and NEITHER is preferred; and the **v axis
-is UNRESOLVED** and is not modelled at all.  All three ride IN the quotable constant
-(`depth_attribution.U_DISPLACEMENT_CAVEAT`), which is spent at the refusal, the build gate, the
-disclosure and the report block -- *a caveat nothing quotes is a wish.*
+The evidence it discloses is MEASURED on ONE container at **0.97** -- U1's s77 byte-stream read of
+ef038: the second array is a per-slot texel displacement, **pair position 0 onto `u`, pair position 1
+onto `v`**, +128 texels each.  That settled two riders this board was written under (the labelling,
+which is the one the kit calls SWAPPED, and the `v` axis), and left five open -- generalisation, the
+operation-vs-magnitude, depth, wrap-vs-clamp, and per-slot-only-where-slot-equals-record.  All of
+them ride IN the quotable constant (`depth_attribution.U_DISPLACEMENT_CAVEAT`), which is spent at the
+refusal, the build gate, the disclosure and the report block -- *a caveat nothing quotes is a wish.*
+
+★ THE NUMBERS DID NOT MOVE, AND THAT IS THE POINT: the predicate never asked which halfword moves
+which axis, so U2's 52 / 29 / 47 are exactly what they were the day before the read.
 
 Reads the extracted corpus at C:\gd\SCRATCH\summon-format ONLY.  No install read, NO deploy, no
 install write, no git commit; it writes nothing but its own stdout.  Budget: three rasterising passes
@@ -391,8 +396,8 @@ def u3_superset(D: Data) -> None:
         sorted((D.lost["original"] - LOST_ORIGINAL) - mine), [])
     chk("the ALL-scope four are OUT OF REACH by construction", sorted(ALL_SCOPE_ONLY & mine), [])
     print("   SWAPPED 16/16 contained . ORIGINAL 19/19 contained . union 35/35, ZERO missed")
-    print("   %d conservative extras -- cells whose movers would not actually vacate them under "
-          "either arithmetic; asking WOULD force the labelling choice at 0.68"
+    print("   %d extras beyond the union -- and since U1's s77 read they are NOT cells that stay "
+          "put: both lists are u-ONLY models, and these vacate in v, the axis neither modelled"
           % len(mine - (LOST_SWAPPED | LOST_ORIGINAL)))
     print("   the independent roll reproduces SWAPPED EXACTLY (16 == 16) and over-names ORIGINAL by "
           "%d (%s) -- the kit's columns are a `u` SPAN, and a SPAN is a WIDER claim, never a wrong "
@@ -441,7 +446,9 @@ def u5_shipped_casts(D: Data) -> None:
         note = D.fire[c][k]
         print("      FIRES  %-6s x%d_y%d  (%s)" % (c, k[0], k[1], note["source"]))
     print("   ★ ef424 `cell.s0.x448_y384` is the W6b-3ii ORDER RIDER -- its only incumbent reader "
-          "carries A=0x0080/B=0, and under SWAPPED it reads column 512.  A LEAD, not a claim.")
+          "carries a non-zero pair position 0 with a zero position 1, so under the labelling U1 "
+          "MEASURED on ef038 it reads column 512.  Still a LEAD, not a claim: the premise is now "
+          "measured, the container is not.")
     # ⚠ BOTH committed ef424 cast specs target it -- `odin_channel_a.toml` ROW 2 and its cast-C
     # sibling `odin_channel_a_c.toml` ROW 2 (cast B is VOID, so the SIBLING is the live one).  Swept
     # rather than typed: every `[reskin]` spec in this directory, resolved through `texel_page`.
@@ -460,8 +467,18 @@ def u6_ack_and_constant(D: Data) -> None:
     chk("the class is NOT export-blocking", "second-array-mover" in RP._EXPORT_BLOCKING, False)
     chk("no literal `%` in the class text",
         "%" in RP._REFUSAL_TEXT["second-array-mover"].replace("%s", ""), False)
-    for piece in ("0.84", "0.68", "UNRESOLVED", "cell.s0.x704_y256"):
+    # ★ THE FOUR LOAD-BEARING CLAIMS -- the altitude, the settled labelling, the resolved v axis and
+    # the surviving generalisation rider.  The three tokens this loop used to pin ("0.84", "0.68",
+    # "UNRESOLVED") were REFUTED by the s77 read and are checked ABSENT below, so a revert to the old
+    # text goes RED here instead of passing quietly.
+    for piece in ("0.97", "PAIR POSITION 0 DISPLACES u", "THE v AXIS IS RESOLVED",
+                  "ONE CONTAINER, ONE CAST"):
         chk("the caveat carries %r" % piece, piece in DA.U_DISPLACEMENT_CAVEAT, True)
+    for gone in ("0.84", "0.68", "UNRESOLVED", "NEITHER is preferred"):
+        chk("the caveat has RETIRED %r" % gone, gone in DA.U_DISPLACEMENT_CAVEAT, False)
+    for piece in ("cell.s0.x704_y256", "cell.s0.x704_y384"):
+        chk("the sharpest-unmodelled statement names %r" % piece,
+            piece in DA.U_DISPLACEMENT_CAVEAT, True)
     chk("the refusal quotes the caveat", DA.U_DISPLACEMENT_CAVEAT
         in RP._REFUSAL_TEXT["second-array-mover"], True)
     chk("the ack warning quotes the caveat",
@@ -514,10 +531,16 @@ def u6_ack_and_constant(D: Data) -> None:
     chk("...exactly once", scaffold.count("%s = false" % DA.ACK_MOVER_KEY), 1)
     chk("the scaffold prints BOTH readings",
         "SWAPPED  reading" in scaffold and "ORIGINAL reading" in scaffold, True)
+    chk("...the MEASURED one named as measured, the retired one as retired",
+        "MEASURED: pair position 0 displaces u" in scaffold
+        and "RETIRED: pair position 1 onto u" in scaffold, True)
+    chk("the refuted claim `pair position 1 moves u` is GONE from the scaffold",
+        "pair position 1 moves u" in scaffold, False)
     print("   the build path on ef424 %s: refused BY NAME without the ack, built with it, and the "
           "patched bytes are IDENTICAL to the same row built with the gate stubbed out" % cell)
-    print("   the caveat carries 0.84 / 0.68 / UNRESOLVED / cell.s0.x704_y256 and is quoted at the "
-          "refusal, the gate, the disclosure and the report block")
+    print("   the caveat carries 0.97 / the settled labelling / the resolved v axis / the "
+          "generalisation rider, and is quoted at the refusal, the gate, the disclosure and the "
+          "report block")
 
 
 # --------------------------------------------------------------------------- runner
@@ -542,7 +565,8 @@ def main(argv=None) -> int:
     print("corpus: %s" % CORPUS)
     print("THE LINE: THE SECOND ARRAY IS READ AND DISCLOSED.  NOTHING IS MODELLED WITH IT, AND NO "
           "EMITTED BYTE MOVES.")
-    print("0.84 on ONE container . the labelling at 0.68, BOTH readings printed . v UNRESOLVED")
+    print("0.97 on ONE container . the labelling SETTLED (SWAPPED) . the v axis RESOLVED . "
+          "five riders still open")
     print("=" * 78)
     D = Data()
     board = []

@@ -4687,10 +4687,14 @@ def test_a_readerless_cell_is_not_VACUOUSLY_in_the_class():
     assert all(not p.hazards.readers and not p.hazards.every_reader_moves for p in dark)
 
 
-def test_BOTH_candidate_columns_are_stated_and_NEITHER_is_preferred():
+def test_the_MEASURED_and_the_RETIRED_column_readings_are_both_stated():
     """★ P3.  A column is 64 halfwords, i.e. ``{4bpp: 256, 8bpp: 128, 15bpp: 64}`` texels -- so the
     cast's ``+128`` is HALF a 4bpp column, EXACTLY ONE at 8bpp (640 -> 704) and TWO at 15bpp.  All
-    three asserted off the same pair, so the arithmetic is CHECKED rather than typed."""
+    three asserted off the same pair, so the arithmetic is CHECKED rather than typed.
+
+    U1's s77 read settled the labelling: ``swapped_*`` (pair position 0 onto ``u``) is the MEASURED
+    reading and ``original_*`` is the RETIRED one, carried beside it so the disclosure stays
+    auditable.  Both are still computed and neither is ever applied."""
     per_col = {b: RS.PAGE_CELL_W * KT.TEXELS_PER_HW[b] for b in (4, 8, 15)}
     assert per_col == {4: 256, 8: 128, 15: 64}
     # 8bpp, u 0..127, bound column 448: SWAPPED (A = 0x80) lands on 512, ORIGINAL (B = 0) stays
@@ -4699,7 +4703,7 @@ def test_BOTH_candidate_columns_are_stated_and_NEITHER_is_preferred():
     # the same +128 at the other two depths, from the same table
     assert RP._effective_columns(448, (0, 127), 4, 0x80) == (448,), "half a 4bpp column: no crossing"
     assert RP._effective_columns(448, (0, 63), 15, 0x80) == (576,), "two 15bpp columns"
-    # ...and the record carries both readings with the SAME evidence and no preference
+    # ...and the record carries both, the MEASURED one and the RETIRED one, computed identically
     blob = build_scenery_container(extra_models=_mover_model(uv=(0, 0, 127, 60)))
     pages, _ = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
     n = [p for p in pages if p.cell == (448, 256)][0].hazards.second_array[0]
@@ -4735,8 +4739,18 @@ def test_the_refusal_TEXT_is_quotable_and_carries_no_literal_percent():
     assert DA.ACK_MOVER_KEY in txt
     assert "THE GRANULARITY IS THE WHOLE READER SET" in txt and "cell.s0.x640_y256" in txt
     assert "THE REACH IS THE INCUMBENT RECORDS ONLY" in txt, "the blind spot is stated, not omitted"
-    for piece in ("0.84", "0.68", "UNRESOLVED", "cell.s0.x704_y256"):
+    # ★ THE FOUR LOAD-BEARING CLAIMS, one per axis of the U1 s77 read: the altitude, the settled
+    # labelling, the resolved v axis, and the surviving generalisation rider.  The three tokens this
+    # loop used to pin ("0.84", "0.68", "UNRESOLVED") are REFUTED by that read and are asserted
+    # ABSENT below, so a revert to the old text fails here rather than passing quietly.
+    for piece in ("0.97", "PAIR POSITION 0 DISPLACES u", "THE v AXIS IS RESOLVED",
+                  "ONE CONTAINER, ONE CAST"):
         assert piece in DA.U_DISPLACEMENT_CAVEAT, piece
+    for gone in ("0.84", "0.68", "UNRESOLVED", "NEITHER is preferred"):
+        assert gone not in DA.U_DISPLACEMENT_CAVEAT, gone
+    # ...and the sharpest-unmodelled statement still names BOTH cells of the column the cast measured
+    assert "cell.s0.x704_y256" in DA.U_DISPLACEMENT_CAVEAT
+    assert "cell.s0.x704_y384" in DA.U_DISPLACEMENT_CAVEAT
     # the three author-facing consumption sites each spend it
     blob = build_scenery_container(extra_models=_mover_model())
     _pages, ref = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
@@ -4788,8 +4802,9 @@ def test_THE_BUILD_GATE_refuses_by_name_and_the_ack_moves_NO_BYTE(tmp_path):
 
 
 def test_export_art_PRINTS_the_disclosure_in_the_manifest_and_the_scaffold(tmp_path):
-    """★ P8.  The author meets this BEFORE they paint, not after the playtest: both readings in the
-    manifest, both in the scaffold, and the ack line only on a firing row."""
+    """★ P8.  The author meets this BEFORE they paint, not after the playtest: the MEASURED reading
+    and the retired one in the manifest, both in the scaffold labelled as such, and the ack line only
+    on a firing row."""
     blob = build_scenery_container(extra_models=_mover_model())
     RP.export_art(blob, 999, out_dir=tmp_path, scaffold=True, overlays=False)
     man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
@@ -4807,9 +4822,12 @@ def test_export_art_PRINTS_the_disclosure_in_the_manifest_and_the_scaffold(tmp_p
     assert "%s = false" % DA.ACK_MOVER_KEY in txt
     assert txt.count("%s = false" % DA.ACK_MOVER_KEY) == 1, "only on the firing row"
     assert "SECOND-ARRAY MOVER on EVERY reader" in txt
-    assert "SWAPPED  reading (pair position 0 moves u): +128 texels -> column(s) 512" in txt
-    assert "ORIGINAL reading (pair position 1 moves u): +0 texels -> column(s) 448 (unmoved)" in txt
-    assert "NEITHER is preferred" in txt
+    assert ("SWAPPED  reading (MEASURED: pair position 0 displaces u): +128 texels -> column(s) 512"
+            in txt)
+    assert ("ORIGINAL reading (RETIRED: pair position 1 onto u): +0 texels -> column(s) 448 "
+            "(unmoved)" in txt)
+    assert "SWAPPED is the MEASURED labelling" in txt and "ORIGINAL is the RETIRED reading" in txt
+    assert "pair position 1 moves u" not in txt, "the one claim the s77 read refutes outright"
     assert max(len(ln) for ln in txt.splitlines()) < 120
     import tomllib as _toml
     rows = _toml.loads(txt)["reskin"]["texel"]
@@ -4833,11 +4851,13 @@ def test_the_firing_set_over_the_WHOLE_CORPUS_reconciles_with_the_impact_scoping
     """★★ P9 -- THE HEADLINE, derived at call time from the container and never tabled.
 
     52 cells in 29 containers, 47 of them carrying no export-blocking refusal of any other class.
-    The predicate is the CONSERVATIVE all-movers one, so the set is a strict SUPERSET of the impact
-    scoping's two per-labelling lost-cell lists (16 SWAPPED / 19 ORIGINAL) and CONTAINS both
-    completely -- that is the reconciliation, and it is what says the disclosure reaches every cell
-    either live labelling would darken.  ef038 ``x640_y256`` (20 movers, 7 controls) is ABSENT, and
-    three of the four shipped cast cells are absent too.
+    The predicate is the all-movers one and is labelling-independent BY CONSTRUCTION, so the set is a
+    strict SUPERSET of the impact scoping's two lost-cell lists (16 SWAPPED / 19 ORIGINAL) and
+    CONTAINS both completely -- that is the reconciliation asserted here.  ⚠ Since U1's s77 read
+    those two lists are both known to be u-ONLY models: each applied one halfword to ``u`` and
+    modelled ``v`` not at all, so the containment is still the right check but the 17 "conservative
+    extras" it leaves over are NOT cells that stay put -- they vacate in ``v``.  ef038 ``x640_y256``
+    (20 movers, 7 controls) is ABSENT, and three of the four shipped cast cells are absent too.
     """
     fire, open_cells = {}, 0
     for ef, blob in _corpus_effects():

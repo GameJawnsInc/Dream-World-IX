@@ -377,11 +377,12 @@ ACK_WARNING = (
 # are these bytes read?"*; this one answers *"is this cell read AT ALL?"* -- so it deliberately gets
 # no `DEPTH_SOURCES` token, no `expect_bpp` pairing and no place in any residue arithmetic.  The `so`
 # record's SECOND array (the `P x {u16, u16}` block at `+arrayB` that `so_record` walked past and
-# discarded until this rung) carries something that, on ONE container, a marked cast measured
-# DISPLACING THE SAMPLED CELL.  The kit models NOTHING with it: it reads the halfwords, prints both
-# candidate readings side by side, and refuses -- behind a key -- a cell ALL of whose readers carry
-# one.  `SURFACE_CELLS`, `DEPTH_UNKNOWN`, `GAIN_PROGRAM`, `GAIN_SO_PAGE`, `GAIN_ARRAY`,
-# `RESIDUE_LINE` and `ARRAY_RESIDUE_LINE` are all exactly as true after this rung as before it.
+# discarded until this rung) is, since U1's s77 byte-stream read, a MEASURED PER-SLOT TEXEL
+# DISPLACEMENT -- pair position 0 onto u, pair position 1 onto v -- on ONE container.  The kit still
+# models NOTHING with it: it reads the halfwords, states them, and refuses -- behind a key -- a cell
+# ALL of whose readers carry one.  `SURFACE_CELLS`, `DEPTH_UNKNOWN`, `GAIN_PROGRAM`, `GAIN_SO_PAGE`,
+# `GAIN_ARRAY`, `RESIDUE_LINE` and `ARRAY_RESIDUE_LINE` are all exactly as true after this rung as
+# before it, and the s77 read moved none of them either.
 
 #: THE SPEC KEY for the second-array disclosure.  Literal-boolean-only, like every other
 #: acknowledgement in this lane.  It admits nothing about a DEPTH and demands no ``expect_bpp``: what
@@ -389,51 +390,119 @@ ACK_WARNING = (
 ACK_MOVER_KEY = "acknowledge_second_array_displacement"
 
 #: ★ THE CONDITIONALITY, CARRIED AS A CALL-SITED CONSTANT -- a caveat nothing quotes is a wish, and
-#: this one has THREE open riders that a one-line summary would collapse.  ⚠ It is spent through
+#: this one has FIVE open riders that a one-line summary would collapse.  ⚠ It is spent through
 #: :func:`~ff9mapkit.summons.repaint._refusal`'s ``txt % detail`` path, so it may never contain a
 #: literal ``%``: that is how a measurement quietly becomes a typo.
 U_DISPLACEMENT_CAVEAT = (
-    "THE SECOND ARRAY DISPLACES THE SAMPLED CELL -- ON ONE CONTAINER, AT 0.84, AND THIS KIT MODELS "
-    "NOTHING WITH IT.  A marked cast of ef038 (Shiva; U1 cast 2, the four-mark G1 repair) read "
-    "`B_ANSWERED_A_NOT` at confidence 0.84: something in the `so` record's SECOND array moves the "
-    "sampled cell by +128 texels in u -- exactly one 8bpp column, 640 to 704.  THREE THINGS RIDE "
-    "SEPARATELY AND ALL THREE ARE OPEN.  (1) GENERALISATION: one container, one cast.  Nothing here "
-    "says the mechanism holds off ef038, and every consequence this kit prints is prefixed IF IT "
-    "GENERALISES.  (2) THE LABELLING SITS AT 0.68: WHICH halfword moves u is not settled, so BOTH "
-    "readings are printed side by side and NEITHER is preferred -- SWAPPED means the halfword at "
-    "pair position 0, the one the container calls A, displaces u; ORIGINAL means position 1 does.  "
-    "(3) THE v AXIS IS UNRESOLVED: coarse-vs-fine never separated on the scored surfaces, so whether "
-    "the other halfword displaces v is unknown and v IS NOT MODELLED HERE AT ALL.  WHAT THIS IS FOR: "
-    "the kit everywhere equates a binding's BOUND cell with the cell the hardware SAMPLES, and this "
-    "is the disclosure that the identity may not hold on a reader carrying a non-zero halfword.  No "
-    "cover, no depth, no page, no name and no emitted byte moves on it -- adopting the displacement "
-    "into the derivation would force the labelling choice at 0.68 and ship a u-only half model, and "
-    "it is gated behind ONE cheap instrument: log `tag->u0..u3 / v0..v3` at SFXRender.cs:342-380 and "
-    "the log settles u AND v AND the labelling together, on any container, with no screen read.  THE "
-    "SHARPEST SINGLE STATEMENT OF WHAT IS UNMODELLED: ef038 `cell.s0.x704_y256` -- the cell that cast "
-    "measured as SAMPLED -- is refused by this kit today as `depth-unknown`.  BINDING-IS-NOT-A-DRAW "
-    "and THE DEPTH COROLLARY are unchanged by all of it: what a record states is what something "
-    "BINDS, and where the hardware reads is a second question this constant is the answer to only on "
-    "one container")
+    "THE SECOND ARRAY DISPLACES THE SAMPLED TEXEL, AND THE MECHANISM IS MEASURED -- ON ONE "
+    "CONTAINER, AT 0.97, AND THIS KIT STILL MODELS NOTHING WITH IT.  One stock log-only cast of "
+    "ef038 (Shiva), read through the U1 s77 instrument -- per-mesh min/max of the primitives' OWN "
+    "u,v bytes, joined one-to-one to the textured draw -- measured the `so` record's SECOND array as "
+    "a PER-SLOT TEXEL DISPLACEMENT: PAIR POSITION 0 DISPLACES u, PAIR POSITION 1 DISPLACES v, a "
+    "halfword of 128 moving its own axis by +128 texels, which on this container's 8bpp readers is "
+    "exactly one page column, 640 to 704.  All four cells of the (position 0, position 1) square "
+    "came back with ZERO residue on four disjoint reader populations, and the u-is-low-byte decode "
+    "every earlier round merely ASSUMED was measured with them.  THE DISPLACEMENT IS BAKED INTO THE "
+    "PRIMITIVE THE RENDERER SUBMITS AND IS ABSENT FROM THE CONTAINER'S STORED UV POOL: every span "
+    "this kit holds is the UNDISPLACED coordinate, so cover, columns, spill and the whole `so`-UV "
+    "attribution are computed on PRE-DISPLACEMENT numbers.  TWO RIDERS THIS CONSTANT USED TO CARRY "
+    "ARE CLOSED BY THAT READ.  THE LABELLING IS SETTLED ON ef038 -- it is the one this kit calls "
+    "SWAPPED -- and it is a single-record IDENTIFICATION, not a correlation: one reader carrying a "
+    "non-zero position 0 with a ZERO position 1 moved in u, which the RETIRED labelling -- A onto v, "
+    "B onto u, the reading this kit calls ORIGINAL -- forbids outright, and no other reader could "
+    "counterfeit it.  THE v AXIS IS RESOLVED ON ef038: position 1 displaces it, read directly on two "
+    "independent populations.  Both were open riders here until this cast, and both are byte-stream "
+    "measurements now rather than screen inferences.  AND TREAT A DISPLACED COLUMN AS HALF AN "
+    "ANSWER: every non-zero position 1 in this corpus is 128, which moves the read by half a page, "
+    "into the OTHER STACKED CELL of that column.  FIVE THINGS STILL "
+    "RIDE SEPARATELY AND ALL FIVE ARE OPEN.  (1) GENERALISATION: ONE CONTAINER, ONE CAST.  Nothing "
+    "measured says the mechanism holds off ef038, a second container's log-only cast is what would "
+    "make it a law, and every consequence this kit prints is still prefixed IF IT GENERALISES.  (2) "
+    "THE OPERATION, not merely its size: ef038 carries only the halfword values 0 and 128, so adding "
+    "128 to the byte and toggling the byte's top bit are THE SAME FUNCTION on every observation "
+    "here.  Six containers in the corpus already carry a third value, and one log-only cast on any "
+    "of them settles it.  (3) DEPTH: every population read was 8bpp, where a texel count, one "
+    "64-pixel page column and half the u byte all coincide -- while this kit's own column arithmetic "
+    "converts the halfword depth-dependently, and 52 of the corpus's 151 mover readers are NOT 8bpp "
+    "-- 41 of them at 4bpp and 11 at 15bpp.  (4) WRAP-vs-CLAMP AT THE BYTE BOUNDARY: UNTESTED, "
+    "because no observed span reaches it -- "
+    "and in this kit's favour no incumbent reader in the corpus would reach it either, so the LINEAR "
+    "reading printed here and a wrapping one agree on every one of them.  (5) PER-SLOT IS "
+    "ESTABLISHED ONLY WHERE SLOT EQUALS RECORD: every population sits on a single-part record, so "
+    "nothing here pairs array entry k with binding slot k and ORDER_UNMEASURED is untouched -- and "
+    "two of the four populations are whole CLUT-key families, which establishes that NO reader "
+    "drawing on that key was undisplaced rather than one identification per record.  WHAT THIS IS "
+    "FOR: the kit everywhere equates a binding's BOUND cell with the cell the hardware SAMPLES, and "
+    "this is the disclosure that on a reader carrying a non-zero halfword that identity is MEASURED "
+    "NOT TO HOLD on ef038.  No cover, no depth, no page, no name and no emitted byte moves on it: "
+    "the instrument the impact scoping made adoption conditional on -- log the primitives' own u and "
+    "v instead of reading a screen -- has been BUILT, DEPLOYED, CAST AND READ, and it settled u AND "
+    "v AND the labelling together on ONE container, so ADOPTING the displacement into the derivation "
+    "is now an OWNER DECISION rather than a blocked one.  Until that decision is taken the kit reads "
+    "the halfwords, states them, and refuses.  THE SHARPEST SINGLE STATEMENT OF WHAT IS UNMODELLED: "
+    "ef038 declares both cells of column 704 and binds no `so` reader to either, so this kit refuses "
+    "`cell.s0.x704_y256` AND `cell.s0.x704_y384` as `depth-unknown` and hands an author neither "
+    "picture -- while the same cast measured 20 of the 27 readers this kit attributes to "
+    "`cell.s0.x640_y256` -- one alone, nineteen as one CLUT-key family -- sampling column 704 "
+    "instead.  BINDING-IS-NOT-A-DRAW and THE DEPTH COROLLARY "
+    "are unchanged by all of it: what a record states is what something BINDS, and where the "
+    "hardware reads is a second question this constant is the answer to only on one container")
 
-#: what saying :data:`ACK_MOVER_KEY` means, printed on every build that uses it.
+#: what saying :data:`ACK_MOVER_KEY` means, printed on every build that uses it.  ⚠ THIS TEMPLATE'S
+#: OWN PROSE must hold EXACTLY the two ``%s`` below and no other literal ``%``: it is formatted at
+#: import, and a stray one either kills the import of this module outright or -- worse -- parses as a
+#: silent conversion.  A ``%`` inside :data:`U_DISPLACEMENT_CAVEAT` is inert HERE (it is in argument
+#: position) and fatal at the refusal, which is why the rule lives on the caveat as well.
 U_DISPLACEMENT_ACK_WARNING = (
-    "%s = true: EVERY `so` reader of this cell carries a NON-ZERO second-array halfword, so under a "
-    "live but unadopted reading of that array this cell may have NO effective reader and a perfect "
-    "repaint of it may be invisible in game with no error anywhere.  %s  The kit checks nothing here "
-    "and withdraws nothing: the page, its depth and its bytes are exactly what they were, and the "
-    "judgement that this cell is still read is yours."
+    "%s = true: EVERY `so` reader of this cell carries a NON-ZERO second-array halfword, and what "
+    "that array does is no longer a hypothesis -- on ef038 a pair like that was MEASURED displacing "
+    "the texels its reader samples, position 0 onto u and position 1 onto v, +128 texels each.  SO "
+    "WHEREVER THAT MECHANISM HOLDS, THIS CELL HAS NO EFFECTIVE READER at the coordinates this kit "
+    "names, and a perfectly built repaint of it is INVISIBLE IN GAME with no error anywhere.  WHAT "
+    "YOU ARE ASSERTING IS NARROWER THAN IT WAS: not that the array is inert -- that is the reading "
+    "ef038 refutes -- but that this container is not ef038 and you accept the generalisation risk, "
+    "or that you have cast this cell yourself and seen your paint on screen.  One container, one "
+    "cast is the whole distance between this warning and a certainty, and a cast is still the only "
+    "thing that closes it.  %s  The kit checks nothing here and withdraws nothing: the page, its "
+    "depth and its bytes are exactly what they were, the disclosure keeps printing after the "
+    "acknowledgement so it stays auditable, and the judgement that this cell is still read is yours."
     % (ACK_MOVER_KEY, U_DISPLACEMENT_CAVEAT))
 
 #: THE FIRING SET, RE-DERIVATION-PINNED (``u1_gates`` U2 re-rolls all three from the 372 containers
 #: through :func:`~ff9mapkit.summons.repaint.scenery_surface` and asserts equality).  *A constant
 #: nobody re-checks is a claim* -- and these three are the only numbers this rung mints.
 #:
-#: The predicate is the CONSERVATIVE, LABELLING-INDEPENDENT one: a DECLARED page-cell with at least
-#: one ``so`` reader, EVERY one of whose readers carries a non-zero second-array pair. It never asks
-#: WHICH halfword moves u and it never applies a displacement, so it is a strict SUPERSET of the two
-#: per-labelling lost-cell lists (16 SWAPPED / 19 ORIGINAL, union 35 -- all 35 contained, zero
-#: missed) by 17 cells whose movers would not actually vacate the cell under either arithmetic.
+#: The predicate is UNCHANGED and stays LABELLING-INDEPENDENT BY CONSTRUCTION: a DECLARED page-cell
+#: with at least one ``so`` reader, EVERY one of whose readers carries a non-zero second-array pair.
+#: It never asks which halfword moves which axis and it never applies a displacement -- which is why
+#: this number did not have to move on the day U1 settled the labelling, and why it will not have to
+#: move on the day an adoption decision is taken either. It REFUSES; it never re-attributes.
+#:
+#: WHAT THE MEASUREMENT CHANGED IS THE JUSTIFICATION, NOT THE COUNT -- AND IT INVERTED IT. U1's s77
+#: read settled the labelling on ef038 (pair position 0 displaces u, pair position 1 displaces v,
+#: +128 texels each, 0.97, one container and one cast -- :data:`U_DISPLACEMENT_CAVEAT`), and the
+#: impact scoping's two per-labelling lost-cell lists (16 SWAPPED / 19 ORIGINAL, union 35) were BOTH
+#: u-ONLY models: each applied one halfword to u and modelled v not at all. So the measured labelling
+#: does NOT promote the 16 to "the answer" -- it makes 16 the u-AXIS SUB-CASE of a two-axis
+#: mechanism. Roll the MEASURED arithmetic over every incumbent reader in the same 372 containers and
+#: the declared cells that lose EVERY effective reader are THIS SET, exactly: same count, same cells,
+#: nothing added and nothing dropped. The old clause -- *"a strict SUPERSET ... by 17 cells whose
+#: movers would not actually vacate the cell under either arithmetic"* -- is therefore WITHDRAWN AS
+#: FALSE: those 17 DO vacate, in v, the axis neither list modelled. The set was minted conservative
+#: and measures EXACT.
+#:
+#: WHAT STAYS CONSERVATIVE IS THE ADOPTION, NOT THE ARITHMETIC. The mechanism is ONE CONTAINER OLD,
+#: so this class discloses and refuses instead of displacing anything, and a cell that keeps even ONE
+#: zero-pair reader stays fully attributed here even where the measurement says most of its readers
+#: sample elsewhere -- ef038 ``cell.s0.x640_y256``, 20 movers and SEVEN controls, is the worked
+#: example. The reason to keep a predicate no adoption decision can move is now GENERALISATION plus
+#: magnitude-vs-flag, never ignorance of which halfword moves what. Re-aiming cover, the census and
+#: the licensing surface off ONE container's cast is an OWNER DECISION this rung does not take, and
+#: the day it is taken this is the paragraph that says which numbers have to move.
+#:
+#: ⚠ THE EQUALITY ABOVE IS RE-DERIVED, NOT YET GATE-PINNED. ``u1_gates`` U2 pins the COUNT; the
+#: measured-lost identity is owed its own roll beside it before anything leans on it -- on exactly
+#: the law this module keeps, *a constant nobody re-checks is a claim.*
 SECOND_ARRAY_MOVER_CELLS = 52
 #: ...of which how many carry NO export-blocking refusal of any other class today, i.e. how many
 #: ``export-art`` hands back as fully-open paintable pages. The other 5 are 4 ``program-vram-write``

@@ -387,7 +387,13 @@ def ui_gate(pages: dict[str, Page]) -> list[str]:
     """Every `[[tutorial.ui]]` declaration must (a) name a widget path present in the harvested
     inventory, (b) carry that widget's REAL current label, and (c) actually be used in the prose.
     This is how a renamed/moved/removed control fails the build instead of rotting in a step --
-    the tutorial-07 'Pick FF9 regions…' class. Inventory: py docsite/uiharvest.py (committed)."""
+    the tutorial-07 'Pick FF9 regions…' class. Inventory: py docsite/uiharvest.py (committed).
+
+    Three widget shapes, each resolved against the surface family it names:
+      * `import_field.find_btn` -- a tab control, by the attr path shot annotations use;
+      * `dlg:new-journey`       -- a dialog, scoped: dialog controls hold no attr paths, so the
+                                  label itself is the identity within the dialog;
+      * `form:npc.requires_flag` -- ONE field of ONE editor form, by the form spec's own key."""
     declaring = [p for p in pages.values() if p.meta and p.meta.get("ui")]
     if not declaring:
         return []
@@ -397,8 +403,8 @@ def ui_gate(pages: dict[str, Page]) -> list[str]:
     surfaces = json.loads(inv_path.read_text(encoding="utf-8"))["surfaces"]
     flat: dict[str, dict] = {}
     for skey, ents in surfaces.items():
-        if not skey.startswith("dlg:"):          # dialog entries are label-keyed, looked up scoped
-            flat.update(ents)
+        if skey.startswith("tab:"):              # tab entries are attr paths, globally unique;
+            flat.update(ents)                    # dlg:/form: entries are looked up SCOPED below
     errors = []
     for p in declaring:
         # the PROSE, not raw: raw still holds the frontmatter, whose own `label = "..."` line
@@ -420,6 +426,30 @@ def ui_gate(pages: dict[str, Page]) -> list[str]:
                           for t in (e.get("text"), e.get("a11y"), e.get("placeholder")) if t}
                 if label not in truths:
                     errors.append(f"{p.rel}: {widget} has no control labeled {label!r}")
+            elif widget.startswith("form:"):
+                # editor FORM fields -- `form:<section>.<field key>`, e.g. "form:npc.requires_flag".
+                # Harvested from forms.py's <THING>_SPEC data, which carries a real key per field,
+                # so the path is PRECISE: a declaration names exactly one field of one form, never
+                # a whole form the way a dialog declaration names a whole dialog.
+                surface, _, key = widget.partition(".")
+                ents = surfaces.get(surface)
+                if ents is None:
+                    known = ", ".join(sorted(s for s in surfaces if s.startswith("form:")))
+                    errors.append(f"{p.rel}: form surface {surface!r} is not in the inventory "
+                                  f"(known form surfaces: {known})")
+                elif not key:
+                    errors.append(f"{p.rel}: widget {widget!r} names a whole form -- a form "
+                                  f'declaration must name ONE field: "{surface}.<field key>" '
+                                  f"(e.g. {surface}.{sorted(ents)[0]})")
+                elif key not in ents:
+                    errors.append(f"{p.rel}: form {surface} has no field {key!r} -- the spec key "
+                                  f"moved or vanished (fields: {', '.join(sorted(ents))})")
+                else:
+                    ent = ents[key]
+                    truths = {ent.get("text"), ent.get("a11y"), ent.get("placeholder")} - {None}
+                    if label not in truths:
+                        errors.append(f"{p.rel}: label {label!r} no longer matches {widget} "
+                                      f"(now: {sorted(truths)})")
             else:
                 ent = flat.get(widget)
                 if ent is None:

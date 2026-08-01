@@ -77,7 +77,8 @@ CORRECT here — these are recipes for people who know the loop.
 
 01 first-fork → C1 · 02 dev-loop → C1/C3 · 03 original-art → B-Click (+D) · 04 campaign → S7/C3 ·
 05 journey → B-Faithful · 06 gui-field → SPLIT into S1+S2 (its figures carry) · 07 gui-journey →
-B-Faithful (flow re-verified there) · 08 dialogue-cutscene → SPLIT into S4+S5 · 09 battle-bg → D ·
+B-Faithful (flow re-verified there) · 08 dialogue-cutscene → PARTIAL: chest/gate → S4, narration+music → S5 (choice + cast-scene content
+still pending, see "Next" below) · 09 battle-bg → D ·
 10/11/12 models → B-People/D · 14 summon-reskin → D. Old filenames keep redirect stubs (the
 FORKING_FF9 precedent — links in the wild never break).
 
@@ -112,3 +113,6 @@ TOML example, lint, the scene split). ★ **02 → C3 PROMOTED** (c3-deploy-auto
 Output console as the living reference). **TRACK C COMPLETE (C1–C4).**
 Next: the S-track PLAYTEST (owner) · B ladders by interest · 08's
 choice/cast-scene content into its track home · then the generated track-ladder landing.
+★ **Multi-lens critique pass run** (design/user-stories/kit-context): found S4-S7 silently dropped
+the checkpoint recipe and S7's closing claims don't survive a grep — twelve quick fixes applied,
+structural items ranked → `studies/interactive-docs/REVAMP-CRITIQUE.md`.

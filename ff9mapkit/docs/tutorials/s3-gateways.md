@@ -7,6 +7,26 @@ step = 3
 builds_on = ["s2-add-an-npc"]
 goal = "Fork a second room and connect the two with gateways, both directions."
 requires = ["game", "gui", "assets"]
+
+[[tutorial.ui]]
+label = "Suggest a test room…"
+widget = "import_field.rooms_btn"
+
+[[tutorial.ui]]
+label = "To field id"
+widget = "form:gateway.to"
+
+[[tutorial.ui]]
+label = "Zone (x z; x z; ...)"
+widget = "form:gateway.zone"
+
+[[tutorial.ui]]
+label = "Entrance"
+widget = "form:gateway.entrance"
+
+[[tutorial.ui]]
+label = "Opens when flag set"
+widget = "form:gateway.requires_flag"
 ```
 
 This step forks a second room and wires walk-through exits between the two — a **gateway** is a
@@ -29,7 +49,7 @@ Open the first room in the Editor and add an entry under **Gateways**:
 ![A gateway entry in the Editor forms — destination field, entrance, and the walk-out zone corners](../../../docsite/assets/shots/editor-gateway_light.png)
 
 - **To field id** — the destination (`30002`).
-- **Zone** — four `x z` corner pairs of the region the player walks into, placed at the doorway
+- **Zone (x z; x z; ...)** — four `x z` corner pairs of the region the player walks into, placed at the doorway
   on the walkable floor. Order matters one way: the **first edge is the walk-out direction** —
   put the zone's front edge (the one the player crosses) first.
 - **Entrance** — which arrival spot in the destination to appear at; `0` (the default) is the
