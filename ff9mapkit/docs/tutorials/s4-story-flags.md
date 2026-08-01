@@ -7,6 +7,38 @@ step = 4
 builds_on = ["s3-gateways"]
 goal = "A treasure chest that stays looted across saves, and an NPC who appears only after it."
 requires = ["game", "gui", "assets"]
+
+[[tutorial.ui]]
+label = "Position (x, z)"
+widget = "form:chest.pos"
+
+[[tutorial.ui]]
+label = "Reward item (id/name, count)"
+widget = "form:chest.item"
+
+[[tutorial.ui]]
+label = "Reward gil"
+widget = "form:chest.gil"
+
+[[tutorial.ui]]
+label = "Opened-flag"
+widget = "form:chest.flag"
+
+[[tutorial.ui]]
+label = "Name"
+widget = "form:flag.name"
+
+[[tutorial.ui]]
+label = "gEventGlobal bit"
+widget = "form:flag.index"
+
+[[tutorial.ui]]
+label = "Appears when flag set"
+widget = "form:npc.requires_flag"
+
+[[tutorial.ui]]
+label = "Opens when flag set"
+widget = "form:gateway.requires_flag"
 ```
 
 A **story flag** is one save-backed bit that something sets and other content reads. It is the
@@ -23,11 +55,12 @@ animation, and FF9's centered *"Received …!"* box:
 ![A chest entry in the Editor forms — position, the item reward, and the required opened-flag](../../../docsite/assets/shots/editor-chest_light.png)
 
 - **Position (x, z)** — on the walkable floor, reachable to press.
-- **Reward item** — the treasure, by name (`Potion, 1`) or id; or **Reward gil** instead.
+- **Reward item (id/name, count)** — the treasure, by name (`Potion, 1`) or id; or
+  **Reward gil** instead.
 - **Opened-flag** — REQUIRED: the save bit that records the loot. Use a **named flag**: add a
-  **Flag** entry (`name = chest_potion`, `index = 8720`) and put the name here. Indices must
-  sit in the **safe band `[8712, 16320)`** — lower bands belong to the real game's save data,
-  and the lint refuses them.
+  **Flag** entry (**Name** `chest_potion`, **gEventGlobal bit** `8720`) and put the name here.
+  Indices must sit in the **safe band `[8712, 16320)`** — lower bands belong to the real game's
+  save data, and the lint refuses them.
 
 ## 2. Gate an NPC on the flag
 
