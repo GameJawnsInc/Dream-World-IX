@@ -519,6 +519,9 @@ scenery must be re-authored *together*.
   baked into the primitive stream — pair position 0 moves u, position 1 moves v, +0x80 = +128
   texels — 0.97 on ef038, all four (A,B) cells on independent populations, byte order MEASURED,
   critic ok=true zero gaps. Screen inferences retired; pitch resolved (no cast 3); cast-1's null
-  fully mechanical; Option-3 gate MET.** OWNER DECISIONS: the §12 stale-text ledger (the
-  U_DISPLACEMENT_CAVEAT triple now contradicts the measurement — a coordinated 4-file edit);
-  Option-3 adoption; a second-container log-only cast to make the mechanism a LAW.
+  fully mechanical; Option-3 gate MET.** **★ THE §12 STALE-TEXT LEDGER IS APPLIED** — the caveat and
+  ack warning now carry the 0.97 two-axis read across 6 files, no number/derivation/emitted byte
+  moved, 4 frozen boards byte-identical, pins strengthened with absence-assertions. OPEN: the
+  second-container log-only cast (vehicle chosen — **ef227**, bench row 196 "Stock Bahamut", zero
+  relaunch/deploy, draw proven, key isolated at tri-ratio 1.00 → `U2-GENERALISATION-CAST.md`), then
+  Option-3 adoption (gate MET; sequenced after the cast because ADD-vs-OR changes the arithmetic).
