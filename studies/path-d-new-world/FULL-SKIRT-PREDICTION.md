@@ -156,3 +156,50 @@ fixed point of the defect-follows-authorship law is to author NOTHING:
 Gates: watertight **0 unexplained** (79 once-edges = the declared overlay
 boundary, all accounted); tears 0; walk 0/0; FRINGE 100%; band 100%; census
 MISS=0. Pre-deploy pristine → `backups/terrace-strip-prewall.20260801-160534`.
+
+## PLAYTEST 2 (2026-08-01): VISUAL PASS — WALKABILITY RED. The arc's open front
+## moves from the eye to the feet.
+
+Overlay playtest: *"visually this pass did the job — but the walkability is
+broken. Zidane appears at a fixed height, able to walk through hills and through
+the mountain itself."* Root cause: **THE SEA4-UNDER-LAND LAW, violated** — the
+law was in the project memory the whole time and I did not consult it before
+shipping a continuous under-lawn. Ground under ground captures the walk ray and
+the movement cache (`WMBlock.cs:155 → WMPhysics.cs:49` applies no filters); the
+cached lawn tri kept answering at 3.2. The cost of not reading a recorded law is
+one playtest.
+
+THE SHINGLE CUT shipped next (342 under-lawn tris dropped where wholly inside
+the carried footprint, below the carried surface, ≥1.2u from the boundary; cut
+edge hidden under the collar breaks the cache; gates green, 0 unexplained).
+Playtest 3: *"some spots miss hills, and you phase into the ground. couldn't
+track the pattern."* — at/near (434,-542), SE.
+
+**Recorded candidates for the pattern (for the study to decide, not assumed):**
+1. **The partial-tri shingle gap** — the cut drops only tris with ALL 3 verts
+   covered-from-above; a lawn tri the collar boundary CROSSES is kept whole, so
+   the under-lawn extends up to a full tri (~4-5.7u) beyond the intended 1.2u
+   strip, tri-boundary-dependent — which would read exactly as "couldn't track
+   the pattern" (sunken by the local collar height where the cache grounds on
+   the under-sheet; hills missed where the kept under-tri spans them).
+2. The engine's ray origin / hit-selection / cache-invalidation semantics are
+   ASSUMED, not read — every prior reasoning about "nearest hit", the 2.34375
+   allowance as ray offset, and cache misses at cut edges is inference from
+   memory summaries, never from a source-level decode.
+
+**THE VERDICT SO FAR:** the round's registered claim (the connection, the lawn,
+no old defect classes) has PASSED across two playtests; the walkability of a
+multi-surface junction is a NEW problem class the arc has never studied — every
+prior build was single-sheet by construction. Per the owner: the lane pauses for
+**a walkability study (or two): (A) THE WALK-QUERY DECODE — source-level, from
+Memoria (WMPhysics/WMBlock/WMActor + the s_moveCHRCache lifecycle): ray origin
+and direction, first-vs-nearest hit, the up-facing and topograph filters at each
+call site, cache size/invalidation, the true meaning of 2.34375, and what stock
+single-sheet-ness guarantees the engine silently relies on. (B) THE BENCH WALK
+SIMULATOR — the offline instrument that replays (A)'s decoded algorithm over
+deployed bytes and is CALIBRATED by reproducing this playtest's sunken/missed
+spots before it gates anything (the calibration law).** The fix design follows
+the decode, not the other way around.
+
+Bench state: the shingle build is LIVE (visually right, walk-broken in spots).
+Restore point: `backups/terrace-strip-prewall.20260801-165708`.
