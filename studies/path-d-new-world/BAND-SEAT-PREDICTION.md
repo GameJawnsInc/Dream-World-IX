@@ -74,3 +74,32 @@ is the donor's own art in the donor's own placement.
 - **PLUMBING** → fix or stop, no verdict.
 
 One round, one lever (the seat depth). Scored on the owner's verdict.
+
+## BUILD (2026-08-01): gates green first run, the registered numbers landed
+
+seat dy −4.20 (the reach bound fired; inside the registered window); cut inside the
+band course for 33/36 weld verts; **carried band 82% of 258 cut-course tris in row
+10** (rest row 9 — the low-tail minority; predicted ~80%, gate ≥60%); watertight
+7/14,082 (0.05%); live walkability audit clean (0/0/0). Deployed to the bench;
+branch-only (`claude/path-d-level-host`), no master merge.
+
+## PLAYTEST (2026-08-01): THE MODEL CONFIRMED; the level-cut lane hits its theorem
+
+Owner: *"the seams/meadows/hills are gone, but so are the base grass->mountain
+transition. now it's a hard cut from ground to mountain."*
+
+- **THE CAUSAL MODEL SURVIVED ITS REGISTERED FALSIFIER IN-GAME.** All three defect
+  classes vanished with their generator, exactly as the synthesis predicted. This is
+  the arc's first round where what disappeared was predicted BEFORE the playtest.
+- **The hard cut is a THEOREM of the level-host lane, now stated mechanically:** the
+  transition art is the painted grass LIP at the band course's BOTTOM edge (atlas v
+  ≥ ~row 11.0) — precisely the part a level cut discards. The mid-band seat shows
+  the band's dark body (82%) but the lip sits below the plane on essentially every
+  column; with the weld line sloping 2.63u (p10-p90), no planar cut can show it.
+  Two seat depths have now bracketed the lane: mid-face (bury, −4.35) = no art at
+  all; mid-band (−4.20) = art without its lip = "hard cut". There is no third depth.
+- **What the arc now knows works:** this build's LAWN (flat host, no lift — clean)
+  + the apron build's CONNECTION (stature seat, the donor's own weld + lip — "the
+  connection is nice"). The open design problem is joining them without the lift
+  machinery; a cell-rule rim design is under measurement
+  (`cell-rim-design-verify` workflow) before any registration.
