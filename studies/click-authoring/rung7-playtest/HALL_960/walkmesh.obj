@@ -1,0 +1,7 @@
+# ff9mapkit image-field walkmesh (world coords, y=0 floor plane)
+v -4000.000 0 -2395.000
+v 4000.000 0 -2395.000
+v 4000.000 0 -195.000
+v -4000.000 0 -195.000
+f 4 1 2
+f 2 3 4

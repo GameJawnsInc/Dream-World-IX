@@ -2350,7 +2350,17 @@ class FloorplanDoc(QWidget):
                 return
             out = Path(parent) / self.plan()["name"].lower()
         try:
-            plan_path = FP.save_plan(self.plan(), out / FP.SIDECAR)
+            # ★ CARRY THE RECORDS THE LAST COMPOSE WROTE BACK. This stamp lands on the sidecar a
+            # moment before the verb reads it, and `plan()` is rebuilt from the in-memory session --
+            # which for a session DRAWN here is `{name, poly}` and nothing else. So the pinned room
+            # `id` and the `art` fingerprint `emit` had written were both wiped before the verb
+            # could see them: measured, a tab recompose repainted over the author's painted art AND
+            # silently renumbered an already-deployed dungeon, while printing "from this compose on,
+            # art you paint over it survives" every single time. Nothing reloads the session after a
+            # compose (`_after_compose` hands the campaign to the shell; `load_plan`'s one caller is
+            # Open), so the file has to be the thing that remembers.
+            plan_path = FP.save_plan(FP.carry_plan_records(self.plan(), out / FP.SIDECAR),
+                                     out / FP.SIDECAR)
         except OSError as e:
             self._refresh(f"Could not write {out / FP.SIDECAR}: {e}", "error", judge=False)
             return
@@ -2378,8 +2388,32 @@ class FloorplanDoc(QWidget):
         if code != 0:
             self._refresh("Compose failed — see the Output panel.", "error", judge=False)
             return
+        self._absorb_records()
         if self.on_composed is not None and Path(campaign_toml).is_file():
             self.on_composed(campaign_toml)
+
+    def _absorb_records(self):
+        """Take the per-room records the verb just wrote (the pinned ``id``, the ``art``
+        fingerprint) back into the live session.
+
+        ADDITIVE ONLY, by name, and only keys the session lacks — so it cannot fight a room the
+        author moved while the job ran, which a full ``load_plan`` would silently discard. Without
+        it the sidecar and the session disagree the moment the ids are pinned: the tab's own judge
+        would keep ALLOCATING ids from ``id_base`` and painting them on the chart, while the verb
+        pins the previous ones. Two answers to "which field is this room" is worse than either."""
+        out = Path((self._project or {}).get("out") or "")
+        side = out / FP.SIDECAR
+        if not side.is_file():
+            return
+        try:
+            prev = FP.load_plan(side)
+        except (OSError, ValueError):
+            return
+        by_name = {str(r.get("name")): r for r in (prev.get("rooms") or []) if isinstance(r, dict)}
+        for room in self._session["rooms"]:
+            for k, v in (by_name.get(str(room.get("name"))) or {}).items():
+                if k not in room and k not in self._ROOM_OWNED:
+                    room[k] = v
 
     def _report(self, errors, warnings):
         """Push the gate findings at the shared Problems panel as well as this tab's list."""

@@ -1,0 +1,45 @@
+[field]
+id = 30702
+name = "HALL_960"
+area = 11
+title = "Hall 960"
+
+[camera]
+entry_settle = "auto"
+pitch = 48.0
+distance = 5823
+fov = 42.2
+range = [960, 448]
+window_width = 384
+scroll = {enabled = true}
+
+[walkmesh]
+obj = "walkmesh.obj"
+
+[[layers]]
+image = "art/back.png"
+z = 3702
+
+[[layers]]
+image = "art/floor.png"
+z = 3202
+
+[player]
+spawn = [-4, -1295]
+face = 0
+
+[[player.arrival]]
+entrance = 1
+pos = [-2200, -1985]
+face = 128
+
+[[npc]]
+name = "cleyra_scamp"
+preset = "vivi"
+pos = [2000, -1662]
+
+[[gateway]]
+name = "door_to_hall_768"
+to = 30701
+entrance = 1
+zone = [[-2400, -2395], [-2000, -2395], [-2000, -2145], [-2400, -2145]]
