@@ -273,7 +273,8 @@ def _cmd_deploy_campaign(args: argparse.Namespace) -> int:
             allow_artless=args.allow_artless, no_warp=args.no_warp,
             allow_name_collision=args.allow_name_collision, allow_id_collision=args.allow_id_collision,
             flag_base=args.flag_base, no_promote_csv=args.no_promote_csv, promote_csv_to=args.promote_csv_to,
-            out_dist=args.out_dist, backups_dir=provision.deploy_backups_dir(),
+            out_dist=args.out_dist, allow_reflow=args.reflow_flags,
+            backups_dir=provision.deploy_backups_dir(),
             reverts_dir=provision.deploy_reverts_dir())
     except DeployError as e:
         print(str(e), file=sys.stderr)
@@ -1457,12 +1458,15 @@ def _cmd_build_all(args: argparse.Namespace) -> int:
     from . import campaign
     try:
         info = campaign.build_campaign(args.campaign, out=args.out, author=args.author or "",
-                                       description=args.description or "", allow_artless=args.allow_artless)
+                                       description=args.description or "", allow_artless=args.allow_artless,
+                                       allow_reflow=args.reflow_flags)
     except (campaign.CampaignError, FileNotFoundError, ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)
         return 2
     plan = info["plan"]
     print(f"built campaign '{plan.name}' (mod {plan.mod_folder}, {len(info['dictionary'])} fields) -> {info['out']}")
+    if info.get("stamp_diff") is not None:            # what this build changed vs the folder's last one
+        print("  " + info["stamp_diff"].render().replace("\n", "\n  "))
     for line in info["dictionary"]:
         print("  " + line)
     for w in info["warnings"]:
@@ -6750,6 +6754,10 @@ def build_parser() -> argparse.ArgumentParser:
     ba.add_argument("--description", default=None, help="ModDescription description (optional)")
     ba.add_argument("--allow-artless", action="store_true", dest="allow_artless",
                     help="build editable members that lack exported art (they render with NO background)")
+    ba.add_argument("--reflow-flags", action="store_true", dest="reflow_flags",
+                    help="accept a build that MOVES an existing member's story-flag window or text block "
+                         "(refused by default -- those bits are save-persistent, so a move silently "
+                         "invalidates every save made before it)")
     ba.set_defaults(func=_cmd_build_all)
 
     ri = sub.add_parser("reid",
@@ -8730,6 +8738,9 @@ def build_parser() -> argparse.ArgumentParser:
     dca.add_argument("--promote-csv-to", dest="promote_csv_to", default=None,
                      help="folder to promote start-state CSVs into (default: the highest Memoria.ini FolderNames folder)")
     dca.add_argument("--apply", action="store_true", help="ACTUALLY touch the game (default: dry-run, prints the plan)")
+    dca.add_argument("--reflow-flags", action="store_true", dest="reflow_flags",
+                     help="accept a build that MOVES an existing member's story-flag window or text block "
+                          "(refused by default -- those bits are save-persistent)")
     dca.set_defaults(func=_cmd_deploy_campaign)
 
     dje = sub.add_parser("deploy-journey",

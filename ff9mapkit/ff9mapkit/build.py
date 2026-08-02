@@ -8902,13 +8902,21 @@ def _foreign_donor_lines(fork_donor_patch, new_lines) -> list:
 
 
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
-              langs=LANGS, entry_project=None, preserve_existing=False) -> dict:
+              langs=LANGS, entry_project=None, preserve_existing=False,
+              allow_reflow=False, stamp_source=None, stamp_context="standalone") -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
     (a campaign's entry member) makes the mod-global new-game-state lint precise -- see :func:`_emit_start_state`.
 
     ``preserve_existing`` keeps registrations already in ``out_root``'s DictionaryPatch that this build
     does not emit -- for INSTALLING into a shipping mod folder that holds other fields. Without it, a
-    build that would drop foreign registrations refuses (see the rule at the write site)."""
+    build that would drop foreign registrations refuses (see the rule at the write site).
+
+    ``allow_reflow`` accepts a build that MOVES an existing member's story-flag window or text block
+    (:mod:`ff9mapkit.stamp`). Without it such a build REFUSES, because those bits are save-persistent and
+    the window is derived from a member's position rather than stored -- so it moves silently. The diff is
+    computed against ``out_root``'s previous ``.ff9build.json`` BEFORE anything is written, so a refusal
+    leaves nothing half-built. ``stamp_source`` records what the stamp was built from."""
+    from . import stamp as _stamp
     layout = ModLayout(Path(out_root).resolve())
     # Within-build distinct-identity guard: a field's .eb / FBG scene / mapconfig are keyed by its `name`
     # (EVT_<name>, FBG_N<area>_<name>) and its registration by `id`, both written once per member -- two
@@ -8922,6 +8930,14 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     if _dup_ids:
         raise BuildError(f"two campaign members share the field id(s) {_dup_ids} -- their DictionaryPatch "
                          f"registration would clobber. Give each a distinct id.")
+    # THE STAMP DIFF, BEFORE A SINGLE BYTE IS WRITTEN. A member's flag window is derived from its POSITION
+    # and recorded nowhere, so it slides silently on a delete/reorder/flags_per_field change; the bits are
+    # save-persistent. Computing the stamp here (it is pure over `projects`) means a build that would move
+    # one REFUSES instead of being reported after the fact.
+    _new_stamp = _stamp.compute(projects, mod_name=mod_name, source=stamp_source, context=stamp_context)
+    _stamp_diff = _stamp.diff(_stamp.read(layout.root), _new_stamp)
+    if _stamp_diff.blocking and not allow_reflow:
+        raise BuildError(_stamp_diff.refusal())
     _assign_suffix_offsets(projects)                    # disjoint on_entry/logic_add txid windows on shared blocks
     results = [build_field(p, layout, langs=langs) for p in projects]
     _write_field_mes(results, layout, langs)            # shared-text_block-safe .mes (was per-member in build_field)
@@ -9053,7 +9069,12 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
         "</Mod>\n",
         encoding="utf-8", newline="\n")
 
+    # LAST, so the stamp only ever describes a build that actually completed: an exception above leaves the
+    # PREVIOUS stamp in place, and the next run diffs against the last good build rather than a phantom.
+    _stamp.write(layout.root, _new_stamp)
+
     return {"root": str(layout.root), "fields": [r.fbg for r in results],
+            "stamp": _new_stamp, "stamp_diff": _stamp_diff,
             "dictionary": [r.dict_line for r in results],
             # `MessageFile <block> MES_DWIX_<block>` for every CUSTOM (non-real) mesID this build registers.
             # NOT folded into "dictionary" (the one-FieldScene-line-per-field view whose [0] callers summarize).

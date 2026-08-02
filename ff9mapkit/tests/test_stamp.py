@@ -1,0 +1,129 @@
+""".ff9build.json -- the build stamp and its diff.
+
+The gate this exists for: a member's story-flag window is `flag_base + i * flags_per_field` over its
+POSITION in the manifest and is stored nowhere, so deleting or reordering a `[[field]]` row -- or a
+recompose resetting flags_per_field -- slides every later member's save-persistent bits with nothing
+able to detect it. The stamp is the missing baseline.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from ff9mapkit import stamp
+
+
+class _P:
+    """A FieldProject stand-in: the stamp only reads name/id/text_block/flag_base/flags_per_field."""
+
+    def __init__(self, name, fid, tb=None, flag_base=None, width=64):
+        self.name, self.id = name, fid
+        self.text_block = tb if tb is not None else fid
+        self.flag_base, self.flags_per_field = flag_base, width
+
+
+def _stamp(projects, **kw):
+    return stamp.compute(projects, mod_name="M", **kw)
+
+
+def test_a_stamp_records_the_resolution_not_just_the_identity(tmp_path):
+    s = _stamp([_P("A", 6000, flag_base=8712), _P("B", 6001, flag_base=8776)])
+    a, b = s["members"]
+    assert (a["name"], a["id"], a["flag_lo"], a["flag_hi"]) == ("A", 6000, 8712, 8775)
+    assert (b["name"], b["id"], b["flag_lo"], b["flag_hi"]) == ("B", 6001, 8776, 8839)
+    assert s["kit_version"] and s["built_utc"].endswith("Z")
+
+
+def test_round_trip_through_disk(tmp_path):
+    s = _stamp([_P("A", 6000, flag_base=8712)])
+    stamp.write(tmp_path, s)
+    assert (tmp_path / stamp.STAMP_NAME).is_file()
+    assert stamp.read(tmp_path) == s
+
+
+def test_a_missing_or_malformed_stamp_reads_as_none(tmp_path):
+    assert stamp.read(tmp_path) is None                       # first build
+    (tmp_path / stamp.STAMP_NAME).write_text("{ not json", encoding="utf-8")
+    assert stamp.read(tmp_path) is None
+    (tmp_path / stamp.STAMP_NAME).write_text('{"members": "nope"}', encoding="utf-8")
+    assert stamp.read(tmp_path) is None
+
+
+def test_no_prior_stamp_is_silent_not_a_change(tmp_path):
+    d = stamp.diff(None, _stamp([_P("A", 6000, flag_base=8712)]))
+    assert not d.changed and not d.blocking
+
+
+# ---- the blocking class ------------------------------------------------------------------
+def test_a_moved_flag_window_blocks(tmp_path):
+    """The whole point: deleting the middle member of a 3-field campaign slides the third member's
+    window down by one block, and its save-persistent bits move with it."""
+    old = _stamp([_P("A", 6000, flag_base=8712), _P("B", 6001, flag_base=8776),
+                  _P("C", 6002, flag_base=8840)])
+    new = _stamp([_P("A", 6000, flag_base=8712), _P("C", 6002, flag_base=8776)])
+    d = stamp.diff(old, new)
+    assert d.blocking
+    assert d.removed == ["B"]
+    assert d.moved_flags == [("C", (8840, 8903), (8776, 8839))]
+    assert "8840-8903 -> 8776-8839" in d.refusal()
+    assert "--reflow-flags" in d.refusal()
+
+
+def test_a_moved_text_block_blocks(tmp_path):
+    old = _stamp([_P("A", 6000, tb=6000, flag_base=8712)])
+    new = _stamp([_P("A", 6000, tb=20000, flag_base=8712)])
+    assert stamp.diff(old, new).blocking
+
+
+def test_flags_per_field_change_moves_every_later_window(tmp_path):
+    """The recompose bug's signature: flags_per_field 16 -> 64 relocates every member after the first."""
+    old = _stamp([_P("A", 6000, flag_base=9000, width=16), _P("B", 6001, flag_base=9016, width=16)])
+    new = _stamp([_P("A", 6000, flag_base=8712, width=64), _P("B", 6001, flag_base=8776, width=64)])
+    d = stamp.diff(old, new)
+    assert d.blocking and len(d.moved_flags) == 2
+
+
+# ---- reported but NOT blocking -----------------------------------------------------------
+def test_an_id_move_is_reported_not_blocked(tmp_path):
+    """reid is the sanctioned way to move ids, and lint (e3) + reid's own report already make it loud.
+    Blocking here would make every reid need --reflow-flags and train the flag away."""
+    old = _stamp([_P("A", 6000, tb=6000, flag_base=8712)])
+    new = _stamp([_P("A", 6500, tb=6500, flag_base=8712)])
+    d = stamp.diff(old, new)
+    assert d.moved_ids == [("A", 6000, 6500)] and not d.blocking
+
+
+def test_diffing_keys_on_NAME_so_a_reid_is_not_a_wholesale_replacement(tmp_path):
+    """Keying on id would report every reid as remove-all + add-all and hide any flag drift underneath."""
+    old = _stamp([_P("A", 6000, flag_base=8712), _P("B", 6001, flag_base=8776)])
+    new = _stamp([_P("A", 6500, flag_base=8712), _P("B", 6501, flag_base=8776)])
+    d = stamp.diff(old, new)
+    assert not d.added and not d.removed and len(d.moved_ids) == 2
+
+
+def test_a_context_change_is_reported_not_blocked(tmp_path):
+    """A journey assigns its campaigns' flag/text windows and builds into the SAME dist as a standalone
+    build. Blocking that would fire on every alternation and train the author to always pass the flag."""
+    old = _stamp([_P("A", 6000, tb=6000, flag_base=8712)], context="standalone")
+    new = _stamp([_P("A", 6000, tb=20000, flag_base=12000)], context="journey")
+    d = stamp.diff(old, new)
+    assert d.moved_flags and d.moved_blocks, "the moves are still detected"
+    assert not d.blocking, "but a context change is the assignment working, not drift"
+    assert "NOT interchangeable" in d.render()
+
+
+def test_appending_a_member_does_not_move_the_others(tmp_path):
+    """Append-only growth is the safe edit -- it must stay silent, or the gate cries wolf."""
+    old = _stamp([_P("A", 6000, flag_base=8712)])
+    new = _stamp([_P("A", 6000, flag_base=8712), _P("B", 6001, flag_base=8776)])
+    d = stamp.diff(old, new)
+    assert d.added == ["B"] and not d.blocking
+
+
+def test_render_says_n_of_m(tmp_path):
+    old = _stamp([_P("A", 6000, flag_base=8712), _P("B", 6001, flag_base=8776)])
+    new = _stamp([_P("A", 6500, flag_base=8712), _P("B", 6001, flag_base=8776)])
+    assert "1 of 2 members changed" in stamp.diff(old, new).render()
+    assert "unchanged" in stamp.diff(old, old).render()

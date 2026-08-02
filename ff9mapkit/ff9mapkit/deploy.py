@@ -187,7 +187,7 @@ def render_revert_campaign(live_root, snap, warp_revert, name, stamp, csv_revert
 def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None, apply=False,
                     allow_artless=False, no_warp=False, allow_name_collision=False, allow_id_collision=False,
                     flag_base=None, no_promote_csv=False, promote_csv_to=None, out_dist=None,
-                    backups_dir, reverts_dir, verbose=True) -> dict:
+                    allow_reflow=False, backups_dir, reverts_dir, verbose=True) -> dict:
     """Reversibly install a built campaign mod into ``<game>/<mod_folder>`` + wire New Game to its entry.
 
     SAFE BY DEFAULT: with ``apply=False`` it lints + prints the plan + collision preview and touches nothing.
@@ -277,7 +277,8 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
         dist_root = prebuilt_dist
     else:
         out_d = Path(out_dist) if out_dist else (target.parent / "dist")
-        info = C.build_campaign(target, out=out_d, allow_artless=allow_artless, flag_base=flag_base)
+        info = C.build_campaign(target, out=out_d, allow_artless=allow_artless, flag_base=flag_base,
+                                allow_reflow=allow_reflow)
         dist_root = Path(info["out"])
         for w in info["warnings"]:
             out("  warn:", w)

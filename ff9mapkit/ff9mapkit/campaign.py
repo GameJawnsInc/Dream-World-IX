@@ -562,10 +562,17 @@ def _remap_text_blocks(projects, base: int) -> dict:
 
 
 def build_campaign(campaign_path, out=None, *, author="", description="", allow_artless=False,
-                   flag_base=None, seed_blocks=None, text_block_base=None, extra_flag_names=None) -> dict:
+                   flag_base=None, seed_blocks=None, text_block_base=None, extra_flag_names=None,
+                   allow_reflow=False) -> dict:
     """Compile every member of a campaign.toml into ONE staged Memoria mod (DictionaryPatch + BattlePatch +
     ModDescription + per-field assets), reusing build.build_mod. Returns build_mod's dict + ``plan``/``out``.
     Does NOT deploy (P4). ``out`` defaults to ``<campaign-dir>/dist``.
+
+    ``allow_reflow`` accepts a build that MOVES an existing member's flag window or text block relative to
+    this folder's last build (:mod:`ff9mapkit.stamp`). This is the campaign tier's most under-guarded edit:
+    a member's window is ``flag_base + i * flags_per_field`` over its POSITION, so deleting or reordering a
+    ``[[field]]`` row -- or a recompose resetting ``flags_per_field`` -- slides every later member's
+    save-persistent bits with nothing to detect it.
 
     ``flag_base`` (the JOURNEY assembler's lever): override the campaign's own ``flag_base`` so the journey
     can hand each of its campaigns a NON-OVERLAPPING ``gEventGlobal`` flag window (two campaigns in one
@@ -645,7 +652,11 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         # rejects the seeded `flags = [{flag = "<name>"}]` as "unknown flag name".
         resolve_project_flags(entry_project.raw, extra_names=campaign_names)
     info = build_mod(projects, out, mod_name=plan.mod_folder, author=author, description=description,
-                     entry_project=entry_project)
+                     entry_project=entry_project, allow_reflow=allow_reflow,
+                     stamp_source=str(campaign_path),
+                     # a journey assigns this campaign's flag window + mesID base itself, and both tiers
+                     # build into the SAME <campaign>/dist -- so the stamp records which one produced it
+                     stamp_context=("journey" if (flag_base is not None or text_block_base) else "standalone"))
     # [ff9mapkit] fork-fidelity: ForkDonorPatch.txt maps each custom-id fork -> its donor real field id, so
     # the engine's behaviors hardcoded on a real fldMapNo (off-mesh exemptions, cutscene party-shape guards,
     # scroll player-binds -- docs/FORK_IDGATE_MAP.md) still fire for the fork. Read by the patched DataPatchers
