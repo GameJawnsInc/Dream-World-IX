@@ -5,8 +5,10 @@ assignment uses the STATIC field table (extract.ID_TO_FBG, baked from Memoria so
 validity is checked with tomllib. A final real-bytes test forks the actual Ice Cavern and is skipped when
 the FF9 install / UnityPy is absent."""
 
+import shutil
 import tomllib
 from collections import OrderedDict
+from pathlib import Path
 
 import pytest
 
@@ -391,6 +393,25 @@ def _lint_plan(tmp_path, *, members=None, edges=None, seams=None, entry="A", mem
         (d / f"{m.name}.field.toml").write_text(
             f'[field]\nid = {m.new_id}\nname = "{m.name}"\narea = 11\n{extra}', encoding="utf-8")
     return plan
+
+
+def test_a_freshly_built_campaign_verifies_clean(tmp_path):
+    """★ THE GATE CAUGHT ITS OWN AUTHOR. build_mod finalizes the content digest when IT finishes, and
+    build_campaign then writes ForkDonorPatch.txt into the same dist -- so the digest described a folder
+    that no longer existed and a BRAND-NEW build reported drift. A drift check that cries wolf on a fresh
+    build is one nobody believes, which makes it worse than none."""
+    pytest.importorskip("ff9mapkit.build")
+    from ff9mapkit import stamp
+    ember = Path(__file__).resolve().parents[2] / "examples" / "stolen-ember"
+    if not (ember / "campaign.toml").is_file():
+        pytest.skip("stolen-ember example not present")
+    work = tmp_path / "se"
+    shutil.copytree(ember, work)
+    out = tmp_path / "dist"
+    campaign.build_campaign(work / "campaign.toml", out=out)
+    assert (out / "ForkDonorPatch.txt").is_file(), "fixture must exercise the post-build write"
+    rep = stamp.verify(out)
+    assert rep.clean, rep.render()
 
 
 def test_lint_refuses_a_flag_width_below_one(tmp_path):

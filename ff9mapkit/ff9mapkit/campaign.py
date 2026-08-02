@@ -685,6 +685,16 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         (Path(out) / "ForkDonorPatch.txt").write_text(
             "# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n" + "\n".join(donor_lines) + "\n",
             encoding="utf-8", newline="\n")
+        # RE-STAMP: build_mod finalized the content digest when IT finished, and the line above then
+        # rewrote a file inside the dist -- so the digest described a folder that no longer existed and a
+        # freshly built campaign reported ForkDonorPatch.txt as drift. (Caught by `verify-build` on its
+        # first real build, which is the gate doing its job on the hand that wrote it.) Anything that
+        # writes into `out` after build_mod has to refresh the stamp, or the drift check cries wolf --
+        # and a drift check nobody believes is not a check.
+        from . import stamp as _stamp
+        if info.get("stamp"):
+            info["stamp"] = _stamp.finalize(info["stamp"], out)
+            _stamp.write(out, info["stamp"])
     info["plan"] = plan
     info["out"] = str(Path(out).resolve())
     info["warnings"] = list(lint_warnings) + list(info.get("warnings", []))

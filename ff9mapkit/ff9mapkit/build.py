@@ -9094,6 +9094,11 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
 
     # LAST, so the stamp only ever describes a build that actually completed: an exception above leaves the
     # PREVIOUS stamp in place, and the next run diffs against the last good build rather than a phantom.
+    # `finalize` adds the content digest here rather than in `compute` -- the resolution table has to be
+    # derivable BEFORE the build (that is what lets the diff refuse one), but hashes can only exist after
+    # the bytes do. This is what makes `ff9mapkit verify-build` able to answer "is what is installed still
+    # what the build produced", which the resolution table alone cannot.
+    _new_stamp = _stamp.finalize(_new_stamp, layout.root)
     _stamp.write(layout.root, _new_stamp)
 
     return {"root": str(layout.root), "fields": [r.fbg for r in results],

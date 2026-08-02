@@ -1478,6 +1478,48 @@ def _cmd_build_all(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_verify_build(args: argparse.Namespace) -> int:
+    """What is this folder, and is it still what the build produced?
+
+    Works on a staged dist AND on a live mod folder -- .ff9build.json ships with the dist through deploy's
+    copytree, so an install can answer for itself. Without a target it sweeps the stacked FolderNames, which
+    is the question that actually gets asked with 18 worktrees sharing one game install."""
+    from pathlib import Path
+
+    from . import stamp
+    targets = []
+    if args.target:
+        targets = [Path(args.target)]
+    else:
+        try:
+            game = find_game_path(getattr(args, "game", None))
+            from .deploystack import parse_folder_names
+            ini = game / "Memoria.ini"
+            names = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+            targets = [game / n for n in names if (game / n).is_dir()]
+        except Exception as e:                       # noqa: BLE001 -- no install / unreadable ini
+            print(f"could not resolve the live folder stack ({type(e).__name__}: {e}) -- pass a directory.",
+                  file=sys.stderr)
+            return 2
+        if not targets:
+            print("no stacked mod folders found to verify.", file=sys.stderr)
+            return 2
+    rc = 0
+    for t in targets:
+        if not t.is_dir():
+            print(f"{t}: not a directory", file=sys.stderr)
+            rc = 2
+            continue
+        rep = stamp.verify(t)
+        print(rep.render())
+        if not rep.has_stamp:
+            rc = max(rc, 1 if args.strict else 0)
+        elif rep.has_digest and not rep.clean:
+            rc = 2
+        print()
+    return rc
+
+
 def _cmd_reid(args: argparse.Namespace) -> int:
     """Move a campaign's field ids. DRY-RUN unless ``--apply``: this rewrites the author's own files, so the
     default shows the whole plan -- including the deploy-side work reid CANNOT do -- and changes nothing."""
@@ -6764,6 +6806,16 @@ def build_parser() -> argparse.ArgumentParser:
                          "(refused by default -- those bits are save-persistent, so a move silently "
                          "invalidates every save made before it)")
     ba.set_defaults(func=_cmd_build_all)
+
+    vb = sub.add_parser("verify-build",
+                        help="what a built/installed mod folder IS, and whether its files still match the "
+                             "build that wrote them (reads its .ff9build.json)")
+    vb.add_argument("target", nargs="?", default=None,
+                    help="a dist dir or a live mod folder (default: every folder in Memoria.ini FolderNames)")
+    vb.add_argument("--strict", action="store_true",
+                    help="also exit non-zero when a folder carries NO stamp (predates it, or was hand-made)")
+    vb.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
+    vb.set_defaults(func=_cmd_verify_build)
 
     ri = sub.add_parser("reid",
                         help="MOVE a campaign's field ids (manifest + every member toml + every door), "
