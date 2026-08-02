@@ -107,9 +107,30 @@ class StampDiff:
         """A moved flag window or text block relocates state a SAVE already depends on. An id change does
         not qualify: it is already caught by lint's manifest/artifact reconciliation and reported by reid.
 
-        A CONTEXT change (standalone <-> journey) is exempt: the journey assigns those numbers itself, so
-        the move is the assignment working, not state drifting under a save."""
-        return bool(self.moved_flags or self.moved_blocks) and not self.context_changed
+        A CONTEXT change (standalone <-> journey) is exempt ONLY for the moves it can actually explain.
+        The first version exempted the lot, which disarmed the gate for exactly the workflow it was written
+        for: a journey and a standalone build share one <campaign>/dist/.ff9build.json, so DELETING a member
+        and then pressing the Workspace's Build-campaign button flips the context, and the real drift shipped
+        under a banner calling it the journey's assignment.
+
+        What a rebase actually looks like is a UNIFORM shift: the journey hands the campaign a new
+        flag_base/text_block_base, so EVERY member moves by the same delta and keeps its width. A member that
+        moved by a different delta, changed width, or appeared/vanished did not move because of the rebase --
+        that is real drift, and it still blocks."""
+        if not (self.moved_flags or self.moved_blocks):
+            return False
+        if not self.context_changed:
+            return True
+        if self.added or self.removed:
+            return True                      # a changed member set is not something a rebase explains
+        widths_kept = all((a[1] - a[0]) == (b[1] - b[0]) for _, a, b in self.moved_flags)
+        flag_deltas = {b[0] - a[0] for _, a, b in self.moved_flags}
+        block_deltas = {b - a for _, a, b in self.moved_blocks}
+        # ...and a rebase moves EVERY member, not a subset. If only some moved, the campaign was not
+        # rebased -- something inside it shifted, and a matching context flip is coincidence, not cause.
+        whole = (not self.moved_flags or len(self.moved_flags) == self.total) and \
+                (not self.moved_blocks or len(self.moved_blocks) == self.total)
+        return not (whole and widths_kept and len(flag_deltas) <= 1 and len(block_deltas) <= 1)
 
     @property
     def changed(self) -> bool:

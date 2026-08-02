@@ -309,6 +309,7 @@ def _cmd_deploy_journey(args: argparse.Namespace) -> int:
     report = deploy.deploy_journey(
         args.journeys, apply=args.apply, newgame=args.newgame, apply_links=args.apply_links,
         single_folder=args.single_folder, allow_collision=args.allow_collision, hub_out=args.hub_out,
+        allow_reflow=args.reflow_flags,
         backups_dir=provision.deploy_backups_dir(), reverts_dir=provision.deploy_reverts_dir())
     return report["rc"]
 
@@ -712,7 +713,8 @@ def _cmd_build(args: argparse.Namespace) -> int:
     try:
         info = build_mod(projects, out, mod_name=args.mod_name, author=args.author,
                          description=args.description,
-                         preserve_existing=getattr(args, "preserve_existing", False))
+                         preserve_existing=getattr(args, "preserve_existing", False),
+                         allow_reflow=getattr(args, "reflow_flags", False))
     except (BuildError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -6469,6 +6471,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="keep registrations already in --out that this build does not emit -- for "
                          "INSTALLING into a shipping mod folder that holds other fields (without it, a "
                          "build that would unregister them refuses)")
+    bd.add_argument("--reflow-flags", action="store_true", dest="reflow_flags",
+                    help="accept a build that MOVES an existing member's story-flag window or text block "
+                         "vs this folder's last build (refused by default -- those bits are save-persistent)")
     bd.set_defaults(func=_cmd_build)
 
     bh = sub.add_parser("behavior", help="the [behavior] tree surface: dry-compile + report, lint with "
@@ -8756,6 +8761,9 @@ def build_parser() -> argparse.ArgumentParser:
                           "the hub via the debug menu (~). hub = the hub selector menu. entry = straight into the opening field.")
     dje.add_argument("--wire-newgame", action="store_const", const="hub", dest="newgame",
                      help="back-compat alias for --newgame hub.")
+    dje.add_argument("--reflow-flags", action="store_true", dest="reflow_flags",
+                     help="accept a campaign build that MOVES an existing member's story-flag window or "
+                          "text block (refused by default -- those bits are save-persistent)")
     dje.add_argument("--apply-links", action="store_true", dest="apply_links",
                      help="EXECUTE ONLY the cross-campaign link .eb remaps (re-run after any campaign re-deploy)")
     dje.add_argument("--single-folder", dest="single_folder", nargs="?", const="", default=None,

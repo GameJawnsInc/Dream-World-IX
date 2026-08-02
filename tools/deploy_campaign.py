@@ -65,6 +65,10 @@ def main(argv=None) -> int:
                     help="do NOT promote the entry field's start-state CSVs to the highest FolderNames folder")
     ap.add_argument("--promote-csv-to", dest="promote_csv_to", default=None,
                     help="folder to promote start-state CSVs into (default: the highest Memoria.ini FolderNames folder)")
+    ap.add_argument("--reflow-flags", action="store_true", dest="reflow_flags",
+                    help="accept a build that MOVES an existing member's story-flag window or text "
+                         "block vs this folder's last build (refused by default: those bits are "
+                         "save-persistent, so a move invalidates every save made before it)")
     ap.add_argument("--apply", action="store_true", help="ACTUALLY touch the game (default: dry-run, prints the plan)")
     args = ap.parse_args(argv)
     if args.stock:
@@ -77,7 +81,8 @@ def main(argv=None) -> int:
             allow_artless=args.allow_artless, no_warp=args.no_warp,
             allow_name_collision=args.allow_name_collision, allow_id_collision=args.allow_id_collision,
             flag_base=args.flag_base, no_promote_csv=args.no_promote_csv, promote_csv_to=args.promote_csv_to,
-            out_dist=args.out_dist, backups_dir=REPO / "backups", reverts_dir=HERE / "scroll_out")
+            out_dist=args.out_dist, allow_reflow=args.reflow_flags,
+            backups_dir=REPO / "backups", reverts_dir=HERE / "scroll_out")
     except DeployError as e:
         print(str(e), file=sys.stderr)
         return 2

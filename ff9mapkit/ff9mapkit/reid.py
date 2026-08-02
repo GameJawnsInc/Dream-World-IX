@@ -36,30 +36,16 @@ from . import campaign as _campaign
 from . import fsutil
 
 # --- what a value at a given (section path, key) MEANS -----------------------------------
-SCALAR = "scalar"            # the whole value is one of OUR field ids
-TABLE_VALUES = "table"       # an INLINE table {<donor real id> = <our fork id>} -- VALUES only
-SECTION_VALUES = "section"   # a [a.b] table written long-form: every row's VALUE is one of ours
+# The kinds and the site table itself live in :mod:`ff9mapkit.idsites`, shared with lint's (e3) door
+# check. They were maintained separately once and drifted -- `[[platform]] warp_to` ended up in neither,
+# so a move stranded an elevator at a retired id and the lint called the result clean. One owner now.
+from .idsites import OUR_ID_SITES, SCALAR, SECTION_VALUES, TABLE_VALUES   # noqa: E402  (re-exported)
 
-# The member field.toml sites. KEYS of a retarget table are DONOR real ids and must never move; only the
-# values are ours. `text_block` is handled per-member (see _member_rules): it moves ONLY when it equals the
-# member's own old id, because an explicit block that differs is the DONOR's real mesID, which a fork keeps
-# (voice acting + dual-language key off it) -- build.default_text_block is identity, so an ABSENT text_block
-# follows the id for free and needs no edit at all.
-MEMBER_RULES = {
-    (("field",), "id"): SCALAR,
-    (("gateway",), "to"): SCALAR,
-    (("verbatim_eb",), "retarget"): TABLE_VALUES,
-    (("verbatim_eb", "retarget"), None): SECTION_VALUES,
-    (("gateway_carry",), "retarget"): TABLE_VALUES,
-    (("gateway_carry", "retarget"), None): SECTION_VALUES,
-    (("ladder",), "top_field"): SCALAR,          # navigable ladder destination (build.py:1611-1614)
-    (("cutscene",), "then_warp"): SCALAR,        # auto-return destination, "must be a field id" (build.py:2654)
-    # [[logic_edit]] `new` is OURS but ONLY when kind="field"; `old` is the DONOR literal standing in the
-    # donor .eb and must never move (logic_edit.py:115). The kind gate is not optional: for kind="gil" or
-    # "flag_index" the SAME key holds a gil amount or a flag index, and the custom id band overlaps both --
-    # so an unconditional rewrite would corrupt an unrelated number that merely looks like one of our ids.
-    (("logic_edit",), "new"): SCALAR,
-}
+# `text_block` is added per-member in plan_reid rather than living in the shared table: it moves ONLY
+# when it equals that member's own old id, because an explicit block that DIFFERS is the donor's real
+# mesID, which a fork keeps (voice acting + dual-language key off it). An ABSENT text_block needs no
+# edit at all -- build.default_text_block is identity, so it follows the new id for free.
+MEMBER_RULES = dict(OUR_ID_SITES)
 MANIFEST_RULES = {
     (("field",), "id"): SCALAR,
 }

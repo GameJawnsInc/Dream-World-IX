@@ -852,32 +852,11 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
     seam_reals = {s["to_real"] for s in plan.seams if isinstance(s.get("to_real"), int)}
     known_dests = member_ids | seam_reals
 
-    def _rows(raw, key):
-        """An array-of-tables block, defensively. A member that writes `[gateway]` where `[[gateway]]` was
-        meant parses as a bare dict, and a lint that crashes on it reports nothing at all -- the shape is
-        build.validate's to reject, so skip it here rather than raise."""
-        v = raw.get(key)
-        return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
-
-    def _dest_ids(raw):
-        """Every INTRA-CAMPAIGN destination id a member's field.toml names: declarative [[gateway]] to (an int
-        id; the "worldmap" string is a walk-out, not a field target), plus the VALUES of the verbatim door
-        retarget tables ({<donor real id> = <this campaign's fork id>}) -- the keys are donor ids and are
-        meant to be foreign."""
-        out = []
-        for gw in _rows(raw, "gateway"):
-            t = gw.get("to")
-            if isinstance(t, int) and not isinstance(t, bool) and t > 0:
-                out.append(("[[gateway]] to", t))
-        veb = raw.get("verbatim_eb")
-        tables = [veb.get("retarget") if isinstance(veb, dict) else None]
-        tables += [gc.get("retarget") for gc in _rows(raw, "gateway_carry")]
-        for rt in tables:
-            if isinstance(rt, dict):
-                for k, v in rt.items():
-                    if isinstance(v, int) and not isinstance(v, bool) and v > 0:
-                        out.append((f"retarget {k} ->", v))
-        return out
+    # The door-target list is NOT local to this lint. `ff9mapkit.reid` rewrites the same keys when a
+    # campaign moves band, and while the two tables were maintained separately they drifted: an id-bearing
+    # key present in one and absent from the other means reid strands a door at a retired id and THIS check
+    # then certifies the result clean. One owner (:mod:`ff9mapkit.idsites`), both read it.
+    from .idsites import dest_ids as _dest_ids
 
     for m in plan.members:
         raw = member_raw.get(m.name)
