@@ -195,23 +195,47 @@ def _lawful_surfaces(blob: bytes, ef: int):
 #: census cell can now be REFUSED on the author-facing path, and a bare ``texel_page`` sweep over the
 #: census aborts this whole board on the first one.
 #:
+#: ⚠ **W6b-3 (iv) MOVED THE RESOLVER AND THE SET HAD TO MOVE WITH IT.**  ``texel_page`` now defaults
+#: to :data:`RP.EDIT_CHANNELS`, and the adoption's own two classes (``displaced-readerless`` /
+#: ``displaced-readership-substituted``) withdraw pages exactly the way channel A's do.  Rolling the
+#: withdrawal set at the OLD scope is not a stale list, it is a CRASH -- G5's fixture died on a cell
+#: this set had not named and G5-G18 never executed.  One scope on both sides, or the board lies.
+#:
 #: The board therefore SKIPS what an author can no longer reach and **states the difference instead
 #: of absorbing it**: :func:`_author_surface_withdrawals` re-derives the set from the shipped
 #: predicate every run and G6b pins it BY NAME, so a withdrawal of a DIFFERENT cell -- or one under a
 #: class that is not channel A's -- turns this board RED rather than disappearing into a ``try``.
-CHANNEL_A_VETO = ("array-dual-depth", "array-vs-column-depth")
+#: ⚠ AND SINCE W6b-3 (iv) THE VETO LIST CARRIES THE TWO ADOPTION CLASSES TOO.  They are not channel
+#: A's, but they hold the same power over this board for the same reason: a census cell whose every
+#: `so` reader displaces AWAY from it is withdrawn from the author-facing surface, so the board must
+#: skip it exactly as it skips a channel-A veto.  Naming them here is what keeps G6b's re-derivation a
+#: PIN -- an unlisted class still turns this board RED.
+CHANNEL_A_VETO = ("array-dual-depth", "array-vs-column-depth",
+                  "displaced-readerless", "displaced-readership-substituted")
 
 #: the census class-C cells the AUTHOR-FACING surface withdraws.  MEASURED through the shipped
 #: predicate (never a hand list -- the list is here so a CHANGE is visible, and G6b re-derives it).
-W6B3_WITHDRAWN = ((179, "cell.s0.x448_y256"),)
+#: ★ W6b-3 (iv) added the last two, and they were TAKEN FROM THE BOARD'S OWN ROLL rather than typed:
+#: `_author_surface_withdrawals` was re-pointed at :data:`RP.EDIT_CHANNELS` FIRST and this tuple is
+#: whatever it then produced.  Both new entries are the adoption's own classes, one of each.
+W6B3_WITHDRAWN = ((179, "cell.s0.x448_y256"),        # array-dual-depth        (channel A, W6b-3)
+                  (226, "cell.s0.x448_y256"),        # displaced-readerless    (W6b-3 (iv))
+                  (498, "cell.s0.x576_y256"))        # displaced-readership-substituted
 
 _WITHDRAWN = None
 
 
 def _author_surface_withdrawals(records) -> List[Tuple[int, str, str]]:
     """``[(effect, cell name, refusal class)]`` for every census cell the AUTHOR-FACING surface
-    refuses -- rolled from ``scenery_surface(..., LICENSED_CHANNELS)`` so the class is the
-    predicate's own name rather than a substring scraped off a ``RepaintError``."""
+    refuses -- rolled from ``scenery_surface(..., EDIT_CHANNELS)`` so the class is the predicate's own
+    name rather than a substring scraped off a ``RepaintError``.
+
+    ⚠ **THE SCOPE MUST TRACK ``texel_page``'S OWN DEFAULT, AND SINCE W6b-3 (iv) THAT IS
+    :data:`RP.EDIT_CHANNELS`.**  This function rolls the set of cells the board SKIPS; ``texel_page``
+    is what the board then calls on everything it did not skip.  Rolling the withdrawal set one
+    channel scope BEHIND the resolver is not a slightly stale list, it is a CRASH: G5's fixture died
+    on a cell this set had not named, G5-G18 never executed, and patching the fixture alone just
+    relocates the crash to the next unnamed cell.  One scope, both sides."""
     global _WITHDRAWN
     if _WITHDRAWN is not None:
         return _WITHDRAWN
@@ -222,7 +246,7 @@ def _author_surface_withdrawals(records) -> List[Tuple[int, str, str]]:
     for ef, names in sorted(by_ef.items()):
         blob = _load(ef)
         try:
-            pages, refused = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS)
+            pages, refused = RP.scenery_surface(blob, ef, channels=RP.EDIT_CHANNELS)
         except Exception:                                        # pragma: no cover - derivation refusal
             continue
         served = {p.name for p in pages}
@@ -787,8 +811,14 @@ def g4_alpha_governs():
 
 # --------------------------------------------------------------------------- G5 / G6
 def _split_fixture(ef: int, cell: str):
+    """★ THE ACK IS THREADED, AND THE FIXTURE CELL DELIBERATELY DOES NOT MOVE.  ef226
+    `cell.s0.x448_y256` is one of the 45 `displaced-readerless` cells, so a bare ``texel_page`` now
+    refuses it and G5-G18 never run.  Moving the fixture would have swapped the alternate-palette
+    question this board asks; threading the acknowledgement keeps the SAME page.  Measured: with the
+    ack it resolves 8bpp / `pal.s0.x0_y246.e256` / offset 0x186c, which is byte-for-byte the
+    pre-adoption LICENSED resolution -- only ``depth_source`` moves, so-uv -> so-page."""
     blob = _load(ef)
-    p = RP.texel_page(blob, cell, ef)
+    p = RP.texel_page(blob, cell, ef, allow_displaced_readerless=True)
     pmap = RS.palette_map(blob, effect=ef)
     words = RP.palette_words(blob, p)
     alts = RP.alternate_palette_rows(blob, p, pmap)
@@ -1007,14 +1037,16 @@ def g6b_over_fire_measurement():
     lines.append("%-52s %s"
                  % ("★ W6b-3: THE AUTHOR-FACING SURFACE IS SMALLER THAN THE CENSUS",
                     ("; ".join("ef%03d %s (%s)" % w for w in withdrawn) +
-                     " -- CHANNEL A holds VETO power, so these census cell(s) resolve no page on the "
-                     "path an author walks.  The census itself is UNMOVED (0 cells gained or lost) "
-                     "and every §1.4 pin above is measured there.")
+                     " -- CHANNEL A and the W6b-3 (iv) DISPLACEMENT classes both hold VETO power, so "
+                     "these census cell(s) resolve no page on the path an author walks.  The census "
+                     "itself is UNMOVED (0 cells gained or lost) and every §1.4 pin above is "
+                     "measured there.")
                     if withdrawn else
-                    "none -- no census class-C cell is withdrawn on the licensed path"))
-    lines.append("%-52s the set is RE-DERIVED from `scenery_surface(LICENSED_CHANNELS)` every run "
-                 "and pinned by NAME: a different cell, or a class that is not channel A's, is RED "
-                 "here rather than a silently shorter sweep" % "   (and it is pinned, not skipped:)")
+                    "none -- no census class-C cell is withdrawn on the author-facing path"))
+    lines.append("%-52s the set is RE-DERIVED from `scenery_surface(EDIT_CHANNELS)` every run -- the "
+                 "SAME scope `texel_page` resolves at -- and pinned by NAME: a different cell, or a "
+                 "class outside CHANNEL_A_VETO, is RED here rather than a silently shorter sweep"
+                 % "   (and it is pinned, not skipped:)")
     for deg in (4.0, 8.0, 40.0):
         r, n = rates[deg]
         lines.append("%-52s R7 REFUSED %d of %d exportable class-C cells (%.1f%%)"

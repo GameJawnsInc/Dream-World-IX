@@ -1,3 +1,70 @@
+# ==================================================================================================
+# ★ FROZEN AS-CAST RECORD.  SUPERSEDED BY W6b-3 (iv), THE DISPLACEMENT ADOPTION -- READ THIS FIRST.
+# ==================================================================================================
+# THIS SPEC REPRODUCES ONLY AGAINST THE PRE-ADOPTION KIT, AND IT IS KEPT ANYWAY.  Everything below
+# this block is the record EXACTLY AS CAST and is deliberately NOT retro-edited: in this arc a cast
+# record is HISTORY, a superseding note goes at the top, and the record stands.  What follows here is
+# the account of why it will not rebuild, of what still rests on it, and of what to do instead.
+#
+# THE BYTES THIS RECORD IS ABOUT, BY SHA
+#   base container    6a3cb4d7fb26c7cd5c497b2fd4b2364039aabb0e491ed7b26e7b6060e0400773 -- pristine
+#                     stock ef424.  `expect_sha256` below still names it and it has not moved.
+#   built container   69ed527d... -- what THIS spec produced, and what the owner's cast-B video was
+#                     scored against.  It was deployed, read and reverted; the install is stock.
+#   row 2's source    70f3c096... -- the PNG, shared byte-for-byte with the cast-C sibling.
+#
+# WHY IT NO LONGER BUILDS -- AND IT IS THE ADOPTION BEING RIGHT, NOT A REGRESSION.  ROW 2 is the row
+# that fails, and it fails TWICE.  Both messages are MEASURED on the shipped kit against the stock
+# container above, not paraphrased:
+#
+#   with no ack    RepaintError: texel cell 'cell.s0.x448_y384' is REFUSED, not unknown --
+#                  DISPLACED-READERLESS: GEOM 0x2ec34 (record 0x2ec24, du=128 dv=0, 8bpp) binds
+#                  this cell and samples x512_y256, x512_y384 instead.
+#   with the ack   RepaintError: texel target cell.s0.x448_y384: `palette_from =
+#                  'pal.s0.x0_y242.e256'` resolves to pal.s0.x0_y242.e256, but this page indexes
+#                  into pal.s0.x0_y243.e256.
+#
+# THE CHAIN, RE-DERIVED RATHER THAN RECALLED.  ef424 binds TEN incumbent single-part `so` readers and
+# FIVE of them carry a non-zero second array.  `cell.s0.x448_y384` is bound by exactly ONE of them --
+# GEOM 0x2ec34, record 0x2ec24, 8bpp, pair (128, 0) -- and 128 texels at 8bpp is 64 halfwords, so it
+# walks column 448 to column 512 and samples the OTHER page.  Two more of column 448's readers do the
+# same, 0x2e760 with (128, 0) and 0x2d344 with (128, 128).  The cell therefore has no reader this kit
+# can attribute, refuses as `displaced-readerless`, and once the ack lifts that refusal it re-sources
+# `so-uv` -> `so-page`.  A page's display palette is a HEADER FACT, and the COLUMN's own CLUT word is
+# 243 -- not the departed reader 0x2ec34's key, 242.  So the second failure is not a second defect:
+# it is the same displacement, surfacing in the palette this row named.
+#
+# ⚠ AND A BARE RE-POINT WOULD NOT BE FAITHFUL EITHER.  Row 2's ink index 99 was CHOSEN as the
+# max-luminance entry under `pal.s0.x0_y242.e256` -- rgb(197,180,164), a warm grey reading roughly
+# cream.  Under 243 the same index is a different colour, so re-pointing the row alone would keep the
+# bytes and change what the recorded mark LOOKS LIKE.  The mark's identity was "the brightest
+# available band", never "index 99".
+#
+# ★ NOTHING RESTS ON REBUILDING THESE BYTES.  What this cast bought is the ORDER READ -- the BLADE
+# (GEOM part 1) -> slot 1 -> column 704, IDENTITY ordering -- and that read rests on the BAND COUNT
+# (cast A gave 10 cycles and cast B 5 on the same pixels over the same 282 px span, a threshold-free
+# 2:1).  A band count is DEPTH-INVARIANT BY CONSTRUCTION: the stamp writes whole byte ROWS, and a byte
+# row is a texel row at 4, 8 and 15 bpp alike.  It was scored on the owner's video and it is written
+# into `W6B3II-ODIN-CAST.md`; the finding lives in the STUDY, and this spec was only the instrument
+# that produced the frames.  ORDER_UNMEASURED still stands -- the read was never promoted.
+#
+# ⚠ ROW 1 IS UNTOUCHED BY THE ADOPTION, AND IT IS THE SCIENTIFICALLY LOAD-BEARING ROW.
+# `cell.s0.x704_y384` is named by record 0x2f9a4, which is P = 2 -- a MULTI-PART (novel) record.
+# `Binding.mover` refuses to answer there under ORDER_UNMEASURED, so the adoption's reach (INCUMBENT
+# single-part records ONLY) never extends to it and its resolution is exactly what it was.  It still
+# refuses as `depth-unknown` on the export lane, exactly as the body below says, and it still needs
+# `acknowledge_array_derived_depth`.  Nothing here was decided for it.
+#
+# IF ODIN IS EVER RE-CAST: DO NOT REPAIR THIS FILE -- MINT A FRESH SPEC UNDER THE ADOPTION.  Two
+# changes, both derived and neither typed.  Put `acknowledge_second_array_displacement = true` on the
+# 448 row (that is the author stating they judge a reader this kit cannot attribute -- one on a
+# multi-part record -- still samples the cell; the effective cover is a LOWER BOUND on readership).
+# And re-point `palette_from` to `pal.s0.x0_y243.e256` with the ink RE-DERIVED as the max-luminance
+# entry under 243 by `odin_band_stamp.py`, so the mark stays "the brightest available band", which is
+# what it was for.  Re-emit every `expect_*` with `--emit-spec-guards`: a guard copied from here is a
+# guard for a page the kit no longer resolves the same way.
+# ==================================================================================================
+
 # TIER W rung W6b-3 CAST B -- THE ODIN CHANNEL-A CAST.  Stock Odin Short (ef424), TWO cells of ONE
 # multi-part `so` record (0x2f9a4, P = 2) marked with DIFFERENT band counts -- **the first
 # depth-BEARING edit ever shipped on a CHANNEL-A cell**, and the experiment W6b-3's SS8.3 names.

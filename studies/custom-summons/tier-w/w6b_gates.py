@@ -782,8 +782,21 @@ def g4_refusal_matrix():
     check("   ...and it quotes the FALSIFIED guessing probe",
           *_refuses(RP.texel_page, b211, "cell.s0.x448_y256", CAST_EF), want="54.5%")
     b227 = _load(227)
-    check("SAME-BYTES-TWO-DEPTHS (ef227 x576_y256, triple-depth)",
-          *_refuses(RP.texel_page, b227, "cell.s0.x576_y256", 227), want="SAME-BYTES-TWO-DEPTHS")
+    # ★ THE FIXTURE CELL MOVED ONE STACKED CELL DOWN AT W6b-3 (iv), AND THAT IS A CORROBORATION OF
+    # THE ADOPTION RATHER THAN A REGRESSION -- WRITTEN DOWN BECAUSE IT EXPLAINS AN OLD ANOMALY.
+    # `cell.s0.x576_y256` used to refuse as a TRIPLE-depth conflict.  Its three bound readers are
+    # 0x29e14 (8bpp, no pair), 0x2ba28 (4bpp, pair (0, 128)) and 0xbe030 (15bpp, pair (16, 128)) --
+    # and record 0xbe020 IS ef227's ANSWER SLOT, the P = 1 record whose value test settled the
+    # operation as ADD.  Under the measured displacement the 4bpp and the 15bpp readers both carry
+    # dv = 128 and move to the LOWER stacked cell, so (576, 256) is left with the single 8bpp reader,
+    # the depth set [4, 8, 15] collapses to [8], and the cell resolves cleanly.  The triple-depth
+    # conflict was an ARTIFACT OF THE MIS-ATTRIBUTED JOIN: three depths were never stated about the
+    # same bytes, they were two readers filed against the wrong cell.  The conflict did not vanish --
+    # it followed the readers down to (576, 384), where 4 and 15 now disagree, and the class refuses
+    # there.  SWEPT, NOT GUESSED: the replacement is a cell that still refuses through the SHIPPED
+    # `texel_page` default.  Same container, same class, one token.
+    check("SAME-BYTES-TWO-DEPTHS (ef227 x576_y384, where the displaced readers now collide)",
+          *_refuses(RP.texel_page, b227, "cell.s0.x576_y384", 227), want="SAME-BYTES-TWO-DEPTHS")
     b381 = _load(381)
     check("PROGRAM-VRAM WRITE (ef381, loader op 0x07)",
           *_refuses(RP.build, _texel_spec(381, [_row("cell.s0.x448_y256", "x.png")]), td,
@@ -819,7 +832,13 @@ def g4_refusal_matrix():
     spiller = next(m for m in models227 if m.geom == sky0.hazards.readers[0].geom and m.spills)
     ghost_cover = dict(spiller.cover)
     ghost_cover[(1216, 256)] = {0}
-    ghost = [dataclasses.replace(m, cover=ghost_cover) if m is spiller else m for m in models227]
+    # ⚠ BOTH COVERS, AND THE SECOND ONE IS LOAD-BEARING SINCE W6b-3 (iv).  THE NAME-EVERY-COLUMN gate
+    # now takes its obligation on `effective_cover` -- the cell the hardware SAMPLES -- so a ghost
+    # injected into `cover` alone is INVISIBLE to it and the gate fires its ordinary spill-out refusal
+    # instead of the unwritten-column one.  A tripwire that fires for the WRONG reason is a tripwire
+    # nobody has tested, which is exactly what this fixture exists to prevent.
+    ghost = [dataclasses.replace(m, cover=ghost_cover, effective_cover=ghost_cover)
+             if m is spiller else m for m in models227]
     tgt = RP.TexelTarget(name=sky0.name, enabled=True, source="x.png", page=sky0)
     check("an UNWRITTEN column (nothing uploads what the model reads)",
           *_refuses(RP._gate_spill_columns, b227, [tgt], ghost), want="NO WRITER in")

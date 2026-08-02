@@ -1,3 +1,77 @@
+# ==================================================================================================
+# ★ FROZEN AS-CAST RECORD.  SUPERSEDED BY W6b-3 (iv), THE DISPLACEMENT ADOPTION -- READ THIS FIRST.
+# ==================================================================================================
+# THIS SPEC REPRODUCES ONLY AGAINST THE PRE-ADOPTION KIT, AND IT IS KEPT ANYWAY.  Everything below
+# this block is the record EXACTLY AS CAST and is deliberately NOT retro-edited: in this arc a cast
+# record is HISTORY, a superseding note goes at the top, and the record stands.  What follows here is
+# the account of why it will not rebuild, of what still rests on it, and of what to do instead.
+#
+# THE BYTES THIS RECORD IS ABOUT, BY SHA
+#   base container    6a3cb4d7fb26c7cd5c497b2fd4b2364039aabb0e491ed7b26e7b6060e0400773 -- pristine
+#                     stock ef424.  `expect_sha256` below still names it and it has not moved.
+#   built container   0650b968... -- what THIS spec produced, and what the owner's cast-C video
+#                     (`odin_sho.mkv`) was scored against.  Deployed, read, reverted through the
+#                     stage-c ledger to cast B and then to stock; the install carries no ef424
+#                     override today.
+#   row 2's source    70f3c096... -- byte-for-byte cast B's PNG, regenerated in the same run.
+#
+# WHY IT NO LONGER BUILDS -- AND IT IS THE ADOPTION BEING RIGHT, NOT A REGRESSION.  ROW 2 is the row
+# that fails, and it fails TWICE.  Both messages are MEASURED on the shipped kit against the stock
+# container above, not paraphrased:
+#
+#   with no ack    RepaintError: texel cell 'cell.s0.x448_y384' is REFUSED, not unknown --
+#                  DISPLACED-READERLESS: GEOM 0x2ec34 (record 0x2ec24, du=128 dv=0, 8bpp) binds
+#                  this cell and samples x512_y256, x512_y384 instead.
+#   with the ack   RepaintError: texel target cell.s0.x448_y384: `palette_from =
+#                  'pal.s0.x0_y242.e256'` resolves to pal.s0.x0_y242.e256, but this page indexes
+#                  into pal.s0.x0_y243.e256.
+#
+# THE CHAIN, RE-DERIVED RATHER THAN RECALLED.  ef424 binds TEN incumbent single-part `so` readers and
+# FIVE of them carry a non-zero second array.  `cell.s0.x448_y384` is bound by exactly ONE of them --
+# GEOM 0x2ec34, record 0x2ec24, 8bpp, pair (128, 0) -- and 128 texels at 8bpp is 64 halfwords, so it
+# walks column 448 to column 512 and samples the OTHER page.  Two more of column 448's readers do the
+# same, 0x2e760 with (128, 0) and 0x2d344 with (128, 128).  The cell therefore has no reader this kit
+# can attribute, refuses as `displaced-readerless`, and once the ack lifts that refusal it re-sources
+# `so-uv` -> `so-page`.  A page's display palette is a HEADER FACT, and the COLUMN's own CLUT word is
+# 243 -- not the departed reader 0x2ec34's key, 242.  So the second failure is not a second defect:
+# it is the same displacement, surfacing in the palette this row named.
+#
+# ⚠ AND A BARE RE-POINT WOULD NOT BE FAITHFUL EITHER.  Row 2's ink index 99 was CHOSEN as the
+# max-luminance entry under `pal.s0.x0_y242.e256` -- rgb(197,180,164), a warm grey reading roughly
+# cream -- and this spec leans on that colour as a NEGATIVE CONTROL, because it must not be mistakable
+# for row 1's salmon.  Under 243 the same index is a different colour, so re-pointing the row alone
+# would keep the bytes, change what the recorded mark LOOKS LIKE, and put the control's whole premise
+# back in play.  The mark's identity was "the brightest available band", never "index 99".
+#
+# ★ NOTHING RESTS ON REBUILDING THESE BYTES.  This cast's two findings are both about ROW 1, and both
+# are already scored and written into `W6B3II-ODIN-CAST.md` §9: the DEPTH verdict **BPP8 at 0.96** on
+# `cell.s0.x704_y384` (ink identified as palette index 240 = rgb(222,115,115), the hue closure
+# Q = (R-B)/(R-G) tracking 8bpp at r = +0.977 while 4bpp and 15bpp both predict it backwards), and
+# the inherited ORDER READ -- BLADE (GEOM part 1) -> slot 1 -> column 704, IDENTITY ordering.  The
+# order read rests on the BAND COUNT and is therefore DEPTH-INVARIANT BY CONSTRUCTION: the stamp
+# writes whole byte ROWS, and a byte row is a texel row at 4, 8 and 15 bpp alike.  The findings live
+# in the STUDY; this spec was only the instrument that produced the frames.  ORDER_UNMEASURED still
+# stands -- the read was never promoted, and `w6b3i_gates` I8 still enforces that.
+#
+# ⚠ ROW 1 IS UNTOUCHED BY THE ADOPTION, AND IT IS THE SCIENTIFICALLY LOAD-BEARING ROW.
+# `cell.s0.x704_y384` is named by record 0x2f9a4, which is P = 2 -- a MULTI-PART (novel) record.
+# `Binding.mover` refuses to answer there under ORDER_UNMEASURED, so the adoption's reach (INCUMBENT
+# single-part records ONLY) never extends to it and its resolution is exactly what it was.  It still
+# refuses as `depth-unknown` on the export lane, exactly as the body below says, and it still needs
+# `acknowledge_array_derived_depth`.  Nothing here was decided for it.
+#
+# IF ODIN IS EVER RE-CAST: DO NOT REPAIR THIS FILE -- MINT A FRESH SPEC UNDER THE ADOPTION.  Two
+# changes, both derived and neither typed.  Put `acknowledge_second_array_displacement = true` on the
+# 448 row (that is the author stating they judge a reader this kit cannot attribute -- one on a
+# multi-part record -- still samples the cell; the effective cover is a LOWER BOUND on readership).
+# And re-point `palette_from` to `pal.s0.x0_y243.e256` with the ink RE-DERIVED as the max-luminance
+# entry under 243 by `odin_band_stamp.py`, so the mark stays "the brightest available band", which is
+# what it was for -- and RE-CHECK the negative control, because a fresh ink under a fresh row is a
+# fresh hue and the row-1/row-2 separation this cast depended on is not inherited.  Re-emit every
+# `expect_*` with `--emit-spec-guards`: a guard copied from here is a guard for a page the kit no
+# longer resolves the same way.
+# ==================================================================================================
+
 # TIER W rung W6b-3 CAST C -- THE ODIN DEPTH DISCRIMINATOR.  Stock Odin Short (ef424), the SAME five
 # bands on the SAME CHANNEL-A cell as cast B, inked with the byte `0xF0` instead of `0xFF`.
 #
