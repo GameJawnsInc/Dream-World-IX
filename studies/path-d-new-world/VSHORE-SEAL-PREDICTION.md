@@ -246,3 +246,39 @@ EXISTS — walk_sim's deflection-fan walker at that spot, against the deployed
 bytes (regenerable by full_skirt.py; backup terrace-strip-prewall.20260802-010535
 is the pre-deploy pristine). Reproduce offline FIRST, then decode which surface
 is answering the probes, then register the fix.
+
+## THE V-CORNER TRAP REPRODUCTION (registered BEFORE running, 2026-08-02)
+
+Instrument: `probe_vcorner_trap.py` over walk_sim's engine-exact query, against
+the LIVE tuck-build bytes (verified: all six Terrain blocks hash-differ from the
+pre-deploy pristine; live bytes archived to `backups/vcorner-trap-live.20260802-133500`).
+The trap signature under test: stuck-only-turn = a grounded point where the
+deflection fan fails for EVERY heading — turning re-aims the fan, so full trap =
+all 32 headings (11.25° circle) reject at both commit probes.
+
+- **P-A (static)**: the 0.25u fan map over x 368-388, z −516..−496 (covers the
+  owner's pin, gC's stall, the NW hem pair, the tuck's west vert) contains a
+  nonzero all-headings-stall set within ~2u of (376.5,−509.5).
+- **P-B (dynamic)**: walkers driven at the corner enter that set and STALL; the
+  escape test distinguishes ring class — all 32 headings fail with the walker's
+  own ring AND a fresh ring → STATIC trap; fresh-ring escape → ring-poisoning.
+- **P-C (decode)**: every failing probe names its answering surface (miss vs
+  mask-reject; part, buffer tri, mapid, topo, ny). Suspects declared in advance:
+  the tuck chain's bent wall course (steep ny ≤ 0.1 → filtered → MISS, or
+  buffer-early non-walk sheet), the lawn-clip coverage hole (void MISS), the
+  step-up reject (only sheet above y+2.34375), the NW hem pair.
+- **P-D (attribution)**: the same map over the pre-deploy pristine
+  (terrace-strip-prewall.20260802-010535 Terrain): clean → the trap is THIS
+  round's authorship (the tuck, per THE DEFECT FOLLOWS THE AUTHORSHIP); trapped
+  → older authorship, named from its decode.
+- **P-E (gC re-exam)**: at gC's accepted stall (377.2,−502.7), the open_lawn
+  classifier (8 static 1u probes) passes where the 32-heading commit test fails
+  — the gate scored LOOK, not COMMIT. The repaired gate class is declared with
+  the findings: a stall is acceptable only if some heading COMMITS from it.
+
+Falsification: no all-stall point in the window, static and dynamic, either ring
+state → the reproduction FAILED; the trap is not in the decoded walk query over
+these bytes (re-suspect: TransportControls mask override, engine state the sim
+lacks, wrong bytes) — STOP and re-diagnose, no fix design. Declared freedoms:
+window extent, grid pitch, standing-sheet hypothesis (top walkable), step
+counts. NOT a fix round: read-only, no deploy, no bench mutation.
