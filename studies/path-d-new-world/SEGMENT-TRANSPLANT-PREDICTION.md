@@ -262,3 +262,21 @@ cannot cure the corner exposure; killed before a build round was spent.
 Fork (i)'s real construction is a **beach-class ramp at the inlet mouth**
 (no tall wall — e.g. the proven (7,17) ground-retile carry class), a real
 design round. Fork (ii) is live now. The owner picks at playtest 9.
+
+## PLAYTEST 9 (2026-08-02) — THE FORK IS DECIDED: rocky cove stays
+
+Owner (in-game shot, Zidane on the north lawn looking into the inlet):
+"still seeing that weird disconnected cliff piece near the water. keep the
+rocky cove for this island, beaches will complicate things and require more
+study. let's just master the cliff shape language + walking stuff." And:
+"this was an improvement but we've still got things to learn."
+
+DECISIONS BANKED: fork (ii) CHOSEN — the rocky cove is this island's corner
+language; fork (i)/beach-class is OUT OF SCOPE for this island. The
+remaining axis: make the cliff band read CONNECTED around the inlet.
+Visible in the shot: the lip band runs the near shore, then breaks at a
+vertical seam; the far-side rock reads as a separate slab; thin white
+dashes in the water along the wall foot near the seam. Suspects (to be
+id-buffered at the reproduced game-cam vantage, NOT guessed): the v11
+joint (carried->kept u-phase reset + possible crest/foot line step), and
+the white dashes (sea-cut edge gap / rim edge-on sliver / blank texels).
