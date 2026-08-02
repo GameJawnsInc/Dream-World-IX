@@ -100,9 +100,11 @@ def up_ny(a, b, c):
     return ny / L
 
 
-def bary_y(x, z, tri):
+def bary_y(x, z, tri, eps=-1e-9):
     """Y where the vertical line pierces the tri's plane, or None if outside (XZ barycentric,
-    inclusive within float eps -- the engine's own strict-in-float boundary quirk noted)."""
+    inclusive within float eps -- the engine's own strict-in-float boundary quirk noted).
+    eps > 0 demands a strictly INTERIOR hit (census use: excludes measure-zero
+    edge-line coincidences where two sheets merely share a boundary line)."""
     a, b, c = tri[0], tri[1], tri[2]
     d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
     if abs(d) < 1e-12:
@@ -110,7 +112,7 @@ def bary_y(x, z, tri):
     w0 = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / d
     w1 = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / d
     w2 = 1.0 - w0 - w1
-    if w0 < -1e-9 or w1 < -1e-9 or w2 < -1e-9:
+    if w0 < eps or w1 < eps or w2 < eps:
         return None
     return w0 * a[1] + w1 * b[1] + w2 * c[1]
 
@@ -218,20 +220,22 @@ def walk_step(world, ring, st):
 
 
 # ---------------------------------------------------------------- census (static)
-def all_sheets(world, x, z):
+def all_sheets(world, x, z, strict=False):
     """Every full-scan-filter-passing intersection on the vertical line, in scan order.
-    Returns list of (y, topo, mesh_i, ti) deduped by y (DEDUP_EPS), order preserved."""
+    Returns list of (y, topo, mesh_i, ti) deduped by y (DEDUP_EPS), order preserved.
+    strict=True demands interior hits (census: a shared boundary LINE is not a stack)."""
     bk = block_key(x, z)
     if bk not in world:
         return []
     cell = (int(x // 4), int(z // 4))
     out = []
+    eps = 1e-5 if strict else -1e-9
     for mi, mesh in enumerate(world[bk]):
         for ti in mesh["grid"].get(cell, ()):
             tri = mesh["tris"][ti]
             if tri[3] in IDALL_SKIP or tri[5] <= 0.1 or tri[3] == VETO:
                 continue
-            hy = bary_y(x, z, tri)
+            hy = bary_y(x, z, tri, eps)
             if hy is None:
                 continue
             if any(abs(hy - y0) <= DEDUP_EPS for (y0, _, _, _) in out):
@@ -253,7 +257,7 @@ def census(world, title):
         x = x0 + i * GRID
         for j in range(nz):
             z = z0 + j * GRID
-            sh = all_sheets(world, x, z)
+            sh = all_sheets(world, x, z, strict=True)
             if not sh:
                 continue
             npts += 1

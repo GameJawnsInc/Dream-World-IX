@@ -864,18 +864,13 @@ def main() -> int:
                     return True
         return False
 
+    # THE RENDER-ONLY UNDERLAY SUPERSEDES THE SHINGLE CUT (LAWN-CLIP-PREDICTION.md):
+    # the lawn ships CONTINUOUS (the overlay's passed visuals) and the under-lawn is
+    # walk-hidden by the 4078 re-tag downstream, not deleted -- the whole-tri drop
+    # missed ~half the covered lawn against the extension's sieve boundary
+    # (BENCH-WALK-SIM.md), and its cut edges were the see-through-void risk class.
     drop9 = set()
-    for ti9, t9r in enumerate(tris):
-        if t9r["topo"] not in GRASS_TOPO:
-            continue
-        if math.hypot(t9r["cen"][0] - CENTER[0],
-                      t9r["cen"][2] - CENTER[1]) > rim_r_max + 8.0:
-            continue
-        if (all(surf_above9(p[0], p[2], p[1]) for p in t9r["w"])
-                and all(bdist9(p[0], p[2]) >= SHINGLE for p in t9r["w"])):
-            drop9.add(ti9)
-    print(f"   shingle cut: {len(drop9)} lawn tris dropped under the carried "
-          f"footprint ({SHINGLE}u margin strip tucks under the rim)")
+    print("   shingle cut: SUPERSEDED by the render-only underlay (0 tris dropped)")
 
     kept_out = []                                           # (t3, uv3, n3, tan3, blk)
     n_kept_split = 0
@@ -1077,6 +1072,560 @@ def main() -> int:
     if n_chute:
         print(f"   notch chutes: {n_chute} top tris carry ROCK topograph (unwalkable)")
 
+    # ---- THE RENDER-ONLY UNDERLAY (LAWN-CLIP-PREDICTION.md) --------------------------------
+    # The engine's own walk-invisible class: WMPhysics.Raycast skips mapid 4078
+    # BEFORE any filter (WMPhysics.cs:15), and WorldMap/Terrain binds no tangent,
+    # so a re-tag changes zero pixels. L-rule: lawn under the carried surface ->
+    # 4078 (crossing tris sliced at the carried plan boundary; ALL pieces are
+    # kept, so every cut edge is matched and the T-sweep below conforms neighbor
+    # T-points). C-rule: carried walkable tris wholly below the kept walkable
+    # lawn (the DEAD-UNDER rim dips) -> 4078. Nothing is deleted, no vertex
+    # moves: the overlay's passed visuals ship position/uv-identical, and every
+    # plan point holds exactly ONE walk-visible walkable surface.
+    ID_DEAD = 4078.0
+    WALK_TOPO_U = GRASS_TOPO | PLATEAU | {SHELF, 37}
+
+    def _topo_u(rec):
+        try:
+            return X.decode_id(int(round(rec[0][3][0])))["topograph"]
+        except Exception:
+            return None
+
+    # THE HEM LIFT: carried WALKABLE verts that dip below the lawn (the rim
+    # relaxation's DEAD-UNDER artifacts, dips measured 0.05-0.65u) rise to exactly
+    # LOWLAND -- coincident with the lawn, so the two sheets answer identically and
+    # the stack dissolves. Verts welded into carried ROCK or into bench geometry
+    # below the lawn (the foot weld runs y 3.0+) are LOCKED: lifting one side of a
+    # weld is a crack factory.
+    lockv9 = set()
+    for rec, blk in final:
+        if blk is None:
+            if _topo_u(rec) not in WALK_TOPO_U:
+                for r in rec:
+                    lockv9.add(kk(r[0]))
+        else:
+            for r in rec:
+                if r[0][1] < LOWLAND - 1e-6:
+                    lockv9.add(kk(r[0]))
+    out_h = []
+    n_lift = 0
+    for rec, blk in final:
+        if blk is None and _topo_u(rec) in WALK_TOPO_U:
+            nr9 = []
+            for r in rec:
+                if r[0][1] < LOWLAND - 1e-6 and kk(r[0]) not in lockv9:
+                    nr9.append(((r[0][0], LOWLAND, r[0][2]), r[1], r[2], r[3]))
+                    n_lift += 1
+                else:
+                    nr9.append(r)
+            rec = nr9
+        out_h.append((rec, blk))
+    final = out_h
+    if n_lift:
+        print(f"   hem lift: {n_lift} carried walkable verts below the lawn raised "
+              f"to {LOWLAND} (the DEAD-UNDER dips dissolve into coincidence)")
+
+    carried_recs = [rec for rec, blk in final if blk is None]
+    cov9u = defaultdict(list)
+    for rec in carried_recs:
+        t3c = [r[0] for r in rec]
+        xs9, zs9 = [p[0] for p in t3c], [p[2] for p in t3c]
+        for cx9 in range(int(min(xs9) // 4), int(max(xs9) // 4) + 1):
+            for cz9 in range(int(min(zs9) // 4), int(max(zs9) // 4) + 1):
+                cov9u[(cx9, cz9)].append(t3c)
+
+    def _surf_over(hash9, px9, pz9, y9):
+        for t3c in hash9.get((int(px9 // 4), int(pz9 // 4)), ()):
+            (x1, z1), (x2, z2), (x3, z3) = ((p[0], p[2]) for p in t3c)
+            det9 = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
+            if abs(det9) < 1e-12:
+                continue
+            w29 = ((px9 - x1) * (z3 - z1) - (x3 - x1) * (pz9 - z1)) / det9
+            w39 = ((x2 - x1) * (pz9 - z1) - (px9 - x1) * (z2 - z1)) / det9
+            if w29 >= -1e-6 and w39 >= -1e-6 and w29 + w39 <= 1 + 1e-6:
+                ys9 = ((1 - w29 - w39) * t3c[0][1] + w29 * t3c[1][1]
+                       + w39 * t3c[2][1])
+                if ys9 > y9 + 0.05:
+                    return True
+        return False
+
+    # the carried plan boundary (once-edges of the carried set) as slicing lines,
+    # each admitted per-tri by the SEGMENT bbox (the run-1-proven chord filter)
+    ec9u = defaultdict(int)
+    for rec in carried_recs:
+        ks9 = [kk(r[0]) for r in rec]
+        for a9, b9 in ((0, 1), (1, 2), (2, 0)):
+            ec9u[tuple(sorted((ks9[a9], ks9[b9])))] += 1
+    blines_raw = []
+    for (ka9, kb9), n9 in ec9u.items():
+        if n9 != 1:
+            continue
+        dx9, dz9 = kb9[0] - ka9[0], kb9[2] - ka9[2]
+        L9 = math.hypot(dx9, dz9)
+        if L9 < 1e-6:
+            continue
+        d9 = (dx9 / L9, dz9 / L9)
+        if d9[0] < 0 or (d9[0] == 0 and d9[1] < 0):
+            d9 = (-d9[0], -d9[1])                           # canonical hemisphere
+        c9 = ka9[0] * d9[1] - ka9[2] * d9[0]                # signed offset (|d|=1)
+        blines_raw.append((math.atan2(d9[1], d9[0]), c9, (ka9[0], ka9[2]), d9,
+                           (min(ka9[0], kb9[0]) - 0.5, max(ka9[0], kb9[0]) + 0.5,
+                            min(ka9[2], kb9[2]) - 0.5, max(ka9[2], kb9[2]) + 0.5),
+                           (ka9[0], ka9[2]), (kb9[0], kb9[2])))
+    # NEAR-DUPLICATE LINE DEDUP: the carried boundary carries BOTH LIPS of the
+    # donor-border pairs (the ~0.006-0.03u verbatim cross-border mismatch), and two
+    # near-identical slice lines mint offset crossing points on adjacent lawn tris
+    # = micro-sliver tears. Merge a segment into a representative when BOTH its
+    # endpoints lie within 0.05 of the representative's line (true segment
+    # separation, not the angle+offset proxy that missed the wider lips); the
+    # admission bboxes UNION so the representative is admitted wherever any
+    # member was.
+    blines_raw.sort(key=lambda t9: (t9[0], t9[1]))
+    blines = []
+    for ang9, c9, o9, d9, bb9, pa9, pb9 in blines_raw:
+        hit9 = None
+        for i9 in range(len(blines) - 1, max(-1, len(blines) - 24), -1):
+            (ro9, rd9, rbb9, rang9) = blines[i9]
+            if abs(rang9 - ang9) > 0.02:
+                break
+            da9 = abs((pa9[0] - ro9[0]) * rd9[1] - (pa9[1] - ro9[1]) * rd9[0])
+            db9 = abs((pb9[0] - ro9[0]) * rd9[1] - (pb9[1] - ro9[1]) * rd9[0])
+            if da9 < 0.05 and db9 < 0.05:
+                hit9 = i9
+                break
+        if hit9 is not None:
+            (ro9, rd9, rbb9, rang9) = blines[hit9]
+            blines[hit9] = (ro9, rd9,
+                            (min(rbb9[0], bb9[0]), max(rbb9[1], bb9[1]),
+                             min(rbb9[2], bb9[2]), max(rbb9[3], bb9[3])), rang9)
+            continue
+        blines.append((o9, d9, bb9, ang9))
+    blines = [(o9, d9, bb9) for (o9, d9, bb9, _a9) in blines]
+    # THE ISO LINES: the coverage silhouette is NOT only mesh once-edges -- where a
+    # carried tri's surface plunges through the lawn plane, the above-ness boundary
+    # is the iso-curve carried_y = LOWLAND + 0.05 INSIDE that tri. One plan segment
+    # per crossing carried tri, same admission machinery (this is what the first
+    # gate run measured as the missed class: lawn under the blob edge and under the
+    # hem where the surface crosses the lawn).
+    isoY9 = LOWLAND + 0.05
+    n_iso = 0
+    for rec in carried_recs:
+        ys9i = [r[0][1] for r in rec]
+        if not (min(ys9i) < isoY9 < max(ys9i)):
+            continue
+        pts9 = []
+        for a9, b9 in ((0, 1), (1, 2), (2, 0)):
+            ya9, yb9 = rec[a9][0][1], rec[b9][0][1]
+            if (ya9 - isoY9) * (yb9 - isoY9) < 0:
+                t9 = (isoY9 - ya9) / (yb9 - ya9)
+                pa9, pb9 = rec[a9][0], rec[b9][0]
+                pts9.append((pa9[0] + t9 * (pb9[0] - pa9[0]),
+                             pa9[2] + t9 * (pb9[2] - pa9[2])))
+        if len(pts9) != 2:
+            continue
+        dx9, dz9 = pts9[1][0] - pts9[0][0], pts9[1][1] - pts9[0][1]
+        L9 = math.hypot(dx9, dz9)
+        if L9 < 1e-6:
+            continue
+        # suppress an iso that HUGS an existing slice line: the hem lift puts many
+        # tri bases exactly at the lawn plane, so their iso runs centimeters from
+        # the boundary edge -- two near-coincident lines mint sub-kk vert pairs
+        # the sweep can neither merge nor conform. The hugging line's slice
+        # already separates covered from uncovered there (union its admission
+        # bbox so it reaches the iso's span).
+        bb9 = (min(pts9[0][0], pts9[1][0]) - 0.5, max(pts9[0][0], pts9[1][0]) + 0.5,
+               min(pts9[0][1], pts9[1][1]) - 0.5, max(pts9[0][1], pts9[1][1]) + 0.5)
+        dup9 = None
+        for i9, (ro9, rd9, rbb9) in enumerate(blines):
+            da9 = abs((pts9[0][0] - ro9[0]) * rd9[1] - (pts9[0][1] - ro9[1]) * rd9[0])
+            db9 = abs((pts9[1][0] - ro9[0]) * rd9[1] - (pts9[1][1] - ro9[1]) * rd9[0])
+            if da9 < 0.05 and db9 < 0.05:
+                dup9 = i9
+                break
+        if dup9 is not None:
+            (ro9, rd9, rbb9) = blines[dup9]
+            blines[dup9] = (ro9, rd9,
+                            (min(rbb9[0], bb9[0]), max(rbb9[1], bb9[1]),
+                             min(rbb9[2], bb9[2]), max(rbb9[3], bb9[3])))
+            continue
+        blines.append((pts9[0], (dx9 / L9, dz9 / L9), bb9))
+        n_iso += 1
+    if n_iso:
+        print(f"   iso lines: {n_iso} carried tris cross the lawn plane; their "
+              f"iso segments join the slice set")
+    gxs9 = [r[0][0] for rec in carried_recs for r in rec]
+    gzs9 = [r[0][2] for rec in carried_recs for r in rec]
+    gbb = (min(gxs9) - 1.0, max(gxs9) + 1.0, min(gzs9) - 1.0, max(gzs9) + 1.0)
+
+    def _piece_vert(rec0, corners0, px9, pz9):
+        # exact corner passthrough (bench bytes verbatim), parent-affine otherwise
+        v0 = corners0.get((px9, pz9))
+        if v0 is not None:
+            return v0
+        (ax9, az9) = rec0[0][0][0], rec0[0][0][2]
+        (bx9, bz9) = rec0[1][0][0], rec0[1][0][2]
+        (cx9, cz9) = rec0[2][0][0], rec0[2][0][2]
+        det9 = (bx9 - ax9) * (cz9 - az9) - (cx9 - ax9) * (bz9 - az9)
+        if abs(det9) < 1e-12:
+            return rec0[0]
+        wb9 = ((px9 - ax9) * (cz9 - az9) - (cx9 - ax9) * (pz9 - az9)) / det9
+        wc9 = ((bx9 - ax9) * (pz9 - az9) - (px9 - ax9) * (bz9 - az9)) / det9
+        wa9 = 1.0 - wb9 - wc9
+        y9 = wa9 * rec0[0][0][1] + wb9 * rec0[1][0][1] + wc9 * rec0[2][0][1]
+        uv9 = tuple(wa9 * rec0[0][1][q9] + wb9 * rec0[1][1][q9]
+                    + wc9 * rec0[2][1][q9] for q9 in range(2))
+        n9 = tuple(wa9 * rec0[0][2][q9] + wb9 * rec0[1][2][q9]
+                   + wc9 * rec0[2][2][q9] for q9 in range(3))
+        return ((px9, y9, pz9), uv9, n9, rec0[0][3])
+
+    def _tag(vr9):
+        return [(v[0], v[1], v[2], (ID_DEAD,) + tuple(v[3][1:])) for v in vr9]
+
+    out_u = []
+    sliced_u = []                                           # (rec, blk, pieces) deferred for the snap
+    n_tag_l = n_slice_u = n_piece_l = 0
+    for rec, blk in final:
+        if blk is None:
+            out_u.append((rec, blk))
+            continue
+        try:
+            tp9 = X.decode_id(int(round(rec[0][3][0])))["topograph"]
+        except Exception:
+            tp9 = None
+        xs9 = [r[0][0] for r in rec]
+        zs9 = [r[0][2] for r in rec]
+        if (tp9 not in GRASS_TOPO or max(xs9) < gbb[0] or min(xs9) > gbb[1]
+                or max(zs9) < gbb[2] or min(zs9) > gbb[3]):
+            out_u.append((rec, blk))
+            continue
+        tb9 = (min(xs9) - 0.5, max(xs9) + 0.5, min(zs9) - 0.5, max(zs9) + 0.5)
+        lines9 = [(o9, d9) for (o9, d9, bb9) in blines
+                  if bb9[0] <= tb9[1] and bb9[1] >= tb9[0]
+                  and bb9[2] <= tb9[3] and bb9[3] >= tb9[2]]
+        pieces = [[(r[0][0], r[0][2]) for r in rec]]
+        for (o9, d9) in lines9:
+            nxt9 = []
+            for pg9 in pieces:
+                pos9, neg9 = slice_line(pg9, o9, d9)
+                for part9 in (pos9, neg9):
+                    if len(part9) >= 3 and poly_area2(part9) > 1e-4:
+                        nxt9.append(part9)
+            pieces = nxt9
+        if len(pieces) == 1 and len(pieces[0]) == 3:
+            cx9 = sum(p[0] for p in pieces[0]) / 3.0
+            cz9 = sum(p[1] for p in pieces[0]) / 3.0
+            yc9 = sum(r[0][1] for r in rec) / 3.0
+            # whole-tag requires centroid AND all 3 verts covered: a mixed tri
+            # falls through untagged to the local-arrangement closure, which
+            # slices it exactly -- a whole-tag on mixed coverage would leak
+            # render-only lawn OUTSIDE coverage (the dead-band class)
+            if (_surf_over(cov9u, cx9, cz9, yc9)
+                    and all(_surf_over(cov9u, r[0][0], r[0][2], r[0][1])
+                            for r in rec)):
+                n_tag_l += 1
+                out_u.append((_tag(list(rec)), blk))        # verbatim geometry, tan.x only
+            else:
+                out_u.append((rec, blk))
+            continue
+        n_slice_u += 1
+        out_u.append(("__S__", len(sliced_u)))              # placeholder: pieces re-enter HERE
+        sliced_u.append((rec, blk, pieces))
+
+    # THE MINTED-POINT SNAP: crossing points from residual near-duplicate lines (or
+    # per-neighbor float paths) canonicalize within 0.01u -- originals win, else the
+    # min tuple. Purely lawn-internal, an order of magnitude under the 0.06 weld
+    # radius; the banned cross-boundary micro-weld is untouched.
+    # THE EDGE-BUCKET CANONICALIZATION: every minted crossing point lies on exactly
+    # one ORIGINAL lawn edge (or is parent-interior, where sibling pieces already
+    # share exact tuples). Group the points ON each edge -- keyed by the edge's
+    # corner pair, so every tri owning the edge applies the IDENTICAL map -- and
+    # merge groups within 0.06 along the edge: an endpoint corner captures its
+    # group, else the lexicographic min survives. Points never leave their host
+    # edge; wedges from boundary-corner line pairs collapse consistently on both
+    # sides; float-level crossing mismatches between neighbors dissolve for free.
+    ebuck9 = defaultdict(set)
+    for rec, _blk, pieces in sliced_u:
+        cs9 = [(r[0][0], r[0][2]) for r in rec]
+        for pg9 in pieces:
+            for p in pg9:
+                if p in (cs9[0], cs9[1], cs9[2]):
+                    continue
+                for i9 in range(3):
+                    a9, b9 = cs9[i9], cs9[(i9 + 1) % 3]
+                    L9 = math.hypot(b9[0] - a9[0], b9[1] - a9[1])
+                    if L9 < 1e-9:
+                        continue
+                    dperp9 = abs((b9[0] - a9[0]) * (p[1] - a9[1])
+                                 - (b9[1] - a9[1]) * (p[0] - a9[0])) / L9
+                    if dperp9 <= 1e-3:
+                        t9 = ((p[0] - a9[0]) * (b9[0] - a9[0])
+                              + (p[1] - a9[1]) * (b9[1] - a9[1])) / (L9 * L9)
+                        if -1e-6 <= t9 <= 1 + 1e-6:
+                            ebuck9[tuple(sorted((a9, b9)))].add(p)
+                            break
+    snap9 = {}
+    for (ea9, eb9), pts9s in ebuck9.items():
+        pl9 = sorted(pts9s, key=lambda p: ((p[0] - ea9[0]) * (eb9[0] - ea9[0])
+                                           + (p[1] - ea9[1]) * (eb9[1] - ea9[1])))
+        groups9, cur9 = [], []
+        for p in pl9:
+            if cur9 and math.hypot(p[0] - cur9[-1][0], p[1] - cur9[-1][1]) > 0.06:
+                groups9.append(cur9)
+                cur9 = []
+            cur9.append(p)
+        if cur9:
+            groups9.append(cur9)
+        for g9 in groups9:
+            cand9 = min(g9)
+            for c9 in (ea9, eb9):
+                if any(math.hypot(p[0] - c9[0], p[1] - c9[1]) <= 0.06 for p in g9):
+                    cand9 = c9
+                    break
+            for p in g9:
+                snap9[p] = cand9
+    emitted9 = [[] for _s9 in sliced_u]
+    for si9, (rec, blk, pieces) in enumerate(sliced_u):
+        corners0 = {(r[0][0], r[0][2]): r for r in rec}
+        for pg9 in pieces:
+            sp9 = []
+            for p in pg9:
+                q9 = snap9.get(p, p)
+                if not sp9 or (abs(sp9[-1][0] - q9[0]) > 1e-9
+                               or abs(sp9[-1][1] - q9[1]) > 1e-9):
+                    sp9.append(q9)
+            while len(sp9) > 2 and (abs(sp9[0][0] - sp9[-1][0]) < 1e-9
+                                    and abs(sp9[0][1] - sp9[-1][1]) < 1e-9):
+                sp9.pop()
+            if len(sp9) < 3 or poly_area2(sp9) < 1e-3:
+                continue                                    # snap-collapsed: the neighbors
+                                                            # across it seal to EACH OTHER
+            # fan apex by max-min triangle area: T-point runs make consecutive
+            # verts collinear, and an apex ON that line mints zero-area facets
+            best9 = (-1.0, 0)
+            for a0 in range(len(sp9)):
+                mn9 = None
+                for q9 in range(len(sp9) - 2):
+                    i9 = (a0 + 1 + q9) % len(sp9)
+                    j9 = (a0 + 2 + q9) % len(sp9)
+                    ar9 = abs((sp9[i9][0] - sp9[a0][0]) * (sp9[j9][1] - sp9[a0][1])
+                              - (sp9[j9][0] - sp9[a0][0]) * (sp9[i9][1] - sp9[a0][1]))
+                    mn9 = ar9 if mn9 is None else min(mn9, ar9)
+                if mn9 is not None and mn9 > best9[0]:
+                    best9 = (mn9, a0)
+            a0 = best9[1]
+            sp9 = sp9[a0:] + sp9[:a0]
+            vr9 = [_piece_vert(rec, corners0, p[0], p[1]) for p in sp9]
+            cx9 = sum(p[0] for p in sp9) / len(sp9)
+            cz9 = sum(p[1] for p in sp9) / len(sp9)
+            yc9 = _piece_vert(rec, corners0, cx9, cz9)[0][1]
+            if _surf_over(cov9u, cx9, cz9, yc9):
+                vr9 = _tag(vr9)
+                n_piece_l += 1
+            for q9 in range(1, len(vr9) - 1):
+                ar9 = abs((vr9[q9][0][0] - vr9[0][0][0])
+                          * (vr9[q9 + 1][0][2] - vr9[0][0][2])
+                          - (vr9[q9 + 1][0][0] - vr9[0][0][0])
+                          * (vr9[q9][0][2] - vr9[0][0][2]))
+                if ar9 < 1e-9:
+                    continue                                # exactly-collinear zero-area fan tri
+                emitted9[si9].append(([vr9[0], vr9[q9], vr9[q9 + 1]], blk))
+    out_f9 = []
+    for item9 in out_u:
+        if item9[0] == "__S__":
+            out_f9.extend(emitted9[item9[1]])
+        else:
+            out_f9.append(item9)
+    final = out_f9
+
+    # C-rule: carried walkable tris wholly below the KEPT walkable lawn (tagged
+    # lawn is topo-59 now and auto-excluded from the hash)
+    lawn9u = defaultdict(list)
+    for rec, blk in final:
+        if blk is None:
+            continue
+        try:
+            if X.decode_id(int(round(rec[0][3][0])))["topograph"] not in GRASS_TOPO:
+                continue
+        except Exception:
+            continue
+        t3c = [r[0] for r in rec]
+        xs9, zs9 = [p[0] for p in t3c], [p[2] for p in t3c]
+        for cx9 in range(int(min(xs9) // 4), int(max(xs9) // 4) + 1):
+            for cz9 in range(int(min(zs9) // 4), int(max(zs9) // 4) + 1):
+                lawn9u[(cx9, cz9)].append(t3c)
+    WALK_TOPO_U = GRASS_TOPO | PLATEAU | {SHELF, 37}
+    out_c = []
+    n_tag_c = 0
+    for rec, blk in final:
+        if blk is not None:
+            out_c.append((rec, blk))
+            continue
+        try:
+            tp9 = X.decode_id(int(round(rec[0][3][0])))["topograph"]
+        except Exception:
+            tp9 = None
+        if (tp9 in WALK_TOPO_U
+                and all(_surf_over(lawn9u, r[0][0], r[0][2], r[0][1]) for r in rec)):
+            n_tag_c += 1
+            rec = _tag(list(rec))
+        out_c.append((rec, blk))
+    final = out_c
+    print(f"   render-only underlay: {n_tag_l} whole lawn tris + {n_piece_l} pieces "
+          f"of {n_slice_u} boundary-sliced tris tagged 4078 (L-rule); "
+          f"{n_tag_c} carried tris below kept lawn tagged (C-rule)")
+
+    # THE LOCAL-ARRANGEMENT CLOSURE: the once-edge boundary machinery misses
+    # silhouettes that are not mesh boundaries (the forest blob's rim is closed by
+    # vertical CURTAIN faces -- 3 owners in plan, never once). Any lawn rec whose
+    # coverage is MIXED (centroid/verts disagree) is sliced by the LOCAL covering
+    # tris' own edge lines -- the coverage boundary inside the rec is a subset of
+    # those by construction, so per-piece centroid classification is exact. Runs
+    # BEFORE the T-sweep, which conforms every new T-point.
+    def _surf_deep(px9, pz9, y9):
+        # DEEP cover: carried surface more than 0.35 above -- the visibility
+        # threshold; skim cover (<=0.35) cannot put the actor visibly below
+        for t3c in cov9u.get((int(px9 // 4), int(pz9 // 4)), ()):
+            (x1, z1), (x2, z2), (x3, z3) = ((p[0], p[2]) for p in t3c)
+            det9 = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
+            if abs(det9) < 1e-12:
+                continue
+            w29 = ((px9 - x1) * (z3 - z1) - (x3 - x1) * (pz9 - z1)) / det9
+            w39 = ((x2 - x1) * (pz9 - z1) - (px9 - x1) * (z2 - z1)) / det9
+            if w29 >= -1e-6 and w39 >= -1e-6 and w29 + w39 <= 1 + 1e-6:
+                ys9 = ((1 - w29 - w39) * t3c[0][1] + w29 * t3c[1][1]
+                       + w39 * t3c[2][1])
+                if ys9 > y9 + 0.35:
+                    return True
+        return False
+
+    out_z = []
+    n_tag_z = n_mix_z = 0
+    for rec, blk in final:
+        if blk is None or _topo_u(rec) not in GRASS_TOPO:
+            out_z.append((rec, blk))
+            continue
+        cxZ = sum(r[0][0] for r in rec) / 3.0
+        czZ = sum(r[0][2] for r in rec) / 3.0
+        cyZ = sum(r[0][1] for r in rec) / 3.0
+        covC = _surf_over(cov9u, cxZ, czZ, cyZ)
+        covV = [_surf_over(cov9u, r[0][0], r[0][2], r[0][1]) for r in rec]
+        if covC and all(covV):
+            out_z.append((_tag(list(rec)), blk))
+            n_tag_z += 1
+            continue
+        if not covC and not any(covV):
+            out_z.append((rec, blk))
+            continue
+        # NARROW to DEEP-mixed by the EXACT overlap: point sampling cannot decide
+        # eligibility (a covered SLIVER 0.3u wide at 1.56 depth hid from pulled
+        # samples; boundary-conformal pieces false-fired the vert test and
+        # flooded the sweep). Clip each local covering tri's plan against the
+        # rec; eligible iff some overlap polygon has real area AND the covering
+        # surface exceeds the lawn by >0.35 at one of its verts.
+        xsZ = [r[0][0] for r in rec]
+        zsZ = [r[0][2] for r in rec]
+        recP = [(r[0][0], r[0][2]) for r in rec]
+
+        def _plane_y(t3q, px9, pz9):
+            (x1, z1), (x2, z2), (x3, z3) = ((p[0], p[2]) for p in t3q)
+            det9 = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
+            if abs(det9) < 1e-12:
+                return None
+            w29 = ((px9 - x1) * (z3 - z1) - (x3 - x1) * (pz9 - z1)) / det9
+            w39 = ((x2 - x1) * (pz9 - z1) - (px9 - x1) * (z2 - z1)) / det9
+            return ((1 - w29 - w39) * t3q[0][1] + w29 * t3q[1][1] + w39 * t3q[2][1])
+
+        eligZ = False
+        seenE = set()
+        for cxq in range(int((min(xsZ) - 0.1) // 4), int((max(xsZ) + 0.1) // 4) + 1):
+            for czq in range(int((min(zsZ) - 0.1) // 4), int((max(zsZ) + 0.1) // 4) + 1):
+                for t3c in cov9u.get((cxq, czq), ()):
+                    if eligZ or id(t3c) in seenE:
+                        continue
+                    seenE.add(id(t3c))
+                    pgC = [(t3c[k9][0], t3c[k9][2]) for k9 in range(3)]
+                    for k9 in range(3):
+                        a2, b2 = recP[k9], recP[(k9 + 1) % 3]
+                        c2 = recP[(k9 + 2) % 3]
+                        d2 = (b2[0] - a2[0], b2[1] - a2[1])
+                        sC = (c2[0] - a2[0]) * d2[1] - (c2[1] - a2[1]) * d2[0]
+                        posC, negC = slice_line(pgC, a2, d2)
+                        pgC = posC if sC > 0 else negC
+                        if len(pgC) < 3:
+                            break
+                    if len(pgC) < 3 or poly_area2(pgC) < 1e-3:
+                        continue
+                    for (px2, pz2) in pgC:
+                        yC2 = _plane_y([(p[0], p[1], p[2]) for p in
+                                        (t3c[0], t3c[1], t3c[2])], px2, pz2)
+                        yL2 = _plane_y([r[0] for r in rec], px2, pz2)
+                        if yC2 is not None and yL2 is not None and yC2 > yL2 + 0.35:
+                            eligZ = True
+                            break
+        if not eligZ:
+            out_z.append((rec, blk))
+            continue
+        n_mix_z += 1
+        xsZ = [r[0][0] for r in rec]
+        zsZ = [r[0][2] for r in rec]
+        locZ, seenZ = [], set()
+        for cxq in range(int((min(xsZ) - 0.1) // 4), int((max(xsZ) + 0.1) // 4) + 1):
+            for czq in range(int((min(zsZ) - 0.1) // 4), int((max(zsZ) + 0.1) // 4) + 1):
+                for t3c in cov9u.get((cxq, czq), ()):
+                    if id(t3c) not in seenZ:
+                        seenZ.add(id(t3c))
+                        locZ.append(t3c)
+        linesZ = []
+        for t3c in locZ:
+            for a9, b9 in ((0, 1), (1, 2), (2, 0)):
+                pa9 = (t3c[a9][0], t3c[a9][2])
+                pb9 = (t3c[b9][0], t3c[b9][2])
+                dLZ = math.hypot(pb9[0] - pa9[0], pb9[1] - pa9[1])
+                if dLZ > 1e-6:
+                    linesZ.append((pa9, ((pb9[0] - pa9[0]) / dLZ,
+                                         (pb9[1] - pa9[1]) / dLZ)))
+        piecesZ = [[(r[0][0], r[0][2]) for r in rec]]
+        for (o9, d9) in linesZ:
+            nxtZ = []
+            for pgZ in piecesZ:
+                posZ, negZ = slice_line(pgZ, o9, d9)
+                for partZ in (posZ, negZ):
+                    if len(partZ) >= 3 and poly_area2(partZ) > 1e-4:
+                        nxtZ.append(partZ)
+            piecesZ = nxtZ
+        cornersZ = {(r[0][0], r[0][2]): r for r in rec}
+        for pgZ in piecesZ:
+            bZ = (-1.0, 0)
+            for aZ in range(len(pgZ)):
+                mnZ = None
+                for qZ in range(len(pgZ) - 2):
+                    iZ = (aZ + 1 + qZ) % len(pgZ)
+                    jZ = (aZ + 2 + qZ) % len(pgZ)
+                    arq = abs((pgZ[iZ][0] - pgZ[aZ][0]) * (pgZ[jZ][1] - pgZ[aZ][1])
+                              - (pgZ[jZ][0] - pgZ[aZ][0]) * (pgZ[iZ][1] - pgZ[aZ][1]))
+                    mnZ = arq if mnZ is None else min(mnZ, arq)
+                if mnZ is not None and mnZ > bZ[0]:
+                    bZ = (mnZ, aZ)
+            pgZ = pgZ[bZ[1]:] + pgZ[:bZ[1]]
+            vrZ = [_piece_vert(rec, cornersZ, p[0], p[1]) for p in pgZ]
+            cxq = sum(p[0] for p in pgZ) / len(pgZ)
+            czq = sum(p[1] for p in pgZ) / len(pgZ)
+            cyq = _piece_vert(rec, cornersZ, cxq, czq)[0][1]
+            if _surf_over(cov9u, cxq, czq, cyq):
+                vrZ = _tag(vrZ)
+                n_tag_z += 1
+            for q9 in range(1, len(vrZ) - 1):
+                arZ = abs((vrZ[q9][0][0] - vrZ[0][0][0])
+                          * (vrZ[q9 + 1][0][2] - vrZ[0][0][2])
+                          - (vrZ[q9 + 1][0][0] - vrZ[0][0][0])
+                          * (vrZ[q9][0][2] - vrZ[0][0][2]))
+                if arZ < 1e-9:
+                    continue
+                out_z.append(([vrZ[0], vrZ[q9], vrZ[q9 + 1]], blk))
+    final = out_z
+    print(f"   local-arrangement closure: {n_mix_z} mixed lawn recs re-sliced, "
+          f"{n_tag_z} covered recs/pieces tagged")
+
     bench_verts = {kk(p) for t3, _, _, _, _ in kept_out for p in t3}
     crest_keys = set(crest)
     uniq_v = {}
@@ -1130,7 +1679,8 @@ def main() -> int:
     # invisible because nothing separates them.
 
     prev_sw = None
-    for sweep_pass in range(2):                             # pass 2 pairs the verts pass 1 minted
+    for sweep_pass in range(4):                             # the underlay's iso-line T-points need
+                                                            # more pairing passes than the overlay's 2
         H2 = defaultdict(list)
         for rec, _blk in final:
             for r in rec:
@@ -1204,19 +1754,30 @@ def main() -> int:
                     n_m = tuple(a_r[2][q2] + t * (b_r[2][q2] - a_r[2][q2])
                                 for q2 in range(3))
                     poly.append((tuple(p), uv_m, n_m, a_r[3]))
-            hitset = {k3 for k3 in range(3) if ins_all[k3]}
-            if len(hitset) == 1:
-                c_key = kk(rec[(next(iter(hitset)) + 2) % 3][0])
-            elif hitset == {0, 1}:
-                c_key = kk(rec[1][0])
-            elif hitset == {1, 2}:
-                c_key = kk(rec[2][0])
-            else:
-                c_key = kk(rec[0][0])
-            start = next(q2 for q2 in range(len(poly))
-                         if kk(poly[q2][0]) == c_key)
-            cyc = poly[start:] + poly[:start]
+            # fan apex by max-min 3D triangle area: a corner apex collinear with an
+            # insertion run on an adjacent edge mints zero-area flaps (the lawn was
+            # never heavily swept before the underlay; 3D area keeps steep wall
+            # tris first-class). Internal diagonals are parent-private, so any
+            # apex preserves conformance with the neighbors.
+            def _a3(pa2, pb2, pc2):
+                ux2, uy2, uz2 = (pb2[0] - pa2[0], pb2[1] - pa2[1], pb2[2] - pa2[2])
+                vx2, vy2, vz2 = (pc2[0] - pa2[0], pc2[1] - pa2[1], pc2[2] - pa2[2])
+                return math.sqrt((uy2 * vz2 - uz2 * vy2) ** 2
+                                 + (uz2 * vx2 - ux2 * vz2) ** 2
+                                 + (ux2 * vy2 - uy2 * vx2) ** 2)
+            best2 = (-1.0, 0)
+            for a2 in range(len(poly)):
+                mn2 = None
+                for q2 in range(len(poly) - 2):
+                    ar2 = _a3(poly[a2][0], poly[(a2 + 1 + q2) % len(poly)][0],
+                              poly[(a2 + 2 + q2) % len(poly)][0])
+                    mn2 = ar2 if mn2 is None else min(mn2, ar2)
+                if mn2 is not None and mn2 > best2[0]:
+                    best2 = (mn2, a2)
+            cyc = poly[best2[1]:] + poly[:best2[1]]
             for q2 in range(1, len(cyc) - 1):
+                if _a3(cyc[0][0], cyc[q2][0], cyc[q2 + 1][0]) < 1e-9:
+                    continue                                # exactly-degenerate flap
                 out_f.append(([cyc[0], cyc[q2], cyc[q2 + 1]], blk))
         final = out_f
         print(f"   T-sweep pass {sweep_pass}: {n_sw} splits -> {len(final)} tris")
@@ -1296,6 +1857,40 @@ def main() -> int:
         final = out7
     if n_steep:
         print(f"   steep-weld subdivision: {n_steep} over-ceiling rises split")
+
+    # THE POST-SWEEP RE-CLASSIFICATION (the underlay's closure pass): the slice
+    # machinery trades ~0.05u of boundary precision per line merge, and the sweeps
+    # re-partition afterward -- so a sweep child can lie fully under the carried
+    # surface while its classified parent's centroid was not. Final geometry is
+    # sweep-granular near every boundary: tag any UNTAGGED lawn rec whose centroid
+    # AND all three verts are covered from above. (The reverse leak -- a tagged
+    # rec poking outside coverage -- is bounded by rec size and watched by the
+    # walk gate's dead-band trajectories.)
+    covZ = defaultdict(list)
+    for recZ, blkZ in final:
+        if blkZ is not None:
+            continue
+        t3Z = [r[0] for r in recZ]
+        xsZ, zsZ = [p[0] for p in t3Z], [p[2] for p in t3Z]
+        for cxZ in range(int(min(xsZ) // 4), int(max(xsZ) // 4) + 1):
+            for czZ in range(int(min(zsZ) // 4), int(max(zsZ) // 4) + 1):
+                covZ[(cxZ, czZ)].append(t3Z)
+    out_z = []
+    n_tag_z = 0
+    for rec, blk in final:
+        if blk is not None and _topo_u(rec) in GRASS_TOPO:
+            cxZ = sum(r[0][0] for r in rec) / 3.0
+            czZ = sum(r[0][2] for r in rec) / 3.0
+            cyZ = sum(r[0][1] for r in rec) / 3.0
+            if (_surf_over(covZ, cxZ, czZ, cyZ)
+                    and all(_surf_over(covZ, r[0][0], r[0][2], r[0][1]) for r in rec)):
+                rec = _tag(list(rec))
+                n_tag_z += 1
+        out_z.append((rec, blk))
+    final = out_z
+    if n_tag_z:
+        print(f"   post-sweep re-classification: {n_tag_z} residual covered lawn "
+              f"recs tagged 4078")
 
     # ---- gates ------------------------------------------------------------------------------
     fails = []
@@ -1427,13 +2022,25 @@ def main() -> int:
     # THE OVERLAY CLASS: the carried skirt's boundary lies ON the continuous lawn --
     # once by design; the sheet beneath closes every sightline (stock ships the same
     # class at 2.8-6.8%; the bench's own coast band is built this way).
-    cw8 = {kk(r[0]) for rec in wall for r in rec}
+    # keys + coverage from the FINAL carried recs (the hem lift moved rim verts;
+    # the pre-lift wall list no longer describes the shipped boundary)
+    cw8 = {kk(r[0]) for rec8, blk8 in final if blk8 is None for r in rec8}
+    covF8 = defaultdict(list)
+    for rec8, blk8 in final:
+        if blk8 is not None:
+            continue
+        t3F = [r[0] for r in rec8]
+        xsF = [p[0] for p in t3F]
+        zsF = [p[2] for p in t3F]
+        for cxF in range(int(min(xsF) // 4), int(max(xsF) // 4) + 1):
+            for czF in range(int(min(zsF) // 4), int(max(zsF) // 4) + 1):
+                covF8[(cxF, czF)].append(t3F)
 
     def on_carried(p8):
         if kk(p8) in cw8:
             return True
         # geometric membership: sweep-split sub-edges insert verts ON carried edges
-        for t3c in cov_hash.get((int(p8[0] // 4), int(p8[2] // 4)), ()):
+        for t3c in covF8.get((int(p8[0] // 4), int(p8[2] // 4)), ()):
             (x1, z1), (x2, z2), (x3, z3) = ((p[0], p[2]) for p in t3c)
             det8 = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
             if abs(det8) < 1e-12:
@@ -1701,6 +2308,14 @@ def main() -> int:
             raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
     IN.census_gate(changed, disc=1)
     print(f"census MISS=0 across {len(changed)} changed cells")
+
+    # dump the built Terrain meshes for the PRE-DEPLOY walk gate (walk_gate_fix.py
+    # points walk_sim's terrain_src here -- LAWN-CLIP-PREDICTION.md gate 2)
+    mdir = OUTD / "underlay_meshes"
+    mdir.mkdir(parents=True, exist_ok=True)
+    for cell, bm in sorted(changed.items()):
+        M.write_ff9mesh(bm, mdir / f"Block[{cell[0]}][{cell[1]}] Terrain.ff9mesh")
+    print(f"built meshes dumped -> {mdir}")
 
     # ---- renders ----------------------------------------------------------------------------
     render(wall, top_out, cut_out, kept_out, crest)
