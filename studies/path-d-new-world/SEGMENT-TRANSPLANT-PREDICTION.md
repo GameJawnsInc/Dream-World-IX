@@ -180,3 +180,20 @@ install):
 `revert_vcorner_transplant.py` (regenerated). Post-deploy live re-gate green.
 P-F (owner): the waterline at the corner reads solid — water meets rock, no
 pale slivers from any angle; flow unchanged.
+
+## PLAYTEST 8 (2026-08-02) — better, NOT passed: light seam + texture break
+
+Owner (close-range top-down shot at the corner): "still have some light
+seaming, what looks like some texture breaking or maybe flipped/rotated
+faces." Suspects, NOT yet diagnosed: (a) the +0.06 apron RIM — a thin
+constant-v (0.916) band stretched along the waterline = a smeared light line
+exactly where the seam shows; (b) close-range texture-flow discontinuity at
+the joints/strip (the carried faces + translate-clone lawn read fine at my
+mid-range cameras but not at the owner's close oblique vantage). **The
+instrument gap is the vantage**: the render gate's four committed cameras
+are mid-range; every residual defect now lives below their threshold.
+PARKED HERE for the study decision (recorded in the session close-out):
+angle 4 (THE ATLAS MAP) + angle 6 (offset-loop curtains from the bench's OWN
+tuck vocabulary — no overhang, no membrane/apron/curtain cascade) are the
+recommended next arcs, plus a close-range owner-vantage camera + texture-flow
+check added to the render gate BEFORE the next visual round.
