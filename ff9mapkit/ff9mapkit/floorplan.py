@@ -111,6 +111,16 @@ PITCH_SLACK = 1.0         # degrees of margin above the hard horizon-in-canvas t
 DEFAULT_PITCH = 48.0      # pack.new_project's scaffold pitch (pack.py:150); safe by 22deg over p*
 DEFAULT_FOV = 42.2        # pack.new_project's scaffold fov
 STANDABLE_WARN = 0.35     # warn under this standable/total area ratio
+# ★ LEGIBILITY, measured off the real game. `studies/click-authoring/camera_census.py` over all 741
+# shipped FF9 cameras, restricted to the composer-comparable pitch >= 26 (n = 217): an R_OBJ-wide
+# character covers p05 3.9px, p10 5.3, p25 7.4, MEDIAN 9.3, p75 12.2 canvas px. Widest range Square
+# ever painted is 960x1088. These are not taste; they are the envelope the game itself shipped in.
+CHAR_PX_REFUSE = 3.9      # below the 5th percentile of every real camera -- refuse, it is a sliver
+CHAR_PX_WARN = 7.4        # below the 25th -- compose, but say so and name the remedy
+CHAR_PX_MEDIAN = 9.3      # quoted in the messages so the number has a scale attached
+_LAYER_GAP = 500          # OT-depth slack between the walkmesh's far edge, the floor layer and the
+#                           backdrop. Covers the entry settle and content sited slightly past the
+#                           mesh; see _placeholder_layers for why these are DERIVED, not constants.
 BAND_REACH = 2 * R_WALK   # 160u -- how far "one step" reaches, for the axis-band WARN. THE PLAYER'S
                           # OWN DIAMETER: inside it, one body-length of involuntary displacement
                           # (the entry settle, a wall clamp, a single input frame) bridges the gap,
@@ -1186,6 +1196,77 @@ def _door_key(d):
     return (d["a"], d["b"], tuple(map(tuple, d["seg"])))
 
 
+def character_scale_px(cam):
+    """How many canvas px an :data:`R_OBJ`-wide character covers under ``cam``.
+
+    ★ THE FORMULA IS THE CENSUS'S, DELIBERATELY. ``R_OBJ * proj * sin(pitch) / |cam_y|`` is exactly
+    what ``studies/click-authoring/camera_census.py`` measured across all 741 real FF9 cameras, so
+    the number this returns is directly comparable to :data:`CHAR_PX_WARN` / :data:`CHAR_PX_REFUSE`
+    below. Re-deriving it a second way here would produce a number that LOOKS like the thresholds
+    and is not on their scale, which is the subtlest way to build a gate that reads wrong."""
+    d = _cam.decompose(cam)
+    cam_y = abs(d["C"][1])
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, d.get("pitch_sin", 0.0))))) \
+        if "pitch_sin" in d else None
+    if pitch is None:                      # derive it the same way the census did, from the matrix
+        pitch = math.degrees(math.atan2(abs(d["C"][1]), abs(d["C"][2]))) if d["C"][2] else 90.0
+    return R_OBJ * cam.proj * math.sin(math.radians(pitch)) / max(cam_y, 1e-6)
+
+
+def legibility_problem(name, cam, poly):
+    """``(severity, message)`` when this room's fitted camera renders the character too small,
+    else ``(None, None)``. ``severity`` is ``"error"`` or ``"warn"``.
+
+    ★ THE DEFAULT-VALUE LAW ON A VALUE THE COMPOSER MINTS UNBOUNDED. ``fit_play_camera`` refuses
+    only past distance 60000; below that it returns a camera that always looks plausible. A
+    2200x9762 room drawn east-west fits at distance 18226 and renders the character at **3.3px** --
+    below the 5th percentile of every camera Square shipped (p05 3.9 / p25 7.4 / median 9.3, n=217
+    at pitch >= 26). The author built exactly that room, deployed it, and found a sliver.
+
+    ★ AND THE REMEDY IS NAMED, because the useful thing to know is that WIDTH is the expensive axis:
+    `fit_play_camera` fits the AABB, so the SAME corridor costs distance 6567 drawn north-south and
+    18226 drawn east-west. Rotating the drawing is free and is the single largest lever."""
+    px = character_scale_px(cam)
+    if px >= CHAR_PX_WARN:
+        return (None, None)
+    x0, z0, x1, z1 = bbox(poly)
+    w, h = x1 - x0, z1 - z0
+    hint = (f"the room is {w:.0f}u wide by {h:.0f}u deep; WIDTH costs the most, so drawing it the "
+            f"other way round is the cheapest fix" if w > h * 1.3 else
+            f"the room is {w:.0f}u by {h:.0f}u -- split it into two rooms joined by a door, which "
+            f"is what FF9 itself does with a large space")
+    if px < CHAR_PX_REFUSE:
+        return ("error",
+                f"room {name}: at the fitted camera a character is only {px:.1f} canvas px across "
+                f"-- smaller than ANY of the 741 cameras FF9 ships (5th percentile is "
+                f"{CHAR_PX_REFUSE:g}px, median {CHAR_PX_MEDIAN:g}). It would render as a sliver. "
+                f"{hint}.")
+    return ("warn",
+            f"room {name}: a character is {px:.1f} canvas px across, under FF9's 25th percentile of "
+            f"{CHAR_PX_WARN:g}px (median {CHAR_PX_MEDIAN:g}) -- it will read as distant. {hint}")
+
+
+def _placeholder_layers(poly, cam):
+    """The two placeholder layers, at depths derived from THIS room rather than assumed.
+
+    ★ THE DEPTHS ARE NOT CONSTANTS AND CANNOT BE. FF9 sorts by OT depth with SMALLER IN FRONT, and
+    the player's depth is computed from wherever they are standing -- so a floor pinned at a fixed
+    z is only behind the player while the room is shallow enough to keep every standing position
+    under it. The shipped literals were 3000 (floor) and 4000 (backdrop), which hold for a room a
+    few thousand units deep and fail completely for a long one: measured on a 9762u room at camera
+    distance 17676, the player's depth runs **3746..4125**, i.e. past BOTH -- so over the far half
+    of the room the floor, and then the backdrop, drew ON TOP OF THE PLAYER. The author found it by
+    building a deliberately long room and walking to the end of it.
+
+    So: take the room's own depth range, put the floor behind its far edge and the backdrop behind
+    that. ``_LAYER_GAP`` is slack for the entry settle and for content sited a little past the
+    walkmesh; the values are ints because the layer table packs them as such."""
+    ds = [_cam.depth((float(x), 0.0, float(z)), cam) for x, z in poly]
+    floor_z = int(math.ceil(max(ds) + _LAYER_GAP))
+    return [{"image": "art/back.png", "z": floor_z + _LAYER_GAP},
+            {"image": "art/floor.png", "z": floor_z}]
+
+
 def compose(plan, *, taken_ids=(), cache=None, cancel=None):
     """A floorplan dict -> a :class:`Composed` dungeon. Pure: no disk, no Qt, no game install.
 
@@ -1520,6 +1601,12 @@ def _compose(plan, *, taken_ids, cache, cancel):
             problems.append(f"room {n}: {e}")
             continue
         warnings.extend(f"room {n}: {t}" for t in notes)
+        sev, msg = legibility_problem(n, cam, polys[n])                              # G16
+        if sev == "error":
+            problems.append(msg)
+            continue
+        if sev == "warn":
+            warnings.append(msg)
         shift = lambda pts, _o=off: [(int(round(x + _o[0])), int(round(z + _o[1]))) for x, z in pts]
         poly_room = shift(polys[n])
         verts, faces = _if.triangulate(poly_room)
@@ -1606,8 +1693,7 @@ def _compose(plan, *, taken_ids, cache, cancel):
                        "distance": int(round(-_cam.decompose(cam)["C"][2] / math.cos(math.radians(pitch)))),
                        "fov": fov},
             "walkmesh": {"obj": "walkmesh.obj"},
-            "layers": [{"image": "art/back.png", "z": 4000},
-                       {"image": "art/floor.png", "z": 3000}],
+            "layers": _placeholder_layers(polys[n], cam),
             "player": {"spawn": list(shift([spawns[n]])[0]), "face": spawn_face[n]},
         }
         rows = []

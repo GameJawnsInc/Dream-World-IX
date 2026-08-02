@@ -205,6 +205,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the player has to walk there deliberately. A spawn genuinely a step from a trigger is
   still caught, with a wide margin.
 
+### Fixed — the placeholder floor did not follow a room that wasn't a rectangle
+- The checkerboard a composed room ships as stand-in art is there for one reason: to
+  let you see, in-game, whether the walkable area matches the art. On a freeform room
+  it did the opposite. The dark base was clipped to the real footprint, but each light
+  square was painted whole whenever its centre fell inside and skipped entirely
+  otherwise — so squares hung off the edges and notches appeared where a square
+  straddling the boundary was dropped. The floor read as a ragged chessboard rather
+  than as the room's own shape, and some of the paint sat over ground the player
+  cannot reach.
+- On a rectangle every square is wholly in or wholly out, so this never showed and no
+  test noticed. It took walking a five-sided room in-game to see it.
+- The footprint is now a per-pixel stencil, so a square that straddles the edge comes
+  out cut off at the edge. Measured on the dungeon that found it: 2.57% and 2.87% of
+  painted pixels fell outside the walkable area; now none do.
+
 ### Fixed — the Floorplan chart moved under the cursor while you were drawing on it
 - Every corner you placed recomputed the chart's extent from the outline *in progress*,
   so the first corner of a room collapsed that extent to a fraction of its size and the

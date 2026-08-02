@@ -229,9 +229,12 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
    flipping it breaks **zero** tests, but it moves the shipped walkmesh geometry of every traced
    field, and that is an in-game judgment, not a green suite. `tests/test_floorplan.py::
    test_the_walk_radius_is_reconciled_everywhere_but_the_trace_outset` pins both halves.
-2. **Whether front-align *looks* right in-game.** The fill numbers are unambiguous and it matches
-   `frame_floor`'s own defaults, but "the room reads as a room" is a human judgment. Get a screenshot
-   of the first composed room before emitting a whole dungeon.
+2. ~~**Whether front-align *looks* right in-game.**~~ ★ **RESOLVED 2026-07-31 — STEP 7 PASSES.**
+   The owner composed a two-room dungeon of freeform polygons in the tab, built it, deployed it per
+   room and walked it: *"Step 7 passes, campaign.toml imported well."* The camera framing reads as
+   a room, the walkable area matches the drawn outline, and the arrival lands facing in. That was
+   this rung's last genuinely-unknown, and it is the one no offline math could have settled.
+   ⚠ What the same screenshots DID catch is the placeholder art, not the camera — see 6c-floor.
 3. **The 170u depth warn floor** — anchored to ARRTEST but not measured at `R_WALK = 80`.
 4. **Whether `entry_settle = "auto"` behaves on a hand-drawn polygon** at a non-template size. It
    lints and builds; the settle count has only been proven on template-shaped rooms.
@@ -397,6 +400,22 @@ the centroid fast path. (`cam.solve_z_for_canvasY` / `guide.frame_floor` were ou
   where `shared_edges` tolerates 8u, a sub-unit overlap is fatal. 0 of 38 after.
   **THE DURABLE LESSON: a dormant defect is not an absent one, and the feature that exposes one is
   not the feature that caused it.**
+- **6c-floor ★ 2026-07-31** — the placeholder checkerboard did not follow a freeform footprint.
+  The dark base is filled from the triangles and was always exact; the LIGHT cells were drawn
+  **whole if their CENTRE tested inside** and dropped whole otherwise. On a rectangle that is
+  invisible — every cell is fully in or fully out — which is exactly why every fence here passed
+  and why it shipped. On the polygons this tab exists to draw it is the whole look: light squares
+  hang off the edges, notches appear where a straddling cell was dropped, and the floor reads as a
+  ragged chessboard rather than as the room's own footprint. Caught by the owner's in-game
+  screenshots, not by the suite. The silhouette is now a per-pixel **stencil** recorded by the
+  triangle fill and spent by the checker fill, so a cell half inside comes out half painted.
+  Measured on the owner's own dungeon: **2.57% and 2.87% of painted pixels lay outside the walkable
+  area, 0.00% after.** ★ The new fence is RED on the old painter for the U and the 5-gon and GREEN
+  for the rect and the L — i.e. it reproduces, precisely, why the existing fixtures were blind.
+  **THE LESSON: a placeholder whose job is to let a human check alignment must not itself be
+  misaligned — paint outside the mesh does not merely look wrong, it lies to the check.**
+- **6d ★ 2026-07-31 — PASSED.** The owner composed a two-room freeform dungeon in the tab, built it,
+  deployed it per room and walked it in-game. Camera framing reads as a room; §6.2 is resolved.
 - **6d** — deploy **per room** with `tools/deploy_field.py --id N` (additive: it rmtrees only that
   one FBG scene subdir and merges `DictionaryPatch.txt` by ownership). **Never**
   `deploy_campaign --apply` — that rmtrees the whole mod folder, and this install's `FF9CustomMap`

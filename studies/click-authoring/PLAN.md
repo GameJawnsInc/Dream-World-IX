@@ -320,7 +320,7 @@ prop default "chest" → "barrel" (looked openable, wasn't); drawn events get **
 on the quad menu (the photo lane has no other editor for a zone's words) + a canvas/lint warn
 while the "..." placeholder would ship as a literal popup.
 
-### Rung 6 — the multi-room / floorplan composer ★ 6a+6b BUILT 2026-07-29, ⚠ awaiting playtest
+### Rung 6 — the multi-room / floorplan composer ★★ 6a-6d ALL OWNER-CONFIRMED IN-GAME 2026-07-31
 **A multi-room / floorplan composer, folded in here rather than built standalone.** Draw several
 rooms on this canvas, declare which edges are doors, and get a wired dungeon: gateways both ways,
 arrival position + facing per side, encounters, save-point siting.
@@ -329,10 +329,23 @@ arrival position + facing per side, encounters, save-point siting.
 > [`RUNG6.md`](RUNG6.md). Read it before changing a number** — the draft's own values were wrong in
 > five ways that each looked right, and §1 is the table of what the measurements killed.
 >
-> ⚠ **The Floorplan TAB has never been used by a human.** 73 fences, 20 rendered PNGs, zero minutes
-> of hands — and it changed three times AFTER its adversarial review (the splitter, the deleted
-> nameplate, the viewport-chip label clearance) without being looked at whole since. Risk-ordered
-> first-contact plan: **[`RUNG6-TESTPLAN.md`](RUNG6-TESTPLAN.md)**; its findings come back here.
+> ★★ **FIRST CONTACT IS DONE AND THE RUNG IS CLOSED.** The owner worked
+> **[`RUNG6-TESTPLAN.md`](RUNG6-TESTPLAN.md)** end to end on 2026-07-30/31: drew a two-room freeform
+> dungeon in the tab, composed it, built it, deployed it per room and walked it — *"Step 7 passes,
+> campaign.toml imported well."* RUNG6.md §6.2 (does front-align LOOK right) is resolved.
+>
+> **SEVEN defects came out of that one session, and the suite had caught none of them** — every one
+> lived in what a real mouse or a real screen does. In order: the live-gate stall; the chart
+> re-centring on every corner; an integer-truncation ratchet that slid the chart on hover; the 8u
+> door tolerance being unreachable by hand; stacked corners being unpickable; the spawn band-warning
+> firing on ordinary rooms; `segments_cross` reading an exact abutment as an overlap; and the
+> placeholder checkerboard not following a freeform footprint. Each is written up in RUNG6.md with
+> the measurement that killed it and a fence verified RED against the reverted fix.
+>
+> ★ **THE STANDING LESSON FOR THIS TAB:** every one of the 47 original fences drove `click_world`,
+> the world-space seam, so not one could see a defect in what the VIEW did between clicks — and the
+> art fences all used a rectangle, so none could see a clip that only fails on a polygon. **Fixtures
+> chosen for convenience test the shapes that cannot fail.**
 > Two things it already establishes: the offline pipeline is sound (a 3-room plan composes, lints
 > and builds clean), and **the live gate was a stall past ~4 rooms** — every gesture cost what
 > DRAWING the plan cost, ~17 s on eight rooms, because `compose` re-derived the WHOLE plan on every
@@ -422,6 +435,80 @@ exactly one of them at a time).
 
 This is why the composer is a rung here and not its own study: standalone it would need to generate
 geometry; downstream of Rungs 0-3 it does not. **Do not start it before Rung 3 is real.**
+
+### Rung 7 — ONE INTEROPERABLE WORKFLOW (owner-asked 2026-07-31, decisions taken)
+**The ask, verbatim:** *"we may need more modularity within-room to get better camera setup and
+handle different room layouts… we should either enable from-scratch fields in the Place tab or
+create a new one or better integrate with the Trace tab. i want it all to be interoperable."*
+
+Prompted by a deliberate stress test: a 9762u-wide room composed into a camera at distance 18227.
+
+> ★ **THE BLOCKER IS NOT THE CANVAS. IT IS WHO OWNS THE FILE.** Verified by running it: compose a
+> dungeon, hand-add an `[[npc]]` to a room, recompose the **unchanged** plan → the NPC is gone,
+> silently, exit 0, no warning (`floorplan.emit` is an unconditional `write_text` per room, :1739;
+> `imagefield.py:937` has the same shape). **Any click surface built over a composed room writes
+> into a file the next Compose deletes** — so non-destructive emit is the prerequisite for every
+> other route, not a nicety.
+
+**Three measured facts that set the shape:**
+- **Width, not length, is the expensive axis.** `fit_play_camera` fits the AABB, so the SAME
+  2200×9762 corridor costs distance 6567 drawn north-south and **18226 drawn east-west** — 2.8×,
+  and nothing in the tab says so.
+- **The composer mints cameras outside FF9's entire shipped envelope.** Across 741 real cameras a
+  96u character renders at median 9.3px / p25 7.4 / p05 4.2. The stress room renders at **3.3px**.
+  `fit_play_camera` refuses only past distance 60000; below that it returns a plausible camera.
+- **The engine already scrolls, and it is the right lever for width.** `[camera.scroll]` is shipped
+  and honoured end to end (`build.is_scrolling` :3623 → `_resolve_one_camera` :3629 →
+  `cam.scroll_bounds` :110 → `EnableCameraServices`), in-game proven at 768×448. It decouples focal
+  length from the painting via `window_width`. **A static 384-wide room tops out at ~3700u.**
+  ⚠ Scroll fixes WIDTH ONLY — FF9 pans a viewport across a FIXED camera, so depth foreshortening is
+  physics (~1.2×). For a deep room the answer is splitting, which the composer already does.
+
+**A live data-loss bug, found while surveying:** the tab's own round trip drops 6 of 8 room keys —
+`plan()` (`floorplandoc.py:1712`) and `load_plan` (:2268) emit only `{name, poly}` while
+`compose` reads `pitch`/`fov`/`id`/`encounter`/`savepoint`/`title`. Hand-editing `floorplan.json`
+works until you open it in the tab.
+
+**OWNER DECISIONS TAKEN 2026-07-31:**
+1. **Legibility gate: REFUSE under p05 (4.2px), WARN under p25 (7.4px)** naming the remedy (scroll
+   at range N / rotate 90° / split). THE DEFAULT-VALUE LAW on a value the composer currently mints
+   unbounded.
+2. **Scroll cap 960** — FF9's own maximum shipped width, covers ~9455u at p25. Anything wider is
+   SPLIT, which is what FF9 does (48 zones, median 11 fields each; Lindblum is 70). 1536 builds
+   clean offline but is 1.6× beyond anything Square shipped — not without a playtest.
+3. **Recompose REFUSES on drift this rung, MERGES next.** Merge precedent: `build._merge_scene`
+   (:156) is already "the generator owns the spatial keys, the human owns the rest".
+
+**The ladder:**
+- **7a** — carry unknown room/door keys through `plan()`/`load_plan` unchanged + the legibility
+  gate in `fit_play_camera`. Pure functions, no UI, no install; stops the data loss immediately and
+  is the plumbing the `range`/`scroll` key needs. **START HERE.**
+- **7b** — `fit_play_camera(range_wh=…)` + auto-scroll: fit at 384, widen in 384 steps to the 960
+  cap while under p25, emit `range` + `window_width = 384` + `[camera.scroll] enabled`.
+  ⚠ Scroll is a COMPOSE-TIME decision — the range changes the distance, which changes `off_r`,
+  which moves the walkmesh. Fit and emit together; never bolt a scroll camera onto a composed room.
+  **Playtest gate: one 768-wide composed room in-game before raising the cap to 960.**
+- **7c** — non-destructive `emit` (refuse-on-drift) + pin room ids into the sidecar on first compose
+  (the CLI pre-flight at `cli.py:1543` reads LIVE registrations, so it can renumber your own
+  already-deployed rooms).
+- **7d** — `build_surface_from_project` + flip Place's predicate. **The refusal is ONE branch**
+  (`placedoc.py:461`, `donor_field_id(data) is None`) and it is about PROVENANCE, not geometry — a
+  composed room has an exact camera and a real walkmesh, which is all Place needs. Unblocks
+  composed rooms, `ff9mapkit new` scaffolds and traced fields at once.
+- **7e** — per-room pitch/fov on the existing room right-click menu (UI only, once 7a lands).
+- **7f** — traced polygon → floorplan room. ⚠ Hand the UN-outset polygon (`outset_polygon` is a
+  miter and blows up on the acute corners a hand trace produces), and accept that it is a
+  GEOMETRY-ONLY import: the composer re-solves the camera, so the art cannot travel.
+- **later** — `[[camera_zone]]` multicam. Built and lint-covered but `FORMAT.md:148` says
+  *"in-game proof pending"*. Prove ONE hand-authored multicam field in-game first, and never put it
+  in the composer (THE DRAWN-MESH LAW: the author declares the partition).
+
+⚠ **A bug to fix regardless of any of this:** `tracedoc._camera` (:263) hard-codes
+`imagefield.DEFAULT_DISTANCE`/`DEFAULT_FOV`, and `shell._on_tab_changed` (:4947) auto-loads the open
+field into a pristine Trace tab — so any field whose distance differs is re-projected through the
+wrong camera and returns off-canvas garbage **with no exception**. Reachable by clicking a tab.
+(For "give me art guidance for this room", the answer already exists and is simply unexposed:
+`ff9mapkit paint-template <field.toml>`, zero hits under `workspace/`.)
 
 ### Rung 5 (bounded) — discrete multi-plane ⚠ SCOPE SHRUNK 2026-07-28
 Add `plane_y` to the un-projection (`s = (h - C.y)/ray.y`) so a **traced photo** with several flat

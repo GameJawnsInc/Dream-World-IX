@@ -10,6 +10,7 @@ A law in a docstring is a wish in this codebase. These are the laws.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,9 @@ DOOR = ((0.0, -300.0), (0.0, 300.0))
 L_SHAPE = [(0, 0), (2400, 0), (2400, 1000), (1000, 1000), (1000, 2400), (0, 2400)]
 U_SHAPE = [(0, 0), (3000, 0), (3000, 2400), (2000, 2400), (2000, 900),
            (1000, 900), (1000, 2400), (0, 2400)]
+
+
+KIT = Path(__file__).resolve().parents[2]      # the repo root, for the census
 
 
 def _plan(**kw):
@@ -1261,3 +1265,174 @@ def test_the_overlap_judge_skips_shared_endpoints_rather_than_weakening_the_prim
     assert F.segments_cross(a, b, c, d), "the primitive stays inclusive -- see the docstring"
     assert F._shares_endpoint(((0.0, 0.0), (100.0, 0.0)), ((100.0, 0.0), (100.0, 50.0)))
     assert not F._shares_endpoint(((0.0, 0.0), (100.0, 0.0)), ((50.0, 1.0), (50.0, 50.0)))
+
+
+def _opaque_mask(png_path):
+    """``(W, H, bytearray)`` -- 1 per non-transparent pixel. Our writer emits filter-0 rows."""
+    import struct
+    import zlib
+    raw = png_path.read_bytes()
+    i, idat, W, H = 8, b"", 0, 0
+    while i < len(raw):
+        n = struct.unpack(">I", raw[i:i + 4])[0]
+        typ, body = raw[i + 4:i + 8], raw[i + 8:i + 8 + n]
+        if typ == b"IHDR":
+            W, H = struct.unpack(">II", body[:8])
+        if typ == b"IDAT":
+            idat += body
+        i += 12 + n
+    buf = zlib.decompress(idat)
+    stride = W * 4
+    out = bytearray(W * H)
+    for y in range(H):
+        row = buf[y * (stride + 1) + 1:(y + 1) * (stride + 1)]
+        base = y * W
+        for x in range(W):
+            if row[x * 4 + 3]:
+                out[base + x] = 1
+    return W, H, out
+
+
+def _footprint_mask(tris, cam, W, H, scale=4):
+    """The exact footprint, rasterised HERE. A truth image borrowed from the code under test
+    proves nothing -- this is a separate scanline, deliberately."""
+    def px(x, z):
+        return tuple(c * scale for c in CAM.to_canvas((x, 0.0, z), cam))
+
+    out = bytearray(W * H)
+    for tri in tris:
+        p = [px(*v) for v in tri]
+        ys = [q[1] for q in p]
+        for y in range(max(0, int(min(ys))), min(H - 1, int(max(ys))) + 1):
+            yc = y + 0.5
+            xs = []
+            for i in range(3):
+                (xa, ya), (xb, yb) = p[i], p[(i + 1) % 3]
+                if (ya <= yc < yb) or (yb <= yc < ya):
+                    xs.append(xa + (yc - ya) * (xb - xa) / (yb - ya))
+            if len(xs) < 2:
+                continue
+            for x in range(max(0, int(min(xs))), min(W - 1, int(max(xs))) + 1):
+                out[y * W + x] = 1
+    return out
+
+
+@pytest.mark.parametrize("poly,name", [(ROOM_A, "rect"), (L_SHAPE, "L"), (U_SHAPE, "U"),
+                                       ([(0, 0), (2400, -90), (2900, 1500), (1200, 2100),
+                                         (-400, 1400)], "5-gon")])
+def test_no_floor_paint_falls_outside_the_walkable_footprint(poly, name, tmp_path):
+    """★ THE PLACEHOLDER'S SILHOUETTE IS THE ROOM'S, TO THE PIXEL.
+
+    The dark base is filled from the triangles and was always exact. The LIGHT cells were not: each
+    was drawn WHOLE if its CENTRE tested inside the footprint and dropped whole otherwise. On a
+    rectangle that is invisible -- every cell is fully in or fully out -- which is why every fence
+    here passed. On the freeform polygons the Floorplan tab exists to draw, it is the entire look:
+    light squares hang off the edges and notches appear where a straddling cell was dropped, so the
+    floor reads as a ragged chessboard rather than as the room's own footprint.
+
+    The author's in-game screenshots of a composed 5-gon are what caught it, and the earlier
+    AABB fence could not: the spill is a fraction of a cell and hides inside its FIT_MARGIN.
+    Measured on that real dungeon: 2.57% and 2.87% of all painted pixels lay outside the walkable
+    area -- floor the author is told they can walk on and cannot -- and 0.00% after.
+
+    The placeholder's ONE job is to let a human see whether the walkable area matches the art. Paint
+    outside the mesh does not merely look wrong; it actively lies to that check."""
+    from ff9mapkit.scene import placeholder
+    cam, off = F.fit_play_camera(poly, pitch=48.0, fov=42.2)
+    room = [(x + off[0], z + off[1]) for x, z in poly]
+    verts, faces = IF.triangulate(room)
+    tris = [(verts[a], verts[b], verts[c]) for a, b, c in faces]
+    floor = tmp_path / "floor.png"
+    placeholder.write_placeholders(cam, None, tmp_path / "back.png", floor, floor_tris=tris)
+
+    W, H, painted = _opaque_mask(floor)
+    truth = _footprint_mask(tris, cam, W, H)
+    spill = sum(1 for i in range(W * H) if painted[i] and not truth[i])
+    total = sum(painted)
+    assert total > 10000, f"{name}: only {total} px painted -- the fixture painted nothing"
+    assert spill == 0, (
+        f"{name}: {spill} of {total} painted px ({spill / total * 100:.2f}%) fall OUTSIDE the "
+        f"walkable footprint -- the checkerboard is not clipped to the mesh")
+
+
+@pytest.mark.parametrize("length,name", [(2400, "short"), (9800, "long"), (20000, "very long")])
+def test_the_floor_layer_stays_behind_the_player_however_deep_the_room(length, name):
+    """★ THE PLACEHOLDER LAYERS' DEPTHS ARE DERIVED, NOT CONSTANTS.
+
+    FF9 sorts by OT depth with SMALLER IN FRONT, and the player's depth comes from wherever they
+    are standing -- so a floor pinned at a fixed z is only behind the player while the room is
+    shallow enough to keep every standing position under it. The shipped literals were 3000 (floor)
+    and 4000 (backdrop). Measured on a 9762u room at camera distance 17676, the player's depth runs
+    3746..4125 -- past BOTH -- so over the far half of the room the floor, and then the backdrop,
+    drew ON TOP OF THE PLAYER. Found by building a deliberately long room and walking to the end.
+
+    Every walkable position must sort in FRONT of both layers, at every room length."""
+    poly = [(0, 0), (2000, 0), (2000, length), (0, length)]
+    cam, off = F.fit_play_camera(poly, pitch=48.0, fov=42.2)
+    room = [(x + off[0], z + off[1]) for x, z in poly]
+    layers = F._placeholder_layers(room, cam)
+    z = {l["image"].split("/")[-1]: l["z"] for l in layers}
+    deepest = max(CAM.depth((float(x), 0.0, float(zz)), cam) for x, zz in room)
+    assert z["floor.png"] > deepest, (
+        f"{name} room: the floor layer sits at z={z['floor.png']} but the player reaches depth "
+        f"{deepest:.0f} -- the floor draws OVER them past that point")
+    assert z["back.png"] > z["floor.png"], "the backdrop must sit behind the floor"
+    assert all(isinstance(l["z"], int) for l in layers), "the layer table packs z as an int"
+
+
+def test_a_composed_long_room_does_not_bury_its_own_player():
+    """The same law through the real composer, on the shape that found it."""
+    poly = [(0, 0), (2000, 0), (2000, 9800), (0, 9800)]
+    c = F.compose(_plan(rooms=[{"name": "LONG", "poly": poly}], doors=[]))
+    r = c.by_name("LONG")
+    z = min(l["z"] for l in r.toml["layers"])
+    deepest = max(CAM.depth((float(x), 0.0, float(zz)), r.camera) for x, zz in r.poly_room)
+    assert z > deepest, f"floor z {z} vs deepest standing depth {deepest:.0f}"
+
+
+# ---------------------------------------------------------------- Rung 7a: the round trip and G16
+
+def test_the_legibility_gate_is_on_the_real_games_scale():
+    """★ G16's thresholds are MEASURED, not chosen. Re-derive them from the census the same way
+    `character_scale_px` computes a room's, so a drift in either goes red."""
+    import json
+    rows = json.loads((KIT / "studies" / "click-authoring" / "camera_census.json").read_text(
+        encoding="utf-8"))["rows"] if (KIT / "studies").exists() else None
+    if rows is None:
+        pytest.skip("census not in this checkout")
+    vals = sorted(F.R_OBJ * r["proj"] * math.sin(math.radians(r["pitch"])) / abs(r["cam_y"])
+                  for r in rows if r.get("pitch", 0) >= 26 and r.get("cam_y") and r.get("proj"))
+    p = lambda q: vals[max(0, min(len(vals) - 1, int(q * len(vals))))]
+    assert F.CHAR_PX_REFUSE == pytest.approx(p(.05), abs=0.2), "the refuse floor left FF9's p05"
+    assert F.CHAR_PX_WARN == pytest.approx(p(.25), abs=0.2), "the warn floor left FF9's p25"
+    assert F.CHAR_PX_MEDIAN == pytest.approx(p(.50), abs=0.2)
+
+
+@pytest.mark.parametrize("w,h,want", [(2400, 1500, None), (2200, 9762, "warn"), (9762, 2200, "error"),
+                                      (5000, 2000, "warn")])
+def test_a_room_too_wide_for_its_camera_is_named_and_refused(w, h, want):
+    """★ THE ROOM THE OWNER ACTUALLY BUILT. A 9762x2200 room fits at distance 18226 and renders the
+    character at ~2.6 canvas px -- below the 5th percentile of all 741 cameras FF9 ships. It
+    composed, built, deployed and walked as a sliver, and nothing in the pipeline said a word:
+    `fit_play_camera` refuses only past distance 60000.
+
+    ★ AND WIDTH IS THE EXPENSIVE AXIS -- the SAME room drawn the other way round only warns. The
+    message has to say so, because rotating the drawing is free and is the largest single lever."""
+    poly = [(0, 0), (w, 0), (w, h), (0, h)]
+    cam, _off = F.fit_play_camera(poly, pitch=48.0, fov=42.2)
+    sev, msg = F.legibility_problem("R", cam, poly)
+    assert sev == want, f"{w}x{h}: got {sev} ({msg})"
+    if want:
+        assert "canvas px" in msg and str(int(w)) in msg
+        if w > h:
+            assert "other way round" in msg, "a wide room must be told rotating is the cheap fix"
+
+
+def test_the_normal_composed_room_sits_in_the_real_games_band():
+    """The gate must not fire on the shape the composer is FOR. A 2400x1500 room lands at ~10.7px,
+    between FF9's median and p75 -- if this ever warns, the thresholds are wrong, not the room."""
+    poly = [(0, 0), (2400, 0), (2400, 1500), (0, 1500)]
+    cam, _ = F.fit_play_camera(poly, pitch=48.0, fov=42.2)
+    px = F.character_scale_px(cam)
+    assert F.CHAR_PX_MEDIAN <= px <= 15.0, f"a normal room renders at {px:.1f}px"
+    assert F.legibility_problem("R", cam, poly) == (None, None)

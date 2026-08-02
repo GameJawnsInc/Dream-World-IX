@@ -1,7 +1,10 @@
 # Floorplan tab — first-contact test plan (~1 hour)
 
-> **Status: UNVALIDATED BY ANY HUMAN.** Written 2026-07-30 for the tab's first contact. Timings in
-> Step 5 are measured, not estimated. Findings and verdicts belong back in `PLAN.md`'s Rung 6 block.
+> ★★ **STATUS: WORKED END TO END BY THE OWNER, 2026-07-30/31. STEPS 1-7 ALL PASS.** A two-room
+> freeform dungeon was drawn in the tab, composed, built, deployed per room and walked in-game
+> — *"Step 7 passes, campaign.toml imported well."* Eight defects came out of it, all fixed and
+> fenced; the record is `RUNG6.md`'s 6c-* entries. **This plan is now a REGRESSION script, not a
+> first-contact one** — re-run it after any change to the tab.
 >
 > **Revised 2026-07-30, before first contact:** two of the defects this plan told you to expect were
 > fixed rather than left in your way — **the live-gate stall** (a gesture cost ~17s on an eight-room
