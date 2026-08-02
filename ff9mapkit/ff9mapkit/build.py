@@ -6786,7 +6786,7 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
     # the group leader must be one of those too, and no actor may act twice in a group (one execution context).
     if steps[0].get("with_prev"):
         problems.append(f"{lbl} step 0 can't have with_prev = true (nothing precedes it)")
-    _par_ok = ("walk", "path", "animation", "turn")
+    _par_ok = PARALLEL_STEP_KINDS
     for g in _conductor.group_parallel(steps):
         if len(g) < 2:
             continue
@@ -6808,6 +6808,12 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
                                 f"(an actor can't do two things at once)")
             seen.add(who)
 
+
+# Which step kinds may run IN PARALLEL with the preceding beat (`with_prev = true`). say/wait/set_flag are
+# sequential barriers by definition; teleport/face_player are instantaneous, so parallelizing them is
+# meaningless. Module-level (not a local) so an AUTHORING surface can enable its with_prev control from the
+# compiler's own rule instead of a copy that drifts -- `editor.forms.PARALLEL_STEPS` is fenced against this.
+PARALLEL_STEP_KINDS = ("walk", "path", "animation", "turn")
 
 _ACTOR_STEP_KINDS = ("walk", "path", "teleport", "face_player", "animation", "turn")   # need an actor
 _MOVE_STEP_KINDS = ("walk", "path", "teleport", "face_player")                          # tag-called kinds
@@ -7071,26 +7077,28 @@ def _autoroute_steps(steps, project: FieldProject, wmesh, actor_npc, beat=None):
     return out
 
 
-def _check_walk_leg(project, wmesh, k, frm, tgt, actor, warnings, beat=None) -> None:
+def _check_walk_leg(project, wmesh, k, frm, tgt, actor, warnings, beat=None, lbl="[cutscene]") -> None:
     """One straight walk leg ``frm``->``tgt``: warn if it would stall (target off the floor / inside a
     character's box, or the path crosses a wall / through a character). Shared by ``walk`` + ``path``.
-    ``beat`` = the scene's firing ScenarioCounter (window-excluded NPCs can't block)."""
+    ``beat`` = the scene's firing ScenarioCounter (window-excluded NPCs can't block). ``lbl`` names the
+    dispatch block (``[cutscene] #2``) so "step 3" is unambiguous when a field carries several scenes --
+    same convention validate() uses."""
     if wmesh.point_on_walkmesh(tgt[0], tgt[1]) is None:
-        warnings.append(f"[cutscene] step {k}: walk target {tgt} is off the walkmesh -- the actor "
+        warnings.append(f"{lbl} step {k}: walk target {tgt} is off the walkmesh -- the actor "
                         f"can't reach it and the scene will stall. Aim at a floor point / marker.")
         return
     hits = _object_collisions(project, tgt, actor, beat)
     blocker = _segment_hits_object(project, frm, tgt, actor, beat)
     if hits:
-        warnings.append(f"[cutscene] step {k}: walk target {tgt} is inside {hits[0]}'s collision box -- "
+        warnings.append(f"{lbl} step {k}: walk target {tgt} is inside {hits[0]}'s collision box -- "
                         f"the actor presses into it and the scene stalls. Walk to @<that object> "
                         f"(auto-stops adjacent), or aim beside it.")
     elif blocker:
-        warnings.append(f"[cutscene] step {k}: the walk from {frm} to {tgt} passes through {blocker}'s "
+        warnings.append(f"{lbl} step {k}: the walk from {frm} to {tgt} passes through {blocker}'s "
                         f"collision box -- the actor is blocked mid-path and the scene stalls. Route "
                         f"around it via an intermediate marker / a path.")
     elif _segment_leaves_floor(wmesh, frm, tgt):
-        warnings.append(f"[cutscene] step {k}: the walk from {frm} to {tgt} crosses off the walkmesh -- "
+        warnings.append(f"{lbl} step {k}: the walk from {frm} to {tgt} crosses off the walkmesh -- "
                         f"the actor presses into the wall and the scene hangs. Route around it via an "
                         f"intermediate marker / a path.")
 
@@ -7100,7 +7108,9 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
     line, so a blocked leg softlocks the scene). Validates the FINAL resolved targets (with @object
     auto-approach applied), for ``walk`` AND each ``path`` leg. Turns a runtime hang into a build warning."""
     npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
-    for cs in _cutscene.blocks(project.raw.get("cutscene")):
+    _blocks = _cutscene.blocks(project.raw.get("cutscene"))
+    for _ci, cs in enumerate(_blocks):
+        lbl = "[cutscene]" if len(_blocks) == 1 else f"[cutscene] #{_ci}"   # same labels as validate()
         cast = [str(a) for a in (cs.get("actors") or [])]
         if not cast:
             continue                          # narration has no movement
@@ -7125,12 +7135,12 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
                     if s.get("follow"):                    # an engine follow ends ON CONTACT with its target
                         pos = tgt                          # -- the target can't stall it; nothing to warn
                         continue
-                    _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings, beat)
+                    _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings, beat, lbl)
                     pos = tgt
                 elif "path" in s:
                     for wp in s["path"]:
                         tgt = (int(wp[0]), int(wp[1]))
-                        _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings, beat)
+                        _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings, beat, lbl)
                         pos = tgt
 
 

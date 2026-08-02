@@ -45,11 +45,15 @@ In the Editor, open the **Cutscene** section:
 ![The cutscene form — ordered steps with per-step type and value](../../../docsite/assets/shots/editor-cutscene_light.png)
 
 Build a three-step narration with the step editor on the right — pick a **Type**, fill
-**Value**, press **Add / Update**:
+**Value**, press **Add step**:
 
 1. **Say (dialogue)** — a line; the window blocks until dismissed,
 2. a wait — a pause in frames (30 ≈ one second),
 3. another **Say (dialogue)**.
+
+**Add step** inserts after whichever row is selected, so you can go back and write a line into the
+middle later; **Update selected** rewrites the row you have picked. As you type a **Say**, the pane
+underneath shows where the line will break on the FF9 screen — the game never wraps text itself.
 
 Leave **Play once** checked: the scene plays a single time ever, guarded by a save-persistent
 flag allocated automatically — the same mechanism as S4's chest. Control locks for the duration

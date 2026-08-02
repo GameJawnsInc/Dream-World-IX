@@ -1325,6 +1325,15 @@ def snap_form(ctx: _Ctx, state: str) -> None:
         "cutscene": ('[cutscene]\nonce = true\nsteps = [\n'
                      '  { say = "The hut is silent..." },\n  { wait = 30 },\n'
                      '  { say = "...for now." },\n]\n'),
+        # THE DISPATCH -- several beat-gated scenes on one field (the shipped stolen-ember shape). This
+        # state was UNREVIEWABLE until the [[cutscene]] deadlock was fixed: mounting the tab on a plural
+        # section raised out of _commit_active and trapped the editor. It is pinned so it stays fixed --
+        # the subject is the "editing scene #1 of N" banner and a cast scene's staging row.
+        "cutscene-dispatch": (
+            '[[cutscene]]\nactors = ["Boletta"]\nrequires_scenario = 100\nset_scenario = 200\n'
+            'steps = [\n  { say = "You came back." },\n  { walk = [0, 80], actor = "Boletta" },\n]\n\n'
+            '[[cutscene]]\nactors = ["Boletta"]\nrequires_scenario = 300\n'
+            'steps = [\n  { say = "It is finished." },\n]\n'),
     }[state]
     src = REPO / "ff9mapkit" / "examples" / "boletta"
     assert src.is_dir(), "cannot find the boletta example -- snap void"
@@ -1561,7 +1570,8 @@ def snap_dialog(ctx: _Ctx, key: str) -> None:
         _close(win)
 
 
-FORM_STATES = ("encounter", "encounter-named", "music", "npc", "gateway", "chest", "cutscene")
+FORM_STATES = ("encounter", "encounter-named", "music", "npc", "gateway", "chest", "cutscene",
+               "cutscene-dispatch")
 HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",

@@ -375,6 +375,65 @@ STEP_HELP = {
 }
 GLOBAL_STEPS = ("say", "wait", "set_flag")
 ACTOR_STEPS = ("walk", "path", "teleport", "animation", "turn", "face_player")
+# Which kinds may run IN PARALLEL with the preceding beat (`with_prev`). Mirrors
+# ``build.PARALLEL_STEP_KINDS`` -- the compiler's own rule -- and is fenced against it in
+# test_workspace_cutscene, so the checkbox can never offer a beat the validator will reject.
+PARALLEL_STEPS = ("walk", "path", "animation", "turn")
+
+
+def single_block(container, section, *, create=False) -> dict:
+    """The ONE dict a *single*-section form edits, for a section the toml may store either way.
+
+    ``[cutscene]`` (one table) and ``[[cutscene]]`` (the story-event DISPATCH -- several scenes on one
+    field, each gated to its own beat) both reach a form as one editable block: **index 0**. Every path
+    that reads or folds a single form has to agree on that, or they disagree about the TYPE of the thing
+    they are handling.
+
+    They did disagree, in both editors:
+
+    * **Qt** -- ``Workspace._commit`` normalized the list; ``_commit_active`` and
+      ``_form_matches_baseline`` did not, so they ran ``list.pop(key, None)`` -> ``TypeError``. Because
+      ``_commit_active_ck`` sits on the nav / undo / redo / refresh / Check / save boundary, mounting
+      Cutscene on any ``[[cutscene]]`` field TRAPPED the editor -- silently, since there is no excepthook
+      and the entry point is a ``.pyw``.
+    * **Tk** -- ``app._show_cutscene`` did ``cs.get("steps", [])`` straight off the list ->
+      ``AttributeError``, after ``entity_to_values`` had already drawn an all-blank form (it reads misses
+      as defaults, so a list silently yields blanks rather than raising).
+
+    Both shipped stolen-ember examples tripped both editors. One owner now, per THE CALL-SITE LAW.
+
+    ``create=True`` materializes (the commit paths); the default reads without dirtying the doc (the
+    baseline / compare / render paths, which must never materialize an empty section).
+    """
+    cur = container.setdefault(section, {}) if create else (container.get(section) or {})
+    if not isinstance(cur, list):
+        return cur
+    if not cur or not isinstance(cur[0], dict):      # a plural section -> the form edits BLOCK 0
+        if not create:
+            return {}
+        cur.insert(0, {})
+    return cur[0]
+
+
+def all_blocks(raw) -> list:
+    """Every block of a maybe-plural section, in author order -- a singleton table comes out as the
+    one-block case. The editor-side twin of :func:`ff9mapkit.content.cutscene.blocks` (the build's owner);
+    kept here so the GUI does not drag in the ``content`` -> ``eb`` import chain, and FENCED against it in
+    ``test_workspace_cutscene`` so the two can never disagree about what a dispatch is."""
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return [raw]
+    return [b for b in raw if isinstance(b, dict)]
+
+
+def block_count(container, section) -> int:
+    """How many blocks a single-section key actually holds (1 for a singleton, N for an array-of-tables,
+    0 when absent) -- what a surface needs to TELL the author it is editing one of several."""
+    cur = container.get(section)
+    if cur is None:
+        return 0
+    return len(cur) if isinstance(cur, list) else 1
 
 
 # --- field rules shared by BOTH editors (Tk app.py + Qt forms_qt.py) ----------------------
