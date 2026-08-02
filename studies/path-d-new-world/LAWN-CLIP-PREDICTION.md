@@ -1,5 +1,16 @@
 # THE RENDER-ONLY UNDERLAY — the walkability fix round (registered BEFORE building)
 
+> **ROUND CLOSED 2026-08-01, owner-confirmed across three playtests**: walk semantics
+> stock-correct (no sinking, climb/block right), Z-fighting gone ("grass looks good
+> now"), THE CAMERA ORDER confirmed ("that worked"). **The ONE open item is THE
+> V-SHORE FLOATING WALL** — measured, mechanism known, fix class = THE CURTAIN MINT,
+> which gets its own study + registration next (see the tail of this doc). Bench
+> LIVE with the camera-order build; pre-deploy backup
+> `terrace-strip-prewall.20260801-224614`; canonical PRISTINE restore =
+> `terrace-strip-prewall.20260731-220001` via `restore_bench.py` (in this dir;
+> needs sandbox-off for Program Files). The builder's pristine guard requires the
+> restore before ANY rebuild.
+
 2026-08-01. Study A decoded the walk query (`WALK-QUERY-DECODE.md`); study B calibrated
 the simulator and measured the defect (`BENCH-WALK-SIM.md`): 3,187 LAWN-UNDER points —
 kept lawn, buffer-earlier, grounding the actor under the carried skirt even on a cold
@@ -212,6 +223,26 @@ where the shore descends. The fix class is a MINT (the donor's own curtain idiom
 measured on the blob's rim: vertical faces sealing rim to ground, uv = the bottom
 course's v-continuation) — registered as its own design round, NOT built here (the
 authorship law: no mint without its study).
+
+## THE NEXT ROUND'S FRAME (owner: "prepare to compact before we hit the floating
+## mountain, i have a feeling it may be complicated")
+
+**THE CURTAIN STUDY, then the round.** Questions to register before any instrument:
+how does STOCK seal a terrain rim to lower ground where the surface ends mid-air —
+census the vertical/near-vertical face class across stock blocks (the blob's own rim
+curtains are the in-hand donor exemplar: plan-degenerate tris, 3 owners per plan
+edge, rock texture); their uv rule (the bottom course's v-continuation per THE
+BAND-CONTINUATION LAW? or a dedicated strip?); their topograph; where stock uses
+them vs where it instead drops COURSES to the ground. Then: are our two hover
+clusters curtain sites or course-drop sites in stock's grammar? Alternatives to
+keep on the table: extending the apron clip past the grass edge onto the coast band
+(carry more donor ground instead of minting), and the coast-nav CLIFF stamp class
+(the bench's own shore idiom). Fix targets: the measured hover clusters; gate =
+probe_vshore_gap.py reads 0 hover edges > 0.5u at coast crossings (declared classes
+exempt), all existing suites stay green. ⚠ Wariness the owner flagged: the V-notch
+sits where the wall, the coast band, the sea sheets, and the block-7 border all
+meet — read `GROUND-JUNCTION-SYNTHESIS.md` + the coast-mosaic LAW INDEX before
+touching it.
 
 **REBUILT + REDEPLOYED same day, both suites green again**: C-slice 59 tris, C-rule
 113 (its reference now includes TAGGED lawn — a dip spanning under an L-tagged zone
