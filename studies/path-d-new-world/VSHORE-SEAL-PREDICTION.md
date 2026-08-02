@@ -698,3 +698,72 @@ bbox), latent 0 bench-wide, live post-deploy re-gate green. Backups
 `.20260802-032654`. P-J (owner): the cliff face along the fairing renders in
 the local rock texture — no fins, no pale; the grass shows no seam line at
 the block boundary; flow still slides; then the standing P-H checks.
+
+## PLAYTEST 6 (2026-08-02) — v2 STILL VISUALLY BROKEN; the arc PARKED
+
+*"more broken, still seaming, random forest tile, random other tile, still
+blank voids."* Third consecutive visual failure through fully-green gates.
+Unverified suspects for the record: the forest tile = the u-sawtooth
+"extend past U_HI" wrap hack sampling the atlas band BEYOND the cliff row;
+the white sliver = the 0.26u seam-insert quad; the voids = fan() over
+non-convex clip fragments and/or the unwelded joints at v5/v11 where the new
+curtain meets the kept faces. NOT diagnosed further — the pattern is the
+verdict: **the sim gates cannot see the LOOK axis at all** (no gate renders),
+and every hand-rolled construction round mints a new visual defect class
+(THE DEFECT FOLLOWS THE AUTHORSHIP, again, on the texture/render axis).
+
+**THE PARKED STATE (live now)**: pre-fairing baseline Terrain
+(.20260802-025232, the tuck build the arc closed on) + the MATCHING sea-cut
+Sea4 for (5,7)/(5,8), contract-packed (soup-identical repack of the 025232
+backups). Verified: trap DEAD (0 own-ring-0), contract-clean, the LOOK is the
+owner-confirmed tuck state. **The wall-hug CATCH is back by design** — the
+mechanically-proven fix (the 138° fairing surface: hug 0-stall both
+directions) awaits a construction method that can pass the look axis.
+Un-park: `unpark_vcorner.py` (restores the v2 fairing files, backups
+*.park.20260802-033102). The v2 staged files remain in `out/vcorner_crest/`.
+
+**What is PROVEN and carries forward regardless of construction method**: the
+ring-trap kill (the sea cut, playtest-confirmed); THE UNINDEXED CONTRACT
+(enforced in write_ff9mesh); THE QUANTIZED-FAN LAW (slide needs
+|hold−tangent| ≤ 67.5°) and the 138° chord + exact-202.5° fairing GEOMETRY
+(hug-gate-proven); the engine decodes (fan/anim/loader); the instruments
+(walk_sim, hug gates, latent sweep, boundary extractor, repack/contract
+checker).
+
+## STUDY ANGLES — making the coast-edit system flexible (the next arcs)
+
+1. **THE RENDER GATE** — the missing axis. An offline textured renderer of
+   block meshes (verts+uvs + the donor prefabs' atlas textures via UnityPy;
+   even painter's-algorithm quality) rendering sea-side/land-side/top shots,
+   diffed against baseline renders. Every defect of playtests 4-6 (fins,
+   voids, pale, forest tile, seams, flipped windings) is visible in such a
+   render; none is visible to walk_sim. The calibration law applied to the
+   look axis: no visual deploy until the instrument reproduces the LAST
+   round's defect offline.
+2. **VERBATIM COAST-SEGMENT TRANSPLANT** — the project's own carry law at
+   sub-cell scale. Instead of synthesizing lawn/curtain from constants: cut a
+   REAL shore segment (crest+faces+feet+uv, its sea edge) from a donor coast
+   with the wanted tangent, and weld it between two cut points on the bench
+   shore. Every successful look on this bench was a carry (mesa top, ground
+   retile, cliff re-skin BESIDE a pristine donor); every synthesis failed at
+   look. The study: the segment cut/weld operators + the seam laws.
+3. **THE MESHEDIT SUBSTRATE** — promote the hard-won primitives out of study
+   scripts into a tested kit module (`world/meshedit.py`): per-tri expansion
+   (the contract), never-plan-clip-vertical, seam-vertex insertion, winding
+   audits, degenerate cleanup, uv-donor continuation — with synthetic-mesh
+   unit tests (worktree-safe) so the next edit composes primitives instead of
+   re-rolling them.
+4. **THE ATLAS MAP** — decode each donor block's terrain-atlas band layout
+   (cliff/grass/forest/beach uv rectangles) into a queryable table, once, from
+   the prefab textures. UV assignment becomes VALIDATABLE ("inside THIS
+   block's cliff band") instead of trusting constants measured on another
+   shore — the forest tile was exactly this blind spot.
+5. **THE FAN-AWARE BOUNDARY LINTER** — productize the quantized-fan law: lint
+   any walkable boundary polyline for catch-class stretches (mismatch > 67.5°
+   for plausible hug holds) at build time, kit-wide; promote walk_sim + the
+   hug gate from study scripts to a kit verification verb so every terrain
+   deploy gets through-flow coverage automatically.
+6. **CURTAIN GRAMMAR II — offset-loop curtains** — derive a new curtain by
+   OFFSETTING the existing face loop (carrying its verts/uv/normals
+   per-vertex, like the tuck's cluster-move) rather than re-authoring from
+   vocabulary constants — re-shaping proven surface instead of minting it.
