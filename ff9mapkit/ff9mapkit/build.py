@@ -4241,6 +4241,25 @@ def _cutscene_story_bits(cs: dict) -> tuple:
 EVENTS_PER_FIELD = 31
 
 
+def max_auto_events(project) -> int:
+    """How many auto-flagged ``[[event]]`` once-flags actually FIT in this member's flag block.
+
+    Two ceilings, and only one of them is the constant. Events pack at ``base+1 .. base+n``
+    (:meth:`_FlagAlloc.event`), so the last lands on ``base+n`` and must stay inside the member's window
+    ``[base, base+K)`` -- that is ``n <= K-1``. ``EVENTS_PER_FIELD`` caps it further so events can never
+    reach the choice sub-band at ``base+1+EVENTS_PER_FIELD``.
+
+    Both overflow guards used to test the CONSTANT alone, which is the answer for K=64 and wrong below it:
+    the sibling walk-choice guard reads ``flags_per_field`` correctly, so this was an inconsistency rather
+    than a policy. At the live opening campaign's K=16 it let auto events 16..31 write into the NEXT
+    member's block, and at the ``stolen-ember`` example's K=8, events 8..31 -- silently, with build, both
+    lints and the build stamp all green, because the stamp records where a window IS, not what is written
+    into it. The bits are save-persistent, so the sibling's cutscene simply never plays again.
+    """
+    k = getattr(project, "flags_per_field", None)
+    return EVENTS_PER_FIELD if not k else max(0, min(EVENTS_PER_FIELD, int(k) - 1))
+
+
 class _FlagAlloc:
     """Auto once-flag allocator. ``base is None`` (single-field build): each category allocates from
     its own safe-band auto band (``flags.AUTO_*_BASE`` -- event/cutscene/choice/on_entry/[ate], all in
@@ -5120,9 +5139,11 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
                 parts.append(_event.message(event_txids[j]))
         once_flag = None
         if ev.get("once", True):
-            if (auto.base is not None and "flag" not in ev and flag_counter >= EVENTS_PER_FIELD):
-                raise BuildError(f"field {project.name}: more than {EVENTS_PER_FIELD} auto-flagged 'once' "
-                                 "[[event]]s overflow this campaign member's flag block -- set flag = N on some.")
+            _cap = max_auto_events(project)
+            if (auto.base is not None and "flag" not in ev and flag_counter >= _cap):
+                raise BuildError(f"field {project.name}: more than {_cap} auto-flagged 'once' [[event]]s "
+                                 f"overflow this campaign member's {getattr(project, 'flags_per_field', 64)}-bit "
+                                 f"flag block -- set flag = N on some, or raise [campaign] flags_per_field.")
             once_flag = int(ev["flag"]) if "flag" in ev else auto.event(flag_counter)
             flag_counter += 1
         gf, gs = _gate_of(ev)
@@ -5772,12 +5793,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     parts.append(_event.message(event_txids[j]))
             once_flag = None
             if ev.get("once", True):
-                if _auto.base is not None and "flag" not in ev and flag_counter >= EVENTS_PER_FIELD:
+                _cap = max_auto_events(project)
+                if _auto.base is not None and "flag" not in ev and flag_counter >= _cap:
                     raise BuildError(
-                        f"field {project.name}: more than {EVENTS_PER_FIELD} auto-flagged 'once' events "
-                        f"overflow this campaign member's flag block -- raise [campaign] flags_per_field, set "
-                        f"an explicit flag = N on some events, or split the field. (Auto event flags would "
-                        f"alias the choice sub-band -> save corruption.)")
+                        f"field {project.name}: more than {_cap} auto-flagged 'once' events overflow this "
+                        f"campaign member's {getattr(project, 'flags_per_field', 64)}-bit flag block -- raise "
+                        f"[campaign] flags_per_field, set an explicit flag = N on some events, or split the "
+                        f"field. (Auto event flags would alias the choice sub-band, or at a small "
+                        f"flags_per_field the NEXT MEMBER's block -> save corruption.)")
                 once_flag = int(ev["flag"]) if "flag" in ev else _auto.event(flag_counter)
                 flag_counter += 1
             gf, gs = _gate_of(ev)

@@ -1002,6 +1002,32 @@ def test_flag_alloc_campaign_member_blocks_are_disjoint():
     assert max(used_a) < base + 64 and used_a.isdisjoint(used_b)
 
 
+def test_auto_event_flags_stay_inside_the_member_block_at_every_width():
+    """★ THE TEST ABOVE ONLY EVER USED K=64, WHICH IS WHY THIS SURVIVED. Events pack at base+1.., so the
+    cap is K-1, not the bare EVENTS_PER_FIELD (which is the K=64 answer). Both overflow guards tested the
+    constant while the sibling walk-choice guard read flags_per_field -- so at the live opening campaign's
+    K=16, auto events 16..31 wrote into the NEXT member's block, and at stolen-ember's K=8, events 8..31.
+    Silently: build, both lints and the build stamp were all green, because the stamp records where a
+    window IS, not what gets written into it. The bits are save-persistent."""
+    from ff9mapkit.build import EVENTS_PER_FIELD, _FlagAlloc, max_auto_events
+
+    class _P:
+        def __init__(self, k):
+            self.flags_per_field = k
+
+    base = 8712
+    for k in (2, 8, 16, 33, 64, 128):
+        cap = max_auto_events(_P(k))
+        alloc = _FlagAlloc(base)
+        flags = [alloc.event(i) for i in range(cap)]
+        assert all(base <= f < base + k for f in flags), \
+            f"K={k}: auto event flags {[f for f in flags if not (base <= f < base + k)]} escape {base}..{base+k-1}"
+        assert all(f < alloc.choice(0) for f in flags), f"K={k}: an event flag reached the choice sub-band"
+    assert max_auto_events(_P(8)) == 7 and max_auto_events(_P(16)) == 15      # K-1 governs below 32
+    assert max_auto_events(_P(64)) == EVENTS_PER_FIELD                        # the constant governs above
+    assert max_auto_events(object()) == EVENTS_PER_FIELD                      # single-field: unchanged
+
+
 def test_lint_duplicate_names(tmp_path):
     lints = _lint(tmp_path, '[[npc]]\nname="g"\npreset="vivi"\npos=[0,-150]\ndialogue="a"\n'
                             '[[npc]]\nname="g"\npreset="vivi"\npos=[100,-150]\ndialogue="b"\n')
