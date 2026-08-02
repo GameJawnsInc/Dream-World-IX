@@ -246,3 +246,19 @@ established look (the ground-junction lesson restated on the look axis).
   the whole island already shows this rock band). Nothing further to build;
   metrics are already stock.
 The instrument can render candidate (i) before any deploy; (ii) is live now.
+
+## ANGLE-6 PRE-BUILD MEASUREMENT (probe_tuck_vocab.py) — the offset-loop premise falsified for purpose
+
+The bench tuck vocabulary, measured at 11 stations: wall crest verts are
+FLUSH-WELDED to the lawn edge everywhere (tuck offset 0.00 by construction);
+bench walls back-lean (seaward ny +0.14…+0.30, crest 3.2 → foot 0.0) vs
+stock's overhang (THE LEAN FACT). The island hides its walls from above NOT
+by lean but by **backface culling + lawn occlusion**: from any land-side
+vantage a convex shore's seaward faces point away (culled) and the lawn
+occludes the down-look. Across a CONCAVE inlet the far wall's seaward face
+points TOWARD the viewer — **no lean class can hide it**. Study angle 6 as
+registered (offset-loop re-lean of the corner in tuck vocabulary) therefore
+cannot cure the corner exposure; killed before a build round was spent.
+Fork (i)'s real construction is a **beach-class ramp at the inlet mouth**
+(no tall wall — e.g. the proven (7,17) ground-retile carry class), a real
+design round. Fork (ii) is live now. The owner picks at playtest 9.
