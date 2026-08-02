@@ -793,6 +793,27 @@ def test_the_sidecar_round_trips_the_session(app, tmp_path):
     assert run2.calls[0][0][-1] == str(side), "a reopen recomposes IN PLACE"
 
 
+def test_the_round_trip_carries_the_art_fingerprint_a_recompose_needs(app, tmp_path):
+    """★ THE MERGE'S ART RECORD RIDES THIS ROUND TRIP, so it is fenced here rather than assumed.
+    `emit` records the sha256 of the placeholder pair it painted under each room's ``art`` key, and
+    that is what tells the NEXT recompose whether a PNG on disk is the composer's own (repaint it)
+    or the author's painting (keep it). The tab writes ``self.plan()`` to the sidecar and hands the
+    CLI that path, so a room key this tab dropped would silently turn every painted room back into
+    a checkerboard. `_carry` keeps it by EXCLUSION, which is exactly why it works -- but only while
+    ``art`` stays out of ``_ROOM_OWNED``."""
+    p = tmp_path / FP.SIDECAR
+    fp = {"art/back.png": "a" * 64, "art/floor.png": "b" * 64}
+    p.write_text(json.dumps({
+        "version": 1, "name": "X", "id_base": 30500,
+        "rooms": [{"name": "ROOM1", "poly": _A, "id": 30500, "art": fp}], "doors": []}),
+        encoding="utf-8")
+    doc, _ = _doc(app)
+    doc.load_plan(p)
+    out = doc.plan()["rooms"][0]
+    assert out["art"] == fp, "the tab dropped the art fingerprint; every painted room repaints"
+    assert out["id"] == 30500, "and the id pin rides the same carry"
+
+
 def test_a_door_naming_a_missing_room_is_dropped_on_open(app, tmp_path):
     """A gateway with no destination room is a Field(0) black screen. It never survives a load."""
     p = tmp_path / FP.SIDECAR

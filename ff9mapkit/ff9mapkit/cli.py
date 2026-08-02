@@ -6760,9 +6760,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="skip reading the live DictionaryPatch stack (offline; ids are then unchecked "
                          "against what is already registered)")
     fp.add_argument("--force", action="store_true",
-                    help="recompose over rooms that carry hand-authored content ([[npc]], [[prop]], "
-                         "[[event]], [[chest]]...), DISCARDING it. Without this, a recompose that "
-                         "would destroy authored content refuses and names the rooms.")
+                    help="regenerate each room from scratch, DISCARDING everything the composer did "
+                         "not put there ([[npc]], [[prop]], [[chest]], a hand-drawn door, an extra "
+                         "painted layer, and the painted PNGs). Without this a recompose MERGES: it "
+                         "rewrites only the tables it owns and keeps the rest.")
     fp.set_defaults(func=_cmd_floorplan)
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")

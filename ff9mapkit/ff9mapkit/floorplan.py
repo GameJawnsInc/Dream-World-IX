@@ -1868,6 +1868,21 @@ COMPOSER_OWNED_TABLES = frozenset({
     "field", "camera", "walkmesh", "layers", "player", "gateway", "encounter", "savepoint",
 })
 
+# The two art files `emit` paints, named the way a `[[layers]]` row references them. Both halves of
+# this constant are load-bearing: it is the set of `[[layers]]` rows the composer regenerates (any
+# OTHER row is the human's own depth layer and survives), and it is the set of files it repaints.
+COMPOSER_ART = ("art/back.png", "art/floor.png")
+
+# The composer names every gateway it wires `door_to_<room>` (:func:`_compose` stage 6). That prefix
+# is what lets a merge regenerate the composer's OWN doors -- including DELETING one the author took
+# out of the plan, which a merge-by-name could not express -- while leaving a hand-drawn door alone.
+# Fenced against the composer's own output, exactly like COMPOSER_OWNED_TABLES.
+COMPOSER_GATEWAY_PREFIX = "door_to_"
+
+# The owned tables that are LISTS of independently meaningful rows, where the merge replaces only
+# the composer's own rows instead of the whole table. Everything else owned is regenerated whole.
+COMPOSER_ROW_MERGED = ("layers", "gateway")
+
 
 def authored_tables(toml_text):
     """The top-level tables in a room's field.toml that the composer does NOT own -- i.e. what a
@@ -1903,14 +1918,15 @@ def own_pinned_ids(out_dir):
 def emit_drift(composed, out_dir):
     """``{room name: (tables,)}`` for every room on disk carrying hand-authored content.
 
-    ★ RECOMPOSE USED TO DESTROY THIS, SILENTLY. `emit` is an unconditional `write_text` per room,
+    ★ RECOMPOSE USED TO DESTROY THIS, SILENTLY. `emit` was an unconditional `write_text` per room,
     so composing a dungeon, adding an `[[npc]]` (which is exactly what the Place tab and the Editor
     forms write), and recomposing the UNCHANGED plan left no npc, no error, no warning and exit 0.
     Verified by running it. That is why "make the surfaces interoperable" could not mean anything
-    yet: any click surface built over a composed room writes into a file the next Compose deletes.
+    yet: any click surface built over a composed room writes into a file the next Compose deleted.
 
-    OWNER DECISION 2026-07-31: refuse on drift this rung, merge properly next. Refusing is the
-    honest intermediate -- it costs the author a `--force` and never costs them work."""
+    Rung 7c made that a REFUSAL; this is what :func:`emit` now MERGES instead, so the function is no
+    longer a gate -- it is the reader that answers "what is in these rooms that is not mine".
+    Keeping it exported keeps the fence that a freshly composed room reports nothing."""
     from pathlib import Path
     out = Path(out_dir)
     found = {}
@@ -1920,6 +1936,193 @@ def emit_drift(composed, out_dir):
             if extra:
                 found[room.name] = extra
     return found
+
+
+# ------------------------------------------------------------------ the merge (7c -> 7 "MERGE")
+
+def merge_room(generated, existing):
+    """``(merged, kept, retaken)`` -- one room's field.toml, regenerating only what the composer owns.
+
+    OWNER DECISION 2026-07-31: *"Recompose REFUSES on drift this rung, MERGES next."* The precedent
+    named with it is ``build._merge_scene`` (build.py:148), whose rule is already "the generator owns
+    the spatial keys, the human owns the rest".
+
+    Three bands, and the middle one is the part a wholesale swap gets wrong:
+
+    * **Not in** :data:`COMPOSER_OWNED_TABLES` -> the human's, kept verbatim. ``[[npc]]``,
+      ``[[prop]]``, ``[[chest]]``, ``[[event]]``, ``[[choice]]``, ``[[sps]]``, ``[behavior]`` ...
+    * **Owned, but a LIST whose rows are independently meaningful** -> only the composer's OWN rows
+      are regenerated. Two such tables exist and both are things you add to a composed room:
+      ``[[layers]]`` (a painted occluder layer beside the placeholder pair -- exactly what the art
+      README tells the author to add) and ``[[gateway]]`` (a door drawn in the Place tab, Rung 4,
+      aimed at a field outside the dungeon). The composer's rows are identified by
+      :data:`COMPOSER_ART` / :data:`COMPOSER_GATEWAY_PREFIX` rather than merged by name, because a
+      name merge cannot express DELETION -- take a door out of the plan and a merge-by-name would
+      leave the old ``[[gateway]]`` live, pointing at a room that no longer exists.
+    * **Owned, and interlocking** -> regenerated WHOLESALE: ``field``, ``camera``, ``walkmesh``,
+      ``player``, ``encounter``, ``savepoint``. ⚠ ``[camera]`` in particular must NOT merge per key.
+      A room that stops scrolling emits no ``range`` / ``window_width`` / ``scroll``, so a per-key
+      merge would leave the old 960-wide ones alive under a camera solved for 384 -- and scroll is a
+      compose-time decision precisely because the range moves ``off_r`` under the walkmesh
+      (:func:`fit_play_camera`). ``retaken`` names each of these whose on-disk value the composer
+      just replaced, so a hand edit there is reported rather than silently reverted.
+
+    ``retaken`` covers the WHOLESALE band only. A row-merged table always differs after a reshape
+    (the composer's own ``[[layers]]`` depths are re-derived) while the human's rows in it survive
+    untouched, so reporting it would say "your edit did not survive" about an edit that did.
+    """
+    merged = dict(generated)
+    if not existing:
+        return merged, [], []
+    kept = []
+    for k, v in existing.items():
+        if k not in COMPOSER_OWNED_TABLES:
+            merged[k] = v
+            kept.append(k)
+
+    def _rows(table):
+        v = existing.get(table)
+        return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
+
+    extra_layers = [r for r in _rows("layers")
+                    if str(r.get("image", "")).replace("\\", "/") not in COMPOSER_ART]
+    if extra_layers:
+        merged["layers"] = list(generated.get("layers") or []) + extra_layers
+        kept.append("layers")
+    extra_gates = [r for r in _rows("gateway")
+                   if not str(r.get("name", "")).startswith(COMPOSER_GATEWAY_PREFIX)]
+    if extra_gates:
+        merged["gateway"] = list(generated.get("gateway") or []) + extra_gates
+        kept.append("gateway")
+
+    retaken = [k for k in sorted(COMPOSER_OWNED_TABLES - set(COMPOSER_ROW_MERGED))
+               if k in existing and existing[k] != merged.get(k)]
+    return merged, sorted(set(kept)), retaken
+
+
+def preserved_positions(tables):
+    """``[(table, label, (x, z))]`` -- every row in ``tables`` that carries a placed ``pos``.
+
+    Generic on purpose. The kit has more positioned kinds than any list here would stay current
+    with (``npc``, ``prop``, ``chest``, ``sps``, ``platform``, a behavior unit's seat...), they all
+    spell it ``pos``, and a list that goes stale fails SILENTLY -- the gate below simply stops
+    seeing the kind nobody added. ``zone`` is deliberately NOT read: a trigger quad's corners
+    legitimately hang off the mesh (Rung 4 -- donor door quads do it), so judging them here would
+    fire on every correctly-drawn door."""
+    out = []
+    for table, v in sorted(tables.items()):
+        rows = v if isinstance(v, list) else [v]
+        for i, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            p = row.get("pos")
+            if not isinstance(p, (list, tuple)) or len(p) < 2:
+                continue
+            try:
+                xz = (float(p[0]), float(p[1]))
+            except (TypeError, ValueError):
+                continue
+            out.append((table, str(row.get("name") or f"{table} {i}"), xz))
+    return out
+
+
+def unstandable_preserved(poly_room, tables, zones=(), *, R=R_WALK):
+    """``[(table, label, (x, z), why)]`` for preserved content the RESHAPED room no longer holds.
+
+    ★ THE GATE THE MERGE IS CONDITIONED ON (owner, 2026-07-31: *"Gate it on a compose-time warning
+    naming any preserved object that is no longer standable after a reshape."*). Preserved content
+    keeps its ROOM-frame coordinate verbatim -- see :func:`emit` for why that, and not the plan
+    frame -- so a reshape can leave an NPC outside the new outline, inside the wall clamp, or under
+    a door the composer has just moved on top of it. All three are silent in-game: an off-mesh NPC
+    still renders, standing in the air.
+
+    ``why`` is worded from the engine's own behaviour, not from the geometry: ``R`` is
+    :data:`R_WALK`, the measured clamp (``RadiusValid`` -> ``BGI_computeNewPoint``, in-game
+    confirmed on calibration field 30510), which is also what ``build._validate_content_placement``
+    uses for its near-edge advisory -- one number, two call sites, no second opinion."""
+    out = []
+    for table, label, (x, z) in preserved_positions(tables):
+        if not point_in_poly(x, z, poly_room):
+            out.append((table, label, (x, z), "is now OUTSIDE the room outline -- it will render in "
+                                              "empty space and the player cannot reach it"))
+            continue
+        d = dist_to_boundary(x, z, poly_room)
+        if d < R:
+            out.append((table, label, (x, z),
+                        f"is now only {d:.0f}u from the nearest wall; the player centre is clamped "
+                        f"{R:g}u off, so it cannot be reached from {R - d:.0f}u of that side"))
+            continue
+        for quad, zlabel in zones:
+            if point_in_poly(x, z, quad):
+                out.append((table, label, (x, z),
+                            f"now stands inside {zlabel} -- the recompose moved that trigger on top "
+                            f"of it, and a solid actor in a doorway blocks it"))
+                break
+    return out
+
+
+def _composer_zones(room_toml):
+    """``[(quad, label)]`` -- the trigger quads THIS compose just minted for a room."""
+    zones = []
+    for g in room_toml.get("gateway") or []:
+        q = g.get("zone")
+        if q:
+            zones.append(([(float(p[0]), float(p[1])) for p in q],
+                          f"the {g.get('name') or 'gateway'} door strip"))
+    for s in room_toml.get("savepoint") or []:
+        q = s.get("zone")
+        if q:
+            zones.append(([(float(p[0]), float(p[1])) for p in q], "the save point"))
+    return zones
+
+
+def art_fingerprints(mdir):
+    """``{rel: sha256}`` for the composer's own art files that exist under a room dir."""
+    import hashlib
+    from pathlib import Path
+    out = {}
+    for rel in COMPOSER_ART:
+        p = Path(mdir) / rel
+        if p.is_file():
+            out[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return out
+
+
+def _prior_art(plan, out_dir=None):
+    """``{room name: {rel: sha256}}`` -- what the LAST emit recorded it had painted, per room.
+
+    ★ IT RIDES THE PLAN FIRST, and that is what makes it work in the two lanes that matter. The
+    CLI's plan file often IS the sidecar (``--out`` defaults to the plan's own directory), so by the
+    time ``emit`` runs the previous sidecar may already have been replaced by the author's edit; and
+    the Floorplan tab holds the plan in memory. Rung 7a made ``plan()``/``load_plan`` carry unknown
+    room keys through unchanged, so the record survives a round trip through the tab -- this is the
+    first thing that spends that carry.
+
+    ★ AND FALLS BACK TO THE SIDECAR ON DISK, per room, for the third lane: a hand-written plan
+    pointed at an existing dungeon with ``--out``. Without the fallback that author would be told,
+    on every single compose, that their art carries no fingerprint -- and a warning that fires every
+    time is a warning nobody reads. The sidecar cannot be stale in the direction that matters: emit
+    writes it in the same breath as the art, so a hash that no longer matches means the file changed
+    AFTER the composer wrote it, which is precisely the question being asked."""
+    from pathlib import Path
+
+    def _rooms(d):
+        got = {}
+        for r in (d or {}).get("rooms") or []:
+            art = r.get("art")
+            if isinstance(art, dict):
+                got[str(r.get("name"))] = {str(k): str(v) for k, v in art.items()}
+        return got
+
+    on_disk = {}
+    if out_dir is not None:
+        p = Path(out_dir) / SIDECAR
+        if p.is_file():
+            try:
+                on_disk = _rooms(load_plan(p))
+            except (OSError, ValueError):
+                on_disk = {}
+    return {**on_disk, **_rooms(plan)}
 
 
 def emit(composed, out_dir, *, plan=None, log=None, force=False):
@@ -1940,7 +2143,37 @@ def emit(composed, out_dir, *, plan=None, log=None, force=False):
     member via ``pack.new_project``, whose template field.toml and rectangular placeholder art we
     then REPLACE with the composed room's own -- one wasted PNG write per room, paid to keep
     ``add_field`` the single manifest writer.
+
+    ★ A RECOMPOSE MERGES; IT DOES NOT BULLDOZE. Everything the composer did not put in a room --
+    the ``[[npc]]`` the Place tab dropped, the ``[[chest]]`` the Editor added, an extra painted
+    ``[[layers]]`` row, a hand-drawn door, and the painted PNGs themselves -- survives. See
+    :func:`merge_room` for the three bands and why ``[camera]`` may not merge per key. ``force``
+    discards all of it, which is what ``--force`` always meant.
+
+    ★ PRESERVED CONTENT KEEPS ITS **ROOM-FRAME** COORDINATE, VERBATIM. The alternative -- re-shift
+    by the change in ``off_r`` so content keeps its PLAN position -- was rejected on three grounds.
+    (1) The room frame is what the author actually saw: they clicked the room's own art, and the art
+    is repainted in the same frame, so a verbatim room coordinate keeps an NPC on the same spot of
+    the picture. (2) ``off_r`` is already translation-invariant (``off_x`` is minus the AABB centre
+    and ``off_z`` is measured from the front edge), so dragging a whole room across the plan chart
+    moves NOTHING -- the only case the two rules disagree on is a genuine RESHAPE. (3) Re-shifting
+    needs the PREVIOUS ``off_r``, which is not reliably recoverable (the CLI's plan file is often
+    the sidecar itself, so the author's own edit has already overwritten the record) -- and a rule
+    that is right only when history happens to be present is the exact shape THE DEFAULT-VALUE LAW
+    forbids. The residual risk of (1) is that a reshape leaves content stranded, and that is
+    precisely what :func:`unstandable_preserved` reports.
+
+    ★ AND THE ART IS FINGERPRINTED, NOT GUESSED. ``emit`` records the sha256 of the two placeholder
+    PNGs it writes into the sidecar; next time, a file whose hash still matches is the composer's own
+    and gets repainted, and one that does not is the author's painting and is put back afterwards.
+    A hash rather than "does it look like a checkerboard" because a heuristic here fails silently in
+    BOTH directions, and rather than "compare against a freshly generated placeholder" because that
+    would make any future change to ``write_placeholders`` read every dungeon's art as hand-painted.
+    A room with no recorded fingerprint (composed before this existed) is repainted as it always was,
+    and the summary says so -- one compose later it is protected.
     """
+    import shutil
+    import tempfile
     from pathlib import Path
     from . import campaign as _campaign
     from .editor import model as _model
@@ -1948,42 +2181,115 @@ def emit(composed, out_dir, *, plan=None, log=None, force=False):
 
     say = log or (lambda *_a: None)
     out = Path(out_dir)
+    warnings, preserved = [], {}
 
-    # ★ CHECKED BEFORE ANYTHING IS WRITTEN. `new_campaign` rebuilds the manifest and `add_field`
-    # scaffolds each member, so by the time the room tomls are rewritten the damage is already
-    # partly done -- a refusal that fires halfway through is not a refusal, it is a worse outcome
-    # than either finishing or stopping.
-    if not force:
-        drift = emit_drift(composed, out)
-        if drift:
-            rooms = "; ".join(f"{n} ({', '.join(t)})" for n, t in sorted(drift.items()))
-            raise ComposeError(
-                f"these rooms already carry content the composer did not put there: {rooms}. "
-                f"Recomposing rewrites each room's field.toml in full, so that content would be "
-                f"lost -- silently, as it was before this check existed. Re-run with force=True "
-                f"(CLI: --force) if you mean to discard it. Preserving it through a recompose is "
-                f"the next rung's job.")
+    # ★ EVERYTHING THE MERGE NEEDS IS READ BEFORE A SINGLE BYTE IS WRITTEN. `new_campaign` rebuilds
+    # the manifest and `add_field` scaffolds each member over the room dir -- so by the time the
+    # room tomls are rewritten, both the old toml and the old art are already gone. The one surviving
+    # refusal (an unparseable room) has to precede all of it for the same reason a refusal always
+    # did: one that fires halfway through is not a refusal, it is a worse outcome than either
+    # finishing or stopping.
+    prior_art = {} if force else _prior_art(plan, out)
+    existing, painted, unrecorded, art_mine = {}, {}, [], {}
+    stack = contextlib.ExitStack()
+    with stack:
+        if not force:
+            keep = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="ff9mk-art-")))
+            unparseable = []
+            for room in composed.rooms:
+                mdir = out / room.name
+                for p in mdir.glob("*.field.toml"):
+                    try:
+                        existing[room.name] = _model.loads(p.read_text(encoding="utf-8"))
+                    except Exception as e:               # noqa: BLE001 -- cannot merge what won't parse
+                        unparseable.append(f"{room.name}/{p.name} ({type(e).__name__}: {e})")
+                    break
+                recorded = prior_art.get(room.name) or {}
+                on_disk = art_fingerprints(mdir)
+                for rel, sha in on_disk.items():
+                    if recorded.get(rel) and recorded[rel] != sha:
+                        dst = keep / room.name / rel.replace("/", "_")
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(mdir / rel, dst)
+                        painted.setdefault(room.name, {})[rel] = dst
+                if on_disk and not recorded:
+                    unrecorded.append(room.name)
+            if unparseable:
+                raise ComposeError(
+                    f"cannot merge into {', '.join(unparseable)} -- a recompose regenerates only the "
+                    f"tables it owns and keeps the rest, which needs the room to PARSE. Fix the "
+                    f"file, or re-run with force=True (CLI: --force) to regenerate it from scratch "
+                    f"and lose whatever is in it.")
 
-    ids = [r.field_id for r in composed.rooms]
-    base = min(ids)
-    if ids != list(range(base, base + len(ids))):
-        raise ComposeError(f"emit needs one consecutive id run, got {ids} -- campaign.add_field's "
-                           f"allocator is max(existing)+1 and cannot express a gap")
+        ids = [r.field_id for r in composed.rooms]
+        base = min(ids)
+        if ids != list(range(base, base + len(ids))):
+            raise ComposeError(f"emit needs one consecutive id run, got {ids} -- campaign.add_field's "
+                               f"allocator is max(existing)+1 and cannot express a gap")
 
-    cplan = _campaign.new_campaign(composed.name, composed.mod_folder, out, id_base=base)
-    for room in composed.rooms:
-        member = _campaign.add_field(cplan, out, name=room.name)
-        if member.new_id != room.field_id:               # the allocator and the pre-flight must agree
-            raise ComposeError(f"room {room.name}: composed id {room.field_id} but the campaign "
-                               f"allocator assigned {member.new_id}")
-        mdir = out / room.name
-        (out / member.toml_rel).write_text(_model.dumps(room.toml), encoding="utf-8", newline="\n")
-        _if.write_walkmesh_obj(room.verts, room.faces, mdir / "walkmesh.obj")
-        tris = [(room.verts[a], room.verts[b], room.verts[c]) for a, b, c in room.faces]
-        _placeholder.write_placeholders(room.camera, None, mdir / "art" / "back.png",
-                                        mdir / "art" / "floor.png", floor_tris=tris)
-        say(f"  {room.name:<12} id {room.field_id}  {len(room.poly_room)} verts  "
-            f"pitch {room.pitch:g} dist {room.distance}  off_r {room.off_r}")
+        cplan = _campaign.new_campaign(composed.name, composed.mod_folder, out, id_base=base)
+        for room in composed.rooms:
+            member = _campaign.add_field(cplan, out, name=room.name)
+            if member.new_id != room.field_id:           # the allocator and the pre-flight must agree
+                raise ComposeError(f"room {room.name}: composed id {room.field_id} but the campaign "
+                                   f"allocator assigned {member.new_id}")
+            mdir = out / room.name
+            merged, kept, retaken = merge_room(room.toml, existing.get(room.name))
+            (out / member.toml_rel).write_text(_model.dumps(merged), encoding="utf-8", newline="\n")
+            _if.write_walkmesh_obj(room.verts, room.faces, mdir / "walkmesh.obj")
+            tris = [(room.verts[a], room.verts[b], room.verts[c]) for a, b, c in room.faces]
+            _placeholder.write_placeholders(room.camera, None, mdir / "art" / "back.png",
+                                            mdir / "art" / "floor.png", floor_tris=tris)
+            # ★ FINGERPRINT WHAT THE COMPOSER JUST PAINTED, NOT WHAT ENDS UP ON DISK. Recording the
+            # final state would hash the author's PAINTING, so the next compose would see a match,
+            # call it its own, and repaint over it -- the same silent loss one compose later.
+            art_mine[room.name] = art_fingerprints(mdir)
+            for rel, src in (painted.get(room.name) or {}).items():
+                shutil.copy2(src, mdir / rel)            # the author's painting goes back on top
+
+            say(f"  {room.name:<12} id {room.field_id}  {len(room.poly_room)} verts  "
+                f"pitch {room.pitch:g} dist {room.distance}  off_r {room.off_r}")
+            if kept or retaken or painted.get(room.name):
+                preserved[room.name] = {"kept": kept, "retaken": retaken,
+                                        "art": sorted(painted.get(room.name) or {})}
+            mine = painted.get(room.name) or {}
+            for rel in sorted(mine):
+                say(f"  {'':<12} kept your painted {rel}")
+            # ★ EXACT, NOT A PROXY, and judged PER ROOM rather than per file. The placeholder pair is
+            # a pure function of (camera, floor_tris), so a fingerprint that moved between two
+            # composes means this compose changed the room's art FRAME under a painting made for the
+            # old one. Per FILE it would miss the common case: `back.png` is a solid fill at canvas
+            # size, so it is byte-identical across any reshape that does not change the range -- and
+            # a painted backdrop whose horizon was drawn against the old floor is exactly the thing
+            # that has just stopped lining up.
+            if mine and any(v != art_mine[room.name].get(k)
+                            for k, v in (prior_art.get(room.name) or {}).items()):
+                warnings.append(
+                    f"room {room.name}: your painted {', '.join(sorted(mine))} {'were' if len(mine) > 1 else 'was'} "
+                    f"kept, but this compose moved the room's floor under it -- the painting no "
+                    f"longer lines up. Re-run `ff9mapkit paint-template {member.toml_rel}` and "
+                    f"repaint against the new frame")
+            if kept:
+                say(f"  {'':<12} kept {', '.join('[' + k + ']' for k in kept)}")
+            if retaken:
+                warnings.append(
+                    f"room {room.name}: regenerated {', '.join('[' + k + ']' for k in retaken)} over "
+                    f"what was on disk -- the composer derives these from the plan and owns them, so "
+                    f"an edit made there does not survive a recompose (move it into the plan)")
+            # ★ THE GATE THE MERGE IS CONDITIONED ON. Only PRESERVED content is judged, and only
+            # against the composer's OWN trigger quads: what this compose minted was already gated
+            # by G4/G8/G10 inside `compose`, and a hand-drawn door is the author's business.
+            authored_only = {k: v for k, v in (existing.get(room.name) or {}).items()
+                             if k not in COMPOSER_OWNED_TABLES}
+            for tbl, label, (x, z), why in unstandable_preserved(room.poly_room, authored_only,
+                                                                 _composer_zones(room.toml)):
+                warnings.append(f"room {room.name}: the [[{tbl}]] {label!r} you placed at "
+                                f"({x:.0f}, {z:.0f}) {why}")
+    if unrecorded:
+        warnings.append(
+            f"{', '.join(unrecorded)}: no recorded art fingerprint (composed before a recompose "
+            f"preserved art), so the placeholder pair was repainted as it always was -- from this "
+            f"compose on, art you paint over it survives")
 
     cplan.entry_name = composed.entry
     # `CampaignPlan.edges` keys the source as "frm" -- `from` is a Python keyword, so the in-memory
@@ -2003,14 +2309,21 @@ def emit(composed, out_dir, *, plan=None, log=None, force=False):
         # gateway aimed at one of these rooms, and the New Game wiring. `compose` already honours a
         # per-room `id`, so writing the assigned ones back makes the second compose reproduce the
         # first instead of renegotiating with the game install.
+        #
+        # ★ AND PIN THE ART FINGERPRINT -- of what the COMPOSER painted this run (`art_mine`), which
+        # is not the same thing as what is on disk when a painting was put back over it.
         pinned = dict(plan)
         by_name = {r.name: r.field_id for r in composed.rooms}
-        pinned["rooms"] = [dict(r, id=by_name[str(r.get("name"))])
+        pinned["rooms"] = [dict(r, id=by_name[str(r.get("name"))],
+                                art=art_mine.get(str(r.get("name")), {}))
                            if str(r.get("name")) in by_name else dict(r)
                            for r in (plan.get("rooms") or [])]
         save_plan(pinned, out / SIDECAR)
+    for w in warnings:
+        say(f"  warning: {w}")
     return {"campaign": out / "campaign.toml", "rooms": len(composed.rooms),
-            "ids": ids, "sidecar": (out / SIDECAR) if plan is not None else None}
+            "ids": ids, "sidecar": (out / SIDECAR) if plan is not None else None,
+            "preserved": preserved, "warnings": warnings}
 
 
 def compose_and_emit(plan, out_dir, *, taken_ids=(), log=None, force=False):

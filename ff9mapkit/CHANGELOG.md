@@ -5,6 +5,29 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
+- **A recompose now keeps everything you put in a composed room** and regenerates only what the
+  composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,
+  `[behavior]` — anything the Place tab or the Editor forms wrote — survives verbatim. So does a
+  **hand-drawn door** and an **extra painted `[[layers]]` row**, which live inside composer-owned
+  tables: the composer's own rows are identified (`door_to_*`, `art/back.png` + `art/floor.png`) and
+  replaced, and everything else in those tables is left alone. Deleting a door from the plan still
+  deletes its gateway — which is why those rows are found by prefix and not merged by name.
+- **Your painted art survives too.** Each compose records the sha256 of the two placeholder PNGs it
+  wrote; next time, a file that still matches is the composer's and gets repainted, and one that does
+  not is yours and is put back. If the reshape moved the floor under a painting, it says so and points
+  at `ff9mapkit paint-template` rather than quietly leaving a mismatched backdrop.
+- **A reshape that strands your content names it.** An NPC now outside the new outline, inside the
+  80u wall clamp, or under a door the recompose moved on top of it is reported per room — all three
+  are silent in-game (an off-mesh NPC still renders, standing in the air). It warns; it never deletes.
+- `[camera]`, `[player]`, `[field]`, `[walkmesh]`, `[encounter]` and `[savepoint]` are still
+  regenerated whole — a per-key merge would leave a stale `range`/`scroll` alive under a room that
+  stopped scrolling — and a recompose now *reports* each one whose on-disk value it replaced instead
+  of reverting it silently.
+- `--force` keeps its meaning and is no longer the normal path: it regenerates every room from
+  scratch, discarding all of the above. The one surviving refusal is a room whose `field.toml` will
+  not parse — there is nothing to merge into — and it fires before a single byte is written.
+
 ### Added — see an animation before you attach it (Workspace)
 - **The Models tab plays a model's clips.** The comma blob of action names is a clip LIST (the five
   movement slots first, then the model's own gestures, cross-form rows marked "other form"); picking a

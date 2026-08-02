@@ -26,7 +26,11 @@
         ]
       ],
       "title": "Hall Static",
-      "id": 30700
+      "id": 30700,
+      "art": {
+        "art/back.png": "dc39debb615553a826e824576ab37dfe78c2144a27afb3320631ccfbe0fbd04f",
+        "art/floor.png": "c2cbad7a530401af1b865cb1fd35da44b9b405604b14a0a7834c2ebb84446752"
+      }
     },
     {
       "name": "HALL_768",
@@ -49,7 +53,11 @@
         ]
       ],
       "title": "Hall 768",
-      "id": 30701
+      "id": 30701,
+      "art": {
+        "art/back.png": "a6c4a8cd64ca9e30cb9c03cf8bfcea7889e0356752723e05405e40fd7b999082",
+        "art/floor.png": "bec2571343d1d61ffdafc0c82c60f7bd43f8884bd89dd04c04243f391807bf12"
+      }
     },
     {
       "name": "HALL_960",
@@ -72,7 +80,11 @@
         ]
       ],
       "title": "Hall 960",
-      "id": 30702
+      "id": 30702,
+      "art": {
+        "art/back.png": "45a2fa088b88b2f9259faac26e591386dfda89232775a88c07963f0f3e45752f",
+        "art/floor.png": "6dbc1ef7f6651057bca6e573d691e406d8e840722aa559a4e3e559029eb78e6f"
+      }
     }
   ],
   "doors": [
