@@ -1697,6 +1697,26 @@ def test_the_gate_also_catches_the_wall_clamp_and_a_door_moved_on_top_of_content
     assert "door_to_x" in found["BLOCKER"] and "blocks it" in found["BLOCKER"]
 
 
+def test_the_gate_reads_a_ladder_and_jump_LANDING_but_never_a_gateways_field_id():
+    """`[[ladder]]` and `[[jump]]` spell their landing point `to` (FORMAT.md :529, :575), and a
+    reshape can drop it into the void, so the gate has to read them -- removing `_POSITION_KEYS`
+    turns this red.
+
+    ⚠ The gateway half is a REGRESSION pin, not a proof that scoping is load-bearing: `to` on a
+    `[[gateway]]` is an int and `preserved_positions`' shape check already rejects it, so a
+    deliberately GLOBAL key list left this test green. Measured, not assumed. What it does pin is
+    that a field id never becomes a coordinate -- which would break if that check ever loosened."""
+    poly = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)]
+    tables = {"jump": [{"name": "gap", "zone": [[10, 10], [20, 10], [20, 20], [10, 20]],
+                        "to": [9000, 9000, 40]}],
+              "ladder": [{"name": "rungs", "top": [1000, 1000], "bottom": [-5000, 1000]}],
+              "gateway": [{"name": "door0", "to": 30701,
+                           "zone": [[900, 900], [1100, 900], [1100, 1100], [900, 1100]]}]}
+    found = {label for _t, label, _xz, _why in F.unstandable_preserved(poly, tables)}
+    assert found == {"gap (to)", "rungs (bottom)"}, found
+    assert not any("door0" in f for f in found), "a gateway's field id was read as a coordinate"
+
+
 def test_a_trigger_quad_is_never_judged_by_the_standable_gate():
     """Rung 4 established that a region's corners legitimately hang OFF the mesh -- donor door quads
     do it. Reading `zone` here would fire on every correctly drawn door, which is how a gate gets

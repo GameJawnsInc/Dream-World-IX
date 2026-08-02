@@ -2000,29 +2000,48 @@ def merge_room(generated, existing):
     return merged, sorted(set(kept)), retaken
 
 
-def preserved_positions(tables):
-    """``[(table, label, (x, z))]`` -- every row in ``tables`` that carries a placed ``pos``.
+# The tables whose placed point is NOT spelled `pos`: a `[[ladder]]`/`[[jump]]` LANDING point
+# (FORMAT.md :529, :575; ladder's bidirectional mode spells it `top`/`bottom` instead).
+#
+# ⚠ SCOPED PER TABLE, and the reason is narrower than it first looks -- measured, not assumed.
+# `to` means a FIELD ID on `[[gateway]]`, which sounds like the hazard, but that value is an int and
+# the shape check below already rejects it: a fence built to catch a global key list stayed GREEN.
+# The scoping is kept because it is narrow by CONSTRUCTION rather than by a coincidence of today's
+# schema -- the day some table spells a non-position `to` as a pair, a global list would read it as
+# a world point and this map would not.
+_POSITION_KEYS = {"ladder": ("to", "top", "bottom"), "jump": ("to",)}
 
-    Generic on purpose. The kit has more positioned kinds than any list here would stay current
-    with (``npc``, ``prop``, ``chest``, ``sps``, ``platform``, a behavior unit's seat...), they all
-    spell it ``pos``, and a list that goes stale fails SILENTLY -- the gate below simply stops
-    seeing the kind nobody added. ``zone`` is deliberately NOT read: a trigger quad's corners
-    legitimately hang off the mesh (Rung 4 -- donor door quads do it), so judging them here would
-    fire on every correctly-drawn door."""
+
+def preserved_positions(tables):
+    """``[(table, label, (x, z))]`` -- every row in ``tables`` that carries a placed point.
+
+    ``pos`` is read GENERICALLY, on purpose: the kit has more positioned kinds than any list here
+    would stay current with (``npc``, ``prop``, ``chest``, ``savepoint``, ``marker``, a behavior
+    unit's seat...), they all spell it ``pos``, and an allow-list that goes stale fails SILENTLY --
+    the gate simply stops seeing the kind nobody added. :data:`_POSITION_KEYS` then names the two
+    that genuinely spell it otherwise: a ``[[ladder]]``/``[[jump]]`` LANDING point (`FORMAT.md` :529,
+    :575), which is exactly the thing a reshape can drop into the void.
+
+    ``zone`` is deliberately NOT read. A trigger quad's corners legitimately hang off the mesh
+    (Rung 4 -- donor door quads do it), so judging them would fire on every correctly drawn door,
+    and that includes a ladder's own take-off zone: it is the LANDING that has to be standable."""
     out = []
     for table, v in sorted(tables.items()):
+        keys = ("pos",) + _POSITION_KEYS.get(table, ())
         rows = v if isinstance(v, list) else [v]
         for i, row in enumerate(rows):
             if not isinstance(row, dict):
                 continue
-            p = row.get("pos")
-            if not isinstance(p, (list, tuple)) or len(p) < 2:
-                continue
-            try:
-                xz = (float(p[0]), float(p[1]))
-            except (TypeError, ValueError):
-                continue
-            out.append((table, str(row.get("name") or f"{table} {i}"), xz))
+            for key in keys:
+                p = row.get(key)
+                if not isinstance(p, (list, tuple)) or len(p) < 2:
+                    continue
+                try:
+                    xz = (float(p[0]), float(p[1]))
+                except (TypeError, ValueError):
+                    continue
+                label = str(row.get("name") or f"{table} {i}")
+                out.append((table, label if key == "pos" else f"{label} ({key})", xz))
     return out
 
 
