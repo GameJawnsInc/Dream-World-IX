@@ -1472,6 +1472,39 @@ def _cmd_build_all(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_reid(args: argparse.Namespace) -> int:
+    """Move a campaign's field ids. DRY-RUN unless ``--apply``: this rewrites the author's own files, so the
+    default shows the whole plan -- including the deploy-side work reid CANNOT do -- and changes nothing."""
+    from . import campaign, reid
+    reserved, folders = set(args.reserved or ()), []
+    if not args.no_live_check:
+        try:                                       # the live DictionaryPatch stack is the only truth about
+            game = find_game_path(getattr(args, "game", None))   # (--game is SUPPRESS-defaulted)
+            own = campaign.load_campaign(args.campaign).mod_folder
+            live, folders = reid.live_reserved(game, own_folder=own)
+            reserved |= live
+        except Exception as e:                     # noqa: BLE001 -- no install, unreadable ini, bad manifest
+            print(f"note: could not read live registrations ({type(e).__name__}: {e}) -- the cross-folder "
+                  f"collision check did NOT run. Pass --reserved <id> to supply them by hand.",
+                  file=sys.stderr)
+    try:
+        rp = reid.plan_reid(args.campaign, id_base=args.id_base, mapping=args.map,
+                            reserved_ids=reserved, skip_lint=args.skip_lint)
+    except (reid.ReidError, campaign.CampaignError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if folders:
+        print(f"live registrations read from {len(folders)} stacked folder(s): {', '.join(folders)}")
+    if args.apply:
+        written = reid.apply_reid(rp)
+        print(reid.render_report(rp, applied=True))
+        print(f"wrote {len(written)} file(s).")
+    else:
+        print(reid.render_report(rp, applied=False))
+        print("\nDRY RUN -- nothing was written. Re-run with --apply to move the ids.")
+    return 0
+
+
 def _cmd_lint_campaign(args: argparse.Namespace) -> int:
     from pathlib import Path
     from . import campaign
@@ -6718,6 +6751,26 @@ def build_parser() -> argparse.ArgumentParser:
     ba.add_argument("--allow-artless", action="store_true", dest="allow_artless",
                     help="build editable members that lack exported art (they render with NO background)")
     ba.set_defaults(func=_cmd_build_all)
+
+    ri = sub.add_parser("reid",
+                        help="MOVE a campaign's field ids (manifest + every member toml + every door), "
+                             "in one verified transaction -- dry-run unless --apply")
+    ri.add_argument("campaign", help="path to the campaign.toml manifest")
+    ri.add_argument("--id-base", type=int, default=None, dest="id_base",
+                    help="shift the WHOLE campaign so its lowest member lands here (gaps preserved -- a "
+                         "retired id is never reused, so a stale save cannot land on the wrong field)")
+    ri.add_argument("--map", action="append", metavar="OLD=NEW", default=None,
+                    help="move only these ids (repeatable), e.g. --map 6003=6503")
+    ri.add_argument("--apply", action="store_true",
+                    help="actually write the files (default: dry-run, print the plan and change nothing)")
+    ri.add_argument("--reserved", type=int, action="append", default=None, metavar="ID",
+                    help="treat these ids as already taken (repeatable); added to the live registrations")
+    ri.add_argument("--no-live-check", action="store_true", dest="no_live_check",
+                    help="skip reading the live DictionaryPatch stack for cross-folder id collisions")
+    ri.add_argument("--skip-lint", action="store_true", dest="skip_lint",
+                    help="move even though the campaign does not lint clean (the move CARRIES the problem)")
+    ri.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
+    ri.set_defaults(func=_cmd_reid)
 
     lc = sub.add_parser("lint-campaign",
                         help="validate a campaign.toml (edges/entry/seams/ids/flags) without building (P5)")
