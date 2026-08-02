@@ -142,5 +142,44 @@ curtain-bottom/end classes. The south-sea chain's −536 end column passes ~0.19
 behind the rising lawn edge on its way to y=0 — hidden under the sheet, no
 coplanar overlap, noted for the playtest.
 
-**AWAITING THE PLAYTEST** — score P1-P5 at the V-shore from both banks + the sea
-approach.
+## PLAYTEST 1 (2026-08-02) — P4 FALSIFIED; the GROUND-CURTAIN CLASS REJECTED
+
+The owner, at the west rim (screenshot: a dark forest-textured fin standing on
+open lawn under the mountain's skirt): *"covering the seal with a forest wall was
+a .... creative choice."* Scores:
+- **P4 FALSIFIED decisively** — the pinned strip is painted FOREST-WALL art; on
+  an open lawn under a bare rock rim it reads as a wall-object, not an under-edge
+  shadow. The study's own miss, named honestly: C2's "22/24 plain-ground curtains
+  use the forest strip" measured CONSTRUCTION, not look-in-context — stock's
+  plain-ground curtains sit in vegetation contexts; no stock curtain stands on
+  open lawn under a rock rim. THE FORM LESSON recurring: a correct construction
+  in an off-language placement fails at look. (P1's slit is geometrically closed
+  in the frame, but superseded; P2/P3/P5 unscored — the wall-object dominates.)
+- **The class verdict is broader than the skin**: no re-texture saves a wall
+  standing on open lawn. The owner names the real solution classes (verbatim,
+  "in no particular order, non-exhaustive"):
+  A. weld smooth grass-tile transitions from the raised mountain base down to
+     the existing ground;
+  B. mountain versatility — adjustable base elevation on certain
+     vertices/corners (manipulate the base to meet the ground);
+  C. refuse placement this close to a shore wall; extend the landmass to
+     compensate for large mountains.
+- **Mapping onto the arc's measured laws** (for the next registration):
+  A is bounded by S5 (stock's approach ground = short lip then LEVEL terrace,
+  never a ramp) — a "smooth transition" must be a short tuck/terrace course, so
+  A converges toward B at small drops. B at the CUT BOUNDARY dodges the
+  carry-purity objection: the west rim's verts are OUR clip line (fits_bench),
+  not donor-authored interior — pulling the cut edge down to the lawn is
+  re-shaping our own cut, and the line-contact geometry is exactly the donor
+  foot-weld class that has passed every playtest silently (contact at an EDGE,
+  no area overlap → no z-fight). C is the synthesis's own "unexamined third
+  move" (make the destination ground already have the donor's shape) — the
+  structural answer; fits_bench stops clipping and the donor's natural taper
+  ships.
+- **The three OVER-SEA seals are a separate question**: they sample the same
+  forest strip and will likely read wrong from the sea side too — but there
+  stock's measured answer (C3) is the topo-58 COASTAL-CLIFF curtain to the
+  waterline, the bench's own shore idiom (mapid-232 strip beside east). A
+  re-skin in the cliff vocabulary is the already-measured candidate for them.
+The lane choice is the owner's; the live bench still carries this build until
+the next round deploys.
