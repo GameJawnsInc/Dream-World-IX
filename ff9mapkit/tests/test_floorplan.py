@@ -1425,7 +1425,13 @@ def test_a_room_too_wide_for_its_camera_is_named_and_refused(w, h, want):
     if want:
         assert "canvas px" in msg and str(int(w)) in msg
         if w > h:
-            assert "other way round" in msg, "a wide room must be told rotating is the cheap fix"
+            # ★ THE REMEDY IS TESTED, NOT ASSUMED. An earlier version of this message told EVERY
+            # wide room to rotate -- including a 20000x2200 hall, whose rotation is a 2200x20000
+            # hall and equally unrenderable. `legibility_problem` now actually fits the rotated
+            # room and says what it would reach. So the fence checks that the advice is grounded,
+            # not that it contains a particular phrase.
+            assert "other way round" in msg or "split" in msg
+            assert "px" in msg
 
 
 def test_the_normal_composed_room_sits_in_the_real_games_band():
@@ -1436,3 +1442,82 @@ def test_the_normal_composed_room_sits_in_the_real_games_band():
     px = F.character_scale_px(cam)
     assert F.CHAR_PX_MEDIAN <= px <= 15.0, f"a normal room renders at {px:.1f}px"
     assert F.legibility_problem("R", cam, poly) == (None, None)
+
+
+# ------------------------------------------------------------------ 7b: the scrolling camera
+
+def test_a_normal_room_does_not_scroll():
+    """★ STATIC FIRST, ALWAYS. A 384x448 field is what FF9 ships for most rooms and what the rest
+    of the kit assumes; widening costs a bigger painting for a human to paint and an engine path
+    with less proof behind it. It is paid only when the static fit is not legible."""
+    cam, off, rng, scrolling = F.fit_room_camera([(0, 0), (2400, 0), (2400, 1500), (0, 1500)])
+    assert rng == (F.CANVAS_W, F.CANVAS_H) and not scrolling
+    assert F.character_scale_px(cam) >= F.CHAR_PX_WARN
+    c = F.compose(_plan(rooms=[{"name": "R", "poly": [(0, 0), (2400, 0), (2400, 1500), (0, 1500)]}],
+                        doors=[])).by_name("R")
+    assert "scroll" not in c.toml["camera"], "a normal room emitted scroll keys"
+    assert "range" not in c.toml["camera"]
+
+
+def test_a_wide_room_scrolls_and_is_capped_at_ff9s_own_widest():
+    """The owner's stress room: 9762u wide, which a 384-wide painting renders at 2.6 char-px --
+    below the 5th percentile of every camera Square shipped. Scrolling buys the apparent size back
+    by letting the fit use more canvas in x, so the same polygon frames at a much shorter distance.
+
+    The cap is FF9's own widest shipped painting (960x1088 over the 741-camera census). Beyond it
+    the answer is not a wider camera, it is two rooms and a door."""
+    poly = [(0, 0), (9762, 0), (9762, 2200), (0, 2200)]
+    static, _o = F.fit_play_camera(poly)
+    cam, off, rng, scrolling = F.fit_room_camera(poly)
+    assert scrolling and rng[0] <= F.SCROLL_RANGE_CAP
+    assert F.character_scale_px(cam) > F.character_scale_px(static) * 2, (
+        f"scrolling bought only {F.character_scale_px(cam):.1f} vs {F.character_scale_px(static):.1f}")
+    assert F.legibility_problem("R", static, poly)[0] == "error", "the static fit should be refused"
+    assert F.legibility_problem("R", cam, poly)[0] != "error", "the scrolling fit should not be"
+
+
+def test_the_scroll_camera_emits_what_the_build_actually_honours():
+    """★ THE FOCAL LENGTH IS MEASURED AT THE SCREEN, NOT THE PAINTING. Without `window_width` a
+    768-wide painting would simply double the FOV and buy nothing at all. This pins that the toml
+    the composer writes resolves, through the REAL build path, to the camera it fitted."""
+    from ff9mapkit import build
+    from ff9mapkit.scene import guide
+    poly = [(0, 0), (9762, 0), (9762, 2200), (0, 2200)]
+    cam, off, rng, scrolling = F.fit_room_camera(poly)
+    t = F._camera_toml(cam, F.DEFAULT_PITCH, F.DEFAULT_FOV, rng, scrolling)
+    assert t["range"] == [rng[0], rng[1]]
+    assert t["window_width"] == F.CANVAS_W
+    assert t["scroll"] == {"enabled": True}
+
+    class _P:                                   # the shape _resolve_one_camera reads
+        def path(self, p):
+            raise AssertionError("no borrow expected")
+
+    got = build._resolve_one_camera(_P(), t, True)
+    assert tuple(got.range) == tuple(rng)
+    assert got.proj == guide.proj_from_fov_x(F.DEFAULT_FOV, F.CANVAS_W), (
+        "the focal length followed the painting instead of the screen")
+    assert tuple(got.viewport) == tuple(CAM.scroll_bounds(rng)), (
+        "the pan viewport does not span the painting")
+
+
+def test_the_range_moves_off_r_which_is_why_scroll_is_a_compose_time_decision():
+    """⚠ THE TRAP. `off_r` is the translation every vert, door quad, arrival and spawn rides, and
+    it falls out of the fitted DISTANCE, which the range changes. Bolting a wider range onto an
+    already-composed room re-poses the camera under a walkmesh solved for the old one. This pins
+    that the two really do move together, so nobody 'optimises' the range into a post-hoc toml
+    edit."""
+    poly = [(0, 0), (9762, 0), (9762, 2200), (0, 2200)]
+    _c1, off_static = F.fit_play_camera(poly)
+    _c2, off_wide = F.fit_play_camera(poly, range_wh=(960, F.CANVAS_H), window_width=F.CANVAS_W)
+    assert off_static != off_wide, "the range did not move off_r -- the trap is not being modelled"
+
+
+def test_a_room_too_wide_even_to_scroll_is_refused_and_told_to_split():
+    """At the cap the gate takes over. FF9's own answer to a space this size is many fields joined
+    by gateways -- 48 zones, median 11 fields each -- which this composer already builds."""
+    poly = [(0, 0), (20000, 0), (20000, 2200), (0, 2200)]
+    cam, _off, rng, scrolling = F.fit_room_camera(poly)
+    assert rng[0] == F.SCROLL_RANGE_CAP and scrolling
+    sev, msg = F.legibility_problem("HUGE", cam, poly)
+    assert sev == "error" and "split" in msg.lower()

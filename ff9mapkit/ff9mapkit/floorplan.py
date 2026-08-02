@@ -118,6 +118,12 @@ STANDABLE_WARN = 0.35     # warn under this standable/total area ratio
 CHAR_PX_REFUSE = 3.9      # below the 5th percentile of every real camera -- refuse, it is a sliver
 CHAR_PX_WARN = 7.4        # below the 25th -- compose, but say so and name the remedy
 CHAR_PX_MEDIAN = 9.3      # quoted in the messages so the number has a scale attached
+# ★ THE SCROLL CAP IS FF9'S OWN WIDEST SHIPPED PAINTING (960 x 1088 across the 741-camera census).
+# 768x448 is the one width proven in-game in this repo (the field-4003 spike); 960 is inside
+# Square's envelope but unproven HERE, so it is a playtest item, not an offline claim. Anything
+# wider is not a camera problem -- it is two rooms and a door, which is what FF9 does with a large
+# space and what this composer already builds. OWNER DECISION 2026-07-31: cap at 960, split beyond.
+SCROLL_RANGE_CAP = 960
 _LAYER_GAP = 500          # OT-depth slack between the walkmesh's far edge, the floor layer and the
 #                           backdrop. Covers the entry settle and content sited slightly past the
 #                           mesh; see _placeholder_layers for why these are DERIVED, not constants.
@@ -968,7 +974,7 @@ def arrival_for(poly, seg, zones, *, depth, inset=None, R=R_WALK):
 # ------------------------------------------------------------------ C7: the play camera + off_r
 
 def fit_play_camera(poly, *, pitch=DEFAULT_PITCH, fov=DEFAULT_FOV, margin=FIT_MARGIN,
-                    front_row=FRONT_ROW, notes=None):
+                    front_row=FRONT_ROW, notes=None, range_wh=None, window_width=None):
     """``(cam, off_r)`` -- a camera that frames this room, and the INTEGER plan->room translation.
 
     ★ THE DEPTH GATE IS THE WHOLE POINT. Apparent size goes as ``1/|D + cos(p)z|``, which has a
@@ -995,7 +1001,19 @@ def fit_play_camera(poly, *, pitch=DEFAULT_PITCH, fov=DEFAULT_FOV, margin=FIT_MA
 
     ★ ``guide.make_camera`` VALIDATES NOTHING -- ``distance = -3000`` and ``1.0`` both return a
     plausible-looking projection of the origin, and ``0`` raises ZeroDivisionError from inside
-    ``cam.project``. THE DEFAULT-VALUE LAW gets no help from that call site; the bound lives here."""
+    ``cam.project``. THE DEFAULT-VALUE LAW gets no help from that call site; the bound lives here.
+
+    ★ ``range_wh`` paints WIDER THAN THE SCREEN, which is how a scrolling field buys back apparent
+    size: the fit's canvas-box test gets more room in x, so the same polygon fits at a much shorter
+    distance. ``window_width`` is then the VISIBLE screen width, and the focal length is measured at
+    THAT rather than at the painting -- otherwise a 768-wide painting would simply double the FOV
+    and buy nothing. This mirrors ``build._resolve_one_camera`` exactly (``build.py:3656-3658``), so
+    the camera fitted here is the camera the build emits.
+
+    ⚠ SCROLL IS A COMPOSE-TIME DECISION, NOT A TOML EDIT. The range changes the fitted distance,
+    which changes ``off_r``, which is the translation every vert, door quad, arrival and spawn
+    rides. Bolting a wider range onto an already-composed room re-poses the camera under a walkmesh
+    that was solved for the old one. Fit and emit together, always."""
     # ★ The HARD boundary is `p*` itself -- the pitch at which the horizon reaches canvas row 0.
     # Below it part of the frame has no floor at all. PITCH_SLACK is a comfort margin above that,
     # and it is a WARNING, not a refusal, deliberately: `imagefield.DEFAULT_PITCH` is 26.0 and
@@ -1011,8 +1029,13 @@ def fit_play_camera(poly, *, pitch=DEFAULT_PITCH, fov=DEFAULT_FOV, margin=FIT_MA
     # behaviour change; `pitch_floor` stays, to print `p*` itself in the message below. A horizon
     # does not depend on camera distance (it drops out of `cam._row_coeffs`), so any positive probe
     # distance does.
+    rng = (int(CANVAS_W), int(CANVAS_H)) if range_wh is None else (int(range_wh[0]),
+                                                                   int(range_wh[1]))
+    win_w = int(window_width or CANVAS_W)
+    proj = _guide.proj_from_fov_x(fov, win_w)   # the SCREEN's focal length, not the painting's
+
     pstar = pitch_floor(fov)
-    row = _cam.horizon_canvas_y(_guide.make_camera(pitch, 1.0, fov_x_deg=fov))
+    row = _cam.horizon_canvas_y(_guide.make_camera(pitch, 1.0, proj=proj, range_wh=rng))
     if row >= 0:
         raise ComposeError(
             f"pitch {pitch:g} deg is at or under the horizon floor {pstar:.2f} deg for fov {fov:g}: "
@@ -1028,7 +1051,7 @@ def fit_play_camera(poly, *, pitch=DEFAULT_PITCH, fov=DEFAULT_FOV, margin=FIT_MA
     off_x = -(x0 + x1) / 2.0                    # THE AABB CENTRE
 
     def attempt(D):
-        c = _guide.make_camera(pitch, D, fov_x_deg=fov)
+        c = _guide.make_camera(pitch, D, proj=proj, range_wh=rng)
         zf = _cam.solve_z_for_canvasY(c, front_row, near=NEAR_W, zlo=None, zhi=None)
         if zf is None:
             return None
@@ -1196,6 +1219,52 @@ def _door_key(d):
     return (d["a"], d["b"], tuple(map(tuple, d["seg"])))
 
 
+def _camera_toml(cam, pitch, fov, range_wh, scrolling):
+    """The room's ``[camera]`` table. A static room emits exactly what it always did.
+
+    A scrolling room adds ``range`` (the painting), ``window_width`` (the visible screen, which is
+    what the focal length is measured at -- ``build.py:3656``) and ``[camera.scroll] enabled``,
+    which is what makes the build auto-derive the pan Viewport from ``cam.scroll_bounds`` and inject
+    the engine's ``EnableCameraServices``."""
+    t = {"entry_settle": "auto", "pitch": pitch,
+         "distance": int(round(-_cam.decompose(cam)["C"][2] / math.cos(math.radians(pitch)))),
+         "fov": fov}
+    if scrolling:
+        t["range"] = [int(range_wh[0]), int(range_wh[1])]
+        t["window_width"] = int(CANVAS_W)
+        t["scroll"] = {"enabled": True}
+    return t
+
+
+def fit_room_camera(poly, *, pitch=DEFAULT_PITCH, fov=DEFAULT_FOV, notes=None,
+                    cap=SCROLL_RANGE_CAP):
+    """``(cam, off_r, range_wh, scrolling)`` -- the narrowest painting that renders this room
+    legibly, scrolling only if the screen-sized one cannot.
+
+    ★ STATIC FIRST, ALWAYS. A 384x448 field is what FF9 ships for most rooms and what every other
+    part of this kit assumes; widening is a cost (a bigger painting for the human to paint, an
+    engine path with less proof behind it) paid only when the static fit is not legible. Measured:
+    a normal 2400x1500 room fits static at 10.7 char-px and never widens.
+
+    ★ THE STEP IS THE SCREEN WIDTH and the cap is FF9's own widest shipped painting. Beyond the cap
+    the answer is not a wider camera, it is TWO ROOMS -- which is what FF9 itself does with a large
+    space (48 zones, median 11 fields each) and what this composer already builds, with gateways
+    proven in-game. So the cap is where the legibility gate takes over and says "split".
+
+    ⚠ Everything downstream rides ``off_r``, which the range changes -- see
+    :func:`fit_play_camera`. This is the ONE place a room's range may be decided."""
+    best = None
+    w = int(CANVAS_W)
+    while True:
+        cam, off = fit_play_camera(poly, pitch=pitch, fov=fov, notes=notes,
+                                   range_wh=(w, int(CANVAS_H)),
+                                   window_width=int(CANVAS_W))
+        best = (cam, off, (w, int(CANVAS_H)), w > int(CANVAS_W))
+        if character_scale_px(cam) >= CHAR_PX_WARN or w >= cap:
+            return best
+        w = min(int(cap), w + int(CANVAS_W))
+
+
 def character_scale_px(cam):
     """How many canvas px an :data:`R_OBJ`-wide character covers under ``cam``.
 
@@ -1225,16 +1294,48 @@ def legibility_problem(name, cam, poly):
 
     ★ AND THE REMEDY IS NAMED, because the useful thing to know is that WIDTH is the expensive axis:
     `fit_play_camera` fits the AABB, so the SAME corridor costs distance 6567 drawn north-south and
-    18226 drawn east-west. Rotating the drawing is free and is the single largest lever."""
+    18226 drawn east-west. Rotating the drawing is free and is the single largest lever.
+
+    ⚠ WHAT THIS GATE DOES **NOT** JUDGE. :func:`character_scale_px` is a property of the CAMERA --
+    it is the census's own per-camera measure, which is exactly what makes it comparable to the
+    percentiles. It is NOT the apparent size at the worst point in the room. A very DEEP room can
+    therefore pass this gate while its far edge still foreshortens hard, because apparent size goes
+    as ``1/(D + cos(p)z)`` and no painting width changes that -- scroll pans a viewport across a
+    FIXED camera, so it buys width and not depth. Catching the far-edge case would need a
+    per-point baseline the census does not carry (its rows have no room geometry), so it is
+    deliberately out of scope here rather than approximated. For a deep room the remedy the message
+    already names -- split it -- is the real one."""
     px = character_scale_px(cam)
     if px >= CHAR_PX_WARN:
         return (None, None)
     x0, z0, x1, z1 = bbox(poly)
     w, h = x1 - x0, z1 - z0
-    hint = (f"the room is {w:.0f}u wide by {h:.0f}u deep; WIDTH costs the most, so drawing it the "
-            f"other way round is the cheapest fix" if w > h * 1.3 else
-            f"the room is {w:.0f}u by {h:.0f}u -- split it into two rooms joined by a door, which "
-            f"is what FF9 itself does with a large space")
+    # ★ THE ROTATION REMEDY IS TESTED, NOT ASSUMED. "Width is the expensive axis" is true and it is
+    # the first thing worth trying -- but on a room that is simply too big it is useless advice: a
+    # 20000x2200 hall rotated is a 2200x20000 hall, equally unrenderable, and a fence caught the
+    # message confidently recommending exactly that. So actually fit the rotated room and only
+    # offer it if it would genuinely land legibly. Never name a remedy without checking it works.
+    rot_px = None
+    if w > h * 1.3:
+        try:
+            rcam, _o, _r, _s = fit_room_camera([(z, x) for x, z in poly])
+            rot_px = character_scale_px(rcam)
+        except ComposeError:
+            rot_px = None
+    split = (f"split it into two rooms joined by a door, which is what FF9 itself does with a large "
+             f"space (48 zones, median 11 fields each) and what this composer already builds")
+    if rot_px is not None and rot_px >= CHAR_PX_WARN:
+        hint = (f"the room is {w:.0f}u wide by {h:.0f}u deep and WIDTH is the expensive axis -- "
+                f"drawn the other way round it renders at {rot_px:.1f}px, which is fine, and "
+                f"rotating the drawing costs nothing")
+    elif rot_px is not None and rot_px >= CHAR_PX_REFUSE and rot_px > px * 1.5:
+        # Rotating is a real improvement but does not get all the way there: say both, in order.
+        hint = (f"the room is {w:.0f}u wide by {h:.0f}u deep and WIDTH is the expensive axis -- "
+                f"drawn the other way round it reaches {rot_px:.1f}px, which is a big improvement "
+                f"but still under {CHAR_PX_WARN:g}. To get it fully right, {split}")
+    else:
+        hint = (f"the room is {w:.0f}u by {h:.0f}u -- {split}"
+                + (f"; rotating it would only reach {rot_px:.1f}px" if rot_px is not None else ""))
     if px < CHAR_PX_REFUSE:
         return ("error",
                 f"room {name}: at the fitted camera a character is only {px:.1f} canvas px across "
@@ -1596,7 +1697,8 @@ def _compose(plan, *, taken_ids, cache, cancel):
         pitch, fov = _room_defaults(r)
         notes = []
         try:
-            cam, off = fit_play_camera(polys[n], pitch=pitch, fov=fov, notes=notes)  # G6
+            cam, off, rng, scrolling = fit_room_camera(polys[n], pitch=pitch, fov=fov,  # G6
+                                                       notes=notes)
         except ComposeError as e:
             problems.append(f"room {n}: {e}")
             continue
@@ -1689,9 +1791,7 @@ def _compose(plan, *, taken_ids, cache, cancel):
         toml = {
             "field": {"id": ids[n], "name": n, "area": 11,
                       "title": str(r.get("title") or n.replace("_", " ").title())},
-            "camera": {"entry_settle": "auto", "pitch": pitch,
-                       "distance": int(round(-_cam.decompose(cam)["C"][2] / math.cos(math.radians(pitch)))),
-                       "fov": fov},
+            "camera": _camera_toml(cam, pitch, fov, rng, scrolling),
             "walkmesh": {"obj": "walkmesh.obj"},
             "layers": _placeholder_layers(polys[n], cam),
             "player": {"spawn": list(shift([spawns[n]])[0]), "face": spawn_face[n]},

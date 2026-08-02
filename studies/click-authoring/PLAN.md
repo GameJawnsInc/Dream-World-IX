@@ -483,11 +483,27 @@ works until you open it in the tab.
 - **7a** — carry unknown room/door keys through `plan()`/`load_plan` unchanged + the legibility
   gate in `fit_play_camera`. Pure functions, no UI, no install; stops the data loss immediately and
   is the plumbing the `range`/`scroll` key needs. **START HERE.**
-- **7b** — `fit_play_camera(range_wh=…)` + auto-scroll: fit at 384, widen in 384 steps to the 960
-  cap while under p25, emit `range` + `window_width = 384` + `[camera.scroll] enabled`.
+- **7b ★ BUILT 2026-07-31, ⚠ AWAITING ONE PLAYTEST** — `fit_room_camera` fits static first and
+  widens in 384 steps to the 960 cap only while under p25, emitting `range` + `window_width = 384`
+  + `[camera.scroll] enabled`. Verified end to end on a 9762×2200 room: the built `.bgx` re-parses
+  to range `[960,448]`, viewport `[160,800,112,336]` (exactly `cam.scroll_bounds`), **proj 498 =
+  the SCREEN focal length at 384, not the painting's** — and the `.eb`'s `Main_Init` begins with
+  `EnableCameraServices`, while the static room's does not contain it at all (decoded structurally;
+  a raw 0x71 byte search says "present" for BOTH and proves nothing).
+  Measured: that room 2.6px → **6.7px** (refused → warn); a 4000×1200 room now scrolls at the
+  **proven** 768 and comes out clean; 20000×2200 still refuses and says split.
   ⚠ Scroll is a COMPOSE-TIME decision — the range changes the distance, which changes `off_r`,
   which moves the walkmesh. Fit and emit together; never bolt a scroll camera onto a composed room.
-  **Playtest gate: one 768-wide composed room in-game before raising the cap to 960.**
+  (Fenced: the two `off_r`s differ.)
+  ★ **THE REMEDY IN A REFUSAL IS TESTED, NOT ASSUMED.** The first message told every wide room to
+  rotate — including a 20000×2200 hall, whose rotation is a 2200×20000 hall and equally
+  unrenderable. `legibility_problem` now actually FITS the rotated room and reports what it would
+  reach, three ways: rotate (clean), rotate-but-still-short (says both, in order), or split. A
+  fence caught the over-promise.
+  ⛔ **PLAYTEST GATE, OPEN: 768 is the only width proven in-game in this repo (the field-4003
+  spike). 960 is inside FF9's own shipped envelope but has never been walked HERE** — and a room
+  needing more than 768 goes straight to 960, so the first scrolling room an author composes may
+  well be the unproven width. Walk one 768 room and one 960 room before trusting either.
 - **7c** — non-destructive `emit` (refuse-on-drift) + pin room ids into the sidecar on first compose
   (the CLI pre-flight at `cli.py:1543` reads LIVE registrations, so it can renumber your own
   already-deployed rooms).

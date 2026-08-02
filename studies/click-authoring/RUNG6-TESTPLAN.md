@@ -272,6 +272,15 @@ composed dungeon was authored with `Mod = FF9CustomMap-dung`, which is not regis
 exist. Either set the box back to **`FF9CustomMap`**, or add your folder to **both** `FolderNames`
 and `Priorities` and **relaunch**. (The tab does not yet gate this — say the word and it will.)
 
+**⛔ NEW AND UNPROVEN — the scrolling camera (Rung 7b).** A room too wide to frame on one screen is
+now painted wider than the screen and pans to follow you. **No composed scrolling room has ever been
+walked in-game.** 768-wide is proven here by an older spike; 960 is inside FF9's own envelope but has
+never been walked in this repo — and a room needing more than 768 jumps straight to 960, so the first
+one you compose may well be the unproven width. Its `[camera]` will say `range` / `window_width` /
+`scroll`. **Walk one of each and tell me:** does the view pan smoothly as you cross the room, does it
+stop cleanly at the edges rather than over-scrolling, and does the placeholder floor still line up
+under you the whole way across?
+
 **Hard rules for this step:**
 - ⛔ **Never** `deploy-campaign --apply` on this. It `rmtree`s the whole mod folder and this install holds ~400 registrations from other sessions. One `deploy_field.py … --id N` per room, always with `--id`.
 - Ignore `py -m ff9mapkit lint <room>.field.toml` if you try it — it exits **1** on that same advisory that `lint-campaign` calls clean. `lint-campaign` is the correct gate.

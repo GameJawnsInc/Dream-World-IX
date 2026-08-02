@@ -220,6 +220,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   out cut off at the edge. Measured on the dungeon that found it: 2.57% and 2.87% of
   painted pixels fell outside the walkable area; now none do.
 
+### Added — a room too wide for one screen now scrolls, and one too big to render is refused
+- FF9 fields can be painted wider than the screen and pan to follow the player, and the
+  toolkit has supported that for a while — but the floorplan composer always emitted a
+  single screen-sized camera. A long hall therefore framed by pushing the camera back
+  until the whole room fitted, which on a 9762-unit room meant a distance of 18227 and a
+  character about two and a half pixels tall.
+- Rooms are now fitted at screen size first and only widened when that is not legible,
+  in screen-width steps, up to the widest painting FF9 itself ships. The same room now
+  paints 960 wide and renders the character at nearly three times the size. A room that
+  already framed well is untouched and emits exactly what it did before.
+- **A room that cannot be rendered legibly even at the widest painting is now refused
+  rather than quietly composed.** The thresholds are measured, not chosen: across all 741
+  cameras in the shipped game a character covers 9.3 pixels at the median and 3.9 at the
+  5th percentile, so anything below that 5th percentile is refused and anything below the
+  25th is warned about.
+- The refusal names the fix, and checks it first. Width costs far more than depth — the
+  same corridor is nearly three times cheaper drawn the other way round — so where
+  rotating the room would genuinely help, it says so with the size that would result;
+  where it would not, it says to split the room into two joined by a door, which is what
+  FF9 does with a large space and what this composer already builds.
+
 ### Fixed — the Floorplan chart moved under the cursor while you were drawing on it
 - Every corner you placed recomputed the chart's extent from the outline *in progress*,
   so the first corner of a room collapsed that extent to a fraction of its size and the
