@@ -601,5 +601,16 @@ scenery must be re-authored *together*.
   aimed at `EDIT_CHANNELS`), `w6b_gates` 7/7, `w6q_gates` 20/20, `tests/test_summon_repaint.py`
   231/231. The two W6b-3 (ii) Odin cast specs are FROZEN AS HISTORY — they no longer build under the
   adoption and their notes say why.
-  **NEXT AFTER THIS:** a cast on a GAINED cell (the only thing that closes the gain half), and the
-  owner call on whether `export-art` should be able to decline the derivation.
+  **NEXT AFTER THIS — two owner items, neither blocking anything:**
+  **(1) CAST A GAINED CELL. The vehicle is `ef407 cell.s0.x704_y384`** — 20 arriving readers, no
+  program-VRAM block, and BOTH its gained pages verified exporting as real PNGs on disk. It is ef038's
+  structural twin and reproduces the derivation cell for cell (27 bound readers on `cell.s0.x640_y256`
+  down to 7, one arriving on `x704_y256` and twenty on `x704_y384`) — which is also why ef038 itself
+  CANNOT be the vehicle: it is a program-VRAM writer and `export-art --ef 38` writes none of them.
+  This cast is the ONLY thing that closes the gain half's silent-failure mode.
+  **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
+  `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
+  `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the
+  page level (forcing the displacement to identity reproduces the LICENSED page set on 372/372), so it
+  is a PARAMETER — a mirror flag, or threading `channels=` through those three entry points — not a
+  re-derivation. A stated limit with no remedy attached is still a limit.
