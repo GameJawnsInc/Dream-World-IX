@@ -120,3 +120,53 @@ no deploy until the candidate's render is CLEAN at these four committed
 cameras AND the diff-vs-baseline is confined to the intended footprint.**
 
 Corpus renders + diffs: `out/render_gate/`. Runtime ~40s per state.
+
+## THE CLOSE-RANGE UPGRADE (playtest-8 response, 2026-08-02)
+
+Playtests 7 and 8 both failed at vantages the four committed cameras do not
+cover — the residuals live below the mid-range threshold. Two cameras and one
+analytic check added; **the standing rule now reads SIX cameras + a clean
+flow verdict.**
+
+- **owner_close** — eye (384,21,-504) → at (377.5,0.5,-513.5), fov 50, reach
+  45: the owner's near-top-down class (playtest 8's shot).
+- **graze** — eye (366,3,-526) → at (379.5,1,-512.5), fov 45, reach 90: low
+  oblique from offshore; thin waterline constructions are near edge-on and
+  smears glint along the seam.
+- **`flow` verb** — per-face 3D uv gradients (frame-independent):
+  |grad| density, constant-uv smear, handedness (mirror), shared-edge
+  d-angle. Judged against TWO references: stock donor (5,14) and the
+  owner-passed bench outside the corner bbox.
+
+**CALIBRATION: PASS.** The live (deployed seam-fix transplant) state
+reproduces BOTH playtest-8 classes offline:
+- the light waterline seam = a streaky horizontal grass-green band above the
+  rock at `graze` (the apron/fan stack sampling the GRASS-TOP band
+  v≈0.916–0.923 at ~6× stretch, wedge fans constant-uv = solid smears);
+- the texture break = the grey band interrupting the green shoreline at
+  `owner_close`.
+
+**FLOW DISCRIMINATION: CLEAN.** stock (5,14): 0 smear / 0 stretch / 2:139
+neg-handed. Bench-out (owner-passed): 0 / 0 / 3:3058. The corner: **16
+smears + 62 stretched (6.3×) + 69 mirrored**, ALL at y∈[−0.6,+0.06] — the
+apron+fan+curtain stack, exactly the waterline. The edge d-angle axis is
+WEAK (stock's own p90 is 134.6° — lawful atlas column u-flips); it stays
+informational, never a gate.
+
+**THE DIAGNOSIS.** Stock's own look at these vantages
+(`probe_stock_graze.py`, the donor's coast): lawn → NARROW fine-textured
+ROCK lip → water. Our waterline band samples GRASS, stretched. The fix
+class: **band-continuation retexture** — the apron/fans/curtain must
+continue the carried wall's own cliff band at stock density (THE
+BAND-CONTINUATION LAW applied to the auxiliary stack), not smear the grass
+band.
+
+Instrument notes: (a) the BASELINE shows the same streak class at graze —
+the defect class predates the transplant; the bench skirt shares it
+(fold-back debt when the generator re-learns this law). (b) The floating NE
+slivers at `graze` are the REAL disc edge — Disc9 near the bench holds
+exactly the six cells, no sea ring — faithful to the game, not an artifact;
+CELLS now loads a ring should one ever ship. (c) `flow` counts the walk
+membranes among the mirrored faces (reversed coplanar copies with donor uv —
+mirrored BY DESIGN, walk-only, drawn behind identical wall texels); the
+post-fix lawful residue is membrane-count flips, not zero.

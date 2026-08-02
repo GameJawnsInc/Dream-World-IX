@@ -18,6 +18,13 @@ READ-ONLY over the install; renders to out/render_gate/.
 Usage:
   py render_gate.py render <baseline|v1|v2|live>
   py render_gate.py calibrate            # P-A..P-E corpus run + diffs
+  py render_gate.py flow [tag]           # texture-flow check (default: live)
+
+Close-range upgrade (playtest 8): the four original cameras are mid-range and
+every residual defect now lives below their threshold — owner_close/graze are
+the owner-vantage close cameras, and `flow` is the analytic texture-flow
+instrument (uv-gradient density / orientation / handedness per face, judged
+against the stock donor block's own distribution + the owner-passed bench).
 """
 from __future__ import annotations
 
@@ -41,6 +48,11 @@ GAME = Path(config.find_game_path(None))
 MOD = "FF9CustomMap-world"
 DISC = 9
 CELLS = [(5, 7), (6, 7), (7, 7), (5, 8), (6, 8), (7, 8)]
+# the sea ring around the bench cells: without it, distant coast renders with
+# SKY behind where the game shows sea (the graze-camera floating-sliver
+# artifact). Missing files skip silently, so absent ring blocks are free.
+CELLS += [(4, 6), (5, 6), (6, 6), (7, 6), (8, 6), (4, 7), (8, 7),
+          (4, 8), (8, 8), (4, 9), (5, 9), (6, 9), (7, 9), (8, 9)]
 BLOCK = 64.0
 OUTD = HERE / "out" / "render_gate"
 BK = Path(r"C:\gd\Dream-World-IX\backups")
@@ -62,6 +74,15 @@ VIEWS = {
     "top": dict(kind="ortho", x0=362.0, x1=398.0, z0=-528.0, z1=-498.0),
     "island": dict(kind="persp", eye=(330.0, 40.0, -604.0), at=(414.0, 2.0, -510.0),
                    fov=55.0, reach=220.0),
+    # playtest-8 vantage class (close-range; the mid-range four missed both
+    # residuals). owner_close = the owner's near-top-down shot: eye above the
+    # lawn just inland of the corner, pitched ~60 deg onto the waterline.
+    # graze = low oblique from just offshore — thin waterline geometry (rim,
+    # curtain) is near edge-on and any smeared band glints along the seam.
+    "owner_close": dict(kind="persp", eye=(384.0, 21.0, -504.0),
+                        at=(377.5, 0.5, -513.5), fov=50.0, reach=45.0),
+    "graze": dict(kind="persp", eye=(366.0, 3.0, -526.0),
+                  at=(379.5, 1.0, -512.5), fov=45.0, reach=90.0),
 }
 CORNER_BBOX = (370.0, 390.0, -520.0, -505.0)                # P-D localization box
 
@@ -276,6 +297,150 @@ def diff(a, b, title, thresh=18):
     return n, box
 
 
+# ---------------------------------------------------------------- texture flow
+def face_grads(verts, uvs, tri):
+    """3D uv gradients of one face: (grad_u, grad_v, handedness, unit normal).
+    grad_u is the in-plane world vector g with g.e1 = du1, g.e2 = du2 —
+    frame-independent, so faces are comparable across the whole mesh.
+    handedness = (grad_u x grad_v) . n — its SIGN flips iff the texture is
+    mirrored relative to the winding ("flipped faces" in owner language).
+    A ~zero gradient = constant-uv smear (one texel stretched over the face)."""
+    a, b, c = verts[tri[0]], verts[tri[1]], verts[tri[2]]
+    e1, e2 = b - a, c - a
+    n = np.cross(e1, e2)
+    n2 = float(n @ n)
+    if n2 < 1e-12:
+        return None
+    d1 = uvs[tri[1]] - uvs[tri[0]]
+    d2 = uvs[tri[2]] - uvs[tri[0]]
+    x2n, nx1 = np.cross(e2, n), np.cross(n, e1)
+    gu = (d1[0] * x2n + d2[0] * nx1) / n2
+    gv = (d1[1] * x2n + d2[1] * nx1) / n2
+    nu = n / math.sqrt(n2)
+    return gu, gv, float(np.cross(gu, gv) @ nu), nu
+
+
+def flow_records(verts, uvs, tris, zone=None):
+    """Per-face flow records [(idx, centroid, |gu|, |gv|, hand)] + shared-edge
+    records [(idx_a, idx_b, mid, dang_u_deg, uv_jump)] for Terrain faces
+    (zone = optional (x0,x1,z0,z1) centroid filter)."""
+    faces, gus = [], {}
+    edge_map = {}
+    for fi, t in enumerate(tris):
+        i0, i1, i2 = int(t[0]), int(t[1]), int(t[2])
+        cx = (verts[i0] + verts[i1] + verts[i2]) / 3.0
+        if zone is not None:
+            x0, x1, z0, z1 = zone
+            if not (x0 <= cx[0] <= x1 and z0 <= cx[2] <= z1):
+                continue
+        g = face_grads(verts, uvs, (i0, i1, i2))
+        if g is None:
+            continue
+        gu, gv, hand, _ = g
+        faces.append((fi, cx, float(np.linalg.norm(gu)),
+                      float(np.linalg.norm(gv)), hand))
+        gus[fi] = (gu, gv)
+        for a, b in ((i0, i1), (i1, i2), (i2, i0)):
+            ka = (round(float(verts[a][0]), 3), round(float(verts[a][1]), 3),
+                  round(float(verts[a][2]), 3))
+            kb = (round(float(verts[b][0]), 3), round(float(verts[b][1]), 3),
+                  round(float(verts[b][2]), 3))
+            ek = tuple(sorted((ka, kb)))
+            edge_map.setdefault(ek, []).append(
+                (fi, {ka: uvs[a].copy(), kb: uvs[b].copy()}))
+    edges = []
+    for ek, uses in edge_map.items():
+        if len(uses) != 2:
+            continue
+        (fa, uva), (fb, uvb) = uses
+        gua = gus[fa][0]
+        gub = gus[fb][0]
+        na, nb = np.linalg.norm(gua), np.linalg.norm(gub)
+        if na < 1e-9 or nb < 1e-9:
+            dang = 180.0                                    # smear vs anything
+        else:
+            dang = math.degrees(math.acos(
+                max(-1.0, min(1.0, float(gua @ gub) / (na * nb)))))
+        jump = max(float(np.abs(uva[k] - uvb[k]).max()) for k in uva)
+        mid = np.array(ek[0]) * 0.5 + np.array(ek[1]) * 0.5
+        edges.append((fa, fb, mid, dang, jump))
+    return faces, edges
+
+
+def _flow_summary(label, faces, edges):
+    gm = np.array([[f[2], f[3]] for f in faces]) if faces else np.zeros((0, 2))
+    hands = np.array([f[4] for f in faces]) if faces else np.zeros(0)
+    nzero = int((gm.max(axis=1) < 1e-6).sum()) if len(gm) else 0
+    print(f"[{label}] {len(faces)} faces, {len(edges)} shared edges")
+    if len(gm):
+        p = np.percentile
+        print(f"   |grad| u p1/p50/p99: {p(gm[:,0],1):.5f}/{p(gm[:,0],50):.5f}/"
+              f"{p(gm[:,0],99):.5f}   v: {p(gm[:,1],1):.5f}/{p(gm[:,1],50):.5f}/"
+              f"{p(gm[:,1],99):.5f}")
+        print(f"   handedness: {int((hands > 0).sum())} pos / "
+              f"{int((hands < 0).sum())} neg   constant-uv faces: {nzero}")
+    if edges:
+        da = np.array([e[3] for e in edges])
+        seams = [e for e in edges if e[4] > 0.03]
+        print(f"   edge d-angle(u) p50/p90/p99: {np.percentile(da,50):.1f}/"
+              f"{np.percentile(da,90):.1f}/{np.percentile(da,99):.1f} deg   "
+              f"uv-cut edges (jump>0.03): {len(seams)}")
+    return gm, hands
+
+
+def cmd_flow(tag="live"):
+    """Judge the corner's texture flow against two references: the stock donor
+    block (5,14) and the live bench OUTSIDE the corner (owner-passed look)."""
+    print("=== reference: stock donor block (5,14), disc 1 ===")
+    bm = X.read_block(5, 14, disc=1, part="terrain")
+    ox, oz = X.block_world_origin(5, 14)
+    pos = np.asarray(bm.chan_arrays[X.CH_POS], dtype=np.float64)
+    pos[:, 0] += ox
+    pos[:, 2] += oz
+    suv = bm.chan_arrays.get(X.CH_UV)
+    suv = np.asarray(suv, dtype=np.float64)[:, :2]
+    sf, se = flow_records(pos, suv, np.asarray(bm.tris, dtype=np.int64))
+    sgm, shands = _flow_summary("stock 5,14", sf, se)
+
+    batches = load_batches(state_src(tag))
+    terr = [(p, v, u, t) for (p, v, u, t) in batches if p == "Terrain"]
+    bench_f, bench_e, corner_f, corner_e = [], [], [], []
+    x0, x1, z0, z1 = CORNER_BBOX
+    for _, v, u, t in terr:
+        cf, ce = flow_records(v, u, t, zone=CORNER_BBOX)
+        corner_f += cf
+        corner_e += ce
+        bf, be = flow_records(v, u, t)
+        bench_f += [f for f in bf if not (x0 <= f[1][0] <= x1 and z0 <= f[1][2] <= z1)]
+        bench_e += [e for e in be if not (x0 <= e[2][0] <= x1 and z0 <= e[2][2] <= z1)]
+    print("\n=== reference: live bench outside the corner (owner-passed) ===")
+    _flow_summary("bench-out", bench_f, bench_e)
+    print(f"\n=== EVAL: corner bbox {CORNER_BBOX} [{tag}] ===")
+    _flow_summary("corner", corner_f, corner_e)
+
+    lo = float(np.percentile(sgm.max(axis=1), 1)) / 2.0 if len(sgm) else 1e-4
+    hand_ref = 1.0 if (shands > 0).sum() >= (shands < 0).sum() else -1.0
+    smears = [f for f in corner_f if max(f[2], f[3]) < 1e-6]
+    stretch = [f for f in corner_f if 1e-6 <= max(f[2], f[3]) < lo]
+    flips = [f for f in corner_f if f[4] * hand_ref < 0 and max(f[2], f[3]) >= 1e-6]
+    print(f"\n--- verdicts (stock floor {lo:.5f}, stock handedness "
+          f"{'+' if hand_ref > 0 else '-'}) ---")
+    for name, group in (("CONSTANT-UV SMEAR", smears), ("STRETCHED", stretch),
+                        ("HANDEDNESS FLIP (mirrored)", flips)):
+        print(f"{name}: {len(group)} faces")
+        for f in sorted(group, key=lambda f: (f[1][0], f[1][2]))[:12]:
+            print(f"   @({f[1][0]:7.2f},{f[1][1]:6.2f},{f[1][2]:8.2f})  "
+                  f"|gu|={f[2]:.5f} |gv|={f[3]:.5f} hand={f[4]:+.6f}")
+    hot = sorted([e for e in corner_e if e[3] > 45.0 and e[4] <= 0.03],
+                 key=lambda e: -e[3])
+    print(f"ROTATED FLOW (edge d-angle>45deg, uv-continuous): {len(hot)} edges")
+    for e in hot[:12]:
+        print(f"   @({e[2][0]:7.2f},{e[2][1]:6.2f},{e[2][2]:8.2f})  "
+              f"d-angle={e[3]:6.1f}  jump={e[4]:.4f}")
+    return dict(smears=len(smears), stretch=len(stretch), flips=len(flips),
+                rotated=len(hot))
+
+
 # ---------------------------------------------------------------- verbs
 def cmd_render(tag):
     src = state_src(tag)
@@ -307,6 +472,8 @@ def main():
         cmd_render(sys.argv[2] if len(sys.argv) > 2 else "live")
     elif sys.argv[1] == "calibrate":
         cmd_calibrate()
+    elif sys.argv[1] == "flow":
+        cmd_flow(sys.argv[2] if len(sys.argv) > 2 else "live")
     else:
         raise SystemExit(__doc__)
 
