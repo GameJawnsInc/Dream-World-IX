@@ -146,3 +146,44 @@ Deployed to the bench at gates-green; the pre-deploy backup is stamped by the de
 tail. Post-deploy identity vs the built dump verified. **Now awaiting the owner's
 playtest** — the prediction stands as registered: the eye sees THE OVERLAY
 (twice-passed), the feet get stock semantics.
+
+## PLAYTEST 1 (2026-08-01): walk not re-flagged; TWO RENDER DEFECTS, ONE CAUSE — THE HEM LIFT
+
+Owner: *"still have a seam near that V-shaped shore section... the mountain is lifted
+off the grass here. there's a gap in between the ground and mountain. the mountain
+still blocks movement in"* + *"Z-fighting near some of the grass hills now... any type
+of camera movement causes Z-fighting... you can see the banding."*
+
+Diagnosis — both are THE HEM LIFT, the one pass that moved vertices, and both are
+render classes the walk gates are structurally blind to:
+- **Z-fighting**: lifting 200 hem verts to exactly LOWLAND made the carried hem
+  COPLANAR-COINCIDENT with the lawn — two renderable sheets at identical depth.
+  "Dissolves into coincidence" was the walk-side win and the render-side crime.
+- **The V-shore gap**: at the coast notch the donor hem lawfully descends BELOW the
+  lawn toward the water; the lift pulled those verts up to 3.2, lifting the mountain
+  base off the descending shore. (The lock set keyed on exact weld keys — the overlay
+  lies ON the shore, unwelded, so nothing was locked there.)
+- Movement blocking correct throughout (the walk model holds); the registered
+  "visual regression → forensics first, suspect the machinery that moved something"
+  branch fired exactly as declared.
+
+**The fix — THE C-SLICE replaces the lift**: the hem ships as DONOR BYTES again (the
+exact geometry both overlay playtests passed; zero vertex moves restored as the
+round's invariant). Carried walkable tris crossing the lawn plane split at their own
+y = LOWLAND−0.1 iso — a coplanar, render-identical split — and the wholly-below
+pieces become walk-invisible via the downstream C-rule tag, symmetric with the lawn's
+own underlay. Curtains (plan-degenerate) stay whole. The residual untagged crossing
+band (±0.1 of the lawn plane) is sub-eps by construction and non-coincident
+(separated except along the crossing line itself).
+
+**REBUILT + REDEPLOYED same day, both suites green again**: C-slice 59 tris, C-rule
+113 (its reference now includes TAGGED lawn — a dip spanning under an L-tagged zone
+was the only walk-visible surface there, measured at (419.5,−489) gaps 0.31-0.44);
+closure eligibility aligned to the gate threshold (0.25 < 0.3 — three stacks had
+lived in the 0.31-0.37 crack between the two numbers); THE WINDING RESTORE (a weld
+move inverted a small lawn piece to ny −1; bench ground re-oriented by vert swap,
+carried never touched); and the facet gate gained a 1e-3 plan-area floor (a 2e-6
+hair's winding sign is catastrophic-cancellation noise — measured +1e-5 vs −1e-5
+between two evaluations of the same cross product — and can neither hold ground nor
+mis-answer). Walk gates 4/4 on the final bytes; watertight 3 residual (0.06%),
+TEAR 0. Awaiting the owner's re-check of the V-shore and the Z-fighting spots.

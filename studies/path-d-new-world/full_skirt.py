@@ -1091,40 +1091,6 @@ def main() -> int:
         except Exception:
             return None
 
-    # THE HEM LIFT: carried WALKABLE verts that dip below the lawn (the rim
-    # relaxation's DEAD-UNDER artifacts, dips measured 0.05-0.65u) rise to exactly
-    # LOWLAND -- coincident with the lawn, so the two sheets answer identically and
-    # the stack dissolves. Verts welded into carried ROCK or into bench geometry
-    # below the lawn (the foot weld runs y 3.0+) are LOCKED: lifting one side of a
-    # weld is a crack factory.
-    lockv9 = set()
-    for rec, blk in final:
-        if blk is None:
-            if _topo_u(rec) not in WALK_TOPO_U:
-                for r in rec:
-                    lockv9.add(kk(r[0]))
-        else:
-            for r in rec:
-                if r[0][1] < LOWLAND - 1e-6:
-                    lockv9.add(kk(r[0]))
-    out_h = []
-    n_lift = 0
-    for rec, blk in final:
-        if blk is None and _topo_u(rec) in WALK_TOPO_U:
-            nr9 = []
-            for r in rec:
-                if r[0][1] < LOWLAND - 1e-6 and kk(r[0]) not in lockv9:
-                    nr9.append(((r[0][0], LOWLAND, r[0][2]), r[1], r[2], r[3]))
-                    n_lift += 1
-                else:
-                    nr9.append(r)
-            rec = nr9
-        out_h.append((rec, blk))
-    final = out_h
-    if n_lift:
-        print(f"   hem lift: {n_lift} carried walkable verts below the lawn raised "
-              f"to {LOWLAND} (the DEAD-UNDER dips dissolve into coincidence)")
-
     carried_recs = [rec for rec, blk in final if blk is None]
     cov9u = defaultdict(list)
     for rec in carried_recs:
@@ -1280,6 +1246,66 @@ def main() -> int:
 
     def _tag(vr9):
         return [(v[0], v[1], v[2], (ID_DEAD,) + tuple(v[3][1:])) for v in vr9]
+
+    # THE C-SLICE (replaces the HEM LIFT, which the playtest convicted twice: the
+    # lift coplanar-coincided the hem with the lawn -> Z-FIGHTING banding, and at
+    # the V-shore notch it pulled the descending coast hem up off the shore ->
+    # the gap under the mountain). The DEAD-UNDER dips ship as DONOR BYTES again
+    # -- the exact geometry the overlay playtests passed -- and their under-lawn
+    # portions become walk-invisible by TAG like everything else: carried
+    # walkable tris crossing the lawn plane split at their y = LOWLAND - 0.1 iso
+    # (coplanar split, render-identical); the wholly-below pieces are then
+    # caught by the downstream C-rule. Curtains (plan-degenerate) stay whole:
+    # they seal rims visually and the ny filter already walk-hides them.
+    isoC = LOWLAND - 0.1
+    out_h = []
+    n_cslice = 0
+    for rec, blk in final:
+        if blk is not None or _topo_u(rec) not in WALK_TOPO_U:
+            out_h.append((rec, blk))
+            continue
+        ysC = [r[0][1] for r in rec]
+        if not (min(ysC) < isoC < max(ysC)):
+            out_h.append((rec, blk))
+            continue
+        planC = [(r[0][0], r[0][2]) for r in rec]
+        if poly_area2(planC) < 1e-4:
+            out_h.append((rec, blk))                        # curtain: keep whole
+            continue
+        ptsC = []
+        for a9, b9 in ((0, 1), (1, 2), (2, 0)):
+            ya9, yb9 = rec[a9][0][1], rec[b9][0][1]
+            if (ya9 - isoC) * (yb9 - isoC) < 0:
+                t9 = (isoC - ya9) / (yb9 - ya9)
+                pa9, pb9 = rec[a9][0], rec[b9][0]
+                ptsC.append((pa9[0] + t9 * (pb9[0] - pa9[0]),
+                             pa9[2] + t9 * (pb9[2] - pa9[2])))
+        if len(ptsC) != 2 or math.hypot(ptsC[1][0] - ptsC[0][0],
+                                        ptsC[1][1] - ptsC[0][1]) < 1e-6:
+            out_h.append((rec, blk))
+            continue
+        dC = (ptsC[1][0] - ptsC[0][0], ptsC[1][1] - ptsC[0][1])
+        LC = math.hypot(dC[0], dC[1])
+        dC = (dC[0] / LC, dC[1] / LC)
+        posC, negC = slice_line(planC, ptsC[0], dC)
+        cornersC = {(r[0][0], r[0][2]): r for r in rec}
+        n_cslice += 1
+        for pgC in (posC, negC):
+            if len(pgC) < 3 or poly_area2(pgC) < 1e-4:
+                continue
+            vrC = [_piece_vert(rec, cornersC, p[0], p[1]) for p in pgC]
+            for q9 in range(1, len(vrC) - 1):
+                arC = abs((vrC[q9][0][0] - vrC[0][0][0])
+                          * (vrC[q9 + 1][0][2] - vrC[0][0][2])
+                          - (vrC[q9 + 1][0][0] - vrC[0][0][0])
+                          * (vrC[q9][0][2] - vrC[0][0][2]))
+                if arC < 1e-9:
+                    continue
+                out_h.append(([vrC[0], vrC[q9], vrC[q9 + 1]], blk))
+    final = out_h
+    if n_cslice:
+        print(f"   C-slice: {n_cslice} carried hem tris split at the lawn-plane "
+              f"iso (donor bytes restored; the dips ship verbatim)")
 
     out_u = []
     sliced_u = []                                           # (rec, blk, pieces) deferred for the snap
@@ -1444,7 +1470,13 @@ def main() -> int:
         if blk is None:
             continue
         try:
-            if X.decode_id(int(round(rec[0][3][0])))["topograph"] not in GRASS_TOPO:
+            # tagged lawn (4078) still counts as the ground sheet ABOVE a carried
+            # dip: a dip spanning under an L-tagged zone must tag too, or it is
+            # the only walk-visible surface there and the actor grounds under
+            # the ground (measured at (419.5,-489), gaps 0.31-0.44)
+            id9c = int(round(rec[0][3][0]))
+            if (id9c != 4078
+                    and X.decode_id(id9c)["topograph"] not in GRASS_TOPO):
                 continue
         except Exception:
             continue
@@ -1554,13 +1586,16 @@ def main() -> int:
                         pgC = posC if sC > 0 else negC
                         if len(pgC) < 3:
                             break
-                    if len(pgC) < 3 or poly_area2(pgC) < 1e-3:
+                    if len(pgC) < 3 or poly_area2(pgC) < 1e-4:
                         continue
+                    # threshold 0.25 < the gate's 0.3: cover height is linear, so
+                    # its max over the overlap sits at a vertex -- a 0.35 cutoff
+                    # left 0.31-0.37 stacks in the crack between the two numbers
                     for (px2, pz2) in pgC:
                         yC2 = _plane_y([(p[0], p[1], p[2]) for p in
                                         (t3c[0], t3c[1], t3c[2])], px2, pz2)
                         yL2 = _plane_y([r[0] for r in rec], px2, pz2)
-                        if yC2 is not None and yL2 is not None and yC2 > yL2 + 0.35:
+                        if yC2 is not None and yL2 is not None and yC2 > yL2 + 0.25:
                             eligZ = True
                             break
         if not eligZ:
@@ -2020,13 +2055,41 @@ def main() -> int:
         n_dropK = 0
         for rec, blk in final:
             nr9 = [(vmapK.get(kk(r[0]), r[0]), r[1], r[2], r[3]) for r in rec]
-            if len({kk(r[0]) for r in nr9}) == 3:
+            pK, qK, rK = nr9[0][0], nr9[1][0], nr9[2][0]
+            uK = (qK[0] - pK[0], qK[1] - pK[1], qK[2] - pK[2])
+            vK = (rK[0] - pK[0], rK[1] - pK[1], rK[2] - pK[2])
+            a3K = math.sqrt((uK[1] * vK[2] - uK[2] * vK[1]) ** 2
+                            + (uK[2] * vK[0] - uK[0] * vK[2]) ** 2
+                            + (uK[0] * vK[1] - uK[1] * vK[0]) ** 2)
+            # 3 distinct keys is not enough: collinear 0.1-apart welded points
+            # leave a zero-AREA survivor whose winding is numerically unstable
+            # (= the lone render-only facet)
+            if len({kk(r[0]) for r in nr9}) == 3 and a3K >= 1e-9:
                 out_k.append((nr9, blk))
             else:
                 n_dropK += 1
         final = out_k
         print(f"   knot weld: {len(vmapK)} hair-tip verts welded to their "
               f"anchors, {n_dropK} collapsed micro-tris dropped")
+
+    # THE WINDING RESTORE: a weld move can invert a small piece's plan winding
+    # (measured: two flat lawn tris at ny = -1 -- walk-holes and gate facets).
+    # Bench ground is up-wound by kit convention; re-orient by swapping verts
+    # 1<->2 (corner-0 mapid and every channel preserved). Carried recs ship
+    # verbatim and are never touched.
+    n_flipW = 0
+    out_w = []
+    for rec, blk in final:
+        if blk is not None:
+            aW, bW, cW = rec[0][0], rec[1][0], rec[2][0]
+            nyW = (bW[2] - aW[2]) * (cW[0] - aW[0]) - (bW[0] - aW[0]) * (cW[2] - aW[2])
+            if nyW < 0:
+                rec = [rec[0], rec[2], rec[1]]
+                n_flipW += 1
+        out_w.append((rec, blk))
+    final = out_w
+    if n_flipW:
+        print(f"   winding restore: {n_flipW} bench tris re-oriented up-facing")
 
     # ---- gates ------------------------------------------------------------------------------
     fails = []
@@ -2321,7 +2384,14 @@ def main() -> int:
         a6, b6, c6 = (np.array(p) for p in t3w)
         fn6 = np.cross(b6 - a6, c6 - a6)
         L6 = float(np.linalg.norm(fn6))
-        if L6 > 1e-12 and abs(fn6[1]) / L6 <= 0.1:
+        # plan-area floor 1e-3: the class this gate was calibrated on is the
+        # blob's whole down-wound TOP (walk-dead ground AREA); a millimeter-wide
+        # flat hair's winding sign is catastrophic-cancellation noise (measured:
+        # +1e-5 vs -1e-5 between two evaluations of the same cross), holds no
+        # ground, and answers at lawn level even if hit
+        pa6 = abs((b6[0] - a6[0]) * (c6[2] - a6[2])
+                  - (c6[0] - a6[0]) * (b6[2] - a6[2])) / 2.0
+        if L6 > 1e-12 and abs(fn6[1]) / L6 <= 0.1 and pa6 > 1e-3:
             n_facet_w += 1
         k6 = [tuple(round(v, 3) for v in p) for p in t3w]
         for i6, j6 in ((0, 1), (1, 2), (2, 0)):
