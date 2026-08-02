@@ -462,3 +462,78 @@ hot-reloads; re-enter the world map / warp to re-stream the blocks.
 stuck-only-turn, no warp needed; (2) eyeball the waterline along the whole
 V-shore wall foot from the shore and from the sea — it should be unchanged;
 (3) nose the boat against the same shore — still refused, still no landing.
+
+## PLAYTEST 3 (2026-08-02) — the TRAP is dead; the residual is the CATCH
+
+*"well, I don't get stuck anymore which is good."* The ring trap is CONFIRMED
+FIXED in game — no stuck-only-turn, no warp needed. Two residuals at the same
+spot, screenshotted:
+1. **The run-freeze**: hitting the corner, Zidane freezes mid-run-animation
+   instead of the normal reject-to-standing/idle a wall bump gives.
+2. **The broken wall-hug (the owner's "more importantly")**: wall-hugging flow
+   that slides along every normal coast HARD-CATCHES on this mini-edge instead
+   of sliding through. Escapable by turning — a catch, not a trap.
+
+The catch was measurably present in the sim all along: post-fix driven walkers
+still STALL at the wedge (own-ring escape 16-17/32 — free, but stopped). The
+escape gates scored trap-ness, not through-flow; the residual needs its own
+instrument. Diagnosis registered before any fix design: (a) per failing fan
+candidate at the wedge, the reject CLASS (miss vs mask) and the answering
+surface — the freeze suspect is the reject-class change (the cut turned sea
+mask-hits into MISSES somewhere near the walk edge; a stall with held input
+freezes the stride, a mask bump idles); (b) coast-hugging walkers driven
+around the corner AND along a healthy control stretch (the east shore) — the
+flow defect reproduced as net-progress-zero, the control sliding through;
+(c) the engine source read on the miss-vs-mask reject paths (anim state).
+Instrument: `probe_vcorner_flow.py`.
+
+## FLOW DIAGNOSIS (2026-08-02) — THE FAN-TURN LAW; the reject-class suspect REFUTED
+
+`probe_vcorner_flow_output.txt`. The measurement overturns the registered
+suspect and names the real mechanism:
+
+- **No MISS exists at the wedge.** All 15 failing headings are mask-rejects —
+  13 on the wall (Terrain#44/#45, topo 58), 2 on KEPT boundary sea sub-tris
+  (Sea4#1000/#1001, topo 56). The sea cut left the reject class at the walk
+  edge identical to a stock coast; the freeze is NOT a miss-class artifact.
+- **The catch reproduced**: hug walkers (along-coast heading biased 22.5-45°
+  into the wall — the player's wall-hug) stall 383-394/400 ticks pinned at
+  (376.4,−509.4). The CONTROL (east shore, same hug): PASSED, 0 stalls, pure
+  deflect-slide. The sim shows the playtest verbatim.
+- **THE FAN-TURN LAW (the minted mechanism)**: the wedge's failing arc is
+  h11-h25 = [123.75°, 281.25°]. A hug heading of 202.5° has a fan of exactly
+  ±78.75° = [123.75°, 281.25°] — the WHOLE fan inside the failing arc — while
+  the walkable continuation around the corner sits at ~112.5-115°, ~9° beyond
+  the fan's reach. Held input → the fan fails every tick → stall; heading
+  EXACTLY south still slides (its fan bottom just reaches 112.5° — the
+  razor-thin margin the replay walkers threaded). **A walkable boundary may
+  not turn more than the fan half-span (78.75°) at one vertex, or the
+  wall-slide dies there.** Stock coasts turn gradually; the V-corner's crest
+  turns ~88° at the single vertex (376.29, 3.2, −509.40). The run-freeze is
+  the fully-failed fan with input held (zero movement, the stride freezes);
+  the deflect-slide never reaches an idle state on normal walls.
+
+## THE CORNER FILLET (the fix round, registered — build pending)
+
+Design: **round the crest turn at the apex** so no boundary vertex turns more
+than ~45°: insert 1-2 crest verts at the corner, extending the lawn a small
+fillet seaward (~1-1.5u radius, sub-2u² of new lawn) with the wall face + foot
+following, in the wall's own vocabulary. The open arc at the wedge widens from
+~112.5° to ≥150°, putting the continuation inside every hug heading's fan —
+the slide survives the corner in both directions, which also removes the
+freeze state (the fan never fully fails while hugging).
+
+Implementation route: full_skirt.py owns Terrain — the fillet belongs IN the
+generator (like THE TUCK), gated first by byte-exact reproduction of the live
+Terrain from an unchanged run (worktree calibration); a standalone patch is
+the fallback WITH a loud fold-back debt note. The fillet extends land over
+kept sea sub-tris → re-run `vcorner_sea_cut.py` after the terrain change (the
+per-class treatment re-cuts the newly-covered fragments).
+
+Gates (all must pass before deploy): hug walkers PASS the corner in both
+directions at 22.5° AND 45° bias (the new THROUGH-FLOW gate, control stretch
+still passing); the wedge fan's open arc ≥ [112.5°, 315°]; the full prior
+suite (latent hard = 0, hidden-cut, boat legality, cold-map delta confined to
+the fillet zone); ringdump replay still escape-clean. In-game (owner): the
+wall-hug slides around the corner without catching; no mid-run freeze; the
+corner look unchanged from shore and sea.
