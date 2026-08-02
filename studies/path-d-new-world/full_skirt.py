@@ -2103,30 +2103,34 @@ def main() -> int:
     # pristine bench's own free-edge envelope) and resting ON the sheet below over
     # own ground (declared deviation from stock's weld-in: re-authoring the sheet
     # below is the defect factory this arc measured).
-    # AMENDED at the build gate (VSHORE-SEAL-PREDICTION.md addendum): gF's global
-    # render-vocabulary census showed the west rim CONTINUES north of C4's W1 (two
-    # ~2u-drop edges its scan-vocabulary test missed) and connects the x=384 border
-    # edge and the 1.56u skirt edge into ONE chain -- sealed entire per the
-    # whole-chain rule.
+    # ROUND 2 (VSHORE-SEAL-PREDICTION.md): playtest 1 rejected the GROUND-curtain
+    # class -- the strip's art is a stock forest's canopy WALL (the owner's
+    # decode: a canopied walkable forest rests against the mountain; the east
+    # sliver is a carried fragment of that assembly). The owner's lane is B at
+    # the cut: THE TUCK -- the west-border-rim chain's verts are OUR clip line
+    # (fits_bench), and they move straight DOWN to the surface below, bending
+    # the wall sheet's last course to touch the lawn at an EDGE (the donor
+    # foot-weld contact class). The over-sea seals stay but re-skin in the bench
+    # shore's own topo-58 cliff vocabulary (byte-sampled beside east: the
+    # pristine shore IS a lawn-to-water curtain in exactly this vocabulary).
+    TUCK_CHAIN = [
+        (387.484, 3.938, -491.484), (384.0, 5.583, -496.0),
+        (384.0, 5.454, -499.461), (383.191, 4.919, -504.0),
+        (382.109, 5.376, -508.0), (384.0, 4.797, -512.0),
+        (384.0, 4.215, -516.449), (385.43, 4.106, -520.465),
+        (384.0, 3.598, -520.344)]
     CURTAIN_CHAINS = [
         ("east", "sea", [(448.0, 3.149, -508.0), (448.0, 3.149, -504.0)]),
-        ("west-border-rim", "ground", [
-            (387.484, 3.938, -491.484), (384.0, 5.583, -496.0),
-            (384.0, 5.454, -499.461), (383.191, 4.919, -504.0),
-            (382.109, 5.376, -508.0), (384.0, 4.797, -512.0),
-            (384.0, 4.215, -516.449), (385.43, 4.106, -520.465),
-            (384.0, 3.598, -520.344)]),
         ("W2", "sea", [(380.0, 3.2, -520.0), (380.083, 3.2, -516.729)]),
         ("south-sea", "sea", [(448.0, 2.794, -540.0), (448.0, 3.1, -537.949),
                               (448.0, 3.391, -536.0)]),
     ]
-    V_TOP_S, V_BOT_S = 930.0 / 1024.0, 961.0 / 1024.0
-    ecS = defaultdict(list)
-    for riS, (recS, _bS) in enumerate(final):
-        ksS = [kk(r[0]) for r in recS]
-        for aS, bS in ((0, 1), (1, 2), (2, 0)):
-            ecS[tuple(sorted((ksS[aS], ksS[bS])))].append((riS, aS, bS))
-    covS = defaultdict(list)                                # up-facing sheets (ground bottoms)
+    # the bench cliff class, byte-sampled from the pristine shore beside east:
+    # v = corner-role pins (crest 0.893 / base 0.923), u = along-shore sawtooth
+    V_TOP_S, V_BOT_S = 0.893, 0.923
+    U0_S, URATE_S, USPAN_S = 0.699, 0.012643, 0.947 - 0.699
+    TAN_CLIFF = (232.0, 0.0, 0.0, 1.0)
+    covS = defaultdict(list)                                # up-facing sheets (tuck targets)
     for recS, _bS in final:
         t3S = [r[0] for r in recS]
         aV, bV, cV = (np.array(p) for p in t3S)
@@ -2154,6 +2158,46 @@ def main() -> int:
                 if yS < ymax - 0.25 and (hit is None or yS > hit):
                     hit = yS
         return hit
+
+    # THE TUCK: cluster-move each cut-line vert straight down onto the surface
+    # below (0.02 cluster radius -- near-duplicate skirt verts move together and
+    # stay welded; plan positions unchanged, so the 4078 tag boundary and the
+    # camera footprint are untouched)
+    tuck_report = []
+    for tv in TUCK_CHAIN:
+        yT = _surf_belowS(tv[0], tv[2], tv[1])
+        if yT is None:                                      # knife-edge: the sheet below can
+            for offx, offz in ((0.05, 0), (-0.05, 0), (0, 0.05), (0, -0.05),
+                               (0.2, 0), (-0.2, 0), (0, 0.2), (0, -0.2)):
+                yT = _surf_belowS(tv[0] + offx, tv[2] + offz, tv[1])
+                if yT is not None:
+                    break
+        assert yT is not None and yT > 0.5, f"TUCK: no sheet under {tv}"
+        n_mv = 0
+        for riT, (recT, blkT) in enumerate(final):
+            hit = False
+            nr = []
+            for (pT, uT, nT, tT) in recT:
+                if (abs(pT[0] - tv[0]) < 0.02 and abs(pT[2] - tv[2]) < 0.02
+                        and abs(pT[1] - tv[1]) < 0.02):
+                    nr.append(((pT[0], yT, pT[2]), uT, nT, tT))
+                    hit = True
+                    n_mv += 1
+                else:
+                    nr.append((pT, uT, nT, tT))
+            if hit:
+                final[riT] = (nr, blkT)
+        assert n_mv, f"TUCK: cut vert {tv} not found in the soup"
+        tuck_report.append((tv, yT, n_mv))
+    print("   THE TUCK: " + "; ".join(
+        f"({v[0]:.0f},{v[2]:.0f}) y {v[1]:.2f}->{y2:.2f} x{nm}"
+        for v, y2, nm in tuck_report))
+
+    ecS = defaultdict(list)                                 # once-edges POST-tuck
+    for riS, (recS, _bS) in enumerate(final):
+        ksS = [kk(r[0]) for r in recS]
+        for aS, bS in ((0, 1), (1, 2), (2, 0)):
+            ecS[tuple(sorted((ksS[aS], ksS[bS])))].append((riS, aS, bS))
 
     curtain_declared = set()
     n_ct = 0
@@ -2186,32 +2230,14 @@ def main() -> int:
         for i9 in range(1, len(vrecs)):
             runS.append(runS[-1] + math.hypot(vrecs[i9][0][0] - vrecs[i9 - 1][0][0],
                                               vrecs[i9][0][2] - vrecs[i9 - 1][0][2]))
-        uS = [(115.0 + ((15.0 * s9) % 126.0)) / 1024.0 for s9 in runS]
-        botS = []
-        for i9, vr in enumerate(vrecs):
-            pT = vr[0]
-            if cmode == "sea":
-                botS.append((pT[0], 0.0, pT[2]))
-            else:
-                yB = _surf_belowS(pT[0], pT[2], pT[1])
-                if yB is None:                              # knife-edge: sheet ends plan-exactly
-                    segN = segs[min(i9, len(segs) - 1)]     # under the rim -- probe both sides
-                    exS, ezS = (segN[1][0][0] - segN[0][0][0],
-                                segN[1][0][2] - segN[0][0][2])
-                    LeS = math.hypot(exS, ezS) or 1.0
-                    for offS in (0.05, -0.05, 0.15, -0.15, 0.35, -0.35):
-                        yB = _surf_belowS(pT[0] - ezS / LeS * offS,
-                                          pT[2] + exS / LeS * offS, pT[1])
-                        if yB is not None:
-                            break
-                assert yB is not None and yB > 0.5, (
-                    f"CURTAIN SEAL: no ground sheet under {cname} vert {kk(pT)}")
-                botS.append((pT[0], yB, pT[2]))
-        # emit one quad (2 tris) per segment, outward-wound, mapid owner-copied
+        uS = [U0_S + ((URATE_S * s9) % USPAN_S) for s9 in runS]
+        botS = [(vr[0][0], 0.0, vr[0][2]) for vr in vrecs]  # sea chains: waterline
+        # emit one quad (2 tris) per segment, outward-wound, the bench's own
+        # topo-58 cliff class (ROUND 2: the forest strip read as a canopy wall)
         for i9, (cAS, cBS, riS, blkS) in enumerate(segs):
             recO, _bO = final[riS]
-            tanO = recO[0][3]                               # the owner tri's FIRST-corner
-            nrmO = recO[0][2]                               # tangent pins the quad's mapid
+            tanO = TAN_CLIFF                                # the shore's own (232,0,0,1)
+            nrmO = recO[0][2]
             pA, pB = vrecs[i9][0], vrecs[i9 + 1][0]
             qA, qB = botS[i9], botS[i9 + 1]
             t3o = [r[0] for r in recO]

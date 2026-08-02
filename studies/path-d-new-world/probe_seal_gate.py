@@ -128,36 +128,47 @@ def main():
           f"{n_ext_hover} site-external hovers >1u (for the record)")
 
     # ---- curtain invariants (uvs read from the built files directly) --------------
-    n_curt = 0
+    # ROUND 2: the only forest-pin curtain left is the donor's own 0.051u sliver
+    # at east (carried stock bytes); the minted seals are the bench's topo-58
+    # cliff class (v corner-role pins 0.893/0.923 = texels 914/945, u sawtooth
+    # in [0.699,0.947]) -- 4 quads / 8 tris (east 1 + W2 1 + south-sea 2).
+    n_forest = 0
+    n_cliff = 0
+    n_native = 0
     bad_uv = 0
-    bad_ny = 0
     for (bx, by), p in sorted(tsrc.items()):
         bm = W.M.blockmesh_from_ff9mesh(p, disc=W.DISC, x=bx, y=by, part="terrain")
         pos = bm.chan_arrays[W.X.CH_POS]
         uv = bm.chan_arrays[W.X.CH_UV]
         for t in bm.tris:
             vpins = {round(uv[i][1] * 1024) for i in t}
-            if vpins != {930, 961}:
-                continue                                    # not a seal curtain
-            n_curt += 1
+            if vpins == {930, 961}:
+                n_forest += 1
+                continue
+            if vpins != {914, 945}:
+                continue
+            # the bench's NATIVE coastal cliff band carries the same pins (the
+            # re-skin speaks its exact language) -- but it is SLOPED here; only
+            # the minted seals are vertical
             a = tuple(pos[t[0]])
             b = tuple(pos[t[1]])
             c = tuple(pos[t[2]])
             if abs(W.up_ny(a, b, c)) > 0.05:
-                bad_ny += 1
+                n_native += 1
+                continue
+            n_cliff += 1
             for i in t:
-                if not (114.9 <= uv[i][0] * 1024 <= 241.1):
+                if not (0.6989 <= uv[i][0] <= 0.9471):
                     bad_uv += 1
-    # 24 minted (1 east + 8 west-border-rim + 1 W2 + 2 south-sea quads x 2 tris)
-    # + 1 pre-existing donor curtain sliver at east (C4: the 0.051u mapid-1940
-    # mini-curtain, same construction, same pins -- carried stock bytes)
-    print(f"curtain tris by uv-pin signature: {n_curt} (expect 25 = 24 minted + "
-          f"1 donor sliver); off-strip u samples: {bad_uv}; non-vertical: {bad_ny} "
-          f"(both MUST be 0)")
-    if n_curt != 25:
-        fails.append(f"invariants: {n_curt} curtain tris, expected 25")
-    if bad_uv or bad_ny:
-        fails.append(f"invariants: {bad_uv} off-strip u / {bad_ny} non-vertical")
+    print(f"curtain census: {n_forest} forest-pin (expect 1 = the donor sliver), "
+          f"{n_cliff} VERTICAL cliff-pin minted (expect 8), {n_native} sloped "
+          f"cliff-pin = the bench's native shore band (report only); "
+          f"off-strip u: {bad_uv} (MUST be 0)")
+    if n_forest != 1 or n_cliff != 8:
+        fails.append(f"invariants: {n_forest} forest / {n_cliff} vertical cliff "
+                     f"curtains, expected 1 / 8")
+    if bad_uv:
+        fails.append(f"invariants: {bad_uv} off-strip u samples")
 
     # top-edge weld: proven by gF -- an unsealed rim edge would still read hover
 
@@ -177,8 +188,8 @@ def main():
         for f in fails:
             print("  !!", f)
         return 1
-    print("SEAL GATE: GREEN (gF 0 site hovers; 25 curtains on-strip; "
-          "additive counts match)")
+    print("SEAL GATE: GREEN (gF 0 site hovers; cliff seals on-strip; "
+          "block counts match)")
     return 0
 
 

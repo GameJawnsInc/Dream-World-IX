@@ -183,3 +183,40 @@ a .... creative choice."* Scores:
   re-skin in the cliff vocabulary is the already-measured candidate for them.
 The lane choice is the owner's; the live bench still carries this build until
 the next round deploys.
+
+**THE OWNER'S DECODE (with the B pick)**: the curtain strip's art is the canopy
+WALL of a stock forest that RESTS AGAINST the mountain — "a canopied, walkable
+forest rests along the mountain... I think what you copied was that stock forest
+resting against the mountain (probably an unstudied/unexpected stock shape)."
+So the strip is not a generic under-rim seal; it is the forest assembly's own
+wall, and the east sliver we carried is a fragment of that forest-against-
+mountain shape. Explains C2's "22/24 plain-ground curtains use the forest
+strip" — those sit in vegetation contexts. Banked as a first-class fact.
+
+## ROUND 2 — THE TUCK + THE CLIFF RE-SKIN (registered before the rebuild, 2026-08-02)
+
+Owner's lane: **B at the cut**. Two changes, per-site attributable:
+1. **THE TUCK (the west-border-rim chain, 9 verts)**: the ground curtains are
+   DELETED; instead the clipped cut-edge verts (OUR clip line, not donor
+   interior) move straight DOWN to the surface below them (cluster-move within
+   2e-3 so near-duplicate skirt verts stay welded; plan positions unchanged, so
+   the 4078 tag boundary and the camera footprint are untouched). The wall
+   sheet's last course bends to touch the lawn at an EDGE — the donor foot-weld
+   contact class (line contact, no area overlap, no z-fight).
+2. **THE CLIFF RE-SKIN (east / W2 / south-sea, 4 quads / 8 tris)**: the over-sea
+   seals keep their geometry but drop the forest strip for the bench shore's own
+   topo-58 cliff vocabulary, byte-sampled from the pristine shore beside east:
+   tangent4 (232,0,0,1), v crest 0.893 / base 0.923 (THE WALL V CORNER-ROLE
+   LAW), u sawtooth from 0.699 at 0.01264/u wrapping [0.699,0.947]. The pristine
+   shore there is ALREADY a lawn-to-water curtain in this exact vocabulary — the
+   re-skinned seals are the bench coast continuing across the crossings (C3's
+   measured stock answer: the coast seal IS the topo-58 curtain).
+
+Predictions: **P1r2** the lawn fins are gone and the mountain base meets the
+grass, reading as the wall's own foot; **P2r2** the coast crossings read as the
+bench's rock lip continuing, slits stay closed; **P3r2** no z-fighting at the
+contact line; **P4r2** walk/camera unchanged. Gates: all three suites green; the
+change-class gate replaces additive-only (diffs confined to tris containing the
+9 moved cut verts, the 8 re-skinned quads, and the 16 deleted ground-curtain
+tris); if the inline climb gate fires on tuck side edges, the treatment is
+DECLARED here in an amendment before deploy, never silently.
