@@ -850,6 +850,95 @@ Every page you get back now carries **`depth_source`**, and the plan/report line
 > 2,385, byte for byte, because a caller that declines to consult `so-array` is told nothing by it,
 > refusals included. Decline channel A and every W6b-2 number comes back exactly.
 
+#### THE EFFECTIVE COVER — where a model actually SAMPLES, not where its record BINDS
+
+Every channel above answers *"at what depth are these bytes read?"*. There is a second question
+underneath all of them — **which cell does a model actually sample?** — and until W6b-3 (iv) this kit
+answered it with the cell the record BINDS, because that is all it could read.
+
+The `so` record carries a **second array** (`P × {u16, u16}`) that the reader used to walk past. Four
+log-only casts measured what it does: **`effective = stored + halfword`, on each axis independently,
+LINEAR ADDITION** — pair position 0 displaces `u` (in texels, converted at the page's own depth) and
+position 1 displaces `v` (in VRAM lines, depth-free). Measured on ef038 at 0.97, generalised on ef227
+and ef446 with control gates PASS, and the operation settled by a value test on ef227 that excludes
+OR, XOR, a flag reading and inertness. The model is named **`linear-add-v1`** wherever the kit stamps a
+derivation. 151 of the corpus's 340 readers carry a non-zero pair; **68 of them carry a `v` term
+only**, which moves the read into the *other stacked cell of the same column*.
+
+**What it changes for you.** The kit keeps two answers and names both: the **bound** cover (what the
+record states — unchanged, and what every writer-side derivation still uses) and the **effective**
+cover (what the hardware reads — what the editable surface is now joined on). Pages carry
+`readership = "bound" | "displaced"`, which is a separate field from `depth_source` on purpose.
+
+- **45 cells in 26 containers now REFUSE as `displaced-readerless`** — every model the container binds
+  to those bytes samples somewhere else. 41 of them carry no other export-blocking refusal. ⚠ These
+  rows did not build before this rung either — the previous rung's second-array gate already refused
+  every one of them. What is new is that the kit can now say *where the readers went*, and refuses at
+  export instead of at build, so you learn it before you paint. 7 more cells (10 page names) refuse as
+  `displaced-readership-substituted`, where a **disjoint
+  foreign** set of models arrives instead — paint there and a *different* model shows it. Both are
+  lifted by the same key those rows already needed,
+  `acknowledge_second_array_displacement = true`, and `export-art --acknowledge-displacement` puts the
+  refused cells back on the export lane — **but not, on 16 of the 55 names, the picture you had.** The
+  ledger is the next bullet and it is not a footnote to this sentence.
+- **⚠ THE KEY LIFTS THE REFUSAL, NOT THE GUARANTEE — and the ledger is measured, not promised.** Over
+  all **55** page names the two classes cover (45 `displaced-readerless` + 10
+  `displaced-readership-substituted`; that second class is 7 *cells*, one of which four writer slots
+  upload), with the key said:
+
+  | with the key you get | names | what happened |
+  |---|---|---|
+  | the **identical** picture | **39** | 34 of them move only `depth_source`, `so-uv` → `so-page`: the cell falls back to its **column's** depth at the **same** bit depth. This is the common case and it is why the fallback exists |
+  | a **DIFFERENT** picture | **6** | **four flip 4 bpp → 8 bpp** — ef179 `cell.id9.s0.x768_y256`, ef227 `cell.s0.x512_y256`, ef498 `cell.id9.s0.x832_y256`, ef498 `cell.s0.x576_y256`: *the same 16,384 bytes handed back as a different picture*, half the texel width, indexed through a 256-entry key instead of a 16-entry one. Two more (ef226 `cell.s0.x512_y256`, ef424 `cell.s0.x448_y384`) keep their depth and change CLUT |
+  | **nothing at all** | **10** | the refusal lifts and the cell falls straight through to `depth-unknown` (9) or `channel-g-dual-depth` (1) — the channel that has to speak next does not always have an answer either, and when it has two that is a hazard, not a vote |
+
+  So acknowledging is not "give me my page back". If you ack a cell and the export comes out indexed
+  against a 256-entry palette it was never keyed to, that is this table and not a bug: what you are
+  handed is the *arriving* model's rendering or the *column's*, which is exactly the substitution the
+  class names warn about. And on 10 of 55 names the key buys you nothing at all.
+- **70 declared cells GAIN a reader they do not bind, 29 of them (30 page names) previously
+  `depth-unknown`** — and that half needs no key at all, because the arriving model states its depth
+  off its own `so` record. ⚠ **That is the honest limit of this rung, and it is an asymmetry, not a
+  convenience.** Where the derivation takes readership *away* the kit refuses and you override it with
+  a stated key; where it *hands* readership to a cell nothing binds, the page is licensed on the
+  derivation alone with nothing to gate it — so if `linear-add-v1` does not hold on your container, a
+  perfect repaint of a gained cell is **invisible in game with no error anywhere**, which is the same
+  silent failure the loss half refuses to let you risk. The export scaffold says `GAINED` on every one
+  of them; a cast is the only thing that closes it. **27 of those 30 hand back a paintable PNG:**
+  21 straight out of
+  `export-art`, and 6 more (all 15 bpp) via `export-art --art-lane direct15`. The other **3 hand back
+  nothing in either lane** — all on ef038, all blocked by the pre-existing and correct
+  `program-vram-write` refusal, which is an older and separate judgement about whether an edit survives
+  the cast at all.
+
+  The worked case is therefore **ef407**, not ef038. It declares both cells of column 704 and binds no
+  reader to either, so every earlier kit handed you neither picture — while 20 of the 27 readers it
+  attributed to `cell.s0.x640_y256` sample column 704 instead. You now get `cell.s0.x704_y256`
+  (1 reader) and **`cell.s0.x704_y384` (20)** — the lower stacked cell, because the `v` term puts them
+  there — and both of those pages really do export. ⚠ **ef038 is that same derivation cell for cell and
+  delivers no art at all:** it is a program-VRAM writer, so `cell.s0.x640_y256`, `cell.s0.x704_y256`
+  and `cell.s0.x704_y384` are all refused `program-vram-write`, and `export-art --ef 38` writes none of
+  them. Derivable is not deliverable.
+- One VETO, `displaced-vs-page-depth`: a gained cell whose arriving model contradicts the column's own
+  page depth. Two values is a hazard, not a vote — the kit states both and picks neither.
+
+**Scope, and it is the containment.** There are now three channel sets: `CENSUS_CHANNELS` (frozen at
+W6b-1), `LICENSED_CHANNELS` (frozen at the W6b-3 scope), and **`EDIT_CHANNELS`** — the licensed set
+plus `so-displaced` — which is what `texel_page`, `export-art`, `build`, `scenery_texel_pages` and
+`scenery_lines` default to. Measured over all 372 containers, **the first two surfaces are
+byte-identical before and after this rung**: 0 moved pages, 0 moved cells, 0 moved refusal classes,
+0 moved bytes. One deliberate exception, stated so a literal diff does not read as a surprise: the
+55 `second-array-mover` records on the licensed surface carry a **rewritten reason string**, because
+the caveat they quote was rewritten when the mechanism generalised. No page, cell, class or emitted
+byte moves with it, and `u1_gates` U6 pins the retired wording as ABSENT so a silent revert fails
+loud.
+
+**And the reach is stated, not implied.** A `P >= 2` record's array entry order is unmeasured, so
+`Binding.mover` refuses to answer there and **142 novel slots carry a pair nothing here models**. The
+effective cover is a **lower bound** on readership, which is why every refusal in this class says *"no
+reader this kit can attribute samples here"* and never *"nothing reads it"*. Deriving that a model
+samples a cell makes it DERIVABLE, never proven visible: BINDING-IS-NOT-A-DRAW still holds.
+
 **CHANNEL G LICENSES.** It is not new evidence — it is the *same* `so` record the lane already ships
 on, read at the granularity the hardware actually uses. Calling that an inference would mean the kit's
 existing depth source has been an inference all along. 55 of its 57 cells are the lower half of a tall

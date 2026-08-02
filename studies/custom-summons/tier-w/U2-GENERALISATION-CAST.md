@@ -1,9 +1,18 @@
 # U2 — THE GENERALISATION CAST. Four log-only casts in one launch: ef227, ef446, ef424, ef038
 
-> **STATE — PRE-REGISTERED, NOT YET CAST.** This document is written *before* the cast and must not be
-> edited after the log is read except to append a scored result under §10. Everything in §3 is a
-> prediction on the record; changing a prediction after seeing the log destroys the only thing this
-> document is for.
+> **STATE — ★★★ CAST, SCORED, AND CLOSED. Owner-run 2026-08-01. THE RESULT IS §12.**
+> **Q1 GENERALISATION: YES** — displacement confirmed on two containers never measured before (ef227
+> and ef446), each behind its own passing control gate, plus ef038 reproducing in the same log.
+> **Q2: MAGNITUDE, NOT A FLAG** — refuted independently on both new containers.
+> **THE OPERATION: ADDITION** — `ADD | ADD_MOD256`, resolved on ef227's answer key `598000` at an
+> EQUALITY gate (tri ratio 1.00), by the **value histogram**, not the span. ef424 is **REFUSED** and is
+> not a witness. **ADD vs ADD_MOD256, and wrap vs clamp, are recorded CLOSED-UNANSWERABLE on stock
+> data** — not as open riders (§12.7).
+>
+> **THE PRE-REGISTRATION HELD.** §§0–11 below were written *before* the cast and are **HISTORY**: not
+> one prediction was edited after the log was read. §12 is the only section written afterwards, and
+> §10's append marker now points at it. Everything in §3 is a prediction on the record; changing a
+> prediction after seeing the log would have destroyed the only thing this document is for.
 >
 > **REPAIRED PRE-CAST, after FIVE independent adversarial verifications across four rounds, and
 > CLEARED TO CAST.** All five returned the same top-line verdict: **keep the vehicle** — ef227 survives adversarial testing, every archive
@@ -1704,7 +1713,8 @@ Two further text obligations this repair created, to be spent in that same coord
 - **Wrap and clamp are not castable** on stock bytes (§3.6). Text that carries them as an open
   measurable question should say "not testable without authoring a high-UV displacement ourselves".
 
-*(Append the scored result here after the cast. Do not edit §3.)*
+*(★ **THE SCORED RESULT IS §12** — appended after the cast, as this line always said it would be. §3
+was not edited, and neither was anything else above §12.)*
 
 ---
 
@@ -1756,3 +1766,473 @@ the mechanism read at `…\u1-second-array\s77-read\REPORT-S77-READ.md`, and the
 
 The engine instrument is `memoria-patches/s77-sfx-uv-range.patch`, already built and deployed on both
 arches. **This protocol does not rebuild, redeploy, or revert it.**
+
+---
+
+## 12. ★★★ THE RESULT — owner-run 2026-08-01, scored
+
+> **This is the only section written after the log was read.** Nothing above it was touched except the
+> state banner and §10's append marker. Everything §3 predicted, it predicted before the launch.
+
+**The log.** `…\repaint-w6b\capture-logs\08012026sfxprobe.log` — 65,211,294 bytes, sha256 prefix
+`727c6131`. **29,663 UVR rows · 33,942 MESH rows · 0 orphan UVR rows · 0 malformed rows.**
+Scored by `score_uvr.py`; report at `…\second-container-cast\score-out\score.08012026sfxprobe.json`.
+
+### 12.1 THE SESSION IS VALID — the four session-level gates, all green
+
+| gate | measured | reading |
+|---|---|---|
+| **CAST SEGMENTATION** | `cast_breaks` **empty**. Exactly ONE cast per effect, no frame-index decrease anywhere. **ef038 [48..391]** (9,516 MESH) · **ef227 [11..515]** (19,195) · **ef424 [41..97]** (1,499) · **ef446 [41..180]** (3,732) | four casts, four contiguous windows. `L7-MULTICAST` did not fire, and did not need to. |
+| **PRIMCAP** | **1,188,870 of 3,000,000 — 39.63%**. No `# PRIM CAPTURE TRUNCATED` marker. Per effect: 227 → 593,048 · 38 → 445,756 · 446 → 95,131 · 424 → 38,885 | §6.2's budget was right. Nothing was scored across a truncation. |
+| **15 BPP LIVENESS** | **`15BPP-PATH-ALIVE`.** `tp` histogram over all UVR rows: **4 bpp 11,667 · 8 bpp 16,601 · 15 bpp 1,395.** Cohort keys `408000` and `428000` emitted **302 UVR rows each**. | §4.6 settled EMPIRICALLY. See §12.6. |
+| **SELFTEST (the ef038 replication)** | **PASSED**, 3 of 3, `failures` empty. | §12.5. |
+
+⚠ **`L5-KEY-COLLIDER` fired, and it is the run's `TOP:` line — which is a presentation hazard worth
+naming.** **17 masked keys in this file are carried by more than one effect** (including `598000` by
+ef227 and ef424, `37BD80` by ef227/ef424/ef446, and `3BBDC0` by ef424/ef446 — §5.1 predicted three of
+them and the real log has seventeen). **NONE merged**: the scorer joined on `(effectId, key & 0x7FFFFF)`
+and every row was credited to its own effect. But `L5` outranks the whole `R-*` family in `RUNG_ORDER`,
+so the run's headline reads `TOP: L5-KEY-COLLIDER [JOIN-ENFORCED]` — **a reader who reads only the
+`TOP:` line does not see the answer at all.** The result rungs are in the ladder body, three lines down.
+
+**Enemy and ability SFX also landed in the log** — effects 74, 320, 329 and 353 carry PRIM/STATE rows —
+**and were harmless for exactly the reason the join rule exists**: none of them emitted a MESH row, so
+none emitted a UVR row, and every UVR row in the file belongs to one of the four intended casts.
+
+### 12.2 Q1 — DOES THE MECHANISM GENERALISE? **YES.**
+
+**Displacement is confirmed on TWO containers that had never been measured, each behind its own
+control gate PASS, plus the U1 container reproducing in the same log.**
+
+| container | answer key | gate | pool | observed | verdict |
+|---|---|---|---|---|---|
+| **ef227** `Iviv/Spark` | **`598000`** 15 bpp | **ISOLATED-EXACT, tri ratio 1.00 → EQUALITY** | u `[0,111]` v `[16,127]` | **u `[16,127]` v `[144,255]`** | **DISPLACED, OPERATION RESOLVED** |
+| **ef446** `Atomos__Short` | **`578000`** 15 bpp | control gate **PASS**; the answer key itself ratio 0.4805 → CONTAINMENT | u `[0,111]` v `[16,127]` | **u `[16,127]` v `[144,255]`** | **DISPLACED, operation OPEN** |
+| **ef038** `Shiva__Full` | `3ABDC0` / `38BE00` | replication, §12.5 | — | u `[128,255]` / v `[193,255]` | **DISPLACED, reproduces U1** |
+| **ef424** `Odin__Short` | `37BC80` | **CONTROL GATE FAIL — REFUSED** | — | — | **NOT A WITNESS** (§12.4) |
+
+**ef227 is the stronger of the two new witnesses and it is the first of its kind in the arc.** Its
+answer key binds **one** `so` record, its max per-frame triangle count is **128** against the mesh's own
+**128 textured triangles** — ratio **1.00** — and every one of its 292 rows carried the single raw key
+form `00598000` with `src = P`. **`prims` never exceeded the bound face count on any row.** §4.7 said an
+isolated u measurement had never existed in this arc; this is it.
+
+**Q1 does not rest on the answer key alone.** ef227's other displacing slots corroborate on both axes,
+each under the containment gate its tri ratio earns: `37BD80` (`A = 0x80`, 8 bpp, pooled 2.00) read
+**u `[128,255]`** against raw `[0,127]`; `17BD0C` (`B = 0x80`, 4 bpp, pooled 2.25) read **v `[193,255]`**
+against raw `[65,127]`; `19BD00` (`B = 0x80`, 4 bpp, pooled 14.33) read **v `[128,191]`** against raw
+`[1,63]`. Row 4 (`18BD00`) was silent, exactly as §3.3 pre-registered it — `NEVER-DRAWN`, soft, not
+gating. **Nothing in ef227 read raw where a model predicted displaced.**
+
+★ **AND THE DEPTH CONFOUND BROKE, IN-CAST, EXACTLY WHERE §3.5 (2) SAID IT WOULD.** The answer slot is
+15 bpp *and* carries `B = 0x80`; its v axis read **`144,255`** on **292 of 292 rows** against raw
+`[16,127]`. **15 bpp demonstrably displaces. M6 (depth-split) is dead**, and it died on the one witness
+that was in the room at the time (§4.5).
+
+### 12.3 Q2 AND THE OPERATION — **MAGNITUDE, and specifically ADDITION**
+
+**FLAG IS REFUTED, INDEPENDENTLY, ON BOTH NEW CONTAINERS.** FLAG predicts `u [128,239]`. ef227 observed
+`[16,127]` and ef446 observed `[16,127]` — **DISJOINT from the prediction on both**. `models_excluded`
+carries `FLAG` on both answer groups. Q2's original framing is answered and it is answered twice.
+
+**THE OPERATION IS `ADD | ADD_MOD256`**, resolved on ef227:
+
+```
+key 598000   span_test_mode = "EQUALITY (ratio 1.00)"   value_test_decisive = true
+SURVIVING  ['ADD', 'ADD_MOD256']      EXCLUDED  ['NONE', 'OR', 'XOR', 'FLAG']
+exact_fits ['ADD', 'ADD_MOD256']      partial_draw_on_survivors = false
+VERDICT    DISPLACED-OPERATION-RESOLVED:ADD|ADD_MOD256 (degenerate class on this pool)
+```
+
+**The population it was read on:** 292 UVR rows over **73 distinct frames [433..505]**, `src = P` on all
+292, **292 of 292 kept** by the `src = P AND prims > 1` filter — no SPRT contamination, no point
+samples, nothing discarded. `prims` histogram `{8:4, 24:4, 48:4, 51:4, 60:8, 62:4, 63:8, 64:256}`
+against **64 expected textured faces**; `prims_exceed_faces` false.
+
+**★ AND HERE IS THE POINT OF THE WHOLE RESULT: THE SPAN COULD NEVER HAVE DONE THIS. THE HISTOGRAM DID.**
+
+Observed span `u [16,127]` is **shared exactly by ADD and OR** — §2 and §2.1 said so before the cast and
+the log agreed. Publishing "magnitude, the halfword is a texel count" off that span would have been an
+unearned claim. What separated them is `value_hist`:
+
+```
+uMin  {16: 284,  41: 4,  101: 4}        uMax {127: 292}
+vMin  {144: 292}                        vMax {255: 292}
+observed_value_set  u = {16, 41, 101, 127}   v = {144, 255}
+```
+
+**41 and 101 are ADD-EXCLUSIVE.** The answer slot's raw pool has exactly five distinct u values —
+`{0, 25, 55, 85, 111}` — so every model maps it to a five-element value set and a per-frame extreme can
+only ever take a value from that set. Re-derived by hand from the pool, independently of the scorer:
+
+| model | value set on the real pool `{0, 25, 55, 85, 111}` |
+|---|---|
+| **NONE** | `{0, 25, 55, 85, 111}` |
+| **ADD** (`u + 16`) | **`{16, 41, 71, 101, 127}`** |
+| **OR** (`u \| 16`) | `{16, 25, 55, 85, 127}` — 25, 55 and 85 already carry bit 4, so OR is a **no-op** on three of the five |
+| **XOR** (`u ^ 16`) | `{9, 16, 39, 69, 127}` |
+| **FLAG** (`u + 128`) | `{128, 153, 183, 213, 239}` |
+
+**Every observed value lies in ADD's set, and two of them lie in no other survivor's.** Where ADD reads
+41 and 101, **OR would read 25 and 85** (both raw values already carry the halfword's bit), **XOR would
+read 9 and 69**, and FLAG would read 153 and 213. None of those was ever seen. The scorer's
+`model_exclusive_values` agrees from the other direction: XOR's exclusives `[9, 39, 69]` were
+`u_exclusive_observed = []`, FLAG's `[128, 153, 183, 213, 239]` likewise, and NONE's `[0, 111]` likewise.
+
+⚠ **THE READ ORDER WAS HONOURED AND IT MATTERED.** The span excluded NONE first (`uMin` reached 16, not
+0; `uMax` reached 127, not 111; `vMin` reached 144, not 16) — **only then** was the histogram allowed to
+speak. Had it spoken first, a sighting of 25 / 55 / 85 would have been readable as OR when it is equally
+NONE's signature. Round 3's inversion of the read order (§2.1) is the repair that made this publishable
+rather than arguable.
+
+### 12.3a ★ THE INVERSION — the hazard was the instrument. Record this; it is reusable.
+
+**IT CAME DOWN TO 8 ROWS OF 292 — AND THOSE 8 ROWS ARE PARTIAL DRAWS, WHICH THIS PROTOCOL TREATED
+THROUGHOUT AS A HAZARD REQUIRING A QUALIFIER.**
+
+Read straight out of the log:
+
+| frame | index | src | prims (of 64 faces) | u | v |
+|---|---|---|---|---|---|
+| **504** | 9 | P | **24** | **41**, 127 | 144, 255 |
+| **505** | 9 | P | **8** | **101**, 127 | 144, 255 |
+
+*(Four identical rows on each of those two frames — the same mesh emitted four times per frame — so the
+8 rows are **2 independent observations**, not 8. §12.9 (1) attacks that, and names the cast that would
+falsify it.)*
+
+**A COMPLETE FRAME CANNOT ANSWER THIS QUESTION.** When all 64 faces draw, the row reports
+`uMin = 16` (from raw u = 0) and `uMax = 127` (from raw u = 111) — **and every magnitude model shares
+those two values.** That is what 71 of the 73 frames said, and it is `R-OPERATION-OPEN`: displacement
+confirmed, operation unresolved. **The interior pool values 25 and 85 only ever become a per-frame
+extreme when the faces carrying 0 (and, for 101, also 25 and 55) fail to draw.** So the operation could
+only be read off a frame where part of the mesh did not draw.
+
+★ **THE LESSON, stated as a property of this instrument and not as a curiosity: A PARTIAL DRAW IS AN
+INTERIOR SAMPLE OF THE POOL. It narrows the span — which is why it is unsound for a span gate, and
+§4.4 is right to refuse equality below ratio 1.00 — but that same narrowing is the ONLY thing that
+exposes a pool's interior values to a min/max instrument.** The protocol spent four rounds building
+qualifiers to stop partial draw from being mistaken for a result. It was partial draw that produced the
+result. **Both facts are true and neither cancels the other:** the span gate must still be run on a
+complete draw (ratio 1.00, which `598000` had), and the histogram must still be run on the partial
+frames underneath it. **Span from the whole; operation from the fragments.**
+
+⚠ **Note what this implies for vehicle selection in future rounds. A surface that draws whole on every
+frame can confirm a displacement and can never name it.** ef446 is exactly that case in reverse — it
+never drew whole at all (ratio 0.4805) and still could not name it, because not one of its 363 rows ever
+dropped the low raw values: `uMin` was **16 on all 363** (§12.4). What is wanted is a surface that
+draws **whole on most frames and partially on a
+few**, which is what a mesh tailing off at the end of its cast does. **The two decisive frames here,
+504 and 505, are the LAST TWO FRAMES THE SURFACE EVER DREW** — the answer window ends at 505.
+
+### 12.3b ⚠ THE "per-frame span VARIES" QUALIFIER FIRED — AND IT IS NOT TEXANIM
+
+The report carries `perframe_span_constant = false`, `perframe_span_distinct = 3`:
+
+```
+[16, 127, 144, 255]  x 71 frames
+[41, 127, 144, 255]  x  1 frame   (504)
+[101, 127, 144, 255] x  1 frame   (505)
+```
+
+**That is the §3.4 / `H-TEXANIM-DRIFT` qualifier firing on exactly the two frames that resolved the
+operation.** It is a human-judged rung, no scorer decides it, and the judgement is recorded here in
+full because a future reader will see the flag and must not re-open the question:
+
+**IT IS NOT TEXANIM DRIFT. Three independent reasons, any one sufficient:**
+
+1. **All three distinct values are ADD-set members** — every one of `{16, 41, 101}` is in ADD's
+   `{16, 41, 71, 101, 127}`, and 41 and 101 are in no other survivor's set. Texanim rewrites
+   display-list UVs to *other* texture coordinates; it has no reason to land inside the model's
+   predicted value set, three times out of three.
+2. **The v axis did not move at all.** `vMin = 144` on **292 of 292** rows and `vMax = 255` on **292 of
+   292**, across every frame including 504 and 505. Drift that rewrote UVs would not leave one axis
+   pinned to a single value on every row of the cast.
+3. **`prims` is the discriminator and it fires for partial draw.** `H-TEXANIM-DRIFT` says to check
+   whether `prims` is constant across the drift. **It is not:** the two varying frames are precisely the
+   two frames where `prims` collapsed to **24** and **8** of 64. Drift changes *where* the texels are
+   read from at constant face count; partial draw changes the face count. The face count changed.
+
+**And the drift's shape is wrong for the hypothesis anyway.** §3.4's texanim case is "early frames raw,
+late frames displaced (or vice versa)". Nothing here ever read raw: `uMax` was 127 and `vMin` was 144 on
+every one of the 292 rows.
+
+### 12.4 ef446 — THE SECOND WITNESS, and exactly what it does and does not settle
+
+**Control gate PASS**, on two ratio-1.00 EQUALITY keys the scorer measured from the log itself:
+`1ABD01` (EXACT-MULTISLOT, observed u `[0,127]` v `[1,127]`) and `3BBDC0` (ISOLATED-EXACT, observed
+u `[0,111]` v `[0,111]`) — both reproducing their raw pools exactly. **§5.2 expected ef446 to have no
+hard control by construction** (it appears in no archived log). It supplied two anyway, and they passed.
+
+```
+key 578000   tri_ratio 0.4805 UNPROVEN   span_test_mode = "CONTAINMENT (pooled)"
+             value_test_decisive = false
+observed  u [16,127]  v [144,255]     pool u [0,111] set {0,27,55,83,111}   v [16,127]
+SURVIVING ['ADD', 'ADD_MOD256', 'OR', 'XOR']    EXCLUDED ['NONE', 'FLAG']
+363 UVR rows over 91 frames [41..131], src=P on all 363, 363 of 363 kept
+```
+
+**WHAT IT SETTLES:** the mechanism fired on a **second, independent, previously unmeasured container**,
+on a **much larger surface** (256 textured triangles against ef227's 128), and **FLAG is refuted a
+second time, independently.** Q1 has two new witnesses, not one.
+
+**WHAT IT DOES NOT SETTLE:** it does not separate ADD from OR. Its ADD-only values on its own pool —
+`{43, 71, 99}` — **never became a per-frame extreme.** `observed_value_set u = {16, 127}` and nothing
+else: `uMin` was **16 on all 363 rows**. Those two values are common to every surviving model, so the
+histogram had nothing to say and the verdict is `DISPLACED-OPERATION-OPEN`.
+
+**Its draw had never been proven anywhere.** §5.2 recorded that ef446 appears in **no archived log** and
+that its no-draw would itself have been a finding. **It drew** — 3,732 MESH rows over frames [41..180].
+
+⚠ **§5.2's own limit still applies and is not softened by the pass.** Its answer key measured tri ratio
+**0.4805** — the mesh never drew whole — so its span was gated by containment, `value_test_decisive` is
+**false**, and a value violation on it would have been advisory, not decisive. **ef446 corroborates;
+it does not carry.** The operation read is ef227's, and ef227's alone.
+
+*(§5.2's standing obligation is now due: the arc's W6b-SCENERY spill note for this cell was computed on
+the **raw** u window and is stated against the wrong window. ef446 landed, so it needs re-deriving.)*
+
+### 12.4a ef424 — **REFUSED.** It is not a witness, and the gate was right.
+
+```
+ef424 cast 0: control gate FAILED on ['37BCC0'] -- nothing in this cast may be scored
+```
+
+**THE CAUSE, read out of the report: ONE KEY, TWO POPULATIONS.**
+
+`37BCC0` is **EXACT-MULTISLOT** — four bound `so` slots, **all `A = 0` / `B = 0`**, pooled u `[0,111]`
+v `[0,111]`, 144 bound faces and 288 textured triangles between them. In the log it emitted **104 UVR
+rows over 25 frames [43..72]**, and those rows are **two disjoint populations**:
+
+| population | rows | `prims` | uMin | uMax | vMin | vMax | reading |
+|---|---|---|---|---|---|---|---|
+| **the bound meshes** | **64** | **144** — the full bound face count | 0 | **111** | 0 | **111** | matches the pool **EXACTLY** |
+| **foreign geometry** | **36** | 2 … 10 | 1 | 127 | **225** | **255** | not the bound meshes, on other frames |
+
+**The isolation ratio is computed from the per-frame MAX**, which is 288 — exactly the four meshes' own
+288 textured triangles. So the key measured **ratio 1.00**, was classified ISOLATED-EXACT-MULTISLOT, and
+was held to **EQUALITY**. Equality was then tested against the **union** of the two populations —
+u `[0,127]` v `[0,255]` — which fits **no model at all** (`models_surviving = []`, verdict
+`NO-MODEL-FITS`). The control failed and the whole cast was refused.
+
+★ **THE GATE DID THE CONSERVATIVE, CORRECT THING.** A key whose per-frame max equals its bound mesh but
+whose other frames carry geometry from somewhere else is not an isolated key; it is a pooled key wearing
+an isolated key's ratio. The tri-count test cannot see that, because pooling that happens on *different
+frames* never raises the maximum. **A gate that cannot tell those apart must refuse, and it did.**
+
+**WHAT IT COSTS.** ef424's `37BC80` was to be **Q1's clean, isolated `A = 0x80` u arm** (§4.3, §5.3) —
+the one measurement that would have attributed the u arm at 8 bpp on an unpooled key. It is present in
+the log and it looks perfect: **63 rows / 16 frames [41..56], `prims` CONSTANT at 80, ratio 1.00
+ISOLATED-EXACT, observed u `[128,190]` against raw pool `[0,62]`, `NONE` excluded.** **It may not be
+scored.** The refusal is cast-wide, by design, and this section does not quote that reading as evidence
+for anything. The `(0x80, 0x80)` family and the free `ORDER_UNMEASURED` probe (§5.3) go with it.
+
+⚠ **The u arm at 8 bpp therefore remains where §4.3 and §4.7 left it: pooled.** ef227's `37BD80` reads
+`[128,255]` under containment; ef038's `3ABDC0` is ratio 0.31. **Q1's u arm is corroborated on three
+containers and isolated on none of them** — except at 15 bpp, on ef227's own answer key, which is
+isolated and which is a *magnitude* displacement, not an `0x80` one.
+
+### 12.5 THE REPLICATION — SELFTEST PASSED, and what that protects against
+
+`--selftest` re-measured the three archived U1 results **in this log**, from this launch, on this DLL,
+minutes apart from the answer. **3 of 3 `ok`, `failures` empty, `passed = true`:**
+
+| key | arm | expected | **observed in THIS log** | rows | `ok` |
+|---|---|---|---|---|---|
+| `3ABDC0` | u | `128, 255`, displaced, NONE must not survive | **u `[128,255]`** | 580 | **true** |
+| `3ABD40` | the `(0,0)` control | raw on both axes | **u `[0,126]` v `[1,127]`** | 192 | **true** |
+| `38BE00` | v | `193, 255` **and `prims` CONSTANT at 72** | **v `[193,255]`, `prims_constant = true`, `prims_max = 72`** | 211 | **true** |
+
+**WHAT IT PROTECTS AGAINST, precisely (§5.4).** Every other control in this session proves the
+instrument works **on the container being measured, in its own cast**. The DLL hash is taken *before*
+the launch and cannot see a runtime regression. **The selftest is the only thing in the protocol that
+can catch a session-level instrument fault** — an s77 build that measures something different from the
+one that produced the arc's foundational 0.97 read. Had it failed, `L9-REPLICATION-FAILED` outranks the
+whole `R-*` family and **no number in this log could have been published**, however clean it looked.
+It did not fail. **The session is valid against a session-level instrument fault, and that is a
+statement about the instrument, not about the answer.**
+
+### 12.6 15 BPP — round 3's worry is settled EMPIRICALLY, not argued away
+
+§4.6 recorded that across **all nine archived logs**, the s77 instrument had emitted UVR rows for
+exactly one effect, at `tp = 0` and `tp = 1` only, and **ZERO at 15 bpp** — an *untried* path, fully
+explained offline (ef038 draws no textured 15 bpp geometry at all), but untried, and therefore not
+assertable. Every Q2 discriminator in the corpus is 15 bpp.
+
+**`tp` histogram, this log: `{4 bpp: 11,667 · 8 bpp: 16,601 · 15 bpp: 1,395}`. Verdict
+`15BPP-PATH-ALIVE`. These 1,395 are the FIRST 15 bpp UVR rows the s77 instrument has ever produced.**
+
+★ **AND IT IS ALIVE ON THE POLYGON PATH, WHICH §4.6 SPECIFICALLY COULD NOT PROMISE.** §4.6 warned that
+the liveness cohort keys `408000` / `428000` carry high bits in their raw form and would likely log as
+`src = S`, so the cohort could prove *emission at 15 bpp* but not *emission on the P path at 15 bpp* —
+and that the session's only P-path `tp = 2` witness lived on ef424, the cast the degradation rule drops
+first. **ef227's own answer key settles it directly: `598000` is `tp = 2` and its `src` histogram is
+`{P: 292}` — 292 of 292 rows on the polygon path at 15 bpp.** The cohort emitted its 302 rows per key as
+predicted, `drew_but_silent` is empty, and `L1b-15BPP-SUSPECT` did not fire. **The P-path 15 bpp
+liveness check did not depend on ef424 after all — which is fortunate, given §12.4a.**
+
+### 12.7 ★ CLOSED-UNANSWERABLE — two riders that were carried as OPEN and are not open
+
+**These were on the books as open questions. They are not open. They are UNANSWERABLE ON STOCK DATA,
+which is a different and better thing to write down, because an open question invites another session
+and an unanswerable one closes the lane.**
+
+**1. ADD vs ADD_MOD256 — CLOSED-UNANSWERABLE.** They are the same function everywhere nothing reaches
+the byte boundary. To separate them a cast would need a displaced span that pushes past 255.
+
+**2. Wrap vs clamp — CLOSED-UNANSWERABLE, and it dies by the identical argument.** §3.6 pre-registered
+this and the reason has not changed.
+
+**THE REASON, measured (§3.6, `u2-repair-checks.json`): displacement is PERFECTLY ANTI-CORRELATED with
+high raw UV.**
+
+| | measured |
+|---|---|
+| binding slots in the corpus | **649**, of which **468** have a UV pool that resolves offline |
+| slots carrying `A = 0x80` | **150** (104 resolvable) — **max raw `uMax` among them: 127** |
+| slots carrying `B = 0x80` | **216** (160 resolvable) — **max raw `vMax` among them: 127** |
+| resolved slots with raw `uMax >= 128` | **140** — of which carrying any u displacement: **0** |
+| resolved slots with raw `vMax >= 128` | **96** — of which carrying any v displacement: **0** |
+| **exceptions, either axis** | **0 of 468** |
+
+Whoever authored these containers **never displaced a page that was already in the high half.** So no
+stock cast of any container, ever, can push a displaced byte to the boundary — and both riders are
+un-askable of stock data. They are answerable only by **writing** a displacement onto a high-UV slot
+ourselves, which is a repaint experiment and belongs to a different rung.
+
+**Write them down as CLOSED-UNANSWERABLE wherever the kit or the docs carry them as open measurables**
+(`depth_attribution.U_DISPLACEMENT_CAVEAT` is the live consumer — §10, and the edit is that rung's, not
+this one's). ⚠ **The census is 468 of 649, not 649 of 649** — see §12.9 (4).
+
+> ⚠ **A CITED ARTIFACT NO LONGER REPRODUCES, AND THE PRE-FIX EVIDENCE IS PRESERVED ELSEWHERE.**
+> §12.8 reads the defect out of `score-out/score.08012026sfxprobe.json`, but the scorer lane has since
+> re-run the FIXED scorer over that same path, so that file now shows `TOP: L6p-CONTROL-FAIL`, no
+> ef424 result rung, `required_casts [38,227,424,446]`, and both ef227 hard controls armed and
+> PASSING. Every §12.8 statement was true of the run it scored; the artifact backing it was
+> overwritten in place. **The pre-fix ladder is preserved verbatim at
+> `…\second-container-cast\regression-r5\REAL-LOG.ladder.BEFORE.txt`** — cite that, not the JSON.
+> The post-fix rerun does not weaken the result: it ARMS the pre-registered roster §12.9 (2) recorded
+> as never armed, and ef227 passes it, which strengthens the read. ef227's measured numbers are
+> byte-identical across the fix.
+
+### 12.8 ⚠ THE DEFECT THIS CAST FOUND IN THE SCORER — and the synthetic battery missed it
+
+**A refusal did not reach the ladder, and a RESULT was published for the cast the refusal forbids.**
+
+ef424's control gate FAILED and the report carries the refusal verbatim
+(`"control gate FAILED on ['37BCC0'] -- nothing in this cast may be scored"`, `scoreable: false`).
+**But no `L6p-CONTROL-FAIL` rung fired**, and the ladder still printed
+`R-OPERATION-OPEN … ef424 cast 0 key 37BC80: DISPLACEMENT confirmed`. **A refusal invisible to the
+ladder, next to a published result the refusal forbids, is precisely the defect class four review rounds
+were built to catch.** Two independent faults produced it:
+
+1. **`L6p-CONTROL-FAIL` is gated on `eff in required`.** This run was invoked with `--selftest` and no
+   `--require`, and the scorer's defaulting is `if a.require: … elif a.selftest: required = [38]`.
+   So `required = [38]`, ef424 was not in it, `HARD_CONTROLS` resolved to `[]` for 227/424/446
+   (`hard_controls_registered: []` on every effect), and **every per-effect rung gated on `required` —
+   `L6p`, `L6q`, `L3c`, the SPRT rungs — was inert for the three measuring casts.** §9.2's documented
+   command (`--require 227,446,424,38 --selftest`) would have armed them. **A flag that silently
+   *narrows* a safety net is a bad default**, and the battery could not have caught it: **not one of its
+   15 cases exercises `--selftest` without `--require`.** Fourteen pass `--require` explicitly; the
+   fifteenth (`S9-wrong-log`) passes neither flag and so takes `DEF_REQUIRE = (227, 446, 424)`. The
+   narrowing path has never been executed by anything but a live session.
+2. **The RESULT loop is not gated on the control gate AT ALL.** It runs `for g in ans:` with no test of
+   `gate["pass"]` or `scoreable`. **This one is unconditional**: even with the documented `--require`,
+   `L6p` would have fired *and* `R-OPERATION-OPEN` for ef424 would still have printed beside it.
+
+**WHY 15 SYNTHETIC NULLS DID NOT FIND IT.** The battery has `S6-hard-control-absent → L6q-CONTROL-ABSENT`
+— a control that **never arrived**. It has **no case for a control that DREW AND FAILED**, and none at
+all for a failing control sitting alongside an otherwise-scorable answer in the same cast. The ladder's
+own §8 table distinguishes `L6p` from `L6q` explicitly and says so twice; **the battery only ever
+exercised one of them.** The rung that has never fired has never been executed — the same class of
+finding as round 3's crash and round 4's, arrived at the same way: by running the real thing.
+
+**This is recorded here as a defect found by the cast, not by the review.** Its repair belongs to the
+scorer and is a separate rung with its own verification; the sound shape is (a) fire `L6p` / `L6q` from
+the gate result rather than from membership of `required`, (b) suppress `R-*` for any cast whose gate
+did not pass, and (c) add the missing battery case — a drew-and-failed control **beside a scorable
+answer**, asserting the RESULT rung does **not** print.
+
+⚠ **DOES IT TOUCH THE RESULT? NO — and here is the check rather than the assurance.** ef227, ef446 and
+ef038 all **passed** their gates (`pass: true`, `refusals` empty, `scoreable: true`), so no refusal of
+theirs was suppressed. The defect could only ever have published a result the gate forbade, and the only
+cast whose gate failed is ef424 — **which §12.4a already excludes from every claim in this section.**
+
+### 12.9 ★ THE HONEST LIMITS THAT REMAIN — what would still overturn this
+
+**1. THE OPERATION READ RESTS ON TWO FRAMES.** Eight rows, but four identical rows per frame, so the
+evidence is **two observations**, on frames **504 and 505 — the last two frames the surface ever drew**.
+If the mesh's tail-off produces a torn display list, a stale accumulator, or a partially-uploaded page
+rather than an honest partial draw, the operation read goes with it. **What defends it:** the two frames
+carry *different* values, **41** and **101**, each ADD-exclusive by an *independent* pool value (25 + 16
+and 85 + 16), each backed by a **64-entry** raw band; a torn accumulator would have to land twice, on
+two different values, both inside ADD's five-element set and outside every rival's. **What would
+overturn it:** a repeat ef227 cast that reaches frames 504–505 and reads 25 / 55 / 85 or 9 / 39 / 69
+there instead. **That is a cheap, specific, falsifying experiment and it should be named as one.**
+
+**2. ONE EXACT HARD CONTROL, NOT TWO.** §4.4 registered `39BE40` (132/132) and `3DBE00` (64/64) as
+ef227's two ratio-1.00 EQUALITY controls. In the live log **`39BE40` measured 0.9924**, so the scorer
+gated it by CONTAINMENT — it PASSED, but softly. **Only `3DBE00` held at EQUALITY**, and §4.4 itself
+calls it the thin one. Combined with §12.8's finding that the pre-registered roster never armed, the
+session's `L6q` protection for ef227 was **inert**, and its equality evidence is one key. **What repairs
+it:** the answer key is itself ISOLATED-EXACT at ratio 1.00 and was gated by EQUALITY — a self-test on
+the measured surface is stronger than a self-test on a neighbour. But the roster did not do the job it
+was designed to do, and that should be fixed before the next cast rather than noticed after it.
+
+**3. THE ARRAY-VS-BINDING CONFOUND IS COMPLETELY UNTOUCHED (§0.2).** Every slot read in this session
+compares **one** binding to **its own** pool. Nothing here separates *"the second array's value
+displaces the texels"* from *"the binding as a whole selects a displaced source window and the array
+merely labels it"*. **"The operation is addition" is a statement about the arithmetic of the
+displacement, not proof the array causes it.** ef427 remains the corpus's only de-confounder, still
+relaunch-class, still uncast. **Any kit text promoted from this cast must not quietly upgrade a
+correlation to a cause.**
+
+**4. THE ANTI-CORRELATION CENSUS IS 468 OF 649, NOT 649 OF 649.** §12.7's "no stock byte can overflow"
+is **0 exceptions among the 468 slots whose UV pool resolves offline** — 72% of the corpus. The other
+**181** do not resolve. A displacement on one of those could in principle sit on a high-UV pool, and one
+such slot would re-open wrap-vs-clamp. The closure is strong and it is not total; write it as measured,
+not as proven.
+
+**5. THE OPERATION IS LICENSED AT 15 BPP, AND ONLY THERE (§3.5).** Both operation levers are 15 bpp,
+because the corpus has **no** 15 bpp `A = 0x80` slot and **no** non-15 bpp outlier — value and depth are
+perfectly confounded corpus-wide and no stock cast can break it on the u axis. **ef424 was the session's
+best chance at an isolated `0x80` reading at 8 bpp and it is refused.** What this cast licenses is
+*"magnitude — addition — at 15 bpp, with the `0x80` families corroborated at 4 and 8 bpp under
+containment"*. Any constant or docstring that drops the depth qualifier is overstating it.
+
+**6. OR WAS EXCLUDED BY PRESENCE, NOT BY CONTEST.** ADD's exclusive values were seen; OR's were not.
+That is the correct direction of inference and the scorer's `value_test_decisive = true` on an
+EQUALITY-gated isolated key is what licenses it. But no frame ever presented a case where OR and ADD
+both predicted a sighting and ADD won against a rival sighting. **A single frame reading 25 or 85 with
+the span still at `[16,127]` would be a genuine contradiction** — and none appeared in 292 rows.
+
+**7. ef446 IS UNCONTROLLED IN THE SENSE §5.2 MEANT.** It passed a gate built from **keys this session
+itself discovered**, not from a pre-registered roster derived from an archive — because there is no
+archive for it. It corroborates Q1 and it refutes FLAG. It cannot carry a mechanism claim alone, and
+this section does not ask it to.
+
+**8. ef038's u ARM IS STILL NOT AIRTIGHT (§4.7).** The replication reproduced it — but at tri ratio
+**0.3055**, on a key binding 20 records. **Reproducing a suggestive measurement does not make it
+proven.** Only ef038's v arm (`38BE00`, ratio 1.00, `prims` constant at 72) and ef227's answer key are
+airtight in this arc.
+
+### 12.10 WHAT THIS CLOSES, AND WHAT IT HANDS ON
+
+**CLOSED by this section:** Q1 (generalisation — YES, two new containers). Q2 (magnitude vs flag —
+MAGNITUDE, refuted twice independently). THE OPERATION (ADDITION, on an isolated EQUALITY-gated key, by
+the value histogram). M6 depth-split (dead, on ef227's own v axis). The 15 bpp emission worry (alive,
+1,395 rows, P path included). ADD vs ADD_MOD256 and wrap vs clamp (**CLOSED-UNANSWERABLE**, not open).
+
+**STILL OPEN and now the arc's front rank:** the array-vs-binding confound (Q3 — ef427, relaunch class);
+an isolated `A = 0x80` u reading at 4 or 8 bpp (ef424 refused; §3.5 says the corpus may not be able to
+give one at all); the two-frame fragility of the operation read (§12.9 (1) names the falsifying cast).
+
+**HANDED ON:** §10's rung — **OPTION-3 ADOPTION, the kit MODELS the displacement rather than merely
+disclosing it.** It was deliberately sequenced after this cast **because ADD-vs-OR changes the arithmetic
+the kit would ship**: `eff_A_linear` / `eff_A_mod256` do addition, and under OR the displacement would
+have been a no-op wherever the raw byte already carried the halfword's bits. **The answer is ADD. The
+kit's existing arithmetic is the right arithmetic, and it now has a measurement behind it instead of an
+assumption.** That edit is a coordinated text-and-code change across
+`depth_attribution.U_DISPLACEMENT_CAVEAT`'s consumers, with its own review — **not this document's, and
+not this section's.** Its riders (1) GENERALISATION and (2) THE OPERATION are the two this cast just
+answered; rider (3) DEPTH is §12.9 (5) and stays.

@@ -84,6 +84,118 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   deliberately NOT in it, and a cell read only through a multi-part record cannot be tested at all,
   because pairing an array entry to a binding slot is the order this kit does not claim.
 
+### Changed — summon-reskin: the second array is **ADOPTED** (the effective cover)
+- **The kit now models the displacement it used to only disclose**, and this is the first rung in
+  that lane that deliberately changes behaviour. Three more log-only casts closed the two riders the
+  disclosure rode on: the mechanism GENERALISED (ef227 — key isolated, tri ratio 1.00, control gate
+  PASS — and ef446, control gate PASS, with ef038 reproducing in the same log), and the OPERATION was
+  settled by a decisive value test on ef227 (raw pool `{0, 25, 55, 85, 111}`, observed extremes
+  `{16, 41, 101, 127}` = pool + 16; OR would read 25/85, XOR 9/69, and a FLAG reading predicts a
+  disjoint range). **The model is `linear-add-v1`: effective = stored + halfword, per axis,
+  independently — pair position 0 onto `u` (texels, converted at the page's own depth), position 1
+  onto `v` (VRAM lines, depth-free).**
+- **One named seam, one law, both enforced at the call site.** `sampled_halfword` / `effective_cell`
+  are the only arithmetic; `assert_intra_page` re-checks THE INTRA-PAGE LAW on every displaced
+  binding and fails CLOSED. A tpage is cell-aligned and stored `u,v` are bytes, so a displaced read
+  never leaves its own page — measured 340/340 — which is what makes linear-vs-mod-256-wrap
+  degenerate, an arriving reader's depth non-extrapolated, and an off-VRAM read impossible.
+  ⚠ **And the call site is `effective_cell_readers`, not `bound_models`** — the law is spent where a
+  caller has ASKED for the effective join, so only a scope that named `so-displaced` can fail on it.
+  Asserting inside the rasteriser (which every scope walks) gave a law-breaking container a way to
+  refuse under `CENSUS_CHANNELS` and `LICENSED_CHANNELS` as well, two frozen surfaces that never read
+  `effective_cover` at all — which made "the frozen surfaces are unmoved" a fact about the stock 372
+  (where the law holds 340/340 and the assertion never fires) instead of a property of the code.
+  Demonstrated by inflating one incumbent pair on ef038 (record `0x29dbc`, arrayB `@0x29dc8`,
+  `du` 128 → 250): before, all three scopes raised; after, only `EDIT_CHANNELS` does, and all four
+  measured surfaces (census / licensed / edit / edit-with-ack) are byte-identical across the fix.
+- **Two covers, named, never merged.** `BoundModel.cover` / `cell_readers` keep their meaning forever
+  (they are what the writer side, the census freeze and the audit trail are written about);
+  `BoundModel.effective_cover` / `effective_cell_readers` answer READERSHIP. They are the **same
+  object** wherever nothing is displaced (189 of 340 readers), so the undisplaced path is untouched
+  by construction. `columns`/`spills` stay BOUND; `effective_columns`/`effective_spills` are what THE
+  NAME-EVERY-COLUMN obligation is now taken on (58 bound → 60 effective).
+- **THE DISPLACED CELL NOW NAMES ITS DESTINATION.** `displaced-readerless` (**45 cells / 26
+  containers**, 41 of them carrying no other export-blocking refusal) and
+  `displaced-readership-substituted` (**7 cells / 10 page names**, where a *disjoint foreign* set
+  arrives instead, 4 of them at another depth) now REFUSE by name, in both `_UNADDRESSABLE` and
+  `_EXPORT_BLOCKING`. ⚠ The
+  number is **45, not the impact scoping's 16**: that list modelled `u` alone, and v-only
+  displacement is the largest mover class in the corpus (68 of 151). Both are lifted by the
+  **existing** `acknowledge_second_array_displacement`, the same key those rows already needed in
+  order to build — so no row that built yesterday needs a new word today; what moves is that the
+  refusal now arrives at EXPORT time and NAMES where the readers went.
+- **⚠ THE ACKNOWLEDGEMENT LIFTS THE REFUSAL, NOT THE GUARANTEE, and the ledger is measured rather
+  than promised.** Over all **55 page names** the two lifted classes cover, with the key said (BEFORE
+  = the pre-adoption package at `LICENSED_CHANNELS`, AFTER = the adopted one at `EDIT_CHANNELS` with
+  the ack): **39 come back as the identical picture** (34 of them moving only `depth_source`, `so-uv`
+  → `so-page` — the column's own depth at the same bit depth, which is the case the fallback was
+  written for); **6 come back as a DIFFERENT picture**, and **four of those flip 4 bpp → 8 bpp** —
+  ef179 `cell.id9.s0.x768_y256`, ef227 `cell.s0.x512_y256`, ef498 `cell.id9.s0.x832_y256`, ef498
+  `cell.s0.x576_y256`, i.e. *the same 16,384 bytes handed back as a different picture*, half the
+  texel width through a 256-entry key instead of a 16-entry one (the other two, ef226
+  `cell.s0.x512_y256` and ef424 `cell.s0.x448_y384`, keep their depth and change CLUT); and **10 come
+  back with nothing at all**, falling through to `depth-unknown` (9) or `channel-g-dual-depth` (1),
+  because the channel that has to speak next does not always have an answer either. The ledger is
+  stated in the two class texts, in `U_DISPLACEMENT_ACK_WARNING` (printed on every build that says
+  the key) and in `docs/SUMMONS.md`. An author who acks and is handed another palette — or nothing —
+  was told that was possible.
+- **The gain half is licensed by DEFAULT, behind no new key: 70 declared cells acquire a reader they
+  do not bind, 29 of them (30 page names) refused `depth-unknown` before.** It is not a new channel —
+  it is the sampling arithmetic of one the licensed path already consults, and the arriving reader
+  states its depth off its own `so` record at an address inside that same record's tpage. ⚠ **And
+  that is this rung's honest limit, stated as an asymmetry rather than left implicit: the loss half
+  fails LOUDLY (a refusal, overridable with a stated key) and the gain half fails SILENTLY (no key,
+  nothing to contradict it) — so if `linear-add-v1` does not hold on a given container, a perfect
+  repaint of a gained cell is invisible in game with no error anywhere.** The scaffold now prints
+  `GAINED` on every such cell and `DISPLACEMENT_DERIVATION` carries the sentence; a cast is the only
+  thing that closes it. **27 of the
+  30 hand back a paintable PNG** — 21 out of `export-art`'s default indexed lane and 6 (all 15 bpp)
+  via `--art-lane direct15`; the remaining **3 hand back nothing in either lane**, all on ef038, all
+  blocked by the pre-existing and correct `program-vram-write` refusal. ⚠ **So the headline case is
+  ef407, not ef038.** Both derive identically — `cell.s0.x640_y256` goes 27 readers → 7, `x704_y256`
+  gains 1 and **`x704_y384` gains 20**, the LOWER stacked cell because the `v` term puts them there —
+  but `export-art --ef 38` writes none of those pictures, before this rung or after it — for two
+  different reasons, which the docs now separate rather than crediting the older one for both: ef038
+  is a program-VRAM writer, so three of its four column-640/704 pages carry `program-vram-write`,
+  while the fourth (`cell.s0.x640_y384`) is withdrawn by this rung's own `displaced-readerless`.
+  ef407 carries no such refusal and
+  both gained pages export. *Derivable is not deliverable*, and the docs now say which is which. One
+  new VETO, `displaced-vs-page-depth` (1 cell), where an arriving reader contradicts the channel-G
+  page depth that was serving a readerless cell: two values is a hazard, not a vote — and no
+  acknowledgement lifts it, so it is not in the 55 above.
+- **A third channel set, so the delta is a diff between two NAMED sets and never a number that moved
+  under a constant's old name.** `CENSUS_CHANNELS` (frozen at W6b-1) / `LICENSED_CHANNELS` (frozen at
+  the W6b-3 scope) / **`EDIT_CHANNELS`** (= `LICENSED_CHANNELS + ("so-displaced",)`, the new default
+  of `texel_page`, `export_art`, `build`, `scenery_texel_pages`, `scenery_lines`). Measured over all
+  372 containers: **the census and W6b-3 surfaces are byte-identical before and after — 0 moved
+  pages, 0 moved cells, 0 moved refusal classes, 0 moved bytes on 372/372.** ⚠ One deliberate
+  exception a literal diff will show: the 55 `second-array-mover` records on the licensed surface
+  carry a rewritten *reason string*, because the caveat they quote was rewritten when the mechanism
+  generalised past one container. Nothing addressable moves with it, and `u1_gates` U6 pins the
+  retired wording ABSENT so a silent revert fails loud. On the edit surface: pages 300 → 289, refusals
+  2,499 → 2,453, exportable pages 211 → 202, exported bytes 3,457,024 → 3,309,568 (−147,456 =
+  9 × 0x4000), with all 41 newly-exportable and 50 no-longer-exportable names listed by class.
+  **And the 2,499 → 2,453 is nameable term by term, not just netted** (refusal RECORDS, 372/372;
+  a cell can carry two classes, which is why records exceed distinct names): −55 `second-array-mover`
+  and −15 `channel-g-dual-depth` (both retired by the new join), −30 `depth-unknown` and −11
+  `program-vram-write` (cells that gained an attributable reader), +45 `displaced-readerless`,
+  +10 `displaced-readership-substituted`, +1 `displaced-vs-page-depth`, and **+9
+  `same-bytes-two-depths`** — the last because a displaced reader can move a depth conflict into the
+  *other* stacked cell of its column, which is the same mechanism that resolved ef227
+  `cell.s0.x576_y256` and raised it at `x576_y384`. Every other class is unmoved.
+- `export-art --acknowledge-displacement` exports the loss half's refused names too (the build still
+  needs the row key), so an author who overrides the derivation can get whatever channel still speaks
+  for the cell — subject to the ledger two bullets up: 10 of the 55 have nothing left to speak.
+  `TexelPage.readership` (`"bound"` / `"displaced"`) is a separate field, never an overload of
+  `depth_source`. New re-derivation-pinned constants sit BESIDE the W6b-3 ones rather than moving
+  them — `SECOND_ARRAY_MOVER_CELLS = 52` is the **VACATE** count (every reader of the cell leaves it)
+  and `DISPLACED_READERLESS_CELLS = 45` is the **READERLESS** one; ⚠ they are two readings of one
+  population and **not addends** (45 + 7 = 52, 41 + 6 = 47, over the same 29 containers).
+- **The reach is unchanged and stated with a number.** `Binding.mover` still refuses to answer on a
+  `P >= 2` record, so `ORDER_UNMEASURED` is untouched and **142 novel slots carry a pair nothing here
+  models** — the effective cover is a LOWER BOUND on readership, and every string in the lane says
+  *"no reader this kit can attribute samples here"*, never *"nothing reads it"*.
+
 ### Added — `world-coastnav`: vehicle-legality classes on a synthetic coast
 - The Southern Ring's in-game-proven coast-nav stamp (R5d sail-through seal + R5e standoff
   belt) is a kit verb: re-derives every deployed sea override's water-triangle topograph into

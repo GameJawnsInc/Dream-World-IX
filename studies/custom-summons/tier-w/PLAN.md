@@ -117,15 +117,19 @@ scenery must be re-authored *together*.
   the 798 blocks; the id-2 directory sits AFTER the extra-sector region; the Code `frame` word
   carries flags in its top 3 bits), and the two-clocks law is now a number: the authored cut LEADS
   the beat by 1/1/0 ticks and the runtime install lags by a constant 2.
-- **W2 — ★ BUILT, awaiting the cast** (`W2-RESCORE.md`, `rescore.py`, `bahamut_rescore.toml`,
+- **W2 — ★★ CAST-PROVEN 2026-07-25 ("yeah it pulled back" — the reframe landed in-game and snapped
+  back to stock at the shot's own next keyframe; cast record = the CAST VERDICT section at the foot
+  of `W2-RESCORE.md`, whose first finding was RETRACTED and re-owned by THE EFFECT-OWNED SCENERY LAW
+  above — the folding surface is the effect's own scenery, not the arena)** (`W2-RESCORE.md`,
+  `rescore.py`, `bahamut_rescore.toml`,
   `test_rescore.py`, `w2_gates.py`; 6/6 gates, 34 tests). **ef227 shot A's opening keyframe reframed
   in 4 BYTES of an 823,296-byte container** — yaw, roll and the projection distance, all in place.
   Every duration byte, every frame word, all 83 other sub-files and the whole id-2 directory are
   byte-identical, and the patched container still round-trips byte-exact through the unmodified W1
   path. The op-146 probe row is settled ahead of it (op 146 WRITES `gteOFX`/`gteOFY` but restores
   them before its single `ret`, and only READS `gteH`; 121/122 have no corpus call site) — so no
-  effect program sets zoom and a rescore is a sequence/camera-data edit, as W1 assumed. STAGED only,
-  under `C:\gd\SCRATCH\summon-format\rescore-w2\`; the cast protocol is `W2-RESCORE.md` §6.
+  effect program sets zoom and a rescore is a sequence/camera-data edit, as W1 assumed. Staged
+  under `C:\gd\SCRATCH\summon-format\rescore-w2\`; the cast protocol was `W2-RESCORE.md` §6.
 - **W3 — ★★ CAST-PROVEN 2026-07-26 ("worked as described"; both casts + revert run; live install
   verified back at W2's resting state)** (`W3-RETIME.md`, `retime.py`, `w3_program_edits.py`,
   `w3_clock_emu.py`, `bahamut_retime.toml`, `test_retime.py`, `w3_gates.py`; X0-X7 all PASS, 256
@@ -175,7 +179,9 @@ scenery must be re-authored *together*.
   rung but must gate any future one past ef227. Staged under `C:\gd\SCRATCH\summon-format\reskin-w4\`
   (13 previews reviewed offline); the cast protocol is `W4-RESKIN.md` §6, and the rung does not close
   until the cast is judged.
-- **W5 — ★ BUILT + DEPLOYED, casts pending** (`W5-GENERALIZE.md`, `retime_derive.py`, `w_survey.py`,
+- **W5 — ★★ CAST-PROVEN AND CLOSED, 3/3 levers on SECOND summons** (creature = Madeen ef251, scenery
+  = Phoenix ef211 v2, camera = Phoenix H-pull; the closing record is this bullet's own ⛳ block below,
+  which this header contradicted until 2026-08-01) (`W5-GENERALIZE.md`, `retime_derive.py`, `w_survey.py`,
   `w5_gates.py`, `phoenix_reskin.toml`/`phoenix_rescore.toml`/`madeen_reskin.toml`; commit
   `b3ebdbf8`; suite 358/0/1 single-process, gates 5/5·8/8·8/8·8/8·9/9; every headline claim
   adversarially re-derived from bytes). The three levers generalise with named refusals: reskin
@@ -521,7 +527,79 @@ scenery must be re-authored *together*.
   critic ok=true zero gaps. Screen inferences retired; pitch resolved (no cast 3); cast-1's null
   fully mechanical; Option-3 gate MET.** **★ THE §12 STALE-TEXT LEDGER IS APPLIED** — the caveat and
   ack warning now carry the 0.97 two-axis read across 6 files, no number/derivation/emitted byte
-  moved, 4 frozen boards byte-identical, pins strengthened with absence-assertions. OPEN: the
-  second-container log-only cast (vehicle chosen — **ef227**, bench row 196 "Stock Bahamut", zero
-  relaunch/deploy, draw proven, key isolated at tri-ratio 1.00 → `U2-GENERALISATION-CAST.md`), then
-  Option-3 adoption (gate MET; sequenced after the cast because ADD-vs-OR changes the arithmetic).
+  moved, 4 frozen boards byte-identical, pins strengthened with absence-assertions. ~~OPEN: the
+  second-container log-only cast, then Option-3 adoption~~ → **BOTH SETTLED BY U2 — the next
+  bullet.** The cast ran on the chosen vehicle (**ef227**, bench row 196, zero relaunch/deploy) and
+  three others in the same launch.
+- **U2 — ★★★ THE GENERALISATION CAST: ANSWERED AND CLOSED** (record `U2-GENERALISATION-CAST.md`;
+  scorer + report `C:\gd\SCRATCH\summon-format\repaint-w6b\second-container-cast\score_uvr.py` /
+  `score-out\score.08012026sfxprobe.json`, log `…\capture-logs\08012026sfxprobe.log`). ONE owner
+  launch, FOUR log-only casts, 29,663 UVR rows / 33,942 MESH rows, 0 orphan / 0 malformed, exactly
+  one cast per effect with no frame-index decrease anywhere, PRIMCAP 39.63 % and no truncation
+  marker.
+  **Q1 — DOES THE MECHANISM GENERALISE? ★ YES.** Displacement is confirmed on TWO containers never
+  measured before, each behind its own control-gate PASS: **ef227** (answer key ISOLATED, tri ratio
+  1.00, scored under EQUALITY) and **ef446** (whose draw had never been proven offline at all — it
+  appears in NO archived log; it drew), with ef038 reproducing in the same file. The **SELFTEST
+  PASSED** — the fourth cast reproduced all three known ef038 results IN THIS LOG — so the session is
+  valid against a session-level instrument fault; and the **15bpp path emitted for the first time
+  ever** (tp histogram 4bpp 11,667 / 8bpp 16,601 / **15bpp 1,395**), settling the round-3 "the 15bpp
+  path has never emitted" worry EMPIRICALLY rather than by argument.
+  **Q2 — MAGNITUDE OR FLAG? ★ MAGNITUDE.** FLAG predicts u [128,239]; observed [16,127]; DISJOINT ⇒
+  REFUTED, independently on BOTH ef227 and ef446.
+  **★ THE OPERATION IS ADDITION** — the round-2 question, answered. ef227's answer slot carries
+  A=16, one of the 14 corpus slots outside {0,0x80}: pool u {0,25,55,85,111} reads back
+  {16,41,101,127}, uMin histogram {16:284, 41:4, 101:4} over 292 rows. **41 and 101 are
+  ADD-EXCLUSIVE** — OR would read 25 and 85 (both already carry bit 4), XOR 9 and 69, FLAG 128-up —
+  so `['ADD','ADD_MOD256']` survive and `['NONE','OR','XOR','FLAG']` are excluded, hand-verified
+  against all four candidate value sets. ef446 is the second FLAG-refuting witness but does not
+  separate ADD from OR: its ADD-only values {43,71,99} never became a per-frame extreme.
+  **★ AND THE HAZARD IS WHAT ANSWERED IT — record the inversion.** The SPAN [16,127] is shared by
+  ADD and OR and could never have separated them; only the PER-FRAME VALUE HISTOGRAM did, and
+  interior pool values surface ONLY on frames where part of the mesh did not draw. **PARTIAL DRAW —
+  carried through this entire protocol as a HAZARD requiring a qualifier — is the mechanism that
+  resolved the question, on 8 ROWS of 292 — and those 8 rows are 4 identical rows on each of exactly
+  TWO frames (504 and 505, the last two the surface ever drew), so the evidence is TWO independent
+  observations, not eight.** (The "per-frame span VARIES (3 distinct)" texanim qualifier fires on
+  exactly those two frames and is NOT texanim: all three distinct values are ADD-set members, the v
+  axis never moved, and prims collapsed to 24 and 8 on precisely those frames.)
+  **ef424 IS NOT A WITNESS — REFUSED, and the gate was right.** Control key 37BCC0 is
+  EXACT-MULTISLOT (four bound slots, all A=0/B=0, pool u/v [0,111]): 64 rows at prims=144 — the full
+  bound face count — match the pool EXACTLY, while 36 rows at prims 2..10 read v to 255, i.e. FOREIGN
+  GEOMETRY sharing the key on other frames. The isolation ratio uses the per-frame MAX, so it read
+  1.00, held the key to EQUALITY, and failed on the union of the two populations. Conservative and
+  correct; ef424's u arm is lost as a witness.
+  **★ CLOSED-UNANSWERABLE, not an open rider — ADD vs ADD_MOD256** (and the wrap-vs-clamp rider dies
+  the same way). The two are degenerate wherever nothing reaches the byte boundary, and the corpus
+  census already measured displacement anti-correlated with high raw UV with **ZERO exceptions among
+  the 468 of 649 slots whose UV pool resolves offline** — of the 150 slots with pos0=0x80 (104
+  resolvable) the maximum raw uMax is 127, and of the 216 with pos1=0x80 (160 resolvable) the maximum
+  raw vMax is 127 — so no stock cast of any container is known to push a displaced span past that
+  boundary. ⚠ **The closure is STRONG and it is NOT TOTAL: 181 slots (28%) never resolved, so write
+  it as measured, not as proven.**
+  **★ THE DEFECT THE REAL CAST FOUND THAT 15 SYNTHETIC NULLS DID NOT.** ef424's control failure
+  produced a REFUSAL ("nothing in this cast may be scored") that never reached the ladder — **no
+  `L6p-CONTROL-FAIL` rung fired** — while a RESULT rung still printed for that same refused cast. The
+  synthetic battery covered an ABSENT control (L6q) but not a control that **DREW AND FAILED** beside
+  a scorable answer. The repair, this session: the refusal publishes its own ladder rung, a refused
+  cast publishes NO result rung, and the battery gains that case.
+  Option-3 adoption was sequenced BEHIND this cast because the arithmetic decided what the kit would
+  ship; it came back ADDITION, and the adoption followed immediately — the next bullet.
+  **★ DONE — OPTION 3 IS SHIPPED (W6b-3 (iv), THE SECOND ARRAY ADOPTED).** The kit computes an
+  EFFECTIVE cover beside the BOUND one and takes the reader join on the cell the hardware SAMPLES, at
+  `EDIT_CHANNELS` scope only: `CENSUS_CHANNELS` and `LICENSED_CHANNELS` are byte-identical over
+  372/372 containers (0 moved pages, cells, classes or bytes; the 55 `second-array-mover` reason
+  STRINGS are deliberately rewritten). Loss half — 45 `displaced-readerless` + 7 cells
+  `displaced-readership-substituted`, both liftable by `acknowledge_second_array_displacement`, and
+  the ledger is measured: of the 55 names, 39 come back identical, 6 as a DIFFERENT picture, 10 with
+  nothing at all. Gain half — 70 cells gain a reader, 29 of them previously `depth-unknown`, 27 of
+  the 30 names deliverable as PNGs (21 indexed + 6 `--art-lane direct15`, 3 program-VRAM refused).
+  REACH: incumbent single-part records only — `ORDER_UNMEASURED` is untouched and 142 novel slots
+  carry a pair nothing models. THE HONEST LIMIT, and the one thing an owner may want to change: the
+  loss half fails LOUDLY (refusal + key) and the gain half fails SILENTLY (licensed on the derivation
+  alone, no key, no way to decline at the CLI). Gates: `u1_gates` U1-U7 (U7 is the only instrument
+  aimed at `EDIT_CHANNELS`), `w6b_gates` 7/7, `w6q_gates` 20/20, `tests/test_summon_repaint.py`
+  231/231. The two W6b-3 (ii) Odin cast specs are FROZEN AS HISTORY — they no longer build under the
+  adoption and their notes say why.
+  **NEXT AFTER THIS:** a cast on a GAINED cell (the only thing that closes the gain half), and the
+  owner call on whether `export-art` should be able to decline the derivation.

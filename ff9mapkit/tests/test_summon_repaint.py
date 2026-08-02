@@ -34,6 +34,7 @@ import io
 import json
 import math
 import struct
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -1825,9 +1826,11 @@ def test_a_class_C_cell_carries_EVERY_palette_and_the_display_key_is_the_LOWEST_
 
 
 def test_SPILL_OUT_and_SPILL_IN_are_UV_exact_and_name_the_columns():
-    """A picture wider than a page is the corpus norm, not an edge case: 58 of 58 spilling models are
-    wider than one page, median 224 texels against 128, and 0 of 58 spill by <= 2%.  The cell the
-    model does not own sees it as SPILL-IN, which is exactly why page scope is the wrong edit unit."""
+    """A picture wider than a page is the corpus norm, not an edge case: 58 of 58 BOUND spilling
+    models are wider than one page and 0 of 58 spill by <= 2%.  The cell the
+    model does not own sees it as SPILL-IN, which is exactly why page scope is the wrong edit unit.
+    (The "median 224 texels" that used to stand here did NOT reproduce on re-derivation -- the bound
+    median u span is 192 -- and was retired rather than restated.)"""
     blob = build_scenery_container()
     own, foreign = _cell(blob, 320, 256), _cell(blob, 384, 256)
     assert own.hazards.spill_out == (384,) and not own.hazards.spill_in
@@ -2401,7 +2404,13 @@ def test_the_per_cell_map_unlocks_EXACTLY_the_twenty_lower_half_cells():
     upper, lower, spill_out = set(), set(), set()
     g_upper, g_lower, g_all, g_multi = set(), set(), set(), set()
     for ef, blob in _corpus_effects():
-        for p in RP.scenery_texel_pages(blob, ef):
+        # ⚠ SCOPED BY NAME to `LICENSED_CHANNELS`, the W6b-3 surface every number in this test is
+        # WRITTEN ABOUT (its own assertion messages say so: "55 ... less the 2 CHANNEL A VETOES").
+        # W6b-3 (iv) moved the DEFAULT to `EDIT_CHANNELS`, where 31 of these channel-G cells
+        # re-source to `so-uv` from an arriving displaced reader -- a nameable diff between two
+        # named sets, pinned in `test_THE_WHOLE_CORPUS_re_derives_every_W6b3iv_constant`, not a
+        # silent re-aim of this one.
+        for p in RP.scenery_texel_pages(blob, ef, channels=RP.LICENSED_CHANNELS):
             k, h = (ef, p.cell), p.hazards
             if p.depth_source == "so-page":
                 g_all.add(k)
@@ -2446,7 +2455,11 @@ def test_ef211s_cast_cell_derives_the_decision_documents_appendix_exactly():
     """The cast vehicle, cell by cell.  If this table ever stops matching, the artifact staged against
     it is aimed at bytes nobody re-checked."""
     blob = (CORPUS / "ef211.bytes").read_bytes()
-    pages = {p.name: p for p in RP.scenery_texel_pages(blob, 211)}
+    # ⚠ SCOPED BY NAME: this table is the record the STAGED CAST ARTIFACTS were built against, so
+    # it is asserted at the scope they were built under.  What W6b-3 (iv) moves on ef211 is
+    # asserted separately at the bottom of this test, cell by cell.
+    pages = {p.name: p for p in RP.scenery_texel_pages(blob, 211,
+                                                       channels=RP.LICENSED_CHANNELS)}
     assert sorted(pages) == ["cell.s0.x576_y256", "cell.s0.x576_y384",
                              "cell.s0.x640_y256", "cell.s0.x640_y384",
                              "cell.s0.x704_y256", "cell.s0.x704_y384"]
@@ -2493,19 +2506,60 @@ def test_ef211s_cast_cell_derives_the_decision_documents_appendix_exactly():
         RP.TexelTarget(name=low.name, enabled=True, source="", page=low)))
     assert "MULTI-PALETTE (class C): one index array, 2 renderings" in dis
     assert "CLUT (96, 244) (its `.as-x96_y244.png` view)" in dis
-    dark = [r.name for r in RP.scenery_cell_refusals(blob, 211)]
+    dark = [r.name for r in RP.scenery_cell_refusals(blob, 211,
+                                                     channels=RP.LICENSED_CHANNELS)]
     assert len(dark) == 6 and "cell.s0.x704_y384" not in dark, \
         "channel G moved the DOME and (640,384) out of the dark set; 8 - 2 = 6 remain"
     assert "cell.id9.s0.x768_y256" in dark
+    # ★★ W6b-3 (iv) ON THE ARC'S OWN CAST VEHICLE, NAMED CELL BY CELL rather than left for a
+    # later reader to discover.  ef211 IS touched by the adoption, and exactly where matters:
+    #   * THE DOME (`cell.s0.x704_y384`) -- the ONE cell in this lane with a PASSING in-game
+    #     trial -- is UNMOVED: still readerless, still CHANNEL G, still 8bpp, still inherited.
+    #     The rung does not disturb the cell its licence was paid for in game;
+    #   * column 640 DOES move: GEOM 0x2ed7c binds the UPPER half and samples the LOWER one,
+    #     so `x640_y256` goes two readers to one and `x640_y384` stops being readerless and
+    #     re-sources CHANNEL G -> `so-uv`.  Same depth (4bpp), same bytes; what changes is
+    #     WHICH record the kit says reads them.
+    ep = {p.name: p for p in RP.scenery_texel_pages(blob, 211)}       # the SHIPPED default
+    assert sorted(ep) == sorted(pages), "no cell is gained or lost on ef211"
+    d2 = ep["cell.s0.x704_y384"]
+    assert (d2.bpp, d2.depth_source, d2.readership) == (8, "so-page", "bound")
+    assert d2.hazards.readers == (), "the in-game-proven channel-G cell is UNTOUCHED"
+    assert [r.geom for r in ep["cell.s0.x640_y256"].hazards.readers] == [0x2d344]
+    low2 = ep["cell.s0.x640_y384"]
+    assert (low2.bpp, low2.depth_source, low2.readership) == (4, "so-uv", "displaced")
+    assert [r.geom for r in low2.hazards.readers] == [0x2ed7c]
+    assert low2.hazards.displaced_gained
+    assert low2.page_offset == low.page_offset, (
+        "the SAME bytes -- a displacement moves attribution, never an address")
 
 
 @needs_corpus
 def test_every_readable_corpus_cell_round_trips_BYTE_IDENTICALLY_at_its_own_depth(tmp_path):
     """PASS B, the one that matters: not a ramp palette over anonymous bytes but every cell an ``so``
     binding samples, encoded at ITS OWN declared depth and in ITS OWN CLUT, and re-read."""
+    # ⚠ W6b-3 (iv): run over BOTH named surfaces, which is STRICTLY STRONGER than the single
+    # pass this used to be -- the codec identity has to hold on every page either scope emits,
+    # and the two populations are pinned SEPARATELY so a page moving between them is visible.
     n = {4: 0, 8: 0, 15: 0}
+    ne = {4: 0, 8: 0, 15: 0}
     for ef, blob in _corpus_effects():
-        for p in RP.scenery_texel_pages(blob, ef):
+        for p in RP.scenery_texel_pages(blob, ef, channels=RP.EDIT_CHANNELS):
+            if p.depth_ambiguous or (p.bpp != 15 and p.clut_offset is None):
+                continue
+            raw = blob[p.page_offset:p.page_offset + p.page_bytes]
+            png = tmp_path / "e.png"
+            if p.bpp == 15:
+                RP.write_direct_png(raw, p.w, p.h, png)
+                assert RP.read_direct_png(png, p.w, p.h) == raw, p.name
+            elif p.bpp == 4:
+                RP.write_indexed4_png(raw, RP.palette_words(blob, p), p.w, p.h, png)
+                assert RP.read_indexed4_png(png, p.w, p.h, 16) == raw, p.name
+            else:
+                RP.write_indexed_png(raw, RP.palette_words(blob, p), p.w, p.h, png)
+                assert RP.read_indexed_png(png, p.w, p.h, 256) == raw, p.name
+            ne[p.bpp] += 1
+        for p in RP.scenery_texel_pages(blob, ef, channels=RP.LICENSED_CHANNELS):
             if p.depth_ambiguous or (p.bpp != 15 and p.clut_offset is None):
                 continue
             raw = blob[p.page_offset:p.page_offset + p.page_bytes]
@@ -2530,8 +2584,16 @@ def test_every_readable_corpus_cell_round_trips_BYTE_IDENTICALLY_at_its_own_dept
         "the two channels, still separable inside it: channel G contributes 28 + 24 + 3 = 55 writer " \
         "records and `so-uv` 48 + 142 + 14 = 204.  THE CODEC IS UNTOUCHED -- every one of them " \
         "round-trips at the depth its own channel states"
-    print("W6b identity: %d 4bpp + %d 8bpp + %d 15bpp cell views, 0 mismatches"
-          % (n[4], n[8], n[15]))
+    assert (ne[4], ne[8], ne[15]) == (66, 151, 22), (
+        "...and the SHIPPED edit surface (`EDIT_CHANNELS`), where the reader join is taken on "
+        "the cell the hardware SAMPLES.  239 round-trippable writer records against the W6b-3 "
+        "scope's 259: 52 cells lose their `so-uv` page to the two DISPLACED-* classes and 70 "
+        "gain one, and the depth mix moves with them because an arriving reader brings its OWN "
+        "tpage's depth.  THE CODEC IS UNTOUCHED on either surface -- every page of both "
+        "round-trips at the depth its own channel states, which is what this test is for.")
+    print("W6b identity: %d 4bpp + %d 8bpp + %d 15bpp cell views (W6b-3 scope), "
+          "%d + %d + %d (edit surface), 0 mismatches"
+          % (n[4], n[8], n[15], ne[4], ne[8], ne[15]))
 
 
 @needs_corpus
@@ -2574,7 +2636,11 @@ def test_the_hazard_record_agrees_with_the_census_CELL_BY_CELL():
     #: cells the RECT-conservative census calls spill-touched and the UV-exact derivation does not.
     rect_only = set()
     for ef, blob in _corpus_effects():
-        for p in RP.scenery_texel_pages(blob, ef):
+        # ⚠ SCOPED BY NAME to `LICENSED_CHANNELS`.  `_W6B_CENSUS` is a FROZEN artifact of the BOUND
+        # population -- which models bind which cell -- so joining the EFFECTIVE reader set against
+        # it would compare two different questions and call the difference a bug.  W6b-3 (iv)'s own
+        # re-derivation pin measures the effective side.
+        for p in RP.scenery_texel_pages(blob, ef, channels=RP.LICENSED_CHANNELS):
             r = recs.get((ef, p.cell))
             if r is None or r["bpp"] is None:
                 continue
@@ -2841,9 +2907,10 @@ def test_two_writers_sharing_ONE_source_file_is_disclosed_rather_than_silently_a
 
 # ---- THE NAME-EVERY-COLUMN GATE ------------------------------------------------------------------
 def test_a_SPILLING_models_cell_refuses_PAGE_scope_and_names_the_column_left_out(tmp_path):
-    """58 of 58 spilling corpus pictures are wider than one page (median 224 texels against 128) and
-    0 of 58 spill by <= 2%, so there is no marginal case to wave through: a page-scope edit hands the
-    author half a picture."""
+    """Of the 60 spilling corpus bindings this gate is taken on (the EFFECTIVE cover since W6b-3
+    (iv)), 58 read a picture strictly wider than one page and the other 2 are page-exact at 15bpp and
+    cross the boundary anyway -- so there is no marginal case to wave through: a page-scope edit hands
+    the author half a picture."""
     blob = build_scenery_container()
     own = _cell(blob, 320, 256)
     src = _write_cell_png(tmp_path, blob, own, _bump_cell(own, _page_at(blob, own)))
@@ -2852,7 +2919,14 @@ def test_a_SPILLING_models_cell_refuses_PAGE_scope_and_names_the_column_left_out
     msg = str(e.value)
     assert "THE NAME-EVERY-COLUMN GATE" in msg and "NOT NAMED: x384_y256" in msg
     assert "spills OUT of it" in msg and "cell.s0.x384_y256" in msg
-    assert "0 of 58 spill by <= 2%" in msg
+    # ★ THE JUSTIFYING STATISTIC IS PINNED AT THE POPULATION THE GATE IS TAKEN ON.  It used to read
+    # "0 of 58 spill by <= 2%", a BOUND-cover figure left behind when W6b-3 (iv) re-aimed the
+    # obligation at the EFFECTIVE cover -- where the population is 60 and TWO of them (ef381 GEOM
+    # 0x20727c, ef447 GEOM 0xa2f74, both 15bpp) are page-EXACT and cross the boundary anyway.  The
+    # retired wording is pinned ABSENT so a revert to it fails loud rather than passing quietly.
+    assert "60 spilling corpus bindings this gate is taken on" in msg
+    assert "58 read a picture strictly wider than one page" in msg
+    assert "0 of 58 spill by <= 2%" not in msg and "median 224" not in msg
 
 
 def test_a_SPILL_IN_cell_refuses_page_scope_and_NAMES_THE_FOREIGN_MODEL(tmp_path):
@@ -4713,20 +4787,31 @@ def test_the_MEASURED_and_the_RETIRED_column_readings_are_both_stated():
     assert n.swapped_moved is True and n.original_moved is False
 
 
-def test_the_page_is_NOT_WITHDRAWN_by_the_new_class():
-    """★ P4.  EMISSION SET UNCHANGED, proven rather than asserted: same pages, same names, same
-    depths -- and the class is in NEITHER ``_UNADDRESSABLE`` nor ``_EXPORT_BLOCKING``, so
-    ``texel_page`` still resolves and ``export_art`` still writes the PNG."""
+def test_the_page_is_NOT_WITHDRAWN_by_the_new_class_AT_THE_W6b3_SCOPE():
+    """★ P4.  EMISSION SET UNCHANGED **at the W6b-3 scope**, proven rather than asserted: same pages,
+    same names, same depths -- and ``second-array-mover`` is in NEITHER ``_UNADDRESSABLE`` nor
+    ``_EXPORT_BLOCKING``.
+
+    ⚠ **THIS ASSERTION WAS DELIBERATELY NARROWED BY W6b-3 (iv), AND THE NARROWING IS THE RUNG.** It
+    used to be written at :func:`scenery_texel_pages`' DEFAULT, which now consults ``"so-displaced"``
+    and where the page IS withdrawn -- that is the whole point of the adoption. The replacement for
+    the shipped default is STRICTLY STRONGER: ``test_the_LOSS_HALF_refuses_by_name_and_the_EXISTING_
+    ack_lifts_it`` pins the refusal CLASS, both membership sets, the ack lift AND the fallback depth,
+    where this pinned only that nothing moved. What survives here is the claim W6b-3 (iii) actually
+    made -- that ITS OWN channel set emits exactly what it emitted before -- checked at that set BY
+    NAME instead of at a default that has moved underneath it."""
     assert "second-array-mover" not in RP._UNADDRESSABLE
     assert "second-array-mover" not in RP._EXPORT_BLOCKING
     mover = build_scenery_container(extra_models=_mover_model())
     plain = build_scenery_container(extra_models=_mover_model(second=(0, 0)))
-    a = RP.scenery_texel_pages(mover, 999)
-    b = RP.scenery_texel_pages(plain, 999)
+    a = RP.scenery_texel_pages(mover, 999, channels=RP.LICENSED_CHANNELS)
+    b = RP.scenery_texel_pages(plain, 999, channels=RP.LICENSED_CHANNELS)
     assert [(p.name, p.cell, p.bpp, p.depth_source, p.page_offset, p.page_bytes) for p in a] == \
            [(p.name, p.cell, p.bpp, p.depth_source, p.page_offset, p.page_bytes) for p in b], \
-        "the mover moves NO page, NO name, NO depth and NO offset"
-    assert RP.texel_page(mover, DARK_CELL, 999).cell == (448, 256)
+        "the mover moves NO page, NO name, NO depth and NO offset at the W6b-3 scope"
+    # ...and every one of those pages reads `readership == "bound"`: a channel nobody consulted
+    # cannot appear to have routed a reader.
+    assert {p.readership for p in a} == {"bound"}
 
 
 def test_the_refusal_TEXT_is_quotable_and_carries_no_literal_percent():
@@ -4739,14 +4824,22 @@ def test_the_refusal_TEXT_is_quotable_and_carries_no_literal_percent():
     assert DA.ACK_MOVER_KEY in txt
     assert "THE GRANULARITY IS THE WHOLE READER SET" in txt and "cell.s0.x640_y256" in txt
     assert "THE REACH IS THE INCUMBENT RECORDS ONLY" in txt, "the blind spot is stated, not omitted"
-    # ★ THE FOUR LOAD-BEARING CLAIMS, one per axis of the U1 s77 read: the altitude, the settled
-    # labelling, the resolved v axis, and the surviving generalisation rider.  The three tokens this
-    # loop used to pin ("0.84", "0.68", "UNRESOLVED") are REFUTED by that read and are asserted
-    # ABSENT below, so a revert to the old text fails here rather than passing quietly.
+    # ★ THE LOAD-BEARING CLAIMS, one per axis the casts settled.  Tokens a later round REFUTES move
+    # from the PRESENT list to the ABSENT one rather than being deleted, so a silent revert to an
+    # older text fails here instead of passing quietly.
+    #
+    # ⚠ W6b-3 (iv) MOVED ONE: "ONE CONTAINER, ONE CAST" was pinned PRESENT by W6b-3 (iii) and is now
+    # pinned ABSENT, because the owner's four-cast session GENERALISED the mechanism onto ef227 (key
+    # ISOLATED, tri ratio 1.00, control gate PASS) and ef446 (control gate PASS) with ef038
+    # reproducing in the same log.  That is a claim becoming FALSE, not a claim being dropped, so the
+    # replacement is at least as strong: the two new containers and the settled operation are pinned
+    # PRESENT, and the three operations the ef227 value test EXCLUDED are pinned ABSENT.
     for piece in ("0.97", "PAIR POSITION 0 DISPLACES u", "THE v AXIS IS RESOLVED",
-                  "ONE CONTAINER, ONE CAST"):
+                  "LINEAR ADDITION", "ef227", "ef446", "THE INTRA-PAGE LAW",
+                  "THE REACH IS THE INCUMBENT RECORDS ONLY"):
         assert piece in DA.U_DISPLACEMENT_CAVEAT, piece
-    for gone in ("0.84", "0.68", "UNRESOLVED", "NEITHER is preferred"):
+    for gone in ("0.84", "0.68", "UNRESOLVED", "NEITHER is preferred",
+                 "ONE CONTAINER, ONE CAST", "IF IT GENERALISES", "MODELS NOTHING"):
         assert gone not in DA.U_DISPLACEMENT_CAVEAT, gone
     # ...and the sharpest-unmodelled statement still names BOTH cells of the column the cast measured
     assert "cell.s0.x704_y256" in DA.U_DISPLACEMENT_CAVEAT
@@ -4775,37 +4868,56 @@ def test_the_second_array_ack_is_a_LITERAL_BOOLEAN_and_fails_closed_when_misspel
     assert b.targets[0].ack_second_array is True and b.patched == blob
 
 
-def test_THE_BUILD_GATE_refuses_by_name_and_the_ack_moves_NO_BYTE(tmp_path):
+def test_THE_BUILD_GATE_refuses_by_name_and_the_ack_moves_NO_BYTE(tmp_path, monkeypatch):
     """★ P7.  The two-layer shape ``u``-spill already has: a refusal CLASS carries the reason and a
-    build GATE carries the obligation.  And the emission identity is PROVEN, not asserted -- the
-    acknowledged build is compared byte-for-byte against the same build with the gate's own predicate
-    stubbed out, i.e. against what this row produced before the class existed."""
+    build GATE carries the obligation.
+
+    ⚠ **W6b-3 (iv) MOVED THE OBLIGATION EARLIER AND THIS TEST MOVED WITH IT.** On the shipped edit
+    surface the cell is now ``displaced-readerless``, which is ``_UNADDRESSABLE``, so the row is
+    refused at RESOLUTION -- strictly earlier than the build gate, and the message names the class
+    rather than the disclosure.  The W6b-3 build gate is still asserted, at its own channel set, so
+    neither half is weakened: BOTH refusals are pinned here, and the emission identity below is
+    proven against the pre-adoption CHANNEL SET rather than against a stubbed predicate, which is a
+    stronger counterfactual (it exercises the real code path end to end)."""
     blob = build_scenery_container(extra_models=_mover_model())
-    px = _page_bytes(blob, DARK_CELL)
-    src = _write_png(tmp_path, blob, DARK_CELL, px)
+    # the art itself is resolved THROUGH the ack, because on the shipped surface this cell is
+    # refused at resolution -- which is the behaviour under test two lines down.
+    _p = RP.texel_page(blob, DARK_CELL, 999, allow_displaced_readerless=True)
+    px = blob[_p.page_offset:_p.page_offset + _p.page_bytes]
+    src = tmp_path / ("%s.png" % DARK_CELL)
+    RP.write_indexed_png(px, RP.palette_words(blob, _p), _p.w, _p.h, src)
     row = {"name": DARK_CELL, "enabled": True, "source": str(src), "expect_bpp": 8}
+    # (a) THE SHIPPED SURFACE: refused at resolution, BY THE NEW NAME
+    with pytest.raises(RP.RepaintError, match="DISPLACED-READERLESS"):
+        RP.build(_spec_dict(blob, [dict(row)]), str(tmp_path / "s.toml"), blob=blob)
+    # (b) THE W6b-3 SURFACE: still the build gate, still by ITS name
+    monkeypatch.setattr(RP, "EDIT_CHANNELS", RP.LICENSED_CHANNELS)
     with pytest.raises(RP.RepaintError, match="THE SECOND-ARRAY GATE"):
         RP.build(_spec_dict(blob, [dict(row)]), str(tmp_path / "s.toml"), blob=blob)
+    before = RP.build(_spec_dict(blob, [dict(row, **{DA.ACK_MOVER_KEY: True})]),
+                      str(tmp_path / "s.toml"), blob=blob)
+    assert any("SECOND-ARRAY MOVER on every reader" in n for n in before.targets[0].hazard_notes)
+    assert any(DA.U_DISPLACEMENT_ACK_WARNING in n for n in before.targets[0].hazard_notes), \
+        "the ACKNOWLEDGED case still says what was acknowledged"
+    # (c) ...and the SAME row, acknowledged, on the SHIPPED surface writes the SAME BYTES.  Adoption
+    # re-aims ATTRIBUTION; it may not move a texel of an acknowledged build.
+    monkeypatch.undo()
     ok = RP.build(_spec_dict(blob, [dict(row, **{DA.ACK_MOVER_KEY: True})]),
                   str(tmp_path / "s.toml"), blob=blob)
-    # THE COUNTERFACTUAL: the same row, with the gate unable to fire -- i.e. the pre-class kit
-    was = RP._gate_second_array
-    try:
-        RP._gate_second_array = lambda targets: {}
-        before = RP.build(_spec_dict(blob, [dict(row)]), str(tmp_path / "s.toml"), blob=blob)
-    finally:
-        RP._gate_second_array = was
     assert ok.patched == before.patched, "the ack buys a DISCLOSURE, never a different byte"
-    assert any("SECOND-ARRAY MOVER on every reader" in n for n in ok.targets[0].hazard_notes)
-    assert any(DA.U_DISPLACEMENT_ACK_WARNING in n for n in ok.targets[0].hazard_notes), \
-        "the ACKNOWLEDGED case still says what was acknowledged"
+    assert any(DA.U_DISPLACEMENT_ACK_WARNING in n for n in ok.targets[0].hazard_notes)
 
 
-def test_export_art_PRINTS_the_disclosure_in_the_manifest_and_the_scaffold(tmp_path):
+def test_export_art_PRINTS_the_disclosure_in_the_manifest_and_the_scaffold(tmp_path, monkeypatch):
     """★ P8.  The author meets this BEFORE they paint, not after the playtest: the MEASURED reading
     and the retired one in the manifest, both in the scaffold labelled as such, and the ack line only
-    on a firing row."""
+    on a firing row.
+
+    ⚠ Asserted at the W6b-3 channel set BY NAME (W6b-3 (iv) refuses this cell on the shipped one; the
+    export half of THAT behaviour is pinned in
+    ``test_the_LOSS_HALF_export_needs_the_ack_and_then_says_what_was_acknowledged``)."""
     blob = build_scenery_container(extra_models=_mover_model())
+    monkeypatch.setattr(RP, "EDIT_CHANNELS", RP.LICENSED_CHANNELS)
     RP.export_art(blob, 999, out_dir=tmp_path, scaffold=True, overlays=False)
     man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
     hit = [e for e in man["scenery"] if e["name"] == DARK_CELL][0]
@@ -4904,3 +5016,569 @@ def test_the_firing_set_over_the_WHOLE_CORPUS_reconciles_with_the_impact_scoping
                   ("ef424", (704, 384))):
         assert clean not in mine, clean
     assert ("ef424", (448, 384)) in mine, "the ONE shipped-cast cell that does fire -- by name"
+
+
+# ======================================== W6b-3 (iv): THE SECOND ARRAY, **ADOPTED** -- THE EFFECTIVE
+# COVER.  The first rung in this lane that deliberately changes behaviour, so every assertion below
+# says WHICH surface it is about: CENSUS_CHANNELS (frozen at W6b-1), LICENSED_CHANNELS (frozen at the
+# W6b-3 scope every gate board is written about) or EDIT_CHANNELS (what an author walks).  The
+# synthetic half proves the SHAPE; the corpus-gated half proves the POPULATION.
+
+def _p2_geom(tpage: int, clut: int, uv, second=((0, 0), (0, 0))) -> bytes:
+    """A **MULTI-PART** ``so`` record (``P == 2``) + one UV-bound GEOM -- the ORDER_UNMEASURED
+    vehicle.  Built here rather than in ``_uv_geom`` because the whole point is the arity: at
+    ``P == 2`` ``Binding.mover`` must REFUSE to answer, so no displacement of any size may reach the
+    cover no matter what the second array holds."""
+    body = _uv_geom(tpage, clut, uv)[16:]                      # the GEOM, minus the P == 1 record
+    rec_len = 8 + 8 * 2
+    so = (struct.pack("<HHHH", 0x6F73, 1, rec_len, 8 + 4 * 2)
+          + struct.pack("<HH", tpage, clut) + struct.pack("<HH", tpage, clut)
+          + struct.pack("<HH", *second[0]) + struct.pack("<HH", *second[1]))
+    return so + body
+
+
+def test_THE_SEAM_is_one_arithmetic_site_and_it_is_depth_correct():
+    """★ Q1.  ``effective = stored + halfword``, per axis, LINEAR -- and the u term is converted at
+    the PAGE's own depth (G1, THE PAGE-SPAN GATE), so ``+128`` texels is HALF a 4bpp cell, EXACTLY
+    ONE 8bpp cell and TWO at 15bpp.  All three read off the kit's own ``TEXELS_PER_HW`` rather than
+    typed, so the arithmetic is CHECKED, not restated."""
+    assert RP.DISPLACEMENT_MODEL == DA.DISPLACEMENT_MODEL == "linear-add-v1"
+    # the identity: no displacement, no movement, at every depth
+    for bpp in (4, 8, 15):
+        per = KT.TEXELS_PER_HW[bpp]
+        assert RP.sampled_halfword((448, 256), 10, 20, per) == (448 + 10 // per, 276)
+        assert RP.effective_cell((448, 256), 10, 20, bpp) == (448, 256)
+    # the u term, depth by depth, off the SAME pair
+    assert RP.effective_cell((448, 256), 0, 0, 4, (128, 0)) == (448, 256), "half a 4bpp cell"
+    assert RP.effective_cell((448, 256), 0, 0, 8, (128, 0)) == (512, 256), "exactly one 8bpp cell"
+    assert RP.effective_cell((448, 256), 0, 0, 15, (128, 0)) == (576, 256), "two 15bpp cells"
+    # ...and the v term, which is VRAM LINES and therefore depth-FREE
+    for bpp in (4, 8, 15):
+        assert RP.effective_cell((448, 256), 0, 0, bpp, (0, 128)) == (448, 384), bpp
+    # both axes at once, independently
+    assert RP.effective_cell((448, 256), 0, 0, 8, (128, 128)) == (512, 384)
+    # THE OPERATION IS ADDITION, not OR / XOR / a FLAG -- the ef227 value test, in miniature: the
+    # pool value 25 with du 16 must read 41, which OR reads 25 and XOR reads 9.
+    assert RP.sampled_halfword((0, 0), 25, 0, 1, (16, 0))[0] == 41
+    assert RP.sampled_halfword((0, 0), 85, 0, 1, (16, 0))[0] == 101
+
+
+def test_the_TWO_COVERS_are_the_SAME_OBJECT_wherever_nothing_is_displaced():
+    """★ Q2.  ``effective_cover is cover`` on every non-mover -- an OBJECT IDENTITY a gate can
+    assert, not a set comparison that could pass for the wrong reason.  This is what makes *"the
+    undisplaced path is untouched"* a fact about construction rather than about luck."""
+    plain = build_scenery_container(extra_models=_mover_model(second=(0, 0)))
+    ms = RP.bound_models(plain)
+    assert ms and all(m.effective_cover is m.cover for m in ms)
+    assert all(not m.displaced for m in ms)
+    assert RP.cell_readers(plain) == RP.effective_cell_readers(plain)
+    # ...and on a MOVER the two are different objects and different answers
+    mover = build_scenery_container(extra_models=_mover_model())
+    mm = [m for m in RP.bound_models(mover) if m.displaced]
+    assert len(mm) == 1
+    m = mm[0]
+    assert m.effective_cover is not m.cover and set(m.effective_cover) != set(m.cover)
+    assert m.columns == (448,) and m.effective_columns == (512,), "BOUND stays 448; EFFECTIVE is 512"
+    assert (448, 256) in RP.cell_readers(mover)
+    assert (448, 256) not in RP.effective_cell_readers(mover)
+    assert (512, 256) in RP.effective_cell_readers(mover)
+
+
+def test_THE_INTRA_PAGE_LAW_is_enforced_at_the_call_site_and_fails_CLOSED():
+    """★ Q3.  A tpage is cell-aligned and stored ``u, v`` are BYTES, so one tpage spans 1 / 2 / 4
+    cells wide by exactly 2 tall and a displaced read can never leave it.  That is what makes LINEAR
+    and mod-256 WRAPPING indistinguishable, an arriving reader's depth non-extrapolated, and an
+    off-VRAM read impossible -- so it is CHECKED on every displaced binding rather than described.
+    *A law in a docstring is a wish.*
+
+    ⚠ **AND THE CALL SITE IS :func:`~ff9mapkit.summons.repaint.effective_cell_readers`, NOT
+    :func:`~ff9mapkit.summons.repaint.bound_models`.** The rasteriser is walked by EVERY channel
+    scope, including the two frozen ones that never read ``effective_cover``; asserting there let a
+    law-breaking container fail the CENSUS and LICENSED surfaces, which is a failure mode those two
+    scopes do not own. The law is spent where the displacement is -- see Q13, which pins the same
+    property on a real container. This test keeps the FIXTURE and moves the ASSERTION."""
+    ok = build_scenery_container(extra_models=_mover_model())
+    RP.effective_cell_readers(ok)                              # the corpus-shaped case: no raise
+    # a hand-built violation: u up to 200 with du = 128 reaches 328, past the byte boundary
+    bad = build_scenery_container(extra_models=_mover_model(uv=(0, 0, 200, 60)))
+    # the RASTERISER states no readership, so it must NOT raise -- that is the scope fix itself
+    models = RP.bound_models(bad)
+    assert any(m.displaced for m in models), "the fixture really does carry a displaced binding"
+    with pytest.raises(RP.RepaintError, match="THE INTRA-PAGE LAW IS BROKEN"):
+        RP.effective_cell_readers(bad)
+    try:
+        RP.effective_cell_readers(bad, models)
+    except RP.RepaintError as e:
+        assert "linear-add-v1" in str(e) and "u 0..200" in str(e)
+    else:                                                      # pragma: no cover - the raise above
+        raise AssertionError("the law must fire on the models the CALLER handed in, too")
+
+
+def test_ORDER_UNMEASURED_a_multipart_record_is_NEVER_displaced():
+    """★ Q4.  THE REACH BOUNDARY, enforced at the accessor.  A ``P >= 2`` record's second array may
+    hold anything at all; pairing entry *k* with binding slot *k* is the ORDER nothing corroborates,
+    so :attr:`Binding.mover` refuses to answer and NOTHING in this lane may displace that binding.
+    The corpus carries 142 such pairs, so the effective cover is a LOWER BOUND on readership."""
+    blob = build_scenery_container(
+        extra_models=_p2_geom(_tpage(448, 256, 8), _clut_word(0, 245), (0, 0, 100, 60),
+                              second=((0x0080, 0x0080), (0x0080, 0x0080))))
+    novel = [b for b in RS.attribution(blob, include_direct=True).bindings
+             if b.witness == RS.WITNESS_NOVEL]
+    assert novel, "the fixture must actually produce a P >= 2 record"
+    for b in novel:
+        assert b.second_pairs and b.mover is None, "the accessor REFUSES, it does not index"
+    ms = [m for m in RP.bound_models(blob) if m.page == (448, 256)]
+    assert all(not m.displaced and m.effective_cover is m.cover for m in ms), \
+        "a novel record's pair reaches no cover, however large it is"
+    recs, pairs = RP.novel_displacement_reach(blob)
+    assert (recs, pairs) == (1, 2), "...and the kit COUNTS what it cannot model, so it can say so"
+
+
+def test_the_CHANNEL_TOKEN_is_gated_and_DEPENDS_on_so_uv():
+    """★ Q5.  ``"so-displaced"`` is not a channel of its own -- it is the SAMPLING ARITHMETIC of
+    ``so-uv`` -- so asking for it without ``so-uv`` re-aims a join nobody is consulting.  A guard may
+    only ever fail CLOSED.  And it is deliberately NOT in ``DEPTH_SOURCES``, which is load-bearing in
+    two other guards."""
+    blob = build_scenery_container(extra_models=_mover_model())
+    assert "so-displaced" not in RP.DEPTH_SOURCES, "it states no DEPTH"
+    assert "so-displaced" in RP._CHANNEL_TOKENS and "so-displaced" in RP.EDIT_CHANNELS
+    assert "so-displaced" not in RP.LICENSED_CHANNELS and "so-displaced" not in RP.CENSUS_CHANNELS
+    assert RP.EDIT_CHANNELS == RP.LICENSED_CHANNELS + ("so-displaced",), "DERIVED, never re-typed"
+    with pytest.raises(RP.RepaintError, match="requires 'so-uv'"):
+        RP.scenery_surface(blob, 999, channels=("so-page", "so-displaced"))
+    with pytest.raises(RP.RepaintError, match="unknown depth channel"):
+        RP.scenery_surface(blob, 999, channels=("so-uv", "so-nonsense"))
+
+
+def test_the_CENSUS_and_the_W6b3_SCOPES_are_UNMOVED_under_the_adoption():
+    """★ Q6.  THE CONTAINMENT, and it is the strongest thing this rung has.  A channel a caller
+    declined to consult must not appear to have spoken -- so a mover changes NOTHING at the census
+    default and NOTHING at the W6b-3 set, and every displacement predicate answers False there."""
+    blob = build_scenery_container(extra_models=_mover_model())
+    for ch in (RP.CENSUS_CHANNELS, RP.LICENSED_CHANNELS):
+        pages, ref = RP.scenery_surface(blob, 999, channels=ch)
+        assert all(p.readership == "bound" for p in pages)
+        assert all(p.hazards.displacement_adopted is False for p in pages)
+        assert all(not p.hazards.displaced_readerless and not p.hazards.displaced_gained
+                   and not p.hazards.displaced_changed for p in pages)
+        assert all(p.hazards.bound_readers == p.hazards.readers for p in pages)
+        assert not [r for r in ref if r.klass.startswith("displaced-")]
+        assert (448, 256) in {p.cell for p in pages}, "the bound cell still emits at this scope"
+
+
+def test_the_LOSS_HALF_refuses_by_name_and_the_EXISTING_ack_lifts_it():
+    """★★ Q7 -- **THE LOSS HALF REFUSES BY NAME, AND EARLIER.**  ⚠ Not a newly-caught silent
+    failure: the previous rung's second-array gate already refused the BUILD on every one of these
+    rows (measured, 0 of 45 build clean without the ack).  What this rung adds is the DESTINATION --
+    it can say where the readers went -- and it moves the refusal from BUILD to RESOLUTION and
+    EXPORT.  Both classes are ``_UNADDRESSABLE`` AND ``_EXPORT_BLOCKING``, and the ONLY key that
+    lifts them is the one those rows already needed -- so no row that built yesterday needs a new
+    word today."""
+    for k in ("displaced-readerless", "displaced-readership-substituted",
+              "displaced-vs-page-depth"):
+        assert k in RP._UNADDRESSABLE and k in RP._EXPORT_BLOCKING, k
+    blob = build_scenery_container(extra_models=_mover_model())
+    pages, ref = RP.scenery_surface(blob, 999, channels=RP.EDIT_CHANNELS)
+    hit = [r for r in ref if r.cell == (448, 256)]
+    assert [r.klass for r in hit] == ["displaced-readerless"]
+    assert (448, 256) not in {p.cell for p in pages}, "and NO page is handed back"
+    # the reason NAMES the departing reader and WHERE IT WENT -- the thing the old refusal could not
+    assert "samples x512_y256 instead" in hit[0].reason
+    assert DA.U_DISPLACEMENT_CAVEAT in hit[0].reason
+    assert "no reader this kit can attribute" in hit[0].reason.lower(), "never 'nothing reads it'"
+    with pytest.raises(RP.RepaintError, match="REFUSED, not unknown"):
+        RP.texel_page(blob, DARK_CELL, 999)
+    # ...and the EXISTING ack lifts it, back onto whatever channel still speaks -- here the COLUMN,
+    # at the SAME depth, because a displacement moves where a reader looks and not how a page reads.
+    got = RP.texel_page(blob, DARK_CELL, 999, allow_displaced_readerless=True)
+    assert got.cell == (448, 256) and got.bpp == 8 and got.depth_source == "so-page"
+    a_pages, a_ref = RP.scenery_surface(blob, 999, channels=RP.EDIT_CHANNELS,
+                                        displacement_ack=True)
+    assert (448, 256) in {p.cell for p in a_pages}
+    assert not [r for r in a_ref if r.klass == "displaced-readerless"]
+
+
+def test_the_GAIN_HALF_is_licensed_by_DEFAULT_and_behind_no_new_key():
+    """★★ Q8 -- **THE PRIZE.**  A cell no record binds, that a displaced reader SAMPLES, becomes
+    derivable from the arriving reader's own ``so`` record -- the same evidence at the same tier as
+    every other ``so-uv`` cell, and by THE INTRA-PAGE LAW at an address inside that same record's own
+    tpage.  So it needs no acknowledgement: gating it would be the kit asking an author to
+    acknowledge that it is now right."""
+    # A MOVER ON A NEIGHBOURING PAGE: it binds column 384 and, at 8bpp with du = 128, samples 448 --
+    # the fixture's one DECLARED cell no record binds, which every kit before this one refused as
+    # `depth-unknown` and handed an author nothing for.
+    blob = build_scenery_container(
+        extra_models=_mover_model(x=384, y=256, bpp=8, second=(0x0080, 0x0000)))
+    l_pages, l_ref = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
+    e_pages, _e_ref = RP.scenery_surface(blob, 999, channels=RP.EDIT_CHANNELS)
+    before = {p.cell: p for p in l_pages}
+    after = {p.cell: p for p in e_pages}
+    assert (448, 256) not in before, "nothing binds this cell..."
+    assert [r.klass for r in l_ref if r.cell == (448, 256)] == ["depth-unknown"],         "...and every kit before this one handed the author nothing for it"
+    assert (448, 256) in after, "...and the displaced reader makes it derivable"
+    got = after[(448, 256)]
+    assert got.depth_source == "so-uv" and got.readership == "displaced" and got.bpp == 8
+    assert [r.geom for r in got.hazards.readers] == [
+        m.geom for m in RP.bound_models(blob) if m.displaced]
+    assert got.hazards.displaced_gained and not got.hazards.bound_readers
+    # NO NEW KEY anywhere on the path: this resolves with every acknowledgement False
+    assert RP.texel_page(blob, DARK_CELL, 999).cell == (448, 256)
+    # ...and the disclosure SAYS the reader was routed here, because an author cannot see that in
+    # the PNG they are painting
+    txt = "  ".join(RP._scenery_disclosures(
+        RP.TexelTarget(name=got.name, enabled=True, source="", page=got)))
+    assert "READERSHIP: DISPLACED" in txt and DA.DISPLACEMENT_DERIVATION in txt
+
+
+def test_the_LOSS_HALF_export_needs_the_ack_and_then_says_what_was_acknowledged(tmp_path):
+    """★ Q9.  ``export_art`` refuses the loss half BY NAME in the manifest and the scaffold, and
+    ``--acknowledge-displacement`` is what gets the art -- after which the scaffold prints the ack
+    line, the class, and the REACH clause.  A disclosure that goes quiet the moment it is
+    acknowledged is a disclosure nobody can audit afterwards."""
+    blob = build_scenery_container(extra_models=_mover_model())
+    man = RP.export_art(blob, 999, out_dir=tmp_path, scaffold=True, overlays=False)
+    assert DARK_CELL not in {e["name"] for e in man["scenery"]}
+    assert any(r["class"] == "displaced-readerless" and r["name"] == DARK_CELL
+               for r in man["refused"])
+    txt = (tmp_path / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert "DISPLACED-READERLESS" in txt and DA.ACK_MOVER_KEY in txt
+    out2 = tmp_path / "acked"
+    man2 = RP.export_art(blob, 999, out_dir=out2, scaffold=True, overlays=False,
+                         displacement_ack=True)
+    hit = [e for e in man2["scenery"] if e["name"] == DARK_CELL]
+    assert hit and hit[0]["displaced_readerless"] is True
+    assert hit[0]["displacement_model"] == RP.DISPLACEMENT_MODEL
+    txt2 = (out2 / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert "%s = false" % DA.ACK_MOVER_KEY in txt2
+    assert "THIS CELL IS REFUSED AS `displaced-readerless`" in txt2
+    assert "this kit can attribute" in txt2
+    assert max(len(ln) for ln in txt2.splitlines()) < 120
+
+
+def test_the_new_class_texts_carry_NO_LITERAL_PERCENT_through_the_REAL_refusal_path():
+    """★ Q10.  THE PERCENT HAZARD, checked by machine AND exercised through the shipped
+    :func:`_refusal` with a real detail value -- never by eye.  ``_refusal`` formats a class text
+    with ``txt % detail``, so one stray literal ``%`` either dies or silently eats the next
+    character, which is how a measurement quietly becomes a typo."""
+    for k in ("displaced-readerless", "displaced-readership-substituted",
+              "displaced-vs-page-depth"):
+        txt = RP._REFUSAL_TEXT[k]
+        assert "%" not in txt.replace("%s", ""), k
+        assert txt.count("%s") == 1, k
+        assert DA.U_DISPLACEMENT_CAVEAT in txt, k
+        # THE REAL PATH, with a detail that itself contains a percent-looking token
+        got = RP._refusal("cell.s0.x448_y256", (448, 256), k, "GEOM 0x1234 at 100% cover",
+                          extra="tail")
+        assert got.klass == k and "GEOM 0x1234" in got.reason and got.reason.endswith("tail")
+        assert DA.U_DISPLACEMENT_CAVEAT in got.reason
+    # the two constants that DO carry literal percents may only ever be spent in ARGUMENT position
+    assert "%" in DA.ORDER_UNMEASURED and "%" in DA.ARRAY_ACK_WARNING
+    assert all(DA.ORDER_UNMEASURED not in t for t in RP._REFUSAL_TEXT.values())
+    assert "%" not in DA.U_DISPLACEMENT_CAVEAT and "%" not in DA.U_DISPLACEMENT_ACK_WARNING
+    assert "%" not in DA.DISPLACEMENT_DERIVATION
+
+
+@needs_corpus
+def test_THE_WHOLE_CORPUS_re_derives_every_W6b3iv_constant():
+    """★★ Q11 -- THE RE-DERIVATION PIN.  Every number this rung mints, re-rolled from the 372
+    containers through the SHIPPED derivation.  *A constant nobody re-checks is a claim.*
+
+    The two readings of ONE population are pinned SEPARATELY and their closure asserted, because 45
+    and 52 are NOT addends: 52 cells VACATE (every reader of the cell leaves it) and 45 of those end
+    READERLESS, the other 7 being re-populated by an arriving FOREIGN reader."""
+    readers = movers = novel_pairs = 0
+    readerless, readerless_open, substituted, substituted_open, vs_page = [], [], [], [], []
+    gained, gained_unknown, gained_undeclared, changed, flips = [], [], [], [], []
+    vacate, vacate_open = [], []
+    census_uv = licensed_uv = edit_uv = spill_bound = spill_eff = 0
+    for ef, blob in _corpus_effects():
+        try:
+            models = RP.bound_models(blob)
+            cells = RS.page_cells(blob)
+            e_pages, e_ref = RP.scenery_surface(blob, ef, channels=RP.EDIT_CHANNELS)
+            l_pages, l_ref = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS)
+            c_pages, _c = RP.scenery_surface(blob, ef, channels=RP.CENSUS_CHANNELS)
+        except (RS.ReskinError, EC.ContainerError, RP.RepaintError):
+            continue
+        novel_pairs += RP.novel_displacement_reach(blob)[1]
+        readers += len(models)
+        movers += sum(1 for m in models if m.displaced)
+        spill_bound += sum(1 for m in models if m.spills)
+        spill_eff += sum(1 for m in models if m.effective_spills)
+        assert all(m.effective_cover is m.cover for m in models if not m.displaced), \
+            "the identity is exact on every non-mover, container by container"
+        declared = {pc.cell for pc in cells.values()}
+        census_uv += len({p.cell for p in c_pages if p.depth_source == "so-uv"})
+        licensed_uv += len({p.cell for p in l_pages if p.depth_source == "so-uv"})
+        edit_uv += len({p.cell for p in e_pages if p.depth_source == "so-uv"})
+        l_by = {}
+        for r in l_ref:
+            l_by.setdefault(r.cell, set()).add(r.klass)
+        e_by = {}
+        for r in e_ref:
+            e_by.setdefault(r.cell, set()).add(r.klass)
+        for c, ks in l_by.items():
+            if "second-array-mover" in ks:
+                vacate.append((ef, c))
+                if not (ks - {"second-array-mover"}) & RP._EXPORT_BLOCKING:
+                    vacate_open.append((ef, c))
+        for c, ks in e_by.items():
+            # ⚠ THE "OPEN" SPLIT IS MEASURED ON THE **PRE-ADOPTION** SURFACE, and it has to be: an
+            # addressability delta costs whatever the author could reach BEFORE, and after the new
+            # refusal fires the later classes are never appended (they only decorate an EMITTED
+            # page), so every cell would read as open and the number would be vacuous.
+            pre = (l_by.get(c, set()) - {"second-array-mover"}) & RP._EXPORT_BLOCKING
+            if "displaced-readerless" in ks:
+                readerless.append((ef, c))
+                if not pre:
+                    readerless_open.append((ef, c))
+            if "displaced-readership-substituted" in ks:
+                substituted.append((ef, c))
+                if not pre:
+                    substituted_open.append((ef, c))
+            if "displaced-vs-page-depth" in ks:
+                vs_page.append((ef, c))
+        b_join, f_join = RP.cell_readers(blob, models), RP.effective_cell_readers(blob, models)
+        for c in set(b_join) | set(f_join):
+            o = sorted(m.geom for m in b_join.get(c, []))
+            n = sorted(m.geom for m in f_join.get(c, []))
+            if not o and n:
+                if c in declared:
+                    gained.append((ef, c))
+                    if "depth-unknown" in l_by.get(c, ()):
+                        gained_unknown.append((ef, c))
+                else:
+                    gained_undeclared.append((ef, c))
+            elif o and n and o != n and set(o) & set(n):
+                changed.append((ef, c))
+                if o[0] != n[0]:
+                    flips.append((ef, c))
+    # THE REACH
+    assert (readers, movers) == (DA.INCUMBENT_READERS, DA.INCUMBENT_MOVERS) == (340, 151)
+    assert novel_pairs == DA.NOVEL_MOVER_SLOTS == 142, "and what it CANNOT reach, counted"
+    # THE TWO READINGS OF ONE POPULATION, and the closure that says they are not addends
+    assert (len(vacate), len(vacate_open)) == (DA.SECOND_ARRAY_MOVER_CELLS,
+                                               DA.SECOND_ARRAY_MOVER_OPEN) == (52, 47)
+    assert len({ef for ef, _ in vacate}) == DA.SECOND_ARRAY_MOVER_CONTAINERS == 29
+    assert (len(readerless), len(readerless_open)) == (DA.DISPLACED_READERLESS_CELLS,
+                                                       DA.DISPLACED_READERLESS_OPEN) == (45, 41)
+    assert len({ef for ef, _ in readerless}) == DA.DISPLACED_READERLESS_CONTAINERS == 26
+    assert (len(substituted), len(substituted_open)) == (DA.DISPLACED_SUBSTITUTED_CELLS,
+                                                         DA.DISPLACED_SUBSTITUTED_OPEN) == (7, 6)
+    assert len(readerless) + len(substituted) == len(vacate), "45 + 7 == 52, NOT 45 + 52"
+    assert len(readerless_open) + len(substituted_open) == len(vacate_open), "41 + 6 == 47"
+    assert set(readerless) | set(substituted) == set(vacate), "...and they are the SAME cells"
+    # THE GAIN HALF
+    assert len(gained) == DA.DISPLACED_GAINED_CELLS == 70
+    assert len(gained_unknown) == DA.DISPLACED_GAINED_FROM_UNKNOWN == 29
+    assert len(gained_undeclared) == DA.DISPLACED_GAINED_UNDECLARED == 2
+    assert len(vs_page) == DA.DISPLACED_VS_PAGE_DEPTH_CELLS == 1
+    # THE CLASS NOBODY HAD NAMED
+    assert len(changed) == DA.DISPLACED_CHANGED_CELLS == 36
+    assert len(flips) == DA.DISPLACED_DISPLAY_BINDING_MOVED == 14
+    # THE CONTAINMENT: BOTH frozen scopes are unmoved, and the edit surface -- the ONE count this
+    # rung is allowed to move -- moves BY ARITHMETIC, with every term named.
+    assert census_uv == DA.CENSUS_SO_UV_CELLS == 187, "W6b-1's own census count, byte for byte"
+    assert licensed_uv == DA.SHIPPED_SO_UV_CELLS == 183, "the W6b-3 shipped count, byte for byte"
+    assert edit_uv == DA.EDIT_SO_UV_CELLS == 199
+    assert (licensed_uv - len(readerless) - len(substituted) + len(gained) - len(vs_page) - 1
+            == edit_uv), "183 - 45 - 7 + 70 - 1 (displaced-vs-page) - 1 (channel A's veto) == 199"
+    # ...and the NAME-EVERY-COLUMN obligation set is the EFFECTIVE one, beside the BOUND census
+    # `w6b_gates` G6 pins, which does NOT move.
+    assert spill_bound == 58 and spill_eff == DA.DISPLACED_SPILL_BINDINGS == 60
+
+
+@needs_corpus
+def test_the_CAVEATS_OWN_WORKED_EXAMPLE_lands_at_the_address_the_v_TERM_DICTATES():
+    """★★ Q12 -- the arc's own headline sentence, MEASURED on the container it is written about.
+
+    ef038 declares both cells of column 704 and binds no ``so`` reader to either, and every kit
+    before this one refused BOTH as ``depth-unknown``.  The s77 cast measured 20 of the 27 readers
+    the kit attributed to ``cell.s0.x640_y256`` sampling column 704 instead -- and the ``v`` term
+    puts nineteen-plus-one of them in the LOWER stacked cell.  **A u-ONLY adoption would have shipped
+    the caveat's own worked example at the wrong address**, which is the sharpest single argument for
+    shipping both axes or neither.  ef407 is ef038's structural twin and reproduces it cell for
+    cell."""
+    for ef in (38, 407):
+        blob = (CORPUS / ("ef%03d.bytes" % ef)).read_bytes()
+        l_pages, l_ref = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS)
+        e_pages, _ = RP.scenery_surface(blob, ef, channels=RP.EDIT_CHANNELS)
+        before = {p.cell: p for p in l_pages}
+        after = {p.cell: p for p in e_pages}
+        assert (704, 256) not in before and (704, 384) not in before
+        assert {r.klass for r in l_ref if r.cell == (704, 256)} == {"depth-unknown"}
+        assert {r.klass for r in l_ref if r.cell == (704, 384)} == {"depth-unknown"}
+        assert len(before[(640, 256)].hazards.readers) == 27
+        assert len(after[(640, 256)].hazards.readers) == 7, "20 of the 27 sample column 704"
+        assert len(after[(704, 256)].hazards.readers) == 1
+        assert len(after[(704, 384)].hazards.readers) == 20, "the v term: the LOWER stacked cell"
+        assert after[(704, 384)].readership == "displaced"
+        assert after[(704, 384)].depth_source == "so-uv" and after[(704, 384)].bpp == 8
+
+
+@needs_corpus
+def test_the_INTRA_PAGE_LAW_fires_ONLY_where_the_DISPLACED_CHANNEL_WAS_CONSULTED():
+    """★★ Q13 -- THE SCOPE LEAK, closed and pinned with a SYNTHETIC LAW BREAK.
+
+    ``assert_intra_page`` used to fire inside :func:`~ff9mapkit.summons.repaint.bound_models`, which
+    every scope walks -- so a container that broke the law refused under ``CENSUS_CHANNELS`` and
+    ``LICENSED_CHANNELS`` too, two FROZEN surfaces that consult ``so-displaced`` never and read
+    ``effective_cover`` never. On the stock 372 the law holds 340/340 and the assertion never fires,
+    which is exactly why nothing caught it: it made *"the frozen surfaces are unmoved"* a CORPUS FACT
+    and the rung claims a STRUCTURAL PROPERTY. So the property is tested on a container the corpus
+    does not contain -- ONE incumbent pair on ef038 inflated until the law is genuinely broken.
+
+    ``max(u)`` on GEOM ``0x29dcc`` is 127 and its stored ``du`` is 128 (127 + 128 == 255, legal by
+    one); ``du = 250`` puts it at 377 and the effective read leaves the page.
+    """
+    blob = bytearray((CORPUS / "ef038.bytes").read_bytes())
+    assert struct.unpack_from("<H", blob, 0x29DC8)[0] == 128, "the stock du this test inflates"
+    struct.pack_into("<H", blob, 0x29DC8, 250)
+    blob = bytes(blob)
+
+    # the RASTERISER states no readership, so it may not raise -- it is walked by every scope
+    models = RP.bound_models(blob)
+    broken = [m for m in models if m.record_at == 0x29DBC]
+    assert broken and broken[0].mover == (250, 128), "the inflation landed on the pair, not the tpage"
+    # ...and the two FROZEN scopes keep the failure modes they shipped with
+    for ch in (RP.CENSUS_CHANNELS, RP.LICENSED_CHANNELS):
+        pages, refusals = RP.scenery_surface(blob, 38, channels=ch)
+        assert pages and refusals, "a scope that declined `so-displaced` still answers"
+    # ...while the scope that CONSULTED it fails CLOSED, at the consult site and through the surface
+    with pytest.raises(RP.RepaintError, match="THE INTRA-PAGE LAW IS BROKEN"):
+        RP.effective_cell_readers(blob, models)
+    with pytest.raises(RP.RepaintError, match="THE INTRA-PAGE LAW IS BROKEN"):
+        RP.scenery_surface(blob, 38, channels=RP.EDIT_CHANNELS)
+    # ...on the models the CALLER handed in, so the enforcement is not skippable by an argument
+    with pytest.raises(RP.RepaintError, match="THE INTRA-PAGE LAW IS BROKEN"):
+        RP.effective_cell_readers(blob, RP.bound_models(blob))
+
+
+#: ONE walk of the 372 containers, memoised, feeding BOTH W6b-3 (iv) ledger pins below.  Three
+#: `scenery_surface` calls per container is the cost and it is paid ONCE: Q14 and Q15 ask different
+#: questions of the SAME three surfaces, and a second walk would double the most expensive block in
+#: this file for numbers that fall out of calls already made.  (Measured: the split version cost
+#: 13.5 minutes for three tests.)
+_LEDGER_WALK: list = []
+
+
+def _displacement_ledger() -> dict:
+    """The LOSS half (BEFORE -> AFTER-with-the-ack) and the GAIN half, from one pass.
+
+    ⚠ The GAIN half's predicate is taken off the PAGE's own hazards -- ``not bound_readers and
+    readers`` -- rather than off a second ``bound_models`` plus both joins.  They are the same set
+    (checked against the join formulation on the 25 containers that carry every member), and the
+    page already carries both reader tuples, so the join walk was a fourth rasterisation of every
+    container to re-derive what the surface had already handed back.
+    """
+    if _LEDGER_WALK:
+        return _LEDGER_WALK[0]
+    out = {"identical": [], "ds_only": [], "picture": [], "gone": [], "gained_unknown": []}
+    KEYS = ("bpp", "clut_offset", "clut_entries", "tpage", "clut", "palette_name", "vram", "w", "h",
+            "page_offset", "page_bytes")
+    for ef, blob in _corpus_effects():
+        try:
+            l_pages, l_ref = RP.scenery_surface(blob, ef, channels=RP.LICENSED_CHANNELS)
+            e_pages, e_ref = RP.scenery_surface(blob, ef, channels=RP.EDIT_CHANNELS)
+            a_pages, a_ref = RP.scenery_surface(blob, ef, channels=RP.EDIT_CHANNELS,
+                                                displacement_ack=True)
+        except (RS.ReskinError, KC.ContainerError, RP.RepaintError):
+            continue
+        before = {p.name: p for p in l_pages}
+        after = {p.name: p for p in a_pages}
+        a_klass = {r.name: r.klass for r in a_ref}
+        # ---- THE LOSS HALF: every page NAME the two LIFTED classes refuse, and what the key buys
+        for r in e_ref:
+            if r.klass not in ("displaced-readerless", "displaced-readership-substituted"):
+                continue
+            assert r.name in before, "the LOSS set is what the pre-adoption surface HANDED BACK"
+            b, a = before[r.name], after.get(r.name)
+            if a is None:
+                out["gone"].append((ef, r.name, r.klass, a_klass.get(r.name)))
+            elif [k for k in KEYS if getattr(a, k) != getattr(b, k)]:
+                out["picture"].append((ef, r.name, r.klass, b.bpp, a.bpp))
+            elif a.depth_source == b.depth_source:
+                out["identical"].append((ef, r.name, r.klass))
+            else:
+                out["ds_only"].append((ef, r.name, r.klass, b.depth_source, a.depth_source))
+        # ---- THE GAIN HALF: a page with NO bound reader, an arriving one, and a `depth-unknown` past
+        unknown = {r.cell for r in l_ref if r.klass == "depth-unknown"}
+        blocked = {r.name for r in e_ref if r.klass in RP._EXPORT_BLOCKING}
+        for p in e_pages:
+            hz = p.hazards
+            if p.cell in unknown and hz is not None and hz.readers and not hz.bound_readers:
+                out["gained_unknown"].append((ef, p.name, p.bpp, p.name in blocked))
+    _LEDGER_WALK.append(out)
+    return out
+
+
+@needs_corpus
+def test_THE_ACK_LEDGER_what_the_key_ACTUALLY_hands_back_over_all_55_loss_names():
+    """★★ Q14 -- **THE ACKNOWLEDGEMENT LIFTS THE REFUSAL, NOT THE GUARANTEE**, re-derived.
+
+    The class texts, ``U_DISPLACEMENT_ACK_WARNING``, the ``--acknowledge-displacement`` help, the
+    acknowledged scaffold block and ``docs/SUMMONS.md`` all state this split, so it is pinned rather
+    than asserted: *an author who acks and is handed a different palette -- or nothing -- must have
+    been told that was possible.*
+
+    BEFORE is :data:`~ff9mapkit.summons.repaint.LICENSED_CHANNELS`, which is the PRE-ADOPTION surface
+    and is frozen there byte-for-byte; AFTER is :data:`~ff9mapkit.summons.repaint.EDIT_CHANNELS` with
+    ``displacement_ack=True``. The LOSS set is every page NAME the two lifted classes refuse -- names,
+    not cells, because a name is what an author writes in a spec and one cell can carry four of them.
+    """
+    L = _displacement_ledger()
+    identical, ds_only, picture, gone = (L["identical"], L["ds_only"], L["picture"], L["gone"])
+    total = len(identical) + len(ds_only) + len(picture) + len(gone)
+    assert total == 55, "45 `displaced-readerless` names + 10 `displaced-readership-substituted`"
+    # (1) the COMMON case, and the only one the pre-ledger text described
+    assert len(identical) + len(ds_only) == 39
+    assert len(ds_only) == 34 and {(x[3], x[4]) for x in ds_only} == {("so-uv", "so-page")}
+    # (2) THE SAME BYTES BACK AS A DIFFERENT PICTURE -- 4 of the 6 at a different DEPTH
+    assert len(picture) == 6
+    assert sorted((e, n) for e, n, _k, b, a in picture if b != a) == [
+        (179, "cell.id9.s0.x768_y256"), (227, "cell.s0.x512_y256"),
+        (498, "cell.id9.s0.x832_y256"), (498, "cell.s0.x576_y256")]
+    assert {(b, a) for _e, _n, _k, b, a in picture if b != a} == {(4, 8)}, "4bpp read back as 8bpp"
+    # (3) ...AND 10 OF 55 COME BACK WITH NOTHING EVEN WITH THE KEY
+    assert len(gone) == 10
+    assert sorted(Counter(x[3] for x in gone).items()) == [("channel-g-dual-depth", 1),
+                                                           ("depth-unknown", 9)]
+    assert {x[2] for x in gone} == {"displaced-readerless"}, "the substituted half always returns"
+
+
+@needs_corpus
+def test_THE_PRIZE_HAS_A_QUALIFIER_derivable_is_not_deliverable(tmp_path):
+    """★★ Q15 -- of the cells the adoption GAINS from ``depth-unknown``, which hand back a PNG?
+
+    ``docs/SUMMONS.md`` and the CHANGELOG both narrate this half, so the deliverable count is pinned
+    and the docs' worked example is pinned WITH it. The distinction the first draft of those docs
+    missed: a name can be GAINED (the kit now states its depth) and still hand an author nothing,
+    because ``program-vram-write`` -- a PRE-EXISTING and correct refusal about whether an edit
+    survives the cast -- is export-blocking and older than this rung.
+    """
+    gained_unknown = _displacement_ledger()["gained_unknown"]
+    assert len(gained_unknown) == 30, "29 cells, 30 NAMES -- the unit an author writes in a spec"
+    assert len({(e, n) for e, n, _b, _x in gained_unknown}) == 30, "and they are 30 DISTINCT names"
+    # the default `indexed` lane carries 4/8bpp; 15bpp is a DIFFERENT lane, not a refusal
+    assert sum(1 for _e, _n, b, x in gained_unknown if not x and b in (4, 8)) == 21
+    assert sum(1 for _e, _n, b, x in gained_unknown if not x and b == 15) == 6
+    assert sorted((e, n) for e, n, _b, x in gained_unknown if x) == [
+        (38, "cell.s0.x576_y384"), (38, "cell.s0.x704_y256"), (38, "cell.s0.x704_y384")]
+
+    # ...and the claim is checked through the REAL export path on the two decisive containers.
+    # ef407 is ef038's structural twin and is the one the docs narrate, BECAUSE ef038 delivers none.
+    man = RP.export_art((CORPUS / "ef407.bytes").read_bytes(), 407, tmp_path / "ef407",
+                        overlays=False, scaffold=False)
+    got = {e["name"] for e in man["scenery"] if (tmp_path / "ef407" / e["png"]).is_file()}
+    assert {"cell.s0.x704_y256", "cell.s0.x704_y384"} <= got, "the twin really does export both"
+    man = RP.export_art((CORPUS / "ef038.bytes").read_bytes(), 38, tmp_path / "ef038",
+                        overlays=False, scaffold=False)
+    got = {e["name"] for e in man["scenery"] if (tmp_path / "ef038" / e["png"]).is_file()}
+    assert not {c for c in got if "x640_" in c or "x704_" in c}, \
+        "ef038 is a program-VRAM writer: DERIVABLE is not DELIVERABLE, and the docs must say so"
+    # ...and the 15bpp six are a LANE away, not a refusal away -- `export-art --art-lane direct15`.
+    man = RP.export_art((CORPUS / "ef227.bytes").read_bytes(), 227, tmp_path / "ef227d",
+                        lane="direct15", overlays=False, scaffold=False)
+    got = {e["name"] for e in man["scenery"] if (tmp_path / "ef227d" / e["png"]).is_file()}
+    assert {"cell.s0.x640_y384", "cell.s1.x640_y384"} <= got, \
+        "two of the six 15bpp gains, delivered by the lane the docs name"

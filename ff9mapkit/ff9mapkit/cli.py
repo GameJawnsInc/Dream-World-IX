@@ -2457,7 +2457,8 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
             else:
                 blob, src = rk.R.read_stock_effect(args.ef, getattr(args, "game", None))
             man = rp.export_art(blob, args.ef, args.out or None, source=src, lane=args.art_lane,
-                                overlays=not args.no_coverage)
+                                overlays=not args.no_coverage,
+                                displacement_ack=getattr(args, "ack_displacement", False))
             print("ef%03d  %d page(s) exported -- lane %s" % (args.ef, len(man["parts"]),
                                                               man["lane"]))
             print("  source        : %s" % man["source"])
@@ -7086,6 +7087,20 @@ def build_parser() -> argparse.ArgumentParser:
     srk.add_argument("--no-coverage", dest="no_coverage", action="store_true",
                      help="export-art: skip the UV coverage overlays (they are the instrument that "
                           "tells a painter which texels are live -- ~1/3 of a page never is)")
+    srk.add_argument("--acknowledge-displacement", dest="ack_displacement", action="store_true",
+                     help="export-art: ALSO export the cells W6b-3 (iv) refuses as "
+                          "`displaced-readerless` / `displaced-readership-substituted` -- cells "
+                          "whose every `so` reader is displaced OFF them by the measured second "
+                          "array, so no reader this kit can attribute samples them. Without it "
+                          "they are refused BY NAME in the scaffold, with the reason and the key; "
+                          "with it you get whatever channel still speaks for the cell, and the "
+                          "build still needs `acknowledge_second_array_displacement = true` on the "
+                          "row. IT LIFTS THE REFUSAL, NOT THE GUARANTEE: measured over the 55 "
+                          "corpus names, 39 come back identical, 6 come back as a DIFFERENT "
+                          "picture (4 of them 4bpp read back as 8bpp) and 10 come back with "
+                          "nothing at all. "
+                          "A repaint of one of these is INVISIBLE IN GAME unless a reader this kit "
+                          "cannot attribute -- one on a multi-part record -- samples it.")
     srk.add_argument("--dither", action="store_true",
                      help="REFUSES by name, with the measurement and a better workflow. Error "
                           "diffusion is stateful across texels, so an UNEDITED page would dither and "
