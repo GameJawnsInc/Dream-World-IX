@@ -41,8 +41,35 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--probe", action="store_true",
                     help="dump final tris near named debug coordinates")
+    ap.add_argument("--bench-src", default=None,
+                    help="read the bench from a SNAPSHOT dir instead of the live "
+                         "install (P0: makes the generator reproducible offline; "
+                         "the prewall snapshots are byte-identical anchors)")
+    ap.add_argument("--corner-follows", action="store_true",
+                    help="acknowledge that this generator emits a CORNER-LESS "
+                         "bench and that the V-shore corner stage must run after it")
     args = ap.parse_args()
     OUTD.mkdir(parents=True, exist_ok=True)
+    if args.apply and not args.corner_follows:
+        # THE CORNER GUARD. This generator does not know about the V-shore
+        # corner: deploying its output alone silently reverts twelve playtests
+        # of owner-accepted work, and every gate stays green afterwards because
+        # the gates score whatever is in the blocks. A warning in a docstring
+        # would be a wish; this is the call site.
+        raise SystemExit(
+            "REFUSING to --apply: this emits a CORNER-LESS bench.\n"
+            "  The V-shore corner (owner-accepted, playtest 12) is a SEPARATE\n"
+            "  stage and would be silently reverted, with all gates still green.\n"
+            "  Use the driver, which regenerates + re-applies the corner and\n"
+            "  verifies the result against the accepted bench:\n"
+            "      py bench_pipeline.py all\n"
+            "  If you really mean to deploy a corner-less bench, pass\n"
+            "  --corner-follows and run the corner stage yourself.")
+    if args.bench_src:
+        assert not args.apply, "--bench-src is offline-only; refusing to --apply from a snapshot"
+        import terrace_wall_strip as _tws
+        _tws.BENCH_SRC = args.bench_src
+        print(f"BENCH SOURCE: {args.bench_src} (offline; the install is untouched)")
 
     tris, bms = load_bench()
     assert tris, "bench island not deployed at Disc9 (run the world-island mint first)"

@@ -25,6 +25,7 @@ import dataclasses
 import hashlib
 import json
 import math
+import os
 import shutil
 import sys
 from collections import Counter, defaultdict
@@ -61,8 +62,21 @@ BACKUPS = Path(r"C:\gd\Dream-World-IX\backups")
 PIN = (376.5, -509.5)
 # v2 builds from the PRE-fairing Terrain baseline (live carries the v1 fairing + fins);
 # live Sea4 stays the input -- it already carries the crest cut for the same strip.
-BASELINE_T = {(5, 7): BACKUPS / "Block[5][7] Terrain.ff9mesh.r7.20260802-025232",
-              (5, 8): BACKUPS / "Block[5][8] Terrain.ff9mesh.r8.20260802-025232"}
+# THE BASELINE SEAM (P0 fold-back). These timestamped backups are NOT the
+# source of truth — they are a snapshot of one. PROVEN 2026-08-02:
+# `full_skirt.py --bench-src <any terrace-strip-prewall.*>` reproduces both
+# of these files BYTE-IDENTICALLY, and all 19 prewall snapshots are
+# themselves byte-identical. So the corner's base is regenerable, and
+# $FF9_BENCH_BASELINE (a dir holding the six regenerated Terrain files) lets
+# the whole corner build run off the regenerated bench instead of off backups
+# that nothing tracks. Driver: `bench_pipeline.py`.
+_BASE_ENV = os.environ.get("FF9_BENCH_BASELINE")
+if _BASE_ENV:
+    BASELINE_T = {(bx, by): Path(_BASE_ENV) / f"Block[{bx}][{by}] Terrain.ff9mesh"
+                  for (bx, by) in ((5, 7), (5, 8))}
+else:
+    BASELINE_T = {(5, 7): BACKUPS / "Block[5][7] Terrain.ff9mesh.r7.20260802-025232",
+                  (5, 8): BACKUPS / "Block[5][8] Terrain.ff9mesh.r8.20260802-025232"}
 
 
 def perp_foot(p):

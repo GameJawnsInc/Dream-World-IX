@@ -158,11 +158,52 @@ def signed_turn(a, b, c):
 
 
 # ---------------------------------------------------------------- the bench
-def load_bench():
-    root = GAME / MOD / "FF9_Data" / "WorldMap" / f"Disc{DISC}" / "0_1"
+# THE SOURCE SEAM (P0 fold-back). Every bench generator read the LIVE install
+# directly, so the ONLY way to exercise one was to mutate the owner's game —
+# which is why the whole bench chain is anchored to timestamped backups that
+# nothing tracks. `bench_src` (or the module-level BENCH_SRC) points the
+# loader at a snapshot instead, so the pipeline is reproducible offline.
+# Same law as the deploy-target seam in the brief: pin the path through a
+# seam, never read the real file.
+BENCH_SRC = None                      # None = the live install
+
+
+def corner_guard(allow_cornerless=False):
+    """THE CORNER GUARD — call immediately before any bench deploy.
+
+    Every generator in this study dir emits a CORNER-LESS bench: none of them
+    knows about the V-shore corner (owner-accepted, playtest 12), which is a
+    separate stage. Deploying one alone silently reverts twelve playtests of
+    work AND LEAVES EVERY GATE GREEN, because the gates score whatever is in
+    the blocks. That is the failure this guard exists to make impossible.
+    """
+    if allow_cornerless:
+        print("!! deploying a CORNER-LESS bench by explicit request — "
+              "run the corner stage yourself (see bench_pipeline.py)")
+        return
+    raise SystemExit(
+        "REFUSING to deploy: this emits a CORNER-LESS bench and would\n"
+        "  silently revert the owner-accepted V-shore corner, with every gate\n"
+        "  still green afterwards. Use the driver, which regenerates, re-applies\n"
+        "  the corner, and verifies against the accepted bench:\n"
+        "      py bench_pipeline.py all\n"
+        "  To deploy a corner-less bench deliberately, pass --corner-follows.")
+
+
+def bench_root(bench_src=None):
+    src = bench_src if bench_src is not None else BENCH_SRC
+    if src is None:
+        return GAME / MOD / "FF9_Data" / "WorldMap" / f"Disc{DISC}" / "0_1", False
+    return Path(src), True
+
+
+def load_bench(bench_src=None):
+    root, flat = bench_root(bench_src)
     tris, bms = [], {}
     for (bx, by) in CELLS:
-        p = root / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh"
+        # a snapshot dir holds the six files flat; the install nests them in r<by>/
+        p = (root / f"Block[{bx}][{by}] Terrain.ff9mesh" if flat
+             else root / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh")
         if not p.is_file():
             continue
         bm = M.blockmesh_from_ff9mesh(p, disc=DISC, x=bx, y=by, part="terrain")
@@ -808,6 +849,8 @@ def main() -> int:
     ap.add_argument("--probe", action="store_true",
                     help="dump final tris near the playtest defect coordinates")
     args = ap.parse_args()
+    if args.apply:
+        corner_guard(getattr(args, "corner_follows", False))
     OUTD.mkdir(parents=True, exist_ok=True)
 
     tris, bms = load_bench()

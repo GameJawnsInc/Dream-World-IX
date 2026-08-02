@@ -20,7 +20,48 @@ exactly the right shape of remaining work after a proof.
 
 ---
 
-## P0 — THE FOLD-BACK DEBT (do this first; nothing else is safe until it is)
+## P0 — THE FOLD-BACK DEBT ★ CLOSED (2026-08-02)
+
+**Measured, not assumed:**
+- all **19** `terrace-strip-prewall.*` snapshots are **byte-identical** — the
+  root anchor is stable and redundantly stored;
+- `full_skirt.py --bench-src <prewall>` reproduces the corner's baseline
+  Terrain for (5,7) and (5,8) **byte-identically**;
+- the full chain rebuilt **all six bench blocks byte-identical to the live,
+  owner-accepted bench** — `bench_pipeline.py check` → FULL REPRODUCTION.
+
+**What changed:**
+1. **THE SOURCE SEAM** (`terrace_wall_strip.load_bench(bench_src=)` /
+   `BENCH_SRC`). Every bench generator read the live install directly, so the
+   only way to exercise one was to mutate the owner's game — the reason the
+   whole chain ended up anchored to untracked timestamped backups. The
+   generator now runs fully offline against a snapshot. Same law as the
+   deploy-target seam in the brief: *pin the path through a seam, never read
+   the real file.*
+2. **THE BASELINE SEAM** (`$FF9_BENCH_BASELINE`) — the corner builds off the
+   REGENERATED bench instead of `...025232` backups that nothing tracks.
+3. **`bench_pipeline.py`** — `verify | regen | corner | check | all`: checks
+   the anchors, regenerates offline, re-applies the corner, and diffs the
+   result against the accepted bench. `bench_manifest.json` records the
+   accepted hashes, so any future rebuild that diverges is caught by name.
+4. **THE CORNER GUARD** (`terrace_wall_strip.corner_guard`) — wired into
+   **all six** bench generators and verified to fire in each. They emit a
+   corner-less bench; deploying one silently reverted the corner *and left
+   every gate green*. The guard fires immediately after argument parsing,
+   before any work, and names the driver to use instead.
+
+**Two findings worth carrying:** the chain also depended on a gitignored
+intermediate (`out/rock_tiles.json`) that no manifest listed — regenerable via
+`rock_wall_language.py`, and now declared as a prerequisite in the driver. And
+my first placement of the guard was **unreachable** (the generators abort at a
+pristine assert long before their deploy site) — it tested as "guarded" only
+because the script failed for an unrelated reason. *A guard that has not been
+observed to fire is not a guard.* → [[feedback-a-check-that-cannot-fail]]
+
+---
+
+<details>
+<summary>the original P0 registration (kept for the record)</summary>
 
 **The risk, stated plainly:** every result above lives in study scripts that
 edit two live blocks in place. `full_skirt` (the generator that built the
@@ -43,9 +84,11 @@ the accepted corner within the render gate's determinism threshold (0 px at
 identical cameras). If it does not, the difference names an operator the study
 scripts apply that the generator does not — which is precisely the debt.
 
+</details>
+
 ---
 
-## P1 — STUDY ANGLE 3: THE MESHEDIT SUBSTRATE
+## P1 — STUDY ANGLE 3: THE MESHEDIT SUBSTRATE  ← **next**
 
 Promote the proven operators out of `vcorner_transplant.py` into a tested kit
 module (`world/meshedit.py`). They have earned it — each one is now
