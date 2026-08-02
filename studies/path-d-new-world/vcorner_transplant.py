@@ -451,6 +451,195 @@ INNER_SPAN = [(372.482, -506.271), (376.0, -509.161),
 class DonorReject(Exception):
     pass
 
+
+# ============================================================ THE TUCK VOCABULARY
+# PLAYTEST 10 killed the carried stock overhang over cut sea (THE OVERHANG-
+# CONTEXT LAW). The replacement is the island's OWN coast wall — the class the
+# owner has approved on every other shore — measured verbatim off the baseline
+# bytes by probe_bench_wall_xsec.py:
+#   * crest FLUSH with the lawn edge at LAWN_Y (tuck offset 0.00; the V-carry's
+#     crest ran 0.72-1.25u PROUD, which is what read as a jutting lip)
+#   * foot at y=0.0 (the waterline), offset ~0.88-0.99u SEAWARD, mitered
+#   * => seaward-wound ny +0.26..+0.30: WALK-VISIBLE, so no walk membrane
+#   * => the face itself seals the under-lip slot (a ray from seaward is above
+#     the face at the foot line, and the face rises to meet the lawn: it must
+#     hit wall or lawn), so NO apron, NO wedge fans, NO inner curtain. All
+#     three auxiliaries — every one of them authored surface, and authored
+#     surface is where this arc's defects keep landing — simply cease to exist.
+#   * v = V_TOP + (LAWN_Y - y)/LAWN_Y * (V_BOT - V_TOP)   [measured exactly:
+#     y 3.20 -> 0.8930, y 2.65 -> 0.8982, y 0.00 -> 0.9230]
+#   * u advances with arc at the bench's own URATE (0.012643/u, re-measured
+#     over five spans), wrapping modulo the band [U0, U_HI]; a foot vert
+#     inherits its crest vert's u (the strip's u is constant down each rung).
+WALL_MODE = "tuck"                    # "tuck" (the island's own) | "carry" (stock lip)
+TUCK_FOOT_Y = 0.0                     # the waterline — measured, all bench feet
+TUCK_JOINTS = {                       # kept foot vert + kept crest u, per joint
+    "A": dict(crest=(372.482, -506.271), foot=(371.491, 0.0, -506.140),
+              u=0.7959, d=0.883),
+    "B": dict(crest=(376.274, -528.455), foot=(375.350, 0.0, -528.838),
+              u=0.7105, d=0.994),
+}
+
+
+def exact_kept_foot(approx):
+    """THE NEVER-HAND-TYPE-GEOMETRY LAW: the joint feet above are 3-decimal
+    prints; welding to them leaves ~3e-4u float32 near-misses (the audit
+    caught exactly that). Resolve each to the kept wall's OWN bytes."""
+    best, bd = None, 0.05
+    for (bx, by) in BLOCKS:
+        d = W.M.read_ff9mesh(BASELINE_T[(bx, by)])
+        ox, oz = 64.0 * bx, -64.0 * by
+        for t0 in range(0, len(d["indices"]), 3):
+            t = d["indices"][t0:t0 + 3]
+            if ((int(round(d["tangents"][t[0]][0])) & 0xFC) >> 2) != 58:
+                continue
+            for j in t:
+                p = (d["verts"][j][0] + ox, d["verts"][j][1], d["verts"][j][2] + oz)
+                dd = math.dist(p, approx)
+                if dd < bd:
+                    best, bd = p, dd
+    assert best is not None, f"no kept wall vert near the joint foot {approx}"
+    return best
+
+
+def _sea_dir(a, b):
+    """Unit seaward normal of segment a->b (land LEFT of travel => sea RIGHT)."""
+    dx, dz = b[0] - a[0], b[1] - a[1]
+    L = math.hypot(dx, dz) or 1.0
+    return (dz / L, -dx / L)
+
+
+def tuck_wall(crest, verbose=True):
+    """Sweep THE TUCK VOCABULARY along `crest`. Returns [[tri3, uv3, col]]."""
+    n = len(crest)
+    seas = [_sea_dir(crest[i], crest[i + 1]) for i in range(n - 1)]
+    arc = [0.0]
+    for i in range(n - 1):
+        arc.append(arc[-1] + math.hypot(crest[i + 1][0] - crest[i][0],
+                                        crest[i + 1][1] - crest[i][1]))
+    total = arc[-1]
+
+    # ---- foot polyline: mitered seaward offset, anchored to the kept feet ----
+    dA, dB = TUCK_JOINTS["A"]["d"], TUCK_JOINTS["B"]["d"]
+    foot = []
+    for i in range(n):
+        d_i = dA + (dB - dA) * (arc[i] / total if total else 0.0)
+        if i == 0:
+            off = seas[0]
+            scale = d_i
+        elif i == n - 1:
+            off = seas[-1]
+            scale = d_i
+        else:
+            mx = seas[i - 1][0] + seas[i][0]
+            mz = seas[i - 1][1] + seas[i][1]
+            mL = math.hypot(mx, mz)
+            if mL < 1e-6:                                   # 180 deg reversal
+                raise DonorReject("degenerate miter on the crest")
+            off = (mx / mL, mz / mL)
+            cosh = off[0] * seas[i - 1][0] + off[1] * seas[i - 1][1]
+            scale = min(d_i / max(cosh, 1e-6), 2.5 * d_i)   # clamp spikes
+        foot.append((crest[i][0] + scale * off[0], TUCK_FOOT_Y,
+                     crest[i][1] + scale * off[1]))
+    foot[0] = exact_kept_foot(TUCK_JOINTS["A"]["foot"])     # exact kept welds
+    foot[-1] = exact_kept_foot(TUCK_JOINTS["B"]["foot"])
+
+    # ---- u: forward from joint A, backward from joint B, ONE interior cut ----
+    # The two joints' kept u values and the run's arc length are independent
+    # givens; no single continuous parameterisation satisfies both without
+    # distorting texel density (the visible property). Keep URATE EXACT and
+    # spend the mismatch as one uv cut at an interior rung — stock's own coast
+    # carries cuts of every magnitude (measured: 74 in one block).
+    span = U_HI - U0
+    mid = min(range(1, n - 1), key=lambda i: abs(arc[i] - total / 2)) if n > 3 else 1
+
+    def u_at(i):
+        if i <= mid:
+            return TUCK_JOINTS["A"]["u"] + arc[i] * URATE
+        return TUCK_JOINTS["B"]["u"] - (total - arc[i]) * URATE
+
+    def wrap(u):
+        return U0 + (u - U0) % span
+
+    # Continuous (unwrapped) u per quad. The cut rung carries the forward
+    # parameterisation across its own span; the backward run resumes at the
+    # NEXT rung, so the whole mismatch lands on one rung boundary.
+    cont = []
+    for i in range(n - 1):
+        if i == mid:
+            ul = u_at(i)
+            cont.append((ul, ul + (arc[i + 1] - arc[i]) * URATE))
+        else:
+            cont.append((u_at(i), u_at(i + 1)))
+
+    # Split every quad that straddles a band wrap — INCLUDING the cut rung.
+    # (Skipping it was a real defect: wrap() sent its two ends to opposite band
+    # edges, compressing 0.198u of atlas into 3.9 world units — 4x the bench's
+    # density, reversed. It rendered as a picket-fence of vertical streaks and
+    # the render gate's id buffer named the two faces outright.)
+    quads = []
+    for i, (u0c, u1c) in enumerate(cont):
+        k0 = math.floor((u0c - U0) / span)
+        k1 = math.floor((u1c - U0) / span)
+        if k0 == k1:
+            quads.append((i, 0.0, 1.0, wrap(u0c), wrap(u1c)))
+            continue
+        ub = U0 + span * (k0 + 1 if k1 > k0 else k0)        # the crossed edge
+        t = (ub - u0c) / (u1c - u0c) if abs(u1c - u0c) > 1e-12 else 0.5
+        t = min(max(t, 0.02), 0.98)
+        quads.append((i, 0.0, t, wrap(u0c), U_HI if k1 > k0 else U0))
+        quads.append((i, t, 1.0, U0 if k1 > k0 else U_HI, wrap(u1c)))
+
+    def lerp2(a, b, t):
+        return tuple(a[j] + (b[j] - a[j]) * t for j in range(len(a)))
+
+    out = []
+    nwrap = sum(1 for q in quads if q[2] < 1.0 or q[1] > 0.0)
+    for (i, t0, t1, ua, ub) in quads:
+        c0 = lerp2(crest[i], crest[i + 1], t0)
+        c1 = lerp2(crest[i], crest[i + 1], t1)
+        f0 = lerp2(foot[i], foot[i + 1], t0)
+        f1 = lerp2(foot[i], foot[i + 1], t1)
+        C0 = (c0[0], LAWN_Y, c0[1])
+        C1 = (c1[0], LAWN_Y, c1[1])
+        for tri, uv in (((C0, C1, f0), ((ua, V_TOP), (ub, V_TOP), (ua, V_BOT))),
+                        ((C1, f1, f0), ((ub, V_TOP), (ub, V_BOT), (ua, V_BOT)))):
+            p3 = list(tri)
+            uv3 = list(uv)
+            a3, b3, c3 = p3
+            fn = ((b3[1] - a3[1]) * (c3[2] - a3[2]) - (b3[2] - a3[2]) * (c3[1] - a3[1]),
+                  0.0,
+                  (b3[0] - a3[0]) * (c3[1] - a3[1]) - (b3[1] - a3[1]) * (c3[0] - a3[0]))
+            if fn[0] * seas[i][0] + fn[2] * seas[i][1] < 0:  # face the SEA
+                p3 = [p3[0], p3[2], p3[1]]
+                uv3 = [uv3[0], uv3[2], uv3[1]]
+            out.append([p3, uv3, i])
+    nys = [W.up_ny(tuple(r[0][0]), tuple(r[0][1]), tuple(r[0][2])) for r in out]
+    assert min(nys) > 0.1, \
+        f"tuck wall not walk-visible (ny min {min(nys):.3f}) — a membrane would be needed"
+    # THE TEXEL-DENSITY GATE: every face must carry the bench's own u-rate.
+    # A wrap mishandled anywhere compresses a whole band into one face and
+    # renders as vertical streaking; density is the property that must hold.
+    worst = None
+    for (p3, uv3, _c) in out:
+        du = max(u for (u, v) in uv3) - min(u for (u, v) in uv3)
+        wid = max(math.hypot(p3[a][0] - p3[b][0], p3[a][2] - p3[b][2])
+                  for a, b in ((0, 1), (1, 2), (2, 0)))
+        if wid < 1e-6:
+            continue
+        r = du / wid
+        if worst is None or r > worst[0]:
+            worst = (r, p3, uv3)
+    assert worst is None or worst[0] < 2.0 * URATE, (
+        f"texel density {worst[0]:.4f} u/unit vs bench {URATE:.4f} — a band wrap "
+        f"was mishandled at {worst[1]}, uv {worst[2]}")
+    if verbose:
+        print(f"   TUCK WALL: {len(out)} tris over {len(quads)} quads "
+              f"({nwrap} band-wrap splits, uv cut at rung {mid}); "
+              f"ny [{min(nys):.3f},{max(nys):.3f}] (bench 0.26-0.30), "
+              f"foot offset {dA:.2f}->{dB:.2f}u seaward at y={TUCK_FOOT_Y}")
+    return out
+
 import dataclasses                                          # noqa: E402
 import json                                                 # noqa: E402
 import shutil                                               # noqa: E402
@@ -879,6 +1068,14 @@ def build():
     seated.extend(curtain)
     print(f"   foot apron: +{len(apron)} shelf + {len(curtain)} inner-curtain tris")
 
+    if WALL_MODE == "tuck":
+        # THE TUCK REBUILD: discard the carried lip AND all three auxiliaries
+        # it forced (membrane / apron+wedges / inner curtain) and sweep the
+        # island's own coast vocabulary along the same gate-proven crest.
+        ncar = len(seated)
+        seated = tuck_wall(crest_pts)
+        print(f"   (carried construction discarded: {ncar} tris -> {len(seated)})")
+
     # ---- WELD: joint columns re-anchor to the kept wall edges at v5/v11 -----------
     kept_edges = {0: [], 1: []}                             # 0 = v5 side, 1 = v11 side
     base_by_block = {}
@@ -904,6 +1101,10 @@ def build():
               + ", ".join(f"({p[0]:.2f},{p[1]:.2f},{p[2]:.2f})" for p in kept_edges[ji][:6]))
     moved = 0
     for t3, uv3, _c in seated:
+        if WALL_MODE == "tuck":
+            break        # tuck feet ARE the kept feet by construction; a
+            # proximity re-anchor here would collapse a near-joint rung onto
+            # the joint instead. The weld AUDIT below still judges it.
         for k in range(3):
             p = t3[k]
             if p[1] > LAWN_Y - 0.05:

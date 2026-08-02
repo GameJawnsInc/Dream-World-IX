@@ -393,3 +393,50 @@ at cove_cam/owner_close the corner reads like the rest of the island
 (green lip from above, rock only at low vantages); at graze the band is
 continuous. P-Q (playtest 11): no "segmented/fractured" read; the cliff
 angle reads >= 90 deg.
+
+## THE TUCK REBUILD — BUILT, ALL GATES GREEN + THE PEER GATE, DEPLOYED
+
+**The vocabulary, measured off the baseline bytes (probe_bench_wall_xsec.py),
+not invented:** the island's own coast wall is a ruled strip — crest FLUSH
+with the lawn edge at y=3.2, foot at y=0.0 offset 0.88-0.99u SEAWARD,
+mitered; seaward ny +0.26..+0.30. uv: `v = 0.8930 + (3.2-y)/3.2 * 0.0300`
+(confirmed exactly against the y=2.65 -> v=0.8982 sample); `u` advances with
+arc at 0.012643/u — the registered URATE, re-derived over five independent
+spans — wrapping modulo the band, and a foot vert inherits its crest vert's
+u. The offset formula reproduces both measured joints to 3 decimals.
+
+**Why this kills the whole auxiliary stack — a proof, not a hope.** With the
+foot SEAWARD at sea level, a ray arriving from seaward is above the wall
+surface at the foot line (below it is opaque sea at y=0) and the surface
+rises monotonically to the lawn: every such ray must hit wall or lawn. The
+under-lip slot is sealed BY THE FACE. So: no walk membrane (ny>0.1 already —
+walk-visible), no foot apron, no wedge fans, no inner curtain. **332 tris of
+authored corner became 14.** THE DEFECT FOLLOWS THE AUTHORSHIP — so the
+cheapest defect fix was deleting the authorship.
+
+**One real defect found and gated, not shipped.** The first tuck build
+rendered a picket-fence of vertical streaks at graze. The render gate's id
+buffer named the two faces: the CUT rung was the one branch where I had
+skipped the band-wrap split, so wrap() sent its ends to opposite band edges —
+0.198u of atlas compressed into 3.9 world units, 4x the bench density,
+reversed. Fixed by unifying the split across all quads, and **THE TEXEL-
+DENSITY GATE** now asserts every face carries < 2x URATE, so the class cannot
+silently return.
+
+**THE PEER GATE (new instrument, probe_peer_compare.py).** Every gate in this
+arc scored an element against stock's marginals; none asked "does this read
+like what the owner already accepted?" (GROUND-JUNCTION-SYNTHESIS: 0/13).
+This one renders the corner and four owner-passed shore stations from cameras
+placed identically relative to the local coast tangent and compares rock-band
+screen thickness + variation. Corner 211px vs peers' 60-374 (median 283);
+**variation 0.32 vs the peer median 0.35 — the corner is now LESS irregular
+than shore the owner has already approved.** PASS.
+
+**Verdicts:** all 8 gates green (hug both directions 55/65, latent 0, weld 0,
+coverage/sea/boat/statics PASS); flow check 0 smear / 0 stretch / **0
+mirrored faces (was 176 — every one of them a membrane copy)** / 2 rotated
+edges (was 27); peer gate PASS. Deployed (backups .20260802-145104).
+**P-Q (playtest 11): no segmented/fractured read; the cliff no longer reads
+as a sloped skirt.** If it still reads segmented, the next variable is the
+CREST polyline itself (a -45 deg interior turn vs the bench's own ~30 max) —
+deliberately held constant this round: one change per test.
