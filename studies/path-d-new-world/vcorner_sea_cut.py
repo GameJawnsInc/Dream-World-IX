@@ -1,15 +1,18 @@
-"""THE SEA-CUT FIX — subdivide+delete-hidden on Sea4 (5,7) tri #430 (the V-corner poisoner).
+"""THE SEA-CUT FIX (AMENDMENT 1) — subdivide+delete-hidden on EVERY under-land sea tri
+of the six bench cells.
 
-Registration: VSHORE-SEAL-PREDICTION.md "THE SEA-CUT FIX ROUND" (P-F..P-H). The dual
-kill: (1) hidden under-land sea deleted -> the corner-gap probe MISSES and a miss
-writes nothing to the ring; (2) subdivision bounds every kept fragment below the
-deflection fan's 0.875u candidate circle, so no cached sea fragment can ever answer
-the whole fan again.
+Registration: VSHORE-SEAL-PREDICTION.md "THE SEA-CUT FIX ROUND" + AMENDMENT 1. Run 1
+(tri #430 only) fixed the pin wedge but g2 named a RELOCATION to the neighbor tri —
+the per-SITE treatment became per-CLASS: all sea-part tris (Beach1/Sea1-5, six cells)
+intersecting Terrain plan coverage get adaptive subdivision (sub-edge < 0.875u, the
+fan diameter) and deletion of fully-hidden sub-tris. The dual kill is unchanged:
+a hidden probe now MISSES (writes nothing to the ring), and no kept fragment can
+cover the deflection fan's candidate circle.
 
-Default run: verify identity -> build staged -> verify staged -> run the walk/seal
-gates against the STAGED bytes (no bench mutation). `--deploy`: re-verify, back up
-the live file to the MAIN repo's backups/, copy staged over live, emit the revert
-script, re-gate quick against live.
+Stages (each fits one runner slot):  --stage1  build + verify + walk gates (default)
+                                     --stage2  bench-wide latent sweep vs staged
+                                     --deploy  backup live, copy staged, revert script
+READ-ONLY except --deploy.
 """
 from __future__ import annotations
 
@@ -30,19 +33,37 @@ from probe_vcorner_trap import static_map, drive_walkers    # noqa: E402
 from probe_vcorner_latent import sweep, refine              # noqa: E402
 from ff9mapkit.world.extract import CH_POS, CH_NRM, CH_UV, CH_TAN  # noqa: E402
 
-BX, BY = 5, 7
-OX, OZ = 64.0 * BX, -64.0 * BY
-TRI = 430
-N = 8                                                       # subdivision (max edge 5.66/8 = 0.71u < 0.875u fan)
-SNAP = Path(r"C:\gd\Dream-World-IX\backups\vcorner-trap-live.20260802-133500\r7\Block[5][7] Sea4.ff9mesh")
-SNAP_MD5 = "1984a99f9dddf6f8d2c66d96ebc96b57"
-LIVE = W.GAME / W.MOD / "FF9_Data" / "WorldMap" / f"Disc{W.DISC}" / "0_1" / f"r{BY}" / f"Block[{BX}][{BY}] Sea4.ff9mesh"
+SEA_PARTS = ["Beach1", "Sea1", "Sea2", "Sea3", "Sea4", "Sea5"]
+SNAPDIR = Path(r"C:\gd\Dream-World-IX\backups\vcorner-trap-live.20260802-133500")
+LIVE_ROOT = W.GAME / W.MOD / "FF9_Data" / "WorldMap" / f"Disc{W.DISC}" / "0_1"
 OUTD = HERE / "out" / "vcorner_seacut"
-STAGED = OUTD / f"Block[{BX}][{BY}] Sea4.ff9mesh"
 BACKUPS = Path(r"C:\gd\Dream-World-IX\backups")
 BOAT_LEGAL = {53, 54, 57}
-EXPECT_LOCAL = [(56.0, 0.0, -60.0), (60.0, 0.0, -64.0), (56.0, 0.0, -64.0)]
 PIN = (376.5, -509.5)
+POISONER_LOCAL = [(56.0, 0.0, -60.0), (60.0, 0.0, -64.0), (56.0, 0.0, -64.0)]  # (5,7) Sea4#430
+
+
+def live_path(bx, by, part):
+    return LIVE_ROOT / f"r{by}" / f"Block[{bx}][{by}] {part}.ff9mesh"
+
+
+def staged_path(bx, by, part):
+    return OUTD / f"Block[{bx}][{by}] {part}.ff9mesh"
+
+
+def snap_path(bx, by, part):
+    return SNAPDIR / f"r{by}" / f"Block[{bx}][{by}] {part}.ff9mesh"
+
+
+def assert_no_drift():
+    for (bx, by) in W.CELLS:
+        for part in SEA_PARTS:
+            lp, sp = live_path(bx, by, part), snap_path(bx, by, part)
+            if not lp.is_file():
+                continue
+            assert sp.is_file(), f"no snapshot for {lp.name} r{by}"
+            assert hashlib.md5(lp.read_bytes()).digest() == hashlib.md5(sp.read_bytes()).digest(), \
+                f"LIVE DRIFT: {lp} != archived snapshot -- shared install changed, STOP and re-decode"
 
 
 def bary2(p, a, b, c):
@@ -55,174 +76,220 @@ def bary2(p, a, b, c):
 
 
 def terrain_cover(world, x, z):
-    """Terrain geometry present at plan (x,z) at/above the sea plane -- ANY tri, no
-    walk filters: hidden-from-above is about presence, not walkability."""
+    """Terrain geometry at plan (x,z) at/above the sea band (hy >= -0.05): hidden-from-
+    above is presence, not walkability. ANY terrain tri counts (lawn, wall faces)."""
     bk = W.block_key(x, z)
     if bk not in world:
         return False
-    terr = next(m for m in world[bk] if m["name"] == "Terrain")
+    terr = next((m for m in world[bk] if m["name"] == "Terrain"), None)
+    if terr is None:
+        return False
     for ti in terr["grid"].get((int(x // 4), int(z // 4)), ()):
         tri = terr["tris"][ti]
         w = bary2((x, z), (tri[0][0], tri[0][2]), (tri[1][0], tri[1][2]), (tri[2][0], tri[2][2]))
         if w is None or min(w) < -1e-9:
             continue
-        hy = w[0] * tri[0][1] + w[1] * tri[1][1] + w[2] * tri[2][1]
-        if hy >= -0.05:
+        if w[0] * tri[0][1] + w[1] * tri[1][1] + w[2] * tri[2][1] >= -0.05:
             return True
     return False
 
 
-def build_staged(world):
-    d = W.M.read_ff9mesh(LIVE)
+def tri_samples(p3w):
+    """7 canonical plan samples of a (world-frame) tri: corners, edge mids, centroid."""
+    pts = [(p[0], p[2]) for p in p3w]
+    pts += [((pts[a][0] + pts[b][0]) / 2, (pts[a][1] + pts[b][1]) / 2)
+            for a, b in ((0, 1), (1, 2), (0, 2))]
+    pts.append((sum(p[0] for p in pts[:3]) / 3, sum(p[1] for p in pts[:3]) / 3))
+    return pts
+
+
+def treat_part(world, bx, by, part):
+    """Returns (changed_bool, staged BlockMesh or None, records) -- records hold each
+    CHANGED tri's subdivision geometry for the independent hidden-cut verifier."""
+    lp = live_path(bx, by, part)
+    if not lp.is_file():
+        return False, None, []
+    d = W.M.read_ff9mesh(lp)
+    if d["tangents"] is None:
+        print(f"   [{bx}][{by}] {part}: no tangent channel -- SKIP (mapid semantics unknown)")
+        return False, None, []
+    ox, oz = 64.0 * bx, -64.0 * by
     idx = d["indices"]
-    t = idx[TRI * 3:TRI * 3 + 3]
-    loc = [d["verts"][vi] for vi in t]
-    assert all(max(abs(a - b) for a, b in zip(v, e)) < 1e-4 for v, e in zip(loc, EXPECT_LOCAL)), \
-        f"tri {TRI} drifted: {loc} != {EXPECT_LOCAL} -- shared install changed, STOP"
-    tans = [d["tangents"][vi] for vi in t]
-    nrms = [d["normals"][vi] for vi in t]
-    assert all(tans[0] == x for x in tans), f"corner tangents differ: {tans}"
-    assert all(nrms[0] == x for x in nrms), f"corner normals differ: {nrms}"
-    uvs = [d["uvs"][vi] for vi in t]
-
-    A, B, C = loc
-    dU = [(B[k] - A[k]) / N for k in range(3)]
-    dV = [(C[k] - A[k]) / N for k in range(3)]
     verts = [list(v) for v in d["verts"]]
-    normals = [list(v) for v in d["normals"]]
-    uvl = [list(v) for v in d["uvs"]]
+    normals = [list(v) for v in d["normals"]] if d["normals"] else None
+    uvl = [list(v) for v in d["uvs"]] if d["uvs"] else None
     tangents = [list(v) for v in d["tangents"]]
-    grid_idx = {}
+    new_idx = []
+    records = []
+    n_treat = n_del_tris = 0
+    for t0 in range(0, len(idx), 3):
+        t = idx[t0:t0 + 3]
+        p3 = [d["verts"][vi] for vi in t]
+        p3w = [(p[0] + ox, p[1], p[2] + oz) for p in p3]
+        area2 = abs((p3w[1][0] - p3w[0][0]) * (p3w[2][2] - p3w[0][2])
+                    - (p3w[2][0] - p3w[0][0]) * (p3w[1][2] - p3w[0][2]))
+        if area2 < 0.02 or not any(terrain_cover(world, x, z) for (x, z) in tri_samples(p3w)):
+            new_idx += list(t)                              # untouched: verbatim
+            continue
+        tans = [d["tangents"][vi] for vi in t]
+        assert tans[0] == tans[1] == tans[2], \
+            f"[{bx}][{by}] {part} tri {t0 // 3}: corner tangents differ {tans} -- mapid not uniform, STOP"
+        n_treat += 1
+        A, B, C = p3
+        max_edge = max(math.dist(A, B), math.dist(B, C), math.dist(A, C))
+        N = max(2, math.ceil(max_edge / 0.7))
+        dU = [(B[k] - A[k]) / N for k in range(3)]
+        dV = [(C[k] - A[k]) / N for k in range(3)]
+        uvc = [d["uvs"][vi] for vi in t] if uvl is not None else None
+        nrc = [d["normals"][vi] for vi in t] if normals is not None else None
+        subs = []
+        for i in range(N):
+            for j in range(N - i):
+                subs.append(((i, j), (i + 1, j), (i, j + 1)))
+                if i + j < N - 1:
+                    subs.append(((i + 1, j), (i + 1, j + 1), (i, j + 1)))
+        kept, deleted = [], []
+        for s in subs:
+            q3 = [[A[k] + i * dU[k] + j * dV[k] for k in range(3)] for (i, j) in s]
+            q3w = [(q[0] + ox, q[1], q[2] + oz) for q in q3]
+            (deleted if all(terrain_cover(world, x, z) for (x, z) in tri_samples(q3w))
+             else kept).append(s)
+        if not deleted:
+            new_idx += list(t)                              # nothing hidden: verbatim
+            continue
+        n_del_tris += 1
+        grid_idx = {}
 
-    def gv(i, j):
-        if (i, j) not in grid_idx:
-            wu, wv = i / N, j / N
-            w0 = 1.0 - wu - wv
-            verts.append([A[k] + i * dU[k] + j * dV[k] for k in range(3)])
-            uvl.append([w0 * uvs[0][k] + wu * uvs[1][k] + wv * uvs[2][k] for k in range(2)])
-            normals.append(list(nrms[0]))
-            tangents.append(list(tans[0]))
-            grid_idx[(i, j)] = len(verts) - 1
-        return grid_idx[(i, j)]
+        def gv(i, j):
+            if (i, j) not in grid_idx:
+                wu, wv = i / N, j / N
+                w0 = 1.0 - wu - wv
+                verts.append([A[k] + i * dU[k] + j * dV[k] for k in range(3)])
+                if uvl is not None:
+                    uvl.append([w0 * uvc[0][k] + wu * uvc[1][k] + wv * uvc[2][k] for k in range(2)])
+                if normals is not None:
+                    normals.append([w0 * nrc[0][k] + wu * nrc[1][k] + wv * nrc[2][k] for k in range(3)])
+                tangents.append(list(tans[0]))
+                grid_idx[(i, j)] = len(verts) - 1
+            return grid_idx[(i, j)]
 
-    def covered_subtri(p3):
-        """7 plan samples (corners, edge midpoints, centroid), ALL Terrain-covered."""
-        cx = sum(p[0] for p in p3) / 3 + OX
-        cz = sum(p[2] for p in p3) / 3 + OZ
-        pts = [(p[0] + OX, p[2] + OZ) for p in p3]
-        pts += [((pts[a][0] + pts[b][0]) / 2, (pts[a][1] + pts[b][1]) / 2)
-                for a, b in ((0, 1), (1, 2), (0, 2))]
-        pts.append((cx, cz))
-        return all(terrain_cover(world, x, z) for (x, z) in pts)
-
-    kept, deleted = [], []
-    subs = []
-    for i in range(N):
-        for j in range(N - i):
-            subs.append(((i, j), (i + 1, j), (i, j + 1)))
-            if i + j < N - 1:
-                subs.append(((i + 1, j), (i + 1, j + 1), (i, j + 1)))
-    max_edge = 0.0
-    for s in subs:
-        p3 = [[A[k] + i * dU[k] + j * dV[k] for k in range(3)] for (i, j) in s]
-        for a, b in ((0, 1), (1, 2), (0, 2)):
-            e = math.dist(p3[a], p3[b])
-            max_edge = max(max_edge, e)
-        (deleted if covered_subtri(p3) else kept).append(s)
-
-    new_idx = idx[:TRI * 3] + idx[TRI * 3 + 3:]
-    for s in kept:
-        tri_i = [gv(i, j) for (i, j) in s]
-        a, b, c = (verts[v] for v in tri_i)
-        ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2])
-        if ny < 0:
-            tri_i[1], tri_i[2] = tri_i[2], tri_i[1]
-        new_idx += tri_i
-
-    assert max_edge < 0.875, f"sub-edge {max_edge} >= fan diameter -- raise N"
-    print(f"BUILD: {len(subs)} sub-tris -> kept {len(kept)}, deleted {len(deleted)}; "
-          f"max sub-edge {max_edge:.3f}u; verts {d['vcount']} -> {len(verts)}; "
-          f"tris {len(idx) // 3} -> {len(new_idx) // 3}")
-    assert 0 < len(deleted) < len(subs), "degenerate cut: nothing (or everything) deleted"
-
-    bm = W.M.blockmesh_from_ff9mesh(LIVE, disc=W.DISC, x=BX, y=BY, part="sea4")
+        for s in kept:
+            tri_i = [gv(i, j) for (i, j) in s]
+            a, b, c = (verts[v] for v in tri_i)
+            ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2])
+            orig_ny = (p3[1][2] - p3[0][2]) * (p3[2][0] - p3[0][0]) \
+                - (p3[1][0] - p3[0][0]) * (p3[2][2] - p3[0][2])
+            if ny * orig_ny < 0:
+                tri_i[1], tri_i[2] = tri_i[2], tri_i[1]
+            new_idx += tri_i
+        records.append(dict(ti=t0 // 3, A=A, dU=dU, dV=dV, N=N,
+                            kept=set(kept), n_kept=len(kept), n_del=len(deleted),
+                            ox=ox, oz=oz))
+    if not records:
+        return False, None, []
+    bm = W.M.blockmesh_from_ff9mesh(lp, disc=W.DISC, x=bx, y=by, part=part.lower())
     chan = dict(bm.chan_arrays)
-    chan[CH_POS], chan[CH_NRM], chan[CH_UV], chan[CH_TAN] = verts, normals, uvl, tangents
+    chan[CH_POS] = verts
+    if normals is not None:
+        chan[CH_NRM] = normals
+    if uvl is not None:
+        chan[CH_UV] = uvl
+    chan[CH_TAN] = tangents
     tris = [[new_idx[k], new_idx[k + 1], new_idx[k + 2]] for k in range(0, len(new_idx), 3)]
     out = dataclasses.replace(bm, vcount=len(verts), chan_arrays=chan,
                               flat_index=new_idx, tris=tris)
+    print(f"   [{bx}][{by}] {part}: {len(idx) // 3} tris, {n_treat} coverage-touched, "
+          f"{n_del_tris} changed (subdiv+delete) -> {len(new_idx) // 3} tris, "
+          f"{d['vcount']} -> {len(verts)} verts")
+    return True, out, records
+
+
+def build_all(world):
     OUTD.mkdir(parents=True, exist_ok=True)
-    W.M.write_ff9mesh(out, STAGED)
-    rt = W.M.read_ff9mesh(STAGED)
-    assert rt["vcount"] == len(verts) and len(rt["indices"]) == len(new_idx), "round-trip mismatch"
-    print(f"STAGED: {STAGED}")
-    return kept, deleted, (A, dU, dV)
+    manifest = {}
+    all_records = {}
+    poisoner_treated = False
+    for (bx, by) in W.CELLS:
+        for part in SEA_PARTS:
+            changed, out, records = treat_part(world, bx, by, part)
+            if not changed:
+                continue
+            sp = staged_path(bx, by, part)
+            W.M.write_ff9mesh(out, sp)
+            manifest[f"{bx},{by},{part}"] = sp.name
+            all_records[(bx, by, part)] = records
+            if (bx, by, part) == (5, 7, "Sea4") and any(r["ti"] == 430 for r in records):
+                poisoner_treated = True
+    assert poisoner_treated, "tri #430 (the PROVEN poisoner) was not treated -- predicate broken, STOP"
+    json.dump({k: v for k, v in manifest.items()}, open(OUTD / "manifest.json", "w"), indent=1)
+    n_changed = sum(len(r) for r in all_records.values())
+    print(f"BUILD: {len(manifest)} part files changed, {n_changed} tris subdiv+cut")
+    return manifest, all_records
 
 
-def verify_staged(world_live, world_staged, kept, geom):
-    """P-G: hidden-cut fine sample + boat legality map."""
-    A, dU, dV = geom
+def part_src_from_staged():
+    src = {}
+    for (bx, by) in W.CELLS:
+        for part in SEA_PARTS:
+            sp = staged_path(bx, by, part)
+            if sp.is_file():
+                src[(bx, by, part)] = sp
+    return src
 
-    def in_kept(x, z):                                      # plan point -> covered by a kept sub-tri?
-        lx, lz = x - OX, z - OZ
-        w = bary2((lx, lz), (A[0], A[2]), (A[0] + N * dU[0], A[2] + N * dU[2]),
-                  (A[0] + N * dV[0], A[2] + N * dV[2]))
-        if w is None or min(w) < -1e-9:
-            return None                                     # outside the parent tri
-        u, v = w[1] * N, w[2] * N
-        i, j = int(u), int(v)
-        fu, fv = u - i, v - j
-        s = ((i, j), (i + 1, j), (i, j + 1)) if fu + fv <= 1.0 else ((i + 1, j), (i + 1, j + 1), (i, j + 1))
-        return s in kept_set
 
-    kept_set = set(kept)
-    bad = n_del = n_keep = 0
+def verify(world_live, world_staged, all_records):
+    """P-G generalized: per changed tri, fine-sample -- every deleted-region point must
+    be Terrain-covered; then the boat legality map over all six blocks."""
+    bad = n_del = 0
     worst = None
-    step = 0.1
-    for ii in range(1, int(4 / step)):
-        for jj in range(1, int(4 / step)):
-            lx, lz = 56.0 + ii * step, -64.0 + jj * step
-            w = bary2((lx, lz), (56.0, -60.0), (60.0, -64.0), (56.0, -64.0))
-            if w is None or min(w) < 0.02:
-                continue                                    # strictly inside the parent
-            x, z = lx + OX, lz + OZ
-            k = in_kept(x, z)
-            if k:
-                n_keep += 1
-                continue
-            n_del += 1
-            if not terrain_cover(world_live, x, z):
-                bad += 1
-                worst = (round(x, 2), round(z, 2))
-    print(f"HIDDEN-CUT GATE: {n_del} deleted-region samples, {bad} NOT terrain-covered "
-          f"({'PASS' if bad == 0 else f'FAIL worst={worst}'}); {n_keep} kept samples")
+    for (bx, by, part), records in all_records.items():
+        for r in records:
+            A, dU, dV, N, kept = r["A"], r["dU"], r["dV"], r["N"], r["kept"]
+            step = 1.0 / (N * 3)                            # 3 samples per sub-edge
+            m = int(1.0 / step)
+            for iu in range(1, m):
+                for jv in range(1, m - iu):
+                    u, v = iu * step * N, jv * step * N     # barycentric-grid coords
+                    if u + v >= N - 1e-9:
+                        continue
+                    i, j = int(u), int(v)
+                    fu, fv = u - i, v - j
+                    s = ((i, j), (i + 1, j), (i, j + 1)) if fu + fv <= 1.0 \
+                        else ((i + 1, j), (i + 1, j + 1), (i, j + 1))
+                    if s in kept:
+                        continue
+                    n_del += 1
+                    x = A[0] + u * dU[0] + v * dV[0] + r["ox"]
+                    z = A[2] + u * dU[2] + v * dV[2] + r["oz"]
+                    if not terrain_cover(world_live, x, z):
+                        bad += 1
+                        worst = (part, r["ti"], round(x, 2), round(z, 2))
+    print(f"HIDDEN-CUT GATE: {n_del} deleted-region samples over all changed tris, "
+          f"{bad} NOT terrain-covered ({'PASS' if bad == 0 else f'FAIL worst={worst}'})")
 
-    # boat legality over block (5,7), sea-level origin (cur_y = 0)
-    changed_new_legal = 0
-    to_miss = 0
-    n = 0
-    for ii in range(0, 256):
-        for jj in range(0, 256):
-            x, z = 320.0 + ii * 0.25, -512.0 + jj * 0.25   # inside (5,7): z (-512, -448)
-            if z >= -448.0 or W.block_key(x, z) != (5, 7):
-                continue
-            n += 1
-            a = W.full_scan(world_live, (5, 7), x, z, 0.0 + W.OFFSET)
-            b = W.full_scan(world_staged, (5, 7), x, z, 0.0 + W.OFFSET)
-            la = a is not None and a[4] in BOAT_LEGAL
-            lb = b is not None and b[4] in BOAT_LEGAL
-            if lb and not la:
-                changed_new_legal += 1
-            if a is not None and b is None:
-                to_miss += 1
-    print(f"BOAT GATE: {n} sea-level columns, NEW-legal {changed_new_legal} "
-          f"({'PASS' if changed_new_legal == 0 else 'FAIL'}), hit->MISS {to_miss} (the cut, expected >0)")
-    return bad == 0 and changed_new_legal == 0
+    new_legal = to_miss = n = 0
+    for (bx, by) in W.CELLS:
+        x0, z1 = 64.0 * bx, -64.0 * by
+        for ii in range(128):
+            for jj in range(1, 128):
+                x, z = x0 + ii * 0.5, z1 - jj * 0.5
+                if W.block_key(x, z) != (bx, by):
+                    continue
+                n += 1
+                a = W.full_scan(world_live, (bx, by), x, z, W.OFFSET)
+                b = W.full_scan(world_staged, (bx, by), x, z, W.OFFSET)
+                la = a is not None and a[4] in BOAT_LEGAL
+                lb = b is not None and b[4] in BOAT_LEGAL
+                if lb and not la:
+                    new_legal += 1
+                if a is not None and b is None:
+                    to_miss += 1
+    print(f"BOAT GATE: {n} sea-level columns (six blocks), NEW-legal {new_legal} "
+          f"({'PASS' if new_legal == 0 else 'FAIL'}), hit->MISS {to_miss} (the cut)")
+    return bad == 0 and new_legal == 0
 
 
 def replay_escape(world, title):
-    """The deterministic due-south walker; PASS iff no permanent lock (stall -> the
-    turning player escapes within 100 ticks, ring free to refresh)."""
     sx, sz = PIN[0], PIN[1] + 8.0
     walk = [s for s in W.all_sheets(world, sx, sz) if s[1] in W.WALK_OK]
     st = dict(x=sx, y=walk[0][0], z=sz, heading=math.pi)
@@ -242,75 +309,80 @@ def replay_escape(world, title):
             print(f"REPLAY [{title}]: stalled at ({pos0[0]:.2f},{pos0[1]:.2f}), "
                   f"ESCAPED after {k} turning ticks -> PASS")
             return True
-    print(f"REPLAY [{title}]: stalled at ({pos0[0]:.2f},{pos0[1]:.2f}), STILL STUCK after 100 -> FAIL")
+    print(f"REPLAY [{title}]: stalled at ({pos0[0]:.2f},{pos0[1]:.2f}), STILL STUCK -> FAIL")
     return False
 
 
-def run_gates(world_live, world_staged):
-    print("\n--- gate 0: calibration (live still traps) ---")
-    g0 = not replay_escape(world_live, "LIVE calibration")   # live must still LOCK
-    print(f"g0 live-still-locks: {'PASS' if g0 else 'FAIL (defect vanished from live?!)'}")
-
-    print("\n--- gates on STAGED bytes ---")
+def stage1():
+    assert_no_drift()
+    print("loading LIVE world ...")
+    world_live = W.load_world()
+    manifest, all_records = build_all(world_live)
+    world_staged = W.load_world(part_src=part_src_from_staged())
+    ok_v = verify(world_live, world_staged, all_records)
+    print("\n--- gate 0: calibration (live still locks) ---")
+    g0 = not replay_escape(world_live, "LIVE calibration")
+    print(f"g0 live-still-locks: {'PASS' if g0 else 'FAIL'}")
+    print("\n--- walk gates on STAGED bytes ---")
     g1 = replay_escape(world_staged, "STAGED")
     ev, hard, ringy = drive_walkers(world_staged, "STAGED")
     own0 = [e for e in ev if e["own"] == 0]
     g2 = len(own0) == 0
     print(f"g2 no own-ring-0 stalls: {'PASS' if g2 else f'FAIL {own0[:4]}'}")
-    tl, cl, cells_l = static_map(world_live, "LIVE (for the identity gate)")
-    ts, cs, cells_s = static_map(world_staged, "STAGED")
+    tl, cl, cells_l = static_map(world_live, "LIVE (identity)")
+    ts, cs, cells_s = static_map(world_staged, "STAGED (identity)")
     g3 = cells_l == cells_s and len(ts) == 0
     print(f"g3 cold map identical: {'PASS' if g3 else 'FAIL'}")
+    gates = dict(verify=ok_v, g0_live_locks=g0, g1_staged_escapes=g1,
+                 g2_no_own0=g2, g3_cold_identical=g3)
+    print("\n=== STAGE-1 GATES ===")
+    for k, v in gates.items():
+        print(f"   {k}: {'PASS' if v else 'FAIL'}")
+    json.dump(gates, open(OUTD / "gates_stage1.json", "w"), indent=1)
+
+
+def stage2():
+    print("loading STAGED world for the bench-wide latent sweep ...")
+    world_staged = W.load_world(part_src=part_src_from_staged())
     hard_c, poisonable, _cl = sweep(world_staged, "STAGED")
     hard_f = refine(world_staged, poisonable, "STAGED")
     g4 = len(hard_c) == 0 and len(hard_f) == 0
-    print(f"g4 latent hard = 0 bench-wide: {'PASS' if g4 else 'FAIL'}")
-    gates = dict(g0_live_locks=g0, g1_staged_escapes=g1, g2_no_own0=g2,
-                 g3_cold_identical=g3, g4_latent_zero=g4)
-    print("\n=== SEA-CUT GATES ===")
-    for k, v in gates.items():
-        print(f"   {k}: {'PASS' if v else 'FAIL'}")
-    json.dump(gates, open(OUTD / "gates.json", "w"), indent=1)
-    return all(gates.values())
+    print(f"\ng4 latent hard = 0 bench-wide: {'PASS' if g4 else 'FAIL'}")
+    json.dump(dict(g4_latent_zero=g4, poisonable_n=len(poisonable)),
+              open(OUTD / "gates_stage2.json", "w"), indent=1)
 
 
 def deploy():
-    assert STAGED.is_file(), "no staged mesh -- run the build first"
-    live_md5 = hashlib.md5(LIVE.read_bytes()).hexdigest()
-    assert live_md5 == SNAP_MD5, f"live Sea4 drifted since gating ({live_md5}) -- STOP, re-gate"
+    g1 = json.load(open(OUTD / "gates_stage1.json"))
+    g2 = json.load(open(OUTD / "gates_stage2.json"))
+    assert all(g1.values()) and g2["g4_latent_zero"], f"gates not green: {g1} {g2} -- NO DEPLOY"
+    assert_no_drift()
+    manifest = json.load(open(OUTD / "manifest.json"))
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    bk = BACKUPS / f"Block[{BX}][{BY}] Sea4.ff9mesh.{ts}"
-    shutil.copy2(LIVE, bk)
-    shutil.copy2(STAGED, LIVE)
-    rv = HERE / "revert_vcorner_seacut.py"
-    rv.write_text(
-        "import shutil\n"
-        f"shutil.copy2(r'{bk}', r'{LIVE}')\n"
-        f"print('reverted Sea4 (5,7) from {bk.name}')\n", encoding="utf-8")
-    print(f"DEPLOYED {STAGED.name} -> {LIVE}\nbackup: {bk}\nrevert: {rv}")
+    lines = ["import shutil"]
+    for key in manifest:
+        bx, by, part = key.split(",")
+        lp = live_path(int(bx), int(by), part)
+        bk = BACKUPS / f"{lp.name}.r{by}.{ts}"
+        shutil.copy2(lp, bk)
+        shutil.copy2(staged_path(int(bx), int(by), part), lp)
+        lines.append(f"shutil.copy2(r'{bk}', r'{lp}')")
+        print(f"DEPLOYED {lp.name} (r{by})   backup: {bk.name}")
+    lines.append("print('reverted the sea-cut deploy (all files)')")
+    (HERE / "revert_vcorner_seacut.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"revert: {HERE / 'revert_vcorner_seacut.py'}")
     live_world = W.load_world()
     ok = replay_escape(live_world, "LIVE post-deploy")
     ev, hard, ringy = drive_walkers(live_world, "LIVE post-deploy")
     own0 = [e for e in ev if e["own"] == 0]
-    print(f"post-deploy: replay {'PASS' if ok else 'FAIL'}, own-ring-0 stalls {len(own0)} "
-          f"({'PASS' if not own0 else 'FAIL'})")
-
-
-def main():
-    if "--deploy" in sys.argv:
-        deploy()
-        return
-    live_md5 = hashlib.md5(LIVE.read_bytes()).hexdigest()
-    assert live_md5 == SNAP_MD5, f"live Sea4 drifted ({live_md5} != snapshot) -- re-decode first"
-    print("loading LIVE world ...")
-    world_live = W.load_world()
-    kept, deleted, geom = build_staged(world_live)
-    world_staged = W.load_world(part_src={(BX, BY, "Sea4"): STAGED})
-    ok_v = verify_staged(world_live, world_staged, kept, geom)
-    ok_g = run_gates(world_live, world_staged)
-    print(f"\nVERDICT: verify {'PASS' if ok_v else 'FAIL'}, gates {'PASS' if ok_g else 'FAIL'}"
-          + ("" if ok_v and ok_g else " -- DO NOT DEPLOY"))
+    print(f"post-deploy: replay {'PASS' if ok else 'FAIL'}, "
+          f"own-ring-0 stalls {len(own0)} ({'PASS' if not own0 else 'FAIL'})")
 
 
 if __name__ == "__main__":
-    main()
+    if "--deploy" in sys.argv:
+        deploy()
+    elif "--stage2" in sys.argv:
+        stage2()
+    else:
+        stage1()

@@ -432,3 +432,33 @@ mechanism, the deletion predicate, and every gate are unchanged — the
 hidden-cut verifier generalizes to per-treated-tri fine sampling and the boat
 legality map to all six blocks. Same falsification: all gates green or no
 deploy.
+
+## FIX FINDINGS (2026-08-02) — run 2 per-CLASS: ALL GATES GREEN, DEPLOYED
+
+The build (`vcorner_sea_cut.py`, logs `vcorner_sea_cut_output.txt` +
+`_stage2_` + `_deploy_`): all six Sea4 files changed — **149 under-land tris
+subdivided+cut** (22/35/19/17/36/20 per block 5,7→7,8); Beach1/Sea1-3/Sea5
+untouched (no coverage overlap). Verification: **24,866 deleted-region fine
+samples, 0 outside Terrain cover** (nothing visible removed); **97,536
+sea-level columns, 0 newly boat-legal, 2,189 hit→MISS** (under-land sea now
+misses = the cut-class seal, stronger than the KEEL stamp it replaces there).
+
+Gates: **g0** the untouched live bytes still lock (instrument calibrated);
+**g1** the staged replay escapes; **g2** zero own-ring-0 stalls — the pin
+wedge AND run 1's (380.4,−511.3) relocation both gone, and the STAGED walkers
+show **0 ring-poisoned stalls at all** (live had 7): the whole shore poisoning
+class died, not just the hard locks; **g3** the cold fan map is point-for-point
+identical (no on-land walk behavior changed); **g4** the bench-wide latent
+sweep refined at 0.1u: **0 hard-lock slivers in 974 poisonable points**.
+
+DEPLOYED to the live bench (per-file backups
+`backups/Block[X][Y] Sea4.ff9mesh.rY.20260802-020657`, revert =
+`revert_vcorner_seacut.py`); the post-deploy live re-gate is green (replay
+escapes, 0 own-ring-0, 0 ring-poisoned). No registration change — content
+hot-reloads; re-enter the world map / warp to re-stream the blocks.
+
+**P-H — the owner's playtest, pending**: (1) walk into the V-corner at
+~(376,−509) from the lawn, push into the wedge, then walk back out — no
+stuck-only-turn, no warp needed; (2) eyeball the waterline along the whole
+V-shore wall foot from the shore and from the sea — it should be unchanged;
+(3) nose the boat against the same shore — still refused, still no landing.
