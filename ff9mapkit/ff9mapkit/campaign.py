@@ -828,6 +828,85 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                 warnings.append(f"member {m.name}: explicit flag {idx} is at/above the choice-scratch floor "
                                 f"{CHOICE_SCRATCH_FLOOR} (engine-owned) -- pick a lower index.")
 
+    # (e3) MANIFEST <-> ARTIFACT reconciliation -- the only check here that compares the manifest to the files
+    #      it describes; everything else validates the manifest's own model against itself. A member's field id
+    #      is stored TWICE (the [[field]] id row here, and the member's own [field] id) and the two are read by
+    #      DIFFERENT consumers: build_mod registers the MEMBER's copy as `FieldScene <id> ...` while
+    #      deploy.resolve_entry wires New Game / the journey entry from the MANIFEST's. Disagreement boots the
+    #      mod at an id nothing registered -- a null-.eb black screen on the first frame, with every other gate
+    #      green. Door targets are the same class one level down: an id move that misses a [[gateway]] to or a
+    #      retarget value leaves a live door pointing at an id no member owns. Both are pure dict reads over
+    #      member_raw, which (e) already parsed.
+    member_ids = {m.new_id for m in plan.members}
+    seam_reals = {s["to_real"] for s in plan.seams if isinstance(s.get("to_real"), int)}
+    known_dests = member_ids | seam_reals
+
+    def _rows(raw, key):
+        """An array-of-tables block, defensively. A member that writes `[gateway]` where `[[gateway]]` was
+        meant parses as a bare dict, and a lint that crashes on it reports nothing at all -- the shape is
+        build.validate's to reject, so skip it here rather than raise."""
+        v = raw.get(key)
+        return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
+
+    def _dest_ids(raw):
+        """Every INTRA-CAMPAIGN destination id a member's field.toml names: declarative [[gateway]] to (an int
+        id; the "worldmap" string is a walk-out, not a field target), plus the VALUES of the verbatim door
+        retarget tables ({<donor real id> = <this campaign's fork id>}) -- the keys are donor ids and are
+        meant to be foreign."""
+        out = []
+        for gw in _rows(raw, "gateway"):
+            t = gw.get("to")
+            if isinstance(t, int) and not isinstance(t, bool) and t > 0:
+                out.append(("[[gateway]] to", t))
+        veb = raw.get("verbatim_eb")
+        tables = [veb.get("retarget") if isinstance(veb, dict) else None]
+        tables += [gc.get("retarget") for gc in _rows(raw, "gateway_carry")]
+        for rt in tables:
+            if isinstance(rt, dict):
+                for k, v in rt.items():
+                    if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+                        out.append((f"retarget {k} ->", v))
+        return out
+
+    for m in plan.members:
+        raw = member_raw.get(m.name)
+        if raw is None:
+            continue
+        fblock = raw.get("field")
+        fid = fblock.get("id") if isinstance(fblock, dict) else None
+        if fid is None:
+            errors.append(f"member {m.name}: its field.toml has no [field] id, but the manifest assigns it "
+                          f"{m.new_id} -- the build registers the MEMBER's id, so nothing would claim "
+                          f"{m.new_id} and every door into it black-screens. Set `id = {m.new_id}`.")
+        elif isinstance(fid, bool) or not isinstance(fid, int):
+            errors.append(f"member {m.name}: [field] id = {fid!r} is not an integer field id "
+                          f"(the manifest assigns {m.new_id}).")
+        elif int(fid) != m.new_id:
+            errors.append(f"member {m.name}: MANIFEST/ARTIFACT id mismatch -- campaign.toml says {m.new_id}, "
+                          f"{m.toml_rel} says [field] id = {int(fid)}. The build registers {int(fid)} while "
+                          f"the entry/journey wiring targets {m.new_id}, so the mod boots at an unregistered "
+                          f"id (null .eb -> black screen). Make them agree (both files, plus every "
+                          f"[[gateway]] to / retarget value that names this member).")
+        for what, dest in _dest_ids(raw):
+            if dest in known_dests:
+                continue
+            if in_journey:
+                continue          # a sibling campaign's member is a legitimate target and reads as foreign here
+            #                       (mirrors the (c2) suppression); journey.campaign_connectivity is the
+            #                       sibling-aware check at that tier.
+            if dest < 4000:       # a REAL FF9 field: a leak out to the un-forked game -- the (c2) class, advisory
+                warnings.append(f"member {m.name}: {what} {dest} is a REAL (un-forked) field -- walking that "
+                                f"door leaves the campaign into the live game. Fork it in "
+                                f"(import-chain --whole-zone), or declare it as a [[seam]] if it is the "
+                                f"campaign's intended edge.")
+            else:                 # a CUSTOM-band id no member owns and no seam declares -> a stale target,
+                #                   the exact residue an id move leaves behind
+                errors.append(f"member {m.name}: {what} {dest} -- no member of this campaign has that id "
+                              f"(members: {min(member_ids)}..{max(member_ids)}) and no [[seam]] declares it. "
+                              f"A custom-band door to an id nothing registers black-screens on walk-in; this "
+                              f"is what a half-finished id move leaves behind. Retarget it to a member id, "
+                              f"or declare the crossing as a [[seam]].")
+
     for nm in plan.needs_export:                  # (f) artless members
         warnings.append(f"member {nm}: needs in-game art ([Export] Field=1) before a real build")
 

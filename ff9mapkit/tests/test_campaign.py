@@ -389,6 +389,59 @@ def test_lint_structural_pass(tmp_path):
     assert errors == []
 
 
+# ---- (e3) manifest <-> artifact reconciliation ------------------------------------------
+# The only lint that compares the manifest to the FILES it describes. A member's field id is stored
+# twice and the two copies are read by different consumers (build_mod registers the MEMBER's; the
+# entry/journey wiring targets the MANIFEST's), so a divergence boots at an unregistered id.
+def test_lint_reconciles_member_id_against_manifest(tmp_path):
+    plan = _lint_plan(tmp_path)
+    assert campaign.lint_campaign(plan, tmp_path)[0] == []            # baseline: the two copies agree
+    (tmp_path / "B" / "B.field.toml").write_text(
+        '[field]\nid = 6500\nname = "B"\narea = 11\n', encoding="utf-8")
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("id mismatch" in e and "6001" in e and "6500" in e for e in errors)
+
+
+def test_lint_member_missing_field_id(tmp_path):
+    plan = _lint_plan(tmp_path)
+    (tmp_path / "B" / "B.field.toml").write_text('[field]\nname = "B"\narea = 11\n', encoding="utf-8")
+    assert any("has no [field] id" in e for e in campaign.lint_campaign(plan, tmp_path)[0])
+
+
+def test_lint_gateway_target_must_be_a_member_or_a_seam(tmp_path):
+    """A custom-band door to an id no member owns is the residue a half-finished id move leaves."""
+    gw = '\n[[gateway]]\nto = 6999\nentrance = 0\n'
+    errors, _ = campaign.lint_campaign(_lint_plan(tmp_path, member_content={"A": gw}), tmp_path)
+    assert any("6999" in e and "no member of this campaign has that id" in e for e in errors)
+    ok = _lint_plan(tmp_path, member_content={"A": gw},          # declared as a seam -> intentional
+                    seams=[{"frm": "A", "to_real": 6999, "kind": "portal", "note": ""}])
+    assert campaign.lint_campaign(ok, tmp_path)[0] == []
+
+
+def test_lint_gateway_to_real_field_is_a_leak_warning_not_an_error(tmp_path):
+    """A door to a REAL (un-forked) field is the (c2) leak class -- advisory, never a build blocker."""
+    plan = _lint_plan(tmp_path, member_content={"A": '\n[[gateway]]\nto = 1001\nentrance = 0\n'})
+    errors, warnings = campaign.lint_campaign(plan, tmp_path)
+    assert errors == []
+    assert any("1001" in w and "REAL" in w for w in warnings)
+
+
+def test_lint_reconciles_verbatim_retarget_values(tmp_path):
+    """A retarget table is {<donor real id> = <this campaign's fork id>} -- the VALUES are ours."""
+    plan = _lint_plan(tmp_path, member_content={
+        "A": '\n[verbatim_eb]\nbin = "x.eb"\n\n[verbatim_eb.retarget]\n"300" = 6999\n'})
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("6999" in e and "no member of this campaign has that id" in e for e in errors)
+
+
+def test_lint_foreign_target_allowed_inside_a_journey(tmp_path):
+    """in_journey: a SIBLING campaign's member reads as foreign here, so the check defers to
+    journey.campaign_connectivity (mirrors the (c2) suppression)."""
+    plan = _lint_plan(tmp_path, member_content={"A": '\n[[gateway]]\nto = 6999\nentrance = 0\n'})
+    assert any("6999" in e for e in campaign.lint_campaign(plan, tmp_path)[0])
+    assert not any("6999" in e for e in campaign.lint_campaign(plan, tmp_path, in_journey=True)[0])
+
+
 def test_lint_dangling_edge_and_entry(tmp_path):
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "GHOST", "entrance": 0}], entry="NOPE")
     errors, _ = campaign.lint_campaign(plan, tmp_path)
