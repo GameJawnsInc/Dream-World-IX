@@ -213,7 +213,27 @@ was not wired into the path it was written for.
 
 ---
 
-## P3 — PATH D RUNG 5, THE REST OF THE COAST  ← **next**
+## P3 — THE REST OF THE COAST ★ CLOSED AS A NEGATIVE RESULT (2026-08-02)
+
+**Nothing needs rebuilding.** The plan said "apply the pipeline to the rest of
+the coast"; stating it plainly exposed the flaw — the rest of the coast is
+already owner-accepted, and is literally what the peer gate scores against. So
+the round inverted to measure-first, and the measurement says the flow axis is
+clean island-wide: 0 hard-locks over ~17k standable points, 0 hard-trapped
+walkers, and every flagged coast site passes a shore-following traverse.
+
+Full scoring in [`COAST-LINT-PREDICTION.md`](COAST-LINT-PREDICTION.md). The
+headline is about the instrument, not the coast: **the lint accused
+owner-accepted shore three times and was wrong all three** (a chain-walk
+artifact, a backwards max/min metric, and drop-in instead of traverse testing).
+117 flags → 21 → 1 → 0 real defects, every reduction a correction to me.
+`coast_lint.py` is kept as the flow instrument for FUTURE coast edits.
+
+**Rung 5 is therefore done.** Next: Rung 6.
+
+---
+
+## P4 — PATH D RUNG 6, ENTRANCE / EXIT  ← **next**
 
 The corner is ONE span of ONE island. The pipeline that closed it is now
 general (census → seat → tuck sweep → ears → sea cut → gates). Apply it to
@@ -225,7 +245,7 @@ meaningful once most of the coast is ours? Its power comes from comparing
 against approved shore; as the approved fraction shrinks, the reference must
 shift to the stock islands rather than this bench.
 
-## P4 — PATH D RUNG 6, ENTRANCE / EXIT
+### (P4 detail)
 
 Connect Path D to the rest of the game (`PLAN.md` §3 Rung 6). Untouched by
 this arc; unblocked once the coast is stable.
