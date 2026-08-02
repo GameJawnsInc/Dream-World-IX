@@ -506,6 +506,28 @@ def build():
               f"(ny [{min(m_ny):.3f},{max(m_ny):.3f}])")
     seated.extend(membranes)
 
+    # BAND CONTINUATION for the auxiliary stack (the playtest-8 fix). The
+    # apron/fans/curtain previously sampled an arbitrary sliver of the band
+    # at ~6x stretch (+ constant-uv fans) — the flow check measured 16 smears
+    # + 62 stretched + mirrored faces exactly at the waterline; at the graze
+    # camera that IS the owner's "light seaming" streak. The lawful paint is
+    # the carried wall's OWN uv field continued at stock density: u follows
+    # each wall column's crest u; v continues from the foot row. Below the
+    # band bottom (v_foot=0.9229) the atlas is white/blank (measured — the
+    # white-sliver class), so v FOLDS BACK up the band from the foot row: the
+    # rim shows the wall's own waterline row, the porch re-runs the rock rows
+    # (mirror at the fold = the same texel row meets itself; stock precedent
+    # 2/139 mirrored faces).
+    crest_u = []
+    for k in seg:
+        us_here = {round(float(u), 4) for t in wall
+                   for p, (u, v) in zip(t[0], t[1]) if key(p) == k}
+        assert len(us_here) == 1, f"ambiguous crest u at {k}: {us_here}"
+        crest_u.append(us_here.pop())
+    v_foot = max(float(v) for t in wall for (u, v) in t[1])
+    v_rate = 0.0095                                         # measured donor slope
+    print(f"   band continuation: crest u {crest_u}, v_foot {v_foot:.4f}")
+
     # THE FOOT APRON — the look-side closure of the under-lip void. The sea
     # is (correctly) cut under ALL walkable plan (the 1.2u-fringe experiment
     # re-armed the trap: an exposed cross-mesh sheet gets ring-cached and
@@ -524,7 +546,7 @@ def build():
         land = (-dzs / L2, dxs / L2)                        # land LEFT of travel
         na = max(2, math.ceil(L2 / 0.6))
         nc = 3                                              # across 1.4u
-        ua, ub = 0.75 + 0.0126 * i, 0.75 + 0.0126 * (i + 1)
+        ua, ub = crest_u[i], crest_u[i + 1]                 # the column's own u
 
         def P(s, t):                                        # s along [0,1], t across [0,1]
             x2 = a2p[0] + s * dxs + t * 1.4 * land[0]
@@ -534,8 +556,8 @@ def build():
             # forensic), sloping to -0.6 inland
             return (x2, 0.06 - 0.66 * t, z2)
 
-        def UV(s, t):
-            return (ua + s * (ub - ua), 0.916 + t * 0.007)
+        def UV(s, t):                                       # fold-back continuation
+            return (ua + s * (ub - ua), v_foot - t * 1.4 * v_rate)
 
         for ja in range(na):
             for jc in range(nc):
@@ -560,7 +582,6 @@ def build():
         a1 = math.atan2(dirs[1][0], dirs[1][1])
         da = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi
         nang, nrad = max(2, math.ceil(abs(da) / 0.45)), 3
-        ua = 0.75 + 0.0126 * i
 
         def PW(js, jt):
             ang = a0 + da * js / nang
@@ -568,13 +589,26 @@ def build():
             return (cv[0] + 1.4 * t * math.sin(ang), 0.06 - 0.66 * t,
                     cv[1] + 1.4 * t * math.cos(ang))
 
+        # fan uv: u enters at the shared crest u (continuous with segment
+        # i-1's apron edge) and sweeps by mid-radius arc length at the donor's
+        # own u-rate, continuing the crest's u trend; v = the same fold-back.
+        # The exit edge mismatches segment i by ~0.01 u — a lawful uv cut
+        # (stock's own coast carries hundreds).
+        u_dir = math.copysign(1.0, crest_u[i + 1] - crest_u[i])
+
+        def UVW(js, jt):
+            arcl = abs(da) * (js / nang) * 0.7
+            return (crest_u[i] + u_dir * arcl * URATE,
+                    v_foot - (jt / nrad) * 1.4 * v_rate)
+
         for js in range(nang):
             for jt in range(nrad):
-                uvq = [(ua, 0.916 + 0.007 * jt / nrad)] * 3
-                apron.append([[PW(js, jt), PW(js + 1, jt), PW(js, jt + 1)], list(uvq), -1])
+                apron.append([[PW(js, jt), PW(js + 1, jt), PW(js, jt + 1)],
+                              [UVW(js, jt), UVW(js + 1, jt), UVW(js, jt + 1)], -1])
                 if jt < nrad:
                     apron.append([[PW(js + 1, jt), PW(js + 1, jt + 1), PW(js, jt + 1)],
-                                  list(uvq), -1])
+                                  [UVW(js + 1, jt), UVW(js + 1, jt + 1),
+                                   UVW(js, jt + 1)], -1])
 
     for rec in apron:                                       # up-facing winding
         p3 = rec[0]
@@ -593,18 +627,24 @@ def build():
     # Plan-degenerate => the walk query can never even scan it (ny <= 0.1
     # skip) — walk-inert by construction, in-Terrain behind lawn regardless.
     curtain = []
+    v_top_band = V_TOP                                      # 0.8926 (band top)
 
-    def vquad(pa, pb, useg):
+    def vquad(pa, pb, u0, u1):
         b0 = (pa[0], -0.6, pa[1])
         b1 = (pb[0], -0.6, pb[1])
         t0 = (pa[0], 3.15, pa[1])
         t1 = (pb[0], 3.15, pb[1])
-        uvq = [(useg, 0.918)] * 3
-        # wind SEAWARD (-x-ish): cross(along, up) points inland, so reverse
-        curtain.append([[b0, t0, b1], list(uvq), -1])
-        curtain.append([[b1, t0, t1], list(uvq), -1])
 
-    inner_pts = []
+        def vv(y):                                          # band re-run, top->foot
+            return v_top_band + (3.15 - y) / 3.75 * (v_foot - v_top_band)
+
+        # wind SEAWARD (-x-ish): cross(along, up) points inland, so reverse
+        curtain.append([[b0, t0, b1],
+                        [(u0, vv(-0.6)), (u0, vv(3.15)), (u1, vv(-0.6))], -1])
+        curtain.append([[b1, t0, t1],
+                        [(u1, vv(-0.6)), (u0, vv(3.15)), (u1, vv(3.15))], -1])
+
+    inner_pts, inner_u = [], []
     for i in range(len(crest_pts) - 1):
         a2p, b2p = crest_pts[i], crest_pts[i + 1]
         dxs, dzs = b2p[0] - a2p[0], b2p[1] - a2p[1]
@@ -612,8 +652,9 @@ def build():
         land = (-dzs / L2, dxs / L2)
         inner_pts.append((a2p[0] + 1.4 * land[0], a2p[1] + 1.4 * land[1]))
         inner_pts.append((b2p[0] + 1.4 * land[0], b2p[1] + 1.4 * land[1]))
+        inner_u += [crest_u[i], crest_u[i + 1]]
     for i in range(0, len(inner_pts) - 1):
-        vquad(inner_pts[i], inner_pts[i + 1], 0.75 + 0.006 * i)
+        vquad(inner_pts[i], inner_pts[i + 1], inner_u[i], inner_u[i + 1])
     seated.extend(apron)
     seated.extend(curtain)
     print(f"   foot apron: +{len(apron)} shelf + {len(curtain)} inner-curtain tris")

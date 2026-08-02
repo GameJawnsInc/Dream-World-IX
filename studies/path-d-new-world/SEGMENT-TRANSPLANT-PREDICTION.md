@@ -197,3 +197,52 @@ angle 4 (THE ATLAS MAP) + angle 6 (offset-loop curtains from the bench's OWN
 tuck vocabulary — no overhang, no membrane/apron/curtain cascade) are the
 recommended next arcs, plus a close-range owner-vantage camera + texture-flow
 check added to the render gate BEFORE the next visual round.
+
+## THE SEAM-FORENSICS ROUND (2026-08-02, post-playtest-8) — the carrier found
+
+Instrument first (the playtest-8 recommendation, executed): owner_close +
+graze cameras + the analytic flow check added and CALIBRATED — both
+playtest-8 classes reproduce offline (RENDER-GATE.md, close-range upgrade).
+
+**1. The measured smears are real but were NOT the visible carrier.** The
+apron/fan/curtain stack scored 16 constant-uv smears + 62 stretched (6.3×) +
+mirrored faces — fixed by BAND CONTINUATION: u follows each wall column's
+own crest u; v folds back up the band from the foot row (below v_foot=0.9229
+the atlas is white/34% alpha-0 — measured poison; the fold shows the wall's
+own waterline row at the rim). All 8 gates green, deployed
+(`.20260802-121757` backups). Flow: 16/62 → **0/0**. But the staged-vs-live
+pixel diff was ≤220 px at every camera — the stack is nearly invisible from
+the failing vantages. The defect had to live elsewhere.
+
+**2. THE ID-BUFFER FORENSICS** (probe_seam_owner.py — the raster now emits a
+per-pixel owner-triangle buffer): the light waterline pixels belong to the
+**lip WALL faces themselves** (v 0.893–0.923 — the pale rock band), and the
+largest owners are the bench's OWN run walls beyond the transplant
+(z −517…−524, z −504…−508), not the carried window.
+
+**3. THE FAR-COAST REFERENCE** (farcoast_nw / farcoast_nw_graze): the
+island's owner-passed coast language is **rock visible ONLY from sea level;
+pure green lawn-to-water from above** (convex shore tucks the wall behind
+the lawn edge). The corner is the island's only CONCAVE shoreline — from
+the lawn you look ACROSS the inlet at the opposite wall face frontally. No
+lean class can hide a wall you view across water: the corner shows
+above-water rock where the island's language never does. The baseline notch
+had the same exposure (thinner); the transplant widened it.
+
+**4. The corner walls are IN STOCK DISTRIBUTION on every texture metric**
+(u-density p50 0.0151 vs stock 0.0154, p99 inside stock's; fewer uv-cut
+edges than stock's own 40%). The rock is lawful; the residual is a
+**PRESENTATION-CLASS mismatch**, not a texture defect. The gates could
+never have caught this: they score elements against STOCK's marginals, and
+the corner IS stock-lawful — the mismatch is against the ISLAND's own
+established look (the ground-junction lesson restated on the look axis).
+
+**THE OWNER FORK (playtest 9 question):**
+- **(i) island language** — green-to-water at the corner too: rebuild the
+  inlet walls in the bench's own tuck vocabulary / beach-class slope so no
+  above-water rock shows (study angle 6 becomes the build).
+- **(ii) rocky cove** — keep the stock lip and read the corner as a
+  deliberate rocky inlet ("the cove exposes what the tide hides" — at graze
+  the whole island already shows this rock band). Nothing further to build;
+  metrics are already stock.
+The instrument can render candidate (i) before any deploy; (ii) is live now.

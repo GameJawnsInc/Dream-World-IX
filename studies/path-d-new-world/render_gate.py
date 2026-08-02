@@ -175,18 +175,21 @@ def project(view, verts):
 
 
 # ---------------------------------------------------------------- raster
-def raster(view, batches, title, cull=True):
+def raster(view, batches, title, cull=True, want_ids=False):
+    """want_ids: also return an int32 per-pixel owner buffer
+    (batch_index * 2**20 + tri_index, -1 = sky) — the seam-forensics hook."""
     W, H = RES
     color = np.zeros((H, W, 3), dtype=np.float32)
     color[:] = SKY
     zbuf = np.full((H, W), np.inf)
+    idbuf = np.full((H, W), -1, dtype=np.int64) if want_ids else None
     eye = np.array(view.get("eye", (0.0, 1e6, 0.0)))        # ortho: eye at +inf y
     ncull = ntri = 0
 
-    for part, verts, uvs, tris in batches:
+    for bi, (part, verts, uvs, tris) in enumerate(batches):
         sx, sy, dep = project(view, verts)
         tex = tex_for(part)
-        for t in tris:
+        for ti_i, t in enumerate(tris):
             i0, i1, i2 = int(t[0]), int(t[1]), int(t[2])
             if view["kind"] == "persp":
                 if dep[i0] <= 0.05 or dep[i1] <= 0.05 or dep[i2] <= 0.05:
@@ -244,12 +247,16 @@ def raster(view, batches, title, cull=True):
             else:
                 sub[vis] = (200, 60, 200)                   # missing texture = magenta
             zt[vis] = d[vis]
+            if idbuf is not None:
+                idbuf[ya:yb + 1, xa:xb + 1][vis] = bi * (1 << 20) + ti_i
 
     img = Image.fromarray(np.clip(color, 0, 255).astype(np.uint8))
     OUTD.mkdir(parents=True, exist_ok=True)
     out = OUTD / f"{title}.png"
     img.save(out)
     print(f"   render {out.name}  tris={ntri} culled={ncull}")
+    if want_ids:
+        return np.asarray(img), idbuf
     return np.asarray(img)
 
 
