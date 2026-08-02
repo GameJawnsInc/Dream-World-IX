@@ -23,6 +23,51 @@ from terrace_wall_strip import OUTD                         # noqa: E402
 MDIR = OUTD / "underlay_meshes"
 
 
+def camera_probe(world, x, z):
+    """The world camera's eye probe, engine-exact (ff9.cs:2926-3001): sky cast
+    with IgnoreExceptions -- NO mapid skip, NO up-facing filter -- first hit in
+    buffer order. The camera raises the eye to cameraCorrect + this height."""
+    bk = W.block_key(x, z)
+    if bk not in world:
+        return None
+    cell = (int(x // 4), int(z // 4))
+    for mesh in world[bk]:
+        for ti in mesh["grid"].get(cell, ()):
+            tri = mesh["tris"][ti]
+            hy = W.bary_y(x, z, tri)
+            if hy is not None:
+                return hy                                   # first in buffer wins
+    return None
+
+
+def camera_census(world, title):
+    """Over the mountain footprint (true top > 4.5): how close does the camera
+    probe ride to the TOP surface? The ride-up needs the probe near the top."""
+    x0, x1, z0, z1 = W.REGION
+    n = ok = 0
+    deficits = []
+    x = x0
+    while x <= x1:
+        z = z0
+        while z <= z1:
+            tops = [s[0] for s in W.all_sheets(world, x, z)]
+            if tops and max(tops) > 4.5:
+                n += 1
+                cp = camera_probe(world, x, z)
+                d = max(tops) - (cp if cp is not None else 0.0)
+                deficits.append(d)
+                if d <= 2.0:
+                    ok += 1
+            z += 1.0
+        x += 1.0
+    deficits.sort()
+    med = deficits[len(deficits) // 2] if deficits else 0.0
+    pct = 100.0 * ok / n if n else 100.0
+    print(f"=== CAMERA [{title}]: {n} mountain pts, probe within 2u of top: "
+          f"{pct:.1f}%, median deficit {med:.2f}u ===")
+    return pct, med
+
+
 def main():
     tsrc = {}
     for (bx, by) in W.CELLS:
@@ -97,6 +142,8 @@ def main():
     if deadband:
         print("   DEAD-BAND stalls:", deadband[:8])
 
+    cam_pct, cam_med = camera_census(fix, "FIX build")
+
     sunken = sum(1 for e in events if e["ev"] == "SUNKEN")
     # gA, gap-aware (declared-freedom resolution recorded in LAWN-CLIP-PREDICTION.md):
     # a stack whose walkable-sheet gap is within the SUNKEN visibility threshold
@@ -111,6 +158,7 @@ def main():
         gB_no_sunken=sunken == 0,
         gC_no_deadband=len(deadband) == 0,
         gD_climbers=climbers > 0,
+        gE_camera_rides=cam_pct >= 90.0 and cam_med <= 1.0,
     )
     print("\n=== FIX WALK GATES ===")
     for k, v in gates.items():

@@ -2497,10 +2497,23 @@ def main() -> int:
         cz = float(np.mean([p[2] for p in t3]))
         return (int(cx // BLOCK), int(-cz // BLOCK))
 
+    # THE CAMERA ORDER: carried tris emit BEFORE the bench sheet. The world
+    # camera's ride-up (ff9.cs:2926-3001) sky-casts with IgnoreExceptions --
+    # tag-proof, filter-proof, FIRST-IN-BUFFER like every query -- and raises the
+    # eye to cameraCorrect + hit height. With the lawn first, the probe read 3.2
+    # under the whole mountain and the camera sailed through the shell (playtest:
+    # "you end up seeing through it from the far side"). Carried-first gives the
+    # probe the mountain surface; the walk stays correct because every under-sheet
+    # is 4078-tagged (walk scans skip them; the camera deliberately does not).
     for rec, blk in final:
-        c = blk if blk is not None else cell_of([r[0] for r in rec])
-        for k3 in range(3):
-            emit(c, rec[k3][0], rec[k3][1], rec[k3][2], rec[k3][3])
+        if blk is None:
+            c = cell_of([r[0] for r in rec])
+            for k3 in range(3):
+                emit(c, rec[k3][0], rec[k3][1], rec[k3][2], rec[k3][3])
+    for rec, blk in final:
+        if blk is not None:
+            for k3 in range(3):
+                emit(blk, rec[k3][0], rec[k3][1], rec[k3][2], rec[k3][3])
 
     changed = {}
     for cell, (pos, nrm, uv, tan) in by_cell.items():

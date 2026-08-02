@@ -176,6 +176,43 @@ own underlay. Curtains (plan-degenerate) stay whole. The residual untagged cross
 band (±0.1 of the lawn plane) is sub-eps by construction and non-coincident
 (separated except along the crossing line itself).
 
+## PLAYTEST 2 (2026-08-01): Z-FIGHTING GONE ("grass looks good now"); TWO OPEN ITEMS
+
+1. **The V-shore floating wall persists** — so the hem-lift attribution for THE GAP
+   was WRONG (the Z-fighting attribution was right; one cause, one effect each). The
+   gap is in the base full-skirt geometry: the wall crossing the coast at the
+   V-notch hovers above the descending shore (the apron was clipped at the bench
+   grass edge — `fits_bench` — so no carried ground continues under the wall bottom
+   there). Needs a measured probe + its own registered fix.
+2. **NEW CLASS — THE CAMERA RIDE-UP**: on stock mountains the camera slides UP the
+   mountain to a bird's-eye when it would clip; on ours it passes through and shows
+   the far side (the ground beneath). Engine behavior our data isn't triggering —
+   mechanism unknown; decode BEFORE designing (WMPsxCamera + the w_cameraHit cache
+   sites from the walk decode). Recorded, not guessed.
+
+**THE CAMERA DECODE (same day)** — `WMPsxCamera.cs` is dead code; the mechanism is
+`ff9.cs:2926-3001`: each frame the camera SKY-CASTS at the eye's plan position
+(4 fuzzy probes ±5.5 taking the max; brackets `UseInfiniteRaycast + CastRayFromSky +
+IgnoreExceptions`) and RAISES the eye to `cameraCorrect + hit height` (fast-rise
+branch keyed on topograph 49 — rock). **`IgnoreExceptions` bypasses the 4078 skip and
+the up-facing filter — the camera is a third consumer of the single-sheet invariant
+and it is TAG-PROOF.** With the lawn first in the buffer, the probe read 3.2 under
+the whole mountain → no ride → see-through. Fix (data-only): **THE CAMERA ORDER** —
+carried tris emit BEFORE the bench sheet; the probe hits the mountain surface, the
+walk stays correct because every under-sheet is 4078-tagged (walk scans skip them;
+the camera deliberately does not). New gate gE: an engine-exact camera-probe census
+over the mountain footprint (probe within 2u of the true top for ≥90%, median
+deficit ≤1).
+
+**THE V-SHORE GAP, measured** (`probe_vshore_gap.py`): 66 hover once-edges (edge
+>0.5u above a surface below); prime coast-crossing clusters at (448.8,−507.8) east
+(11 edges, 22u, wall edges y 1.6-5.1 over shore ~1.9) and (382.4,−511.6) west — the
+apron was clipped at the bench grass edge (`fits_bench`), so the skirt ends mid-air
+where the shore descends. The fix class is a MINT (the donor's own curtain idiom,
+measured on the blob's rim: vertical faces sealing rim to ground, uv = the bottom
+course's v-continuation) — registered as its own design round, NOT built here (the
+authorship law: no mint without its study).
+
 **REBUILT + REDEPLOYED same day, both suites green again**: C-slice 59 tris, C-rule
 113 (its reference now includes TAGGED lawn — a dip spanning under an L-tagged zone
 was the only walk-visible surface there, measured at (419.5,−489) gaps 0.31-0.44);
