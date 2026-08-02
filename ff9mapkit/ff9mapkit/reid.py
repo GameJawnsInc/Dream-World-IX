@@ -272,10 +272,22 @@ def _edit_for(path: Path, rules: dict, remap: dict, *, key_remaps=None,
 # would otherwise flag them: the custom id band (4000-9899) OVERLAPS the story-flag band (8712+), so a
 # [[flag]] index can equal an old field id by coincidence.
 _NOT_A_FIELD_ID = frozenset({
-    "index", "flag", "set_flag", "requires_flag", "requires_flag_clear", "area", "scenario",
-    "scenario_min", "scenario_max", "entrance", "region_key", "song", "model", "anim", "source",
-    "source_field", "to_real", "flag_base", "flags_per_field", "donor_tag", "battle", "id_base",
-    "x", "y", "z", "pos", "start", "radius", "item", "count", "gil", "ap",
+    # flags: the custom id band (4000-9899) OVERLAPS the story-flag band (8712+)
+    "index", "flag", "set_flag", "requires_flag", "requires_flag_clear", "flag_base", "flags_per_field",
+    # ScenarioCounter beats span 0..32767 -- the ENTIRE field-id range
+    "scenario", "scenario_min", "scenario_max", "requires_scenario", "set_scenario",
+    # WORLD COORDINATES are routinely 4-5 digits: a campaign at 6000-6039 sits squarely inside the x/z
+    # range of an ordinary room, and a walkmesh has no id to validate against
+    "x", "y", "z", "pos", "start", "radius", "zone", "poly", "arrive", "act_hop_to", "top", "bottom",
+    "top_worldmap", "act_hop", "offset", "height", "width", "dist", "range",
+    # donor-side ids and non-id ordinals
+    "area", "entrance", "region_key", "song", "model", "anim", "source", "source_field", "donor",
+    "donor_tag", "donor_entry", "battle", "id_base", "item", "count", "gil", "ap", "template",
+    "borrow_tcb", "scene",
+    # NOT excluded on purpose: `id` (a stray [[mint]] id false positive is a far better trade than
+    # blinding the net to a [field] id or a floorplan rooms[].id the rules failed to move), and
+    # `to_real` -- a seam target is donor-by-default but CAN hold a sibling campaign's fork id, which
+    # reid must never rewrite silently and must therefore surface for a human to judge.
 })
 
 
@@ -295,7 +307,12 @@ def _parse_mapping(pairs) -> dict:
 
 def _validate_targets(plan, remap: dict, reserved) -> None:
     """Refuse a move that cannot work, BEFORE any file is touched."""
+    from .coop import COOP_FIELD, COOP_MOD
     from .journey import WORLD_ID_HI, WORLD_ID_LO
+    # The co-op room is registered from its OWN folder, which is deliberately absent from Memoria.ini
+    # FolderNames ("never touched by campaign redeploys") -- so the live-registration sweep structurally
+    # CANNOT see it and a scratch-band move onto it would pass every gate the kit has.
+    reserved = set(reserved or ()) | {COOP_FIELD}
     keep = [m.new_id for m in plan.members if m.new_id not in remap]
     final = sorted(keep + list(remap.values()))
     bad = sorted({i for i in remap.values() if not (4000 <= i <= 32767)})
@@ -311,10 +328,13 @@ def _validate_targets(plan, remap: dict, reserved) -> None:
     if dups:
         raise ReidError(f"the move collides inside the campaign: ids {dups} would be held by two members. "
                         f"EventDB/SceneData are global dicts -- a shared id loads the wrong .eb (black screen).")
-    clash = sorted(set(remap.values()) & set(reserved or ()))
+    clash = sorted(set(remap.values()) & reserved)
     if clash:
-        raise ReidError(f"target ids {clash} are already registered elsewhere -- pick a clear band. EventDB "
-                        f"is GLOBAL across mod folders, so a collision in another folder is still a collision.")
+        why = (f" ({COOP_FIELD} is the co-op room in the {COOP_MOD} folder, which the live sweep cannot see)"
+               if COOP_FIELD in clash else "")
+        raise ReidError(f"target ids {clash} are already registered elsewhere{why} -- pick a clear band. "
+                        f"EventDB is GLOBAL across mod folders, so a collision in another folder is still "
+                        f"a collision.")
 
 
 def live_reserved(game, *, own_folder=None) -> "tuple[set, list]":
@@ -497,6 +517,11 @@ def _followups(plan, rp: ReidPlan) -> list:
         "deploy_campaign re-runs the retarget itself, but a wholesale replace wipes the override.",
         "If this campaign sits in a JOURNEY, re-run `ff9mapkit lint-journey`: the manifest's entry row and any "
         "cross-campaign [[journey.link]] name the old ids, and the hub is generated from them.",
+        "RE-AUTHOR any OVERWORLD ENTRANCE into this campaign (`world-entrance --field-direct <id>`). The "
+        "destination is baked into the world dispatcher's .eb inside the SEPARATE -world mod folder, which a "
+        "campaign redeploy never rewrites -- and warping to a retired id crashes rather than fails soft.",
+        "If a journeys.toml carries a commented fork PLAYBOOK, update its `--id-base`: refarc scrapes that "
+        "COMMENT to place the next arc, so a stale one hands the next region a band this campaign now owns.",
         f"EXISTING SAVES made inside this campaign are void -- a save stores the field id it was made in, and "
         f"{lo}..{hi} did not exist when it was written. Story-FLAG windows are UNCHANGED: they key off member "
         f"POSITION and flag_base, neither of which this verb touches.",
@@ -514,6 +539,13 @@ def apply_reid(rp: ReidPlan) -> list:
             # three-number edit into a whole-file diff -- the autocrlf smudge class, self-inflicted.
             fsutil.atomic_write_text(e.path, e.after, newline="")
             written.append(e.path)
+    if written:
+        # THE CACHE CANNOT SEE THIS EDIT. tomlcache memoizes on (st_mtime_ns, st_size) and names its one
+        # stale window as "an edit that preserves BOTH mtime_ns and size" -- which a reid does BY
+        # CONSTRUCTION whenever old and new have the same digit count (6000 -> 6500 is the normal case).
+        # Any same-process re-read (lint, build, the Workspace) could then be served the pre-move tree.
+        from . import tomlcache
+        tomlcache.clear()
     return written
 
 

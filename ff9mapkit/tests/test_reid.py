@@ -208,6 +208,47 @@ def test_a_flag_index_that_looks_like_an_id_is_not_reported(tmp_path):
     assert not any("flag" in h for h in rp.residual), rp.residual
 
 
+def test_apply_invalidates_the_toml_cache(tmp_path):
+    """tomlcache memoizes on (mtime_ns, size) and names its one stale window as an edit preserving BOTH.
+    A reid 6000->6500 is byte-length-preserving BY CONSTRUCTION, so without an explicit clear a same-process
+    re-read (lint, build, the Workspace) can be served the pre-move tree."""
+    import os
+
+    from ff9mapkit import tomlcache
+    cpath = _write(tmp_path)
+    before = tomlcache.load_toml(cpath)                              # prime the cache
+    assert before["field"][0]["id"] == 6000
+    st = os.stat(cpath)
+    rp = reid.plan_reid(cpath, id_base=6500)
+    reid.apply_reid(rp)
+    # FORCE the documented window rather than hope for it: NTFS mtime_ns is fine-grained enough that a
+    # same-process rewrite usually LOOKS fresh, which would make this assertion pass with or without the
+    # clear -- a check that cannot fail. Restoring the original mtime reproduces the exact condition
+    # tomlcache says it cannot detect (same mtime_ns AND same size -- and a reid preserves size).
+    os.utime(cpath, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert os.stat(cpath).st_size == st.st_size, "a same-digit-count reid is size-preserving"
+    assert tomlcache.load_toml(cpath)["field"][0]["id"] == 6500, "a cached pre-move tree survived the write"
+
+
+def test_a_seam_to_real_naming_a_moved_id_is_reported_not_rewritten(tmp_path):
+    """to_real is donor-by-default but CAN hold a sibling campaign's fork id (journey.campaign_connectivity
+    resolves it against sibling ownership). Rewriting it silently would be wrong in one direction and
+    destructive in the other, so reid leaves it and surfaces it."""
+    man = MANIFEST + '\n[[seam]]\nfrom = "A"\nto_real = 6001\nkind = "portal"\nnote = ""\n'
+    cpath = _write(tmp_path, manifest=man)
+    rp = reid.plan_reid(cpath, id_base=6500)
+    assert tomllib.loads(cpath.read_text(encoding="utf-8"))["seam"][0]["to_real"] == 6001, "not rewritten"
+    assert any("to_real" in h for h in rp.residual), rp.residual
+
+
+def test_room_coordinates_are_not_reported_as_leftover_ids(tmp_path):
+    """A campaign at 6000-6039 sits inside the normal x/z range of a room. Flagging walkmesh geometry
+    would train the author to ignore the residual list -- and an ignored list is not a net."""
+    cpath = _write(tmp_path, a_extra='\n[[npc]]\nname = "G"\npos = [6000, 6001]\nzone = 6000\n')
+    rp = reid.plan_reid(cpath, id_base=6500)
+    assert not any("pos" in h or "zone" in h for h in rp.residual), rp.residual
+
+
 # ---- refusals ----------------------------------------------------------------------------
 @pytest.mark.parametrize("kw, needle", [
     (dict(id_base=9005), "world-map hole"),
@@ -229,6 +270,15 @@ def test_reid_refuses_a_live_id_collision(tmp_path):
     cpath = _write(tmp_path)
     with pytest.raises(reid.ReidError, match="already registered"):
         reid.plan_reid(cpath, id_base=6500, reserved_ids={6501})
+
+
+def test_reid_refuses_the_coop_room_id(tmp_path):
+    """COOP_FIELD lives in its own folder, deliberately absent from Memoria.ini FolderNames -- so the live
+    registration sweep structurally cannot see it and every other gate would pass."""
+    from ff9mapkit.coop import COOP_FIELD
+    cpath = _write(tmp_path)
+    with pytest.raises(reid.ReidError, match="co-op room"):
+        reid.plan_reid(cpath, id_base=COOP_FIELD)
 
 
 def test_reid_refuses_a_campaign_that_does_not_lint_clean(tmp_path):
