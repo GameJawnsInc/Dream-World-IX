@@ -1858,6 +1858,39 @@ def save_plan(plan, path):
     return p
 
 
+def carry_plan_records(plan, path):
+    """``plan`` with the per-room records a previous :func:`emit` wrote into the sidecar at ``path``
+    carried forward -- matched by room NAME, and only onto rooms the new plan still has.
+
+    ★ A WRITER OVER THE SIDECAR MUST BE AS NON-DESTRUCTIVE AS THE COMPOSER IS OVER A ROOM, and this
+    is the second call site that has to know it. ``emit`` writes two things back into the sidecar
+    that it later READS: the pinned room ``id`` (so a recompose cannot renumber rooms the author has
+    already deployed and written down) and the ``art`` fingerprint (so a painted PNG is recognised
+    as the author's and not repainted). The Floorplan tab rebuilds its plan from an in-memory
+    session and stamps it over the sidecar before running the verb -- and a session drawn in the tab
+    has only ``{name, poly}``, so BOTH records were wiped a moment before the verb read them.
+    Measured before the fix: a tab recompose destroyed a painting AND silently renumbered a deployed
+    dungeon, while printing "from this compose on, art you paint over it survives" -- forever.
+
+    Carried by EXCLUSION, like ``floorplandoc._carry``: an allow-list would have to be updated every
+    time ``emit`` learns a key, and the failure mode when it is not is exactly this silent loss.
+    A room the tab no longer has is dropped -- deleting a room must really delete it."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.is_file():
+        return dict(plan)
+    try:
+        prev = load_plan(p)
+    except (OSError, ValueError):
+        return dict(plan)                            # unreadable: the new plan is all we have
+    by_name = {str(r.get("name")): r for r in (prev.get("rooms") or []) if isinstance(r, dict)}
+    out = dict(plan)
+    out["rooms"] = [{**{k: v for k, v in by_name.get(str(r.get("name")), {}).items()
+                        if k not in r}, **r}
+                    for r in (plan.get("rooms") or [])]
+    return out
+
+
 # ------------------------------------------------------------------ emit to disk
 
 # The tables `compose` MINTS and therefore owns. Everything else in a room's field.toml arrived

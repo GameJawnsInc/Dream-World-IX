@@ -793,6 +793,70 @@ def test_the_sidecar_round_trips_the_session(app, tmp_path):
     assert run2.calls[0][0][-1] == str(side), "a reopen recomposes IN PLACE"
 
 
+def test_a_second_compose_from_the_tab_does_not_wipe_what_the_first_one_recorded(app, tmp_path):
+    """★ THE TAB'S OWN WRITE OVER THE SIDECAR WAS THE LAST BULLDOZER LEFT, and it stood exactly
+    where the merge could not see it. `on_compose` stamps `plan()` over floorplan.json a moment
+    before the verb reads that same file, and `plan()` is rebuilt from the in-memory session --
+    which for a session DRAWN here is `{name, poly}` and nothing else. So both records `emit` writes
+    to be read back were destroyed a moment before it read them: the pinned room `id` (a recompose
+    then silently renumbers a dungeon the author has already deployed and written `--id N` down for)
+    and the `art` fingerprint (the next recompose repaints over their painted PNGs, while printing
+    "from this compose on, art you paint over it survives" -- every time, never true).
+
+    ⚠ THE FENCE THAT EXISTED COULD NOT SEE IT: it seeds a sidecar that ALREADY has the records and
+    asserts `load_plan -> plan()`, i.e. the OPEN lane. Nothing drove draw -> compose -> compose."""
+    doc, run = _two_rooms(app)
+    doc._ask_out = lambda: str(tmp_path)
+    doc.judge_now(sync=True)
+    doc.on_compose()
+    side = tmp_path / "dungeon" / FP.SIDECAR
+    assert side.is_file() and run.calls[0][0][-1] == str(side)
+
+    FP.compose_and_emit(FP.load_plan(side), side.parent, log=None)     # what the verb does
+    run.finish(0)
+    pinned = [r["id"] for r in FP.load_plan(side)["rooms"]]
+    art = FP.load_plan(side)["rooms"][0]["art"]
+    assert pinned and all(isinstance(i, int) for i in pinned)
+    assert doc._session["rooms"][0]["id"] == pinned[0], \
+        "the session must absorb the pinned id, or its judge keeps painting ids the verb won't use"
+
+    doc.canvas.click_world(*_A[0])          # a gesture between the two composes, as in real use
+    doc.judge_now(sync=True)
+    doc.on_compose()
+    again = FP.load_plan(side)
+    assert [r.get("id") for r in again["rooms"]] == pinned, \
+        "the tab's own stamp wiped the id pin the verb had just written"
+    assert again["rooms"][0].get("art") == art, \
+        "the tab's own stamp wiped the art fingerprint -- painted art repaints on every recompose"
+
+
+def test_the_tabs_stamp_keeps_records_this_session_never_saw(app, tmp_path):
+    """The other half, and it needs its own fence because `_absorb_records` HIDES it: once the
+    session has absorbed the ids, `plan()` carries them and the stamp looks harmless. Removing
+    `carry_plan_records` left the previous test green.
+
+    This is the state absorbing cannot reach — a session whose in-memory rooms never saw the
+    records at all: the app was restarted, the compose job's callback never landed, or (the normal
+    case in this repo) ANOTHER session composed the same dungeon while this tab held a stale plan.
+    The file has to be what remembers, so the write over it must merge, not stamp."""
+    doc, run = _two_rooms(app)
+    out = tmp_path / "dungeon"
+    side = out / FP.SIDECAR
+    FP.save_plan({"version": 1, "name": "X", "id_base": 30500, "doors": [],
+                  "rooms": [{"name": "ROOM1", "poly": _A, "id": 30500,
+                             "art": {"art/back.png": "a" * 64}},
+                            {"name": "ROOM2", "poly": _B, "id": 30501,
+                             "art": {"art/back.png": "b" * 64}}]}, side)
+    doc._project = {"out": str(out)}                   # a reopened project, session NOT absorbed
+    assert "id" not in doc._session["rooms"][0], "the premise: this session has never seen them"
+
+    doc.judge_now(sync=True)
+    doc.on_compose()
+    got = FP.load_plan(side)["rooms"]
+    assert [r.get("id") for r in got] == [30500, 30501]
+    assert got[0]["art"] == {"art/back.png": "a" * 64}
+
+
 def test_the_round_trip_carries_the_art_fingerprint_a_recompose_needs(app, tmp_path):
     """★ THE MERGE'S ART RECORD RIDES THIS ROUND TRIP, so it is fenced here rather than assumed.
     `emit` records the sha256 of the placeholder pair it painted under each room's ``art`` key, and

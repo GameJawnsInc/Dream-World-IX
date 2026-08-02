@@ -1804,6 +1804,29 @@ def test_a_reshape_under_painted_art_says_the_painting_no_longer_matches(tmp_pat
     assert back.read_bytes()[-1:] == b"\x00", "it warns, it does not repaint"
 
 
+def test_carry_plan_records_keeps_what_emit_wrote_and_still_lets_a_room_be_deleted(tmp_path):
+    """★ A WRITER OVER THE SIDECAR MUST BE AS NON-DESTRUCTIVE AS THE COMPOSER IS OVER A ROOM.
+    `emit` writes two records into the sidecar that it later READS -- the pinned `id` and the `art`
+    fingerprint -- and the Floorplan tab stamps its own plan over that file a moment before the verb
+    reads it. Carried by exclusion, so a record `emit` learns tomorrow rides along too; matched by
+    NAME, so a deleted room really goes."""
+    side = tmp_path / F.SIDECAR
+    F.save_plan({"name": "T", "id_base": 30500, "doors": [], "rooms": [
+        {"name": "KEEP", "poly": ROOM_A, "id": 30500, "art": {"art/back.png": "a" * 64}},
+        {"name": "GONE", "poly": ROOM_B, "id": 30501, "art": {"art/back.png": "b" * 64}}]}, side)
+
+    fresh = {"name": "T", "id_base": 30500, "doors": [],
+             "rooms": [{"name": "KEEP", "poly": ROOM_B},          # reshaped, and GONE is deleted
+                       {"name": "NEW", "poly": ROOM_A}]}
+    got = F.carry_plan_records(fresh, side)
+    keep, new = got["rooms"]
+    assert keep["id"] == 30500 and keep["art"] == {"art/back.png": "a" * 64}
+    assert keep["poly"] == ROOM_B, "the NEW plan owns the shape; the record only rides along"
+    assert "id" not in new and "art" not in new, "a room the composer has never seen has no record"
+    assert [r["name"] for r in got["rooms"]] == ["KEEP", "NEW"], "a deleted room must really go"
+    assert F.carry_plan_records(fresh, tmp_path / "nope.json") == fresh   # no sidecar: no-op
+
+
 def test_the_art_fingerprint_rides_the_plan_so_the_tab_round_trip_carries_it(tmp_path):
     """The record lives in the sidecar's own room entries, which is what makes it work in both
     lanes: the CLI's plan file is usually the sidecar itself (so a separate disk read would see the
