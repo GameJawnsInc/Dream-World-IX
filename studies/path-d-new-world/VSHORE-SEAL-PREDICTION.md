@@ -732,6 +732,14 @@ checker).
 
 ## STUDY ANGLES — making the coast-edit system flexible (the next arcs)
 
+> **STATUS 2026-08-02 (the V-shore corner closed at playtest 12):** angles
+> **1, 2, 4 and 6 are ★ DONE** — 6 superseded in a better form by THE TUCK
+> REBUILD (measure the island's OWN wall and sweep it, rather than offsetting
+> a face loop). **3 and 5 remain open, both productization.** The ranked plan,
+> including the P0 `full_skirt` fold-back debt that outranks both, is
+> [`NEXT-STUDIES.md`](NEXT-STUDIES.md). Round records:
+> [`SEGMENT-TRANSPLANT-PREDICTION.md`](SEGMENT-TRANSPLANT-PREDICTION.md).
+
 1. **THE RENDER GATE** — the missing axis. An offline textured renderer of
    block meshes (verts+uvs + the donor prefabs' atlas textures via UnityPy;
    even painter's-algorithm quality) rendering sea-side/land-side/top shots,

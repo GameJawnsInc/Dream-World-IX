@@ -487,3 +487,46 @@ hole.**
 0 stretch / 0 mirrored / 8 rotated; 0 background px. Deployed (backups
 .20260802-152923). **P-R (playtest 12): uniform grass, no tone patches, no
 white specks.**
+
+## ★ PLAYTEST 12 (2026-08-02) — PASSED. THE V-SHORE CORNER IS CLOSED.
+
+Owner: "yep, that worked. that's the culmination of all this work."
+P-R confirmed: uniform grass, no tone patches, no white specks; the cliff
+ratified at playtest 11. **The corner is owner-accepted on BOTH axes —
+flow (playtest 9: "walkability is good") and look (12).** Twelve playtests,
+one corner.
+
+### What actually closed it (the short version worth carrying forward)
+
+Three failures in a row were the same shape, and none of them was a
+measurement error: **the element was lawful and the CONTEXT was wrong.**
+- The stock coast lip is lawful — over cut sea it is an overhang above dry
+  void (THE OVERHANG-CONTEXT LAW), and every auxiliary it forced was new
+  authored surface that then carried the next defect.
+- A translate-clone donor is lawful — scored against ITSELF instead of the
+  grass it lands in, it is a meadow patch (THE WRONG REFERENCE).
+- A wrap-split rung is lawful on the wall — not shared with the lawn, it is
+  a crack (the T-junction class).
+The fix in all three cases was the same move: **stop scoring the element in
+isolation and score it against the thing it must live next to** — which is
+what THE PEER GATE does structurally, and it is the one instrument this arc
+was missing from the start.
+
+### The gate record, honestly
+
+GROUND-JUNCTION-SYNTHESIS measured 0 of 13 playtest verdicts predicted by a
+gate. This round: **4 defects caught offline before deploy** (the picket-
+fence streak, the brown/cyan tone breaks, a blank texel, and a 26-px hole I
+inflicted myself while fixing something else), and **2 the owner found that
+no gate yet existed for** — each of which is now a gate. The change is not
+that the gates got stricter; it is that they started **measuring pixels and
+comparing against approved peers** instead of scoring against stock's
+marginals. Cf. `probe_peer_compare.py`, `probe_blank_paint.py`,
+`probe_tjunction.py`, and THE TEXEL-DENSITY GATE in `vcorner_transplant.py`.
+
+### Standing debt (READ BEFORE ANY FURTHER BENCH WORK)
+
+The whole corner lives in **study scripts operating on two live blocks**.
+A `full_skirt` regeneration overwrites Blocks [5][7]/[5][8] and silently
+reverts all of it, and no kit verb knows any of these laws. That debt is
+now P0 → `NEXT-STUDIES.md`.
