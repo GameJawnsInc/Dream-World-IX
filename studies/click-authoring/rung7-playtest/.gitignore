@@ -1,0 +1,4 @@
+# Build output and the Place tab's scratch composite -- both regenerate from what IS committed
+# (`ff9mapkit build-all campaign.toml`, and opening a room in the Place tab).
+dist/
+.place_backdrop.png

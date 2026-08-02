@@ -562,10 +562,17 @@ def _remap_text_blocks(projects, base: int) -> dict:
 
 
 def build_campaign(campaign_path, out=None, *, author="", description="", allow_artless=False,
-                   flag_base=None, seed_blocks=None, text_block_base=None, extra_flag_names=None) -> dict:
+                   flag_base=None, seed_blocks=None, text_block_base=None, extra_flag_names=None,
+                   allow_reflow=False) -> dict:
     """Compile every member of a campaign.toml into ONE staged Memoria mod (DictionaryPatch + BattlePatch +
     ModDescription + per-field assets), reusing build.build_mod. Returns build_mod's dict + ``plan``/``out``.
     Does NOT deploy (P4). ``out`` defaults to ``<campaign-dir>/dist``.
+
+    ``allow_reflow`` accepts a build that MOVES an existing member's flag window or text block relative to
+    this folder's last build (:mod:`ff9mapkit.stamp`). This is the campaign tier's most under-guarded edit:
+    a member's window is ``flag_base + i * flags_per_field`` over its POSITION, so deleting or reordering a
+    ``[[field]]`` row -- or a recompose resetting ``flags_per_field`` -- slides every later member's
+    save-persistent bits with nothing to detect it.
 
     ``flag_base`` (the JOURNEY assembler's lever): override the campaign's own ``flag_base`` so the journey
     can hand each of its campaigns a NON-OVERLAPPING ``gEventGlobal`` flag window (two campaigns in one
@@ -645,7 +652,11 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         # rejects the seeded `flags = [{flag = "<name>"}]` as "unknown flag name".
         resolve_project_flags(entry_project.raw, extra_names=campaign_names)
     info = build_mod(projects, out, mod_name=plan.mod_folder, author=author, description=description,
-                     entry_project=entry_project)
+                     entry_project=entry_project, allow_reflow=allow_reflow,
+                     stamp_source=str(campaign_path),
+                     # a journey assigns this campaign's flag window + mesID base itself, and both tiers
+                     # build into the SAME <campaign>/dist -- so the stamp records which one produced it
+                     stamp_context=("journey" if (flag_base is not None or text_block_base) else "standalone"))
     # [ff9mapkit] fork-fidelity: ForkDonorPatch.txt maps each custom-id fork -> its donor real field id, so
     # the engine's behaviors hardcoded on a real fldMapNo (off-mesh exemptions, cutscene party-shape guards,
     # scroll player-binds -- docs/FORK_IDGATE_MAP.md) still fire for the fork. Read by the patched DataPatchers
@@ -827,6 +838,85 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
             elif idx >= FIRST_SAFE_FLAG and idx >= CHOICE_SCRATCH_FLOOR:
                 warnings.append(f"member {m.name}: explicit flag {idx} is at/above the choice-scratch floor "
                                 f"{CHOICE_SCRATCH_FLOOR} (engine-owned) -- pick a lower index.")
+
+    # (e3) MANIFEST <-> ARTIFACT reconciliation -- the only check here that compares the manifest to the files
+    #      it describes; everything else validates the manifest's own model against itself. A member's field id
+    #      is stored TWICE (the [[field]] id row here, and the member's own [field] id) and the two are read by
+    #      DIFFERENT consumers: build_mod registers the MEMBER's copy as `FieldScene <id> ...` while
+    #      deploy.resolve_entry wires New Game / the journey entry from the MANIFEST's. Disagreement boots the
+    #      mod at an id nothing registered -- a null-.eb black screen on the first frame, with every other gate
+    #      green. Door targets are the same class one level down: an id move that misses a [[gateway]] to or a
+    #      retarget value leaves a live door pointing at an id no member owns. Both are pure dict reads over
+    #      member_raw, which (e) already parsed.
+    member_ids = {m.new_id for m in plan.members}
+    seam_reals = {s["to_real"] for s in plan.seams if isinstance(s.get("to_real"), int)}
+    known_dests = member_ids | seam_reals
+
+    def _rows(raw, key):
+        """An array-of-tables block, defensively. A member that writes `[gateway]` where `[[gateway]]` was
+        meant parses as a bare dict, and a lint that crashes on it reports nothing at all -- the shape is
+        build.validate's to reject, so skip it here rather than raise."""
+        v = raw.get(key)
+        return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
+
+    def _dest_ids(raw):
+        """Every INTRA-CAMPAIGN destination id a member's field.toml names: declarative [[gateway]] to (an int
+        id; the "worldmap" string is a walk-out, not a field target), plus the VALUES of the verbatim door
+        retarget tables ({<donor real id> = <this campaign's fork id>}) -- the keys are donor ids and are
+        meant to be foreign."""
+        out = []
+        for gw in _rows(raw, "gateway"):
+            t = gw.get("to")
+            if isinstance(t, int) and not isinstance(t, bool) and t > 0:
+                out.append(("[[gateway]] to", t))
+        veb = raw.get("verbatim_eb")
+        tables = [veb.get("retarget") if isinstance(veb, dict) else None]
+        tables += [gc.get("retarget") for gc in _rows(raw, "gateway_carry")]
+        for rt in tables:
+            if isinstance(rt, dict):
+                for k, v in rt.items():
+                    if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+                        out.append((f"retarget {k} ->", v))
+        return out
+
+    for m in plan.members:
+        raw = member_raw.get(m.name)
+        if raw is None:
+            continue
+        fblock = raw.get("field")
+        fid = fblock.get("id") if isinstance(fblock, dict) else None
+        if fid is None:
+            errors.append(f"member {m.name}: its field.toml has no [field] id, but the manifest assigns it "
+                          f"{m.new_id} -- the build registers the MEMBER's id, so nothing would claim "
+                          f"{m.new_id} and every door into it black-screens. Set `id = {m.new_id}`.")
+        elif isinstance(fid, bool) or not isinstance(fid, int):
+            errors.append(f"member {m.name}: [field] id = {fid!r} is not an integer field id "
+                          f"(the manifest assigns {m.new_id}).")
+        elif int(fid) != m.new_id:
+            errors.append(f"member {m.name}: MANIFEST/ARTIFACT id mismatch -- campaign.toml says {m.new_id}, "
+                          f"{m.toml_rel} says [field] id = {int(fid)}. The build registers {int(fid)} while "
+                          f"the entry/journey wiring targets {m.new_id}, so the mod boots at an unregistered "
+                          f"id (null .eb -> black screen). Make them agree (both files, plus every "
+                          f"[[gateway]] to / retarget value that names this member).")
+        for what, dest in _dest_ids(raw):
+            if dest in known_dests:
+                continue
+            if in_journey:
+                continue          # a sibling campaign's member is a legitimate target and reads as foreign here
+            #                       (mirrors the (c2) suppression); journey.campaign_connectivity is the
+            #                       sibling-aware check at that tier.
+            if dest < 4000:       # a REAL FF9 field: a leak out to the un-forked game -- the (c2) class, advisory
+                warnings.append(f"member {m.name}: {what} {dest} is a REAL (un-forked) field -- walking that "
+                                f"door leaves the campaign into the live game. Fork it in "
+                                f"(import-chain --whole-zone), or declare it as a [[seam]] if it is the "
+                                f"campaign's intended edge.")
+            else:                 # a CUSTOM-band id no member owns and no seam declares -> a stale target,
+                #                   the exact residue an id move leaves behind
+                errors.append(f"member {m.name}: {what} {dest} -- no member of this campaign has that id "
+                              f"(members: {min(member_ids)}..{max(member_ids)}) and no [[seam]] declares it. "
+                              f"A custom-band door to an id nothing registers black-screens on walk-in; this "
+                              f"is what a half-finished id move leaves behind. Retarget it to a member id, "
+                              f"or declare the crossing as a [[seam]].")
 
     for nm in plan.needs_export:                  # (f) artless members
         warnings.append(f"member {nm}: needs in-game art ([Export] Field=1) before a real build")
@@ -1198,16 +1288,57 @@ def _resolve_source_id(source) -> int:
 
 
 def new_campaign(name, mod_folder, manifest_dir, *, id_base=4000, flag_base=FIRST_SAFE_FLAG,
-                 flags_per_field=64, entry_entrance=0) -> CampaignPlan:
+                 flags_per_field=64, entry_entrance=0, on_existing="refuse") -> CampaignPlan:
     """Create an EMPTY campaign (no members) and write its campaign.toml -- the from-scratch path that
     import-chain (which forks a real region) doesn't cover. Add members with :func:`add_field`. The default
-    flag_base is the census-grounded safe floor (clear of real-FF9 chest flags); see :mod:`flags`."""
+    flag_base is the census-grounded safe floor (clear of real-FF9 chest flags); see :mod:`flags`.
+
+    ``on_existing`` decides what happens when ``manifest_dir`` ALREADY holds a campaign.toml. This file has
+    exactly one writer (:func:`render_campaign_toml`) and it RENDERS a plan rather than merging into the
+    existing text -- so whatever the plan does not carry is dropped, and a FRESH plan carries no [[flag]]
+    rows, no [[seam]] rows, and the DEFAULT flag_base/flags_per_field. Overwriting blind therefore relocates
+    every member's flag window (flags_per_field 16 -> 64 moves every story bit in the campaign), which
+    corrupts a live save with nothing anywhere able to detect it. The [[flag]] loss is at least loud -- a
+    member gating on a lost NAME fails the next lint -- but the allocation reset is silent.
+      * ``"refuse"`` (default) -- raise. The Workspace already applied this guard at its own call site
+        (``workspace/shell.py`` _new_campaign) while the library did not, so any non-GUI caller could still
+        clobber; this moves it under all of them. ``CampaignError`` is a ``ValueError``, so callers already
+        catching ValueError keep working.
+      * ``"preserve"`` -- carry the prior manifest's AUTHORED state forward: [[flag]] rows, [[seam]] rows,
+        flag_base, flags_per_field, verbatim, and the entry. Members/edges are NOT carried (a caller asking
+        for a new campaign is rebuilding those), and ``flag_base``/``flags_per_field`` arguments are ignored
+        in favour of the prior's -- preserving an allocation the author may have tuned is the entire point.
+      * ``"replace"`` -- the historical blind overwrite, now only on explicit request.
+    """
+    if on_existing not in ("refuse", "preserve", "replace"):
+        raise CampaignError(f"on_existing must be 'refuse', 'preserve' or 'replace' (got {on_existing!r})")
     if not (4000 <= id_base <= 32767):
         raise CampaignError(f"id_base {id_base} out of range (must be 4000-32767)")
+    manifest_dir = Path(manifest_dir)
+    existing = manifest_dir / "campaign.toml"
+    prior = None
+    if existing.is_file():
+        if on_existing == "refuse":
+            raise CampaignError(
+                f"a campaign.toml already exists in {manifest_dir} -- creating over it would render a FRESH "
+                f"manifest and drop its [[flag]] rows, [[seam]] rows and any tuned flag_base/flags_per_field "
+                f"(an allocation change moves every member's story-flag window and corrupts live saves). "
+                f"Choose an empty folder, or pass on_existing='preserve' to carry that state forward "
+                f"(on_existing='replace' to overwrite anyway).")
+        if on_existing == "preserve":
+            prior = load_campaign(existing)          # read BEFORE the write; a failed parse must not clobber
     plan = CampaignPlan(name=str(name), mod_folder=str(mod_folder), id_base=int(id_base),
                         flag_base=int(flag_base), flags_per_field=int(flags_per_field),
                         entry_name="", entry_entrance=int(entry_entrance))
-    Path(manifest_dir).mkdir(parents=True, exist_ok=True)
+    if prior is not None:                            # authored, manifest-ONLY state has no other home
+        plan.flag_base = prior.flag_base
+        plan.flags_per_field = prior.flags_per_field
+        plan.flags = list(prior.flags)
+        plan.seams = list(prior.seams)
+        plan.verbatim = prior.verbatim
+        plan.entry_name = prior.entry_name           # add_field only claims the entry when none is set
+        plan.entry_entrance = prior.entry_entrance
+    manifest_dir.mkdir(parents=True, exist_ok=True)
     _save_plan(plan, manifest_dir)
     return plan
 

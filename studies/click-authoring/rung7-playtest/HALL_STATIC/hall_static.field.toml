@@ -1,0 +1,47 @@
+[field]
+id = 30700
+name = "HALL_STATIC"
+area = 11
+title = "Hall Static"
+
+[camera]
+entry_settle = "auto"
+pitch = 48.0
+distance = 3735
+fov = 42.2
+
+[walkmesh]
+obj = "walkmesh.obj"
+
+[[layers]]
+image = "art/back.png"
+z = 2812
+
+[[layers]]
+image = "art/floor.png"
+z = 2312
+
+[player]
+spawn = [-4, -540]
+face = 0
+
+[[player.arrival]]
+entrance = 0
+pos = [-4, -540]
+face = 0
+
+[[player.arrival]]
+entrance = 1
+pos = [590, -536]
+face = 64
+
+[[npc]]
+name = "moogle_bard"
+preset = "vivi"
+pos = [-500, -869]
+
+[[gateway]]
+name = "door_to_hall_768"
+to = 30701
+entrance = 2
+zone = [[1000, -736], [1000, -336], [750, -336], [750, -736]]

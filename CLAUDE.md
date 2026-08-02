@@ -286,8 +286,8 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   lives on an unmerged branch)
 - Summons TIER W ★: W2-W7+W6q cast-proven; U1-U2 ★★★ CLOSED + ADOPTED — 2nd array = per-slot texel displacement (linear ADD), the kit joins on the effective cover at EDIT scope → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
-- Click authoring — ★★ Rungs 0-4 + composer 6a-6d owner-confirmed in-game; Rung 7a-7d built offline (scroll camera, non-destructive recompose, novel fields place) → `studies/click-authoring/PLAN.md`
-- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a; **V-SHORE CORNER ★ CLOSED** (owner-confirmed flow + look, 12 playtests); ⚠ P0 DEBT: it lives in study scripts, so regenerating the bench with `full_skirt` silently reverts it → ranked plan in `studies/path-d-new-world/NEXT-STUDIES.md`; laws + gates → [[project-ff9-overhang-context-law]]; read `GROUND-JUNCTION-SYNTHESIS.md` before wall/ground work
+- Click authoring — ★★ Rungs 0-4 + 6a-6d owner-confirmed; recompose now MERGES (keeps npc/doors/layers/art); 7b+7d playtests deployed 30700-30702 → `studies/click-authoring/PLAN.md`
+- Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a; **V-SHORE CORNER ★ CLOSED** (owner-confirmed flow + look); ⚠ P0 DEBT: it lives in study scripts, so regenerating the bench with `full_skirt` silently reverts it → ranked plan in `studies/path-d-new-world/NEXT-STUDIES.md`; laws + gates → [[project-ff9-overhang-context-law]]; read `GROUND-JUNCTION-SYNTHESIS.md` before wall/ground work
 - Interactive docs (docsite/) — site+CLI-ref+shots+tutorial system BUILT, gates green; core track S1-S7 drafted (playtest pending), CLI track C1-C4 shipped; UI gate now covers editor FORM labels (`form:<spec>.<key>`, Qt-free, freshness-tested) → `studies/interactive-docs/` (critique + ranked structural items: `REVAMP-CRITIQUE.md`)
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).

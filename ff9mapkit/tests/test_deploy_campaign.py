@@ -154,7 +154,12 @@ def test_wholesale_replace_failure_restores_snapshot(tmp_path, monkeypatch):
     (dist / "ModDescription.xml").write_text("<Mod/>", encoding="utf-8")
     field_dir = camp_dir / "F1"
     field_dir.mkdir()
-    (field_dir / "F1.field.toml").write_text("", encoding="utf-8")         # empty member toml -> lint stays silent
+    # A MINIMAL but HONEST member: its [field] id has to AGREE with the manifest's, or lint's
+    # manifest/artifact reconciliation refuses the deploy long before the copytree this test is about.
+    # (This was an empty file, commented "lint stays silent" -- true, and exactly the blind spot: an
+    # empty member cannot register field 4000, so the silence was the bug, not a convenience.)
+    (field_dir / "F1.field.toml").write_text('[field]\nid = 4000\nname = "F1"\narea = 11\n',
+                                             encoding="utf-8")
     (camp_dir / "campaign.toml").write_text(
         '[campaign]\n'
         'name = "T"\n'

@@ -5,6 +5,45 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
+- **A recompose now keeps everything you put in a composed room** and regenerates only what the
+  composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,
+  `[behavior]` — anything the Place tab or the Editor forms wrote — survives verbatim. So does a
+  **hand-drawn door** and an **extra painted `[[layers]]` row**, which live inside composer-owned
+  tables: the composer's own rows are identified (`door_to_*`, `art/back.png` + `art/floor.png`) and
+  replaced, and everything else in those tables is left alone. Deleting a door from the plan still
+  deletes its gateway — which is why those rows are found by prefix and not merged by name.
+- **Your painted art survives too.** Each compose records the sha256 of the two placeholder PNGs it
+  wrote; next time, a file that still matches is the composer's and gets repainted, and one that does
+  not is yours and is put back. If the reshape moved the floor under a painting, it says so and points
+  at `ff9mapkit paint-template` rather than quietly leaving a mismatched backdrop.
+- **A reshape that strands your content names it.** An NPC now outside the new outline, inside the
+  80u wall clamp, or under a door the recompose moved on top of it is reported per room — all three
+  are silent in-game (an off-mesh NPC still renders, standing in the air). It warns; it never deletes.
+- `[camera]`, `[player]`, `[field]`, `[walkmesh]`, `[encounter]` and `[savepoint]` are still
+  regenerated whole — a per-key merge would leave a stale `range`/`scroll` alive under a room that
+  stopped scrolling — and a recompose now *reports* each one whose on-disk value it replaced instead
+  of reverting it silently.
+- **A composed door the plan no longer wires is named when it goes** — which also covers the one way
+  a hand-drawn gateway can vanish: naming it `door_to_…` puts it in the composer's own namespace.
+- `--force` keeps its meaning and is no longer the normal path: it regenerates every room from
+  scratch, discarding all of the above. The one surviving refusal is a room whose `field.toml` will
+  not parse — there is nothing to merge into — and it fires before a single byte is written.
+
+### Fixed — the Floorplan tab's Compose was silently renumbering deployed dungeons
+- **The tab stamped its in-memory plan over `floorplan.json` a moment before the verb read it**, and
+  a plan drawn in the tab is `{name, poly}` — so the pinned room **`id`** was destroyed on every
+  recompose. A dungeon you had already deployed came back on the next free id block, invalidating
+  every `deploy_field.py --id N` you wrote down, every external gateway aimed at those rooms, and
+  the New Game wiring. The pin has existed since the composer shipped; it never worked from the GUI.
+  The tab's write now merges rather than stamps, and the session absorbs what the verb recorded.
+- **A `[[sps]] pos` is `[x, y, z]`**, so the new recompose gate read its height as its depth; and
+  `[[gauge]]`/`[[numeric_input]]` positions are screen pixels, which it judged as world coordinates
+  and reported off-mesh forever. Both fixed, per table.
+- **Off the mesh is not automatically wrong.** A normal FF9 NPC stands against the back wall, just
+  past the floor edge (the in-game-verified hut oracle has Vivi ~100u out), so the gate now uses the
+  same `2 × 96u` talk reach `build`'s own placement lint uses instead of refusing any overhang.
+
 ### Added — see an animation before you attach it (Workspace)
 - **The Models tab plays a model's clips.** The comma blob of action names is a clip LIST (the five
   movement slots first, then the model's own gestures, cross-form rows marked "other form"); picking a

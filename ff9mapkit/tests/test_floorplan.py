@@ -1530,42 +1530,419 @@ def test_a_room_too_wide_even_to_scroll_is_refused_and_told_to_split():
 _NPC_BLOCK = '\n[[npc]]\nname = "GUARD"\nmodel = "guard"\npos = [0, 0]\nface = 0\n'
 _CHEST_BLOCK = '\n[[chest]]\nitem = "potion"\n'
 
-def test_recompose_refuses_rather_than_destroying_hand_authored_content(tmp_path):
-    """★ THE BUG THAT MADE "INTEROPERABLE" MEANINGLESS. `emit` is an unconditional write per room,
+def _room_toml(tmp_path, name="HALL"):
+    return next(p for p in (tmp_path / name).glob("*.field.toml"))
+
+
+def _read(tmp_path, name="HALL"):
+    import tomllib
+    return tomllib.loads(_room_toml(tmp_path, name).read_text(encoding="utf-8"))
+
+
+def test_recompose_preserves_hand_authored_content_instead_of_destroying_it(tmp_path):
+    """★ THE BUG THAT MADE "INTEROPERABLE" MEANINGLESS. `emit` was an unconditional write per room,
     so composing a dungeon, adding an `[[npc]]` -- exactly what the Place tab and the Editor forms
     write -- and recomposing the UNCHANGED plan left no npc, no error, no warning, exit 0.
 
-    Any click surface built over a composed room was writing into a file the next Compose deleted."""
+    Any click surface built over a composed room was writing into a file the next Compose deleted.
+    Rung 7c made that a hard refusal; this is the merge that replaced it (owner, 2026-07-31:
+    "Recompose REFUSES on drift this rung, MERGES next")."""
+    plan = _plan()
+    c, _w = F.compose_and_emit(plan, tmp_path, log=None)
+    spawn = _read(tmp_path)["player"]["spawn"]          # a point the composer itself certified
+    room = _room_toml(tmp_path)
+    room.write_text(room.read_text(encoding="utf-8")
+                    + _NPC_BLOCK.replace("[0, 0]", f"[{spawn[0]}, {spawn[1] - 200}]")
+                    + _CHEST_BLOCK, encoding="utf-8")
+
+    _c, wrote = F.compose_and_emit(plan, tmp_path, log=None)
+    got = _read(tmp_path)
+    assert [n["name"] for n in got["npc"]] == ["GUARD"]
+    assert got["npc"][0]["pos"] == [spawn[0], spawn[1] - 200], \
+        "the row must survive VALUE-for-value, not just by name"
+    assert got["chest"] == [{"item": "potion"}]
+    assert wrote["preserved"]["HALL"]["kept"] == ["chest", "npc"]
+    assert not wrote["warnings"], f"an unchanged recompose should be quiet, got {wrote['warnings']}"
+
+    F.compose_and_emit(plan, tmp_path, log=None, force=True)          # force still discards
+    assert "npc" not in _read(tmp_path) and "chest" not in _read(tmp_path)
+
+
+def test_recompose_preserves_the_manifest_not_just_the_rooms(tmp_path):
+    """★ THE OTHER HALF OF THE SAME BUG. The rooms were merged; the MANIFEST was not. [[flag]] rows,
+    [[seam]] rows and a tuned flag_base/flags_per_field live ONLY in campaign.toml -- no room toml
+    carries them -- and `new_campaign` rendered a FRESH plan straight over the top.
+
+    The [[flag]] loss is at least loud: a member gating on the lost NAME fails the next lint. The
+    allocation reset is the silent one -- flags_per_field 16 -> 64 moves every member's story-flag
+    window, so a live save reads the wrong bits, and nothing anywhere detects it."""
+    from ff9mapkit import campaign as C
     plan = _plan()
     F.compose_and_emit(plan, tmp_path, log=None)
-    room = next(p for p in (tmp_path / "HALL").glob("*.field.toml"))
-    room.write_text(room.read_text(encoding="utf-8")
-                    + _NPC_BLOCK, encoding="utf-8")
+    cpath = tmp_path / "campaign.toml"
+    cp = C.load_campaign(cpath)
+    cp.flags = [{"name": "boss_defeated", "index": 9100}]
+    cp.seams = [{"frm": cp.members[0].name, "to_real": 1001, "kind": "portal", "note": "out"}]
+    cp.flag_base, cp.flags_per_field = 9000, 16
+    C._save_plan(cp, tmp_path)
 
+    F.compose_and_emit(plan, tmp_path, log=None)                     # recompose the UNCHANGED plan
+    after = C.load_campaign(cpath)
+    assert [f["name"] for f in after.flags] == ["boss_defeated"], "authored [[flag]] rows must survive"
+    assert len(after.seams) == 1 and after.seams[0]["to_real"] == 1001
+    assert (after.flag_base, after.flags_per_field) == (9000, 16), \
+        "an allocation reset silently relocates every member's flag window"
+    assert {m.name for m in after.members} == {m.name for m in cp.members}, "members still rebuilt"
+
+    F.compose_and_emit(plan, tmp_path, log=None, force=True)         # force discards the manifest too
+    assert C.load_campaign(cpath).flags == []
+
+
+def test_the_merge_reads_the_room_before_anything_is_written(tmp_path):
+    """`new_campaign` rebuilds the manifest and `add_field` scaffolds each member OVER the room
+    directory -- so by the time the room tomls are rewritten, both the old toml and the old art are
+    already gone. Everything the merge needs has to be read before any of that.
+
+    Fenced through the one refusal that survived the merge: a room that will not PARSE cannot be
+    merged into, and a refusal that fires halfway through is not a refusal, it is a worse outcome
+    than either finishing or stopping."""
+    plan = _plan()
+    F.compose_and_emit(plan, tmp_path, log=None)
+    _room_toml(tmp_path).write_text("[[npc]\nname = ", encoding="utf-8")   # unparseable
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     with pytest.raises(F.ComposeError) as e:
         F.compose_and_emit(plan, tmp_path, log=None)
-    assert "HALL" in str(e.value) and "npc" in str(e.value)
-    assert "GUARD" in room.read_text(encoding="utf-8"), "the refusal still ate the content"
-
-    F.compose_and_emit(plan, tmp_path, log=None, force=True)          # force is the escape hatch
-    assert "GUARD" not in room.read_text(encoding="utf-8")
-
-
-def test_the_drift_check_runs_before_anything_is_written(tmp_path):
-    """A refusal that fires halfway through is not a refusal. `new_campaign` rebuilds the manifest
-    and `add_field` scaffolds each member, so the check has to precede all of it -- otherwise the
-    author is left with a half-rewritten campaign AND the error."""
-    plan = _plan()
-    F.compose_and_emit(plan, tmp_path, log=None)
-    camp = (tmp_path / "campaign.toml").read_text(encoding="utf-8")
-    room = next(p for p in (tmp_path / "HALL").glob("*.field.toml"))
-    room.write_text(room.read_text(encoding="utf-8") + _CHEST_BLOCK, encoding="utf-8")
-    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
-    with pytest.raises(F.ComposeError):
-        F.compose_and_emit(plan, tmp_path, log=None)
+    assert "HALL" in str(e.value) and "--force" in str(e.value)
     after = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     assert before == after, "the refusal still touched the tree"
-    assert (tmp_path / "campaign.toml").read_text(encoding="utf-8") == camp
+
+
+def test_the_merge_keeps_a_hand_drawn_door_and_still_deletes_one_taken_out_of_the_plan(tmp_path):
+    """★ WHY THE COMPOSER'S GATEWAYS ARE IDENTIFIED BY PREFIX AND NOT MERGED BY NAME. `[[gateway]]`
+    is composer-OWNED, and the Place tab (Rung 4) draws doors into exactly that table -- so a
+    wholesale rewrite eats a hand-drawn door. But a merge-by-name cannot express DELETION: take a
+    door out of the plan and the old `door_to_*` row would stay live, pointing at a room the
+    dungeon no longer wires."""
+    from ff9mapkit.editor import model as M
+    plan = _plan()
+    F.compose_and_emit(plan, tmp_path, log=None)
+    data = _read(tmp_path)
+    assert [g["name"] for g in data["gateway"]] == ["door_to_cell"]
+    data["gateway"].append({"name": "door0", "to": 4005,
+                            "zone": [[-100, -100], [100, -100], [100, 100], [-100, 100]]})
+    _room_toml(tmp_path).write_text(M.dumps(data), encoding="utf-8", newline="\n")
+
+    F.compose_and_emit(plan, tmp_path, log=None)                       # door still declared
+    assert [g["name"] for g in _read(tmp_path)["gateway"]] == ["door_to_cell", "door0"]
+
+    F.compose_and_emit(_plan(doors=[]), tmp_path, log=None)            # door taken OUT of the plan
+    assert [g["name"] for g in _read(tmp_path)["gateway"]] == ["door0"], \
+        "the composer's own door must go when the plan drops it; the hand-drawn one must not"
+
+
+def test_the_merge_keeps_an_extra_painted_layer_and_re_derives_its_own_two(tmp_path):
+    """`[[layers]]` is the other owned table whose rows are independently meaningful -- adding a
+    painted occluder layer beside the placeholder pair is exactly what the art README tells the
+    author to do, and the composer's own two rows carry depths it must keep re-deriving."""
+    from ff9mapkit.editor import model as M
+    plan = _plan()
+    F.compose_and_emit(plan, tmp_path, log=None)
+    data = _read(tmp_path)
+    data["layers"] = list(data["layers"]) + [{"image": "art/pillar.png", "z": 1500}]
+    _room_toml(tmp_path).write_text(M.dumps(data), encoding="utf-8", newline="\n")
+
+    F.compose_and_emit(plan, tmp_path, log=None)
+    got = _read(tmp_path)["layers"]
+    assert [row["image"] for row in got] == list(F.COMPOSER_ART) + ["art/pillar.png"]
+    assert got[-1]["z"] == 1500, "the human's depth is the human's"
+
+
+def test_the_composer_owns_exactly_the_gateway_names_it_claims_to():
+    """★ THE PREFIX IS FENCED AGAINST THE COMPOSER'S OWN OUTPUT, exactly like
+    COMPOSER_OWNED_TABLES. If the composer ever names a door something else, the merge would treat
+    it as hand-drawn: it would stop regenerating it AND stop deleting it, and the room would collect
+    a stale duplicate door every recompose. Invisible without this."""
+    c = F.compose(_plan())
+    for room in c.rooms:
+        for g in room.toml.get("gateway") or []:
+            assert g["name"].startswith(F.COMPOSER_GATEWAY_PREFIX), \
+                f"{room.name} emits a gateway named {g['name']!r}, which the merge would read as " \
+                f"hand-drawn and never touch again"
+
+
+def test_the_composer_paints_exactly_the_layer_images_it_claims_to():
+    """The COMPOSER_ART half of the same fence -- a `[[layers]]` row the composer emits under some
+    other filename would be preserved as the human's forever, its depth frozen at whatever the
+    room's shape was on the day it was first composed."""
+    c = F.compose(_plan())
+    for room in c.rooms:
+        for row in room.toml.get("layers") or []:
+            assert row["image"] in F.COMPOSER_ART, \
+                f"{room.name} paints {row['image']!r}, which the merge would read as the human's"
+
+
+def test_a_reshape_that_strands_preserved_content_says_so_and_a_reshape_that_does_not_is_quiet(tmp_path):
+    """★ THE GATE THE MERGE IS CONDITIONED ON (owner, 2026-07-31). Preserved content keeps its
+    ROOM-frame coordinate verbatim -- see `emit` for why that and not the plan frame -- so a reshape
+    can leave an NPC outside the new outline. In-game that is SILENT: an off-mesh NPC still renders,
+    standing in the air, and the player simply cannot reach it.
+
+    The second half is the one that makes the gate worth having: a fence that only ever fires is
+    indistinguishable from `warn always`."""
+    from ff9mapkit.editor import model as M
+    deep = [(0, 0), (3000, 0), (3000, 2400), (0, 2400)]
+    shallow = [(0, 0), (3000, 0), (3000, 1200), (0, 1200)]        # the back half removed
+    plan = {"name": "T", "id_base": 30500, "doors": [],
+            "rooms": [{"name": "R", "poly": deep}]}
+    c, _w = F.compose_and_emit(plan, tmp_path, log=None)
+    z0 = min(z for _x, z in c.by_name("R").poly_room)             # the room frame, measured not guessed
+
+    data = _read(tmp_path, "R")
+    data["npc"] = [{"name": "DOOMED", "preset": "vivi", "pos": [0, int(z0 + 2100)]},
+                   {"name": "SAFE", "preset": "vivi", "pos": [0, int(z0 + 800)]}]
+    _room_toml(tmp_path, "R").write_text(M.dumps(data), encoding="utf-8", newline="\n")
+
+    plan["rooms"][0]["poly"] = shallow
+    _c2, wrote = F.compose_and_emit(plan, tmp_path, log=None)
+    said = " | ".join(wrote["warnings"])
+    assert "DOOMED" in said and "OUTSIDE the room outline" in said
+    assert "SAFE" not in said, f"the gate fired on content that is still standable: {said}"
+    assert [n["name"] for n in _read(tmp_path, "R")["npc"]] == ["DOOMED", "SAFE"], \
+        "the warning must not be a deletion -- the author decides what to do about it"
+
+
+def test_the_gate_also_catches_the_wall_clamp_and_a_door_moved_on_top_of_content():
+    """The other two ways a reshape strands content, both silent in-game. `unstandable_preserved`
+    is exercised directly here: driving them through a whole compose would mean hand-solving a plan
+    that puts a regenerated door exactly over an old NPC, which tests the fixture, not the rule."""
+    poly = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)]
+    door = [(900.0, 0.0), (1100.0, 0.0), (1100.0, 250.0), (900.0, 250.0)]
+    tables = {"npc": [{"name": "HUGGER", "pos": [30, 1000]},        # 30u off the wall, clamp is 80
+                      {"name": "BLOCKER", "pos": [1000, 120]},      # inside the new door strip
+                      {"name": "FINE", "pos": [1000, 1000]}]}
+    found = {label: why for _t, label, _xz, why in
+             F.unstandable_preserved(poly, tables, [(door, "the door_to_x door strip")])}
+    assert "FINE" not in found
+    assert "30u from the nearest wall" in found["HUGGER"]
+    assert "door_to_x" in found["BLOCKER"] and "blocks it" in found["BLOCKER"]
+
+
+def test_the_gate_reads_a_ladder_and_jump_LANDING_but_never_a_gateways_field_id():
+    """`[[ladder]]` and `[[jump]]` spell their landing point `to` (FORMAT.md :529, :575), and a
+    reshape can drop it into the void, so the gate has to read them -- removing `_POSITION_KEYS`
+    turns this red.
+
+    ⚠ The gateway half is a REGRESSION pin, not a proof that scoping is load-bearing: `to` on a
+    `[[gateway]]` is an int and `preserved_positions`' shape check already rejects it, so a
+    deliberately GLOBAL key list left this test green. Measured, not assumed. What it does pin is
+    that a field id never becomes a coordinate -- which would break if that check ever loosened."""
+    poly = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)]
+    tables = {"jump": [{"name": "gap", "zone": [[10, 10], [20, 10], [20, 20], [10, 20]],
+                        "to": [9000, 9000, 40]}],
+              "ladder": [{"name": "rungs", "top": [1000, 1000], "bottom": [-5000, 1000]}],
+              "gateway": [{"name": "door0", "to": 30701,
+                           "zone": [[900, 900], [1100, 900], [1100, 1100], [900, 1100]]}]}
+    found = {label for _t, label, _xz, _why in F.unstandable_preserved(poly, tables)}
+    assert found == {"gap (to)", "rungs (bottom)"}, found
+    assert not any("door0" in f for f in found), "a gateway's field id was read as a coordinate"
+
+
+def test_pos_does_not_mean_the_same_thing_in_every_table():
+    """★ THE GENERIC `pos` SCAN WAS WRONG TWICE, and both ways survive review by looking right.
+
+    SCREEN SPACE: `[[gauge]] pos` is canvas px (FORMAT.md :1661) and `[[numeric_input]] pos` is a
+    cell on the dialogue grid (:1592). Read as world (x, z) they land near the origin, so on any
+    room that does not contain (0,0) the gate reports them off the walkmesh on EVERY recompose,
+    about content that is not on the floor at all -- and a gate that always fires gets skipped.
+
+    THREE ELEMENTS: `[[sps]] pos` is `[x, y, z]` (content/sps.py:39, `x, y, z = pos`), so reading
+    element 1 as the depth used its HEIGHT and placed it somewhere else entirely."""
+    poly = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)]
+    tables = {"sps": [{"name": "flame", "pos": [1000, 400, 1000]}],
+              "gauge": [{"name": "bar", "pos": [140, 24]}],
+              "numeric_input": [{"name": "bid", "pos": [33, 80]}]}
+    got = F.preserved_positions(tables)
+    assert got == [("sps", "flame", (1000.0, 1000.0))], got
+    assert F.unstandable_preserved(poly, tables) == [], "a screen-space pos was judged as world xz"
+
+
+def test_off_the_mesh_is_not_automatically_wrong_the_back_wall_idiom_is_how_ff9_places_npcs():
+    """★ THE FIRST DRAFT OF THIS GATE CONTRADICTED THE KIT'S OWN MEASURED RULE. A normal FF9 NPC
+    stands against the BACK WALL, just past the floor edge, and the player talks to it from the
+    adjacent floor -- the in-game-verified hut oracle has Vivi ~100u beyond the back edge, working.
+    `build._validate_content_placement` (build.py:3810-3827) only hard-warns past `2 * R_OBJ`.
+    Calling a 100u overhang unreachable would fire on every correctly placed back-wall NPC."""
+    poly = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)]
+    tables = {"npc": [{"name": "backwall", "pos": [1000, -100]},
+                      {"name": "lost", "pos": [1000, -900]}]}
+    found = {label: why for _t, label, _xz, why in F.unstandable_preserved(poly, tables)}
+    assert "backwall" not in found, "the hut oracle's own placement was called unreachable"
+    assert "900u OUTSIDE" in found["lost"] and "192" in found["lost"]
+
+
+def test_a_composed_door_the_plan_no_longer_wires_is_named_when_it_goes(tmp_path):
+    """Dropping every `door_to_*` and re-emitting is what lets the plan DELETE a door. It is also
+    the one way a HAND-drawn gateway can vanish -- if its author typed the composer's own prefix.
+    A silent rule cannot tell those apart, so both are named, and "the plan no longer wires
+    door_to_cell" is worth saying on its own account."""
+    F.compose_and_emit(_plan(), tmp_path, log=None)
+    _c, wrote = F.compose_and_emit(_plan(doors=[]), tmp_path, log=None)
+    said = " | ".join(wrote["warnings"])
+    assert "door_to_cell" in said and "no longer wires" in said, said
+    assert F.COMPOSER_GATEWAY_PREFIX in said, "it must teach the rename that avoids the collision"
+
+
+def test_a_trigger_quad_is_never_judged_by_the_standable_gate():
+    """Rung 4 established that a region's corners legitimately hang OFF the mesh -- donor door quads
+    do it. Reading `zone` here would fire on every correctly drawn door, which is how a gate gets
+    trained out of an author's attention."""
+    poly = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)]
+    far = {"event": [{"name": "sign", "zone": [[-500, -500], [-400, -500], [-400, -400],
+                                               [-500, -400]]}]}
+    assert F.unstandable_preserved(poly, far) == []
+    assert F.preserved_positions(far) == [], "a zone is not a pos"
+
+
+def test_painted_art_survives_a_recompose_and_the_one_after_it(tmp_path):
+    """★ THE FINGERPRINT IS OF WHAT THE COMPOSER PAINTED, NOT OF WHAT ENDS UP ON DISK. Recording the
+    final state would hash the author's PAINTING, so the NEXT compose would see a match, call the
+    file its own and repaint over it -- the same silent loss, one compose later, which is exactly
+    the shape of bug a single-recompose fence cannot see."""
+    plan = _plan()
+    F.compose_and_emit(plan, tmp_path, log=None)
+    back = tmp_path / "HALL" / "art" / "back.png"
+    placeholder = back.read_bytes()
+    painting = placeholder[:-1] + bytes([placeholder[-1] ^ 0xFF])
+    back.write_bytes(painting)
+
+    for run in (1, 2):
+        side = F.load_plan(tmp_path / F.SIDECAR)
+        _c, wrote = F.compose_and_emit(side, tmp_path, log=None)
+        assert back.read_bytes() == painting, f"recompose {run} repainted over the author's art"
+        assert wrote["preserved"]["HALL"]["art"] == ["art/back.png"]
+        # the room it did NOT paint is still the composer's, and is still regenerated
+        assert (tmp_path / "HALL" / "art" / "floor.png").read_bytes() != painting
+
+    F.compose_and_emit(F.load_plan(tmp_path / F.SIDECAR), tmp_path, log=None, force=True)
+    assert back.read_bytes() == placeholder, "--force must repaint"
+
+
+def test_a_compose_that_dies_mid_room_still_puts_the_painting_back(tmp_path, monkeypatch):
+    """★ THE WINDOW BETWEEN REPAINTING AND THE COPY-BACK. A painting exists only in the temp dir for
+    the few statements between `write_placeholders` and the restore, so a room that fails in there --
+    a full disk, a locked file, the id-allocator invariant -- would leave the author with their art
+    overwritten by a checkerboard AND an error. The copy-back is registered on the ExitStack, so it
+    runs on the way out of the exception too."""
+    from ff9mapkit.scene import placeholder as PH
+    F.compose_and_emit(_plan(), tmp_path, log=None)
+    back = tmp_path / "HALL" / "art" / "back.png"
+    painting = back.read_bytes()[:-1] + b"\x00"
+    back.write_bytes(painting)
+
+    real = PH.write_placeholders
+
+    def boom(camera, frame, back_path, floor_path, **kw):
+        real(camera, frame, back_path, floor_path, **kw)          # the painting is gone RIGHT HERE
+        if Path(back_path).parent.parent.name == "HALL":
+            raise OSError("disk full")
+
+    monkeypatch.setattr(PH, "write_placeholders", boom)
+    with pytest.raises(OSError):
+        F.compose_and_emit(F.load_plan(tmp_path / F.SIDECAR), tmp_path, log=None)
+    assert back.read_bytes() == painting, "the failed compose kept the checkerboard it painted"
+
+
+def test_a_reshape_under_painted_art_says_the_painting_no_longer_matches(tmp_path):
+    """Keeping the painting is right, and it is not enough: the floor moved under it. The signal is
+    EXACT rather than a proxy -- the placeholder pair is a pure function of (camera, floor_tris), so
+    a fingerprint that moved between two composes means the art FRAME changed.
+
+    It is deliberately judged PER ROOM. `back.png` is a solid fill at canvas size and so is
+    byte-identical across any reshape that does not change the range -- and a painted backdrop whose
+    horizon was drawn against the old floor is exactly the thing that just stopped lining up. This
+    test paints THAT file on purpose; a per-file check passes it and is wrong."""
+    plan = {"name": "T", "id_base": 30500, "doors": [],
+            "rooms": [{"name": "R", "poly": [(0, 0), (3000, 0), (3000, 2400), (0, 2400)]}]}
+    F.compose_and_emit(plan, tmp_path, log=None)
+    back = tmp_path / "R" / "art" / "back.png"
+    back.write_bytes(back.read_bytes()[:-1] + b"\x00")
+
+    side = F.load_plan(tmp_path / F.SIDECAR)
+    _c, quiet = F.compose_and_emit(side, tmp_path, log=None)          # same shape: nothing to say
+    assert not any("no longer lines up" in w for w in quiet["warnings"]), quiet["warnings"]
+
+    side = F.load_plan(tmp_path / F.SIDECAR)
+    side["rooms"][0]["poly"] = [[0, 0], [3000, 0], [3000, 1200], [0, 1200]]
+    _c, loud = F.compose_and_emit(side, tmp_path, log=None)
+    assert any("no longer lines up" in w and "art/back.png" in w for w in loud["warnings"]), \
+        loud["warnings"]
+    assert back.read_bytes()[-1:] == b"\x00", "it warns, it does not repaint"
+
+
+def test_carry_plan_records_keeps_what_emit_wrote_and_still_lets_a_room_be_deleted(tmp_path):
+    """★ A WRITER OVER THE SIDECAR MUST BE AS NON-DESTRUCTIVE AS THE COMPOSER IS OVER A ROOM.
+    `emit` writes two records into the sidecar that it later READS -- the pinned `id` and the `art`
+    fingerprint -- and the Floorplan tab stamps its own plan over that file a moment before the verb
+    reads it. Carried by exclusion, so a record `emit` learns tomorrow rides along too; matched by
+    NAME, so a deleted room really goes."""
+    side = tmp_path / F.SIDECAR
+    F.save_plan({"name": "T", "id_base": 30500, "doors": [], "rooms": [
+        {"name": "KEEP", "poly": ROOM_A, "id": 30500, "art": {"art/back.png": "a" * 64}},
+        {"name": "GONE", "poly": ROOM_B, "id": 30501, "art": {"art/back.png": "b" * 64}}]}, side)
+
+    fresh = {"name": "T", "id_base": 30500, "doors": [],
+             "rooms": [{"name": "KEEP", "poly": ROOM_B},          # reshaped, and GONE is deleted
+                       {"name": "NEW", "poly": ROOM_A}]}
+    got = F.carry_plan_records(fresh, side)
+    keep, new = got["rooms"]
+    assert keep["id"] == 30500 and keep["art"] == {"art/back.png": "a" * 64}
+    assert keep["poly"] == ROOM_B, "the NEW plan owns the shape; the record only rides along"
+    assert "id" not in new and "art" not in new, "a room the composer has never seen has no record"
+    assert [r["name"] for r in got["rooms"]] == ["KEEP", "NEW"], "a deleted room must really go"
+    assert F.carry_plan_records(fresh, tmp_path / "nope.json") == fresh   # no sidecar: no-op
+
+
+def test_where_the_plan_and_the_sidecar_disagree_about_the_art_the_sidecar_wins(tmp_path):
+    """★ THE RECORD HAS TWO SOURCES AND THEY CAN DISAGREE, which the first draft resolved the wrong
+    way round. `emit` writes the sidecar in the same breath as the art, so it is the authority on
+    what the composer last painted; a PLAN can be older (a hand-built dict, an unabsorbed session).
+    Let the older one win and the CURRENT placeholder looks like a painting -- so it is snapshotted
+    and copied back over the new one, silently reverting the art to the PREVIOUS geometry's
+    checkerboard while reporting that it kept the author's painting.
+
+    No existing fence could see this: they all `load_plan` the sidecar, so the two always agreed."""
+    import copy
+    poly = [[0, 0], [3000, 0], [3000, 2400], [0, 2400]]
+    plan = {"name": "T", "id_base": 30500, "doors": [], "rooms": [{"name": "R", "poly": poly}]}
+    F.compose_and_emit(plan, tmp_path, log=None)
+    stale = copy.deepcopy(F.load_plan(tmp_path / F.SIDECAR))          # records generation 1
+
+    side = F.load_plan(tmp_path / F.SIDECAR)
+    side["rooms"][0]["poly"] = [[0, 0], [3000, 0], [3000, 1800], [0, 1800]]
+    F.compose_and_emit(side, tmp_path, log=None)                      # generation 2 on disk
+    gen2 = (tmp_path / "R" / "art" / "floor.png").read_bytes()
+
+    # a plan that still carries generation 1's fingerprint, against a disk holding generation 2
+    stale["rooms"][0]["poly"] = [[0, 0], [3000, 0], [3000, 1400], [0, 1400]]
+    _c, wrote = F.compose_and_emit(stale, tmp_path, log=None)
+    gen3 = (tmp_path / "R" / "art" / "floor.png").read_bytes()
+    assert gen3 != gen2, ("the composer mistook its own previous placeholder for a painting and "
+                          "restored it over the new one")
+    assert wrote["preserved"].get("R", {}).get("art", []) == []
+
+
+def test_the_art_fingerprint_rides_the_plan_so_the_tab_round_trip_carries_it(tmp_path):
+    """The record lives in the sidecar's own room entries, which is what makes it work in both
+    lanes: the CLI's plan file is usually the sidecar itself (so a separate disk read would see the
+    author's edit, not the record), and the Floorplan tab holds the plan in memory. Rung 7a made
+    `plan()` / `load_plan` carry unknown room keys through unchanged -- this is the first thing
+    that spends that carry, so it is fenced here rather than assumed."""
+    F.compose_and_emit(_plan(), tmp_path, log=None)
+    side = F.load_plan(tmp_path / F.SIDECAR)
+    art = side["rooms"][0]["art"]
+    assert sorted(art) == sorted(F.COMPOSER_ART)
+    assert all(len(v) == 64 for v in art.values()), "sha256 hex, not a size or an mtime"
+    assert art == F.art_fingerprints(tmp_path / side["rooms"][0]["name"])
 
 
 def test_the_composer_owns_exactly_the_tables_it_emits():

@@ -449,6 +449,13 @@ Prompted by a deliberate stress test: a 9762u-wide room composed into a camera a
 > `imagefield.py:937` has the same shape). **Any click surface built over a composed room writes
 > into a file the next Compose deletes** — so non-destructive emit is the prerequisite for every
 > other route, not a nicety.
+>
+> ★ **CLOSED 2026-08-02.** 7c made it a refusal; **7c′** made it a merge. A recompose now keeps
+> every table the composer does not own, the human's rows inside the two owned tables that are
+> lists (`[[layers]]`, `[[gateway]]`), and the painted PNGs — and names any preserved object the
+> reshape stranded. ⚠ `imagefield.py:937` still has the unconditional shape on the TRACE lane; the
+> Trace tab regenerates from its own `.trace.json` session, so it is not the same bug, but nothing
+> stops a hand edit to a generated image-field project being eaten. Not surveyed here.
 
 **Three measured facts that set the shape:**
 - **Width, not length, is the expensive axis.** `fit_play_camera` fits the AABB, so the SAME
@@ -478,6 +485,7 @@ works until you open it in the tab.
    clean offline but is 1.6× beyond anything Square shipped — not without a playtest.
 3. **Recompose REFUSES on drift this rung, MERGES next.** Merge precedent: `build._merge_scene`
    (:156) is already "the generator owns the spatial keys, the human owns the rest".
+   ★ **BOTH HALVES DONE** — the refusal shipped as 7c, the merge replaced it as **7c′** 2026-08-02.
 
 **The ladder:**
 - **7a** — carry unknown room/door keys through `plan()`/`load_plan` unchanged + the legibility
@@ -500,10 +508,20 @@ works until you open it in the tab.
   unrenderable. `legibility_problem` now actually FITS the rotated room and reports what it would
   reach, three ways: rotate (clean), rotate-but-still-short (says both, in order), or split. A
   fence caught the over-promise.
-  ⛔ **PLAYTEST GATE, OPEN: 768 is the only width proven in-game in this repo (the field-4003
-  spike). 960 is inside FF9's own shipped envelope but has never been walked HERE** — and a room
-  needing more than 768 goes straight to 960, so the first scrolling room an author composes may
-  well be the unproven width. Walk one 768 room and one 960 room before trusting either.
+  ⛔ **PLAYTEST GATE, OPEN — but no longer needs anything built.** 768 is the only width proven
+  in-game in this repo (the field-4003 spike); 960 is inside FF9's own shipped envelope and has
+  never been walked HERE — and a room needing more than 768 goes straight to 960, so the first
+  scrolling room an author composes may well be the unproven width.
+  ★ **THE FIXTURE IS DEPLOYED AND WALKABLE:** `studies/click-authoring/rung7-playtest/` is a
+  three-room dungeon on the three camera regimes the composer can choose — static 384 (**30700**),
+  768 (**30701**), 960 (**30702**) — wired both ways so the whole test is one walk. Instructions
+  and the reference frames: [`RUNG7-TESTPLAN.md`](RUNG7-TESTPLAN.md). Verified offline first so a
+  verdict can be attributed: the built `.bgx` reads `Range 768/960` with `Viewport` exactly
+  `cam.scroll_bounds` and `ViewDistance 498` (the SCREEN's focal length, not the painting's); both
+  scrolling rooms open `Main_Init` with `EnableCameraServices` and the static one does not contain
+  the opcode anywhere (decoded structurally through `eb.disasm` — a raw `0x71` byte search says
+  "present" for both and proves nothing); the derived layer depths clear the player over the WHOLE
+  mesh (758/803/1236u), which is the defect a long room found last time.
 - **7c ★ BUILT 2026-07-31** — `emit` refuses rather than bulldozing, and the ids are pinned.
   `authored_tables` PARSES a room's field.toml (a `[[npc]]` inside a string would fool a grep) and
   reports every top-level table outside `COMPOSER_OWNED_TABLES`; `emit` refuses naming the rooms
@@ -522,9 +540,91 @@ works until you open it in the tab.
   previous sidecar and the CLI subtracts it, so our rooms are ours and a real third-party collision
   is still refused. (`deploystack.check_id_collisions` already draws the same distinction for its
   own target folder.)
-  **Next rung, per the owner's decision: MERGE.** The composer regenerates only the tables it owns
-  and preserves the rest; precedent is `build._merge_scene` (:156). Gate it on a compose-time
-  warning naming any preserved object that is no longer standable after a reshape.
+- **7c′ ★ THE MERGE, BUILT 2026-08-02 — the refusal is retired.** `merge_room` regenerates only what
+  the composer derives from the plan and keeps the rest; `--force` still discards. Three bands, and
+  the middle one is what a wholesale swap gets wrong:
+  - **Not owned** → the human's, verbatim (`[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`,
+    `[behavior]`, …).
+  - **Owned but a LIST of independently meaningful rows** → only the composer's OWN rows are
+    replaced. Exactly two, and both are things you ADD to a composed room: `[[layers]]` (a painted
+    occluder beside the placeholder pair — what the art README tells you to do) and `[[gateway]]`
+    (a door drawn in the Place tab, Rung 4, aimed outside the dungeon). ★ **Identified by
+    `COMPOSER_ART` / `COMPOSER_GATEWAY_PREFIX`, NOT merged by name, because a name merge cannot
+    express DELETION** — take a door out of the plan and the old `door_to_*` row would stay live,
+    pointing at a room the dungeon no longer wires. Both constants are fenced against the composer's
+    own output, like `COMPOSER_OWNED_TABLES`.
+  - **Owned and interlocking** → whole: `field`/`camera`/`walkmesh`/`player`/`encounter`/`savepoint`.
+    ⚠ `[camera]` in particular may NOT merge per key: a room that stops scrolling emits no `range` /
+    `window_width` / `scroll`, so a per-key merge leaves the 960-wide ones alive under a camera
+    solved for 384. Each of these whose on-disk value was replaced is now REPORTED, so a hand edit
+    there is said out loud instead of silently reverted.
+  ★ **PAINTED ART SURVIVES, ON A FINGERPRINT RATHER THAN A GUESS.** Each emit records the sha256 of
+  the placeholder pair it wrote, per room, in the sidecar; a file that still matches is the
+  composer's and is repainted, one that does not is the author's and is put back afterwards. **The
+  hash is of what the COMPOSER painted, not of what ends up on disk** — recording the final state
+  would hash the painting, so the NEXT compose would see a match, call it its own and repaint over
+  it: the same silent loss one compose later, and invisible to any single-recompose fence. The
+  record rides the PLAN (Rung 7a's carry-unknown-room-keys is the first thing to spend it) with a
+  per-room fallback to the sidecar on disk, so it works in all three lanes — tab, in-place CLI, and
+  a hand-written plan aimed at an existing dungeon with `--out`. A reshape UNDER a painting is
+  reported too, on an exact signal: the placeholder pair is a pure function of (camera, floor_tris),
+  so a fingerprint that moved between two composes means the art frame moved. Judged per ROOM, not
+  per file — `back.png` is a solid fill at canvas size and is byte-identical across any reshape that
+  does not change the range, and a painted backdrop drawn against the old floor is exactly what has
+  just stopped lining up.
+  ★ **THE GATE, per the owner's condition:** `unstandable_preserved` names any preserved row whose
+  `pos` the reshape left outside the outline, inside the 80u wall clamp, or under a trigger the
+  composer just moved on top of it — all three silent in-game (an off-mesh NPC still renders,
+  standing in the air). It warns; it never deletes. `zone` is deliberately NOT judged: a region's
+  corners legitimately hang off the mesh (Rung 4), so reading them would fire on every correct door.
+  ★ **PRESERVED CONTENT KEEPS ITS ROOM-FRAME COORDINATE, VERBATIM** — the decision the whole merge
+  turns on. Re-shifting by the change in `off_r` (keeping the PLAN position) was rejected because
+  (a) the room frame is what the author saw — they clicked the room's art, and the art is repainted
+  in that same frame; (b) `off_r` is already translation-invariant, so dragging a room across the
+  chart moves nothing and the two rules differ ONLY on a genuine reshape; and (c) re-shifting needs
+  the previous `off_r`, which is not reliably recoverable — a rule that is right only when history
+  happens to be present is the shape THE DEFAULT-VALUE LAW forbids. Its residual risk is exactly
+  what the gate above reports.
+  ★ **THE ONE REFUSAL THAT SURVIVED** is a room whose `field.toml` will not parse — there is nothing
+  to merge into — and it still fires before a byte is written (`new_campaign` rebuilds the manifest
+  and `add_field` scaffolds each member OVER the room dir, so the old toml AND the old art are gone
+  by the time the room is rewritten; everything the merge needs is read first).
+  ★ **AND AN ADVERSARIAL PASS OVER THE MERGE FOUND THE LAST BULLDOZER, one level up and outside
+  everything the merge could see: THE TAB'S OWN STAMP OVER `floorplan.json`.** `on_compose` writes
+  `plan()` over the sidecar a moment before the verb reads that same file, and `plan()` is rebuilt
+  from the in-memory session — `{name, poly}` for a session drawn in the tab. So BOTH records `emit`
+  writes in order to read back were destroyed a moment before it read them: the `art` fingerprint
+  (every tab recompose repainted over painted art while printing *"from this compose on, art you
+  paint over it survives"* — forever) **and the pinned room `id`, which means 7c's own
+  `own_pinned_ids` fix was real and unreachable from the GUI: a tab recompose silently RENUMBERED an
+  already-deployed dungeon.** Fixed at both ends because they cover different states —
+  `carry_plan_records` makes the write merge (by exclusion, matched by name, a deleted room still
+  goes) and `_absorb_records` takes the ids back into the session so the tab's judge stops painting
+  ids the verb will not use. ★ **AND THE FENCE FOR ONE HID THE OTHER:** with the absorb in place the
+  session carries the ids, so removing the carry left the draw→compose→compose test GREEN; the
+  second fence drives the state absorbing cannot reach — a session that never saw the records, which
+  in this repo is ordinary (another session composed the same dungeon).
+  Four more from the same pass, all in the new gate: `[[sps]] pos` is `[x, y, z]` so it read the
+  HEIGHT as the depth; `[[gauge]]`/`[[numeric_input]]` positions are screen px and were judged as
+  world, firing forever; `_prior_art` let a STALE plan-side record beat the sidecar, which makes the
+  composer mistake its own previous placeholder for a painting and restore it over the new one; and
+  **off-mesh was called unreachable, contradicting the kit's own measured rule** — a normal FF9 NPC
+  stands against the back wall past the floor edge (the hut oracle, Vivi ~100u out), so the gate now
+  spends `build._validate_content_placement`'s own `2 × R_OBJ` talk reach.
+  Fenced: 17 new in `tests/test_floorplan.py` + 3 in `tests/test_workspace_floorplan.py`. **Thirteen
+  verified RED against the exact bug each exists to catch** — no merge at all, fingerprinting the
+  disk instead of the paint, merge-by-name, no gate, a gate that reads `zone`, a per-file art-frame
+  check, `art` in the tab's `_ROOM_OWNED`, no exception-path copy-back, no landing-point read, no
+  tab-side carry, a carry that keeps a deleted room, a carry that lets the old poly win, sps read as
+  `[x, y]`, screen-space judged as world, any overhang called unreachable, a silent door removal,
+  and a stale plan record winning.
+  **Known and NOT fixed here, all pre-existing and named so they are not mistaken for covered:**
+  `new_campaign` rebuilds `campaign.toml` from an empty plan, so a campaign's shared `[[flag]]`s do
+  not survive a recompose; `walkmesh.obj` is overwritten unconditionally and cannot be reported
+  (`retaken` compares TOML tables and `[walkmesh]` is a constant `{obj = "walkmesh.obj"}`); a room
+  renamed or dropped in the plan leaves its whole directory orphaned on disk, unwired rather than
+  deleted; a sibling `<room>.scene.toml` still overrides every spatial table the recompose wrote;
+  and the position scan is flat, so a nested row like `[siege.base] pos` is never judged.
 - **7d ★ BUILT 2026-08-01, ⚠ offline only** — `build_surface_from_project` + Place's predicate
   flipped. The refusal WAS one branch (`donor_field_id(data) is None`) and it tested PROVENANCE,
   not geometry: a surface needs a CAMERA and a WALKMESH, and a novel field has both exactly — a
@@ -547,6 +647,14 @@ works until you open it in the tab.
   sequence, and opening a second field there disturbs the focus the undo assertions read.)
   ⚠ **UNPROVEN IN-GAME:** an NPC placed in a composed room and actually standing where it was
   clicked. The geometry round-trips exactly offline; that is not the same claim.
+  ★ **THE FIXTURE IS DEPLOYED AND WALKABLE** — one NPC in each of 30700 / 30701 / 30702, so a
+  failure is ATTRIBUTABLE (only 30702 wrong = the wide-frame resolution; all three wrong the same
+  way = the placement path; only the scrolling two = the scroll frame). Each was placed by picking a
+  checkerboard LATTICE CORNER of the placeholder art, projecting it to the canvas pixel an author
+  would click, and driving that pixel back through the exact function the Place canvas spends
+  (`imagefield.click_to_surface` over `placedoc.build_surface_from_project`) — so the in-game verdict
+  is "is it standing on that corner", not "does it look about right". Round-trip 0.0 px (worst
+  1.1e-13); the click lands on the intended corner to 8e-13u. → [`RUNG7-TESTPLAN.md`](RUNG7-TESTPLAN.md).
 - **7e** — per-room pitch/fov on the existing room right-click menu (UI only, once 7a lands).
 - **7f** — traced polygon → floorplan room. ⚠ Hand the UN-outset polygon (`outset_polygon` is a
   miter and blows up on the acute corners a hand trace produces), and accept that it is a

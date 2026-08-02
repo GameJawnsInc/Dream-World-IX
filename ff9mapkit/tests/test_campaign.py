@@ -389,6 +389,107 @@ def test_lint_structural_pass(tmp_path):
     assert errors == []
 
 
+# ---- new_campaign over an EXISTING manifest ----------------------------------------------
+# render_campaign_toml is the only writer and it RENDERS a plan, never merges into the text, so a
+# fresh plan silently drops [[flag]]/[[seam]] rows and resets a tuned flag_base/flags_per_field --
+# and an allocation reset moves every member's story-flag window (a live-save corrupter).
+def _authored(tmp_path):
+    plan = campaign.new_campaign("D", "M", tmp_path, id_base=30200)
+    plan.flag_base, plan.flags_per_field, plan.verbatim = 9000, 16, True
+    plan.flags = [{"name": "boss_defeated", "index": 9100}]
+    plan.seams = [{"frm": "R", "to_real": 1001, "kind": "portal", "note": "the way out"}]
+    plan.entry_name, plan.entry_entrance = "R", 3
+    campaign._save_plan(plan, tmp_path)
+    return plan
+
+
+def test_new_campaign_refuses_over_an_existing_manifest(tmp_path):
+    _authored(tmp_path)
+    with pytest.raises(campaign.CampaignError) as ex:
+        campaign.new_campaign("D", "M", tmp_path, id_base=30200)
+    assert "already exists" in str(ex.value)
+    assert isinstance(ex.value, ValueError), "the Workspace catches ValueError at its own call site"
+
+
+def test_new_campaign_preserve_carries_authored_manifest_state(tmp_path):
+    _authored(tmp_path)
+    campaign.new_campaign("D", "M", tmp_path, id_base=30200, on_existing="preserve")
+    after = campaign.load_campaign(tmp_path / "campaign.toml")
+    assert after.flag_base == 9000, "a tuned flag_base survives -- resetting it moves every flag window"
+    assert after.flags_per_field == 16
+    assert [f["name"] for f in after.flags] == ["boss_defeated"]
+    assert len(after.seams) == 1 and after.seams[0]["to_real"] == 1001
+    assert after.verbatim is True
+    assert after.entry_name == "R" and after.entry_entrance == 3
+    assert after.members == [], "members/edges are the caller's to rebuild"
+
+
+def test_new_campaign_replace_is_the_historical_overwrite(tmp_path):
+    _authored(tmp_path)
+    campaign.new_campaign("D", "M", tmp_path, id_base=30200, on_existing="replace")
+    after = campaign.load_campaign(tmp_path / "campaign.toml")
+    assert after.flags == [] and after.seams == []
+    assert after.flags_per_field == 64 and after.flag_base == campaign.FIRST_SAFE_FLAG
+
+
+def test_new_campaign_rejects_a_bad_on_existing(tmp_path):
+    with pytest.raises(campaign.CampaignError):
+        campaign.new_campaign("D", "M", tmp_path, id_base=30200, on_existing="clobber")
+
+
+# ---- (e3) manifest <-> artifact reconciliation ------------------------------------------
+# The only lint that compares the manifest to the FILES it describes. A member's field id is stored
+# twice and the two copies are read by different consumers (build_mod registers the MEMBER's; the
+# entry/journey wiring targets the MANIFEST's), so a divergence boots at an unregistered id.
+def test_lint_reconciles_member_id_against_manifest(tmp_path):
+    plan = _lint_plan(tmp_path)
+    assert campaign.lint_campaign(plan, tmp_path)[0] == []            # baseline: the two copies agree
+    (tmp_path / "B" / "B.field.toml").write_text(
+        '[field]\nid = 6500\nname = "B"\narea = 11\n', encoding="utf-8")
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("id mismatch" in e and "6001" in e and "6500" in e for e in errors)
+
+
+def test_lint_member_missing_field_id(tmp_path):
+    plan = _lint_plan(tmp_path)
+    (tmp_path / "B" / "B.field.toml").write_text('[field]\nname = "B"\narea = 11\n', encoding="utf-8")
+    assert any("has no [field] id" in e for e in campaign.lint_campaign(plan, tmp_path)[0])
+
+
+def test_lint_gateway_target_must_be_a_member_or_a_seam(tmp_path):
+    """A custom-band door to an id no member owns is the residue a half-finished id move leaves."""
+    gw = '\n[[gateway]]\nto = 6999\nentrance = 0\n'
+    errors, _ = campaign.lint_campaign(_lint_plan(tmp_path, member_content={"A": gw}), tmp_path)
+    assert any("6999" in e and "no member of this campaign has that id" in e for e in errors)
+    ok = _lint_plan(tmp_path, member_content={"A": gw},          # declared as a seam -> intentional
+                    seams=[{"frm": "A", "to_real": 6999, "kind": "portal", "note": ""}])
+    assert campaign.lint_campaign(ok, tmp_path)[0] == []
+
+
+def test_lint_gateway_to_real_field_is_a_leak_warning_not_an_error(tmp_path):
+    """A door to a REAL (un-forked) field is the (c2) leak class -- advisory, never a build blocker."""
+    plan = _lint_plan(tmp_path, member_content={"A": '\n[[gateway]]\nto = 1001\nentrance = 0\n'})
+    errors, warnings = campaign.lint_campaign(plan, tmp_path)
+    assert errors == []
+    assert any("1001" in w and "REAL" in w for w in warnings)
+
+
+def test_lint_reconciles_verbatim_retarget_values(tmp_path):
+    """A retarget table is {<donor real id> = <this campaign's fork id>} -- the VALUES are ours."""
+    plan = _lint_plan(tmp_path, member_content={
+        "A": '\n[verbatim_eb]\nbin = "x.eb"\n\n[verbatim_eb.retarget]\n"300" = 6999\n'})
+    errors, _ = campaign.lint_campaign(plan, tmp_path)
+    assert any("6999" in e and "no member of this campaign has that id" in e for e in errors)
+
+
+def test_lint_foreign_target_allowed_inside_a_journey(tmp_path):
+    """in_journey: a SIBLING campaign's member reads as foreign here, so the check defers to
+    journey.campaign_connectivity (mirrors the (c2) suppression)."""
+    plan = _lint_plan(tmp_path, member_content={"A": '\n[[gateway]]\nto = 6999\nentrance = 0\n'})
+    assert any("6999" in e for e in campaign.lint_campaign(plan, tmp_path)[0])
+    assert not any("6999" in e for e in campaign.lint_campaign(plan, tmp_path, in_journey=True)[0])
+
+
 def test_lint_dangling_edge_and_entry(tmp_path):
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "GHOST", "entrance": 0}], entry="NOPE")
     errors, _ = campaign.lint_campaign(plan, tmp_path)

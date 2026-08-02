@@ -336,6 +336,7 @@ extra (UnityPy).
 |---|---|
 | `new-campaign <dir>` / `add-field <camp>` | Create an empty campaign / add a member field. |
 | `build-all <camp>` / `lint-campaign <camp>` | Compile / validate a `campaign.toml`. |
+| `reid <camp> --id-base N` | Move a campaign's field ids (manifest, every member, every door) in one verified transaction. Dry-run unless `--apply`. |
 | `gen-hub <journeys>` | Generate a World-Hub selector field from a `journeys.toml`. |
 | `lint-journey` / `assemble-journey` | Validate / assemble a multi-campaign journey (the namespace guarantee). |
 | `reference-arcs` | Scaffold FF9's real story arcs: list the arc table, print the fork playbook, or emit a chained `journeys.toml`. |

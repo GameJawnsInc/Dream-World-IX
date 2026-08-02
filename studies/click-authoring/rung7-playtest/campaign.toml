@@ -1,0 +1,60 @@
+# Campaign manifest emitted by ff9mapkit import-chain (P2).
+# Members are forked real fields with gateways RETARGETED to this chain's own ids.
+# [[edge]] = in-chain connectivity (each is a live retargeted [[gateway]] in a member toml).
+# [[seam]] = scripted/overworld/menu/portal connections that are NOT live gateways -- author by hand.
+
+[campaign]
+name            = "RUNG7 SCROLL"
+mod_folder      = "FF9CustomMap"
+id_base         = 30700
+flag_base       = 8712
+flags_per_field = 64
+entry_field     = "HALL_STATIC"
+entry_entrance  = 0
+
+# Members id-sorted. Fresh fork: id = id_base + BFS-index. Stable re-fork (--out had a prior
+# campaign.toml): a re-discovered donor keeps its prior id+name; net-new donors append above the max.
+[[field]]
+name = "HALL_STATIC"
+source = 0
+id = 30700
+mode = "editable"
+toml = "HALL_STATIC/hall_static.field.toml"
+
+[[field]]
+name = "HALL_768"
+source = 0
+id = 30701
+mode = "editable"
+toml = "HALL_768/hall_768.field.toml"
+
+[[field]]
+name = "HALL_960"
+source = 0
+id = 30702
+mode = "editable"
+toml = "HALL_960/hall_960.field.toml"
+
+# In-chain connectivity (each = a retargeted live [[gateway]] in the member toml).
+[[edge]]
+from = "HALL_STATIC"
+to = "HALL_768"
+entrance = 2
+
+[[edge]]
+from = "HALL_768"
+to = "HALL_STATIC"
+entrance = 1
+
+[[edge]]
+from = "HALL_768"
+to = "HALL_960"
+entrance = 1
+
+[[edge]]
+from = "HALL_960"
+to = "HALL_768"
+entrance = 1
+
+[initial_flags]
+# GLOB flags pre-set at campaign entry (empty by default)
