@@ -271,6 +271,46 @@ U_HI = 0.947
 BENCH_V5, BENCH_V11 = INNER[0], INNER[6]
 OUTD2 = HERE / "out" / "vcorner_transplant"
 BACKUPS = Path(r"C:\gd\Dream-World-IX\backups")
+# pre-cut originals (the sea-cut round's first backups) — the seam-fix rebuild base
+PRISTINE_SEA = {(5, 7): BACKUPS / "Block[5][7] Sea4.ff9mesh.r7.20260802-020657",
+                (5, 8): BACKUPS / "Block[5][8] Sea4.ff9mesh.r8.20260802-020657"}
+
+
+def walkable_cover(world, x, z):
+    """WALKABLE terrain covers plan (x,z) at/above the sea band."""
+    bk = W.block_key(x, z)
+    if bk not in world:
+        return False
+    terr = next((m for m in world[bk] if m["name"] == "Terrain"), None)
+    if terr is None:
+        return False
+    for ti in terr["grid"].get((int(x // 4), int(z // 4)), ()):
+        tri = terr["tris"][ti]
+        if tri[4] not in W.WALK_OK:
+            continue
+        hy = W.bary_y(x, z, tri)
+        if hy is not None and hy >= -0.05:
+            return True
+    return False
+
+
+FRINGE = 1.2                                                # stock's under-lip lapping water
+
+
+def eroded_cover(world, x, z):
+    """The seam-fix cut predicate: delete sea only DEEP under walkable land —
+    walkable cover ERODED by FRINGE. Keeps stock's FREE-BASE fringe (water
+    lapping the wall base under the lip, ≤~1.2u inland of the crest), which a
+    ring cache can never weaponize (a fringe answers a couple of headings, the
+    trap needs all 32); the latent sweep + walkers + pin replay verify."""
+    if not walkable_cover(world, x, z):
+        return False
+    for k in range(8):
+        a = math.pi * k / 4.0
+        if not walkable_cover(world, x + FRINGE * math.sin(a),
+                              z + FRINGE * math.cos(a)):
+            return False
+    return True
 
 
 def get_window():
@@ -465,6 +505,118 @@ def build():
         print(f"   walk membrane: +{len(membranes)} reversed copies "
               f"(ny [{min(m_ny):.3f},{max(m_ny):.3f}])")
     seated.extend(membranes)
+
+    # THE FOOT APRON — the look-side closure of the under-lip void. The sea
+    # is (correctly) cut under ALL walkable plan (the 1.2u-fringe experiment
+    # re-armed the trap: an exposed cross-mesh sheet gets ring-cached and
+    # answers under-lawn probes). A SAME-mesh shelf behind the lawn in buffer
+    # order can never enter the ring (the membrane proved the class): a
+    # submerged rock strip from the crest line (y=-0.05) sloping 1.4u inland
+    # down to y=-0.6, ending EXACTLY at the crest plan — never first-hit.
+    # Subdivided ≤0.6u (the sea-cut precedent): a sub-tile's inradius can never
+    # cover the whole 32-candidate fan — the hard-lock predicate is
+    # structurally impossible for the shelf, and the latent sweep stays green.
+    apron = []
+    for i in range(len(crest_pts) - 1):
+        a2p, b2p = crest_pts[i], crest_pts[i + 1]
+        dxs, dzs = b2p[0] - a2p[0], b2p[1] - a2p[1]
+        L2 = math.hypot(dxs, dzs) or 1.0
+        land = (-dzs / L2, dxs / L2)                        # land LEFT of travel
+        na = max(2, math.ceil(L2 / 0.6))
+        nc = 3                                              # across 1.4u
+        ua, ub = 0.75 + 0.0126 * i, 0.75 + 0.0126 * (i + 1)
+
+        def P(s, t):                                        # s along [0,1], t across [0,1]
+            x2 = a2p[0] + s * dxs + t * 1.4 * land[0]
+            z2 = a2p[1] + s * dzs + t * 1.4 * land[1]
+            # outer edge +0.06 (a thin rock rim ABOVE the waterline: closes the
+            # under-lip sightline slot to the hollow interior — the sky-band
+            # forensic), sloping to -0.6 inland
+            return (x2, 0.06 - 0.66 * t, z2)
+
+        def UV(s, t):
+            return (ua + s * (ub - ua), 0.916 + t * 0.007)
+
+        for ja in range(na):
+            for jc in range(nc):
+                s0, s1 = ja / na, (ja + 1) / na
+                t0, t1 = jc / nc, (jc + 1) / nc
+                apron.append([[P(s0, t0), P(s1, t0), P(s0, t1)],
+                              [UV(s0, t0), UV(s1, t0), UV(s0, t1)], -1])
+                apron.append([[P(s1, t0), P(s1, t1), P(s0, t1)],
+                              [UV(s1, t0), UV(s1, t1), UV(s0, t1)], -1])
+    # corner WEDGE fans: each segment's rectangle offsets perpendicular to
+    # itself — at a convex crest vertex the two leave an uncovered pie wedge
+    # (ray-cast forensic: the sky band tunneled through it into the hollow
+    # interior). Fill with a radially/angularly subdivided fan.
+    for i in range(1, len(crest_pts) - 1):
+        cv = crest_pts[i]
+        dirs = []
+        for (aa, bb) in ((crest_pts[i - 1], cv), (cv, crest_pts[i + 1])):
+            dxs, dzs = bb[0] - aa[0], bb[1] - aa[1]
+            L2 = math.hypot(dxs, dzs) or 1.0
+            dirs.append((-dzs / L2, dxs / L2))
+        a0 = math.atan2(dirs[0][0], dirs[0][1])
+        a1 = math.atan2(dirs[1][0], dirs[1][1])
+        da = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi
+        nang, nrad = max(2, math.ceil(abs(da) / 0.45)), 3
+        ua = 0.75 + 0.0126 * i
+
+        def PW(js, jt):
+            ang = a0 + da * js / nang
+            t = jt / nrad
+            return (cv[0] + 1.4 * t * math.sin(ang), 0.06 - 0.66 * t,
+                    cv[1] + 1.4 * t * math.cos(ang))
+
+        for js in range(nang):
+            for jt in range(nrad):
+                uvq = [(ua, 0.916 + 0.007 * jt / nrad)] * 3
+                apron.append([[PW(js, jt), PW(js + 1, jt), PW(js, jt + 1)], list(uvq), -1])
+                if jt < nrad:
+                    apron.append([[PW(js + 1, jt), PW(js + 1, jt + 1), PW(js, jt + 1)],
+                                  list(uvq), -1])
+
+    for rec in apron:                                       # up-facing winding
+        p3 = rec[0]
+        ny2 = W.up_ny(tuple(p3[0]), tuple(p3[1]), tuple(p3[2]))
+        if ny2 < 0:
+            rec[0] = [p3[0], p3[2], p3[1]]
+            rec[1] = [rec[1][0], rec[1][2], rec[1][1]]
+    apron = [r for r in apron
+             if W.up_ny(tuple(r[0][0]), tuple(r[0][1]), tuple(r[0][2])) > 1e-9]
+
+    # THE INNER CURTAIN — the categorical sightline closure. Grazing rays
+    # cross at the rim edge and descend SHALLOWER than the apron dips (ray
+    # forensic: 0.27/u vs 0.47/u), clearing its inner edge into the hollow
+    # interior. A VERTICAL sheet at the apron's inland edge, floor (-0.6) to
+    # just under the lawn (3.15), bounds the slot on every remaining path.
+    # Plan-degenerate => the walk query can never even scan it (ny <= 0.1
+    # skip) — walk-inert by construction, in-Terrain behind lawn regardless.
+    curtain = []
+
+    def vquad(pa, pb, useg):
+        b0 = (pa[0], -0.6, pa[1])
+        b1 = (pb[0], -0.6, pb[1])
+        t0 = (pa[0], 3.15, pa[1])
+        t1 = (pb[0], 3.15, pb[1])
+        uvq = [(useg, 0.918)] * 3
+        # wind SEAWARD (-x-ish): cross(along, up) points inland, so reverse
+        curtain.append([[b0, t0, b1], list(uvq), -1])
+        curtain.append([[b1, t0, t1], list(uvq), -1])
+
+    inner_pts = []
+    for i in range(len(crest_pts) - 1):
+        a2p, b2p = crest_pts[i], crest_pts[i + 1]
+        dxs, dzs = b2p[0] - a2p[0], b2p[1] - a2p[1]
+        L2 = math.hypot(dxs, dzs) or 1.0
+        land = (-dzs / L2, dxs / L2)
+        inner_pts.append((a2p[0] + 1.4 * land[0], a2p[1] + 1.4 * land[1]))
+        inner_pts.append((b2p[0] + 1.4 * land[0], b2p[1] + 1.4 * land[1]))
+    for i in range(0, len(inner_pts) - 1):
+        vquad(inner_pts[i], inner_pts[i + 1], 0.75 + 0.006 * i)
+    seated.extend(apron)
+    seated.extend(curtain)
+    print(f"   foot apron: +{len(apron)} shelf + {len(curtain)} inner-curtain tris")
 
     # ---- WELD: joint columns re-anchor to the kept wall edges at v5/v11 -----------
     kept_edges = {0: [], 1: []}                             # 0 = v5 side, 1 = v11 side
@@ -787,10 +939,17 @@ def stage1():
     print(f"COVERAGE: lost={len(lost)} off-strip={len(off)} "
           f"({'PASS' if g_cov else 'FAIL'}) {lost[:5]} {off[:5]}")
 
-    print("=== incremental SEA CUT ===")
+    print("=== SEA REBUILD from pristine, WALKABLE-only cover (the seam fix) ===")
+    # PLAYTEST 7: pale waterline slivers = the historical ANY-terrain cut's
+    # deletion boundary exposed under the transplanted (overhanging) stock lip.
+    # Stock's FREE-BASE runs water under the wall to the base; only sea under
+    # WALKABLE cover arms the ring trap. Rebuild the corner blocks' Sea4 from
+    # the PRISTINE pre-cut bytes, cutting under walkable cover only.
     sea_records = {}
     for (bx, by) in BLOCKS:
-        changed, out, records = treat_part(world_t, bx, by, "Sea4")
+        changed, out, records = treat_part(world_t, bx, by, "Sea4",
+                                           src_path=PRISTINE_SEA[(bx, by)],
+                                           cover=walkable_cover)
         if changed:
             sp = OUTD2 / f"Block[{bx}][{by}] Sea4.ff9mesh"
             W.M.write_ff9mesh(out, sp)
@@ -799,7 +958,13 @@ def stage1():
     world_full = W.load_world(part_src=dict(staged))
     if sea_records:
         from vcorner_sea_cut import verify as sea_verify
-        g_sea = sea_verify(world_t, world_full, sea_records)
+        # reference = staged terrain + PRISTINE sea: restored tiles are a
+        # subset of pristine, so new-legal must be 0 and hit->MISS = the cut
+        pris = dict(staged)
+        for (bx, by) in BLOCKS:
+            pris[(bx, by, "Sea4")] = PRISTINE_SEA[(bx, by)]
+        world_pris = W.load_world(part_src=pris)
+        g_sea = sea_verify(world_pris, world_full, sea_records)
     else:
         g_sea = True
         print("   sea already conforms (no new hidden tris)")

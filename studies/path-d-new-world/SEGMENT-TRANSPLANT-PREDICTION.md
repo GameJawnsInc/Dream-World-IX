@@ -138,3 +138,45 @@ white sliver twice, the over-drop) — every one before the install was touched.
 `revert_vcorner_transplant.py`. Post-deploy live re-gate green (hug PASS,
 own-ring-0 = 0, 0 hard-trapped). P-E (owner): the corner reads as ordinary
 rocky coast; slide-through both directions; then the standing P-H checks.
+
+## PLAYTEST 7 (2026-08-02) — flow CONFIRMED; "still seeing seams towards the sea"
+
+P-E's FLOW half PASSES (owner: "walkability is good" — the first flow+trap
+pass on this corner). The residual: pale slivers at the waterline where the
+wall foot meets the water. **THE SEAM-FIX ROUND** (same day, all offline
+iterations caught by the render gate + pixel forensics, 0 reached the
+install):
+
+1. **Root cause**: the live Sea4 carried the UNION of every historical cut
+   footprint, and `terrain_cover` (ANY-terrain) had cut the sea under the
+   wall band too. Stock's FREE-BASE runs water under the lip to the base;
+   under the tuck's back-leaning walls the cut boundary was hidden, under the
+   transplanted OVERHANGING stock lip it showed. Fix: **rebuild the corner
+   Sea4 from the PRISTINE pre-cut bytes (`.020657` backups), cutting under
+   WALKABLE cover only** (`treat_part` gained `src_path`/`cover` params).
+2. **THE FRINGE FALSIFICATION**: "keep a 1.2u under-lip water fringe like
+   stock" re-armed the trap in one gate run (hug CAUGHT, latent FAIL) — an
+   exposed CROSS-mesh sheet gets ring-cached from its seaward portion and
+   answers under-lawn probes filter-free. THE WALK MEMBRANE's safety decoded
+   by contrast: a SAME-mesh sheet behind the lawn in buffer order can never
+   enter the ring. **Sea under walkable plan is the trap, no fringe
+   exception; look-closures must be Terrain-mesh geometry.**
+3. **THE FOOT APRON + THE INNER CURTAIN** (the look closure): a submerged
+   rock shelf from a thin +0.06 rim at the crest line sloping to −0.6 at
+   1.4u inland — subdivided ≤0.6u (the sea-cut precedent: a sub-tile's
+   inradius can never cover the 32-candidate fan; the un-subdivided apron
+   tripped the latent sweep and was fixed BY it) — plus corner WEDGE fans
+   (the per-segment offset rectangles leave a pie gap at a convex crest
+   vertex; a pixel ray-cast found rays tunneling through it into the hollow
+   interior) — plus a VERTICAL INNER CURTAIN floor→lawn at the apron's
+   inland edge (grazing rays descend shallower than the apron dips and
+   cleared its inner edge; plan-degenerate ⇒ the walk query cannot even scan
+   it — walk-inert by construction; wound seaward, the first winding culled).
+4. **The instrument chain that converged it**: render → sky-pixel forensic
+   (100 px vs baseline 0) → exact pixel ray-cast against all staged tris →
+   fix → re-render, three times, to **0 sky px** with ALL 8 gates green.
+
+**DEPLOYED** backups `.20260802-045616` (or per revert script); revert:
+`revert_vcorner_transplant.py` (regenerated). Post-deploy live re-gate green.
+P-F (owner): the waterline at the corner reads solid — water meets rock, no
+pale slivers from any angle; flow unchanged.

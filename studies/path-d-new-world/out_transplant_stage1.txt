@@ -9,23 +9,24 @@ window: 3 crest verts, 5 wall tris
    winding: 5/5 wall tris flipped seaward
    lean: seaward-wound ny in [-0.259, -0.180]
    walk membrane: +5 reversed copies (ny [0.180,0.259])
+   foot apron: +100 shelf + 6 inner-curtain tris
    kept edge verts at joint 0: (376.00,3.20,-509.16), (375.29,0.00,-509.33), (375.29,0.00,-509.33)
    kept edge verts at joint 1: (379.09,0.00,-516.86), (379.09,0.00,-516.86), (380.00,3.20,-516.80)
-   weld re-anchors: 8 verts
+   weld re-anchors: 92 verts
    ear at (379.8,-512.4): lattice shift (0, -1)
    ear at (381.1,-512.7): lattice shift (0, -1)
    ear at (380.7,-511.8): lattice shift (0, -1)
    strip cover: 6 ear tris (atlas-validated translate-clone)
-   [5][7]: 4 dropped, +6 lawn, +6 wall; tris 227 -> 234
-   [5][8]: 5 dropped, +8 lawn, +4 wall; tris 136 -> 141
+   [5][7]: 4 dropped, +6 lawn, +50 wall; tris 227 -> 278
+   [5][8]: 5 dropped, +8 lawn, +66 wall; tris 136 -> 203
    WELD AUDIT: 0 near-miss pairs (must be 0)
    DONOR SEATED: (5, 14) chain1 v0..v2
 COVERAGE: lost=0 off-strip=0 (PASS) [] []
-=== incremental SEA CUT ===
-   [5][7] Sea4: 1452 tris, 258 coverage-touched, 160 changed (subdiv+delete) -> 1520 tris, 4356 -> 4832 verts
-   [5][8] Sea4: 1140 tris, 237 coverage-touched, 157 changed (subdiv+delete) -> 1190 tris, 3420 -> 3736 verts
-HIDDEN-CUT GATE: 2278 deleted-region samples over all changed tris, 0 NOT terrain-covered (PASS)
-BOAT GATE: 97536 sea-level columns (six blocks), NEW-legal 0 (PASS), hit->MISS 41 (the cut)
+=== SEA REBUILD from pristine, WALKABLE-only cover (the seam fix) ===
+   [5][7] Sea4: 478 tris, 20 coverage-touched, 16 changed (subdiv+delete) -> 1281 tris, 1434 -> 2021 verts
+   [5][8] Sea4: 498 tris, 16 coverage-touched, 14 changed (subdiv+delete) -> 1106 tris, 1494 -> 1960 verts
+HIDDEN-CUT GATE: 3950 deleted-region samples over all changed tris, 0 NOT terrain-covered (PASS)
+BOAT GATE: 97536 sea-level columns (six blocks), NEW-legal 0 (PASS), hit->MISS 377 (the cut)
 === THE HUG GATES ===
    south+22.5 ( 377.5, -503.0): PASS@36 stalls=0
    south+22.5 ( 377.2, -505.5): PASS@29 stalls=0
@@ -34,10 +35,11 @@ BOAT GATE: 97536 sea-level columns (six blocks), NEW-legal 0 (PASS), hit->MISS 4
    north+22.5 ( 381.0, -518.5): PASS@28 stalls=0
    control ( 446.5, -496.0): PASS@49 stalls=0
 
-=== WALKERS [STAGED transplant]: 3 stalls, 0 HARD-TRAPPED (0 escape headings, own AND cold ring), 0 ring-poisoned ===
+=== WALKERS [STAGED transplant]: 4 stalls, 0 HARD-TRAPPED (0 escape headings, own AND cold ring), 0 ring-poisoned ===
    seek  hd=12 r0=20.0 step=  6 at (395.32,-511.33) y=26.09 escape own=16 cold=16
    fixed hd=10 r0= 8.0 step= 20 at (375.82,-509.00) y= 3.20 escape own=16 cold=16
    fixed hd=12 r0=20.0 step=  7 at (395.22,-511.74) y=26.18 escape own=14 cold=14
+   fixed hd=15 r0=20.0 step= 32 at (380.00,-515.08) y= 3.20 escape own= 8 cold=16
 
 === STATIC FAN MAP [BASELINE]: 2652 standable pts, 0 ALL-STALL (trap), 0 cramped (<=8 ok) ===
    map (0.25u/char, x 368.0->388.0 left->right, z -496.0 top -> -516.0 bottom;

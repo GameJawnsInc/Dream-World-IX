@@ -103,12 +103,19 @@ def tri_samples(p3w):
     return pts
 
 
-def treat_part(world, bx, by, part):
+def treat_part(world, bx, by, part, src_path=None, cover=None):
     """Returns (changed_bool, staged BlockMesh or None, records) -- records hold each
-    CHANGED tri's subdivision geometry for the independent hidden-cut verifier."""
-    lp = live_path(bx, by, part)
+    CHANGED tri's subdivision geometry for the independent hidden-cut verifier.
+    src_path: read THIS file instead of the live one (pristine-baseline rebuilds).
+    cover: alternative cover predicate f(world,x,z) (default terrain_cover = ANY
+    terrain; the transplant round cuts under WALKABLE cover only -- sea under the
+    non-walk wall band is stock's own FREE-BASE arrangement, and cutting it there
+    exposed the deletion boundary as waterline slivers under the overhanging lip)."""
+    lp = src_path if src_path is not None else live_path(bx, by, part)
     if not lp.is_file():
         return False, None, []
+    if cover is None:
+        cover = terrain_cover
     d = W.M.read_ff9mesh(lp)
     if d["tangents"] is None:
         print(f"   [{bx}][{by}] {part}: no tangent channel -- SKIP (mapid semantics unknown)")
@@ -128,7 +135,7 @@ def treat_part(world, bx, by, part):
         p3w = [(p[0] + ox, p[1], p[2] + oz) for p in p3]
         area2 = abs((p3w[1][0] - p3w[0][0]) * (p3w[2][2] - p3w[0][2])
                     - (p3w[2][0] - p3w[0][0]) * (p3w[1][2] - p3w[0][2]))
-        if area2 < 0.02 or not any(terrain_cover(world, x, z) for (x, z) in tri_samples(p3w)):
+        if area2 < 0.02 or not any(cover(world, x, z) for (x, z) in tri_samples(p3w)):
             new_idx += list(t)                              # untouched: verbatim
             continue
         tans = [d["tangents"][vi] for vi in t]
@@ -152,7 +159,7 @@ def treat_part(world, bx, by, part):
         for s in subs:
             q3 = [[A[k] + i * dU[k] + j * dV[k] for k in range(3)] for (i, j) in s]
             q3w = [(q[0] + ox, q[1], q[2] + oz) for q in q3]
-            (deleted if all(terrain_cover(world, x, z) for (x, z) in tri_samples(q3w))
+            (deleted if all(cover(world, x, z) for (x, z) in tri_samples(q3w))
              else kept).append(s)
         if not deleted:
             new_idx += list(t)                              # nothing hidden: verbatim
