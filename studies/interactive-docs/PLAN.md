@@ -50,6 +50,13 @@ hard-wrap class (a label split across a markdown line break).
 the dlg adapter (dialog shots + dialog inventory), rung 1b (block data layer), rung 5 deployment
 (owner, confirm-first). Design below is as-ratified.
 
+**DEFERRED — retire the "Understand" shelf** (`UNDERSTAND-TRIAGE.md`, sibling file): the shelf's 22
+docs triaged per-file — 2 keep, 8 demote to Reference, 11 move out of the manual, 1 held. Decided,
+not scheduled. Two unblock conditions, both mechanical: a lull in feature work (the cut re-points
+~32 link sites in a tree many lanes touch, and the link gate turns each collision into a failing
+build for whoever merges second), and the overworld pillar reaching a state stable enough to write
+a walkthrough against — which is what resolves the one conflicted row, `OVERWORLD_ENGINE.md`.
+
 The charter: replace "a heap of AI-written `.md`s browsed raw in the repo" with an **explorable
 documentation site, in its own module**, holding three things in one place:
 
