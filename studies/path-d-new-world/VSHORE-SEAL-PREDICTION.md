@@ -618,3 +618,44 @@ Two build-time discoveries, each caught by its own gate:
    (372.8,−506.5)/(374.0,−507.5) on the UNMODIFIED upper shore — byte-identical
    positions in the pre-fix run-1 evidence; a 225° hold against a 159.6° shore
    exceeds the quantized fan on any geometry of this direction.
+
+## PLAYTEST 4 (2026-08-02) — THE DEPLOY BRICKED THE BLOCK; root-caused + reverted
+
+*"a big tile of ground missing... cliff seams messed up with empty triangles...
+approaching the island cliffs bricks the movement system, causes the game to
+lag out and then you end up stuck in the ground, even on airship mode.
+attempting to warp onto the island bricks the game as well."* REVERTED
+immediately (`revert_vcorner_crest.py`, hashes verified byte-exact back to the
+playtest-3 state).
+
+**ROOT CAUSE — THE UNINDEXED CONTRACT (engine source, WMBlock.cs:60-73)**:
+`AddWalkMesh` iterates `vertices.Length / 3` and indexes `triangles[i*3]`,
+and warns "All vertices, triangles, tangents .Length must be equal" — the
+engine expects FULLY UNINDEXED meshes (vcount == icount, 3 fresh verts per
+tri; every stock and full_skirt mesh is laid out this way, e.g. 1434 = 478×3).
+My builders were the first to append SHARED verts and delete tris while
+keeping verts:
+- the crest Terrain files: **vcount > icount** (708/696, 471/453) → the loop
+  OVERRUNS the index buffer → exception during block registration → the block
+  dies: the missing ground tile, the dead cliff faces, movement stranded
+  (height-0), warp brick, exception lag. Every symptom, one line of engine.
+- **all six sea-cut Sea4 files (which playtest 3 ran on): vcount < icount** →
+  `TriangleNormals` built SHORT (e.g. 723 of 1452) — no load failure, but a
+  LATENT query-time hazard on high-index sea tris. Playtest 3 passed on luck.
+
+**The gate lesson, sharpened**: the sim parses meshes with ITS OWN reader —
+it is loader-blind; a green sim suite says nothing about the engine's data
+contract. New standing gate: **vcount == icount on every emitted mesh**
+(`vcorner_repack.py check`), enforced before any deploy.
+
+## THE RE-PACK ROUND (registered before deploy)
+
+`vcorner_repack.py`: expand every touched mesh to the contract layout (per-tri
+vertex expansion; orphans dropped) — the tri SOUP is asserted identical, so
+the sim gates carry by construction (the sim's world model is a pure function
+of the soup). Scope: the 4 crest staged files + the 4 other live Sea4 files
+(all currently LATENT). Gates: per-file contract-OK + soup-identity asserts;
+hug/drive sanity re-run on the packed set; live folder contract-checked after
+deploy. P-I (owner, after a game RESTART): the island loads (tile + cliff ring
+intact), approach/warp/airship normal, then the fairing checks (slide both
+directions, no freeze, the look).
