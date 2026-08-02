@@ -282,3 +282,73 @@ these bytes (re-suspect: TransportControls mask override, engine state the sim
 lacks, wrong bytes) — STOP and re-diagnose, no fix design. Declared freedoms:
 window extent, grid pitch, standing-sheet hypothesis (top walkable), step
 counts. NOT a fix round: read-only, no deploy, no bench mutation.
+
+## FINDINGS (2026-08-02) — REPRODUCED at the pin; the poisoner is ONE KEEL tri
+
+Instruments: `probe_vcorner_trap.py` (fan map + driven walkers + gC re-exam),
+`probe_vcorner_ringdump.py` (deterministic replay with ring introspection),
+`probe_vcorner_latent.py` (bench-wide latent sweep). Committed logs:
+`probe_vcorner_*_output.txt`.
+
+**THE DECODED MECHANISM — a ring-poisoning trap, not geometry.** Deterministic
+replay (spawn 8u north of the pin, walk south): the walker wall-slides into the
+wedge at (376.86,−509.60); one deflection probe's plan point escapes every
+Terrain tri at the lawn edge, so its full scan falls through to **`Sea4#430` —
+the flat sea tri at y=0 spanning (376..380, −508..−512), mapid 224, topo 56 —
+the boat seal's KEEL-BLOCK stamp, lying UNDER the land** — and writes it into
+the ring's NEWEST slot. From then on the newest-first, filter-free,
+no-invalidation cache answers EVERY fan candidate with topo 56 → mask-reject →
+all 32 headings fail: stuck-only-turn, exactly the playtest. **The lock is
+permanent by construction**: a cache answer prevents the very full scan that
+could overwrite the slot — 100 turning ticks, ring FROZEN. Warping out works
+only because the new position leaves the tri's plan footprint. This is the wild
+instance of WALK-QUERY-DECODE's own banked invariant (MOVEMENT-CACHE SHADOW:
+*no blocked mesh may extend under walkable ground*).
+
+**Scoring the registration:**
+- **P-A FAIL, and the failure is the finding**: the cold fan map shows ZERO
+  all-stall points — at the wedge a cold query has 16 open headings. Every
+  registered static suspect (tuck course, coverage hole, step-up, hem) was
+  wrong. **A cold probe cannot falsify a cache bug** — the trap is invisible to
+  every instrument that does not carry the ring.
+- **P-B PASS (ring class)**: 7 driven walkers wedge at (376.6-376.9,
+  −509.5..−509.7) with escape **own-ring 0/32, cold 16/32** — the registered
+  escape test's ring-poisoning branch.
+- **P-C PASS**: the answering surface is `Sea4#430` on all 32 headings (dump:
+  32/32 cache slot answers, y=0.00 from origin 5.54). The wall tris
+  (mapid-232/topo-58, ny 0.115-0.130) enter the ring during the approach but
+  only shape the wedge; the sea tri alone covers the whole fan.
+- **P-D — NOT the tuck.** The pre-tuck pristine replays IDENTICALLY (same
+  wedge, same poisoner; its wall tris are the same verts renumbered). The
+  probe's printed "CLEAN → this round authored it" verdict scored only the
+  static+hard classes and is hereby CORRECTED. The authorship: the east
+  extension grew land over a sea plane that was never cut (THE SEA4-UNDER-LAND
+  LAW), and the coast-nav KEEL stamp (topo 56, `cliffs-refuse`) re-classed that
+  under-land sea for the BOAT gate. **Stamp and cut are substitutes for the
+  hull, NOT for the walker's cache**: the stamp leaves a BLOCK-class sheet
+  under walkable approach land — the boat seal armed the walk trap.
+- **P-E CONFIRMED, sharper**: gC's accepted stall (377.2,−502.7) re-examines as
+  open_lawn=True AND cold-commit 32/32 — statically free lawn. Its stall was
+  this same ring class; the open_lawn classifier tests LOOK (static sheets at
+  1u), never COMMIT, and cannot see ring state. **The repaired gate: at any
+  stall, re-run the fan with the walker's OWN ring; own=0 is a DEAD-BAND
+  regardless of lawn look** (the own-vs-cold instrument now exists in
+  `probe_vcorner_trap.drive_walkers`).
+
+**Extent — the trap is UNIQUE on the bench.** The latent sweep (17,074
+standable points, 0.5u; hard predicate: a blocked first-hit tri covering all 32
+fan candidates): 0 hard at grid scale, 974 poisonable (partial cover — some
+heading always escapes cold); the 0.1u refinement pass finds **exactly 2
+hard-lock slivers, both this corner, both `Sea4#430`**. The basin is the sea
+tri's footprint shrunk by the 0.4375u fan radius, intersected with standable
+lawn — a sub-quarter-u sliver only a wall-slide funnels into, which is why one
+playtest found it and no gate did.
+
+**The fix implication (recorded, NOT designed here)**: cut the under-land sea
+tri(s) per THE SEA4-UNDER-LAND LAW's own rule (the conservative all-3-corners
+cut) — a MISS writes nothing to the ring, so the poisoning full-scan never
+happens, and the cut is the STRONGER boat seal where it applies. Re-classing
+cannot help: any non-walk topo poisons identically, and a walk topo would put
+the player on the sea floor. The fix round registers separately, gated by: the
+latent sweep's refined hard set = 0, driven walkers at the corner with own-ring
+escape > 0, and the repaired gC (own-ring commit at every stall).
