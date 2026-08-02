@@ -323,3 +323,43 @@ overshoot demand, accepting kink up to ~20). P-K: the seated cove passes
 every stage-1/2 gate. P-L: at cove_cam/owner_close/graze the band TAPERS at
 both silhouettes — no full-height cut; the flow check stays 0-smear/0-
 stretch. P-M (owner, playtest 10): the disconnected piece reads connected.
+
+## THE V-CARRY — BUILT, ALL GATES GREEN, DEPLOYED (playtest 10 pending)
+
+**Shape-language measurements that shaped the round (all committed probes):**
+stock grass-lip coasts turn SHARP routinely (per-vertex p50 25.5, p90 90.0;
+24.6% of vertices exceed our 54.5 junction) and put tall walls on sharp
+corners freely (turn-height corr +0.05) — the magnitude was never the
+defect; the JOINT KINKS at fixed wrong endpoints were. The band does NOT
+tile (edge-pair diff = random-pair), and stock butt-seams its wall texture
+freely (16 small mid-band jumps in one block) — the u-phase seam theory
+died too. What remained was geometry: the census.
+
+**The pick:** (4,14) chain1 v3..v8 seated E'→baseline-v12 — kinks 1.3/2.4
+at the TRUE kept tangents, interior V-turn +45 (the corner drawn in stock's
+own hand), every seated heading in [156.3, 201.3] (flow-clean), scales
+0.965/0.914, du 0.0200. The (20,15) candidate (entry 130.9) was hug-CAUGHT
+at the joint — **THE FLOW CONSTRAINT stands at 135; the 125 relaxation is
+FALSIFIED** (the gate caught it in one offline run; zero playtests spent).
+
+**Machinery minted (all in vcorner_transplant.py):**
+- the figure-8 strip: the crest crosses the old chain once (CUT lobe = the
+  promontory razed, FILL lobe = the bay filled); even-odd covers both.
+- the mixed inland chain: drop-scar (north) + the old bay shore (south),
+  corridor-restricted walk joint-to-joint.
+- ear SUBDIVISION (≤2.2u): a big ear's uv footprint ALWAYS hits ground-field
+  poison (5-10% interior, atlas_map.json) — subdivide until each sub-tri
+  validates; global proximity weld of minted verts (cousin midpoints land
+  within audit range; T-junctions are benign on the flat coplanar lawn).
+- **THE TONE LAW**: footprint validation must check TONE, not just poison —
+  mean-RGB within ΔRGB 30 of the donor face's OWN paint, and uv outside
+  [0,1] is forbidden outright (the brown-patch + cyan-wrap classes both
+  passed the white-only test).
+
+**Verdicts:** stage-1 all green (hug BOTH directions 56-67 steps 0 stalls
+across the whole new coast), latent 0, flow 0-smear/0-stretch, renders at
+all six cameras + cove_cam: the disconnected slab is GONE — the coast is
+one continuous sweep; the wall shows as a tapering rock nose where it faces
+the camera (stock behavior) and a continuous band at graze. DEPLOYED
+(backups .20260802-131811, revert_vcorner_transplant.py regenerated).
+**P-M (playtest 10): the corner reads connected at the owner's vantages.**

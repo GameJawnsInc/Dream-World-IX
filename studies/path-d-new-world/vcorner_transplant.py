@@ -236,17 +236,216 @@ def census():
     return hits
 
 
+# THE JOINT-KINK LAW (playtest 9, "the disconnected cliff piece"): a C0 weld
+# with a tangent jump at the joint reads as a floating slab at land-side
+# oblique vantages — the band's screen width cuts instead of tapering. The
+# seated END-segment headings must CONTINUE the kept tangents within a stock
+# per-vertex turn class. Fix by DONOR SELECTION, never by bending (the v3
+# bend-carry is a registered dead end).
+KEPT_TANGENT_IN = 159.6                                     # at v5 (registration)
+KEPT_TANGENT_OUT = 202.5                                    # at v11 (exact-fan heading)
+KINK_MAX = 12.0
+
+
+def census2():
+    """The kink-scored census: prior filters + joint-kink + entry-u metrics."""
+    hits = census()
+    print("\n=== census2: THE JOINT-KINK LAW scoring ===")
+    scored = []
+    for h in hits:
+        tris = block_tris(*h["blk"])
+        chains, landcen, yof = boundary_chains(tris)
+        ch = chains[h["chain"]]
+        if land_sign(ch, landcen) < 0:
+            ch = list(reversed(ch))
+        seg = ch[h["i0"]:h["i1"] + 1]
+        ch_h = math.degrees(math.atan2(seg[-1][0] - seg[0][0],
+                                       seg[-1][1] - seg[0][1]))
+
+        def seated_h(q):
+            hq = math.degrees(math.atan2(seg[q + 1][0] - seg[q][0],
+                                         seg[q + 1][1] - seg[q][1]))
+            return (hq - ch_h + BENCH_CHORD_H) % 360
+
+        def circd(a, b):
+            return abs((a - b + 180.0) % 360.0 - 180.0)
+
+        kin = circd(seated_h(0), KEPT_TANGENT_IN)
+        kout = circd(seated_h(len(seg) - 2), KEPT_TANGENT_OUT)
+        hts = wall_heights(tris, set(ch), yof)
+        eu = hts[seg[0]][4] if seg[0] in hts else (None, None)
+        du = abs((eu[0] + eu[1]) / 2 - U_SEED) if eu[0] is not None else 9.9
+        h2 = dict(h, kin=round(kin, 1), kout=round(kout, 1), du=round(du, 4))
+        scored.append(h2)
+    scored.sort(key=lambda h: (max(h["kin"], h["kout"]) + 0.15 * (h["kin"] + h["kout"])
+                               + 8.0 * min(h["du"], 0.25) - 0.4 * h["nv"]))
+    ok = [h for h in scored if h["kin"] <= KINK_MAX and h["kout"] <= KINK_MAX]
+    print(f"{len(ok)} windows pass KINK_MAX={KINK_MAX} (of {len(scored)}); top 14 by score:")
+    for h in scored[:14]:
+        mark = " <== PASS" if h in ok else ""
+        print(f"   {h['blk']} chain{h['chain']} v{h['i0']}..v{h['i1']} nv {h['nv']} "
+              f"turn {h['cum']:+.1f} chord {h['chord']} h {h['hmed']} "
+              f"kink in/out {h['kin']:.1f}/{h['kout']:.1f} du {h['du']:.4f}{mark}")
+    return ok
+
+
+# THE COVE CARRY (registration: THE COVE CARRY section). THE TANGENT TRUTH:
+# kept entry at v5 = 129.4 (not the fillet's 159.6), kept exit at v11 = 231
+# (not the fan hold's 202.5) — census2 proved NO window fits the old
+# endpoints (bench chord outside the tangent range). The claim: replace
+# v5 -> baseline-v10 (promontory AND recovery) with ONE stock cove window.
+# entry joints: v5 itself (tan 129.4) proved unreachable (best kink 19 across
+# 493 windows — the 129.4 approach dives ~50 deg off every southern chord).
+# The kept NW run's OWN -30 concave turn at (372.48,-506.27) belongs to the
+# promontory complex: moving the entry there (tan 159.6) makes both joint
+# demands gentle-arc class.
+COVE_TARGETS = [
+    dict(name="e-v10", entry=(372.482, -506.271), exit=(374.964, -522.996),
+         tan_in=159.6, tan_out=171.1),
+    dict(name="e-v12", entry=(372.482, -506.271), exit=(376.274, -528.455),
+         tan_in=159.6, tan_out=158.7),
+    dict(name="v5-v10", entry=(376.288, -509.397), exit=(374.964, -522.996),
+         tan_in=129.4, tan_out=171.1),
+    dict(name="v5-v12", entry=(376.288, -509.397), exit=(376.274, -528.455),
+         tan_in=129.4, tan_out=158.7),
+]
+COVE_TURN_MAX = 40.0                                        # per-vertex look bound
+# THE FLOW CONSTRAINT stands at 135: the 125 relaxation was hug-falsified
+# ((20,15) entry 130.9 -> the 202.5-hold fan has no legal coast heading).
+SEATED_H_LO, SEATED_H_HI = 135.0, 272.0
+
+
+def census3():
+    """Cove-class census: S-shaped windows allowed; kink-clean at BOTH joints."""
+    hits = []
+    pool = _pool()
+    tgt_geo = []
+    for t in COVE_TARGETS:
+        ex, ez = t["exit"][0] - t["entry"][0], t["exit"][1] - t["entry"][1]
+        L = math.hypot(ex, ez)
+        H = math.degrees(math.atan2(ex, ez)) % 360
+        tgt_geo.append((t, L, H))
+    print(f"pool: {len(pool)} blocks; targets: " + ", ".join(
+        f"{t['name']} chord {L:.2f}u @ {H:.1f} tan {t['tan_in']}/{t['tan_out']}"
+        for (t, L, H) in tgt_geo))
+
+    def circd(a, b):
+        return abs((a - b + 180.0) % 360.0 - 180.0)
+
+    for (bx, by) in pool:
+        try:
+            tris = block_tris(bx, by)
+        except Exception:
+            continue
+        chains, landcen, yof = boundary_chains(tris)
+        for ci, chain in enumerate(chains):
+            ls = land_sign(chain, landcen)
+            ch = chain if ls > 0 else list(reversed(chain))
+            turns = signed_turns(ch)
+            hts = wall_heights(tris, set(ch), yof)
+            n = len(ch)
+            for i in range(n - 3):
+                for j in range(i + 2, n - 1):
+                    if any(abs(t) > COVE_TURN_MAX for t in turns[i:j]):
+                        break
+                    chord = math.hypot(ch[j + 1][0] - ch[i][0], ch[j + 1][1] - ch[i][1])
+                    for (t, L, H) in tgt_geo:
+                        if not (0.92 * L <= chord <= 1.08 * L):
+                            continue
+                        seg = ch[i:j + 2]
+                        hs = [hts[k][0] for k in seg if k in hts]
+                        base = [hts[k][1] for k in seg if k in hts]
+                        if len(hs) < len(seg) * 0.7:
+                            continue
+                        med = sorted(hs)[len(hs) // 2]
+                        if not (H_LO <= med <= H_HI) or min(base) > 0.5:
+                            continue
+                        topos = set().union(*(hts[k][2] for k in seg if k in hts))
+                        vlo = min(hts[k][3][0] for k in seg if k in hts)
+                        vhi = max(hts[k][3][1] for k in seg if k in hts)
+                        ulo = min(hts[k][4][0] for k in seg if k in hts)
+                        uhi = max(hts[k][4][1] for k in seg if k in hts)
+                        if topos != {58} or not (0.888 <= vlo <= 0.899) \
+                                or not (0.917 <= vhi <= 0.929) \
+                                or ulo < 0.67 or uhi > 0.98:
+                            continue
+                        wch = math.degrees(math.atan2(seg[-1][0] - seg[0][0],
+                                                      seg[-1][1] - seg[0][1]))
+                        th = H - wch
+                        sh = []
+                        okh = True
+                        for q in range(len(seg) - 1):
+                            hq = math.degrees(math.atan2(
+                                seg[q + 1][0] - seg[q][0],
+                                seg[q + 1][1] - seg[q][1]))
+                            s2 = (hq + th) % 360
+                            sh.append(s2)
+                            if not (SEATED_H_LO <= s2 <= SEATED_H_HI):
+                                okh = False
+                                break
+                        if not okh:
+                            continue
+                        kin = circd(sh[0], t["tan_in"])
+                        kout = circd(sh[-1], t["tan_out"])
+                        if kin > KINK_MAX or kout > KINK_MAX:
+                            continue
+                        eu = hts[seg[0]][4] if seg[0] in hts else (None, None)
+                        du = abs((eu[0] + eu[1]) / 2 - U_SEED) \
+                            if eu[0] is not None else 9.9
+                        hits.append(dict(
+                            tgt=t["name"], blk=(bx, by), chain=ci, i0=i, i1=j + 1,
+                            nv=len(seg), chord=round(chord, 2),
+                            scale=round(L / chord, 4), hmed=round(med, 2),
+                            kin=round(kin, 1), kout=round(kout, 1),
+                            du=round(du, 4), hmax=round(max(sh), 1),
+                            hminS=round(min(sh), 1),
+                            at=(round(seg[0][0], 1), round(seg[0][1], 1))))
+    hits.sort(key=lambda h: (max(h["kin"], h["kout"]) + 0.15 * (h["kin"] + h["kout"])
+                             + 8.0 * min(h["du"], 0.25) - 0.4 * h["nv"]))
+    print(f"{len(hits)} cove windows pass ALL gates (kink<= {KINK_MAX}); top 16:")
+    for h in hits[:16]:
+        print(f"   [{h['tgt']}] {h['blk']} chain{h['chain']} v{h['i0']}..v{h['i1']} "
+              f"nv {h['nv']} chord {h['chord']} scale {h['scale']} h {h['hmed']} "
+              f"kink {h['kin']:.1f}/{h['kout']:.1f} du {h['du']:.4f} "
+              f"hdg [{h['hminS']:.0f}..{h['hmax']:.0f}] at {h['at']}")
+    return hits
+
+
 # ================================================================ stage 2: the carry
 # PICKS (census 3, ranked): tried in order until THE LEAN TEST passes — the wall
 # must be render-seaward AND walk-visible (ny > 0.1) at once, i.e. NON-overhanging:
 # an overhang goes walk-invisible when seaward-wound, and over CUT sea the probes
 # past the crest total-MISS -> the hug catches ((5,14)'s cove wall proved it).
-PICKS = [dict(blk=(5, 14), chain=1, i0=0, i1=2, hmed=3.31),
-         dict(blk=(20, 16), chain=1, i0=3, i1=5, hmed=3.32),
-         dict(blk=(17, 9), chain=0, i0=3, i1=5, hmed=2.71),
-         dict(blk=(10, 18), chain=0, i0=1, i1=3, hmed=3.91),
-         dict(blk=(21, 9), chain=0, i0=0, i1=3, hmed=3.54)]
+PICKS_FILLET = [dict(blk=(5, 14), chain=1, i0=0, i1=2, hmed=3.31),
+                dict(blk=(20, 16), chain=1, i0=3, i1=5, hmed=3.32),
+                dict(blk=(17, 9), chain=0, i0=3, i1=5, hmed=2.71),
+                dict(blk=(10, 18), chain=0, i0=1, i1=3, hmed=3.91),
+                dict(blk=(21, 9), chain=0, i0=0, i1=3, hmed=3.54)]
+
+# THE V-CARRY (playtest-9 round). census2: NO window fits the old v5/v11
+# endpoints (bench chord outside the kept tangent range — structurally
+# impossible). census3 V-class picks must satisfy BOTH laws: THE JOINT-KINK
+# LAW (<=12 at each joint's TRUE tangent) AND THE FLOW CONSTRAINT (every
+# seated heading >= 135 — the (20,15) window's 130.9 entry was hug-CAUGHT at
+# the joint in one gate run: the 135 bound is REAL, the 125 relaxation is
+# FALSIFIED). (4,14) e-v12: kinks 1.3/2.4, interior V +45, hdg [156..201],
+# scale 0.965, du 0.0200.
+PICKS = [dict(blk=(4, 14), chain=1, i0=3, i1=8, hmed=3.50),
+         dict(blk=(12, 11), chain=0, i0=45, i1=50, hmed=2.90)]
 PICK = PICKS[0]
+
+# the OLD boundary span E' -> baseline-v12 (3-dec probe output; refine_inner
+# recovers exact baseline bytes — THE NEVER-HAND-TYPE-GEOMETRY LAW). Entry
+# at E' (the kept NW run's own -30 concave turn belongs to the promontory
+# complex; tangent BEFORE it = 159.6). The crest crosses the old chain once:
+# a CUT lobe (the promontory) + a FILL lobe (the bay); even-odd point-in-poly
+# on the figure-8 strip covers both.
+INNER_SPAN = [(372.482, -506.271), (376.0, -509.161),
+              (376.288, -509.397), (380.0, -511.118), (381.125, -511.639),
+              (381.904, -512.0), (383.793, -514.111), (383.293, -514.464),
+              (380.083, -516.729), (380.0, -516.796), (376.532, -519.605),
+              (376.13, -519.931), (374.964, -522.996), (375.4, -525.782),
+              (376.274, -528.455)]
 
 
 class DonorReject(Exception):
@@ -268,7 +467,7 @@ from ff9mapkit.world.extract import CH_POS, CH_NRM, CH_UV, CH_TAN  # noqa: E402
 
 BLOCKS = [(5, 7), (5, 8)]
 U_HI = 0.947
-BENCH_V5, BENCH_V11 = INNER[0], INNER[6]
+BENCH_V5, BENCH_V11 = INNER_SPAN[0], INNER_SPAN[-1]
 OUTD2 = HERE / "out" / "vcorner_transplant"
 BACKUPS = Path(r"C:\gd\Dream-World-IX\backups")
 # pre-cut originals (the sea-cut round's first backups) — the seam-fix rebuild base
@@ -353,7 +552,7 @@ def refine_inner():
     output). Recover the EXACT baseline vert for each point — the weld targets
     and zip chain must be byte-true or every joint seeds a near-miss crack."""
     pts = []
-    for (px, pz) in INNER:
+    for (px, pz) in INNER_SPAN:
         best, bd = None, 0.06
         for (bx, by) in BLOCKS:
             d = W.M.read_ff9mesh(BASELINE_T[(bx, by)])
@@ -372,10 +571,10 @@ def build():
     inner_x = refine_inner()
     inner2 = [(p[0], p[2]) for p in inner_x]                # exact plan chain
     global BENCH_V5, BENCH_V11
-    BENCH_V5, BENCH_V11 = inner2[0], inner2[6]
-    print("   INNER refined to exact bytes: v5 "
-          f"({inner_x[0][0]:.4f},{inner_x[0][2]:.4f}) v11 "
-          f"({inner_x[6][0]:.4f},{inner_x[6][2]:.4f})")
+    BENCH_V5, BENCH_V11 = inner2[0], inner2[-1]
+    print("   INNER refined to exact bytes: entry "
+          f"({inner_x[0][0]:.4f},{inner_x[0][2]:.4f}) exit "
+          f"({inner_x[-1][0]:.4f},{inner_x[-1][2]:.4f})")
     seg, wall, yof = get_window()
     print(f"window: {len(seg)} crest verts, {len(wall)} wall tris")
     topos = Counter(t[3] for t in wall)
@@ -518,15 +717,34 @@ def build():
     # rim shows the wall's own waterline row, the porch re-runs the rock rows
     # (mirror at the fold = the same texel row meets itself; stock precedent
     # 2/139 mirrored faces).
-    crest_u = []
-    for k in seg:
-        us_here = {round(float(u), 4) for t in wall
-                   for p, (u, v) in zip(t[0], t[1]) if key(p) == k}
-        assert len(us_here) == 1, f"ambiguous crest u at {k}: {us_here}"
-        crest_u.append(us_here.pop())
+    # per-SEGMENT u pairs from each column's OWN seated faces (a crest vert at
+    # a column-boundary wrap carries TWO u values — 0.947|0.699 — lawful band
+    # grammar; per-vertex resolution is ill-posed there)
+    seg_u = []
+    for i in range(len(crest_pts) - 1):
+        us0, us1 = [], []
+        for si in cols.get(i, []):
+            p3s, uv3s, _c5 = seated[si]
+            for p, (u, v) in zip(p3s, uv3s):
+                if abs(p[1] - LAWN_Y) > 1e-6:
+                    continue
+                if math.hypot(p[0] - crest_pts[i][0],
+                              p[2] - crest_pts[i][1]) < 1e-6:
+                    us0.append(float(u))
+                elif math.hypot(p[0] - crest_pts[i + 1][0],
+                                p[2] - crest_pts[i + 1][1]) < 1e-6:
+                    us1.append(float(u))
+        u0 = sorted(us0)[len(us0) // 2] if us0 else None
+        u1 = sorted(us1)[len(us1) // 2] if us1 else None
+        if u0 is None and u1 is None:
+            u0 = u1 = U_SEED                                # colless segment
+        u0 = u0 if u0 is not None else u1
+        u1 = u1 if u1 is not None else u0
+        seg_u.append((u0, u1))
     v_foot = max(float(v) for t in wall for (u, v) in t[1])
     v_rate = 0.0095                                         # measured donor slope
-    print(f"   band continuation: crest u {crest_u}, v_foot {v_foot:.4f}")
+    print(f"   band continuation: seg u {[(round(a,3), round(b,3)) for a, b in seg_u]}, "
+          f"v_foot {v_foot:.4f}")
 
     # THE FOOT APRON — the look-side closure of the under-lip void. The sea
     # is (correctly) cut under ALL walkable plan (the 1.2u-fringe experiment
@@ -546,7 +764,7 @@ def build():
         land = (-dzs / L2, dxs / L2)                        # land LEFT of travel
         na = max(2, math.ceil(L2 / 0.6))
         nc = 3                                              # across 1.4u
-        ua, ub = crest_u[i], crest_u[i + 1]                 # the column's own u
+        ua, ub = seg_u[i]                                   # the column's own u
 
         def P(s, t):                                        # s along [0,1], t across [0,1]
             x2 = a2p[0] + s * dxs + t * 1.4 * land[0]
@@ -594,11 +812,13 @@ def build():
         # own u-rate, continuing the crest's u trend; v = the same fold-back.
         # The exit edge mismatches segment i by ~0.01 u — a lawful uv cut
         # (stock's own coast carries hundreds).
-        u_dir = math.copysign(1.0, crest_u[i + 1] - crest_u[i])
+        u_in = seg_u[i - 1][1]                              # incoming column's end u
+        u_dir = math.copysign(1.0, seg_u[i - 1][1] - seg_u[i - 1][0]) \
+            if abs(seg_u[i - 1][1] - seg_u[i - 1][0]) > 1e-9 else 1.0
 
         def UVW(js, jt):
             arcl = abs(da) * (js / nang) * 0.7
-            return (crest_u[i] + u_dir * arcl * URATE,
+            return (u_in + u_dir * arcl * URATE,
                     v_foot - (jt / nrad) * 1.4 * v_rate)
 
         for js in range(nang):
@@ -652,7 +872,7 @@ def build():
         land = (-dzs / L2, dxs / L2)
         inner_pts.append((a2p[0] + 1.4 * land[0], a2p[1] + 1.4 * land[1]))
         inner_pts.append((b2p[0] + 1.4 * land[0], b2p[1] + 1.4 * land[1]))
-        inner_u += [crest_u[i], crest_u[i + 1]]
+        inner_u += [seg_u[i][0], seg_u[i][1]]
     for i in range(0, len(inner_pts) - 1):
         vquad(inner_pts[i], inner_pts[i + 1], inner_u[i], inner_u[i + 1])
     seated.extend(apron)
@@ -737,6 +957,124 @@ def build():
             return False                                    # ON a strip vertex
         return in_strip2(p)
 
+    # ---- V-CARRY DROP PRE-PASS + THE SCAR --------------------------------------
+    # The crest seats INLAND of the old boundary: a PURE CUT. Drops:
+    #   (a) ANY-topo faces intersecting the strip (old lawn between the old
+    #       boundary and the new crest);
+    #   (b) old topo-58 walls keyed on the replaced span (they would stand as
+    #       a detached rock fence in the new water);
+    #   (c) walk faces with a vert strictly SEAWARD of the new crest within
+    #       the span corridor (the near-joint slivers: lawn left seaward of
+    #       the crest walks off into the void where the old wall was dropped).
+    # The ears then cover the band between the crest and THE SCAR — the
+    # post-drop retained-lawn hole boundary (newly-boundary edges only).
+    span_keys = {(round(px, 3), round(pz, 3)) for (px, pz) in inner2[1:-1]}
+    chord_d = (BENCH_V11[0] - BENCH_V5[0], BENCH_V11[1] - BENCH_V5[1])
+    chord_L = math.hypot(*chord_d)
+    chord_u = (chord_d[0] / chord_L, chord_d[1] / chord_L)
+
+    def in_corridor(p):
+        pr = (p[0] - BENCH_V5[0]) * chord_u[0] + (p[1] - BENCH_V5[1]) * chord_u[1]
+        return -0.5 <= pr <= chord_L + 0.5
+
+    def seaward_of_crest(p, eps=0.02):
+        best, bd, interior = 0.0, 1e9, True
+        for i5 in range(len(crest_pts) - 1):
+            a5, b5 = crest_pts[i5], crest_pts[i5 + 1]
+            dx5, dz5 = b5[0] - a5[0], b5[1] - a5[1]
+            L5 = math.hypot(dx5, dz5) or 1.0
+            tp = max(0.0, min(1.0, ((p[0] - a5[0]) * dx5
+                                    + (p[1] - a5[1]) * dz5) / (L5 * L5)))
+            qx, qz = a5[0] + tp * dx5, a5[1] + tp * dz5
+            d5 = math.hypot(p[0] - qx, p[1] - qz)
+            if d5 < bd:
+                sw = (p[0] - a5[0]) * dz5 - (p[1] - a5[1]) * dx5  # >0 = sea side
+                bd, best = d5, math.copysign(d5, sw)
+                # a point whose closest approach is BEHIND the chain start /
+                # BEYOND its end belongs to the kept coast, not the span
+                if i5 == 0 and tp <= 1e-9:
+                    interior = ((p[0] - a5[0]) * dx5 + (p[1] - a5[1]) * dz5) > 0
+                elif i5 == len(crest_pts) - 2 and tp >= 1 - 1e-9:
+                    interior = ((p[0] - b5[0]) * dx5 + (p[1] - b5[1]) * dz5) < 0
+                else:
+                    interior = True
+        return best > eps and interior
+
+    from collections import defaultdict as _dd
+    drops = {}
+    edge_pre, edge_post = _dd(int), _dd(int)
+    yof3 = {}
+    exact3 = {}
+    n_slope_drop = 0
+    for (bx, by) in BLOCKS:
+        d = base_by_block[(bx, by)]
+        ox, oz = 64.0 * bx, -64.0 * by
+        idx = d["indices"]
+        tans = d["tangents"]
+        verts = d["verts"]
+        dset = set()
+        for t0 in range(0, len(idx), 3):
+            t = idx[t0:t0 + 3]
+            topo = (int(round(tans[t[0]][0])) & 0xFC) >> 2
+            pw = [(verts[j2][0] + ox, verts[j2][2] + oz) for j2 in t]
+            cen = ((pw[0][0] + pw[1][0] + pw[2][0]) / 3,
+                   (pw[0][1] + pw[1][1] + pw[2][1]) / 3)
+            k3 = [(round(p[0], 3), round(p[1], 3)) for p in pw]
+            hit = any(strictly_in(p) for p in pw) or strictly_in(cen) \
+                or any(in_tri2(q, pw) for q in strip_poly)
+            oldwall = topo == 58 and any(k in span_keys for k in k3)
+            sliver = topo in W.WALK_OK and any(
+                seaward_of_crest(p) and in_corridor(p) for p in pw)
+            if hit or oldwall or sliver:
+                dset.add(t0 // 3)
+                if topo != 58 and topo not in W.WALK_OK:
+                    n_slope_drop += 1
+            if topo in W.WALK_OK:
+                for a3, b3 in ((0, 1), (1, 2), (2, 0)):
+                    e = tuple(sorted((k3[a3], k3[b3])))
+                    edge_pre[e] += 1
+                    if t0 // 3 not in dset:
+                        edge_post[e] += 1
+                for j2, kk in zip(t, k3):
+                    yof3[kk] = verts[j2][1]
+                    exact3[kk] = (verts[j2][0] + ox, verts[j2][2] + oz)
+        drops[(bx, by)] = dset
+    assert n_slope_drop == 0, \
+        f"{n_slope_drop} non-wall non-walk faces in the strip — hole risk, examine"
+    # the ear band's INLAND chain: the post-drop retained-walk boundary path
+    # between the joints — MIXED provenance: the drop scar in the cut lobe
+    # (the promontory) and the OLD bay shore in the fill lobe (the bay). Both
+    # are post-drop boundary edges; the corridor restriction excludes the
+    # kept coast beyond the joints.
+    def _proj(p):
+        return (p[0] - BENCH_V5[0]) * chord_u[0] + (p[1] - BENCH_V5[1]) * chord_u[1]
+
+    scar_g = _dd(set)
+    for e, c in edge_post.items():
+        if c == 1 and -0.05 <= _proj(e[0]) <= chord_L + 0.05 \
+                and -0.05 <= _proj(e[1]) <= chord_L + 0.05:
+            scar_g[e[0]].add(e[1])
+            scar_g[e[1]].add(e[0])
+    jA = (round(BENCH_V5[0], 3), round(BENCH_V5[1], 3))
+    jB = (round(BENCH_V11[0], 3), round(BENCH_V11[1], 3))
+    assert jA in scar_g and jB in scar_g, \
+        f"scar does not reach the joints (jA {jA in scar_g}, jB {jB in scar_g})"
+    scar, seen_s = [jA], {jA}
+    while scar[-1] != jB:
+        cand = [q for q in scar_g[scar[-1]] if q not in seen_s]
+        assert cand, f"scar dead-ends at {scar[-1]} after {len(scar)} verts"
+        # at a fork, hug the crest (the scar bounds the ear band)
+        cand.sort(key=lambda q: min(math.hypot(q[0] - c5[0], q[1] - c5[1])
+                                    for c5 in crest_pts))
+        seen_s.add(cand[0])
+        scar.append(cand[0])
+    scar2 = [exact3.get(k, k) for k in scar]                # exact baseline coords
+    ys_scar = [yof3.get(k, LAWN_Y) for k in scar]
+    assert all(abs(y - LAWN_Y) < 0.01 for y in ys_scar), \
+        f"scar not flat at {LAWN_Y}: {sorted(set(round(y, 2) for y in ys_scar))}"
+    ndrop = sum(len(v) for v in drops.values())
+    print(f"   V-carry drops: {ndrop} faces; scar {len(scar)} verts (flat {LAWN_Y})")
+
     affs = lawn_affines([(BASELINE_T[(bx, by)], 64.0 * bx, -64.0 * by)
                          for (bx, by) in BLOCKS])
     # THE STRIP COVER: ear-clip the simple strip polygon — the naive two-chain
@@ -792,48 +1130,136 @@ def build():
         r2, g2, b2, a2 = _atl[iv, iu]
         return a2 == 0 or (r2 > 235 and g2 > 235 and b2 > 235)
 
-    def _footprint_bad(uv3):
-        """EVERY texel under the uv triangle (point samples missed sliver
-        whites). Bounding-box barycentric walk at texel resolution."""
+    def _footprint_stats(uv3):
+        """(bad, mean_rgb) over EVERY texel under the uv triangle. bad if any
+        white/alpha-0 texel OR any uv outside [0,1] (a wrapped lattice shift
+        lands in foreign paint — the cyan-tri class: u<0 wrapped to water
+        texels and passed the white-only test). Tone lives in mean_rgb."""
         (u0, v0), (u1, v1), (u2, v2) = uv3
+        if any(not (0.0 <= u <= 1.0 and 0.0 <= v <= 1.0) for (u, v) in uv3):
+            return True, None
         d0 = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0)
         if abs(d0) < 1e-12:
-            return any(_bad_uv(u, v) for (u, v) in uv3)
+            return any(_bad_uv(u, v) for (u, v) in uv3), None
         lo_u, hi_u = min(u0, u1, u2), max(u0, u1, u2)
         lo_v, hi_v = min(v0, v1, v2), max(v0, v1, v2)
         step = 1.0 / _aw
+        acc = [0.0, 0.0, 0.0]
+        npx = 0
         u = lo_u
         while u <= hi_u + step:
             v = lo_v
             while v <= hi_v + step:
                 w1 = ((u - u0) * (v2 - v0) - (u2 - u0) * (v - v0)) / d0
                 w2 = ((u1 - u0) * (v - v0) - (u - u0) * (v1 - v0)) / d0
-                if w1 >= -0.02 and w2 >= -0.02 and (1 - w1 - w2) >= -0.02 \
-                        and _bad_uv(u, v):
-                    return True
+                if w1 >= -0.02 and w2 >= -0.02 and (1 - w1 - w2) >= -0.02:
+                    if _bad_uv(u, v):
+                        return True, None
+                    iu = int((u % 1.0) * _aw) % _aw
+                    iv = int((1.0 - (v % 1.0)) * _ah) % _ah
+                    px = _atl[iv, iu]
+                    acc[0] += float(px[0])
+                    acc[1] += float(px[1])
+                    acc[2] += float(px[2])
+                    npx += 1
                 v += step
             u += step
-        return False
+        if npx == 0:
+            return False, None
+        return False, (acc[0] / npx, acc[1] / npx, acc[2] / npx)
 
-    ears = earclip(inner2 + list(reversed(outer[1:-1])))
+    def _footprint_bad(uv3):
+        return _footprint_stats(uv3)[0]
+
+    # the ear band: between the new crest and THE SCAR (not the old boundary —
+    # the strip itself is REMOVED land in the V-carry)
+    ears0 = earclip(scar2 + list(reversed(outer[1:-1])))
+
+    # big ears' uv footprints always hit SOME white gap (ground fields carry
+    # 5-10% interior poison — atlas_map.json); subdivide until each sub-tri
+    # can validate its own lattice shift. T-junctions are benign on the flat
+    # coplanar constant-y lawn (same plane, same height, same mesh).
+    _snap_pool = list(scar2) + [tuple(c5) for c5 in outer] \
+        + [v5w for v5w in exact3.values()
+           if min(math.hypot(v5w[0] - c5[0], v5w[1] - c5[1])
+                  for c5 in outer) < 6.0]
+
+    def _snap(m5):
+        # a midpoint within audit range of an existing vert = a crack seed;
+        # snap to the exact vert instead
+        for q5 in _snap_pool:
+            if math.hypot(m5[0] - q5[0], m5[1] - q5[1]) < 0.06:
+                return (q5[0], q5[1])
+        return m5
+
+    def _subdiv(tri, lim=2.2):
+        p, q, r = tri
+        es = [(math.dist(p, q), 0), (math.dist(q, r), 1), (math.dist(r, p), 2)]
+        L5, ei = max(es)
+        if L5 <= lim:
+            return [tri]
+        if ei == 0:
+            m5 = _snap(((p[0] + q[0]) / 2, (p[1] + q[1]) / 2))
+            return _subdiv((p, m5, r), lim) + _subdiv((m5, q, r), lim)
+        if ei == 1:
+            m5 = _snap(((q[0] + r[0]) / 2, (q[1] + r[1]) / 2))
+            return _subdiv((p, q, m5), lim) + _subdiv((p, m5, r), lim)
+        m5 = _snap(((r[0] + p[0]) / 2, (r[1] + p[1]) / 2))
+        return _subdiv((p, q, m5), lim) + _subdiv((m5, q, r), lim)
+
+    ears = [t for e in ears0 for t in _subdiv(e)]
+    # global proximity weld of minted ear verts: cousin midpoints from
+    # unrelated bisections can land within audit range of each other —
+    # unify (seeded with the snap pool so existing verts stay canonical)
+    _canon = {}
+
+    def _reg(p, mint=True):
+        kc = (round(p[0], 1), round(p[1], 1))
+        for a6 in (-1, 0, 1):
+            for b6 in (-1, 0, 1):
+                kk = (round(kc[0] + a6 * 0.1, 1), round(kc[1] + b6 * 0.1, 1))
+                for q5 in _canon.get(kk, ()):
+                    if math.hypot(p[0] - q5[0], p[1] - q5[1]) < 0.05:
+                        return q5
+        if mint:
+            _canon.setdefault(kc, []).append(p)
+        return p
+
+    for q5 in _snap_pool:
+        _reg((q5[0], q5[1]))
+    ears = [tuple(_reg(p) for p in tri) for tri in ears]
+    ears = [t for t in ears
+            if abs((t[1][0] - t[0][0]) * (t[2][1] - t[0][1])
+                   - (t[2][0] - t[0][0]) * (t[1][1] - t[0][1])) > 1e-9]
     lawn3 = []
     for (p, q, r) in ears:
         cen = ((p[0] + q[0] + r[0]) / 3, (p[1] + q[1] + r[1]) / 3)
         best = min(affs, key=lambda pf: (sum(v[0] for v in pf[0]) / 3 - cen[0]) ** 2
                    + (sum(v[2] for v in pf[0]) / 3 - cen[1]) ** 2)
         f0 = best[1]
+        # tone reference: the donor face's OWN paint (it renders as lawn on
+        # the owner-passed bench by construction) — the brown-patch class
+        # passed the white-only test with the wrong TONE
+        ref_uv = [f0(v[0], v[2]) for v in best[0]]
+        _, ref_mean = _footprint_stats(ref_uv)
         pick = None
-        for (k4, m4) in sorted([(k, m) for k in (-2, -1, 0, 1, 2)
-                                for m in (-2, -1, 0, 1, 2)],
+        for (k4, m4) in sorted([(k, m) for k in range(-4, 5)
+                                for m in range(-4, 5)],
                                key=lambda km: (abs(km[0]) + abs(km[1]), km)):
             uv3 = [f0(s[0] - 4.0 * k4, s[1] - 4.0 * m4) for s in (p, q, r)]
-            if not _footprint_bad(uv3):
-                pick = (k4, m4)
-                break
+            bad, mean = _footprint_stats(uv3)
+            if bad:
+                continue
+            if ref_mean is not None and mean is not None:
+                dr = math.dist(mean, ref_mean)
+                if dr > 30.0:
+                    continue
+            pick = (k4, m4)
+            break
         if pick is None:
             pick = (0, 0)
-            print(f"   !! ear at ({cen[0]:.1f},{cen[1]:.1f}): NO clean lattice "
-                  f"shift in +/-2 — white texels will show")
+            print(f"   !! ear at ({cen[0]:.1f},{cen[1]:.1f}): NO clean+tonal "
+                  f"lattice shift in +/-4 — off-paint texels will show")
         elif pick != (0, 0):
             print(f"   ear at ({cen[0]:.1f},{cen[1]:.1f}): lattice shift {pick}")
         donor = (lambda f2, kk, mm: lambda x, z: f2(x - 4.0 * kk, z - 4.0 * mm))(
@@ -850,17 +1276,7 @@ def build():
         uvs = [list(v) for v in d["uvs"]]
         tans = [list(v) for v in d["tangents"]]
         idx = d["indices"]
-        drop = set()
-        for t0 in range(0, len(idx), 3):
-            t = idx[t0:t0 + 3]
-            topo = (int(round(tans[t[0]][0])) & 0xFC) >> 2
-            if topo != 58:
-                continue
-            pw = [(verts[j2][0] + ox, verts[j2][2] + oz) for j2 in t]
-            cen = ((pw[0][0] + pw[1][0] + pw[2][0]) / 3, (pw[0][1] + pw[1][1] + pw[2][1]) / 3)
-            if any(strictly_in(p) for p in pw) or strictly_in(cen) \
-                    or any(in_tri2(q, pw) for q in strip_poly):
-                drop.add(t0 // 3)
+        drop = drops[(bx, by)]                              # the V-carry pre-pass
         new_idx = [k for t0 in range(0, len(idx), 3) if t0 // 3 not in drop
                    for k in idx[t0:t0 + 3]]
         lawn_nrm = lawn_tan = None
@@ -964,20 +1380,22 @@ def stage1():
     world_t = W.load_world(part_src=dict(staged))
 
     lost, gained, off = [], [], []
-    x = 372.0
+    x = 371.0
     while x <= 390.0:
-        z = -519.0
-        while z <= -506.0:
+        z = -530.0
+        while z <= -505.0:
             a = any(s2[1] in W.WALK_OK for s2 in W.all_sheets(world_base, x, z))
             b = any(s2[1] in W.WALK_OK for s2 in W.all_sheets(world_t, x, z))
-            if a and not b:
+            if a and not b and not in_strip2((x, z)):
+                # V-carry: the strip lawn is INTENDED loss (the coast retreats);
+                # only OFF-strip loss is a defect
                 lost.append((round(x, 1), round(z, 1)))
             if b and not a and not in_strip2((x, z)):
                 off.append((round(x, 1), round(z, 1)))
             z += 0.2
         x += 0.2
     g_cov = len(lost) == 0 and len(off) <= 2
-    print(f"COVERAGE: lost={len(lost)} off-strip={len(off)} "
+    print(f"COVERAGE: lost-off-strip={len(lost)} gained-off-strip={len(off)} "
           f"({'PASS' if g_cov else 'FAIL'}) {lost[:5]} {off[:5]}")
 
     print("=== SEA REBUILD from pristine, WALKABLE-only cover (the seam fix) ===")
@@ -1012,8 +1430,8 @@ def stage1():
 
     print("=== THE HUG GATES ===")
     south = [(377.5, -503.0), (377.2, -505.5), (377.0, -507.0)]
-    r1 = hug(world_full, south, math.pi, math.radians(22.5), lambda x, z: z < -516.5)
-    north = [(381.5, -517.5), (381.0, -518.5)]
+    r1 = hug(world_full, south, math.pi, math.radians(22.5), lambda x, z: z < -530.0)
+    north = [(378.5, -530.5), (379.0, -531.5)]
     r3 = hug(world_full, north, 0.0, math.radians(22.5), lambda x, z: z > -507.0)
     ctrl = hug(world_full, [(446.5, -496.0)], math.pi, math.radians(-22.5),
                lambda x, z: z < -516.0)
@@ -1027,7 +1445,7 @@ def stage1():
     g_own0 = len(own0) == 0
     tl, cl, cells_l = static_map(world_base, "BASELINE")
     ts, cs, cells_s = static_map(world_full, "STAGED")
-    bx0, bx1, bz0, bz1 = CHANGED_BBOX
+    bx0, bx1, bz0, bz1 = (371.0, 386.5, -530.0, -505.0)     # the V-carry span box
     diff_out = 0
     for kk2 in set(cells_l) | set(cells_s):
         if cells_l.get(kk2) != cells_s.get(kk2):
@@ -1095,7 +1513,7 @@ def deploy():
                                                       encoding="utf-8")
     world = W.load_world()
     r = hug(world, [(377.5, -503.0), (377.0, -507.0)], math.pi, math.radians(22.5),
-            lambda x, z: z < -516.5)
+            lambda x, z: z < -530.0)
     ev, hard, ringy = drive_walkers(world, "LIVE post-deploy")
     own0 = [e for e in ev if e["own"] == 0]
     print("post-deploy hug:", [rr[2] for rr in r])
@@ -1105,6 +1523,10 @@ def deploy():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "census":
         census()
+    elif len(sys.argv) > 1 and sys.argv[1] == "census2":
+        census2()
+    elif len(sys.argv) > 1 and sys.argv[1] == "census3":
+        census3()
     elif len(sys.argv) > 1 and sys.argv[1] == "stage1":
         stage1()
     elif len(sys.argv) > 1 and sys.argv[1] == "stage2":
