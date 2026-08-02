@@ -1717,6 +1717,51 @@ def test_the_gate_reads_a_ladder_and_jump_LANDING_but_never_a_gateways_field_id(
     assert not any("door0" in f for f in found), "a gateway's field id was read as a coordinate"
 
 
+def test_pos_does_not_mean_the_same_thing_in_every_table():
+    """★ THE GENERIC `pos` SCAN WAS WRONG TWICE, and both ways survive review by looking right.
+
+    SCREEN SPACE: `[[gauge]] pos` is canvas px (FORMAT.md :1661) and `[[numeric_input]] pos` is a
+    cell on the dialogue grid (:1592). Read as world (x, z) they land near the origin, so on any
+    room that does not contain (0,0) the gate reports them off the walkmesh on EVERY recompose,
+    about content that is not on the floor at all -- and a gate that always fires gets skipped.
+
+    THREE ELEMENTS: `[[sps]] pos` is `[x, y, z]` (content/sps.py:39, `x, y, z = pos`), so reading
+    element 1 as the depth used its HEIGHT and placed it somewhere else entirely."""
+    poly = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)]
+    tables = {"sps": [{"name": "flame", "pos": [1000, 400, 1000]}],
+              "gauge": [{"name": "bar", "pos": [140, 24]}],
+              "numeric_input": [{"name": "bid", "pos": [33, 80]}]}
+    got = F.preserved_positions(tables)
+    assert got == [("sps", "flame", (1000.0, 1000.0))], got
+    assert F.unstandable_preserved(poly, tables) == [], "a screen-space pos was judged as world xz"
+
+
+def test_off_the_mesh_is_not_automatically_wrong_the_back_wall_idiom_is_how_ff9_places_npcs():
+    """★ THE FIRST DRAFT OF THIS GATE CONTRADICTED THE KIT'S OWN MEASURED RULE. A normal FF9 NPC
+    stands against the BACK WALL, just past the floor edge, and the player talks to it from the
+    adjacent floor -- the in-game-verified hut oracle has Vivi ~100u beyond the back edge, working.
+    `build._validate_content_placement` (build.py:3810-3827) only hard-warns past `2 * R_OBJ`.
+    Calling a 100u overhang unreachable would fire on every correctly placed back-wall NPC."""
+    poly = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0)]
+    tables = {"npc": [{"name": "backwall", "pos": [1000, -100]},
+                      {"name": "lost", "pos": [1000, -900]}]}
+    found = {label: why for _t, label, _xz, why in F.unstandable_preserved(poly, tables)}
+    assert "backwall" not in found, "the hut oracle's own placement was called unreachable"
+    assert "900u OUTSIDE" in found["lost"] and "192" in found["lost"]
+
+
+def test_a_composed_door_the_plan_no_longer_wires_is_named_when_it_goes(tmp_path):
+    """Dropping every `door_to_*` and re-emitting is what lets the plan DELETE a door. It is also
+    the one way a HAND-drawn gateway can vanish -- if its author typed the composer's own prefix.
+    A silent rule cannot tell those apart, so both are named, and "the plan no longer wires
+    door_to_cell" is worth saying on its own account."""
+    F.compose_and_emit(_plan(), tmp_path, log=None)
+    _c, wrote = F.compose_and_emit(_plan(doors=[]), tmp_path, log=None)
+    said = " | ".join(wrote["warnings"])
+    assert "door_to_cell" in said and "no longer wires" in said, said
+    assert F.COMPOSER_GATEWAY_PREFIX in said, "it must teach the rename that avoids the collision"
+
+
 def test_a_trigger_quad_is_never_judged_by_the_standable_gate():
     """Rung 4 established that a region's corners legitimately hang OFF the mesh -- donor door quads
     do it. Reading `zone` here would fire on every correctly drawn door, which is how a gate gets
@@ -1825,6 +1870,35 @@ def test_carry_plan_records_keeps_what_emit_wrote_and_still_lets_a_room_be_delet
     assert "id" not in new and "art" not in new, "a room the composer has never seen has no record"
     assert [r["name"] for r in got["rooms"]] == ["KEEP", "NEW"], "a deleted room must really go"
     assert F.carry_plan_records(fresh, tmp_path / "nope.json") == fresh   # no sidecar: no-op
+
+
+def test_where_the_plan_and_the_sidecar_disagree_about_the_art_the_sidecar_wins(tmp_path):
+    """★ THE RECORD HAS TWO SOURCES AND THEY CAN DISAGREE, which the first draft resolved the wrong
+    way round. `emit` writes the sidecar in the same breath as the art, so it is the authority on
+    what the composer last painted; a PLAN can be older (a hand-built dict, an unabsorbed session).
+    Let the older one win and the CURRENT placeholder looks like a painting -- so it is snapshotted
+    and copied back over the new one, silently reverting the art to the PREVIOUS geometry's
+    checkerboard while reporting that it kept the author's painting.
+
+    No existing fence could see this: they all `load_plan` the sidecar, so the two always agreed."""
+    import copy
+    poly = [[0, 0], [3000, 0], [3000, 2400], [0, 2400]]
+    plan = {"name": "T", "id_base": 30500, "doors": [], "rooms": [{"name": "R", "poly": poly}]}
+    F.compose_and_emit(plan, tmp_path, log=None)
+    stale = copy.deepcopy(F.load_plan(tmp_path / F.SIDECAR))          # records generation 1
+
+    side = F.load_plan(tmp_path / F.SIDECAR)
+    side["rooms"][0]["poly"] = [[0, 0], [3000, 0], [3000, 1800], [0, 1800]]
+    F.compose_and_emit(side, tmp_path, log=None)                      # generation 2 on disk
+    gen2 = (tmp_path / "R" / "art" / "floor.png").read_bytes()
+
+    # a plan that still carries generation 1's fingerprint, against a disk holding generation 2
+    stale["rooms"][0]["poly"] = [[0, 0], [3000, 0], [3000, 1400], [0, 1400]]
+    _c, wrote = F.compose_and_emit(stale, tmp_path, log=None)
+    gen3 = (tmp_path / "R" / "art" / "floor.png").read_bytes()
+    assert gen3 != gen2, ("the composer mistook its own previous placeholder for a painting and "
+                          "restored it over the new one")
+    assert wrote["preserved"].get("R", {}).get("art", []) == []
 
 
 def test_the_art_fingerprint_rides_the_plan_so_the_tab_round_trip_carries_it(tmp_path):

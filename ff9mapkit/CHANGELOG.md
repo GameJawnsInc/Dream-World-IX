@@ -24,9 +24,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   regenerated whole — a per-key merge would leave a stale `range`/`scroll` alive under a room that
   stopped scrolling — and a recompose now *reports* each one whose on-disk value it replaced instead
   of reverting it silently.
+- **A composed door the plan no longer wires is named when it goes** — which also covers the one way
+  a hand-drawn gateway can vanish: naming it `door_to_…` puts it in the composer's own namespace.
 - `--force` keeps its meaning and is no longer the normal path: it regenerates every room from
   scratch, discarding all of the above. The one surviving refusal is a room whose `field.toml` will
   not parse — there is nothing to merge into — and it fires before a single byte is written.
+
+### Fixed — the Floorplan tab's Compose was silently renumbering deployed dungeons
+- **The tab stamped its in-memory plan over `floorplan.json` a moment before the verb read it**, and
+  a plan drawn in the tab is `{name, poly}` — so the pinned room **`id`** was destroyed on every
+  recompose. A dungeon you had already deployed came back on the next free id block, invalidating
+  every `deploy_field.py --id N` you wrote down, every external gateway aimed at those rooms, and
+  the New Game wiring. The pin has existed since the composer shipped; it never worked from the GUI.
+  The tab's write now merges rather than stamps, and the session absorbs what the verb recorded.
+- **A `[[sps]] pos` is `[x, y, z]`**, so the new recompose gate read its height as its depth; and
+  `[[gauge]]`/`[[numeric_input]]` positions are screen pixels, which it judged as world coordinates
+  and reported off-mesh forever. Both fixed, per table.
+- **Off the mesh is not automatically wrong.** A normal FF9 NPC stands against the back wall, just
+  past the floor edge (the in-game-verified hut oracle has Vivi ~100u out), so the gate now uses the
+  same `2 × 96u` talk reach `build`'s own placement lint uses instead of refusing any overhang.
 
 ### Added — see an animation before you attach it (Workspace)
 - **The Models tab plays a model's clips.** The comma blob of action names is a clip LIST (the five

@@ -84,6 +84,11 @@ class ComposeError(ValueError):
 R_WALK = 80.0
 
 R_OBJ = _cam.OBJECT_COLLISION_W          # 96.0 (scene/cam.py:82) -- correct in the repo: arg2 = 24
+# ★ HOW FAR OFF THE MESH IS STILL FINE. A normal FF9 NPC stands against the BACK WALL, just past the
+# floor edge, and the player talks to it from the adjacent floor -- the in-game-verified hut oracle
+# has Vivi ~100u beyond the back edge. `build._validate_content_placement` (build.py:3822) uses this
+# same `2 * R_OBJ` talk reach for its own off-mesh warning; one number, two call sites.
+OFF_MESH_REACH = 2.0 * R_OBJ             # 192u
 K_VSCALE = _cam.K_VSCALE                 # 14/15 (scene/cam.py:36)
 CANVAS_W = _guide.CANVAS_W               # 384 (scene/guide.py:24) -- NOT in cam.py
 CANVAS_H = _guide.CANVAS_H               # 448
@@ -2006,7 +2011,7 @@ def merge_room(generated, existing):
     """
     merged = dict(generated)
     if not existing:
-        return merged, [], []
+        return merged, [], [], []
     kept = []
     for k, v in existing.items():
         if k not in COMPOSER_OWNED_TABLES:
@@ -2030,7 +2035,17 @@ def merge_room(generated, existing):
 
     retaken = [k for k in sorted(COMPOSER_OWNED_TABLES - set(COMPOSER_ROW_MERGED))
                if k in existing and existing[k] != merged.get(k)]
-    return merged, sorted(set(kept)), retaken
+    # ★ AND SAY WHICH DOORS WENT. Dropping every `door_to_*` and re-emitting is what lets the plan
+    # DELETE a door, which is right -- but it is also how a hand-drawn gateway that happens to be
+    # named `door_to_...` disappears (the Place tab names its own `door0`, so this needs an author
+    # who typed the composer's prefix, and it is exactly the case a silent rule cannot distinguish).
+    # Naming the removals covers both, and "the plan no longer wires door_to_cell" is worth saying
+    # on its own account.
+    mine = {str(r.get("name")) for r in (generated.get("gateway") or [])}
+    removed = sorted(str(r.get("name")) for r in _rows("gateway")
+                     if str(r.get("name", "")).startswith(COMPOSER_GATEWAY_PREFIX)
+                     and str(r.get("name")) not in mine)
+    return merged, sorted(set(kept)), retaken, removed
 
 
 # The tables whose placed point is NOT spelled `pos`: a `[[ladder]]`/`[[jump]]` LANDING point
@@ -2044,22 +2059,36 @@ def merge_room(generated, existing):
 # a world point and this map would not.
 _POSITION_KEYS = {"ladder": ("to", "top", "bottom"), "jump": ("to",)}
 
+# ★ `pos` DOES NOT MEAN THE SAME THING IN EVERY TABLE, and reading it as if it did was wrong twice.
+#   * SCREEN SPACE. `[[gauge]] pos = [140, 24]` is canvas px (FORMAT.md :1661) and
+#     `[[numeric_input]] pos` is a cell on the 320x224 dialogue grid (:1592). Judged as world (x, z)
+#     they sit a few dozen units from the origin, so on any room not containing (0,0) the gate would
+#     report them as off the walkmesh -- on every recompose, forever, about content that is not on
+#     the floor at all. A gate that always fires is a gate the author learns to skip.
+#   * THREE ELEMENTS. `[[sps]] pos` is `[x, y, z]` (`content/sps.py:39`, `x, y, z = pos`), so the
+#     generic `(p[0], p[1])` read its HEIGHT as its depth.
+# The residual risk is a kind added later whose `pos` is screen space and is not listed -- that
+# fails as NOISE rather than as silence, which is the safe direction for a warning-only gate.
+_SCREEN_SPACE_TABLES = frozenset({"gauge", "numeric_input"})
+_XYZ_TABLES = frozenset({"sps"})
+
 
 def preserved_positions(tables):
-    """``[(table, label, (x, z))]`` -- every row in ``tables`` that carries a placed point.
+    """``[(table, label, (x, z))]`` -- every row in ``tables`` that carries a placed WORLD point.
 
-    ``pos`` is read GENERICALLY, on purpose: the kit has more positioned kinds than any list here
-    would stay current with (``npc``, ``prop``, ``chest``, ``savepoint``, ``marker``, a behavior
-    unit's seat...), they all spell it ``pos``, and an allow-list that goes stale fails SILENTLY --
-    the gate simply stops seeing the kind nobody added. :data:`_POSITION_KEYS` then names the two
-    that genuinely spell it otherwise: a ``[[ladder]]``/``[[jump]]`` LANDING point (`FORMAT.md` :529,
-    :575), which is exactly the thing a reshape can drop into the void.
+    ``pos`` is read generically for the many kinds that agree on it (``npc``, ``prop``, ``chest``,
+    ``savepoint``, ``marker``, a behavior unit's seat...); :data:`_POSITION_KEYS` names the two that
+    spell a landing point otherwise, :data:`_XYZ_TABLES` the one that spells it in three components,
+    and :data:`_SCREEN_SPACE_TABLES` the ones whose ``pos`` is not a world point at all.
 
     ``zone`` is deliberately NOT read. A trigger quad's corners legitimately hang off the mesh
     (Rung 4 -- donor door quads do it), so judging them would fire on every correctly drawn door,
     and that includes a ladder's own take-off zone: it is the LANDING that has to be standable."""
     out = []
     for table, v in sorted(tables.items()):
+        if table in _SCREEN_SPACE_TABLES:
+            continue
+        zi = 2 if table in _XYZ_TABLES else 1
         keys = ("pos",) + _POSITION_KEYS.get(table, ())
         rows = v if isinstance(v, list) else [v]
         for i, row in enumerate(rows):
@@ -2067,10 +2096,10 @@ def preserved_positions(tables):
                 continue
             for key in keys:
                 p = row.get(key)
-                if not isinstance(p, (list, tuple)) or len(p) < 2:
+                if not isinstance(p, (list, tuple)) or len(p) <= zi:
                     continue
                 try:
-                    xz = (float(p[0]), float(p[1]))
+                    xz = (float(p[0]), float(p[zi]))
                 except (TypeError, ValueError):
                     continue
                 label = str(row.get("name") or f"{table} {i}")
@@ -2091,12 +2120,25 @@ def unstandable_preserved(poly_room, tables, zones=(), *, R=R_WALK):
     ``why`` is worded from the engine's own behaviour, not from the geometry: ``R`` is
     :data:`R_WALK`, the measured clamp (``RadiusValid`` -> ``BGI_computeNewPoint``, in-game
     confirmed on calibration field 30510), which is also what ``build._validate_content_placement``
-    uses for its near-edge advisory -- one number, two call sites, no second opinion."""
+    uses for its near-edge advisory -- one number, two call sites, no second opinion.
+
+    ⚠ AND OFF-MESH IS NOT AUTOMATICALLY WRONG, which the first draft of this got backwards. A normal
+    FF9 NPC stands against the BACK WALL, just past the floor edge, and the player talks to it from
+    the adjacent floor -- proven by the in-game-verified hut oracle, where Vivi sits ~100u beyond the
+    back edge and works. ``build._validate_content_placement`` (build.py:3810-3827) therefore only
+    hard-warns past :data:`OFF_MESH_REACH` = ``2 * R_OBJ`` outside the footprint. Claiming a 100u
+    overhang is unreachable would contradict the kit's own measured rule, and would fire on every
+    correctly placed back-wall NPC in every composed room."""
     out = []
     for table, label, (x, z) in preserved_positions(tables):
         if not point_in_poly(x, z, poly_room):
-            out.append((table, label, (x, z), "is now OUTSIDE the room outline -- it will render in "
-                                              "empty space and the player cannot reach it"))
+            d = dist_to_boundary(x, z, poly_room)
+            if d <= OFF_MESH_REACH:
+                continue                        # the back-wall idiom -- the hut oracle's own case
+            out.append((table, label, (x, z),
+                        f"is now {d:.0f}u OUTSIDE the room outline, past the {OFF_MESH_REACH:g}u a "
+                        f"player can reach across -- it will render in empty space with no way to "
+                        f"get to it"))
             continue
         d = dist_to_boundary(x, z, poly_room)
         if d < R:
@@ -2153,9 +2195,15 @@ def _prior_art(plan, out_dir=None):
     ★ AND FALLS BACK TO THE SIDECAR ON DISK, per room, for the third lane: a hand-written plan
     pointed at an existing dungeon with ``--out``. Without the fallback that author would be told,
     on every single compose, that their art carries no fingerprint -- and a warning that fires every
-    time is a warning nobody reads. The sidecar cannot be stale in the direction that matters: emit
-    writes it in the same breath as the art, so a hash that no longer matches means the file changed
-    AFTER the composer wrote it, which is precisely the question being asked."""
+    time is a warning nobody reads.
+
+    ⚠ THE SIDECAR WINS WHERE BOTH HAVE A RECORD, and the first draft had this backwards. ``emit``
+    writes the sidecar in the same breath as the art, so it is the authoritative record of what the
+    composer last painted; a plan can be older (a hand-built dict, a session that has not absorbed).
+    An older record makes the CURRENT placeholder look like a painting, so the pre-write snapshot is
+    taken and copied back afterwards -- reverting the art to the PREVIOUS geometry's placeholder,
+    silently. Since :func:`carry_plan_records` now merges the records forward into whatever the tab
+    stamps, the two agree in every lane; where they cannot, the file that emit wrote is right."""
     from pathlib import Path
 
     def _rooms(d):
@@ -2174,7 +2222,7 @@ def _prior_art(plan, out_dir=None):
                 on_disk = _rooms(load_plan(p))
             except (OSError, ValueError):
                 on_disk = {}
-    return {**on_disk, **_rooms(plan)}
+    return {**_rooms(plan), **on_disk}
 
 
 def emit(composed, out_dir, *, plan=None, log=None, force=False):
@@ -2300,7 +2348,7 @@ def emit(composed, out_dir, *, plan=None, log=None, force=False):
                 raise ComposeError(f"room {room.name}: composed id {room.field_id} but the campaign "
                                    f"allocator assigned {member.new_id}")
             mdir = out / room.name
-            merged, kept, retaken = merge_room(room.toml, existing.get(room.name))
+            merged, kept, retaken, removed = merge_room(room.toml, existing.get(room.name))
             (out / member.toml_rel).write_text(_model.dumps(merged), encoding="utf-8", newline="\n")
             _if.write_walkmesh_obj(room.verts, room.faces, mdir / "walkmesh.obj")
             tris = [(room.verts[a], room.verts[b], room.verts[c]) for a, b, c in room.faces]
@@ -2342,6 +2390,12 @@ def emit(composed, out_dir, *, plan=None, log=None, force=False):
                     f"room {room.name}: regenerated {', '.join('[' + k + ']' for k in retaken)} over "
                     f"what was on disk -- the composer derives these from the plan and owns them, so "
                     f"an edit made there does not survive a recompose (move it into the plan)")
+            if removed:
+                warnings.append(
+                    f"room {room.name}: removed the composed door(s) {', '.join(removed)} -- the "
+                    f"plan no longer wires them. (If you HAND-drew one of these, rename it: the "
+                    f"'{COMPOSER_GATEWAY_PREFIX}' prefix is the composer's own and it re-derives "
+                    f"every row that carries it.)")
             # ★ THE GATE THE MERGE IS CONDITIONED ON. Only PRESERVED content is judged, and only
             # against the composer's OWN trigger quads: what this compose minted was already gated
             # by G4/G8/G10 inside `compose`, and a hand-drawn door is the author's business.

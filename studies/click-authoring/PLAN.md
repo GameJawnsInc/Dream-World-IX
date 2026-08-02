@@ -589,10 +589,42 @@ works until you open it in the tab.
   to merge into — and it still fires before a byte is written (`new_campaign` rebuilds the manifest
   and `add_field` scaffolds each member OVER the room dir, so the old toml AND the old art are gone
   by the time the room is rewritten; everything the merge needs is read first).
-  Fenced: 11 new in `tests/test_floorplan.py` + 1 in `tests/test_workspace_floorplan.py` (the tab's
-  round trip carries the art record). **Seven were verified RED against the exact bug each exists to
-  catch** — no merge at all, fingerprinting the disk instead of the paint, merge-by-name, no gate,
-  a gate that reads `zone`, a per-file art-frame check, and `art` added to the tab's `_ROOM_OWNED`.
+  ★ **AND AN ADVERSARIAL PASS OVER THE MERGE FOUND THE LAST BULLDOZER, one level up and outside
+  everything the merge could see: THE TAB'S OWN STAMP OVER `floorplan.json`.** `on_compose` writes
+  `plan()` over the sidecar a moment before the verb reads that same file, and `plan()` is rebuilt
+  from the in-memory session — `{name, poly}` for a session drawn in the tab. So BOTH records `emit`
+  writes in order to read back were destroyed a moment before it read them: the `art` fingerprint
+  (every tab recompose repainted over painted art while printing *"from this compose on, art you
+  paint over it survives"* — forever) **and the pinned room `id`, which means 7c's own
+  `own_pinned_ids` fix was real and unreachable from the GUI: a tab recompose silently RENUMBERED an
+  already-deployed dungeon.** Fixed at both ends because they cover different states —
+  `carry_plan_records` makes the write merge (by exclusion, matched by name, a deleted room still
+  goes) and `_absorb_records` takes the ids back into the session so the tab's judge stops painting
+  ids the verb will not use. ★ **AND THE FENCE FOR ONE HID THE OTHER:** with the absorb in place the
+  session carries the ids, so removing the carry left the draw→compose→compose test GREEN; the
+  second fence drives the state absorbing cannot reach — a session that never saw the records, which
+  in this repo is ordinary (another session composed the same dungeon).
+  Four more from the same pass, all in the new gate: `[[sps]] pos` is `[x, y, z]` so it read the
+  HEIGHT as the depth; `[[gauge]]`/`[[numeric_input]]` positions are screen px and were judged as
+  world, firing forever; `_prior_art` let a STALE plan-side record beat the sidecar, which makes the
+  composer mistake its own previous placeholder for a painting and restore it over the new one; and
+  **off-mesh was called unreachable, contradicting the kit's own measured rule** — a normal FF9 NPC
+  stands against the back wall past the floor edge (the hut oracle, Vivi ~100u out), so the gate now
+  spends `build._validate_content_placement`'s own `2 × R_OBJ` talk reach.
+  Fenced: 17 new in `tests/test_floorplan.py` + 3 in `tests/test_workspace_floorplan.py`. **Thirteen
+  verified RED against the exact bug each exists to catch** — no merge at all, fingerprinting the
+  disk instead of the paint, merge-by-name, no gate, a gate that reads `zone`, a per-file art-frame
+  check, `art` in the tab's `_ROOM_OWNED`, no exception-path copy-back, no landing-point read, no
+  tab-side carry, a carry that keeps a deleted room, a carry that lets the old poly win, sps read as
+  `[x, y]`, screen-space judged as world, any overhang called unreachable, a silent door removal,
+  and a stale plan record winning.
+  **Known and NOT fixed here, all pre-existing and named so they are not mistaken for covered:**
+  `new_campaign` rebuilds `campaign.toml` from an empty plan, so a campaign's shared `[[flag]]`s do
+  not survive a recompose; `walkmesh.obj` is overwritten unconditionally and cannot be reported
+  (`retaken` compares TOML tables and `[walkmesh]` is a constant `{obj = "walkmesh.obj"}`); a room
+  renamed or dropped in the plan leaves its whole directory orphaned on disk, unwired rather than
+  deleted; a sibling `<room>.scene.toml` still overrides every spatial table the recompose wrote;
+  and the position scan is flat, so a nested row like `[siege.base] pos` is never judged.
 - **7d ★ BUILT 2026-08-01, ⚠ offline only** — `build_surface_from_project` + Place's predicate
   flipped. The refusal WAS one branch (`donor_field_id(data) is None`) and it tested PROVENANCE,
   not geometry: a surface needs a CAMERA and a WALKMESH, and a novel field has both exactly — a
