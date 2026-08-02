@@ -93,3 +93,56 @@ missed hills are gone.
 - **PLUMBING** → fix or stop, no verdict.
 
 One round, one mechanism (the walk-visibility tag). Scored on the owner's verdict.
+
+---
+
+## BUILD (2026-08-01): GATES GREEN on both suites after nine measured iterations
+
+Terminal form: 376 whole lawn tris + 330 pieces of 210 boundary-sliced tris tagged
+4078 (L-rule); C-rule empty — **THE HEM LIFT** (200 carried walkable verts below the
+lawn raised to exactly 3.2, rock/bench-weld verts locked) dissolved the DEAD-UNDER
+class into coincidence instead. The T-sweep converges 333→37→5→1; watertight 2
+residual of 4,823 (0.0415% vs stock's own 2.8-6.8%), TEAR 0, inline walkability 0/0,
+census MISS=0. **Walk gates 4/4**: 0 stacked-walkable beyond the 0.3 visibility
+threshold (strict-interior census — a shared boundary LINE is not a stack; declared
+freedoms resolved), 0 SUNKEN on trajectories through the pin + every measured cluster
++ the curtain locus, 0 dead-band stalls, walkers climb the rim.
+
+The iteration ladder — every step forced by a measured artifact, none by conjecture:
+1. **Lip-pair line dedup** — the carried boundary carries BOTH lips of donor-border
+   pairs; two near-identical slice lines minted 0.006u sliver tears.
+2. **THE ISO LINES** — the coverage silhouette is not only mesh once-edges: where a
+   carried tri plunges through the lawn plane, the boundary is the iso-curve
+   `carried_y = lawn + 0.05` inside that tri (the first gate run's missed class).
+3. **Edge-bucket canonicalization** — crossing points grouped PER ORIGINAL EDGE
+   (keyed by corner pair) so every owner applies the identical map; polygon-local
+   merging was inconsistent across neighbors, and free-radius snapping dragged
+   points off their host edges and fed the sweep a cascade.
+4. **Sweep-fan max-min apex** — the T-sweep's corner-apex fan minted zero-area flaps
+   when a tri carried insertions on two edges (230 degenerate facets; the lawn was
+   never heavily swept before). 3D area keeps steep wall tris first-class.
+5. **THE HEM LIFT** (above) + iso-hug suppression (post-lift, each hem tri's iso
+   hugs its own base edge within centimeters — near-coincident line pairs the sweep
+   can neither merge nor conform).
+6. **THE LOCAL-ARRANGEMENT CLOSURE** — the forest blob's rim is closed by vertical
+   CURTAIN faces (3 plan-owners, never once-edges), invisible to boundary
+   extraction; mixed-coverage recs are re-sliced by their local covering tris' own
+   edge lines (the boundary is a subset of those by construction).
+7. **Exact-overlap eligibility** — point sampling cannot decide closure eligibility:
+   a covered SLIVER 0.05u wide at 1.56u depth hid from pulled samples while
+   boundary-conformal pieces false-fired vert tests (the 140-rec sweep flood). The
+   predicate clips each covering tri against the rec and tests deep cover over the
+   actual overlap polygon.
+8. **Float-scale closure radii** — the closure's genuine features are hair-thin (the
+   blob rim runs ~0.05 off a lawn edge, a true walkable-under hair the walkers hit);
+   a 0.06 corner capture collapsed exactly the piece that must survive and be
+   tagged. Its lip-pair scale went to the line set instead.
+9. **THE KNOT WELD** — hair-tip fragments knot where the hair tapers into the blob
+   corner (one 5-edge micro-knot in a 0.1u disc = all 10 "tear pairs"); sub-0.15u
+   once-edge endpoint clusters weld to their carried anchor. No healthy edge class
+   is that short.
+
+Deployed to the bench at gates-green; the pre-deploy backup is stamped by the deploy
+tail. Post-deploy identity vs the built dump verified. **Now awaiting the owner's
+playtest** — the prediction stands as registered: the eye sees THE OVERLAY
+(twice-passed), the feet get stock semantics.

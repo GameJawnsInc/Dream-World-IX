@@ -1499,6 +1499,7 @@ def main() -> int:
         return False
 
     out_z = []
+    sliced_z = []
     n_tag_z = n_mix_z = 0
     for rec, blk in final:
         if blk is None or _topo_u(rec) not in GRASS_TOPO:
@@ -1581,9 +1582,21 @@ def main() -> int:
                 pa9 = (t3c[a9][0], t3c[a9][2])
                 pb9 = (t3c[b9][0], t3c[b9][2])
                 dLZ = math.hypot(pb9[0] - pa9[0], pb9[1] - pa9[1])
-                if dLZ > 1e-6:
-                    linesZ.append((pa9, ((pb9[0] - pa9[0]) / dLZ,
-                                         (pb9[1] - pa9[1]) / dLZ)))
+                if dLZ < 1e-6:
+                    continue
+                dZ = ((pb9[0] - pa9[0]) / dLZ, (pb9[1] - pa9[1]) / dLZ)
+                # lip-pair dedup, local form: skip a line whose segment lies
+                # within 0.05 of an accepted line (the donor twin lips are in
+                # the local edge set too)
+                dupZ = False
+                for (oQ, dQ) in linesZ:
+                    daQ = abs((pa9[0] - oQ[0]) * dQ[1] - (pa9[1] - oQ[1]) * dQ[0])
+                    dbQ = abs((pb9[0] - oQ[0]) * dQ[1] - (pb9[1] - oQ[1]) * dQ[0])
+                    if daQ < 0.05 and dbQ < 0.05:
+                        dupZ = True
+                        break
+                if not dupZ:
+                    linesZ.append((pa9, dZ))
         piecesZ = [[(r[0][0], r[0][2]) for r in rec]]
         for (o9, d9) in linesZ:
             nxtZ = []
@@ -1593,23 +1606,85 @@ def main() -> int:
                     if len(partZ) >= 3 and poly_area2(partZ) > 1e-4:
                         nxtZ.append(partZ)
             piecesZ = nxtZ
+        out_z.append(("__Z__", len(sliced_z)))
+        sliced_z.append((rec, blk, piecesZ))
+    # canonicalize the closure's crossing points on their host edges (the same
+    # edge-bucket rule as the main pass -- the last tear pairs were float-close
+    # closure points on shared edges), then emit at the parents' positions
+    ebz = defaultdict(set)
+    for rec, _b, piecesZ in sliced_z:
+        csz = [(r[0][0], r[0][2]) for r in rec]
+        for pgZ in piecesZ:
+            for p in pgZ:
+                if p in (csz[0], csz[1], csz[2]):
+                    continue
+                for i9 in range(3):
+                    a9, b9 = csz[i9], csz[(i9 + 1) % 3]
+                    L9 = math.hypot(b9[0] - a9[0], b9[1] - a9[1])
+                    if L9 < 1e-9:
+                        continue
+                    dp9 = abs((b9[0] - a9[0]) * (p[1] - a9[1])
+                              - (b9[1] - a9[1]) * (p[0] - a9[0])) / L9
+                    if dp9 <= 1e-3:
+                        t9 = ((p[0] - a9[0]) * (b9[0] - a9[0])
+                              + (p[1] - a9[1]) * (b9[1] - a9[1])) / (L9 * L9)
+                        if -1e-6 <= t9 <= 1 + 1e-6:
+                            ebz[tuple(sorted((a9, b9)))].add(p)
+                            break
+    # FLOAT-scale radii only (0.01): the closure's genuine features are hair-thin
+    # (the blob rim runs ~0.05 off a lawn edge -- a 0.06 corner capture collapsed
+    # exactly the covered hair that must survive and be tagged); the lip-pair
+    # scale is handled at the line set, not here
+    snapz = {}
+    for (ea9, eb9), ptsz in ebz.items():
+        plz = sorted(ptsz, key=lambda p: ((p[0] - ea9[0]) * (eb9[0] - ea9[0])
+                                          + (p[1] - ea9[1]) * (eb9[1] - ea9[1])))
+        gz, cz2 = [], []
+        for p in plz:
+            if cz2 and math.hypot(p[0] - cz2[-1][0], p[1] - cz2[-1][1]) > 0.01:
+                gz.append(cz2)
+                cz2 = []
+            cz2.append(p)
+        if cz2:
+            gz.append(cz2)
+        for g9 in gz:
+            cand9 = min(g9)
+            for c9 in (ea9, eb9):
+                if any(math.hypot(p[0] - c9[0], p[1] - c9[1]) <= 0.01 for p in g9):
+                    cand9 = c9
+                    break
+            for p in g9:
+                snapz[p] = cand9
+    emitz = [[] for _sz in sliced_z]
+    for zi9, (rec, blk, piecesZ) in enumerate(sliced_z):
         cornersZ = {(r[0][0], r[0][2]): r for r in rec}
         for pgZ in piecesZ:
+            spz = []
+            for p in pgZ:
+                q9 = snapz.get(p, p)
+                if not spz or (abs(spz[-1][0] - q9[0]) > 1e-9
+                               or abs(spz[-1][1] - q9[1]) > 1e-9):
+                    spz.append(q9)
+            while len(spz) > 2 and (abs(spz[0][0] - spz[-1][0]) < 1e-9
+                                    and abs(spz[0][1] - spz[-1][1]) < 1e-9):
+                spz.pop()
+            if len(spz) < 3 or poly_area2(spz) < 1e-3:
+                continue
             bZ = (-1.0, 0)
-            for aZ in range(len(pgZ)):
+            for aZ in range(len(spz)):
                 mnZ = None
-                for qZ in range(len(pgZ) - 2):
-                    iZ = (aZ + 1 + qZ) % len(pgZ)
-                    jZ = (aZ + 2 + qZ) % len(pgZ)
-                    arq = abs((pgZ[iZ][0] - pgZ[aZ][0]) * (pgZ[jZ][1] - pgZ[aZ][1])
-                              - (pgZ[jZ][0] - pgZ[aZ][0]) * (pgZ[iZ][1] - pgZ[aZ][1]))
+                for qZ in range(len(spz) - 2):
+                    iZ = (aZ + 1 + qZ) % len(spz)
+                    jZ = (aZ + 2 + qZ) % len(spz)
+                    arq = abs((spz[iZ][0] - spz[aZ][0]) * (spz[jZ][1] - spz[aZ][1])
+                              - (spz[jZ][0] - spz[aZ][0]) * (spz[iZ][1] - spz[aZ][1]))
                     mnZ = arq if mnZ is None else min(mnZ, arq)
                 if mnZ is not None and mnZ > bZ[0]:
                     bZ = (mnZ, aZ)
-            pgZ = pgZ[bZ[1]:] + pgZ[:bZ[1]]
-            vrZ = [_piece_vert(rec, cornersZ, p[0], p[1]) for p in pgZ]
-            cxq = sum(p[0] for p in pgZ) / len(pgZ)
-            czq = sum(p[1] for p in pgZ) / len(pgZ)
+            spz = spz[bZ[1]:] + spz[:bZ[1]]
+            vrZ = [_piece_vert(rec, cornersZ, p[0], p[1]) for p in spz]
+            cxq = sum(p[0] for p in spz) / len(spz)
+            czq = sum(p[1] for p in spz) / len(spz)
             cyq = _piece_vert(rec, cornersZ, cxq, czq)[0][1]
             if _surf_over(cov9u, cxq, czq, cyq):
                 vrZ = _tag(vrZ)
@@ -1621,8 +1696,14 @@ def main() -> int:
                           * (vrZ[q9][0][2] - vrZ[0][0][2]))
                 if arZ < 1e-9:
                     continue
-                out_z.append(([vrZ[0], vrZ[q9], vrZ[q9 + 1]], blk))
-    final = out_z
+                emitz[zi9].append(([vrZ[0], vrZ[q9], vrZ[q9 + 1]], blk))
+    out_zf = []
+    for item9 in out_z:
+        if item9[0] == "__Z__":
+            out_zf.extend(emitz[item9[1]])
+        else:
+            out_zf.append(item9)
+    final = out_zf
     print(f"   local-arrangement closure: {n_mix_z} mixed lawn recs re-sliced, "
           f"{n_tag_z} covered recs/pieces tagged")
 
@@ -1891,6 +1972,61 @@ def main() -> int:
     if n_tag_z:
         print(f"   post-sweep re-classification: {n_tag_z} residual covered lawn "
               f"recs tagged 4078")
+
+    # THE KNOT WELD: hair-tip fragments knot where a hair-overlap tapers into a
+    # carried corner (measured: ONE 5-edge micro-knot in a 0.1u disc at
+    # (440,-499.4) = all 10 "tear pairs"). Weld clusters of sub-0.15u once-edge
+    # endpoints to their carried anchor (else the min vert) -- sub-0.1u plan moves
+    # on flat lawn, zero visual, and no healthy edge class is that short. kk-tuple
+    # positions keep every other owner's edge keys consistent.
+    ecK = defaultdict(int)
+    for rec, _b in final:
+        ksK = [kk(r[0]) for r in rec]
+        for a9, b9 in ((0, 1), (1, 2), (2, 0)):
+            ecK[tuple(sorted((ksK[a9], ksK[b9])))] += 1
+    carriedK = {kk(r[0]) for rec, b9 in final if b9 is None for r in rec}
+    knotV = set()
+    for (ka9, kb9), n9 in ecK.items():
+        if n9 == 1 and math.dist(ka9, kb9) < 0.15:
+            knotV.add(ka9)
+            knotV.add(kb9)
+    knotV = sorted(knotV)
+    parentK = {v9: v9 for v9 in knotV}
+
+    def _fk(v9):
+        while parentK[v9] != v9:
+            parentK[v9] = parentK[parentK[v9]]
+            v9 = parentK[v9]
+        return v9
+    for i9 in range(len(knotV)):
+        for j9 in range(i9 + 1, len(knotV)):
+            if math.dist(knotV[i9], knotV[j9]) <= 0.1:
+                ra9, rb9 = _fk(knotV[i9]), _fk(knotV[j9])
+                if ra9 != rb9:
+                    parentK[ra9] = rb9
+    clK = defaultdict(list)
+    for v9 in knotV:
+        clK[_fk(v9)].append(v9)
+    vmapK = {}
+    for grp9 in clK.values():
+        if len(grp9) < 2:
+            continue
+        anc9 = next((v9 for v9 in grp9 if v9 in carriedK), min(grp9))
+        for v9 in grp9:
+            if v9 != anc9:
+                vmapK[v9] = anc9
+    if vmapK:
+        out_k = []
+        n_dropK = 0
+        for rec, blk in final:
+            nr9 = [(vmapK.get(kk(r[0]), r[0]), r[1], r[2], r[3]) for r in rec]
+            if len({kk(r[0]) for r in nr9}) == 3:
+                out_k.append((nr9, blk))
+            else:
+                n_dropK += 1
+        final = out_k
+        print(f"   knot weld: {len(vmapK)} hair-tip verts welded to their "
+              f"anchors, {n_dropK} collapsed micro-tris dropped")
 
     # ---- gates ------------------------------------------------------------------------------
     fails = []
