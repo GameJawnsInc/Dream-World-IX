@@ -1521,3 +1521,95 @@ def test_a_room_too_wide_even_to_scroll_is_refused_and_told_to_split():
     assert rng[0] == F.SCROLL_RANGE_CAP and scrolling
     sev, msg = F.legibility_problem("HUGE", cam, poly)
     assert sev == "error" and "split" in msg.lower()
+
+
+# ------------------------------------------------------------------ 7c: recompose is not a bulldozer
+
+# What the Place tab / the Editor forms write into a room -- i.e. the content a recompose must not
+# silently eat. Kept as module constants so no shell/heredoc escaping layer can mangle them.
+_NPC_BLOCK = '\n[[npc]]\nname = "GUARD"\nmodel = "guard"\npos = [0, 0]\nface = 0\n'
+_CHEST_BLOCK = '\n[[chest]]\nitem = "potion"\n'
+
+def test_recompose_refuses_rather_than_destroying_hand_authored_content(tmp_path):
+    """★ THE BUG THAT MADE "INTEROPERABLE" MEANINGLESS. `emit` is an unconditional write per room,
+    so composing a dungeon, adding an `[[npc]]` -- exactly what the Place tab and the Editor forms
+    write -- and recomposing the UNCHANGED plan left no npc, no error, no warning, exit 0.
+
+    Any click surface built over a composed room was writing into a file the next Compose deleted."""
+    plan = _plan()
+    F.compose_and_emit(plan, tmp_path, log=None)
+    room = next(p for p in (tmp_path / "HALL").glob("*.field.toml"))
+    room.write_text(room.read_text(encoding="utf-8")
+                    + _NPC_BLOCK, encoding="utf-8")
+
+    with pytest.raises(F.ComposeError) as e:
+        F.compose_and_emit(plan, tmp_path, log=None)
+    assert "HALL" in str(e.value) and "npc" in str(e.value)
+    assert "GUARD" in room.read_text(encoding="utf-8"), "the refusal still ate the content"
+
+    F.compose_and_emit(plan, tmp_path, log=None, force=True)          # force is the escape hatch
+    assert "GUARD" not in room.read_text(encoding="utf-8")
+
+
+def test_the_drift_check_runs_before_anything_is_written(tmp_path):
+    """A refusal that fires halfway through is not a refusal. `new_campaign` rebuilds the manifest
+    and `add_field` scaffolds each member, so the check has to precede all of it -- otherwise the
+    author is left with a half-rewritten campaign AND the error."""
+    plan = _plan()
+    F.compose_and_emit(plan, tmp_path, log=None)
+    camp = (tmp_path / "campaign.toml").read_text(encoding="utf-8")
+    room = next(p for p in (tmp_path / "HALL").glob("*.field.toml"))
+    room.write_text(room.read_text(encoding="utf-8") + _CHEST_BLOCK, encoding="utf-8")
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    with pytest.raises(F.ComposeError):
+        F.compose_and_emit(plan, tmp_path, log=None)
+    after = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    assert before == after, "the refusal still touched the tree"
+    assert (tmp_path / "campaign.toml").read_text(encoding="utf-8") == camp
+
+
+def test_the_composer_owns_exactly_the_tables_it_emits():
+    """★ THE LIST IS FENCED AGAINST THE COMPOSER'S OWN OUTPUT. `COMPOSER_OWNED_TABLES` decides what
+    counts as "the human's"; if the composer learns to emit a new table and the list is not updated,
+    every recompose would start refusing on its OWN output -- and if a table is wrongly listed as
+    owned, hand-authored content in it gets silently destroyed. Either way the failure is invisible
+    without this."""
+    c = F.compose(_plan(rooms=[{"name": "R", "poly": ROOM_A, "savepoint": True,
+                                "encounter": {"scene": 1}}], doors=[]))
+    emitted = set(c.by_name("R").toml)
+    assert emitted <= F.COMPOSER_OWNED_TABLES, (
+        f"the composer emits {sorted(emitted - F.COMPOSER_OWNED_TABLES)}, which it does not claim "
+        f"to own -- a recompose would refuse on its own output")
+
+
+def test_a_freshly_composed_room_shows_no_drift(tmp_path):
+    """The complement, and the one that would catch an over-broad owned-list turning every second
+    compose into a refusal."""
+    F.compose_and_emit(_plan(), tmp_path, log=None)
+    c = F.compose(_plan())
+    assert F.emit_drift(c, tmp_path) == {}
+
+
+def test_the_ids_are_pinned_so_a_recompose_cannot_renumber_deployed_rooms(tmp_path):
+    """★ `cli`'s pre-flight seeds `taken` from the LIVE DictionaryPatch registrations -- which
+    include this dungeon's own already-deployed rooms -- so a plain recompose could shuffle the run
+    onto the next free block, invalidating every `deploy_field.py --id N` the author wrote down,
+    every external gateway aimed at these rooms, and the New Game wiring."""
+    import json
+    F.compose_and_emit(_plan(), tmp_path, log=None)
+    side = json.loads((tmp_path / F.SIDECAR).read_text(encoding="utf-8"))
+    pinned = [r.get("id") for r in side["rooms"]]
+    assert all(isinstance(i, int) for i in pinned), f"ids not pinned: {pinned}"
+
+    # ★ AND A DUNGEON DOES NOT COLLIDE WITH ITSELF. The live pre-flight reports our own deployed
+    # rooms as taken; `own_pinned_ids` is what lets the caller subtract them. Without that step the
+    # pin turns the old silent renumbering into a hard refusal -- which this fence caught.
+    own = F.own_pinned_ids(tmp_path)
+    assert own == set(pinned)
+    live = set(pinned) | {31234}                     # our rooms, plus somebody else's field
+    again = F.compose(side, taken_ids=tuple(live - own))
+    assert [r.field_id for r in again.rooms] == pinned, "a recompose renumbered its own rooms"
+
+    with pytest.raises(F.ComposeError):              # a REAL collision must still be refused
+        F.compose(side, taken_ids=tuple(live))
+    assert F.own_pinned_ids(tmp_path / "nope") == set(), "no sidecar must claim nothing"

@@ -504,9 +504,27 @@ works until you open it in the tab.
   spike). 960 is inside FF9's own shipped envelope but has never been walked HERE** — and a room
   needing more than 768 goes straight to 960, so the first scrolling room an author composes may
   well be the unproven width. Walk one 768 room and one 960 room before trusting either.
-- **7c** — non-destructive `emit` (refuse-on-drift) + pin room ids into the sidecar on first compose
-  (the CLI pre-flight at `cli.py:1543` reads LIVE registrations, so it can renumber your own
-  already-deployed rooms).
+- **7c ★ BUILT 2026-07-31** — `emit` refuses rather than bulldozing, and the ids are pinned.
+  `authored_tables` PARSES a room's field.toml (a `[[npc]]` inside a string would fool a grep) and
+  reports every top-level table outside `COMPOSER_OWNED_TABLES`; `emit` refuses naming the rooms
+  and the tables, `force=True` / `--force` discards. Verified end to end through the CLI on the
+  owner's own dungeon: add an `[[npc]]`, recompose → refused, exit 2, content intact.
+  ★ **THE CHECK RUNS BEFORE ANYTHING IS WRITTEN** — `new_campaign` rebuilds the manifest and
+  `add_field` scaffolds each member, so a refusal firing halfway through would leave a
+  half-rewritten campaign AND an error. Fenced by byte-comparing the whole tree across a refusal.
+  ★ **`COMPOSER_OWNED_TABLES` IS FENCED AGAINST THE COMPOSER'S OWN OUTPUT.** If the composer learns
+  to emit a new table and the list is not updated, every recompose starts refusing on its own
+  output; if a table is wrongly listed as owned, hand-authored content in it is destroyed silently.
+  Both are invisible without the fence.
+  ★ **A DUNGEON DOES NOT COLLIDE WITH ITSELF** — and this one a fence caught. Pinning the ids alone
+  turned the old *silent renumbering* into a *hard refusal*, because the pre-flight reads the LIVE
+  registrations and those include this dungeon's own deployed rooms. `own_pinned_ids` reads the
+  previous sidecar and the CLI subtracts it, so our rooms are ours and a real third-party collision
+  is still refused. (`deploystack.check_id_collisions` already draws the same distinction for its
+  own target folder.)
+  **Next rung, per the owner's decision: MERGE.** The composer regenerates only the tables it owns
+  and preserves the rest; precedent is `build._merge_scene` (:156). Gate it on a compose-time
+  warning naming any preserved object that is no longer standable after a reshape.
 - **7d** — `build_surface_from_project` + flip Place's predicate. **The refusal is ONE branch**
   (`placedoc.py:461`, `donor_field_id(data) is None`) and it is about PROVENANCE, not geometry — a
   composed room has an exact camera and a real walkmesh, which is all Place needs. Unblocks

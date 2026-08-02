@@ -1860,7 +1860,69 @@ def save_plan(plan, path):
 
 # ------------------------------------------------------------------ emit to disk
 
-def emit(composed, out_dir, *, plan=None, log=None):
+# The tables `compose` MINTS and therefore owns. Everything else in a room's field.toml arrived
+# from a human -- the Place tab, the Editor forms, a text editor -- and a recompose has no business
+# touching it. Kept as data, and fenced against `compose`'s own output, so the day the composer
+# learns to emit a new table this list goes red instead of silently starting to own it.
+COMPOSER_OWNED_TABLES = frozenset({
+    "field", "camera", "walkmesh", "layers", "player", "gateway", "encounter", "savepoint",
+})
+
+
+def authored_tables(toml_text):
+    """The top-level tables in a room's field.toml that the composer does NOT own -- i.e. what a
+    human put there. Parsed, not grepped: a `[[npc]]` inside a string would fool a text scan."""
+    import tomllib
+    try:
+        data = tomllib.loads(toml_text)
+    except Exception:                                # noqa: BLE001 -- an unparseable room is drift
+        return ("<unparseable>",)
+    return tuple(sorted(k for k in data if k not in COMPOSER_OWNED_TABLES))
+
+
+def own_pinned_ids(out_dir):
+    """The field ids a previous compose already assigned to THIS dungeon, from its sidecar.
+
+    ★ A DUNGEON DOES NOT COLLIDE WITH ITSELF. The id pre-flight reads the live DictionaryPatch
+    registrations, so the moment the author deploys and then recomposes, their own rooms come back
+    as "taken". Before the ids were pinned that silently renumbered the run; with them pinned it
+    became a hard refusal. Both are the same mistake -- treating our own rooms as somebody else's.
+    Returns an empty set when there is no sidecar, which is the correct answer for a first compose:
+    nothing is ours yet, so every live id really is somebody else's."""
+    from pathlib import Path
+    p = Path(out_dir) / SIDECAR
+    if not p.is_file():
+        return set()
+    try:
+        data = load_plan(p)
+    except (OSError, ValueError):
+        return set()                                 # unreadable: claim nothing, check everything
+    return {int(r["id"]) for r in (data.get("rooms") or []) if isinstance(r.get("id"), int)}
+
+
+def emit_drift(composed, out_dir):
+    """``{room name: (tables,)}`` for every room on disk carrying hand-authored content.
+
+    ★ RECOMPOSE USED TO DESTROY THIS, SILENTLY. `emit` is an unconditional `write_text` per room,
+    so composing a dungeon, adding an `[[npc]]` (which is exactly what the Place tab and the Editor
+    forms write), and recomposing the UNCHANGED plan left no npc, no error, no warning and exit 0.
+    Verified by running it. That is why "make the surfaces interoperable" could not mean anything
+    yet: any click surface built over a composed room writes into a file the next Compose deletes.
+
+    OWNER DECISION 2026-07-31: refuse on drift this rung, merge properly next. Refusing is the
+    honest intermediate -- it costs the author a `--force` and never costs them work."""
+    from pathlib import Path
+    out = Path(out_dir)
+    found = {}
+    for room in composed.rooms:
+        for p in (out / room.name).glob("*.field.toml"):
+            extra = authored_tables(p.read_text(encoding="utf-8"))
+            if extra:
+                found[room.name] = extra
+    return found
+
+
+def emit(composed, out_dir, *, plan=None, log=None, force=False):
     """Write a :class:`Composed` dungeon to disk as a buildable campaign. Returns a summary dict.
 
     Layout, one member directory per room (mandatory -- ``build.FieldProject.path()`` confines every
@@ -1886,6 +1948,22 @@ def emit(composed, out_dir, *, plan=None, log=None):
 
     say = log or (lambda *_a: None)
     out = Path(out_dir)
+
+    # ★ CHECKED BEFORE ANYTHING IS WRITTEN. `new_campaign` rebuilds the manifest and `add_field`
+    # scaffolds each member, so by the time the room tomls are rewritten the damage is already
+    # partly done -- a refusal that fires halfway through is not a refusal, it is a worse outcome
+    # than either finishing or stopping.
+    if not force:
+        drift = emit_drift(composed, out)
+        if drift:
+            rooms = "; ".join(f"{n} ({', '.join(t)})" for n, t in sorted(drift.items()))
+            raise ComposeError(
+                f"these rooms already carry content the composer did not put there: {rooms}. "
+                f"Recomposing rewrites each room's field.toml in full, so that content would be "
+                f"lost -- silently, as it was before this check existed. Re-run with force=True "
+                f"(CLI: --force) if you mean to discard it. Preserving it through a recompose is "
+                f"the next rung's job.")
+
     ids = [r.field_id for r in composed.rooms]
     base = min(ids)
     if ids != list(range(base, base + len(ids))):
@@ -1918,12 +1996,24 @@ def emit(composed, out_dir, *, plan=None, log=None):
     _campaign._save_plan(cplan, out)
 
     if plan is not None:
-        save_plan(plan, out / SIDECAR)
+        # ★ PIN THE IDS THE FIRST TIME. `cli`'s pre-flight seeds `taken` from the LIVE
+        # DictionaryPatch registrations -- which include this dungeon's own already-deployed rooms
+        # -- so a plain recompose could shuffle the whole run onto the next free block. That
+        # invalidates every `deploy_field.py --id N` the author has written down, every external
+        # gateway aimed at one of these rooms, and the New Game wiring. `compose` already honours a
+        # per-room `id`, so writing the assigned ones back makes the second compose reproduce the
+        # first instead of renegotiating with the game install.
+        pinned = dict(plan)
+        by_name = {r.name: r.field_id for r in composed.rooms}
+        pinned["rooms"] = [dict(r, id=by_name[str(r.get("name"))])
+                           if str(r.get("name")) in by_name else dict(r)
+                           for r in (plan.get("rooms") or [])]
+        save_plan(pinned, out / SIDECAR)
     return {"campaign": out / "campaign.toml", "rooms": len(composed.rooms),
             "ids": ids, "sidecar": (out / SIDECAR) if plan is not None else None}
 
 
-def compose_and_emit(plan, out_dir, *, taken_ids=(), log=None):
+def compose_and_emit(plan, out_dir, *, taken_ids=(), log=None, force=False):
     """The whole verb: a plan dict -> a buildable campaign on disk. Raises :class:`ComposeError`."""
     composed = compose(plan, taken_ids=taken_ids)
-    return composed, emit(composed, out_dir, plan=plan, log=log)
+    return composed, emit(composed, out_dir, plan=plan, log=log, force=force)

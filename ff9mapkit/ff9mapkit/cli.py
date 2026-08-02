@@ -1557,8 +1557,23 @@ def _cmd_floorplan(args: argparse.Namespace) -> int:
             print(f"id pre-flight skipped ({type(e).__name__}: {e}) -- ids are UNCHECKED against "
                   f"the live game")
 
+    # ★ THIS DUNGEON'S OWN IDS ARE NOT A COLLISION WITH ITSELF. The pre-flight reads the LIVE
+    # registrations, which include this dungeon's already-deployed rooms -- so once you deploy and
+    # then recompose, your own ids come back as "taken". Before the ids were pinned that silently
+    # renumbered the whole run onto the next free block (invalidating every `deploy_field.py --id N`
+    # you had written down, every gateway aimed at these rooms, and the New Game wiring); with them
+    # pinned it became a hard refusal instead. Both are wrong for the same reason.
+    # `deploystack.check_id_collisions` already draws this distinction for its own target folder.
+    # The previously-emitted sidecar is the record of which ids are ours.
+    own = floorplan.own_pinned_ids(out)
+    if own & taken:
+        print(f"id pre-flight: {len(own & taken)} of those are this dungeon's own already-deployed "
+              f"room(s) -- not a collision with itself")
+        taken -= own
+
     try:
-        composed, wrote = floorplan.compose_and_emit(plan, out, taken_ids=taken, log=print)
+        composed, wrote = floorplan.compose_and_emit(plan, out, taken_ids=taken, log=print,
+                                                     force=bool(getattr(args, "force", False)))
     except floorplan.ComposeError as e:
         print(f"the floorplan cannot become a legal dungeon ({len(e.problems)} problem(s)):",
               file=sys.stderr)
@@ -6743,6 +6758,10 @@ def build_parser() -> argparse.ArgumentParser:
     fp.add_argument("--no-preflight", action="store_true", dest="no_preflight",
                     help="skip reading the live DictionaryPatch stack (offline; ids are then unchecked "
                          "against what is already registered)")
+    fp.add_argument("--force", action="store_true",
+                    help="recompose over rooms that carry hand-authored content ([[npc]], [[prop]], "
+                         "[[event]], [[chest]]...), DISCARDING it. Without this, a recompose that "
+                         "would destroy authored content refuses and names the rooms.")
     fp.set_defaults(func=_cmd_floorplan)
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")

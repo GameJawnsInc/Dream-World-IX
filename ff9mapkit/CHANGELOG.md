@@ -220,6 +220,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   out cut off at the edge. Measured on the dungeon that found it: 2.57% and 2.87% of
   painted pixels fell outside the walkable area; now none do.
 
+### Fixed — recomposing a floorplan silently destroyed anything you had added to its rooms
+- Composing a dungeon writes one field file per room. Adding an NPC, a chest or an event
+  to one of those rooms — which is what the Place tab and the editor forms do — and then
+  recomposing the *unchanged* plan deleted it. No error, no warning, and the command
+  reported success.
+- Recomposing now refuses when a room carries anything the composer did not put there,
+  and says which rooms and which content. `--force` recomposes anyway and discards it.
+  Preserving that content through a recompose, rather than refusing, is the next step.
+- The check runs before anything is written, so a refusal leaves the campaign exactly as
+  it was rather than half-rewritten.
+- **A dungeon no longer collides with itself.** Room ids are recorded when a dungeon is
+  first composed, and the check that guards against clashing with fields already in your
+  game now knows which of those are your own rooms. Previously, deploying a dungeon and
+  then recomposing it renumbered every room — invalidating the deploy commands you had
+  written down, any gateway pointing into it, and the New Game wiring.
+
 ### Added — a room too wide for one screen now scrolls, and one too big to render is refused
 - FF9 fields can be painted wider than the screen and pan to follow the player, and the
   toolkit has supported that for a while — but the floorplan composer always emitted a
