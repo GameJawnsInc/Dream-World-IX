@@ -220,3 +220,29 @@ change-class gate replaces additive-only (diffs confined to tris containing the
 9 moved cut verts, the 8 re-skinned quads, and the 16 deleted ground-curtain
 tris); if the inline climb gate fires on tuck side edges, the treatment is
 DECLARED here in an amendment before deploy, never silently.
+
+## PLAYTEST 2 (2026-08-02) — ★ ROUND CLOSED, owner-confirmed
+
+*"that did the trick, walk-colliding, camera-following, no seam mountain all the
+way around. i gave the terrace a spot check as well."* P1r2-P4r2 ALL CONFIRMED
+(the tuck reads as the wall's own foot; the cliff re-skin closed the crossings;
+walk and camera clean; the terrace spot-checked good). The V-shore arc that
+opened with the floating-wall screenshots is DONE: underlay → camera order →
+curtain grammar → tuck + cliff re-skin, each rung owner-scored.
+
+**ONE NEW ITEM, noted for investigation (not a regression of this round's
+predictions — a walk TRAP):** at **~(376,−509)-(377,−510)**, near one of the
+"vertex corners" of the V-shaped shore wall, the owner got STUCK — could only
+TURN, not move, and could not escape without warping out. Context already in
+hand for the next round: (a) the walk decode says a controlled walker on a
+fully-failed deflection fan STALLS — a spot where every probe direction fails is
+exactly this symptom; (b) walk_gate_fix's gC run showed a STALL cluster at
+(377.2,−502.7) classified acceptable (open_lawn) — ~6u from the trap: **a gate
+accepted what the player experienced as a trap; re-examine gC's classification**
+(the regression-harness lesson, again); (c) the declared-exempt NW hem pair
+(376-380, −500..−504, 0.85u drops over own terrain) and the tuck chain's west
+vert (382.1,−508) both sit nearby; (d) the calibrated offline reproduction tool
+EXISTS — walk_sim's deflection-fan walker at that spot, against the deployed
+bytes (regenerable by full_skirt.py; backup terrace-strip-prewall.20260802-010535
+is the pre-deploy pristine). Reproduce offline FIRST, then decode which surface
+is answering the probes, then register the fix.
