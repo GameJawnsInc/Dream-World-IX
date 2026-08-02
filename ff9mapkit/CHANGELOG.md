@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-transplant --excise`: carry an island whose NEIGHBOUR sits in the way
+- **A multi-block carry is normally refused because of a mass you did not want anyway.** The
+  `land-fit` gate rejects any donor rect where land runs to the frame, since carrying it ships a
+  landmass cropped to a ruler-straight 64u slice ending in mid-air. Measured over disc 1, the
+  disqualifier is almost never the island you are after — it is a *neighbouring* mass clipping one
+  corner. `--excise` drops that neighbour and re-zips deep ocean over its footprint.
+- **The waisted island at donor `(6,6)+2x2`** — the one object in FF9 that reads as an isthmus —
+  goes from `land-fit FAIL` to all gates clean this way.
+- **The fill is exact by construction, not by tolerance.** The dropped assembly's own boundary IS
+  the hole, and every waterline vertex on it is already a vertex of the deep sheet, so the patch
+  reuses them verbatim and introduces no new boundary vertex.
+- **It refuses, with the reason, when it cannot be exact.** If the crossing mass owns a
+  shallow-water ladder of its own, the vacated region does not abut deep sea all the way round;
+  excise says so up front rather than handing back a patch that fails a later gate.
+- New pure-geometry primitives in `world/meshedit.py`: `vertex_components`, `boundary_cycles`,
+  `flat_patch`.
+
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
   composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,

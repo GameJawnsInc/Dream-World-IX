@@ -3463,3 +3463,220 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     from . import discmirror as DM
     DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary
+
+
+# --------------------------------------------------------------------------- excise
+#: sea4's measured UV quadrant vocabulary -- u breaks 0/0.5039/0.9921, v breaks
+#: 0/0.5079/1.0. The quadrant is distributed UNIFORMLY across world-cell parities, i.e.
+#: the anti-tiling choice is free: a patch cannot pick a "wrong" tile.
+SEA4_QUADS = ((0.0, 0.0, 0.5039, 0.5079), (0.5039, 0.0, 0.9921, 0.5079),
+              (0.0, 0.5079, 0.5039, 1.0), (0.5039, 0.5079, 0.9921, 1.0))
+SEA4_IDALL = 228
+
+
+def _plan_centroid(tri):
+    return (sum(v[0][0] for v in tri) / 3.0, sum(v[0][2] for v in tri) / 3.0)
+
+
+def _point_in_poly(p, poly) -> bool:
+    x, z = p
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        ax, az = poly[i]
+        bx, bz = poly[(i + 1) % n]
+        if (az > z) != (bz > z):
+            t = (z - az) / (bz - az)
+            if x < ax + t * (bx - ax):
+                inside = not inside
+    return inside
+
+
+def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=None,
+                land_margin: float = 2.0, parts=PARTS, keep_largest: bool = True):
+    """Plan the EXCISE of every landmass ASSEMBLY that crosses the donor rect frame.
+
+    A multi-block carry is refused by the ``land-fit`` gate whenever a neighbouring mass
+    crosses the rect frame: carrying it ships a mass cropped to a ruler-straight 64u
+    slice of land ending in mid-air. Of 57 disc-1 landmasses only 7 are carryable, and
+    the disqualifier is almost never the island we want -- it is the neighbour. This
+    drops the neighbour and re-zips deep ocean over its footprint.
+
+    Returns ``(tweaks, report)``; the tweaks go straight into
+    :func:`transplant_region`'s ``tweaks=`` in donor WORLD coords.
+
+    THE UNIT IS THE ASSEMBLY, NOT THE LANDMASS. An island owns a shallow water ladder
+    (sea3/sea5, and beach1/sea1/sea2 where present) welded to its coast; dropping the
+    terrain alone would strand that ladder as a ring of shallows around nothing. So the
+    components are taken over every part EXCEPT sea4, which is exactly the deep sheet the
+    fill lands in.
+
+    THE FILL IS EXACT BY CONSTRUCTION, not by tolerance. The dropped assembly's own
+    outer boundary IS the hole, and it was measured to consist entirely of waterline
+    vertices (every one of which is already a sea4 vertex -- 11/11 and 8/8 on the two
+    real cases) plus vertices lying on the rect frame. So the patch reuses those
+    vertices verbatim and introduces no new boundary vertex. *A repair that is not exact
+    is a hole* -- relaxing that last time cost 26 px of visible background.
+
+    The patch lands on sea4 and nowhere else: no land, no land/sea junction, no wall, no
+    walk surface, no height field. It is the one authoring job in this arc that cannot
+    mint a walk trap, and it needs no tone gate because sea4's quadrant choice is free.
+    """
+    from . import meshedit as ME
+
+    dx, dy = int(donor[0]), int(donor[1])
+    nx, ny = int(size[0]), int(size[1])
+    x0, x1 = 64.0 * dx, 64.0 * (dx + nx)
+    z0, z1 = -64.0 * (dy + ny), -64.0 * dy            # z0 < z1
+
+    tagged, sea4 = [], []
+    for by in range(dy, dy + ny):
+        for bx in range(dx, dx + nx):
+            for p in parts:
+                got = world_tris(bx, by, p, disc=disc, lod=lod, game=game)
+                if p == "sea4":
+                    sea4 += got
+                else:
+                    tagged += [(p, t) for t in got]
+
+    comps = ME.vertex_components([t for _, t in tagged])
+    owner = {}
+    for ci, c in enumerate(comps):
+        for t in c:
+            owner[id(t)] = ci
+
+    # CROSSING IS JUDGED ON LAND ONLY, because ``land-fit`` is judged on land only. An
+    # island's shallow ladder (sea3/sea5) legitimately runs out to the rect frame while
+    # its coast sits well inside; testing the whole assembly condemned the very island
+    # being carried and refused a rect that is in fact clean.
+    part_of = {}
+    for p, t in tagged:
+        part_of[id(t)] = p
+    foreign = []
+    for ci, c in enumerate(comps):
+        land_tris = [t for t in c if part_of.get(id(t)) in LAND_PARTS]
+        if not land_tris:
+            continue                                  # a pure water body crosses nothing
+        xs = [v[0][0] for t in land_tris for v in t]
+        zs = [v[0][2] for t in land_tris for v in t]
+        if (min(xs) <= x0 + land_margin or max(xs) >= x1 - land_margin
+                or min(zs) <= z0 + land_margin or max(zs) >= z1 - land_margin):
+            foreign.append(ci)
+    # NO "keep the biggest assembly" exception. The first cut spared component 0 on the
+    # assumption it is the island being carried -- but on a rect that clips a CONTINENT
+    # (Daguerreo's (5,15)+3x2, the Forgotten margin at (4,13)+4x4) the biggest assembly
+    # IS the frame-crosser, so the exception kept the continent and excised the island:
+    # exactly backwards, and it left land-fit still failing on all three verified rects.
+    # Whether a mass crosses the frame is the only criterion; what SURVIVES is then
+    # checked below.
+    kept_ids = [ci for ci in range(len(comps)) if ci not in foreign]
+    if not kept_ids:
+        report = dict(assemblies=[len(c) for c in comps], foreign=list(foreign),
+                      dropped={}, fill_tris=0, rings=0, weld_exact=True,
+                      weld_checked=0, weld_missing=[],
+                      refused="every assembly crosses the frame -- nothing to carry")
+        return [], report
+
+    report = dict(assemblies=[len(c) for c in comps], foreign=list(foreign),
+                  dropped={}, fill_tris=0, rings=0,
+                  weld_exact=True, weld_checked=0, weld_missing=[])
+    if not foreign:
+        return [], report
+
+    sea4_keys = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+                 for t in sea4 for v in t}
+    # Take the sheet's OWN normal and winding rather than inventing them. Sea normals are
+    # a shared byte constant that is not (0,1,0), and stock sea4 winds negative -- a fill
+    # wound the other way renders but is back-facing to the ground raycast (73 introduced
+    # census misses, measured).
+    sea4_normal = tuple(sea4[0][0][1]) if sea4 else (0.0, 1.0, 0.0)
+    sea4_wind = -1.0
+    if sea4:
+        a, b, c = [v[0] for v in sea4[0]]
+        sea4_wind = -1.0 if ((b[0] - a[0]) * (c[2] - a[2])
+                             - (c[0] - a[0]) * (b[2] - a[2])) < 0 else 1.0
+
+    by_part: dict = {}
+    for p, t in tagged:
+        if owner.get(id(t)) in foreign:
+            by_part.setdefault(p, []).append(t)
+    tweaks = []
+    for p, tris in by_part.items():
+        tweaks.append(DropTris(p, tris))
+        report["dropped"][p] = len(tris)
+
+    emitted = []
+    for ci in foreign:
+        rings = ME.boundary_cycles(comps[ci])
+        if not rings:
+            continue
+        # ONLY the outer ring: an interior ring is a hole in the assembly, and filling it
+        # would double-cover. And the ring must be reduced to its PLAN outline first --
+        # a cropped coastal mass's 3D boundary climbs the cliff at the frame slice, so
+        # several boundary verts share one plan position. Projecting all of them
+        # produced a self-overlapping polygon whose ear-clip left 73 introduced census
+        # misses and 13 weld pairs. Collapsing consecutive plan-duplicates turns the
+        # slice back into the straight frame chord it actually is.
+        ring = rings[0]
+        plan, last = [], None
+        for v in ring:
+            key = (round(v[0], 4), round(v[2], 4))
+            if key == last:
+                continue
+            last = key
+            plan.append(v)
+
+        # COLLAPSE THE CROP PROFILE. Where the mass is sliced by the rect frame its
+        # boundary climbs the cliff, and those verts carry cliff-profile x positions at
+        # land height. Flattening them to the waterline drops them a few tenths of a unit
+        # from real sea verts -- near-miss pairs, which IS the hairline-crack gate's whole
+        # subject (13 of them, measured). They are collinear along the frame, so collapse
+        # every run of them to its endpoints. A vertex the sea sheet actually shares is
+        # NEVER collapsed: that one is load-bearing for the exact weld.
+        def _shared(v):
+            return (round(v[0], 4), round(v[1], 4), round(v[2], 4)) in sea4_keys
+
+        keep, n = [], len(plan)
+        for i, v in enumerate(plan):
+            if _shared(v) or abs(v[1]) < 1e-6:
+                keep.append(v)
+                continue
+            a, b = plan[(i - 1) % n], plan[(i + 1) % n]
+            cross = ((v[0] - a[0]) * (b[2] - a[2]) - (v[2] - a[2]) * (b[0] - a[0]))
+            if abs(cross) > 1e-3:                     # a real corner, not a profile step
+                keep.append(v)
+        plan = keep
+        if len(plan) < 3:
+            continue
+        for v in plan:                                # THE EXACTNESS GATE
+            if abs(v[1]) < 1e-6:
+                report["weld_checked"] += 1
+                if (round(v[0], 4), round(v[1], 4), round(v[2], 4)) not in sea4_keys:
+                    report["weld_exact"] = False
+                    report["weld_missing"].append(v)
+        try:
+            emitted += ME.flat_patch(plan, y=0.0, uv_quads=SEA4_QUADS,
+                                     idall=SEA4_IDALL, normal=sea4_normal,
+                                     winding=sea4_wind)
+            report["rings"] += 1
+        except ValueError as e:
+            report.setdefault("skipped_rings", []).append(str(e))
+    report["fill_tris"] = len(emitted)
+
+    # THE CAPABILITY BOUNDARY, ENFORCED RATHER THAN DOCUMENTED. Measured over a
+    # gate-verified sample: excise is clean when the excised mass is a bare land crumb
+    # (terrain only, no ladder of its own) and fails when the mass owns a shallow-water
+    # ladder -- then the vacated region does not abut sea4 all the way round, the fill
+    # cannot weld exactly, and the hairline-crack gate refuses downstream. Refuse HERE
+    # with the reason instead of handing back a fill that will fail later: a caller that
+    # gets tweaks is entitled to assume they are sound.
+    if not report["weld_exact"]:
+        report["refused"] = (
+            f"{len(report['weld_missing'])} waterline vertex/vertices of the excised "
+            "assembly do not lie on the deep sheet -- the mass owns a shallow-water "
+            "ladder, which excise v1 does not re-zip. Choose a rect whose frame-crossing "
+            "mass is a bare land crumb, or extend the fill to rebuild the ladder.")
+        return [], report
+    if emitted:
+        tweaks.append(EmitTris("sea4", emitted))
+    return tweaks, report

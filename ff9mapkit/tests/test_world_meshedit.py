@@ -286,3 +286,170 @@ def test_a_near_but_not_exact_split_would_leave_a_measurable_gap():
     child_area = abs(ME._cross(a, w, (0.0, -4.0))) / 2 + abs(ME._cross(w, b, (0.0, -4.0))) / 2
     parent_area = abs(ME._cross(a, b, (0.0, -4.0))) / 2
     assert abs(child_area - parent_area) > 1e-4     # the sliver gap, not a repair
+
+
+# --------------------------------------------------------------------- excise
+# Registration: studies/coast-shape-language/EXCISE-PREDICTION.md
+
+def _quad(x0, z0, x1, z1, y=0.0):
+    """Two tris covering an axis-aligned rect, wound consistently."""
+    def v(x, z):
+        return ((x, y, z), (0.0, 1.0, 0.0), (0.0, 0.0), (228.0, 0.0, 0.0, 1.0))
+    return [[v(x0, z0), v(x1, z0), v(x1, z1)], [v(x0, z0), v(x1, z1), v(x0, z1)]]
+
+
+def test_vertex_components_separates_masses_that_share_no_vertex():
+    a = _quad(0, 0, 4, 4)
+    b = _quad(100, 0, 104, 4)
+    comps = ME.vertex_components(a + b)
+    assert len(comps) == 2
+    assert sorted(len(c) for c in comps) == [2, 2]
+
+
+def test_vertex_components_keeps_masses_that_touch_together():
+    """Sharing ONE vertex is enough to be one mass -- the drop set must not split it."""
+    a = _quad(0, 0, 4, 4)
+    b = _quad(4, 4, 8, 8)                       # shares exactly the corner (4,0,4)
+    assert len(ME.vertex_components(a + b)) == 1
+
+
+def test_boundary_cycles_finds_a_hole_as_its_own_ring():
+    """A sheet with a hole has TWO cycles: outer frame and the hole."""
+    tris = []
+    for x in range(0, 12, 4):
+        for z in range(0, 12, 4):
+            if (x, z) == (4, 4):                # punch the middle cell
+                continue
+            tris += _quad(x, z, x + 4, z + 4)
+    rings = ME.boundary_cycles(tris)
+    assert len(rings) == 2, [len(r) for r in rings]
+    inner = rings[1]
+    xs = [p[0] for p in inner]
+    zs = [p[2] for p in inner]
+    assert (min(xs), max(xs), min(zs), max(zs)) == (4.0, 8.0, 4.0, 8.0)
+
+
+def test_boundary_cycles_does_not_merge_two_holes_at_a_junction_vertex():
+    """THE JUNCTION FAULT, from both sides.
+
+    Connected components of the boundary GRAPH merge two disjoint cycles that share a
+    single vertex. That error made a real donor rect report "no island hole" when 132 of
+    its 218 boundary verts traced island coast. Cycles must be consumed as EDGES.
+    """
+    tris = []
+    for x in range(0, 16, 4):
+        for z in range(0, 16, 4):
+            if (x, z) in ((4, 4), (8, 8)):      # two holes meeting at corner (8,8)
+                continue
+            tris += _quad(x, z, x + 4, z + 4)
+    rings = ME.boundary_cycles(tris)
+    assert len(rings) == 3, [len(r) for r in rings]      # frame + TWO holes, not one
+    # and a graph-component tracer would have reported 2 -- shown here explicitly
+    import collections
+    cnt = collections.Counter()
+    for t in tris:
+        k = [tuple(round(c, 4) for c in v[0]) for v in t]
+        for i, j in ((0, 1), (1, 2), (2, 0)):
+            cnt[tuple(sorted((k[i], k[j])))] += 1
+    adj = collections.defaultdict(set)
+    for (p, q), c in cnt.items():
+        if c == 1:
+            adj[p].add(q)
+            adj[q].add(p)
+    seen, groups = set(), 0
+    for s in adj:
+        if s in seen:
+            continue
+        groups += 1
+        stack = [s]
+        seen.add(s)
+        while stack:
+            for w in adj[stack.pop()]:
+                if w not in seen:
+                    seen.add(w)
+                    stack.append(w)
+    assert groups == 2                                   # the fault, reproduced
+
+
+def test_flat_patch_reuses_ring_vertices_exactly():
+    """A REPAIR THAT IS NOT EXACT IS A HOLE -- the patch must add no boundary vertex."""
+    ring = [(4.0, 0.0, 4.0), (8.0, 0.0, 4.0), (8.0, 0.0, 8.0), (4.0, 0.0, 8.0)]
+    tris = ME.flat_patch(ring, y=0.0, uv_quads=[(0.0, 0.0, 0.5039, 0.5079)], idall=228)
+    src = {(round(p[0], 9), round(p[2], 9)) for p in ring}
+    for t in tris:
+        for v in t:
+            assert (round(v[0][0], 9), round(v[0][2], 9)) in src
+
+
+def test_flat_patch_is_planar_and_carries_the_idall():
+    ring = [(0.0, 0.0, 0.0), (8.0, 0.0, 0.0), (8.0, 0.0, 8.0), (0.0, 0.0, 8.0)]
+    tris = ME.flat_patch(ring, y=0.0, uv_quads=[(0.0, 0.0, 0.5039, 0.5079),
+                                                (0.5039, 0.0, 0.9921, 0.5079)],
+                         idall=228)
+    assert tris
+    for t in tris:
+        for v in t:
+            assert v[0][1] == 0.0
+            assert int(v[3][0]) == 228
+
+
+def test_flat_patch_uv_stays_inside_its_quadrant():
+    """Free tile choice is not free tile ABUSE: a quad's uv must stay in that quad."""
+    q = (0.5039, 0.5079, 0.9921, 1.0)
+    ring = [(0.0, 0.0, 0.0), (12.0, 0.0, 0.0), (12.0, 0.0, 12.0), (0.0, 0.0, 12.0)]
+    for t in ME.flat_patch(ring, y=0.0, uv_quads=[q], idall=228):
+        for v in t:
+            assert q[0] - 1e-9 <= v[2][0] <= q[2] + 1e-9
+            assert q[1] - 1e-9 <= v[2][1] <= q[3] + 1e-9
+
+
+def test_flat_patch_refuses_an_empty_quadrant_list():
+    with pytest.raises(ValueError, match="uv quadrant"):
+        ME.flat_patch([(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (4.0, 0.0, 4.0)],
+                      y=0.0, uv_quads=[], idall=228)
+
+
+def test_boundary_cycles_emits_exact_floats_not_its_rounding_keys():
+    """NEVER HAND-ROUND GEOMETRY -- round to KEY, emit the exact float.
+
+    Real donor verts are off-lattice floats like 394.003906. A ring that carried the
+    4-decimal key 394.0039 instead landed 4e-6 away: identical to the eye, and 16
+    near-miss pairs to the hairline-crack gate, which is the exact defect class the
+    beach-end saga traced to hand-rounded coordinates.
+    """
+    x = 394.003906                                   # a real off-lattice donor x
+    tris = _quad(x, 0.0, x + 4.0, 4.0)
+    ring = ME.boundary_cycles(tris)[0]
+    assert any(abs(p[0] - x) < 1e-12 for p in ring), ring
+    for p in ring:                                   # nothing may be the rounded key
+        assert not (0 < abs(p[0] - x) < 1e-3)
+
+
+def _plan_cross(t):
+    a, b, c = [(v[0][0], v[0][2]) for v in t]
+    return (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])
+
+
+def test_flat_patch_matches_the_requested_winding():
+    """A patch wound the wrong way renders but is BACK-FACING to the ground raycast.
+
+    Measured: all 1025 stock sea4 tris in a donor rect wind negative; an otherwise-exact
+    fill wound positive scored 73 introduced census misses -- it looked like ocean and
+    registered as void.
+    """
+    ring = [(0.0, 0.0, 0.0), (8.0, 0.0, 0.0), (8.0, 0.0, 8.0), (0.0, 0.0, 8.0)]
+    q = [(0.0, 0.0, 0.5039, 0.5079)]
+    neg = ME.flat_patch(ring, y=0.0, uv_quads=q, idall=228, winding=-1.0)
+    pos = ME.flat_patch(ring, y=0.0, uv_quads=q, idall=228, winding=1.0)
+    assert neg and pos
+    assert all(_plan_cross(t) < 0 for t in neg)
+    assert all(_plan_cross(t) > 0 for t in pos)
+
+
+def test_flat_patch_winding_is_independent_of_ring_orientation():
+    """Reversing the input ring must not flip the output -- else the caller must guess."""
+    fwd = [(0.0, 0.0, 0.0), (8.0, 0.0, 0.0), (8.0, 0.0, 8.0), (0.0, 0.0, 8.0)]
+    q = [(0.0, 0.0, 0.5039, 0.5079)]
+    for ring in (fwd, list(reversed(fwd))):
+        for t in ME.flat_patch(ring, y=0.0, uv_quads=q, idall=228, winding=-1.0):
+            assert _plan_cross(t) < 0

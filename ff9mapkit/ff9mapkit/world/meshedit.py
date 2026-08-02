@@ -55,6 +55,7 @@ __all__ = [
     "seaward", "densify", "miter_offset", "seat_transform", "seated_headings",
     "flow_ok", "joint_kinks", "texel_density", "WallSweep", "sweep_wall",
     "earclip", "cover_gap", "find_tjunctions", "repair_tjunctions",
+    "vertex_components", "boundary_cycles", "flat_patch",
 ]
 
 # Measured on the bench and re-derived over five independent spans.
@@ -497,3 +498,185 @@ def repair_tjunctions(pairs: Sequence[tuple], ext_verts: Iterable = (),
         if not changed:
             return pairs, r
     return pairs, -1
+
+
+# --------------------------------------------------------------------------- excise
+# The donor-rect EXCISE primitives (registration:
+# studies/coast-shape-language/EXCISE-PREDICTION.md). A multi-block carry is refused by
+# the land-fit gate whenever a NEIGHBOURING landmass crosses the donor rect frame -- it
+# would ship a mass cropped to a ruler-straight 64u slice hanging in mid-air. Excise
+# drops that mass and re-zips the deep-ocean sheet over its footprint.
+
+
+def vertex_components(tris, *, key_decimals: int = 4) -> list[list]:
+    """Group triangles into components joined by SHARED VERTEX KEYS.
+
+    This is what makes a drop set well-defined: two landmasses that share no vertex are
+    separable exactly, with no geometric tolerance in the decision. Measured on donor
+    rect (6,6)+2x2 -- three components, no shared vertices, so the frame-crossers can be
+    dropped without touching the island being kept.
+
+    ``tris`` is a triangle soup of ``(pos, normal, uv, tangent)`` vertex tuples (the
+    shape :func:`transplant.world_tris` returns). Returned largest-first.
+    """
+    kd = int(key_decimals)
+
+    def k(v):
+        return (round(v[0], kd), round(v[1], kd), round(v[2], kd))
+
+    parent: dict = {}
+
+    def find(a):
+        parent.setdefault(a, a)
+        root = a
+        while parent[root] != root:
+            root = parent[root]
+        while parent[a] != root:                       # path compression
+            parent[a], a = root, parent[a]
+        return root
+
+    for t in tris:
+        ks = [k(v[0]) for v in t]
+        r0 = find(ks[0])
+        for kk in ks[1:]:
+            r = find(kk)
+            if r != r0:
+                parent[r] = r0
+
+    groups: dict = {}
+    for t in tris:
+        groups.setdefault(find(k(t[0][0])), []).append(t)
+    return sorted(groups.values(), key=len, reverse=True)
+
+
+def boundary_cycles(tris, *, key_decimals: int = 4) -> list[list]:
+    """Trace the true boundary CYCLES of a triangle soup (junction-safe).
+
+    Boundary edges are those used by exactly one triangle. The obvious implementation --
+    connected components of the boundary graph -- is WRONG at a junction vertex: two
+    disjoint cycles that touch at one vertex merge into a single reported "loop". That
+    error is why a first pass on donor rect (6,6)+2x2 reported the sea sheet as having no
+    island hole at all, when in fact 132 of its 218 boundary verts trace island coast.
+
+    So this consumes EDGES, not vertices: each walk leaves a vertex by an unused edge, so
+    a junction is traversed once per incident cycle. Returns rings of ``(x, y, z)``
+    tuples, largest first; each ring is open (the closing edge is implied).
+    """
+    kd = int(key_decimals)
+
+    def k(v):
+        return (round(v[0], kd), round(v[1], kd), round(v[2], kd))
+
+    # Round ONLY to key; emit the EXACT float. Returning the rounded key as geometry
+    # re-creates the hairline-crack class this codebase already has a law about: real
+    # donor verts are off-lattice floats like 394.003906, and a ring carrying 394.0039
+    # lands 4e-6 away -- identical to the eye, a near-miss pair to the weld audit, and 16
+    # of them were measured before this line existed.
+    exact: dict = {}
+    count: dict = {}
+    for t in tris:
+        ks = [k(v[0]) for v in t]
+        for kk, v in zip(ks, t):
+            exact.setdefault(kk, tuple(float(c) for c in v[0]))
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            e = (ks[a], ks[b]) if ks[a] <= ks[b] else (ks[b], ks[a])
+            count[e] = count.get(e, 0) + 1
+
+    adj: dict = {}
+    unused = set()
+    for e, c in count.items():
+        if c != 1:
+            continue
+        unused.add(e)
+        adj.setdefault(e[0], []).append(e[1])
+        adj.setdefault(e[1], []).append(e[0])
+
+    rings = []
+    # Termination here rests ENTIRELY on consuming an edge per step. A mutation that
+    # removed the consumption test did not fail the suite, it HUNG it -- so the bound is
+    # explicit rather than emergent, and a non-manifold input raises instead of spinning.
+    budget = 4 * len(unused) + 16
+    while unused:
+        a, b = next(iter(unused))
+        unused.discard((a, b))
+        ring, cur, prev = [a, b], b, a
+        while True:
+            budget -= 1
+            if budget < 0:
+                raise ValueError("boundary_cycles: walk exceeded its edge budget -- "
+                                 "the input is not edge-manifold")
+            nxt = None
+            for w in adj.get(cur, ()):
+                e = (cur, w) if cur <= w else (w, cur)
+                if e in unused and w != prev:
+                    nxt = w
+                    break
+            if nxt is None:                            # closed, or a dead end
+                break
+            unused.discard((cur, nxt) if cur <= nxt else (nxt, cur))
+            if nxt == ring[0]:
+                break
+            ring.append(nxt)
+            prev, cur = cur, nxt
+        if len(ring) >= 3:
+            rings.append([exact[p] for p in ring])
+    rings.sort(key=len, reverse=True)
+    return rings
+
+
+def flat_patch(ring, *, y: float, uv_quads, idall: int, normal=(0.0, 1.0, 0.0),
+               pick=None, winding: float = -1.0) -> list[list[tuple]]:
+    """Fill a ring with flat triangles at constant ``y`` -- the deep-ocean re-zip.
+
+    Sea4 is a single plane (measured: every vertex at y=0.000) whose UV vocabulary is a
+    2x2 quadrant scheme, and the quadrant is distributed UNIFORMLY across world-cell
+    parities -- the anti-tiling choice is genuinely free, so a patch cannot pick a wrong
+    tile. That is why this takes no tone or cleanliness validator, unlike
+    :func:`cover_gap`: there is no ground field to match and no unpainted texel to avoid.
+
+    ``ring`` is the hole boundary in world coords, and its vertices are reused EXACTLY --
+    the patch introduces no new boundary vertex, so the weld is exact by construction
+    rather than by tolerance. ``uv_quads`` is a sequence of (u0, v0, u1, v1) quadrant
+    rects; ``pick(tri_index) -> quad_index`` chooses among them (default: round-robin,
+    which is deterministic and reproducible -- Math.random is unavailable in this stack
+    and a fixed rotation matches stock's uniform spread as well as noise would).
+
+    ``winding`` is the SIGN OF THE PLAN CROSS PRODUCT the emitted triangles must carry,
+    and it defaults to stock sea's -1. This is not a detail: a patch wound the other way
+    is back-facing to the engine's downward ground raycast, so it renders yet registers
+    as void. Measured -- all 1025 stock sea4 tris in one donor rect wind negative, and an
+    otherwise-exact fill wound positive scored 73 introduced census misses. Pass the
+    neighbouring sheet's own ``normal`` too: stock sea normals are a shared byte constant
+    like (-0.121, 0.9785, 0.1665), NOT the (0,1,0) that looks obviously right.
+    """
+    quads = [tuple(float(c) for c in q) for q in uv_quads]
+    if not quads:
+        raise ValueError("flat_patch needs at least one uv quadrant")
+    plan = [(float(p[0]), float(p[2])) for p in ring]      # ear-clip in the x/z plane
+    tris2 = earclip(plan)
+    at = {(round(p[0], 6), round(p[1], 6)): i for i, p in enumerate(plan)}
+
+    out = []
+    for ti, tri in enumerate(tris2):
+        qi = (pick(ti) if pick else ti) % len(quads)
+        u0, v0, u1, v1 = quads[qi]
+        cross = ((tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1])
+                 - (tri[2][0] - tri[0][0]) * (tri[1][1] - tri[0][1]))
+        if winding and cross * winding < 0:
+            tri = (tri[0], tri[2], tri[1])
+        poly = []
+        for p in tri:
+            i = at.get((round(p[0], 6), round(p[1], 6)))
+            if i is None:
+                raise ValueError("flat_patch: ear-clip introduced a vertex off the ring "
+                                 "-- the weld would not be exact")
+            src = ring[i]
+            # UV is positional inside the quadrant, so neighbouring patch tris agree
+            fu = (p[0] / 4.0) % 1.0
+            fv = (-p[1] / 4.0) % 1.0
+            poly.append(((float(src[0]), float(y), float(src[2])),
+                         tuple(float(c) for c in normal),
+                         (u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv),
+                         (float(idall), 0.0, 0.0, 1.0)))
+        out.append(poly)
+    return out

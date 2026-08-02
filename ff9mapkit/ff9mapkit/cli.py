@@ -3763,6 +3763,18 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             disc=args.disc, game=args.game)
         for n in notes:
             print(n)
+        if getattr(args, "excise", False):
+            ex_tweaks, ex_rep = TR.excise_plan(
+                (dx, dy), (snx, sny), disc=args.disc, game=args.game,
+                land_margin=args.land_margin)
+            print(f"excise: assemblies={ex_rep['assemblies'][:6]} "
+                  f"foreign={ex_rep['foreign']} dropped={ex_rep.get('dropped', {})} "
+                  f"fill={ex_rep['fill_tris']} tris, weld_exact={ex_rep['weld_exact']}")
+            if ex_rep.get("refused"):
+                raise ConfigError(f"--excise refused: {ex_rep['refused']}")
+            if not ex_tweaks:
+                print("   (nothing crosses the frame -- the rect is already clean)")
+            tweaks = list(tweaks) + list(ex_tweaks)
         # the cliff-coast morphs build their tweak sets from the donor bytes, every law
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
@@ -7645,6 +7657,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
                           "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
                           "reaches a land component is refused offline.")
+    wtp.add_argument("--excise", action="store_true",
+                     help="drop every landmass whose LAND crosses the donor rect frame "
+                          "and re-zip deep ocean over its footprint. Unlocks rects that "
+                          "land-fit refuses solely because of a NEIGHBOURING mass -- the "
+                          "usual disqualifier. v1 handles a bare land crumb; it refuses "
+                          "(with the reason) when the crossing mass owns a shallow-water "
+                          "ladder of its own")
     wtp.add_argument("--allow-mod-overwrite", action="store_true",
                      help="waive THE MOD-OVERWRITE GATE: by default a target data cell that "
                           "already holds override files in the mod folder REFUSES unless its "
