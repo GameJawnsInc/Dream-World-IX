@@ -389,6 +389,54 @@ def test_lint_structural_pass(tmp_path):
     assert errors == []
 
 
+# ---- new_campaign over an EXISTING manifest ----------------------------------------------
+# render_campaign_toml is the only writer and it RENDERS a plan, never merges into the text, so a
+# fresh plan silently drops [[flag]]/[[seam]] rows and resets a tuned flag_base/flags_per_field --
+# and an allocation reset moves every member's story-flag window (a live-save corrupter).
+def _authored(tmp_path):
+    plan = campaign.new_campaign("D", "M", tmp_path, id_base=30200)
+    plan.flag_base, plan.flags_per_field, plan.verbatim = 9000, 16, True
+    plan.flags = [{"name": "boss_defeated", "index": 9100}]
+    plan.seams = [{"frm": "R", "to_real": 1001, "kind": "portal", "note": "the way out"}]
+    plan.entry_name, plan.entry_entrance = "R", 3
+    campaign._save_plan(plan, tmp_path)
+    return plan
+
+
+def test_new_campaign_refuses_over_an_existing_manifest(tmp_path):
+    _authored(tmp_path)
+    with pytest.raises(campaign.CampaignError) as ex:
+        campaign.new_campaign("D", "M", tmp_path, id_base=30200)
+    assert "already exists" in str(ex.value)
+    assert isinstance(ex.value, ValueError), "the Workspace catches ValueError at its own call site"
+
+
+def test_new_campaign_preserve_carries_authored_manifest_state(tmp_path):
+    _authored(tmp_path)
+    campaign.new_campaign("D", "M", tmp_path, id_base=30200, on_existing="preserve")
+    after = campaign.load_campaign(tmp_path / "campaign.toml")
+    assert after.flag_base == 9000, "a tuned flag_base survives -- resetting it moves every flag window"
+    assert after.flags_per_field == 16
+    assert [f["name"] for f in after.flags] == ["boss_defeated"]
+    assert len(after.seams) == 1 and after.seams[0]["to_real"] == 1001
+    assert after.verbatim is True
+    assert after.entry_name == "R" and after.entry_entrance == 3
+    assert after.members == [], "members/edges are the caller's to rebuild"
+
+
+def test_new_campaign_replace_is_the_historical_overwrite(tmp_path):
+    _authored(tmp_path)
+    campaign.new_campaign("D", "M", tmp_path, id_base=30200, on_existing="replace")
+    after = campaign.load_campaign(tmp_path / "campaign.toml")
+    assert after.flags == [] and after.seams == []
+    assert after.flags_per_field == 64 and after.flag_base == campaign.FIRST_SAFE_FLAG
+
+
+def test_new_campaign_rejects_a_bad_on_existing(tmp_path):
+    with pytest.raises(campaign.CampaignError):
+        campaign.new_campaign("D", "M", tmp_path, id_base=30200, on_existing="clobber")
+
+
 # ---- (e3) manifest <-> artifact reconciliation ------------------------------------------
 # The only lint that compares the manifest to the FILES it describes. A member's field id is stored
 # twice and the two copies are read by different consumers (build_mod registers the MEMBER's; the

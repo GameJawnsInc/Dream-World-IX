@@ -1277,16 +1277,57 @@ def _resolve_source_id(source) -> int:
 
 
 def new_campaign(name, mod_folder, manifest_dir, *, id_base=4000, flag_base=FIRST_SAFE_FLAG,
-                 flags_per_field=64, entry_entrance=0) -> CampaignPlan:
+                 flags_per_field=64, entry_entrance=0, on_existing="refuse") -> CampaignPlan:
     """Create an EMPTY campaign (no members) and write its campaign.toml -- the from-scratch path that
     import-chain (which forks a real region) doesn't cover. Add members with :func:`add_field`. The default
-    flag_base is the census-grounded safe floor (clear of real-FF9 chest flags); see :mod:`flags`."""
+    flag_base is the census-grounded safe floor (clear of real-FF9 chest flags); see :mod:`flags`.
+
+    ``on_existing`` decides what happens when ``manifest_dir`` ALREADY holds a campaign.toml. This file has
+    exactly one writer (:func:`render_campaign_toml`) and it RENDERS a plan rather than merging into the
+    existing text -- so whatever the plan does not carry is dropped, and a FRESH plan carries no [[flag]]
+    rows, no [[seam]] rows, and the DEFAULT flag_base/flags_per_field. Overwriting blind therefore relocates
+    every member's flag window (flags_per_field 16 -> 64 moves every story bit in the campaign), which
+    corrupts a live save with nothing anywhere able to detect it. The [[flag]] loss is at least loud -- a
+    member gating on a lost NAME fails the next lint -- but the allocation reset is silent.
+      * ``"refuse"`` (default) -- raise. The Workspace already applied this guard at its own call site
+        (``workspace/shell.py`` _new_campaign) while the library did not, so any non-GUI caller could still
+        clobber; this moves it under all of them. ``CampaignError`` is a ``ValueError``, so callers already
+        catching ValueError keep working.
+      * ``"preserve"`` -- carry the prior manifest's AUTHORED state forward: [[flag]] rows, [[seam]] rows,
+        flag_base, flags_per_field, verbatim, and the entry. Members/edges are NOT carried (a caller asking
+        for a new campaign is rebuilding those), and ``flag_base``/``flags_per_field`` arguments are ignored
+        in favour of the prior's -- preserving an allocation the author may have tuned is the entire point.
+      * ``"replace"`` -- the historical blind overwrite, now only on explicit request.
+    """
+    if on_existing not in ("refuse", "preserve", "replace"):
+        raise CampaignError(f"on_existing must be 'refuse', 'preserve' or 'replace' (got {on_existing!r})")
     if not (4000 <= id_base <= 32767):
         raise CampaignError(f"id_base {id_base} out of range (must be 4000-32767)")
+    manifest_dir = Path(manifest_dir)
+    existing = manifest_dir / "campaign.toml"
+    prior = None
+    if existing.is_file():
+        if on_existing == "refuse":
+            raise CampaignError(
+                f"a campaign.toml already exists in {manifest_dir} -- creating over it would render a FRESH "
+                f"manifest and drop its [[flag]] rows, [[seam]] rows and any tuned flag_base/flags_per_field "
+                f"(an allocation change moves every member's story-flag window and corrupts live saves). "
+                f"Choose an empty folder, or pass on_existing='preserve' to carry that state forward "
+                f"(on_existing='replace' to overwrite anyway).")
+        if on_existing == "preserve":
+            prior = load_campaign(existing)          # read BEFORE the write; a failed parse must not clobber
     plan = CampaignPlan(name=str(name), mod_folder=str(mod_folder), id_base=int(id_base),
                         flag_base=int(flag_base), flags_per_field=int(flags_per_field),
                         entry_name="", entry_entrance=int(entry_entrance))
-    Path(manifest_dir).mkdir(parents=True, exist_ok=True)
+    if prior is not None:                            # authored, manifest-ONLY state has no other home
+        plan.flag_base = prior.flag_base
+        plan.flags_per_field = prior.flags_per_field
+        plan.flags = list(prior.flags)
+        plan.seams = list(prior.seams)
+        plan.verbatim = prior.verbatim
+        plan.entry_name = prior.entry_name           # add_field only claims the entry when none is set
+        plan.entry_entrance = prior.entry_entrance
+    manifest_dir.mkdir(parents=True, exist_ok=True)
     _save_plan(plan, manifest_dir)
     return plan
 
