@@ -187,17 +187,28 @@ def treat_part(world, bx, by, part):
                             ox=ox, oz=oz))
     if not records:
         return False, None, []
+    # THE UNINDEXED CONTRACT (WMBlock.AddWalkMesh iterates vertices.Length/3): expand
+    # to 3 fresh verts per tri before writing -- write_ff9mesh asserts vcount == icount.
+    ev, en, eu, et, eidx = [], [], [], [], []
+    for k in new_idx:
+        eidx.append(len(ev))
+        ev.append(list(verts[k]))
+        if normals is not None:
+            en.append(list(normals[k]))
+        if uvl is not None:
+            eu.append(list(uvl[k]))
+        et.append(list(tangents[k]))
     bm = W.M.blockmesh_from_ff9mesh(lp, disc=W.DISC, x=bx, y=by, part=part.lower())
     chan = dict(bm.chan_arrays)
-    chan[CH_POS] = verts
+    chan[CH_POS] = ev
     if normals is not None:
-        chan[CH_NRM] = normals
+        chan[CH_NRM] = en
     if uvl is not None:
-        chan[CH_UV] = uvl
-    chan[CH_TAN] = tangents
-    tris = [[new_idx[k], new_idx[k + 1], new_idx[k + 2]] for k in range(0, len(new_idx), 3)]
-    out = dataclasses.replace(bm, vcount=len(verts), chan_arrays=chan,
-                              flat_index=new_idx, tris=tris)
+        chan[CH_UV] = eu
+    chan[CH_TAN] = et
+    tris = [[eidx[k], eidx[k + 1], eidx[k + 2]] for k in range(0, len(eidx), 3)]
+    out = dataclasses.replace(bm, vcount=len(ev), chan_arrays=chan,
+                              flat_index=eidx, tris=tris)
     print(f"   [{bx}][{by}] {part}: {len(idx) // 3} tris, {n_treat} coverage-touched, "
           f"{n_del_tris} changed (subdiv+delete) -> {len(new_idx) // 3} tris, "
           f"{d['vcount']} -> {len(verts)} verts")

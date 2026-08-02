@@ -59,6 +59,10 @@ CHANGED_BBOX = (374.0, 386.5, -518.0, -507.5)
 OUTD = HERE / "out" / "vcorner_crest"
 BACKUPS = Path(r"C:\gd\Dream-World-IX\backups")
 PIN = (376.5, -509.5)
+# v2 builds from the PRE-fairing Terrain baseline (live carries the v1 fairing + fins);
+# live Sea4 stays the input -- it already carries the crest cut for the same strip.
+BASELINE_T = {(5, 7): BACKUPS / "Block[5][7] Terrain.ff9mesh.r7.20260802-025232",
+              (5, 8): BACKUPS / "Block[5][8] Terrain.ff9mesh.r8.20260802-025232"}
 
 
 def perp_foot(p):
@@ -143,107 +147,164 @@ def fan(poly):
     return [(poly[0], poly[i], poly[i + 1]) for i in range(1, len(poly) - 1)]
 
 
-def lawn_affines(d):
-    """Per-tri plan->uv affine maps for every walkable lawn tri, with plan verts —
-    the lawn's u-phase FLIPS between tile families (the mirrored-tile idiom), so a
-    strip tri must borrow the affine of the old lawn tri at its inner edge."""
-    idx, V, Uv, T = d["indices"], d["verts"], d["uvs"], d["tangents"]
+def lawn_affines(paths_with_offsets):
+    """Per-tri WORLD-frame plan->uv affine maps for every walkable lawn tri across the
+    given blocks — the lawn's u-phase flips between tile families, so each strip tri
+    borrows the affine of the old lawn tri across its INNER edge (the same donor for
+    every clipped fragment -> uv continuity across the block seam AND the boundary)."""
     out = []
-    for t0 in range(0, len(idx), 3):
-        t = idx[t0:t0 + 3]
-        topo = (int(round(T[t[0]][0])) & 0xFC) >> 2
-        if topo not in W.WALK_OK:
-            continue
-        p = [V[j] for j in t]
-        d0 = ((p[1][0] - p[0][0]) * (p[2][2] - p[0][2])
-              - (p[2][0] - p[0][0]) * (p[1][2] - p[0][2]))
-        if abs(d0) < 1e-6:
-            continue
-        u = [Uv[j] for j in t]
+    for (path, ox, oz) in paths_with_offsets:
+        d = W.M.read_ff9mesh(path)
+        idx, V, Uv, T = d["indices"], d["verts"], d["uvs"], d["tangents"]
+        for t0 in range(0, len(idx), 3):
+            t = idx[t0:t0 + 3]
+            topo = (int(round(T[t[0]][0])) & 0xFC) >> 2
+            if topo not in W.WALK_OK:
+                continue
+            p3 = [(V[j][0] + ox, V[j][1], V[j][2] + oz) for j in t]
+            d0 = ((p3[1][0] - p3[0][0]) * (p3[2][2] - p3[0][2])
+                  - (p3[2][0] - p3[0][0]) * (p3[1][2] - p3[0][2]))
+            if abs(d0) < 1e-6:
+                continue
+            u3 = [Uv[j] for j in t]
 
-        def make(pp, uu, dd):
-            def f(x, z):
-                w1 = ((x - pp[0][0]) * (pp[2][2] - pp[0][2])
-                      - (pp[2][0] - pp[0][0]) * (z - pp[0][2])) / dd
-                w2 = ((pp[1][0] - pp[0][0]) * (z - pp[0][2])
-                      - (x - pp[0][0]) * (pp[1][2] - pp[0][2])) / dd
-                w0 = 1.0 - w1 - w2
-                return (w0 * uu[0][0] + w1 * uu[1][0] + w2 * uu[2][0],
-                        w0 * uu[0][1] + w1 * uu[1][1] + w2 * uu[2][1])
-            return f
-        out.append((p, make(p, u, d0)))
+            def make(pp, uu, dd):
+                def f(x, z):
+                    w1 = ((x - pp[0][0]) * (pp[2][2] - pp[0][2])
+                          - (pp[2][0] - pp[0][0]) * (z - pp[0][2])) / dd
+                    w2 = ((pp[1][0] - pp[0][0]) * (z - pp[0][2])
+                          - (x - pp[0][0]) * (pp[1][2] - pp[0][2])) / dd
+                    w0 = 1.0 - w1 - w2
+                    return (w0 * uu[0][0] + w1 * uu[1][0] + w2 * uu[2][0],
+                            w0 * uu[0][1] + w1 * uu[1][1] + w2 * uu[2][1])
+                return f
+            out.append((p3, make(p3, u3, d0)))
     assert out, "no lawn tris for affine maps"
     return out
 
 
-def affine_for(affs, lx, lz):
-    """The affine of the lawn tri containing local (lx, lz), else the nearest one."""
-    for (p, f) in affs:
-        d0 = ((p[1][0] - p[0][0]) * (p[2][2] - p[0][2])
-              - (p[2][0] - p[0][0]) * (p[1][2] - p[0][2]))
-        w1 = ((lx - p[0][0]) * (p[2][2] - p[0][2])
-              - (p[2][0] - p[0][0]) * (lz - p[0][2])) / d0
-        w2 = ((p[1][0] - p[0][0]) * (lz - p[0][2])
-              - (lx - p[0][0]) * (p[1][2] - p[0][2])) / d0
+def affine_for(affs, x, z):
+    """The affine of the lawn tri containing WORLD (x, z), else the nearest one."""
+    for (p3, f) in affs:
+        d0 = ((p3[1][0] - p3[0][0]) * (p3[2][2] - p3[0][2])
+              - (p3[2][0] - p3[0][0]) * (p3[1][2] - p3[0][2]))
+        w1 = ((x - p3[0][0]) * (p3[2][2] - p3[0][2])
+              - (p3[2][0] - p3[0][0]) * (z - p3[0][2])) / d0
+        w2 = ((p3[1][0] - p3[0][0]) * (z - p3[0][2])
+              - (x - p3[0][0]) * (p3[1][2] - p3[0][2])) / d0
         if w1 >= -1e-9 and w2 >= -1e-9 and (1 - w1 - w2) >= -1e-9:
             return f
-    best = min(affs, key=lambda pf: min((v[0] - lx) ** 2 + (v[2] - lz) ** 2 for v in pf[0]))
+    best = min(affs, key=lambda pf: min((v[0] - x) ** 2 + (v[2] - z) ** 2 for v in pf[0]))
     return best[1]
 
 
+U_SEED = 0.8579                                             # the kept face #42/#43's u AT v5
+U_LO, U_HI = 0.699, 0.947                                   # the local sawtooth band (measured)
+
+
+def outer_with_seam():
+    """OUTER with the block-seam crossing inserted as a vertex — no curtain quad may
+    cross z = SEAM_Z, so vertical faces are never plan-clipped (the run-3 fin bug)."""
+    t_seam = (SEAM_Z - V5[1]) / DIR[1]
+    S = (V5[0] + t_seam * DIR[0], SEAM_Z)
+    out = [OUTER[0]]
+    for i in range(1, len(OUTER)):
+        prev, cur = out[-1], OUTER[i]
+        if (prev[1] - SEAM_Z) * (cur[1] - SEAM_Z) < 0:
+            out.append(S)
+        out.append(cur)
+    return out
+
+
 def build_terrain():
-    print("=== BUILD: THE SHORE FAIRING (additive) ===")
-    for i in range(len(OUTER) - 1):
-        d = (OUTER[i + 1][0] - OUTER[i][0], OUTER[i + 1][1] - OUTER[i][1])
-        print(f"   outer ({OUTER[i][0]:7.2f},{OUTER[i][1]:8.2f}) -> seg {math.hypot(*d):5.2f}u "
+    print("=== BUILD: THE SHORE FAIRING v2 (seam-safe curtain, edge-donor lawn UVs) ===")
+    outerS = outer_with_seam()
+    for i in range(len(outerS) - 1):
+        d = (outerS[i + 1][0] - outerS[i][0], outerS[i + 1][1] - outerS[i][1])
+        print(f"   outer ({outerS[i][0]:7.2f},{outerS[i][1]:8.2f}) -> seg {math.hypot(*d):5.2f}u "
               f"@ {math.degrees(math.atan2(d[0], d[1])) % 360:6.1f}deg")
     assert abs(poly_area2(STRIP_POLY)) > 1.0, "degenerate strip polygon"
 
-    lawn3 = zip_tris(INNER, OUTER)
-    # the curtain: outer edge down to feet 0.45u seaward (per-vertex averaged normal)
+    affs = lawn_affines([(BASELINE_T[(bx, by)], 64.0 * bx, -64.0 * by)
+                         for (bx, by) in BLOCKS])
+    lawn3 = []                                              # (tri_plan, donor) per pre-clip tri
+    i = j = 0
+    A, B = INNER, outerS
+    last_donor = None
+    while i < len(A) - 1 or j < len(B) - 1:
+        adv_a = i < len(A) - 1 and (j >= len(B) - 1 or i <= j)
+        if adv_a:
+            tri = (A[i], A[i + 1], B[j])
+            mx, mz = (A[i][0] + A[i + 1][0]) / 2, (A[i][1] + A[i + 1][1]) / 2
+            dx, dz = A[i + 1][0] - A[i][0], A[i + 1][1] - A[i][1]
+            L = math.hypot(dx, dz) or 1.0
+            donor = affine_for(affs, mx - 0.06 * dz / L, mz + 0.06 * dx / L)  # landward nudge
+            last_donor = donor
+            i += 1
+        else:
+            tri = (A[i], B[j + 1], B[j])
+            donor = last_donor or affine_for(affs, A[i][0], A[i][1])
+            j += 1
+        a2 = abs((tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1])
+                 - (tri[2][0] - tri[0][0]) * (tri[1][1] - tri[0][1]))
+        if a2 > 1e-6:
+            lawn3.append((tri, donor))
+
     feet = []
-    for i, p in enumerate(OUTER):
+    for i, p in enumerate(outerS):
         segs = []
         if i > 0:
-            segs.append((OUTER[i][0] - OUTER[i - 1][0], OUTER[i][1] - OUTER[i - 1][1]))
-        if i < len(OUTER) - 1:
-            segs.append((OUTER[i + 1][0] - OUTER[i][0], OUTER[i + 1][1] - OUTER[i][1]))
+            segs.append((p[0] - outerS[i - 1][0], p[1] - outerS[i - 1][1]))
+        if i < len(outerS) - 1:
+            segs.append((outerS[i + 1][0] - p[0], outerS[i + 1][1] - p[1]))
         nx = nz = 0.0
         for (dx, dz) in segs:
             L = math.hypot(dx, dz) or 1.0
             nx += dz / L
-            nz += -dx / L                                   # right of travel = seaward
+            nz += -dx / L
         L = math.hypot(nx, nz) or 1.0
         feet.append((p[0] + CURTAIN_OUT * nx / L, p[1] + CURTAIN_OUT * nz / L))
     arc = [0.0]
-    for i in range(len(OUTER) - 1):
-        arc.append(arc[-1] + math.hypot(OUTER[i + 1][0] - OUTER[i][0],
-                                        OUTER[i + 1][1] - OUTER[i][1]))
-    curt3 = []
-    for i in range(len(OUTER) - 1):
-        a, b, fa, fb = OUTER[i], OUTER[i + 1], feet[i], feet[i + 1]
-        ua, ub = U0 + URATE * arc[i], U0 + URATE * arc[i + 1]
-        curt3.append(((a, LAWN_Y, (ua, V_TOP)), (fa, 0.0, (ua, V_BOT)), (b, LAWN_Y, (ub, V_TOP))))
-        curt3.append(((b, LAWN_Y, (ub, V_TOP)), (fa, 0.0, (ua, V_BOT)), (fb, 0.0, (ub, V_BOT))))
+    for i in range(len(outerS) - 1):
+        arc.append(arc[-1] + math.hypot(outerS[i + 1][0] - outerS[i][0],
+                                        outerS[i + 1][1] - outerS[i][1]))
+
+    def saw(a):
+        return U_LO + (U_SEED - U_LO + URATE * a) % (U_HI - U_LO)
+
+    curt = []                                               # (block_by, tri3, uv3)
+    for i in range(len(outerS) - 1):
+        a, b, fa, fb = outerS[i], outerS[i + 1], feet[i], feet[i + 1]
+        cz = (a[1] + b[1]) / 2
+        cby = 7 if cz >= SEAM_Z else 8
+        ua, ub = saw(arc[i]), saw(arc[i + 1])
+        if ub < ua:                                         # the sawtooth wrapped mid-quad:
+            ub = ua + URATE * (arc[i + 1] - arc[i])         # extend past U_HI for this quad
+        c0 = ((a[0], LAWN_Y, a[1]), (b[0], LAWN_Y, b[1]), (fa[0], 0.0, fa[1]))
+        c1 = ((b[0], LAWN_Y, b[1]), (fb[0], 0.0, fb[1]), (fa[0], 0.0, fa[1]))
+        curt.append((cby, c0, ((ua, V_TOP), (ub, V_TOP), (ua, V_BOT))))
+        curt.append((cby, c1, ((ub, V_TOP), (ub, V_BOT), (ua, V_BOT))))
+    for (_cby, _t3, uv3) in curt:                           # uv audit: the local cliff band
+        for (u, v) in uv3:
+            assert U_LO - 1e-6 <= u <= U_HI + 0.06 and V_TOP - 1e-6 <= v <= V_BOT + 1e-6, \
+                f"curtain uv ({u},{v}) outside the local cliff band"
 
     staged = {}
     for (bx, by) in BLOCKS:
         ox, oz = 64.0 * bx, -64.0 * by
-        lp = live_path(bx, by, "Terrain")
+        lp = BASELINE_T[(bx, by)]
         d = W.M.read_ff9mesh(lp)
         verts = [list(v) for v in d["verts"]]
         normals = [list(v) for v in d["normals"]]
         uvs = [list(v) for v in d["uvs"]]
         tans = [list(v) for v in d["tangents"]]
         idx = d["indices"]
-        affs = lawn_affines(d)
 
-        # 1) delete topo-58 faces the strip covers (first-hit shadowing)
         drop = set()
         for t0 in range(0, len(idx), 3):
             t = idx[t0:t0 + 3]
             topo = (int(round(tans[t[0]][0])) & 0xFC) >> 2
-            if topo not in (58,):
+            if topo != 58:
                 continue
             pw = [(verts[j][0] + ox, verts[j][2] + oz) for j in t]
             cen = ((pw[0][0] + pw[1][0] + pw[2][0]) / 3, (pw[0][1] + pw[1][1] + pw[2][1]) / 3)
@@ -255,8 +316,7 @@ def build_terrain():
             if t0 // 3 not in drop:
                 new_idx += list(idx[t0:t0 + 3])
 
-        # sample channel donors: nearest lawn vert (nrm) and nearest deleted-face vert (nrm)
-        lawn_nrm = None
+        lawn_nrm = lawn_tan = None
         for t0 in range(0, len(idx), 3):
             t = idx[t0:t0 + 3]
             topo = (int(round(tans[t[0]][0])) & 0xFC) >> 2
@@ -269,9 +329,9 @@ def build_terrain():
         def emit(p3, uv3, nrm, tan, up_sign):
             a2 = ((p3[1][0] - p3[0][0]) * (p3[2][2] - p3[0][2])
                   - (p3[2][0] - p3[0][0]) * (p3[1][2] - p3[0][2]))
-            if abs(a2) < 1e-6:
-                return
-            order = (0, 1, 2)
+            if abs(a2) < 1e-6 and up_sign > 0:
+                return                                      # degenerate LAWN tri; curtain
+            order = (0, 1, 2)                               # plan-degenerates are legitimate
             ny = (p3[1][2] - p3[0][2]) * (p3[2][0] - p3[0][0]) \
                 - (p3[1][0] - p3[0][0]) * (p3[2][2] - p3[0][2])
             if ny * up_sign < 0:
@@ -283,58 +343,39 @@ def build_terrain():
                 tans.append(list(tan))
                 new_idx.append(len(verts) - 1)
 
-        # 2) the lawn strip, seam-clipped to this block
         n_lawn = 0
-        for (a, b, c) in lawn3:
+        for ((a, b, c), donor) in lawn3:
             poly = clip_halfplane([a, b, c], keep_north=(by == 7))
             for (p, q, r) in fan(poly):
                 p3 = [(p[0], LAWN_Y, p[1]), (q[0], LAWN_Y, q[1]), (r[0], LAWN_Y, r[1])]
-                cen = (sum(pt[0] for pt in p3) / 3 - ox, sum(pt[2] for pt in p3) / 3 - oz)
-                aff = affine_for(affs, cen[0], cen[1])      # ONE donor per tri (tile family)
-                uv3 = [aff(pt[0] - ox, pt[2] - oz) for pt in p3]
+                uv3 = [donor(pt[0], pt[2]) for pt in p3]    # ONE world-frame donor per pre-clip tri
                 emit(p3, uv3, lawn_nrm, lawn_tan, +1)
                 n_lawn += 1
 
-        # 3) the curtain, seam-clipped; UVs carried per-vertex through the clip
         n_curt = 0
-        for tri in curt3:
-            pts = [(v[0], v[1], v[2]) for v in tri]         # ((x,z), y, uv)
-            poly = clip_halfplane([p[0] for p in pts], keep_north=(by == 7))
-            if len(poly) < 3:
+        for (cby, tri3, uv3) in curt:
+            if cby != by:
                 continue
-            # rebuild y/uv for clipped verts by barycentric interp on the original tri
-            def interp(pt):
-                pw = [p[0] for p in pts]
-                d0 = ((pw[1][0] - pw[0][0]) * (pw[2][1] - pw[0][1])
-                      - (pw[2][0] - pw[0][0]) * (pw[1][1] - pw[0][1]))
-                if abs(d0) < 1e-9:
-                    return pts[0][1], pts[0][2]
-                w1 = ((pt[0] - pw[0][0]) * (pw[2][1] - pw[0][1])
-                      - (pw[2][0] - pw[0][0]) * (pt[1] - pw[0][1])) / d0
-                w2 = ((pw[1][0] - pw[0][0]) * (pt[1] - pw[0][1])
-                      - (pt[0] - pw[0][0]) * (pw[1][1] - pw[0][1])) / d0
-                w0 = 1.0 - w1 - w2
-                y = w0 * pts[0][1] + w1 * pts[1][1] + w2 * pts[2][1]
-                uv = (w0 * pts[0][2][0] + w1 * pts[1][2][0] + w2 * pts[2][2][0],
-                      w0 * pts[0][2][1] + w1 * pts[1][2][1] + w2 * pts[2][2][1])
-                return y, uv
-            for (p, q, r) in fan(poly):
-                trip = []
-                for pt in (p, q, r):
-                    y, uv = interp(pt)
-                    trip.append(((pt[0], y, pt[1]), uv))
-                emit([t[0] for t in trip], [t[1] for t in trip], wall_nrm, list(TAN_CLIFF), +1)
-                n_curt += 1
+            emit([list(v) for v in tri3], list(uv3), wall_nrm, list(TAN_CLIFF), +1)
+            n_curt += 1
 
         print(f"   [{bx}][{by}]: {len(drop)} old faces deleted, {n_lawn} lawn tris + "
               f"{n_curt} curtain tris added; tris {len(idx) // 3} -> {len(new_idx) // 3}, "
-              f"verts {d['vcount']} -> {len(verts)}")
+              f"verts {d['vcount']} -> (expanded)")
+        # THE UNINDEXED CONTRACT: 3 fresh verts per tri (WMBlock.AddWalkMesh's layout)
+        ev, en, eu, et, eidx = [], [], [], [], []
+        for k in new_idx:
+            eidx.append(len(ev))
+            ev.append(list(verts[k]))
+            en.append(list(normals[k]))
+            eu.append(list(uvs[k]))
+            et.append(list(tans[k]))
         bm = W.M.blockmesh_from_ff9mesh(lp, disc=W.DISC, x=bx, y=by, part="terrain")
         chan = dict(bm.chan_arrays)
-        chan[CH_POS], chan[CH_NRM], chan[CH_UV], chan[CH_TAN] = verts, normals, uvs, tans
-        tris = [[new_idx[k], new_idx[k + 1], new_idx[k + 2]] for k in range(0, len(new_idx), 3)]
-        out = dataclasses.replace(bm, vcount=len(verts), chan_arrays=chan,
-                                  flat_index=new_idx, tris=tris)
+        chan[CH_POS], chan[CH_NRM], chan[CH_UV], chan[CH_TAN] = ev, en, eu, et
+        tris = [[eidx[k], eidx[k + 1], eidx[k + 2]] for k in range(0, len(eidx), 3)]
+        out = dataclasses.replace(bm, vcount=len(ev), chan_arrays=chan,
+                                  flat_index=eidx, tris=tris)
         OUTD.mkdir(parents=True, exist_ok=True)
         sp = OUTD / f"Block[{bx}][{by}] Terrain.ff9mesh"
         W.M.write_ff9mesh(out, sp)
@@ -401,12 +442,13 @@ def coverage_delta(world_live, world_staged):
 
 
 def stage1():
-    print("loading LIVE world ...")
-    world_live = W.load_world()
+    print("loading the PRE-FAIRING BASELINE world (backups Terrain + live sea) ...")
+    world_base = W.load_world(part_src={(bx, by, "Terrain"): BASELINE_T[(bx, by)]
+                                        for (bx, by) in BLOCKS})
     staged = build_terrain()
     world_t = W.load_world(part_src=dict(staged))
 
-    g_cov = coverage_delta(world_live, world_t)
+    g_cov = coverage_delta(world_base, world_t)
 
     print("\n=== incremental SEA CUT (coverage vs staged terrain) ===")
     sea_records = {}
@@ -442,7 +484,7 @@ def stage1():
     ev, hard, ringy = drive_walkers(world_full, "STAGED fairing")
     own0 = [e for e in ev if e["own"] == 0]
     g_own0 = len(own0) == 0
-    tl, cl, cells_l = static_map(world_live, "LIVE (identity)")
+    tl, cl, cells_l = static_map(world_base, "BASELINE (identity)")
     ts, cs, cells_s = static_map(world_full, "STAGED (identity)")
     bx0, bx1, bz0, bz1 = CHANGED_BBOX
     diff_out = 0

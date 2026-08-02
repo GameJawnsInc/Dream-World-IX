@@ -1,0 +1,7 @@
+loading STAGED world for the bench-wide latent sweep ...
+
+=== LATENT SWEEP [STAGED fairing]: 17134 standable pts, 0 HARD-LOCK-ARMED, 970 poisonable (partial cover) ===
+
+=== REFINED [STAGED fairing]: 0 of 970 poisonable pts hide a HARD-LOCK sliver within 0.5u (step 0.1) ===
+
+g_latent = 0 bench-wide: PASS

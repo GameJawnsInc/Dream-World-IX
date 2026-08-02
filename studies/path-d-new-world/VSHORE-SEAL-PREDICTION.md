@@ -659,3 +659,42 @@ hug/drive sanity re-run on the packed set; live folder contract-checked after
 deploy. P-I (owner, after a game RESTART): the island loads (tile + cliff ring
 intact), approach/warp/airship normal, then the fairing checks (slide both
 directions, no freeze, the look).
+
+## PLAYTEST 5 (2026-08-02) — loads + FLOW CONFIRMED; two visual defects
+
+*"the game renders now, the stopping and sliding is good, but the cliffs are
+malformed, and there is a right-angle seam along the shore as well."* The
+contract fix and the fairing BEHAVIOR are owner-confirmed; the geometry is
+frozen — this is a texture/construction round. Screenshots: pale triangular
+fins rising out of the cliff (one ABOVE the crest), one with a stepped edge;
+a straight seam line in the grass meeting the shore at a right angle.
+
+**Root causes, both in the v1 curtain/uv construction:**
+1. **THE VERTICAL-FACE CLIP BUG (the fins)**: the v1 curtain quads were
+   plan-space seam-clipped — but a near-vertical face's plan projection is a
+   degenerate sliver, so the clip's barycentric weights EXPLODE, extrapolating
+   both y (fins poking above the 3.2 crest — screenshot 1 exactly) and uv
+   (wild coordinates wrapping the atlas = the pale color). One bug, both
+   symptoms. A vertical face must never be plan-clipped.
+2. **THE PER-BLOCK DONOR SPLIT (the right-angle seam)**: strip tris split by
+   the block seam picked lawn-UV donors from their OWN block's affine list —
+   the two halves of one quad got different tile-family affines → a grass
+   phase jump exactly along the straight seam line z=−512.
+
+**THE SHORE FAIRING v2** (`vcorner_crest.py`, rebuilt from the pre-fairing
+Terrain baseline): the block-seam crossing (378.63,−512) is INSERTED into the
+outer polyline so every curtain quad lies wholly in one block — vertical faces
+are never clipped; curtain UVs use the LOCAL vocabulary (v pins 0.893/0.923
+and u-rate ≈0.0126/u verified against the deleted faces; u seeded 0.8579 to
+CONTINUE the kept face at v5, sawtooth-wrapped in the measured [0.699,0.947]
+band, audited per-vert); lawn strip donors are WORLD-frame and chosen per
+PRE-CLIP tri from the old lawn across its inner edge — the same donor for
+both clipped halves (uv continuity across the seam AND exact continuity along
+the inner boundary). All emitted meshes per-tri expanded (the contract assert
+now lives in write_ff9mesh itself). Gates: all stage-1 PASS (hug 0-stall both
+directions unchanged, coverage lost=0, hidden-cut 0, boat 0 new-legal +
+0 hit→MISS — the sea was already correctly cut, statics identical outside the
+bbox), latent 0 bench-wide, live post-deploy re-gate green. Backups
+`.20260802-032654`. P-J (owner): the cliff face along the fairing renders in
+the local rock texture — no fins, no pale; the grass shows no seam line at
+the block boundary; flow still slides; then the standing P-H checks.
