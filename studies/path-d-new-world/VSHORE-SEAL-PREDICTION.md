@@ -410,3 +410,25 @@ decode, revert the deploy (`revert_vcorner_seacut.py`, backup
 shrink margin, sample pitches. The bench-wide law application (re-clip ALL
 under-land sea, revisit the 974 poisonable) is OUT of this round —
 productization, separately registered.
+
+### AMENDMENT 1 (declared before the re-build, 2026-08-02) — g2 fired: the trap RELOCATED
+
+The registered falsification did its job on the first staged run: with #430
+alone treated, the original wedge is FIXED (its walkers escape 17/32) and the
+hidden-cut/boat/calibration gates all passed — but **g2 named a relocation**:
+walkers now hard-lock 4.3u along the wall at (380.4,−511.3), own-ring 0 / cold
+16, armed by the NEIGHBOR under-land sea tri. The ground-junction lesson,
+verbatim: a per-SITE treatment relocates the defect; the walker wall-slides to
+wherever the next armed tri waits, and the wall runs the whole V-shore.
+
+**Scope amended, per-CLASS**: the "tri #430 only" clause and the "bench-wide
+application is OUT of this round" clause are both SUPERSEDED by the gate's own
+evidence. The re-build treats **every sea-part tri (Beach1/Sea1-5) on the six
+bench cells that intersects Terrain plan coverage**: subdivide with per-tri
+adaptive N (sub-edge < 0.875u always), delete sub-tris whose 7 samples are all
+Terrain-covered, keep everything visible verbatim. Degenerate/placeholder tris
+(area ≈ 0) and tris with zero coverage overlap are untouched. The dual kill
+mechanism, the deletion predicate, and every gate are unchanged — the
+hidden-cut verifier generalizes to per-treated-tri fine sampling and the boat
+legality map to all six blocks. Same falsification: all gates green or no
+deploy.

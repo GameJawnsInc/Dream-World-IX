@@ -55,9 +55,11 @@ OUTD = HERE / "out" / "walk_sim"
 
 
 # ---------------------------------------------------------------- world loading
-def load_world(terrain_src=None):
+def load_world(terrain_src=None, part_src=None):
     """Blocks -> meshes in framework order; tris in buffer order, world frame.
-    terrain_src: optional dict (bx,by)->Path replacing the live Terrain file (controls)."""
+    terrain_src: optional dict (bx,by)->Path replacing the live Terrain file (controls).
+    part_src: optional dict (bx,by,part)->Path replacing ANY live part file (staged
+    gate runs, e.g. the sea-cut fix); additive, applied after terrain_src."""
     root = GAME / MOD / "FF9_Data" / "WorldMap" / f"Disc{DISC}" / "0_1"
     world = {}
     for (bx, by) in CELLS:
@@ -67,6 +69,8 @@ def load_world(terrain_src=None):
             p = root / f"r{by}" / f"Block[{bx}][{by}] {part}.ff9mesh"
             if part == "Terrain" and terrain_src is not None:
                 p = terrain_src.get((bx, by), p)
+            if part_src is not None:
+                p = part_src.get((bx, by, part), p)
             if not p.is_file():
                 continue
             bm = M.blockmesh_from_ff9mesh(p, disc=DISC, x=bx, y=by, part=part.lower())
