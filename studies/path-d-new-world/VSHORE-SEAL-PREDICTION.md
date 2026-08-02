@@ -352,3 +352,61 @@ cannot help: any non-walk topo poisons identically, and a walk topo would put
 the player on the sea floor. The fix round registers separately, gated by: the
 latent sweep's refined hard set = 0, driven walkers at the corner with own-ring
 escape > 0, and the repaired gC (own-ring commit at every stall).
+
+## THE SEA-CUT FIX ROUND (registered BEFORE building, 2026-08-02)
+
+One change, per-site attributable: **Sea4 block (5,7), tri #430 only** —
+`vcorner_sea_cut.py`, staged offline, gated, then deployed with backup.
+
+**Why not the law's own conservative cut, and why not whole-tri deletion**: the
+all-3-corners rule SPARES this tri (corner (376,−512) is open water), and
+deleting it whole tears a ~4-5u² visible hole in the water beside the wall foot
+— the arc just closed on "no seam all the way around". The fix class is
+therefore **SUBDIVIDE + DELETE HIDDEN**: barycentric-subdivide #430 n=8 (64
+congruent sub-tris, max edge 5.66/8 ≈ 0.71u; verts/UV interpolated linearly on
+the flat y=0 plane — coplanar, so T-junctions against neighbor sea tris cannot
+render; tangents asserted corner-equal and copied, mapid preserved), then
+delete every sub-tri whose 3 shrunk corners + centroid all lie strictly inside
+live Terrain plan coverage (lawn + wall faces = hidden from above). Kept
+fragments preserve the visible waterline exactly.
+
+**The dual kill mechanism, declared**: (1) the deletion makes the corner-gap
+probe MISS — a miss writes nothing to the ring (the law's cut, applied at
+triangle grain); (2) the subdivision is a structural de-arm independent of (1):
+the fan's 32 candidates span a 0.875u circle and no kept sub-tri (max edge
+0.71u) can contain it, so no single cached sea fragment can ever again answer
+the whole fan, whichever probe writes it. The fix does not need to know which
+exact candidate wrote the ring — both mechanisms close it.
+
+**Instrument change, declared**: `walk_sim.load_world` gains an additive
+`part_src` override (any part, not just Terrain) so the gates run against the
+STAGED Sea4 before any deploy; the live replay is re-run first unchanged as the
+calibration check.
+
+Predictions:
+- **P-F (offline gates, staged bytes)**: the ringdump replay no longer freezes
+  — after any wall stall the turning ticks ESCAPE; drive_walkers records 0
+  own-ring-0 events; the refined latent sweep finds 0 hard-lock slivers
+  bench-wide; the cold fan map over the window is IDENTICAL to live (the fix
+  changes no cold-visible walk behavior on land).
+- **P-G (seal + look gates, staged bytes)**: boat legality over block (5,7) is
+  unchanged — every sea-level column that answered topo-56 either still
+  answers 56 (kept) or MISSES (deleted, the stronger seal); no boat-legal topo
+  appears anywhere. Every deleted-region sample at 0.1u lies strictly inside
+  Terrain plan coverage (nothing visible was removed); kept sub-tri count and
+  area ≈ footprint minus covered area.
+- **P-H (in-game, owner)**: walking into the V-corner wedges against the wall
+  and walks back out — no stuck-only-turn, no warp needed; the waterline at
+  the wall foot looks unchanged from the boat and from the shore; the boat
+  still cannot pass or land there.
+
+Falsification: any gate red on staged bytes → no deploy, re-diagnose (the
+likeliest miss: the writing probe reaches a DIFFERENT under-land sheet — the
+gates name it and the round amends here before any bench mutation). P-H
+failing after green gates = a sim-vs-engine divergence — re-open the walk
+decode, revert the deploy (`revert_vcorner_seacut.py`, backup
+`backups/Block[5][7] Sea4.ff9mesh.<ts>` + the archived
+`vcorner-trap-live.20260802-133500`). Declared freedoms: subdivision n (≥8),
+shrink margin, sample pitches. The bench-wide law application (re-clip ALL
+under-land sea, revisit the 974 poisonable) is OUT of this round —
+productization, separately registered.
