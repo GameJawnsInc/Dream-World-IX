@@ -280,3 +280,46 @@ dashes in the water along the wall foot near the seam. Suspects (to be
 id-buffered at the reproduced game-cam vantage, NOT guessed): the v11
 joint (carried->kept u-phase reset + possible crest/foot line step), and
 the white dashes (sea-cut edge gap / rim edge-on sliver / blank texels).
+
+## THE COVE CARRY (round registration, post-playtest-9) — the whole cove, not its bottom
+
+**THE TANGENT TRUTH (measured from baseline bytes, boundary-chain walk):**
+the registration's joint tangents were NOT coast tangents — 159.6 was the
+fillet-INNER direction, 202.5 the fan-quantized hug hold. Truth: kept entry
+at v5 = **129.4 deg** (carried entry kink 7.8 — already stock-class); kept
+exit at v11 = **231.0 deg** (carried exit kink **54.5** — THE disconnected
+slab). The baseline corner was a pointed PROMONTORY (out 115, hairpin back
+235), and its concave recovery (-30, -30 per-vertex) still follows v11 in
+the kept coast: the live shoreline reads smooth arc -> hairpin kink ->
+recovery. THE JOINT-KINK LAW verdict on census2: 0 of 5 windows can pass at
+the OLD endpoints — structurally impossible (the bench chord 152.65 lies
+outside the tangent range), so the JOINTS move, not the donor bending.
+
+**The claim:** replace the span v5 -> baseline-v10 (374.964,-522.996) —
+the promontory AND the recovery — with ONE stock cove-class window. A cove
+inherently overshoots its chord then recovers, which is exactly what these
+endpoints demand (chord 13.66u @ 185.6; entry tangent 129.4, exit 171.1).
+
+**Census spec (cove class):** chord within 8% of 13.66u; seated entry kink
+<= 12 vs 129.4; seated exit kink <= 12 vs 171.1; per-vertex |turn| <= 40
+(walk fan law 67.5 stays hard); grass-lip family on all wall columns
+(topo 58, v pins 0.8926/0.9229); hmed in [2.4,4.0]; coastal free base.
+THE FLOW CONSTRAINT relaxes from >=135 to >=128 (the kept NW run itself
+walks at 129.4 with the 202.5 hold — 135 was conservative); the hug gates
+stay the oracle. Fallback exit joint: baseline-v12 (376.274,-528.455),
+chord 19.06 @ 180.0, exit tangent 158.7.
+
+**Build implications (registered before building):** the new crest crosses
+the old boundary once — a CUT lobe (the promontory: old lawn/wall dropped,
+pristine sea restored by the walkable-cover re-cut) and a FILL lobe (the
+old bay: zip lawn, atlas-validated). Sea re-cut re-derives from PRISTINE
+per the new cover; boat gate re-judges. u continuity at v5 scores softly
+(no shift budget — both band margins are alpha-0 poison, measured).
+
+**Predictions:** P-J (census): stock has >= 2 qualifying cove windows —
+FALSIFIED IF zero, then the exit-side fix falls back to joint-slide-only
+(exit at v10 with a shorter pure-arc window at the SAME spec minus the
+overshoot demand, accepting kink up to ~20). P-K: the seated cove passes
+every stage-1/2 gate. P-L: at cove_cam/owner_close/graze the band TAPERS at
+both silhouettes — no full-height cut; the flow check stays 0-smear/0-
+stretch. P-M (owner, playtest 10): the disconnected piece reads connected.
