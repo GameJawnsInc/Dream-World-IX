@@ -363,3 +363,33 @@ one continuous sweep; the wall shows as a tapering rock nose where it faces
 the camera (stock behavior) and a continuous band at graze. DEPLOYED
 (backups .20260802-131811, revert_vcorner_transplant.py regenerated).
 **P-M (playtest 10): the corner reads connected at the owner's vantages.**
+
+## PLAYTEST 10 (2026-08-02) — FAILED: "more segmented and fractured; the
+## cliff is at a less than 90 degree angle to the ground"
+
+The owner's read is the measured fact: the carried wall's seaward ny is
+[-0.396,-0.144] — the face tilts 8-23 deg PAST vertical (THE LEAN FACT).
+**THE OVERHANG-CONTEXT LAW (minted): the stock overhang class is unusable
+over a CUT sea.** In stock the overhang stands IN water to its base
+(FREE-BASE) so the base context is never seen; over our walkable-cover cut
+it hangs over dry void and reads as a sloped skirt — and each auxiliary the
+overhang forces (coplanar walk membrane, fold-back apron, inner curtain,
+weld shears, 2-tri giant facets) adds authored surface that reads as
+"segmented and fractured". THE DEFECT FOLLOWS THE AUTHORSHIP, round 3.
+
+**The round now executes STUDY ANGLE 6 in full — THE TUCK REBUILD:**
+keep the V-carry's gate-proven skeleton (the crest polyline, ears, sea cut,
+joint welds — walk axis owner-approved since playtest 9) and replace ONLY
+the wall construction with the bench's OWN tuck vocabulary (the coast class
+on every shore the owner has approved): at-or-past-vertical, walk-visible
+(ny>0, no membrane), foot tucked under the lawn lip (no apron, no curtain —
+the face itself closes the under-lip slot). The joints become seamless BY
+CLASS (same vocabulary on both sides of each weld).
+
+**Predictions:** P-N: the baseline kept-coast walls at both joints are
+tuck-class (harvest confirms profile + uv pattern). P-O: the tuck rebuild
+needs ZERO auxiliary constructions and passes all 8 gates unchanged. P-P:
+at cove_cam/owner_close the corner reads like the rest of the island
+(green lip from above, rock only at low vantages); at graze the band is
+continuous. P-Q (playtest 11): no "segmented/fractured" read; the cliff
+angle reads >= 90 deg.
