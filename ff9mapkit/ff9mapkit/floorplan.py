@@ -2195,6 +2195,20 @@ def emit(composed, out_dir, *, plan=None, log=None, force=False):
     with stack:
         if not force:
             keep = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="ff9mk-art-")))
+
+            def _restore_paintings():
+                """★ THE COPY-BACK ALSO RUNS ON THE WAY OUT OF AN EXCEPTION. Between
+                `write_placeholders` and the copy-back a painting exists only in the temp dir, so a
+                room that fails mid-loop (a full disk, a locked file, the id-allocator invariant)
+                would otherwise leave the author's art overwritten by a checkerboard AND an error.
+                Idempotent: on the ordinary path this re-copies files that are already identical."""
+                for name, files in painted.items():
+                    for rel, src in files.items():
+                        dest = out / name / rel
+                        if dest.parent.is_dir():
+                            shutil.copy2(src, dest)
+
+            stack.callback(_restore_paintings)
             unparseable = []
             for room in composed.rooms:
                 mdir = out / room.name

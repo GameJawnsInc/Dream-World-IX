@@ -1732,6 +1732,31 @@ def test_painted_art_survives_a_recompose_and_the_one_after_it(tmp_path):
     assert back.read_bytes() == placeholder, "--force must repaint"
 
 
+def test_a_compose_that_dies_mid_room_still_puts_the_painting_back(tmp_path, monkeypatch):
+    """★ THE WINDOW BETWEEN REPAINTING AND THE COPY-BACK. A painting exists only in the temp dir for
+    the few statements between `write_placeholders` and the restore, so a room that fails in there --
+    a full disk, a locked file, the id-allocator invariant -- would leave the author with their art
+    overwritten by a checkerboard AND an error. The copy-back is registered on the ExitStack, so it
+    runs on the way out of the exception too."""
+    from ff9mapkit.scene import placeholder as PH
+    F.compose_and_emit(_plan(), tmp_path, log=None)
+    back = tmp_path / "HALL" / "art" / "back.png"
+    painting = back.read_bytes()[:-1] + b"\x00"
+    back.write_bytes(painting)
+
+    real = PH.write_placeholders
+
+    def boom(camera, frame, back_path, floor_path, **kw):
+        real(camera, frame, back_path, floor_path, **kw)          # the painting is gone RIGHT HERE
+        if Path(back_path).parent.parent.name == "HALL":
+            raise OSError("disk full")
+
+    monkeypatch.setattr(PH, "write_placeholders", boom)
+    with pytest.raises(OSError):
+        F.compose_and_emit(F.load_plan(tmp_path / F.SIDECAR), tmp_path, log=None)
+    assert back.read_bytes() == painting, "the failed compose kept the checkerboard it painted"
+
+
 def test_a_reshape_under_painted_art_says_the_painting_no_longer_matches(tmp_path):
     """Keeping the painting is right, and it is not enough: the floor moved under it. The signal is
     EXACT rather than a proxy -- the placeholder pair is a pure function of (camera, floor_tris), so
