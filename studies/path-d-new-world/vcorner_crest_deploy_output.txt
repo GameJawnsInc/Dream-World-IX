@@ -1,0 +1,12 @@
+DEPLOYED Block[5][7] Sea4.ff9mesh (r7)   backup: Block[5][7] Sea4.ff9mesh.r7.20260802-025232
+DEPLOYED Block[5][7] Terrain.ff9mesh (r7)   backup: Block[5][7] Terrain.ff9mesh.r7.20260802-025232
+DEPLOYED Block[5][8] Sea4.ff9mesh (r8)   backup: Block[5][8] Sea4.ff9mesh.r8.20260802-025232
+DEPLOYED Block[5][8] Terrain.ff9mesh (r8)   backup: Block[5][8] Terrain.ff9mesh.r8.20260802-025232
+revert: C:\gd\Dream-World-IX\.claude\worktrees\peaceful-rhodes-445d5a\studies\path-d-new-world\revert_vcorner_crest.py
+
+=== WALKERS [LIVE post-deploy]: 3 stalls, 0 HARD-TRAPPED (0 escape headings, own AND cold ring), 0 ring-poisoned ===
+   seek  hd=12 r0=20.0 step=  6 at (395.32,-511.33) y=26.09 escape own=16 cold=16
+   fixed hd=10 r0= 8.0 step= 20 at (375.82,-509.00) y= 3.20 escape own=16 cold=16
+   fixed hd=12 r0=20.0 step=  7 at (395.22,-511.74) y=26.18 escape own=14 cold=14
+post-deploy hug: [(377.5, -503.0, 'PASS@37', 0), (377.0, -507.0, 'PASS@26', 0)]
+post-deploy own-ring-0 stalls: 0 (PASS)

@@ -586,3 +586,35 @@ the zone. Instrument: `vcorner_crest.py`. full_skirt fold-back debt: a
 full_skirt Terrain redeploy REVERTS this chord (the sea cut survives — Sea4
 untouched by the generator); the chord spec must join TUCK_CHAIN in the next
 terrace round.
+
+### AMENDMENT 3 (during the build) — ADDITIVE fairing; THE QUANTIZED-FAN LAW
+
+Two build-time discoveries, each caught by its own gate:
+
+1. **The crest verts are HUB verts** (`probe_vcorner_boundary` local-fan dump):
+   lawn lies on BOTH sides of v6-v9 (the walkable strip continues east of
+   them), so MOVING crest verts drags interior lawn inside-out — the winding
+   gate stopped build 1 with 3 flipped tris. And v5→v8 is already STRAIGHT at
+   114.9°: no vertex motion can steepen a straight line between fixed ends.
+   The design became **THE SHORE FAIRING, fully ADDITIVE**: a new lawn strip
+   seaward of the old boundary (old boundary v5..v11 = inner edge, chord +
+   fairing = outer edge), the old topo-58 faces under it DELETED (first-hit
+   shadowing), a new near-vertical curtain (feet 0.45u seaward at y=0, cliff
+   vocabulary: mapid 232, v 0.893/0.923, u sawtooth) along the new edge, every
+   new tri seam-clipped to its owner block, per-tri lawn-UV donors (the lawn's
+   u-phase flips between tile families — a global affine is measurably false).
+   No vertex moves → no flip risk by construction.
+2. **THE QUANTIZED-FAN LAW** (measured on the 126° staged run): the deflection
+   fan probes in 11.25° steps, so a slide is robust only when
+   |held − tangent| ≤ 78.75 − 11.25 = **67.5°**. At chord 126° a 202.5° hug's
+   only landward probe (123.75°) has a 2.25° ≈ 0.017u margin — walkers pinned
+   mid-chord at (382.7,−514.1). **The chord is 138°**: mismatch 64.5° for BOTH
+   the 202.5° south hug and the 22.5° north hug, and the fairing to v11 runs
+   at exactly 202.5°. Run 2 (138°): south+22.5 all PASS with ZERO stall
+   ticks, north+22.5 PASS 0 stalls, control PASS; coverage lost=0 / gained
+   368 samples all in-strip; hidden-cut 0; boat 0 new-legal; cold-map
+   identical outside the zone; 0 own-ring-0, 0 ring-poisoned.
+   **south+45 declared residual, stock-parity**: its catches are at
+   (372.8,−506.5)/(374.0,−507.5) on the UNMODIFIED upper shore — byte-identical
+   positions in the pre-fix run-1 evidence; a 225° hold against a 159.6° shore
+   exceeds the quantized fan on any geometry of this direction.
