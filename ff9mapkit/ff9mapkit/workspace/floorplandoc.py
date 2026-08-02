@@ -1706,18 +1706,43 @@ class FloorplanDoc(QWidget):
         self._refresh(judge=False)
 
     # ================================================================== the document
+    # The keys this tab OWNS, i.e. the ones it draws and therefore rewrites. Everything else a room
+    # or door carries is somebody else's and rides through untouched -- see _carry.
+    _ROOM_OWNED = ("name", "poly")
+    _DOOR_OWNED = ("a", "b", "seg", "depth", "two_way")
+
+    @staticmethod
+    def _carry(src, owned, rebuilt):
+        """``rebuilt`` plus every key of ``src`` this tab does not own.
+
+        ★ THE TAB IS AN EDITOR OF SHAPES, NOT THE SCHEMA'S OWNER. `floorplan.compose` reads
+        `pitch`, `fov`, `id`, `encounter`, `savepoint` and `title` per room -- its documented
+        schema -- and this round trip used to emit `{name, poly}` and nothing else, so opening a
+        hand-written or previously-composed `floorplan.json` in the tab SILENTLY DELETED six of its
+        eight room keys. Measured: keys in `encounter, fov, id, name, pitch, poly, savepoint,
+        title` -> keys out `name, poly`.
+
+        Carrying by exclusion rather than by an allow-list is deliberate: an allow-list has to be
+        updated every time the composer learns a key, and the failure mode when it is not is silent
+        data loss -- which is exactly the bug this replaces."""
+        out = {k: v for k, v in src.items() if k not in owned}
+        out.update(rebuilt)
+        return out
+
     def plan(self):
         """The live session as the ``floorplan.json`` shape ``floorplan.compose`` consumes."""
         p = {"version": 1,
              "name": self.name_box.text().strip() or "DUNGEON",
              "mod_folder": self.mod_box.text().strip() or "FF9CustomMap",
-             "rooms": [{"name": r["name"], "poly": [[int(round(x)), int(round(z))]
-                                                    for x, z in r["poly"]]}
+             "rooms": [self._carry(r, self._ROOM_OWNED,
+                                   {"name": r["name"],
+                                    "poly": [[int(round(x)), int(round(z))] for x, z in r["poly"]]})
                        for r in self._session["rooms"]],
-             "doors": [{"a": d["a"], "b": d["b"],
-                        "seg": [[int(round(x)), int(round(z))] for x, z in d["seg"]],
-                        "depth": float(d.get("depth") or FP.DEPTH_DEFAULT),
-                        "two_way": bool(d.get("two_way", True))}
+             "doors": [self._carry(d, self._DOOR_OWNED,
+                                   {"a": d["a"], "b": d["b"],
+                                    "seg": [[int(round(x)), int(round(z))] for x, z in d["seg"]],
+                                    "depth": float(d.get("depth") or FP.DEPTH_DEFAULT),
+                                    "two_way": bool(d.get("two_way", True))})
                        for d in self._session["doors"]]}
         if self._session.get("entry"):
             p["entry"] = self._session["entry"]
@@ -2267,16 +2292,18 @@ class FloorplanDoc(QWidget):
         for r in data.get("rooms") or []:
             poly = [(int(round(float(p[0]))), int(round(float(p[1]))))
                     for p in (r.get("poly") or [])]
-            rooms.append({"name": str(r.get("name") or ""), "poly": poly})
+            rooms.append(self._carry(r, self._ROOM_OWNED,
+                                     {"name": str(r.get("name") or ""), "poly": poly}))
         known = {r["name"] for r in rooms}
         for d in data.get("doors") or []:
             seg = [(int(round(float(p[0]))), int(round(float(p[1]))))
                    for p in (d.get("seg") or [])]
             if len(seg) != 2 or str(d.get("a")) not in known or str(d.get("b")) not in known:
                 continue                           # a door with no rooms is not a door
-            doors.append({"a": str(d["a"]), "b": str(d["b"]), "seg": seg,
-                          "depth": float(d.get("depth") or FP.DEPTH_DEFAULT),
-                          "two_way": bool(d.get("two_way", True))})
+            doors.append(self._carry(d, self._DOOR_OWNED,
+                                     {"a": str(d["a"]), "b": str(d["b"]), "seg": seg,
+                                      "depth": float(d.get("depth") or FP.DEPTH_DEFAULT),
+                                      "two_way": bool(d.get("two_way", True))}))
         self._session = {"rooms": rooms, "doors": doors,
                          "entry": (str(data["entry"]) if data.get("entry") in known else
                                    (rooms[0]["name"] if rooms else None))}
