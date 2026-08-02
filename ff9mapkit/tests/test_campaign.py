@@ -359,6 +359,16 @@ def _plan_with_ids(ids):
                                  entry_name="A", entry_entrance=0, members=members)
 
 
+def test_validate_ids_refuses_the_engine_reserved_world_hole():
+    """EventDB[9000..9012] are the world-state dispatchers (EVT_WORLD_WORLD00..12), so a FieldScene there
+    clobbers the world scripts. The journey tier, the floorplan pre-flight and reid all guarded this --
+    the CAMPAIGN lane, which every one of them ultimately builds through, did not."""
+    for band in ([9000], [9012], [8999, 9005]):
+        with pytest.raises(campaign.CampaignError, match="world-map hole"):
+            campaign.validate_ids(_plan_with_ids(band))
+    campaign.validate_ids(_plan_with_ids([8999, 9013]))           # either side of the hole is fine
+
+
 def test_validate_ids():
     campaign.validate_ids(_plan_with_ids([6000, 6001, 6002]))            # ok
     for bad in ([6000, 6000], [3999], [40000], []):
@@ -381,6 +391,18 @@ def _lint_plan(tmp_path, *, members=None, edges=None, seams=None, entry="A", mem
         (d / f"{m.name}.field.toml").write_text(
             f'[field]\nid = {m.new_id}\nname = "{m.name}"\narea = 11\n{extra}', encoding="utf-8")
     return plan
+
+
+def test_lint_refuses_a_flag_width_below_one(tmp_path):
+    """★ At flags_per_field = 0 the window [base+i*K, base+i*K+K-1] degenerates to hi = lo-1: an EMPTY range
+    that satisfies every band check while EVERY member sits on the SAME base -- member 2's cutscene
+    once-flag IS member 1's. Nothing anywhere had a floor, so it linted clean with zero errors and built."""
+    plan = _lint_plan(tmp_path)
+    plan.flags_per_field = 0
+    errs = campaign.lint_campaign(plan, tmp_path)[0]
+    assert any("flags_per_field" in e and "at least 1 bit" in e for e in errs), errs
+    plan.flags_per_field = 1                                      # 1 bit = a lone [[cutscene]]: legal
+    assert campaign.lint_campaign(plan, tmp_path)[0] == []
 
 
 def test_lint_structural_pass(tmp_path):

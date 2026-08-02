@@ -510,6 +510,19 @@ def validate_ids(plan: CampaignPlan):
     bad = [i for i in ids if not (4000 <= i <= 32767)]
     if bad:
         raise CampaignError(f"member ids out of range {sorted(set(bad))}: must be 4000-32767 (fldMapNo is Int16)")
+    # The engine-RESERVED world-map hole. EventDB[9000..9012] are the world-state dispatchers
+    # (EVT_WORLD_WORLD00..12), so a FieldScene there clobbers the world scripts. The journey tier guards it
+    # (journey.WORLD_ID_LO/HI), the floorplan pre-flight guards it, and reid refuses to move onto it -- but
+    # the CAMPAIGN lane, which every one of those ultimately builds through, did not. A hand-edited manifest
+    # or a plain `add-field` walking the allocator up from 8990 lands in it with nothing to say so.
+    from .journey import WORLD_ID_HI, WORLD_ID_LO
+    hole = sorted({i for i in ids if WORLD_ID_LO <= i <= WORLD_ID_HI})
+    if hole:
+        raise CampaignError(
+            f"member ids {hole} land in the engine-RESERVED world-map hole {WORLD_ID_LO}-{WORLD_ID_HI} "
+            f"(EventDB[{WORLD_ID_LO}..{WORLD_ID_HI}] = the world-state dispatchers EVT_WORLD_WORLD00..12) -- "
+            f"a FieldScene there clobbers the world scripts. Move the campaign clear of the hole: "
+            f"`ff9mapkit reid <campaign.toml> --id-base N`.")
 
 
 def apply_seed_blocks(raw: dict, blocks: dict) -> None:
@@ -733,7 +746,22 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                       f"(edges/seams + the campaign navigator key on them)")
 
     K = plan.flags_per_field                      # (a3) per-member flag blocks: in the provably-safe band,
-    for i, m in enumerate(plan.members):          #      clear of real-FF9's chest bitfield + the scratch
+    #                                                    clear of real-FF9's chest bitfield + the scratch
+    # A WIDTH BELOW 1 IS NOT A SMALL WINDOW, IT IS NO WINDOW. Every check below is written in terms of
+    # [lo, hi] = [base + i*K, base + i*K + K - 1], and at K=0 that degenerates to hi = lo - 1: an EMPTY
+    # range that satisfies every band test while every member sits on the SAME base, so member 2's
+    # cutscene once-flag IS member 1's. Nothing anywhere had a floor -- not load_campaign (:497), not
+    # new_campaign, not the CLI -- so `flags_per_field = 0` linted clean and built a campaign whose
+    # members all share one bit. Negative K only errored by accident (the window walks DOWN past the
+    # safe floor and trips the check below).
+    if K < 1:
+        errors.append(f"[campaign] flags_per_field = {K} -- a member's flag block must be at least 1 bit "
+                      f"wide. At {K} every member's window starts on the SAME bit ({plan.flag_base}), so "
+                      f"their auto once-flags are the same flags -> SAVE CORRUPTION. The width must cover "
+                      f"the member's own layout: 1 (a [[cutscene]]) + one bit per auto-flagged [[event]], "
+                      f"and 33+ if any member has a walk-[[choice]] (choices start after the event block).")
+        K = 1                                      # keep the per-member checks below meaningful, not absurd
+    for i, m in enumerate(plan.members):
         lo, hi = plan.flag_base + i * K, plan.flag_base + i * K + K - 1
         if lo < FIRST_SAFE_FLAG:
             errors.append(f"member {m.name}: flag block {lo}-{hi} dips below the safe floor "

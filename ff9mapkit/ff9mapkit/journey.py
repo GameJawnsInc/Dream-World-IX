@@ -55,7 +55,7 @@ from pathlib import Path
 
 from . import campaign as _campaign
 from . import hub as _hub
-from .flags import CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG
+from .flags import CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, KIT_STANDING_FLOOR
 
 SCENARIO_MAX = 32767
 ID_LO, ID_HI = 4000, 32767                  # custom field-id band (Int16 cap; CLAUDE.md §3)
@@ -541,8 +541,11 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
             return
         if fid in owner and owner[fid] != label:
             errors.append(f"field id {fid} is claimed by BOTH {owner[fid]} and {label} -- EventDB/SceneData "
-                          f"are global; give them disjoint id bands (re-fork a campaign with a different "
-                          f"`import-chain --id-base`, or re-point a bare journey).")
+                          f"are global; give them disjoint id bands. Move one campaign in place with "
+                          f"`ff9mapkit reid <campaign.toml> --id-base N` (rewrites the manifest, every member "
+                          f"and every door, keeping your authored content); re-forking with "
+                          f"`import-chain --id-base N --fresh-ids` also works but DISCARDS hand-authored "
+                          f"members. Or re-point a bare journey.")
         else:
             owner.setdefault(fid, label)
     for folder, (plan, _) in plans.items():
@@ -747,12 +750,16 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
                 errors.append(f"journey {j.id!r}: entry id {j.entry.field} is not a member of campaign "
                               f"{j.entry.campaign!r} -- prefer a member NAME (stable across re-id)")
 
-        # flag windows fit below the choice scratch
+        # Flag windows fit below the KIT-STANDING floor -- the SAME ceiling campaign.lint_campaign (a3)
+        # enforces per member. This used the choice-scratch floor, 1656 bits higher, so a journey could
+        # pass here and then hard-error at build: a lint disagreeing with the build it exists to predict.
         _, high = _flag_windows(j, plans)
-        if high > CHOICE_SCRATCH_FLOOR:
+        if high > KIT_STANDING_FLOOR:
             errors.append(f"journey {j.id!r}: campaigns need {high - FIRST_SAFE_FLAG} flags "
-                          f"({FIRST_SAFE_FLAG}..{high - 1}) -- past the choice-scratch floor "
-                          f"{CHOICE_SCRATCH_FLOOR}. Fewer members, smaller flags_per_field, or split the arc.")
+                          f"({FIRST_SAFE_FLAG}..{high - 1}) -- past the kit-standing floor "
+                          f"{KIT_STANDING_FLOOR}, where the kit's own allocators begin (the AUTO once-flag "
+                          f"bands, the behavior blackboard, siege requests; see flags.py). Fewer members, a "
+                          f"smaller flags_per_field, or split the arc.")
 
         # links: resolve + boundary + connectivity
         names_by = {f: {m.name for m in plans[f][0].members} for f in j.campaigns}
@@ -1585,7 +1592,12 @@ class JourneyCollisions:
 
     @property
     def has_blockers(self) -> bool:
-        return bool(self.external_ids or self.external_names)
+        """SHARED TEXT BLOCKS BELONG HERE. A mesID is served by exactly ONE folder's field/<block>.mes across
+        the stacked FolderNames, so two of this journey's campaigns shipping the same block means the loser's
+        dialogue is silently replaced by the winner's -- the text-shadow trap, and a blocker by any reasonable
+        reading. It was computed and rendered (render_collision_report) but left out of the predicate that
+        decides whether to STOP, so the report said "collision" and the deploy proceeded."""
+        return bool(self.external_ids or self.external_names or self.shared_blocks)
 
 
 def _journey_registrations(plan, *, dists=None, hub_name=None):
