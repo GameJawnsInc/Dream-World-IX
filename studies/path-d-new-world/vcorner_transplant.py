@@ -472,6 +472,7 @@ class DonorReject(Exception):
 #     over five spans), wrapping modulo the band [U0, U_HI]; a foot vert
 #     inherits its crest vert's u (the strip's u is constant down each rung).
 WALL_MODE = "tuck"                    # "tuck" (the island's own) | "carry" (stock lip)
+TUCK_RUNGS = []                       # crest points the tuck wall actually used
 TUCK_FOOT_Y = 0.0                     # the waterline — measured, all bench feet
 TUCK_JOINTS = {                       # kept foot vert + kept crest u, per joint
     "A": dict(crest=(372.482, -506.271), foot=(371.491, 0.0, -506.140),
@@ -509,8 +510,22 @@ def _sea_dir(a, b):
     return (dz / L, -dx / L)
 
 
-def tuck_wall(crest, verbose=True):
+def tuck_wall(crest, verbose=True, seg_max=2.0):
     """Sweep THE TUCK VOCABULARY along `crest`. Returns [[tri3, uv3, col]]."""
+    # DENSIFY FIRST, then build BOTH meshes on the result. The lawn ears share
+    # this chain; if the ears have to subdivide a crest edge later to find
+    # clean paint, the wall no longer has that vertex and the shared boundary
+    # becomes a T-junction. Inserted points are collinear (identical miter,
+    # arc-parameterised u) so the shape and the texture are untouched.
+    dense = [crest[0]]
+    for i in range(len(crest) - 1):
+        L = math.hypot(crest[i + 1][0] - crest[i][0], crest[i + 1][1] - crest[i][1])
+        k = max(1, math.ceil(L / seg_max))
+        for j in range(1, k + 1):
+            t = j / k
+            dense.append((crest[i][0] + (crest[i + 1][0] - crest[i][0]) * t,
+                          crest[i][1] + (crest[i + 1][1] - crest[i][1]) * t))
+    crest = dense
     n = len(crest)
     seas = [_sea_dir(crest[i], crest[i + 1]) for i in range(n - 1)]
     arc = [0.0]
@@ -592,6 +607,19 @@ def tuck_wall(crest, verbose=True):
 
     def lerp2(a, b, t):
         return tuple(a[j] + (b[j] - a[j]) * t for j in range(len(a)))
+
+    # The band-wrap splits put rungs on the crest that crest_pts does not have.
+    # The LAWN must share them or every wrap rung is a T-junction along the
+    # grass/rock boundary — a hairline that cracks under float32 rasterisation
+    # and shows the hollow interior through it ("whitish pixels seaming
+    # through"). Publish the true rung list for the ear ring to use.
+    global TUCK_RUNGS
+    TUCK_RUNGS = []
+    for (i, t0, t1, ua, ub) in quads:
+        c0 = lerp2(crest[i], crest[i + 1], t0)
+        if not TUCK_RUNGS or math.dist(TUCK_RUNGS[-1], c0) > 1e-9:
+            TUCK_RUNGS.append(c0)
+        TUCK_RUNGS.append(lerp2(crest[i], crest[i + 1], t1))
 
     out = []
     nwrap = sum(1 for q in quads if q[2] < 1.0 or q[1] > 0.0)
@@ -1329,7 +1357,10 @@ def build():
         iu = int((u % 1.0) * _aw) % _aw
         iv = int((1.0 - (v % 1.0)) * _ah) % _ah
         r2, g2, b2, a2 = _atl[iv, iu]
-        return a2 == 0 or (r2 > 235 and g2 > 235 and b2 > 235)
+        # blank paint is not always FULL white: the owner's "couple of whitish
+        # pixels seaming through" survived the >235 test. Judge luminance, and
+        # treat a near-white texel as poison too.
+        return a2 == 0 or min(int(r2), int(g2), int(b2)) > 205
 
     def _footprint_stats(uv3):
         """(bad, mean_rgb) over EVERY texel under the uv triangle. bad if any
@@ -1369,12 +1400,56 @@ def build():
             return False, None
         return False, (acc[0] / npx, acc[1] / npx, acc[2] / npx)
 
+    def _dilate(uv3, texels=1.6):
+        """Grow a uv triangle outward by ~n texels. Render-time NEAREST
+        sampling + perspective interpolation can land a texel outside the
+        exact footprint; validating the exact triangle let edge whites through
+        (that is what the owner saw). Test the dilated footprint instead."""
+        cx5 = sum(u for (u, v) in uv3) / 3.0
+        cy5 = sum(v for (u, v) in uv3) / 3.0
+        out = []
+        for (u, v) in uv3:
+            dx5, dy5 = u - cx5, v - cy5
+            L5 = math.hypot(dx5, dy5) or 1.0
+            g5 = texels / _aw
+            out.append((u + dx5 / L5 * g5, v + dy5 / L5 * g5))
+        return out
+
     def _footprint_bad(uv3):
-        return _footprint_stats(uv3)[0]
+        return _footprint_stats(_dilate(uv3))[0]
 
     # the ear band: between the new crest and THE SCAR (not the old boundary —
     # the strip itself is REMOVED land in the V-carry)
-    ears0 = earclip(scar2 + list(reversed(outer[1:-1])))
+    if WALL_MODE == "tuck" and TUCK_RUNGS:
+        outer = [(p[0], p[1]) for p in TUCK_RUNGS]          # share the wall's rungs (plan)
+    ring = scar2 + list(reversed(outer[1:-1]))
+    ears0 = earclip(ring)
+
+    def _on_ring(a, b):
+        """Is edge a-b part of the ear ring? Those edges are shared with the
+        wall (crest side) or the retained lawn (scar side); splitting one
+        mints a T-junction against geometry we are not rewriting."""
+        for i5 in range(len(ring)):
+            p5, q5 = ring[i5], ring[(i5 + 1) % len(ring)]
+            dx5, dz5 = q5[0] - p5[0], q5[1] - p5[1]
+            L5 = math.hypot(dx5, dz5)
+            if L5 < 1e-9:
+                continue
+            ok = True
+            for w5 in (a, b, ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)):
+                cr = abs((w5[0] - p5[0]) * dz5 - (w5[1] - p5[1]) * dx5) / L5
+                t5 = ((w5[0] - p5[0]) * dx5 + (w5[1] - p5[1]) * dz5) / (L5 * L5)
+                # tolerance must be >= the T-junction crack threshold (2e-3):
+                # at 1e-4 an edge lying 1.3e-4 off a ring segment was judged
+                # INTERIOR and split, minting a vertex in the middle of a
+                # retained face's edge — a crack we cannot repair from this
+                # side, because the neighbour is geometry we do not rewrite.
+                if cr > 2.5e-3 or not (-1e-6 <= t5 <= 1 + 1e-6):
+                    ok = False
+                    break
+            if ok:
+                return True
+        return False
 
     # big ears' uv footprints always hit SOME white gap (ground fields carry
     # 5-10% interior poison — atlas_map.json); subdivide until each sub-tri
@@ -1396,6 +1471,9 @@ def build():
     def _subdiv(tri, lim=2.2):
         p, q, r = tri
         es = [(math.dist(p, q), 0), (math.dist(q, r), 1), (math.dist(r, p), 2)]
+        es = [e for e in es if not _on_ring(*(((p, q), (q, r), (r, p))[e[1]]))]
+        if not es:
+            return [tri]                                    # all edges are ring edges
         L5, ei = max(es)
         if L5 <= lim:
             return [tri]
@@ -1432,41 +1510,162 @@ def build():
     ears = [t for t in ears
             if abs((t[1][0] - t[0][0]) * (t[2][1] - t[0][1])
                    - (t[2][0] - t[0][0]) * (t[1][1] - t[0][1])) > 1e-9]
+
+
+    # T-JUNCTION REPAIR (ear-vs-ear): recursive bisection can leave a vertex
+    # sitting in the interior of a sibling's edge. Watertight in exact
+    # arithmetic, a crack on real hardware. Split until the fixed point.
+    # The repair must know the NEIGHBOURS' vertices, not just its own: a
+    # retained-lawn vertex lying on an ear edge is just as much a crack, and
+    # we can only fix it from our side (the retained face is not ours to
+    # re-cut). Seed with retained lawn verts + the wall's crest rungs.
+    _ring_bb = (min(p[0] for p in ring) - 1.0, max(p[0] for p in ring) + 1.0,
+                min(p[1] for p in ring) - 1.0, max(p[1] for p in ring) + 1.0)
+    _ext = {(round(v9[0], 5), round(v9[1], 5)) for v9 in exact3.values()
+            if _ring_bb[0] <= v9[0] <= _ring_bb[1]
+            and _ring_bb[2] <= v9[1] <= _ring_bb[3]}
+    _ext |= {(round(p[0], 5), round(p[1], 5)) for p in
+             ([(q[0], q[1]) for q in TUCK_RUNGS] if WALL_MODE == "tuck" else [])}
+
+    def _repair(pairs5):
+        """pairs5 = [(tri, payload)]; splits carry the parent's payload."""
+        for _round in range(24):
+            vset = {p for (t, _pl) in pairs5 for p in t} | _ext
+            grown = []
+            changed = 0
+            for (t, _pl) in pairs5:
+                hit = None
+                for a5, b5 in ((0, 1), (1, 2), (2, 0)):
+                    pa, pb = t[a5], t[b5]
+                    dx5, dz5 = pb[0] - pa[0], pb[1] - pa[1]
+                    L25 = dx5 * dx5 + dz5 * dz5
+                    if L25 < 1e-12:
+                        continue
+                    for w5 in vset:
+                        if w5 is pa or w5 is pb or w5 == pa or w5 == pb:
+                            continue
+                        t5 = ((w5[0] - pa[0]) * dx5 + (w5[1] - pa[1]) * dz5) / L25
+                        if not (1e-5 < t5 < 1 - 1e-5):
+                            continue
+                        cr = abs((w5[0] - pa[0]) * dz5 - (w5[1] - pa[1]) * dx5)
+                        # MUST stay near-exact. Splitting an edge at a point
+                        # that is merely CLOSE to it leaves a sliver gap the
+                        # width of the offset — a hole, which is strictly
+                        # worse than the T-junction it was meant to close.
+                        # (Measured: at 2.5e-3 this opened 26 px of visible
+                        # background where there had been none.)
+                        if cr / math.sqrt(L25) < 1e-4:
+                            hit = (a5, b5, w5)
+                            break
+                    if hit:
+                        break
+                if hit is None:
+                    grown.append((t, _pl))
+                    continue
+                a5, b5, w5 = hit
+                c5 = t[3 - a5 - b5]
+                grown.append(((t[a5], w5, c5), _pl))
+                grown.append(((w5, t[b5], c5), _pl))
+                changed += 1
+            pairs5 = grown
+            if not changed:
+                return pairs5, _round
+        return pairs5, -1
     lawn3 = []
-    for (p, q, r) in ears:
+    # THE NEIGHBOURHOOD TONE REFERENCE. Playtest 11: "a weird meadowy texture
+    # forming 2 triangles". The prior gate scored each ear against its DONOR
+    # face's paint — the wrong reference: a donor can be perfectly lawful and
+    # still sit in a lighter part of the ground field than the grass the ear
+    # actually lands in. Score against the RETAINED lawn around the ear, and
+    # take the tone-NEAREST clean shift rather than the first acceptable one.
+    retained_lawn = []
+    for (bx, by) in BLOCKS:
+        d = base_by_block[(bx, by)]
+        ox, oz = 64.0 * bx, -64.0 * by
+        idx, tans, verts9, uvs9 = d["indices"], d["tangents"], d["verts"], d["uvs"]
+        for t0 in range(0, len(idx), 3):
+            if t0 // 3 in drops[(bx, by)]:
+                continue
+            t = idx[t0:t0 + 3]
+            if ((int(round(tans[t[0]][0])) & 0xFC) >> 2) not in W.WALK_OK:
+                continue
+            pw = [(verts9[j2][0] + ox, verts9[j2][2] + oz) for j2 in t]
+            cen9 = (sum(q9[0] for q9 in pw) / 3, sum(q9[1] for q9 in pw) / 3)
+            uv9 = [(float(uvs9[j2][0]), float(uvs9[j2][1])) for j2 in t]
+            _b9, m9 = _footprint_stats(uv9)
+            if m9 is not None:
+                retained_lawn.append((cen9, m9))
+    print(f"   tone reference: {len(retained_lawn)} retained lawn faces sampled")
+
+    def _neighbour_tone(cen, k=6):
+        if not retained_lawn:
+            return None
+        near = sorted(retained_lawn,
+                      key=lambda r9: (r9[0][0] - cen[0]) ** 2 + (r9[0][1] - cen[1]) ** 2)[:k]
+        return tuple(sum(r9[1][c] for r9 in near) / len(near) for c in range(3))
+
+    worst_tone = 0.0
+    # REFINE UNTIL CLEAN: an ear with no poison-free lattice shift is not a
+    # verdict, it is a triangle that is still too big — the ground field's
+    # poison is scattered, so a smaller footprint has somewhere clean to land.
+    # Split its longest non-ring edge and retry, rather than shipping known
+    # off-paint texels (the "couple of whitish pixels" class).
+    work = list(reversed(ears))
+    lawn3 = []
+    n_refine = 0
+    guard = 0
+    while work and guard < 6000:
+        guard += 1
+        (p, q, r) = work.pop()
         cen = ((p[0] + q[0] + r[0]) / 3, (p[1] + q[1] + r[1]) / 3)
         best = min(affs, key=lambda pf: (sum(v[0] for v in pf[0]) / 3 - cen[0]) ** 2
                    + (sum(v[2] for v in pf[0]) / 3 - cen[1]) ** 2)
         f0 = best[1]
-        # tone reference: the donor face's OWN paint (it renders as lawn on
-        # the owner-passed bench by construction) — the brown-patch class
-        # passed the white-only test with the wrong TONE
-        ref_uv = [f0(v[0], v[2]) for v in best[0]]
-        _, ref_mean = _footprint_stats(ref_uv)
-        pick = None
-        for (k4, m4) in sorted([(k, m) for k in range(-4, 5)
-                                for m in range(-4, 5)],
-                               key=lambda km: (abs(km[0]) + abs(km[1]), km)):
+        ref_mean = _neighbour_tone(cen)
+        cands = []
+        for (k4, m4) in [(k, m) for k in range(-4, 5) for m in range(-4, 5)]:
             uv3 = [f0(s[0] - 4.0 * k4, s[1] - 4.0 * m4) for s in (p, q, r)]
-            bad, mean = _footprint_stats(uv3)
-            if bad:
+            # NOTE the _dilate: validating the exact footprint let a single
+            # blank texel through on one ear (the gate found it at three
+            # cameras). The dilation lived in _footprint_bad, which this loop
+            # does not call — a fix that was never actually on this path.
+            bad, mean = _footprint_stats(_dilate(uv3))
+            if bad or mean is None:
                 continue
-            if ref_mean is not None and mean is not None:
-                dr = math.dist(mean, ref_mean)
-                if dr > 30.0:
-                    continue
-            pick = (k4, m4)
-            break
-        if pick is None:
+            dr = math.dist(mean, ref_mean) if ref_mean is not None else 0.0
+            cands.append((dr, abs(k4) + abs(m4), (k4, m4)))
+        if cands:
+            cands.sort(key=lambda c: (round(c[0], 1), c[1]))   # tone first, then nearness
+            dr, _man, pick = cands[0]
+            worst_tone = max(worst_tone, dr)
+            if dr > 12.0:
+                print(f"   ! ear at ({cen[0]:.1f},{cen[1]:.1f}): best tone match "
+                      f"dRGB {dr:.1f} at shift {pick} (of {len(cands)} clean)")
+        else:
+            # no clean shift: split the longest NON-RING edge and retry
+            cand_e = [(math.dist(a6, b6), (a6, b6), c6)
+                      for (a6, b6, c6) in ((p, q, r), (q, r, p), (r, p, q))
+                      if not _on_ring(a6, b6)]
+            cand_e = [e for e in cand_e if e[0] > 0.30]
+            if cand_e:
+                _L6, (a6, b6), c6 = max(cand_e)
+                m6 = _reg(((a6[0] + b6[0]) / 2, (a6[1] + b6[1]) / 2))
+                work.append((a6, m6, c6))
+                work.append((m6, b6, c6))
+                n_refine += 1
+                continue
             pick = (0, 0)
-            print(f"   !! ear at ({cen[0]:.1f},{cen[1]:.1f}): NO clean+tonal "
-                  f"lattice shift in +/-4 — off-paint texels will show")
-        elif pick != (0, 0):
-            print(f"   ear at ({cen[0]:.1f},{cen[1]:.1f}): lattice shift {pick}")
-        donor = (lambda f2, kk, mm: lambda x, z: f2(x - 4.0 * kk, z - 4.0 * mm))(
+            print(f"   !! ear at ({cen[0]:.1f},{cen[1]:.1f}): NO clean lattice "
+                  f"shift and not splittable — off-paint texels will show")
+        donor =(lambda f2, kk, mm: lambda x, z: f2(x - 4.0 * kk, z - 4.0 * mm))(
             f0, pick[0], pick[1])
         lawn3.append(((p, q, r), donor))
-    print(f"   strip cover: {len(lawn3)} ear tris (atlas-validated translate-clone)")
+    assert guard < 6000, "ear refinement did not terminate"
+    lawn3, rounds = _repair(lawn3)
+    assert rounds >= 0, "T-junction repair did not converge"
+    print(f"   strip cover: {len(lawn3)} ear tris ({n_refine} poison refinements, "
+          f"T-junction repair {rounds} rounds); "
+          f"worst neighbourhood tone dRGB {worst_tone:.1f} (gate 12)")
 
     staged = {}
     for (bx, by) in BLOCKS:

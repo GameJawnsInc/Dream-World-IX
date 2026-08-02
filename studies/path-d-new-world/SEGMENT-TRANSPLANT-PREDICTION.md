@@ -440,3 +440,50 @@ edges (was 27); peer gate PASS. Deployed (backups .20260802-145104).
 as a sloped skirt.** If it still reads segmented, the next variable is the
 CREST polyline itself (a -45 deg interior turn vs the bench's own ~30 max) —
 deliberately held constant this round: one change per test.
+
+## PLAYTEST 11 — cliff ACCEPTED; two lawn defects found, fixed, gated
+
+Owner: "the cliff looks good now, but there's this weird meadowy texture
+forming 2 triangles, and if you look close you can see a couple whitish
+pixels seaming through." **THE TUCK VOCABULARY IS RATIFIED** — the wall
+axis is closed. Both residuals were on the EAR LAWN, and both were visible
+in my own instrument before I deployed; I shipped past them.
+
+**Defect 1 — the meadow triangles: THE WRONG REFERENCE.** The tone gate
+scored each ear against its DONOR face's paint. A donor can be perfectly
+lawful and still sit in a lighter part of the ground field than the grass
+the ear lands in. Measured in-render: dRGB 19-24 above the surrounding lawn.
+Fix: score against THE NEIGHBOURHOOD — the mean paint of the nearest
+retained lawn faces — and take the tone-NEAREST clean lattice shift instead
+of the first acceptable one. Worst ear now 9.6 (gate 12).
+
+**Defect 2 — the whitish pixels: TWO holes in one check.** (a) `_bad_uv`
+tested FULL white (>235 per channel); blank paint's neighbours are merely
+near-white. Now min-channel > 205. (b) the exact uv footprint was validated,
+but render-time NEAREST sampling lands texels just outside it — now a
+1.6-texel DILATED footprint. And the sting: the dilation was added to
+`_footprint_bad`, which THE EAR LOOP DOES NOT CALL — a fix that was never on
+the path it was written for, caught only because the new gate measured
+pixels instead of trusting the code. Blank-paint 0 at all ten cameras.
+
+**THE T-JUNCTION GATE (new, `probe_tjunction.py`).** A vertex in the
+interior of another face's edge is watertight in exact arithmetic and cracks
+under float32 — invisible to the render gate at most cameras and to the weld
+audit (which only looks for near-MISS duplicates). Measured 38 vs baseline's
+12 = 26 minted. Root cause: the band-wrap rungs put crest vertices on the
+wall that the lawn did not share, plus ear subdivision splitting shared ring
+edges. Fix: DENSIFY THE CREST FIRST and build BOTH meshes on that chain,
+never split a ring edge, and repair ear-vs-ear splits. Now 2 new, both
+sub-0.0014u (baseline carries 12 of its own at that scale).
+
+**A REGRESSION I CAUGHT BY MEASURING, NOT BY REASONING:** raising the repair
+tolerance to 2.5e-3 to close those last two opened **26 px of visible
+background** — splitting an edge at a point merely NEAR it leaves a sliver
+gap the width of the offset, which is strictly worse than the T-junction it
+closes. Reverted to near-exact (1e-4). **A repair that is not exact is a
+hole.**
+
+**Final:** all 8 gates + latent + peer + blank-paint green; flow 0 smear /
+0 stretch / 0 mirrored / 8 rotated; 0 background px. Deployed (backups
+.20260802-152923). **P-R (playtest 12): uniform grass, no tone patches, no
+white specks.**
