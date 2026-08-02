@@ -1,0 +1,18 @@
+bench target: chord 8.25u, turn +43 deg convex (land LEFT), crest ~3.2u
+
+pool: 260 real disc-1 blocks
+14 qualifying windows (flow + family constrained)
+   (5, 14) chain1 v0..v2 at (372.0, -940.0): turn +39.3 chord 8.08 h 3.31 [2.66..3.31] base 0.0 nv 3 minSeatedH 137.3
+   (5, 13) chain0 v12..v14 at (364.0, -868.0): turn +39.3 chord 8.28 h 2.97 [2.97..2.97] base 0.0 nv 3 minSeatedH 137.0
+   (8, 10) chain0 v2..v4 at (556.6, -664.0): turn +44.2 chord 9.53 h 2.97 [2.97..2.97] base 0.0 nv 3 minSeatedH 135.3
+   (20, 16) chain1 v3..v5 at (1336.0, -1051.4): turn +38.3 chord 7.97 h 3.32 [2.7..3.59] base 0.0 nv 3 minSeatedH 137.2
+   (17, 9) chain0 v3..v5 at (1123.9, -588.5): turn +45.5 chord 7.98 h 2.71 [2.36..3.39] base 0.0 nv 3 minSeatedH 135.2
+   (7, 14) chain0 v44..v46 at (452.0, -936.6): turn +36.7 chord 8.78 h 2.97 [2.97..2.97] base 0.0 nv 3 minSeatedH 138.8
+   (8, 15) chain0 v3..v6 at (524.0, -988.0): turn +38.7 chord 10.05 h 2.97 [2.97..2.97] base 0.0 nv 4 minSeatedH 137.9
+   (14, 4) chain0 v3..v5 at (920.7, -268.3): turn +35.8 chord 8.18 h 3.18 [3.18..3.26] base 0.0 nv 3 minSeatedH 135.5
+   (4, 8) chain0 v58..v60 at (268.0, -574.8): turn +36.1 chord 8.67 h 2.97 [2.97..2.97] base 0.0 nv 3 minSeatedH 136.0
+   (7, 6) chain0 v4..v6 at (471.7, -400.0): turn +35.9 chord 9.43 h 3.04 [2.97..3.16] base 0.0 nv 3 minSeatedH 138.2
+   (15, 4) chain0 v0..v2 at (1012.0, -276.9): turn +36.4 chord 8.7 h 3.55 [3.06..3.55] base 0.0 nv 3 minSeatedH 135.2
+   (10, 18) chain0 v1..v3 at (668.0, -1164.0): turn +35.0 chord 9.09 h 3.91 [3.91..3.91] base 0.0 nv 3 minSeatedH 138.6
+   (8, 14) chain0 v25..v27 at (559.2, -937.6): turn +35.4 chord 10.52 h 2.97 [2.97..3.59] base 0.0 nv 3 minSeatedH 137.4
+   (21, 9) chain0 v0..v3 at (1356.0, -604.0): turn +51.6 chord 10.83 h 3.54 [2.63..3.68] base 0.0 nv 4 minSeatedH 136.2
