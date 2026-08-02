@@ -286,7 +286,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   lives on an unmerged branch)
 - Summons TIER W ★: W2-W7+W6q cast-proven; U1-U2 ★★★ CLOSED + ADOPTED — 2nd array = per-slot texel displacement (linear ADD), the kit joins on the effective cover at EDIT scope → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
-- Click authoring — ★★ Rungs 0-4 and the floorplan composer 6a-6d ALL owner-confirmed in-game: draw a freeform dungeon, compose, build, walk it → `studies/click-authoring/RUNG6.md`
+- Click authoring — ★★ Rungs 0-4 + composer 6a-6d owner-confirmed in-game; Rung 7a-7d built offline (scroll camera, non-destructive recompose, novel fields place) → `studies/click-authoring/PLAN.md`
 - Path D, a genuinely new 3rd overworld world — ★★ rungs 0-5a; MESA CARRY: the TOP PASSES. ⚠ THE GROUND JUNCTION IS THE OPEN PROBLEM and 8 rounds relocated it, never removed it — read `studies/path-d-new-world/GROUND-JUNCTION-SYNTHESIS.md` BEFORE any wall/ground work
 - Interactive docs (docsite/) — site+CLI-ref+shots+tutorial system BUILT, gates green; core track S1-S7 drafted (playtest pending), CLI track C1-C4 shipped; UI gate now covers editor FORM labels (`form:<spec>.<key>`, Qt-free, freshness-tested) → `studies/interactive-docs/` (critique + ranked structural items: `REVAMP-CRITIQUE.md`)
 
