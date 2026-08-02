@@ -108,6 +108,71 @@ design question and the next work is choosing a shape, not extending capability.
 
 ---
 
-## FINDINGS
+## FINDINGS (2026-08-02) — predictions scored, menu in `DESIGN-MENU.md`
 
-*(scored when the design round returns)*
+**S-1 CONFIRMED, and sharpened.** Capes + bays are 150 of 187 instances; stock-plausible
+means a ragged margin at the 16–40u scale. But the per-class dig found the striking unit
+is often the *arrangement* rather than any instance — the archipelago's anchor-plus-
+fraying-tail is a composition, not an object.
+
+**S-2 CONFIRMED and strengthened.** One neck per 3,678u of coastline against one cape per
+368u; the whole class is 0.22% of the world's land area. A walkable land bridge is a
+deliberate departure from stock language.
+
+**S-3 CONFIRMED.** The top two designs author zero triangles; the only design that mints
+surface ranks third and is explicitly the capability demo, not the opener.
+
+**S-4 CONFIRMED.** Four of six classes came back `buildable-with-work`; the strait is
+effectively blocked by six lines in `fuse.py`.
+
+### A FOURTH DETECTOR FAULT — the lagoon class does not exist in stock FF9
+
+The three faults fixed above were mine. This one survived into the published counts and
+was caught by the per-class dig: of 6,384u² of fully sealed "water" in disc 1, **46% is a
+dedicated river/stream/falls mesh, 39% is a town or dungeon object model plugging a hole
+in the terrain, 11% is the Fire Shrine's lava crater, and exactly 32u² — one 4u cell — is
+actual enclosed sea.**
+
+Independently corroborated here: the probe's second-largest "lagoon" (448u², block (7,1))
+is **Gulug's volcano crater**, which `studies/overworld-topography/`'s own part inventory
+records as `volcanocrater`/`volcanolava` at (7,1)/(8,1).
+
+The lagoon detector was measuring *holes in the terrain mask*, not enclosed water. The
+mask cannot tell sealed sea from a crater or a building footprint, because Terrain is
+absent under all three. **Stock FF9 has no lagoons; a Path D lagoon would be the first
+one in the game.** That is a legitimate design choice but it is not a stock-plausible one,
+and the census as first published implied the opposite.
+
+### The structural finding that outranks the menu
+
+**There is no post-deploy coast editing on Path D**, verified in source rather than taken
+on report:
+
+* `cli.py:3773` — `cliff morphs are single-cell v1 -- drop --size`, so no morph verb
+  reaches a multi-block carry at all.
+* `transplant.morph_in_place` → `world_tris` → `extract.read_block(disc=…)`, which reads
+  the **stock install bundles**, and only discs 1 and 4 exist. It cannot see deployed
+  disc-9 overrides.
+
+So a multi-block carry into Path D is **frozen verbatim forever**, and the coast-control
+verbs reach exactly one carryable block. "More control over the coast" is, today, control
+over a single 800u² block.
+
+### The carryable pool is 7 mass-sets out of 57 landmasses
+
+The disqualifier is almost always a *neighbouring* mass crossing the donor rect frame,
+not the target island — Daguerreo, the waisted isthmus island and the sinuous island are
+all unliftable for that reason alone. Hence the named top capability gap: a **donor-rect
+excise** (drop a cropped foreign mass and re-zip sea4 over its footprint), whose patch
+lands on sea4 — the one surface in this arc that cannot mint a walk trap.
+
+### Verified independently before relaying
+
+The recommended carry — `(9,5)+2x3 → cell (10,12)` — was re-run here from scratch:
+`wang-carry incoherent=0`, `sea-plan A/B/C all ok, C_overlap=0`, `census miss=2
+inherited=2 introduced=0`, **gates CLEAN**. It is the cleanest carry measured, cleaner
+than the owner-accepted bench donor (which warns 16 seams and 0.22 sea overlap).
+
+### Stop rule honoured
+
+The round ends with a ranked menu and one recommendation. **Nothing has been deployed.**
