@@ -37,8 +37,12 @@ def _png_rgba(w: int, h: int, buf: bytearray) -> bytes:
             + chunk(b"IEND", b""))
 
 
-def _fill_quad(buf: bytearray, W: int, H: int, pts, rgba) -> None:
-    """Scanline-fill a convex quad (4 (x,y) float pixel corners) into the RGBA buffer."""
+def _fill_quad(buf: bytearray, W: int, H: int, pts, rgba, *, stencil=None, mask=None) -> None:
+    """Scanline-fill a convex quad (4 (x,y) float pixel corners) into the RGBA buffer.
+
+    ``stencil`` -- a ``bytearray(W*H)`` -- records coverage: every pixel written is set to 1.
+    ``mask`` restricts writing to pixels already set in it. Together they are how the checkerboard
+    gets the SAME silhouette as the footprint it sits in (see :func:`write_placeholders`)."""
     r, g, b, a = rgba
     ys = [p[1] for p in pts]
     y0, y1 = max(0, int(min(ys))), min(H - 1, int(max(ys)))
@@ -52,9 +56,13 @@ def _fill_quad(buf: bytearray, W: int, H: int, pts, rgba) -> None:
         if len(xs) < 2:
             continue
         xlo, xhi = max(0, int(min(xs))), min(W - 1, int(max(xs)))
-        o = (y * W + xlo) * 4
-        for _ in range(xlo, xhi + 1):
-            buf[o], buf[o + 1], buf[o + 2], buf[o + 3] = r, g, b, a
+        row = y * W
+        o = (row + xlo) * 4
+        for x in range(xlo, xhi + 1):
+            if mask is None or mask[row + x]:
+                buf[o], buf[o + 1], buf[o + 2], buf[o + 3] = r, g, b, a
+                if stencil is not None:
+                    stencil[row + x] = 1
             o += 4
 
 
@@ -116,8 +124,17 @@ def write_placeholders(camera: _cam.Cam, frame, back_path, floor_path, *,
     floor = bytearray(W * H * 4)                           # transparent
     if floor_tris:
         tris = [tuple(map(tuple, t)) for t in floor_tris]
-        for a, b, c in tris:                               # exact silhouette first
-            _fill_quad(floor, W, H, [px(*a), px(*b), px(*c), px(*c)], CHECKER_DARK)
+        # ★ THE SILHOUETTE IS A STENCIL, NOT A PER-CELL DECISION. The dark base is filled from the
+        # triangles, so it is exact -- but the light cells used to be drawn WHOLE whenever their
+        # CENTRE tested inside, and dropped whole otherwise. On a rectangle that is invisible; on
+        # the freeform polygons this tab exists to draw, it is the entire look: light squares hang
+        # off the edge and notches appear where a straddling cell was dropped, so the floor reads
+        # as a ragged chessboard instead of as the room's own footprint -- and the placeholder's
+        # ONE job is to let the author see, in-game, whether the walkable area matches the art.
+        # In-game screenshots of a composed 5-gon are what caught it.
+        stencil = bytearray(W * H)
+        for a, b, c in tris:                               # exact silhouette, and it records itself
+            _fill_quad(floor, W, H, [px(*a), px(*b), px(*c), px(*c)], CHECKER_DARK, stencil=stencil)
         xs = [p[0] for t in tris for p in t]
         zs = [p[1] for t in tris for p in t]
         x0a, x1a, z0a, z1a = min(xs), max(xs), min(zs), max(zs)
@@ -127,11 +144,11 @@ def write_placeholders(camera: _cam.Cam, frame, back_path, floor_path, *,
                     continue                               # the dark cells are already the base fill
                 cx0, cx1 = x0a + (x1a - x0a) * ix / nx, x0a + (x1a - x0a) * (ix + 1) / nx
                 cz0, cz1 = z0a + (z1a - z0a) * iz / nz, z0a + (z1a - z0a) * (iz + 1) / nz
-                mid = ((cx0 + cx1) / 2.0, (cz0 + cz1) / 2.0)
-                if not any(_pt_in_tri(mid, *t) for t in tris):
-                    continue                               # keep the checker inside the footprint
+                # No centre test: the cell is painted in full and the stencil decides, pixel by
+                # pixel, how much of it survives. A cell half inside comes out half painted.
                 _fill_quad(floor, W, H,
-                           [px(cx0, cz0), px(cx1, cz0), px(cx1, cz1), px(cx0, cz1)], CHECKER_LIGHT)
+                           [px(cx0, cz0), px(cx1, cz0), px(cx1, cz1), px(cx0, cz1)],
+                           CHECKER_LIGHT, mask=stencil)
     else:
         fx, zb, zf = frame.half_width, frame.zb, frame.zf
         for iz in range(nz):
