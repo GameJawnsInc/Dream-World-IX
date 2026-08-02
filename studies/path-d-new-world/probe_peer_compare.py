@@ -91,6 +91,10 @@ def main():
         print(f"PEER GATE: {'PASS' if ok else 'FAIL'} "
               f"— the corner {'sits inside' if ok else 'falls outside'} "
               f"the island's own band distribution")
+        return dict(ok=ok, band_ratio=round(cm / pm, 3),
+                    irregularity_ratio=round(cr / max(pr, 0.01), 3))
+    return dict(ok=False, band_ratio=None, irregularity_ratio=None,
+                note="no peer comparison possible")
 
 
 if __name__ == "__main__":

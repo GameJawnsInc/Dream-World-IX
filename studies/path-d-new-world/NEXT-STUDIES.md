@@ -154,7 +154,47 @@ wish, not a law.
 
 ---
 
-## P2 — STUDY ANGLE 5: ONE LOOK+FLOW GATE VERB  ← **next**
+## P2 — STUDY ANGLE 5: ONE GATE COMMAND ★ LANDED (2026-08-02)
+
+**`py terrain_gate.py [staged|live]` — 10 gates, ~30s, one verdict + a JSON
+report.** weld · cover · sea · walk (hug both directions / statics / ring-0) ·
+latent · flow-uv · blank · **holes** · tjunc · peer.
+
+**Proven end-to-end, not merely assembled.** A real geometric defect was
+injected into the staged mesh — one lawn vertex pulled 0.085u, the classic
+crack — and the suite went from ALL GREEN to **RED on `holes`**, then restored
+(`bench_pipeline check` still FULL REPRODUCTION). That is the first time in
+this arc a gate has been *shown* to catch a defect rather than assumed to.
+
+**Two gates had to be CALIBRATED before they could judge — both initially
+scored the owner-accepted island as defective:**
+- `holes` (new, and it closes a real blind spot: a crack shows SKY, so the
+  blank-paint test cannot see it). First version counted any background with
+  land above and below — that also describes the sky between two distant
+  silhouettes. Now it requires a THIN run (<= 3 px) and is **differential**
+  against a recorded baseline (`hole_baseline.json`, 65 px of the bench's own
+  silhouette gaps, measured identical on staged and baseline).
+- `tjunc` carries `tjunction_allowlist.json`: the two sub-0.0014u residuals
+  present when the corner was accepted, each with its reason. Not a blanket
+  tolerance — any T-junction not on that list still fails, so a regression
+  cannot hide behind it, and a permanently-red gate does not train us to
+  ignore it.
+
+**An honest gap this exercise exposed: there is no TONE gate.** The
+neighbourhood tone check is a build-time assert, so a patch that is tonally
+wrong but otherwise clean would ship. The meadow-patch mutation was caught
+only incidentally (by `blank`). → tracked as a task.
+
+Also worth recording: two of my three policy mutations were invalid, not
+missed — one targeted a function that the P1 promotion had already replaced
+(a no-op), and one no longer reproduces a defect because the other fixes
+prevent it. **Check what the mutation actually changed before believing the
+result** — the same trap as the unreachable guard in P0.
+
+---
+
+<details>
+<summary>the original P2 registration</summary>
 
 Today the gate suite is eight scripts run by hand in an order held in my head.
 It should be one command over any terrain change:
@@ -169,9 +209,11 @@ Value is measurable, not speculative: of the last four playtest failures,
 three had their root cause visible in a gate that either did not exist yet or
 was not wired into the path it was written for.
 
+</details>
+
 ---
 
-## P3 — PATH D RUNG 5, THE REST OF THE COAST
+## P3 — PATH D RUNG 5, THE REST OF THE COAST  ← **next**
 
 The corner is ONE span of ONE island. The pipeline that closed it is now
 general (census → seat → tuck sweep → ears → sea cut → gates). Apply it to
