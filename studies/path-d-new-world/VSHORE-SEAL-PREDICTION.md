@@ -537,3 +537,52 @@ suite (latent hard = 0, hidden-cut, boat legality, cold-map delta confined to
 the fillet zone); ringdump replay still escape-clean. In-game (owner): the
 wall-hug slides around the corner without catching; no mid-run freeze; the
 corner look unchanged from shore and sea.
+
+### AMENDMENT 2 (before building) — the measurement REDESIGNED the fillet
+
+The boundary extraction (`probe_vcorner_boundary.py`) refutes the fillet's
+premise: **no single vertex is sharp** (turns −30.2°, −14.5°, +23.3° — all
+under 45°). The coast rotates ~70° CUMULATIVELY (178.8°→114.9° over ~14u),
+and the catch is the held heading lagging > the fan half-span behind the LOCAL
+tangent: the 114.9° stretch (v5 (376.29,−509.40) → v8 (381.90,−512.00)) fails
+any hold ≥ 193.65°. A due-south holder threads it today; a south-southwest hug
+cannot. Vertex chamfers CANNOT fix a cumulative bend.
+
+**The freeze decoded from the engine source (ff9.cs:5552-5603 + WMActor.cs:
+182-198)**: the fan loop simply exits on full failure — nothing is zeroed —
+and the world actor's animation is script-FRAME-driven (`animState.speed=0`,
+`animState.time = animFrame/frameN`), frames advancing only with actual
+movement. Input held + fan fully failed = run anim selected, frame frozen —
+**engine-inherent to every full fan failure, stock included**; unfixable by
+data except by keeping the slide alive. One law, one fix.
+
+**THE 126° CREST CHORD (the amended design)**: straighten the crest from v5 to
+the strip's turnaround tip v9 (383.79,−514.11) onto a single ~126° chord —
+maximum seaward displacement ~0.9u, inside the ~1.1u wall-face room:
+- r7 Terrain (5,7): v6 (380.00,−511.12) → (379.54,−511.76); v7
+  (381.12,−511.64) AND v8's r7 instances → the seam-clamped chord crossing
+  **(379.87,−512.00)** (v7/v8 merge; collapsed tris deleted). The chord is
+  clamped to cross the block seam AT a crest vertex, so no r7 tri needs to own
+  plan south of the seam.
+- r8 Terrain (5,8): v8's r8 instances SLIDE ALONG THE SEAM to (379.87,−512.00)
+  and v9 → (383.44,−514.60) — the boundary tris stretch to cover the new lawn
+  sliver in their OWN block (self-sealing seam, no patch tris).
+- Cluster-move within 2e-3 (the tuck's weld discipline); moved LAWN vert UVs
+  re-derived from their tri's pre-move affine map (tile continuity); wall-face
+  UVs kept; feet unchanged (faces narrow).
+- The new lawn covers kept sea fragments → incremental
+  `vcorner_sea_cut.treat_part` on (5,7)+(5,8) Sea4 with STAGED-terrain
+  coverage.
+
+Chord tangent ~126° protects held headings ≤ ~204.7° — past the natural hug
+range. **Declared residual**: holds ≥ ~205° (hard-southwest into the wall)
+still freeze-stall, as they would against any stock wall when the mismatch
+exceeds the fan — stock-parity, not a defect of this shore. Gates as
+registered, with the through-flow gate primary (22.5° hug PASS both
+directions; 45° reported), plus: staged boundary re-extract shows the chord
+(all turns ≤ ~10° from v3 to v9'), walkable coverage gained ⊆ the intended
+sliver and nothing lost, no degenerate/flipped tris, cold-map identity outside
+the zone. Instrument: `vcorner_crest.py`. full_skirt fold-back debt: a
+full_skirt Terrain redeploy REVERTS this chord (the sea cut survives — Sea4
+untouched by the generator); the chord spec must join TUCK_CHAIN in the next
+terrace round.
