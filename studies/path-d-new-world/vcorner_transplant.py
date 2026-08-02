@@ -681,6 +681,7 @@ from probe_vcorner_trap import static_map, drive_walkers    # noqa: E402
 from probe_vcorner_latent import sweep, refine              # noqa: E402
 from vcorner_sea_cut import treat_part, live_path           # noqa: E402
 from ff9mapkit.world.extract import CH_POS, CH_NRM, CH_UV, CH_TAN  # noqa: E402
+from ff9mapkit.world import meshedit as ME                  # noqa: E402
 
 BLOCKS = [(5, 7), (5, 8)]
 U_HI = 0.947
@@ -1312,31 +1313,11 @@ def build():
     def _cross(o, a, b):
         return (a[0] - o[0]) * (b[1] - o[1]) - (b[0] - o[0]) * (a[1] - o[1])
 
+    # PROMOTED to ff9mapkit.world.meshedit (P1). Kept as a thin delegation so
+    # `bench_pipeline check` proves the kit module reproduces the accepted
+    # bench BYTE-IDENTICALLY — the only equivalence claim worth making.
     def earclip(ring):
-        P = list(ring)
-        if sum(P[i][0] * P[(i + 1) % len(P)][1] - P[(i + 1) % len(P)][0] * P[i][1]
-               for i in range(len(P))) < 0:
-            P = list(reversed(P))
-        tris3, guard = [], 0
-        while len(P) > 3 and guard < 4000:
-            guard += 1
-            n = len(P)
-            for i2 in range(n):
-                a, b, c = P[(i2 - 1) % n], P[i2], P[(i2 + 1) % n]
-                if _cross(a, b, c) <= 1e-12:
-                    continue
-                if any(_cross(a, b, q) >= -1e-12 and _cross(b, c, q) >= -1e-12
-                       and _cross(c, a, q) >= -1e-12
-                       for q in P if q not in (a, b, c)):
-                    continue
-                tris3.append((a, b, c))
-                del P[i2]
-                break
-            else:
-                break
-        assert len(P) == 3, f"ear-clip stuck with {len(P)} verts"
-        tris3.append(tuple(P))
-        return tris3
+        return ME.earclip(ring)
 
     # THE ATLAS-VALIDATED TRANSLATE-CLONE LAWN (the render-gate probe chain):
     # the local lawn map is phase-consistent, but its PAINTED atlas band ENDS
@@ -1528,7 +1509,11 @@ def build():
              ([(q[0], q[1]) for q in TUCK_RUNGS] if WALL_MODE == "tuck" else [])}
 
     def _repair(pairs5):
-        """pairs5 = [(tri, payload)]; splits carry the parent's payload."""
+        """PROMOTED to ff9mapkit.world.meshedit.repair_tjunctions (P1)."""
+        return ME.repair_tjunctions(pairs5, ext_verts=_ext, exact_eps=1e-4)
+
+    def _repair_local(pairs5):
+        """The original, kept only as the equivalence reference for the promotion."""
         for _round in range(24):
             vset = {p for (t, _pl) in pairs5 for p in t} | _ext
             grown = []

@@ -88,7 +88,44 @@ scripts apply that the generator does not — which is precisely the debt.
 
 ---
 
-## P1 — STUDY ANGLE 3: THE MESHEDIT SUBSTRATE  ← **next**
+## P1 — STUDY ANGLE 3: THE MESHEDIT SUBSTRATE ★ LANDED (2026-08-02)
+
+**Shipped:** `ff9mapkit/ff9mapkit/world/meshedit.py` + `tests/test_world_meshedit.py`
+(26 tests, hermetic — synthetic geometry only, no install and no extracted
+templates, so they actually RUN in a fresh worktree instead of skipping).
+
+**Every law is provably enforced, not merely documented.** A mutation pass
+removed each law from the module in turn and confirmed its test catches it:
+
+| law removed | caught by |
+|---|---|
+| THE FLOW CONSTRAINT (135 → the falsified 125) | `test_flow_constraint_accepts_the_lawful_window…` |
+| THE OVERHANG-CONTEXT LAW (drop the walk-visible check) | `test_sweep_wall_rejects_an_overhang_profile` |
+| DENSIFY FIRST (build on the raw chain) | `test_sweep_wall_publishes_rungs_that_cover_the_whole_run` |
+| THE BAND WRAP SPLIT | `test_sweep_wall_is_walk_visible_with_the_foot_seaward` |
+| A REPAIR THAT IS NOT EXACT IS A HOLE | `test_repair_refuses_a_loose_tolerance…` |
+| SCORE AGAINST THE NEIGHBOUR | `test_cover_gap_scores_tone_against_the_neighbourhood…` |
+
+6/6 caught. That table is the point of the exercise — the recurring defect
+class here is a check that cannot fail.
+
+**Design:** the atlas/tone-dependent operators take INJECTED validators
+(`uv_at`, `is_clean`, `tone`, `ref_tone`, `on_ring`), so the geometry is
+testable with no game install — the same seam law that closed P0.
+
+**EQUIVALENCE PROVEN, not asserted:** `vcorner_transplant.py` now consumes
+`ME.earclip` and `ME.repair_tjunctions`, and `bench_pipeline check` still
+reports **FULL REPRODUCTION** — all six blocks byte-identical to the
+owner-accepted bench. Also 578 world tests pass, no regressions.
+
+**Remaining (next session):** `sweep_wall`, `cover_gap` and the seat/census
+predicates are landed and tested but the study script still runs its own
+copies; wire each through and re-run `bench_pipeline check` for the same
+byte-identity proof. `cut_sea_under` is deliberately still out of the module
+(it is entangled with per-part world mesh semantics, not pure geometry).
+
+<details>
+<summary>the original P1 registration</summary>
 
 Promote the proven operators out of `vcorner_transplant.py` into a tested kit
 module (`world/meshedit.py`). They have earned it — each one is now
@@ -113,9 +150,11 @@ they actually run in a fresh worktree; cf. the worktree skip trap). Each law
 gets a test that FAILS when the law is removed — otherwise it is a docstring
 wish, not a law.
 
+</details>
+
 ---
 
-## P2 — STUDY ANGLE 5: ONE LOOK+FLOW GATE VERB
+## P2 — STUDY ANGLE 5: ONE LOOK+FLOW GATE VERB  ← **next**
 
 Today the gate suite is eight scripts run by hand in an order held in my head.
 It should be one command over any terrain change:
