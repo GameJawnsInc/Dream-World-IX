@@ -10885,10 +10885,13 @@ def _smoke(win):
     from ..scene import guide as _guide
     _quad = [((-1000.0, 0.0, 500.0), (1000.0, 0.0, 500.0), (1000.0, 0.0, 2500.0)),
              ((-1000.0, 0.0, 500.0), (1000.0, 0.0, 2500.0), (-1000.0, 0.0, 2500.0))]
-    pd._bundles[(351, 0)] = {"donor": 351, "cam_index": 0, "n_cams": 1,
-                             "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
-                             "png": None, "tris": _quad, "floors": [0, 0]}
-    pd._apply_bundle(pd._bundles[(351, 0)], refit=True)
+    _psrc = ("real", 351)                                 # Place keys surfaces by SOURCE, not by a
+    #                                                       donor int: a novel field's is
+    #                                                       ("project", <toml path>). See placedoc.
+    pd._bundles[(_psrc, 0)] = {"donor": 351, "source": _psrc, "cam_index": 0, "n_cams": 1,
+                               "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
+                               "png": None, "tris": _quad, "floors": [0, 0]}
+    pd._apply_bundle(pd._bundles[(_psrc, 0)], refit=True)
     nP = len(win._undo_stack)
     pd._on_surface_clicked({"xz": (12.0, 900.0), "pos": (12.0, 0.0, 900.0), "floor": 0,
                             "stacked": [{"xz": (12.0, 900.0), "pos": (12.0, 0.0, 900.0),
@@ -10904,6 +10907,20 @@ def _smoke(win):
     assert win.tabs.currentWidget() is win.place_doc, "undoing a place edit lands back on the Place tab"
     assert pd.canvas._markers == [], "the undone drop's marker is gone"
     assert "Prop" in [b.text() for b in pd.mode_btns.values()], "props are placeable"
+
+    # ★ RUNG 7d: a NOVEL field (no donor) is SERVED by Place, not refused. It used to block on
+    # `donor_field_id(data) is None` and send the author to Blender; a surface only ever needed a
+    # camera and a walkmesh, which a novel field has exactly -- and that one predicate blocked the
+    # floorplan composer, `ff9mapkit new` and the Trace lane at once. The refusal that REMAINS is
+    # about having a file to resolve from. Checked here because this is the only test that drives
+    # the live shell. Placed after the undo sequence above: opening a second field mid-way through
+    # it disturbs the focus the undo checks assert on.
+    nfld = d / "NOVELPLACE.field.toml"
+    nfld.write_text('[field]\nid = 4702\nname = "NVL"\narea = 11\n', encoding="utf-8")
+    assert win.open_field(nfld)
+    win.tabs.setCurrentWidget(win.place_doc)
+    assert pd._blocked is None, f"a novel field was refused by Place: {pd._blocked}"
+    assert pd._donor is None and pd._source[0] == "project", (pd._donor, pd._source)
 
     # CREATE NEW (the pure actions; the dialogs are modal so the smoke drives the actions directly) --
     # New Field scaffolds a standalone project + opens it (loose mode)

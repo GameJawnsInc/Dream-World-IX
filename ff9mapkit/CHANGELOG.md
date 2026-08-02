@@ -332,6 +332,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   out cut off at the edge. Measured on the dungeon that found it: 2.57% and 2.87% of
   painted pixels fell outside the walkable area; now none do.
 
+### Added — the Place tab now works on fields you made yourself, not just forks of real ones
+- Place let you click content onto a field's background art, but only if that field was
+  forked from a real FF9 room. Anything you made yourself — a room composed from a
+  floorplan, a new field from the toolbar, a field traced from a photo — was turned away
+  with "a novel field places content in Blender or the Editor forms".
+- That test was about where the field came from, not about whether it could be placed on.
+  Clicking on a floor needs a camera and a walkmesh, and a field you made has both — a
+  composed room's camera is in fact known more precisely than a forked one's, because the
+  composer worked it out rather than reading it back from the game.
+- All three now open at once: composed rooms, new-field scaffolds, and traced fields. The
+  background is the field's own layers, composited; the camera and walkmesh come from the
+  same resolvers the build uses, so what you click on is what ships. No game install is
+  needed.
+- Place still refuses a field that has never been saved, since the surface is resolved from
+  the file on disk.
+
 ### Fixed — recomposing a floorplan silently destroyed anything you had added to its rooms
 - Composing a dungeon writes one field file per room. Adding an NPC, a chest or an event
   to one of those rooms — which is what the Place tab and the editor forms do — and then

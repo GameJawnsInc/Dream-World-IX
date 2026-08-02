@@ -20,10 +20,18 @@ Writes land in the OPEN doc through PURE ops (:func:`place_npc` / :func:`place_p
 :func:`move_zone` / :func:`delete_region`) + exactly ONE ``on_edit(member, label)`` per drop —
 the shell records the undo step and Save persists through the ordinary editor path, so Place
 can never grow a private writer. Refusals are hard and honest: a bundled example / installed
-copy (``editor.model.protected_reason``) refuses the whole surface; a field with no donor
-(``build.donor_field_id`` — novel fields place via Blender/the Editor) refuses; a VERBATIM
-fork refuses spawn/arrival (the donor's own entry sequence runs) while npc/prop stay live —
-the build seats them below the donor's party-character band.
+copy (``editor.model.protected_reason``) refuses the whole surface; a VERBATIM fork refuses
+spawn/arrival (the donor's own entry sequence runs) while npc/prop stay live — the build seats
+them below the donor's party-character band.
+
+★ **A NOVEL FIELD PLACES HERE TOO** (click-authoring Rung 7d). This doc used to refuse anything
+without a donor real room and send the author to Blender or the Editor forms — but that was a test
+of PROVENANCE, and a surface only needs a CAMERA and a WALKMESH. A composed floorplan room, an
+``ff9mapkit new`` scaffold and a traced photo field all have both, exactly; a composed room's
+camera is in fact better known than a forked one's, because the composer solved it. The one
+predicate blocked all three from-scratch lanes at once. :func:`build_surface_from_project` resolves
+them through the ordinary build resolvers (so ``[camera.scroll]`` and ``[[camera]]`` are honoured
+and the surface matches what the build ships) and touches no game install.
 """
 
 from __future__ import annotations
@@ -248,19 +256,90 @@ class _SurfaceLoader(QObject):
     loaded = Signal(dict)
     failed = Signal(str)
 
-    def start(self, donor, cam_index):
-        t = threading.Thread(target=self._work, args=(int(donor), int(cam_index)),
+    def start(self, source, cam_index):
+        t = threading.Thread(target=self._work, args=(source, int(cam_index)),
                              name="ff9-place-surface", daemon=True)
         t.start()
 
-    def _work(self, donor, cam_index):
+    def _work(self, source, cam_index):
         try:
-            self.loaded.emit(build_surface(donor, cam_index))
+            kind, ref = source
+            self.loaded.emit(build_surface(int(ref), cam_index) if kind == "real"
+                             else build_surface_from_project(ref, cam_index))
         except Exception as e:                         # noqa: BLE001 -- no install / bad art / anything
             try:
                 self.failed.emit(f"{type(e).__name__}: {e}")
             except RuntimeError:                       # the C++ half died (app exit) -- stop quietly
                 pass
+
+
+def build_surface_from_project(toml_path, cam_index: int = 0) -> dict:
+    """The same surface bundle as :func:`build_surface`, for a field that has NO donor real room --
+    a composed floorplan room, an ``ff9mapkit new`` scaffold, a traced photo field.
+
+    ★ PLACE'S REFUSAL WAS ABOUT PROVENANCE, NOT GEOMETRY. It blocked on
+    ``build.donor_field_id(data) is None`` and told the author "a novel field places content in
+    Blender or the Editor forms" -- but everything the surface actually needs is a CAMERA and a
+    WALKMESH, and a novel field has both, exactly and by construction. A composed room's camera is
+    not merely available, it is *better known* than a forked one's: the composer solved it.
+
+    ★ AND IT UNBLOCKS ALL THREE FROM-SCRATCH LANES AT ONCE, because they failed on the same
+    predicate: the floorplan composer, ``pack.new_project`` (File > New Field), and the Trace lane.
+
+    Everything here goes through the ordinary build resolvers -- ``resolve_cameras`` honours
+    ``[camera.scroll]`` and ``[[camera]]``, ``resolve_walkmesh`` is already uniform across
+    ``obj`` / ``bgi`` / ``quad`` / ``auto`` -- so the surface the author clicks on is the one the
+    build ships. No game install is touched."""
+    from pathlib import Path as _Path
+    from .. import build as _build
+    from ..scene import bgi as _bgi
+
+    project = _build.FieldProject.load(str(toml_path))
+    cams = _build.resolve_cameras(project)
+    if not cams:
+        raise imagefield.ImageFieldError(f"{_Path(toml_path).name}: no camera to place against")
+    ci = max(0, min(int(cam_index), len(cams) - 1))
+    mesh = _bgi.BgiWalkmesh.from_bytes(_build.resolve_walkmesh(project, cams[ci]))
+    tris, floors = imagefield.mesh_world_tris(mesh)
+    return {"donor": None, "source": ("project", str(toml_path)), "cam_index": ci,
+            "n_cams": len(cams), "cam": cams[ci],
+            "png": _project_backdrop(project, cams[ci]), "tris": tris, "floors": floors}
+
+
+def _project_backdrop(project, camera):
+    """The field's own ``[[layers]]`` composited back-to-front into one PNG, or None.
+
+    ★ BACK TO FRONT IS DESCENDING z: FF9 sorts by OT depth with SMALLER IN FRONT, so the largest z
+    is the furthest layer and must be painted first. Getting this backwards puts the floor under
+    the backdrop and the author places content against a slab of flat colour."""
+    from pathlib import Path as _Path
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    layers = project.raw.get("layers") or []
+    imgs = []
+    for spec in sorted(layers, key=lambda s: -float(s.get("z", 0))):
+        ref = spec.get("image")
+        if not ref:
+            continue
+        try:
+            p = project.path(ref)
+        except Exception:                              # noqa: BLE001 -- a bad ref is not fatal here
+            continue
+        if p.is_file():
+            imgs.append(p)
+    if not imgs:
+        return None
+    out = None
+    for p in imgs:
+        im = Image.open(p).convert("RGBA")
+        out = im if out is None else Image.alpha_composite(out.resize(im.size), im)
+    if out is None:
+        return None
+    dest = _Path(project.path(".")) / ".place_backdrop.png"
+    out.save(dest)
+    return str(dest)
 
 
 def build_surface(donor: int, cam_index: int = 0) -> dict:
@@ -291,8 +370,8 @@ def build_surface(donor: int, cam_index: int = 0) -> dict:
                                             camera_index=ci)
         if ok is None:                                 # no readable art: the mesh alone still places
             png = None
-    return {"donor": donor, "cam_index": ci, "n_cams": len(cams), "cam": cams[ci],
-            "png": str(png) if png else None, "tris": tris, "floors": floors}
+    return {"donor": donor, "source": ("real", donor), "cam_index": ci, "n_cams": len(cams),
+            "cam": cams[ci], "png": str(png) if png else None, "tris": tris, "floors": floors}
 
 
 # --------------------------------------------------------------------- the document
@@ -458,10 +537,18 @@ class PlaceDoc(QWidget):
         self._donor = build.donor_field_id(data)
         self._verbatim = bool(data.get("verbatim_eb"))
         self._blocked = protected_reason(self._path) if self._path else None
-        if self._blocked is None and self._donor is None:
-            self._blocked = ("this field has no donor real room (no [verbatim_eb] donor / "
-                             "[field] source_field / borrow_field) — Place serves forks; a "
-                             "novel field places content in Blender or the Editor forms")
+        # ★ THE SURFACE'S SOURCE, NOT THE FIELD'S PROVENANCE. Place used to refuse anything without
+        # a donor real room -- "a novel field places content in Blender or the Editor forms" -- but
+        # what a surface actually needs is a CAMERA and a WALKMESH, and a novel field has both, by
+        # construction and exactly. A composed room's camera is better known than a forked one's:
+        # the composer solved it. One predicate blocked the floorplan composer, `ff9mapkit new` and
+        # the Trace lane all at once, and it was about where the field came from, not about
+        # geometry.
+        self._source = (("real", self._donor) if self._donor is not None
+                        else ("project", str(self._path)) if self._path else None)
+        if self._blocked is None and self._source is None:
+            self._blocked = ("this field has not been saved to disk yet — Place needs a file to "
+                             "resolve its camera and walkmesh from")
         self.field_label.setText(f"{member} — donor field #{self._donor}"
                                  if self._donor is not None else str(member))
         if not same:
@@ -484,15 +571,15 @@ class PlaceDoc(QWidget):
         return self._cam_pick.get(self._member, 0)
 
     def _bundle(self):
-        if self._donor is None:
+        if self._source is None:
             return None
-        return self._bundles.get((self._donor, self._cam_index()))
+        return self._bundles.get((self._source, self._cam_index()))
 
     def on_load(self):
-        if self._blocked is not None or self._donor is None or self._data is None:
+        if self._blocked is not None or self._source is None or self._data is None:
             self._refresh()
             return
-        key = (self._donor, self._cam_index())
+        key = (self._source, self._cam_index())
         if key in self._bundles:
             self._apply_bundle(self._bundles[key], refit=True)
             return
@@ -506,8 +593,8 @@ class PlaceDoc(QWidget):
     def _on_loaded(self, bundle):
         self._loading = None
         self.load_btn.setEnabled(True)
-        self._bundles[(bundle["donor"], bundle["cam_index"])] = bundle
-        if bundle["donor"] != self._donor or bundle["cam_index"] != self._cam_index():
+        self._bundles[(bundle["source"], bundle["cam_index"])] = bundle
+        if bundle["source"] != self._source or bundle["cam_index"] != self._cam_index():
             return                                  # the user moved on mid-load: cached, not applied
         self._apply_bundle(bundle, refit=True)
 

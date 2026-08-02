@@ -124,7 +124,7 @@ def _doc(app, on_edit=None):
 
 def _bundle(tris=None, cam=None):
     tris = tris if tris is not None else _flat_quad()
-    return {"donor": 351, "cam_index": 0, "n_cams": 1,
+    return {"donor": 351, "source": ("real", 351), "cam_index": 0, "n_cams": 1,
             "cam": cam or guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
             "png": None, "tris": tris, "floors": [0] * len(tris)}
 
@@ -140,10 +140,25 @@ def test_bundled_example_refuses_outright(app):
     assert calls == []                                    # the write channel never fired
 
 
-def test_no_donor_refuses_honestly(app):
+def test_a_novel_field_is_served_not_refused(app):
+    """★ RUNG 7d. Place used to refuse anything without a donor real room and send the author to
+    Blender or the Editor forms. That was a test of PROVENANCE; a surface needs a CAMERA and a
+    WALKMESH, and a novel field has both -- a composed room's camera is better known than a forked
+    one's, because the composer solved it. One predicate blocked the floorplan composer,
+    `ff9mapkit new` and the Trace lane at once."""
     d, _ = _doc(app)
     d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
-    assert d._blocked and "donor" in d._blocked
+    assert d._blocked is None, f"a novel field was refused: {d._blocked}"
+    assert d._source == ("project", "C:/somewhere/NOVEL.field.toml".replace("/", os.sep)) or         d._source[0] == "project"
+    assert d.load_btn.isEnabled()
+
+
+def test_a_field_with_no_file_on_disk_still_refuses(app):
+    """The surface is resolved FROM THE FILE, so an unsaved doc has nothing to resolve. The
+    refusal moved from provenance to that -- it did not disappear."""
+    d, _ = _doc(app)
+    d.show_field("NOVEL", {"field": {"id": 30058}}, None)
+    assert d._blocked and "saved" in d._blocked
     assert not d.load_btn.isEnabled()
 
 
@@ -152,8 +167,8 @@ def test_verbatim_refuses_spawn_and_arrival_but_places_npc(app):
     data = {"verbatim_eb": {"donor": 351}}
     d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
     assert d._blocked is None and d._donor == 351
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     assert not d.mode_btns["spawn"].isEnabled() and not d.mode_btns["arrival"].isEnabled()
     assert d.mode_btns["npc"].isEnabled() and d.mode_btns["prop"].isEnabled()
     assert "party band" in d.status.text()                # the seating note is surfaced
@@ -170,8 +185,8 @@ def test_a_real_canvas_click_places_through_the_raycast(app):
     d, calls = _doc(app)
     data = {"field": {"source_field": 351}}
     d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     QApplication.processEvents()
     d.mode_btns["spawn"].setChecked(True)                 # non-verbatim: spawn IS placeable
     wpt = d.canvas.world_to_click((0.0, 1500.0))          # mid-floor, below the horizon
@@ -188,8 +203,8 @@ def test_markers_follow_the_open_data_on_refeed(app):
     data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}]}
     path = Path("C:/somewhere/FORK.field.toml")
     d.show_field("FORK", data, path)
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     assert len(d.canvas._markers) == 1 and d.canvas._markers[0]["label"] == "A"
     data["npc"].append({"name": "B", "pos": [100, 900]})
     d.show_field("FORK", data, path)                      # the shell's re-feed after an edit
@@ -200,8 +215,8 @@ def test_stacked_hits_route_through_the_chooser(app, monkeypatch):
     d, calls = _doc(app)
     data = {"field": {"source_field": 351}}
     d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     rows = [{"xz": (0.0, 1500.0), "pos": (0.0, -300.0, 1500.0), "floor": 1, "tri": 2, "s": 1.0},
             {"xz": (0.0, 1500.0), "pos": (0.0, 0.0, 1500.0), "floor": 0, "tri": 0, "s": 2.0}]
     picked = []
@@ -291,8 +306,8 @@ def test_regions_tool_swaps_clusters_and_canvas_mode(app):
     d, _ = _doc(app)
     data = {"field": {"source_field": 351}}
     d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     assert d.tools.current() == "place"
     assert d.canvas._place_mode and not d.canvas._region_mode
     assert d.mode_btns["npc"].isVisible() and not d.rkind_btns["gateway"].isVisible()
@@ -310,8 +325,8 @@ def test_a_drawn_quad_lands_one_gateway_row(app):
     d, calls = _doc(app)
     data = {"field": {"source_field": 351}}
     d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     d.tools.set_current("regions")
     d.gw_to.setValue(4005)
     d.gw_ent.setValue(3)
@@ -335,8 +350,8 @@ def test_region_change_and_delete_route_by_row(app):
             "event": [{"name": "zone0", "message": "hi",
                        "zone": [[300, 500], [400, 500], [400, 600], [300, 600]]}]}
     d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     d.tools.set_current("regions")
     assert len(d.canvas._regions) == 2
     d._on_region_changed(1, [(310, 500), (410, 500), (410, 600), (310, 600)])
@@ -367,8 +382,8 @@ def test_place_retarget_routes_by_row(app, monkeypatch):
             "gateway": [{"name": "door0", "to": 0,
                          "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
     d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     d.tools.set_current("regions")
     assert d.canvas._regions[0]["warn"] and "NO TARGET" in d.canvas._regions[0]["warn"]
     monkeypatch.setattr(d, "_ask_field_id", lambda cur: 301)
@@ -383,8 +398,8 @@ def test_place_reword_routes_by_row(app, monkeypatch):
             "event": [{"name": "zone0", "message": "...",
                        "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
     d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
-    d._bundles[(351, 0)] = _bundle()
-    d._apply_bundle(d._bundles[(351, 0)], refit=True)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
     d.tools.set_current("regions")
     assert d.canvas._regions[0]["warn"] and "placeholder" in d.canvas._regions[0]["warn"]
     monkeypatch.setattr(d, "_ask_message", lambda cur: "Watch your step.")
@@ -398,3 +413,61 @@ def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
     yield
     qt_drain()
+
+
+# ------------------------------------------------------------------ Rung 7d: novel fields place
+
+def test_a_composed_room_builds_a_place_surface_with_an_exact_click(tmp_path):
+    """★ THE PAYOFF, end to end and Qt-free. Compose a two-room dungeon with the real composer,
+    then build a Place surface from one of its rooms and raycast canvas clicks against it.
+
+    The round trip is the thing: `click_to_surface` -> world -> `cam.to_canvas` must land back on
+    the pixel that was clicked. A composed room's camera is EXACT (the composer solved it), so this
+    is not "close enough" -- it is 1e-14 px, and any drift means the surface and the build disagree
+    about where the floor is."""
+    from ff9mapkit import floorplan as FP
+    from ff9mapkit import imagefield as IF
+    from ff9mapkit.scene import cam as CAM
+    from ff9mapkit.workspace import placedoc as PD
+
+    plan = {"name": "D", "mod_folder": "FF9CustomMap", "id_base": 30700, "entry": "A",
+            "rooms": [{"name": "A", "poly": [[0, 0], [2400, 0], [2400, 1800], [0, 1800]]}],
+            "doors": []}
+    FP.compose_and_emit(plan, tmp_path, log=None)
+    toml = next((tmp_path / "A").glob("*.field.toml"))
+
+    b = PD.build_surface_from_project(toml)
+    assert b["donor"] is None and b["source"][0] == "project"
+    assert b["tris"] and b["n_cams"] >= 1
+    assert b["png"], "the room's own [[layers]] did not composite into a backdrop"
+
+    cam = b["cam"]
+    W, H = cam.range
+    worst, n = 0.0, 0
+    for cx in range(40, W - 40, max(1, (W - 80) // 6)):
+        for cy in (int(H * 0.72), int(H * 0.86)):
+            try:
+                hit = IF.click_to_surface(cam, b["tris"], (cx, cy))
+            except Exception:                                   # noqa: BLE001 -- off the mesh
+                continue
+            back = CAM.to_canvas(hit["pos"], cam)
+            worst = max(worst, abs(back[0] - cx), abs(back[1] - cy))
+            n += 1
+    assert n >= 6, f"only {n} clicks landed on the composed floor"
+    assert worst < 1e-6, f"click round-trip drifted {worst:.2e}px"
+
+
+def test_a_scrolling_room_places_too(tmp_path):
+    """A wide room composes with `range = [960, 448]` and `[camera.scroll]`. `resolve_cameras`
+    honours both, so the surface Place raycasts against is the WIDE one -- if it silently fell back
+    to 384 the author would place content against the wrong frame and never see why."""
+    from ff9mapkit import floorplan as FP
+    from ff9mapkit.workspace import placedoc as PD
+
+    plan = {"name": "D", "mod_folder": "FF9CustomMap", "id_base": 30700, "entry": "A",
+            "rooms": [{"name": "A", "poly": [[0, 0], [9762, 0], [9762, 2200], [0, 2200]]}],
+            "doors": []}
+    FP.compose_and_emit(plan, tmp_path, log=None)
+    toml = next((tmp_path / "A").glob("*.field.toml"))
+    b = PD.build_surface_from_project(toml)
+    assert list(b["cam"].range) == [960, 448], f"Place resolved {list(b['cam'].range)}, not the scroll range"

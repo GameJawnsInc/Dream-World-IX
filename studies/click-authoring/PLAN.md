@@ -525,10 +525,28 @@ works until you open it in the tab.
   **Next rung, per the owner's decision: MERGE.** The composer regenerates only the tables it owns
   and preserves the rest; precedent is `build._merge_scene` (:156). Gate it on a compose-time
   warning naming any preserved object that is no longer standable after a reshape.
-- **7d** — `build_surface_from_project` + flip Place's predicate. **The refusal is ONE branch**
-  (`placedoc.py:461`, `donor_field_id(data) is None`) and it is about PROVENANCE, not geometry — a
-  composed room has an exact camera and a real walkmesh, which is all Place needs. Unblocks
-  composed rooms, `ff9mapkit new` scaffolds and traced fields at once.
+- **7d ★ BUILT 2026-08-01, ⚠ offline only** — `build_surface_from_project` + Place's predicate
+  flipped. The refusal WAS one branch (`donor_field_id(data) is None`) and it tested PROVENANCE,
+  not geometry: a surface needs a CAMERA and a WALKMESH, and a novel field has both exactly — a
+  composed room's camera is *better* known than a forked one's, because the composer solved it.
+  That single predicate blocked the floorplan composer, `ff9mapkit new` and the Trace lane at once.
+  The refusal did not disappear, it MOVED: an unsaved doc still refuses, because the surface is
+  resolved from the file.
+  Everything routes through the ordinary build resolvers, so `[camera.scroll]` and `[[camera]]` are
+  honoured and the surface matches what the build ships; no game install is touched. Bundles are
+  keyed by SOURCE — `("real", id)` or `("project", path)` — not by a donor int.
+  Verified on the owner's own dungeon: both rooms build a surface with a composited backdrop, and
+  canvas click → `click_to_surface` → world → `to_canvas` round-trips at **1e-14 px**. ROOM2 is the
+  960-wide SCROLLING room and Place resolves the wide frame, not a silent 384 fallback — which
+  would have had the author placing content against the wrong frame with no visible symptom.
+  ★ **THE SMOKE IS THE ONLY TEST THAT DRIVES THE LIVE SHELL, AND I DECLARED THIS BUILT WITHOUT
+  RUNNING IT.** 26 Place unit tests were green while the shell was red: the smoke injects a
+  synthetic bundle under the OLD integer key, so the re-feed found nothing and drew no marker. It
+  now also DRIVES the novel-field lane, so this cannot pass silently again. (Second trap, also
+  caught by it: the novel-field check was first inserted mid-way through the place→undo→focus
+  sequence, and opening a second field there disturbs the focus the undo assertions read.)
+  ⚠ **UNPROVEN IN-GAME:** an NPC placed in a composed room and actually standing where it was
+  clicked. The geometry round-trips exactly offline; that is not the same claim.
 - **7e** — per-room pitch/fov on the existing room right-click menu (UI only, once 7a lands).
 - **7f** — traced polygon → floorplan room. ⚠ Hand the UN-outset polygon (`outset_polygon` is a
   miter and blows up on the acute corners a hand trace produces), and accept that it is a
