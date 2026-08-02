@@ -1,0 +1,56 @@
+[field]
+id = 30701
+name = "HALL_768"
+area = 11
+title = "Hall 768"
+
+[camera]
+entry_settle = "auto"
+pitch = 48.0
+distance = 4386
+fov = 42.2
+range = [768, 448]
+window_width = 384
+scroll = {enabled = true}
+
+[walkmesh]
+obj = "walkmesh.obj"
+
+[[layers]]
+image = "art/back.png"
+z = 2975
+
+[[layers]]
+image = "art/floor.png"
+z = 2475
+
+[player]
+spawn = [-4, -808]
+face = 0
+
+[[player.arrival]]
+entrance = 1
+pos = [-200, -214]
+face = 0
+
+[[player.arrival]]
+entrance = 2
+pos = [-1990, -804]
+face = 192
+
+[[npc]]
+name = "fossil_bard"
+preset = "vivi"
+pos = [800, -1304]
+
+[[gateway]]
+name = "door_to_hall_static"
+to = 30700
+entrance = 1
+zone = [[-2400, -604], [-2400, -1004], [-2150, -1004], [-2150, -604]]
+
+[[gateway]]
+name = "door_to_hall_960"
+to = 30702
+entrance = 1
+zone = [[0, 196], [-400, 196], [-400, -54], [0, -54]]
