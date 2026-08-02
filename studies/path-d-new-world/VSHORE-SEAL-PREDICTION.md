@@ -96,3 +96,51 @@ verts at the SAME plan positions:
 
 Deploy only at green; then the owner playtests the V-shore from both banks and the
 sea approach. One round, one change class (additive seals), one playtest.
+
+## AMENDMENT (2026-08-02, at the build gate — before any deploy)
+
+gF's first run was RED and the findings amend the scope, recorded here:
+1. **The west rim, the x=384 border edge, and the 1.56u skirt edge are ONE
+   connected chain**, and it continues north of C4's W1 through two ~2u-drop edges
+   ((382.109,5.376,−508)→(383.191,4.919,−504)→(384,5.454,−499.461)) that C4's
+   scan-vocabulary hover test missed (they hover over the 4078 underlay in their
+   own block — the exact under-detection its skeptic documented). Per the
+   whole-chain rule the merged chain seals ENTIRE: 8 quads, drops 0.40-2.38u,
+   ground bottoms. The skirt edge's singleton exemption is withdrawn — it is
+   chain-connected with a 1.56u drop.
+2. **The hem class formalized in gF**: a sub-1u drop over the build's OWN terrain
+   (never over sea) is the declared exempt class — it covers the south hem chain
+   (0.53-0.75u), the 14 interior hems, and a NW pair at (376-380,−500..−504)
+   (0.85u) the gate surfaced. Vertical plan-degenerate once-edges (the curtain
+   chain ends) are the second declared class.
+3. **The uv-pin census reads 25, not 24**: the 25th is the donor's own 0.051u
+   curtain sliver at east (C4's find, mapid 1940, carried stock bytes) — my east
+   quad welds to its bottom edge, extending the stock curtain to the waterline.
+Totals after amendment: 4 chains, 12 quads, 24 minted tris.
+
+## BUILD LEDGER (2026-08-02 — DEPLOYED at all gates green)
+
+The seal ships as `full_skirt.py`'s final pass (the one-command generator emits
+it; the pass only READS upstream state and APPENDS — buffer order untouched,
+curtains at cell-buffer tails, unhittable by the camera's down-ray). Sequence:
+`restore_bench.py` (pristine, byte-verified) → `full_skirt.py` (gates green,
+first run — every registered edge matched once-owned) → `walk_gate_fix.py` 5/5,
+camera 100.0% median 0.00 → `probe_seal_gate.py` (gF; first run RED, produced
+the amendment above; GREEN after: 0 site hovers, 0 site-external hovers >1u,
+25/25 curtains on-strip, additive counts exact) → `--apply` → live-vs-built
+byte compare 6/6 identical.
+
+Numbers: 24 minted tris (east 1 quad drop 3.15 → sea; west-border-rim 8 quads
+0.40-2.38 → ground; W2 1 quad 3.20 → sea; south-sea 2 quads 2.79-3.39 → sea);
+watertight residuals FELL 3 → 2 (a curtain top-weld closed one); TEAR 0;
+walkability 0/0; census MISS=0; blocks (7,7) 81→83, (7,8) 201→205. Two gate
+adaptations shipped with the pass, both mechanism-grounded: the inline climb map
+skips plan-degenerate tris (a vertical seal holds no floor; the engine's ny>0.1
+filter keeps it out of every scan and therefore the cache — stock ships 2,703
+foot-legal curtains so), and the watertight gate gained the declared
+curtain-bottom/end classes. The south-sea chain's −536 end column passes ~0.19u
+behind the rising lawn edge on its way to y=0 — hidden under the sheet, no
+coplanar overlap, noted for the playtest.
+
+**AWAITING THE PLAYTEST** — score P1-P5 at the V-shore from both banks + the sea
+approach.

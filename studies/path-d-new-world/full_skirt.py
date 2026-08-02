@@ -2091,6 +2091,158 @@ def main() -> int:
     if n_flipW:
         print(f"   winding restore: {n_flipW} bench tris re-oriented up-facing")
 
+    # ---- THE CURTAIN SEAL (VSHORE-SEAL-PREDICTION.md) ---------------------------------------
+    # Stock seals EVERY raised-surface edge over lower ground -- hover-over-ground
+    # has ZERO stock instances (CURTAIN-GRAMMAR.md C3: 0/2928 free edges, a
+    # calibrated positive control fires). The five registered chains (C4 + skeptic,
+    # verified at 2dp AND 4dp) close with stock's own construction (C2): one
+    # vertical outward-wound quad per rim edge; uv on the dedicated PINNED strip
+    # (v 930/961 texels, u accumulating 15 texels/u from station 115, wrap 241->115);
+    # tangent (mapid/topograph) CONTINUES the surface above by owner-copy; bottoms
+    # FREE at the waterline y=0 over sea (stock's seal-bottom median 0.00 = the
+    # pristine bench's own free-edge envelope) and resting ON the sheet below over
+    # own ground (declared deviation from stock's weld-in: re-authoring the sheet
+    # below is the defect factory this arc measured).
+    # AMENDED at the build gate (VSHORE-SEAL-PREDICTION.md addendum): gF's global
+    # render-vocabulary census showed the west rim CONTINUES north of C4's W1 (two
+    # ~2u-drop edges its scan-vocabulary test missed) and connects the x=384 border
+    # edge and the 1.56u skirt edge into ONE chain -- sealed entire per the
+    # whole-chain rule.
+    CURTAIN_CHAINS = [
+        ("east", "sea", [(448.0, 3.149, -508.0), (448.0, 3.149, -504.0)]),
+        ("west-border-rim", "ground", [
+            (387.484, 3.938, -491.484), (384.0, 5.583, -496.0),
+            (384.0, 5.454, -499.461), (383.191, 4.919, -504.0),
+            (382.109, 5.376, -508.0), (384.0, 4.797, -512.0),
+            (384.0, 4.215, -516.449), (385.43, 4.106, -520.465),
+            (384.0, 3.598, -520.344)]),
+        ("W2", "sea", [(380.0, 3.2, -520.0), (380.083, 3.2, -516.729)]),
+        ("south-sea", "sea", [(448.0, 2.794, -540.0), (448.0, 3.1, -537.949),
+                              (448.0, 3.391, -536.0)]),
+    ]
+    V_TOP_S, V_BOT_S = 930.0 / 1024.0, 961.0 / 1024.0
+    ecS = defaultdict(list)
+    for riS, (recS, _bS) in enumerate(final):
+        ksS = [kk(r[0]) for r in recS]
+        for aS, bS in ((0, 1), (1, 2), (2, 0)):
+            ecS[tuple(sorted((ksS[aS], ksS[bS])))].append((riS, aS, bS))
+    covS = defaultdict(list)                                # up-facing sheets (ground bottoms)
+    for recS, _bS in final:
+        t3S = [r[0] for r in recS]
+        aV, bV, cV = (np.array(p) for p in t3S)
+        fnS = np.cross(bV - aV, cV - aV)
+        LnS = float(np.linalg.norm(fnS)) or 1.0
+        if abs(fnS[1]) / LnS <= 0.1:
+            continue
+        for cxS in range(int(min(p[0] for p in t3S) // 4),
+                         int(max(p[0] for p in t3S) // 4) + 1):
+            for czS in range(int(min(p[2] for p in t3S) // 4),
+                             int(max(p[2] for p in t3S) // 4) + 1):
+                covS[(cxS, czS)].append(t3S)
+
+    def _surf_belowS(px, pz, ymax):
+        hit = None
+        for t3S in covS.get((int(px // 4), int(pz // 4)), ()):
+            (x1, z1), (x2, z2), (x3, z3) = ((p[0], p[2]) for p in t3S)
+            detS = (x2 - x1) * (z3 - z1) - (x3 - x1) * (z2 - z1)
+            if abs(detS) < 1e-12:
+                continue
+            w2S = ((px - x1) * (z3 - z1) - (x3 - x1) * (pz - z1)) / detS
+            w3S = ((x2 - x1) * (pz - z1) - (px - x1) * (z2 - z1)) / detS
+            if w2S >= -1e-6 and w3S >= -1e-6 and w2S + w3S <= 1 + 1e-6:
+                yS = (1 - w2S - w3S) * t3S[0][1] + w2S * t3S[1][1] + w3S * t3S[2][1]
+                if yS < ymax - 0.25 and (hit is None or yS > hit):
+                    hit = yS
+        return hit
+
+    curtain_declared = set()
+    n_ct = 0
+    for cname, cmode, cverts in CURTAIN_CHAINS:
+        # match every registered edge to a live once-edge; capture the owner's EXACT corners
+        segs = []
+        for i9 in range(len(cverts) - 1):
+            ra, rb = cverts[i9], cverts[i9 + 1]
+            hitE = None
+            for eKS, ownersS in ecS.items():
+                if len(ownersS) != 1:
+                    continue
+                paS, pbS = eKS
+                if ((math.dist(paS, ra) < 0.02 and math.dist(pbS, rb) < 0.02) or
+                        (math.dist(paS, rb) < 0.02 and math.dist(pbS, ra) < 0.02)):
+                    hitE = ownersS[0]
+                    break
+            assert hitE is not None, (
+                f"CURTAIN SEAL: registered edge {cname}[{i9}] {ra}->{rb} not found "
+                f"once-owned -- the bench moved; re-run probe_vshore_anatomy.py")
+            riS, aS, bS = hitE
+            recS, blkS = final[riS]
+            cAS, cBS = recS[aS], recS[bS]
+            if math.dist(cAS[0], ra) > math.dist(cBS[0], ra):
+                cAS, cBS = cBS, cAS                         # orient along the chain
+            segs.append((cAS, cBS, riS, blkS))
+        # canonical chain-vertex records: position from the FIRST owner that supplies it
+        vrecs = [segs[0][0]] + [s[1] for s in segs]
+        runS = [0.0]
+        for i9 in range(1, len(vrecs)):
+            runS.append(runS[-1] + math.hypot(vrecs[i9][0][0] - vrecs[i9 - 1][0][0],
+                                              vrecs[i9][0][2] - vrecs[i9 - 1][0][2]))
+        uS = [(115.0 + ((15.0 * s9) % 126.0)) / 1024.0 for s9 in runS]
+        botS = []
+        for i9, vr in enumerate(vrecs):
+            pT = vr[0]
+            if cmode == "sea":
+                botS.append((pT[0], 0.0, pT[2]))
+            else:
+                yB = _surf_belowS(pT[0], pT[2], pT[1])
+                if yB is None:                              # knife-edge: sheet ends plan-exactly
+                    segN = segs[min(i9, len(segs) - 1)]     # under the rim -- probe both sides
+                    exS, ezS = (segN[1][0][0] - segN[0][0][0],
+                                segN[1][0][2] - segN[0][0][2])
+                    LeS = math.hypot(exS, ezS) or 1.0
+                    for offS in (0.05, -0.05, 0.15, -0.15, 0.35, -0.35):
+                        yB = _surf_belowS(pT[0] - ezS / LeS * offS,
+                                          pT[2] + exS / LeS * offS, pT[1])
+                        if yB is not None:
+                            break
+                assert yB is not None and yB > 0.5, (
+                    f"CURTAIN SEAL: no ground sheet under {cname} vert {kk(pT)}")
+                botS.append((pT[0], yB, pT[2]))
+        # emit one quad (2 tris) per segment, outward-wound, mapid owner-copied
+        for i9, (cAS, cBS, riS, blkS) in enumerate(segs):
+            recO, _bO = final[riS]
+            tanO = recO[0][3]                               # the owner tri's FIRST-corner
+            nrmO = recO[0][2]                               # tangent pins the quad's mapid
+            pA, pB = vrecs[i9][0], vrecs[i9 + 1][0]
+            qA, qB = botS[i9], botS[i9 + 1]
+            t3o = [r[0] for r in recO]
+            ocx = float(np.mean([p[0] for p in t3o]))
+            ocz = float(np.mean([p[2] for p in t3o]))
+            exS, ezS = pB[0] - pA[0], pB[2] - pA[2]
+            LeS = math.hypot(exS, ezS) or 1.0
+            nxS, nzS = -ezS / LeS, exS / LeS
+            mxS, mzS = (pA[0] + pB[0]) / 2, (pA[2] + pB[2]) / 2
+            if (mxS - ocx) * nxS + (mzS - ocz) * nzS < 0:
+                nxS, nzS = -nxS, -nzS                       # outward = away from the surface
+            cA4 = (pA, (uS[i9], V_TOP_S), nrmO, tanO)
+            cB4 = (pB, (uS[i9 + 1], V_TOP_S), nrmO, tanO)
+            cA0 = (qA, (uS[i9], V_BOT_S), nrmO, tanO)
+            cB0 = (qB, (uS[i9 + 1], V_BOT_S), nrmO, tanO)
+            for triS in ((cA4, cB4, cB0), (cA4, cB0, cA0)):
+                a7, b7, c7 = (np.array(t[0]) for t in triS)
+                fn7 = np.cross(b7 - a7, c7 - a7)
+                if fn7[0] * nxS + fn7[2] * nzS < 0:
+                    triS = (triS[0], triS[2], triS[1])
+                final.append((list(triS), blkS))
+                n_ct += 1
+            curtain_declared.add(tuple(sorted((kk(qA), kk(qB)))))
+        curtain_declared.add(tuple(sorted((kk(vrecs[0][0]), kk(botS[0])))))
+        curtain_declared.add(tuple(sorted((kk(vrecs[-1][0]), kk(botS[-1])))))
+        drops = [vrecs[i9][0][1] - botS[i9][1] for i9 in range(len(vrecs))]
+        print(f"   CURTAIN {cname}: {len(segs)} quad(s), drop "
+              f"{min(drops):.2f}-{max(drops):.2f}u, bottom={cmode}")
+    print(f"THE CURTAIN SEAL: {n_ct} tris across {len(CURTAIN_CHAINS)} chains "
+          f"({len(curtain_declared)} declared bottom/end once-edge keys)")
+
     # ---- gates ------------------------------------------------------------------------------
     fails = []
     if gap > 2.5:
@@ -2284,6 +2436,16 @@ def main() -> int:
         print(f"   {len(bord_ok)} once-edges are the DONOR's own cross-border "
               f"mismatch re-keyed (verbatim class, both lips present)")
         grew_bad = [e for e in grew_bad if e not in bord_ok]
+
+    # THE CURTAIN SEAL's declared classes (VSHORE-SEAL-PREDICTION.md gate 2): a
+    # curtain bottom FREE at y=0 over sea (stock free-base, the pristine bench's
+    # own envelope), a bottom resting ON the sheet below, and the chain-end
+    # vertical sides (a stock curtain ends where its rim does)
+    cseal = [e for e in grew_bad if e in curtain_declared]
+    if cseal:
+        print(f"   {len(cseal)} once-edges are THE CURTAIN SEAL's declared "
+              f"bottoms/ends (sea-free y=0 / grounded-on-sheet / chain-end sides)")
+        grew_bad = [e for e in grew_bad if e not in set(cseal)]
     n_dg = sum(1 for e in grew if degen(e))
     n_all_edges = len(cnt3)
     rate = len(grew_bad) / max(1, n_all_edges)
@@ -2382,6 +2544,15 @@ def main() -> int:
             continue
         t3w = [r[0] for r in rec]
         a6, b6, c6 = (np.array(p) for p in t3w)
+        # THE CURTAIN CLASS: a plan-degenerate vertical seal holds no floor -- the
+        # engine's ny>0.1 filter excludes it from every scan (and therefore from
+        # the cache), and stock ships 2,703 foot-legal-topograph curtains exactly
+        # this way (CURTAIN-GRAMMAR.md C1). Its tall vertical side edges are not
+        # floor steps; keep them out of the climb map.
+        pa6e = abs((b6[0] - a6[0]) * (c6[2] - a6[2])
+                   - (c6[0] - a6[0]) * (b6[2] - a6[2])) / 2.0
+        if pa6e <= 1e-3:
+            continue
         fn6 = np.cross(b6 - a6, c6 - a6)
         L6 = float(np.linalg.norm(fn6))
         # plan-area floor 1e-3: the class this gate was calibrated on is the
