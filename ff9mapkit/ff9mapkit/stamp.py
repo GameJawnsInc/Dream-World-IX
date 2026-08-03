@@ -33,6 +33,14 @@ from . import fsutil
 STAMP_NAME = ".ff9build.json"
 STAMP_VERSION = 1
 
+# The journey link receipt (:mod:`ff9mapkit.linkreceipt`) -- named HERE, and imported from here by that
+# module, because both files are KIT METADATA about a folder rather than build output and the digest must
+# skip both. Defining it there and importing it here would be a cycle; leaving it out of the exclusion set
+# made a correct journey deploy report the receipt as an "extra" file, so verify-build could never go clean
+# after one. Two features that describe the same folder have to agree on what is IN the folder.
+RECEIPT_NAME = ".ff9links.json"
+_META_NAMES = frozenset({STAMP_NAME, RECEIPT_NAME})
+
 
 def stamp_path(out_root) -> Path:
     return Path(out_root) / STAMP_NAME
@@ -81,7 +89,7 @@ def _rel(root: Path, p: Path) -> str:
 
 
 def content_digest(root) -> dict:
-    """``{relative path: digest}`` for every file under ``root`` except the stamp itself.
+    """``{relative path: digest}`` for every file under ``root`` except the kit's own metadata.
 
     This is the half the first version left out. The resolution table answers "did a member's window move";
     it cannot answer "is what is installed still what the build produced". Nothing else can either --
@@ -91,7 +99,7 @@ def content_digest(root) -> dict:
     root = Path(root)
     out = {}
     for p in sorted(root.rglob("*")):
-        if not p.is_file() or p.name == STAMP_NAME:
+        if not p.is_file() or p.name in _META_NAMES:
             continue
         h = hashlib.sha256()
         with open(p, "rb") as fh:

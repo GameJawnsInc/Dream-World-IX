@@ -274,6 +274,7 @@ def _cmd_deploy_campaign(args: argparse.Namespace) -> int:
             allow_name_collision=args.allow_name_collision, allow_id_collision=args.allow_id_collision,
             flag_base=args.flag_base, no_promote_csv=args.no_promote_csv, promote_csv_to=args.promote_csv_to,
             out_dist=args.out_dist, allow_reflow=args.reflow_flags,
+            allow_link_wipe=getattr(args, 'allow_link_wipe', False),
             backups_dir=provision.deploy_backups_dir(),
             reverts_dir=provision.deploy_reverts_dir())
     except DeployError as e:
@@ -1486,7 +1487,7 @@ def _cmd_verify_build(args: argparse.Namespace) -> int:
     is the question that actually gets asked with 18 worktrees sharing one game install."""
     from pathlib import Path
 
-    from . import stamp
+    from . import linkreceipt, stamp
     targets = []
     if args.target:
         targets = [Path(args.target)]
@@ -1516,6 +1517,14 @@ def _cmd_verify_build(args: argparse.Namespace) -> int:
             rc = max(rc, 1 if args.strict else 0)
         elif rep.has_digest and not rep.clean:
             rc = 2
+        # A journey's cross-campaign doors exist only as an edit to the INSTALL -- no dist carries them --
+        # so the build stamp cannot see them go. The receipt is the only thing that can.
+        links = linkreceipt.check(t)
+        if links.has_receipt:
+            body = links.render().split("\n", 1)[1]
+            print("  " + body.strip().replace("\n", "\n  "))
+            if not links.satisfied:
+                rc = 2
         print()
     return rc
 
@@ -8798,6 +8807,9 @@ def build_parser() -> argparse.ArgumentParser:
     dca.add_argument("--reflow-flags", action="store_true", dest="reflow_flags",
                      help="accept a build that MOVES an existing member's story-flag window or text block "
                           "(refused by default -- those bits are save-persistent)")
+    dca.add_argument("--allow-link-wipe", action="store_true", dest="allow_link_wipe",
+                     help="install even though this folder carries journey link patches a "
+                          "wholesale replace will revert (re-run deploy-journey to restore)")
     dca.set_defaults(func=_cmd_deploy_campaign)
 
     dje = sub.add_parser("deploy-journey",

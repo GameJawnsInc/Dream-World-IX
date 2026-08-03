@@ -1940,7 +1940,41 @@ def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, ba
         results.append({"eb": lk.eb_name, "mode": lk.mode, "remap": dict(lk.remap), "dst_id": lk.dst_id,
                         "langs": len(touched), "regions": regions, "files": touched, "backups": backups,
                         "found": bool(touched)})
+    if not dry_run:
+        _record_link_receipts(plan, game_root, results, mod_folder_override=mod_folder_override)
     return results
+
+
+def _record_link_receipts(plan, game_root, results, *, mod_folder_override=None) -> list:
+    """Leave a ``.ff9links.json`` in every folder this just patched, and re-finalize that folder's stamp.
+
+    Two jobs, and the second is not optional. A journey's doors exist ONLY as an edit to the live install
+    -- no dist contains them, by construction -- so a later single-campaign ``deploy-campaign`` wholesale
+    replace silently reverts them. The receipt makes that detectable
+    (:func:`ff9mapkit.linkreceipt.check`) and gives ``deploy_campaign`` something to refuse on.
+
+    And because patching changes bytes the build stamp already hashed, leaving the stamp alone would make
+    ``verify-build`` report a CORRECT journey deploy as drift. Re-finalizing makes the patched state that
+    folder's truth, so the drift check keeps meaning what it says -- and the receipt is what separates
+    "patched on purpose" from "someone edited the install"."""
+    from . import linkreceipt as _lr
+    from . import stamp as _stamp
+    folders = {mod_folder_override} if mod_folder_override else {lk.src_mod_folder for lk in plan.links}
+    written = []
+    for name in sorted(f for f in folders if f):
+        root = Path(game_root) / name
+        if not root.is_dir():
+            continue
+        # only the results whose files live under THIS folder (single-folder mode puts them all in one)
+        mine = [r for r in results
+                if r.get("found") and any(str(f).startswith(str(root)) for f in r.get("files", []))]
+        cur = _stamp.read(root)
+        if cur:                                        # stamp FIRST: the receipt records post-patch digests,
+            _stamp.write(root, _stamp.finalize(cur, root))    # and both must describe the same bytes
+        p = _lr.write_receipt(root, _lr.build_receipt(root, mine))
+        if p:
+            written.append(str(p))
+    return written
 
 
 def merge_dists(dist_dirs, *, out, folder_name, entry_dist=None) -> dict:

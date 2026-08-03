@@ -187,7 +187,8 @@ def render_revert_campaign(live_root, snap, warp_revert, name, stamp, csv_revert
 def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None, apply=False,
                     allow_artless=False, no_warp=False, allow_name_collision=False, allow_id_collision=False,
                     flag_base=None, no_promote_csv=False, promote_csv_to=None, out_dist=None,
-                    allow_reflow=False, backups_dir, reverts_dir, verbose=True) -> dict:
+                    allow_reflow=False, allow_link_wipe=False,
+                    backups_dir, reverts_dir, verbose=True) -> dict:
     """Reversibly install a built campaign mod into ``<game>/<mod_folder>`` + wire New Game to its entry.
 
     SAFE BY DEFAULT: with ``apply=False`` it lints + prints the plan + collision preview and touches nothing.
@@ -358,6 +359,22 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     _lost = _regs_wiped(live, dist_root)
     if _lost:
         out("  !! " + _wiped_regs_warning(_lost))
+    # LINK RECEIPT GUARD. A journey's cross-campaign doors exist ONLY as an edit to the installed .eb --
+    # no dist carries them, because the destination is another campaign's id and only the journey knows
+    # it. The wholesale replace below therefore REVERTS them, silently, and the fast loop (iterate on one
+    # campaign) eats the slow loop's output (assemble the journey). docs/JOURNEYS.md warns in prose; prose
+    # is not a mechanism. REFUSE unless the author says otherwise -- reverting is nearly always what they
+    # would have wanted to avoid, and re-running deploy-journey restores it.
+    from . import linkreceipt as _lr
+    _links = _lr.check(live_root)
+    if _links.has_receipt and not allow_link_wipe:
+        err("\nABORT (nothing installed): this folder carries journey link patches that a wholesale "
+            "replace would revert.\n" + _links.render())
+        err("\n  The dist cannot contain these -- they target another campaign's ids. After deploying this "
+            "campaign, re-run `ff9mapkit deploy-journey` to re-apply them, or pass --allow-link-wipe to "
+            "install anyway and lose them until you do.")
+        report["applied"] = False
+        return report
     try:
         shutil.rmtree(live_root, ignore_errors=True)
         shutil.copytree(dist_root, live_root)
