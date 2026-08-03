@@ -2026,7 +2026,7 @@ Actor steps (each needs its `actor` tag — omitted only with a cast of ONE, whe
 | `path` | a **list** of targets to walk through in order — `path = ["door", "fountain", "altar"]` (names or `[x,z]`). Each leg is a straight walk, stall‑checked but **not** auto‑routed — use it to force an exact route (a plain `walk` already routes itself). |
 | `teleport` | a target to **instantly** move to (name or `[x, z]`). Put it **first** to start a walk-in from off-screen. |
 | `animation` | a gesture **by name** (`"glad"`, `"angry"`, `"yawn"`, …) resolved against that actor's preset model, **or** a raw numeric id. Played, then held ~40 frames (no hang on a looping clip). See *Character gestures* below. |
-| `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — an instant face (softlock-safe on player-cloned actors). |
+| `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — an **animated** turn (the actor plays its turn clip, stock speed), then held ~24 frames so the next beat starts facing-settled. Softlock-safe: the hold is a fixed wait, never a blocking `WaitTurn`. |
 | `face_player` | `true` — turn to face the player. |
 
 `say` / `wait` / `set_flag` also work in a cast scene (interleaved in order): a `say` **with** an `actor`

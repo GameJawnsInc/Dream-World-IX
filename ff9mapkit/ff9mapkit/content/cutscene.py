@@ -199,9 +199,13 @@ def actor_teleport(x: int, z: int) -> bytes:
 
 # Cutscene steps are NON-BLOCKING on the animation system: we never use WaitAnimation/WaitTurn,
 # because they HANG if the actor's anim playback doesn't drive them to completion (a player-cloned
-# NPC's walk/turn anims don't always engage -> WaitTurn/WaitAnimation never return -> softlock). A
-# turn is done INSTANTLY (no turn anim needed); an animation is played then given a fixed hold.
+# NPC's walk/turn anims don't always engage -> WaitTurn/WaitAnimation never return -> softlock).
+# An animation/turn is fired, then given a fixed hold instead of a blocking wait.
 ANIM_HOLD = 40          # frames to let a played animation run before the next step (~1.3s)
+TURN_SPEED = 16         # the engine's default turn speed (StartTurn: tspeed 0 -> 16)
+TURN_HOLD = 24          # frames to let an animated turn play out before the next step (engine worst
+#                         case ~ the turn clip's frame count at speed 16 for a >=90deg turn --
+#                         EventEngine.StartTurn: num2 = (clipFrames << 4) / tspeed; small turns snap)
 
 
 def actor_animation(anim: int, hold: int = ANIM_HOLD) -> bytes:
@@ -211,9 +215,13 @@ def actor_animation(anim: int, hold: int = ANIM_HOLD) -> bytes:
 
 
 def actor_turn(angle: int) -> bytes:
-    """Step: face ``angle`` INSTANTLY (0=south, 64=west, 128=north, 192=east). Instant (TurnInstant) so
-    it works without a turn animation and never hangs."""
-    return opcodes.turn_instant(int(angle))
+    """Step: face ``angle`` (0=south, 64=west, 128=north, 192=east), ANIMATED -- ``TimedTurn`` at the
+    stock default speed + a fixed ``Wait`` hold, never ``WaitTurn`` (which hangs if the turn anim
+    doesn't drive it to completion). Every kit NPC ships left/right turn clips (``build_npc_init``'s
+    five anim setters), so the turn plays like a real cutscene turn; the hold keeps the next beat
+    from starting mid-turn. (TurnInstant was the pre-2026-07 shape -- a hang guard from the
+    player-clone NPC era, kept only where stock itself is instant: Init facing.)"""
+    return opcodes.timed_turn(int(angle), TURN_SPEED) + opcodes.wait(TURN_HOLD)
 
 
 def actor_face(uid: int = PLAYER_UID, speed: int = 16) -> bytes:

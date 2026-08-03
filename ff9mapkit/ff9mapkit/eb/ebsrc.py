@@ -42,13 +42,20 @@ Safety stance: :func:`write_source` always SELF-VERIFIES — it reassembles its 
 raises :class:`EbSrcError` on any byte difference — and every failure on either side
 (unparseable input bytes, hand-authored source errors) is an :class:`EbSrcError` naming where,
 never a raw traceback.
+
+Rung 4 adds trailing ``#`` COMMENTS from the kit's own offline semantic layers (the logic map,
+the model/item/scene/field catalogs, an optional parsed ``.mes``) — see the enrichment section
+below. They are PRESENTATION: both parsers strip ``#`` before they see a token, so the
+self-verify above reassembles the COMMENTED text and still demands byte equality.
 """
 from __future__ import annotations
 
+import re
 from struct import error as struct_error
 
-from . import cmdasm, exprasm
+from . import cmdasm, disasm, exprasm
 from .model import EbScript, ENTRY_TABLE_OFF
+from ..eventscan import INIT_OPS, PARTY_UIDS, armed_slot
 
 NAME_END = ENTRY_TABLE_OFF                  # the name block is [0x04..0x80)
 NAME_LO = 4
@@ -67,12 +74,309 @@ class EbSrcError(ValueError):
     pass
 
 
+# --------------------------------------------------------------------------- comment enrichment
+#
+# Everything below only ever APPENDS ``  # <one line>`` to a source line. It cannot move a byte:
+# ``_parse`` and ``cmdasm._parse_line`` both do ``line.split("#", 1)[0]`` before they tokenize, so
+# write_source's self-verify reassembles the commented text and still demands equality. The whole
+# layer is OFFLINE -- no install access happens in this module; the caller passes any parsed
+# ``.mes`` entries / manifest field names in (the CLI reads them, ebsrc never does).
+
+_PREVIEW_WIDTH = 60          # dialogue preview budget in characters (logic_map._line_text's default)
+_MAX_COMMENT = 200           # hard ceiling: a comment is always ONE readable line
+
+_FIELD_OP = 0x2B             # Field(dest)                    -- a field-to-field warp
+_BATTLE_OP = 0x2A            # Battle(rush, btlId)            -- scene = btlId & 0x7FFF, arg 1
+_BATTLE_EX_OP = 0x8C         # BattleEx(rush, group, btlId)   -- same mask, btlId at arg 2
+_RANDOM_BATTLES_OP = 0x3C    # SetRandomBattles(pattern, s1..s4)
+_SET_MODEL_OP = 0x2F         # SetModel(model, animset)
+_ADD_ITEM_OP = 0x48          # AddItem(item, count)
+_REMOVE_ITEM_OP = 0x49       # RemoveItem(item, count)
+_INIT_OBJECT_OP = 0x09       # InitObject(entry, arg)         -- one of eventscan.INIT_OPS
+_BATTLE_SCENE_MASK = 0x7FFF  # btlId bit 15 is Steiner's state, not the scene (eventscan)
+_BATTLE_ARG = {_BATTLE_OP: 1, _BATTLE_EX_OP: 2}      # where each battle op's btlId sits
+
+# The THREE ops that arm an entry (``eventscan.INIT_OPS``, operand 0 = the entry index): what each
+# says, and how it reads when the operand is an expression the engine only resolves at runtime.
+# An entry armed by ANY of them is live -- reading only InitObject calls 77% of the corpus's labeled
+# entries "defined, not spawned" when the field arms them as code (0x07) or as a region (0x08).
+_INIT_FACT = {
+    0x09: ("spawn entry", "spawns an entry chosen at runtime"),
+    0x07: ("arm code entry", "arms a code entry chosen at runtime"),
+    0x08: ("arm region entry", "arms a region entry chosen at runtime"),
+}
+
+# a GLOB story-flag index inside a pretty-printed expression operand -- the ONE place this layer
+# reads decoded TEXT rather than an opcode, because a flag ref is a token of the expression tree,
+# not an instruction operand of its own.
+_FLAG_RE = re.compile(r"Global\.Bit\[(\d+)\]")
+
+_GAP_NOTE = ("gap: bytes covered by NO entry's declared span -- live code the engine reaches by "
+             "func fpos, kept verbatim")
+
+
+def _one_line(text, width: int = _MAX_COMMENT) -> str:
+    """Any text -> ONE comment-safe line. A ``#`` inside a comment is harmless; a NEWLINE would
+    turn the tail into a source line, so every whitespace run (incl. newlines/tabs) collapses to a
+    single space and the result is truncated."""
+    s = " ".join(str(text).split())
+    return (s[:max(width - 3, 0)] + "...") if len(s) > width else s
+
+
+def _annot(line: str, comment) -> str:
+    """``line`` with a trailing ``# comment`` (or unchanged when there is nothing to say)."""
+    c = _one_line(comment) if comment else ""
+    return f"{line}  # {c}" if c else line
+
+
+class _Enrichment:
+    """The offline semantic layer behind the writer's comments: ONE
+    :func:`ff9mapkit.logic_map.build_logic_map` over the whole file (entry roles, per-routine
+    summaries, flag banding) plus a per-instruction pass joined to the disassembler BY ABSOLUTE
+    OFFSET (``func.abs_start + rel_off == Instr.off``). Pure and deterministic: same bytes + same
+    ``mes_entries``/``field_names`` -> same text.
+
+    EVERY comment is computed HERE, in ``__init__`` -- the accessors are dict lookups that cannot
+    raise. That is deliberate: :func:`_build_enrichment` guards construction, so precomputing puts
+    the whole naming layer inside that guard and leaves no path where a catalog defect reaches the
+    line emitter (and the byte-exact round trip) mid-write."""
+
+    def __init__(self, data: bytes, eb: EbScript, *, mes_entries=None, field_names=None):
+        from .. import logic_map as _lm
+        self._lm = _lm
+        self.degraded = ""
+        try:
+            self.lm = _lm.build_logic_map(data, entries=mes_entries, field_names=field_names)
+        except Exception as ex:      # noqa: BLE001 -- keep the per-instruction half
+            # A file whose func table LIES (the kit's blank-template lineage points an fpos past
+            # the entry end -- the same shape that makes the writer fall back to raw=) sends the
+            # whole-file scanner walking garbage. The per-instruction pass below clamps per func,
+            # so it survives: keep those comments, drop only the structural labels, and SAY SO.
+            self.lm = _lm.LogicMap()
+            self.degraded = f"entry/routine labels unavailable ({type(ex).__name__}: {ex})"
+        self.info = {e.index: e for e in self.lm.entries}
+        # build_logic_map appends exactly one Node per func, in entry-then-func order -- so a
+        # POSITIONAL join is exact even when an entry repeats a tag (which a (entry, tag) key
+        # would silently collapse)
+        self.nodes: dict = {}
+        for n in self.lm.nodes:
+            self.nodes.setdefault(n.entry, []).append(n)
+        self.mes = mes_entries or {}
+        self.names = field_names or {}
+        # `iter_code` gives the TYPED operands (imm/expr) but renders an expression in the RAW
+        # `opC4(191)` token form; a flag ref is only recognizable in the NAMED `Global.Bit[191]`
+        # form, which comes from the pretty renderer. So walk both and join by offset -- exactly
+        # what cmdasm.disassemble_items does. Both walks are KEPT (`self.decoded`, keyed on the
+        # func's raw (abs_start, abs_end)) and handed back to `disassemble_items` via its
+        # `predecoded=` kwarg, so the writer decodes each function ONCE instead of twice.
+        from ..battle.battleai import _decode_func_pretty
+        self.instr: dict[int, str] = {}
+        self.decoded: dict = {}
+        self.armed: dict = {}      # entry index -> how many Init* calls anywhere in the file arm it
+        for e in eb.entries:
+            if e.empty:
+                continue
+            for f in e.funcs:
+                # clamp exactly as disassemble_items does, so the two walks stay aligned on a
+                # forked/truncated .eb whose func claims bytes past the buffer
+                lo, hi = f.abs_start, min(f.abs_end, len(data))
+                try:
+                    pretty = {off: (mn, ops) for off, mn, ops in _decode_func_pretty(data, lo, hi)}
+                    instrs = list(disasm.iter_code(data, lo, hi))
+                    # keyed on the RAW (abs_start, abs_end) the writer will ask with; the decode
+                    # itself used the clamped hi, exactly as disassemble_items clamps
+                    self.decoded[(f.abs_start, f.abs_end)] = (instrs, pretty)
+                    for ins in instrs:
+                        if ins.op in INIT_OPS:
+                            self._note_arm(ins)
+                        c = self._instr_comment(ins, (pretty.get(ins.off) or ("", ()))[1])
+                        if c:
+                            self.instr[ins.off] = c
+                except (IndexError, ValueError, KeyError):
+                    continue          # a lying func table walks garbage -- that entry emits raw=
+        self.entry_c = {e.index: self._entry_comment(e.index) for e in self.lm.entries}
+        self.func_c = {(ei, fi): self._func_comment(ei, fi)
+                       for ei, ns in self.nodes.items() for fi in range(len(ns))}
+        self.header = self._header_comment()
+
+    # -- the emitted lines (pure lookups) ------------------------------------
+    def header_comment(self) -> str:
+        return self.header
+
+    def entry_comment(self, index: int) -> str:
+        return self.entry_c.get(index, "")
+
+    def func_comment(self, entry_index: int, func_index: int) -> str:
+        return self.func_c.get((entry_index, func_index), "")
+
+    def instr_comment(self, abs_off: int) -> str:
+        return self.instr.get(abs_off, "")
+
+    def predecoded(self, abs_start: int, abs_end: int):
+        """This func's already-decoded ``(instrs, pretty)`` for :func:`cmdasm.disassemble_items`,
+        or None when it was never decodable here (the writer then decodes it itself and gets the
+        same ``CmdAsmError`` -> ``raw=`` fallback it always did)."""
+        return self.decoded.get((abs_start, abs_end))
+
+    # -- the armed-entry set -------------------------------------------------
+    def _note_arm(self, ins) -> None:
+        """Record that this ``Init*`` instruction ARMS its operand-0 entry. The WHICH-slot decision
+        is :func:`ff9mapkit.eventscan.armed_slot` -- the ONE owner of the armed semantics (all three
+        ``INIT_OPS`` anywhere in the file; ``InitObject``'s 251-254 party selectors arm nothing) --
+        shared with ``logic_map.EntryInfo.spawns``. Only the COUNTING lives here, fused into the
+        comment walk so each function decodes once."""
+        slot = armed_slot(ins)
+        if slot is not None:
+            self.armed[slot] = self.armed.get(slot, 0) + 1
+
+    # -- how each is worded --------------------------------------------------
+    _TAIL = "Comments are informational -- eb-asm strips every '#'."
+
+    def _header_comment(self) -> str:
+        if self.degraded:
+            return f"{self.degraded}; per-instruction comments only. {self._TAIL}"
+        used = sum(1 for e in self.lm.entries if e.role != "empty")
+        text = "dialogue previews from the .mes" if self.mes else "no .mes given -- no line previews"
+        return f"{used} entries, {len(self.lm.nodes)} routines; {text}. {self._TAIL}"
+
+    def _entry_comment(self, index: int) -> str:
+        e = self.info.get(index)
+        if e is None or e.role == "empty":
+            return ""
+        head = self._lm.entry_label(e)
+        if e.model_name:
+            head += f" ({e.model_name})"
+        elif e.model_id is not None:
+            head += f" (model {e.model_id})"
+        bits = [head]
+        if e.talkable:
+            bits.append("talkable")
+        # self.armed, not EntryInfo.spawns: same semantics (both from eventscan.armed_slot), but
+        # THIS walk is clamped + per-func fault-tolerant, so it still counts on a truncated .eb
+        # where the whole-file scanner degraded
+        arms = self.armed.get(index, 0)
+        if e.role not in ("main", "player") and not arms:
+            bits.append("defined, not spawned")
+        elif arms > 1:
+            bits.append(f"armed x{arms}")
+        return ", ".join(bits)
+
+    def _func_comment(self, entry_index: int, func_index: int) -> str:
+        n = self.nodes[entry_index][func_index]
+        label = self._lm.kind_label(n.kind)
+        summary = self._lm.node_summary(n)
+        return f"{label} -- {summary}" if summary else label
+
+    # -- the per-instruction joins -------------------------------------------
+    def _instr_comment(self, ins, pretty_ops=()) -> str:
+        """The facts this instruction states, keyed on its OPCODE + decoded operands (never on the
+        rendered mnemonic text -- the sole exception is a flag ref, which lives inside an
+        expression, hence ``pretty_ops``). Several facts join with '; '."""
+        op, facts = ins.op, []
+        if op == _FIELD_OP:
+            facts.append(self._field_fact(ins.imm(0)))
+        elif op in _BATTLE_ARG:                          # Battle / BattleEx, same mask
+            btl = ins.imm(_BATTLE_ARG[op])
+            if btl is not None:
+                facts.append(self._scene_fact(int(btl) & _BATTLE_SCENE_MASK))
+        elif op == _RANDOM_BATTLES_OP:
+            picks, named = [ins.imm(i) for i in range(1, 5)], []
+            for s in picks:                             # the 4 slots often repeat ONE scene
+                if s is not None and int(s) not in named:
+                    named.append(int(s))
+            if named:
+                facts.append("random encounters: "
+                             + ", ".join(self._scene_fact(s) for s in named))
+        elif op == _SET_MODEL_OP:
+            mid = ins.imm(0)
+            if mid is not None:
+                from .._modeldb import MODELS
+                facts.append(MODELS.get(int(mid)) or f"unnamed model {int(mid)}")
+        elif op in (_ADD_ITEM_OP, _REMOVE_ITEM_OP):
+            iid = ins.imm(0)
+            if iid is not None:
+                from ..forkreport import item_label
+                facts.append(item_label(int(iid)))
+        elif op in _INIT_FACT:
+            facts.append(self._init_fact(op, ins.imm(0)))
+        elif op in self._lm.WINDOW_OPS and self.mes:
+            txid = ins.imm(self._lm.WINDOW_OPS[op])
+            preview = self._lm._line_text(self.mes, txid, _PREVIEW_WIDTH) if txid is not None else None
+            if preview:
+                facts.append(f'"{preview}"')
+        facts.extend(self._flag_facts(pretty_ops))
+        return "; ".join(f for f in facts if f)
+
+    def _field_fact(self, dest) -> str:
+        if dest is None:
+            return "-> warp target computed at runtime"
+        from .._fieldtable import FIELD_BY_ID
+        fid = int(dest)
+        row = FIELD_BY_ID.get(fid)
+        friendly, evt = self.names.get(fid) or "", (row[1] if row else "")
+        if friendly and evt:
+            return f"-> {friendly} ({evt})"
+        return f"-> {friendly or evt}" if (friendly or evt) else ""
+
+    def _scene_fact(self, scene_id: int) -> str:
+        from .. import catalog
+        name = catalog.scene_name(scene_id)
+        out = f"scene {scene_id}" + (f" {name}" if name else "")
+        if catalog.is_model_bucket_scene(scene_id):     # a BSC_B3_* holder crashes as an encounter
+            out += " -- NOT fightable (model bucket)"
+        return out
+
+    def _init_fact(self, op: int, slot) -> str:
+        """What an ``Init*`` call arms, in that op's own words: an object SPAWNS, code and regions
+        are ARMED. ``InitObject`` alone reads 251-254 as PARTY SLOTS (engine: ``partyUID[sid-251]``
+        — a member of the CURRENT party, not entry 251), so those name the slot instead."""
+        head, at_runtime = _INIT_FACT[op]
+        if slot is None:
+            return at_runtime
+        slot = int(slot)
+        if op == _INIT_OBJECT_OP and slot in PARTY_UIDS:
+            return f"spawn party member (slot {PARTY_UIDS.index(slot)})"
+        e = self.info.get(slot)
+        bits = [self._lm.entry_label(e)] if (e is not None and e.role != "empty") else []
+        if e is not None and e.model_name:
+            bits.append(e.model_name)
+        return f"{head} {slot}" + (f" ({', '.join(bits)})" if bits else "")
+
+    def _flag_facts(self, pretty_ops) -> list:
+        """``flag_phrase`` for each DISTINCT GLOB story-flag index this instruction's (pretty-
+        rendered) operands touch -- the band (kit / Mognet lock / read-mail scratch) is what a
+        reader needs, and it is the difference between a donor's own story bit and one this fork
+        added."""
+        out, seen = [], []
+        for arg in pretty_ops:
+            for m in _FLAG_RE.finditer(str(arg)):
+                idx = int(m.group(1))
+                if idx not in seen:
+                    seen.append(idx)
+                    out.append(self._lm.flag_phrase(idx))
+        return out
+
+
+def _build_enrichment(data: bytes, eb: EbScript, mes_entries, field_names):
+    """``(_Enrichment, "")`` or ``(None, note)``. Comments are cosmetic and the whole-corpus gate
+    runs through this path, so a defect in a NAMING layer must never cost the byte-exact round
+    trip -- but the degradation is REPORTED in the output's header, never swallowed silently."""
+    try:
+        return _Enrichment(data, eb, mes_entries=mes_entries, field_names=field_names), ""
+    except Exception as ex:                    # noqa: BLE001 -- presentation must not fail the writer
+        return None, f"comments unavailable ({type(ex).__name__}: {ex})"
+
+
 # --------------------------------------------------------------------------- writer (decompile)
 
-def _structured_funcs(data: bytes, e) -> "list[str] | None":
+def _structured_funcs(data: bytes, e, ctx=None) -> "list[str] | None":
     """The ``.func`` source lines for a well-formed entry, or None when the entry's func table
     cannot be represented structurally (non-canonical fpos, a func range outside the entry, or
-    a body the labeled disassembler refuses) — the caller then falls back to ``raw=``."""
+    a body the labeled disassembler refuses) — the caller then falls back to ``raw=``.
+    With ``ctx`` the lines carry explanatory comments (``disassemble_items`` gives one tuple per
+    source line, so an instruction's comment joins on ``f.abs_start + rel_off``; a ``L<n>:`` label
+    line has ``rel_off is None`` and never takes one) — and each body is handed the decode ``ctx``
+    already did, so enriching costs no second pass over the bytecode."""
     fp = [f.fpos for f in e.funcs]
     if not fp or fp[0] != e.func_count * 4 or any(b <= a for a, b in zip(fp, fp[1:])):
         return None
@@ -80,26 +384,45 @@ def _structured_funcs(data: bytes, e) -> "list[str] | None":
         return None
     lines: list[str] = []
     for f in e.funcs:
-        lines.append(f".func {f.tag}")
+        head = f".func {f.tag}"
+        lines.append(_annot(head, ctx.func_comment(e.index, f.index)) if ctx else head)
         if f.length:
             try:
-                lines.append(cmdasm.disassemble_block(data, f.abs_start, f.abs_end))
+                items = cmdasm.disassemble_items(
+                    data, f.abs_start, f.abs_end,
+                    predecoded=ctx.predecoded(f.abs_start, f.abs_end) if ctx else None)
             except cmdasm.CmdAsmError:
                 return None
+            if ctx is None:
+                lines.append("\n".join(text for _off, text in items))
+            else:
+                lines.append("\n".join(
+                    text if off is None else _annot(text, ctx.instr_comment(f.abs_start + off))
+                    for off, text in items))
     return lines
 
 
-def write_source(data: bytes, *, title: str = "") -> str:
+def write_source(data: bytes, *, title: str = "", enrich: bool = True, mes_entries=None,
+                 field_names=None) -> str:
     """Decompile a whole ``.eb`` to ``.ebs`` source. ``title`` becomes a leading comment line.
     ALWAYS self-verifies: the returned text reassembles (:func:`assemble_source`) to exactly
-    ``data``, or this raises :class:`EbSrcError` (with the first differing offset)."""
+    ``data``, or this raises :class:`EbSrcError` (with the first differing offset).
+
+    ``enrich`` (default on) appends explanatory ``#`` comments from the kit's offline semantic
+    layers; ``enrich=False`` emits the bare grammar. ``mes_entries`` is a parsed ``.mes``
+    (``{txid: MesEntry}``) so a dialogue window can preview its line, ``field_names`` a
+    ``{field_id: friendly}`` map so a ``Field()`` warp can name its destination — both optional,
+    both supplied by the CALLER (this module never touches the install)."""
     try:
         eb = EbScript.from_bytes(data)
     except (ValueError, IndexError, struct_error) as ex:
         raise EbSrcError(f"not a parseable .eb: {ex}") from ex
+    ctx, note = _build_enrichment(data, eb, mes_entries, field_names) if enrich else (None, "")
     lines: list[str] = []
     if title:
-        lines.append(f"# {title}")
+        lines.append(f"# {_one_line(title)}")
+    if ctx is not None or note:
+        lines.append(f"# {_one_line(note or ctx.header_comment())}")
     lines.append(f".ebs {FORMAT_VERSION}")
     if data[2] != 2:
         lines.append(f".byte2 {data[2]}")
@@ -128,12 +451,13 @@ def write_source(data: bytes, *, title: str = "") -> str:
         if e.off != pos:
             head += f" off={e.off}"
         pos = max(pos, e.off + e.size)
-        funcs = _structured_funcs(data, e)
+        funcs = _structured_funcs(data, e, ctx)
+        comment = ctx.entry_comment(e.index) if ctx else ""
         if funcs is None:                    # the escape hatch: entry blob verbatim
             blob = data[e.abs_start:e.abs_end].hex()
-            lines.append(head.replace(f" type={e.type}", "", 1) + f" raw={blob}")
+            lines.append(_annot(head.replace(f" type={e.type}", "", 1) + f" raw={blob}", comment))
         else:
-            lines.append(head)
+            lines.append(_annot(head, comment))
             lines.extend(funcs)
 
     # bytes covered by NO entry span (blank-template overhang code, EOF slack) -> .gap records
@@ -149,7 +473,8 @@ def write_source(data: bytes, *, title: str = "") -> str:
         j = i
         while j < len(data) and not covered[j]:
             j += 1
-        lines.append(f".gap off={i - ENTRY_TABLE_OFF} raw={data[i:j].hex()}")
+        lines.append(_annot(f".gap off={i - ENTRY_TABLE_OFF} raw={data[i:j].hex()}",
+                            _GAP_NOTE if ctx else ""))
         i = j
     src = "\n".join(lines) + "\n"
 

@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — cutscene `turn` steps now animate (the stock look) instead of snapping
+- **A `turn` beat rotates the actor with its turn animation** (`TimedTurn`/`TimedTurnEx` at the
+  engine's default speed) instead of instantly snapping its facing (`TurnInstant`), in both the
+  single-actor cutscene and the multi-actor conductor — matching how real FF9 cutscenes turn
+  (in-game verified: solo quarter/half turns, a parallel two-actor turn, and player turns, with
+  control returned cleanly). The instant snap was a hang guard from the era when kit NPCs were
+  player clones without reliable turn clips; every NPC the kit builds now ships real left/right
+  turn clips, so the guard only cost the look.
+- **The softlock rule is unchanged:** the turn is paced by a fixed ~24-frame hold (the anim-hold
+  idiom), never a blocking `WaitTurn`/`WaitTurnEx`. A parallel (`with_prev`) turn fires without an
+  inline hold — its hold folds into the group's one join `Wait`, so the fan stays simultaneous.
+  Init/spawn facing is untouched: `TurnInstant` after `CreateObject` **is** the byte-faithful
+  stock shape there.
+
 ### Added — `ff9mapkit lint` now catches misspelled keys the build silently ignores
 - **A typo'd key in a `field.toml` was never an error — it was silently ignored**, which is the whole
   bug class: `dialouge` on an NPC just means no dialogue, with no message anywhere. `lint` now reports
@@ -58,6 +72,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   long-standing assumption: event bytecode is NOT language-identical (only 238/818 fields are;
   dialogue-window operands, text-pacing waits, and voice sound ids differ per language, and 94
   fields differ in length) — so `.ebs` source is per (field, language).
+- **The source is annotated.** `eb-src` output carries trailing `#` comments from the kit's own
+  offline semantic layers: what each entry is (`# NPC (Vivi), talkable`), what each routine does
+  (`# Talk handler — says 8 lines · 2 warps`), and per-instruction joins — `Field(355)  # ->
+  Dali/Pub`, `AddItem(236, 1)  # Potion`, dialogue previews from the field's own `.mes`, battle
+  scene names, story-flag band phrases (`# flag 8511 (stock Mognet lock band)`). Comments are
+  presentation only — `eb-asm` strips every `#`, and the self-verify reassembles the commented
+  text and still demands byte equality. `--plain` turns them off.
 
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
@@ -97,6 +118,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **Off the mesh is not automatically wrong.** A normal FF9 NPC stands against the back wall, just
   past the floor edge (the in-game-verified hut oracle has Vivi ~100u out), so the gate now uses the
   same `2 × 96u` talk reach `build`'s own placement lint uses instead of refusing any overhang.
+
+### Fixed — the traversal guard rejected the documented central-cache camera reference
+- **`build`/`lint` on a toml referencing the workspace extract cache crashed validate with
+  `PathTraversalError`.** The asset-ref confinement trusted only the toml's own directory, but
+  `extract-field` / `gen-hub --extract-camera` — and the bundled `continent-v1` waystation example —
+  reference ONE central `.ff9mapkit-cache/fields/<id>/camera.bgx` by design. `FieldProject.path()` now
+  trusts the cache's `fields/` subtree as a second root. The security model is unchanged: the cache's
+  *location* comes from the environment/install, never from the toml, so an untrusted `field.toml`
+  still can't point the build at arbitrary files — and the cache's deploy backups stay off-limits.
+- **An unpopulated cache is now a clean `[camera] borrow scene not found` finding**, not a
+  mid-validate crash — `lint` on a fresh clone points at the `extract-field` command instead of a
+  traceback.
 
 ### Added — see an animation before you attach it (Workspace)
 - **The Models tab plays a model's clips.** The comma blob of action names is a clip LIST (the five

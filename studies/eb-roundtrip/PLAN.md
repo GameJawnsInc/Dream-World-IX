@@ -1,6 +1,8 @@
 # Byte-exact `.eb` round-trip — scoping (Rung 0 research)
 
-> **STATUS:** Rungs 1-3 ★ DONE. Rung 1 census → [`FINDINGS.md`](FINDINGS.md) (corpus is
+> **STATUS:** Rungs 1-4 ★ DONE (4 = comment enrichment: entry/routine/instruction comments from
+> the offline semantic layers + `.mes` previews via the CLI; `--plain` opts out; adversarially
+> reviewed). Earlier: Rung 1 census → [`FINDINGS.md`](FINDINGS.md) (corpus is
 > **818 EVTs × 7 langs = 5726**; envelope fully derivable; lang-identical bytecode FALSIFIED —
 > source is per (EVT, lang)). Rungs 2+3: `eb/ebsrc.py` (`write_source`/`assemble_source`,
 > grammar v1 frozen in its module docstring, writer SELF-VERIFIES) + CLI `eb-src`/`eb-asm` +

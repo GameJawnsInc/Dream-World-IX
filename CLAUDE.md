@@ -149,6 +149,12 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   large byte-level slice never COLLECTS and the run passes anyway. This is how a black screen once reached
   a playtest. Run in the MAIN repo, or extract templates first. The counts are owned by
   [[project-ff9-test-suite-perf]] — **do not quote a number here.**
+- **DO NOT run the full suite per session — the nightly gate owns it.** Before merging to `master`, run
+  ONLY your domain's test files; the full suite runs nightly on `master` in the gate worktree
+  (`C:\gd\ff9-test-gate`, `tools/nightly_gate.py`) — read `C:\gd\Dream-World-IX\.test-gate\latest.json`
+  before building on master, and a red ledger means bisect yesterday's merges. EXCEPTION: a diff touching
+  the byte-level fork/graft/content core (the install-gated files → [[project-ff9-test-suite-perf]]) runs
+  the full suite itself pre-merge (`-n 6`, in the gate worktree or the MAIN repo). → `tools/nightly_gate.md`.
 - **New Game lands via a stock field-70 override (`Field(<id>)`), not a DLL edit** — and every
   `deploy_campaign` wholesale-replace WIPES it. Re-run `tools/wire_newgame_from_stock.py <id>` after each
   opening re-deploy. → [[project-ff9-new-game-entry]].

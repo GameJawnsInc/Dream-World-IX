@@ -280,7 +280,7 @@ def _switch_labeled_ops(ins, start: int) -> list:
     return [str(sw.base & 0xFFFF), f"L{default.target - start}"] + [f"L{e.target - start}" for e in cases]
 
 
-def disassemble_items(raw: bytes, start: int, end: int) -> list:
+def disassemble_items(raw: bytes, start: int, end: int, *, predecoded=None) -> list:
     """The inverse of :func:`assemble_block` as a structured list of ``(rel_off | None, text)`` -- one entry per
     SOURCE line, where ``rel_off`` is the function-relative byte offset of an INSTRUCTION line and ``None`` marks
     a ``L<n>:`` label line. Every JUMP and every SWITCH case/default target is rendered as a function-relative
@@ -288,14 +288,21 @@ def disassemble_items(raw: bytes, start: int, end: int) -> list:
     change between a branch and its target RELOCATES automatically. The structured form lets a length-changing
     rebuild splice new source at a precise instruction boundary (then reassemble + splice via
     :func:`ff9mapkit.eb.edit.replace_function_body`). Computed (expression-operand) jumps/switches that can't be
-    resolved offline keep their raw decoded operands (the round-trip still holds; they just don't relocate)."""
-    from ..battle.battleai import _decode_func_pretty          # the pretty operand renderer (general bytecode)
+    resolved offline keep their raw decoded operands (the round-trip still holds; they just don't relocate).
+
+    ``predecoded`` is an OPTIONAL ``(instrs, pretty)`` pair a caller that already walked exactly this
+    ``raw[start:min(end, len(raw))]`` can hand back (``ff9mapkit.eb.ebsrc``'s comment layer does), skipping the
+    two decodes below. Same values, so the returned lines are identical -- it only saves the second pass."""
     end = min(end, len(raw))                                   # a truncated/corrupt/forked .eb can claim a func past the buffer
-    try:
-        instrs = list(_disasm.iter_code(raw, start, end))
-        pretty = {off: (mn, ops) for off, mn, ops in _decode_func_pretty(raw, start, end)}
-    except IndexError as ex:                                   # a malformed expr/operand stream runs off the buffer
-        raise CmdAsmError(f"truncated/malformed bytecode in raw[{start}:{end}]: {ex}") from ex
+    if predecoded is not None:
+        instrs, pretty = predecoded
+    else:
+        from ..battle.battleai import _decode_func_pretty      # the pretty operand renderer (general bytecode)
+        try:
+            instrs = list(_disasm.iter_code(raw, start, end))
+            pretty = {off: (mn, ops) for off, mn, ops in _decode_func_pretty(raw, start, end)}
+        except IndexError as ex:                               # a malformed expr/operand stream runs off the buffer
+            raise CmdAsmError(f"truncated/malformed bytecode in raw[{start}:{end}]: {ex}") from ex
     targets: set = set()
     for ins in instrs:
         if ins.op in _disasm.JUMP_OPS and _disasm.jump_target(ins) is not None:
