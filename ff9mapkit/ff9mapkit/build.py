@@ -188,10 +188,13 @@ def _find_scene(field_path: Path, base: dict):
 
 
 class PathTraversalError(ValueError):
-    """A ``field.toml`` asset reference resolved OUTSIDE its own directory -- an absolute path or a ``..``
+    """A ``field.toml`` asset reference resolved OUTSIDE its trusted roots -- an absolute path or a ``..``
     escape. Raised by :meth:`FieldProject.path` so an untrusted/shared field.toml can't make the build read an
-    arbitrary file off the builder's disk (and bake its bytes into the shared mod). A ``ValueError`` subclass so
-    existing ``except ValueError`` handlers still catch it."""
+    arbitrary file off the builder's disk (and bake its bytes into the shared mod). Two roots are trusted: the
+    toml's OWN directory, and the workspace extract cache's ``fields/`` subtree (``provision.cache_dir()`` --
+    the documented central-copy home of ``extract-field`` cameras/walkmeshes; its LOCATION is env/install
+    controlled, never toml-controlled, so a hostile toml still can't choose what the build reads). A
+    ``ValueError`` subclass so existing ``except ValueError`` handlers still catch it."""
 
 
 def _desugar_ferries(raw: dict) -> None:
@@ -364,17 +367,26 @@ class FieldProject:
         return fbg_name(self.area, self.name)
 
     def path(self, rel: str) -> Path:
-        # Confine every field.toml-supplied asset ref to the toml's OWN directory: an absolute `rel` wins the
+        # Confine every field.toml-supplied asset ref to its trusted roots: an absolute `rel` wins the
         # `/` join outright and `..` can climb out -- either way an untrusted/shared field.toml could otherwise
         # make the build read an arbitrary file (portrait/image/obj/bin/...) off the builder's disk and bake
         # its bytes into the mod. resolve() BOTH sides (base_dir may be relative or hold `..`) then require
         # containment; a path is relative-to itself so an empty/"." rel (== base_dir) still passes.
+        # Second trusted root: the extract cache's fields/ subtree -- the documented central-copy pattern
+        # (`extract-field` / gen-hub --extract-camera put ONE camera.bgx there and any number of tomls
+        # reference it). Only the ref's RESOLVED target is checked against it; where that root LIVES comes
+        # from provision (env/install), so a toml can point INTO the builder's own extract cache but nowhere
+        # else. fields/ only -- the cache's deploy backups/thumbs stay off-limits.
         base = self.base_dir.resolve()
         p = (base / rel).resolve()
         if not p.is_relative_to(base):
-            raise PathTraversalError(
-                f"asset path {rel!r} escapes the field directory {base} -- field.toml asset paths must stay "
-                f"under the toml's own directory (no absolute paths, no '..' climbing out)")
+            from . import provision
+            cache_fields = (provision.cache_dir() / "fields").resolve()
+            if not p.is_relative_to(cache_fields):
+                raise PathTraversalError(
+                    f"asset path {rel!r} escapes the field directory {base} -- field.toml asset paths must "
+                    f"stay under the toml's own directory (no absolute paths, no '..' climbing out) or under "
+                    f"the workspace extract cache {cache_fields}")
         return p
 
     def carry_text_plan(self):
@@ -1265,8 +1277,21 @@ def validate(project: FieldProject) -> list[str]:
     for ci, cc in enumerate(cfgs):
         if "borrow" not in cc and "pitch" not in cc:
             problems.append(f"[camera] #{ci} needs either 'borrow' or 'pitch' (+ distance/fov)")
-        if cc.get("borrow") and not project.path(cc["borrow"]).is_file():
-            problems.append(f"[camera] borrow scene not found: {cc['borrow']}")
+        if cc.get("borrow"):
+            try:
+                bp = project.path(cc["borrow"])
+            except PathTraversalError as e:                # a finding, not a validate crash
+                problems.append(f"[camera] {e}")
+            else:
+                if not bp.is_file():
+                    hint = ""
+                    from . import provision
+                    cache_fields = (provision.cache_dir() / "fields").resolve()
+                    if bp.is_relative_to(cache_fields):    # the central-cache pattern, just unpopulated
+                        rel = bp.relative_to(cache_fields).parts
+                        hint = (f" -- the extract cache has no field {rel[0]}; run: "
+                                f"py -m ff9mapkit extract-field {rel[0]}") if rel else ""
+                    problems.append(f"[camera] borrow scene not found: {cc['borrow']}{hint}")
     zones = project.raw.get("camera_zone", [])
     if zones:
         if len(cfgs) < 2:

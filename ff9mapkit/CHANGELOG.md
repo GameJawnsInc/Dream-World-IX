@@ -98,6 +98,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   past the floor edge (the in-game-verified hut oracle has Vivi ~100u out), so the gate now uses the
   same `2 × 96u` talk reach `build`'s own placement lint uses instead of refusing any overhang.
 
+### Fixed — the traversal guard rejected the documented central-cache camera reference
+- **`build`/`lint` on a toml referencing the workspace extract cache crashed validate with
+  `PathTraversalError`.** The asset-ref confinement trusted only the toml's own directory, but
+  `extract-field` / `gen-hub --extract-camera` — and the bundled `continent-v1` waystation example —
+  reference ONE central `.ff9mapkit-cache/fields/<id>/camera.bgx` by design. `FieldProject.path()` now
+  trusts the cache's `fields/` subtree as a second root. The security model is unchanged: the cache's
+  *location* comes from the environment/install, never from the toml, so an untrusted `field.toml`
+  still can't point the build at arbitrary files — and the cache's deploy backups stay off-limits.
+- **An unpopulated cache is now a clean `[camera] borrow scene not found` finding**, not a
+  mid-validate crash — `lint` on a fresh clone points at the `extract-field` command instead of a
+  traceback.
+
 ### Added — see an animation before you attach it (Workspace)
 - **The Models tab plays a model's clips.** The comma blob of action names is a clip LIST (the five
   movement slots first, then the model's own gestures, cross-form rows marked "other form"); picking a

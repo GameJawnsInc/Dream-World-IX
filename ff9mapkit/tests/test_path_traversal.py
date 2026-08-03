@@ -1,8 +1,10 @@
-"""Security: ``FieldProject.path()`` confines every field.toml-supplied asset reference to the toml's own
-directory. Without this, an untrusted/shared field.toml could point an asset ref (portrait/image/obj/bin/...)
+"""Security: ``FieldProject.path()`` confines every field.toml-supplied asset reference to its trusted
+roots. Without this, an untrusted/shared field.toml could point an asset ref (portrait/image/obj/bin/...)
 at an absolute path or ``..``-escape and make the build read an arbitrary file off the builder's disk -- then
-bake its bytes into the mod the builder shares back. These tests are self-contained (a temp base_dir), so they
-run without the extracted FF9 template cache.
+bake its bytes into the mod the builder shares back. Two roots are trusted: the toml's own directory, and the
+workspace extract cache's ``fields/`` subtree (``provision.cache_dir()`` -- the documented central-copy home
+of ``extract-field`` cameras/walkmeshes; env/install-controlled, never toml-controlled). These tests are
+self-contained (a temp base_dir + an env-pinned cache), so they run without the extracted FF9 template cache.
 """
 
 from __future__ import annotations
@@ -95,6 +97,62 @@ def test_sibling_prefix_is_not_containment(tmp_path):
     (tmp_path / "field_evil").mkdir()
     with pytest.raises(PathTraversalError):
         _proj(base).path("../field_evil/loot.png")
+
+
+# --- the second trusted root: the extract cache's fields/ subtree ----------------------------------------
+
+def _pin_cache(tmp_path, monkeypatch):
+    """Pin the workspace cache root into tmp via the documented $FF9MAPKIT_DATA seam; return it."""
+    root = tmp_path / "kit-cache"
+    monkeypatch.setenv("FF9MAPKIT_DATA", str(root))
+    return root
+
+
+def test_relative_ref_into_cache_fields_is_allowed(tmp_path, monkeypatch):
+    """The documented central-cache pattern (extract.cache_field): ONE extracted camera.bgx in
+    cache_dir()/fields/<id>/, referenced by any number of tomls via a `..` relpath. The root's LOCATION is
+    env/install-controlled -- the toml can point INTO the builder's extract cache but can't choose where
+    that cache is, so the untrusted-toml threat model survives."""
+    root = _pin_cache(tmp_path, monkeypatch)
+    cam = root / "fields" / "2800" / "camera.bgx"
+    cam.parent.mkdir(parents=True)
+    cam.touch()
+    base = tmp_path / "proj" / "field"
+    base.mkdir(parents=True)
+    assert _proj(base).path("../../kit-cache/fields/2800/camera.bgx") == cam.resolve()
+
+
+def test_absolute_ref_into_cache_fields_is_allowed(tmp_path, monkeypatch):
+    """A wheel install's cache lives under %LOCALAPPDATA%, possibly on another drive -- the emitted ref can
+    only be absolute there. Absolute is fine when the resolved target lands under the cache fields root."""
+    root = _pin_cache(tmp_path, monkeypatch)
+    cam = root / "fields" / "950" / "camera.bgx"
+    cam.parent.mkdir(parents=True)
+    base = tmp_path / "field"
+    base.mkdir()
+    assert _proj(base).path(str(cam)) == cam.resolve()
+
+
+def test_cache_outside_fields_is_rejected(tmp_path, monkeypatch):
+    """Only the fields/ extract subtree is trusted -- the cache also holds deploy BACKUPS (snapshots of the
+    live mod folders, i.e. other mods' content); a toml must not be able to bake those into a shared mod."""
+    root = _pin_cache(tmp_path, monkeypatch)
+    (root / "deploy" / "backups").mkdir(parents=True)
+    base = tmp_path / "field"
+    base.mkdir()
+    with pytest.raises(PathTraversalError):
+        _proj(base).path("../kit-cache/deploy/backups/loot.bin")
+
+
+def test_cache_fields_prefix_sibling_is_rejected(tmp_path, monkeypatch):
+    """`fields_evil` shares the `fields` string prefix but is NOT the trusted subtree -- containment must
+    compare path PARTS here too."""
+    root = _pin_cache(tmp_path, monkeypatch)
+    (root / "fields_evil").mkdir(parents=True)
+    base = tmp_path / "field"
+    base.mkdir()
+    with pytest.raises(PathTraversalError):
+        _proj(base).path("../kit-cache/fields_evil/loot.png")
 
 
 # --- the error contract ----------------------------------------------------------------------------------
