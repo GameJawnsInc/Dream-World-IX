@@ -89,6 +89,40 @@ tail-end guess — this arc's record on "one more quick geometry fix" is poor.
 rects are one border-crack round away.** The gate refuses them, so nothing unsound can
 ship in the meantime.
 
+### ATTEMPT 2 (2026-08-02) — the densify fix, FALSIFIED and reverted
+
+Diagnosis first, and it was sound: both crack vertices are in **Sea4** meshes, so the
+fill's ring and the stock sheet's hole boundary genuinely diverge — the sheet subdivides
+an edge the dropped ladder treats as one segment.
+
+The fix attempted: re-insert every sea4 waterline vertex lying collinear ON a fill-ring
+edge, so both sides split identically. Shape-preserving by construction.
+
+**It made every case worse, including one that was already clean:**
+
+| rect | weld pairs before | after | census before | after |
+|---|---|---|---|---|
+| sinuous `(3,11)+2x4` | 1 | **37** | clean | clean |
+| Daguerreo `(5,15)+3x2` | 4 | **6** | clean | **introduced=2106** |
+| waisted `(6,6)+2x2` | **0 (CLEAN)** | **4** | clean | clean |
+
+Daguerreo's fill collapsed from 274 tris to 50 — the earclip fails on the densified ring,
+so the footprint is left largely unfilled and 2106 census samples fall through. Reverted
+in full; all three rects verified back to their prior numbers.
+
+**Why it failed (hypothesis for the next round, NOT a conclusion):** inserting *every*
+collinear sea4 vertex is too blunt. A ring edge can run collinear past sheet vertices that
+belong to a different part of the boundary, so the ring picks up points that are on the
+LINE but not on that stretch of the sheet's hole — producing a self-touching polygon the
+ear-clipper cannot triangulate.
+
+**The lesson is the one this document already stated and I then ignored.** The previous
+entry says a tail-end guess at this defect is a bad idea given the arc's record; I
+attempted one anyway in the same session and it regressed a clean case. The border crack
+needs its own round with the sheet's hole boundary traced as an ordered cycle (which
+`meshedit.boundary_cycles` already provides) and matched run-for-run against the ring —
+not a collinearity test over a vertex soup.
+
 ### Coverage
 
 Both directions mutation-verified. The first pass MISSED the frame law entirely (the fix
