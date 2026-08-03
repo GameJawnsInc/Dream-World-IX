@@ -803,10 +803,11 @@ def _cmd_paint_template(args: argparse.Namespace) -> int:
 
 def _cmd_lint(args: argparse.Namespace) -> int:
     """Check a field.toml WITHOUT building -- ONE pass over every offline validator: schema errors
-    (validate), story/flag logic + dialogue overflow + dup names (lint_logic), reserved flag-band use
-    (lint_flag_bands), walkmesh geometry + content placement + layer art + cutscene movement
-    (verify_walkmesh), and camera pitch range. Warnings are grouped by [section]. Exits 1 if anything is
-    reported, so it's scriptable. Merges a sibling scene.toml first."""
+    (validate), unknown/typo'd keys the build would silently ignore (lint_unknown_keys), story/flag
+    logic + dialogue overflow + dup names (lint_logic), reserved flag-band use (lint_flag_bands),
+    walkmesh geometry + content placement + layer art + cutscene movement (verify_walkmesh), and
+    camera pitch range. Warnings are grouped by [section]. Exits 1 if anything is reported, so it's
+    scriptable. Merges a sibling scene.toml first."""
     from .build import FieldProject, lint_all
     try:
         proj = FieldProject.load(args.field)
@@ -817,7 +818,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     print(f"lint: {args.field}  [{rep.source}]")
     for p in rep.errors:
         print(f"  ERROR  {p}")
-    for tag, items in (("logic", rep.logic), ("flags", rep.flags),
+    for tag, items in (("schema", rep.unknown), ("logic", rep.logic), ("flags", rep.flags),
                        ("placement", rep.placement), ("camera", rep.camera)):
         for w in items:
             print(f"  warn  [{tag}] {w}")
@@ -6537,8 +6538,9 @@ def build_parser() -> argparse.ArgumentParser:
     bh.set_defaults(func=_cmd_behavior)
 
     ln = sub.add_parser("lint", help="check a field.toml without building -- one pass over every offline "
-                        "validator (schema, story/flag logic, reserved flag bands, walkmesh geometry + "
-                        "content placement, layer art, camera pitch)")
+                        "validator (schema, unknown/typo'd keys the build would silently ignore, story/flag "
+                        "logic, reserved flag bands, walkmesh geometry + content placement, layer art, "
+                        "camera pitch)")
     ln.add_argument("field", help="path to a .field.toml")
     ln.set_defaults(func=_cmd_lint)
 

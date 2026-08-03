@@ -5,7 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
+### Added — `ff9mapkit lint` now catches misspelled keys the build silently ignores
+- **A typo'd key in a `field.toml` was never an error — it was silently ignored**, which is the whole
+  bug class: `dialouge` on an NPC just means no dialogue, with no message anywhere. `lint` now reports
+  every key the build never reads, with a did-you-mean (`entrace` → `entrance`) — and it knows the
+  difference between a misspelling and a key that is real *somewhere else* (`zone` on an `[[npc]]`
+  names the sections it does belong to).
+- **The key set is harvested from what the build actually reads, not from example files.** A whitelist
+  scraped from authored TOMLs is usage, not a schema — any valid-but-unused key would false-positive.
+  Instead, the pipeline runs over the bundled examples with every dict access recorded, and the schema
+  is what the consumers *ask about* (`_regen_fieldschema.py` → `_fieldschema.py`). A section whose
+  consumers never ran end-to-end offline is recorded but **not enforced** — no confident guesses.
+  Every authored example in the repo lints clean against it.
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
   composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,
   `[behavior]` — anything the Place tab or the Editor forms wrote — survives verbatim. So does a

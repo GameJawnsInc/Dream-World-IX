@@ -278,6 +278,13 @@ def _desugar_ferries(raw: dict) -> None:
         choices.append(ch)
 
 
+# The fieldschema harvest seam: while fieldschema.harvesting() is active this is a wrapper that
+# clothes the merged raw tree in a recording dict, so the schema harvest sees every key the load
+# pipeline itself probes (flag resolution, the ferry/siege desugarers) as well as the build's.
+# Identity (None) in production -- see fieldschema.py.
+_load_instrument = None
+
+
 @dataclass
 class FieldProject:
     raw: dict
@@ -287,6 +294,9 @@ class FieldProject:
     # authored flag indices).
     flag_base: int | None = None
     flags_per_field: int = 64    # width of this member's flag block -> the overflow guard's choice cap
+    # The authored file this project was loaded from (None when constructed from a dict, as tests
+    # and generators do). lint_unknown_keys re-reads it to check what the USER typed, pre-merge.
+    toml_path: Path | None = None
 
     @classmethod
     def load(cls, toml_path, *, flag_names: dict | None = None) -> "FieldProject":
@@ -295,6 +305,8 @@ class FieldProject:
             base = tomllib.load(fh)
         scene = _find_scene(p, base)
         raw = _merge_scene(base, scene) if scene is not None else base
+        if _load_instrument is not None:
+            raw = _load_instrument(raw)
         # Resolve named flag references (a [[flag]] table + optional campaign-level `flag_names`) to
         # integer indices BEFORE any int() reads them. A project with no named flags is left unchanged
         # (numeric flags pass through), so single-field builds stay byte-identical.
@@ -303,7 +315,7 @@ class FieldProject:
         # [siege] -> [behavior]/[[npc]]/[[choice]] (content.siege) -- after ferries so a
         # siege field may still carry one, before anything reads the behavior table.
         _siege.desugar(raw)
-        return cls(raw, p.parent)
+        return cls(raw, p.parent, toml_path=p)
 
     # convenience accessors
     @property
@@ -3272,11 +3284,12 @@ class LintReport:
     flags: list = _dc_field(default_factory=list)         # lint_flag_bands(): reserved-band flag use
     placement: list = _dc_field(default_factory=list)     # verify_walkmesh(): geometry/placement/layer/cutscene
     camera: list = _dc_field(default_factory=list)         # camera pitch outside the supported range
+    unknown: list = _dc_field(default_factory=list)        # lint_unknown_keys(): typo'd keys the build ignores
     source: str = "?"
 
     @property
     def warnings(self) -> list:
-        return self.logic + self.flags + self.placement + self.camera
+        return self.unknown + self.logic + self.flags + self.placement + self.camera
 
     @property
     def ok(self) -> bool:
@@ -3436,6 +3449,25 @@ def lint_text_block(project: FieldProject) -> list:
             f"record its donor so the check can tell."]
 
 
+def lint_unknown_keys(project: FieldProject) -> list:
+    """OFFLINE findings (list[str]): keys in the AUTHORED field.toml that no consumer ever reads --
+    a typo'd key is not an error to the build, it is silently ignored, which is the whole bug class.
+
+    Checks the file as TYPED (re-read from ``toml_path``: pre scene-merge, pre desugar) so findings
+    point at the author's own surface, never at generated keys. The vocabulary is HARVESTED from the
+    code's own reads (:mod:`ff9mapkit.fieldschema` -- probes recorded while the real pipeline runs
+    over the bundled examples), NOT scraped from authored files: usage isn't a schema, and only
+    sections whose consumers provably ran end-to-end are enforced at all. A project constructed
+    from a dict (tests, generated members) has no authored file and returns []."""
+    if getattr(project, "toml_path", None) is None:
+        return []
+    from . import fieldschema
+    try:
+        return fieldschema.check_path(project.toml_path)
+    except Exception as e:                    # noqa: BLE001 -- lint's never-crash contract
+        return [f"unknown-key check failed: {type(e).__name__}: {e}"]
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -3443,7 +3475,15 @@ def lint_all(project: FieldProject) -> LintReport:
     a project whose camera/walkmesh can't resolve still returns the schema + logic results, with the resolve
     failure recorded as an error (so one broken section never masks the others). This is the single source
     of truth behind the ``lint`` CLI; a clean ``lint_all`` is what a clean build expects."""
-    rep = LintReport(errors=validate(project), logic=lint_logic(project), flags=lint_flag_bands(project))
+    # validate() raises on some hostile inputs (a traversal '..' asset ref, a non-numeric id field
+    # deep in a block) rather than collecting them -- correct for build_field (refuse loudly), but a
+    # LINTER must never traceback on bad input, so here a crash degrades to a single honest error.
+    try:
+        _errors = validate(project)
+    except Exception as e:                        # noqa: BLE001 -- never-crash contract (see below)
+        _errors = [f"validate could not finish: {type(e).__name__}: {e}"]
+    rep = LintReport(errors=_errors, logic=lint_logic(project), flags=lint_flag_bands(project),
+                     unknown=lint_unknown_keys(project))
     rep.logic.extend(lint_region_overlaps(project))       # the TreadQuad law: overlapping tread regions starve
     rep.logic.extend(lint_player_arrivals(project))       # verbatim dead-keys + uncovered self-loop entrances
     rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
