@@ -433,3 +433,35 @@ lock_menu = true
 steps = [{ say = "..." }]
 """
     assert any("lock_menu needs the control bracket" in p for p in _problems(tmp_path, toml))
+
+
+# ---------------------------------------------------- the walk-scene triangle-mask bracket ---
+
+def test_conductor_walk_scene_brackets_the_triangle_mask():
+    # a WALK-bearing locked scene carries stock's macro pair: STFM(127) lands with the spin's
+    # re-lock (restricted triangles crossable for the scene's routes -- forked fields gate
+    # cutscene-only bridges/stairs this way), STFM(255) restores with the enable
+    from ff9mapkit.content import conductor as _conductor
+    steps = [{"actor": "a", "walk": [100, 200]}]
+    body = _conductor.build_body(steps, {"a": 7}, [], None, tag_calls={0: (7, 20)})
+    assert (opcodes.DISABLE_MOVE + opcodes.set_triangle_flag_mask(127)) in body
+    assert (opcodes.ENABLE_MOVE + opcodes.set_triangle_flag_mask(255)) in body
+
+
+def test_conductor_walkless_scene_emits_no_triangle_mask():
+    # no walks -> no mask bracket: byte-identical to the pre-mask shape
+    from ff9mapkit.content import conductor as _conductor
+    body = _conductor.build_body([{"actor": "a", "turn": 64}], {"a": 7}, [], None)
+    assert opcodes.set_triangle_flag_mask(127) not in body
+    assert opcodes.set_triangle_flag_mask(255) not in body
+
+
+def test_conductor_then_warp_walk_scene_skips_the_restore():
+    # a warp-away scene leaves the mask -- the engine resets it to 255 on every field load
+    # (WalkMesh.cs:1690), and there is no enable to pair the restore with
+    from ff9mapkit.content import conductor as _conductor
+    steps = [{"actor": "a", "path": [[100, 200], [300, 400]]}]
+    body = _conductor.build_body(steps, {"a": 7}, [], None, tag_calls={0: (7, 20)},
+                                 then_warp=4005)
+    assert opcodes.set_triangle_flag_mask(127) in body
+    assert opcodes.set_triangle_flag_mask(255) not in body

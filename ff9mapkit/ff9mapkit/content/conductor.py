@@ -368,7 +368,15 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
     (1) ``DisableMove`` immediately, (2) ``wait_for_control_then_lock`` -- SPINS until the engine RE-grants
     control, then ``DisableMove`` again so the lock lands AFTER the grant -- and (3) ``compile_steps(relock=True)``
     re-locks before every beat as a backstop. The spin doubles as the actor-spawn settle (it runs ~until the
-    grant, by which point the InitObject'd actors exist for the by-id ``*Ex`` ops)."""
+    grant, by which point the InitObject'd actors exist for the by-id ``*Ex`` ops).
+
+    A WALK-bearing locked scene (any ``walk``/``path`` step) also brackets the walkmesh attribute mask,
+    stock's own macro pair: ``SetTriangleFlagMask(127)`` under the lock (RESTRICTED triangles become
+    crossable, so a scripted route over a cutscene-only bridge/stair -- common on forked real fields --
+    doesn't wedge), ``SetTriangleFlagMask(255)`` restored with the enable. A walkless scene emits neither
+    (byte-identical to before); a ``then_warp`` scene skips the restore (the engine resets the mask to 255
+    on every field load, WalkMesh.cs:1690)."""
+    walks = any(("walk" in s or "path" in s) for s in steps)
     inner = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
     if owns_control:
         if watchdog_flag is not None:                 # raise the scene-running flag FIRST: from here on the
@@ -377,6 +385,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
         if lock_menu:                                 # the stock macro's menu pair: held for the whole scene
             inner += opcodes.DISABLE_MENU             # (the spin/per-beat re-locks only re-issue DisableMove;
         inner += wait_for_control_then_lock()         # ... spin to that grant, then re-lock (the lock that holds)
+        if walks:
+            inner += opcodes.set_triangle_flag_mask(127)   # restricted triangles crossable for the scene's walks
     elif warmup > 0:
         inner += opcodes.wait(int(warmup))            # no lock: still settle so the actors exist before the beats
     if ate_mode is not None:
@@ -391,6 +401,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
         if lock_menu:
             inner += opcodes.ENABLE_MENU              # the menu mask is independent of the move lock --
         inner += opcodes.ENABLE_MOVE                  # clear it or the menu stays dead after the scene
+        if walks:
+            inner += opcodes.set_triangle_flag_mask(255)   # restore with the enable, like the stock macro
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes INSIDE the once-gate (before the once-flag
     # set) -- the story advances exactly once, only when the scene actually played. Empty -> byte-identical.
     inner += end_writes

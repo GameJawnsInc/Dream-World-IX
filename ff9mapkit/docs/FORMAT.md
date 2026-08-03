@@ -1954,7 +1954,11 @@ steps = [
 | `set_flag` | `[var, value]` — set a GlobBool story flag mid-scene. |
 
 The scene auto-locks control (`DisableMove`…`EnableMove`) unless `owns_control = false`; with
-`once` it won't replay on re-entry.
+`once` it won't replay on re-entry. A **walk-bearing** locked cast scene (any `walk`/`path` step)
+also brackets the walkmesh attribute mask like stock's own lock macro — `SetTriangleFlagMask(127)`
+under the lock so scripted routes can cross RESTRICTED triangles (cutscene-only bridges/stairs on
+forked real fields), `255` restored with the enable (a `then_warp` exit skips the restore; the
+engine resets the mask on field load).
 
 Cutscene-level keys (alongside `steps`):
 

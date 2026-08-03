@@ -201,6 +201,15 @@ DISABLE_MENU = bytes([0xAB])    # DisableMenu (0 args)
 DEFINE_PLAYER_CHARACTER = bytes([0x2C])
 
 
+def set_triangle_flag_mask(mask: int) -> bytes:     # 0x27 (BGIMASK) argsize [1]
+    """Walkmesh triangle-attribute mask (``fieldmap.bgi.attributeMask``, ANDed with each triangle's
+    flag bits): **127** disables the restricted-triangle attribute so scripted walks (and the player)
+    can cross normally-unwalkable triangles -- what stock's disable macro emits on every lock; **255**
+    restores. Reset to 255 by the engine on every field load (WalkMesh.cs:1690), so a warp-away path
+    needs no restore."""
+    return encode(0x27, mask)
+
+
 # --- objects / models / animation ---
 def set_model(model: int, animset: int) -> bytes:   # 0x2F  argsize [2,1]
     return encode(0x2F, model, animset)
