@@ -1,8 +1,18 @@
 # Byte-exact `.eb` round-trip — scoping (Rung 0 research)
 
-**Goal:** decompile any of FF9's ~676 real field event binaries (`.eb`) to a *readable,
-re-compilable source file* that round-trips **byte-exact**, proven by a standing gate that
-sweeps every field. This turns every stock field into diffable, greppable, editable source.
+> **STATUS:** Rung 1 (file-envelope census) ★ DONE — results + locked grammar decisions in
+> [`FINDINGS.md`](FINDINGS.md). Headlines: the corpus is **818 EVTs × 7 langs = 5726**
+> binaries (676 was the FBG-folder count); the envelope is maximally clean (no gaps/slack,
+> canonical func tables, empty-slot offs 100% derivable — rule proven 38325/38325); the
+> "header" is really a 124-byte per-lang NAME block at [0x04..0x80) (keep as raw hex); and
+> **the lang-identical-bytecode assumption is FALSE** — only 238/818 EVTs are identical
+> across langs (486 equal-length diffs in window/Wait/voice ops, 94 length-changing), so
+> source is per (EVT, lang). Next = Rung 2 (grammar freeze + writer).
+
+**Goal:** decompile any of FF9's 818 real field event binaries (`.eb`, × 7 languages) to a
+*readable, re-compilable source file* that round-trips **byte-exact**, proven by a standing
+gate that sweeps every binary. This turns every stock field into diffable, greppable,
+editable source.
 
 **Explicit non-goal (deferred):** the semantic lift into `field.toml` vocabulary
 (`[[npc]]`/`[[gateway]]`/`[behavior]`). This arc stops at the *syntactic* source form.
@@ -96,12 +106,9 @@ Open grammar questions (settled by the Rung-1 census, decided in Rung 2):
 
 ## 4. Rung ladder
 
-- **Rung 1 — file-envelope census (research, offline).** A script over all 676 fields × 7
-  langs answering: inter-entry gaps? entry physical order == table order? EOF slack?
-  empty-slot off values? per-lang deltas outside the name block? func tables always
-  tightly packed (fpos canonical)? Output: a findings table in this study. ⚠ Run in the
-  MAIN repo or after `extract-templates` (worktree cache trap). This rung is cheap and
-  de-risks the grammar before any code.
+- **Rung 1 — file-envelope census (research, offline). ★ DONE 2026-08-03** →
+  [`FINDINGS.md`](FINDINGS.md) (probes checked in beside it). All grammar questions
+  answered; §3's open questions are settled there.
 - **Rung 2 — grammar freeze + writer.** Decide the `.ebs` grammar from the census; build
   the decompiler (`ebsrc.py`: `write_source(eb_bytes) -> str`), deterministic output.
 - **Rung 3 — reader + file assembler + the identity proof.** `parse_source(str)` →
