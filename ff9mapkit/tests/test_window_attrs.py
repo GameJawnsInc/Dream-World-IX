@@ -244,17 +244,24 @@ steps = [
 
 
 def test_dim_bracket_matches_the_mognet_letter_shape():
-    # the letter-reading fade bracket is byte-shaped on field 1865 (mognet.letter_display's
-    # constants): CalcScreenPos(250) + FadeFilter(2,24,255,220,220,250) + Wait(16) ... window ...
-    # CalcScreenPos(250) + FadeFilter(7,16,255,0,0,0) + Wait(16)
+    # the letter presentation is the DONOR'S EXACT SHAPE (field 1865 / mognet.letter_display):
+    # CalcScreenPos + glow fade + Wait, WindowASYNC + RaiseWindows + WaitWindow, restore fade.
+    # RaiseWindows is LOAD-BEARING -- without it the text renders UNDER the fade (the round-4
+    # bench: dark letter outlines behind the dim). A plain WindowSync is NOT a valid substitute.
     from ff9mapkit.content import event as _event
-    ws = opcodes.window_sync(1, 16, 500)
-    b = _event.dim_bracket(ws)
+    b = _event.dim_bracket(1, 16, 500)
     assert b == (opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, 2, 24, 255, 220, 220, 250)
-                 + opcodes.wait(16) + ws
+                 + opcodes.wait(16)
+                 + opcodes.window_async(1, 16, 500)
+                 + opcodes.encode(0x8E)                 # RaiseWindows: text ABOVE the fade
+                 + opcodes.encode(0x54, 1)              # WaitWindow: synchronous net semantics
                  + opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, 7, 16, 255, 0, 0, 0)
                  + opcodes.wait(16))
+    assert opcodes.window_sync(1, 16, 500) not in b     # no sync window hiding under the fade
     assert _event.message(500, dim=False) == opcodes.window_sync(1, 128, 500)   # default untouched
+    # actor attribution inside the bracket rides the async-Ex form
+    bx = _event.dim_bracket(1, 128, 500, actor_uid=250)
+    assert opcodes.window_async_ex(250, 1, 128, 500) in bx
 
 
 def test_npc_dim_wraps_the_talk_window(tmp_path):
@@ -268,7 +275,7 @@ style = "transparent"
 dim = true
 """)
     from ff9mapkit.content import event as _event
-    assert _event.dim_bracket(opcodes.window_sync(1, 16, 500)) in eb
+    assert _event.dim_bracket(1, 16, 500) in eb
 
 
 def test_validate_rejects_dim_where_not_wired(tmp_path):

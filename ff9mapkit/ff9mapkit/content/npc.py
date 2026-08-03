@@ -280,11 +280,9 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
         if speak_body is not None:
             f2 = speak_body
         else:
-            _ws = opcodes.window_sync(int(talk_window), int(talk_flags), talk_text_id)
-            if talk_dim:
-                from . import event as _event
-                _ws = _event.dim_bracket(_ws)
-            f2 = _ws + opcodes.RETURN
+            from . import event as _event
+            f2 = _event.message(talk_text_id, window=int(talk_window), flags=int(talk_flags),
+                                dim=talk_dim) + opcodes.RETURN
         # IsActuallyTalkable (the per-frame talk-icon poll) blindly reads tag3[ip+7]/[ip+8]; a talk func
         # shorter than 9 bytes indexes PAST the entry buffer -> an IndexOutOfRange every frame the player is
         # near. Real talk funcs are 100+ bytes; pad ours to >= 9 (dead bytes after RETURN -> behaviour same).

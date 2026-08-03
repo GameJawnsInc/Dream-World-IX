@@ -40,11 +40,22 @@ DIM_OUT = (7, 16, 255, 0, 0, 0)          # FadeFilter: restore
 DIM_WAIT = 16
 
 
-def dim_bracket(window_op: bytes) -> bytes:
-    """Wrap a (blocking) window op in the letter-reading fade bracket: CalcScreenPos(player) +
-    the glow fade + Wait, the window (the player reads + dismisses), then the restore fade + Wait."""
+def dim_bracket(window: int, flags: int, text_id: int, actor_uid: int | None = None) -> bytes:
+    """The letter-reading presentation, the DONOR'S EXACT SHAPE (field 1865; mognet.letter_display):
+    CalcScreenPos(player) + the glow fade + Wait, then ``WindowAsync`` + **RaiseWindows** +
+    ``WaitWindow``, then the restore fade + Wait. ``RaiseWindows`` is LOAD-BEARING, not decoration:
+    the fade overlay renders above normal dialog depth, so a window opened without the raise draws
+    its text UNDER the dim (in-game: dark letter outlines behind the fade -- the round-4 bench bug;
+    the first cut substituted a plain WindowSync and dropped the raise). ``WaitWindow`` keeps the
+    net semantics synchronous -- the script resumes when the player dismisses."""
+    if actor_uid is not None:
+        win_op = opcodes.window_async_ex(int(actor_uid), window, flags, text_id)
+    else:
+        win_op = opcodes.window_async(window, flags, text_id)
     return (opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, *DIM_IN) + opcodes.wait(DIM_WAIT)
-            + window_op
+            + win_op
+            + opcodes.encode(0x8E)                        # RaiseWindows: lift the text ABOVE the fade
+            + opcodes.encode(0x54, int(window))           # WaitWindow: the player reads + dismisses
             + opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, *DIM_OUT) + opcodes.wait(DIM_WAIT))
 
 
@@ -55,13 +66,13 @@ def message(text_id: int, *, window: int = 1, flags: int = 128, actor_uid: int |
     ``actor_uid`` (not None) attributes the window to that object instead of the executing entity --
     ``WindowSyncEx`` (0x95), stock's own cutscene form: the tail points at the named actor and the
     camera treats them as the speaker. Attribution only takes effect with the bubble bit set
-    (``flags & 128``); validate enforces that pairing. ``dim`` wraps the window in the letter-reading
-    fade bracket (:func:`dim_bracket`)."""
+    (``flags & 128``); validate enforces that pairing. ``dim`` swaps the whole presentation for the
+    letter-reading fade bracket (:func:`dim_bracket` -- async + RaiseWindows + WaitWindow inside)."""
+    if dim:
+        return dim_bracket(window, flags, text_id, actor_uid)
     if actor_uid is not None:
-        op = opcodes.window_sync_ex(int(actor_uid), window, flags, text_id)
-    else:
-        op = opcodes.window_sync(window, flags, text_id)
-    return dim_bracket(op) if dim else op
+        return opcodes.window_sync_ex(int(actor_uid), window, flags, text_id)
+    return opcodes.window_sync(window, flags, text_id)
 
 
 def give_item(item_id, count: int = 1) -> bytes:

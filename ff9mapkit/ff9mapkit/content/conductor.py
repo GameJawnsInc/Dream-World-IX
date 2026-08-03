@@ -187,13 +187,16 @@ def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, tag_calls):
         # an actor-attributed line defaults to window 0 (stock's cutscene slot), narration to 1
         from . import text as _text
         _sf = _text.resolve_style(s.get("style"), default=say_flags)
-        if uid is not None:
+        if s.get("dim"):
+            # the letter bracket owns the whole presentation (async + RaiseWindows + WaitWindow;
+            # the raise puts the text ABOVE the fade) -- actor attribution rides WindowAsyncEx
+            from . import event as _event
+            b = _event.message(txids[ti], window=int(s.get("window", 0 if uid is not None else 1)),
+                               flags=_sf, actor_uid=uid, dim=True)
+        elif uid is not None:
             b = actor_say(uid, txids[ti], flags=_sf, window=int(s.get("window", 0)))
         else:
             b = _cutscene.say(txids[ti], window=int(s.get("window", 1)), flags=_sf)
-        if s.get("dim"):                           # the letter-reading fade bracket (event.dim_bracket)
-            from . import event as _event
-            b = _event.dim_bracket(b)
         return b, ti + 1
     if "wait" in s:
         return opcodes.wait(int(s["wait"])), ti

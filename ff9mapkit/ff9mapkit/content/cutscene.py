@@ -236,10 +236,12 @@ def compile_steps(steps, txids, *, say_flags: int = 128) -> bytes:
     out, ti = [], 0
     for s in steps:
         if "say" in s:
-            b = say(txids[ti], window=int(s.get("window", 1)),
-                    flags=_text.resolve_style(s.get("style"), default=say_flags))
-            if s.get("dim"):                       # the letter-reading fade bracket (event.dim_bracket)
-                b = _event.dim_bracket(b)
+            # dim swaps the whole presentation for the letter bracket (async + RaiseWindows +
+            # WaitWindow -- the raise is what puts the text ABOVE the fade); routed through
+            # event.message so both forms have ONE owner
+            b = _event.message(txids[ti], window=int(s.get("window", 1)),
+                               flags=_text.resolve_style(s.get("style"), default=say_flags),
+                               dim=bool(s.get("dim")))
             out.append(b)
             ti += 1
         elif "wait" in s:
