@@ -230,11 +230,15 @@ def compile_steps(steps, txids, *, say_flags: int = 128) -> bytes:
     Actor steps are only meaningful inside an ``actor`` cutscene (they act on the executing object);
     :func:`ff9mapkit.build.validate` enforces that. ``say_flags`` is the window flag for every ``say``
     step -- pass ``ATE_CAPTION_FLAG`` (64) to render a compulsory ATE's windows with the ATE caption.
-    Same encoders the round-trip tests cover."""
+    A step's own ``style`` / ``window`` keys override per line (an explicit step style wins over
+    ``say_flags``). Same encoders the round-trip tests cover."""
+    from . import text as _text
     out, ti = [], 0
     for s in steps:
         if "say" in s:
-            out.append(say(txids[ti], flags=say_flags)); ti += 1
+            out.append(say(txids[ti], window=int(s.get("window", 1)),
+                           flags=_text.resolve_style(s.get("style"), default=say_flags)))
+            ti += 1
         elif "wait" in s:
             out.append(wait(int(s["wait"])))
         elif "set_flag" in s:

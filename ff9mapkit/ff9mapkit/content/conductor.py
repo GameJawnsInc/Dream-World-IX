@@ -119,10 +119,10 @@ def _uid_for(name, uid_by_name):
     return uid_by_name.get(name)
 
 
-def actor_say(uid: int, text_id: int, *, flags: int = 128) -> bytes:
-    """Step: the actor at ``uid`` speaks ``text_id`` -- ``WindowSyncEx(uid, 0, flags, txid)`` (the window
-    is attributed to that actor by id, so its tail points at them). Blocks until dismissed."""
-    return opcodes.window_sync_ex(uid, 0, flags, int(text_id))
+def actor_say(uid: int, text_id: int, *, flags: int = 128, window: int = 0) -> bytes:
+    """Step: the actor at ``uid`` speaks ``text_id`` -- ``WindowSyncEx(uid, window, flags, txid)`` (the
+    window is attributed to that actor by id, so its tail points at them). Blocks until dismissed."""
+    return opcodes.window_sync_ex(uid, int(window), flags, int(text_id))
 
 
 def actor_turn(uid: int, angle: int) -> bytes:
@@ -183,8 +183,14 @@ def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, tag_calls):
     name = s.get("actor")
     uid = _uid_for(name, uid_by_name) if name else None
     if "say" in s:
-        b = (actor_say(uid, txids[ti], flags=say_flags) if uid is not None
-             else _cutscene.say(txids[ti], flags=say_flags))
+        # per-step style/window override (an explicit step style wins over the scene's say_flags);
+        # an actor-attributed line defaults to window 0 (stock's cutscene slot), narration to 1
+        from . import text as _text
+        _sf = _text.resolve_style(s.get("style"), default=say_flags)
+        if uid is not None:
+            b = actor_say(uid, txids[ti], flags=_sf, window=int(s.get("window", 0)))
+        else:
+            b = _cutscene.say(txids[ti], window=int(s.get("window", 1)), flags=_sf)
         return b, ti + 1
     if "wait" in s:
         return opcodes.wait(int(s["wait"])), ti

@@ -1,0 +1,99 @@
+# WINSTYLE -- the Tier-1 window-attribute bench (studies/messages/SURVEY.md §11, Tier 1).
+# One room, every new key visible:
+#   * on entry: a timed countdown ("On your mark / Get set / GO!") -- `duration` staged captions,
+#     no button press needed, then a normal speaker line.
+#   * three floor strips just north of the spawn:
+#       LEFT  = a screen-fixed PLAIN sign panel (`style = "plain"` + `instant`)
+#       MID   = a self-closing no-tail toast (`style = "notail"` + `duration = 90`)
+#       RIGHT = a line ATTRIBUTED to the crier NPC across the room (`actor = "crier"`)
+#   * a press-action spot mid-room: a Mognet-caption menu PINNED top-left
+#     (`style = "mognet"` + `window_pos` + `instant`)
+#   * three NPCs at the back: the control bubble / a no-tail talker / a transparent whisperer.
+# Deploy: py tools/deploy_field.py studies/messages/bench/winstyle.field.toml --id 30601
+
+[field]
+id = 30601
+name = "WINSTYLE"
+area = 11
+
+[camera]
+pitch = 45
+
+[walkmesh]
+quad = [[-1400, -100], [1400, -100], [1400, -1400], [-1400, -1400]]
+
+[player]
+spawn = [0, -1200]
+
+# --- the entry countdown: `duration` staged captions -------------------------------------
+[[cutscene]]
+once = true
+steps = [
+  { say = "On your mark!", style = "notail", duration = 45 },
+  { say = "Get set!", style = "notail", duration = 45 },
+  { say = "GO!", style = "notail", duration = 30 },
+  { say = "Those captions timed themselves out -- no button. Try the three floor strips ahead, the press-spot mid-room, and the three talkers at the back.", speaker = "Bench" },
+]
+
+# --- LEFT strip: a screen-fixed plain sign ------------------------------------------------
+[[event]]
+name = "sign"
+zone = [[-800, -1000], [-400, -1000], [-400, -900], [-800, -900]]
+message = "= WINSTYLE BENCH =\nA plain screen-fixed panel, popped instantly."
+style = "plain"
+instant = true
+once = false
+
+# --- MID strip: a self-closing toast ------------------------------------------------------
+[[event]]
+name = "toast"
+zone = [[-200, -1000], [200, -1000], [200, -900], [-200, -900]]
+message = "A no-tail toast. It closes itself in three seconds -- you cannot dismiss it."
+style = "notail"
+duration = 90
+once = false
+
+# --- RIGHT strip: attributed to the crier across the room ---------------------------------
+[[event]]
+name = "crier_call"
+zone = [[400, -1000], [800, -1000], [800, -900], [400, -900]]
+message = "Hear ye!  This bubble should point at ME, the crier at the back-right."
+speaker = "Crier"
+actor = "crier"
+once = false
+
+# --- mid-room press spot: a pinned Mognet-caption menu ------------------------------------
+[[choice]]
+zone = [[-200, -700], [200, -700], [200, -600], [-200, -600]]
+prompt = "A pinned menu with the Mognet caption, kupo?"
+style = "mognet"
+window_pos = [20, 16]
+instant = true
+options = [
+  { text = "Looks right", reply = "Kupo!" },
+  { text = "Looks wrong", reply = "Kupooo..." },
+]
+
+# --- the back row of talkers --------------------------------------------------------------
+[[npc]]
+name = "control"
+preset = "vivi"
+pos = [-600, -400]
+dialogue = "I am the CONTROL: the classic speech bubble, tail at me."
+speaker = "Control"
+
+[[npc]]
+name = "crier"
+preset = "vivi"
+pos = [600, -400]
+dialogue = "Talk to me directly and I use a fixed chat frame with no tail."
+speaker = "Crier"
+style = "notail"
+
+[[npc]]
+name = "whisperer"
+preset = "vivi"
+pos = [0, -400]
+dialogue = "(frameless text... like a letter, or a thought...)"
+speaker = "Whisperer"
+style = "transparent"

@@ -119,6 +119,14 @@ def window_sync_ex(uid: int, win: int, flags: int, text_id: int) -> bytes:   # 0
     return encode(0x95, uid, win, flags, text_id)
 
 
+def window_async_ex(uid: int, win: int, flags: int, text_id: int) -> bytes:  # 0x96 argsize [1,1,1,2]
+    """WindowAsyncEx(uid, win, flags, text_id): the NON-blocking twin of :func:`window_sync_ex` -- the
+    window opens attributed to ``uid`` and the script runs on (close it with CloseWindow / WaitWindow,
+    or let a re-issue on the same win id replace it). Stock uses it 319×; attribution still requires
+    the bubble bit (flags & 128), else the engine nulls the target."""
+    return encode(0x96, uid, win, flags, text_id)
+
+
 def turn_instant_ex(uid: int, angle: int) -> bytes:           # 0x87 (TurnInstantEx) argsize [1,1]
     """TurnInstantEx(uid, angle): face ``angle`` INSTANTLY on object ``uid`` (0=S,64=W,128=N,192=E)."""
     return encode(0x87, uid, angle)

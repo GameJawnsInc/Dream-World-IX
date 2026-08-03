@@ -321,6 +321,65 @@ Multi-line dialogue keeps **one** quote pair — the auto-wrap opens `“` on th
 closes `”` on the last, exactly as stock does. (Avoid `[PAGE]` inside a *spoken* line with a speaker:
 stock never quotes across a page break — give each conversation line its own entry/`say` step.)
 
+### Window styling (style · window · actor · instant · speed · duration · window_pos · box)
+
+Every dialogue-bearing block — `[[npc]]`, `[[event]]`, `[[on_entry]]`, `[[choice]]` (+ its options),
+and cutscene `say` steps — takes the same optional presentation keys. All default to exactly what the
+kit always emitted (an ordinary speech bubble), so omitting them changes nothing.
+
+- **`style`** — which of FF9's window styles to use. Named for the nine forms the stock game ships:
+
+  | name | looks like | stock uses it for |
+  |---|---|---|
+  | `"bubble"` *(default)* | speech bubble, tail at the speaker | ordinary dialogue |
+  | `"plain"` | screen-fixed plain panel | system announces, signs, pickers |
+  | `"notail"` | chat frame, fixed, no tail | tutorial pages, HUD toasts |
+  | `"transparent"` | frameless floating text | letters, narration overlays, counters |
+  | `"mognet"` | plain panel + “Mognet” caption | moogle menus |
+  | `"ate"` | plain panel + “Active Time Event” caption | ATE titles and pickers |
+  | `"bubble_nopan"` | bubble, camera does **not** pan to the speaker | QTE prompts, rituals |
+  | `"bubble_notail"` | attached to the actor but tail-less | off-screen voices, “Zzz…” |
+  | `"bubble_transparent"` | frameless text floating on the actor | the Hot & Cold dig number |
+
+  A raw flags byte (0–255) is also accepted. Captions (`mognet`/`ate`) only exist in the non-bubble
+  family — the engine drops the caption if the bubble bit is set, which is why there is no
+  `"bubble_ate"`. A non-bubble style with no explicit `tail` **centers** like stock's own system
+  windows (on a detached window a tail code is a screen-corner anchor, not a pointer — set `tail`
+  only if you want that corner anchoring).
+- **`window`** — the script window id **0–7** (default 1). Two windows on **different** ids coexist;
+  re-using an id replaces that window. Stock's conventions: 0–4 dialogue, 5 announce, 6 HUD, 7 the
+  “Received …!” system slot.
+- **`actor`** — attribute the window to `"player"` or a named `[[npc]]`: the tail points at them and
+  the camera treats them as the speaker (the engine's `WindowSyncEx`, stock's own cutscene form). On
+  `[[event]]`, `[[on_entry]]` and **zone** `[[choice]]` (an NPC-attached choice already speaks from
+  its NPC; a cutscene attributes lines via its cast). Needs a bubble-family `style`. On a verbatim
+  fork only `"player"` resolves.
+- **`instant`** — `true` pops the window fully drawn (`[IMME]`, FF9's selector/system convention).
+- **`speed`** — typewriter speed 1–255 (`[SPED=n]`; higher = slower reveal, engine tick table).
+- **`duration`** — auto-close after N frames (`[TIME=n]`); the player cannot dismiss it early. On a
+  blocking window this is a timed beat — stock's “On your mark! / Get set! / GO!” shape without the
+  wait-and-close boilerplate.
+- **`window_pos`** — `[x, y]` pins the window at an absolute position (`[MPOS]`; top-left corner, y
+  measured down, PSX-screen units ~320×224). Pinning **detaches** the window from any speaker and a
+  pinned window draws **no tail** (don't combine with `tail`).
+- **`box`** — `[width, lines]` sets the `[STRT]` geometry. The engine auto-measures width whenever it
+  can, so `width` mostly matters for centering system boxes; `lines` acts as a minimum height.
+
+```toml
+[[event]]                       # a sign on a wall: plain panel, pops instantly
+zone = [[-300,-1100],[300,-1100],[300,-900],[-300,-900]]
+message = "= Lindblum Air Cab =\nTo the Theater District"
+style = "plain"
+instant = true
+once = false
+
+[[cutscene]]
+steps = [
+  { say = "GO!", style = "notail", duration = 45 },        # a timed race caption
+  { say = "(...did it start?)", speaker = "[VIVI]" },
+]
+```
+
 ### Rotating casts (story-event fields)
 
 Real FF9 town/story fields don't have a fixed roster — the cast **rotates by story progress**. The

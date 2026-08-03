@@ -30,8 +30,15 @@ EVENT_FLAG_CLASS = _region.GLOB_BOOL
 EVENT_FLAG_BASE = _flags.AUTO_EVENT_BASE
 
 
-def message(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
-    """Body part: open a dialogue window (WindowSync) showing text ``text_id``."""
+def message(text_id: int, *, window: int = 1, flags: int = 128, actor_uid: int | None = None) -> bytes:
+    """Body part: open a dialogue window (WindowSync) showing text ``text_id``.
+
+    ``actor_uid`` (not None) attributes the window to that object instead of the executing entity --
+    ``WindowSyncEx`` (0x95), stock's own cutscene form: the tail points at the named actor and the
+    camera treats them as the speaker. Attribution only takes effect with the bubble bit set
+    (``flags & 128``); validate enforces that pairing."""
+    if actor_uid is not None:
+        return opcodes.window_sync_ex(int(actor_uid), window, flags, text_id)
     return opcodes.window_sync(window, flags, text_id)
 
 

@@ -37,6 +37,44 @@ TAIL_CODES = {"UPR", "UPL", "LOR", "LOL", "UPC", "LOC",
               "UPRF", "UPLF", "LORF", "LOLF", "DEFT"}
 DEFAULT_TAIL = "UPR"
 
+# The window STYLE -- the flags byte of WindowSync/WindowAsync (ETb.FlagsToStyles + SetFollow, decoded
+# in studies/messages/SURVEY.md §2). Named for the NINE combinations stock actually ships:
+#   bubble             128  speech bubble attached to the speaking actor (tail + follow + neck-turn)
+#   plain                0  screen-fixed plain panel (system announces, signs, pickers)
+#   notail               4  chat-style frame, screen-fixed, no tail (tutorial pages, HUD toasts)
+#   transparent         16  frameless floating text (letters, narration overlays, HUD counters)
+#   mognet               8  plain panel with the "Mognet" caption (moogle menus)
+#   ate                 64  plain panel with the "Active Time Event" caption (ATE titles/pickers)
+#   bubble_nopan       160  bubble whose speaker the camera does NOT pan to (QTE prompts, rituals)
+#   bubble_notail      132  attached to the actor but tail-less (off-screen voices, "Zzz...")
+#   bubble_transparent 144  frameless text floating on the actor (the H&C dig number)
+# Captions (mognet/ate) exist only WITHOUT the bubble bit -- the engine drops the caption when 128 is
+# set (ETb.cs:170-181), which is why there is no "bubble_ate" name. A raw int 0-255 is accepted for
+# engine spelunking; the named forms cover every shipping combination.
+STYLE_NAMES = {
+    "bubble": 128, "plain": 0, "notail": 4, "transparent": 16, "mognet": 8, "ate": 64,
+    "bubble_nopan": 160, "bubble_notail": 132, "bubble_transparent": 144,
+}
+DEFAULT_STYLE = STYLE_NAMES["bubble"]      # ordinary dialogue -- what every emitter already used
+
+
+def resolve_style(value, default: int = DEFAULT_STYLE) -> int:
+    """Resolve an author ``style`` value (a :data:`STYLE_NAMES` name, or a raw flags int) to the
+    WindowSync/WindowAsync flags byte. ``None`` -> ``default`` (byte-identical when unset)."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        raise ValueError(f"window style must be a name or a flags byte, not a bool ({value!r})")
+    if isinstance(value, int):
+        if not 0 <= value <= 255:
+            raise ValueError(f"window style {value} out of range (a flags byte is 0..255)")
+        return value
+    name = str(value).strip().lower()
+    if name in STYLE_NAMES:
+        return STYLE_NAMES[name]
+    raise ValueError(f"unknown window style {value!r} -- one of {', '.join(sorted(STYLE_NAMES))} "
+                     f"or a raw flags byte 0..255")
+
 # THE SPEAKER CONVENTION (census 2026-07-18: 12,711 stock entries across 33 field blocks). FF9 has no
 # name-box; attribution is authored INTO the text, and the real game's form is NOT "Name: line" -- it is
 #
@@ -106,6 +144,53 @@ def menu_pos_tag(pos) -> str:
         return ""
     x, y = (int(v) for v in pos)
     return f"[MPOS={x},{y}]"
+
+
+def dress_window(src: dict, line: str):
+    """Apply a dialogue block's TEXT-side window-attribute keys to an assembled (already speaker-
+    attributed, already wrapped) line. Returns ``(line, strt, tail)`` for the ``.mes`` entry:
+
+    * ``window_pos = [x, y]`` -> a leading ``[MPOS=x,y]`` pin (top-left, y measured DOWN). Pinning
+      DETACHES the window from any speaker (the engine nulls ``Po``) and a pinned window draws NO
+      tail -- so with no explicit ``tail`` the entry ships tail-less, like stock's own pinned windows.
+    * ``speed = n``   -> ``[SPED=n]`` (typewriter speed; engine default ticks {4,7,10,...}).
+    * ``instant``     -> ``[IMME]`` (pop fully drawn -- FF9's selector/system-window convention).
+    * ``duration = n`` -> a trailing ``[TIME=n]`` (auto-close after n frames; the player cannot
+      dismiss it early -- the engine sets FlagButtonInh). A WindowSync + duration = a timed beat.
+    * ``box = [w, lines]`` -> the ``[STRT]`` geometry. NB the engine auto-measures WIDTH whenever it
+      can (``AutomaticSize``); ``w`` only matters on the no-autoresize paths, ``lines`` is a MINIMUM.
+
+    Every key absent -> ``(line, None, src.get("tail"))``, byte-identical to the pre-key layout."""
+    pre = menu_pos_tag(src.get("window_pos"))
+    if src.get("speed") is not None:
+        pre += f"[SPED={int(src['speed'])}]"
+    if src.get("instant"):
+        pre += CHOICE_IMME
+    suf = f"[TIME={int(src['duration'])}]" if src.get("duration") is not None else ""
+    strt = tuple(int(v) for v in src["box"]) if src.get("box") is not None else None
+    return pre + line + suf, strt, default_tail(src)
+
+
+def default_tail(src: dict):
+    """The tail an entry ships when the author sets none. THE WINDOW-GEOMETRY LAW (three playtest
+    bugs): on a window with NO attached actor, a ``[TAIL]`` code is a screen-CORNER anchor -- the
+    dialogue default ``UPR`` pins a system box to a corner instead of centering it. So a PINNED
+    (``window_pos``) or DETACHED-style window (a non-bubble ``style``: plain/notail/transparent/
+    caption) ships **tail-less** like stock's own centered system windows (the grey-ATE title, the
+    pinned moogle menus); everything else keeps the dialogue default. An explicit ``tail`` always
+    wins (a corner anchor on a plain window is legitimate -- stock's air-cab picker)."""
+    tail = src.get("tail")
+    if tail is not None:
+        return tail
+    if src.get("window_pos") is not None:
+        return ""                                  # pinned -> no [TAIL] tag (stock's pinned shape)
+    if src.get("style") is not None:
+        try:
+            if not resolve_style(src.get("style")) & 128:
+                return ""                          # detached style -> centered, tail-less
+        except ValueError:
+            pass                                   # validate already reported the bad style
+    return None                                    # the dialogue default (UPR) applies downstream
 
 
 def width_hint(speaker, base: int = MENU_FEED_NAME) -> str:
