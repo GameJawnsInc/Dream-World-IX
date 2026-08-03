@@ -58,6 +58,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   long-standing assumption: event bytecode is NOT language-identical (only 238/818 fields are;
   dialogue-window operands, text-pacing waits, and voice sound ids differ per language, and 94
   fields differ in length) — so `.ebs` source is per (field, language).
+- **The source is annotated.** `eb-src` output carries trailing `#` comments from the kit's own
+  offline semantic layers: what each entry is (`# NPC (Vivi), talkable`), what each routine does
+  (`# Talk handler — says 8 lines · 2 warps`), and per-instruction joins — `Field(355)  # ->
+  Dali/Pub`, `AddItem(236, 1)  # Potion`, dialogue previews from the field's own `.mes`, battle
+  scene names, story-flag band phrases (`# flag 8511 (stock Mognet lock band)`). Comments are
+  presentation only — `eb-asm` strips every `#`, and the self-verify reassembles the commented
+  text and still demands byte equality. `--plain` turns them off.
 
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
