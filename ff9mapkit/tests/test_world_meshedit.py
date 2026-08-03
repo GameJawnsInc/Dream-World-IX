@@ -579,3 +579,75 @@ def test_for_donor_uses_mains_detection_when_there_is_no_sand_band(monkeypatch):
     # detected -- which is the observable proof that mains detection ran.
     with pytest.raises(ValueError, match="is desert"):
         TR.GroundRetile.for_donor((9, 5), "snow", strips="none")
+
+
+# ------------------------------------------- excise: a waterline ON THE RECT FRAME
+
+def _tri(pts, y=0.0, idall=228.0):
+    return [((p[0], p[1] if len(p) > 2 else y, p[-1]), (0.0, 1.0, 0.0),
+             (0.5, 0.5), (idall, 0.0, 0.0, 1.0)) for p in pts]
+
+
+def test_excise_accepts_a_waterline_lying_on_the_rect_frame(monkeypatch):
+    """v1 refused these as weld failures, blaming a shallow ladder it could not re-zip.
+
+    Measured on the two rects it blocked -- Daguerreo (5,15)+3x2 and the sinuous island
+    (3,11)+2x4 -- 39/39 and 41/41 of the weld-missing vertices lie EXACTLY on the rect
+    frame, none is an interior hole, and none is welded to a kept assembly. A frame
+    vertex has no sea4 partner INSIDE the rect and should not need one: beyond the frame
+    is the neighbouring cell's ocean.
+    """
+    from ff9mapkit.world import transplant as TR
+
+    # a kept island (interior, larger) and a foreign crumb touching the x=64 frame
+    kept = [_tri([(10.0, -10.0), (20.0, -10.0), (15.0, -20.0)]),
+            _tri([(10.0, -10.0), (15.0, -20.0), (8.0, -18.0)])]
+    crumb = [_tri([(64.0, -10.0), (64.0, -20.0), (56.0, -15.0)])]
+    # sea4 owns the crumb's INTERIOR waterline vertex (56,-15) -- as the real sheet does,
+    # since that is where the excised mass welds to deep water -- but has NO vertex on the
+    # x=64 frame, which is exactly the case v1 mistook for a ladder it could not re-zip.
+    sea4 = [_tri([(0.0, 0.0), (40.0, 0.0), (56.0, -15.0)]),
+            _tri([(0.0, 0.0), (56.0, -15.0), (0.0, -64.0)]),
+            _tri([(0.0, -64.0), (56.0, -15.0), (40.0, -64.0)])]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    _tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+
+    assert rep["foreign"], "the frame-touching crumb should be excised"
+    assert rep.get("frame_waterline", 0) > 0, "frame waterline verts should be counted"
+    assert rep["weld_exact"] is True, rep.get("weld_missing")
+    assert not rep.get("refused"), rep.get("refused")
+
+
+def test_excise_still_refuses_a_genuine_interior_sheet_hole(monkeypatch):
+    """The safety direction: relaxing the frame case must not let INTERIOR holes pass.
+
+    Same fixture as above, except sea4 does NOT own the crumb's interior waterline vertex
+    (56,-15). That is a real hole in the deep sheet -- the fill could not weld there --
+    and it must still refuse. Without this, `_on_frame` returning True unconditionally
+    passes every test while shipping unweldable fills.
+    """
+    from ff9mapkit.world import transplant as TR
+
+    kept = [_tri([(10.0, -10.0), (20.0, -10.0), (15.0, -20.0)]),
+            _tri([(10.0, -10.0), (15.0, -20.0), (8.0, -18.0)])]
+    crumb = [_tri([(64.0, -10.0), (64.0, -20.0), (56.0, -15.0)])]
+    sea4 = [_tri([(0.0, 0.0), (40.0, 0.0), (0.0, -64.0)]),
+            _tri([(40.0, 0.0), (40.0, -64.0), (0.0, -64.0)])]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    _tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+
+    assert rep["weld_exact"] is False
+    assert (56.0, 0.0, -15.0) in [tuple(v) for v in rep["weld_missing"]]
+    assert "refused" in rep

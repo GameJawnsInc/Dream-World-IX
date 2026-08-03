@@ -3638,6 +3638,13 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
 
     sea4_keys = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
                  for t in sea4 for v in t}
+    _fx0, _fx1 = 64.0 * dx, 64.0 * (dx + nx)
+    _fz1, _fz0 = -64.0 * dy, -64.0 * (dy + ny)
+
+    def _on_frame(v, eps: float = 1e-3):
+        """Is this vertex on the donor RECT's outer frame? (see THE EXACTNESS GATE)"""
+        return (abs(v[0] - _fx0) < eps or abs(v[0] - _fx1) < eps
+                or abs(v[2] - _fz0) < eps or abs(v[2] - _fz1) < eps)
     # Take the sheet's OWN normal and winding rather than inventing them. Sea normals are
     # a shared byte constant that is not (0,1,0), and stock sea4 winds negative -- a fill
     # wound the other way renders but is back-facing to the ground raycast (73 introduced
@@ -3704,9 +3711,24 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
         for v in plan:                                # THE EXACTNESS GATE
             if abs(v[1]) < 1e-6:
                 report["weld_checked"] += 1
-                if (round(v[0], 4), round(v[1], 4), round(v[2], 4)) not in sea4_keys:
-                    report["weld_exact"] = False
-                    report["weld_missing"].append(v)
+                if (round(v[0], 4), round(v[1], 4), round(v[2], 4)) in sea4_keys:
+                    continue
+                # A WATERLINE VERTEX ON THE RECT FRAME NEEDS NO SEA4 PARTNER INSIDE THE
+                # RECT. v1 counted these as weld failures and refused with "the mass owns
+                # a shallow-water ladder, which excise v1 does not re-zip" -- but that
+                # diagnosis was wrong. Measured on the two rects it was blocking
+                # (Daguerreo (5,15)+3x2 and the sinuous island (3,11)+2x4): 39/39 and
+                # 41/41 of the weld-missing vertices lie EXACTLY on the rect frame, none
+                # is an interior hole in the sheet, and none is welded to a kept assembly.
+                # The excised mass's ladder simply runs out to the frame, so sea4 has no
+                # vertex there to weld to -- and it should not: beyond the frame is the
+                # neighbouring cell's ocean, which the region's own border re-partition
+                # and the prefab handle. Filling out to the frame is the correct result.
+                if _on_frame(v):
+                    report["frame_waterline"] = report.get("frame_waterline", 0) + 1
+                    continue
+                report["weld_exact"] = False
+                report["weld_missing"].append(v)
         try:
             emitted += ME.flat_patch(plan, y=0.0, uv_quads=SEA4_QUADS,
                                      idall=SEA4_IDALL, normal=sea4_normal,
