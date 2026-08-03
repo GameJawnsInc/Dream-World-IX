@@ -32,6 +32,7 @@ Subcommands are wired up incrementally as the library lands:
     models/scenes/catalog - the Info Hub: browse models (+ their animations), battle scenes, or
                             search every reference catalog by name
     extract-templates - regenerate base assets from the user's own FF9 install (no game data shipped)
+    fetch-assets - re-materialize a campaign's gitignored SE-derived member sidecars from your install
     setup     - one-shot: find the FF9 install, remember it, extract base assets, report Memoria status
 
 Anything not yet implemented prints a clear "coming in Phase N" message rather than failing
@@ -163,6 +164,24 @@ def _cmd_extract_templates(args: argparse.Namespace) -> int:
         print(f"\nextract-templates failed: {e}", file=sys.stderr)
         return 1
     print(f"\nOK -- {len(rep['verified'])} assets regenerated + verified against the manifest.")
+    # Repo checkout only (an installed wheel ships no examples/): also re-materialize the bundled
+    # stolen-ember example's gitignored SE-derived sidecars, so a fresh clone/worktree is buildable --
+    # and its test suite runnable -- after this ONE command. Best-effort: a failure here must not
+    # fail the template extraction it rode in on.
+    from pathlib import Path
+    ember = Path(provision.__file__).resolve().parents[2] / "examples" / "stolen-ember" / "campaign.toml"
+    if not provision._is_installed_pkg() and ember.is_file():
+        from . import campaign
+        try:
+            plan = campaign.load_campaign(ember)
+            if campaign.missing_assets(plan, ember.parent):
+                print("\nexamples/stolen-ember: re-materializing its gitignored SE-derived sidecars ...")
+                written = campaign.fetch_assets(plan, ember.parent, game=args.game)
+                print(f"  OK -- {sum(len(f) for f in written.values())} sidecar(s) across "
+                      f"{len(written)} member(s) (authored tomls untouched).")
+        except Exception as e:                            # noqa: BLE001 - the example is not the mission
+            print(f"  examples/stolen-ember sidecars NOT regenerated ({e}); run later:\n"
+                  f"    py -m ff9mapkit fetch-assets {ember}", file=sys.stderr)
     return 0
 
 
@@ -1700,6 +1719,35 @@ def _cmd_add_field(args: argparse.Namespace) -> int:
     kind = f"forked field {args.source}" if args.source else "blank room"
     print(f"added {m.name} (id {m.new_id}, {kind}) -> {m.toml_rel}; campaign now has {len(plan.members)} "
           f"member(s).\nEdit it: ff9mapkit edit {cpath.parent / m.toml_rel}")
+    return 0
+
+
+def _cmd_fetch_assets(args: argparse.Namespace) -> int:
+    """Re-materialize a campaign's gitignored SE-derived member sidecars (camera.bgx / walkmesh.bgi /
+    native scene / carried bins) from the user's OWN install. The authored tomls are never touched --
+    this is how a fresh clone regenerates e.g. examples/stolen-ember's buildable state."""
+    from pathlib import Path
+
+    from . import campaign
+    if not _has_unitypy():
+        print("fetch-assets needs UnityPy (reads FF9's p0data assetbundles). Install it:\n"
+              "    py -m pip install UnityPy", file=sys.stderr)
+        return 2
+    cpath = Path(args.campaign)
+    try:
+        plan = campaign.load_campaign(cpath)
+        missing = campaign.missing_assets(plan, cpath.parent)
+        if not missing and not args.force:
+            print("every member's SE-derived sidecars are already present -- nothing to fetch "
+                  "(--force re-extracts them all)")
+            return 0
+        written = campaign.fetch_assets(plan, cpath.parent, game=args.game, force=args.force)
+    except (campaign.CampaignError, RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for name, files in written.items():
+        print(f"{name}: wrote {len(files)} sidecar(s): {', '.join(files) if files else '(all present)'}")
+    print(f"re-materialized {len(written)} member(s) from your install; the authored tomls were not touched.")
     return 0
 
 
@@ -6872,6 +6920,16 @@ def build_parser() -> argparse.ArgumentParser:
     af.add_argument("--source", default=None,
                     help="a real field id or unique FBG name to FORK (needs the game); omit for a blank room")
     af.set_defaults(func=_cmd_add_field)
+
+    fa = sub.add_parser("fetch-assets",
+                        help="re-materialize a campaign's gitignored SE-derived member sidecars "
+                             "(camera.bgx / walkmesh.bgi / native scene / carried bins) from your OWN "
+                             "install, without touching the authored tomls (regenerates e.g. "
+                             "examples/stolen-ember on a fresh clone; needs UnityPy)")
+    fa.add_argument("campaign", help="path to the campaign.toml manifest")
+    fa.add_argument("--force", action="store_true",
+                    help="re-extract + overwrite sidecars that already exist (authored tomls still untouched)")
+    fa.set_defaults(func=_cmd_fetch_assets)
 
     fp = sub.add_parser("floorplan",
                         help="compose a hand-drawn multi-room floorplan.json into a wired dungeon "
