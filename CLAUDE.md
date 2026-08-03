@@ -299,7 +299,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Click authoring — ★★ Rungs 0-4 + 6a-6d owner-confirmed; recompose now MERGES (keeps npc/doors/layers/art); 7b+7d playtests deployed 30700-30702 → `studies/click-authoring/PLAN.md`
 - Path D, a genuinely new 3rd overworld world — ★★ **rungs 0-5 DONE** (V-shore corner owner-confirmed; coast measured clean island-wide, no rebuild needed); bench REPRODUCIBLE via `bench_pipeline.py all`, gated by `terrain_gate.py` (10 gates, one command), generators refuse a corner-less deploy; NEXT = Rung 6 entrance/exit → `studies/path-d-new-world/NEXT-STUDIES.md`; laws → [[project-ff9-overhang-context-law]]
 - Interactive docs (docsite/) — site+CLI-ref+shots+tutorial system BUILT, gates green; core track S1-S7 drafted (playtest pending), CLI track C1-C4 shipped; UI gate now covers editor FORM labels (`form:<spec>.<key>`, Qt-free, freshness-tested) → `studies/interactive-docs/` (critique + ranked structural items: `REVAMP-CRITIQUE.md`)
-- `.eb` source round-trip — ★ rungs 1-3 DONE: `eb-src`/`eb-asm` + the whole-corpus byte-exact gate ship; lang-identical bytecode FALSIFIED, source is per field+lang; next = comment enrichment → `studies/eb-roundtrip/PLAN.md`
+- `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

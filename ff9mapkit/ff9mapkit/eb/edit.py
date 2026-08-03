@@ -212,7 +212,8 @@ def add_function(data, entry_index: int, tag: int, body: bytes) -> bytes:
     return bytes(out)
 
 
-def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes) -> bytes:
+def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes, *,
+                          func_index: int | None = None) -> bytes:
     """Replace function ``func_tag``'s body in ``entry_index`` with ``new_body`` (any length).
 
     Fixes the intra-entry ``fpos`` of every LATER function (shifted by the size delta), the entry's
@@ -220,6 +221,12 @@ def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes
     (the old body -- and any jumps inside it -- is discarded, and functions never jump into each other).
     Used to re-author a battle eb's ``Main_Init`` (entry 0, tag 0) to ``InitObject`` one enemy-AI object
     per spawned slot, so the eb's AI binding matches an edited spawn composition.
+
+    ``func_index`` selects the function by its POSITION in the entry's func table instead of by tag,
+    with ``func_tag`` kept as an asserted expectation. A tag is NOT unique inside an entry -- 15 of the
+    818 shipping field EVTs repeat one (``evt_dali_v_dl_wms0`` entry 18 lists tags 13 and 14 twice) --
+    so a caller walking every function of an entry (``ebsrc.assemble_against``) must address them
+    positionally or it silently splices the FIRST namesake instead of the one it decoded.
     """
     b = bytearray(_as_bytes(data))
     slot = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
@@ -230,7 +237,15 @@ def replace_function_body(data, entry_index: int, func_tag: int, new_body: bytes
     fc = b[es + 1]
     fbase = es + 2
     funcs = [(u16(b, fbase + i * 4), u16(b, fbase + i * 4 + 2)) for i in range(fc)]   # (tag, fpos)
-    idx = next((i for i, (t, _) in enumerate(funcs) if t == func_tag), None)
+    if func_index is None:
+        idx = next((i for i, (t, _) in enumerate(funcs) if t == func_tag), None)
+    else:
+        if not 0 <= func_index < fc:
+            raise ValueError(f"entry {entry_index} has {fc} function(s); index {func_index} is out of range")
+        if funcs[func_index][0] != func_tag:
+            raise ValueError(f"entry {entry_index} function #{func_index} has tag {funcs[func_index][0]}, "
+                             f"not the expected {func_tag}")
+        idx = func_index
     if idx is None:
         raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
     body_start = fbase + funcs[idx][1]
