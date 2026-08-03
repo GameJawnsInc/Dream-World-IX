@@ -199,6 +199,21 @@ def test_on_entry_lock_false_drops_the_reorder_dance():
     assert opcodes.DISABLE_MOVE not in free and not free.startswith(opcodes.wait(2))
 
 
+def test_on_entry_entrance_gate_shape():
+    # single: `if (FieldEntrance == 5) skip-the-return` -- the scenario_gate shape, D8:2-keyed
+    cond5 = _region.cond_eq(_region.GLOB_INT16, _region.FIELD_ENTRANCE_IDX, 5)
+    g = _onentry.entrance_gate(5)
+    assert g == cond5 + bytes([_region.JMP_TRUE]) + struct.pack("<h", 1) + opcodes.RETURN
+    # multi: each match jumps past the remaining conditions AND the shared return
+    cond2 = _region.cond_eq(_region.GLOB_INT16, _region.FIELD_ENTRANCE_IDX, 2)
+    g2 = _onentry.entrance_gate([2, 5])
+    assert g2 == (cond2 + bytes([_region.JMP_TRUE]) + struct.pack("<h", len(cond5) + 3 + 1)
+                  + cond5 + bytes([_region.JMP_TRUE]) + struct.pack("<h", 1) + opcodes.RETURN)
+    # and the hook body leads with it (before the once-block)
+    body = _onentry.on_entry_body(message_txid=500, once_flag=None, entrance=5)
+    assert body.startswith(_onentry.entrance_gate(5))
+
+
 def test_on_entry_grant_control_tail():
     # the arrive-locked grant: OUTSIDE the once block, the stock enable-macro shape
     body = _onentry.on_entry_body(message_txid=500, once_flag=9000, grant_control=True)
@@ -340,9 +355,42 @@ lock_menu = true
     assert any("lock_menu needs the lock" in p for p in _problems(tmp_path, toml))
 
 
-def test_validate_locked_entrances_needs_an_ungated_hook(tmp_path):
+def test_validate_locked_entrances_needs_a_covering_hook(tmp_path):
     toml = BASE.replace('spawn = [0, -300]', 'spawn = [0, -300]\nlocked_entrances = [2]')
-    assert any("UNGATED [[on_entry]]" in p for p in _problems(tmp_path, toml))
+    assert any("no [[on_entry]] hook to hand control back" in p for p in _problems(tmp_path, toml))
+    # a hook gated to a DIFFERENT entrance does not cover it
+    toml5 = toml + """
+[[on_entry]]
+entrance = 5
+message = "wrong door"
+"""
+    assert any("entrance 2 has no [[on_entry]]" in p for p in _problems(tmp_path, toml5))
+    # an entrance-gated hook covering it DOES (the preferred shape)
+    toml2 = toml + """
+[[on_entry]]
+entrance = 2
+message = "the locked door"
+"""
+    assert not any("locked_entrances" in p for p in _problems(tmp_path, toml2))
+
+
+def test_locked_entrances_entrance_gated_hook_builds(tmp_path):
+    toml = BASE.replace('spawn = [0, -300]', 'spawn = [0, -300]\nlocked_entrances = [2]') + """
+[[player.arrival]]
+entrance = 2
+pos = [0, -600]
+
+[[on_entry]]
+entrance = 2
+once = false
+message = "Through the locked door."
+"""
+    eb_bytes = _build_eb(tmp_path, toml)
+    # the hook leads with the entrance gate AND still carries the grant tail
+    assert _onentry.entrance_gate(2) in eb_bytes
+    tail = (_region.set_var(_region.MAP_BOOL, 158, 1) + opcodes.ENABLE_MOVE
+            + opcodes.encode(0x27, 255) + opcodes.ENABLE_MENU)
+    assert tail in eb_bytes
 
 
 def test_validate_cutscene_lock_menu_needs_owns_control(tmp_path):

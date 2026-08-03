@@ -216,7 +216,7 @@ world coords (no offset) — they are already the exact engine positions.
 | `spawn` | `[x, z]` where the player appears on entry (the DEFAULT arrival — see `[[player.arrival]]` for per-door spots). |
 | `face` | OPTIONAL spawn facing (0..255; 0=south, 64=west, 128=north, 192=east — the same compass `[[npc]]`/chest `face` uses). Absent = the template default (0). |
 | `model` | **re-skin who you WALK as** — a model **id**, an exact **GEO name** (`"GEO_NPC_F0_MOG"` the Moogle PC), or an archetype/model name resolved via the Info Hub catalog (the same join `[[npc]] model` uses). Its movement clips (idle/walk/run/turn) auto-resolve. This is the build-side complement to `import --swap-player`. **Movement clips only** — a field that scripts player gestures would glitch, so it's free-roam-only. |
-| `locked_entrances` | `[entrance, …]` — arrive with control **withheld** at these entrance ids (the values a warp's `entrance =` sets). Stock's own arrive-locked mechanism: the engine zeroes control on every field load and the field's grant is simply **gated off** for these entrances — race-free, no timing dance. The unlock is the first **ungated** `[[on_entry]]` hook, which the build gives an unconditional control-grant tail (validate requires one; without it the player would arrive frozen forever). Use for chained cutscenes: the departing scene sets `then_warp`, the destination locks that entrance and plays its own entry beat. Synth-only (a verbatim donor keeps its own grant logic). |
+| `locked_entrances` | `[entrance, …]` — arrive with control **withheld** at these entrance ids (the values a warp's `entrance =` sets). Stock's own arrive-locked mechanism: the engine zeroes control on every field load and the field's grant is simply **gated off** for these entrances — race-free, no timing dance. The unlock is an `[[on_entry]]` hook covering each locked entrance (no `requires_*` gates; its `entrance` absent or matching — **prefer `entrance`-gated**, so the beat stays off plain entries), which the build gives a control-grant tail; validate requires coverage, else the player would arrive frozen forever. Use for chained cutscenes: the departing scene sets `then_warp`, the destination locks that entrance and plays its own entry beat. Synth-only (a verbatim donor keeps its own grant logic). |
 
 ### `[[player.arrival]]` (optional, repeatable) — per-door arrival spots
 
@@ -423,6 +423,10 @@ mirrors that law with per-lane defaults:
     message as a free banner during the entry.
   - A `[[choice]]` is **always** locked (without the bracket the d-pad would move the character
     under the menu) — it takes no `lock` key.
+  - ⚠ **One lock-holding entry beat at a time.** An `[[on_entry]]` message and a load `[cutscene]`
+    are separate concurrent entries, each with its own bracket — dismissing one fires its
+    `EnableMove` and frees the player in the middle of the other. Keep them disjoint: gate the
+    hook (`entrance` / `requires_*`), or give it `lock = false`.
 - **`lock_menu`** — additionally hold the main menu shut (`DisableMenu`…`EnableMenu`, the save
   point's proven double bracket) for the body. On `[[npc]]`, `[[event]]` and `[cutscene]`. Note a
   bare `lock` already suppresses the menu *while movement is locked* (the engine couples them);
@@ -1039,6 +1043,11 @@ once = true                                 # default: fire once ever (a save-pe
 - The gates (`requires_scenario` / `requires_flag`) sit *outside* the once-check, so a hook whose condition
   isn't met yet returns without spending its once-flag — it can still fire on a **later** entry once the beat
   is reached.
+- **`entrance`** — an entrance id (or a list) gating the beat on **how the player arrived** (the `D8:2`
+  arrival var every kit warp/gateway sets): the beat fires only for a matching arrival, burning no
+  once-flag otherwise. The natural per-door entry beat, and the right shape for a
+  `[player] locked_entrances` unlock hook (it keeps the beat off plain entries, where its control
+  bracket would interleave with a load `[cutscene]`'s — see *Control locking*).
 - `set_scenario` / `set_flags` follow the same band rules as `[startup]` (assert REAL story bits below the safe band;
   the lint flags a write into a genuinely *reserved* region). `message` shares the field's `.mes` block.
 - A campaign member's per-member flag block is fully reserved, so a `once` hook there needs an explicit

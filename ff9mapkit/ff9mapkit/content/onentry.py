@@ -52,6 +52,24 @@ def scenario_gate(value: int) -> bytes:
     return cond + bytes([_region.JMP_TRUE]) + struct.pack("<h", 1) + opcodes.RETURN
 
 
+def entrance_gate(entrances) -> bytes:
+    """``ifnot (FieldEntrance in entrances) { return }`` -- gate a hook on HOW the player arrived
+    (the ``D8:2`` arrival-entrance var every kit warp sets before ``Field()``). One ``if == e skip``
+    per value, all landing past the shared early ``return`` -- the beat fires only for a matching
+    arrival and burns no once-flag otherwise. This is also what keeps a locked-arrival unlock hook
+    OUT of a plain entry: two concurrent entry beats' lock brackets interleave (the first EnableMove
+    frees the player mid-scene -- the WINSTYLE intro-dim leak, in-game 2026-08-03), so the unlock
+    beat must not run alongside a load cutscene."""
+    vals = [int(e) for e in ((entrances,) if isinstance(entrances, int) else entrances)]
+    conds = [_region.cond_eq(_region.GLOB_INT16, _region.FIELD_ENTRANCE_IDX, v) for v in vals]
+    hop = 3                                        # JMP_TRUE + i16
+    out = b""
+    for i, cond in enumerate(conds):
+        rest = sum(len(c) + hop for c in conds[i + 1:]) + 1          # + the shared RETURN
+        out += cond + bytes([_region.JMP_TRUE]) + struct.pack("<h", rest)
+    return out + opcodes.RETURN
+
+
 def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenario: int | None = None,
                   item_pairs=(), gil: int | None = None,
                   once_flag: int | None = None, requires_flag: int | None = None,
@@ -59,7 +77,7 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
                   message_window: int = 1, message_flags: int = 128,
                   message_actor_uid: int | None = None, message_dim=False,
                   message_dim_tint=None, message_lock: bool = True,
-                  grant_control: bool = False) -> bytes:
+                  grant_control: bool = False, entrance=None) -> bytes:
     """The bytecode for ONE on-entry hook (no entry/return wrapper beyond the trailing ``RETURN``).
 
     Shape::
@@ -80,6 +98,8 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
     spending its once-flag -- it can still fire on a LATER entry once the beat is reached. Returns
     ``b""``-safe building blocks only; raises nothing."""
     gates = b""
+    if entrance is not None:
+        gates += entrance_gate(entrance)
     if requires_flag is not None:
         gates += _region.flag_gate(_region.GLOB_BOOL, int(requires_flag), require_set=requires_set)
     if requires_scenario is not None:

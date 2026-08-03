@@ -2731,32 +2731,49 @@ def validate(project: FieldProject) -> list[str]:
         # law), a tread body stays free (the toast idiom = stock's passive banners)
         _check_window_attrs(f"[[event]] #{j}", ev, actor=_wa_ev_actor, lock="yes",
                             lock_default=((ev.get("trigger") or "walk") == "action"))
+    def _entrance_vals(v):
+        vals = [v] if isinstance(v, int) and not isinstance(v, bool) else v
+        if not (isinstance(vals, list) and vals
+                and all(isinstance(e, int) and not isinstance(e, bool) and 0 <= e <= 0x7FFF
+                        for e in vals)):
+            return None
+        return [int(e) for e in vals]
     for k, h in enumerate(project.raw.get("on_entry", [])):
         if isinstance(h, dict):
             _check_window_attrs(f"[[on_entry]] #{k}", h, actor=_wa_ev_actor, lock="lock-only")
+            if h.get("entrance") is not None and _entrance_vals(h["entrance"]) is None:
+                problems.append(f"[[on_entry]] #{k} entrance must be an entrance id (0..32767) or "
+                                f"a list of them -- the arrival D8:2 values this beat fires for")
     # [player] locked_entrances -- arrive-locked entry (stock's entrance-gated grant). The grant
-    # is withheld for these entrance ids, so SOMETHING must hand control back: the first UNGATED
-    # [[on_entry]] hook carries the unconditional grant_control tail (a gated hook can early-return
-    # before any tail -- it cannot own the grant). Synth-only: a verbatim donor's grant sites are
-    # its own conditional forest, not the template shape entrylock gates.
+    # is withheld for these entrance ids, so for EVERY one of them some story-UNGATED [[on_entry]]
+    # hook (whose own `entrance` gate is absent or covers it) must carry the grant tail -- else
+    # the player arrives frozen forever. Prefer an entrance-gated hook: an ungated one also fires
+    # on plain entries, where its lock bracket interleaves with a load [cutscene]'s (the first
+    # EnableMove frees the player mid-scene -- the WINSTYLE intro-dim leak). Synth-only.
     _le = (project.raw.get("player") or {}).get("locked_entrances")
     if _le is not None:
-        if not (isinstance(_le, list) and _le
-                and all(isinstance(e, int) and not isinstance(e, bool) and 0 <= e <= 0x7FFF
-                        for e in _le)):
+        _le_vals = _entrance_vals(_le) if isinstance(_le, list) else None
+        if _le_vals is None:
             problems.append("[player] locked_entrances must be a non-empty list of entrance ids "
                             "(0..32767) -- the General_FieldEntrance values that arrive locked")
         elif _wa_verbatim:
             problems.append("[player] locked_entrances is synth-only -- a verbatim fork ships the "
                             "donor's own grant logic (gate a donor arrival with [[logic_edit]] "
                             "instead)")
-        elif not any(isinstance(h, dict) and h.get("requires_flag") is None
-                     and h.get("requires_scenario") is None
-                     for h in project.raw.get("on_entry", [])):
-            problems.append("[player] locked_entrances needs at least one UNGATED [[on_entry]] "
-                            "hook -- it carries the grant that hands control back (without one "
-                            "the player arrives frozen forever). Add an [[on_entry]] with a "
-                            "message (or writes) and no requires_flag/requires_scenario.")
+        else:
+            for e in _le_vals:
+                def _covers(h):
+                    he = h.get("entrance")
+                    hv = _entrance_vals(he) if he is not None else None
+                    return (isinstance(h, dict) and h.get("requires_flag") is None
+                            and h.get("requires_scenario") is None
+                            and (he is None or (hv is not None and e in hv)))
+                if not any(_covers(h) for h in project.raw.get("on_entry", [])):
+                    problems.append(f"[player] locked_entrances: entrance {e} has no [[on_entry]] "
+                                    f"hook to hand control back (needs one with no "
+                                    f"requires_flag/requires_scenario whose `entrance` is absent "
+                                    f"or covers {e}) -- without it the player arrives frozen "
+                                    f"forever.")
     for c, ch in enumerate(project.raw.get("choice", [])):
         _check_window_attrs(f"[[choice]] #{c}", ch, allow_dim=False,
                             actor=("no" if ch.get("npc") else _wa_ev_actor))
@@ -4872,14 +4889,22 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
                       "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc,
                       "message_window": _w, "message_flags": _f, "message_actor_uid": _uid,
                       "message_dim": h.get("dim", False), "message_dim_tint": h.get("dim_tint"),
-                      "message_lock": bool(h.get("lock", True))})
-    # [player] locked_entrances: the entry grant is entrance-gated away, so the FIRST UNGATED hook
-    # must hand control back unconditionally on every entry (grant_control -- outside its once
-    # block; a gated hook can early-return before any tail, so it can't carry the grant). Validate
-    # guarantees such a hook exists.
-    if (project.raw.get("player") or {}).get("locked_entrances"):
+                      "message_lock": bool(h.get("lock", True)),
+                      "entrance": h.get("entrance")})
+    # [player] locked_entrances: the entry grant is entrance-gated away, so for EVERY locked
+    # entrance some hook must hand control back (grant_control -- outside its once block). A hook
+    # qualifies for entrance e when it has no requires gate (a story-gated hook can early-return
+    # before any tail) and its own `entrance` gate is absent or covers e. The first qualifying hook
+    # per entrance gets the tail (validate guarantees coverage). NOTE the unlock hook should
+    # normally BE entrance-gated: an ungated one also fires on plain entries, where its lock
+    # bracket + grant interleave with a load [cutscene]'s bracket and free the player mid-scene
+    # (the WINSTYLE intro-dim leak, in-game 2026-08-03).
+    _locked = (project.raw.get("player") or {}).get("locked_entrances") or []
+    for e in _locked:
         for hk, h in zip(hooks, on_entry):
-            if h.get("requires_flag") is None and h.get("requires_scenario") is None:
+            he = h.get("entrance")
+            covers = he is None or (int(e) in ([he] if isinstance(he, int) else list(he)))
+            if h.get("requires_flag") is None and h.get("requires_scenario") is None and covers:
                 hk["grant_control"] = True
                 break
     return _onentry.inject_on_entries(eb, hooks)

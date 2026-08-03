@@ -15,7 +15,7 @@
 #   * the WEST toast still lets you walk under it (tread default unchanged);
 #   * the Mognet menu's middle row WARPS to this same field at a LOCKED entrance: you arrive
 #     mid-room, held until the entry beat closes, then control returns ([player] locked_entrances).
-#     The entry beat also pops on every plain entry/reload (it is the unlock hook, once = false).
+#     The beat is entrance-gated to that door (plain entries/reloads: countdown only, no beat).
 # Deploy: py tools/deploy_field.py studies/messages/bench/winstyle.field.toml --id 30601
 
 [field]
@@ -38,10 +38,13 @@ entrance = 5
 pos = [0, -700]
 face = 0
 
-# --- the entry beat: ungated + once=false, so it is ALSO the locked-arrival unlock hook ---
+# --- the locked-arrival unlock beat: entrance-gated to the warp door ONLY. (Round 2 fix: an
+# ungated hook also fired on plain entries, where its lock bracket ran CONCURRENTLY with the
+# countdown cutscene's -- dismissing it freed the player mid-countdown, the intro-dim leak.) ---
 [[on_entry]]
+entrance = 5
 once = false
-message = "The entry beat. If you arrived through the warp row, you were HELD until now."
+message = "You came through the locked door -- you were HELD until this window. Control returns when it closes."
 style = "notail"
 
 # --- the entry countdown: `duration` staged captions -------------------------------------
