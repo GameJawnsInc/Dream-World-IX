@@ -57,7 +57,8 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
                   once_flag: int | None = None, requires_flag: int | None = None,
                   requires_set: bool = True, requires_scenario: int | None = None,
                   message_window: int = 1, message_flags: int = 128,
-                  message_actor_uid: int | None = None, message_dim: bool = False) -> bytes:
+                  message_actor_uid: int | None = None, message_dim=False,
+                  message_dim_tint=None) -> bytes:
     """The bytecode for ONE on-entry hook (no entry/return wrapper beyond the trailing ``RETURN``).
 
     Shape::
@@ -102,7 +103,7 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
         from . import event as _event
         win_op = _event.message(int(message_txid), window=int(message_window),
                                 flags=int(message_flags), actor_uid=message_actor_uid,
-                                dim=message_dim)
+                                dim=message_dim, dim_tint=message_dim_tint)
     else:
         win_op = b""
     actions = win_op + writes

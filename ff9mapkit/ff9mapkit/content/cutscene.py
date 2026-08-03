@@ -241,7 +241,7 @@ def compile_steps(steps, txids, *, say_flags: int = 128) -> bytes:
             # event.message so both forms have ONE owner
             b = _event.message(txids[ti], window=int(s.get("window", 1)),
                                flags=_text.resolve_style(s.get("style"), default=say_flags),
-                               dim=bool(s.get("dim")))
+                               dim=s.get("dim", False), dim_tint=s.get("dim_tint"))
             out.append(b)
             ti += 1
         elif "wait" in s:

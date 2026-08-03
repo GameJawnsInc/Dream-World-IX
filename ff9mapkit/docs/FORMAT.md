@@ -364,11 +364,27 @@ kit always emitted (an ordinary speech bubble), so omitting them changes nothing
   pinned window draws **no tail** (don't combine with `tail`).
 - **`box`** — `[width, lines]` sets the `[STRT]` geometry. The engine auto-measures width whenever it
   can, so `width` mostly matters for centering system boxes; `lines` acts as a minimum height.
-- **`dim`** — `true` wraps the window in the **letter-reading fade bracket**: the scene dims with the
-  Mognet letter's soft glow before the window opens and restores after it closes (byte-shaped on the
-  real letter presentation, field 1865). The stock dressing for reading a document, a letter, an
-  inner voice — pairs naturally with `style = "transparent"`. On `[[npc]]`, `[[event]]`,
-  `[[on_entry]]` and cutscene `say` steps.
+- **`dim`** — wrap the window in one of **stock's reading fade brackets** (censused across all 817
+  field scripts; 241 bracket sites). On `[[npc]]`, `[[event]]`, `[[on_entry]]` and cutscene `say`
+  steps; pairs naturally with `style = "transparent"`:
+
+  | value | stock source | the feel |
+  |---|---|---|
+  | `true` / `"letter"` | Mognet mail (100 sites, 50 fields) | warm blackout in, **text bright on top**, restore out |
+  | `"voice"` | the Memoria/Oeilvert/Kuja narrations | the text appears **first**, then the room dims under it |
+  | `"inscription"` | the Berkmea monument, plaques | a **subtle** grey that cross-fades back — the gentlest |
+  | `"blackout"` | Eiko's Ipsen-and-Colin story | hard cut to black; scene and text **fade in together** |
+
+  **`dim_tint = [r, g, b]`** overrides the in-fade colour: the letter ships nine per-field tints in
+  stock (`[220,220,250]` Alexandria/Dali · `[150,150,200]` Ice Cavern/Prima Vista · `[100,100,150]`
+  Burmecia …), and the voice family spans grey depths (`[32,32,32]` Garland · `[48,48,48]` Soulcage
+  · `[100,100,100]` the library eavesdrop · `[128,128,128]` Necron).
+
+  **Faithful text pairings** (from the 12,711-entry speaker census): stock never Name-attributes a
+  dimmed window. A **letter** opens with a *"From X to Y"* header line, a **voice**/**blackout**
+  line is fully unattributed, an **inscription** is the carved text itself. A character's inner
+  thought is NOT a dimmed window in stock — it's a normal speech bubble with `speaker` and a fully
+  parenthesized line. Setting `speaker` on a dimmed window builds fine but has no stock precedent.
 
 ```toml
 [[event]]                       # a sign on a wall: plain panel, pops instantly

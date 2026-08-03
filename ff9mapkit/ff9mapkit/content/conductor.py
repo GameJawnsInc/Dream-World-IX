@@ -192,7 +192,8 @@ def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, tag_calls):
             # the raise puts the text ABOVE the fade) -- actor attribution rides WindowAsyncEx
             from . import event as _event
             b = _event.message(txids[ti], window=int(s.get("window", 0 if uid is not None else 1)),
-                               flags=_sf, actor_uid=uid, dim=True)
+                               flags=_sf, actor_uid=uid, dim=s.get("dim", False),
+                               dim_tint=s.get("dim_tint"))
         elif uid is not None:
             b = actor_say(uid, txids[ti], flags=_sf, window=int(s.get("window", 0)))
         else:

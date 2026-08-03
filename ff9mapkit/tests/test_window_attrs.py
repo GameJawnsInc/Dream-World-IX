@@ -278,6 +278,46 @@ dim = true
     assert _event.dim_bracket(1, 16, 500) in eb
 
 
+def test_dim_style_variants_match_their_donors():
+    from ff9mapkit.content import event as _event
+    assert _event.resolve_dim(True) == "letter" and _event.resolve_dim(False) is None
+    with pytest.raises(ValueError):
+        _event.resolve_dim("parchment")
+    # voice (Memoria/Oeilvert): window + raise FIRST, then the dim ramps in UNDER the text
+    v = _event.dim_bracket(1, 16, 500, style="voice")
+    win, raise_op = opcodes.window_async(1, 16, 500), opcodes.encode(0x8E)
+    dim_in = opcodes.encode(0xEC, 2, 15, 255, 64, 64, 64)
+    assert v.index(win) < v.index(raise_op) < v.index(dim_in)
+    # inscription (Berkmea monument): the out-half is a mode-2 CROSS-FADE, not the channel restore
+    i = _event.dim_bracket(1, 16, 500, style="inscription")
+    assert opcodes.encode(0xEC, 2, 8, 255, 96, 96, 96) in i
+    assert opcodes.encode(0xEC, 2, 8, 255, 0, 0, 0) in i
+    assert opcodes.encode(0xEC, 7, 16, 255, 0, 0, 0) not in i
+    # blackout (Eiko's Ipsen story): NO RaiseWindows, and the restore runs BEFORE the read-wait
+    b = _event.dim_bracket(1, 16, 500, style="blackout")
+    assert raise_op not in b
+    assert b.index(opcodes.encode(0xEC, 7, 16, 255, 0, 0, 0)) < b.index(opcodes.encode(0x54, 1))
+    # dim_tint overrides the in-fade colour (the letter's nine stock tints)
+    t = _event.dim_bracket(1, 16, 500, style="letter", tint=(150, 150, 200))
+    assert opcodes.encode(0xEC, 2, 24, 255, 150, 150, 200) in t
+    assert opcodes.encode(0xEC, 2, 24, 255, 220, 220, 250) not in t
+
+
+@pytest.mark.parametrize("snippet,needle", [
+    ('dim = "parchment"', "unknown dim style"),
+    ('dim = true\ndim_tint = [300, 0, 0]', "dim_tint must be"),
+    ('dim_tint = [1, 2, 3]', "dim_tint needs dim"),
+])
+def test_validate_dim_values(tmp_path, snippet, needle):
+    problems = _problems(tmp_path, BASE + f"""
+[[event]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+message = "x"
+{snippet}
+""")
+    assert any(needle in p for p in problems), problems
+
+
 def test_validate_rejects_dim_where_not_wired(tmp_path):
     problems = _problems(tmp_path, BASE + """
 [[choice]]

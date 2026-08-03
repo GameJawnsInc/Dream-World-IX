@@ -35,6 +35,7 @@ steps = [
   { say = "On your mark!", style = "notail", duration = 45 },
   { say = "Get set!", style = "notail", duration = 45 },
   { say = "GO!", style = "notail", duration = 30 },
+  { say = "...and this is the voice dim: these words appear first, then the room sinks beneath them...", style = "transparent", dim = "voice" },
   { say = "Books mark the spots. Side walls ahead: walk-in pads. Mid-room: press at the west book (it prompts) and the east book (silent, like a stock sign). Talkers at the back.", speaker = "Bench" },
 ]
 
@@ -72,9 +73,10 @@ name = "sign"
 zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
 trigger = "action"
 bubble = true
-message = "= WINSTYLE BENCH =\nA press-to-read sign. Dismiss it: quiet until you press again."
-style = "plain"
+message = "= WINSTYLE BENCH =\nCarved letters on a plaque -- the subtle inscription dim, cross-fading back out."
+style = "transparent"
 instant = true
+dim = "inscription"
 once = false
 
 [[prop]]
@@ -119,7 +121,6 @@ style = "notail"
 name = "whisperer"
 preset = "vivi"
 pos = [0, -350]
-dialogue = "(frameless text... like a letter, or a thought... and the room dims while you read, like opening Mognet mail.)"
-speaker = "Whisperer"
+dialogue = "From the Bench to you --\n\nThe letter dim: the room goes warm-dark and these frameless words stay bright.\n\nNo speaker line -- stock letters never carry one."
 style = "transparent"
 dim = true

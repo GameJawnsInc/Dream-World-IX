@@ -360,6 +360,36 @@ silently ignored on synthesized fields (works verbatim-only); `tail` validated o
 4 of 11 blocks; `[[logic_edit]]` can't touch kit-authored (`[TXID=]`) lines; no
 txid-ceiling lint; `_tag_render_width` under-models layout tags.
 
+## 11b. THE READING BRACKETS — the FadeFilter census (2026-08-03, all 817 scripts, us-section)
+
+FadeFilter (0xEC) engine truth (`DoEventCode.cs:632-648`, `SceneDirector.cs:640-663`): the MODE arg
+contributes ONLY bit 1 — `&2` = the SUBTRACTIVE shader channel, else ADDITIVE (two independent
+globals, `_FadeColor_ABR2`/`_ABR1`; a full clear needs BOTH a mode-7 sub-clear and a mode-5
+add-clear); the INTENSITY arg is read and DISCARDED (stock's `VAR_GlobUInt8_17` dance is inert);
+fades LERP from the channel's current colour (chaining cross-fades). **THE RAISE LAW:** the fader
+is a UI-layer panel above dialog depth 54-68; `RaiseWindows` (+22, `DialogManager.RiseAll`) is what
+lifts text above it — every bright-text bracket carries it; three stock shapes omit it ON PURPOSE
+so text emerges with the scene.
+
+241 fade-around-window bracket sites, ZERO overlapping the 830 warp / 849 ATE-title / 256 card-game
+transition fades — disjoint idioms. The shapes (kit `dim =` names starred):
+
+| type | in-fade | RW | out | sites |
+|---|---|---|---|---|
+| ★ letter | `2,24,·,R,R,B` (9 per-field tints, R=G, B=R+20..50) | yes | `7,16` | 100 / 50 fields |
+| ★ voice (window FIRST, dim under it) | `2,15,·,64-128 grey` | yes | `7,15` | ~40 (Memoria, Oeilvert, Kuja, Soulcage `48`, Garland `32`, eavesdrop `100`) |
+| ★ inscription | `2,8,·,96 grey` | yes | **`2,8,·,0,0,0`** cross-fade | 4 (Berkmea 804 +) |
+| ★ blackout (Eiko's Ipsen story, 1609) | `6,8,·,white` | **NO** | `7,16` before the read-wait | 7 |
+| per-line blackout alternation | `6,24` ↔ `7,16` per line | in-half | — | ~26 (Pand. 2705, Bran Bal) |
+| exposition (ends in blackout) | `2,32/64,·,128 grey` | yes | `6,64,white` | 4 (Memoria) |
+| ending monologues | `7,1` → window → `6,30,white` | NO | — | 11 (3000-3003) |
+
+Non-bracket fade families (excluded): inn/tent sleep sepia (`3,32,·,128,96,0` ×65), standing
+Main_Init scene filters (Evil Forest/Memory `40,40,32`, Tot's flashback `130,160,170` — the one
+Memoria-patched tuple), white flashes (`0/4` add + `1/5` clears, the Chocobo dream snap-to-white).
+Letter text = the From-header; voice/blackout = unattributed; stock never Name-attributes a dimmed
+window (the speaker form is the CHAT convention).
+
 ## 12. Corrections to prior knowledge (this survey supersedes)
 
 1. **`[WDTH]` is dummied** (`DialogBoxSymbols.cs:650-653`) — the 2026-07-18 savepoint

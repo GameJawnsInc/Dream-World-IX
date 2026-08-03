@@ -214,7 +214,7 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                init_tail: bytes | None = None, bare: bool = False,
                reserve_party_band: bool = False, logical_size=None,
                boot_spawn: bool = True, talk_window: int = 1, talk_flags: int = 128,
-               talk_dim: bool = False) -> bytes:
+               talk_dim=False, talk_dim_tint=None) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
 
     ``reserve_party_band`` (the VERBATIM-fork path): a real field packs its NPC slots and reserves the
@@ -282,7 +282,7 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
         else:
             from . import event as _event
             f2 = _event.message(talk_text_id, window=int(talk_window), flags=int(talk_flags),
-                                dim=talk_dim) + opcodes.RETURN
+                                dim=talk_dim, dim_tint=talk_dim_tint) + opcodes.RETURN
         # IsActuallyTalkable (the per-frame talk-icon poll) blindly reads tag3[ip+7]/[ip+8]; a talk func
         # shorter than 9 bytes indexes PAST the entry buffer -> an IndexOutOfRange every frame the player is
         # near. Real talk funcs are 100+ bytes; pad ours to >= 9 (dead bytes after RETURN -> behaviour same).

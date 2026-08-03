@@ -2606,9 +2606,20 @@ def validate(project: FieldProject) -> list[str]:
             if w is not None and (isinstance(w, bool) or not isinstance(w, int) or not 0 <= w <= 7):
                 problems.append(f"{label} window must be 0..7 (the script window ids; got {w!r})")
             if allow_dim:
-                src.get("dim")            # the letter-reading fade bracket -- probe registers the key
+                try:
+                    _dim_style = _event.resolve_dim(src.get("dim"))
+                except ValueError as e:
+                    _dim_style = None
+                    problems.append(f"{label} {e}")
+                dt = src.get("dim_tint")
+                if dt is not None and not (isinstance(dt, (list, tuple)) and len(dt) == 3
+                                           and all(isinstance(v, int) and 0 <= v <= 255 for v in dt)):
+                    problems.append(f"{label} dim_tint must be [r, g, b] with 0..255 components")
+                elif dt is not None and _dim_style is None and not src.get("dim"):
+                    problems.append(f"{label} dim_tint needs dim (it overrides a bracket's in-fade "
+                                    f"colour; there is no bracket without dim)")
             elif src.get("dim"):
-                problems.append(f"{label}: `dim` (the letter-reading fade bracket) is not wired on "
+                problems.append(f"{label}: `dim` (the stock reading fade brackets) is not wired on "
                                 f"this block -- it lives on [[npc]], [[event]], [[on_entry]] and "
                                 f"cutscene say steps")
         if text_side:
@@ -4761,7 +4772,7 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
                       "once_flag": once_flag, "requires_flag": rf,
                       "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc,
                       "message_window": _w, "message_flags": _f, "message_actor_uid": _uid,
-                      "message_dim": bool(h.get("dim"))})
+                      "message_dim": h.get("dim", False), "message_dim_tint": h.get("dim_tint")})
     return _onentry.inject_on_entries(eb, hooks)
 
 
@@ -5295,7 +5306,8 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
                 # only (a named-NPC actor is refused by validate on a verbatim fork)
                 _w, _f, _uid = _window_attrs(ev, None, label=f"[[event]] #{j}")
                 parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid,
-                                            dim=bool(ev.get("dim"))))
+                                            dim=ev.get("dim", False),
+                                            dim_tint=ev.get("dim_tint")))
         once_flag = None
         if ev.get("once", True):
             _cap = max_auto_events(project)
@@ -5445,7 +5457,8 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
                              gate_require_set=gs, appears_scenario_min=smin, appears_scenario_max=smax,
                              speak_body=sb, reserve_party_band=True,
-                             talk_window=_nw, talk_flags=_nf, talk_dim=bool(n.get("dim")), **kwargs)
+                             talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
+                             talk_dim_tint=n.get("dim_tint"), **kwargs)
         if n.get("name"):
             npc_slots[n["name"]] = slot                                       # name -> uid (stable below the band)
     return eb, npc_slots
@@ -5837,7 +5850,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
                              appears_scenario_max=smax, speak_body=sb,
                              boot_spawn=(n.get("name") not in _pooled_bh),
-                             talk_window=_nw, talk_flags=_nf, talk_dim=bool(n.get("dim")), **kwargs)
+                             talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
+                             talk_dim_tint=n.get("dim_tint"), **kwargs)
         if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:
@@ -5963,7 +5977,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 else:
                     _w, _f, _uid = _window_attrs(ev, npc_slots, label=f"[[event]] #{j}")
                     parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid,
-                                                dim=bool(ev.get("dim"))))
+                                                dim=ev.get("dim", False),
+                                                dim_tint=ev.get("dim_tint")))
             once_flag = None
             if ev.get("once", True):
                 _cap = max_auto_events(project)
