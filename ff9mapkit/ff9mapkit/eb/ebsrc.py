@@ -55,7 +55,7 @@ from struct import error as struct_error
 
 from . import cmdasm, disasm, exprasm
 from .model import EbScript, ENTRY_TABLE_OFF
-from ..eventscan import INIT_OPS, PARTY_UIDS
+from ..eventscan import INIT_OPS, PARTY_UIDS, armed_slot
 
 NAME_END = ENTRY_TABLE_OFF                  # the name block is [0x04..0x80)
 NAME_LO = 4
@@ -220,18 +220,14 @@ class _Enrichment:
 
     # -- the armed-entry set -------------------------------------------------
     def _note_arm(self, ins) -> None:
-        """Record that this ``Init*`` instruction ARMS its operand-0 entry. All THREE ops count
-        (``eventscan.INIT_OPS``: 0x07 InitCode / 0x08 InitRegion / 0x09 InitObject) and they are
-        counted ANYWHERE, not only in Main_Init -- a field commonly arms a region or a code entry
-        from a scenario branch. ``InitObject``'s 251-254 are PARTY-SLOT selectors (the engine's
-        ``partyUID[sid - 251]``), never entry indices, so they arm nothing here."""
-        slot = ins.imm(0)
-        if slot is None:
-            return
-        slot = int(slot)
-        if ins.op == _INIT_OBJECT_OP and slot in PARTY_UIDS:
-            return
-        self.armed[slot] = self.armed.get(slot, 0) + 1
+        """Record that this ``Init*`` instruction ARMS its operand-0 entry. The WHICH-slot decision
+        is :func:`ff9mapkit.eventscan.armed_slot` -- the ONE owner of the armed semantics (all three
+        ``INIT_OPS`` anywhere in the file; ``InitObject``'s 251-254 party selectors arm nothing) --
+        shared with ``logic_map.EntryInfo.spawns``. Only the COUNTING lives here, fused into the
+        comment walk so each function decodes once."""
+        slot = armed_slot(ins)
+        if slot is not None:
+            self.armed[slot] = self.armed.get(slot, 0) + 1
 
     # -- how each is worded --------------------------------------------------
     _TAIL = "Comments are informational -- eb-asm strips every '#'."
@@ -255,8 +251,9 @@ class _Enrichment:
         bits = [head]
         if e.talkable:
             bits.append("talkable")
-        # NOT EntryInfo.spawns -- that counts only entry-0/tag-0 InitObject, which misses every
-        # entry armed as code/region or armed from a scenario branch (self.armed is the full set)
+        # self.armed, not EntryInfo.spawns: same semantics (both from eventscan.armed_slot), but
+        # THIS walk is clamped + per-func fault-tolerant, so it still counts on a truncated .eb
+        # where the whole-file scanner degraded
         arms = self.armed.get(index, 0)
         if e.role not in ("main", "player") and not arms:
             bits.append("defined, not spawned")

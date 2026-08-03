@@ -182,12 +182,17 @@ def test_spawns_counts_init_ops_in_every_function_not_just_main_init():
     assert lm.entries[1].spawns == 0                      # nothing arms the ARMER itself
 
 
-def test_spawns_excludes_party_slot_selectors():
+def test_spawns_excludes_party_slot_selectors_for_init_object_only():
     """InitObject slot operands 251-254 are the engine's PARTY-SLOT selectors (EventEngine.DoEventCode.cs
-    case NEW3: ``sid >= 251 -> partyUID[sid - 251]``), NOT entry indices -- never counted as spawns."""
+    case NEW3: ``sid >= 251 -> partyUID[sid - 251]``), NOT entry indices -- never counted as spawns.
+    Engine-verified asymmetry: ONLY NEW3/InitObject has that remap -- NEW/NEW2 (InitCode 0x07 /
+    InitRegion 0x08) pass the slot straight through, so 251-254 DO arm for those ops."""
     body = b"".join(bytes([0x09, s, 0]) for s in (251, 252, 253, 254)) + bytes([0x09, 1, 0]) + RET
     armed = eventscan.scan_armed_entries(EbScript.from_bytes(_eb_multi([[(0, body)], [(0, RET)]])))
     assert armed == {1: 1}
+    body2 = bytes([0x08, 252, 0]) + bytes([0x07, 251, 0]) + RET
+    armed2 = eventscan.scan_armed_entries(EbScript.from_bytes(_eb_multi([[(0, body2)]])))
+    assert armed2 == {252: 1, 251: 1}
 
 
 @needs_alex

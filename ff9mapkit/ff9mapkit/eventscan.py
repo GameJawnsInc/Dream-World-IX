@@ -597,30 +597,44 @@ def resolve_uid(uid, current_entry, player_entries=(), entry_count=0):
     return ("unknown", [])
 
 
-def scan_armed_entries(eb) -> dict:
-    """Per-entry count of the init instructions that ARM it -- THE single owner of the armed/"spawned"
-    semantics (:class:`ff9mapkit.logic_map.EntryInfo` ``spawns`` and the Workspace "not spawned" chip
-    both derive from this; a missing key = the entry is defined but nothing in the script ever
-    activates it). Takes a parsed :class:`~ff9mapkit.eb.model.EbScript`.
+def armed_slot(ins):
+    """The entry index this ONE instruction ARMS, or None -- the per-instruction semantic core of
+    :func:`scan_armed_entries`, shared with the ``.ebs`` enrichment layer's own fused walk
+    (``eb/ebsrc.py``) so the armed/"spawned" semantics have exactly one owner. Arms iff the op is
+    one of :data:`INIT_OPS` with a LITERAL slot operand (an expression-computed slot resolves only
+    at runtime -- fidelity-with-holes). ``InitObject``'s slot values 251-254 are the engine's
+    PARTY-SLOT selectors (``EventEngine.DoEventCode.cs`` case NEW3: ``sid >= 251 ->
+    partyUID[sid - 251]``), not entry indices -- excluded for 0x09 ONLY: the NEW/NEW2 cases
+    (InitCode/InitRegion) pass the slot straight through with no party remap."""
+    if ins.op not in INIT_OPS:
+        return None
+    slot = ins.imm(0)
+    if slot is None or (ins.op == INIT_OBJECT_OP and slot in PARTY_UIDS):
+        return None
+    return int(slot)
 
-    The engine has THREE init ops, not one -- all of :data:`INIT_OPS` (0x07 InitCode / 0x08 InitRegion /
-    0x09 InitObject) arm the entry named by their literal slot operand; gateway/region/helper entries are
-    typically armed via 0x07/0x08 (counting only InitObject mislabeled ~77% of them dormant). Scanned
-    across EVERY function of EVERY entry, not just Main_Init: a re-InitObject after a set_flag is a
-    documented kit pattern, so "armed only from a talk handler" is still armed. Slot values in
-    :data:`PARTY_UIDS` (251-254) are the engine's party-slot selectors (``EventEngine.DoEventCode.cs``
-    case NEW3: ``sid >= 251 -> partyUID[sid - 251]``), NOT entry indices -- excluded. An
-    expression-computed slot cannot be resolved offline and is skipped (fidelity-with-holes)."""
+
+def scan_armed_entries(eb) -> dict:
+    """Per-entry count of the init instructions that ARM it (the :func:`armed_slot` semantics) --
+    what :class:`ff9mapkit.logic_map.EntryInfo` ``spawns`` and the Workspace "not spawned" chip
+    derive from; a missing key = the entry is defined but nothing in the script ever activates it.
+    Takes a parsed :class:`~ff9mapkit.eb.model.EbScript`.
+
+    The engine has THREE init ops, not one -- all of :data:`INIT_OPS` (0x07 InitCode / 0x08
+    InitRegion / 0x09 InitObject) arm the entry named by their slot operand; gateway/region/helper
+    entries are typically armed via 0x07/0x08 (counting only InitObject mislabeled ~77% of them
+    dormant). Scanned across EVERY function of EVERY entry, not just Main_Init: a re-InitObject
+    after a set_flag is a documented kit pattern, so "armed only from a talk handler" is still
+    armed."""
     armed: dict = {}
     for e in eb.entries:
         if e.empty:
             continue
         for f in e.funcs:
             for ins in eb.instrs(f):
-                if ins.op in INIT_OPS:
-                    slot = ins.imm(0)
-                    if slot is not None and slot not in PARTY_UIDS:
-                        armed[int(slot)] = armed.get(int(slot), 0) + 1
+                slot = armed_slot(ins)
+                if slot is not None:
+                    armed[slot] = armed.get(slot, 0) + 1
     return armed
 
 
