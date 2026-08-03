@@ -137,7 +137,7 @@ def set_scenario(value: int) -> bytes:
 
 def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_CLASS,
                      requires_flag: int | None = None, requires_set: bool = True,
-                     space_item: int | None = None) -> bytes:
+                     space_item: int | None = None, movement_gate: bool = True) -> bytes:
     """The region ``_Range`` body for an event: a movement gate, an optional ``requires_flag`` story
     gate (the event only fires when that flag is in-state), then ``body`` -- gated
     ``if (!flag) { flag = 1; body }`` when ``once_flag`` is set, so it fires once. The once-flag is set
@@ -147,8 +147,12 @@ def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_C
 
     ``space_item`` (a chest nicety) wraps everything in ``if (GetItemCount(item) < 99) { ... }`` so the
     reward is skipped (and the once-flag NOT set -> retryable) when the bag is full -- exactly FF9's
-    item-chest guard, with the space check OUTERMOST."""
-    parts = [_region.MOVEMENT_GATE]
+    item-chest guard, with the space check OUTERMOST.
+
+    ``movement_gate=False`` (the ``trigger = "action"`` path): a PRESS-fired body (region tag 3) omits
+    the tread path's ``ifnot IsMovementEnabled return`` prologue -- the press itself proves control,
+    and the zone-[[choice]] action bodies ship without it (in-game proven: levers, the ferry)."""
+    parts = [_region.MOVEMENT_GATE] if movement_gate else []
     if requires_flag is not None:
         parts.append(_region.flag_gate(flag_class, requires_flag, require_set=requires_set))
     if once_flag is not None:
@@ -177,17 +181,26 @@ def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: in
     cost ONE filler, not N. ``reserve_party_band`` (the VERBATIM-fork path): every region AND the arm
     entry are seated BELOW the reserved party-character band. The arm's ``InitRegion`` targets the region
     SLOTS, which sit below the band and so are never shifted by a later below-band insert -> stay valid.
-    Returns new .eb bytes."""
+
+    A spec with ``"action": True`` (the ``[[event]] trigger = "action"`` lane) becomes a PRESS region
+    instead of a tread region: func tag :data:`region.INTERACT_TAG` (3), fired on the action button
+    while in the quad -- edge-triggered by the press, so it can NEVER re-fire in a loop, and a
+    ``once = false`` action event is naturally repeatable with no gate flag at all (the repeatable
+    sign). Its body omits the tread movement gate (the press proves control -- the zone-[[choice]]
+    action shape, in-game proven). Returns new .eb bytes."""
     events = list(events)
     if not events:
         return data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     region_slots = []
     for ev in events:
+        action = bool(ev.get("action"))
         rb = event_range_body(ev["body"], ev.get("once_flag"), flag_class,
                               ev.get("requires_flag"), ev.get("requires_set", True),
-                              space_item=ev.get("space_item"))
+                              space_item=ev.get("space_item"), movement_gate=not action)
         out, slot = _region.inject_region(out, ev["zone"], rb, activate=False,
+                                          tag=(_region.INTERACT_TAG if action else _region.RANGE_TAG),
+                                          bubble=action and bool(ev.get("bubble")),
                                           reserve_party_band=reserve_party_band)
         region_slots.append(slot)
 

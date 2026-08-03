@@ -837,9 +837,11 @@ index = 8720
 
 ## `[[event]]` (optional, repeatable)
 
-A region the player **walks into** that fires authored logic — show a message, give an item / gil,
-set a story flag — optionally **once** (a looted chest, a one-time line, an ATE). Built on the same
-flag-gated conditional region as the camera switch; any number of events share one arming slot.
+A region that fires authored logic — show a message, give an item / gil, set a story flag —
+optionally **once** (a looted chest, a one-time line, an ATE). By default the player **walks into**
+it; `trigger = "action"` makes it **press-to-fire** instead (walk up, press the action button — the
+repeatable sign/readable). Built on the same flag-gated conditional region as the camera switch; any
+number of events share one arming slot.
 
 ```toml
 [[event]]                 # a treasure: give a Potion + a message, once
@@ -848,10 +850,13 @@ give_item = [232, 1]      # [item_id, count]
 gil = 500                 # (optional) also add gil
 message = "Got a Potion!" # (optional) popup dialogue
 
-[[event]]                 # a repeatable ambient line
+[[event]]                 # a readable sign: press to read, any number of times
 zone = [[-700,-400],[-300,-400],[-300,-800],[-700,-800]]
-message = "A cool breeze blows through."
-once = false
+trigger = "action"
+message = "= NOTICE =\nBeware of falling moogles."
+style = "plain"
+instant = true
+once = false              # edge-triggered by the press -> repeatable, and consumes NO flag
 ```
 
 | key | meaning |
@@ -865,7 +870,9 @@ once = false
 | `require_space` | *(give_item only)* `true` = **chest behavior**: skip the whole event (and don't set the `once` flag, so it's retryable) if the bag is full — `if (GetItemCount(item) < 99) { … }`. |
 | `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
-| `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
+| `trigger` | `"walk"` (default) = fires on tread. `"action"` = fires on the **action button** while standing in the zone — edge-triggered by the press, so it can never loop; the natural form for signs, plaques, and inspectables. |
+| `bubble` | *(action only)* `true` = show the floating **"!" prompt** while the player stands in the zone (the save-moogle-cask shape — a tread companion arms `Bubble(1)` per frame). Default `false`: stock's *silent* readable, discovered by pressing — both conventions are authentic; pick by how discoverable the spot should be. Also on a zone `[[choice]]` with `trigger = "action"`. |
+| `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` on a **walk** trigger = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside; suits a continuous effect only). `false` on an **action** trigger = re-fires once per press — the repeatable readable, and it consumes **no** gate flag. A walk-triggered "once per visit" (re-fires only after leaving and re-entering) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `9100`, the kit's safe-band event auto band — clear of ALL real-FF9 usage, and the allocator skips indices your project uses explicitly; override for a shipped mod to avoid cross-field clashes). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 

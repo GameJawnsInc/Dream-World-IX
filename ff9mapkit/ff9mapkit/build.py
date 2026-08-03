@@ -1468,6 +1468,18 @@ def validate(project: FieldProject) -> list[str]:
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
+        trig = ev.get("trigger")
+        if trig is not None and trig not in ("walk", "action"):
+            problems.append(f"[[event]] trigger {trig!r} must be \"walk\" (tread, the default) or "
+                            f"\"action\" (press-to-fire, edge-triggered -- the repeatable sign)")
+        if trig == "action" and ev.get("once", True) is False and any(
+                k in ev for k in ("give_item", "gil")):
+            problems.append("[[event]] trigger=\"action\" with once=false and a give_item/gil reward "
+                            "is an infinite item/gil faucet (every press pays out) -- set once=true, "
+                            "or drop the reward from a repeatable sign")
+        if ev.get("bubble") and trig != "action":
+            problems.append("[[event]] bubble (the \"!\" press prompt) needs trigger = \"action\" -- "
+                            "a walk event's tread slot IS its trigger, there is no press to prompt for")
     from .content import chest as _chest
     for k, ch in enumerate(project.raw.get("chest", [])):
         _validate_gate_exclusive(ch, f"[[chest]] #{k}", problems)
@@ -2639,6 +2651,9 @@ def validate(project: FieldProject) -> list[str]:
     for c, ch in enumerate(project.raw.get("choice", [])):
         _check_window_attrs(f"[[choice]] #{c}", ch,
                             actor=("no" if ch.get("npc") else _wa_ev_actor))
+        if ch.get("bubble") and ("zone" not in ch or (ch.get("trigger") or "action") != "action"):
+            problems.append(f"[[choice]] #{c} bubble (the \"!\" press prompt) needs a zone choice "
+                            f"with trigger = \"action\"")
         if ch.get("npc") and ch.get("actor") is not None:
             problems.append(f"[[choice]] #{c}: an NPC-attached choice already attributes its window "
                             f"to that NPC -- drop `actor`")
@@ -5284,7 +5299,10 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
         gf, gs = _gate_of(ev)
         space_item = item_id if ev.get("require_space") and item_id is not None else None
         specs.append({"zone": [tuple(p) for p in ev["zone"][:4]], "body": b"".join(parts),
-                      "once_flag": once_flag, "requires_flag": gf, "requires_set": gs, "space_item": space_item})
+                      "once_flag": once_flag, "requires_flag": gf, "requires_set": gs,
+                      "space_item": space_item,
+                      "action": (ev.get("trigger") or "walk") == "action",
+                      "bubble": bool(ev.get("bubble"))})
     return _event.inject_events(eb, specs, reserve_party_band=True) if specs else eb
 
 
@@ -5953,7 +5971,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             space_item = item_id if ev.get("require_space") and item_id is not None else None
             specs.append({"zone": [tuple(p) for p in ev["zone"][:4]],
                           "body": b"".join(parts), "once_flag": once_flag,
-                          "requires_flag": gf, "requires_set": gs, "space_item": space_item})
+                          "requires_flag": gf, "requires_set": gs, "space_item": space_item,
+                          "action": (ev.get("trigger") or "walk") == "action",
+                          "bubble": bool(ev.get("bubble"))})
         eb = _event.inject_events(eb, specs)
 
     # treasure chests: an openable, savable chest (one object -- a save-flag-gated open/closed pose Init + a
@@ -6010,7 +6030,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 if gf is not None:
                     body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
                 init_body = None
-            eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG, init_body=init_body)
+            eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG,
+                                              init_body=init_body, bubble=bool(ch.get("bubble")))
             zone_choice_slots[c] = _slot
         else:
             if (_auto.base is not None and "flag" not in ch

@@ -358,7 +358,7 @@ def gated_set_region(zone, var_class, idx: int) -> bytes:
 
 
 def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag: int = RANGE_TAG,
-                       init_body: bytes | None = None) -> bytes:
+                       init_body: bytes | None = None, bubble: bool = False) -> bytes:
     """Assemble a type-1 region entry: Init (tag 0 = SetRegion(zone) + ``init_extra``; return) + a
     trigger func at ``tag`` (default :data:`RANGE_TAG` 2 = tread, every frame in the quad;
     :data:`INTERACT_TAG` 3 = press-action-in-quad, a lever/sign). ``init_extra`` runs once on field
@@ -367,6 +367,14 @@ def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag:
     :func:`gated_set_region` for a one-shot trigger that vanishes once spent)."""
     ib = init_body if init_body is not None else (set_region(zone) + init_extra + opcodes.RETURN)
     funcs = [(0, ib), (tag, range_body)]
+    if bubble:
+        # the "!" prompt for a PRESS region (tag 3): a tag-2 tread companion arms Bubble(1) every
+        # frame the player stands in the quad -- the save-moogle cask's exact shape
+        # (savepoint.savepoint_region, in-game proven). Bubble is a per-frame POLL (EIcon.PollFIcon),
+        # so leaving the quad clears it with no explicit Bubble(0). Meaningless on a tread region
+        # (tag 2 IS the trigger there) -- callers gate on tag == INTERACT_TAG.
+        funcs = [(0, ib), (RANGE_TAG, MOVEMENT_GATE + opcodes.bubble(1) + opcodes.RETURN),
+                 (tag, range_body)]
     table_len = len(funcs) * 4
     table = bytearray()
     pos = table_len
@@ -391,7 +399,8 @@ def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:
 
 def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, activate: bool = True,
                   spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0, init_extra: bytes = b"",
-                  tag: int = RANGE_TAG, init_body: bytes | None = None, reserve_party_band: bool = False):
+                  tag: int = RANGE_TAG, init_body: bytes | None = None, reserve_party_band: bool = False,
+                  bubble: bool = False):
     """Append a conditional region (Init=SetRegion(zone) + ``init_extra``, Range=range_body) into a
     free slot.
 
@@ -402,7 +411,8 @@ def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, act
     ``reserve_party_band`` (the VERBATIM-fork path): seat the region BELOW the engine's reserved
     party-character band instead of into a free slot (else it lands in an unused character slot)."""
     from . import object as _object             # local: object imports region -> avoid the top-level cycle
-    entry = build_region_entry(zone, range_body, init_extra=init_extra, tag=tag, init_body=init_body)
+    entry = build_region_entry(zone, range_body, init_extra=init_extra, tag=tag, init_body=init_body,
+                               bubble=bubble)
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band, slot=slot)
     if activate:
         out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,
