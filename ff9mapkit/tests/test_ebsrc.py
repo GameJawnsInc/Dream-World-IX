@@ -4,14 +4,16 @@ Offline tests drive KIT-AUTHORED synthetic .eb bytes (assembled here — zero Sq
 bytes), covering: the envelope grammar the Rung-1 census froze (interior + trailing empty
 slots, zero-length funcs, loc/flags/pad, byte2, the name block), the adversarial-review
 hardening (off= overrides for kit-edited layouts, the raw= entry escape hatch, the
-EbSrcError-everywhere contract, BOM tolerance, hand-authored-source fixpoint), and the three
-CLI verbs. The install-gated sweep round-trips REAL binaries and reports its count loudly —
-a partial corpus must never read as a full pass.
+EbSrcError-everywhere contract, BOM tolerance, hand-authored-source fixpoint), the Rung-4
+comment enrichment (presentation only — every join must leave the bytes alone), and the
+three CLI verbs. The install-gated sweep round-trips REAL binaries and reports its count
+loudly — a partial corpus must never read as a full pass.
 """
 import struct
 
 import pytest
 
+from ff9mapkit.eb import cmdasm
 from ff9mapkit.eb.ebsrc import EbSrcError, assemble_source, write_source
 from ff9mapkit.eb.model import EbScript
 
@@ -223,6 +225,9 @@ def test_blank_template_overhang_gap_roundtrips():
     src = write_source(bytes(d))
     assert ".gap off=" in src and "raw=00000400" in src
     assert assemble_source(src) == bytes(d)
+    gap = next(ln for ln in src.splitlines() if ln.startswith(".gap"))
+    assert "# gap:" in gap                                # the enriched form explains what a gap IS
+    assert ".gap" in write_source(bytes(d), enrich=False) and "#" not in write_source(bytes(d), enrich=False)
 
 
 def test_lying_func_table_falls_back_to_raw():
@@ -238,6 +243,261 @@ def test_lying_func_table_falls_back_to_raw():
     assert "raw=" in src and ".entry 1 " in src
     assert assemble_source(src) == bytes(data)
     assert ".func" in src                                 # entry 0 stays structured
+
+
+# --------------------------------------------------------------------- Rung 4: comment enrichment
+
+def _rich_eb() -> bytes:
+    """A synthetic field with one of every enrichable shape: Main_Init spawns an object entry and
+    writes a kit-band story flag; the object sets a model and its talk handler shows a line, grants
+    an item and warps. Bodies are ASSEMBLED from source (kit-authored, zero real game bytes)."""
+    init = cmdasm.assemble_block("\n".join([
+        "InitObject(2, 0)",
+        "SET({ Global.Bit[8712] const(1) B_LET B_EXPR_END })",
+        "RET()",
+    ]))
+    obj_init = cmdasm.assemble_block("SetModel(179, 100)\nRET()")
+    talk = cmdasm.assemble_block("\n".join([
+        "WindowSync(0, 128, 7)",
+        "AddItem(236, 1)",
+        "Field(355)",
+        "RET()",
+    ]))
+    return _eb_file([(0, [(0, init)]), None, (2, [(0, obj_init), (3, talk)])])
+
+
+def _mes(text: str, txid: int = 7) -> dict:
+    from ff9mapkit.dialogue import MesEntry
+    return {txid: MesEntry(txid=txid, text=text)}
+
+
+_KW = dict(mes_entries=_mes("Hello there.\nHow are you?"), field_names={355: "Test/Room"})
+
+
+def _comment(src: str, needle: str) -> str:
+    """The comment on the first line containing ``needle`` ('' when the line has none)."""
+    line = next(ln for ln in src.splitlines() if needle in ln)
+    return line.split("#", 1)[1].strip() if "#" in line else ""
+
+
+def test_enriched_output_still_assembles_byte_exact():
+    """The whole point: comments are presentation. Both parsers strip '#', so the enriched text
+    reassembles to the same bytes as the plain text — and write_source's self-verify already
+    demanded it on the way out."""
+    data = _rich_eb()
+    rich = write_source(data, title="rich demo", **_KW)
+    assert rich.count("#") > 6                            # it really did comment
+    assert assemble_source(rich) == data
+    assert assemble_source(rich) == assemble_source(write_source(data, enrich=False))
+
+
+def test_enrichment_is_deterministic_and_a_fixpoint():
+    data = _rich_eb()
+    a = write_source(data, **_KW)
+    assert a == write_source(data, **_KW)                 # same inputs -> identical text
+    assert write_source(assemble_source(a), **_KW) == a   # and a fixpoint with the kwargs held
+
+
+def test_instruction_comments_join_their_catalogs():
+    src = write_source(_rich_eb(), **_KW)
+    assert _comment(src, "AddItem(236, 1)") == "Potion"
+    assert _comment(src, "SetModel(179, 100)") == "GEO_NPC_F1_DAL"
+    assert _comment(src, "InitObject(2, 0)").startswith("spawn entry 2 (npc")
+    warp = _comment(src, "Field(355)")                    # friendly name wins, EVT in parens
+    assert warp.startswith("-> Test/Room (EVT_")
+    flag = _comment(src, "Global.Bit[8712]")              # the BAND is the fact worth stating
+    assert "8712" in flag and "kit band" in flag
+    assert _comment(src, "WindowSync(0, 128, 7)") == '"Hello there. / How are you?"'
+
+
+def test_field_warp_falls_back_to_the_evt_name():
+    """Without a manifest (the normal case — it is gitignored) a warp still names its target from
+    the in-package field table."""
+    src = write_source(_rich_eb(), mes_entries=_KW["mes_entries"])
+    assert _comment(src, "Field(355)").startswith("-> EVT_")
+
+
+def test_window_preview_needs_mes_entries():
+    src = write_source(_rich_eb(), field_names={355: "Test/Room"})
+    assert _comment(src, "WindowSync(0, 128, 7)") == ""
+    assert "no .mes given" in src.splitlines()[0]
+
+
+def test_header_entry_and_func_comments():
+    src = write_source(_rich_eb(), title="rich demo", **_KW)
+    assert src.splitlines()[0] == "# rich demo"           # the title line stays first
+    assert "2 entries, 3 routines" in src.splitlines()[1]     # slot 1 is EMPTY -> not counted
+    assert _comment(src, ".entry 0 type=0") == "main"
+    ent2 = _comment(src, ".entry 2 type=2")
+    assert ent2.startswith("npc (GEO_NPC_F1_DAL)") and "talkable" in ent2
+    assert _comment(src, ".func 0").startswith("Field startup")
+    talk = _comment(src, ".func 3")
+    assert talk.startswith("Talk handler") and "says 1 line" in talk
+
+
+def test_enrich_false_emits_no_comments_beyond_the_title():
+    src = write_source(_rich_eb(), title="plain demo", enrich=False, **_KW)
+    lines = src.splitlines()
+    assert lines[0] == "# plain demo"
+    assert not any("#" in ln for ln in lines[1:])
+    assert assemble_source(src) == _rich_eb()
+
+
+def test_comments_are_sanitized_to_one_line():
+    """A comment may hold a '#' harmlessly, but a NEWLINE would turn its tail into a source line —
+    and an unbounded preview would make the file unreadable. Both are collapsed."""
+    long_text = "line one\r\nline\ttwo # not a problem " + "very long tail " * 20
+    src = write_source(_rich_eb(), title="a\nb", mes_entries=_mes(long_text),
+                       field_names=_KW["field_names"])
+    win = next(ln for ln in src.splitlines() if "WindowSync(0, 128, 7)" in ln)
+    assert "\r" not in win and "\t" not in win
+    assert win.endswith('..."') and len(_comment(src, "WindowSync(0, 128, 7)")) <= 70
+    assert src.splitlines()[0] == "# a b"                 # even the title collapses
+    assert assemble_source(src) == _rich_eb()             # ... and none of it moved a byte
+
+
+def test_lying_func_table_degrades_to_instruction_comments_only():
+    """The kit's blank-template lineage points an fpos PAST the entry end, which sends the
+    whole-file logic scanner walking garbage. That must cost only the structural labels — the
+    per-instruction pass clamps per func, so its comments survive — and the loss is announced."""
+    data = bytearray(_rich_eb())
+    e2 = EbScript.from_bytes(bytes(data)).entries[2]
+    ft = e2.abs_start + 2 + 4                                           # func-table slot of tag 3
+    data[ft + 2:ft + 4] = struct.pack("<H", 9999)                       # its fpos: past the end
+    src = write_source(bytes(data))
+    assert src.splitlines()[0].startswith("# entry/routine labels unavailable (IndexError")
+    assert _comment(src, "InitObject(2, 0)") == "spawn entry 2"         # no entry role to add
+    assert "kit band" in _comment(src, "Global.Bit[8712]")
+    assert _comment(src, ".entry 0 type=0") == "" and _comment(src, ".func 0") == ""
+    assert assemble_source(src) == bytes(data)
+
+
+def test_enrichment_failure_is_reported_not_swallowed(monkeypatch):
+    """The outer guard: comments must never cost the round trip (the whole-corpus gate runs this
+    path) — but a naming layer that blew up in an UNFORESEEN way is ANNOUNCED in the header, never
+    silently blank. Injected at a labeller used ONLY by enrichment, past the inner guard."""
+    from ff9mapkit import logic_map
+
+    def _boom(*a, **kw):
+        raise RuntimeError("labeller exploded")
+
+    monkeypatch.setattr(logic_map, "kind_label", _boom)
+    data = _rich_eb()
+    src = write_source(data, title="rich demo")
+    assert src.splitlines()[1] == "# comments unavailable (RuntimeError: labeller exploded)"
+    assert not any("#" in ln for ln in src.splitlines()[2:])
+    assert assemble_source(src) == data
+
+
+def test_battle_scene_comments_name_and_warn():
+    """A scripted Battle names its scene (the high bit of btlId is Steiner's state, NOT the scene);
+    SetRandomBattles names its slots, collapsing the usual all-four-the-same repeat; and a BSC_B3_*
+    pick is a model holder that crashes as an encounter, so the comment says so where the byte is."""
+    from ff9mapkit import catalog
+    good = catalog.resolve_scene("BSC_IC_R000")
+    bucket = next(sid for _nm, sid in catalog.battle_scenes(include_model_bucket=True)
+                  if catalog.is_model_bucket_scene(sid))
+    body = cmdasm.assemble_block("\n".join([
+        f"Battle(0, {good | 0x8000})",                     # bit 15 set -> same scene
+        f"SetRandomBattles(1, {good}, {good}, {good}, {good})",
+        f"Battle(0, {bucket})",
+        "RET()",
+    ]))
+    src = write_source(_eb_file([(0, [(0, body)])]))
+    assert _comment(src, f"Battle(0, {good | 0x8000})") == f"scene {good} BSC_IC_R000"
+    assert _comment(src, "SetRandomBattles") == f"random encounters: scene {good} BSC_IC_R000"
+    assert "NOT fightable (model bucket)" in _comment(src, f"Battle(0, {bucket})")
+
+
+def test_battle_ex_names_its_scene_too():
+    """BattleEx (0x8C) is the same event — a scripted battle — with a group operand, so its btlId
+    sits at arg 2 under the same 0x7FFF mask. Naming Battle but not BattleEx left the scripted
+    battles of the fields that use the group form unlabelled."""
+    from ff9mapkit import catalog
+    good = catalog.resolve_scene("BSC_IC_R000")
+    body = cmdasm.assemble_block(f"BattleEx(0, 3, {good | 0x8000})\nRET()")
+    src = write_source(_eb_file([(0, [(0, body)])]))
+    assert _comment(src, "BattleEx(") == f"scene {good} BSC_IC_R000"
+
+
+# ------------------------------------------------------- the armed-entry set (all three Init ops)
+
+def _armed_eb() -> bytes:
+    """Every ARMING shape in one synthetic field: entry 2 spawned as an object from Main_Init,
+    entry 3 armed as CODE, entry 4 armed as a REGION from a talk handler (NOT Main_Init), a party
+    slot selector, and entry 5 armed by nobody."""
+    init = cmdasm.assemble_block("\n".join([
+        "InitObject(2, 0)",
+        "InitCode(3, 0)",
+        "InitObject(252, 0)",
+        "RET()",
+    ]))
+    npc_init = cmdasm.assemble_block("SetModel(179, 100)\nRET()")
+    npc_talk = cmdasm.assemble_block("InitRegion(4, 0)\nRET()")
+    return _eb_file([(0, [(0, init)]), None, (2, [(0, npc_init), (3, npc_talk)]),
+                     (0, [(0, cmdasm.assemble_block("RET()"))]),
+                     (1, [(0, cmdasm.assemble_block("RET()")),
+                          (2, cmdasm.assemble_block("RET()"))]),
+                     (0, [(0, cmdasm.assemble_block("RET()"))])])
+
+
+def test_init_fact_table_covers_every_engine_init_op():
+    """Drift guard: the comment layer's Init* table IS eventscan.INIT_OPS. If the engine census
+    ever grows a fourth arming op, this fails instead of silently mislabelling its entries."""
+    from ff9mapkit import eventscan
+    from ff9mapkit.eb import ebsrc as _e
+    assert set(_e._INIT_FACT) == set(eventscan.INIT_OPS)
+
+
+def test_all_three_init_ops_arm_an_entry():
+    """'defined, not spawned' must read the WHOLE arming surface. InitObject alone misses an entry
+    armed as code (0x07) or as a region (0x08) — and misses arming done anywhere but Main_Init —
+    which mislabelled live entries as dead across most of the real corpus (field 2510's gateway
+    entry 13 among them)."""
+    src = write_source(_armed_eb())
+    assert "defined, not spawned" not in _comment(src, ".entry 2 ")     # InitObject, Main_Init
+    assert "defined, not spawned" not in _comment(src, ".entry 3 ")     # InitCode
+    assert "defined, not spawned" not in _comment(src, ".entry 4 ")     # InitRegion, from a talk fn
+    assert "defined, not spawned" in _comment(src, ".entry 5 ")         # armed by nobody: dead
+    assert _comment(src, "InitCode(3, 0)") == "arm code entry 3 (script helper)"
+    assert _comment(src, "InitRegion(4, 0)") == "arm region entry 4 (invisible trigger)"
+    assert assemble_source(src) == _armed_eb()
+
+
+def test_party_slot_init_object_is_not_an_entry_index():
+    """InitObject 251-254 select a PARTY MEMBER (the engine's partyUID[sid - 251]), not entry 251+
+    — so they name the slot, and they arm no entry."""
+    src = write_source(_armed_eb())
+    assert _comment(src, "InitObject(252, 0)") == "spawn party member (slot 1)"
+    assert "spawn entry 252" not in src
+
+
+def test_armed_more_than_once_is_counted():
+    body = cmdasm.assemble_block("InitObject(1, 0)\nInitCode(1, 0)\nRET()")
+    src = write_source(_eb_file([(0, [(0, body)]),
+                                 (0, [(0, cmdasm.assemble_block("RET()"))])]))
+    assert _comment(src, ".entry 1 ").endswith("armed x2")
+
+
+def test_the_writer_reuses_the_enrichment_decode(monkeypatch):
+    """Finding 3: the comment layer and the body disassembler decoded every function TWICE. The
+    cache must actually be CONSUMED (a cache nobody hits is the check-that-cannot-fail shape) and
+    must not change one byte of the emitted text."""
+    from ff9mapkit.battle import battleai
+    from ff9mapkit.eb import ebsrc as _e
+
+    data = _armed_eb()
+    calls = []
+    real = battleai._decode_func_pretty
+    monkeypatch.setattr(battleai, "_decode_func_pretty",
+                        lambda *a, **k: (calls.append(a[1:]), real(*a, **k))[1])
+    with_cache = write_source(data)
+    hits = len(calls)
+    calls.clear()
+    monkeypatch.setattr(_e._Enrichment, "predecoded", lambda self, a, b: None)
+    without_cache = write_source(data)
+    assert with_cache == without_cache                    # same text, byte for byte
+    assert hits < len(calls)                              # ... and strictly fewer decodes
 
 
 # --------------------------------------------------------------------- error contract
@@ -304,6 +564,7 @@ def test_expression_on_flagless_opcode_refused():
 
 def _ns(**kw):
     import argparse
+    kw.setdefault("plain", False)                         # eb-src's comment switch (Rung 4)
     return argparse.Namespace(**kw)
 
 
@@ -319,6 +580,96 @@ def test_cli_eb_src_and_eb_asm_roundtrip(tmp_path, capsys):
                            verify_against=str(eb_path))) == 0
     assert out_path.read_bytes() == _demo_eb()
     capsys.readouterr()
+
+
+def test_cli_eb_src_plain_switch(tmp_path, capsys):
+    """Comments are ON by default; --plain drops them. Either way the source assembles back to
+    the same bytes (a bare .eb PATH carries no field id, so no .mes / manifest is consulted)."""
+    from ff9mapkit.cli import _cmd_eb_src
+    eb_path = tmp_path / "demo.eb.bytes"
+    eb_path.write_bytes(_rich_eb())
+    rich, plain = tmp_path / "rich.ebs", tmp_path / "plain.ebs"
+    assert _cmd_eb_src(_ns(target=str(eb_path), lang="us", out=str(rich), verify_all=False)) == 0
+    assert _cmd_eb_src(_ns(target=str(eb_path), lang="us", out=str(plain), verify_all=False,
+                           plain=True)) == 0
+    rich_txt, plain_txt = rich.read_text(encoding="utf-8"), plain.read_text(encoding="utf-8")
+    assert "AddItem(236, 1)  # Potion" in rich_txt
+    assert plain_txt.splitlines()[0] == "# demo.eb.bytes"
+    assert not any("#" in ln for ln in plain_txt.splitlines()[1:])
+    assert assemble_source(rich_txt) == assemble_source(plain_txt) == _rich_eb()
+    capsys.readouterr()
+
+
+def _patch_naming_seams(monkeypatch, *, mes=True, names=True, boom=False):
+    """Stand in for the INSTALL at exactly the seams `_eb_src_naming` reads — the .mes extract,
+    its parser, and the (gitignored, dev-only) field-name manifest — so the field-ID path of
+    eb-src is testable with no FF9 install and no real game bytes."""
+    from ff9mapkit import dialogue, extract
+
+    def _boom(*a, **kw):
+        raise RuntimeError("no install here")
+
+    monkeypatch.setattr(extract, "extract_event_script", lambda t, lang="us": _rich_eb())
+    monkeypatch.setattr(dialogue, "extract_field_mes",
+                        _boom if boom else (lambda t, lang="us": b"raw" if mes else b""))
+    monkeypatch.setattr(dialogue, "parse_mes", lambda body: _KW["mes_entries"])
+    monkeypatch.setattr(extract, "_manifest_field_names",
+                        _boom if boom else (lambda: {355: "Test/Room"} if names else {}))
+
+
+def test_cli_eb_src_by_field_id_names_what_it_found(monkeypatch, tmp_path, capsys):
+    """The field-ID path is the one that carries names: the title line gets the field's friendly +
+    EVT identity, warps resolve through the manifest, and dialogue previews come from the .mes.
+    KILLS the mutant that makes the naming layer return empties — every assertion here is about a
+    name that only the naming layer can supply."""
+    from ff9mapkit.cli import _cmd_eb_src
+    _patch_naming_seams(monkeypatch)
+    out = tmp_path / "byid.ebs"
+    assert _cmd_eb_src(_ns(target="355", lang="us", out=str(out), verify_all=False)) == 0
+    txt = out.read_text(encoding="utf-8")
+    title = txt.splitlines()[0]                           # friendly | FBG folder | EVT name
+    assert title.startswith("# field 355 lang us -- Test/Room | fbg_") and "| EVT_" in title
+    assert _comment(txt, "Field(355)").startswith("-> Test/Room (EVT_")
+    assert _comment(txt, "WindowSync(0, 128, 7)") == '"Hello there. / How are you?"'
+    assert assemble_source(txt) == _rich_eb()
+    capsys.readouterr()
+
+
+def test_cli_eb_src_survives_a_naming_layer_that_blows_up(monkeypatch, tmp_path, capsys):
+    """Names are PRESENTATION: an install/text-block/manifest that raises must cost the comments'
+    wording and nothing else. KILLS the mutant that drops `_eb_src_naming`'s guards — under it
+    this raises instead of returning 0."""
+    from ff9mapkit.cli import _cmd_eb_src
+    _patch_naming_seams(monkeypatch, boom=True)
+    out = tmp_path / "boom.ebs"
+    assert _cmd_eb_src(_ns(target="355", lang="us", out=str(out), verify_all=False)) == 0
+    txt = out.read_text(encoding="utf-8")
+    assert txt.splitlines()[0] == "# field 355 lang us"   # no suffix -- but the command WORKED
+    assert "no .mes given" in txt.splitlines()[1]
+    assert _comment(txt, "Field(355)").startswith("-> EVT_")   # the in-package table still names it
+    assert assemble_source(txt) == _rich_eb()
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_cli_eb_src_stdout_survives_a_legacy_code_page(monkeypatch, capsys):
+    """A jp/fr dialogue preview through a cp1252 console must PRINT (degraded), never traceback,
+    and must say ONCE that what you are looking at is no longer the exact source. KILLS the mutant
+    that reverts the print to a bare `print(src)` — that raises UnicodeEncodeError here."""
+    import io
+    import sys as _sys
+    from ff9mapkit import dialogue
+    from ff9mapkit.cli import _cmd_eb_src
+
+    _patch_naming_seams(monkeypatch)
+    monkeypatch.setattr(dialogue, "parse_mes", lambda body: _mes("ダガーの剣"))
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict", newline="")
+    monkeypatch.setattr(_sys, "stdout", stream)
+    assert _cmd_eb_src(_ns(target="355", lang="us", out=None, verify_all=False)) == 0
+    stream.flush()
+    printed = stream.buffer.getvalue().decode("cp1252")
+    assert ".ebs 1" in printed and '"???' in printed           # it printed, and it degraded
+    err = capsys.readouterr().err
+    assert err.count("cp1252") == 1 and "-o FILE" in err       # said so ONCE, and how to fix it
 
 
 def test_cli_eb_asm_verify_mismatch_exits_1(tmp_path, capsys):
