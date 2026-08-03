@@ -31,6 +31,11 @@ The laws, and what falsified the alternative in each case:
 * **A REPAIR THAT IS NOT EXACT IS A HOLE** (:func:`repair_tjunctions`) -- splitting an
   edge at a point merely NEAR it leaves a sliver gap the width of the offset, which is
   strictly worse than the T-junction it closes.
+* **THE FAN LAW** (:func:`earclip` ``quality=``) -- a triangulation that is exact can
+  still be wrong. First-ear clipping fans a run of collinear ring vertices into slivers,
+  and the defect surfaces only DOWNSTREAM, where a re-partition mints a vertex per
+  diagonal and two land inside the weld tolerance. Fix the ear CHOICE; adding ring
+  vertices (densify) and removing them (collapse) were both falsified.
 * **SCORE AGAINST THE NEIGHBOUR** (:func:`cover_gap`) -- validate a cloned patch against
   the retained surface it lands in, not against its own donor. A donor can be perfectly
   lawful and still be a visible tone patch where you put it.
@@ -330,8 +335,46 @@ def _cross(o, a, b) -> float:
     return (a[0] - o[0]) * (b[1] - o[1]) - (b[0] - o[0]) * (a[1] - o[1])
 
 
-def earclip(ring: Sequence[Sequence[float]]) -> list[tuple]:
-    """Ear-clip a simple polygon. Handles the fold-back rings a cut/fill strip makes."""
+def _ear_quality(a, b, c) -> float:
+    """The SMALLEST interior angle (degrees) of ear ``a-b-c`` -- the selection score.
+
+    A sliver ear scores near 0, a well-shaped one near 60. See :func:`earclip`'s
+    ``quality`` for why the shape of an ear -- not just its validity -- is load-bearing.
+    """
+    worst = 180.0
+    for (p, q, r) in ((a, b, c), (b, c, a), (c, a, b)):
+        ux, uy = p[0] - q[0], p[1] - q[1]
+        vx, vy = r[0] - q[0], r[1] - q[1]
+        nu = math.hypot(ux, uy) or 1e-30
+        nv = math.hypot(vx, vy) or 1e-30
+        cs = max(-1.0, min(1.0, (ux * vx + uy * vy) / (nu * nv)))
+        worst = min(worst, math.degrees(math.acos(cs)))
+    return worst
+
+
+def earclip(ring: Sequence[Sequence[float]], *, quality: bool = False) -> list[tuple]:
+    """Ear-clip a simple polygon. Handles the fold-back rings a cut/fill strip makes.
+
+    THE FAN LAW (``quality=True``) -- take the BEST-SHAPED valid ear, not the first one.
+
+    Taking the first valid ear is correct but produces a fan of slivers wherever the ring
+    carries a run of collinear vertices: a collinear vertex can never BE an ear (its cross
+    product is zero), so the run survives until its neighbourhood has been eaten away and
+    is then triangulated against whatever distant vertex happens to be adjacent by then.
+    That is invisible in the patch itself -- every vertex is still a ring vertex and the
+    coverage is exact -- and it only becomes a defect DOWNSTREAM: the transplant's block-
+    border re-partition mints a vertex where each fan diagonal crosses the border, and
+    near-parallel diagonals cross within the 0.05u weld tolerance of one another. Measured
+    on the excise fills: the sinuous island (3,11)+2x4 put two crossings 0.0239u apart on
+    z=-64 and Daguerreo (5,15)+3x2 four more on x=64/x=128, all four failing the weld
+    audit. Scoring ears by their smallest angle keeps every diagonal local: the same rings,
+    the same triangle counts, the same coverage, closest interior pair 0.0239 -> 0.1444 and
+    0.0294 -> 0.3585, weld pairs 1 and 4 -> 0.
+
+    It stays OFF by default because it changes which diagonals a triangulation picks, and
+    the Path-D V-shore bench's cover is owner-confirmed in game -- moving its diagonals is
+    a playtest, not a refactor. :func:`flat_patch` (the excise fill) opts in.
+    """
     P = [tuple(p[:2]) for p in ring]
     if len(P) < 3:
         raise ValueError("ring needs at least three points")
@@ -342,6 +385,7 @@ def earclip(ring: Sequence[Sequence[float]]) -> list[tuple]:
     while len(P) > 3 and guard < 4000:
         guard += 1
         n = len(P)
+        best = None
         for i in range(n):
             a, b, c = P[(i - 1) % n], P[i], P[(i + 1) % n]
             if _cross(a, b, c) <= 1e-12:
@@ -350,11 +394,16 @@ def earclip(ring: Sequence[Sequence[float]]) -> list[tuple]:
                    and _cross(c, a, q) >= -1e-12
                    for q in P if q not in (a, b, c)):
                 continue
-            tris.append((a, b, c))
-            del P[i]
+            if not quality:
+                best = (0.0, i, (a, b, c))
+                break
+            score = _ear_quality(a, b, c)
+            if best is None or score > best[0]:
+                best = (score, i, (a, b, c))
+        if best is None:
             break
-        else:
-            break
+        tris.append(best[2])
+        del P[best[1]]
     if len(P) != 3:
         raise ValueError(f"ear-clip stuck with {len(P)} vertices")
     tris.append(tuple(P))
@@ -653,7 +702,10 @@ def flat_patch(ring, *, y: float, uv_quads, idall: int, normal=(0.0, 1.0, 0.0),
     if not quads:
         raise ValueError("flat_patch needs at least one uv quadrant")
     plan = [(float(p[0]), float(p[2])) for p in ring]      # ear-clip in the x/z plane
-    tris2 = earclip(plan)
+    # THE FAN LAW: this fill is re-partitioned at the target's block borders downstream,
+    # so a sliver fan across the ring turns into near-miss vertex pairs ON a border that
+    # the weld audit (rightly) refuses. Quality ear selection keeps the diagonals local.
+    tris2 = earclip(plan, quality=True)
     at = {(round(p[0], 6), round(p[1], 6)): i for i, p in enumerate(plan)}
 
     out = []

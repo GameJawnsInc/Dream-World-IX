@@ -455,6 +455,99 @@ def test_flat_patch_winding_is_independent_of_ring_orientation():
             assert _plan_cross(t) < 0
 
 
+# --------------------------------------------------- THE FAN LAW (border crack)
+# Registration: studies/coast-shape-language/EXCISE-V2-PREDICTION.md (ATTEMPT 3).
+
+#: The weld audit's near-miss tolerance -- two vertices closer than this are a crack
+#: candidate. The fan defect put four pairs inside it.
+WELD_TOL = 0.05
+
+#: A ring with the STRUCTURE the excise fills carry: a run of collinear lattice
+#: vertices, a long inlet leading away from it, and -- far round the ring -- an apex
+#: sitting barely off the run's own line. Coordinates are invented; only the shape
+#: class is borrowed. First-ear clipping eats the inlet, is then left with the run
+#: adjacent to that apex, and fans it into slivers.
+FAN_RING = [(24.0, -12.0), (24.0, -8.0), (24.0, -4.0), (24.0, 0.0),
+            (20.0, 0.0), (16.0, 0.0), (12.0, 0.0),
+            (12.0, 4.0), (8.0, 4.0), (4.0, 4.0), (4.0, 0.5), (0.0, 2.8),
+            (-4.0, 2.4), (-8.0, 2.4), (-12.0, 6.1), (-14.9, 8.0), (-16.0, 9.1),
+            (-20.0, 9.8), (-21.0, 8.0), (-22.0, 4.5), (-21.0, 0.0),
+            (-16.8, -0.41), (-17.0, -4.41), (-20.0, -7.37), (-24.0, -6.5),
+            (-24.0, -12.0)]
+
+
+def _line_crossings(tris2, x):
+    """Every distinct z where a plan triangulation's edges meet the vertical line ``x``.
+
+    These are exactly the vertices the transplant's block-border re-partition mints when
+    that line is a block border, so their spacing IS the weld audit's subject.
+    """
+    zs = set()
+    for t in tris2:
+        for i in range(3):
+            a, b = t[i], t[(i + 1) % 3]
+            if abs(a[0] - x) < 1e-12:
+                zs.add(round(a[1], 9))
+            elif (a[0] - x) * (b[0] - x) < 0:
+                s = (x - a[0]) / (b[0] - a[0])
+                zs.add(round(a[1] + s * (b[1] - a[1]), 9))
+    return sorted(zs)
+
+
+def _closest_crossing(tris2, lines):
+    """The smallest gap between two crossings on any of ``lines`` (inf if never two)."""
+    worst = math.inf
+    for x in lines:
+        zs = _line_crossings(tris2, x)
+        for lo, hi in zip(zs, zs[1:]):
+            worst = min(worst, hi - lo)
+    return worst
+
+
+#: block borders are 64u apart and every shift is 0-mod-4, so a re-partition plane always
+#: lands on the 4u lattice -- score the whole family rather than guessing which one.
+FAN_LINES = [float(x) for x in range(-24, 25, 4)]
+
+
+def test_earclip_first_ear_fans_a_collinear_run_into_slivers():
+    """THE WITNESS. Without this the fix looks like a no-op refactor.
+
+    A collinear vertex can never be an ear (its cross product is zero), so a run survives
+    until its neighbourhood is eaten and is then triangulated against whatever distant
+    vertex is adjacent by then. The patch itself is still exact -- same ring vertices,
+    same coverage -- and the defect only appears DOWNSTREAM, when the block-border
+    re-partition mints a vertex per fan diagonal and two land inside the weld tolerance.
+    """
+    tris = ME.earclip(FAN_RING)                       # default: first valid ear
+    assert _closest_crossing(tris, FAN_LINES) < WELD_TOL
+
+
+def test_earclip_quality_keeps_every_diagonal_local():
+    """THE FAN LAW: scoring ears by their smallest angle keeps the diagonals short."""
+    tris = ME.earclip(FAN_RING, quality=True)
+    assert _closest_crossing(tris, FAN_LINES) >= WELD_TOL
+
+
+def test_earclip_quality_changes_diagonals_not_coverage():
+    """Same polygon, same vertices, same area -- only the diagonals move."""
+    base = ME.earclip(FAN_RING)
+    good = ME.earclip(FAN_RING, quality=True)
+    assert len(good) == len(base) == len(FAN_RING) - 2
+    assert {tuple(p) for t in good for p in t} == {tuple(p) for p in FAN_RING}
+    area = sum(abs(ME._cross(*t)) / 2.0 for t in base)
+    assert math.isclose(sum(abs(ME._cross(*t)) / 2.0 for t in good), area, rel_tol=1e-9)
+    assert good != base                               # it really did pick other ears
+
+
+def test_flat_patch_opts_into_the_quality_earclip():
+    """THE CALL SITE. The helper being capable is not the same as the fill spending it --
+    a `quality=True` dropped here passes every earclip test and ships the crack back."""
+    ring = [(p[0], 0.0, p[1]) for p in FAN_RING]
+    tris = ME.flat_patch(ring, y=0.0, uv_quads=[(0.0, 0.0, 0.5039, 0.5079)], idall=228)
+    plan = [tuple((v[0][0], v[0][2]) for v in t) for t in tris]
+    assert _closest_crossing(plan, FAN_LINES) >= WELD_TOL
+
+
 # ------------------------------------------------------- region-capable morphs
 # Registration: studies/coast-shape-language/REGION-MORPH-PREDICTION.md
 
@@ -651,6 +744,40 @@ def test_excise_still_refuses_a_genuine_interior_sheet_hole(monkeypatch):
     assert rep["weld_exact"] is False
     assert (56.0, 0.0, -15.0) in [tuple(v) for v in rep["weld_missing"]]
     assert "refused" in rep
+
+
+def test_excise_fill_does_not_fan_across_a_block_border(monkeypatch):
+    """THE FAN LAW at the EXCISE call site -- two helpers deep from where it is spent.
+
+    ``flat_patch`` opting into quality ear-clipping is worth nothing unless the excise
+    fill is the thing being clipped. The fill's ring here is the FAN_RING shape, seated
+    so it crosses the rect frame: with first-ear clipping its diagonals cross a 4u lattice
+    line 0.008u apart, which is exactly how the sinuous (3,11)+2x4 and Daguerreo
+    (5,15)+3x2 rects failed the weld audit with pairs=1 and pairs=4.
+    """
+    from ff9mapkit.world import transplant as TR
+
+    seated = [(p[0] + 24.0, p[1] - 30.0) for p in FAN_RING]        # touches the x=0 frame
+    crumb = [_tri([(a[0], a[1]), (b[0], b[1]), (c[0], c[1])])
+             for (a, b, c) in ME.earclip(seated)]                  # boundary == the ring
+    kept = [_tri([(20.0, -55.0), (24.0, -55.0), (22.0, -60.0)])]
+    # sea4 owns every waterline vertex of the excised mass, as the real sheet does
+    sea4 = [_tri([(p[0], p[1]), (60.0, -2.0), (62.0, -6.0)]) for p in seated]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+
+    assert not rep.get("refused"), rep.get("refused")
+    fill = [t for tw in tweaks if isinstance(tw, TR.EmitTris) for t in tw.emit()]
+    assert fill, "the excised crumb must be re-zipped with a sea4 fill"
+    plan = [tuple((v[0][0], v[0][2]) for v in t) for t in fill]
+    lines = [float(x) for x in range(0, 49, 4)]
+    assert _closest_crossing(plan, lines) >= WELD_TOL
 
 
 # ------------------------------------------------- THE LAYOUT-SUPPORT WARNING

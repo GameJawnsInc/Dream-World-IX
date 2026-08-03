@@ -128,3 +128,79 @@ not a collinearity test over a vertex soup.
 Both directions mutation-verified. The first pass MISSED the frame law entirely (the fix
 had no call-site test — the third time today), and the negative direction was added only
 after a second mutation showed `_on_frame -> True` passing the whole suite.
+
+---
+
+## ATTEMPT 3 (2026-08-02) — THE FAN LAW. Diagnosed, fixed, all three rects clean
+
+### The measurement that changed the diagnosis
+
+Both previous entries assumed the crack was **the fill's ring vs the stock sheet's hole
+boundary** diverging. That assumption is what produced ATTEMPT 2's densify, and it is
+**wrong**. Tracing every source edge that crosses the offending border plane:
+
+```
+donor (5,15)+3x2, region plane x=128
+   FILL      at (128,0,-41.173698)   edge (140,0,-40) -> (94.910156,0,-44.410156)
+   FILL      at (128,0,-40.109747)   edge (140,0,-40) -> (95.152344,0,-40.410156)
+   FILL      at (128,0,-40.080329)   edge (136,0,-40) -> (95.152344,0,-40.410156)
+   FILL      at (128,0,-40.044525)   edge (132,0,-40) -> (95.152344,0,-40.410156)
+   FILL|vert at (128,0,-40.000000)   ring vertex
+   stock:sea4|vert at (128,0,-40.000000)   -- shared EXACTLY, no divergence
+```
+
+**Every crack vertex is minted by a FILL-INTERNAL diagonal, not by a boundary.** The ring
+and the sheet agree bit-for-bit where they meet. The two surfaces never diverged; the
+fill's own triangulation fanned.
+
+Why: ring indices 33-36 are `(140,-40) (136,-40) (132,-40) (128,-40)` — a run of
+**exactly collinear** lattice vertices — and index 52 is `(95.152344,-40.410156)`, an apex
+sitting 0.41u off that run's line, 16 vertices away round the ring. A collinear vertex can
+never be an ear (its cross product is zero), so first-ear clipping eats the inlet between
+them, is then left with the run adjacent to that apex, and fans it. Each fan diagonal
+crosses the block border at its own z, 0.03-0.04 apart. Ring census: Daguerreo 235 verts /
+**62 exactly collinear**, sinuous 291 / **84**, and the already-clean waisted isthmus
+12 and 9 verts / **0 collinear** — which is why that rect never had the defect.
+
+### The change
+
+`ff9mapkit/ff9mapkit/world/meshedit.py:333` `_ear_quality` + `earclip(..., quality=False)`
+— take the best-shaped valid ear (largest smallest-angle) instead of the first valid one;
+`meshedit.py:703` (inside `flat_patch`) opts in. **The ring is untouched**: no vertex added (that
+was ATTEMPT 2), none removed (that would have T-junctioned the sheet against the fill,
+against DENSIFY FIRST). Same rings, same triangle counts, same coverage — only which
+diagonals get drawn. Default stays OFF because `cover_gap` and the Path-D V-shore bench
+also call `earclip`, and their cover is owner-confirmed in game: moving those diagonals is
+a playtest, not a refactor.
+
+### Results — all three rects, `--dry-run` into target-disc 9
+
+| donor rect | weld pairs | census | verdict |
+|---|---|---|---|
+| waisted `(6,6)+2x2` | 0 -> **0** | clean -> clean (2304 samples) | STAYS CLEAN |
+| sinuous `(3,11)+2x4` | 1 -> **0** | clean -> clean (4608 samples) | gates CLEAN |
+| Daguerreo `(5,15)+3x2` | 4 -> **0** | clean -> clean (3456 samples) | gates CLEAN |
+
+`miss=0 inherited=0 introduced=0`, `clip-drop area2=0`, `border-census holes=0`, and
+`fill_tris` unchanged at 17 / 330 / 274 on all three — the fill covers exactly what it
+covered before.
+
+**It is margin, not a threshold squeak.** Closest interior near-miss pair, measured at 10x
+the gate tolerance so the distribution is visible: sinuous `0.0239 -> 0.1444` (interior
+pairs under 0.5u: 45 -> 4), Daguerreo `0.0294 -> 0.3585` (64 -> 3), waisted 0 -> 0.
+
+### Coverage
+
+Five tests in `ff9mapkit/tests/test_world_meshedit.py`, and the call site is tested twice
+over (`flat_patch`, then `excise_plan` through a monkeypatched world) because the recurring
+defect here is a capable helper no call site spends. Mutations, all caught:
+
+| mutation | red |
+|---|---|
+| `flat_patch`: `quality=True` -> `False` | the 2 call-site tests |
+| `earclip`: `if not quality` -> `if True` (flag never honoured) | 4 tests |
+| `earclip`: `score > best[0]` -> `score < best[0]` (pick the WORST ear) | 3 tests |
+| `earclip`: default `quality=True` (a guard that ALWAYS fires) | the witness + the diagonals-not-coverage test |
+
+**Still not playtested.** Gates are a regression harness, not an oracle; what is proven
+here is that the fill's geometry no longer mints near-miss vertices at a block border.

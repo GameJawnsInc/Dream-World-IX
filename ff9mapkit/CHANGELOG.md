@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `--excise` no longer cracks a fill at a block border
+- **The two large laddered rects now build clean.** The sinuous island `(3,11)+2x4` and
+  Daguerreo `(5,15)+3x2` were being refused by the weld audit with one and four near-miss
+  vertex pairs; both now pass every gate, with the placement census unchanged at
+  `miss=0 inherited=0 introduced=0`.
+- **The cause was the fill's own triangulation, not a divergence from the sheet.** Every
+  offending vertex was minted by a *fill-internal* diagonal where it crossed a block border —
+  the fill's ring and the deep sheet's hole boundary agreed bit-for-bit. Ear-clipping took the
+  first valid ear, and since a collinear vertex can never *be* an ear, a run of them survived
+  until it could only be triangulated against a distant vertex, fanning into slivers whose
+  border crossings landed 0.02–0.04u apart.
+- **`meshedit.earclip` takes a `quality=` selection** (best-shaped ear rather than first valid);
+  `flat_patch` opts in. Same ring, same triangle count, bit-identical covered area — only the
+  diagonals move. Default stays off, so every other caller's triangulation is untouched.
+
 ### Fixed — a donor without a beach was assumed to be grass
 - **`--ground` mis-read the source family of any beachless landmass.** The family was detected
   from the sand band alone, falling back to `"grass"` when there was none — so a desert island
