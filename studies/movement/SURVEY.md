@@ -203,11 +203,15 @@ finishes animating; fields 1704/2921 auto-lock — **mobile only**).
 
 ## 10. GAPS — engine/stock capabilities the authoring layer doesn't reach (ranked)
 
-> **Tier 1 (items 1–4) is BUILT** — the lock brackets on npc/shop/event bodies (per-lane stock
-> defaults; a locked tread delegates via a player func), the `lock`/`lock_menu` keys, narration
-> `owns_control` honored, and `[player] locked_entrances` (both template grant sites entrance-gated,
-> the first ungated `[[on_entry]]` carries the grant tail). Offline-green (474 domain tests) and
-> deployed on the WINSTYLE bench @30601 — **in-game verdict pending**.
+> **Tier 1 (items 1–4) is BUILT and IN-GAME PROVEN** (WINSTYLE bench @30601, 4 playtest rounds,
+> owner-confirmed): the lock brackets on npc/shop/event bodies (per-lane stock defaults; a locked
+> tread delegates via a player func), the `lock`/`lock_menu` keys, narration `owns_control`
+> honored, `[player] locked_entrances` + `[[on_entry]] entrance` (the coverage-validated unlock
+> hook), and the entrance-gated entry-settle grant. Two laws the playtests minted: THE
+> CONCURRENT-BRACKETS LAW (two load-time lock brackets interleave — the first EnableMove frees the
+> player mid-scene) and the narration lane's reorder-wait FALSIFIED (the player-init entry grant is
+> model-load-timed; narration scenes now run the conductor's grant-spin + watchdog). 500 domain
+> tests; the whole arc is on master.
 
 **Tier 1 — the fidelity bug + the missing verb:**
 1. **Lock the dialogue-bearing bodies like stock does.** `[[npc]]` plain talk, `shop_speak_body`,
