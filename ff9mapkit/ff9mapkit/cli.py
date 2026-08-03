@@ -3782,21 +3782,43 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 or args.beach_slide or args.strips_rebuild or args.sand_rebuild
                 or args.cap_rebuild or args.beach_mint or args.band_convert):
             from .world import coastmorph as CM
+            # The CLIFF verbs are REGION-CAPABLE: their window reads the whole rect and
+            # frames against the REGION's outer boundary, so a coast crossing an interior
+            # border is one window (adjacent stock blocks weld exactly there). The BEACH
+            # verbs still use a single-cell window -- refuse those by name rather than
+            # silently truncating them to the anchor cell, which is the failure mode the
+            # old blanket guard existed to prevent.
             if (snx, sny) != (1, 1):
-                raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
-            for spec, fn in ((args.cliff_bump, CM.cliff_bump),
-                             (args.cliff_headland, CM.cliff_headland),
-                             (args.cliff_bay, CM.cliff_bay),
-                             (args.beach_bump, CM.beach_bump),
-                             (args.beach_reshape, CM.beach_reshape),
-                             (args.beach_slide, CM.beach_slide)):
+                singles = [n for n, v in (("--beach-bump", args.beach_bump),
+                                          ("--beach-rebuild", args.beach_rebuild),
+                                          ("--beach-reshape", args.beach_reshape),
+                                          ("--beach-slide", args.beach_slide),
+                                          ("--strips-rebuild", args.strips_rebuild),
+                                          ("--sand-rebuild", args.sand_rebuild),
+                                          ("--cap-rebuild", args.cap_rebuild),
+                                          ("--beach-mint", args.beach_mint),
+                                          ("--band-convert", args.band_convert)) if v]
+                if singles:
+                    raise ConfigError(
+                        f"{', '.join(singles)} is single-cell v1 and would truncate to "
+                        f"the anchor cell under --size. The CLIFF verbs "
+                        f"(--cliff-bump/--cliff-headland/--cliff-bay/--cliff-lobes) are "
+                        f"region-capable; drop --size for the beach verbs.")
+            for spec, fn, region in ((args.cliff_bump, CM.cliff_bump, True),
+                                     (args.cliff_headland, CM.cliff_headland, True),
+                                     (args.cliff_bay, CM.cliff_bay, True),
+                                     (args.beach_bump, CM.beach_bump, False),
+                                     (args.beach_reshape, CM.beach_reshape, False),
+                                     (args.beach_slide, CM.beach_slide, False)):
                 if not spec:
                     continue
                 s0, s1, sd = spec.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
                 p1 = tuple(float(v) for v in s1.split(","))
-                tweaks = list(tweaks) + fn((dx, dy), p0, p1, float(sd),
-                                           disc=args.disc, game=args.game)
+                kw = dict(disc=args.disc, game=args.game)
+                if region:
+                    kw["size"] = (snx, sny)
+                tweaks = list(tweaks) + fn((dx, dy), p0, p1, float(sd), **kw)
             if args.beach_rebuild:
                 s0, s1 = args.beach_rebuild.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
@@ -3831,7 +3853,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 p1 = tuple(float(v) for v in s1.split(","))
                 tweaks = list(tweaks) + CM.cliff_lobes(
                     (dx, dy), p0, p1, [float(v) for v in sd.split(",")],
-                    disc=args.disc, game=args.game)
+                    size=(snx, sny), disc=args.disc, game=args.game)
         # the SHORE tweaks (the productized island-B pattern): bank_lower +
         # virgin_mint ride any placement, single-cell or region -- each verb's
         # tweak block derives from its own spec coords (build_shore_tweaks)

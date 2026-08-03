@@ -111,11 +111,40 @@ class CliffWindow:
     """A run of a donor's cliff-base outline, decoded from the real bytes: ordered base
     columns, their crease partners, the wall quads between them, and the seaward normal."""
 
-    def __init__(self, donor, start, end, *, disc: int = 1, lod: str = "0_1", game=None):
+    @staticmethod
+    def region_frame(donor, size=(1, 1)):
+        """The rect's OUTER frame planes ``(x0, x1, z0, z1)``.
+
+        THE FRAME IS THE REGION'S, NOT THE CELL'S. A base edge lying on the frame is
+        excluded from the outline because the coast continues into a neighbour we cannot
+        see -- true at the rect's outer frame, false at an INTERIOR border, where both
+        sides are in hand and the coast genuinely crosses. Same exemption transplant's
+        land-fit gate already makes for a real multi-block landmass. Pure arithmetic, so
+        the law is testable without a game install.
+        """
+        dbx, dby = int(donor[0]), int(donor[1])
+        nx, ny = int(size[0]), int(size[1])
+        if nx < 1 or ny < 1:
+            raise ValueError("region size must be at least 1x1")
+        return (64.0 * dbx, 64.0 * (dbx + nx),
+                -64.0 * (dby + ny), -64.0 * dby)
+
+    def __init__(self, donor, start, end, *, size=(1, 1), disc: int = 1,
+                 lod: str = "0_1", game=None):
         (dbx, dby) = donor
+        nx, ny = (int(size[0]), int(size[1]))
         self.donor = (dbx, dby)
-        self.terr = TR.world_tris(dbx, dby, "terrain", disc=disc, lod=lod, game=game)
-        self.sea4 = TR.world_tris(dbx, dby, "sea4", disc=disc, lod=lod, game=game)
+        self.size = (nx, ny)
+        # REGION-AWARE: read every cell of the rect, not just the anchor. Adjacent stock
+        # blocks weld EXACTLY at a shared border (measured over the four interior borders
+        # of (6,6)+2x2: 12/12, 10/10, 11/11, 7/7 terrain verts, all shared), so the base
+        # chain crosses an interior border with no tolerance and no snapping.
+        self.terr, self.sea4 = [], []
+        for cy in range(dby, dby + ny):
+            for cx in range(dbx, dbx + nx):
+                self.terr += TR.world_tris(cx, cy, "terrain", disc=disc, lod=lod,
+                                           game=game)
+                self.sea4 += TR.world_tris(cx, cy, "sea4", disc=disc, lod=lod, game=game)
         topo = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"]
         self.cliff = [t for t in self.terr if topo(t) == 58]
         self.grass = [t for t in self.terr if topo(t) == 0]
@@ -135,8 +164,7 @@ class CliffWindow:
             ps = [v[0] for v in t3]
             for i in range(3):
                 land_edges.add(frozenset((_pk(ps[i]), _pk(ps[(i + 1) % 3]))))
-        x0, x1 = 64.0 * dbx, 64.0 * dbx + 64.0
-        z0, z1 = -64.0 * dby - 64.0, -64.0 * dby
+        x0, x1, z0, z1 = self.region_frame((dbx, dby), (nx, ny))
 
         def on_frame(a, b, eps=0.02):
             for ax, lo, hi in ((0, x0, x1), (2, z0, z1)):
@@ -5978,12 +6006,13 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
     return out
 
 
-def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+def cliff_bump(donor, start, end, depth, *, size=(1, 1), disc: int = 1,
+               lod: str = "0_1", game=None):
     """The CONFORMING BOW (rung 1): displace the window's interior columns (crease + base +
     coincident water verts) seaward by ``depth * sin^2(pi t)``. Land UVs drag (approved
     in-game at 2.5u); water re-evaluates through its own tile map. The displacement envelope
     is geometric: a depth that folds any tile is refused here (offline), not at deploy."""
-    win = CliffWindow(donor, start, end, disc=disc, lod=lod, game=game)
+    win = CliffWindow(donor, start, end, size=size, disc=disc, lod=lod, game=game)
     ts = win.arc_params()
     moves = {}
     d_cols = [0.0]
@@ -6021,17 +6050,19 @@ def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
             TR.SeaBump(moves=moves, expected=n_sea)]
 
 
-def cliff_headland(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+def cliff_headland(donor, start, end, depth, *, size=(1, 1), disc: int = 1,
+                   lod: str = "0_1", game=None):
     """The STRUCTURAL PROMONTORY (rung 2): rebuild the window's wall over a sin^2-pushed
     outline with ONE inserted column per gap (the gap count must be a multiple of 4 -- the
     deterministic-U-ramp law), re-fill the grass wedge natively on the 4u lattice, and zip
     the sea back to the new outline. Every law gate runs here at build time."""
     return _cliff_reshape(donor, start, end,
                           lambda t_: 1.0 * depth * math.sin(math.pi * t_) ** 2,
-                          disc=disc, lod=lod, game=game)
+                          size=size, disc=disc, lod=lod, game=game)
 
 
-def cliff_bay(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+def cliff_bay(donor, start, end, depth, *, size=(1, 1), disc: int = 1,
+              lod: str = "0_1", game=None):
     """The structural BAY -- the promontory's inward mirror: the outline is pushed LANDWARD,
     the wedge consumes grass instead of sea (the grass drop set extends by wedge overlap,
     exactly as the sea side does for a headland), the rebuilt wall lines the bay's rim, and
@@ -6041,10 +6072,11 @@ def cliff_bay(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game
     Same laws, same gates; the sea ledger flips (emitted - dropped == the wedge)."""
     return _cliff_reshape(donor, start, end,
                           lambda t_: -1.0 * depth * math.sin(math.pi * t_) ** 2,
-                          disc=disc, lod=lod, game=game)
+                          size=size, disc=disc, lod=lod, game=game)
 
 
-def cliff_lobes(donor, start, end, depths, *, disc: int = 1, lod: str = "0_1", game=None):
+def cliff_lobes(donor, start, end, depths, *, size=(1, 1), disc: int = 1,
+                lod: str = "0_1", game=None):
     """COMPOSED morphs in ONE window -- a piecewise profile of sin^2 lobes, one per entry of
     ``depths`` (signed: + = seaward headland, - = landward bay; e.g. ``(3.5, -5, 6.5)`` = a
     bay between two headlands). One reshape means the walls, fills and sea zip are continuous
@@ -6059,12 +6091,14 @@ def cliff_lobes(donor, start, end, depths, *, disc: int = 1, lod: str = "0_1", g
         n = len(depths)
         i = min(int(t_ * n), n - 1)
         return depths[i] * math.sin(math.pi * (t_ * n - i)) ** 2
-    return _cliff_reshape(donor, start, end, profile, disc=disc, lod=lod, game=game)
+    return _cliff_reshape(donor, start, end, profile, size=size, disc=disc, lod=lod,
+                          game=game)
 
 
-def _cliff_reshape(donor, start, end, profile, *, disc: int = 1, lod: str = "0_1",
+def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
+                   lod: str = "0_1",
                    game=None):
-    win = CliffWindow(donor, start, end, disc=disc, lod=lod, game=game)
+    win = CliffWindow(donor, start, end, size=size, disc=disc, lod=lod, game=game)
     ncols = len(win.base)
     gaps = ncols - 1
 
@@ -6317,6 +6351,20 @@ def _cliff_reshape(donor, start, end, profile, *, disc: int = 1, lod: str = "0_1
     # --- the sea ZIP STRIP back to the new outline ---
     loop, pos_of, uv_of, nrm_of = _boundary_loop(drop_sea)
     shore = list(bk)
+    # A base vert with no partner on the sea4 hole boundary used to reach `loop.index(k)`
+    # and die as `ValueError: list.index(x): x not in list` -- an internal error where a
+    # diagnosis belongs. It means that stretch of waterline fronts the SHALLOW LADDER
+    # (sea1/sea2/sea3/sea5) rather than the deep sheet, and the zip only rebuilds sea4.
+    # The dedicated sea1-touch gate catches most of these first; this path is reachable
+    # when it does not, and region windows make it easy to hit because they can run into
+    # a ladder zone the anchor cell never saw.
+    missing = [k for k in shore if k not in loop]
+    if missing:
+        raise ValueError(
+            f"{len(missing)} of the window's {len(shore)} base vert(s) are not on the "
+            f"sea4 hole boundary (first at ({missing[0][0]:.4f},{missing[0][2]:.4f})) -- "
+            f"that stretch of waterline fronts the shallow ladder, not the deep sheet, "
+            f"and the sea zip only rebuilds sea4. Pick a deep-fronted window.")
     for k in shore:
         i0 = loop.index(k)
         rot = loop[i0:] + loop[:i0]

@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the cliff morphs work on a MULTI-BLOCK carry
+- **`--cliff-bump`, `--cliff-headland`, `--cliff-bay` and `--cliff-lobes` now accept `--size`.**
+  Previously any `--size` refused every morph outright ("single-cell v1"), so a multi-block
+  landmass was frozen verbatim the moment it landed — and on a synthetic world there is no
+  second chance, because in-place morphing reads the stock install and only discs 1 and 4
+  exist. You can now reshape a coast that runs across a block line.
+- **A window may cross an interior border.** The morph window reads every cell of the rect and
+  frames against the *region's* outer boundary, so an interior block line is no longer treated
+  as the edge of the world. Adjacent stock blocks weld exactly there, so the outline chains
+  across with no tolerance.
+- **Single-cell behaviour is byte-identical** — verified by signature-hashing all four verbs
+  against the previous implementation.
+- **The beach verbs are still single-cell** and are now refused *by name* under `--size`
+  (`--beach-bump`, `--beach-slide`, `--beach-mint`, …) rather than silently truncated.
+- A sea-zip crash (`list.index(x): x not in list`) is now a diagnosis: it means that stretch
+  of waterline fronts the shallow ladder rather than deep sea, which the zip does not rebuild.
+
 ### Added — `world-transplant --excise`: carry an island whose NEIGHBOUR sits in the way
 - **A multi-block carry is normally refused because of a mass you did not want anyway.** The
   `land-fit` gate rejects any donor rect where land runs to the frame, since carrying it ships a

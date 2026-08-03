@@ -453,3 +453,66 @@ def test_flat_patch_winding_is_independent_of_ring_orientation():
     for ring in (fwd, list(reversed(fwd))):
         for t in ME.flat_patch(ring, y=0.0, uv_quads=q, idall=228, winding=-1.0):
             assert _plan_cross(t) < 0
+
+
+# ------------------------------------------------------- region-capable morphs
+# Registration: studies/coast-shape-language/REGION-MORPH-PREDICTION.md
+
+def test_region_frame_of_a_single_cell_is_that_cell():
+    from ff9mapkit.world.coastmorph import CliffWindow
+    assert CliffWindow.region_frame((7, 17)) == (448.0, 512.0, -1152.0, -1088.0)
+    assert CliffWindow.region_frame((7, 17), (1, 1)) == CliffWindow.region_frame((7, 17))
+
+
+def test_region_frame_spans_the_whole_rect_not_the_anchor_cell():
+    """THE FRAME IS THE REGION'S. If this returned the anchor cell, every interior
+    border would be treated as an outer frame and its base edges dropped -- the coast
+    would be cut at each block line and no window could cross one."""
+    from ff9mapkit.world.coastmorph import CliffWindow
+    x0, x1, z0, z1 = CliffWindow.region_frame((7, 17), (4, 2))
+    assert (x0, x1) == (448.0, 704.0)              # 4 cells wide, not 1
+    assert (z0, z1) == (-1216.0, -1088.0)          # 2 cells tall
+    # the interior borders must lie strictly INSIDE the frame, so they are not excluded
+    for interior in (512.0, 576.0, 640.0):
+        assert x0 < interior < x1
+
+
+def test_region_frame_refuses_a_degenerate_size():
+    from ff9mapkit.world.coastmorph import CliffWindow
+    with pytest.raises(ValueError, match="at least 1x1"):
+        CliffWindow.region_frame((7, 17), (0, 2))
+
+
+def test_cliff_window_reads_every_cell_of_the_rect(monkeypatch):
+    """The region READ, pinned through a seam so it runs without a game install.
+
+    A mutation that put the read back to `range(dbx, dbx+1)` passed the whole hermetic
+    suite -- the law was only exercised by live game data, which a fresh worktree does
+    not have. Injecting the reader is the fix: never read the real file to test a rule.
+    """
+    from ff9mapkit.world import coastmorph as CM
+
+    asked = []
+
+    def fake_world_tris(bx, by, part, **kw):
+        asked.append((bx, by, part))
+        return []
+
+    monkeypatch.setattr(CM.TR, "world_tris", fake_world_tris)
+    with pytest.raises(ValueError, match="no topo-58 cliff band"):
+        CM.CliffWindow((7, 17), (0.0, 0.0), (1.0, 1.0), size=(4, 2))
+
+    cells = {(bx, by) for bx, by, _ in asked}
+    assert cells == {(bx, by) for by in (17, 18) for bx in (7, 8, 9, 10)}, cells
+    assert {p for _, _, p in asked} == {"terrain", "sea4"}
+
+
+def test_cliff_window_single_cell_reads_only_that_cell(monkeypatch):
+    from ff9mapkit.world import coastmorph as CM
+
+    asked = []
+    monkeypatch.setattr(CM.TR, "world_tris",
+                        lambda bx, by, part, **kw: asked.append((bx, by)) or [])
+    with pytest.raises(ValueError, match="no topo-58 cliff band"):
+        CM.CliffWindow((7, 17), (0.0, 0.0), (1.0, 1.0))
+    assert set(asked) == {(7, 17)}
