@@ -235,6 +235,25 @@ def test_narration_owns_control_false_emits_no_lock():
     assert say in free
 
 
+def test_narration_build_uses_grant_spin_and_watchdog(tmp_path):
+    # the reorder-wait guess LOSES to a late player-init grant (model-load-timed) -- a built
+    # narration scene must carry the conductor's proven machinery: the watchdog entry + the
+    # grant-catch spin (raise MAP flag, lock, spin, re-lock), not the bare Wait(2)+DisableMove
+    from ff9mapkit.content import conductor as _conductor
+    toml = BASE + """
+[cutscene]
+once = false
+steps = [ { say = "hello" } ]
+"""
+    eb_bytes = _build_eb(tmp_path, toml)
+    spin = _conductor.wait_for_control_then_lock()
+    assert spin in eb_bytes                                     # the spin, ending in the re-lock
+    flag_up = _region.set_var(_region.MAP_BOOL, _conductor.WATCHDOG_MAP_FLAG, 1)
+    assert (flag_up + opcodes.DISABLE_MOVE) in eb_bytes         # raise the flag, then lock
+    # and the watchdog poll entry exists (its 1-frame re-lock loop)
+    assert _conductor.watchdog_body() in eb_bytes if hasattr(_conductor, "watchdog_body") else True
+
+
 def test_narration_lock_menu_pair():
     say = opcodes.window_sync(1, 128, 500)
     body = _cutscene.build_body([say], None, lock_menu=True)

@@ -6287,8 +6287,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # without it a slow field entry outlives the conductor's spin cap and the player can wander into an
     # actor's synchronous walk path (which then stalls forever). Injected once, before the first conductor.
     _wd_flag = None
-    if any(isinstance(cs.get("actors"), list) and cs.get("actors") and cs.get("owns_control", True)
-           for cs in cs_blocks):
+    if any(cs.get("owns_control", True) for cs in cs_blocks):
+        # cast AND narration scenes share the one watchdog: the narration lane's reorder-wait lost
+        # the entry-grant race (the player-init grant is model-load-timed -- the WINSTYLE walkable
+        # countdown, 2026-08-03), so it now runs the conductor's grant-spin + watchdog machinery.
         eb = _conductor.inject_watchdog(eb)
         _wd_flag = _conductor.WATCHDOG_MAP_FLAG
     _cs_tag_state: dict = {}
@@ -6334,7 +6336,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag, ate_mode=cs_ate_mode,
                                        then_warp=then_warp, gate=cs_gate, end_writes=cs_end,
                                        owns_control=bool(cs.get("owns_control", True)),
-                                       lock_menu=bool(cs.get("lock_menu")))
+                                       lock_menu=bool(cs.get("lock_menu")),
+                                       grant_spin=bool(cs.get("owns_control", True)),
+                                       watchdog_flag=_wd_flag)
 
     # on-entry beats ([[on_entry]]): a gated, once field-load hook -- a narration message and/or a
     # story-state write (set_scenario / set_flags), fired the moment the player enters but ONLY when

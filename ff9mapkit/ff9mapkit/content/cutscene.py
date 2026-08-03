@@ -325,7 +325,8 @@ REORDER_WAIT = 2
 def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
                reorder: int = REORDER_WAIT, *, ate_mode: int | None = None,
                then_warp: int | None = None, gate: bytes = b"", end_writes: bytes = b"",
-               owns_control: bool = True, lock_menu: bool = False) -> bytes:
+               owns_control: bool = True, lock_menu: bool = False,
+               grant_spin: bool = False, watchdog_flag: int | None = None) -> bytes:
     """The cutscene function body: a brief reorder ``Wait`` (so the lock outlives Main_Init's EnableMove)
     then ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated ``if (!once_flag) { ...;
     once_flag = 1 }`` when ``once_flag`` is set (so it plays once).
@@ -345,11 +346,28 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
     # narration lane silently ignored it): no reorder wait, no lock, no restore -- the scene plays
     # with the player free (a background narration). lock_menu adds the savepoint's DisableMenu
     # pair inside the bracket (the stock macro locks the menu alongside movement).
+    #
+    # grant_spin (the build's default for a synth load-narration): the REORDER_WAIT guess LOSES
+    # whenever the player-init's entry grant lands late -- it is model-load-timed, so on a slow
+    # load the grant fires AFTER the 2-frame lock and frees the player mid-scene (the WINSTYLE
+    # walkable countdown, in-game 2026-08-03; the same race the conductor fought 2026-06-28).
+    # The cure is the conductor's PROVEN machinery verbatim: raise the watchdog MAP flag, lock,
+    # then SPIN until the engine/init grant actually lands and re-lock -- the lock that holds.
     if owns_control:
-        pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
-        inner = pre + opcodes.DISABLE_MOVE
-        if lock_menu:
-            inner += opcodes.DISABLE_MENU
+        if grant_spin:
+            from . import conductor as _conductor    # local: conductor imports this module
+            inner = b""
+            if watchdog_flag is not None:
+                inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 1)
+            inner += opcodes.DISABLE_MOVE
+            if lock_menu:
+                inner += opcodes.DISABLE_MENU
+            inner += _conductor.wait_for_control_then_lock()
+        else:
+            pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
+            inner = pre + opcodes.DISABLE_MOVE
+            if lock_menu:
+                inner += opcodes.DISABLE_MENU
     else:
         inner = b""
     if ate_mode is not None:
@@ -357,6 +375,8 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
     inner += b"".join(steps)
     if ate_mode is not None:
         inner += opcodes.ate(0)
+    if owns_control and grant_spin and watchdog_flag is not None:
+        inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 0)   # lower BEFORE the re-grant
     if owns_control and then_warp is None:
         if lock_menu:
             inner += opcodes.ENABLE_MENU
@@ -385,18 +405,26 @@ def inject_cutscene(data, steps, *, once_flag: int | None = None, flag_class=CUT
                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                     ate_mode: int | None = None, then_warp: int | None = None,
                     gate: bytes = b"", end_writes: bytes = b"",
-                    owns_control: bool = True, lock_menu: bool = False) -> bytes:
+                    owns_control: bool = True, lock_menu: bool = False,
+                    grant_spin: bool = False, watchdog_flag: int | None = None) -> bytes:
     """Append a cutscene code entry (the sequence in :func:`build_body`) and run it on field load via
     an ``InitCode`` (over a Wait filler, or inserted into Main_Init). Returns new .eb bytes.
     ``ate_mode`` (not None) styles it as a compulsory ATE (the ``ATE(mode)`` HUD bracket); ``then_warp``
     (a field id) makes it auto-return with ``Field(then_warp)`` at the end. ``gate`` / ``end_writes`` =
-    the director story-gate prologue + end-of-scene story advance; ``owns_control`` / ``lock_menu`` =
-    the control-bracket levers (see :func:`build_body`)."""
+    the director story-gate prologue + end-of-scene story advance; ``owns_control`` / ``lock_menu`` /
+    ``grant_spin`` / ``watchdog_flag`` = the control-bracket levers (see :func:`build_body`).
+
+    With ``grant_spin`` the activation PINS to the Main_Init INSERT path (never a Wait filler) --
+    THE TICK-ORDER LAW: the scene's spin must tick BEFORE the shared watchdog's re-lock, so the
+    watchdog is activated first and scenes after (insert is LIFO -> scenes sit above it)."""
     body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode, then_warp=then_warp,
                       gate=gate, end_writes=end_writes,
-                      owns_control=owns_control, lock_menu=lock_menu)
+                      owns_control=owns_control, lock_menu=lock_menu,
+                      grant_spin=grant_spin, watchdog_flag=watchdog_flag)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     slot = EbScript.from_bytes(data).first_free_slot()
     out = edit.append_entry(data, slot, entry)
+    if grant_spin:
+        return edit.activate_block(out, opcodes.init_code(slot, 0))
     return edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,
                          spawn_wait_occurrence=spawn_wait_occurrence)
