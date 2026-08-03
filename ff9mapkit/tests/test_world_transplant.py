@@ -1929,6 +1929,158 @@ def test_ground_retile_unknown_family_refuses():
         TR.GroundRetile(dst="lava")
 
 
+# ---------------------------------------- the SOURCE-FAMILY generalisation (desert->grass)
+
+#: the desert mains rect's interior, and a desert gameplay variant that is NOT the family topo
+_DESERT_UV = (0.70, 0.70)
+_GRASS_UV = (0.05, 0.80)
+
+
+def test_family_topos_grass_row_is_the_frozen_historic_set():
+    """THE GRASS ROW MUST NOT MOVE. grass->desert is in-game proven on (7,17)/(8,17)/
+    (10,17) and every carried triangle is frozen by the byte-identity oracles, so the
+    generalisation is only allowed to ADD rows. (The interior census's grass LOOK family
+    also lists 59; it is deliberately not here -- adding it would shift a proven path.)"""
+    assert TR.FAMILY_TOPOS["grass"] == frozenset({0, 1, 2, 3, 10, 11, 12, 13, 42})
+    assert TR.GroundRetile.GRASS_TOPOS is TR.FAMILY_TOPOS["grass"]
+    assert 59 not in TR.FAMILY_TOPOS["grass"]
+    # dunes (41) is kept OUT of desert on purpose: the census calls it a family-model
+    # EXCEPTION with its own mains rect, so folding it in would let a topo-41 tri miss
+    # desert's rect and then be SYNTHESIZED by the path-strip recover instead of refusing.
+    assert 41 not in TR.FAMILY_TOPOS["desert"] and TR.FAMILY_TOPOS["dunes"] == frozenset({41})
+
+
+def test_ground_retile_mains_gate_is_source_family_keyed():
+    """THE CALL SITE: apply()'s mains branch must key on the SOURCE family's topographs,
+    not a hardcoded grass set. A desert-topo tri in desert's mains rect classifies for a
+    desert source and REFUSES for a grass source -- both directions, so a gate that always
+    fires is caught as surely as one that never fires."""
+    from ff9mapkit.world.extract import decode_id, encode_id
+    idall = float(encode_id(event=1, area=5, topograph=17, flags=2))
+    d2g = TR.GroundRetile(dst="grass", src="desert")
+    out = d2g.apply("terrain", _tri(_DESERT_UV, idall))
+    assert d2g.n["mains"] == 1 and not d2g.unclassified
+    for (_, _, uv, tan) in out:
+        assert uv == pytest.approx((_DESERT_UV[0] - 0.65332, _DESERT_UV[1] + 0.09863))
+        d = decode_id(int(round(tan[0])))
+        assert (d["event"], d["area"], d["topograph"], d["flags"]) == (1, 5, 0, 2)
+    # the NEGATIVE direction: the same tri under the historic grass source stays refused
+    g2d = TR.GroundRetile(dst="desert", src="grass")
+    g2d.apply("terrain", _tri(_DESERT_UV, idall))
+    assert g2d.n["mains"] == 0 and [u["topo"] for u in g2d.unclassified] == [17]
+
+
+def test_ground_retile_source_family_variants_and_foreign_topos():
+    """In-family GAMEPLAY variants (19/20 -- 'dirt 19/20 = DESERT exactly' in the
+    translation table) classify; a topo from another look family at the very same uv does
+    NOT. The rect is the discriminator, the topo set is the family gate -- and it must
+    still be able to say no."""
+    from ff9mapkit.world.extract import encode_id
+    for topo in (16, 17, 19, 20, 23):
+        gt = TR.GroundRetile(dst="grass", src="desert")
+        gt.apply("terrain", _tri(_DESERT_UV, float(encode_id(topograph=topo))))
+        assert gt.n["mains"] == 1, topo
+    for topo in (38, 41, 49, 45):        # brush / dunes / mountain rock / canyon
+        gt = TR.GroundRetile(dst="grass", src="desert")
+        gt.apply("terrain", _tri(_DESERT_UV, float(encode_id(topograph=topo))))
+        assert gt.n["mains"] == 0 and [u["topo"] for u in gt.unclassified] == [topo]
+
+
+def test_ground_retile_gate_reports_the_full_refusal_count():
+    """The gate's ``unclassified`` detail only ever samples 4 tris. It must lead with the
+    TOTAL and a topo histogram: the (9,5) comma island refuses 395 tris (294 mountain rock
+    + 101 brush) and the old line showed four topo-49 entries, which reads as a small hole
+    in a working retile rather than two whole unmeasured classes."""
+    from ff9mapkit.world.extract import encode_id
+    gt = TR.GroundRetile(dst="grass", src="desert")
+    for i in range(7):
+        gt.apply("terrain", _tri(_DESERT_UV, float(encode_id(topograph=49)), cell=(i, 0)))
+    for i in range(3):
+        gt.apply("terrain", _tri(_DESERT_UV, float(encode_id(topograph=38)), cell=(i, 1)))
+    det = gt.gate()["unclassified"]
+    assert det.startswith("10 tris, topo 38x3,49x7 -- first 4: "), det
+    assert det.count("uv[") == 4                      # still only a 4-item sample
+    assert gt.gate()["ok"] is False
+
+
+def test_ground_retile_unknown_source_family_refuses():
+    """__init__ is the only place this can be reached, and it is the only place it is
+    checked -- for_donor's ``src`` always comes from a GROUNDS key. That is only safe
+    while the two registries stay one-for-one, so pin that here rather than carry a
+    second, unreachable runtime branch for it."""
+    from ff9mapkit.world import grassland as G
+    assert set(TR.FAMILY_TOPOS) == set(G.GROUNDS)
+    with pytest.raises(ValueError, match="no measured topograph set"):
+        TR.GroundRetile(dst="grass", src="lava")
+
+
+def _stub_donor(monkeypatch, terrain, beach1=()):
+    """Hermetic for_donor: the donor block yields exactly these tris, nothing else."""
+    by_part = {"terrain": list(terrain), "beach1": list(beach1)}
+
+    def fake(bx, by, part, **kw):
+        return [list(t) for t in by_part.get(part, ())]
+    monkeypatch.setattr(TR, "world_tris", fake)
+
+
+def _desert_block(n=20):
+    from ff9mapkit.world.extract import encode_id
+    idall = float(encode_id(topograph=17))
+    return [_tri(_DESERT_UV, idall, cell=(i, 0)) for i in range(n)]
+
+
+def test_for_donor_desert_source_now_classifies_its_own_mains(monkeypatch):
+    """THE FIX, AT ITS CALL SITE. Before the generalisation a desert donor reclassified
+    NOTHING (mains=0) because the mains branch was gated on GRASS_TOPOS."""
+    _stub_donor(monkeypatch, _desert_block(20))
+    gt = TR.GroundRetile.for_donor((3, 3), "grass", strips="none")
+    assert gt.src == "desert" and gt.dst == "grass"
+    assert gt.expected["mains"] == 20 and gt.recover_budget == 0
+    assert gt.gate()["gate"] == "retile[desert->grass]"
+
+
+def test_for_donor_gates_new_directions_on_layout_support(monkeypatch):
+    """A newly-reachable direction must CLEAR the support bar, not merely warn past it:
+    grass sources keep the historic WARNING (grass->desert is in-game proven, so the
+    mechanism is exercised in that direction), but from a source nothing has ever shipped
+    from, a weak pair REFUSES. desert->grass (0.762) is the one that clears."""
+    _stub_donor(monkeypatch, _desert_block(20))
+    TR.GroundRetile.for_donor((3, 3), "grass", strips="none")           # 0.762 -> allowed
+    for weak in ("snow", "scrub", "canyon", "brush", "dunes"):
+        with pytest.raises(ValueError, match="layout support"):
+            TR.GroundRetile.for_donor((3, 3), weak, strips="none")
+    # ...and the bar is real, not a blanket refusal of every non-grass source
+    assert TR.LAYOUT_SUPPORT["desert"]["grass"] >= TR.LAYOUT_SUPPORT_WARN
+    assert all(s < TR.LAYOUT_SUPPORT_WARN
+               for src, row in TR.LAYOUT_SUPPORT.items() if src != "grass"
+               for dst, s in row.items() if (src, dst) != ("desert", "grass"))
+
+
+def test_for_donor_grass_source_still_only_WARNS_below_the_bar(monkeypatch):
+    """The negative direction on the new refusal: it must NOT fire for grass sources --
+    grass->snow (0.299) is below the bar and has always been a warning, not a refusal."""
+    from ff9mapkit.world.extract import encode_id
+    idall = float(encode_id(topograph=0))
+    _stub_donor(monkeypatch, [_tri(_GRASS_UV, idall, cell=(i, 0)) for i in range(20)])
+    with pytest.warns(UserWarning, match="OFF THE MEASURED PATH"):
+        gt = TR.GroundRetile.for_donor((3, 3), "snow", strips="none")
+    assert gt.src == "grass" and gt.expected["mains"] == 20
+
+
+def test_for_donor_recover_cells_key_on_the_source_family(monkeypatch):
+    """The path-strip recover budget picked its cells with `topo in GRASS_TOPOS` too --
+    generalised alongside the mains branch, or a desert donor's off-rect mains tri would
+    refuse with no budget to recover it."""
+    from ff9mapkit.world.extract import encode_id
+    idall = float(encode_id(topograph=17))
+    off_rect = (_DESERT_UV[0], _DESERT_UV[1] + 0.05)     # desert topo, outside desert's rect
+    _stub_donor(monkeypatch, _desert_block(20) + [_tri(off_rect, idall, cell=(99, 0))])
+    gt = TR.GroundRetile.for_donor((3, 3), "grass", strips="none")
+    assert gt.recover_budget == 1 and list(gt.recover_cells) == [(99, 0)]
+    assert gt.expected == {"mains": 20, "wall": 0, "sand": 0, "foam": 0,
+                           "recovered": 1, "sand_degenerate_recovered": 0}
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_ground_retile_for_donor_717_desert_census():
     """The (7,17)->desert factory reproduces the census: 4 byte-read sand anchors, the

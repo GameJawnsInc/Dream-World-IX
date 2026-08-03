@@ -270,6 +270,36 @@ LAYOUT_SUPPORT = {
 #: evidence was gathered, so a refusal would be stronger than the measurement supports.
 LAYOUT_SUPPORT_WARN = 0.50
 
+#: THE LOOK-FAMILY TOPOGRAPH SETS (the interior census, ``studies/overworld-topography/
+#: README.md``: "~37 in-use topograph ids collapse into ~9 tile families"). Ids inside a
+#: family are GAMEPLAY variants -- encounter regions and event triggers -- not looks, so
+#: they all wear the family's mains tiles.
+#:
+#: This is the FAMILY GATE for :class:`GroundRetile`'s mains branch, not its classifier:
+#: a tri is mains only when its topo is in its source family's set AND its uv sits inside
+#: that family's (source-derived) mains rect. The rect does the discriminating; the set
+#: only says "this id belongs to the family whose rect we are about to test".
+#:
+#: ⚠ ``grass`` is EXACTLY the historic ``GRASS_TOPOS`` and must stay so -- the grass->desert
+#: retile is in-game proven on (7,17)/(8,17)/(10,17) and every carried triangle of it is
+#: frozen by the byte-identity oracles. The census's grass LOOK family also lists 59;
+#: 59 is NOT added here, because adding it would move a proven path.
+#:
+#: ⚠ ``dunes`` (41) is kept OUT of ``desert`` even though the census groups the dirt-desert
+#: LOOK family as 16-23/41: the translation table calls 41 a "family-model EXCEPTION -- its
+#: own pale-sand set, NOT desert's", i.e. it has a different mains rect. Folding it into
+#: desert would let a topo-41 tri fail desert's rect and then get SYNTHESIZED by the
+#: path-strip recover. Left out, it refuses loudly instead. Fail closed.
+FAMILY_TOPOS = {
+    "grass": frozenset({0, 1, 2, 3, 10, 11, 12, 13, 42}),
+    "desert": frozenset({16, 17, 18, 19, 20, 21, 22, 23}),
+    "scrub": frozenset({4, 5, 6}),
+    "brush": frozenset({38}),
+    "snow": frozenset({27, 28}),
+    "canyon": frozenset({45, 46}),
+    "dunes": frozenset({41}),
+}
+
 
 class GroundRetile:
     """Tweak class -- THE GROUND-FAMILY RETILE (the translation law over a whole carried
@@ -280,9 +310,9 @@ class GroundRetile:
     topograph change, each class by its own byte-measured translation law (nothing is
     synthesized; ``studies/overworld-topography/island717_retile_census.py``):
 
-    * ground MAINS (uv in the family mains rect, any grass-family gameplay topo) ->
-      the ``grassland.GROUNDS`` mains delta, topo -> the family topo  [in-game proven:
-      the full desert bench]
+    * ground MAINS (uv in the SOURCE family's mains rect, and a topo in that family's
+      :data:`FAMILY_TOPOS` row) -> the ``grassland.GROUNDS`` mains delta, topo -> the
+      target family topo  [in-game proven: the full desert bench, grass->desert]
     * the coastal ROCK band (uv in the wall strip, any topo) -> the ``GROUNDS`` wall
       delta, topo unchanged  [in-game proven: the desert bench walls]
     * the SAND band (the source family's sand topo) -> ``coastmorph.SAND_BANDS``:
@@ -314,8 +344,10 @@ class GroundRetile:
     class the translation census has not measured must be studied, not guessed.
     Build instances with :meth:`for_donor` (byte-reads the donor)."""
 
-    #: the grass gameplay-variant topographs (the families census: same look, gameplay ids)
-    GRASS_TOPOS = frozenset({0, 1, 2, 3, 10, 11, 12, 13, 42})
+    #: the grass gameplay-variant topographs (the families census: same look, gameplay ids).
+    #: Kept as the historic name -- ``island717_retile_acceptance.py`` reads it -- but it is
+    #: now just the grass row of the module-level :data:`FAMILY_TOPOS`.
+    GRASS_TOPOS = FAMILY_TOPOS["grass"]
     _WATER = frozenset({53, 54, 55, 56, 57})
     _EPS = 0.006                                             # uv region-membership slack
 
@@ -327,8 +359,14 @@ class GroundRetile:
         from . import islandbeach as IB
         if dst not in G.GROUNDS:
             raise ValueError(f"unknown ground family {dst!r} (families: {sorted(G.GROUNDS)})")
+        if src not in FAMILY_TOPOS:
+            raise ValueError(f"no measured topograph set for source family {src!r} "
+                             f"(FAMILY_TOPOS: {sorted(FAMILY_TOPOS)}) -- the mains branch "
+                             f"cannot tell which of this donor's ids wear its mains tiles")
         self.part = "terrain"                                # emission host (nothing emitted)
         self.src, self.dst = src, dst
+        #: the SOURCE family's gameplay-variant ids -- the mains branch's family gate
+        self.src_topos = FAMILY_TOPOS[src]
         gs, gd = G.GROUNDS[src], G.GROUNDS[dst]
         self.mains_d = (gd["mains_du"] - gs["mains_du"], gd["mains_dv"] - gs["mains_dv"])
         self.wall_d = (gd["wall_du"] - gs["wall_du"], gd["wall_dv"] - gs["wall_dv"])
@@ -444,7 +482,7 @@ class GroundRetile:
         cx = sum(v[0][0] for v in poly) / len(poly)
         cz = sum(v[0][2] for v in poly) / len(poly)
         cell = (math.floor(cx / 4.0), math.floor(cz / 4.0))
-        if topo in self.GRASS_TOPOS:
+        if topo in self.src_topos:
             if all(self._in(uvv, self.mains_rect) for (_, _, uvv, _) in poly):
                 self.n["mains"] += 1
                 return [(p, nr, (uvv[0] + self.mains_d[0], uvv[1] + self.mains_d[1]),
@@ -465,8 +503,16 @@ class GroundRetile:
         return []
 
     def gate(self) -> dict:
+        # the detail is a 4-item SAMPLE; lead with the total and a topo histogram, or a
+        # 395-tri refusal reads as a 4-tri one and the reader goes looking for a small
+        # hole instead of the whole unmeasured class that is actually there.
         det = "; ".join(f"{u['part']}:t{u['topo']}@{u['cell']} uv{u['uv']}"
                         for u in self.unclassified[:4])
+        if det:
+            h = collections.Counter(u["topo"] for u in self.unclassified)
+            det = (f"{len(self.unclassified)} tris, topo "
+                   + ",".join(f"{t}x{n}" for t, n in sorted(h.items()))
+                   + f" -- first 4: {det}")
         ok = (not self.unclassified
               and self.n["recovered"] <= self.recover_budget
               and all(self.n[k] == v for k, v in self.expected.items()))
@@ -565,19 +611,34 @@ class GroundRetile:
         if src == dst:
             raise ValueError(f"--ground {dst}: donor ({dbx},{dby}) is already {src} -- "
                              f"nothing to retile")
-        # NAME THE REAL GAP. The mains branch keys on GRASS_TOPOS, so only a grass source
-        # can classify mains -- the translation census measured grass->X and nothing else.
-        # Without this, a desert donor refused with four cryptic "unclassified" tris and a
-        # silent mains=0, which reads like a small hole in a working feature instead of
-        # what it is: the feature does not cover this direction at all.
-        if src != "grass" and G.GROUNDS[src]["topo"] not in cls.GRASS_TOPOS:
-            raise ValueError(
-                f"--ground {dst}: donor ({dbx},{dby}) is {src}, and the retile census "
-                f"measured grass->X ONLY. A {src} source's mains carry topo "
-                f"{G.GROUNDS[src]['topo']}, which no measured mains class covers, so the "
-                f"retile would reclassify nothing. Retiling FROM {src} needs the {src}->X "
-                f"translation measured first (island717_retile_census.py is the grass->X "
-                f"precedent). Carry this donor verbatim, or pick a grass-family donor.")
+        # THE SOURCE GATE. The mains branch now keys on the SOURCE family's topograph set
+        # (FAMILY_TOPOS), so any family whose ids are censused can classify its own mains.
+        # What is NOT free is the DIRECTION: grass->X has an in-game-proven instance
+        # (grass->desert) and keeps the historic WARN below, but a source we have never
+        # shipped is only as good as the translation census says it is, so a
+        # newly-reachable pair must CLEAR the support bar, not merely warn about it.
+        # desert->grass is 0.762 -- the strongest pair in the table, above the proven
+        # grass->desert 0.708 -- and is the only non-grass direction that clears it.
+        # (an unknown ``src`` needs no check here: it can only come from a GROUNDS key or
+        # the caller, FAMILY_TOPOS covers GROUNDS one-for-one -- asserted in the tests --
+        # and __init__ raises on the caller's typo. A second copy would be unreachable.)
+        if src != "grass":
+            sup = LAYOUT_SUPPORT.get(src, {}).get(dst)
+            if sup is None or sup < LAYOUT_SUPPORT_WARN:
+                ok = sorted(d for d, s in LAYOUT_SUPPORT.get(src, {}).items()
+                            if s >= LAYOUT_SUPPORT_WARN)
+                raise ValueError(
+                    f"--ground {dst}: donor ({dbx},{dby}) is {src}, and {src}->{dst} has "
+                    f"layout support "
+                    + (f"{sup:.3f}" if sup is not None else "no census entry")
+                    + f" (bar {LAYOUT_SUPPORT_WARN:.2f}). Only grass sources may retile "
+                      f"below the bar on a WARNING -- grass->desert is in-game proven, so "
+                      f"the mechanism is exercised in that direction; from {src} nothing "
+                      f"has ever been shipped, so a weak pair must be measured before it "
+                      f"is offered. Supported targets from {src}: "
+                    + (", ".join(ok) if ok else "none")
+                    + ". Table: LAYOUT_SUPPORT / "
+                      "studies/coast-shape-language/GROUND-TRANSLATION-CENSUS.md")
         if sand_fam and dst not in CM.SAND_BANDS:
             raise ValueError(f"donor ({dbx},{dby}) carries a sand band and {dst!r} has no "
                              f"measured sand family (SAND_BANDS: {sorted(CM.SAND_BANDS)}) "
@@ -648,7 +709,7 @@ class GroundRetile:
                              f"off-language. Coastal-wall targets: "
                              f"{sorted(n for n, g in G.GROUNDS.items() if g.get('wall_coastal'))}")
         rec = sorted({u["cell"] for u in pre.unclassified
-                      if u["part"] == "terrain" and u["topo"] in cls.GRASS_TOPOS})
+                      if u["part"] == "terrain" and u["topo"] in FAMILY_TOPOS[src]})
         cq, co = G.assign_mains(set(rec), seed=0xF93)
         budget = sum(1 for u in pre.unclassified if u["cell"] in set(rec))
         expected = {k: pre.n[k] for k in ("mains", "wall", "sand", "foam",
