@@ -32,6 +32,7 @@ from .content import coop as _coop
 from .content import cutscene as _cutscene
 from .content import conductor as _conductor
 from .content import encounter as _enc
+from .content import entrylock as _entrylock
 from .content import event as _event
 from .content import gateway as _gw
 from .content import jump as _jump
@@ -2603,6 +2604,17 @@ def validate(project: FieldProject) -> list[str]:
                                 f"(-1 = last row)")
             if all(o.get("disabled") for o in opts):
                 problems.append(f"[[choice]] #{c} has every option disabled (nothing selectable)")
+            for oi, o in enumerate(opts):
+                # `entrance` rides a warp row (event.warp writes D8:2 before the Field()) -- it was
+                # consumed by the emitter but invisible to the schema harvest until this probe
+                oe = o.get("entrance")
+                if oe is not None and "warp" not in o:
+                    problems.append(f"[[choice]] #{c} option {oi}: entrance needs warp (it is the "
+                                    f"arrival-entrance the warp sets before Field())")
+                elif oe is not None and not (isinstance(oe, int) and not isinstance(oe, bool)
+                                             and 0 <= oe <= 0x7FFF):
+                    problems.append(f"[[choice]] #{c} option {oi}: entrance must be 0..32767 "
+                                    f"(got {oe!r})")
     # THE WINDOW-ATTRIBUTE SWEEP -- tail + the shared presentation keys (style/window/actor/instant/
     # speed/duration/window_pos/box), validated UNIFORMLY across every dialogue-bearing block. One
     # sweep, one rulebook: the per-block tail checks it replaces covered only 4 of the 11 blocks, so
@@ -2611,12 +2623,35 @@ def validate(project: FieldProject) -> list[str]:
     _wa_verbatim = bool(project.raw.get("verbatim_eb"))
     def _check_window_attrs(label: str, src: dict, *, actor: str = "no",
                             opcode_side: bool = True, text_side: bool = True,
-                            allow_dim: bool = True):
+                            allow_dim: bool = True, lock: str = "no", lock_default=True):
         # actor: "no" (key unsupported here) | "yes" | "player-only" (verbatim: slots assigned later)
         # | "cast" (a cutscene cast step -- its actor names the performer, validated elsewhere).
         # opcode_side/text_side=False: the block does NOT wire those keys, so DON'T probe them --
         # a validate probe would register them in the harvested schema as accepted-but-inert
         # (the unknown-key lint then covers strays there instead).
+        # lock: "no" | "yes" (lock + lock_menu wired) | "lock-only" ([[on_entry]]: no menu pair).
+        # lock_default = what an absent `lock` resolves to (differs per block/trigger).
+        if lock != "no":
+            lv = src.get("lock")
+            if lv is not None and not isinstance(lv, bool):
+                problems.append(f"{label} lock must be true/false (hold player control for the "
+                                f"body -- stock's talk-handler law; got {lv!r})")
+            if lock == "yes":
+                lm = src.get("lock_menu")
+                if lm is not None and not isinstance(lm, bool):
+                    problems.append(f"{label} lock_menu must be true/false (got {lm!r})")
+                elif lm and not src.get("lock", lock_default):
+                    problems.append(f"{label}: lock_menu needs the lock (the DisableMenu pair "
+                                    f"lives inside the DisableMove bracket) -- drop lock = false "
+                                    f"or lock_menu")
+            elif src.get("lock_menu") is not None:
+                problems.append(f"{label}: lock_menu is not wired on this block (it lives on "
+                                f"[[npc]], [[event]] and [cutscene])")
+        elif src.get("lock") is not None or src.get("lock_menu") is not None:
+            problems.append(f"{label}: the control keys (lock / lock_menu) are not supported on "
+                            f"this block -- they live on [[npc]], [[event]], [[on_entry]] and "
+                            f"[cutscene]. (A [[choice]] is ALWAYS locked: without the bracket "
+                            f"the d-pad would move the character under the menu.)")
         t = src.get("tail")
         if t is not None and t not in _text.TAIL_CODES:
             problems.append(f"{label} tail {t!r} is not a valid TAIL code "
@@ -2684,13 +2719,44 @@ def validate(project: FieldProject) -> list[str]:
                                 f"attribution unless the 128 bit is set) -- use bubble / bubble_nopan "
                                 f"/ bubble_notail / bubble_transparent")
     _wa_ev_actor = "player-only" if _wa_verbatim else "yes"
+    _wa_choice_npcs = {ch.get("npc") for ch in project.raw.get("choice", []) if ch.get("npc")}
     for i, n in enumerate(project.raw.get("npc", [])):
-        _check_window_attrs(f"[[npc]] {n.get('name') or '#' + str(i)}", n)
+        _check_window_attrs(f"[[npc]] {n.get('name') or '#' + str(i)}", n, lock="yes")
+        if n.get("lock") is False and n.get("name") in _wa_choice_npcs:
+            problems.append(f"[[npc]] {n.get('name')!r}: lock = false with an attached [[choice]] "
+                            f"-- a choice menu NEEDS the lock (the d-pad would move the character "
+                            f"under the menu; stock wraps every choice). Drop lock = false.")
     for j, ev in enumerate(project.raw.get("event", [])):
-        _check_window_attrs(f"[[event]] #{j}", ev, actor=_wa_ev_actor)
+        # the lock default is trigger-shaped: a press body locks (stock's 100.0% talk-handler
+        # law), a tread body stays free (the toast idiom = stock's passive banners)
+        _check_window_attrs(f"[[event]] #{j}", ev, actor=_wa_ev_actor, lock="yes",
+                            lock_default=((ev.get("trigger") or "walk") == "action"))
     for k, h in enumerate(project.raw.get("on_entry", [])):
         if isinstance(h, dict):
-            _check_window_attrs(f"[[on_entry]] #{k}", h, actor=_wa_ev_actor)
+            _check_window_attrs(f"[[on_entry]] #{k}", h, actor=_wa_ev_actor, lock="lock-only")
+    # [player] locked_entrances -- arrive-locked entry (stock's entrance-gated grant). The grant
+    # is withheld for these entrance ids, so SOMETHING must hand control back: the first UNGATED
+    # [[on_entry]] hook carries the unconditional grant_control tail (a gated hook can early-return
+    # before any tail -- it cannot own the grant). Synth-only: a verbatim donor's grant sites are
+    # its own conditional forest, not the template shape entrylock gates.
+    _le = (project.raw.get("player") or {}).get("locked_entrances")
+    if _le is not None:
+        if not (isinstance(_le, list) and _le
+                and all(isinstance(e, int) and not isinstance(e, bool) and 0 <= e <= 0x7FFF
+                        for e in _le)):
+            problems.append("[player] locked_entrances must be a non-empty list of entrance ids "
+                            "(0..32767) -- the General_FieldEntrance values that arrive locked")
+        elif _wa_verbatim:
+            problems.append("[player] locked_entrances is synth-only -- a verbatim fork ships the "
+                            "donor's own grant logic (gate a donor arrival with [[logic_edit]] "
+                            "instead)")
+        elif not any(isinstance(h, dict) and h.get("requires_flag") is None
+                     and h.get("requires_scenario") is None
+                     for h in project.raw.get("on_entry", [])):
+            problems.append("[player] locked_entrances needs at least one UNGATED [[on_entry]] "
+                            "hook -- it carries the grant that hands control back (without one "
+                            "the player arrives frozen forever). Add an [[on_entry]] with a "
+                            "message (or writes) and no requires_flag/requires_scenario.")
     for c, ch in enumerate(project.raw.get("choice", [])):
         _check_window_attrs(f"[[choice]] #{c}", ch, allow_dim=False,
                             actor=("no" if ch.get("npc") else _wa_ev_actor))
@@ -2737,6 +2803,14 @@ def validate(project: FieldProject) -> list[str]:
         if cs.get("requires_flag") is not None and cs.get("requires_flag_clear") is not None:
             problems.append(f"{lbl} set requires_flag OR requires_flag_clear, not both (stack a second "
                             "condition on requires_scenario instead)")
+        lm = cs.get("lock_menu")
+        if lm is not None and not isinstance(lm, bool):
+            problems.append(f"{lbl} lock_menu must be true/false (hold the main menu shut for the "
+                            f"scene, the stock macro's DisableMenu pair; got {lm!r})")
+        elif lm and cs.get("owns_control", True) is False:
+            problems.append(f"{lbl}: lock_menu needs the control bracket -- drop owns_control = "
+                            f"false or lock_menu (the menu pair lives inside the DisableMove "
+                            f"bracket)")
         for rk in ("requires_flag", "requires_flag_clear"):
             rv = cs.get(rk)
             if rv is not None and (isinstance(rv, bool) or not isinstance(rv, int)):
@@ -4797,7 +4871,17 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
                       "once_flag": once_flag, "requires_flag": rf,
                       "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc,
                       "message_window": _w, "message_flags": _f, "message_actor_uid": _uid,
-                      "message_dim": h.get("dim", False), "message_dim_tint": h.get("dim_tint")})
+                      "message_dim": h.get("dim", False), "message_dim_tint": h.get("dim_tint"),
+                      "message_lock": bool(h.get("lock", True))})
+    # [player] locked_entrances: the entry grant is entrance-gated away, so the FIRST UNGATED hook
+    # must hand control back unconditionally on every entry (grant_control -- outside its once
+    # block; a gated hook can early-return before any tail, so it can't carry the grant). Validate
+    # guarantees such a hook exists.
+    if (project.raw.get("player") or {}).get("locked_entrances"):
+        for hk, h in zip(hooks, on_entry):
+            if h.get("requires_flag") is None and h.get("requires_scenario") is None:
+                hk["grant_control"] = True
+                break
     return _onentry.inject_on_entries(eb, hooks)
 
 
@@ -5344,10 +5428,16 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
             flag_counter += 1
         gf, gs = _gate_of(ev)
         space_item = item_id if ev.get("require_space") and item_id is not None else None
+        _act = (ev.get("trigger") or "walk") == "action"
         specs.append({"zone": [tuple(p) for p in ev["zone"][:4]], "body": b"".join(parts),
                       "once_flag": once_flag, "requires_flag": gf, "requires_set": gs,
                       "space_item": space_item,
-                      "action": (ev.get("trigger") or "walk") == "action",
+                      "action": _act,
+                      # stock's law: a press body ALWAYS locks (1,108/1,108 talk handlers); a tread
+                      # body's default stays free (the kit's proven toast idiom = stock's passive
+                      # banners). `lock` overrides either way; a locked tread delegates (inject_events).
+                      "lock": bool(ev.get("lock", _act)),
+                      "lock_menu": bool(ev.get("lock_menu")),
                       "bubble": bool(ev.get("bubble"))})
     return _event.inject_events(eb, specs, reserve_party_band=True) if specs else eb
 
@@ -5475,7 +5565,8 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
         elif n.get("opens_shop") is not None:
             # the greeting is this NPC's own `dialogue` line (txid above); no dialogue -> straight to the shop.
             sb = _shop.shop_speak_body(int(n["opens_shop"]),
-                                       greeting_txid=txid if n.get("dialogue") else None)
+                                       greeting_txid=txid if n.get("dialogue") else None,
+                                       lock=n.get("lock", True), lock_menu=bool(n.get("lock_menu")))
         pos = n["pos"]
         slot = EbScript.from_bytes(eb).entry_count - _object.PARTY_BAND_SIZE   # the slot this insert will take
         _nw, _nf, _ = _window_attrs(n, None, label=f"[[npc]] {name}")
@@ -5483,7 +5574,9 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
                              gate_require_set=gs, appears_scenario_min=smin, appears_scenario_max=smax,
                              speak_body=sb, reserve_party_band=True,
                              talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
-                             talk_dim_tint=n.get("dim_tint"), **kwargs)
+                             talk_dim_tint=n.get("dim_tint"),
+                             talk_lock=n.get("lock", True), talk_lock_menu=bool(n.get("lock_menu")),
+                             **kwargs)
         if n.get("name"):
             npc_slots[n["name"]] = slot                                       # name -> uid (stable below the band)
     return eb, npc_slots
@@ -5602,6 +5695,7 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
         once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
         warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
         owns_control=bool(cs.get("owns_control", True)),
+        lock_menu=bool(cs.get("lock_menu")),
         then_warp=(int(cs["then_warp"]) if cs.get("then_warp") else None),
         ate_mode=_ate_mode,
         tag_calls=tag_calls, join_tags=join_tags, reserve_party_band=True,
@@ -5869,14 +5963,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # a shopkeeper: talk -> (optional greeting window ->) open the shop (Menu(2, id)). The greeting
             # is this NPC's own `dialogue` line (txid assigned above); no dialogue -> straight to the shop.
             sb = _shop.shop_speak_body(int(n["opens_shop"]),
-                                       greeting_txid=txid if n.get("dialogue") else None)
+                                       greeting_txid=txid if n.get("dialogue") else None,
+                                       lock=n.get("lock", True), lock_menu=bool(n.get("lock_menu")))
         _nw, _nf, _ = _window_attrs(n, None, label=f"[[npc]] {n.get('name') or '#' + str(i)}")
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
                              appears_scenario_max=smax, speak_body=sb,
                              boot_spawn=(n.get("name") not in _pooled_bh),
                              talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
-                             talk_dim_tint=n.get("dim_tint"), **kwargs)
+                             talk_dim_tint=n.get("dim_tint"),
+                             talk_lock=n.get("lock", True), talk_lock_menu=bool(n.get("lock_menu")),
+                             **kwargs)
         if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:
@@ -6019,10 +6116,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             gf, gs = _gate_of(ev)
             # chest space-check: skip the reward (and don't set the once-flag) if the bag is full
             space_item = item_id if ev.get("require_space") and item_id is not None else None
+            _act = (ev.get("trigger") or "walk") == "action"
             specs.append({"zone": [tuple(p) for p in ev["zone"][:4]],
                           "body": b"".join(parts), "once_flag": once_flag,
                           "requires_flag": gf, "requires_set": gs, "space_item": space_item,
-                          "action": (ev.get("trigger") or "walk") == "action",
+                          "action": _act,
+                          # stock's law: a press body ALWAYS locks (1,108/1,108 talk handlers); a
+                          # tread body's default stays free (the toast idiom = stock's passive
+                          # banners). `lock` overrides; a locked tread delegates via the player entry.
+                          "lock": bool(ev.get("lock", _act)),
+                          "lock_menu": bool(ev.get("lock_menu")),
                           "bubble": bool(ev.get("bubble"))})
         eb = _event.inject_events(eb, specs)
 
@@ -6183,6 +6286,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
             owns_control=bool(cs.get("owns_control", True)),
+            lock_menu=bool(cs.get("lock_menu")),
             then_warp=(int(cs["then_warp"]) if cs.get("then_warp") else None),
             say_flags=cs_say_flags, ate_mode=cs_ate_mode,
             tag_calls=tag_calls, join_tags=join_tags,
@@ -6203,7 +6307,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         then_warp = int(cs["then_warp"]) if cs.get("then_warp") else None
         _, cs_gate, cs_end = _cutscene_story_bits(cs)      # the director gate + story advance (#13)
         eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag, ate_mode=cs_ate_mode,
-                                       then_warp=then_warp, gate=cs_gate, end_writes=cs_end)
+                                       then_warp=then_warp, gate=cs_gate, end_writes=cs_end,
+                                       owns_control=bool(cs.get("owns_control", True)),
+                                       lock_menu=bool(cs.get("lock_menu")))
 
     # on-entry beats ([[on_entry]]): a gated, once field-load hook -- a narration message and/or a
     # story-state write (set_scenario / set_flags), fired the moment the player enters but ONLY when
@@ -6710,6 +6816,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             if _a.get("face") is not None and not 0 <= int(_a["face"]) <= 255:
                 raise ValueError(f"[[player.arrival]] entrance {_e}: face must be 0-255")
         eb = _npc.inject_player_arrivals(eb, _arr)
+    # [player] locked_entrances: arrive with control WITHHELD at these entrance ids -- stock's
+    # entrance-gated grant (the movement census's race-free arrive-locked mechanism; both template
+    # grant sites are gated). The unlock is the first ungated [[on_entry]] hook's grant_control
+    # tail (wired in _apply_on_entry; validate guarantees it exists). Synth-only -- entrylock
+    # raises on a non-template player/Main_Init.
+    _locked = project.raw.get("player", {}).get("locked_entrances")
+    if _locked:
+        eb = _entrylock.gate_grant_on_entrances(eb, _locked)
     # [player] model= : re-skin the player avatar (the World-Hub Moogle PC, or any model on a free-roam
     # field). Resolved like an [[npc]] model (name/GEO/id -> movement clips via the Info Hub join). Movement
     # clips only -- a scripted-gesture field would glitch (same caveat as --swap-player), so it's free-roam-only.

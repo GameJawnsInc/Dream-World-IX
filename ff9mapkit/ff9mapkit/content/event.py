@@ -29,6 +29,44 @@ from . import region as _region
 EVENT_FLAG_CLASS = _region.GLOB_BOOL
 EVENT_FLAG_BASE = _flags.AUTO_EVENT_BASE
 
+# THE CONTROL LOCK (studies/movement/SURVEY.md): the engine has NO dialog lock -- a window only blocks
+# the CALLING object's script thread, and the player walks freely under any window unless the script
+# says otherwise. Stock says otherwise on 1,108/1,108 window-bearing talk handlers (100.0%), so a
+# locked bracket is the faithful default for anything that opens a BLOCKING window; the only lock-free
+# stock windows are 6 passive WindowAsync banners (the `lock = false` idiom).
+PLAYER_UID = 250            # the controlled player's runtime uid (RunScriptSync target)
+LOCK_DISPATCH_LEVEL = 2     # the RunScriptSync level the real jump/ladder/forced-ATE triggers use
+# Player-entry func tags for LOCKED TREAD-event bodies -- clear of the ladder climbs (17+), the
+# conductor walk tags (20+, the player can be a cast actor), the forced-ATE tag (38) and jumps (40+).
+EVENT_LOCK_TAG_BASE = 60
+
+
+def lock_bracket(body: bytes, *, menu: bool = False) -> bytes:
+    """``DisableMove; [DisableMenu;] body; [EnableMenu;] EnableMove`` -- the kit's control bracket
+    (stock's shape minus the MAP-latch macro a kit field doesn't maintain; the same proven bare
+    bracket the choice/shop/savepoint lanes ship). ``menu`` adds the savepoint's DisableMenu pair --
+    note a bare DisableMove already suppresses the menu WHILE locked (UCOFF force-disables it);
+    the menu pair is for keeping the suppression explicit and stock-shaped.
+
+    ⚠ ONLY for bodies that run in a normal object thread: a tag-3 press body, an NPC talk body, a
+    code entry. NEVER inline in a region TAG-2 (tread) body -- a tread body's blocking ops stop
+    ticking under its own lock (the in-game forced-ATE freeze); use :func:`locked_dispatch` there."""
+    if menu:
+        return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + body
+                + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE)
+    return opcodes.DISABLE_MOVE + body + opcodes.ENABLE_MOVE
+
+
+def locked_dispatch(tag: int, *, menu: bool = False, player_uid: int = PLAYER_UID) -> bytes:
+    """The TREAD-safe lock: ``DisableMove; [DisableMenu;] RunScriptSync(player, tag); [EnableMenu;]
+    EnableMove`` -- the body itself lives in a player-entry func (whose Waits/windows tick regardless
+    of the lock). Byte-shape of the proven jump/ladder tread dispatch (jump.py)."""
+    call = opcodes.run_script_sync(LOCK_DISPATCH_LEVEL, int(player_uid), int(tag))
+    if menu:
+        return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + call
+                + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE)
+    return opcodes.DISABLE_MOVE + call + opcodes.ENABLE_MOVE
+
 
 # THE DIM BRACKETS -- stock's fade-around-window READING presentations, censused across all 817
 # field scripts (studies/messages/SURVEY.md; 241 bracket sites, ~10 shapes distilled to the 4 with
@@ -271,15 +309,35 @@ def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: in
     while in the quad -- edge-triggered by the press, so it can NEVER re-fire in a loop, and a
     ``once = false`` action event is naturally repeatable with no gate flag at all (the repeatable
     sign). Its body omits the tread movement gate (the press proves control -- the zone-[[choice]]
-    action shape, in-game proven). Returns new .eb bytes."""
+    action shape, in-game proven).
+
+    A spec with ``"lock": True`` holds player control for the body (stock's talk-handler law -- see
+    :func:`lock_bracket`; ``"lock_menu"`` adds the DisableMenu pair). On a PRESS spec the bracket
+    wraps the body inline (a tag-3 body is a normal thread). On a TREAD spec the body CANNOT run
+    under its own lock inline (the tag-2 freeze), so it is grafted onto the PLAYER entry as a func
+    (tags :data:`EVENT_LOCK_TAG_BASE`+) and the region emits :func:`locked_dispatch` -- the proven
+    jump-tread shape. The once-latch stays in the region (it must fire the instant the zone trips).
+    Returns new .eb bytes."""
     events = list(events)
     if not events:
         return data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     region_slots = []
+    lock_tag = EVENT_LOCK_TAG_BASE
     for ev in events:
         action = bool(ev.get("action"))
-        rb = event_range_body(ev["body"], ev.get("once_flag"), flag_class,
+        body = ev["body"]
+        if ev.get("lock"):
+            menu = bool(ev.get("lock_menu"))
+            if action:
+                body = lock_bracket(body, menu=menu)
+            else:
+                from .ladder import find_player_entry
+                pe = find_player_entry(EbScript.from_bytes(out))
+                out = edit.add_function(out, pe, lock_tag, bytes(body) + opcodes.RETURN)
+                body = locked_dispatch(lock_tag, menu=menu)
+                lock_tag += 1
+        rb = event_range_body(body, ev.get("once_flag"), flag_class,
                               ev.get("requires_flag"), ev.get("requires_set", True),
                               space_item=ev.get("space_item"), movement_gate=not action)
         out, slot = _region.inject_region(out, ev["zone"], rb, activate=False,

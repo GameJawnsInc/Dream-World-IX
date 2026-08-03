@@ -216,6 +216,7 @@ world coords (no offset) — they are already the exact engine positions.
 | `spawn` | `[x, z]` where the player appears on entry (the DEFAULT arrival — see `[[player.arrival]]` for per-door spots). |
 | `face` | OPTIONAL spawn facing (0..255; 0=south, 64=west, 128=north, 192=east — the same compass `[[npc]]`/chest `face` uses). Absent = the template default (0). |
 | `model` | **re-skin who you WALK as** — a model **id**, an exact **GEO name** (`"GEO_NPC_F0_MOG"` the Moogle PC), or an archetype/model name resolved via the Info Hub catalog (the same join `[[npc]] model` uses). Its movement clips (idle/walk/run/turn) auto-resolve. This is the build-side complement to `import --swap-player`. **Movement clips only** — a field that scripts player gestures would glitch, so it's free-roam-only. |
+| `locked_entrances` | `[entrance, …]` — arrive with control **withheld** at these entrance ids (the values a warp's `entrance =` sets). Stock's own arrive-locked mechanism: the engine zeroes control on every field load and the field's grant is simply **gated off** for these entrances — race-free, no timing dance. The unlock is the first **ungated** `[[on_entry]]` hook, which the build gives an unconditional control-grant tail (validate requires one; without it the player would arrive frozen forever). Use for chained cutscenes: the departing scene sets `then_warp`, the destination locks that entrance and plays its own entry beat. Synth-only (a verbatim donor keeps its own grant logic). |
 
 ### `[[player.arrival]]` (optional, repeatable) — per-door arrival spots
 
@@ -400,6 +401,32 @@ steps = [
   { say = "(...did it start?)", speaker = "[VIVI]" },
 ]
 ```
+
+### Control locking (lock · lock_menu)
+
+**The engine has no dialog lock.** A window only blocks the script thread of the object that opened
+it — the player walks freely under any open window unless the script locks control. Stock locks on
+**every** window-bearing talk handler (1,108 of 1,108 — the movement census,
+`studies/movement/SURVEY.md`), and its only lock-free windows are six passive banners. The kit
+mirrors that law with per-lane defaults:
+
+- **`lock`** — hold player control (`DisableMove`…`EnableMove`) around the body.
+  - `[[npc]]` dialogue: **default `true`** (the stock talk bracket). `lock = false` is the
+    deliberate walk-under opt-out.
+  - `[[event]]` `trigger = "action"`: **default `true`** (stock's press-sign shape — a locked read).
+  - `[[event]]` `trigger = "walk"` (tread): **default `false`** — the toast/banner idiom (stock's
+    passive `WindowAsync` banners; the countdown captions). `lock = true` turns a tread event into
+    a held story beat: the body is compiled into a **player function** and dispatched with
+    `RunScriptSync` (a tread body must never block under its own lock — the engine stops stepping
+    a tread region while control is off, the proven freeze class).
+  - `[[on_entry]]`: **default `true`** (the entry beat already locked); `lock = false` shows the
+    message as a free banner during the entry.
+  - A `[[choice]]` is **always** locked (without the bracket the d-pad would move the character
+    under the menu) — it takes no `lock` key.
+- **`lock_menu`** — additionally hold the main menu shut (`DisableMenu`…`EnableMenu`, the save
+  point's proven double bracket) for the body. On `[[npc]]`, `[[event]]` and `[cutscene]`. Note a
+  bare `lock` already suppresses the menu *while movement is locked* (the engine couples them);
+  `lock_menu` keeps the suppression explicit and stock-macro-shaped. Needs the lock.
 
 ### Rotating casts (story-event fields)
 
@@ -893,6 +920,7 @@ once = false              # edge-triggered by the press -> repeatable, and consu
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
 | `trigger` | `"walk"` (default) = fires on tread. `"action"` = fires on the **action button** while standing in the zone — edge-triggered by the press, so it can never loop; the natural form for signs, plaques, and inspectables. |
 | `bubble` | *(action only)* `true` = show the floating **"!" prompt** while the player stands in the zone (the save-moogle-cask shape — a tread companion arms `Bubble(1)` per frame). Default `false`: stock's *silent* readable, discovered by pressing — both conventions are authentic; pick by how discoverable the spot should be. Also on a zone `[[choice]]` with `trigger = "action"`. |
+| `lock` / `lock_menu` | hold player control (and optionally the main menu) for the body — default **on** for `"action"` (stock locks every press-read), **off** for `"walk"` (the toast idiom); a locked walk event compiles its body into a player function (the tread-safe dispatch). See *Control locking* above. |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` on a **walk** trigger = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside; suits a continuous effect only). `false` on an **action** trigger = re-fires once per press — the repeatable readable, and it consumes **no** gate flag. A walk-triggered "once per visit" (re-fires only after leaving and re-entering) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `9100`, the kit's safe-band event auto band — clear of ALL real-FF9 usage, and the allocator skips indices your project uses explicitly; override for a shipped mod to avoid cross-field clashes). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
@@ -1914,7 +1942,8 @@ steps = [
 | `wait` | pause this many frames. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag mid-scene. |
 
-The scene auto-locks control (`DisableMove`…`EnableMove`); with `once` it won't replay on re-entry.
+The scene auto-locks control (`DisableMove`…`EnableMove`) unless `owns_control = false`; with
+`once` it won't replay on re-entry.
 
 Cutscene-level keys (alongside `steps`):
 
@@ -1922,6 +1951,9 @@ Cutscene-level keys (alongside `steps`):
 |---|---|
 | `once` | `true` (default) = play once ever (save-persistent flag); `false` = every entry. |
 | `flag` | explicit GlobBool index for the once-guard (default auto `9200+`). |
+| `owns_control` | `true` (default) = the scene holds player control (a cast scene adds the grant-catch spin + the shared watchdog; narration uses the reorder-wait). `false` = the scene plays with the player **free** — a background narration / ambient choreography (no lock, no spin, no watchdog). |
+| `warmup` | frames a **cast** scene waits for actors to spawn when `owns_control = false` (with the lock, the grant spin doubles as the settle and `warmup` is unused). |
+| `lock_menu` | additionally hold the **main menu** shut for the scene (`DisableMenu`…`EnableMenu`, the stock macro's menu pair — stock players can't open the menu mid-cutscene only because stock scripts lock it). Needs `owns_control`. On a `then_warp` exit the menu mask clears with the transition. |
 | `requires_scenario` | **the story-event director GATE**: the scene only plays when the **ScenarioCounter `== N`** (an int or an area name, e.g. `"Dali"`). Outside its beat the scene simply doesn't exist — and its `once` flag isn't burned, so it still plays when the story reaches the beat. |
 | `requires_flag` / `requires_flag_clear` | the scene only plays while this GlobBool (index or `[[flag]]` name) is SET / CLEAR. Stacks with `requires_scenario` (both must hold). One or the other, not both. |
 | `set_scenario` | **the story-event director ADVANCE**: at scene end, set the **ScenarioCounter** (int or area name) — the story moves to the next beat, exactly once, only when the scene actually played (the write sits inside the once-guard). |

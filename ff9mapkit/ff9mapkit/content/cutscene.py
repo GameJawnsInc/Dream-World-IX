@@ -324,7 +324,8 @@ REORDER_WAIT = 2
 
 def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
                reorder: int = REORDER_WAIT, *, ate_mode: int | None = None,
-               then_warp: int | None = None, gate: bytes = b"", end_writes: bytes = b"") -> bytes:
+               then_warp: int | None = None, gate: bytes = b"", end_writes: bytes = b"",
+               owns_control: bool = True, lock_menu: bool = False) -> bytes:
     """The cutscene function body: a brief reorder ``Wait`` (so the lock outlives Main_Init's EnableMove)
     then ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated ``if (!once_flag) { ...;
     once_flag = 1 }`` when ``once_flag`` is set (so it plays once).
@@ -340,14 +341,25 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
     so the destination doesn't load in the clear (the static-screen bug). Field() transitions from this
     InitCode'd entry just like the World-Hub menu-row warp does (same code-entry context -- NOT the
     Main_Init no-op case)."""
-    pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
-    inner = pre + opcodes.DISABLE_MOVE
+    # owns_control=False (parity with the conductor's key, previously conductor-only -- the
+    # narration lane silently ignored it): no reorder wait, no lock, no restore -- the scene plays
+    # with the player free (a background narration). lock_menu adds the savepoint's DisableMenu
+    # pair inside the bracket (the stock macro locks the menu alongside movement).
+    if owns_control:
+        pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
+        inner = pre + opcodes.DISABLE_MOVE
+        if lock_menu:
+            inner += opcodes.DISABLE_MENU
+    else:
+        inner = b""
     if ate_mode is not None:
         inner += opcodes.ate(int(ate_mode))
     inner += b"".join(steps)
     if ate_mode is not None:
         inner += opcodes.ate(0)
-    if then_warp is None:
+    if owns_control and then_warp is None:
+        if lock_menu:
+            inner += opcodes.ENABLE_MENU
         inner += opcodes.ENABLE_MOVE                      # restore control (a normal cutscene stays put)
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes (built by the caller) INSIDE the once-gate
     # (before the once-flag set) -- the story advances exactly once, only when the scene actually played;
@@ -372,14 +384,17 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
 def inject_cutscene(data, steps, *, once_flag: int | None = None, flag_class=CUTSCENE_FLAG_CLASS,
                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                     ate_mode: int | None = None, then_warp: int | None = None,
-                    gate: bytes = b"", end_writes: bytes = b"") -> bytes:
+                    gate: bytes = b"", end_writes: bytes = b"",
+                    owns_control: bool = True, lock_menu: bool = False) -> bytes:
     """Append a cutscene code entry (the sequence in :func:`build_body`) and run it on field load via
     an ``InitCode`` (over a Wait filler, or inserted into Main_Init). Returns new .eb bytes.
     ``ate_mode`` (not None) styles it as a compulsory ATE (the ``ATE(mode)`` HUD bracket); ``then_warp``
     (a field id) makes it auto-return with ``Field(then_warp)`` at the end. ``gate`` / ``end_writes`` =
-    the director story-gate prologue + end-of-scene story advance (see :func:`build_body`)."""
+    the director story-gate prologue + end-of-scene story advance; ``owns_control`` / ``lock_menu`` =
+    the control-bracket levers (see :func:`build_body`)."""
     body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode, then_warp=then_warp,
-                      gate=gate, end_writes=end_writes)
+                      gate=gate, end_writes=end_writes,
+                      owns_control=owns_control, lock_menu=lock_menu)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     slot = EbScript.from_bytes(data).first_free_slot()
     out = edit.append_entry(data, slot, entry)

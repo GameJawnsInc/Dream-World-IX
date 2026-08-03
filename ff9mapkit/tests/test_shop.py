@@ -43,11 +43,26 @@ def test_open_shop_is_menu_2_id():
 
 
 def test_shop_speak_body_greeting_optional():
-    # no greeting -> straight to the shop, then RETURN
-    assert shop.shop_speak_body(40) == shop.open_shop(40) + opcodes.RETURN
-    # with a greeting -> window first, then the shop
+    # the DEFAULT talk body is BRACKETED (the movement census: the engine never halts the player for
+    # a talk -- stock wraps every shop talk in DisableMove...EnableMove, 119/130 Menu(2,) in-lock)
+    assert shop.shop_speak_body(40) == (opcodes.DISABLE_MOVE + shop.open_shop(40)
+                                        + opcodes.ENABLE_MOVE + opcodes.RETURN)
+    # with a greeting -> window first, then the shop, all inside the one bracket
     body = shop.shop_speak_body(40, greeting_txid=63)
-    assert body == opcodes.window_sync(1, 128, 63) + shop.open_shop(40) + opcodes.RETURN
+    assert body == (opcodes.DISABLE_MOVE + opcodes.window_sync(1, 128, 63) + shop.open_shop(40)
+                    + opcodes.ENABLE_MOVE + opcodes.RETURN)
+
+
+def test_shop_speak_body_lock_false_is_the_old_shape():
+    # lock = false -> the pre-census unlocked body, byte-identical (the deliberate opt-out)
+    assert shop.shop_speak_body(40, lock=False) == shop.open_shop(40) + opcodes.RETURN
+
+
+def test_shop_speak_body_lock_menu():
+    # lock_menu adds the savepoint's DisableMenu pair INSIDE the bracket
+    assert shop.shop_speak_body(40, lock_menu=True) == (
+        opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + shop.open_shop(40)
+        + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 
 def test_shop_dispatch_locks_control():

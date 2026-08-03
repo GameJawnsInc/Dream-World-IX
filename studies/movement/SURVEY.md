@@ -203,6 +203,12 @@ finishes animating; fields 1704/2921 auto-lock — **mobile only**).
 
 ## 10. GAPS — engine/stock capabilities the authoring layer doesn't reach (ranked)
 
+> **Tier 1 (items 1–4) is BUILT** — the lock brackets on npc/shop/event bodies (per-lane stock
+> defaults; a locked tread delegates via a player func), the `lock`/`lock_menu` keys, narration
+> `owns_control` honored, and `[player] locked_entrances` (both template grant sites entrance-gated,
+> the first ungated `[[on_entry]]` carries the grant tail). Offline-green (474 domain tests) and
+> deployed on the WINSTYLE bench @30601 — **in-game verdict pending**.
+
 **Tier 1 — the fidelity bug + the missing verb:**
 1. **Lock the dialogue-bearing bodies like stock does.** `[[npc]]` plain talk, `shop_speak_body`,
    and `[[event]]` bodies with a sync `message` ship lock-free today (§9). Stock: 100%. Shape:

@@ -348,7 +348,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
                warmup: int = _cutscene.DEFAULT_WARMUP, owns_control: bool = True,
                then_warp: int | None = None, say_flags: int = 128, ate_mode: int | None = None,
                reorder: int = _cutscene.REORDER_WAIT, tag_calls=None, join_tags=None,
-               gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None) -> bytes:
+               gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None,
+               lock_menu: bool = False) -> bytes:
     """The conductor function body, run from a standalone ``InitCode``-armed code entry.
 
     Shape: ``[Wait(reorder)] [DisableMove] [Wait(warmup)] <beats> [EnableMove]`` gated
@@ -373,6 +374,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
         if watchdog_flag is not None:                 # raise the scene-running flag FIRST: from here on the
             inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 1)   # watchdog re-locks ANY grant
         inner += opcodes.DISABLE_MOVE                 # disable, so the spin waits for the engine's RE-grant
+        if lock_menu:                                 # the stock macro's menu pair: held for the whole scene
+            inner += opcodes.DISABLE_MENU             # (the spin/per-beat re-locks only re-issue DisableMove;
         inner += wait_for_control_then_lock()         # ... spin to that grant, then re-lock (the lock that holds)
     elif warmup > 0:
         inner += opcodes.wait(int(warmup))            # no lock: still settle so the actors exist before the beats
@@ -385,7 +388,9 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
     if owns_control and watchdog_flag is not None:    # lower the flag BEFORE re-granting (on the warp path the
         inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 0)   # MAP array resets at field unload)
     if owns_control and then_warp is None:
-        inner += opcodes.ENABLE_MOVE
+        if lock_menu:
+            inner += opcodes.ENABLE_MENU              # the menu mask is independent of the move lock --
+        inner += opcodes.ENABLE_MOVE                  # clear it or the menu stays dead after the scene
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes INSIDE the once-gate (before the once-flag
     # set) -- the story advances exactly once, only when the scene actually played. Empty -> byte-identical.
     inner += end_writes
@@ -406,7 +411,8 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
                      owns_control: bool = True, then_warp: int | None = None, say_flags: int = 128,
                      ate_mode: int | None = None,
                      tag_calls=None, join_tags=None, reserve_party_band: bool = False,
-                     gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None) -> bytes:
+                     gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None,
+                     lock_menu: bool = False) -> bytes:
     """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init.
     Returns new .eb bytes. ``tag_calls`` (a dict ``step_index -> (uid, tag)``) maps each tag-kind step
     (walk/path/teleport/face_player) to its pre-generated per-actor tag; ``join_tags`` (``uid ->
@@ -424,7 +430,8 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
     body = build_body(steps, uid_by_name, txids, once_flag, flag_class=flag_class, warmup=warmup,
                       owns_control=owns_control, then_warp=then_warp, say_flags=say_flags,
                       ate_mode=ate_mode, tag_calls=tag_calls, join_tags=join_tags,
-                      gate=gate, end_writes=end_writes, watchdog_flag=watchdog_flag)
+                      gate=gate, end_writes=end_writes, watchdog_flag=watchdog_flag,
+                      lock_menu=lock_menu)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
     return edit.activate_block(out, opcodes.init_code(slot, 0))

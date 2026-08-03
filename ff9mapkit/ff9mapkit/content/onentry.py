@@ -58,7 +58,8 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
                   requires_set: bool = True, requires_scenario: int | None = None,
                   message_window: int = 1, message_flags: int = 128,
                   message_actor_uid: int | None = None, message_dim=False,
-                  message_dim_tint=None) -> bytes:
+                  message_dim_tint=None, message_lock: bool = True,
+                  grant_control: bool = False) -> bytes:
     """The bytecode for ONE on-entry hook (no entry/return wrapper beyond the trailing ``RETURN``).
 
     Shape::
@@ -107,9 +108,11 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
     else:
         win_op = b""
     actions = win_op + writes
-    if message_txid is not None:
+    if message_txid is not None and message_lock:
         # mirror the narration cutscene: yield a couple of frames so the lock outlives Main_Init's
         # own EnableMove (which runs in the first frame after this InitCode), then lock for the window.
+        # message_lock=False is the passive-banner opt-out (stock's 6 lock-free WindowAsync banners):
+        # the beat shows with the player free to walk -- no reorder dance needed.
         inner = (opcodes.wait(_cutscene.REORDER_WAIT) + opcodes.DISABLE_MOVE + actions
                  + opcodes.ENABLE_MOVE)
     else:
@@ -120,6 +123,14 @@ def on_entry_body(*, message_txid: int | None = None, set_flag_pairs=(), scenari
                                 _region.set_var(_region.GLOB_BOOL, int(once_flag), 1) + inner)
     else:
         core = inner
+    if grant_control:
+        # the ARRIVE-LOCKED grant ([player] locked_entrances): the field-entry grant was entrance-
+        # gated away, so THIS hook owns handing control back -- unconditionally, OUTSIDE the once
+        # block (a revisit that skips the once'd beat must still grant, or the player arrives frozen
+        # forever). The stock enable-macro shape: re-arm the MAP-158 latch (Main_Reinit's re-affirm
+        # reads it), EnableMove, unmask the walkmesh triangles, EnableMenu.
+        core += (_region.set_var(_region.MAP_BOOL, 158, 1) + opcodes.ENABLE_MOVE
+                 + opcodes.encode(0x27, 255) + opcodes.ENABLE_MENU)
     return gates + core + opcodes.RETURN
 
 
