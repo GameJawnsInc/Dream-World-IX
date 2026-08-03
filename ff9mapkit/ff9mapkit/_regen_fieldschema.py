@@ -162,6 +162,38 @@ id = 5001
 template = "fire"
 pos = [0, -1200]
 """),
+    # The CONDUCTOR (a CAST cutscene, actors = [...]): the bundled examples only author narration
+    # cutscenes, so without this stub group_parallel/_validate_conductor never run and the whole
+    # conductor step vocabulary (with_prev, speed, follow, ...) is invisible to the harvest -- lint
+    # then false-positives on an in-game-proven key.
+    ("conductor", """
+[[npc]]
+name = "Stagehand"
+preset = "vivi"
+pos = [-500, -1300]
+
+[[npc]]
+name = "Runner"
+preset = "vivi"
+pos = [500, -1300]
+
+[cutscene]
+actors = ["Stagehand", "Runner", "player"]
+once = true
+flag = 8794
+steps = [
+  { actor = "Stagehand", say = "Places, everyone!", speaker = "[HAND]" },
+  { actor = "Runner", teleport = [900, -2200] },
+  { actor = "Stagehand", walk = [-700, -1600] },
+  { actor = "Runner", walk = [700, -1600], with_prev = true },
+  { actor = "player", turn = 128, with_prev = true },
+  { wait = 20 },
+  { actor = "Stagehand", animation = "glad" },
+  { actor = "Runner", turn = 0, with_prev = true },
+  { actor = "Stagehand", face_player = true },
+  { set_flag = [8794, 1] },
+]
+"""),
 ]
 
 # Standalone stub projects (whole tomls, no vivi-hut base) -- for paths a vivi-hut graft can't
@@ -292,6 +324,11 @@ def _seed_vocab() -> "dict[str, set[str]]":
     }
     seeds = {p: {f.key for f in spec} for p, spec in spec_paths.items()}
     seeds["cutscene.steps"] = set(forms.STEP_KIND) | {"actor"}
+    # A walk/path step's DOCUMENTED `speed` (FORMAT.md "Optional speed = N") is read only AFTER
+    # _resolve_conductor_steps/_resolve_move_steps rebuild the step dicts (`dict(s)` / `{**s}` copies
+    # shed the recording wrapper), so no probe can ever harvest it. (`follow` is NOT seeded: the build
+    # derives it internally in _resolve_move_steps -- authors write `walk = "@player"`.)
+    seeds["cutscene.steps"].add("speed")
     # [scene] file is probed on the PRE-merge base (before the harvest seam) -- seed it explicitly.
     seeds[""] = {"scene"}
     seeds["scene"] = {"file"}
