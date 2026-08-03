@@ -50,3 +50,42 @@ def test_apply_rejects_wrong_source():
 
 def test_missing_message_mentions_extract_templates():
     assert "extract-templates" in provision.MISSING_MSG
+
+
+@pytest.mark.parametrize("corrupt", [
+    lambda b: b[:-4],                       # truncated -- an interrupted extraction, or a full disk
+    lambda b: b"\x00" * len(b),             # SAME LENGTH, wrong bytes -- a size check would miss this
+])
+def test_a_corrupted_template_cache_is_caught_at_READ(corrupt):
+    """★ extract-templates verifies these blobs when it WRITES them; nothing verified them when they were
+    READ. The cache is gitignored, outside version control, on a machine shared by many worktrees -- and
+    the blank field is the starting point for EVERY synthesized script, so bad bytes here get embedded
+    silently into everything the kit builds afterwards."""
+    from ff9mapkit import data
+    p = provision.blank_dir() / "us.eb.bytes"
+    if not p.is_file():
+        pytest.skip("templates not extracted in this checkout")
+    orig = p.read_bytes()
+    try:
+        data._VERIFIED.clear()
+        assert data.blank_field_bytes("us") == orig            # baseline: a good cache reads fine
+        data._VERIFIED.clear()
+        p.write_bytes(corrupt(orig))
+        with pytest.raises(ValueError, match="does not match the manifest hash"):
+            data.blank_field_bytes("us")
+    finally:
+        p.write_bytes(orig)
+        data._VERIFIED.clear()
+    assert data.blank_field_bytes("us") == orig                # and the restore really restored
+
+
+def test_a_verified_template_is_hashed_once_per_process():
+    """A campaign reads these thousands of times; re-hashing per call would tax every build."""
+    from ff9mapkit import data
+    p = provision.blank_dir() / "us.eb.bytes"
+    if not p.is_file():
+        pytest.skip("templates not extracted in this checkout")
+    data._VERIFIED.clear()
+    first = data.blank_field_bytes("us")
+    assert str(p) in data._VERIFIED
+    assert data.blank_field_bytes("us") is first, "the second read must come from the verified cache"
