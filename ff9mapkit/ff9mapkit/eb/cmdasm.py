@@ -99,6 +99,17 @@ def assemble_instruction(name: str, operands, *, label_offsets=None, instr_end: 
     ac0 = OP_ARG_COUNT[op] if op < len(OP_ARG_COUNT) else 0
     is_expr = [o.startswith("{") for o in operands]
 
+    # Only ops that carry an argFlag byte on the wire (op >= 0x10 with a nonzero arg count) --
+    # plus SET (0x05), whose single operand is implicitly an expression -- can take a { ... }
+    # operand. Anywhere else the decoder reads fixed-width immediates, so emitting expression
+    # bytes would assemble to silently DIFFERENT instructions (jumps/switches/low ops).
+    if any(is_expr) and op != 0x05 and not (op >= 0x10 and ac0 != 0):
+        raise CmdAsmError(f"{name} (op {op:#04x}) carries no argFlag byte -- its operands are "
+                          f"fixed-width immediates and cannot be {{ ... }} expressions")
+    if len(is_expr) > 8 and any(is_expr[8:]):               # the argFlag byte holds 8 bits
+        raise CmdAsmError(f"{name}: operand {is_expr.index(True, 8)} cannot be an expression "
+                          f"(the argFlag byte covers only the first 8 operands)")
+
     if op >= 0x10 and ac0 != 0:                             # an argFlag byte: bit i set == operand i is an expr
         flag = 0
         for i, e in enumerate(is_expr):
@@ -165,7 +176,11 @@ def assemble_instruction(name: str, operands, *, label_offsets=None, instr_end: 
                                   f"[0, 65535]; the function body exceeds the reachable switch span (split it).")
             out += rel.to_bytes(2, "little")
         else:
-            out += _imm_bytes(op, i, int(o))
+            try:
+                val = int(o, 0)                          # base 0: hand-authored hex (0x1F4) works too
+            except ValueError as ex:
+                raise CmdAsmError(f"{name} operand {i}: {o!r} is not an integer immediate") from ex
+            out += _imm_bytes(op, i, val)
     return bytes(out)
 
 

@@ -358,23 +358,39 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
     return 0
 
 
+# The stock corpus is 818 EVTs x 7 languages = 5726 (studies/eb-roundtrip/FINDINGS.md). A gate
+# that quietly verifies fewer than this is the "check that cannot fail" defect class -- if the
+# container listing shrinks (key-format drift, a filter typo), the sweep must REFUSE, not pass.
+_EB_CORPUS_FLOOR = 5726
+
+
 def _eb_src_verify_all() -> int:
     """Round-trip EVERY field event binary in the install (all languages) through the .ebs
-    source form and report the byte-exact count -- the eb-roundtrip arc's standing gate."""
+    source form and report the byte-exact count -- the eb-roundtrip arc's standing gate.
+    Exit 0 only when the corpus is full-size AND every binary round-trips."""
     from . import extract
     from .eb import ebsrc
 
-    bundle = extract._events_bundle()
-    if not bundle:
-        print("no events bundle found -- is the FF9 install reachable?", file=sys.stderr)
+    try:
+        bundle = extract._events_bundle()
+        if not bundle:
+            print("no events bundle found -- is the FF9 install reachable?", file=sys.stderr)
+            return 2
+        env = extract._load_env(extract._streaming_assets() / bundle)
+    except ConfigError as ex:
+        print(f"eb-src --verify-all: no FF9 install found ({ex})", file=sys.stderr)
         return 2
-    env = extract._load_env(extract._streaming_assets() / bundle)
     todo = []
     for k, obj in env.container.items():
         kl = k.lower()
         if "eventbinary/field/" in kl and kl.endswith(".eb.bytes"):
             parts = kl.split("eventbinary/field/")[1].split("/")
             todo.append((parts[0], parts[-1][:-len(".eb.bytes")], obj))
+    if len(todo) < _EB_CORPUS_FLOOR:
+        print(f"eb-src --verify-all: only {len(todo)} field event binaries found "
+              f"(expected {_EB_CORPUS_FLOOR}) -- refusing to call a partial corpus green",
+              file=sys.stderr)
+        return 2
     ok, failures = 0, []
     for lang, evt, obj in sorted(todo):
         data = extract._raw_bytes(obj.read())
@@ -402,24 +418,28 @@ def _cmd_eb_src(args: argparse.Namespace) -> int:
     if not args.target:
         print("eb-src: give a field id/name or a .eb path (or --verify-all)", file=sys.stderr)
         return 2
-    p = Path(args.target)
-    if p.exists():
-        data = p.read_bytes()
-        title = p.name
-    else:
-        from . import extract
-        data = extract.extract_event_script(args.target, lang=args.lang)
-        if data is None:
-            print(f"eb-src: could not resolve {args.target!r} to a field event binary "
-                  f"(lang {args.lang})", file=sys.stderr)
-            return 2
-        title = f"field {args.target} lang {args.lang}"
-    src = ebsrc.write_source(data, title=title)           # raises on any round-trip deviation
-    if args.out:
-        Path(args.out).write_text(src, encoding="utf-8")
-        print(f"wrote {args.out} ({len(src.splitlines())} lines, round-trip verified)")
-    else:
-        print(src, end="")
+    try:
+        p = Path(args.target)
+        if p.is_file():
+            data = p.read_bytes()
+            title = p.name
+        else:
+            from . import extract
+            data = extract.extract_event_script(args.target, lang=args.lang)
+            if data is None:
+                print(f"eb-src: could not resolve {args.target!r} to a field event binary "
+                      f"(lang {args.lang})", file=sys.stderr)
+                return 2
+            title = f"field {args.target} lang {args.lang}"
+        src = ebsrc.write_source(data, title=title)       # raises on any round-trip deviation
+        if args.out:
+            Path(args.out).write_text(src, encoding="utf-8")
+            print(f"wrote {args.out} ({len(src.splitlines())} lines, round-trip verified)")
+        else:
+            print(src, end="")
+    except (ebsrc.EbSrcError, OSError) as ex:
+        print(f"eb-src: {ex}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -428,20 +448,29 @@ def _cmd_eb_asm(args: argparse.Namespace) -> int:
 
     from .eb import ebsrc
 
-    src = Path(args.src).read_text(encoding="utf-8")
-    data = ebsrc.assemble_source(src)
-    if args.verify_against:
-        want = Path(args.verify_against).read_bytes()
-        if data != want:
-            n = min(len(data), len(want))
-            at = next((i for i in range(n) if data[i] != want[i]), n)
-            print(f"MISMATCH vs {args.verify_against} at byte {at} "
-                  f"(assembled {len(data)}B, reference {len(want)}B)", file=sys.stderr)
-            return 1
-        print(f"verified: matches {args.verify_against} byte-exact ({len(data)}B)")
-    out = args.out or str(Path(args.src).with_suffix(".eb"))
-    Path(out).write_bytes(data)
-    print(f"wrote {out} ({len(data)} bytes)")
+    try:
+        src_path = Path(args.src)
+        out = Path(args.out) if args.out else src_path.with_suffix(".eb")
+        if out.exists() and out.resolve() == src_path.resolve():
+            print(f"eb-asm: output {out} is the source file itself -- assembling would "
+                  f"destroy your source; pass -o with a different path", file=sys.stderr)
+            return 2
+        src = src_path.read_text(encoding="utf-8-sig")
+        data = ebsrc.assemble_source(src)
+        if args.verify_against:
+            want = Path(args.verify_against).read_bytes()
+            if data != want:
+                n = min(len(data), len(want))
+                at = next((i for i in range(n) if data[i] != want[i]), n)
+                print(f"MISMATCH vs {args.verify_against} at byte {at} "
+                      f"(assembled {len(data)}B, reference {len(want)}B)", file=sys.stderr)
+                return 1
+            print(f"verified: matches {args.verify_against} byte-exact ({len(data)}B)")
+        out.write_bytes(data)
+        print(f"wrote {out} ({len(data)} bytes)")
+    except (ebsrc.EbSrcError, OSError) as ex:
+        print(f"eb-asm: {ex}", file=sys.stderr)
+        return 2
     return 0
 
 

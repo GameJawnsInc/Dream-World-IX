@@ -6,8 +6,13 @@
 > grammar v1 frozen in its module docstring, writer SELF-VERIFIES) + CLI `eb-src`/`eb-asm` +
 > the standing gate `eb-src --verify-all` — **5726/5726 byte-exact on the full corpus**, plus
 > an install-gated test sweep (`tests/test_ebsrc.py`, loud-count so a partial corpus can't
-> pass green). Next = Rung 4 (comment enrichment from logic_map) and Rung 5 (docs + fixpoint
-> polish); Rung 6 edit-through-source and Rung 7 world EVT_ binaries remain stretch.
+> pass green). ★ ADVERSARIALLY REVIEWED (72-agent workflow, 22 findings confirmed incl. 3
+> HIGH — all fixed): grammar gained `off=` overrides + `raw=` entries + `.gap` records so
+> **KIT-built/edited fields round-trip too (133/133 deployed custom .eb)**, the cmdasm
+> expression-on-flagless-opcode silent-corruption hole is a hard error, the gate refuses a
+> partial corpus, and every failure path is a clean EbSrcError/exit-2. Next = Rung 4
+> (comment enrichment from logic_map) and Rung 5 (docs); Rung 6 edit-through-source and
+> Rung 7 world EVT_ binaries remain stretch.
 
 **Goal:** decompile any of FF9's 818 real field event binaries (`.eb`, × 7 languages) to a
 *readable, re-compilable source file* that round-trips **byte-exact**, proven by a standing
