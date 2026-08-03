@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `eb-src` / `eb-asm`: byte-exact `.ebs` source for every field event script
+- **`ff9mapkit eb-src <field|path>` decompiles a complete field `.eb` to readable,
+  re-assemblable `.ebs` source, and `ff9mapkit eb-asm` compiles it back — byte-exact.** Function
+  bodies use the proven labeled command-assembler form (symbolic `L<n>` jump/switch targets,
+  pretty expressions); the file envelope (entry table, func tables, empty-slot offsets, the
+  124-byte per-language name block) is derived from grammar, not stored. `eb-src` self-verifies:
+  it reassembles its own output and refuses to emit source that doesn't reproduce the input.
+- **`ff9mapkit eb-src --verify-all` is the standing gate:** it round-trips every field event
+  binary in your install — all 818 fields in all 7 languages, 5726 binaries — and reports the
+  byte-exact count (currently 5726/5726).
+- Grounded by a corpus census (`studies/eb-roundtrip/FINDINGS.md`) that also corrected a
+  long-standing assumption: event bytecode is NOT language-identical (only 238/818 fields are;
+  dialogue-window operands, text-pacing waits, and voice sound ids differ per language, and 94
+  fields differ in length) — so `.ebs` source is per (field, language).
+
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
   composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,

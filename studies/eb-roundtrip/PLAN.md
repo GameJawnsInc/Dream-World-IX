@@ -1,13 +1,13 @@
 # Byte-exact `.eb` round-trip — scoping (Rung 0 research)
 
-> **STATUS:** Rung 1 (file-envelope census) ★ DONE — results + locked grammar decisions in
-> [`FINDINGS.md`](FINDINGS.md). Headlines: the corpus is **818 EVTs × 7 langs = 5726**
-> binaries (676 was the FBG-folder count); the envelope is maximally clean (no gaps/slack,
-> canonical func tables, empty-slot offs 100% derivable — rule proven 38325/38325); the
-> "header" is really a 124-byte per-lang NAME block at [0x04..0x80) (keep as raw hex); and
-> **the lang-identical-bytecode assumption is FALSE** — only 238/818 EVTs are identical
-> across langs (486 equal-length diffs in window/Wait/voice ops, 94 length-changing), so
-> source is per (EVT, lang). Next = Rung 2 (grammar freeze + writer).
+> **STATUS:** Rungs 1-3 ★ DONE. Rung 1 census → [`FINDINGS.md`](FINDINGS.md) (corpus is
+> **818 EVTs × 7 langs = 5726**; envelope fully derivable; lang-identical bytecode FALSIFIED —
+> source is per (EVT, lang)). Rungs 2+3: `eb/ebsrc.py` (`write_source`/`assemble_source`,
+> grammar v1 frozen in its module docstring, writer SELF-VERIFIES) + CLI `eb-src`/`eb-asm` +
+> the standing gate `eb-src --verify-all` — **5726/5726 byte-exact on the full corpus**, plus
+> an install-gated test sweep (`tests/test_ebsrc.py`, loud-count so a partial corpus can't
+> pass green). Next = Rung 4 (comment enrichment from logic_map) and Rung 5 (docs + fixpoint
+> polish); Rung 6 edit-through-source and Rung 7 world EVT_ binaries remain stretch.
 
 **Goal:** decompile any of FF9's 818 real field event binaries (`.eb`, × 7 languages) to a
 *readable, re-compilable source file* that round-trips **byte-exact**, proven by a standing
