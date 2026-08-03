@@ -1,18 +1,17 @@
 # WINSTYLE -- the Tier-1 window-attribute bench + the [[event]] action trigger.
-# Layout probed with tools/field_layout_probe.py (the laying-out skill): zones sit at room
-# edges / beside their cask landmarks, never across the walk lane; spawn is clear of every
-# zone band; all actor pairs >= 300u.
+# Layout probed (tools/field_layout_probe.py) AND sized by the render math this time: row z-gaps
+# >= 600u so the gaps read BIGGER on screen than the tallest landmark (a cask is 400u tall -- the
+# round-2 barrels were as tall as the row spacing and read scrunched). Landmarks are BOOKS
+# (small model 233) with collision = false, so nothing ever blocks a pad.
 #
-#   * on entry: a timed countdown ("On your mark / Get set / GO!") -- `duration` staged captions.
-#   * WEST cask (with the "!" bubble): a PRESS-to-read sign -- `trigger = "action"`, `once = false`,
-#     `bubble = true`: the moogle-cask-style prompt shows while you stand at it; edge-triggered,
-#     repeatable, consumes no flag.
-#   * EAST barrel (NO bubble): the pinned Mognet-caption menu -- also press-fired, but silent:
-#     stock's discover-by-pressing readable form. The contrast IS the test.
-#   * WEST wall pad (cask beside it): a walk-in self-closing no-tail toast (`duration = 90`;
-#     `once = false` walk-triggered ON PURPOSE -- the level-trigger re-fire contrast).
-#   * EAST wall pad (cask beside it): a walk-in line ATTRIBUTED to the crier NPC (`actor`).
-#   * back row: the control bubble / no-tail / transparent talkers.
+# Front -> back: spawn / two WALL PADS (walk-ins, at the side walls) / two PRESS SPOTS
+# (sign west + menu east) / the three talkers.
+#   * on entry: the `duration` countdown captions.
+#   * WEST press spot ("!" bubble): `trigger="action"` + `bubble=true` + `once=false` --
+#     press-to-read, repeatable, no flag, prompted.
+#   * EAST press spot (SILENT): the pinned Mognet menu -- stock's discover-by-pressing form.
+#   * WEST wall pad: the walk-in self-closing toast (`duration=90`, level-trigger contrast).
+#   * EAST wall pad: the walk-in line ATTRIBUTED to the crier (`actor`).
 # Deploy: py tools/deploy_field.py studies/messages/bench/winstyle.field.toml --id 30601
 
 [field]
@@ -21,13 +20,13 @@ name = "WINSTYLE"
 area = 11
 
 [camera]
-pitch = 45
+pitch = 40
 
 [walkmesh]
-quad = [[-1400, -100], [1400, -100], [1400, -2000], [-1400, -2000]]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
 
 [player]
-spawn = [0, -1700]
+spawn = [0, -1900]
 
 # --- the entry countdown: `duration` staged captions -------------------------------------
 [[cutscene]]
@@ -36,13 +35,41 @@ steps = [
   { say = "On your mark!", style = "notail", duration = 45 },
   { say = "Get set!", style = "notail", duration = 45 },
   { say = "GO!", style = "notail", duration = 30 },
-  { say = "West cask with the ! bubble: press to read. East barrel: press it too (no prompt -- stock's hidden-sign form). The wall pads by the far casks are walk-ins. Talkers at the back.", speaker = "Bench" },
+  { say = "Books mark the spots. Side walls ahead: walk-in pads. Mid-room: press at the west book (it prompts) and the east book (silent, like a stock sign). Talkers at the back.", speaker = "Bench" },
 ]
 
-# --- WEST cask: the PRESS sign, WITH the "!" bubble --------------------------------------
+# --- WEST wall pad: the walk-in self-closing toast ---------------------------------------
+[[event]]
+name = "toast"
+zone = [[-1200, -1650], [-950, -1650], [-950, -1400], [-1200, -1400]]
+message = "A no-tail toast. It closes itself in three seconds -- and this one is walk-triggered, so it re-fires while you stand here."
+style = "notail"
+duration = 90
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-880, -1525]
+collision = false
+
+# --- EAST wall pad: attributed to the crier ----------------------------------------------
+[[event]]
+name = "crier_call"
+zone = [[950, -1650], [1200, -1650], [1200, -1400], [950, -1400]]
+message = "Hear ye!  This bubble should point at ME, the crier at the back."
+speaker = "Crier"
+actor = "crier"
+once = false
+
+[[prop]]
+prop = "book"
+pos = [880, -1525]
+collision = false
+
+# --- WEST press spot: the sign, WITH the "!" bubble --------------------------------------
 [[event]]
 name = "sign"
-zone = [[-1050, -1200], [-750, -1200], [-750, -1030], [-1050, -1030]]
+zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
 trigger = "action"
 bubble = true
 message = "= WINSTYLE BENCH =\nA press-to-read sign. Dismiss it: quiet until you press again."
@@ -51,12 +78,13 @@ instant = true
 once = false
 
 [[prop]]
-prop = "cask"
-pos = [-900, -950]
+prop = "book"
+pos = [-700, -880]
+collision = false
 
-# --- EAST barrel: the pinned Mognet menu, press-fired, SILENT ----------------------------
+# --- EAST press spot: the pinned Mognet menu, SILENT -------------------------------------
 [[choice]]
-zone = [[750, -1200], [1050, -1200], [1050, -1030], [750, -1030]]
+zone = [[550, -1150], [850, -1150], [850, -950], [550, -950]]
 prompt = "A pinned menu with the Mognet caption, kupo?"
 style = "mognet"
 window_pos = [20, 16]
@@ -67,47 +95,22 @@ options = [
 ]
 
 [[prop]]
-prop = "barrel"
-pos = [900, -950]
-
-# --- WEST wall pad: the walk-in self-closing toast ---------------------------------------
-[[event]]
-name = "toast"
-zone = [[-1400, -700], [-1150, -700], [-1150, -450], [-1400, -450]]
-message = "A no-tail toast. It closes itself in three seconds -- and this one is walk-triggered, so it re-fires while you stand here."
-style = "notail"
-duration = 90
-once = false
-
-[[prop]]
-prop = "cask"
-pos = [-1050, -575]
-
-# --- EAST wall pad: attributed to the crier ----------------------------------------------
-[[event]]
-name = "crier_call"
-zone = [[1150, -700], [1400, -700], [1400, -450], [1150, -450]]
-message = "Hear ye!  This bubble should point at ME, the crier nearby."
-speaker = "Crier"
-actor = "crier"
-once = false
-
-[[prop]]
-prop = "cask"
-pos = [1050, -575]
+prop = "book"
+pos = [700, -880]
+collision = false
 
 # --- the back row of talkers --------------------------------------------------------------
 [[npc]]
 name = "control"
 preset = "vivi"
-pos = [-800, -400]
+pos = [-800, -350]
 dialogue = "I am the CONTROL: the classic speech bubble, tail at me."
 speaker = "Control"
 
 [[npc]]
 name = "crier"
 preset = "vivi"
-pos = [800, -400]
+pos = [800, -350]
 dialogue = "Talk to me directly and I use a fixed chat frame with no tail."
 speaker = "Crier"
 style = "notail"
@@ -115,7 +118,7 @@ style = "notail"
 [[npc]]
 name = "whisperer"
 preset = "vivi"
-pos = [0, -400]
+pos = [0, -350]
 dialogue = "(frameless text... like a letter, or a thought...)"
 speaker = "Whisperer"
 style = "transparent"
