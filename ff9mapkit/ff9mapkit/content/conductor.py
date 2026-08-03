@@ -14,17 +14,17 @@ conductor level -- but a beat marked ``with_prev = true`` runs IN PARALLEL with 
 PARALLEL beats ("these run together") use FF9's real async-fork + script-level join, confirmed in the engine
 (``EventEngine.DoEventCode.cs``: ``requestAcceptable(obj, lv) == lv < obj.level``):
   * each parallel member is FORKED non-blocking -- a walk via ``RunScriptAsync`` (op 0x10, which bypasses the
-    level gate and spawns the walk in the actor's context), an anim via ``RunAnimationEx``, an instant turn
-    via ``TurnInstantEx``;
+    level gate and spawns the walk in the actor's context), an anim via ``RunAnimationEx``, a turn via
+    ``TimedTurnEx`` (fire-and-forget; its hold folds into the join Wait);
   * the conductor then JOINS: one ``Wait`` covering the longest anim hold (anims play while walks run async),
     then a ``RunScriptSync`` (op 0x14) into each walking actor's bare-``RETURN`` join tag -- which ``stay()``s
     on the actor's busy script level until its async walk RETURNs (frees the level). That per-actor sync-drain
     is the engine's ONLY async barrier (``WaitSharedScript`` only joins the SAME object's own shared script,
     not a global wait). A ``say`` / ``wait`` / ``set_flag`` is a sequential barrier -- never ``with_prev``.
 
-Softlock care, mirroring the kit's existing cutscene rules on player-cloned actors:
-  * ``turn`` uses ``TurnInstantEx`` (instant, no wait) -- never ``WaitTurnEx`` (a player clone's turn anim
-    may not drive the wait to completion -> hang);
+Softlock care, mirroring the kit's existing cutscene rules:
+  * ``turn`` uses ``TimedTurnEx`` (animated, the stock look) + a fixed ``Wait`` hold -- never
+    ``WaitTurnEx`` (a clip that doesn't drive the wait to completion hangs it);
   * ``anim`` uses ``RunAnimationEx`` + a fixed ``Wait`` hold -- never ``WaitAnimationEx`` (same hang risk).
 """
 
@@ -125,10 +125,11 @@ def actor_say(uid: int, text_id: int, *, flags: int = 128) -> bytes:
     return opcodes.window_sync_ex(uid, 0, flags, int(text_id))
 
 
-def actor_turn(uid: int, angle: int) -> bytes:
-    """Step: face ``angle`` INSTANTLY (0=S, 64=W, 128=N, 192=E) -- ``TurnInstantEx(uid, angle)``. Instant
-    (no ``WaitTurnEx``) so it never hangs on a player-cloned actor whose turn anim doesn't complete."""
-    return opcodes.turn_instant_ex(uid, int(angle))
+def actor_turn(uid: int, angle: int, hold: int = _cutscene.TURN_HOLD) -> bytes:
+    """Step: face ``angle`` (0=S, 64=W, 128=N, 192=E) ANIMATED -- ``TimedTurnEx(uid, angle, 16)`` + a
+    fixed ``Wait`` hold (the anim-hold idiom; NOT ``WaitTurnEx``, which hangs if the turn anim doesn't
+    drive it to completion)."""
+    return opcodes.timed_turn_ex(uid, int(angle), _cutscene.TURN_SPEED) + opcodes.wait(int(hold))
 
 
 def actor_anim(uid: int, anim: int, hold: int = _cutscene.ANIM_HOLD) -> bytes:
@@ -212,7 +213,7 @@ def _emit_parallel_group(group, uid_by_name, tag_calls, join_tags) -> bytes:
     """Emit a PARALLEL group (2+ beats that run together). Each member is FORKED non-blocking, then the
     conductor JOINS. Fork: a walk/path -> ``RunScriptAsync(2, uid, tag)`` (op 0x10, no level gate -> always
     spawns the tag in the actor's context); an animation -> ``RunAnimationEx`` (fire only, the hold is
-    absorbed into the join); an instant turn -> ``TurnInstantEx`` (no wait). Join (block until the whole group
+    absorbed into the join); a turn -> ``TimedTurnEx`` (fire only, same). Join (block until the whole group
     is done): one ``Wait(max anim-hold)`` -- the anims play out while the walks run async alongside -- then a
     ``RunScriptSync(2, uid, join_tag)`` per WALKING actor, which ``stay()``s on the actor's busy script level
     until its async walk RETURNs (the engine's only async barrier). Only ``walk`` / ``path`` / ``turn`` /
@@ -235,7 +236,8 @@ def _emit_parallel_group(group, uid_by_name, tag_calls, join_tags) -> bytes:
         elif "turn" in s:
             if uid is None:
                 raise ValueError(f"conductor parallel step {s!r}: turn needs actor = \"<name>\"")
-            fan.append(actor_turn(uid, s["turn"]))                          # instant -- nothing to join
+            fan.append(opcodes.timed_turn_ex(uid, int(s["turn"]), _cutscene.TURN_SPEED))  # fire only;
+            max_hold = max(max_hold, _cutscene.TURN_HOLD)                   # hold -> the join Wait
         elif "animation" in s:
             if uid is None:
                 raise ValueError(f"conductor parallel step {s!r}: animation needs actor = \"<name>\"")
