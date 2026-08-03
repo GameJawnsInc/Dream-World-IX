@@ -38,7 +38,7 @@ VOCAB = {
     'event': ('actor', 'box', 'bubble', 'dim', 'dim_tint', 'duration', 'flag', 'gil', 'give_folklore', 'give_item', 'instant', 'lock', 'lock_menu', 'message', 'name', 'once', 'options', 'received', 'remove_item', 'require_space', 'requires_flag', 'requires_flag_clear', 'set_flag', 'set_flags', 'speaker', 'speed', 'steps', 'style', 'tail', 'trigger', 'window', 'window_pos', 'zone'),
     'ferry': ('cancel', 'decline', 'decline_reply', 'default', 'destination', 'instant', 'npc', 'prompt', 'save', 'speaker', 'tail', 'trigger', 'zone'),
     'ferry.destination': ('arrive', 'arrive_face', 'depart_code', 'name', 'reply'),
-    'field': ('area', 'atlas', 'atlas_tile_size', 'bgs', 'borrow_bg', 'borrow_field', 'hide_area_title', 'id', 'location', 'mapconfig', 'name', 'outpost', 'register_text_block', 'source_field', 'text_block', 'title', 'walkmesh_tri_toggles'),
+    'field': ('area', 'area_title_overlays', 'atlas', 'atlas_tile_size', 'bgs', 'borrow_bg', 'borrow_field', 'hide_area_title', 'id', 'location', 'mapconfig', 'name', 'outpost', 'register_text_block', 'source_field', 'text_block', 'title', 'walkmesh_tri_toggles'),
     'flag': ('index', 'name'),
     'gateway': ('arrive', 'arrive_face', 'ate', 'ate_mode', 'ate_title', 'entrance', 'flag', 'name', 'options', 'region_key', 'requires_flag', 'requires_flag_clear', 'set_flag', 'set_flags', 'set_scenario', 'steps', 'to', 'zone'),
     'item': ('equippable_by', 'name', 'price', 'sell', 'teaches'),

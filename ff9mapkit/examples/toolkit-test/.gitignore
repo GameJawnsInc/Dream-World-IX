@@ -1,3 +1,6 @@
-# game-derived test inputs (reproducible by copying from the deployed interior FieldMap)
+# Deploy-derived test inputs -- from OUR OWN novel interior (zero SE bytes). Reproduce by copying
+# the TRACKED sources: art/walls.png + art/floor.png from repo-root art/hut/, camera-ref.bgx from
+# release/FF9CustomMap/.../FieldMaps/FBG_N11_HUT_INT/FBG_N11_HUT_INT.bgx (the schema harvest
+# stages exactly these -- _regen_fieldschema._PROVISIONED_EXAMPLES).
 art/
 camera-ref.bgx
