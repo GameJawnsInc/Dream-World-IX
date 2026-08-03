@@ -727,7 +727,7 @@ def test_conductor_drives_two_actors_by_id():
     assert body.startswith(region.cond_not(region.GLOB_BOOL, 8100))    # gated by the once flag
     # the reorder Wait (so the lock outlives Main_Init's EnableMove) sits inside the gate, before DisableMove
     assert body.index(cutscene.wait(cutscene.REORDER_WAIT)) < body.index(opcodes.DISABLE_MOVE)
-    assert opcodes.turn_instant_ex(11, 128) in body                    # garnet turns, by id
+    assert opcodes.timed_turn_ex(11, 128, cutscene.TURN_SPEED) in body  # garnet turns, ANIMATED, by id
     assert opcodes.window_sync_ex(11, 0, 128, 1000) in body            # garnet's line, by id
     assert opcodes.run_animation_ex(12, 2307) in body                  # steiner animates, by id
     assert opcodes.window_sync_ex(12, 0, 128, 1001) in body            # steiner's line, by id
@@ -753,7 +753,7 @@ def test_conductor_polls_for_control_grant_then_locks():
     bops = [i.op for i in iter_code(body, 0, len(body))]
     assert 0x03 in bops                                           # the control-grant poll is present
     for k, op in enumerate(bops):                                 # each say/turn beat is re-locked (DisableMove)
-        if op in (0x95, 0x87):
+        if op in (0x95, 0xBB):
             assert bops[k - 1] == 0x2D, f"beat op {op:#x} not re-locked"
     # owns_control = False -> no lock, no poll (the field keeps control)
     body2 = conductor.build_body([{"actor": "player", "say": "a"}], {}, [500], once_flag=None, owns_control=False)
@@ -767,11 +767,13 @@ def test_conductor_player_resolves_to_250():
 
 
 def test_conductor_avoids_blocking_waits_on_actors():
-    """Softlock guard: anim/turn use the NON-blocking forms (RunAnimationEx+Wait, TurnInstantEx) -- never
-    WaitAnimationEx/WaitTurnEx, which hang on a player-cloned actor whose clip doesn't drive the wait."""
+    """Softlock guard: anim/turn use the NON-blocking fire-and-hold forms (RunAnimationEx+Wait,
+    TimedTurnEx+Wait) -- never WaitAnimationEx/WaitTurnEx, which hang if the clip doesn't drive the wait."""
     body = conductor.build_body([{"actor": "player", "animation": 1713}, {"actor": "player", "turn": 64}],
                                 {}, [], once_flag=None)
-    assert opcodes.run_animation_ex(250, 1713) in body and opcodes.turn_instant_ex(250, 64) in body
+    assert opcodes.run_animation_ex(250, 1713) in body
+    assert opcodes.timed_turn_ex(250, 64, cutscene.TURN_SPEED) in body   # animated (the stock look) ...
+    assert opcodes.wait(cutscene.TURN_HOLD) in body                      # ... paced by a fixed hold
     assert opcodes.wait_animation_ex(250) not in body and opcodes.wait_turn_ex(250) not in body
 
 
@@ -942,6 +944,16 @@ def test_conductor_parallel_anim_absorbs_hold_into_join():
     assert ops == [0x10, 0xBD, 0x22, 0x14]                         # async walk, RunAnimationEx, Wait(hold), drain
     assert ops.count(0x22) == 1                                    # the hold is the join Wait, not a per-anim Wait
     assert opcodes.wait(cutscene.ANIM_HOLD) in body
+
+
+def test_conductor_parallel_turn_fires_without_inline_hold():
+    """A parallel turn FIRES (TimedTurnEx, no inline Wait -- an inline hold would serialize the fan) and
+    its hold is absorbed into the ONE join Wait, exactly like a parallel anim."""
+    steps = [{"actor": "a", "walk": [0, 0]}, {"actor": "b", "turn": 64, "with_prev": True}]
+    body = conductor.compile_steps(steps, {"a": 5, "b": 6}, [], tag_calls={0: (5, 20)}, join_tags={5: 19})
+    ops = [i.op for i in iter_code(body, 0, len(body))]
+    assert ops == [0x10, 0xBB, 0x22, 0x14]                         # async walk, TimedTurnEx, Wait(hold), drain
+    assert opcodes.wait(cutscene.TURN_HOLD) in body
 
 
 def test_conductor_parallel_walk_field_builds_end_to_end(tmp_path):

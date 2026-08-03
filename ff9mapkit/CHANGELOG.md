@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — cutscene `turn` steps now animate (the stock look) instead of snapping
+- **A `turn` beat rotates the actor with its turn animation** (`TimedTurn`/`TimedTurnEx` at the
+  engine's default speed) instead of instantly snapping its facing (`TurnInstant`), in both the
+  single-actor cutscene and the multi-actor conductor — matching how real FF9 cutscenes turn
+  (in-game verified: solo quarter/half turns, a parallel two-actor turn, and player turns, with
+  control returned cleanly). The instant snap was a hang guard from the era when kit NPCs were
+  player clones without reliable turn clips; every NPC the kit builds now ships real left/right
+  turn clips, so the guard only cost the look.
+- **The softlock rule is unchanged:** the turn is paced by a fixed ~24-frame hold (the anim-hold
+  idiom), never a blocking `WaitTurn`/`WaitTurnEx`. A parallel (`with_prev`) turn fires without an
+  inline hold — its hold folds into the group's one join `Wait`, so the fan stays simultaneous.
+  Init/spawn facing is untouched: `TurnInstant` after `CreateObject` **is** the byte-faithful
+  stock shape there.
+
 ### Added — `ff9mapkit lint` now catches misspelled keys the build silently ignores
 - **A typo'd key in a `field.toml` was never an error — it was silently ignored**, which is the whole
   bug class: `dialouge` on an NPC just means no dialogue, with no message anywhere. `lint` now reports
