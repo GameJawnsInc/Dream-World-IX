@@ -245,7 +245,10 @@ def find_fields(query, *, archive_dir=None) -> list:
 
 
 # ---- event script (.eb) extraction: fork a field WITH its gateways/music/encounters -----
-EVT_LANG = "us"                       # event binaries are per-language; the bytecode we scan is identical
+EVT_LANG = "us"   # default read language. ⚠ event bytecode is NOT language-identical: only 238/818
+                  # EVTs match across langs (dialogue-window operands, Wait pacing, and voice sound
+                  # ids differ; 94 EVTs differ in LENGTH) -- never apply a us-computed byte offset to
+                  # another lang's file blind. -> studies/eb-roundtrip/FINDINGS.md
 _EVENTS_BUNDLE_CACHE = ".ff9mapkit-events-bundle.txt"
 
 

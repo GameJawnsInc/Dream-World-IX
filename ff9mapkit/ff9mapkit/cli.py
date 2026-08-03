@@ -377,6 +377,122 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
     return 0
 
 
+# The stock corpus is 818 EVTs x 7 languages = 5726 (studies/eb-roundtrip/FINDINGS.md). A gate
+# that quietly verifies fewer than this is the "check that cannot fail" defect class -- if the
+# container listing shrinks (key-format drift, a filter typo), the sweep must REFUSE, not pass.
+_EB_CORPUS_FLOOR = 5726
+
+
+def _eb_src_verify_all() -> int:
+    """Round-trip EVERY field event binary in the install (all languages) through the .ebs
+    source form and report the byte-exact count -- the eb-roundtrip arc's standing gate.
+    Exit 0 only when the corpus is full-size AND every binary round-trips."""
+    from . import extract
+    from .eb import ebsrc
+
+    try:
+        bundle = extract._events_bundle()
+        if not bundle:
+            print("no events bundle found -- is the FF9 install reachable?", file=sys.stderr)
+            return 2
+        env = extract._load_env(extract._streaming_assets() / bundle)
+    except ConfigError as ex:
+        print(f"eb-src --verify-all: no FF9 install found ({ex})", file=sys.stderr)
+        return 2
+    todo = []
+    for k, obj in env.container.items():
+        kl = k.lower()
+        if "eventbinary/field/" in kl and kl.endswith(".eb.bytes"):
+            parts = kl.split("eventbinary/field/")[1].split("/")
+            todo.append((parts[0], parts[-1][:-len(".eb.bytes")], obj))
+    if len(todo) < _EB_CORPUS_FLOOR:
+        print(f"eb-src --verify-all: only {len(todo)} field event binaries found "
+              f"(expected {_EB_CORPUS_FLOOR}) -- refusing to call a partial corpus green",
+              file=sys.stderr)
+        return 2
+    ok, failures = 0, []
+    for lang, evt, obj in sorted(todo):
+        data = extract._raw_bytes(obj.read())
+        try:
+            src = ebsrc.write_source(data)                # self-verifying
+            assert ebsrc.assemble_source(src) == data
+            ok += 1
+        except Exception as ex:                           # noqa: BLE001 -- report + count, never abort the sweep
+            failures.append((lang, evt, str(ex)))
+    print(f"{ok}/{len(todo)} binaries round-trip byte-exact")
+    for lang, evt, msg in failures[:20]:
+        print(f"  FAIL {lang}/{evt}: {msg}", file=sys.stderr)
+    if len(failures) > 20:
+        print(f"  ... and {len(failures) - 20} more", file=sys.stderr)
+    return 1 if failures else 0
+
+
+def _cmd_eb_src(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .eb import ebsrc
+
+    if args.verify_all:
+        return _eb_src_verify_all()
+    if not args.target:
+        print("eb-src: give a field id/name or a .eb path (or --verify-all)", file=sys.stderr)
+        return 2
+    try:
+        p = Path(args.target)
+        if p.is_file():
+            data = p.read_bytes()
+            title = p.name
+        else:
+            from . import extract
+            data = extract.extract_event_script(args.target, lang=args.lang)
+            if data is None:
+                print(f"eb-src: could not resolve {args.target!r} to a field event binary "
+                      f"(lang {args.lang})", file=sys.stderr)
+                return 2
+            title = f"field {args.target} lang {args.lang}"
+        src = ebsrc.write_source(data, title=title)       # raises on any round-trip deviation
+        if args.out:
+            Path(args.out).write_text(src, encoding="utf-8")
+            print(f"wrote {args.out} ({len(src.splitlines())} lines, round-trip verified)")
+        else:
+            print(src, end="")
+    except (ebsrc.EbSrcError, OSError) as ex:
+        print(f"eb-src: {ex}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def _cmd_eb_asm(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .eb import ebsrc
+
+    try:
+        src_path = Path(args.src)
+        out = Path(args.out) if args.out else src_path.with_suffix(".eb")
+        if out.exists() and out.resolve() == src_path.resolve():
+            print(f"eb-asm: output {out} is the source file itself -- assembling would "
+                  f"destroy your source; pass -o with a different path", file=sys.stderr)
+            return 2
+        src = src_path.read_text(encoding="utf-8-sig")
+        data = ebsrc.assemble_source(src)
+        if args.verify_against:
+            want = Path(args.verify_against).read_bytes()
+            if data != want:
+                n = min(len(data), len(want))
+                at = next((i for i in range(n) if data[i] != want[i]), n)
+                print(f"MISMATCH vs {args.verify_against} at byte {at} "
+                      f"(assembled {len(data)}B, reference {len(want)}B)", file=sys.stderr)
+                return 1
+            print(f"verified: matches {args.verify_against} byte-exact ({len(data)}B)")
+        out.write_bytes(data)
+        print(f"wrote {out} ({len(data)} bytes)")
+    except (ebsrc.EbSrcError, OSError) as ex:
+        print(f"eb-asm: {ex}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def _pursuit_extent(wmesh) -> float:
     """Moved to :func:`ff9mapkit.scene.routes.pursuit_extent` (the Workspace's stage
     sweep shares it); kept as an alias for the lint lane below."""
@@ -6531,6 +6647,26 @@ def build_parser() -> argparse.ArgumentParser:
     ds.add_argument("-e", "--entry", type=int, default=None, help="only this entry index")
     ds.add_argument("-a", "--all", action="store_true", help="also list empty entry slots")
     ds.set_defaults(func=_cmd_disasm)
+
+    esr = sub.add_parser("eb-src", help="decompile a field .eb to re-assemblable .ebs source "
+                                        "(byte-exact round trip, self-verified)")
+    esr.add_argument("target", nargs="?", help="a field id/name (extracted from the install) or a "
+                                               ".eb/.eb.bytes path")
+    esr.add_argument("--lang", default="us", help="language when extracting by field id/name "
+                                                  "(us uk jp fr gr it es; default us). Bytecode "
+                                                  "DIFFERS across languages for 71%% of fields")
+    esr.add_argument("-o", "--out", help="write the .ebs here (default: stdout)")
+    esr.add_argument("--verify-all", action="store_true",
+                     help="round-trip EVERY field event binary in the install (all 7 languages) "
+                          "and report N/M byte-exact; exit 1 on any failure")
+    esr.set_defaults(func=_cmd_eb_src)
+
+    eas = sub.add_parser("eb-asm", help="assemble .ebs source back into a complete .eb")
+    eas.add_argument("src", help="path to a .ebs source file")
+    eas.add_argument("-o", "--out", help="output .eb path (default: the source path with .eb)")
+    eas.add_argument("--verify-against", metavar="EB",
+                     help="also byte-compare the result against this reference .eb (exit 1 on mismatch)")
+    eas.set_defaults(func=_cmd_eb_asm)
 
     cm = sub.add_parser("camera", help="inspect / regenerate a .bgx camera")
     cm.add_argument("bgx", help="path to a .bgx scene")

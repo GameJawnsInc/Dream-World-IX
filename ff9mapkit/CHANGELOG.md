@@ -35,6 +35,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   materialized (they are gitignored, and no documented command produced them). It now skips loudly,
   naming the missing files and the exact `fetch-assets` command.
 
+### Added — `eb-src` / `eb-asm`: byte-exact `.ebs` source for every field event script
+- **`ff9mapkit eb-src <field|path>` decompiles a complete field `.eb` to readable,
+  re-assemblable `.ebs` source, and `ff9mapkit eb-asm` compiles it back — byte-exact.** Function
+  bodies use the proven labeled command-assembler form (symbolic `L<n>` jump/switch targets,
+  pretty expressions); the derivable envelope (entry table offs/sizes, func tables, empty-slot
+  offsets) is computed from grammar, while the 124-byte per-language name block is preserved as
+  verbatim hex. `eb-src` self-verifies: it reassembles its own output and refuses to emit
+  source that doesn't reproduce the input.
+- **Kit-built and kit-edited fields round-trip too**, not just stock: explicit `off=` overrides
+  (stale empty-slot parked offs, out-of-order physical layouts), a per-entry `raw=` escape
+  hatch (func tables the structured form can't express), and `.gap` records (the
+  blank-template lineage keeps live Main_Loop code OUTSIDE any entry's declared span) — all
+  133 currently deployed custom `.eb` files verify byte-exact.
+- **`ff9mapkit eb-src --verify-all` is the standing gate:** it round-trips every field event
+  binary in your install — all 818 fields in all 7 languages, 5726 binaries — and reports the
+  byte-exact count (currently 5726/5726). The gate refuses to pass green on a partial corpus,
+  and every bad input (corrupt file, hand-source syntax error) is a clean one-line error, never
+  a traceback. An expression operand on an opcode that carries no argFlag byte is now a hard
+  assembler error (it used to encode silently different instructions).
+- Grounded by a corpus census (`studies/eb-roundtrip/FINDINGS.md`) that also corrected a
+  long-standing assumption: event bytecode is NOT language-identical (only 238/818 fields are;
+  dialogue-window operands, text-pacing waits, and voice sound ids differ per language, and 94
+  fields differ in length) — so `.ebs` source is per (field, language).
+
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
   composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,
