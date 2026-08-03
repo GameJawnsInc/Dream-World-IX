@@ -651,3 +651,52 @@ def test_excise_still_refuses_a_genuine_interior_sheet_hole(monkeypatch):
     assert rep["weld_exact"] is False
     assert (56.0, 0.0, -15.0) in [tuple(v) for v in rep["weld_missing"]]
     assert "refused" in rep
+
+
+# ------------------------------------------------- THE LAYOUT-SUPPORT WARNING
+
+def _grass_donor(monkeypatch):
+    """A beachless donor whose mains are unambiguously grass."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world import transplant as TR
+    u0, v0, u1, v1 = G.ground_main_region("grass")
+    mu, mv = (u0 + u1) / 2, (v0 + v1) / 2
+
+    def fake(bx, by, part, **kw):
+        if part != "terrain" or (bx, by) != (1, 1):
+            return []
+        v = ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (mu, mv), (0.0, 0.0, 0.0, 1.0))
+        return [[v, v, v] for _ in range(40)]
+
+    monkeypatch.setattr(TR, "world_tris", fake)
+    monkeypatch.setattr(CM, "_sand_band_family", lambda *a, **k: None)
+    return TR
+
+
+def test_layout_support_table_matches_the_census_headline():
+    """grass<->desert is the only strong pair -- the number the whole feature rests on."""
+    from ff9mapkit.world.transplant import LAYOUT_SUPPORT, LAYOUT_SUPPORT_WARN
+    assert LAYOUT_SUPPORT["grass"]["desert"] > LAYOUT_SUPPORT_WARN
+    assert LAYOUT_SUPPORT["desert"]["grass"] > LAYOUT_SUPPORT_WARN
+    # every other pair from grass or desert is off the measured path
+    for src in ("grass", "desert"):
+        other = {d: s for d, s in LAYOUT_SUPPORT[src].items()
+                 if d not in ("grass", "desert")}
+        assert max(other.values()) < LAYOUT_SUPPORT_WARN, other
+
+
+def test_ground_retile_warns_on_an_off_path_pair(monkeypatch):
+    TR = _grass_donor(monkeypatch)
+    with pytest.warns(UserWarning, match="OFF THE MEASURED PATH"):
+        TR.GroundRetile.for_donor((1, 1), "snow", strips="none")
+
+
+def test_ground_retile_is_SILENT_on_the_proven_pair(monkeypatch):
+    """The warning must discriminate -- one that always fires carries no information."""
+    import warnings as _w
+    TR = _grass_donor(monkeypatch)
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        TR.GroundRetile.for_donor((1, 1), "desert", strips="none")
+    assert not [c for c in caught if "MEASURED PATH" in str(c.message)]

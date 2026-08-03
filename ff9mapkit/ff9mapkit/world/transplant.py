@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import collections
 import math
+import warnings
 
 from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN, decode_id, encode_id
 from .terrain import GRID_X, GRID_Y
@@ -234,6 +235,40 @@ class TileRetexture:
     def gate(self) -> dict:
         return {"gate": f"retile[{self.part}]", "applied": self.applied,
                 "expected": self.expected, "ok": self.applied == self.expected}
+
+
+#: MEASURED layout support per retile pair -- the share of the SOURCE family's mains tris
+#: whose position WITHIN its own rect also occurs in the destination family. Every family's
+#: mains rect is the same size (0.1230 x 0.0615), so the retile is a pure rigid shift; what
+#: this table measures is whether the two families actually TILE that rect the same way.
+#:
+#: THE HEADLINE: grass<->desert (0.708/0.762) is the only strong pair, and it is exactly the
+#: pair that was measured and proven in-game (the desert bench). The retile's in-game success
+#: is therefore evidence about ONE PAIR, not about the operator. A low-support target still
+#: samples the right family's texture -- the uv lands inside its rect -- but uses sub-tile
+#: arrangements stock essentially never uses for that family.
+#:
+#: Regenerate: py studies/coast-shape-language/ground_translation_census.py --disc 1
+#: Full table + reading guide: studies/coast-shape-language/GROUND-TRANSLATION-CENSUS.md
+LAYOUT_SUPPORT = {
+    'brush': {'canyon': 0.0089, 'desert': 0.0095, 'dunes': 0.2979, 'grass': 0.0116,
+              'scrub': 0.0, 'snow': 0.0},
+    'canyon': {'brush': 0.0215, 'desert': 0.0039, 'dunes': 0.0, 'grass': 0.0033,
+               'scrub': 0.0072, 'snow': 0.0},
+    'desert': {'brush': 0.0045, 'canyon': 0.0009, 'dunes': 0.0016, 'grass': 0.7621,
+               'scrub': 0.0015, 'snow': 0.2441},
+    'dunes': {'brush': 0.3319, 'canyon': 0.0, 'desert': 0.0043, 'grass': 0.0087,
+              'scrub': 0.0, 'snow': 0.0},
+    'grass': {'brush': 0.011, 'canyon': 0.0012, 'desert': 0.7083, 'dunes': 0.004,
+              'scrub': 0.007, 'snow': 0.2995},
+    'scrub': {'brush': 0.0, 'canyon': 0.0033, 'desert': 0.0028, 'dunes': 0.0,
+              'grass': 0.0028, 'snow': 0.0},
+    'snow': {'brush': 0.0, 'canyon': 0.0, 'desert': 0.2024, 'dunes': 0.0,
+             'grass': 0.2186, 'scrub': 0.0},
+}
+#: below this, the pair is off the measured path -- WARN, do not refuse. No rendering
+#: evidence was gathered, so a refusal would be stronger than the measurement supports.
+LAYOUT_SUPPORT_WARN = 0.50
 
 
 class GroundRetile:
@@ -551,6 +586,26 @@ class GroundRetile:
         if polys["beach1"] and dst not in IB.FOAM_TOPO:
             raise ValueError(f"donor ({dbx},{dby}) carries a beach1 foam part and {dst!r} "
                              f"has no measured foam topo (FOAM_TOPO: {sorted(IB.FOAM_TOPO)})")
+        # THE LAYOUT-SUPPORT WARNING. grass->desert is the only currently-reachable target
+        # whose tiling was measured to match; grass->snow/canyon/scrub are permitted but sit
+        # at 0.30/0.001/0.007, i.e. they use sub-tile arrangements stock never uses for that
+        # family. Warn rather than refuse: the census measures ARRANGEMENT, not rendering,
+        # so a refusal would claim more than the evidence supports.
+        support = LAYOUT_SUPPORT.get(src, {}).get(dst)
+        if support is not None and support < LAYOUT_SUPPORT_WARN:
+            best = max(LAYOUT_SUPPORT.get(src, {}).items(), key=lambda kv: kv[1],
+                       default=(None, 0.0))
+            warnings.warn(
+                f"--ground {src}->{dst}: layout support {support:.3f} -- this pair is OFF "
+                f"THE MEASURED PATH. Both families' mains rects are the same size so the "
+                f"retile lands on {dst}'s texture, but {1 - support:.0%} of the translated "
+                f"tris use sub-tile arrangements stock does not use for {dst}. The proven "
+                f"pair is grass->desert (0.708)"
+                + (f"; from {src} the best-supported target is {best[0]} ({best[1]:.3f})"
+                   if best[0] else "")
+                + ". Review in-game. Table: LAYOUT_SUPPORT / "
+                "studies/coast-shape-language/GROUND-TRANSLATION-CENSUS.md",
+                stacklevel=2)
         anchors = []
         if sand_fam:
             sfam, dfam = CM.SAND_BANDS[src], CM.SAND_BANDS[dst]
