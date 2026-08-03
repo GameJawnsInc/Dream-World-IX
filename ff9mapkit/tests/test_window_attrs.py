@@ -243,6 +243,45 @@ steps = [
     assert opcodes.window_sync(1, 128, 501) in eb      # the default step is untouched
 
 
+def test_dim_bracket_matches_the_mognet_letter_shape():
+    # the letter-reading fade bracket is byte-shaped on field 1865 (mognet.letter_display's
+    # constants): CalcScreenPos(250) + FadeFilter(2,24,255,220,220,250) + Wait(16) ... window ...
+    # CalcScreenPos(250) + FadeFilter(7,16,255,0,0,0) + Wait(16)
+    from ff9mapkit.content import event as _event
+    ws = opcodes.window_sync(1, 16, 500)
+    b = _event.dim_bracket(ws)
+    assert b == (opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, 2, 24, 255, 220, 220, 250)
+                 + opcodes.wait(16) + ws
+                 + opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, 7, 16, 255, 0, 0, 0)
+                 + opcodes.wait(16))
+    assert _event.message(500, dim=False) == opcodes.window_sync(1, 128, 500)   # default untouched
+
+
+def test_npc_dim_wraps_the_talk_window(tmp_path):
+    eb = _build_eb_bytes(tmp_path, BASE + """
+[[npc]]
+name = "whisperer"
+preset = "vivi"
+pos = [0, -500]
+dialogue = "(a thought)"
+style = "transparent"
+dim = true
+""")
+    from ff9mapkit.content import event as _event
+    assert _event.dim_bracket(opcodes.window_sync(1, 16, 500)) in eb
+
+
+def test_validate_rejects_dim_where_not_wired(tmp_path):
+    problems = _problems(tmp_path, BASE + """
+[[choice]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+prompt = "Pick"
+dim = true
+options = [ { text = "A" }, { text = "B" } ]
+""")
+    assert any("`dim`" in p and "not wired" in p for p in problems), problems
+
+
 # --------------------------------------------------------------- validation ---
 
 def _problems(tmp_path, toml: str) -> list:

@@ -364,6 +364,11 @@ kit always emitted (an ordinary speech bubble), so omitting them changes nothing
   pinned window draws **no tail** (don't combine with `tail`).
 - **`box`** — `[width, lines]` sets the `[STRT]` geometry. The engine auto-measures width whenever it
   can, so `width` mostly matters for centering system boxes; `lines` acts as a minimum height.
+- **`dim`** — `true` wraps the window in the **letter-reading fade bracket**: the scene dims with the
+  Mognet letter's soft glow before the window opens and restores after it closes (byte-shaped on the
+  real letter presentation, field 1865). The stock dressing for reading a document, a letter, an
+  inner voice — pairs naturally with `style = "transparent"`. On `[[npc]]`, `[[event]]`,
+  `[[on_entry]]` and cutscene `say` steps.
 
 ```toml
 [[event]]                       # a sign on a wall: plain panel, pops instantly

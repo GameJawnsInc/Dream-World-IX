@@ -191,6 +191,9 @@ def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, tag_calls):
             b = actor_say(uid, txids[ti], flags=_sf, window=int(s.get("window", 0)))
         else:
             b = _cutscene.say(txids[ti], window=int(s.get("window", 1)), flags=_sf)
+        if s.get("dim"):                           # the letter-reading fade bracket (event.dim_bracket)
+            from . import event as _event
+            b = _event.dim_bracket(b)
         return b, ti + 1
     if "wait" in s:
         return opcodes.wait(int(s["wait"])), ti

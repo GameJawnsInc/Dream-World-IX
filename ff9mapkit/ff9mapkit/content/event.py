@@ -30,16 +30,38 @@ EVENT_FLAG_CLASS = _region.GLOB_BOOL
 EVENT_FLAG_BASE = _flags.AUTO_EVENT_BASE
 
 
-def message(text_id: int, *, window: int = 1, flags: int = 128, actor_uid: int | None = None) -> bytes:
+# The LETTER-READING dim bracket, byte-shaped on the Mognet donor (field 1865 @6191-6310; the same
+# constants mognet.letter_display carries, in-game proven): a soft parchment-glow FadeFilter dims the
+# scene before the window and a restore fade clears it after. Stock dresses frameless DOCUMENT
+# windows this way (a letter body); its frameless HUD overlays ("press X to cancel", digit cursors)
+# ship no fade -- so the kit exposes it as the opt-in `dim` key, not as part of any style.
+DIM_IN = (2, 24, 255, 220, 220, 250)     # FadeFilter: the parchment glow, in
+DIM_OUT = (7, 16, 255, 0, 0, 0)          # FadeFilter: restore
+DIM_WAIT = 16
+
+
+def dim_bracket(window_op: bytes) -> bytes:
+    """Wrap a (blocking) window op in the letter-reading fade bracket: CalcScreenPos(player) +
+    the glow fade + Wait, the window (the player reads + dismisses), then the restore fade + Wait."""
+    return (opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, *DIM_IN) + opcodes.wait(DIM_WAIT)
+            + window_op
+            + opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, *DIM_OUT) + opcodes.wait(DIM_WAIT))
+
+
+def message(text_id: int, *, window: int = 1, flags: int = 128, actor_uid: int | None = None,
+            dim: bool = False) -> bytes:
     """Body part: open a dialogue window (WindowSync) showing text ``text_id``.
 
     ``actor_uid`` (not None) attributes the window to that object instead of the executing entity --
     ``WindowSyncEx`` (0x95), stock's own cutscene form: the tail points at the named actor and the
     camera treats them as the speaker. Attribution only takes effect with the bubble bit set
-    (``flags & 128``); validate enforces that pairing."""
+    (``flags & 128``); validate enforces that pairing. ``dim`` wraps the window in the letter-reading
+    fade bracket (:func:`dim_bracket`)."""
     if actor_uid is not None:
-        return opcodes.window_sync_ex(int(actor_uid), window, flags, text_id)
-    return opcodes.window_sync(window, flags, text_id)
+        op = opcodes.window_sync_ex(int(actor_uid), window, flags, text_id)
+    else:
+        op = opcodes.window_sync(window, flags, text_id)
+    return dim_bracket(op) if dim else op
 
 
 def give_item(item_id, count: int = 1) -> bytes:

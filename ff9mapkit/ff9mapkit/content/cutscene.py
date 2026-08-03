@@ -236,8 +236,11 @@ def compile_steps(steps, txids, *, say_flags: int = 128) -> bytes:
     out, ti = [], 0
     for s in steps:
         if "say" in s:
-            out.append(say(txids[ti], window=int(s.get("window", 1)),
-                           flags=_text.resolve_style(s.get("style"), default=say_flags)))
+            b = say(txids[ti], window=int(s.get("window", 1)),
+                    flags=_text.resolve_style(s.get("style"), default=say_flags))
+            if s.get("dim"):                       # the letter-reading fade bracket (event.dim_bracket)
+                b = _event.dim_bracket(b)
+            out.append(b)
             ti += 1
         elif "wait" in s:
             out.append(wait(int(s["wait"])))

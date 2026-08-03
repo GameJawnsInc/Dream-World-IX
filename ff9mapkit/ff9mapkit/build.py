@@ -2585,7 +2585,8 @@ def validate(project: FieldProject) -> list[str]:
     _wa_npc_names = {n.get("name") for n in project.raw.get("npc", []) if n.get("name")}
     _wa_verbatim = bool(project.raw.get("verbatim_eb"))
     def _check_window_attrs(label: str, src: dict, *, actor: str = "no",
-                            opcode_side: bool = True, text_side: bool = True):
+                            opcode_side: bool = True, text_side: bool = True,
+                            allow_dim: bool = True):
         # actor: "no" (key unsupported here) | "yes" | "player-only" (verbatim: slots assigned later)
         # | "cast" (a cutscene cast step -- its actor names the performer, validated elsewhere).
         # opcode_side/text_side=False: the block does NOT wire those keys, so DON'T probe them --
@@ -2604,6 +2605,12 @@ def validate(project: FieldProject) -> list[str]:
             w = src.get("window")
             if w is not None and (isinstance(w, bool) or not isinstance(w, int) or not 0 <= w <= 7):
                 problems.append(f"{label} window must be 0..7 (the script window ids; got {w!r})")
+            if allow_dim:
+                src.get("dim")            # the letter-reading fade bracket -- probe registers the key
+            elif src.get("dim"):
+                problems.append(f"{label}: `dim` (the letter-reading fade bracket) is not wired on "
+                                f"this block -- it lives on [[npc]], [[event]], [[on_entry]] and "
+                                f"cutscene say steps")
         if text_side:
             src.get("instant")      # no value check (any truthiness works) -- the probe registers the
                                     # key in the harvested schema for blocks only this sweep reads
@@ -2649,7 +2656,7 @@ def validate(project: FieldProject) -> list[str]:
         if isinstance(h, dict):
             _check_window_attrs(f"[[on_entry]] #{k}", h, actor=_wa_ev_actor)
     for c, ch in enumerate(project.raw.get("choice", [])):
-        _check_window_attrs(f"[[choice]] #{c}", ch,
+        _check_window_attrs(f"[[choice]] #{c}", ch, allow_dim=False,
                             actor=("no" if ch.get("npc") else _wa_ev_actor))
         if ch.get("bubble") and ("zone" not in ch or (ch.get("trigger") or "action") != "action"):
             problems.append(f"[[choice]] #{c} bubble (the \"!\" press prompt) needs a zone choice "
@@ -2658,7 +2665,7 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[choice]] #{c}: an NPC-attached choice already attributes its window "
                             f"to that NPC -- drop `actor`")
         for oi, o in enumerate(ch.get("options", [])):
-            _check_window_attrs(f"[[choice]] #{c} option {oi}", o)
+            _check_window_attrs(f"[[choice]] #{c} option {oi}", o, allow_dim=False)
     for k, co in enumerate(project.raw.get("coop", [])):
         _check_window_attrs(f"[[coop]] #{k}", co, opcode_side=False)
     for k, p in enumerate(project.raw.get("prop", [])):
@@ -4753,7 +4760,8 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
                       "scenario": sc, "item_pairs": item_pairs, "gil": h.get("gil"),
                       "once_flag": once_flag, "requires_flag": rf,
                       "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc,
-                      "message_window": _w, "message_flags": _f, "message_actor_uid": _uid})
+                      "message_window": _w, "message_flags": _f, "message_actor_uid": _uid,
+                      "message_dim": bool(h.get("dim"))})
     return _onentry.inject_on_entries(eb, hooks)
 
 
@@ -5286,7 +5294,8 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
                 # verbatim path: NPC slots aren't assigned yet here, so `actor` supports "player"
                 # only (a named-NPC actor is refused by validate on a verbatim fork)
                 _w, _f, _uid = _window_attrs(ev, None, label=f"[[event]] #{j}")
-                parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid))
+                parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid,
+                                            dim=bool(ev.get("dim"))))
         once_flag = None
         if ev.get("once", True):
             _cap = max_auto_events(project)
@@ -5436,7 +5445,7 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
                              gate_require_set=gs, appears_scenario_min=smin, appears_scenario_max=smax,
                              speak_body=sb, reserve_party_band=True,
-                             talk_window=_nw, talk_flags=_nf, **kwargs)
+                             talk_window=_nw, talk_flags=_nf, talk_dim=bool(n.get("dim")), **kwargs)
         if n.get("name"):
             npc_slots[n["name"]] = slot                                       # name -> uid (stable below the band)
     return eb, npc_slots
@@ -5828,7 +5837,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
                              appears_scenario_max=smax, speak_body=sb,
                              boot_spawn=(n.get("name") not in _pooled_bh),
-                             talk_window=_nw, talk_flags=_nf, **kwargs)
+                             talk_window=_nw, talk_flags=_nf, talk_dim=bool(n.get("dim")), **kwargs)
         if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:
@@ -5953,7 +5962,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     parts.append(_event.message(event_txids[j], window=7, flags=0))
                 else:
                     _w, _f, _uid = _window_attrs(ev, npc_slots, label=f"[[event]] #{j}")
-                    parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid))
+                    parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid,
+                                                dim=bool(ev.get("dim"))))
             once_flag = None
             if ev.get("once", True):
                 _cap = max_auto_events(project)
