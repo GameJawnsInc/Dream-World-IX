@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a donor without a beach was assumed to be grass
+- **`--ground` mis-read the source family of any beachless landmass.** The family was detected
+  from the sand band alone, falling back to `"grass"` when there was none — so a desert island
+  with no beach was retiled *from grass*, matched nothing, and refused with a bare `mains=0`
+  and a handful of cryptic "unclassified" triangles. The family is now read from the ground
+  **mains** when there is no sand band; where a sand band exists it stays authoritative, so no
+  beach donor's behaviour changes.
+- **`--ground <the donor's own family>` now correctly reports "already <family>"** instead of
+  claiming the donor was grass.
+- **The refusal now names the real limit.** Retiling only supports a **grass source**: the
+  translation census measured `grass -> X` and nothing else, so a desert or snow source
+  reclassifies nothing whatever the target. `--ground` says exactly that, and points at
+  carrying the donor verbatim or choosing a grass-family donor, rather than leaving you to
+  infer it from a zero count.
+
 ### Changed — the cliff morphs work on a MULTI-BLOCK carry
 - **`--cliff-bump`, `--cliff-headland`, `--cliff-bay` and `--cliff-lobes` now accept `--size`.**
   Previously any `--size` refused every morph outright ("single-cell v1"), so a multi-block

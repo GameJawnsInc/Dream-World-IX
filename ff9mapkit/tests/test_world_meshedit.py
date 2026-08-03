@@ -516,3 +516,66 @@ def test_cliff_window_single_cell_reads_only_that_cell(monkeypatch):
     with pytest.raises(ValueError, match="no topo-58 cliff band"):
         CM.CliffWindow((7, 17), (0.0, 0.0), (1.0, 1.0))
     assert set(asked) == {(7, 17)}
+
+
+# ---------------------------------------------- the ground source-family detection
+
+def _mains_tri(u, v, topo=0):
+    def vert():
+        return ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (u, v), (float(topo), 0.0, 0.0, 1.0))
+    return [vert(), vert(), vert()]
+
+
+def test_mains_family_reads_the_dominant_family():
+    """A donor with NO sand band used to default to grass whatever its mains said."""
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world.transplant import GroundRetile
+    u0, v0, u1, v1 = G.ground_main_region("desert")
+    mid = ((u0 + u1) / 2, (v0 + v1) / 2)
+    tris = [_mains_tri(*mid) for _ in range(40)]
+    assert GroundRetile._mains_family(tris, (9, 5)) == "desert"
+
+
+def test_mains_family_refuses_an_ambiguous_donor():
+    """G-4: a mixed landmass must REFUSE, not be guessed at."""
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world.transplant import GroundRetile
+    tris = []
+    for fam in ("desert", "snow"):
+        u0, v0, u1, v1 = G.ground_main_region(fam)
+        tris += [_mains_tri((u0 + u1) / 2, (v0 + v1) / 2) for _ in range(30)]
+    with pytest.raises(ValueError, match="no dominant ground family"):
+        GroundRetile._mains_family(tris, (0, 0))
+
+
+def test_mains_family_falls_back_to_grass_when_there_are_no_mains():
+    from ff9mapkit.world.transplant import GroundRetile
+    assert GroundRetile._mains_family([], (0, 0)) == "grass"
+
+
+def test_for_donor_uses_mains_detection_when_there_is_no_sand_band(monkeypatch):
+    """The bug was in for_donor's FALLBACK, so testing _mains_family alone is not enough.
+
+    A mutation restoring `else "grass"` passed every test until this one existed --
+    the helper was covered, its call site was not.
+    """
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world import transplant as TR
+
+    u0, v0, u1, v1 = G.ground_main_region("desert")
+    mid_u, mid_v = (u0 + u1) / 2, (v0 + v1) / 2
+
+    def fake_world_tris(bx, by, part, **kw):
+        if part != "terrain" or (bx, by) != (9, 5):
+            return []
+        v = ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (mid_u, mid_v), (17.0, 0.0, 0.0, 1.0))
+        return [[v, v, v] for _ in range(40)]
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    monkeypatch.setattr(CM, "_sand_band_family", lambda *a, **k: None)
+
+    # a desert source hits the "grass->X only" gap, and the message names the family it
+    # detected -- which is the observable proof that mains detection ran.
+    with pytest.raises(ValueError, match="is desert"):
+        TR.GroundRetile.for_donor((9, 5), "snow", strips="none")

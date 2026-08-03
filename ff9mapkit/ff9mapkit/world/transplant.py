@@ -441,6 +441,37 @@ class GroundRetile:
                 "budget": self.recover_budget,
                 "unclassified": det if det else 0, "ok": ok}
 
+    @staticmethod
+    def _mains_family(tris, donor=None, *, margin: float = 2.0, floor: int = 12):
+        """The donor's ground family, read from its MAINS uv region by dominance.
+
+        Used when the donor has no sand band to name the family. Regions are not fully
+        disjoint (a desert donor also lands 63 tris in brush's rect), so this takes the
+        plurality and requires the winner to lead by ``margin`` -- a genuinely mixed
+        landmass must REFUSE and be told to pass ``src`` explicitly, never be guessed at.
+        """
+        from . import grassland as G
+        regions = {f: G.ground_main_region(f) for f in G.GROUNDS}
+        counts: dict = {}
+        for t3 in tris:
+            us = [v[2][0] for v in t3]
+            vs = [v[2][1] for v in t3]
+            u_lo, u_hi, v_lo, v_hi = min(us), max(us), min(vs), max(vs)
+            for f, (r_u0, r_v0, r_u1, r_v1) in regions.items():
+                if (u_lo >= r_u0 - 1e-4 and u_hi <= r_u1 + 1e-4
+                        and v_lo >= r_v0 - 1e-4 and v_hi <= r_v1 + 1e-4):
+                    counts[f] = counts.get(f, 0) + 1
+        if not counts:
+            return "grass"                       # no mains at all: the historic default
+        rank = sorted(counts.items(), key=lambda kv: -kv[1])
+        top, n = rank[0]
+        runner = rank[1][1] if len(rank) > 1 else 0
+        if n < floor or (runner and n < margin * runner):
+            raise ValueError(
+                f"donor {donor or ''} has no dominant ground family in its mains "
+                f"({dict(rank)}) -- pass src= explicitly rather than let it be guessed")
+        return top
+
     @classmethod
     def for_donor(cls, donor, dst, *, size=(1, 1), src=None, strips="auto",
                   extra: float = 8.0, disc: int = 1, lod: str = "0_1", game=None):
@@ -486,10 +517,32 @@ class GroundRetile:
                         polys[p].append(cp)
         sand_fam = CM._sand_band_family(polys["terrain"], what=f"donor {donor}")
         if src is None:
-            src = sand_fam["name"] if sand_fam else "grass"
+            # THE SAND BAND IS AUTHORITATIVE WHEN PRESENT (it is pure per block -- the
+            # census law), but it is not the only evidence. This used to fall back to
+            # `"grass"` for ANY donor without a beach, which silently mislabelled every
+            # beachless non-grass landmass: the comma island (9,5) has 355 desert mains,
+            # zero grass mains, and topo 17 x355, yet detected as grass -- so the grass
+            # mains rect matched nothing, the retile classified 0 tris of 917, and the
+            # only tris it flagged were desert mains falling outside every *grass* class.
+            # The mains carry the family; read them.
+            src = sand_fam["name"] if sand_fam else cls._mains_family(polys["terrain"],
+                                                                     donor)
         if src == dst:
             raise ValueError(f"--ground {dst}: donor ({dbx},{dby}) is already {src} -- "
                              f"nothing to retile")
+        # NAME THE REAL GAP. The mains branch keys on GRASS_TOPOS, so only a grass source
+        # can classify mains -- the translation census measured grass->X and nothing else.
+        # Without this, a desert donor refused with four cryptic "unclassified" tris and a
+        # silent mains=0, which reads like a small hole in a working feature instead of
+        # what it is: the feature does not cover this direction at all.
+        if src != "grass" and G.GROUNDS[src]["topo"] not in cls.GRASS_TOPOS:
+            raise ValueError(
+                f"--ground {dst}: donor ({dbx},{dby}) is {src}, and the retile census "
+                f"measured grass->X ONLY. A {src} source's mains carry topo "
+                f"{G.GROUNDS[src]['topo']}, which no measured mains class covers, so the "
+                f"retile would reclassify nothing. Retiling FROM {src} needs the {src}->X "
+                f"translation measured first (island717_retile_census.py is the grass->X "
+                f"precedent). Carry this donor verbatim, or pick a grass-family donor.")
         if sand_fam and dst not in CM.SAND_BANDS:
             raise ValueError(f"donor ({dbx},{dby}) carries a sand band and {dst!r} has no "
                              f"measured sand family (SAND_BANDS: {sorted(CM.SAND_BANDS)}) "
