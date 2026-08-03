@@ -227,6 +227,14 @@ zone = [[-1100, -2400], [1100, -2400], [1100, -1750], [-1100, -1750]]
 """),
 ]
 
+# Paths whose keys the CONSUMER validates itself against a constant table (playable.parse_playable:
+# `for k in stats: if k not in _cd.CHARACTER_FIELDS: raise` -- iteration + constant-set membership,
+# which the recorder cannot see as probes). A typo there is already a lint ERROR (build.validate ->
+# validate_playable, offline), STRONGER than the schema warn -- so the drop from enforcement is the
+# designed state, not lost coverage. Do NOT seed these: the schema warn's "the build never reads it,
+# so it is silently ignored" text would be false right next to the parse error that reads it.
+_PARSE_OWNED = {"playable.stats", "playable.params", "playable.names"}
+
 # The emit is refused unless these paths came out enforced -- a run whose corpus could not build
 # (empty extract cache, missing install) must fail loudly, not ship a schema with checking off.
 # This is the won ground: every path here HAS built end-to-end from the examples + stubs, so a
@@ -375,7 +383,11 @@ def harvest(extra=()) -> "tuple[dict[str, set[str]], set[str], list[str]]":
     dropped = {p for p in enforced if not vocab.get(p)}
     enforced -= dropped
     for p in sorted(dropped):
-        report.append(f"  [dropped] {p!r} occurred in the corpus but no consumer probed it")
+        if p in _PARSE_OWNED:
+            report.append(f"  [parse-owned] {p!r}: its consumer validates keys itself (a lint ERROR, "
+                          f"not a schema warn) -- enforcement intentionally off")
+        else:
+            report.append(f"  [dropped] {p!r} occurred in the corpus but no consumer probed it")
     return vocab, enforced, report
 
 
