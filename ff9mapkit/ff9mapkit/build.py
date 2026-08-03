@@ -9479,6 +9479,21 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings += bp_warnings
     start_warnings += text_warnings
 
+    # Cross-field lock hygiene (movement survey Tier-2): a member that warps into a SIBLING whose script
+    # never grants control ships a guaranteed arrival softlock -- the one lock bug no single-field
+    # validator can see. Literal Field() targets only; destinations outside this build are out of scope.
+    if len(projects) > 1:
+        from . import eblint as _eblint_x
+        _eb_by_id = {}
+        for p in projects:
+            if p.id is None:
+                continue
+            try:
+                _eb_by_id[p.id] = layout.eb_path(langs[0], f"EVT_{p.name}.eb.bytes").read_bytes()
+            except OSError:
+                continue
+        start_warnings += [str(i) for i in _eblint_x.lint_warp_grants(_eb_by_id)]
+
     layout.mod_description.write_text(
         "<Mod>\n"
         f"    <Name>{mod_name}</Name>\n"

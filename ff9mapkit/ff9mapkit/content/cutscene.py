@@ -116,11 +116,13 @@ def forced_ate_region(zone, ate_tag: int = FORCED_ATE_TAG, *, player_uid: int = 
     """A type-1 TREAD region that fires the forced-ATE warp the moment the player walks in -- the ladder/jump
     dispatch shape: Init ``SetRegion`` / tread ``MOVEMENT_GATE; DisableMove; RunScriptSync(2, player, ate_tag)``.
     The lock is set HERE (the region), but the timed sequence runs in the RunScript'd player func (so its Waits
-    tick). The func warps away, so control never returns to this region (the destination restores it)."""
+    tick). The func warps away, so control never returns to this region (the destination restores it). The
+    trailing RETURN is runtime-unreachable (the sync callee ``Field()``s away, so the call never returns) but
+    keeps the body structurally terminated for eblint's reachability check."""
     import struct as _struct
     init = _region.set_region(zone) + opcodes.RETURN
     tread = (_region.MOVEMENT_GATE + opcodes.DISABLE_MOVE
-             + opcodes.run_script_sync(2, int(player_uid), int(ate_tag)))
+             + opcodes.run_script_sync(2, int(player_uid), int(ate_tag)) + opcodes.RETURN)
     funcs = [(0, init), (_region.RANGE_TAG, tread)]
     table, pos = b"", len(funcs) * 4
     for tag, body in funcs:
