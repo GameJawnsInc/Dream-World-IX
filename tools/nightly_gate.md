@@ -55,10 +55,75 @@ fewer than `--collect-floor` (default 6500) tests collect, rather than minting a
 `--durations=25` block at the end of each `*.pytest.log` is the standing profiling data: if the
 suite creeps toward the timeout, look there first.
 
-**On red:** re-run the failing test on clean master first — if it is still red with no local
-changes, suspect *deployed-state* preconditions (the shared mod folders another session wiped;
-see `project-ff9-test-suite-perf` §DEPLOYED-STATE) before suspecting any merge. Then bisect
-yesterday's merges with the failing file only.
+**On red — whose job is the fix?** The gate only detects; the responsibility rule is
+**first-reader triages**: the first session of the day that reads a red ledger must triage
+*before doing anything else on master* — triage is not optional and not deferrable to "someone
+else," because a red that everyone skips silently becomes the ambient state.
+
+1. Re-run the failing test on clean master. Still red with no local changes → suspect
+   *deployed-state* preconditions (the shared mod folders another session wiped; see
+   `project-ff9-test-suite-perf` §DEPLOYED-STATE) before suspecting any merge.
+2. Genuinely red → bisect yesterday's merges with the failing file only (each was a small branch
+   that already passed its targeted tests — this is minutes, not hours).
+3. Culprit found → **fix it if small or in your domain; otherwise REVERT the culprit merge on
+   master and report** (failing test, culprit, revert noted) so the human routes the re-land to a
+   domain session. Revert-first because master is shared: every hour it stays red, other sessions
+   build on a broken base and the next nightly can't tell old red from new red.
+
+The sessions that *caused* a red are usually closed by morning — sessions are ephemeral, so
+author-pays degenerates to "the human points a session at it." First-reader-triages is the rule
+that keeps red from being nobody's problem.
+
+## Merge-time enforcement — the post-merge hook
+
+CLAUDE.md telling sessions to read the ledger is advisory; the hook makes it automatic at the one
+moment it matters. `.git/hooks/post-merge` in the **main repo** prints the gate state after every
+merge **into master** (a loud multi-line banner when not green, a one-liner when green) — the text
+lands in the merging session's command output, so no session can merge without seeing it. Hooks
+live in the shared `.git`, so every worktree and account inherits it with zero per-session setup.
+It is warning-only by design: a fast-forward merge (the common case here) fires no blockable hook,
+and post-merge cannot abort — but for agent sessions, pushed text at merge time is effectively
+binding, because the protocol instruction arrives in-context the moment it applies.
+
+⚠ **Hooks are NOT tracked by git.** If `.git/hooks/post-merge` goes missing (fresh clone, pruned
+`.git`), recreate it with this exact content and `chmod +x`:
+
+```sh
+#!/bin/sh
+# ff9-test-gate awareness hook -- after any merge INTO master, surface the nightly gate
+# ledger loudly so no session can merge without seeing the suite state. Warning-only by
+# design (post-merge cannot block; a fast-forward merge fires no blockable hook), but the
+# text lands in the merging session's output at exactly the moment the protocol applies.
+# NOT tracked by git -- recreate from tools/nightly_gate.md if missing.
+[ "$(git symbolic-ref --short -q HEAD)" = "master" ] || exit 0
+ledger="$(git rev-parse --path-format=absolute --git-common-dir)/../.test-gate/latest.json"
+if [ ! -f "$ledger" ]; then
+    echo "[test-gate] no ledger yet ($ledger) -- the nightly gate has not run"
+    exit 0
+fi
+result=$(sed -n 's/.*"result": *"\([^"]*\)".*/\1/p' "$ledger" | head -1)
+stamp=$(sed -n 's/.*"timestamp": *"\([^"]*\)".*/\1/p' "$ledger" | head -1)
+case "$result" in
+    green|smoke-ok)
+        echo "[test-gate] last nightly gate: $result ($stamp)"
+        ;;
+    *)
+        cat <<EOF
+!! =====================================================================
+!! [test-gate] THE NIGHTLY GATE IS NOT GREEN: result=$result ($stamp)
+!! You just merged into master on top of a failing/unknown suite state.
+!! PROTOCOL (CLAUDE.md / tools/nightly_gate.md) -- TRIAGE BEFORE ANY
+!! FURTHER MASTER WORK: re-run the failing file on clean master (rules
+!! out deployed-state false reds), bisect yesterday's merges with that
+!! file, fix if small/in-domain, otherwise REVERT the culprit merge and
+!! report. Never build on a red master silently.
+!! Ledger: $ledger
+!! =====================================================================
+EOF
+        ;;
+esac
+exit 0
+```
 
 ## Setup from scratch
 

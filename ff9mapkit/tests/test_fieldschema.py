@@ -131,10 +131,12 @@ def test_key_unknown_anywhere_carries_the_regen_hint():
 
 def test_unenforced_paths_are_skipped_not_guessed():
     """A section whose consumers never ran end-to-end in the corpus is recorded but NOT enforced --
-    honest degradation beats a confident false positive."""
+    honest degradation beats a confident false positive. ([scene] is the durable example: its `file`
+    is probed on the PRE-merge base, before the harvest seam, so no corpus run can enforce it.
+    `mint` graduated when the regen started generating boletta's payload.)"""
     vocab, enforced = _schema()
-    assert "mint" in vocab[""] and "mint" not in enforced
-    assert fs.check({"mint": [{"anything_at_all": 1}]}, vocab=vocab, enforced=enforced) == []
+    assert "scene" in vocab[""] and "scene" not in enforced
+    assert fs.check({"scene": {"anything_at_all": 1}}, vocab=vocab, enforced=enforced) == []
 
 
 def test_nothing_is_checked_below_an_unknown_key():
