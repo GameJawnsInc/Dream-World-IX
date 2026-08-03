@@ -408,6 +408,57 @@ def _eb_src_verify_all() -> int:
     return 1 if failures else 0
 
 
+def _eb_src_naming(target, lang: str):
+    """The OPTIONAL naming layer behind `eb-src`'s comments, for a target resolved BY FIELD ID
+    through the install: ``(mes_entries, field_names, title_suffix)``. Every piece is best-effort
+    -- comments are presentation, so a missing install / text block / (gitignored) dev manifest
+    degrades what the comments SAY and never what the command DOES."""
+    mes_entries = None
+    try:
+        from . import dialogue as _d
+        body = _d.extract_field_mes(str(target), lang=lang)
+        if body:
+            mes_entries = _d.parse_mes(body)
+    except Exception:                                     # noqa: BLE001 -- no install/.mes -> no previews
+        mes_entries = None
+    try:                                                  # ONE guard over the WHOLE name lookup --
+        from . import extract                             # a partial one leaves the tail unguarded
+        from ._fieldtable import FIELD_BY_ID
+        names = extract._manifest_field_names()           # {} without the dev-only manifest
+        # id-keyed FIELD_BY_ID is COMPLETE; find_fields walks the folder-keyed table (which drops
+        # the ~142 fields that share an FBG folder), so it is only the NAME-query fallback
+        fid = int(str(target).strip()) if str(target).strip().isdigit() else None
+        if fid is None:
+            rows = extract.find_fields(target)
+            fid = rows[0]["id"] if len(rows) == 1 else None
+        row = FIELD_BY_ID.get(fid) if fid is not None else None
+        bits = [b for b in ([names.get(fid)] + list(row or [])) if b]
+        return mes_entries, names, (" -- " + " | ".join(bits) if bits else "")
+    except Exception:                                     # noqa: BLE001
+        return mes_entries, {}, ""
+
+
+def _print_source(text: str) -> None:
+    """Print a .ebs whose dialogue previews carry real FF9 text (accented fr/gr/es, jp kana). The
+    encoding half is the HOUSE mechanism every text-dumping verb uses -- :func:`_safe_console`,
+    which reconfigures the streams to substitute instead of raising -- NOT a second encoder of
+    this command's own. What is added here is the honesty: substitution silently LOSES characters,
+    so when the text does not fit the stream say so ONCE on stderr, because what is on screen is
+    then no longer what -o writes."""
+    _safe_console()
+    enc = getattr(sys.stdout, "encoding", None)
+    lossy = False
+    if enc:
+        try:
+            text.encode(enc)                              # a probe, not a conversion
+        except (UnicodeEncodeError, LookupError):
+            lossy = True
+    print(text, end="")
+    if lossy:
+        print(f"eb-src: this console ({enc}) cannot show every character -- some of the text "
+              f"above is degraded to '?'. Write the exact source with -o FILE.", file=sys.stderr)
+
+
 def _cmd_eb_src(args: argparse.Namespace) -> int:
     from pathlib import Path
 
@@ -418,9 +469,11 @@ def _cmd_eb_src(args: argparse.Namespace) -> int:
     if not args.target:
         print("eb-src: give a field id/name or a .eb path (or --verify-all)", file=sys.stderr)
         return 2
+    plain = getattr(args, "plain", False)
+    mes_entries, field_names = None, None
     try:
         p = Path(args.target)
-        if p.is_file():
+        if p.is_file():                                   # a bare path: no id, so no .mes / names
             data = p.read_bytes()
             title = p.name
         else:
@@ -431,12 +484,16 @@ def _cmd_eb_src(args: argparse.Namespace) -> int:
                       f"(lang {args.lang})", file=sys.stderr)
                 return 2
             title = f"field {args.target} lang {args.lang}"
-        src = ebsrc.write_source(data, title=title)       # raises on any round-trip deviation
+            if not plain:
+                mes_entries, field_names, suffix = _eb_src_naming(args.target, args.lang)
+                title += suffix
+        src = ebsrc.write_source(data, title=title, enrich=not plain,   # raises on any deviation
+                                 mes_entries=mes_entries, field_names=field_names)
         if args.out:
             Path(args.out).write_text(src, encoding="utf-8")
             print(f"wrote {args.out} ({len(src.splitlines())} lines, round-trip verified)")
         else:
-            print(src, end="")
+            _print_source(src)
     except (ebsrc.EbSrcError, OSError) as ex:
         print(f"eb-src: {ex}", file=sys.stderr)
         return 2
@@ -6607,6 +6664,10 @@ def build_parser() -> argparse.ArgumentParser:
                                                   "(us uk jp fr gr it es; default us). Bytecode "
                                                   "DIFFERS across languages for 71%% of fields")
     esr.add_argument("-o", "--out", help="write the .ebs here (default: stdout)")
+    esr.add_argument("--plain", action="store_true",
+                     help="omit the explanatory '# ...' comments (warp/model/item/scene names, "
+                          "story-flag bands, routine roles, dialogue previews). Comments are "
+                          "presentation only -- eb-asm strips them either way")
     esr.add_argument("--verify-all", action="store_true",
                      help="round-trip EVERY field event binary in the install (all 7 languages) "
                           "and report N/M byte-exact; exit 1 on any failure")
