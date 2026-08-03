@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `ff9mapkit fetch-assets`: a fresh clone can rebuild the bundled example
+- **New verb `fetch-assets <campaign.toml>`** re-materializes a campaign's gitignored, SE-derived
+  member sidecars (`camera.bgx` / `walkmesh.bgi` / a native member's `scene.bgs.bytes` + `atlas.png` +
+  `mapconfig.bytes` / carried ladder-climb and object bins) from your **own** install — the authored
+  tomls are never touched. It runs the same fork writers `add-field --source` uses, into a scratch
+  dir, and copies over only what a member is missing (`--force` re-extracts everything). This replaces
+  the manual dance the stolen-ember manifest used to document (delete the member dir, re-run
+  `add-field`, restore the toml from git). The provenance gate is unchanged: no Square Enix bytes are
+  shipped or committed — you supply them from the game you own.
+- **`extract-templates` now also runs it for `examples/stolen-ember`** when invoked from a repo
+  checkout (installed wheels ship no `examples/`, so they are unaffected), so one command makes a
+  fresh clone fully buildable *and* its test suite runnable. Best-effort: an example fetch failure
+  warns and points at `fetch-assets` instead of failing the template extraction.
+- The suite's stolen-ember build test previously **failed** on a checkout whose sidecars were never
+  materialized (they are gitignored, and no documented command produced them). It now skips loudly,
+  naming the missing files and the exact `fetch-assets` command.
+
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
   composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,

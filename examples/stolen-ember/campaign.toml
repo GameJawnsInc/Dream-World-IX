@@ -18,8 +18,8 @@
 #
 # Fields fork REAL rooms (BG-borrow/native); the SE-derived sidecars (camera.bgx, walkmesh.bgi,
 # atlas.png, scene.bgs.bytes, mapconfig.bytes, *.bin, *.carrytext.json) are GITIGNORED --
-# regenerate them with:  ff9mapkit add-field campaign.toml --name X --source <id>  against your
-# own install (delete the member dir first; re-apply the authored toml from git after).
+# regenerate them against your own install (authored tomls are untouched; extract-templates also
+# runs this in a repo checkout):  py -m ff9mapkit fetch-assets examples/stolen-ember/campaign.toml
 #
 # Build/deploy:  py -m ff9mapkit build-all examples/stolen-ember/campaign.toml
 #                py tools/deploy_campaign.py examples/stolen-ember/campaign.toml

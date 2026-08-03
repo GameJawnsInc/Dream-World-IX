@@ -1406,6 +1406,100 @@ def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None)
     return member
 
 
+# ---- SE-derived member sidecars: what a tracked checkout is missing + how to re-materialize it ----
+# The per-mode sidecars a forked member's BUILD reads (its authored toml references them by these fixed
+# names). Everything else the fork writers emit (object/gateway bins, background.png, carrytext) is
+# copied opportunistically by fetch_assets, but its absence is legal -- the authored toml may not
+# reference it.
+_REQUIRED_ASSETS = {
+    "borrow": ("camera.bgx", "walkmesh.bgi"),
+    "native": ("camera.bgx", "walkmesh.bgi", "scene.bgs.bytes", "atlas.png"),
+}
+
+
+def _member_required_assets(plan: CampaignPlan, m: Member) -> tuple:
+    if not m.real_id or m.mode not in _REQUIRED_ASSETS:
+        return ()                                        # blank/editable member: nothing SE-derived
+    if m.needs_export:                                   # logic-only stub: no art shipped, just the frame
+        return _REQUIRED_ASSETS["borrow"]
+    req = _REQUIRED_ASSETS[m.mode]
+    if plan.verbatim:                                    # a verbatim member also ships its donor's whole .eb
+        req = req + (f"{m.name}.verbatim_eb.bin",)
+    return req
+
+
+def missing_assets(plan: CampaignPlan, manifest_dir) -> "dict[str, list[str]]":
+    """The SE-derived sidecars a build of this campaign needs that are NOT on disk (member -> missing
+    names). A tracked checkout ships only the authored tomls -- the fork sidecars are gitignored
+    (provenance gate: zero Square Enix bytes in the repo) and ``extract-templates`` does NOT produce
+    them -- so a fresh clone/worktree reports every forked member here until :func:`fetch_assets` runs."""
+    manifest_dir = Path(manifest_dir)
+    out = {}
+    for m in plan.members:
+        mdir = (manifest_dir / m.toml_rel).parent
+        miss = [a for a in _member_required_assets(plan, m) if not (mdir / a).is_file()]
+        if miss:
+            out[m.name] = miss
+    return out
+
+
+def fetch_assets(plan: CampaignPlan, manifest_dir, *, game=None, force=False) -> "dict[str, list[str]]":
+    """Re-materialize the gitignored SE-derived sidecars of a campaign's forked members from the user's
+    OWN install, WITHOUT touching the authored tomls. Returns {member name: files written}.
+
+    Runs the same fork writers ``add-field --source`` / ``write_campaign`` use, but into a scratch dir,
+    then copies over only the sidecar files a member is missing (``force`` re-copies them all) -- the
+    writer's freshly generated field.toml is discarded, so the authored toml (the tracked, hand-edited
+    artifact) is never rewritten. This replaces the old manual dance the stolen-ember manifest used to
+    document (delete the member dir, re-run ``add-field``, restore the toml from git)."""
+    import shutil
+    import tempfile
+
+    from . import extract
+    from ._fieldtext import EVENT_ID_TO_MES
+    manifest_dir = Path(manifest_dir)
+    remap = {m.real_id: m.new_id for m in plan.members if m.real_id}
+    written: dict = {}
+    for m in plan.members:
+        required = _member_required_assets(plan, m)
+        if not required:
+            continue
+        mdir = (manifest_dir / m.toml_rel).parent
+        if not force and all((mdir / a).is_file() for a in required):
+            continue
+        with tempfile.TemporaryDirectory(prefix=f"ff9mk-fetch-{m.name}-") as td:
+            donor = str(m.real_id)                       # fork by ID (folders can be shared across ids)
+            if m.needs_export:                           # logic-only stub: just the camera + walkmesh frame
+                extract.extract_field(donor, td, game=game)
+            elif plan.verbatim:                          # mirror write_campaign's verbatim member call
+                extract.write_native_project(donor, td, name=m.name, field_id=m.new_id,
+                                             text_block=EVENT_ID_TO_MES.get(m.real_id, 1073),
+                                             game=game, id_remap=remap, verbatim=True)
+            elif m.mode == "borrow":
+                extract.write_field_project(donor, td, name=m.name, field_id=m.new_id,
+                                            game=game, id_remap=remap)
+            else:
+                extract.write_native_project(donor, td, name=m.name, field_id=m.new_id,
+                                             game=game, id_remap=remap)
+            files = []
+            for src in sorted(Path(td).rglob("*")):
+                if not src.is_file() or src.name.endswith(".field.toml"):
+                    continue                             # the generated toml: the authored one stays
+                rel = src.relative_to(td)
+                dest = mdir / rel
+                if dest.exists() and not force:
+                    continue
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dest)
+                files.append(str(rel))
+        still = [a for a in required if not (mdir / a).is_file()]
+        if still:
+            raise CampaignError(f"{m.name}: the fork writer produced no {still} for donor field "
+                                f"{m.real_id} -- the member's authored toml expects them")
+        written[m.name] = files
+    return written
+
+
 # NOTE: the Phase-D per-item mutation API (remove_field / rename_field / set_entry / add_edge /
 # remove_edge / add_flag / remove_flag) lived here until 2026-07-17. Its only caller was the retired
 # tkinter apps/campaign_editor.pyw; the Workspace rebuilt campaign mutation on new_campaign / add_field /

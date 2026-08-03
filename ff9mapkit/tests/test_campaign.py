@@ -405,6 +405,15 @@ def test_a_freshly_built_campaign_verifies_clean(tmp_path):
     ember = Path(__file__).resolve().parents[2] / "examples" / "stolen-ember"
     if not (ember / "campaign.toml").is_file():
         pytest.skip("stolen-ember example not present")
+    # A tracked checkout ships only the authored tomls: the example's fork sidecars (camera.bgx /
+    # walkmesh.bgi / TRAIL's native scene) are SE-derived, gitignored, and NOT produced by
+    # extract-templates -- so a fresh clone/worktree cannot build the example at all. Skip LOUDLY,
+    # naming the one command that materializes them (extract-templates also runs it in a checkout).
+    missing = campaign.missing_assets(campaign.load_campaign(ember / "campaign.toml"), ember)
+    if missing:
+        pytest.skip(f"stolen-ember's SE-derived sidecars are not materialized in this checkout "
+                    f"(gitignored; extract-templates alone does not produce them): missing {missing}. "
+                    f"Regenerate from your own install:  py -m ff9mapkit fetch-assets {ember / 'campaign.toml'}")
     work = tmp_path / "se"
     shutil.copytree(ember, work)
     out = tmp_path / "dist"
