@@ -405,6 +405,11 @@ def test_a_freshly_built_campaign_verifies_clean(tmp_path):
     ember = Path(__file__).resolve().parents[2] / "examples" / "stolen-ember"
     if not (ember / "campaign.toml").is_file():
         pytest.skip("stolen-ember example not present")
+    if not any(ember.rglob("camera.bgx")):
+        # The members' camera.bgx/walkmesh.bgi are GAME-DERIVED extracts (gitignored, provenance):
+        # present in a working checkout that has run the imports, absent in a fresh clone/worktree.
+        # Without them the build fails on missing assets, which is the fixture's problem, not drift's.
+        pytest.skip("stolen-ember game-derived extracts not present (fresh checkout/worktree)")
     work = tmp_path / "se"
     shutil.copytree(ember, work)
     out = tmp_path / "dist"
