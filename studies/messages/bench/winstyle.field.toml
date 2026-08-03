@@ -1,0 +1,126 @@
+# WINSTYLE -- the Tier-1 window-attribute bench + the [[event]] action trigger.
+# Layout probed (tools/field_layout_probe.py) AND sized by the render math this time: row z-gaps
+# >= 600u so the gaps read BIGGER on screen than the tallest landmark (a cask is 400u tall -- the
+# round-2 barrels were as tall as the row spacing and read scrunched). Landmarks are BOOKS
+# (small model 233) with collision = false, so nothing ever blocks a pad.
+#
+# Front -> back: spawn / two WALL PADS (walk-ins, at the side walls) / two PRESS SPOTS
+# (sign west + menu east) / the three talkers.
+#   * on entry: the `duration` countdown captions.
+#   * WEST press spot ("!" bubble): `trigger="action"` + `bubble=true` + `once=false` --
+#     press-to-read, repeatable, no flag, prompted.
+#   * EAST press spot (SILENT): the pinned Mognet menu -- stock's discover-by-pressing form.
+#   * WEST wall pad: the walk-in self-closing toast (`duration=90`, level-trigger contrast).
+#   * EAST wall pad: the walk-in line ATTRIBUTED to the crier (`actor`).
+# Deploy: py tools/deploy_field.py studies/messages/bench/winstyle.field.toml --id 30601
+
+[field]
+id = 30601
+name = "WINSTYLE"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+# --- the entry countdown: `duration` staged captions -------------------------------------
+[[cutscene]]
+once = true
+steps = [
+  { say = "On your mark!", style = "notail", duration = 45 },
+  { say = "Get set!", style = "notail", duration = 45 },
+  { say = "GO!", style = "notail", duration = 30 },
+  { say = "...and this is the voice dim: these words appear first, then the room sinks beneath them...", style = "transparent", dim = "voice" },
+  { say = "Books mark the spots. Side walls ahead: walk-in pads. Mid-room: press at the west book (it prompts) and the east book (silent, like a stock sign). Talkers at the back.", speaker = "Bench" },
+]
+
+# --- WEST wall pad: the walk-in self-closing toast ---------------------------------------
+[[event]]
+name = "toast"
+zone = [[-1200, -1650], [-950, -1650], [-950, -1400], [-1200, -1400]]
+message = "A no-tail toast. It closes itself in three seconds -- and this one is walk-triggered, so it re-fires while you stand here."
+style = "notail"
+duration = 90
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-880, -1525]
+collision = false
+
+# --- EAST wall pad: attributed to the crier ----------------------------------------------
+[[event]]
+name = "crier_call"
+zone = [[950, -1650], [1200, -1650], [1200, -1400], [950, -1400]]
+message = "Hear ye!  This bubble should point at ME, the crier at the back."
+speaker = "Crier"
+actor = "crier"
+once = false
+
+[[prop]]
+prop = "book"
+pos = [880, -1525]
+collision = false
+
+# --- WEST press spot: the sign, WITH the "!" bubble --------------------------------------
+[[event]]
+name = "sign"
+zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
+trigger = "action"
+bubble = true
+message = "= WINSTYLE BENCH =\nCarved letters on a plaque -- the subtle inscription dim, cross-fading back out."
+style = "transparent"
+instant = true
+dim = "inscription"
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-700, -880]
+collision = false
+
+# --- EAST press spot: the pinned Mognet menu, SILENT -------------------------------------
+[[choice]]
+zone = [[550, -1150], [850, -1150], [850, -950], [550, -950]]
+prompt = "A pinned menu with the Mognet caption, kupo?"
+style = "mognet"
+window_pos = [20, 16]
+instant = true
+options = [
+  { text = "Looks right", reply = "Kupo!" },
+  { text = "Looks wrong", reply = "Kupooo..." },
+]
+
+[[prop]]
+prop = "book"
+pos = [700, -880]
+collision = false
+
+# --- the back row of talkers --------------------------------------------------------------
+[[npc]]
+name = "control"
+preset = "vivi"
+pos = [-800, -350]
+dialogue = "I am the CONTROL: the classic speech bubble, tail at me."
+speaker = "Control"
+
+[[npc]]
+name = "crier"
+preset = "vivi"
+pos = [800, -350]
+dialogue = "Talk to me directly and I use a fixed chat frame with no tail."
+speaker = "Crier"
+style = "notail"
+
+[[npc]]
+name = "whisperer"
+preset = "vivi"
+pos = [0, -350]
+dialogue = "From the Bench to you --\n\nThe letter dim: the room goes warm-dark and these frameless words stay bright.\n\nNo speaker line -- stock letters never carry one."
+style = "transparent"
+dim = true

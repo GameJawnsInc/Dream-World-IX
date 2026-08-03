@@ -321,6 +321,86 @@ Multi-line dialogue keeps **one** quote pair — the auto-wrap opens `“` on th
 closes `”` on the last, exactly as stock does. (Avoid `[PAGE]` inside a *spoken* line with a speaker:
 stock never quotes across a page break — give each conversation line its own entry/`say` step.)
 
+### Window styling (style · window · actor · instant · speed · duration · window_pos · box)
+
+Every dialogue-bearing block — `[[npc]]`, `[[event]]`, `[[on_entry]]`, `[[choice]]` (+ its options),
+and cutscene `say` steps — takes the same optional presentation keys. All default to exactly what the
+kit always emitted (an ordinary speech bubble), so omitting them changes nothing.
+
+- **`style`** — which of FF9's window styles to use. Named for the nine forms the stock game ships:
+
+  | name | looks like | stock uses it for |
+  |---|---|---|
+  | `"bubble"` *(default)* | speech bubble, tail at the speaker | ordinary dialogue |
+  | `"plain"` | screen-fixed plain panel | system announces, signs, pickers |
+  | `"notail"` | chat frame, fixed, no tail | tutorial pages, HUD toasts |
+  | `"transparent"` | frameless floating text | letters, narration overlays, counters |
+  | `"mognet"` | plain panel + “Mognet” caption | moogle menus |
+  | `"ate"` | plain panel + “Active Time Event” caption | ATE titles and pickers |
+  | `"bubble_nopan"` | bubble, camera does **not** pan to the speaker | QTE prompts, rituals |
+  | `"bubble_notail"` | attached to the actor but tail-less | off-screen voices, “Zzz…” |
+  | `"bubble_transparent"` | frameless text floating on the actor | the Hot & Cold dig number |
+
+  A raw flags byte (0–255) is also accepted. Captions (`mognet`/`ate`) only exist in the non-bubble
+  family — the engine drops the caption if the bubble bit is set, which is why there is no
+  `"bubble_ate"`. A non-bubble style with no explicit `tail` **centers** like stock's own system
+  windows (on a detached window a tail code is a screen-corner anchor, not a pointer — set `tail`
+  only if you want that corner anchoring).
+- **`window`** — the script window id **0–7** (default 1). Two windows on **different** ids coexist;
+  re-using an id replaces that window. Stock's conventions: 0–4 dialogue, 5 announce, 6 HUD, 7 the
+  “Received …!” system slot.
+- **`actor`** — attribute the window to `"player"` or a named `[[npc]]`: the tail points at them and
+  the camera treats them as the speaker (the engine's `WindowSyncEx`, stock's own cutscene form). On
+  `[[event]]`, `[[on_entry]]` and **zone** `[[choice]]` (an NPC-attached choice already speaks from
+  its NPC; a cutscene attributes lines via its cast). Needs a bubble-family `style`. On a verbatim
+  fork only `"player"` resolves.
+- **`instant`** — `true` pops the window fully drawn (`[IMME]`, FF9's selector/system convention).
+- **`speed`** — typewriter speed 1–255 (`[SPED=n]`; higher = slower reveal, engine tick table).
+- **`duration`** — auto-close after N frames (`[TIME=n]`); the player cannot dismiss it early. On a
+  blocking window this is a timed beat — stock's “On your mark! / Get set! / GO!” shape without the
+  wait-and-close boilerplate.
+- **`window_pos`** — `[x, y]` pins the window at an absolute position (`[MPOS]`; top-left corner, y
+  measured down, PSX-screen units ~320×224). Pinning **detaches** the window from any speaker and a
+  pinned window draws **no tail** (don't combine with `tail`).
+- **`box`** — `[width, lines]` sets the `[STRT]` geometry. The engine auto-measures width whenever it
+  can, so `width` mostly matters for centering system boxes; `lines` acts as a minimum height.
+- **`dim`** — wrap the window in one of **stock's reading fade brackets** (censused across all 817
+  field scripts; 241 bracket sites). On `[[npc]]`, `[[event]]`, `[[on_entry]]` and cutscene `say`
+  steps; pairs naturally with `style = "transparent"`:
+
+  | value | stock source | the feel |
+  |---|---|---|
+  | `true` / `"letter"` | Mognet mail (100 sites, 50 fields) | warm blackout in, **text bright on top**, restore out |
+  | `"voice"` | the Memoria/Oeilvert/Kuja narrations | the text appears **first**, then the room dims under it |
+  | `"inscription"` | the Berkmea monument, plaques | a **subtle** grey that cross-fades back — the gentlest |
+  | `"blackout"` | Eiko's Ipsen-and-Colin story | hard cut to black; scene and text **fade in together** |
+
+  **`dim_tint = [r, g, b]`** overrides the in-fade colour: the letter ships nine per-field tints in
+  stock (`[220,220,250]` Alexandria/Dali · `[150,150,200]` Ice Cavern/Prima Vista · `[100,100,150]`
+  Burmecia …), and the voice family spans grey depths (`[32,32,32]` Garland · `[48,48,48]` Soulcage
+  · `[100,100,100]` the library eavesdrop · `[128,128,128]` Necron).
+
+  **Faithful text pairings** (from the 12,711-entry speaker census): stock never Name-attributes a
+  dimmed window. A **letter** opens with a *"From X to Y"* header line, a **voice**/**blackout**
+  line is fully unattributed, an **inscription** is the carved text itself. A character's inner
+  thought is NOT a dimmed window in stock — it's a normal speech bubble with `speaker` and a fully
+  parenthesized line. Setting `speaker` on a dimmed window builds fine but has no stock precedent.
+
+```toml
+[[event]]                       # a sign on a wall: plain panel, pops instantly
+zone = [[-300,-1100],[300,-1100],[300,-900],[-300,-900]]
+message = "= Lindblum Air Cab =\nTo the Theater District"
+style = "plain"
+instant = true
+once = false
+
+[[cutscene]]
+steps = [
+  { say = "GO!", style = "notail", duration = 45 },        # a timed race caption
+  { say = "(...did it start?)", speaker = "[VIVI]" },
+]
+```
+
 ### Rotating casts (story-event fields)
 
 Real FF9 town/story fields don't have a fixed roster — the cast **rotates by story progress**. The
@@ -778,9 +858,11 @@ index = 8720
 
 ## `[[event]]` (optional, repeatable)
 
-A region the player **walks into** that fires authored logic — show a message, give an item / gil,
-set a story flag — optionally **once** (a looted chest, a one-time line, an ATE). Built on the same
-flag-gated conditional region as the camera switch; any number of events share one arming slot.
+A region that fires authored logic — show a message, give an item / gil, set a story flag —
+optionally **once** (a looted chest, a one-time line, an ATE). By default the player **walks into**
+it; `trigger = "action"` makes it **press-to-fire** instead (walk up, press the action button — the
+repeatable sign/readable). Built on the same flag-gated conditional region as the camera switch; any
+number of events share one arming slot.
 
 ```toml
 [[event]]                 # a treasure: give a Potion + a message, once
@@ -789,10 +871,13 @@ give_item = [232, 1]      # [item_id, count]
 gil = 500                 # (optional) also add gil
 message = "Got a Potion!" # (optional) popup dialogue
 
-[[event]]                 # a repeatable ambient line
+[[event]]                 # a readable sign: press to read, any number of times
 zone = [[-700,-400],[-300,-400],[-300,-800],[-700,-800]]
-message = "A cool breeze blows through."
-once = false
+trigger = "action"
+message = "= NOTICE =\nBeware of falling moogles."
+style = "plain"
+instant = true
+once = false              # edge-triggered by the press -> repeatable, and consumes NO flag
 ```
 
 | key | meaning |
@@ -806,7 +891,9 @@ once = false
 | `require_space` | *(give_item only)* `true` = **chest behavior**: skip the whole event (and don't set the `once` flag, so it's retryable) if the bag is full — `if (GetItemCount(item) < 99) { … }`. |
 | `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
-| `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
+| `trigger` | `"walk"` (default) = fires on tread. `"action"` = fires on the **action button** while standing in the zone — edge-triggered by the press, so it can never loop; the natural form for signs, plaques, and inspectables. |
+| `bubble` | *(action only)* `true` = show the floating **"!" prompt** while the player stands in the zone (the save-moogle-cask shape — a tread companion arms `Bubble(1)` per frame). Default `false`: stock's *silent* readable, discovered by pressing — both conventions are authentic; pick by how discoverable the spot should be. Also on a zone `[[choice]]` with `trigger = "action"`. |
+| `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` on a **walk** trigger = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside; suits a continuous effect only). `false` on an **action** trigger = re-fires once per press — the repeatable readable, and it consumes **no** gate flag. A walk-triggered "once per visit" (re-fires only after leaving and re-entering) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `9100`, the kit's safe-band event auto band — clear of ALL real-FF9 usage, and the allocator skips indices your project uses explicitly; override for a shipped mod to avoid cross-field clashes). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 

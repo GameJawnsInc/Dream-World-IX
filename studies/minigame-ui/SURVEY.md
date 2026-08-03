@@ -25,8 +25,9 @@ CloseWindow(winID)                ; 0x21     (8 windows, Dialog.WindowID.ID0..7)
   needs a dirty check.
 - `flags=16` (`ETb.WindowTransparentStyle`) = body+border alpha 0 → **frameless
   floating HUD text**; `flags=4` = chat-no-tail. Position/layout live in the
-  `.mes` text: `[MPOS=x,y]` `[WDTH]` `[TBLE]` `[XTAB]` `[YADD]` `[NUMB]`
-  `[ICON]` `[SPRT]` (`NGUIText.cs:1490-1555`).
+  `.mes` text: `[MPOS=x,y]` `[TBLE]` `[XTAB]` `[YADD]` `[NUMB]`
+  `[ICON]` `[SPRT]` (`NGUIText.cs:1490-1555`). (⚠ `[WDTH]` is DUMMIED in the
+  engine — inert; reserve width with sentinel text → `studies/messages/SURVEY.md` §5.)
 - **The `MinigameHUD` prefab family (jump rope / auction pad / Hippaul / chocobo
   dig button...) is MOBILE-ONLY** — `FieldHUD.DisplaySpecialHUD` opens with
   `if (!FF9StateSystem.MobilePlatform) return;` (`FieldHUD.cs:115-118`). On PC

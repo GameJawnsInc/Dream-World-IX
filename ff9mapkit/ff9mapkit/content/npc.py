@@ -213,7 +213,8 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                intro: bytes | None = None, speak_body: bytes | None = None,
                init_tail: bytes | None = None, bare: bool = False,
                reserve_party_band: bool = False, logical_size=None,
-               boot_spawn: bool = True) -> bytes:
+               boot_spawn: bool = True, talk_window: int = 1, talk_flags: int = 128,
+               talk_dim=False, talk_dim_tint=None) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
 
     ``reserve_party_band`` (the VERBATIM-fork path): a real field packs its NPC slots and reserves the
@@ -273,7 +274,15 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
         table = struct.pack("<HH", 0, 1 * 4)
         entry_bytes = bytes([NPC_ENTRY_TYPE, 1]) + table + body0
     else:
-        f2 = speak_body if speak_body is not None else (opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN)
+        # talk_window/talk_flags/talk_dim: the [[npc]] `window`/`style`/`dim` keys (default 1/128,
+        # no dim = the classic dialogue bubble; MES from the NPC's own tag-3 attributes the window
+        # to the NPC itself; dim = the letter-reading fade bracket around the talk window)
+        if speak_body is not None:
+            f2 = speak_body
+        else:
+            from . import event as _event
+            f2 = _event.message(talk_text_id, window=int(talk_window), flags=int(talk_flags),
+                                dim=talk_dim, dim_tint=talk_dim_tint) + opcodes.RETURN
         # IsActuallyTalkable (the per-frame talk-icon poll) blindly reads tag3[ip+7]/[ip+8]; a talk func
         # shorter than 9 bytes indexes PAST the entry buffer -> an IndexOutOfRange every frame the player is
         # near. Real talk funcs are 100+ bytes; pad ours to >= 9 (dead bytes after RETURN -> behaviour same).

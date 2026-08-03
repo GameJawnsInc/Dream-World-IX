@@ -537,6 +537,101 @@ def test_event_repeatable_has_no_flag():
     assert rng == region.MOVEMENT_GATE + event.give_gil(500) + opcodes.RETURN
 
 
+def test_event_action_trigger_press_region():
+    # trigger="action": an INTERACT (tag 3) region -- edge-triggered by the press. No movement gate
+    # (the press proves control; the zone-[[choice]] action shape), and once=None consumes no flag:
+    # the body is exactly message + RETURN. The repeatable sign.
+    ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.message(500), "once_flag": None,
+                                       "action": True}])
+    eb = EbScript.from_bytes(out)
+    e = next(x for x in eb.entries
+             if not x.empty and x.type == 1 and x.func_by_tag(region.INTERACT_TAG))
+    f = e.func_by_tag(region.INTERACT_TAG)
+    body = eb.data[f.abs_start:f.abs_end]
+    assert body == event.message(500) + opcodes.RETURN
+    assert region.MOVEMENT_GATE not in body
+    assert not e.func_by_tag(region.RANGE_TAG)             # a press region, not a tread region
+
+
+def test_event_action_trigger_once_still_latches():
+    # once=true on an action event keeps the exact chest-convention once-gate (flag set FIRST)
+    ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.message(500), "once_flag": 202,
+                                       "action": True}])
+    eb = EbScript.from_bytes(out)
+    e = next(x for x in eb.entries
+             if not x.empty and x.type == 1 and x.func_by_tag(region.INTERACT_TAG))
+    f = e.func_by_tag(region.INTERACT_TAG)
+    body = eb.data[f.abs_start:f.abs_end]
+    assert region.cond_not(region.GLOB_BOOL, 202) in body
+    assert body.index(region.set_var(region.GLOB_BOOL, 202, 1)) < body.index(opcodes.window_sync(1, 128, 500))
+    assert region.MOVEMENT_GATE not in body
+
+
+def test_event_action_bubble_tread_companion():
+    # bubble=True on an action event: the save-moogle cask shape -- a tag-2 tread companion arming
+    # Bubble(1) per frame in the quad (the "!" prompt; a per-frame poll, so leaving clears it).
+    # Default (no bubble) stays a 2-func press region: stock's silent discover-by-pressing sign.
+    ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.message(500), "once_flag": None,
+                                       "action": True, "bubble": True}])
+    eb = EbScript.from_bytes(out)
+    e = next(x for x in eb.entries
+             if not x.empty and x.type == 1 and x.func_by_tag(region.INTERACT_TAG))
+    tread = e.func_by_tag(region.RANGE_TAG)
+    assert tread and eb.data[tread.abs_start:tread.abs_end] == (
+        region.MOVEMENT_GATE + opcodes.bubble(1) + opcodes.RETURN)
+    press = e.func_by_tag(region.INTERACT_TAG)
+    assert eb.data[press.abs_start:press.abs_end] == event.message(500) + opcodes.RETURN
+
+
+def test_event_bubble_needs_action_trigger(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "v.field.toml"
+    p.write_text(
+        '[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n'
+        '[camera]\npitch=45\nfov=42.2\n\n'
+        '[walkmesh]\nquad=[[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[event]]\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\nmessage="hi"\nbubble=true\n',
+        encoding="utf-8")
+    assert any("bubble" in x and "action" in x
+               for x in build.validate(build.FieldProject.load(p)))
+
+
+def test_event_trigger_walk_is_byte_identical_to_default(tmp_path):
+    # `trigger = "walk"` spelled out must build the exact same bytes as the key absent
+    from ff9mapkit import build
+    base = ('[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n'
+            '[camera]\npitch=45\nfov=42.2\n\n'
+            '[walkmesh]\nquad=[[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+            '[[event]]\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\nmessage="hi"\n')
+    ebs = []
+    for i, extra in enumerate(("", 'trigger="walk"\n')):
+        p = tmp_path / f"z{i}.field.toml"
+        p.write_text(base + extra, encoding="utf-8")
+        proj = build.FieldProject.load(p)
+        et = build.collect_text(proj)[2]
+        ebs.append(build.build_script(proj, "us", {}, event_txids=et))
+    assert ebs[0] == ebs[1]
+
+
+def test_event_action_trigger_validation(tmp_path):
+    from ff9mapkit import build
+    base = ('[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n'
+            '[camera]\npitch=45\nfov=42.2\n\n'
+            '[walkmesh]\nquad=[[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+            '[[event]]\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\nmessage="hi"\n')
+    def probs(extra):
+        p = tmp_path / "v.field.toml"
+        p.write_text(base + extra, encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+    assert probs('trigger="action"\nonce=false\n') == []                    # the repeatable sign
+    assert any('trigger' in x for x in probs('trigger="press"\n'))          # unknown trigger
+    # a repeatable press that PAYS is an item faucet -- refused
+    assert any("faucet" in x for x in probs('trigger="action"\nonce=false\ngive_item=[236,1]\n'))
+
+
 def test_event_batch_shares_one_wait():
     """Two events must consume only ONE Main_Init Wait filler (shared arming entry)."""
     evs = [{"zone": [(i * 100, 0), (i * 100 + 50, 0), (i * 100 + 50, 50), (i * 100, 50)],
