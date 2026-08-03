@@ -302,7 +302,11 @@ numinput `pos`. txids allocate from 500 (synth) / donor-max+1000 (verbatim carry
 
 The full 25-item list with seams lives in the census; the ones that matter, grouped:
 
-**Tier 1 — trivial plumbing, immediate expressive win:**
+**Tier 1 — trivial plumbing, immediate expressive win — ★★ BUILT + IN-GAME PROVEN (commit
+d9f224c4; all 6 WINSTYLE bench checks owner-confirmed @30601). The dresser is
+`text.dress_window` + `text.default_tail` (THE WINDOW-GEOMETRY LAW: detached-style windows ship
+tail-less); a tread `once=false` event re-fires while standing (level-triggered) — a repeatable
+readable wants the unbuilt `[[event]] trigger="action"` follow-up:**
 1. **`style`/`flags` + `window` keys on every dialogue-bearing block** (today: flags
    settable NOWHERE, window on only 4 blocks). Unlocks: frameless narration lines,
    no-pan lines (160), off-screen voices (132), tail-less-attached (4), Mognet-caption
