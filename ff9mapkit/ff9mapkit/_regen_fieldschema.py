@@ -237,6 +237,20 @@ zone = [[-1100, -2400], [1100, -2400], [1100, -1750], [-1100, -1750]]
 # fallback can't fire; this process already imports ff9mapkit). dir name -> generator script.
 _GENERATED_EXAMPLES = {"boletta": "make_creature.py"}
 
+# Examples PROVISIONED from TRACKED repo files: toolkit-test's gitignored inputs are deploy-derived
+# but from OUR OWN novel interior (zero SE bytes -- which is why their sources are committable):
+# the painted art is tracked at art/hut/, the interior's kit-built camera in the release bundle.
+# The corpus stages a buildable tmp copy from them, fully offline.
+# example dir -> [(repo-root-relative source, example-relative dest), ...]
+_PROVISIONED_EXAMPLES: "dict[str, list[tuple[str, str]]]" = {
+    "toolkit-test": [
+        ("art/hut/walls.png", "art/walls.png"),
+        ("art/hut/floor.png", "art/floor.png"),
+        ("release/FF9CustomMap/StreamingAssets/assets/resources/FieldMaps/FBG_N11_HUT_INT/"
+         "FBG_N11_HUT_INT.bgx", "camera-ref.bgx"),
+    ],
+}
+
 # Paths whose keys the CONSUMER validates itself against a constant table (playable.parse_playable:
 # `for k in stats: if k not in _cd.CHARACTER_FIELDS: raise` -- iteration + constant-set membership,
 # which the recorder cannot see as probes). A typo there is already a lint ERROR (build.validate ->
@@ -248,12 +262,10 @@ _PARSE_OWNED = {"playable.stats", "playable.params", "playable.names"}
 # Corpus items allowed to report [partial] (by example DIR name). Everything else must BUILD: a
 # partial item still records its load/validate/lint probes, but silently loses its BUILD-stage
 # vocabulary -- the drift class that shipped the schema without [[choice]] option `entrance` and
-# [field] area_title_overlays (both probed only in the borrow-build branch). toolkit-test is the one
-# permanent exception: its gitignored art/ is a capture of the DEPLOYED interior FieldMap, not
-# reproducible offline -- and every path it authors is enforced via other items, so nothing is lost.
-# The BG-borrow items (waystation, world_hub) are NOT exempt: warm the cache + copy the hub cameras
-# (see the refusal message) so their borrow-build vocabulary is harvested.
-_EXPECTED_PARTIAL = {"toolkit-test"}
+# [field] area_title_overlays (both probed only in the borrow-build branch). Currently EMPTY --
+# every example builds (boletta generated, toolkit-test provisioned from tracked files, BG-borrow
+# via the warmed cache; see the refusal message). Add a dir name only with a documented reason.
+_EXPECTED_PARTIAL: "set[str]" = set()
 
 # The emit is refused unless these paths came out enforced -- a run whose corpus could not build
 # (empty extract cache, missing install) must fail loudly, not ship a schema with checking off.
@@ -266,10 +278,11 @@ _REQUIRED_ENFORCED = {"", "field", "camera", "walkmesh", "layers", "player", "np
 
 
 def _corpus(extra=()) -> list[Path]:
-    # generated-payload examples run from their generated tmp copy (_stub_items), not in place --
+    # generated/provisioned examples run from their staged tmp copy (_stub_items), not in place --
     # the in-place item would only ever report [partial] on the missing gitignored payload
     items = [p for p in sorted(_EXAMPLES.rglob("*.field.toml"))
-             if p.parent.name not in _GENERATED_EXAMPLES]
+             if p.parent.name not in _GENERATED_EXAMPLES
+             and p.parent.name not in _PROVISIONED_EXAMPLES]
     for e in extra:
         p = Path(e)
         items += sorted(p.rglob("*.field.toml")) if p.is_dir() else [p]
@@ -299,6 +312,18 @@ def _stub_items(tmp: Path) -> list[Path]:
                 runpy.run_path(str(d / gen), run_name="__main__")
         except Exception as e:                            # noqa: BLE001 -- the item then reports partial
             print(f"  generator {name}/{gen} failed: {type(e).__name__}: {e}", file=sys.stderr)
+        out += sorted(d.rglob("*.field.toml"))
+    repo = Path(__file__).resolve().parents[2]
+    for name, files in _PROVISIONED_EXAMPLES.items():
+        d = tmp / f"prov-{name}"
+        shutil.copytree(_EXAMPLES / name, d)
+        for src_rel, dest_rel in files:
+            src = repo / src_rel
+            if src.is_file():                             # a missing source -> partial -> the gate refuses
+                (d / dest_rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, d / dest_rel)
+            else:
+                print(f"  provision {name}: tracked source missing: {src_rel}", file=sys.stderr)
         out += sorted(d.rglob("*.field.toml"))
     return out
 
