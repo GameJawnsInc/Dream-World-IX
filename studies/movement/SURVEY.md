@@ -181,10 +181,12 @@ finishes animating; fields 1704/2921 auto-lock — **mobile only**).
   `DisableMenu` emitter (double bracket = the stock macro shape). Conductor/narration cutscenes
   lock with the grant-spin + watchdog + `REORDER_WAIT` machinery (three separate solutions to the
   entry-grant race stock solves with the 158/159 latches + entrance-gated grant).
-- **The two kit laws, engine-grounded:** (1) *RunScript-delegation* — a region tag-2 body's
-  continuation dies under its own lock because tread/talk dispatch is usercontrol-gated
-  (`ProcessEvents.cs:180-181`), so timed bodies must delegate into an actor func (stock's B3, 889
-  brackets, says the same); (2) *gate-inside-talk softlock* — `MOVEMENT_GATE` in a menu context
+- **The two kit laws:** (1) *RunScript-delegation* — an inline lock+Wait tread body froze in-game
+  (the forced-ATE bug), so timed bodies delegate into an actor func (stock's B3, 889 brackets,
+  agrees) — ⚠ the MECHANISM originally claimed here ("dispatch is usercontrol-gated" as the
+  freeze explanation) was falsified by the §11 calibration: stock blocks under lock in tag-2 at
+  518 working sites, and the engine gate is on NEW dispatch only. The practice stands; the
+  discriminant is open; (2) *gate-inside-talk softlock* — `MOVEMENT_GATE` in a menu context
   early-returns because the talk already locked (the Lantern Hall ferry bug; stock never puts the
   guard anywhere but trigger heads).
 - **Author surface:** `[cutscene] owns_control=false` is the ONLY control key an author can set
@@ -228,20 +230,38 @@ finishes animating; fields 1704/2921 auto-lock — **mobile only**).
    `REORDER_WAIT`/watchdog *race* with stock's race-free design for `then_warp` chains — the
    destination simply doesn't grant for that entrance id.
 
-**Tier 2:**
-5. `SetTriangleFlagMask` on scripted walks — cutscene paths crossing restricted triangles
-   currently have no unmask; stock's macro does it on every lock.
-6. **Lock-hygiene lint** (nothing checks today): unbalanced 2D/2E on a non-warp path,
-   `MOVEMENT_GATE` inside a talk context (shipped softlock class), inline lock+Wait in a region
-   tag-2 (shipped freeze class), a `then_warp` destination that never grants.
-7. Partial-control lane (`AddControllerMask` — stock's Marsh tutorial); one-way 156-style
-   stay-locked latch for timed sequences; `Main_Reinit` restore-not-grant semantics (kit Reinit
-   unconditionally `EnableMove`s — wrong if a scripted battle fires inside a lock).
+**Tier 2 (items 5–7) — BUILT 2026-08-03** (offline-proven; nothing here changes an in-game-verified
+byte path except the Reinit gate, which is behavior-identical for every free-roam battle):
+5. ~~`SetTriangleFlagMask` on scripted walks~~ ★ BUILT — a WALK-bearing locked conductor scene
+   brackets the mask like stock's macro (127 with the lock, 255 with the enable; a `then_warp`
+   scene skips the restore — the engine resets the mask per field load, WalkMesh.cs:1690).
+   Walkless scenes byte-identical.
+6. ~~**Lock-hygiene lint**~~ ★ BUILT into eblint (warnings), **calibrated over all 818 real fields
+   before shipping**: unpaired-lock (71 stock hits = exactly this section's ~92 cross-object
+   residue, e.g. field 57's lock-and-raise-Map[24] choreography; subroutines + Init funcs exempt),
+   gate-under-lock + its dispatched flavor (**0 stock hits**), and the cross-field
+   `lint_warp_grants` (a literal `Field(N)` into a sibling that never `EnableMove`s — wired into
+   multi-member `build_mod`). ⚠ The planned **inline-lock tread-freeze check was FALSIFIED and
+   dropped** — see §11.
+7. ~~Partial-control / one-way latch / Reinit~~ ★ BUILT: `[[event]] mask_buttons`/`unmask_buttons`
+   (0xB9/0xBA, stock's tutorial lane — the census missed that stock uses it beyond Marsh: masks
+   240/255/128/1 ship across ~8 fields); `[cutscene] stay_locked` (latches stock's own MAP 156);
+   and `Main_Reinit` is now RESTORE-NOT-GRANT with **zero bracket churn** — the engine restores the
+   pre-battle `usercontrol` via context-copy BEFORE requesting tag-10 (EventEngine.cs:668-669), so
+   the handler gates its grant on `IsMovementEnabled && !MAP156`: the engine's restored context IS
+   the latch stock maintains GlobBool 158 for.
 
 ## 11. Open questions
 
-- The exact per-frame re-dispatch semantics of region tag-2 bodies (the in-game-proven "Wait never
-  counts down under its own lock" — the usercontrol-gated dispatch at `ProcessEvents.cs:180-181`
-  explains the *entry* gating; the mid-body resume mechanics weren't traced to the line).
+- **The tread-freeze discriminant (SHARPENED 2026-08-03, the item-6 calibration).** The old law
+  "a tag-2 body's blocking ops stop ticking under its own lock" is **FALSE as a generalization**:
+  stock ships **518** tag-2 sites that block under their own `DisableMove` and work — field 51
+  entry11/tag2 is a complete counterexample (the ExitField-less exit variant: guard → macro lock →
+  `Wait(1)` → STFM → Preload → `RunScriptSync(player)` → `Wait(4)` → `Wait(5)` → fade → `Wait(25)`
+  → `Field(53)`, ALL inline in the tread body). Engine: `ProcessEvents.cs:177-181` gates only
+  DISPATCH (`if (GetUserControl()) CollisionRequest(actor)` — new tag-2/3 Requests need control);
+  an already-running body's script VM ticks regardless. So the kit's in-game forced-ATE freeze
+  (real, observed, fixed by delegation) has some OTHER discriminant — untraced. The delegation
+  shape stays the kit's proven idiom; a static freeze check is unsound and was calibrated out.
 - Whether GlobBool 158/159 residue from stock fields can make a kit field's gateway macro fire
   differently mid-campaign (harmless either way — `ExitField` locks regardless — but untested).
