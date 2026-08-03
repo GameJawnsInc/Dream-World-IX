@@ -85,7 +85,8 @@ def test_multicam_entry_settle_applies(tmp_path):
 def test_build_warns_when_settle_cannot_apply(tmp_path, monkeypatch):
     # the honesty warning: entry_settle requested but no reveal fade to hide it behind -> warn, once
     from ff9mapkit import build
-    monkeypatch.setattr(build._entry_settle, "add_entry_settle", lambda b, n: b)   # force the no-op path
+    monkeypatch.setattr(build._entry_settle, "add_entry_settle",
+                        lambda b, n, **kw: b)                                      # force the no-op path
     p = tmp_path / "f.field.toml"
     p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
                  '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle=45\n[player]\nspawn=[0,0]\n',

@@ -6883,7 +6883,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             except (TypeError, ValueError):        # any other string -- lint_entry_settle explains it; don't crash
                 _n = 0
         _pre_settle = eb
-        eb = _entry_settle.add_entry_settle(eb, _n)
+        # the settle's closing EnableMove must not re-grant on an arrive-locked entrance
+        # (the on_entry hook owns that grant) -- gate it on the same ids
+        eb = _entry_settle.add_entry_settle(eb, _n, locked_entrances=_locked or ())
         if eb is _pre_settle and _n > 0 and warnings is not None:
             _msg = (f"[camera] entry_settle = {_n}: NOT applied -- Main_Init has no plain reveal "
                     f"fade to hide the wait behind (the entry will show the camera settle)")

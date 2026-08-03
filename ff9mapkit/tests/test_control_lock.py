@@ -327,6 +327,19 @@ def test_entrylock_rejects_a_non_template_player():
         _entrylock.gate_grant_on_entrances(broken, [2])
 
 
+def test_entry_settle_grant_is_entrance_gated_with_locked_entrances():
+    # the settle's closing EnableMove is an unconditional grant -- on an arrive-locked field it
+    # must be gated on the locked entrances (else it re-grants mid-arrival and breaks the contract)
+    from ff9mapkit.content import entry_settle as _es
+    raw = data.blank_field_bytes()
+    plain = _es.add_entry_settle(raw, 30)
+    gated = _es.add_entry_settle(raw, 30, locked_entrances=[5])
+    assert (opcodes.DISABLE_MOVE + opcodes.wait(30) + opcodes.ENABLE_MOVE) in plain
+    cond = _gate_for(5)
+    assert (opcodes.DISABLE_MOVE + opcodes.wait(30) + cond + bytes([_region.JMP_TRUE])
+            + struct.pack("<h", 1) + opcodes.ENABLE_MOVE) in gated
+
+
 def test_locked_entrances_build_end_to_end(tmp_path):
     toml = BASE.replace('spawn = [0, -300]', 'spawn = [0, -300]\nlocked_entrances = [2]') + """
 [[player.arrival]]
