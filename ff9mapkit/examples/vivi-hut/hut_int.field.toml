@@ -14,6 +14,10 @@ title = "Vivi's House"
 pitch = 48              # degrees of downward tilt
 distance = 4500
 fov = 42.2              # horizontal field of view (degrees)
+entry_settle = 0        # opt OUT of the synthesized-field "auto" default: this example is the
+                        # retired BUILD ORACLE -- its golden pins build output == the bare content
+                        # primitives, so the cosmetic settle stays off here (and this line is the
+                        # opt-out's living regression test)
 [camera.frame]
 back = 205              # painted-canvas row the floor's back edge sits on
 front = 432             # ... and its front edge (used to auto-frame the walkmesh)

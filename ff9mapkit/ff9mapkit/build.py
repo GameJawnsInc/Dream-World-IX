@@ -138,12 +138,15 @@ def _auto_settle_frames(project, warnings=None) -> int:
 
 
 def _camera_entry_settle(cam):
-    """The ``entry_settle`` a camera table (dict) or [[camera]] multicam list carries, or None."""
+    """The ``entry_settle`` a camera table (dict) or [[camera]] multicam list carries, or None.
+    None means ABSENT (the build then defaults to "auto"); an explicit 0/false is the opt-out and
+    must round-trip as itself -- on multicam, a truthy value in any block wins (the settle is one
+    Main_Init-wide hold), else an explicit 0/false wins over absence."""
     if isinstance(cam, dict):
         return cam.get("entry_settle")
     if isinstance(cam, list):
-        return next((c.get("entry_settle") for c in cam
-                     if isinstance(c, dict) and c.get("entry_settle")), None)
+        vals = [c.get("entry_settle") for c in cam if isinstance(c, dict)]
+        return next((v for v in vals if v), next((v for v in vals if v is not None), None))
     return None
 
 
@@ -6870,10 +6873,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # engine's per-frame smooth-camera follower (FieldMap.CenterCameraOnPlayer, scaled by Memoria.ini
     # CameraStabilizer) converges UNSEEN -- else a large-delta warp-in (e.g. the World Hub via a New-Game/debug-warp
     # warp) visibly eases the camera to rest over a few seconds. Engine-independent (no DLL). [camera]
-    # entry_settle = <frames>; absent/0 = off (byte-identical). A [[camera]] MULTICAM field reads it from
-    # any of its blocks (first nonzero wins -- the settle is a Main_Init-wide hold, not per-camera; it used
-    # to be silently SKIPPED on multicam, the exact scrolling class that needs it most). See content.entry_settle.
+    # entry_settle = <frames>; ABSENT = "auto" (the synthesized-field DEFAULT, owner 2026-08-03 --
+    # the scaffold/import already emit it, this covers hand-authored tomls; auto resolves to 0 =
+    # byte-identical when the camera doesn't drift); explicit 0/false = off. A [[camera]] MULTICAM
+    # field reads it from any of its blocks (first nonzero wins -- the settle is a Main_Init-wide
+    # hold, not per-camera; it used to be silently SKIPPED on multicam, the exact scrolling class
+    # that needs it most). See content.entry_settle.
     _settle = _camera_entry_settle(project.raw.get("camera"))   # [camera] dict or [[camera]] multicam list
+    if _settle is None:
+        _settle = "auto"
     if _settle:
         if _entry_settle.is_auto(_settle):         # "auto" = compute the hold from the warp-in delta (rung 7)
             _n = _auto_settle_frames(project, warnings)

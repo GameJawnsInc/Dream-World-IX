@@ -68,7 +68,7 @@ Author a camera from a simple spec **or** borrow a real one.
 | `window_width` | the width the `fov` is measured against (default = `range[0]`). For a scrolling room set it to the visible screen width (`384`) so a wide `range` doesn't change the focal length. |
 | `proj`, `depth_offset`, `viewport`, `center_offset` | advanced overrides (`proj` = explicit focal length; sensible GRGR-derived defaults). |
 | `borrow` | path to a `.bgx` whose `CAMERA` block to copy verbatim (instead of `pitch`/`fov`). |
-| `entry_settle` | OPTIONAL frames to hold the screen black on field entry before the reveal (absent/`0` = off; `"auto"` = computed). See below. |
+| `entry_settle` | frames to hold the screen black on field entry before the reveal. **Absent = `"auto"`** (the synthesized-field default — computed from the warp-in delta, and 0/byte-identical when the camera doesn't drift); explicit `0`/`false` = off. See below. |
 
 **`entry_settle` — hide the warp-in camera ease.** The engine runs a smooth-camera follower on *every*
 field; on entry it eases the camera from the scene centre to the player over ~a second (scaled by the
@@ -76,10 +76,12 @@ user's `Memoria.ini CameraStabilizer`). Real fields hide this because their entr
 cast setup) fills the time before the reveal — a lean synthesized field reveals almost immediately, so on
 a large-delta entry you *watch* the camera drift. `entry_settle = <frames>` inserts
 `DisableMove; Wait(n); EnableMove` just before Main_Init's reveal fade: the screen is still black there,
-so the camera converges unseen — the same black-hold the real game performs naturally. Use it on
-synthesized/BG-borrow fields whose spawn sits far from the camera's initial target (scrolling rooms
-especially — `fork-report` suggests it for those); **~45 is the proven starting value** (the World Hub
-ships 45–60). **`entry_settle = "auto"` computes the hold for you**: the build measures the warp-in
+so the camera converges unseen — the same black-hold the real game performs naturally. **Every
+synthesized build defaults to `"auto"` when the key is absent** (so hand-authored fields look right
+without thinking about it; the scaffold and `import` emit the key explicitly); write `0` to opt out.
+On an arrive-locked field (`[player] locked_entrances`) the settle's closing `EnableMove` is
+entrance-gated, so the locked-arrival contract holds. Explicit values: **~45 is the proven starting
+point** (the World Hub ships 45–60). **`entry_settle = "auto"` computes the hold for you**: the build measures the warp-in
 delta (the px distance between the camera's pre-player-bind rest position and its spawn-centred
 target, replicating the engine's projection + viewport clamp), converts it to frames under the
 engine's geometric ease (baked for the default `CameraStabilizer = 85` — it's a per-user setting, so

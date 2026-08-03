@@ -25,8 +25,8 @@ area = 11
 
 [camera]
 pitch = 40
-entry_settle = "auto"           # hold black while the smooth-cam settles (its EnableMove is
-                                # entrance-gated so the locked-arrival contract still holds)
+# entry_settle: ABSENT on purpose -- exercises the synthesized-field DEFAULT ("auto"; resolves to
+# ~50 frames here). Its EnableMove is entrance-gated, so the locked-arrival contract still holds.
 
 [walkmesh]
 quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]

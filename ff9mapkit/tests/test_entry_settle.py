@@ -60,10 +60,16 @@ def test_build_wires_entry_settle_from_camera_block(tmp_path):
     p.write_text(base.format(settle="entry_settle=40\n"), encoding="utf-8")
     has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
     assert has and frames == [40]
-    # absent -> no settle triplet (the build is otherwise unchanged)
+    # ABSENT -> the "auto" DEFAULT (synthesized fields, owner 2026-08-03): the settle SHIPS with
+    # the computed hold unless explicitly opted out
     p.write_text(base.format(settle=""), encoding="utf-8")
-    has2, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
-    assert not has2
+    proj2 = build.FieldProject.load(p)
+    has2, frames2 = _settle_triplet_before_fade(_main_init_ops(build.build_script(proj2, "us", {})))
+    assert has2 and frames2 == [build._auto_settle_frames(proj2)]
+    # explicit 0 = the opt-out -> no triplet
+    p.write_text(base.format(settle="entry_settle=0\n"), encoding="utf-8")
+    has3, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    assert not has3
 
 
 # ---- field-entry rung 4: multicam support + the silent-no-op honesty --------------------------
@@ -80,6 +86,16 @@ def test_multicam_entry_settle_applies(tmp_path):
     p.write_text(_MULTICAM.format(c0="", c1="entry_settle=33\n"), encoding="utf-8")
     has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
     assert has and frames == [33]
+
+
+def test_multicam_explicit_zero_beats_the_default(tmp_path):
+    # under the absent="auto" default an explicit 0 in ANY block is still the opt-out -- the old
+    # truthy-only scan would have read it as ABSENT and defaulted the settle back on
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text(_MULTICAM.format(c0="entry_settle=0\n", c1=""), encoding="utf-8")
+    has, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    assert not has
 
 
 def test_build_warns_when_settle_cannot_apply(tmp_path, monkeypatch):
