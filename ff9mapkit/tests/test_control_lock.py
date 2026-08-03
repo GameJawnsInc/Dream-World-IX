@@ -465,3 +465,109 @@ def test_conductor_then_warp_walk_scene_skips_the_restore():
                                  then_warp=4005)
     assert opcodes.set_triangle_flag_mask(127) in body
     assert opcodes.set_triangle_flag_mask(255) not in body
+
+
+# ------------------------------------------------ Tier-2 item 7: latch / reinit / partial pad ---
+
+def test_reinit_grant_is_restore_not_grant():
+    # the tag-10 grant is gated on the engine-RESTORED pre-battle usercontrol (sysvar 2 -- the
+    # context-copy at EventEngine.cs:668 runs BEFORE the tag-10 request) AND the stay-locked latch
+    # (MAP 156) being clear: a battle that fired inside a lock returns still locked
+    from ff9mapkit.content import reinit as R
+    assert R.GRANT_GATE == bytes([0x05, 0x7A, 0x02, 0xC5, 0x9C, 0x0E, 0x27, 0x7F])
+    out = R.add_reinit(data.blank_field_bytes(), with_fade=False)
+    f10 = EbScript.from_bytes(out).entry(0).func_by_tag(10)
+    assert out[f10.abs_start:f10.abs_end] == (
+        R.GRANT_GATE + bytes([0x02, 0x01, 0x00]) + opcodes.ENABLE_MOVE + opcodes.RETURN)
+
+
+def _body_ops(body: bytes) -> list:
+    from ff9mapkit.eb import disasm as _disasm
+    return [i.op for i in _disasm.iter_code(body, 0, len(body))]
+
+
+def test_cutscene_stay_locked_latches_and_skips_the_enable():
+    # narration: stay_locked ends the scene still locked + sets MAP 156 (stock's one-way index);
+    # no EnableMove is emitted anywhere in the body
+    body = _cutscene.build_body([opcodes.wait(10)], None, stay_locked=True,
+                                grant_spin=True, watchdog_flag=110)
+    latch = _region.set_var(_region.MAP_BOOL, _region.STAY_LOCKED_IDX, 1)
+    assert latch in body
+    assert 0x2E not in _body_ops(body)                   # no EnableMove anywhere
+
+
+def test_conductor_stay_locked_latches_and_keeps_the_walk_mask():
+    # conductor: stay_locked skips [EnableMenu]+EnableMove AND the STFM(255) restore (stock's
+    # enable macro skips the restore inside its 156 guard too)
+    from ff9mapkit.content import conductor as _conductor
+    steps = [{"actor": "a", "walk": [100, 200]}]
+    body = _conductor.build_body(steps, {"a": 7}, [], None, tag_calls={0: (7, 20)},
+                                 stay_locked=True, lock_menu=True)
+    latch = _region.set_var(_region.MAP_BOOL, _region.STAY_LOCKED_IDX, 1)
+    assert latch in body
+    assert opcodes.set_triangle_flag_mask(127) in body
+    assert opcodes.set_triangle_flag_mask(255) not in body
+    ops = _body_ops(body)
+    assert 0x2E not in ops and 0xAA not in ops           # no EnableMove, no EnableMenu
+
+
+def test_validate_stay_locked_rules(tmp_path):
+    bad1 = BASE + """
+[[cutscene]]
+owns_control = false
+stay_locked = true
+steps = [ { say = "x" } ]
+"""
+    probs = validate(_project(tmp_path, bad1))
+    assert any("stay_locked needs the control bracket" in p for p in probs)
+    bad2 = BASE + """
+[[cutscene]]
+stay_locked = true
+then_warp = 4005
+steps = [ { say = "x" } ]
+"""
+    probs = validate(_project(tmp_path, bad2))
+    assert any("stay_locked with then_warp is redundant" in p for p in probs)
+
+
+def test_partial_control_primitives():
+    # the pad-mask lane (stock's tutorial idiom): named buttons -> AddControllerMask(0, mask)
+    from ff9mapkit.content import movement as _movement
+    assert _movement.button_mask("directions") == 240            # stock's own tutorial mask
+    assert _movement.button_mask(["select", "start"]) == 9
+    assert _movement.button_mask(255) == 255
+    assert _movement.mask_pad("directions") == opcodes.encode(0xB9, 0, 240)
+    assert _movement.unmask_pad("directions") == opcodes.encode(0xBA, 0, 240)
+    assert _movement.mask_pad(["square"]) == opcodes.encode(0xB9, 0, 0x8000)   # u16-unsigned safe
+    with pytest.raises(ValueError):
+        _movement.button_mask("konami")
+
+
+def test_event_mask_buttons_end_to_end(tmp_path):
+    toml = BASE + """
+[[event]]
+zone = [[-200, -500], [200, -500], [200, -300], [-200, -300]]
+mask_buttons = ["directions"]
+message = "Your feet are frozen. Press things instead."
+
+[[event]]
+zone = [[-200, -900], [200, -900], [200, -700], [-200, -700]]
+unmask_buttons = ["directions"]
+"""
+    eb_bytes = _build_eb(tmp_path, toml)
+    assert opcodes.encode(0xB9, 0, 240) in eb_bytes      # the mask, before the window
+    assert opcodes.encode(0xBA, 0, 240) in eb_bytes      # the unmask event
+    # the mask must land BEFORE the message window in its body
+    mask_at = eb_bytes.index(opcodes.encode(0xB9, 0, 240))
+    win_at = eb_bytes.index(opcodes.window_sync(1, 128, 0)[:2], mask_at)   # any WindowSync after it
+    assert mask_at < win_at
+
+
+def test_validate_event_mask_buttons_names(tmp_path):
+    toml = BASE + """
+[[event]]
+zone = [[-200, -500], [200, -500], [200, -300], [-200, -300]]
+mask_buttons = ["konami"]
+"""
+    probs = validate(_project(tmp_path, toml))
+    assert any("unknown button" in p for p in probs)

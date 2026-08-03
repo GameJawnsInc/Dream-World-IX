@@ -419,8 +419,8 @@ mirrors that law with per-lane defaults:
   - `[[event]]` `trigger = "walk"` (tread): **default `false`** — the toast/banner idiom (stock's
     passive `WindowAsync` banners; the countdown captions). `lock = true` turns a tread event into
     a held story beat: the body is compiled into a **player function** and dispatched with
-    `RunScriptSync` (a tread body must never block under its own lock — the engine stops stepping
-    a tread region while control is off, the proven freeze class).
+    `RunScriptSync` — the delegation shape proven in-game (an inline lock + `Wait` tread body froze
+    on a real playtest; the exact engine discriminant is still open, so the kit always delegates).
   - `[[on_entry]]`: **default `true`** (the entry beat already locked); `lock = false` shows the
     message as a free banner during the entry.
   - A `[[choice]]` is **always** locked (without the bracket the d-pad would move the character
@@ -433,6 +433,20 @@ mirrors that law with per-lane defaults:
   point's proven double bracket) for the body. On `[[npc]]`, `[[event]]` and `[cutscene]`. Note a
   bare `lock` already suppresses the menu *while movement is locked* (the engine couples them);
   `lock_menu` keeps the suppression explicit and stock-macro-shaped. Needs the lock.
+- **After a battle, the grant is restore-not-grant.** The after-battle handler (`Main_Reinit`)
+  re-enables control **only if control was on before the battle** — the engine restores the
+  pre-battle state and the kit's handler reads it — so a scripted battle that fires in the middle
+  of a locked scene returns *still locked* and the scene's own bracket hands control back. (Stock's
+  Reinit has the same semantics via its flag macro.) Nothing to author; stated here because it is
+  the contract `stay_locked` and scripted battles rely on.
+- **Partial control** (`[[event]] mask_buttons` / `unmask_buttons`) — stock's tutorial/minigame
+  lane (`AddControllerMask`): the named buttons simply stop arriving, and masking the
+  **directions** freezes walking *independently of the lock* while every other button stays live.
+  Names: `select start up right down left l1 l2 r1 r2 triangle circle cross square`, plus the
+  group `"directions"` (stock's own 240 — the Marsh/Chocobo tutorial walk-freeze). A mask is
+  **standing state**: pair the masking event with an unmasking one — it does not auto-restore,
+  though any scene transition (a field warp, a battle) clears it (`SceneDirector.ReplaceNow` →
+  `ClearPadMask`), so it cannot leak across fields.
 
 ### Rotating casts (story-event fields)
 
@@ -927,6 +941,7 @@ once = false              # edge-triggered by the press -> repeatable, and consu
 | `trigger` | `"walk"` (default) = fires on tread. `"action"` = fires on the **action button** while standing in the zone — edge-triggered by the press, so it can never loop; the natural form for signs, plaques, and inspectables. |
 | `bubble` | *(action only)* `true` = show the floating **"!" prompt** while the player stands in the zone (the save-moogle-cask shape — a tread companion arms `Bubble(1)` per frame). Default `false`: stock's *silent* readable, discovered by pressing — both conventions are authentic; pick by how discoverable the spot should be. Also on a zone `[[choice]]` with `trigger = "action"`. |
 | `lock` / `lock_menu` | hold player control (and optionally the main menu) for the body — default **on** for `"action"` (stock locks every press-read), **off** for `"walk"` (the toast idiom); a locked walk event compiles its body into a player function (the tread-safe dispatch). See *Control locking* above. |
+| `mask_buttons` / `unmask_buttons` | **partial control** (stock's tutorial lane, `AddControllerMask`): the named buttons stop/resume arriving — `"directions"` freezes walking while every other button stays live. A list of button names (or one name); the mask is standing state, so pair a masking event with an unmasking one. See *Control locking* above for names + semantics. |
 | `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` on a **walk** trigger = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside; suits a continuous effect only). `false` on an **action** trigger = re-fires once per press — the repeatable readable, and it consumes **no** gate flag. A walk-triggered "once per visit" (re-fires only after leaving and re-entering) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `9100`, the kit's safe-band event auto band — clear of ALL real-FF9 usage, and the allocator skips indices your project uses explicitly; override for a shipped mod to avoid cross-field clashes). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
@@ -1969,6 +1984,7 @@ Cutscene-level keys (alongside `steps`):
 | `owns_control` | `true` (default) = the scene holds player control (a cast scene adds the grant-catch spin + the shared watchdog; narration uses the reorder-wait). `false` = the scene plays with the player **free** — a background narration / ambient choreography (no lock, no spin, no watchdog). |
 | `warmup` | frames a **cast** scene waits for actors to spawn when `owns_control = false` (with the lock, the grant spin doubles as the settle and `warmup` is unused). |
 | `lock_menu` | additionally hold the **main menu** shut for the scene (`DisableMenu`…`EnableMenu`, the stock macro's menu pair — stock players can't open the menu mid-cutscene only because stock scripts lock it). Needs `owns_control`. On a `then_warp` exit the menu mask clears with the transition. |
+| `stay_locked` | the scene ends with the player **still locked**, and latches the one-way stay-locked flag (stock's own index 156, the Festival-timeout idiom) so nothing re-grants — not even a scripted battle's after-battle handler. For a timed sequence / point-of-no-return ending where a *later* scene or warp owns what happens next. Needs `owns_control`; redundant with `then_warp` (a warp already leaves without re-granting). Per-visit: a field re-load clears the latch. |
 | `requires_scenario` | **the story-event director GATE**: the scene only plays when the **ScenarioCounter `== N`** (an int or an area name, e.g. `"Dali"`). Outside its beat the scene simply doesn't exist — and its `once` flag isn't burned, so it still plays when the story reaches the beat. |
 | `requires_flag` / `requires_flag_clear` | the scene only plays while this GlobBool (index or `[[flag]]` name) is SET / CLEAR. Stacks with `requires_scenario` (both must hold). One or the other, not both. |
 | `set_scenario` | **the story-event director ADVANCE**: at scene end, set the **ScenarioCounter** (int or area name) — the story moves to the next beat, exactly once, only when the scene actually played (the write sits inside the once-guard). |

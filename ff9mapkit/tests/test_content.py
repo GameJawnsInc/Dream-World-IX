@@ -226,13 +226,15 @@ def test_reinit_with_and_without_fade():
     eb = EbScript.from_bytes(out)
     assert eb.to_bytes() == out
     assert eb.entry(0).func_by_tag(10) is not None
-    assert _ops(eb, 0, 10) == [0xEC, 0x2E, 0x04]     # FadeFilter, EnableMove, return
+    assert _ops(eb, 0, 10) == [0xEC, 0x05, 0x02, 0x2E, 0x04]   # FadeFilter, grant-gate expr,
+    #                                                            JMP_FALSE, EnableMove, return --
+    #                                                            restore-not-grant (survey item 7)
     # the player object (entry 1) survived the entry-0 growth + relocation
     assert eb.entry(1).func_by_tag(0) is not None
     assert 0x2C in _ops(eb, 1, 0)                    # DefinePlayerCharacter still intact
 
     plain = reinit.add_reinit(CLEAN, with_fade=False)
-    assert _ops(EbScript.from_bytes(plain), 0, 10) == [0x2E, 0x04]
+    assert _ops(EbScript.from_bytes(plain), 0, 10) == [0x05, 0x02, 0x2E, 0x04]
 
 
 def test_reinit_with_prologue():
@@ -283,7 +285,8 @@ def test_apply_wipe_warp_into_existing_reinit():
     eb = EbScript.from_bytes(out)
     ops = _ops(eb, 0, 10)
     assert ops[0] == 0x05 and 0x2B in ops                          # the check runs FIRST, warp present
-    assert ops[-3:] == [0xEC, 0x2E, 0x04]                          # the donor's original tail is intact
+    assert ops[-5:] == [0xEC, 0x05, 0x02, 0x2E, 0x04]              # the donor's original tail is intact
+    #                                                                (fade + the gated grant + return)
     assert eb.entry(1).func_by_tag(0) is not None                  # later entries survived the relocation
     # no tag-10 (a battle-less donor) -> byte-identical; no [deathrules] -> byte-identical
     assert _apply_wipe_warp(SimpleNamespace(raw=dr), CLEAN) == CLEAN

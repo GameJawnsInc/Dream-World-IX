@@ -107,6 +107,14 @@ KEY_START = 8         # EventInput.Start (8u)
 # (IsMovementEnabled), 9 = ETb.GetChoose() = the index the player picked in the last choice window.
 SYSVAR_USERCONTROL = 2
 SYSVAR_CHOICE = 9
+
+# The one-way STAY-LOCKED latch (MAP bool; movement survey 3): stock's own index 156 -- "never
+# re-grant control this session" (44 stock fields: the Festival timeout, the Alexandria escape).
+# Set-only; the MAP array resets on field load, so the latch is per-visit by construction. Kit
+# consumers: `[cutscene] stay_locked` sets it; the Main_Reinit grant gate honors it (reinit.py).
+# Using stock's index means kit content added to a verbatim fork composes with the donor's own
+# macro semantics (the donor's enable macro tests the same bit).
+STAY_LOCKED_IDX = 156
 JMP_FALSE = 0x02      # jump-if-false  02 <skip:i16>
 JMP_TRUE = 0x03       # jump-if-true   03 <skip:i16>
 SETREGION_OP = 0x29

@@ -349,7 +349,7 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
                then_warp: int | None = None, say_flags: int = 128, ate_mode: int | None = None,
                reorder: int = _cutscene.REORDER_WAIT, tag_calls=None, join_tags=None,
                gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None,
-               lock_menu: bool = False) -> bytes:
+               lock_menu: bool = False, stay_locked: bool = False) -> bytes:
     """The conductor function body, run from a standalone ``InitCode``-armed code entry.
 
     Shape: ``[Wait(reorder)] [DisableMove] [Wait(warmup)] <beats> [EnableMove]`` gated
@@ -398,11 +398,17 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
     if owns_control and watchdog_flag is not None:    # lower the flag BEFORE re-granting (on the warp path the
         inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 0)   # MAP array resets at field unload)
     if owns_control and then_warp is None:
-        if lock_menu:
-            inner += opcodes.ENABLE_MENU              # the menu mask is independent of the move lock --
-        inner += opcodes.ENABLE_MOVE                  # clear it or the menu stays dead after the scene
-        if walks:
-            inner += opcodes.set_triangle_flag_mask(255)   # restore with the enable, like the stock macro
+        if stay_locked:
+            # the ONE-WAY latch (stock's 156): end still locked + latch so nothing re-grants (the
+            # Main_Reinit grant gate tests the same bit). Stock's enable macro skips the STFM restore
+            # inside its 156 guard too, so a walk scene leaves the mask -- matched here.
+            inner += _region.set_var(_region.MAP_BOOL, _region.STAY_LOCKED_IDX, 1)
+        else:
+            if lock_menu:
+                inner += opcodes.ENABLE_MENU          # the menu mask is independent of the move lock --
+            inner += opcodes.ENABLE_MOVE              # clear it or the menu stays dead after the scene
+            if walks:
+                inner += opcodes.set_triangle_flag_mask(255)   # restore with the enable, like the stock macro
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes INSIDE the once-gate (before the once-flag
     # set) -- the story advances exactly once, only when the scene actually played. Empty -> byte-identical.
     inner += end_writes
@@ -424,7 +430,7 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
                      ate_mode: int | None = None,
                      tag_calls=None, join_tags=None, reserve_party_band: bool = False,
                      gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None,
-                     lock_menu: bool = False) -> bytes:
+                     lock_menu: bool = False, stay_locked: bool = False) -> bytes:
     """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init.
     Returns new .eb bytes. ``tag_calls`` (a dict ``step_index -> (uid, tag)``) maps each tag-kind step
     (walk/path/teleport/face_player) to its pre-generated per-actor tag; ``join_tags`` (``uid ->
@@ -443,7 +449,7 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
                       owns_control=owns_control, then_warp=then_warp, say_flags=say_flags,
                       ate_mode=ate_mode, tag_calls=tag_calls, join_tags=join_tags,
                       gate=gate, end_writes=end_writes, watchdog_flag=watchdog_flag,
-                      lock_menu=lock_menu)
+                      lock_menu=lock_menu, stay_locked=stay_locked)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
     return edit.activate_block(out, opcodes.init_code(slot, 0))

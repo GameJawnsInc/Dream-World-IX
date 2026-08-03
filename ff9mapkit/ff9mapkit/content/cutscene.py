@@ -327,7 +327,7 @@ REORDER_WAIT = 2
 def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
                reorder: int = REORDER_WAIT, *, ate_mode: int | None = None,
                then_warp: int | None = None, gate: bytes = b"", end_writes: bytes = b"",
-               owns_control: bool = True, lock_menu: bool = False,
+               owns_control: bool = True, lock_menu: bool = False, stay_locked: bool = False,
                grant_spin: bool = False, watchdog_flag: int | None = None) -> bytes:
     """The cutscene function body: a brief reorder ``Wait`` (so the lock outlives Main_Init's EnableMove)
     then ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated ``if (!once_flag) { ...;
@@ -380,9 +380,16 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
     if owns_control and grant_spin and watchdog_flag is not None:
         inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 0)   # lower BEFORE the re-grant
     if owns_control and then_warp is None:
-        if lock_menu:
-            inner += opcodes.ENABLE_MENU
-        inner += opcodes.ENABLE_MOVE                      # restore control (a normal cutscene stays put)
+        if stay_locked:
+            # the ONE-WAY latch (stock's 156, movement survey 3/ 10 item 7): the scene ends with the
+            # player still locked and latches STAY_LOCKED so nothing re-grants -- not even a scripted
+            # battle's Main_Reinit (its grant gate tests the same bit). Per-visit by construction
+            # (the MAP array resets on field load). A timed-sequence / point-of-no-return ending.
+            inner += _region.set_var(_region.MAP_BOOL, _region.STAY_LOCKED_IDX, 1)
+        else:
+            if lock_menu:
+                inner += opcodes.ENABLE_MENU
+            inner += opcodes.ENABLE_MOVE                  # restore control (a normal cutscene stays put)
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes (built by the caller) INSIDE the once-gate
     # (before the once-flag set) -- the story advances exactly once, only when the scene actually played;
     # with then_warp the writes land before the warp fires. Empty -> byte-identical.
@@ -407,7 +414,7 @@ def inject_cutscene(data, steps, *, once_flag: int | None = None, flag_class=CUT
                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                     ate_mode: int | None = None, then_warp: int | None = None,
                     gate: bytes = b"", end_writes: bytes = b"",
-                    owns_control: bool = True, lock_menu: bool = False,
+                    owns_control: bool = True, lock_menu: bool = False, stay_locked: bool = False,
                     grant_spin: bool = False, watchdog_flag: int | None = None) -> bytes:
     """Append a cutscene code entry (the sequence in :func:`build_body`) and run it on field load via
     an ``InitCode`` (over a Wait filler, or inserted into Main_Init). Returns new .eb bytes.
@@ -421,7 +428,7 @@ def inject_cutscene(data, steps, *, once_flag: int | None = None, flag_class=CUT
     watchdog is activated first and scenes after (insert is LIFO -> scenes sit above it)."""
     body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode, then_warp=then_warp,
                       gate=gate, end_writes=end_writes,
-                      owns_control=owns_control, lock_menu=lock_menu,
+                      owns_control=owns_control, lock_menu=lock_menu, stay_locked=stay_locked,
                       grant_spin=grant_spin, watchdog_flag=watchdog_flag)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     slot = EbScript.from_bytes(data).first_free_slot()

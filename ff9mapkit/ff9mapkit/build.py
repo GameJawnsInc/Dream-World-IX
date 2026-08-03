@@ -1479,9 +1479,16 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
         _validate_gate_exclusive(ev, "[[event]]", problems)
         if not any(k in ev for k in ("message", "give_item", "remove_item", "gil", "set_flag",
-                                     "give_folklore")):
+                                     "give_folklore", "mask_buttons", "unmask_buttons")):
             problems.append("[[event]] needs at least one action "
-                            "(message / give_item / remove_item / gil / set_flag / give_folklore)")
+                            "(message / give_item / remove_item / gil / set_flag / give_folklore / "
+                            "mask_buttons / unmask_buttons)")
+        for k in ("mask_buttons", "unmask_buttons"):
+            if k in ev:
+                try:
+                    _movement.button_mask(ev[k])
+                except (ValueError, TypeError) as e:
+                    problems.append(f"[[event]] {k}: {e}")
         for k in ("give_item", "remove_item"):
             if k in ev:
                 try:
@@ -2831,6 +2838,17 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"{lbl}: lock_menu needs the control bracket -- drop owns_control = "
                             f"false or lock_menu (the menu pair lives inside the DisableMove "
                             f"bracket)")
+        sl = cs.get("stay_locked")
+        if sl is not None and not isinstance(sl, bool):
+            problems.append(f"{lbl} stay_locked must be true/false (end the scene with the player "
+                            f"still locked + the one-way stay-locked latch; got {sl!r})")
+        elif sl:
+            if cs.get("owns_control", True) is False:
+                problems.append(f"{lbl}: stay_locked needs the control bracket -- drop owns_control "
+                                f"= false or stay_locked (there is no lock to keep)")
+            if cs.get("then_warp") is not None:
+                problems.append(f"{lbl}: stay_locked with then_warp is redundant -- a warp already "
+                                f"leaves without re-granting (the destination owns control); drop one")
         for rk in ("requires_flag", "requires_flag_clear"):
             rv = cs.get(rk)
             if rv is not None and (isinstance(rv, bool) or not isinstance(rv, int)):
@@ -5417,6 +5435,8 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
             warnings.append(f"[[event]] #{j} has no zone -- skipped on the verbatim fork.")
             continue
         parts = []
+        if "mask_buttons" in ev:                          # partial control: buttons stop arriving FIRST,
+            parts.append(_movement.mask_pad(ev["mask_buttons"]))   # before any window (the tutorial idiom)
         item_id = _items.resolve(ev["give_item"][0]) if "give_item" in ev else None
         if "give_item" in ev:
             gi = ev["give_item"]
@@ -5445,6 +5465,8 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
                 parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid,
                                             dim=ev.get("dim", False),
                                             dim_tint=ev.get("dim_tint")))
+        if "unmask_buttons" in ev:                        # ...and re-arrive LAST (after any window)
+            parts.append(_movement.unmask_pad(ev["unmask_buttons"]))
         once_flag = None
         if ev.get("once", True):
             _cap = max_auto_events(project)
@@ -5723,7 +5745,7 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
         once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
         warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
         owns_control=bool(cs.get("owns_control", True)),
-        lock_menu=bool(cs.get("lock_menu")),
+        lock_menu=bool(cs.get("lock_menu")), stay_locked=bool(cs.get("stay_locked")),
         then_warp=(int(cs["then_warp"]) if cs.get("then_warp") else None),
         ate_mode=_ate_mode,
         tag_calls=tag_calls, join_tags=join_tags, reserve_party_band=True,
@@ -6092,6 +6114,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         specs, flag_counter = [], 0
         for j, ev in enumerate(events):
             parts = []
+            if "mask_buttons" in ev:                      # partial control: buttons stop arriving FIRST,
+                parts.append(_movement.mask_pad(ev["mask_buttons"]))   # before any window (the tutorial idiom)
             item_id = _items.resolve(ev["give_item"][0]) if "give_item" in ev else None
             if "give_item" in ev:
                 gi = ev["give_item"]
@@ -6129,6 +6153,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid,
                                                 dim=ev.get("dim", False),
                                                 dim_tint=ev.get("dim_tint")))
+            if "unmask_buttons" in ev:                    # ...and re-arrive LAST (after any window)
+                parts.append(_movement.unmask_pad(ev["unmask_buttons"]))
             once_flag = None
             if ev.get("once", True):
                 _cap = max_auto_events(project)
@@ -6316,7 +6342,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
             owns_control=bool(cs.get("owns_control", True)),
-            lock_menu=bool(cs.get("lock_menu")),
+            lock_menu=bool(cs.get("lock_menu")), stay_locked=bool(cs.get("stay_locked")),
             then_warp=(int(cs["then_warp"]) if cs.get("then_warp") else None),
             say_flags=cs_say_flags, ate_mode=cs_ate_mode,
             tag_calls=tag_calls, join_tags=join_tags,
@@ -6340,6 +6366,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                        then_warp=then_warp, gate=cs_gate, end_writes=cs_end,
                                        owns_control=bool(cs.get("owns_control", True)),
                                        lock_menu=bool(cs.get("lock_menu")),
+                                       stay_locked=bool(cs.get("stay_locked")),
                                        grant_spin=bool(cs.get("owns_control", True)),
                                        watchdog_flag=_wd_flag)
 
