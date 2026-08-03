@@ -47,14 +47,21 @@ Rung 4 adds trailing ``#`` COMMENTS from the kit's own offline semantic layers (
 the model/item/scene/field catalogs, an optional parsed ``.mes``) — see the enrichment section
 below. They are PRESENTATION: both parsers strip ``#`` before they see a token, so the
 self-verify above reassembles the COMMENTED text and still demands byte equality.
+
+Rung 6 adds :func:`assemble_against` — EDIT-THROUGH-SOURCE. Instead of rebuilding the file,
+it SPLICES only the functions whose source changed into the donor's original bytes (via the
+in-game-proven :func:`ff9mapkit.eb.edit.replace_function_body`), so an edit to one function
+cannot perturb another region even in principle and the donor→output diff is minimal. It
+refuses ANY structural difference from the donor and self-verifies three ways (see there).
 """
 from __future__ import annotations
 
 import re
 from struct import error as struct_error
 
-from . import cmdasm, disasm, exprasm
-from .model import EbScript, ENTRY_TABLE_OFF
+from . import cmdasm, disasm, edit, exprasm
+from .model import ENTRY_SLOT_SIZE, EbScript, ENTRY_TABLE_OFF
+from ..binutils import set_u16, u16
 from ..eventscan import INIT_OPS, PARTY_UIDS, armed_slot
 
 NAME_END = ENTRY_TABLE_OFF                  # the name block is [0x04..0x80)
@@ -369,19 +376,21 @@ def _build_enrichment(data: bytes, eb: EbScript, mes_entries, field_names):
 
 # --------------------------------------------------------------------------- writer (decompile)
 
-def _structured_funcs(data: bytes, e, ctx=None) -> "list[str] | None":
-    """The ``.func`` source lines for a well-formed entry, or None when the entry's func table
-    cannot be represented structurally (non-canonical fpos, a func range outside the entry, or
-    a body the labeled disassembler refuses) — the caller then falls back to ``raw=``.
-    With ``ctx`` the lines carry explanatory comments (``disassemble_items`` gives one tuple per
-    source line, so an instruction's comment joins on ``f.abs_start + rel_off``; a ``L<n>:`` label
-    line has ``rel_off is None`` and never takes one) — and each body is handed the decode ``ctx``
-    already did, so enriching costs no second pass over the bytecode."""
+def _structured_funcs(data: bytes, e, ctx=None) -> "tuple[list[str] | None, str]":
+    """``(the .func source lines, "")`` for a well-formed entry, or ``(None, why)`` when the
+    entry cannot be represented structurally — the caller then falls back to ``raw=`` and the
+    reason ships as a comment ON the raw= line, so a fallback is never silent (an unexplained
+    surge of raw= entries is how an encoder regression would otherwise hide — the gate bounds
+    the count, this names each case). With ``ctx`` the lines carry explanatory comments
+    (``disassemble_items`` gives one tuple per source line, so an instruction's comment joins on
+    ``f.abs_start + rel_off``; a ``L<n>:`` label line has ``rel_off is None`` and never takes
+    one) — and each body is handed the decode ``ctx`` already did, so enriching costs no second
+    pass over the bytecode."""
     fp = [f.fpos for f in e.funcs]
     if not fp or fp[0] != e.func_count * 4 or any(b <= a for a, b in zip(fp, fp[1:])):
-        return None
+        return None, "non-canonical func table"
     if any(f.abs_start > f.abs_end or f.abs_end > e.abs_end for f in e.funcs):
-        return None
+        return None, "a func range lies outside the entry"
     lines: list[str] = []
     for f in e.funcs:
         head = f".func {f.tag}"
@@ -391,15 +400,24 @@ def _structured_funcs(data: bytes, e, ctx=None) -> "list[str] | None":
                 items = cmdasm.disassemble_items(
                     data, f.abs_start, f.abs_end,
                     predecoded=ctx.predecoded(f.abs_start, f.abs_end) if ctx else None)
-            except cmdasm.CmdAsmError:
-                return None
+                # Encode-verify the body: re-assembling the decoded source must reproduce the
+                # exact bytes. The decoder consults only argFlag bits 0..argc-1 and the encoder
+                # zeroes the rest, so a file carrying NOISE in the unused bits (2 jp-only world
+                # binaries in the whole 9753-file corpus) decodes cleanly but would not re-encode
+                # byte-exact -- such an entry ships as raw= instead of silently normalizing.
+                body = cmdasm.assemble_block("\n".join(text for _off, text in items))
+                if body != data[f.abs_start:f.abs_end]:
+                    return None, (f"tag {f.tag} does not re-encode byte-exact "
+                                  f"(unused argFlag bits, or an encoder defect)")
+            except _BODY_ERRORS as ex:
+                return None, f"tag {f.tag} disassembly refused ({_one_line(ex, 80)})"
             if ctx is None:
                 lines.append("\n".join(text for _off, text in items))
             else:
                 lines.append("\n".join(
                     text if off is None else _annot(text, ctx.instr_comment(f.abs_start + off))
                     for off, text in items))
-    return lines
+    return lines, ""
 
 
 def write_source(data: bytes, *, title: str = "", enrich: bool = True, mes_entries=None,
@@ -451,11 +469,12 @@ def write_source(data: bytes, *, title: str = "", enrich: bool = True, mes_entri
         if e.off != pos:
             head += f" off={e.off}"
         pos = max(pos, e.off + e.size)
-        funcs = _structured_funcs(data, e, ctx)
+        funcs, why = _structured_funcs(data, e, ctx)
         comment = ctx.entry_comment(e.index) if ctx else ""
-        if funcs is None:                    # the escape hatch: entry blob verbatim
+        if funcs is None:                    # the escape hatch: entry blob verbatim, reason NAMED
             blob = data[e.abs_start:e.abs_end].hex()
-            lines.append(_annot(head.replace(f" type={e.type}", "", 1) + f" raw={blob}", comment))
+            note = f"kept verbatim: {why}" + (f" -- {comment}" if comment else "")
+            lines.append(_annot(head.replace(f" type={e.type}", "", 1) + f" raw={blob}", note))
         else:
             lines.append(_annot(head, comment))
             lines.extend(funcs)
@@ -728,10 +747,23 @@ def assemble_source(text: str) -> bytes:
             raise EbSrcError(f"entry {i}: empty-slot off {empty_offs[i]} out of u16 range")
 
     # -- header + name + table + bodies (placed at their offs; derived layouts are contiguous) --
+    # A .gap pins an ABSOLUTE position. If a body's length changed, the re-derived layout can
+    # slide an entry under the pin -- writing the gap last would then OVERWRITE relocated
+    # bytecode (silently, since the file length may not even change). Refuse instead: this
+    # layout cannot be re-derived around its pins.
+    spans = [(i, offs[i], offs[i] + len(b)) for i, b in enumerate(blobs) if b is not None]
     for g_off, g_raw in gaps:
         if g_off < slots * 8:
             raise EbSrcError(f".gap off={g_off} overlaps the entry table")
-        pos = max(pos, g_off + len(g_raw))
+        g_end = g_off + len(g_raw)
+        clash = next((i for i, lo, hi in spans if g_off < hi and lo < g_end), None)
+        if clash is not None:
+            raise EbSrcError(
+                f".gap off={g_off} ({len(g_raw)}B) overlaps entry {clash}'s body after relayout "
+                f"-- a .gap pins an absolute position, so a layout whose entry lengths changed "
+                f"cannot re-derive around it. Keep the edit length-preserving (eb-asm --against), "
+                f"or deliberately remove the .gap/off= records and re-derive the layout")
+        pos = max(pos, g_end)
     total = ENTRY_TABLE_OFF + max(pos, slots * 8)
     out = bytearray(total)
     out[0:2] = b"EV"
@@ -760,3 +792,202 @@ def assemble_source(text: str) -> bytes:
     for g_off, g_raw in gaps:
         out[ENTRY_TABLE_OFF + g_off: ENTRY_TABLE_OFF + g_off + len(g_raw)] = g_raw
     return bytes(out)
+
+
+# ------------------------------------------------------------ edit-through-source (Rung 6)
+#
+# :func:`assemble_source` rebuilds the WHOLE file from source. :func:`assemble_against` instead
+# SPLICES only the functions whose source differs into the donor's own bytes: every untouched byte
+# stays verbatim, so an edit to one function cannot perturb any other region even in principle, and
+# the donor→output diff is the edited body plus the entry/func table fixups that body's length
+# change forces. Belt-and-braces for hand edits, and the review artifact `[[logic_edit]]`-class
+# changes have lacked.
+
+_STRUCTURAL_TAIL = ("-- --against splices FUNCTION BODIES into the donor's own bytes and can change "
+                    "nothing else. Assemble the whole file instead (drop --against).")
+
+
+def _entry_kind(e: dict) -> str:
+    """How one parsed ``.entry`` carries its content: as a slot with no body, as a verbatim blob, or
+    as ``.func`` blocks. Only the third is spliceable."""
+    if e["empty"]:
+        return "EMPTY"
+    return "raw=" if e["raw"] is not None else "structured"
+
+
+def _require_same_envelope(src, donor) -> None:
+    """Refuse unless the edited source describes EXACTLY the donor's envelope: same slot count, same
+    per-slot shape and metadata, same func tags in the same order, byte-identical ``raw=``/``.gap``
+    carriers, same ``.name``/``.byte2``. Anything else is a STRUCTURAL edit, which by definition
+    moves bytes the splice path promises not to touch — and which the full assembler handles fine.
+
+    ``off`` is compared as the writer EMITS it (``None`` = derived): an off= override is the writer's
+    record that this file deviates from the derived layout, so source and donor must agree on both
+    the presence and the value, or the two sides are describing different layouts."""
+    s_b2, s_name, s_entries, s_gaps = src
+    d_b2, d_name, d_entries, d_gaps = donor
+    if s_b2 != d_b2:
+        raise EbSrcError(f".byte2 is {s_b2} here and {d_b2} in the donor {_STRUCTURAL_TAIL}")
+    if s_name != d_name:
+        raise EbSrcError(f".name differs from the donor's (the 124-byte name block is a verbatim "
+                         f"carrier) {_STRUCTURAL_TAIL}")
+    if len(s_entries) != len(d_entries):
+        raise EbSrcError(f"slot count is {len(s_entries)} here and {len(d_entries)} in the donor "
+                         f"{_STRUCTURAL_TAIL}")
+    for i, (s, d) in enumerate(zip(s_entries, d_entries)):
+        sk, dk = _entry_kind(s), _entry_kind(d)
+        if sk != dk:
+            raise EbSrcError(f".entry {i} is {sk} here and {dk} in the donor {_STRUCTURAL_TAIL}")
+        if s["off"] != d["off"]:
+            raise EbSrcError(f".entry {i}: off={s['off']} here, off={d['off']} in the donor (the "
+                             f"writer emits off= exactly where a file deviates from the derived "
+                             f"layout) {_STRUCTURAL_TAIL}")
+        if s["empty"]:
+            continue
+        for k in ("type", "loc", "flags", "pad"):
+            if s[k] != d[k]:
+                raise EbSrcError(f".entry {i}: {k}={s[k]} here, {k}={d[k]} in the donor "
+                                 f"{_STRUCTURAL_TAIL}")
+        if d["raw"] is not None:
+            if s["raw"] != d["raw"]:
+                raise EbSrcError(f".entry {i}: the raw= blob differs from the donor's ({len(s['raw'])}B "
+                                 f"vs {len(d['raw'])}B) -- a raw= entry is a VERBATIM carrier for a "
+                                 f"func table this grammar cannot express structurally, so editing "
+                                 f"its bytes is a structural change {_STRUCTURAL_TAIL}")
+            continue
+        s_tags = [t for t, _ in s["funcs"]]
+        d_tags = [t for t, _ in d["funcs"]]
+        if s_tags != d_tags:
+            raise EbSrcError(f".entry {i}: .func tags {s_tags} here, {d_tags} in the donor (adding, "
+                             f"removing, reordering or re-tagging a function is structural) "
+                             f"{_STRUCTURAL_TAIL}")
+    if [g for g, _ in s_gaps] != [g for g, _ in d_gaps]:
+        raise EbSrcError(f".gap records are at offsets {[g for g, _ in s_gaps]} here and "
+                         f"{[g for g, _ in d_gaps]} in the donor {_STRUCTURAL_TAIL}")
+    for (g_off, s_raw), (_, d_raw) in zip(s_gaps, d_gaps):
+        if s_raw != d_raw:
+            raise EbSrcError(f".gap off={g_off}: the raw= bytes differ from the donor's ({len(s_raw)}B "
+                             f"vs {len(d_raw)}B) -- a gap is a VERBATIM carrier of live code the "
+                             f"engine reaches by func fpos {_STRUCTURAL_TAIL}")
+
+
+def _repark_empty_slots(data: bytes, entries) -> bytes:
+    """Re-derive the parked ``off`` of every EMPTY slot whose source leaves it DERIVED (no off=).
+
+    :func:`ff9mapkit.eb.edit.replace_function_body` relocates only slots with a body — an empty slot
+    has none — so after a length-changing splice a DERIVED parked off is stale, while the full
+    assembler would have moved it. Left alone, the two paths disagree on bytes no edit intended.
+    Census rule (proven 38325/38325, mirrored from :func:`write_source`): an empty slot parks at the
+    NEXT non-empty entry's off, and a trailing empty at the LAST non-empty SLOT's off. A slot the
+    source pins with off= is left exactly as written."""
+    b = bytearray(data)
+    n = b[3]
+    offs = [u16(b, ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE) for i in range(n)]
+    sizes = [u16(b, ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE + 2) for i in range(n)]
+    nonempty = [i for i in range(n) if sizes[i]]
+    last_off = offs[nonempty[-1]]
+    for i in range(n):
+        if sizes[i] or entries[i]["off"] is not None:
+            continue
+        nxt = next((offs[j] for j in range(i + 1, n) if sizes[j]), None)
+        set_u16(b, ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE, nxt if nxt is not None else last_off)
+    return bytes(b)
+
+
+def _require_no_new_lint_errors(donor: bytes, out: bytes) -> None:
+    """The spliced file must not lint WORSE than the donor did. Absolute cleanliness would be the
+    wrong bar: a kit-built donor whose func table lies (the ``raw=`` lineage) already carries lint
+    errors, and refusing a faithful splice of it would punish the edit for the donor's shape. Every
+    shipping field lints at 0 errors, so for a stock donor this IS 'the result lints clean'."""
+    from .. import eblint
+    before = len(eblint.errors(eblint.lint_eb(donor)))
+    after = eblint.errors(eblint.lint_eb(out))
+    if len(after) > before:
+        raise EbSrcError(f"the spliced .eb does not lint clean: {len(after)} structural error(s) "
+                         f"(the donor had {before}). First: {after[0]}")
+
+
+def count_functions(text: str) -> int:
+    """How many SPLICEABLE function bodies a ``.ebs`` source declares — what ``--against``'s
+    'N spliced, M untouched' counts against. ``raw=`` entries carry their functions verbatim inside
+    the blob and are never spliced, so they contribute none."""
+    return sum(len(e["funcs"]) for e in _parse(text)[2] if not e["empty"] and e["raw"] is None)
+
+
+def assemble_against(text: str, donor: bytes) -> "tuple[bytes, list[str]]":
+    """Assemble ``.ebs`` source BY SPLICING into ``donor``'s original bytes; returns
+    ``(eb_bytes, report)`` where ``report`` names each spliced function
+    (``"entry 15 tag 2: 23B -> 27B"``, in slot/func order).
+
+    Only functions whose assembled body DIFFERS from the donor's are touched, one
+    :func:`ff9mapkit.eb.edit.replace_function_body` each (the length-changing splice that fixes the
+    sibling ``fpos`` table and the entry table, in-game proven across the logic_edit/logic_add
+    stack). Every other byte — header, name block, gaps, raw entries, untouched bodies — is the
+    donor's own, so no edit can perturb a region it did not name.
+
+    Three self-verifies, all raising :class:`EbSrcError`:
+
+      1. the source's ENVELOPE must match the donor's exactly (:func:`_require_same_envelope`);
+      2. the result must not lint worse than the donor (:func:`_require_no_new_lint_errors`);
+      3. the SPLICE and the full :func:`assemble_source` of the same text must AGREE byte for byte.
+
+    (3) is the keystone: two independent paths, one answer. They can only diverge when the donor's
+    layout is NON-DERIVED (explicit ``off=`` entries, ``.gap`` records) *and* the edit changes a
+    body's LENGTH — because such a record pins a position the splice just moved. That combination
+    refuses here rather than minting a file only one path believes in; assemble the whole file
+    instead, which relayouts it canonically. With no edits at all the result is the donor byte for
+    byte, and (3) then also proves :func:`assemble_source` reproduces the donor."""
+    donor = bytes(donor)
+    try:
+        donor_src = write_source(donor, enrich=False)      # self-verifying
+    except EbSrcError as ex:
+        raise EbSrcError(f"the --against donor does not round-trip through .ebs source ({ex}) -- a "
+                         f"splice can only be verified against a donor this grammar covers") from ex
+    parsed = _parse(text)
+    _require_same_envelope(parsed, _parse(donor_src))
+    entries = parsed[2]
+
+    out, report = donor, []
+    eb = EbScript.from_bytes(out)     # the ACCUMULATED view: re-derived after each splice, because
+    for idx, e in enumerate(entries):  # a length change shifts every func and entry that follows it
+        if e["empty"] or e["raw"] is not None:
+            continue
+        for fi, (tag, body_lines) in enumerate(e["funcs"]):
+            body = b""
+            if body_lines:
+                try:
+                    body = cmdasm.assemble_block("\n".join(body_lines))
+                except _BODY_ERRORS as ex:
+                    raise EbSrcError(f"entry {idx} tag {tag}: {ex}") from ex
+            f = eb.entries[idx].funcs[fi]
+            old = out[f.abs_start:f.abs_end]
+            if old == body:
+                continue
+            try:                                            # by INDEX: a tag can repeat in an entry
+                out = edit.replace_function_body(out, idx, tag, body, func_index=fi)
+            except ValueError as ex:
+                raise EbSrcError(f"entry {idx} tag {tag}: could not splice the new body ({ex})") from ex
+            eb = EbScript.from_bytes(out)
+            report.append(f"entry {idx} tag {tag}: {len(old)}B -> {len(body)}B")
+
+    out = _repark_empty_slots(out, entries)
+    if report:                                              # nothing spliced -> out IS the donor
+        _require_no_new_lint_errors(donor, out)
+    try:
+        full = assemble_source(text)
+    except EbSrcError as ex:
+        # the one honest shape this happens on: the donor pins absolute positions (off=/.gap)
+        # and a length-changing edit moved them -- the full assembler now REFUSES that layout
+        # (the gap-overlap guard) instead of silently relayouting over it, so neither path will
+        # mint these bytes.
+        raise EbSrcError(
+            f"the full-reassembly self-verify refused this source: {ex}") from ex
+    if full != out:
+        n = min(len(full), len(out))
+        at = next((i for i in range(n) if full[i] != out[i]), n)
+        raise EbSrcError(
+            f"self-verify failed: the SPLICE and the full reassembly of this source disagree at "
+            f"byte {at} (spliced {len(out)}B, reassembled {len(full)}B). With the gap-overlap "
+            f"guard in place the two paths should never silently diverge -- please report this "
+            f"file (studies/eb-roundtrip/FINDINGS.md).")
+    return out, report
