@@ -1,0 +1,87 @@
+# LOCKT2 -- the movement-survey TIER-2 bench (studies/movement/SURVEY.md 10 items 5-7).
+# Three in-game checks, one per Tier-2 lane that changes runtime behavior:
+#
+#   * WEST book (press): PARTIAL CONTROL -- mask_buttons = ["directions"]. While its window is up
+#     your FEET are masked (walking dead) but this is NOT the lock: the window opened lock = false,
+#     and Action still works -- dismiss the window and the same event's unmask_buttons thaws you.
+#   * EAST book (press): arms the STAY_LOCKED ending (sets flag 9150), then ~ -> Reload field.
+#     On the armed reload a narration scene plays and ends WITHOUT giving control back -- the
+#     one-way latch (stock's Festival-timeout idiom). You should be frozen for good: no walking,
+#     no menu. The scene disarms its own flag, so escape via ~ -> Reload field = a normal load.
+#   * RANDOM BATTLES are ON (Evil Forest, the weakest scene): fight ONE and verify control + menu
+#     return normally afterward -- the after-battle grant is now GATED (restore-not-grant), and a
+#     free-roam battle must be behavior-identical to before. (The gate's other half -- a battle
+#     that fires INSIDE a lock returns still-locked -- needs a scripted battle; the Fort Condor
+#     bench is the natural stage for that later.)
+#
+# The back-row talker is the CONTROL: a normal held talk, before and after a battle.
+# Deploy: py tools/deploy_field.py studies/movement/bench/lockt2.field.toml --id 30602
+# (NEW id -> the first deploy registers it: one game RELAUNCH, then ~ -> Warp to field -> 30602.)
+
+[field]
+id = 30602
+name = "LOCKT2"
+area = 11
+
+[camera]
+pitch = 40
+# entry_settle: absent on purpose -- the synthesized-field "auto" default applies.
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+[encounter]
+scene = "BSC_EF_R007"          # Evil Forest, the weakest battles -- one quick fight proves the grant
+
+# --- WEST book: the frozen-feet beat (mask_buttons / unmask_buttons) ------------------------
+[[event]]
+name = "freeze"
+zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
+trigger = "action"
+bubble = true
+lock = false
+mask_buttons = ["directions"]
+message = "FROZEN FEET: while this window is up, WALKING is masked -- try the stick/d-pad (dead). This is the pad MASK, not the lock (this window took no lock at all). Action still works: dismiss me and your feet thaw."
+unmask_buttons = ["directions"]
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-700, -880]
+collision = false
+
+# --- EAST book: arm the stay_locked ending --------------------------------------------------
+[[event]]
+name = "arm_ending"
+zone = [[550, -1150], [850, -1150], [850, -950], [550, -950]]
+trigger = "action"
+bubble = true
+set_flag = [9150, 1]
+message = "ARMED. Now open ~ and pick Reload field: the entry scene will play and END WITHOUT handing control back (stay_locked). Verify you are frozen -- no walking, no menu -- then escape with ~ Reload field (the scene disarms itself, so the next load is normal)."
+once = false
+
+[[prop]]
+prop = "book"
+pos = [700, -880]
+collision = false
+
+# --- the armed reload's ending scene: stay_locked -------------------------------------------
+[[cutscene]]
+once = false
+requires_flag = 9150
+stay_locked = true
+steps = [
+  { say = "This is a stay_locked ending. When this window closes, control does NOT return: no walking, no menu -- the one-way latch is down (stock's 156). The ~ debug menu still opens; use Reload field to escape.", style = "notail" },
+  { set_flag = [9150, 0] },
+]
+
+# --- the back-row control talker -------------------------------------------------------------
+[[npc]]
+name = "control"
+preset = "vivi"
+pos = [0, -350]
+dialogue = "I am the CONTROL: a normal held talk. Check me before and after a random battle -- the after-battle grant is gated now, and a free-roam battle must feel exactly like it always did."
+speaker = "Control"
