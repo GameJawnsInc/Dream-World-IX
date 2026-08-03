@@ -126,7 +126,30 @@ Each rung lands independently with its own falsifier. ★ = owner playtest.
 
 ## Status
 
-- Rung 0: NOT STARTED (scoping complete 2026-08-03; recon outputs archived in the session transcript;
-  probe scripts in the session scratchpad — re-runnable, ~3 min).
+- **Rung 0: DONE — instrument built, prediction FALSIFIED, re-plan recorded (2026-08-03).**
+  - Built: `eb/cfg.py` — `FuncFlow` (basic blocks, dominators, sound guard attribution:
+    if/else polarity, switch-case `==`/`in`, compound-AND atoms, join points kill claims,
+    loop-exit negation, dead code = no claim, malformed = loud `CfgError`) + `FieldFlow`
+    (arm/call-graph context propagation via `eventscan.armed_slot` + `resolve_uid`; per-cond
+    `armed` flag: held-at-arming vs held-at-invocation; available-expressions fixpoint,
+    all-in-edges-known before claiming). 27 tests in `tests/test_ebcfg.py`, incl. real-bytes
+    smoke (field 206's 1900/2005 dispatch); eb-domain battery 219 green.
+  - Census: `research/dominance_census.py` → gitignored JSON; 818 fields, 34 867 funcs,
+    **0 degraded**, deterministic.
+  - **Measured (the falsifier):** the raw 12 268-site denominator was 77% compiled dispatch
+    noise (byte-23 handshake + Mognet bands). On the **2 832 genuine story sites**: direct
+    dominance 18.3% · +armed context 29.4% · +E3 co-located SC advance = **36.2% — the >55%
+    prediction is FALSIFIED**. 257 of 974 story bits get hard SC windows. The naive 32.6%
+    baseline was inflated (stale byte-adjacency past joins), and ~90% of story sites live
+    outside Main_Init — the arm-context layer recovered what's soundly recoverable; the rest
+    of the corpus is genuinely once-flag-gated (32% of story sites) and interaction-driven,
+    not beat-gated.
+  - **The re-plan (cheap, as budgeted):** E1–E3 are the *precision core*, not the primary
+    estimators. The order model leans on **E4 (writer-field SC envelope) + E5 (milestone
+    fallback)** for the long tail, with rung 4's reader-side constraints + the once-flag
+    reader logic doing the tightening. The ladder is unchanged; only the estimator weighting
+    moved. Per-arm-site edges are preserved in `FieldFlow.edges` for rung 4's intervals
+    (merged ctx correctly drops equalities for multi-beat arms — the rotating-cast shape).
+- Rung 1 (story-seed): NEXT.
 - Open question for the owner: any path to disc-3/4 calibration saves, or accept playtest-only
-  validation for the late game?
+  validation for the late game? (Answered 2026-08-03: playtest-only for now, tentatively.)
