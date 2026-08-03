@@ -595,6 +595,35 @@ def resolve_uid(uid, current_entry, player_entries=(), entry_count=0):
     if 0 <= uid < entry_count:
         return ("object", [uid])
     return ("unknown", [])
+
+
+def scan_armed_entries(eb) -> dict:
+    """Per-entry count of the init instructions that ARM it -- THE single owner of the armed/"spawned"
+    semantics (:class:`ff9mapkit.logic_map.EntryInfo` ``spawns`` and the Workspace "not spawned" chip
+    both derive from this; a missing key = the entry is defined but nothing in the script ever
+    activates it). Takes a parsed :class:`~ff9mapkit.eb.model.EbScript`.
+
+    The engine has THREE init ops, not one -- all of :data:`INIT_OPS` (0x07 InitCode / 0x08 InitRegion /
+    0x09 InitObject) arm the entry named by their literal slot operand; gateway/region/helper entries are
+    typically armed via 0x07/0x08 (counting only InitObject mislabeled ~77% of them dormant). Scanned
+    across EVERY function of EVERY entry, not just Main_Init: a re-InitObject after a set_flag is a
+    documented kit pattern, so "armed only from a talk handler" is still armed. Slot values in
+    :data:`PARTY_UIDS` (251-254) are the engine's party-slot selectors (``EventEngine.DoEventCode.cs``
+    case NEW3: ``sid >= 251 -> partyUID[sid - 251]``), NOT entry indices -- excluded. An
+    expression-computed slot cannot be resolved offline and is skipped (fidelity-with-holes)."""
+    armed: dict = {}
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for ins in eb.instrs(f):
+                if ins.op in INIT_OPS:
+                    slot = ins.imm(0)
+                    if slot is not None and slot not in PARTY_UIDS:
+                        armed[int(slot)] = armed.get(int(slot), 0) + 1
+    return armed
+
+
 FORK_PLAYER_TAGS = frozenset((0, 1))  # a blank fork's player (Zidane) defines only Init+Loop -- a carried
 #                                       object that RunScripts a player tag >= 2 dangles (softlock); that
 #                                       interaction can only be lit up by a later donor-player-script graft.
