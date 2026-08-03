@@ -48,9 +48,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   hatch (func tables the structured form can't express), and `.gap` records (the
   blank-template lineage keeps live Main_Loop code OUTSIDE any entry's declared span) — all
   133 currently deployed custom `.eb` files verify byte-exact.
-- **`ff9mapkit eb-src --verify-all` is the standing gate:** it round-trips every field event
-  binary in your install — all 818 fields in all 7 languages, 5726 binaries — and reports the
-  byte-exact count (currently 5726/5726). The gate refuses to pass green on a partial corpus,
+- **`ff9mapkit eb-src --verify-all` is the standing gate — and it covers the WHOLE event
+  corpus:** every field, battle, and world event binary in your install, all 7 languages —
+  **9753 binaries** (field 5726 + battle 3934 + world 93), reported per group. Two jp-only
+  world binaries carry noise in unused argFlag bits; an entry-level encode-verify ships those
+  entries as verbatim `raw=` rather than silently normalizing them. The gate refuses to pass green on a partial corpus,
   and every bad input (corrupt file, hand-source syntax error) is a clean one-line error, never
   a traceback. An expression operand on an opcode that carries no argFlag byte is now a hard
   assembler error (it used to encode silently different instructions).
@@ -65,6 +67,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   scene names, story-flag band phrases (`# flag 8511 (stock Mognet lock band)`). Comments are
   presentation only — `eb-asm` strips every `#`, and the self-verify reassembles the commented
   text and still demands byte equality. `--plain` turns them off.
+- **`eb-asm --against <donor.eb>` edits THROUGH the source without rebuilding the file.** It
+  assembles each function and splices only the ones whose bytes actually changed into the donor's
+  own bytes, so every untouched byte — header, name block, other functions, `.gap` overhang code,
+  `raw=` entries — is the donor's, and an edit to one function cannot perturb another region even
+  in principle. Changing the Ice Cavern chest's `AddItem` operand in the source moves **1 byte of
+  9268**, with the entry table bit-identical; the CLI reports `1 function(s) spliced, 90 untouched`.
+  It refuses ANY structural difference from the donor by name (a `.func` added/removed/re-tagged, a
+  changed `type=`/`loc=`/`flags=`/`off=`, an edited `raw=` blob or `.gap`) and points at plain
+  `eb-asm`. Three self-verifies guard it: the envelope match, no new `lint-eb` errors, and — the
+  keystone — the splice must agree byte-for-byte with the full reassembly of the same text, so two
+  independent paths have to reach one answer. Composes with `--verify-against`.
 
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the

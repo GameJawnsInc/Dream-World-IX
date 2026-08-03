@@ -377,16 +377,22 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
     return 0
 
 
-# The stock corpus is 818 EVTs x 7 languages = 5726 (studies/eb-roundtrip/FINDINGS.md). A gate
-# that quietly verifies fewer than this is the "check that cannot fail" defect class -- if the
-# container listing shrinks (key-format drift, a filter typo), the sweep must REFUSE, not pass.
-_EB_CORPUS_FLOOR = 5726
+# The full event corpus: field 818x7 = 5726, battle 562x7 = 3934, world 13x6+15 = 93 -- 9753
+# total (studies/eb-roundtrip/FINDINGS.md + the Rung-7 census). A gate that quietly verifies
+# fewer than this is the "check that cannot fail" defect class -- if the container listing
+# shrinks (key-format drift, a filter typo), the sweep must REFUSE, not pass.
+_EB_CORPUS_FLOOR = 9753
+# Stock raw= entries corpus-wide: 63 structural (world entry-0 lying func tables) + 10
+# encode-verify (unused argFlag bits, 2 jp world binaries) = 73. A raw= entry round-trips
+# TRIVIALLY, so a surge here is how an encoder regression would hide behind a green byte-exact
+# count -- the gate bounds it: more raw= than stock means readable source silently degraded.
+_EB_RAW_BASELINE = 73
 
 
 def _eb_src_verify_all() -> int:
-    """Round-trip EVERY field event binary in the install (all languages) through the .ebs
-    source form and report the byte-exact count -- the eb-roundtrip arc's standing gate.
-    Exit 0 only when the corpus is full-size AND every binary round-trips."""
+    """Round-trip EVERY event binary in the install -- field, battle, AND world, all languages --
+    through the .ebs source form and report the byte-exact count per group: the eb-roundtrip
+    arc's standing gate. Exit 0 only when the corpus is full-size AND every binary round-trips."""
     from . import extract
     from .eb import ebsrc
 
@@ -402,24 +408,41 @@ def _eb_src_verify_all() -> int:
     todo = []
     for k, obj in env.container.items():
         kl = k.lower()
-        if "eventbinary/field/" in kl and kl.endswith(".eb.bytes"):
-            parts = kl.split("eventbinary/field/")[1].split("/")
-            todo.append((parts[0], parts[-1][:-len(".eb.bytes")], obj))
+        if "eventbinary/" in kl and kl.endswith(".eb.bytes"):
+            tail = kl.split("eventbinary/")[1]            # <group>/<lang>/<name>.eb.bytes
+            parts = tail.split("/")
+            todo.append((parts[0], parts[1] if len(parts) > 2 else "?",
+                         parts[-1][:-len(".eb.bytes")], obj))
     if len(todo) < _EB_CORPUS_FLOOR:
-        print(f"eb-src --verify-all: only {len(todo)} field event binaries found "
-              f"(expected {_EB_CORPUS_FLOOR}) -- refusing to call a partial corpus green",
-              file=sys.stderr)
+        print(f"eb-src --verify-all: only {len(todo)} event binaries found "
+              f"(expected {_EB_CORPUS_FLOOR}: field+battle+world x 7 langs) -- refusing to "
+              f"call a partial corpus green", file=sys.stderr)
         return 2
-    ok, failures = 0, []
-    for lang, evt, obj in sorted(todo):
+    ok, failures, raw_entries = 0, [], 0
+    per_group: dict = {}
+    for group, lang, evt, obj in sorted(todo):
         data = extract._raw_bytes(obj.read())
+        g = per_group.setdefault(group, [0, 0])
+        g[1] += 1
         try:
             src = ebsrc.write_source(data)                # self-verifying
             assert ebsrc.assemble_source(src) == data
             ok += 1
+            g[0] += 1
+            raw_entries += sum(1 for ln in src.splitlines()
+                               if ln.lstrip().startswith(".entry") and " raw=" in ln)
         except Exception as ex:                           # noqa: BLE001 -- report + count, never abort the sweep
-            failures.append((lang, evt, str(ex)))
-    print(f"{ok}/{len(todo)} binaries round-trip byte-exact")
+            failures.append((f"{group}/{lang}", evt, str(ex)))
+    groups = " | ".join(f"{g} {n[0]}/{n[1]}" for g, n in sorted(per_group.items()))
+    print(f"{ok}/{len(todo)} binaries round-trip byte-exact ({groups}; "
+          f"raw= entries {raw_entries}, stock baseline {_EB_RAW_BASELINE})")
+    if raw_entries > _EB_RAW_BASELINE:
+        print(f"eb-src --verify-all: {raw_entries} raw= entries exceed the stock baseline of "
+              f"{_EB_RAW_BASELINE} -- readable source is silently degrading to verbatim hex, "
+              f"which round-trips trivially. This is the signature of an encoder/decoder "
+              f"regression; each raw= line names its reason (grep 'kept verbatim').",
+              file=sys.stderr)
+        return 1
     for lang, evt, msg in failures[:20]:
         print(f"  FAIL {lang}/{evt}: {msg}", file=sys.stderr)
     if len(failures) > 20:
@@ -532,7 +555,24 @@ def _cmd_eb_asm(args: argparse.Namespace) -> int:
                   f"destroy your source; pass -o with a different path", file=sys.stderr)
             return 2
         src = src_path.read_text(encoding="utf-8-sig")
-        data = ebsrc.assemble_source(src)
+        against = getattr(args, "against", None)
+        if against:                                       # EDIT-THROUGH-SOURCE: splice, don't rebuild
+            donor_path = Path(against)
+            if out.exists() and donor_path.exists() and out.resolve() == donor_path.resolve():
+                print(f"eb-asm: output {out} is the --against donor itself -- the donor is the "
+                      f"reference this splice is verified against, and overwriting it destroys "
+                      f"your only copy of the original bytes; pass -o with a different path",
+                      file=sys.stderr)
+                return 2
+            donor = donor_path.read_bytes()
+            data, report = ebsrc.assemble_against(src, donor)
+            for line in report:
+                print(f"  spliced {line}")
+            total = ebsrc.count_functions(src)
+            print(f"{len(report)} function(s) spliced, {total - len(report)} untouched "
+                  f"(donor {len(donor)}B -> {len(data)}B)")
+        else:
+            data = ebsrc.assemble_source(src)
         if args.verify_against:
             want = Path(args.verify_against).read_bytes()
             if data != want:
@@ -544,6 +584,15 @@ def _cmd_eb_asm(args: argparse.Namespace) -> int:
             print(f"verified: matches {args.verify_against} byte-exact ({len(data)}B)")
         out.write_bytes(data)
         print(f"wrote {out} ({len(data)} bytes)")
+        # the --against path gates lint (no-worse-than-donor) before it returns; the full path
+        # has no donor to compare, so at least SAY when the output carries error-class issues
+        # (the softlock/runs-off-the-end family) instead of a bare success line
+        if not against:
+            from .eblint import lint_eb
+            errs = [i for i in lint_eb(data) if i.severity == "error"]
+            if errs:
+                print(f"eb-asm: WARNING: the output has {len(errs)} lint error(s) -- "
+                      f"inspect with `ff9mapkit lint-eb {out}` before deploying", file=sys.stderr)
     except (ebsrc.EbSrcError, OSError) as ex:
         print(f"eb-asm: {ex}", file=sys.stderr)
         return 2
@@ -6725,6 +6774,11 @@ def build_parser() -> argparse.ArgumentParser:
     eas = sub.add_parser("eb-asm", help="assemble .ebs source back into a complete .eb")
     eas.add_argument("src", help="path to a .ebs source file")
     eas.add_argument("-o", "--out", help="output .eb path (default: the source path with .eb)")
+    eas.add_argument("--against", metavar="DONOR.EB",
+                     help="EDIT-THROUGH-SOURCE: splice ONLY the functions whose source differs into "
+                          "this donor .eb's own bytes, leaving every other byte verbatim (minimal "
+                          "diff; an edit to one function cannot perturb another region). Refuses any "
+                          "STRUCTURAL difference from the donor -- assemble the whole file for those")
     eas.add_argument("--verify-against", metavar="EB",
                      help="also byte-compare the result against this reference .eb (exit 1 on mismatch)")
     eas.set_defaults(func=_cmd_eb_asm)

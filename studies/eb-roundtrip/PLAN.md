@@ -1,8 +1,16 @@
 # Byte-exact `.eb` round-trip — scoping (Rung 0 research)
 
-> **STATUS:** Rungs 1-4 ★ DONE (4 = comment enrichment: entry/routine/instruction comments from
-> the offline semantic layers + `.mes` previews via the CLI; `--plain` opts out; adversarially
-> reviewed). Earlier: Rung 1 census → [`FINDINGS.md`](FINDINGS.md) (corpus is
+> **STATUS:** Rungs 1-4 + **6** ★ DONE (4 = comment enrichment: entry/routine/instruction comments
+> from the offline semantic layers + `.mes` previews via the CLI; `--plain` opts out; adversarially
+> reviewed. **6 = edit-through-source: `eb-asm --against <donor.eb>` splices ONLY the functions
+> whose source changed into the donor's own bytes** — `ebsrc.assemble_against`, three self-verifies
+> (envelope must match the donor exactly, no new lint errors, and the splice must agree byte-for-byte
+> with the full reassembly of the same text). A one-operand hand edit to Ice Cavern's chest moves
+> **1 byte of 9268**, entry table untouched. **7 = the whole event corpus:** the gate now sweeps
+> field+battle+world — **9753 binaries** — with an entry-level encode-verify falling back to
+> `raw=` on the 2 jp argFlag-noise files. In-game proof deployed at slot 30810
+> ([`PLAYTEST.md`](PLAYTEST.md)); wrap-up: [`ARC-SUMMARY.md`](ARC-SUMMARY.md). Open: Rung 5 docs.)
+> Earlier: Rung 1 census → [`FINDINGS.md`](FINDINGS.md) (corpus is
 > **818 EVTs × 7 langs = 5726**; envelope fully derivable; lang-identical bytecode FALSIFIED —
 > source is per (EVT, lang)). Rungs 2+3: `eb/ebsrc.py` (`write_source`/`assemble_source`,
 > grammar v1 frozen in its module docstring, writer SELF-VERIFIES) + CLI `eb-src`/`eb-asm` +
@@ -12,9 +20,7 @@
 > HIGH — all fixed): grammar gained `off=` overrides + `raw=` entries + `.gap` records so
 > **KIT-built/edited fields round-trip too (133/133 deployed custom .eb)**, the cmdasm
 > expression-on-flagless-opcode silent-corruption hole is a hard error, the gate refuses a
-> partial corpus, and every failure path is a clean EbSrcError/exit-2. Next = Rung 4
-> (comment enrichment from logic_map) and Rung 5 (docs); Rung 6 edit-through-source and
-> Rung 7 world EVT_ binaries remain stretch.
+> partial corpus, and every failure path is a clean EbSrcError/exit-2.
 
 **Goal:** decompile any of FF9's 818 real field event binaries (`.eb`, × 7 languages) to a
 *readable, re-compilable source file* that round-trips **byte-exact**, proven by a standing
@@ -129,15 +135,28 @@ Open grammar questions (settled by the Rung-1 census, decided in Rung 2):
   etc.), resolved RunScript targets. Round-trip stays strict (comments stripped).
 - **Rung 5 — CLI + docs + fixpoint.** `eb-src` / `eb-asm` verbs, `decompile(assemble(s))`
   fixpoint test, docsite page. Ship in a kit release.
-- **Rung 6 (stretch) — edit-through-source.** `eb-asm --against <donor>` mode that
-  reassembles only *changed* functions via `replace_function_body` (untouched bytes stay
-  verbatim — belt-and-braces for hand edits). This is the bridge the future semantic-lift
-  arc will stand on, and it makes `.ebs` diffs a practical review artifact for
-  `[[logic_edit]]`-class changes.
-- **Rung 7 (stretch) — the non-field EVT_ binaries.** 818 FBG ids − 676 field maps ≈ 142
-  world/special event binaries (world dispatchers 9000-9012 among them). Same format;
-  census first (their entry shapes may differ). Battle `.eb` stays in the battle lane
-  (already has its own proven asm path).
+- **Rung 6 — edit-through-source. ★ DONE.** `eb-asm --against <donor.eb>` splices only the
+  *changed* functions via `replace_function_body` (untouched bytes stay verbatim —
+  belt-and-braces for hand edits). `ebsrc.assemble_against(text, donor) -> (bytes, report)`;
+  the report names each spliced function (`entry 15 tag 2: 456B -> 456B`) and the CLI prints
+  `N spliced, M untouched`. **Three self-verifies, all `EbSrcError`:** (a) the source's ENVELOPE
+  must match the donor exactly — slot count, per-slot shape, `type/loc/flags/pad/off`, func tags
+  in order, byte-identical `raw=`/`.gap` carriers — so any structural edit is refused by name and
+  sent to plain `eb-asm`; (b) the result must not lint worse than the donor; (c) the splice and
+  the full `assemble_source` of the same text must agree byte-for-byte. (c) is the keystone: two
+  independent paths, one answer. They can only diverge when the donor's layout is NON-DERIVED
+  (explicit `off=`, `.gap`) *and* the edit changes a body's LENGTH — such a record pins a position
+  the splice moved — and that combination refuses rather than minting a file only one path
+  believes in. **Splices address a function POSITIONALLY** (`replace_function_body(..., func_index=)`),
+  because a func tag is not unique inside an entry: 15 of the 818 shipping EVTs repeat one, and
+  a tag lookup would silently splice the first namesake.
+  This is the bridge the future semantic-lift arc will stand on, and it makes `.ebs` diffs a
+  practical review artifact for `[[logic_edit]]`-class changes.
+- **Rung 7 ★ DONE — the whole event corpus.** The census found the non-field binaries are
+  battle (3934, 100% same-format clean) and world (93; 65 use the `raw=` escape for entry-0
+  lying func tables, 2 jp-only files carry argFlag noise now contained by the entry-level
+  encode-verify). The gate sweeps all **9753** with per-group counts and a corpus-wide
+  `raw=` bound against the stock baseline of 73 (so silent degradation to hex reads RED).
 
 ## 5. Risks / open questions
 
