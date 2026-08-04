@@ -103,6 +103,16 @@ flag, one-lane law [decode_id-remap specimen]).
    ladders retry shallower and report honest ceilings (e.g. (10,5) bay 4 found
    where D=6 used to end the probe).
 
+## ★ DEPLOYED for the in-game verdict 2026-08-04
+
+A fresh crescent instance with the (17,1) steered-window **headland-8** (excise +
+`cliff_headland`, the tiled-mains fill + harvested wall cycle) at Disc9 blocks
+(0,4)+4x2 in `FF9CustomMap-world` — the owner-approved crescent at (18,17) is
+untouched. Deploy CLEAN (52 files); rim-retiled with THE CROP-SEAM WIDENING +
+THE CUT-VERT LAW live (107 quads, under 3→0, over 23→0). The promontory sits at
+the rect's east end, world ≈ (192–228, −273..−276), block (3,4). ⏳ awaiting the
+owner's verdict on the fill's tile language vs the native top.
+
 ## Registered residuals (next capabilities)
 
 * **Capability 2 (sea3 windows)**: unchanged ~9 refusals across isthmus/chain/
