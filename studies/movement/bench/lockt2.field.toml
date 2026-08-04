@@ -23,13 +23,21 @@
 # ROUND 3 VERDICT (owner): BOTH GOOD -- the pad-mask lane is in-game proven end to end. The two
 # presses are the LOCK's own signature (Action both advances dialog and fires presses; under the
 # lock, usercontrol == 0 while the window is up, so the closing press CANNOT re-enter the handler
-# and a second press is needed). That is the control case for round 1's failure: unlocked, dispatch
-# runs *under* the open window, so there the one closing press could plausibly do both -- close the
-# window AND re-enter the body, re-masking after the unmask. See SURVEY.md 11.
-#   * EAST book (press): arms the STAY_LOCKED ending (sets flag 9150), then ~ -> Reload field.
-#     On the armed reload a narration scene plays and ends WITHOUT giving control back -- the
-#     one-way latch (stock's Festival-timeout idiom). You should be frozen for good: no walking,
-#     no menu. The scene disarms its own flag, so escape via ~ -> Reload field = a normal load.
+# and a second press is needed).
+#
+# ★★ ROUND 4 VERDICT (owner: "good"): the NORTH-EAST book -- round 1's exact failing shape plus the
+# one missing EnableMove -- FREEZES AND THAWS. THE CONTROLLER-DEACTIVATION LAW IS CONFIRMED IN GAME
+# (SURVEY.md 1): a movement mask makes the actor controller deactivate itself, RemoveControllerMask
+# revives nothing, and only EnableMove brings it back. Round 1 is fully explained and closed; the
+# earlier re-entry hypothesis is dead (it cannot even fire -- Request's level guard + EBin's
+# one-frame resume deferral).
+#   * EAST book (press): ARMS the STAY_LOCKED ending (sets flag 9150) and nothing more -- pressing
+#     it leaves you free. `stay_locked` ends a SCENE and scenes are LOAD-TIME hooks, so the demo is
+#     inherently two-step: ~ -> Reload field, and on THAT load the scene plays and ends without
+#     giving control back (frozen for good: no walking, no menu; the scene disarms its own flag, so
+#     the next ~ -> Reload is a normal load). Round-4 note: the owner flagged that the book's text
+#     read as if the freeze happened on the press -- a TEXT defect of mine, not a behaviour change
+#     (the body is unchanged: DisableMove, set flag, window, EnableMove). Text now says so plainly.
 #   * RANDOM BATTLES are ON (Evil Forest, the weakest scene): fight ONE and verify control + menu
 #     return normally afterward -- the after-battle grant is now GATED (restore-not-grant), and a
 #     free-roam battle must be behavior-identical to before. (The gate's other half -- a battle
@@ -122,7 +130,7 @@ zone = [[550, -1150], [850, -1150], [850, -950], [550, -950]]
 trigger = "action"
 bubble = true
 set_flag = [9150, 1]
-message = "ARMED. Now open ~ and pick Reload field: the entry scene will play and END WITHOUT handing control back (stay_locked). Verify you are frozen -- no walking, no menu -- then escape with ~ Reload field (the scene disarms itself, so the next load is normal)."
+message = "ARMED -- and NOTHING changes yet: you can still walk. `stay_locked` ends a SCENE, and scenes run at field load, so it takes two steps. Open ~ then Reload field: on THAT load the entry scene plays and ends without giving control back, and only then are you frozen for good (no walking, no menu). Escape: ~ then Reload field again -- the scene disarms itself."
 once = false
 
 [[prop]]

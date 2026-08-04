@@ -53,6 +53,12 @@ round 1 (unlocked, froze for good) versus round 3 (locked, thawed). **Kit rule, 
 automatically:** an unlocked body that unmasks a movement bit carries its own `EnableMove`
 (`content/movement.unmask_pad(revive=True)`); an unlocked body that masks and never unmasks is
 refused, because nothing in the field can undo it.
+
+★★ **IN-GAME CONFIRMED (bench 30602 round 4, owner-verified):** round 1's exact failing body plus
+that one `EnableMove` freezes while its window is up and **thaws on dismissal**. One opcode was the
+whole bug. The earlier re-entry hypothesis is dead — it cannot even fire (`Request`'s
+`level < p.level` guard holds while the body waits on its window, and `EBin`'s `next0()` defers the
+resume a frame, so the press edge is stale).
 | 3 | **actor suspend** | `originalActor.state != stateRunning` | battle end (`EnterBattleEnd` suspends every object until the tag-10 handler returns at level 0) | `EventEngine.cs:780-791`, `FieldMapActorController.cs:588` |
 | 4 | **UI player-control** | `FieldMapActorController.isActive` via `SetPlayerControlEnable` | none (engine-side: menus, shops, save, pause, transitions) | ⚠ quirk: `isActive==false` ALONE falls through into movement unless `IsMenuControlEnable` or `IsWarningDialogEnable` is also true (`FieldMapActorController.cs:161-169`) |
 
