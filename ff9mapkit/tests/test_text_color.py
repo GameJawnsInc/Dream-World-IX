@@ -202,6 +202,13 @@ def test_the_zero_width_family_is_covered_too():
 
 
 def test_a_no_break_space_is_not_flagged():
-    # U+00A0 is NOT in IsSpace, so it should survive the drop -- the one candidate padding character.
-    # Bench 30603 round 4 asks whether the font actually has a glyph for it.
+    # U+00A0 is NOT in IsSpace, so it survives the drop -- CONFIRMED IN-GAME (bench 30603 round 4:
+    # "NBSP reads as a gap ... technically it works"). It stays an escape hatch rather than the house
+    # style: stock writes a glyph mid-sentence zero times in 40,896 entries, so the construction has
+    # no shipping precedent at any spacing. The lint names it; the docs steer to the legend form.
     assert _text.space_after_glyph_problems("[DBTN=CROSS]\u00a0\u00a0then") == []
+
+
+def test_the_lint_points_at_stocks_idiom_and_names_the_escape_hatch():
+    msg = _text.space_after_glyph_problems("Press [DBTN=CROSS] to pick.")[0]
+    assert "Confirm" in msg and "U+00A0" in msg and "legend" in msg

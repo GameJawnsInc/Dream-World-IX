@@ -448,6 +448,10 @@ The names stock ships: `SELECT` `START` `PAD` `SQUARE` `CROSS` `CIRCLE` `TRIANGL
 > A glyph mid-sentence (`"Press [DBTN=CROSS] to pick."`) renders flush against the next word no matter
 > how you space it; the build warns. Stock never writes that shape — a glyph either leads a legend row
 > or ends a phrase.
+>
+> There is one escape hatch if you really need it: a **no-break space** (`U+00A0`) is not treated as a
+> space by the engine, so it survives and renders as a gap. It works, but stock does it nowhere, so
+> reach for it only when the legend form genuinely won't do.
 
 ### Several windows at once (open · close · wait_window · raise)
 

@@ -124,10 +124,13 @@ dialogue = "Bring me an {item}Ore{/} and I'll pay {amount}300 Gil{/} for it, {na
 # This is WHY the census found zero spaces after a glyph in stock (§6b): ':' works precisely because
 # it is a non-space character. The kit now LINTS a space after a glyph instead of letting it no-op.
 #
-# ROUND 4 asks the one question the law leaves open. `IsSpace` (NGUIText.cs:660-663) covers exactly
-# ' ', U+2009 thin, U+200A hair and U+200B zero-width -- so a NO-BREAK SPACE (U+00A0) is NOT in the
-# list and should survive. Row 3 uses one. If it renders as a gap, mid-sentence glyphs become usable;
-# if it renders as a box or nothing, the font lacks the glyph and the legend form is the only shape.
+# ★★ ROUND 4 ANSWERED (owner: "NBSP reads as a gap, not sure how it fits visually though but
+# technically it works"). U+00A0 is NOT in `IsSpace` (NGUIText.cs:660-663 covers only ' ', U+2009
+# thin, U+200A hair, U+200B zero-width), so it survives the drop and renders -- the engine does leave
+# one escape hatch for a glyph mid-sentence. It stays an ESCAPE HATCH and not the house style: stock
+# writes a glyph mid-sentence ZERO times in 40,896 entries, so the shape has no precedent at any
+# spacing, and "not sure how it fits" is what an off-idiom construction looks like. The legend row is
+# the recommendation; the lint names the hatch for anyone who truly needs it.
 [[choice]]
 npc = "merchant"
 prompt = "Trade the {item}Ore{/}?"

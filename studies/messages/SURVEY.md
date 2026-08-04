@@ -312,9 +312,16 @@ character** — a space skips the whole block without clearing the flag. So:
    because a colon is a non-space character that clears the flag. The game didn't avoid the shape by
    taste; the shape does not render.
 
-⚠ **U+00A0 (no-break space) is NOT in `IsSpace`** and should therefore survive — the one candidate
-padding character. Bench 30603 round 4 asks whether the font actually has a glyph for it. Until that
-is answered, **the legend form is the only reliable way to put a glyph next to words.**
+**U+00A0 (no-break space) is NOT in `IsSpace`, and round 4 confirmed it in-game** — it survives the
+drop and renders as a real gap (owner: *"NBSP reads as a gap… technically it works"*). So the engine
+does leave one escape hatch for a glyph mid-sentence.
+
+⚠ **But it stays an escape hatch, not the recommendation.** Stock writes a glyph mid-sentence **zero**
+times across 40,896 entries, so the construction has no shipping precedent at any spacing — and by
+this survey's own Tier-3 rule, adopting a stock-unused shape is *invention, not fidelity*. The owner's
+read of the result was "not sure how it fits visually," which is what an off-idiom shape looks like.
+**Use the legend form.** If you genuinely need the glyph inline, U+00A0 works; tune the count (the
+bench used two, which reads wide — one is nearer a normal word space).
 
 Enforced: `text.space_after_glyph_problems` lints a space following any inline-image tag
 (`DBTN`/`CBTN`/`KCBT`/`JCBT`/`ICON`/`SPRT`) rather than letting the author's spacing silently no-op.

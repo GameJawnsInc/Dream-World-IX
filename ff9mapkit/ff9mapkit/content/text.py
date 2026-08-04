@@ -206,8 +206,10 @@ def space_after_glyph_problems(text) -> list:
     """Report each inline-image tag followed by a space -- the engine drops it (see THE
     SPACE-AFTER-GLYPH LAW above), so the author's spacing silently does nothing."""
     return [f"[{m.group(1)}...] is followed by a space, which the engine DROPS (every consecutive "
-            f"one, not just the first) -- stock's idiom is a colon right after the glyph "
-            f"(\"[{m.group(1)}=CROSS]: Confirm\"); a space can never separate it from the next word"
+            f"one, not just the first) -- so this spacing does nothing. Stock's idiom is a colon "
+            f"straight after the glyph (\"[{m.group(1)}=CROSS]: Confirm\", 128 sites). A no-break "
+            f"space (U+00A0) does survive and renders as a gap (in-game confirmed), but stock never "
+            f"writes a glyph mid-sentence at all -- prefer the legend form"
             for m in _SPACE_AFTER_IMAGE.finditer(str(text or ""))]
 
 
