@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the world relaunch tax was self-imposed: geometry edits apply via the scene reload
+- Playtest-proven (hill deployed, byte-swapped mid-session, vanished on the next reload;
+  `Memoria.log` re-reads every `[WorldMeshOverride]` per reload): the world-scene rebuild
+  (`~ → World → "Reload overworld on state"`, or exit to a field and return) re-reads every
+  loose `.ff9mesh` override — the CLI's "RELAUNCH (a loose asset isn't hot-reloaded)" claim
+  was FALSE and taxed every world iteration. All 11 geometry-verb apply notes now route
+  through one `_world_apply_note` helper stating the reload path + the honest RELAUNCH-only
+  list (DictionaryPatch/BattlePatch line, FolderNames change, DLL rebuild), gated by a
+  source test that goes red if the false claim returns. World iteration: deploy → reload →
+  look, ~1s. Also: `world-deploy`'s "+ smooth normals" now says the channel is render-inert
+  on WorldMap/Terrain, and `docs/OVERWORLD_RECIPES.md` collects the proven overworld
+  command sequences (indexed from the tutorials page).
+
 ### Changed — the placement ground query gained a spatial index (a pure accelerator)
 - `placement.build_index`/`build_meshlist_index` (promoted from `coastnav._build_grid`, which now
   aliases them — one copy, so a calibration fix lands once) + an `index=` fast path on `place()`;

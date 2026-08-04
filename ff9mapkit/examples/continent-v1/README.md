@@ -19,9 +19,10 @@ py -m ff9mapkit world-island --mod-folder FF9CustomMap-world --center 344,-1152 
 py -m ff9mapkit world-minimap --mod-folder FF9CustomMap-world                            # refresh the big map
 ```
 
-Relaunch the game (or exit + re-enter the overworld) to apply — loose world assets aren't
-hot-reloaded. Requires the custom engine bundle (the WorldMeshOverride patch + `Donor.txt`
-donor-divert support). To remove, delete the deployed `Block[*]` files under
+Apply without relaunching: `~ → World → "Reload overworld on state"` (or exit to any field
+and return) — the world-scene rebuild re-reads every loose override from disk
+(playtest-proven 2026-08-04). Requires the custom engine bundle (the WorldMeshOverride
+patch + `Donor.txt` donor-divert support). To remove, delete the deployed `Block[*]` files under
 `<mod>\FF9_Data\WorldMap\Disc1\` rows 12–19.
 
 > **Why a dedicated mod folder?** Campaign/journey deploys wholesale-replace their target

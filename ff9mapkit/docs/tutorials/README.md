@@ -59,6 +59,7 @@ Pillars without a tutorial yet (reference docs instead):
 - **Custom music / SFX** (`audio-import`, `music-list`, `sfx-list`) — `ff9mapkit audio-import -h`
 - **Two-player co-op** (experimental; `coop host` / `coop join`) — [FEATURES.md §Multiplayer](../FEATURES.md#multiplayer-experimental), `ff9mapkit coop -h`
 - **Items / equipment / saves** (`items-*`, `save-edit`, `[[item_text]]`) — [SETUP.md §7](../../../SETUP.md#7-cli-command-reference)
+- **Custom overworld** (continents, islands, relief, offline renders, the ~1s reload loop) — [OVERWORLD_RECIPES.md](../OVERWORLD_RECIPES.md)
 - **SPS field particles** — [SPS.md](../SPS.md) · **ATEs** — [ATE_SYSTEM.md](../ATE_SYSTEM.md)
 - **Battle tuning** (enemy stats/AI/encounter difficulty, distinct from battle backgrounds) — [BATTLE_DESIGN.md](../BATTLE_DESIGN.md)
 - **MOGNET (moogle mail)** (`[savepoint.mognet]`) — [SAVEPOINT.md](../SAVEPOINT.md)

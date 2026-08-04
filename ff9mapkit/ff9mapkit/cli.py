@@ -3690,6 +3690,20 @@ def _cmd_world_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _world_apply_note(needs: str | None = None, extra: str | None = None) -> None:
+    """The APPLY instruction every world GEOMETRY writer prints -- one voice, one truth.
+    Playtest-proven 2026-08-04 (hill deploy/vanish + a fresh "[WorldMeshOverride] loaded"
+    log line per block on every reload): the world-scene rebuild re-reads every loose
+    .ff9mesh override from disk, so geometry edits need NO relaunch."""
+    lead = f"  Needs {needs}. " if needs else "  "
+    print(lead + 'APPLY without relaunch: ~ -> World -> "Reload overworld on state" (or exit '
+                 "to any field and return) -- the scene rebuild re-reads every loose override.")
+    print("  RELAUNCH only for: a new DictionaryPatch/BattlePatch line, a Memoria.ini "
+          "FolderNames change, or an engine DLL rebuild.")
+    if extra:
+        print("  " + extra)
+
+
 def _cmd_world_deploy(args: argparse.Namespace) -> int:
     """Deploy an (optionally reshaped) overworld block, or a whole reshaped region, as loose .ff9mesh override(s)
     (needs the WorldMeshOverride engine patch). Reshapes (--hill/--crater/--flatten) are seam-continuous: the edit
@@ -3802,12 +3816,12 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
     if reshape:
         kind = "flatten" if args.flatten else ("hill" if hill_amt > 0 else "crater")
         print(f"  {kind}: centre world ({cx:.0f},{cz:.0f}) radius {args.radius:g} falloff {args.falloff}"
-              + ("" if args.no_normals else " + smooth normals"))
+              + ("" if args.no_normals else " + normals (render-inert on WorldMap/Terrain -- "
+                                            "the engine binds no normal; see GROUND-JUNCTION-SYNTHESIS.md)"))
     for (x, y, op, _) in written:
         print(f"  [{x}][{y}]: {op}")
-    print("  RELAUNCH the game (a new loose asset isn't hot-reloaded), reach the disc-%d overworld, walk to the edit."
-          % args.disc)
-    print("  Memoria.log shows \"[WorldMeshOverride] loaded ...\" per block when the hook fires.")
+    _world_apply_note(extra="reach the disc-%d overworld and walk to the edit; Memoria.log shows "
+                            "\"[WorldMeshOverride] loaded ...\" per block when the hook fires." % args.disc)
     return 0
 
 
@@ -3909,7 +3923,8 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
                   "(world-entrance authors the trigger)")
     except (RuntimeError, FileNotFoundError, ValueError):
         pass
-    print("  RELAUNCH + reach the overworld. TOPOGRAPH edits change WALKABILITY/encounters (the move gate reads "
+    _world_apply_note()
+    print("  TOPOGRAPH edits change WALKABILITY/encounters (the move gate reads "
           "the tile topograph). NOTE: --event/--area alone do NOT create a warp -- the destination comes from the "
           "world .eb object-0 trigger GetIP-keyed to the CELL position, and the tile's area bits are not read by "
           "dispatch at all (cosmetic regional tag).")
@@ -3985,7 +4000,7 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     if args.texture:
         print(f"  textured UV-less faces from the learned {args.part} atlas palette"
               f"{' (applied)' if info.get('textured') else ' (nothing to stamp -- OBJ already has UVs)'}")
-    print("  RELAUNCH or re-enter the overworld. (Object mesh drives render + walkmesh; topo 59 = impassable blocker.)")
+    _world_apply_note(extra="(Object mesh drives render + walkmesh; topo 59 = impassable blocker.)")
     return 0
 
 
@@ -4044,7 +4059,7 @@ def _cmd_world_atlas_catalog(args: argparse.Namespace) -> int:
 
 def _cmd_world_terrain(args: argparse.Namespace) -> int:
     """Reshape walkable overworld terrain (raise/lower/flatten a hill, or a ridge/valley) by deforming the stock mesh
-    across every block it touches. No DLL (loose Terrain override via s34); RELAUNCH to apply."""
+    across every block it touches. No DLL (loose Terrain override via s34); apply via the world-scene reload."""
     from .world import terrain as T
     at = seg = None
     if args.at:
@@ -4074,7 +4089,7 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
         print("  nothing moved -- check --at/--radius (is the spot on land, in range?)", file=sys.stderr)
         return 2
     if not args.dry_run:
-        print("  RELAUNCH to apply. Reshaping keeps the stock texture + walkability (single surface = walkable).")
+        _world_apply_note(extra="Reshaping keeps the stock texture + walkability (single surface = walkable).")
     return 0
 
 
@@ -4102,7 +4117,7 @@ def _parse_cells(spec: str):
 
 def _cmd_world_reclaim(args: argparse.Namespace) -> int:
     """RECLAIM ocean cells as walkable LAND (Path D -- new continent). Synthesizes a fresh flat, textured, walkable
-    terrain override for each sea cell; the custom engine's s34 divert renders it as land. RELAUNCH to apply."""
+    terrain override for each sea cell; the custom engine's s34 divert renders it as land. Apply via the world-scene reload."""
     from .world import terrain as T
     try:
         cells = _parse_cells(args.cells)
@@ -4124,7 +4139,7 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
         edges = f", {c['water_edges']} water edge(s)" if "water_edges" in c else ""
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts{edges}")
     if not args.dry_run:
-        print("  Needs the CUSTOM engine (s34 ocean->land divert). RELAUNCH (or exit+re-enter the overworld).")
+        _world_apply_note(needs="the CUSTOM engine (s34 ocean->land divert)")
         print("  A lone cell is an ISLAND -- reach it via the debug menu (~)->World->Teleport, or bridge from the coast with more cells.")
     return 0
 
@@ -4171,7 +4186,7 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
     for c in summary["cells"]:
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts + Donor.txt")
     if not args.dry_run:
-        print("  Needs the custom engine (per-cell coastal donor). RELAUNCH to apply.")
+        _world_apply_note(needs="the custom engine (per-cell coastal donor)")
     return 0
 
 
@@ -4199,7 +4214,7 @@ def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
         print("  dry run -- nothing written")
     else:
         print(f"  wrote {len(rep['written'])} file(s); .prerim backups kept")
-        print("  RELAUNCH (or exit+re-enter the overworld) to apply.")
+        _world_apply_note()
     return 0
 
 
@@ -4402,8 +4417,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         print("deployed:")
         for q in summary["deployed"]:
             print("  " + q)
-        print("  Needs the CUSTOM engine (s34). RELAUNCH (or exit+re-enter the overworld) "
-              "to apply; revert = delete the deployed files.")
+        _world_apply_note(needs="the CUSTOM engine (s34)", extra="revert = delete the deployed files.")
         return 0
     sx, sz = summary["shift"]
     if summary["op"] == "transplant-region":
@@ -4460,7 +4474,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     print("deployed:")
     for q in summary["deployed"]:
         print("  " + q)
-    print("  Needs the CUSTOM engine (s34 + Donor.txt). RELAUNCH (or exit+re-enter the overworld) to apply.")
+    _world_apply_note(needs="the CUSTOM engine (s34 + Donor.txt)")
     return 0
 
 
@@ -4827,7 +4841,7 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
             print("  WARNING: a sea3|sea4 direct adjacency slipped the transition band -- report this (should be 0).",
                   file=sys.stderr)
     if not args.dry_run:
-        print("  Needs the CUSTOM engine (s34 sea->land divert). RELAUNCH (or exit+re-enter the overworld).")
+        _world_apply_note(needs="the CUSTOM engine (s34 sea->land divert)")
         print("  A lone cell is reachable via the debug menu (~) -> World -> Teleport; a contiguous run of cells stays seamless.")
     return 0
 
@@ -5017,9 +5031,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
         _enter = ('stand on the cell -- a "!" appears; press Confirm to enter (faithful town-style)'
                   if args.action_prompt else
                   "walk ONTO the cell -- stepping on the event tile fires the warp (auto-warp)")
-        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, and %s. "
-              "(Mesh overrides need the WorldMeshOverride engine patch.)"
-              % (info.get("disc", args.disc), _enter))
+        _world_apply_note(needs="the WorldMeshOverride engine patch",
+                          extra="reach the disc-%d overworld and %s. (The dispatcher .eb re-read via the "
+                                "reload is UNTESTED -- RELAUNCH if the trigger does not fire.)"
+                                % (info.get("disc", args.disc), _enter))
     return 0
 
 

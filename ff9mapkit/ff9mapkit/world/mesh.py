@@ -998,8 +998,9 @@ def flatten_region(bm, *, radius: float, center=None, height=None, falloff: str 
 
 
 def recompute_normals(bm, *, tol: float = 1e-3) -> int:
-    """Recompute smooth vertex normals after a geometry edit (a Y-only deform leaves the stored normals stale ->
-    wrong terrain shading). Position-welds coincident corners (the mesh is unindexed) so a shared grid node gets ONE
+    """Recompute smooth vertex normals after a geometry edit. NOTE: RENDER-INERT on WorldMap/Terrain --
+    the engine's terrain material binds vertex+texcoord only, no normal (GROUND-JUNCTION-SYNTHESIS.md, Memoria
+    trace 2026-08-02); Object/Sea materials were never verified, so the channel is kept correct, not deleted. Position-welds coincident corners (the mesh is unindexed) so a shared grid node gets ONE
     averaged normal (smooth shading, no faceting at triangle seams), and sign-aligns each welded normal to the
     group's ORIGINAL stored normal so the winding/orientation is preserved (no inside-out darkening). No-op if the
     mesh has no normal channel. Mutates ``bm.normals`` in place. Returns the vertex count updated."""

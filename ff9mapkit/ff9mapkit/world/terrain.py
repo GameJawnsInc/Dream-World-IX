@@ -12,7 +12,9 @@ Hard-won in-game lessons this encodes:
     world distance, so the frame is handled here.
 
 Each touched land block gets a loose Terrain ``.ff9mesh`` override (the ``s34`` engine patch loads it); sea blocks are
-skipped. RELAUNCH to apply. Reshape keeps tangents/UVs, so the ground keeps its stock texture + walkability topograph.
+skipped. APPLY via the world-scene reload (~ -> World -> "Reload overworld on state", or exit to a field and return)
+-- the rebuild re-reads every loose override, no relaunch (playtest-proven 2026-08-04). Reshape keeps tangents/UVs,
+so the ground keeps its stock texture + walkability topograph.
 """
 from __future__ import annotations
 
@@ -37,7 +39,7 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     ``at=(x, z)`` (a radial hill/crater/plateau) or ``seg=((x0,z0),(x1,z1))`` (a ridge/valley). Exactly one OP:
     ``amount`` (signed: ``+`` raise, ``-`` lower) or ``flatten=True`` (level toward ``height``, default the local mean).
     Returns a summary; deploys a Terrain override per touched land block (unless ``dry_run``), then auto-mirrors
-    the written overrides to Disc4 (THE DISC-4 GAP; pass ``skip_mirror=True`` to opt out). RELAUNCH to apply.
+    the written overrides to Disc4 (THE DISC-4 GAP; pass ``skip_mirror=True`` to opt out). Apply via the world-scene reload (no relaunch).
 
     THE READ/WRITE DISC SPLIT. ``disc`` is the READ disc and must stay 1 or 4 -- ``extract`` has no other
     stock bundle tree. ``target_disc`` is purely where the result is DEPLOYED (a synthetic world's override
@@ -113,7 +115,7 @@ def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", gam
     SYNTHESIZES a stylized grass/sand island), this carries a genuine FF9 coastline -- the north-star "recreate from
     real bytes". A continent is assembled from real coast pieces (:func:`ff9mapkit.world.extract.list_coastal_donors`
     lists them). Requires the CUSTOM engine (per-cell coastal-donor s34). Auto-mirrors the written overrides to Disc4
-    (``skip_mirror=True`` opts out). RELAUNCH to apply."""
+    (``skip_mirror=True`` opts out). Apply via the world-scene reload (no relaunch)."""
     import dataclasses
     from . import extract as X, mesh as M
     dx, dy = donor
