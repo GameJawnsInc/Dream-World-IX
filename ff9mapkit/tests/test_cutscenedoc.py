@@ -550,6 +550,56 @@ def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
     assert doc._restage_timer.isActive()
 
 
+# ------------------------------------------------------------------ the accordion (declutter round)
+def test_the_accordion_unfolds_the_editor_under_its_row(doc, tmp_path):
+    """Playtest feedback: separate bands for list/settings/editor cluttered the column. The
+    editor now unfolds INSIDE the ladder, directly under the row it edits."""
+    _fed(doc, tmp_path)
+    doc._edit_step(1)
+    assert doc.editor.parent() is doc.ladder
+    assert doc.ladder._lay.indexOf(doc.editor) == 2          # row 1 + 1
+    doc._edit_step(0)
+    assert doc.ladder._lay.indexOf(doc.editor) == 1
+
+
+def test_the_add_panel_follows_the_typing_point(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._on_step_select(0)
+    doc._add_step()
+    assert doc.ladder._lay.indexOf(doc.editor) == 1          # AT the landing row
+    _apply_say(doc, "first")
+    assert doc.ladder._lay.indexOf(doc.editor) == 2          # ...and it advances with insert_at
+
+
+def test_set_rows_lifts_the_accordion_panel_instead_of_deleting_it(doc, tmp_path):
+    """(M) THE LIFT LAW: the ladder refills on every render; if a refill deleteLater'd the ONE
+    StepEditor instance, the next Apply would drive a dead widget. The fence must DELIVER
+    DeferredDelete (the harness's own lesson): without the spin, a deleteLater'd widget still
+    answers, and the first cut of this test stayed green under the exact mutation it fences."""
+    from PySide6.QtCore import QEvent
+    _fed(doc, tmp_path)
+    doc._edit_step(2)                                        # the say row
+    doc._render()                                            # a full refill cycle over the open panel
+    QApplication.instance().sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert doc.editor.parent() is doc.ladder, "the refill must LIFT the editor, never delete it"
+    doc.editor.value_text.setPlainText("still editable after a refill")
+    doc._apply_step()
+    assert doc._steps()[2]["say"] == "still editable after a refill"
+
+
+def test_settings_and_the_editor_are_mutually_exclusive(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc._edit_step(2)
+    assert doc.editor.scene is not None
+    doc.settings_btn.setChecked(True)
+    assert doc.editor.scene is None, "opening settings closes the step editor"
+    assert doc.ladder._lay.indexOf(doc.settings_card) == 0, "settings seats above row 0"
+    doc._edit_step(2)
+    assert not doc.settings_btn.isChecked(), "opening a step closes settings"
+    assert doc.ladder._lay.indexOf(doc.editor) == 3
+
+
 # ------------------------------------------------------------------ shell: undo + one-writer
 def test_a_doc_edit_lands_by_reference_dirty_and_one_undo_step(win, tmp_path):
     p = make_cutscene_field(tmp_path)

@@ -511,7 +511,30 @@ class StepLadder(QWidget):
         self._idx_chips = []                       # the storyboard's ▶ beat sweep writes these
         self._selected = None
         self._beat_marks = set()
+        self._inset = None                         # THE ACCORDION: one foreign panel unfolded
+        #                                            inside the ladder (the step editor under its
+        #                                            row / the settings above row 0). The ladder
+        #                                            HOSTS it, never owns it -- see set_inset.
         self.setAccessibleName("Cutscene steps")
+
+    # -- the accordion seam (playtest feedback: separate bands cluttered the column) --
+    def set_inset(self, widget, at=0):
+        """Unfold ONE host-owned panel inside the ladder at layout index ``at`` (row *i*'s
+        editor sits at ``i + 1``; the settings card at ``0``). The host re-insets after every
+        ``set_rows`` -- the ladder LIFTS the inset there instead of deleting it, because the
+        panel (the one StepEditor instance) must outlive every refill."""
+        self._lift_inset()
+        self._inset = widget
+        self._lay.insertWidget(max(0, min(at, self._lay.count() - 1)), widget)
+        widget.show()
+
+    def _lift_inset(self):
+        """Take the inset OUT without killing it. Hide FIRST, then reparent: a visible widget
+        reparented to None is a top-level OS window for an instant (the phantom-window law)."""
+        if self._inset is not None:
+            self._inset.hide()
+            self._inset.setParent(None)
+            self._inset = None
 
     def set_beat_marks(self, idxs):
         """Mark the steps in the storyboard's ACTIVE beat. Shape, not colour: ▶ on the
@@ -530,6 +553,7 @@ class StepLadder(QWidget):
     def set_rows(self, rows, selected=None):
         self._selected = selected
         self._idx_chips = []
+        self._lift_inset()                         # the accordion panel is LIFTED, never deleted
         while self._lay.count():
             w = self._lay.takeAt(0).widget()
             if w is not None:
@@ -758,8 +782,11 @@ class CutsceneDoc(QWidget):
         self.board_btn.toggled.connect(self._toggle_board)
         bh.addWidget(self.board_btn)
         cl.addWidget(bar)
-        # the scene-settings card (hidden until ✎ Settings): the extended CUTSCENE_SPEC through
-        # the shared form builder, Apply-committed (a per-keystroke checkpoint would spam undo)
+        # the scene-settings card -- THE ACCORDION (playtest feedback: a separate band per
+        # panel cluttered the column): it unfolds INSIDE the ladder above row 0, mutually
+        # exclusive with the step editor, and scrolls WITH the ladder (one scrollbar). Built
+        # here, parentless until _sync_insets seats it. Apply-committed (a per-keystroke
+        # checkpoint would spam undo).
         self.settings_card = widgets.card()
         sc_lay = QVBoxLayout(self.settings_card)
         sc_lay.setContentsMargins(10, 8, 10, 8)
@@ -775,23 +802,14 @@ class CutsceneDoc(QWidget):
         schw = QWidget()
         schw.setLayout(sc_head)
         sc_lay.addWidget(schw)
-        # the form SCROLLS inside a capped well: ten spec fields put a ~700px floor under the
-        # card, and a pane denied its height must scroll, never clip (the round-13 law)
-        sc_host = QWidget()
-        self._settings_host = QVBoxLayout(sc_host)
+        self._settings_host = QVBoxLayout()
         self._settings_host.setContentsMargins(0, 0, 0, 0)
-        self._settings_scroll = QScrollArea()
-        self._settings_scroll.setWidgetResizable(True)
-        self._settings_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._settings_scroll.setWidget(sc_host)
-        self._settings_scroll.setMaximumHeight(int(340 * self._scale / 100))
-        sc_lay.addWidget(self._settings_scroll)
+        sc_lay.addLayout(self._settings_host)
         self.settings_note = widgets.caption("")
         self.settings_note.setWordWrap(True)
         sc_lay.addWidget(self.settings_note)
         self._settings_getters = None
         self.settings_card.hide()
-        cl.addWidget(self.settings_card)
         # the storyboard strip (hidden until ▶ Storyboard)
         self.board_bar = QWidget()
         sv = QVBoxLayout(self.board_bar)
@@ -831,31 +849,26 @@ class CutsceneDoc(QWidget):
                                 "dup": self._dup_step, "delete": self._del_step}
         self.ladder = StepLadder(self.pal, actions=self._ladder_actions,
                                  on_select=self._on_step_select)
-        lscroll = QScrollArea()
-        lscroll.setWidgetResizable(True)
-        lscroll.setWidget(self.ladder)             # h-bar as-needed: denied width must scroll,
-        lscroll.setFrameShape(QFrame.Shape.NoFrame)   # never clip (the round-13 law)
-        self._vsplit.addWidget(lscroll)
+        self._lscroll = QScrollArea()
+        self._lscroll.setWidgetResizable(True)
+        self._lscroll.setWidget(self.ladder)       # h-bar as-needed: denied width must scroll,
+        self._lscroll.setFrameShape(QFrame.Shape.NoFrame)   # never clip (the round-13 law)
+        self._vsplit.addWidget(self._lscroll)
+        # the step editor is the ladder's OTHER accordion panel: it unfolds under its row and
+        # scrolls with the list, so the conversation stays visible around the line being
+        # written. Parentless until _sync_insets seats it.
         self.editor = StepEditor(
             self.pal, on_apply=self._apply_step, on_close=self._close_editor,
             pick_anim=self._pick_anim_for_step, on_pick_stage=self._arm_stage_pick,
             wrap_width_fn=lambda: cutscenescan.wrap_width(self._merged()))
-        # the editor SCROLLS in its splitter slot: with the pacing drawer open it is taller
-        # than any slot the vsplit can honestly give it (snap-measured 1604px of minimum
-        # against an 850px window -- the round-13 clip, pre-empted)
-        self._editor_scroll = QScrollArea()
-        self._editor_scroll.setWidgetResizable(True)
-        self._editor_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._editor_scroll.setWidget(self.editor)
-        self._editor_scroll.hide()
-        self._vsplit.addWidget(self._editor_scroll)
+        self.editor.hide()
         self.canvas = CutsceneStage(self.pal, scale=self._scale,
                                     on_move=self._on_stage_move,
                                     on_insert=self._on_stage_insert,
                                     on_delete=self._on_stage_delete)
         self._vsplit.addWidget(self.canvas)
         k = self._scale / 100
-        self._vsplit.setSizes([int(320 * k), 0, int(300 * k)])
+        self._vsplit.setSizes([int(340 * k), int(280 * k)])
         cl.addWidget(self._vsplit, 1)
         split.addWidget(center)
         split.setStretchFactor(1, 1)
@@ -921,7 +934,6 @@ class CutsceneDoc(QWidget):
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
             self.board_slider.setMinimumWidth(int(120 * pct / 100))
-            self._settings_scroll.setMaximumHeight(int(340 * pct / 100))
 
     def retheme(self, pal):
         self.pal = pal
@@ -1017,8 +1029,9 @@ class CutsceneDoc(QWidget):
         self.canvas.set_selected_step(self._selected_step)
         self.canvas.set_scene(cutscenescan.stage_model(raw, self._scene), refit=refit,
                               handles=handles)
-        if self.settings_card.isVisible():
-            self._fill_settings()                  # ops fired; the card reflects the write target
+        if self.settings_btn.isChecked():          # isChecked, not isVisible: visibility is a lie
+            self._fill_settings()                  # under a never-shown test window
+        self._sync_insets()
         problems = cutscenescan.dispatch_problems(raw) + cutscenescan.scene_problems(raw)
         if problems:
             self.problems_lbl.setText("\n".join(f"• {p}" for p in problems))
@@ -1046,10 +1059,24 @@ class CutsceneDoc(QWidget):
                              selected=self._selected_step)
         if self.board_btn.isChecked():
             self.ladder.set_beat_marks(self._beat_steps())
+        self._sync_insets()                        # set_rows lifted the accordion panel
         handles = self._stage_handles()
         self.canvas.set_edit(bool(handles))
         self.canvas.set_selected_step(self._selected_step)
         self.canvas.set_scene(cutscenescan.stage_model(raw, self._scene), handles=handles)
+
+    def _sync_insets(self):
+        """Seat THE accordion panel after any ladder refill: the settings card above row 0, or
+        the open step editor under its row (add mode: AT the landing row, so the panel follows
+        the typing point as Apply advances). At most one -- the modes are exclusive."""
+        # "open" is the TARGET state (scene set by open_step, cleared by _close_editor) --
+        # never visibility: the lift itself hides, and a never-shown test window lies anyway.
+        if self.settings_btn.isChecked():
+            self.ladder.set_inset(self.settings_card, at=0)
+        elif self.editor.scene is not None:
+            at = ((self.editor.step_i + 1) if self.editor.insert_at is None
+                  else self.editor.insert_at)
+            self.ladder.set_inset(self.editor, at=at)
 
     # -- edits (all through cutscenescan's pure ops; the shell checkpoints via on_edit) --
     def _after_edit(self, label):
@@ -1094,7 +1121,10 @@ class CutsceneDoc(QWidget):
     def _toggle_settings(self, on):
         self.settings_card.setVisible(on)
         if on:
+            self._close_editor()                   # the accordion holds ONE panel at a time
             self._fill_settings()
+        if self._raw is not None and self._stack.currentWidget() is self._content:
+            self._render()                         # seat / clear the inset
 
     def _fill_settings(self):
         while self._settings_host.count():
@@ -1145,32 +1175,40 @@ class CutsceneDoc(QWidget):
         st = self._steps()
         if not 0 <= i < len(st):
             return
+        if self.settings_btn.isChecked():
+            self.settings_btn.setChecked(False)    # the accordion holds ONE panel at a time
         self._selected_step = i
         self.editor.open_step(self._scene, i, st[i], self._cast())
-        self._editor_scroll.show()
-        self._open_editor_guard()
-        self._render()
+        self._render()                             # seats the editor under its row
+        self._ladder_guard()
+        self._reveal_editor()
 
     def _add_step(self):
         if self._raw is None:
             return
+        if self.settings_btn.isChecked():
+            self.settings_btn.setChecked(False)
         at = (self._selected_step + 1) if self._selected_step is not None else len(self._steps())
         self.editor.open_step(self._scene, None, {"say": ""}, self._cast(), insert_at=at)
-        self._editor_scroll.show()
-        self._open_editor_guard()
+        self._sync_insets()                        # no data changed -- just seat the panel
+        self._ladder_guard()
+        self._reveal_editor()
 
-    def _open_editor_guard(self):
-        s = self._vsplit.sizes()                   # opening must not crush the stage to a sliver
-        if s[1] < 120:                             # (the behavior editor's snap-caught guard):
-            e = max(150, min(340, self.editor.sizeHint().height()))   # the ladder yields first,
-            total = sum(s)                                            # the canvas stays usable
-            canvas = max(140, min(s[2], total - e - 160))
-            self._vsplit.setSizes([max(120, total - e - canvas), e, canvas])
+    def _ladder_guard(self):
+        """Opening a panel must leave the ladder pane USABLE: grow it from the canvas if the
+        split has been dragged to a sliver (canvas floor 140 -- the behavior guard's shape)."""
+        s = self._vsplit.sizes()
+        need = int(300 * self._scale / 100)
+        if s and s[0] < need:
+            total = sum(s)
+            canvas = max(140, total - need)
+            self._vsplit.setSizes([total - canvas, canvas])
+
+    def _reveal_editor(self):
+        self._lscroll.ensureWidgetVisible(self.editor, 0, 40)
 
     def _close_editor(self):
-        self.editor.hide()
-        if hasattr(self, "_editor_scroll"):
-            self._editor_scroll.hide()             # the scroll well must not linger as a blank band
+        self.editor.hide()                         # hidden takes no space; the next refill lifts it
         self.editor.scene = self.editor.step_i = self.editor.insert_at = None
         self._disarm_stage_pick()
 
@@ -1193,12 +1231,14 @@ class CutsceneDoc(QWidget):
             self._selected_step = at
             (self.editor.value_text.clear() if self.editor._is_text()
              else self.editor.value_line.clear())
+            self._after_edit(label)
+            self._reveal_editor()                  # the panel just advanced a row -- keep it in view
         else:
             i = self.editor.step_i
             label = cutscenescan.update_step(self._raw, self._scene, i, step,
                                              managed=STEP_EDITOR_KEYS)
             self._selected_step = i
-        self._after_edit(label)
+            self._after_edit(label)
 
     def _move_step(self, i, delta):
         st = self._steps()
