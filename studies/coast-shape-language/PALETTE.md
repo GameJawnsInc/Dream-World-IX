@@ -1,5 +1,34 @@
 # THE PALETTE — what we can carry, verified (2026-08-02)
 
+> ## ⚠ CORRECTION 2026-08-02 — the table below was WRONG. Read this first.
+>
+> The "10 verified" figure counted rects that passed every gate. **Six of them carried a
+> crumb or nothing at all**, because no gate asks whether the island you wanted is still in
+> the carry. Measured `carried: terrain:N` per row:
+>
+> | rect | carried | verdict |
+> |---|---|---|
+> | `(9,5)` 2x3 comma | **917** | real |
+> | `(6,4)` 2x2 reef | **798** | real |
+> | `(6,6)` 2x2 isthmus | **578** | real |
+> | `(7,17)` 4x2 chain | **504** | real |
+> | `(6,4)` 1x2 | 177 | small |
+> | `(17,16)` 2x1 | 126 | small |
+> | `(7,16)` 2x2 | 23 | **crumb** |
+> | `(5,15)` 3x2 **Daguerreo** | 25 of a 9264u² island | **crumb** |
+> | `(3,11)` 2x4 **the sinuous island** | **0 — pure ocean** | **EMPTY** |
+> | `(7,17)` 2x1 · `(16,16)` 2x1 | 0 | **EMPTY** |
+>
+> **So excise has unlocked exactly ONE landmass: the isthmus.** Daguerreo and the sinuous
+> island are NOT carryable — the claim that excise made them so was wrong, and it survived
+> because "gates CLEAN" was read as "the carry worked". The real palette is four masses,
+> three of which needed no excise at all.
+>
+> Guarded now: `excise_plan` refuses when a carry keeps no more land than it drops
+> (`keep_largest=True`, the default). Calibrated on every case above; a kept-FRACTION
+> threshold was tried first and falsified.
+
+
 Every row below was run through a real `--dry-run` against the live install. The offline
 shortlist is not quotable on its own: 16 rects were predicted, **10 verified**.
 

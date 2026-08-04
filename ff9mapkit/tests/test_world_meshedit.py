@@ -770,7 +770,11 @@ def test_excise_fill_does_not_fan_across_a_block_border(monkeypatch):
         return {"terrain": kept + crumb, "sea4": sea4}.get(part, [])
 
     monkeypatch.setattr(TR, "world_tris", fake_world_tris)
-    tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+    # keep_largest=False: this fixture is deliberately lopsided (a big crumb dropped, a
+    # tiny mass kept) because it exercises the FILL's triangulation, not carry sanity.
+    # THE CARRIED-SUBJECT GUARD correctly refuses it, so the override is what keeps this
+    # test about the thing it is testing.
+    tweaks, rep = TR.excise_plan((0, 0), (1, 1), keep_largest=False)
 
     assert not rep.get("refused"), rep.get("refused")
     fill = [t for tw in tweaks if isinstance(tw, TR.EmitTris) for t in tw.emit()]
@@ -931,3 +935,74 @@ def test_recover_budget_counts_only_what_can_actually_recover(monkeypatch):
     # 4 refusals share the cell; only the ONE in-family tri can recover.
     assert gt.recover_budget == 1, gt.recover_budget
     assert gt.expected["recovered"] == 1
+
+
+# --------------------------------------------------- THE CARRIED-SUBJECT GUARD
+
+def _excise_world(land_tris_kept, land_tris_dropped):
+    """A donor rect with two land assemblies: one clear of the frame, one crossing it."""
+    from ff9mapkit.world.extract import encode_id
+    B, idl = 64.0, float(encode_id(topograph=0))
+
+    def quad(x0, z0, w, h, n):
+        """n disjoint tris inside [x0,x0+w] x [z0,z0-h] (each its own vertex set)."""
+        out = []
+        for k in range(n):
+            ox = x0 + (k % 8) * (w / 9.0)
+            oz = z0 - (k // 8) * (h / 9.0)
+            p = [(ox, 3.2, oz), (ox + 0.4, 3.2, oz), (ox, 3.2, oz - 0.4)]
+            out.append([(q, (0.0, 1.0, 0.0), (0.5, 0.5), (idl, 0.0, 0.0, 1.0)) for q in p])
+        return out
+
+    kept = quad(20.0, -20.0, 20.0, 20.0, land_tris_kept)          # well inside
+    # hard against x=0 so EVERY tri is within land_margin of the frame. Spread wider
+    # and the disjoint tris become their own assemblies, most of them clear of the
+    # frame -- which is how the first cut of this helper reported kept_land=17 for a
+    # case meant to keep 2.
+    crossing = quad(0.0, -5.0, 1.0, 30.0, land_tris_dropped)
+    return kept, crossing
+
+
+def test_carried_subject_guard_refuses_a_carry_that_drops_its_own_subject(monkeypatch):
+    """Six of ten 'gates CLEAN' rects carried a crumb or nothing; the gates cannot tell."""
+    from ff9mapkit.world import transplant as TR
+    kept, crossing = _excise_world(2, 40)
+
+    def fake(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return kept + crossing if part == "terrain" else []
+
+    monkeypatch.setattr(TR, "world_tris", fake)
+    _tw, rep = TR.excise_plan((0, 0), (1, 1))
+    assert "excises its own subject" in (rep.get("refused") or "")
+    assert rep["kept_land"] == 2 and rep["dropped_land"] == 40
+
+
+def test_carried_subject_guard_allows_a_carry_that_keeps_more_than_it_drops(monkeypatch):
+    """The guard must DISCRIMINATE -- the shipped isthmus keeps 578 and drops 109."""
+    from ff9mapkit.world import transplant as TR
+    kept, crossing = _excise_world(40, 6)
+
+    def fake(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return kept + crossing if part == "terrain" else []
+
+    monkeypatch.setattr(TR, "world_tris", fake)
+    _tw, rep = TR.excise_plan((0, 0), (1, 1))
+    assert "excises its own subject" not in (rep.get("refused") or "")
+
+
+def test_carried_subject_guard_can_be_overridden_deliberately(monkeypatch):
+    from ff9mapkit.world import transplant as TR
+    kept, crossing = _excise_world(2, 40)
+
+    def fake(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return kept + crossing if part == "terrain" else []
+
+    monkeypatch.setattr(TR, "world_tris", fake)
+    _tw, rep = TR.excise_plan((0, 0), (1, 1), keep_largest=False)
+    assert "excises its own subject" not in (rep.get("refused") or "")

@@ -3764,6 +3764,39 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
     # exactly backwards, and it left land-fit still failing on all three verified rects.
     # Whether a mass crosses the frame is the only criterion; what SURVIVES is then
     # checked below.
+    # THE CARRIED-SUBJECT GUARD. Whether a mass crosses the frame decides what is DROPPED;
+    # nothing until now asked whether the thing you wanted is still in what SURVIVES -- and
+    # the gates cannot tell, because they score the carry that happened. Measured over the
+    # whole verified palette, SIX of ten "gates CLEAN" rects carried a crumb or nothing at
+    # all: the sinuous island (3,11)+2x4 shipped `terrain:0` (pure ocean), Daguerreo
+    # (5,15)+3x2 shipped 25 tris of a 9264u2 island, (7,16)+2x2 shipped 23. Every one of
+    # them passed wang-carry, weld-audit, census and land-fit.
+    #
+    # The rule is calibrated, not guessed: A CARRY MUST KEEP MORE LAND THAN IT DROPS.
+    #   isthmus (6,6)+2x2   578 kept / 109 dropped   PASS  (the one real excise carry)
+    #   comma, reef, chain  all dropped 0            PASS
+    #   sinuous               0 / 975                REFUSE
+    #   Daguerreo            25 / 1670               REFUSE
+    #   the ring-cut traps   34 / 1003, 34 / 1590    REFUSE
+    # A ratio threshold was tried first and FALSIFIED: kept-fraction does not separate the
+    # good rects from the bad (a legitimate carry that excises a continent keeps a small
+    # share of the rect's land, while a crumb-carry can keep a large one).
+    land_of = lambda c: sum(1 for t in c if part_of.get(id(t)) in LAND_PARTS)
+    kept_land = sum(land_of(c) for ci, c in enumerate(comps) if ci not in foreign)
+    drop_land = sum(land_of(c) for ci, c in enumerate(comps) if ci in foreign)
+    if keep_largest and drop_land and kept_land <= drop_land:
+        return [], dict(assemblies=[len(c) for c in comps], foreign=list(foreign),
+                        dropped={}, fill_tris=0, rings=0, weld_exact=True,
+                        weld_checked=0, weld_missing=[],
+                        kept_land=kept_land, dropped_land=drop_land,
+                        refused=(f"the carry would KEEP {kept_land} land tris and DROP "
+                                 f"{drop_land} -- this rect excises its own subject. An "
+                                 f"assembly is the island PLUS its welded water ring, so a "
+                                 f"rect whose frame the ring reaches classifies the island "
+                                 f"itself as foreign. Shrink the rect, or the mass cannot "
+                                 f"be carried at this size (pass keep_largest=False to "
+                                 f"override deliberately)."))
+
     kept_ids = [ci for ci in range(len(comps)) if ci not in foreign]
     if not kept_ids:
         report = dict(assemblies=[len(c) for c in comps], foreign=list(foreign),
