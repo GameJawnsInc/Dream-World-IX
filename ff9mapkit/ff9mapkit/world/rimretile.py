@@ -206,6 +206,24 @@ def uncovered(plan, variants) -> list:
     return out
 
 
+def _tile_uv(uvmap, p, i, j):
+    """The variant's map evaluated AT the vert: bilinear over the 4 harvested corner uvs
+    at the vert's fractional position in the tile. On a full tile's corner verts this is
+    bit-identical to the corner lookup (fractions are exactly 0/1 on the lattice); on a
+    COAST-CUT triangle's mid-tile verts it is the tile's real axis-aligned wang-rect map
+    -- the corner SNAP smeared them (the stretched-face playtest, 2026-08-04; the module
+    docstring's second authored-uv failure, re-created from the inside by the crop-seam
+    widening planning partial tiles)."""
+    fx = min(max((p[0] - i * CELL) / CELL, 0.0), 1.0)
+    fz = min(max((-p[2] - j * CELL) / CELL, 0.0), 1.0)
+    u00, u10 = uvmap[(0, 0)], uvmap[(1, 0)]
+    u11, u01 = uvmap[(1, 1)], uvmap[(0, 1)]
+    return ((u00[0] * (1 - fx) + u10[0] * fx) * (1 - fz)
+            + (u01[0] * (1 - fx) + u11[0] * fx) * fz,
+            (u00[1] * (1 - fx) + u10[1] * fx) * (1 - fz)
+            + (u01[1] * (1 - fx) + u11[1] * fx) * fz)
+
+
 def apply_rim(cells, plan, variants, *, disc: int, lod: str = "0_1"):
     """Repartition the flagged quads. Returns ``({(bx,by): {part: BlockMesh}}, n_quads)``."""
     from .transplant import _sea_shade_grid
@@ -224,8 +242,7 @@ def apply_rim(cells, plan, variants, *, disc: int, lod: str = "0_1"):
             for [c, verts, topo] in moved:
                 nv = []
                 for (p, nr, _u, t) in verts:
-                    k = corner_of(p, i, j)
-                    nv.append((p, nr, uvmap[(min(max(k[0], 0), 1), min(max(k[1], 0), 1))], t))
+                    nv.append((p, nr, _tile_uv(uvmap, p, i, j), t))
                 buckets["sea5"].append([c, nv, topo])
             n += 1
         post[(bx, by)] = {p: build_part([e[1] for e in buckets[p]], p.capitalize(),

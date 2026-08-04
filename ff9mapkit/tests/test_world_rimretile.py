@@ -152,3 +152,18 @@ def test_plan_rim_flags_interior_crop_seams(monkeypatch):
     assert (7, 7) not in got                     # the sheet interior is lawful
     edge = {(i, j) for i in (6, 7, 8) for j in (6, 7, 8)} - {(7, 7)}
     assert edge <= got, sorted(edge - got)       # every crop-edge tile is planned
+
+
+def test_tile_uv_interpolates_a_cut_vert_and_keeps_corners_exact():
+    """THE CUT-VERT LAW: the variant map is EVALUATED at the vert, never corner-snapped.
+    Corner verts stay bit-identical to the harvested corners; a mid-tile vert of a
+    coast-cut triangle gets the tile's real map at its position (the corner snap smeared
+    it into a stretched face -- playtest 2026-08-04)."""
+    uvmap = {(0, 0): (0.0, 0.5), (1, 0): (0.25, 0.5),
+             (1, 1): (0.25, 0.75), (0, 1): (0.0, 0.75)}
+    i, j = 3, 2                                # tile x 12..16, world z -8..-12
+    assert RR._tile_uv(uvmap, (12.0, 0.0, -8.0), i, j) == uvmap[(0, 0)]
+    assert RR._tile_uv(uvmap, (16.0, 0.0, -12.0), i, j) == uvmap[(1, 1)]
+    u, v = RR._tile_uv(uvmap, (13.0, 0.0, -10.0), i, j)   # 1/4 across, 1/2 down
+    assert abs(u - 0.0625) < 1e-9 and abs(v - 0.625) < 1e-9
+    assert (u, v) not in uvmap.values()
