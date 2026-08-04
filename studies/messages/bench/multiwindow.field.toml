@@ -46,6 +46,13 @@
 #           fired and the wait burned its whole timeout. Please time this one roughly -- it is the
 #           only beat whose failure looks like success.
 #
+# ★★ ROUND 2 VERDICT (owner: "good, ~2-3s on the double-window pause") -- ALL THREE BEATS PASS.
+# The pause measurement is the one that matters: 2-3s is the authored 60-frame wait, not the
+# 250-frame (~8.3s) guard, so the [INCS] tags fired as each line finished typing and `wait_signal`
+# exited ON THE SIGNAL. Text-synchronized choreography is proven in-game, not merely traced. Round 1's
+# two defects (the un-held hint dying to a broadcast confirm; Thorn's window clipped to "horn" by an
+# unavoided overlap) are both fixed and both are now LAWS in SURVEY.md §7a.
+#
 # The two NPCs are the speakers; talk to either afterwards to confirm ordinary dialogue is unharmed
 # and control came back. Random battles are OFF -- this bench is about windows.
 #

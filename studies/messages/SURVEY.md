@@ -349,10 +349,19 @@ Also corrected while here: `[TIME=n]` has a **third** mode. `OnTime` (`DialogBox
 sets `EndMode = n` + `FlagButtonInh` for `n > 0`, sets `FlagButtonInh` alone for `-1`, and for **`0`
 CLEARS `FlagButtonInh`** — re-granting dismissal to a window an earlier tag inhibited.
 
-**BUILT** (kit `1.0.0b17`+): cutscene steps `open` / `close` / `wait_window` / `raise` (item 8) and
-`set_signal` / `wait_signal` + the text-side `signal` / `hold` keys (item 7). The wait compiles stock's
-guarded shape and there is **no unguarded form to author** — `timeout <= 0` raises. Emissions and
-laws pinned in `ff9mapkit/tests/test_multiwindow.py`.
+**★★ BUILT AND IN-GAME PROVEN** (kit `1.0.0b17`+; bench 30603, owner-confirmed round 2): cutscene steps
+`open` / `close` / `wait_window` / `raise` (item 8) and `set_signal` / `wait_signal` + the text-side
+`signal` / `hold` keys (item 7). The wait compiles stock's guarded shape and there is **no unguarded
+form to author** — `timeout <= 0` raises. Emissions and laws pinned in
+`ff9mapkit/tests/test_multiwindow.py`.
+
+**The handshake itself is confirmed, by a measurement the bench was built to force.** The unison's
+post-signal wait is 60 frames (~2s) against a 250-frame (~8.3s) guard, so the pause length reports
+which path the loop took — its failure mode is otherwise indistinguishable from success, since a
+timed-out wait still continues and still closes both windows. Owner measured **~2-3s**: the `[INCS]`
+tags fired as each line finished typing and the wait exited **on the signal**. So text→script
+synchronization is real, not just plausible from source — mid-line camera cuts, SFX stings and actor
+reactions timed to words all have a proven substrate.
 
 ## 9. The other channels (not the field dialog window)
 
