@@ -270,6 +270,27 @@ Two hard sub-laws, both exact:
 
 `909090` grey, listed in §6's palette, appears **zero** times in field text.
 
+### ★ Button glyphs: stock has exactly two idioms, and neither is mid-sentence
+
+`[DBTN=NAME]` (default binding) / `[CBTN=NAME]` (follows the player's rebinding) draw the button
+sprite inline. Eleven names ship, with counts: `SELECT` 72 · `START` 64 · `PAD` 52 · `SQUARE` 23 ·
+`CROSS` 22 · `UP`/`LEFT`/`RIGHT`/`CIRCLE`/`DOWN` 15 each · `TRIANGLE` 14.
+
+**The character immediately following a glyph is never a space.** Across all 64 blocks it is:
+
+| after the glyph | sites | the idiom |
+|---|---|---|
+| `:` | 128 | a **legend row** — `[DBTN=START]: Overwrite`, `[DBTN=SELECT]: Skip` |
+| `[` | 192 | another **tag** — the glyph ENDS the phrase (`Press [DBTN=SELECT][MOBI=…]`) |
+| a space | **0** | — |
+
+So stock's prose never flows *through* a glyph. A glyph either leads a legend row (colon, no space)
+or terminates a phrase. ⚠ **Authoring consequence, found in-game** (bench 30603 round 2): a line
+written `Press [DBTN=CROSS] to pick.` renders with the glyph flush against "to" even though the space
+is present in the `.mes` — the sprite is drawn wider than the advance it reserves, so it swallows a
+single following space. Stock never hit this because it never writes that shape. Prefer the legend
+form; if you do want a glyph mid-sentence, pad it explicitly.
+
 ### ★ 16 documented tags stock never uses in field text
 
 `ANIM` · `NTUR` · `PSND` · `NSHD` · `BCOL` · `FONT` · `SPAY` · `FRAM` · `SPRT` · `KCBT` · `JCBT` ·

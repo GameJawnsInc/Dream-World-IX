@@ -115,12 +115,22 @@ face = 0
 speaker = "Merchant"
 dialogue = "Bring me an {item}Ore{/} and I'll pay {amount}300 Gil{/} for it, {name}[ZDNE]{/}. Plain words stay white."
 
+# ROUND 3 asks ONE question: how to space a button glyph. The round-2 prompt read "Press [X] to
+# pick." and the glyph sat flush against "to" -- the authored space IS in the .mes (verified in the
+# deployed entry), so the sprite is drawn wider than the advance it reserves and swallows one space.
+# The census says stock NEVER writes that shape: across all 64 blocks, the character after a button
+# glyph is ALWAYS either ':' (128 sites -- "[START]: Overwrite", a legend row) or '[' (192 sites --
+# another tag, the glyph ending the phrase). ZERO plain spaces. So the three rows below are stock's
+# two idioms plus the padded mid-sentence form; report which reads correctly and whether the double
+# space actually clears the glyph.
 [[choice]]
 npc = "merchant"
-prompt = "Trade the {item}Ore{/}? Press [DBTN=CROSS] to pick."
+prompt = "Trade the {item}Ore{/}?"
 speaker = "Merchant"
 options = [
   { text = "Sell for {amount}300 Gil{/}", reply = "Sold! The rows colour too, kupo." },
+  { text = "[DBTN=CROSS]: Legend row (stock's own idiom, colon, no space)", reply = "That is the shape stock uses 128 times." },
+  { text = "Padded:  [DBTN=CROSS]  two spaces each side", reply = "Does the glyph clear the words now?" },
   { text = "Keep it", reply = "Suit yourself." },
 ]
 
