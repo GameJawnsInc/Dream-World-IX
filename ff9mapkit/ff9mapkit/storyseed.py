@@ -310,6 +310,16 @@ def seed_text(eb: EbScript, beat: int, census: dict, *, field_label: str = "") -
     return "\n".join(parts)
 
 
+def backwards_advance_hazards(census: dict, donor: int, beat: int) -> list[int]:
+    """SC values this donor's scripts WRITE that are BELOW the seeded beat -- a resident
+    advance sequence (e.g. the Dali inn's sleep->morning SC=2600 write) run at a later seeded
+    beat trips stock's backwards-write debug guard ("Error Set Scenario Counter()"; Skip is
+    safe -- each room re-stamps its seed on entry). Warn, don't block: the sequence may be
+    unreachable at the seeded beat."""
+    return sorted({x["value"] for x in census.get("sc_sites", ())
+                   if x["field"] == donor and 0 < x["value"] < beat})
+
+
 def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tuple[str, int, int]]:
     """Append a seed to EVERY member field.toml under *chain_dir* (a fresh seed replaces a
     prior one -- the '# story-seed' marker delimits). ``eb_for_donor(donor_id) -> EbScript``.

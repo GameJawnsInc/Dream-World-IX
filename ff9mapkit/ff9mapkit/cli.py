@@ -529,6 +529,11 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
         _safe_console()
         for path, mid, donor in rows:
             print(f"  seeded {mid} (donor {donor}) @ {beat}: {path}")
+            hz = storyseed.backwards_advance_hazards(census, donor, beat)
+            if hz:
+                print(f"    WARN: donor {donor} writes SC {hz} BELOW the seeded beat -- a "
+                      "resident advance sequence run late trips stock's backwards-write "
+                      "debug guard (Skip is safe; or seed this member at its own beat)")
         print(f"story-seed: {len(rows)} member(s) seeded @ beat {beat}")
         return 0
     if t.isdigit():

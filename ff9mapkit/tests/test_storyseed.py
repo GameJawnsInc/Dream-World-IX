@@ -123,3 +123,11 @@ def test_seed_chain_appends_and_replaces(tmp_path):
     rows2 = storyseed.seed_chain(str(tmp_path), 2000, c, lambda _d: eb)
     text2 = toml.read_text(encoding="utf-8")
     assert text2.count("# story-seed") == 1 and "scenario = 2000" in text2
+
+
+def test_backwards_advance_hazard_detection():
+    c = {"sc_sites": [{"field": 352, "value": 2600}, {"field": 352, "value": 2990},
+                      {"field": 351, "value": 2660}]}
+    assert storyseed.backwards_advance_hazards(c, 352, 2650) == [2600]   # the Dali morning write
+    assert storyseed.backwards_advance_hazards(c, 352, 2500) == []      # nothing below the beat
+    assert storyseed.backwards_advance_hazards(c, 351, 2650) == []

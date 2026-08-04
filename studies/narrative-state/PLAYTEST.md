@@ -107,3 +107,20 @@ The question the whole arc has been building to: **walk beat-2650 Dali as a cohe
 sleeping keeper + moogle, the shop staffed). Report anything scenario-zero-ish or
 beat-INCONSISTENT between rooms (the cross-room coherence is the new claim; single rooms were
 rung 1).
+
+### Chain round 1 (owner, 2026-08-03) — MOSTLY WORKING, one stock guard tripped
+
+- My warp pointer was wrong (30831 = donor 312, the mountain OVERLOOK -- its empty-at-2650
+  state + seam exits are FAITHFUL; the Dagger-naming scene lives at its own 2525-2540 window).
+  The village entrance is 30840 (donor 359). id->donor map now in this doc's table above.
+- **THE POSITIVE: the inn-stay cutscenes played across rooms** -- the sleep sequence carried
+  the player through a RETARGETED warp into 30833 (donor 352, the morning sibling). Cross-room
+  scripted flow works on the seeded chain.
+- **"Error Set Scenario Counter() Old=2650 New=2600"** on waking: STOCK's own backwards-write
+  debug guard. The morning script writes SC=2600 (the Dali-morning advance); our uniform 2650
+  seed is LATER than that resident advance. Skip is safe (each room re-stamps its seed on
+  entry). Tool fix: `story-seed --chain` now WARNS per member when a donor writes SC values
+  below the seeded beat (`backwards_advance_hazards` -- reproduces this exact case: donor 352
+  @ 2650 -> [2600]).
+- LESSON for the study: one beat per zone is right for STANDING state; members holding
+  advance SEQUENCES want a beat at-or-before their own writes (or accept the skippable guard).
