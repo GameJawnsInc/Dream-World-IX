@@ -710,7 +710,11 @@ def flat_patch(ring, *, y: float, uv_quads, idall: int, normal=(0.0, 1.0, 0.0),
 
     out = []
     for ti, tri in enumerate(tris2):
-        qi = (pick(ti) if pick else ti) % len(quads)
+        # THE PER-TILE QUADRANT LAW (see _tile_quad_index): both triangles of a 4u
+        # tile must take the same quadrant. Per-triangle round-robin checkerboards
+        # the sheet -- invisible on a 17-tri fill, catastrophic at scale.
+        qi = (pick(ti) if pick else _tile_quad_index(
+            [((p[0], y, p[1]),) for p in tri], len(quads))) % len(quads)
         u0, v0, u1, v1 = quads[qi]
         cross = ((tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1])
                  - (tri[2][0] - tri[0][0]) * (tri[1][1] - tri[0][1]))
@@ -732,6 +736,39 @@ def flat_patch(ring, *, y: float, uv_quads, idall: int, normal=(0.0, 1.0, 0.0),
                          (float(idall), 0.0, 0.0, 1.0)))
         out.append(poly)
     return out
+
+
+def _tile_origin(tri, tile: float = 4.0) -> tuple[float, float]:
+    """World (x, -z) origin of the 4u tile a flat triangle sits in, keyed on its centroid."""
+    cx = sum(v[0][0] for v in tri) / 3.0
+    cz = sum(v[0][2] for v in tri) / 3.0
+    return (math.floor(cx / tile) * tile, math.floor((-cz) / tile) * tile)
+
+
+def _tile_quad_index(tri, n_quads: int, tile: float = 4.0) -> int:
+    """Which uv quadrant a flat water triangle takes, keyed on its 4u TILE.
+
+    Both triangles of a tile land on the same index by construction, because the key is
+    the tile, not the triangle. The spread across tiles is a fixed hash rather than a
+    counter: a counter walks in scan order and lays down visible diagonal banding, while
+    stock's own spread is uniform across parities (measured).
+    """
+    cx = sum(v[0][0] for v in tri) / 3.0
+    cz = sum(v[0][2] for v in tri) / 3.0
+    gx, gz = int(cx // tile), int((-cz) // tile)
+    # A MIXING hash, not `(a*p ^ b*q) % n`. Taking a modulus keeps only the LOW BITS, so
+    # large primes collapse to a small lattice: the first version made tile parity PREDICT
+    # the quadrant, every neighbour differed (adjacent-variation 1.000 against stock's
+    # 0.880), and the sheet alternated in perfect lockstep -- regular where stock is
+    # irregular. Avalanche the bits first so the low bits actually depend on all of them.
+    h = (gx * 0x9E3779B1) ^ (gz * 0x85EBCA77)
+    h &= 0xFFFFFFFF
+    h ^= h >> 16
+    h = (h * 0x7FEB352D) & 0xFFFFFFFF
+    h ^= h >> 15
+    h = (h * 0x846CA68B) & 0xFFFFFFFF
+    h ^= h >> 16
+    return h % n_quads
 
 
 def retag_flat(tris, *, uv_quads, idall: int, pick=None, winding: float = -1.0) -> list:
@@ -759,6 +796,18 @@ def retag_flat(tris, *, uv_quads, idall: int, pick=None, winding: float = -1.0) 
         raise ValueError("retag_flat needs at least one uv quadrant")
     out = []
     for ti, t3 in enumerate(tris):
+        # THE PER-TILE QUADRANT LAW. Measured on stock sea4: of 135 distinct 4u tiles,
+        # 134 have EVERY triangle on the same quadrant (99.3%). The quadrant is a
+        # per-TILE choice and the two triangles of a tile must agree. Choosing per
+        # TRIANGLE puts a different atlas sub-tile either side of every tile diagonal --
+        # over 644 converted tris that renders as a checkerboard across the whole sheet,
+        # which is exactly what reached a playtest.
+        #
+        # The earlier claim that the quadrant is "genuinely free, so a patch cannot pick
+        # a wrong tile" over-read the measurement: what was measured is that the
+        # DISTRIBUTION is uniform across world-cell parities, which says nothing about
+        # whether NEIGHBOURING triangles may differ. They may not.
+        cq = (pick(ti) if pick else _tile_quad_index(t3, len(quads))) % len(quads)
         cross = ((t3[1][0][0] - t3[0][0][0]) * (t3[2][0][2] - t3[0][0][2])
                  - (t3[2][0][0] - t3[0][0][0]) * (t3[1][0][2] - t3[0][0][2]))
         if winding and cross and cross * winding < 0:
@@ -766,11 +815,19 @@ def retag_flat(tris, *, uv_quads, idall: int, pick=None, winding: float = -1.0) 
                 f"retag_flat: triangle {ti} winds {'+' if cross > 0 else '-'} but the "
                 f"target band winds {'+' if winding > 0 else '-'} -- a re-shade must not "
                 f"flip a face (a back-facing sea tri renders yet reads as void)")
-        u0, v0, u1, v1 = quads[(pick(ti) if pick else ti) % len(quads)]
+        u0, v0, u1, v1 = quads[cq]
+        # UV RELATIVE TO THE TRIANGLE'S OWN TILE, NOT MODULO THE LATTICE. `x/4 % 1` wraps
+        # to 0 at every tile edge, so a triangle SPANNING a tile gets fu = 0 at both ends
+        # -- a collapsed UV that stretches one texel across the face. flat_patch can use
+        # the modulo form because its fill triangles are small slivers inside a hole;
+        # these are stock water tris with median plan area 8u2 against a 16u2 tile, so
+        # they span most of one. Anchoring on the tile the triangle sits in lets fu reach
+        # 1.0 at the far edge, which is how stock maps a tile across its quadrant.
+        gx0, gz0 = _tile_origin(t3)
         poly = []
         for (pos, nrm, _uv, _tan) in t3:
-            fu = (pos[0] / 4.0) % 1.0
-            fv = (-pos[2] / 4.0) % 1.0
+            fu = min(max((pos[0] - gx0) / 4.0, 0.0), 1.0)
+            fv = min(max((-pos[2] - gz0) / 4.0, 0.0), 1.0)
             poly.append((tuple(float(c) for c in pos), tuple(float(c) for c in nrm),
                          (u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv),
                          (float(idall), 0.0, 0.0, 1.0)))
