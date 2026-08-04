@@ -111,7 +111,10 @@ def test_render_page_GROWS_the_header_rule_to_the_widest_line():
     probe = JF.Page("probe", "T", "T", (JF.Line("party.gil", "Gil", "num"),))   # 7-digit worst case
     text, _exprs = JF.render_page(probe, BANKS)
     header = text.split("\n")[0]
-    assert header.startswith("[IMME]== T ="), header          # the rule GREW past the bare "== T "
+    assert header.startswith("== T ="), header                # the rule GREW past the bare "== T "
+    # and NO [IMME]: an instant reply is dismissed by the very press that opened it
+    # (THE BROADCAST-CONFIRM LAW, studies/messages/SURVEY.md §7a -- see render_page).
+    assert "[IMME]" not in text, text[:120]
     assert T.measure(header) > JF._worst_case_width(probe.lines[0], BANKS)
 
 

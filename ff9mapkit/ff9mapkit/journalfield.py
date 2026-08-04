@@ -304,7 +304,19 @@ def render_page(page: "Page", banks: dict) -> tuple:
     header = f"== {page.title} "
     while _text.measure(header) <= widest:
         header += "="
-    return "[IMME]" + header + "\n" + "\n".join(body), tuple(exprs)
+    # ⚠ NO `[IMME]` HERE, AND NO `instant` ON THE OPTION -- THE BROADCAST-CONFIRM LAW.
+    # DialogManager.OnKeyConfirm (DialogManager.cs:335-341) fans a confirm press out to EVERY active
+    # window with no filter, and each Dialog.OnKeyConfirm closes itself if it has finished typing and
+    # !ignoreInputFlag (Dialog.cs:789). `[IMME]` finishes the typing INSTANTLY, so an instant page
+    # opened by a choice is already "finished" when the very press that SELECTED it fans out -- it
+    # dismisses itself on arrival and the dispatch then falls off the end of the tree.
+    # Owner playtest 30801 round 3: "it opens, and when it's finished with the opening animation and
+    # the text shows, it immediately does the closing animation and exits the entire dialogue tree."
+    # A typewriter page survives, because a press mid-type SKIPS to full text instead of closing.
+    # The law's other remedies ([TIME=-1] / [NFOC], which set ignoreInputFlag) are wrong here: the
+    # player must still be able to dismiss the page with a SECOND press.
+    # → studies/messages/SURVEY.md §7a.
+    return header + "\n" + "\n".join(body), tuple(exprs)
 
 
 def _worst_case_width(line: "Line", banks: dict) -> float:
@@ -783,15 +795,12 @@ def bench_toml(*, pages=PAGES) -> str:
         "# (content/choice.py:20-21), so pressing B must close the journal, not open the last page.",
         "[[choice]]",
         'npc = "keeper"',
-        # NO `instant` ON THE CHOICE BLOCK. It was here with the note "[IMME] -- a selector pops
-        # fully drawn (FF9's own shop/menu convention)", which was an ASSERTION nobody checked
-        # against a real field, and this bench was the ONLY [[choice]] in the repository that set
-        # it -- every shipped choice (ferry, siege, shop, hub) omits it. Playtest 30801 round 2:
-        # the selector closed the moment it opened. `[IMME]` is a WINDOW-level tag consumed before
-        # render (DialogBoxSymbols.cs:576-658) while a selector is initialised later, from
-        # Dialog.AfterShown -> InitializeChoice (Dialog.cs:647, gated on HasChoices at :29-36),
-        # so an instant-popped selector is a shape stock never builds. Left off until some real
-        # field is shown to do it. The per-OPTION `instant` stays: those are plain reply windows.
+        # `instant` is OFF on the choice block, but NOT because it is unsafe -- correcting a wrong
+        # call made here mid-debug: studies/messages/bench/winstyle.field.toml:127 sets it on a
+        # [[choice]] and that bench is playtested, so an instant SELECTOR is fine. (The claim that
+        # this was the only such choice in the repo was a bad grep -- too narrow a -B window.)
+        # The real defect was per-OPTION `instant`; see render_page. Left off here only because the
+        # selector is confirmed working in this shape and the round should change one thing.
         # the closing delimiter rides the LAST content line: a newline before it would ship a
         # trailing blank line into the .mes, costing a rendered line against the ~13-line ceiling.
         'prompt = """',
@@ -804,7 +813,7 @@ def bench_toml(*, pages=PAGES) -> str:
               f'  text = "{p.menu}"',
               '  reply = """',
               _bench_page_text(p) + '"""',
-              "  instant = true",
+              # NO `instant` -- THE BROADCAST-CONFIRM LAW kills an instant page (see render_page).
               # slot i is values[i] -- the [NUMB=i] indices in the reply above are render_page's own,
               # so the two orders are the same order by construction. Long lines are the catalog's
               # summed expressions (100 B_HAVE_ITEM terms for the card count), not formatting.

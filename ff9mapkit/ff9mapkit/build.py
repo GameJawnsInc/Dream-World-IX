@@ -2641,6 +2641,30 @@ def validate(project: FieldProject) -> list[str]:
                 # it: content/choice.py:reply_slot_problems.
                 for _tail in _choice.reply_slot_problems(o):
                     problems.append(f"[[choice]] #{c} option {oi} {_tail}")
+                # ★ THE BROADCAST-CONFIRM LAW, at the call site (studies/messages/SURVEY.md §7a).
+                # DialogManager.OnKeyConfirm (DialogManager.cs:335-341) fans a confirm press out to
+                # EVERY active window with no filter, and Dialog.OnKeyConfirm (Dialog.cs:789) closes
+                # a window that has FINISHED TYPING and is not `ignoreInputFlag`. An option reply is
+                # opened BY a confirm press -- the one that picked the row -- so an instant-popped
+                # reply is already finished when that press fans out and dismisses itself on arrival.
+                # Owner playtest, bench 30801: the page "immediately does the closing animation and
+                # exits the entire dialogue tree". A typewriter reply is safe (a mid-type press SKIPS
+                # to full text), and so is one that sets ignoreInputFlag via [TIME=-1]/[NFOC].
+                # NOTE this is about the OPTION's reply, never the choice block's own `instant` --
+                # an instant SELECTOR is proven fine (studies/messages/bench/winstyle.field.toml:127).
+                _reply = str(o.get("reply") or "")
+                if _reply.strip():
+                    _inst = bool(o.get("instant")) or "[IMME]" in _reply
+                    _held = "[NFOC]" in _reply or "[TIME=-1]" in _reply
+                    if _inst and not _held:
+                        problems.append(
+                            f"[[choice]] #{c} option {oi} has an INSTANT reply -- the confirm press "
+                            f"that selects this row fans out to every open window (DialogManager.cs:335-341) "
+                            f"and closes any that has finished typing (Dialog.cs:789), so an instant reply "
+                            f"dismisses itself the moment it opens and the dialogue tree exits. Drop "
+                            f"`instant`/[IMME] from the option (a typewriter reply survives -- a mid-type "
+                            f"press skips to full text), or hold it with [NFOC]/[TIME=-1] if it must not "
+                            f"be dismissable. The choice block's own `instant` is unaffected.")
                 # `values` -- the LIVE NUMBERS lane (content/choice.py:option_values_body). Same
                 # rulebook as [[behavior.hud]]'s `values`, reached through the SAME validator
                 # (behavior.hud_expr_tokens / hud_text_table_slots), because both publish into the
