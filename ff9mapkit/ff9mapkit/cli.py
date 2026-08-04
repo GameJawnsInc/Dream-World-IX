@@ -501,6 +501,58 @@ def _print_source(text: str) -> None:
               f"above is degraded to '?'. Write the exact source with -o FILE.", file=sys.stderr)
 
 
+def _cmd_story_seed(args: argparse.Namespace) -> int:
+    import json as _json
+    import os
+
+    from . import flags as _flags, storyseed
+    from .eb import EbScript
+
+    t = args.target
+    if t.isdigit():
+        from .extract import EventBundle
+        data = EventBundle().eb_for_id(int(t))
+        if not data:
+            print(f"story-seed: no event script for field id {t}", file=sys.stderr)
+            return 1
+        label = t
+    else:
+        data = open(t, "rb").read()
+        label = t
+    if args.beats:
+        _safe_console()
+        for v, name in storyseed.staged_beats(EbScript.from_bytes(data)):
+            print(f"  {v:6d}  ({name})")
+        return 0
+    if not args.beat:
+        print("story-seed: --beat is required (use --beats to list this field's staged beats)",
+              file=sys.stderr)
+        return 1
+    try:
+        beat = int(args.beat)
+    except ValueError:
+        beat = _flags.resolve_scenario(args.beat)
+    cpath = args.census or storyseed.find_census()
+    if not cpath or not os.path.isfile(cpath):
+        print("story-seed: dominance_census.json not found -- run "
+              "`py research/dominance_census.py` from ff9mapkit/ first (or pass --census)",
+              file=sys.stderr)
+        return 1
+    census = _json.load(open(cpath, encoding="utf-8"))
+    rep = storyseed.resolve(EbScript.from_bytes(data), beat, census)
+    _safe_console()
+    print(storyseed.render_startup(rep, field_label=label))
+    _eb = EbScript.from_bytes(data)
+    words = storyseed.render_words(storyseed.ate_word_seed(_eb))
+    if words:
+        print(words)
+    party = storyseed.render_party(storyseed.party_seed(_eb))
+    if party:
+        print()
+        print(party)
+    return 0
+
+
 def _cmd_eb_src(args: argparse.Namespace) -> int:
     from pathlib import Path
 
@@ -6770,6 +6822,19 @@ def build_parser() -> argparse.ArgumentParser:
                      help="round-trip EVERY field event binary in the install (all 7 languages) "
                           "and report N/M byte-exact; exit 1 on any failure")
     esr.set_defaults(func=_cmd_eb_src)
+
+    sse = sub.add_parser("story-seed", help="emit a [startup] block seeding ONLY the story bits "
+                                            "a field READS, resolved at a target beat (rung 1 "
+                                            "of the narrative-state arc)")
+    sse.add_argument("target", help="a numeric field id (extracted from the install) or a .eb path")
+    sse.add_argument("--beats", action="store_true",
+                     help="just LIST the ScenarioCounter values this field stages (pick one "
+                          "of these as --beat; a value between gates hits no scene)")
+    sse.add_argument("--beat",
+                     help="ScenarioCounter value, or a milestone name (flags.resolve_scenario)")
+    sse.add_argument("--census", help="path to dominance_census.json (default: found by walking "
+                                      "up from cwd; regenerate with research/dominance_census.py)")
+    sse.set_defaults(func=_cmd_story_seed)
 
     eas = sub.add_parser("eb-asm", help="assemble .ebs source back into a complete .eb")
     eas.add_argument("src", help="path to a .ebs source file")
