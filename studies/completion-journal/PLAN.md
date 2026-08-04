@@ -6,8 +6,11 @@
 > not against stock Memoria. No in-game behaviour was observed by anyone in this
 > pass — where a mechanism has never run, it says UNVERIFIED.
 
-**STATUS: all tiers NOT STARTED. NEXT = the rung-0 bench probe (§1.1).**
-Mark rungs ★ as they land, in this header, the way the other arcs do.
+**STATUS: ★ rung 0 OWNER-CONFIRMED in-game (bench 30800) — the DLL-free read
+paths work; `Null.SBit[5]` returns real Treasure-Hunter points, and the in-game
+`.eb` and the offline decoder cross-validate exactly (§7.1). ★ T1 BUILT — 48-row
+`journal report` over a real save container. NEXT = rung 0b, a 2-row re-probe to
+resolve `flex(16,3)`, then the T2-vs-catalog scope call (§7.2 Q3).**
 
 ---
 
@@ -1005,6 +1008,62 @@ wild); one key item via `const(256+n) B_HAVE_ITEM` (which also exercises the
 stand and the ladder is a scheduling question. If either returns 0, the whole
 DLL-free half of the ladder collapses onto the C# path and the plan changes on
 day one instead of after a catalog exists. Cost: one field, one round.
+
+### ★ RUNG-0 RESULT — deployed 30800, owner-playtested, 3 saves
+
+**The DLL-free half of the ladder STANDS.** Measured in-game against New Game
+(all zero, correct), SLOT1FILE1 and SLOT1FILE2:
+
+| row | mechanism | New Game | FILE1 | FILE2 | verdict |
+|---|---|---|---|---|---|
+| TH POINTS | `Null.SBit[5]` | 0 | 178 | 215 | **★ CONFIRMED** |
+| SCENARIO | `Global.UInt16[0]` | 0 | 6000 | 7200 | ★ control holds |
+| CHOCO RAW / MASKED | `Global.Int24[187]` ± mask | 0 | 1727 | 1727 | ★ reads; mask **not exercised** |
+| KEY ITEM 0 | `const(256) B_HAVE_ITEM` | 0 | 1 | 1 | ★ CONFIRMED |
+| ZIDANE AA:6 | `flex(16,3)` | 0 | 0 | 0 | **INCONCLUSIVE** |
+| CLAMPED ROW | `B_DIV`+`B_GE`+`B_MULT` | 0 | 6 | 7 | ★ CONFIRMED |
+
+**1. `Null.SBit[5]` works.** The memoria_variable read with zero shipping
+precedent anywhere returns real, per-save Treasure-Hunter points. This was the
+single largest unknown in the study and it is now closed.
+
+**2. Two-instrument cross-validation — the strongest evidence in this document.**
+The in-game `.eb` expression and the offline Python decoder (`journal report`,
+T1) were run against the same save container and agree EXACTLY:
+FILE1 → SC 6000 / TH 178 / choco 1727, offline → SC 6000 / TH 178 / **9**/24 found;
+FILE2 → SC 7200 / TH 215 / choco 1727, offline → SC 7200 / TH 215 / 9/24 found.
+`popcount(1727) = 9`. Two independent implementations over two different access
+paths (live engine heap vs AES-decrypted save block) landing on the same three
+numbers is a much stronger result than either alone.
+
+**3. Expression arithmetic composes.** `B_DIV` / `B_GE` / `B_MULT` evaluate
+correctly inside an expression-valued `SetTextVariable`, and the doubled-value
+clamp idiom produces the right answer (SC/1000 → 6 and 7). The auto-wrap the
+compiler now emits is therefore emitting a shape that demonstrably works.
+
+**4. `flex(16,3)` is NOT confirmed, and the engine has a silent-zero path.**
+`PLAYER_ABILITY_LEARNT(charIdx, abilityId, alsoCheckEquip)` (`EBin.cs:421-435`)
+`break`s **without assigning `_v0`** when the character is null, has no AP, or
+when `FF9Abil_GetIndex` does not find that ability id in the character's list.
+So `0` cannot be distinguished from "the read fell through". It could not be
+resolved offline either: both tested saves are `main (vanilla)` with no Memoria
+extra, so the ability store is genuinely absent — the T1 reader correctly reports
+`unavailable` rather than 0, which independently validates the Finding-5 fix on
+real data. **A follow-up probe must read an ability the character has certainly
+mastered, plus a deliberate known-bad index as a control.**
+
+**5. The Int24 sign-extension bites ONLY at the 24th chocograph — and that is
+this feature's target state.** Computed exactly: 23 found reads 8,388,607; **24
+found reads −1**. At 9 found the mask is a true no-op, which is why RAW and
+MASKED matched and why this row could not fire. So the hazard is invisible at
+every state EXCEPT 24/24 completion — meaning a completion journal is precisely
+the feature that reaches it, and it can never be caught by testing on a partial
+save. **Always mask; never rely on a playtest to reveal this one.**
+
+**6. Cosmetic, but a real T1b datum:** the header word-wrapped
+(`=== COMPLETION PROBE / RUNG` / `0 ====`). The window's real character budget is
+narrower than the authored line. T1b's page layout must be measured against the
+live window, not assumed — this is the same class as §T2 blocker (b).
 
 Two guards while building it: `ETb.GetStringFromTable` bounds the SLOT and the
 UPPER row index but has **no lower bound** on `tableIndex = gMesValue[index]`
