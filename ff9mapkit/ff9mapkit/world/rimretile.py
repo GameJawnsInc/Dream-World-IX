@@ -161,25 +161,35 @@ def _grids(cells):
 
 
 def plan_rim(cells) -> dict:
-    """``{(bx,by): {(i,j): (target_part, deepset)}}`` for every OUTER-FRAME shallow quad."""
+    """``{(bx,by): {(i,j): (target_part, deepset)}}`` for every shallow quad that NEEDS
+    re-tiling: an outer-frame quad (the original cropped-rim class -- an unshifted carry
+    lands its crop lines on the island bbox frame), OR a MEASURED seam anywhere in the
+    cells -- a sea3 quad touching deep (stock abuts sea3 to deep NOWHERE map-wide), or a
+    sea5 whose encoded deep-set mismatches its geometric one. THE CROP-SEAM WIDENING
+    (2026-08-04): a cluster-SHIFTED carry lands its crop lines MID-CELL, where the
+    frame-only audit never looked -- measured on the composed dot pair's channel."""
     island = list(cells)
     shade, water = _grids(cells)
     xs = sorted({c[0] for c in island})
     ys = sorted({c[1] for c in island})
     plan = defaultdict(dict)
     for (bx, by) in island:
+        enc5 = _sea5_deepsets(cells[(bx, by)])
         for i in range(G):
             for j in range(G):
                 if not water[(bx, by)][i][j]:
                     continue
-                if shade[(bx, by)][i][j] not in ("sea3", "sea5"):
-                    continue
-                on_frame = ((bx == xs[0] and i == 0) or (bx == xs[-1] and i == G - 1)
-                            or (by == ys[0] and j == 0) or (by == ys[-1] and j == G - 1))
-                if not on_frame:
+                sh = shade[(bx, by)][i][j]
+                if sh not in ("sea3", "sea5"):
                     continue
                 ds = deepset(shade, water, island, bx, by, i, j)
                 if not ds:
+                    continue
+                on_frame = ((bx == xs[0] and i == 0) or (bx == xs[-1] and i == G - 1)
+                            or (by == ys[0] and j == 0) or (by == ys[-1] and j == G - 1))
+                seam = (sh == "sea3"
+                        or frozenset(enc5.get((i, j), ())) != frozenset(ds))
+                if not (on_frame or seam):
                     continue
                 plan[(bx, by)][(i, j)] = ("sea4" if len(ds) == 4 else "sea5", ds)
     return dict(plan)

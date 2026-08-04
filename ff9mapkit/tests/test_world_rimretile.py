@@ -131,3 +131,24 @@ def test_harvest_tolerates_a_donor_with_no_sea5(monkeypatch):
 
     monkeypatch.setattr(X, "read_block", boom)
     assert RR.harvest_variants([(6, 7)]) == {}      # skipped, not raised
+
+
+def test_plan_rim_flags_interior_crop_seams(monkeypatch):
+    """THE CROP-SEAM WIDENING (2026-08-04): a cluster-SHIFTED carry lands its crop lines
+    MID-CELL, where the frame-only audit never looked -- measured live on the composed
+    dot pair (a hard-edged sea3 sheet ending mid-channel). A sea3 quad touching deep is
+    a seam ANYWHERE (stock abuts sea3 to deep nowhere map-wide); a sea3 quad inside its
+    own sheet is not."""
+    shade_g = [["sea4"] * RR.G for _ in range(RR.G)]
+    for i in (6, 7, 8):
+        for j in (6, 7, 8):
+            shade_g[i][j] = "sea3"
+    water_g = [[True] * RR.G for _ in range(RR.G)]
+    monkeypatch.setattr(RR, "_grids",
+                        lambda cells: ({(5, 5): shade_g}, {(5, 5): water_g}))
+    monkeypatch.setattr(RR, "_sea5_deepsets", lambda parts: {})
+    plan = RR.plan_rim({(5, 5): {}})
+    got = set(plan.get((5, 5), {}))
+    assert (7, 7) not in got                     # the sheet interior is lawful
+    edge = {(i, j) for i in (6, 7, 8) for j in (6, 7, 8)} - {(7, 7)}
+    assert edge <= got, sorted(edge - got)       # every crop-edge tile is planned
