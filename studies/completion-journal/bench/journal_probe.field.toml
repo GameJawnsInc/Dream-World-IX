@@ -1,0 +1,175 @@
+# =====================================================================================
+# COMPLETION-JOURNAL RUNG-0 PROBE  --  field 30800
+# =====================================================================================
+# ONE window, SEVEN live reads, ONE playtest round. It falsifies the DLL-free half of the
+# journal ladder: if a row reads a stuck 0 while the game state says otherwise, that
+# mechanism is dead and the tier that depends on it must be re-scoped.
+#
+# WHAT IS AND IS NOT IN DOUBT. The expression-valued SetTextVariable itself is NOT the
+# question -- it already ships and is in-game proven at content/behavior.py (the HUD live
+# pass), content/numinput.py:413 (the Treno bid stepper, bench 30417) and
+# content/mognet.py:292 (mail sender names). What has ZERO precedent here is:
+#   * slot 0 -- `Null.SBit[5]`, a MEMORIA CUSTOM VARIABLE read (EBin.cs:1689 ->
+#     GetMemoriaCustomVariable, memoria_variable.TREASURE_HUNTER_POINTS = index 5,
+#     EBin.cs:2416-2431 / :1703-1704). Never executed by this kit.
+#   * slot 5 -- `flex(16,3)`, a flexible_varfunc read (PLAYER_ABILITY_LEARNT, the 17th
+#     entry of EBin.cs:2388-2413; implementation EBin.cs:421-435). Never executed either.
+# Slots 1-4 and 6 are cheap confirmations that ride along in the same window.
+#
+# DEPLOY (the HUMAN does this -- the agent does not):
+#   py tools/deploy_field.py studies/completion-journal/bench/journal_probe.field.toml --id 30800
+# 30800 is a FIRST deploy of a new id -> needs a RELAUNCH (it registers a DictionaryPatch
+# line). Re-read <game>/FF9CustomMap/DictionaryPatch.txt AND FF9CustomMap-world's before
+# deploying: EventDB/SceneData are GLOBAL across stacked folders and ~18 worktrees share
+# this install, so "30800 was free an hour ago" is not a registry.
+#
+# READ IT WITH A REAL SAVE, NOT A FRESH ONE. A fresh save shows 0/0/0 and proves nothing:
+# a stuck 0 is indistinguishable from a correct 0. Every row needs BOTH polarities.
+
+[field]
+id = 30800               # dev-scratch band (30000-32767; fldMapNo is Int16, max 32767)
+name = "JOURNALPROBE"    # -> FBG_N11_JOURNALPROBE (background) + EVT_JOURNALPROBE.eb
+area = 11                # must be >= 10 (BG area 0-9 black-screens)
+title = "JOURNAL PROBE"
+# text_block deliberately UNSET: the kit derives it from the field id (30800) and
+# auto-registers it. Pinning a real block would overwrite that location's dialogue --
+# the mesID namespace is ONE FLAT GLOBAL space shared with the base game.
+
+# --- scene: the proven flat coop-band room (silent-bench / coopgate geometry) ---------
+# A NOVEL field, not a fork. [behavior] is REFUSED on a verbatim fork (the donor's real
+# .eb runs; behavior needs the kit's injected NPC entries), and [[logic_add]] is refused
+# on anything that is not verbatim -- the two lanes are mutually exclusive, so the fork
+# mode has to be chosen before authoring. Novel also means this probe runs on STOCK
+# Memoria: no fork-gate suite, nothing to confound a null result with.
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"   # PLACEHOLDER (solid slate) -- a bench needs no real art
+z = 4000
+[[layers]]
+image = "art/floor.png"  # PLACEHOLDER (perspective checkerboard)
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# --- the NPC that exists ONLY to make the [behavior] block compile -------------------
+# content/behaviortoml.py table() is
+#     return b if isinstance(b, dict) and b.get("unit") else None
+# so a [behavior] block carrying ONLY a hud compiles to NOTHING, SILENTLY, and
+# validate() returns []. Ship the probe without this NPC + unit row and the playtest
+# reports "no window appeared" -- which is indistinguishable from "every read returned
+# 0". That is the project's recurring defect class (a check that cannot fail), so the
+# dummy unit is load-bearing, not decoration. 400u from the spawn: actors jam under
+# ~192u.
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+warmup = 30              # frames before the ticker starts (the strip opens after this)
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }        # stand still; the unit row is a compile gate
+
+  # --- THE STRIP: seven live reads, one window, no paging --------------------------
+  # ETb.SetMesValue (ETb.cs:230-234) clamps scriptID to 0..7 against
+  # gMesValue = new Int32[8] (EventEngine.Initialize.cs:30) -- seven values fit, and 8
+  # rendered lines is inside the ~13-line page ceiling. The binding constraint is WIDTH.
+  [[behavior.hud]]
+  window = 6
+  # digits = the OPEN-PASS width sentinel per slot. It rides SetTextVariable's u16
+  # IMMEDIATE operand, so it saturates at 65535 = five glyphs: anything above 5 means 5
+  # (behaviortoml.HUD_DIGITS_REACHABLE). The raw chocograph row can render nine glyphs
+  # ("-8388608"), which no sentinel can reserve -- that is why the header line is the
+  # width pin (see `text` below), not `digits`.
+  digits = [3, 5, 5, 5, 1, 1, 5]
+  values = [
+    # 0  TREASURE-HUNTER POINTS. `Null.SBit[5]` -> token 0xC0|(0<<2)|3 = 0xC3, index 05.
+    #    EvaluateValueExpression (EBin.cs:1621) -> case VariableSource.Null -> case
+    #    VariableType.Any -> GetMemoriaCustomVariable((memoria_variable)(t0 & 0xFFFF)).
+    #    The SPELLING IS FORCED: the kit's VAR_TYPE maps 0 -> "SBit" only, so
+    #    `Null.Any[5]` will not assemble. Every other varType under Null falls through
+    #    to `return 0` at EBin.cs:1672 -- silently.
+    "expr:Null.SBit[5]",
+    # 1  SCENARIO COUNTER. Global.UInt16[0] -> 0xC0|(7<<2)|0 = 0xDC, index 00. The UInt16
+    #    arm (EBin.cs:1870-1872) is buffer[0] | buffer[1]<<8 -- byte-identical to
+    #    EventState.ScenarioCounter (EventState.cs:16-18). A chapter heading, NOT a quest
+    #    key; it is here to be seen moving, not to be trusted as completion state.
+    "expr:Global.UInt16[0]",
+    # 2  CHOCOGRAPH "FOUND" BITFIELD, RAW. Byte 187 (bytes 187-189; OPENED is 184-186)
+    #    per flags.py:378-382. Int24 -> 0xC0|(2<<2)|0 = 0xC8, index BB.
+    #    BOTH Int24 AND UInt24 SIGN-EXTEND: EBin.cs:1858-1861 falls Int24 through into
+    #    UInt24 and casts the top byte `(SByte)buffer[ofs+2] << 16`. There is NO unsigned
+    #    24-bit spelling. 24/24 chocographs found reads -1 either way. Observing that in
+    #    the wild is the point of this row.
+    "expr:Global.Int24[187]",
+    # 3  ...AND MASKED. const4 is B_CONST4 (0x7E + 4 LE bytes; the engine masks the read
+    #    to 26 bits at EBin.cs:1243, and 0xFFFFFF fits). B_AND is 0x24 (EBin.cs:807-814),
+    #    RPN order `A B B_AND` = A & B. 16777215 is inside the 26-bit positive range, so
+    #    this row is safe. Expected all-found reading: 16777215 while row 2 reads -1.
+    "expr:Global.Int24[187] const4(16777215) B_AND",
+    # 4  ONE KEY ITEM HELD. B_HAVE_ITEM (0x64) -> ff9item.FF9Item_GetCount_Generic, which
+    #    routes 256 <= id%1000 < 512 to IsItemImportant -> FF9Item_IsExistImportant(id-256)
+    #    ? 1 : 0. So const(256) = IMPORTANT ID 0. Stay in 0-79 (the vanilla key-item band,
+    #    content/folklore.py:93-94): 80-254 is the Folklore codex MINT band, and a read
+    #    there returns a codex entry, not a stock key item. Cross-check Menu > Key Items.
+    "expr:const(256) B_HAVE_ITEM",
+    # 5  ONE ABILITY LEARNT. flex(16,3) -> D3 10 00 03 = flexible_varfunc index 16,
+    #    PLAYER_ABILITY_LEARNT, 3 args. expr_customSubCommand (EBin.cs:351-359) pops
+    #    `for (i = argCount-1; i>=0; i--)`, so args are pushed LEFT TO RIGHT:
+    #      args[0] = CharacterOldIndex   -> const(0)  = Zidane
+    #      args[1] = unified ability id  -> const(6)  = AA:6 (the literal is baked here on
+    #                                       purpose; no resolver in a falsification path)
+    #      args[2] = count equipment-granted abilities -> const(0) = no, learnt only
+    #    TEST BOTH POLARITIES in one round: a stuck 0 and a correct 0 look identical.
+    "expr:const(0) const(6) const(0) flex(16,3)",
+    # 6  A CLAMPED COMPUTED ROW INDEX. `E E const(0) B_GE B_MULT` = E * (E >= 0) -- the
+    #    multiply-by-predicate idiom, because there is no numeric clamp operator
+    #    (B_LMAX/B_LMIN are PARTY-MEMBER argmax/argmin selectors,
+    #    EventEngine.OperatorExtract.cs:80-130, and reaching for them silently yields a
+    #    member bitmask). This is the guard a [TEXT=bank,slot] row needs:
+    #    ETb.GetStringFromTable (ETb.cs:272-284) bounds the slot and the UPPER row but has
+    #    NO lower bound, so a negative indexes tableText[-n] and throws -- once per
+    #    RENDERED FRAME, since a hud row re-parses every frame.
+    #    THE [TEXT=] GLYPH ITSELF IS RUNG 0b, NOT HERE: rendering it needs a minted text
+    #    ENTRY split by [TBLE=], and the kit's only [TBLE=] emitter is hardwired to the
+    #    Mognet roster. This row therefore publishes the clamped NUMBER; the glyph half
+    #    lands when the [[text_table]] lane exists.
+    #    WRITTEN OUT LONGHAND ON PURPOSE, as the demonstration of the idiom. The AUTHOR no
+    #    longer has to: any slot a [TEXT=...] tag reads is wrapped by the EMITTER
+    #    (behavior.hud_row_index_clamp) so an unclamped publish is unrepresentable rather
+    #    than merely refused. This slot feeds [NUMB=6], not [TEXT=], so what ships here is
+    #    exactly the bytes below -- the wrap is scoped to row-index slots.
+    "expr:Global.UInt16[0] const(1000) B_DIV Global.UInt16[0] const(1000) B_DIV const(0) B_GE B_MULT",
+  ]
+  # THE WIDTH PIN. Dialog.AutomaticSize bakes Width ONCE at open from parser.MaxWidth --
+  # the WIDEST RENDERED LINE -- and a later value change only re-parses, never re-sizes.
+  # So the header line must stay wider than any value row, or the strip clips mid-round
+  # and the tester reads a truncated number as a wrong number.
+  # NO [STRT=] TAG: it flips CanAutoResize() false and hands sizing to WidthHint.
+  # NO [WDTH=] TAG EITHER: NGUIText.GetDialogWidthFromSpecialOpcode decodes [TEXT=] in
+  # the LEGACY PACKED form (one operand, bank=(t>>4)&3, slot=t&7) while the render path
+  # reads two independent params -- the divergence is currently inert because its only
+  # call site is "// Dummied", and adding [WDTH] is exactly what activates it.
+  text = """[MPOS=8,8]=== COMPLETION PROBE / RUNG 0 ====
+TH POINTS      [NUMB=0]
+SCENARIO       [NUMB=1]
+CHOCO RAW      [NUMB=2]
+CHOCO MASKED   [NUMB=3]
+KEY ITEM 0     [NUMB=4]
+ZIDANE AA:6    [NUMB=5]
+CLAMPED ROW    [NUMB=6]"""

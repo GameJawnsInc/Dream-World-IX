@@ -5753,6 +5753,73 @@ def _cmd_flags_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_journal(args: argparse.Namespace) -> int:
+    """The 100%-completion JOURNAL -- read-only. `report` decodes one save (one section per populated
+    slot), `diff` shows what a session moved, `rows` dumps the row catalog (no save, no install), `lint`
+    runs the schema gate (exit 2 on any violation, so it works in CI)."""
+    import json as _json
+    from . import journal as J
+    if args.action in ("rows", "lint"):                                 # neither touches a save or the install
+        if args.action == "lint":
+            bad = J.lint_rows()
+            for msg in bad:
+                print(f"journal row schema: {msg}")
+            print(f"{len(J.ROWS)} row(s) checked, {len(bad)} violation(s)")
+            return 2 if bad else 0
+        specs = J.rows_json()
+        if args.json:
+            print(_json.dumps(specs, indent=2))
+            return 0
+        print(f"{len(specs)} journal row(s) -- id / category / denominator / provenance / status\n")
+        for s in specs:
+            if args.category and s["category"] != args.category:
+                continue
+            den = f"/{s['denom']}" if s["denom"] is not None else ""
+            print(f"  {s['id']:<34} {s['category']:<9} {s['label']}{den}")
+            print(f"  {'':<34} {s['provenance']:<9} {s['status']:<12} {s['source']}")
+        return 0
+    if not args.save:
+        print(f"journal {args.action} needs a save path (SavedData_ww.dat, a Memoria extra-save, a save "
+              "JSON, or a bare Base64 gEventGlobal blob)")
+        return 2
+    try:
+        reps_a = J.reports(args.save)
+        reps_b = J.reports(args.b) if args.b else reps_a
+    except Exception as e:                                              # noqa: BLE001
+        print(f"could not read completion state: {e}")
+        return 2
+    if args.action == "diff":
+        sa = args.slot_a if args.slot_a is not None else 0
+        sb = args.slot_b if args.slot_b is not None else (1 if args.b is None else 0)
+        if not 0 <= sa < len(reps_a):
+            print(f"save A has {len(reps_a)} populated slot(s); --slot-a {sa} is out of range")
+            return 2
+        if not 0 <= sb < len(reps_b):
+            print(f"save B has {len(reps_b)} populated slot(s); --slot-b {sb} is out of range "
+                  f"(diffing two slots of one save needs >=2 populated slots)")
+            return 2
+        print(J.render_diff(J.diff_reports(reps_a[sa], reps_b[sb])))
+        return 0
+    if args.slot is not None:                                           # report: one slot, or all of them
+        if not 0 <= args.slot < len(reps_a):
+            print(f"this save has {len(reps_a)} populated slot(s); --slot {args.slot} is out of range")
+            return 2
+        reps_a = [reps_a[args.slot]]
+    # A row whose READER RAISED is a kit bug, not missing save state, and it exits non-zero so a
+    # broken reader cannot ride along inside an otherwise-fine-looking report (the `--json` path
+    # carries the same fact per row as `"status": "error"` + `"error"`).
+    broken = sum(len(r.broken) for r in reps_a)
+    if args.json:
+        print(_json.dumps([{"label": r.label, "rows": J.rows_json(r)} for r in reps_a], indent=2))
+        return 2 if broken else 0
+    multi = len(reps_a) > 1
+    for i, rep in enumerate(reps_a):
+        if multi:                                                      # label each slot of a multi-save .dat
+            print(("\n" if i else "") + f"=== {rep.label} ===")
+        print(J.render_report(rep, category=args.category, show_all=args.all))
+    return 2 if broken else 0
+
+
 def _cmd_save_edit(args: argparse.Namespace) -> int:
     """Set a real FF9 save's story state (ScenarioCounter + flags) -- the RECREATE verb. Dry-run unless
     --out or --in-place is given; --in-place backs the original up first. Never mutates other state."""
@@ -8600,6 +8667,31 @@ def build_parser() -> argparse.ArgumentParser:
                     help="B's populated-slot index (default 1 when B is omitted, else 0)")
     fd.add_argument("--all", action="store_true", help="also list the raw unmapped bit indices")
     fd.set_defaults(func=_cmd_flags_diff)
+
+    # The 100%-completion journal. One parser + a positional `action` (the `walkmesh` idiom at :6440),
+    # not nested subparsers. READ-ONLY by construction: no --apply, no write surface reachable from here.
+    jr = sub.add_parser("journal",
+                        # argparse %-expands help strings -> a literal percent must be doubled
+                        help="read a save's 100%%-completion state (report / A->B diff / the row catalog)")
+    jr.add_argument("action", choices=["report", "diff", "rows", "lint"],
+                    help="report: one save ; diff: A->B ; rows: the row catalog (no save, no install) ; "
+                         "lint: the row-schema gate (exit 2 on a violation)")
+    jr.add_argument("save", nargs="?", default=None,
+                    help="SavedData_ww.dat (per slot), a Memoria extra-save, a save JSON file/text, "
+                         "or a bare Base64 gEventGlobal blob")
+    jr.add_argument("b", nargs="?", default=None, help="diff: save B (default: another slot of A)")
+    jr.add_argument("--slot", type=int, default=None,
+                    help="report: one populated-slot index (default: every populated slot)")
+    jr.add_argument("--slot-a", type=int, default=None, help="diff: A's slot index (default 0)")
+    jr.add_argument("--slot-b", type=int, default=None,
+                    help="diff: B's slot index (default 1 when B is omitted, else 0)")
+    from .journal import CATEGORIES as _J_CATEGORIES     # pure module: no game-data I/O at import
+    jr.add_argument("--category", default=None, choices=list(_J_CATEGORIES),
+                    help="show only one category")
+    jr.add_argument("--all", action="store_true",
+                    help="also show the untracked + dead rows (what the game does NOT keep)")
+    jr.add_argument("--json", action="store_true", help="emit the rows as JSON (the catalog seed)")
+    jr.set_defaults(func=_cmd_journal)
 
     from .save import WORLD_ACTORS as S_WORLD_ACTORS
     se = sub.add_parser("save-edit",

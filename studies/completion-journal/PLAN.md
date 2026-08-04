@@ -105,12 +105,17 @@ mints its entries as important-ids 80-254 in the same namespace (§T2).
 **Three structural facts fall out of this table and they set every tier boundary
 below.**
 
-1. **The `AchievementState` bucket is unreachable from BOTH `.eb` AND the
-   Memoria extra save.** `ParseAchievementDataToJson` runs only on the encrypted
-   main node (`Global/JsonParser.cs:46`) and the extra carries only
+1. **The `AchievementState` bucket is unreachable from `.eb`, and is a
+   *bounded* offline problem rather than an open-ended one.**
+   `ParseAchievementDataToJson` runs only on the encrypted main node
+   (`Global/JsonParser.cs:46`); the extra carries only
    `95000_Setting / 20000_Event / 40000_Common / 30000_MiniGame` (`:225-240`).
-   So the offline report cannot validate the in-game rows for exactly the
-   categories that most need validating.
+   **Revised during the T1 build:** its save node `80000_Achievement` is a
+   **fixed-size, sentinel-padded block** — 100+17+8+221+63+3+300 Int32s = 2848
+   bytes, arrays tail-padded with −1. That is a materially cheaper location
+   problem than "map the whole flat stream", which is how the scoping pass
+   priced it. It still stays OUT of T1 (shipped as labelled `untracked` rows),
+   but T3's blocker is smaller than originally written.
 2. **The achievement array is a latch, not a counter.** `AchievementStatusesEnum`
    = `{NotUnlockYet, ReadyToUnlock, UnlockComplete, Invalid}` (verified by
    reading the file). `ReportAchievement` computes `percentProgress`
@@ -198,27 +203,33 @@ but it is net-new code at the tier the whole ladder is calibrated on.
 before you judge with it.* T0 proves every read path before any surface is
 minted, and it costs one existing file.
 
-**It must also fix a live defect.** `Ff9mkDebugMenu.cs` (inside `StorySummary`, from `:2530`) popcounts
-`gEventGlobal` bytes 1047-1063 and prints it as **"chests opened"** — that band
-is bits 8376-8511, the **Mognet give/read lock table**
-(`ff9mapkit/ff9mapkit/flags.py:56, :269-283`). The shipped debug readout is wrong
-today. Three further stale artifacts ride with it, none previously listed
-together:
+**It had to fix a live defect first — ★ DONE, owner-confirmed in-game.** The
+shipped debug readout popcounted `gEventGlobal` bytes 1047-1063 and printed it as
+**"chests opened"**; that band is bits 8376-8511, the **Mognet give/read lock
+table** (`ff9mapkit/ff9mapkit/flags.py:56, :269-283`). `RegionLabel` carried the
+same `[chest_opened]` label and additionally called 8512-16319 the "safe custom
+band" while `flags.py:53` sets `FIRST_SAFE_FLAG = 8712` — i.e. it was telling
+authors that 8512 is safe, which is the documented save-corrupter. The kit and
+the research notes carried the mislabel too.
 
-- `RegionLabel` (`:2520-2529`) still returns `[chest_opened, RESERVED]` for
-  8376-8511;
-- `RegionLabel` calls 8512-16319 the "safe custom band" while
-  `flags.py:53` sets `FIRST_SAFE_FLAG = 8712` — the debug menu tells an author
-  that 8512 is safe, which is the documented save-corrupter;
-- `RegionLabel` tests `bit == 184 || bit == 191`, comparing a BIT index against
-  the chocograph/terrain **byte** offsets — the guard fires on two arbitrary bits
-  and never on the intended 112;
-- and the mislabel is **also still in the kit**: `content/chest.py:44` says the
-  required `flag_idx` prevents collision "with FF9's own chest bitfield
-  ([8376, 8511])". `research/STORY_FLAGS.md:103` carries it too.
+Fixed on `master` by `memoria-patches/s78-debug-menu-flag-band-labels.patch`
+(+ `content/chest.py`, `research/STORY_FLAGS.md`); `RegionLabel` now splits the
+Mognet mailbox / give locks / read locks / margin / read-mail payload bands
+separately and floors the safe band at 8712.
 
-Anyone who builds a journal by reading the existing readout inherits a wrong
-number. Fix these before T1 seeds a catalog from them.
+**One of this study's own sub-findings was wrong and is recorded here so it is
+not "re-fixed".** The scoping pass flagged `bit == 184 || bit == 191` as a
+bit-versus-byte confusion against the chocograph offsets. **It is not a bug** —
+those are byte 23's genuinely *bit*-addressed engine handshake (field-menu guard
+at 23.0, boot scratch at 23.7). The real gap was the opposite: the *byte*-184-191
+chocograph range (bits 1472-1535) had no label at all. s78 adds it and documents
+the two addressing modes at the call site.
+
+**The standing lesson for the journal, unchanged:** a Bit var's index is a bit
+address (`byte = n>>3`), a Byte/Int16/Int24 var's index is a **raw byte offset**.
+Every row in §2 mixes both. Anyone who builds a journal by reading a readout
+without checking which addressing mode a row uses inherits a wrong number — which
+is exactly how the "chests opened" line survived this long.
 
 **Blocker:** an engine DLL rebuild AUTO-DEPLOYS over the live install with no
 backup (CLAUDE.md §4). Back up `Assembly-CSharp.dll` first.
@@ -246,14 +257,29 @@ byte/Int24/UInt16 reads from §2.
 **The non-gEventGlobal state splits into a cheap path and an expensive one, and
 the designs conflated them.** The Memoria-**extra** JSON sidecar
 (`95000_Setting / 20000_Event / 40000_Common / 30000_MiniGame`, `JsonParser.cs:225-240`)
-is plain JSON on disc — rare items and the card list are reachable with **no
-decryption at all**, and `save.py:98-122` already opens that file. The
-**encrypted main block** is a different problem: it decrypts fine (below) but is
-"a flat, schema-ordered value stream" (`save.py:12`) for which the kit has **no
-offset map** — it locates `gEventGlobal` by scanning for its 2732-char Base64
-field (`_find_b64_geg`, `:86-96`), which is a targeted trick, not a parser. So
-ATEs and `AchievementState` are **not** "a module read"; they are a schema-mapping
-project of their own.
+is plain JSON on disc — reachable with **no decryption at all**. **And the kit
+already reads it**: `save_items.py` + `sjbinary.py` parse that sidecar today, so
+the scoping pass's "T1 must add the extra-JSON reader" blocker is **void**.
+Measured during the build, `40000_Common` also carries `frog_no`, `steal_no`,
+`escape_no`, `battle_no`, the 8 kill categories and `kills_per_model`, and
+`30000_MiniGame` carries the whole card list — which makes
+`MiniGame_GetPlayerPoints` and `MiniGame_GetCollectorLevel` **exactly reproducible
+offline** (measured on a real save: 431 pts, collector Lv 2). The
+**encrypted main block** is the expensive half: it decrypts fine (below) but is
+"a flat, schema-ordered value stream" (`save.py:12`) for which the kit has no
+offset map — it locates `gEventGlobal` by scanning for its 2732-char Base64
+field (`_find_b64_geg`, `:86-96`), a targeted trick, not a parser.
+
+**Two row-level corrections found by executing the reads, not by reading source.**
+(a) The gEventGlobal Stiltzkin byte 1033 is **not** the counter
+`AllStiltzkinItem=8` scores — that is `AchievementState.StiltzkinBuy`
+(`EMinigame.cs:50-52`) — so that denominator must not be attached to byte 1033.
+(b) The Treasure-Hunter ×2 band (bytes 182-186) **overlaps** the
+chocograph-opened Int24 (bytes 184-186), so dug chocographs already contribute 48
+TH points: those two rows are **not independent**, and presenting them as separate
+progress bars double-counts. All 10 `AchievementInfo` denominators were
+re-verified across `DataWorld` and `DataJapanese` (all 87 keys) and are
+**identical**, so the targets are region-independent.
 
 **Why this is the highest-confidence tier in the ladder:** its rows are
 transcribed engine constants with a `file:line` source, not prose. The engine's
@@ -263,19 +289,23 @@ own `Target` values pin nearly every denominator exactly —
 `ATE80=79`, `CardWinAll=235`, `Moonstone4=4`
 (`AchievementManager.cs`, the `AchievementInfo` dictionary).
 
-**Blockers — narrower than the designs assumed.** `flags.gEventGlobal_from_save`
-reads OPEN JSON or bare base64 only (`flags.py:766-769`), but
-`ff9mapkit/ff9mapkit/save.py` **closes that gap and it is verified, not
-speculative**: AES-256-CBC, PBKDF2-HMAC-SHA1 ×1000, salt `[3,3,1,4,7,0,9,7]`,
-password literal `"System.Security.SecureString"`, "Verified against a real save"
-(`save.py:1-24`), exposing `FF9Save.gEventGlobal(n)` / `set_gEventGlobal(n)`
-(`:171-194`) over real `EncryptedSavedData` slots. **So every gEventGlobal-backed
-row in §2 — which is most of them — is unblocked today.** The real gap: `save.py`'s
-API is gEventGlobal-ONLY (a grep for `rareItems|40000_Common|30000_MiniGame|AchievementState|AteCheck`
-over it returns **0**), so T1 must add the extra-JSON reader itself, and per §2
-fact 1 the `AchievementState` bucket is main-block-only — T1 cannot validate the
-achievement rows that T3 would render, at any price short of mapping the flat
-stream.
+**Blockers — much narrower than the designs assumed, and T1 is now BUILT.**
+`flags.gEventGlobal_from_save` reads OPEN JSON or bare base64 only
+(`flags.py:766-769`), but `ff9mapkit/ff9mapkit/save.py` closes that gap and it is
+verified, not speculative: AES-256-CBC, PBKDF2-HMAC-SHA1 ×1000, salt
+`[3,3,1,4,7,0,9,7]`, password literal `"System.Security.SecureString"`
+(`save.py:1-24`), exposing `FF9Save.gEventGlobal(n)` over real
+`EncryptedSavedData` slots. `save_items.py` + `sjbinary.py` cover the extra
+sidecar. **Every gEventGlobal-backed row in §2 is reachable today, and the reads
+were executed against a real save container** — TH 215 pts, chocographs 9 found /
+6 dug, Stellazzio 5/13, ragtime 3/16, beak Lv 16/99, Mognet 13 delivered, hunt
+winner 2, coins 13/51, cards 431 pts / collector Lv 2. All decoded sanely, which
+retires the "does the substrate actually work offline" question entirely.
+
+The one remaining gap: per §2 fact 1 the `AchievementState` bucket is
+main-block-only, so T1 cannot validate the achievement rows T3 would render —
+but that is a bounded 2848-byte fixed-layout block, not the open-ended
+flat-stream mapping the scoping pass assumed.
 
 ---
 
@@ -328,6 +358,14 @@ and no scroll — at which point the folklore-shaped DLL screen (T2) is both
 cheaper and strictly better. **The zero-DLL bet stops paying between T1b and
 T3.** T1b is therefore also the **floor**: if the catalog program (§4b) is ever
 declined, this ~25-counter dashboard is the shippable feature that survives.
+
+**A silent-ignore trap found while building the probe.**
+`behaviortoml.table()` (`content/behaviortoml.py:147-150`) returns `None` unless
+`[[behavior.unit]]` exists — so a `[behavior]` block carrying **only** a `hud` is
+**silently dropped at build time**, with no error and no warning. A dashboard is
+exactly that shape. This is the project's signature defect class (a guard that
+never executes) sitting directly in T1b's authoring path; gate it before
+authoring, not after a black window.
 
 **Two unresolved build questions.** (a) **Where does it live?** `[[logic_add]]`
 is refused unless the project carries `[verbatim_eb]` (`build.py:930-934`), so
@@ -861,9 +899,11 @@ re-litigates it.
     against the designs: `grep -i folklore tools/deploy_campaign.py
     tools/deploy_journey.py` returns **nothing**, while `deploy_field.py:349-385`
     has the carry. A mod-root registry is definitively NOT carried today.
-14. **"The chest-band mislabel survives in two places."** Three, plus two more
-    debug-menu bugs — see §T0. The kit itself still carries it at
-    `content/chest.py:44`.
+14. **"The chest-band mislabel survives in two places."** It was three places
+    plus a missing chocograph byte-range label — **all fixed on `master` (s78),
+    owner-confirmed in-game**, see §T0. And one sub-finding of this study was
+    itself wrong: the `bit == 184 || bit == 191` test is correct as written (byte
+    23's bit-addressed handshake), not a bit/byte confusion.
 15. **"A journal is the same screen with a different data source, so the second
     one is a copy."** True of presentation, false of data. Folklore's per-entry
     state is one boolean over a registered set; a journal's is heterogeneous and
@@ -879,13 +919,30 @@ re-litigates it.
 ### 7.1 The rung-0 probe — one bench field, one playtest round
 
 **The riskiest cheap assumption is that the DLL-free read paths work at all.**
-Three mechanisms carry most of T0/T1b/T3 and **none has ever executed**:
-`Null.SBit[5]` (memoria_variable, zero shipping precedent anywhere),
-`flex(16,3)` `PLAYER_ABILITY_LEARNT` (no kit emitter today), and the
-**expression-valued `SetTextVariable`** (arg-flag → `CalcExpr`; the kit's helper
-is immediate-only at `eb/opcodes.py:466`, and without this path no live counter
-above 32767 can be published at all). A fourth unexercised idiom, the `[TBLE=]`
-state bank driven by a computed slot, rides along.
+**TWO** mechanisms carry most of T0/T1b/T3 and have never executed:
+`Null.SBit[5]` (memoria_variable, zero shipping precedent anywhere) and
+`flex(16,3)` `PLAYER_ABILITY_LEARNT` (no kit emitter). A third unexercised idiom,
+the `[TBLE=]` state bank driven by a computed slot, rides along.
+
+**CORRECTION — the expression-valued `SetTextVariable` is NOT unexercised and NOT
+a kit gap.** The scoping pass called it a third never-run mechanism; that was
+wrong. The kit **already emits it at three in-game-proven call sites** —
+`content/behavior.py:2640-2643` (the HUD live pass), `content/numinput.py:413`,
+`content/mognet.py:292` — via `opcodes.encode(0x66, slot, expr, arg_flags=0b10)`.
+Only the *named helper* `set_text_variable` (`eb/opcodes.py:466`) was
+immediate-only. So publishing a computed counter was never blocked; what was
+missing was a way to *author* one declaratively.
+
+**And the operand ceiling is not Int32 — it is 26-bit signed (±33,554,431).**
+Every COMPUTED intermediate goes through `expr_Push_v0_Int24`
+(`Global/EBin.cs:1270-1274`), which ORs the Int26 class tag into bits 26-28
+**without masking**; only a bare terminal var token reaches `getv()` unmasked. So
+an overflow does not truncate — it **corrupts the `VariableSource` field**, and
+the value is then read back as a different kind of variable entirely. This is the
+same 26-bit CalcStack ceiling that killed Path B's dynamic region test. Any
+journal row that multiplies or sums must be checked against it, and
+`play time in seconds` (capped at 2,160,001) must be divided *inside* the
+expression.
 
 **Build one bench field in the scratch band (30000-32767) that displays, in one
 window:** Treasure-Hunter points via `Null.SBit[5]`, published through the
@@ -903,8 +960,14 @@ day one instead of after a catalog exists. Cost: one field, one round.
 Two guards while building it: `ETb.GetStringFromTable` bounds the SLOT and the
 UPPER row index but has **no lower bound** on `tableIndex = gMesValue[index]`
 (`ETb.cs:270-283`) — a negative published value indexes a negative array element,
-so emit a clamp; and re-check the live `DictionaryPatch.txt` before deploying,
-because ~18 concurrent worktrees share one install and the registrations move.
+so a clamp is required. **The kit now emits it for you**: `compile()` wraps every
+slot a `[TEXT=…]` tag reads in `E E const(0) B_GE B_MULT`
+(`behavior.hud_row_index_clamp`), so an unclamped publish is unrepresentable
+rather than merely refused — and `eb/exprsem.py` classifies every `op_binary`
+operator's arity + side effects, so a hud expression that underflows the
+CalcStack or writes save state fails at build. And re-check the live
+`DictionaryPatch.txt` before deploying, because ~18 concurrent worktrees share
+one install and the registrations move.
 
 ### 7.2 The other open questions, in the order they gate work
 

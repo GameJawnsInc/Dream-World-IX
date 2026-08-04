@@ -1565,12 +1565,36 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                         problems.append(f"{ctx}: value {v!r} — item does not "
                                         f"resolve ({e})")
                     continue
+                if s.startswith(B.HUD_EXPR_PREFIX):
+                    # the RPN escape hatch — the real encoder is the validator, and the
+                    # write-op refusal lives with it (a hud value re-evaluates every tick)
+                    try:
+                        B.hud_expr_tokens(s)
+                    except Exception as e:
+                        problems.append(f"{ctx}: {e}")
+                    continue
                 if s not in declared_counters:
                     problems.append(f"{ctx}: value {v!r} is not a counter, "
-                                    f"'gil', 'timer', 'hp:<unit>', or 'item:<item>'")
+                                    f"'gil', 'timer', 'hp:<unit>', 'item:<item>', or "
+                                    f"'expr:<RPN tokens>'")
             for mnum in _re2.finditer(r"\[NUMB=(\d+)", txt):
                 if int(mnum.group(1)) >= len(vals):
                     problems.append(f"{ctx}: [NUMB={mnum.group(1)}] has no value "
+                                    f"(only {len(vals)} given)")
+            # [TEXT=…] reads gMesValue[slot] as a table ROW INDEX and ETb.GetStringFromTable
+            # (ETb.cs:270-284) has no lower bound. The CLAMP is no longer an author duty — the
+            # emitter wraps the row (behavior.hud_row_index_clamp) — so what lint still owes is
+            # parity on the two things that remain authoring errors: a slot with no value, and a
+            # slot parameter whose value is not statically knowable (which would leave the
+            # emitter unable to promise the clamp).
+            try:
+                tslots = sorted(B.hud_text_table_slots(txt))
+            except Exception as e:
+                problems.append(f"{ctx}: {e}")
+                tslots = []
+            for tslot in tslots:
+                if tslot >= len(vals):
+                    problems.append(f"{ctx}: [TEXT=…,{tslot}] has no value "
                                     f"(only {len(vals)} given)")
     # a behavior unit may not also be a cutscene cast actor (the conductor drives
     # actors at the same REQ level the dispatch bodies use)

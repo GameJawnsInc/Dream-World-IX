@@ -54,7 +54,8 @@ import re
 import struct
 from dataclasses import dataclass, field as _dc_field
 
-from ..eb import exprasm, opcodes
+from ..eb import exprasm, exprsem, opcodes
+from ..eb._exprtable import EXPR_OP_NAMES as _EXPR_OP_NAMES   # noqa: F401  (the coverage test's other half)
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, _measure, asm, label
 from ..flags import (BEHAVIOR_BYTE_BASE, BEHAVIOR_BYTE_END, BEHAVIOR_FLAG_BASE,
                      BEHAVIOR_FLAG_END, NAMEPLATE_EXPLORED_FLOOR)
@@ -689,6 +690,163 @@ TABLE_ID_BASE = 1000                     # kit auto-allocation band for gScriptV
 TABLE_MAX_LEN = 64                       # keeps the Main_Init seed block bounded
 TABLE_VALUE_MIN = -(1 << 25)             # CalcStack values are 26-bit signed — a const4
 TABLE_VALUE_MAX = (1 << 25) - 1          # is masked to 26 bits at evaluation
+
+
+# ------------------------------------------------------------- hud `expr:` sources
+# THE ESCAPE HATCH for a hud row that reads something the named sources cannot name — a
+# Memoria custom variable (`Null.SBit[5]` = TREASURE_HUNTER_POINTS, EBin.cs:1689 + the
+# memoria_variable enum at :2416-2431), a raw gEventGlobal field (`Global.Int24[187]` =
+# the chocograph FOUND bitfield), a flexible_varfunc read (`flex(16,3)` =
+# PLAYER_ABILITY_LEARNT, EBin.cs:2388-2413 + :421-435). The value operand is already an
+# EXPRESSION at the emitter (the live pass at the bottom of compile() encodes 0x66 with
+# arg_flags=0b10), so this seam only has to hand `_hud_ref` a token string — no new
+# opcode lane, no new emitter.
+#
+# THREE THINGS THE SEAM MUST ENFORCE, because a hud value is re-evaluated EVERY TICK:
+#   (1) NO WRITE OPS, AND NO IMPURE ONES. `B_LET` / `B_*_LET*` / `B_PRE_*` / `B_POST_*`
+#       assign through the expression; `B_PARTYADD` RECRUITS a character (EBin.cs:1209-1215)
+#       under a name no `_LET`/`B_PRE_`/`B_POST_` pattern matches; `B_KEYON` asserts
+#       VoicePlayer.scriptRequestedButtonPress (EBin.cs:1080) and `B_SELECT` rolls the shared
+#       RNG (EventEngine.cs:283). One of those in a hud row runs on EVERY frame the ticker
+#       runs. The classification is EXHAUSTIVE over the operator table, in
+#       :data:`eb.exprsem.OP_SEMANTICS`, with a test asserting the coverage — a name pattern
+#       is a gate that silently stops matching.
+#   (2) THE [TEXT=] CLAMP. A value published into a slot a `[TEXT=...]` tag reads becomes a
+#       table ROW INDEX, and ETb.GetStringFromTable (ETb.cs:270-284) bounds the slot
+#       (`index < 8u`) and the UPPER row (`tableIndex < tableText.Length`) but has NO lower
+#       bound — a negative indexes `tableText[-n]` and throws IndexOutOfRange, once per
+#       rendered frame. B_LMAX/B_LMIN are NOT clamps (they are party-member argmax/argmin
+#       selectors, EventEngine.OperatorExtract.cs:80-154); the composable idiom is
+#       multiply-by-predicate, `E E const(0) B_GE B_MULT`.
+#       THE AUTHOR DOES NOT WRITE IT AND IS NOT GRADED ON IT. compile() WRAPS the row itself
+#       (:func:`hud_row_index_clamp`), so an unclamped publish is UNREPRESENTABLE rather than
+#       merely rejected. The syntactic tail-match this replaced certified a single-E spelling
+#       as safe — which both defeats the clamp AND underflows the CalcStack.
+#   (3) …and, since the encoder never checked it, the stream must actually BALANCE:
+#       :func:`eb.exprsem.analyze` walks it with each operator's true arity.
+HUD_EXPR_PREFIX = "expr:"
+# EXHAUSTIVE classification, not a name pattern (see §(1)); `_EXPR_OP_NAMES` stays imported so
+# the coverage assertion in tests/test_exprsem.py has both halves in view.
+HUD_EXPR_WRITE_OPS = exprsem.WRITE_OPS
+HUD_EXPR_IMPURE_OPS = exprsem.IMPURE_OPS
+# the guard the EMITTER writes around a [TEXT=] row slot: `<E> <E> const(0) B_GE B_MULT`
+HUD_EXPR_CLAMP_TAIL = ("const(0)", "B_GE", "B_MULT")
+
+
+def hud_row_index_clamp(ref: str) -> str:
+    """Wrap an RPN fragment in the non-negative clamp: ``E E const(0) B_GE B_MULT`` == ``E * (E >= 0)``.
+
+    THE VALUE MUST BE DUPLICATED — `E const(0) B_GE B_MULT` (one E) computes ``(E >= 0) * <whatever
+    was under E>``, i.e. it publishes an unclamped number AND pops one operand too many. The old
+    syntactic gate matched only the three-token tail and certified exactly that spelling as safe.
+
+    Duplicating E is free: ``CalcStack.push`` grows its backing ``List<Int32>`` on demand
+    (CalcStack.cs:9-15) so there is NO depth ceiling to bust, and the product ``E * (0|1)`` never
+    exceeds ``|E|``, so the 26-bit Int26 envelope every computed intermediate lives in
+    (``expr_Push_v0_Int24``, EBin.cs:1270-1274, read back as ``(t0 << 6) >> 6`` at EBin.cs:1682-1684;
+    ``opcodes.EXPR_VALUE_MIN``/``MAX``) is unchanged by the wrap. E is evaluated twice, which is why
+    §(1) refuses every write/impure operator: a pure read is idempotent."""
+    return f"{ref} {ref} " + " ".join(HUD_EXPR_CLAMP_TAIL)
+
+
+def hud_expr_tokens(src: str) -> str:
+    """Validate an ``expr:<RPN tokens>`` hud source and return the bare token string.
+
+    Assembles it here (with the ``B_EXPR_END`` the emitter appends) so a bad token fails at
+    BUILD time, never in-game; then :func:`eb.exprsem.analyze` checks the RPN actually balances
+    and refuses every assigning / impure operator — see :data:`HUD_EXPR_WRITE_OPS`."""
+    toks = str(src)[len(HUD_EXPR_PREFIX):].strip()
+    if not toks:
+        raise BehaviorError(f"hud value {src!r}: expr: needs RPN tokens, e.g. "
+                            f"'expr:Null.SBit[5]' or 'expr:const(256) B_HAVE_ITEM'")
+    if "B_EXPR_END" in toks.split():
+        raise BehaviorError(f"hud value {src!r}: drop B_EXPR_END — the emitter appends the "
+                            f"0x7F terminator itself")
+    try:
+        exprasm.assemble(toks + " B_EXPR_END")            # the encoder: token spelling + byte layout
+    except Exception as e:                                # AssembleError (a ValueError)
+        raise BehaviorError(f"hud value {src!r}: {e}")
+    # EFFECTS FIRST, then balance: an expression can be both, and "you put a save-state write in a
+    # per-frame value" is the more actionable of the two diagnoses.
+    try:
+        sems = exprsem.token_sems(toks + " B_EXPR_END")
+    except exprsem.ExprSemanticError as e:
+        raise BehaviorError(f"hud value {src!r}: {e}")
+    wsems = [s for s in sems if s.effect == exprsem.WRITE]
+    if wsems:
+        raise BehaviorError(
+            f"hud value {src!r}: {sorted({s.token for s in wsems})} ASSIGN through the expression, "
+            f"and a hud value is re-evaluated every tick — that would rewrite save state on every "
+            f"frame ({wsems[0].why}). A hud row reads; use a counter/table action to write.")
+    impure = [s for s in sems if s.effect == exprsem.IMPURE]
+    if impure:
+        raise BehaviorError(
+            f"hud value {src!r}: {sorted({t.token for t in impure})} mutate shared runtime "
+            f"state, and a hud value is re-evaluated every tick — {impure[0].why}. A hud row reads.")
+    # …and the encoder is NOT a validator: assemble() does no arity or stack-balance checking at
+    # all, so this is the pass that makes the docstring's "fails at BUILD time" claim true.
+    try:
+        exprsem.analyze(toks + " B_EXPR_END")
+    except exprsem.ExprSemanticError as e:
+        raise BehaviorError(f"hud value {src!r}: {e}")
+    return toks
+
+
+# ---- [TEXT=] tag decoding, per the ENGINE's own tag parser -------------------------------------
+# Every spelling FFIXTextTag.TryRead accepts (FFIXTextTag.cs:87-153), because a spelling this regex
+# misses is a slot the emitter does not clamp:
+#   * `[TEXT]`  / `[TEXT=b]` / `[TEXT=b,s]` / `[TEXT=b,s,junk]` — the bracket form. Params are the
+#     text after the FIRST '=' split on ',' with RemoveEmptyEntries (FFIXTextTag.cs:138-145), then
+#     ConvertOriginalTag maps the name through OriginalTagNames (:199-204; NGUIText.TextVar = "TEXT",
+#     NGUIText.cs:1520).
+#   * `{Text b,s}` — the Memoria brace form: name up to the FIRST ' ', params after it, same comma
+#     split (FFIXTextTag.cs:117-130), resolved by Enum.Parse onto FFIXTextTagCode.Text.
+# MISSING PARAMS ARE NOT ABSENT TAGS: UIntParam(i) returns 0 when ParamCount <= i
+# (FFIXTextTag.cs:71-76), so `[TEXT]` and `[TEXT=5]` both read gMesValue[0]. That single-parameter
+# form is the one the previous two-parameter-only regex could not see at all.
+# NOT A SECOND DECODE TO COVER: NGUIText.GetDialogWidthFromSpecialOpcode (NGUIText.cs:60-85) decodes
+# a PACKED `[TEXT=]` (one operand, bank=(t>>4)&3, slot=t&7) plus a >Byte.MaxValue arm the render path
+# does not implement — but its ONLY call site, OnWidths, is dead: DialogBoxSymbols.cs:650-653 is
+# `// Unused anymore` with the call commented out, and OnWidths (DialogBoxSymbols.cs:905-934) is the
+# sole caller. Nothing an author can write in hud text reaches it. Measured out, not assumed out.
+_RE_TEXT_TAG = re.compile(r"\[(TEXT)(?:=([^\]]*))?\]|\{(Text)(?:[ \t]+([^}]*))?\}", re.IGNORECASE)
+
+
+def hud_text_table_slots(text: str) -> frozenset:
+    """The gMesValue slots a row's ``[TEXT=...]`` tags read as TABLE ROW INDICES.
+
+    The render path is DialogBoxSymbols.ParseSingleConstantTextReplaceTag
+    (DialogBoxSymbols.cs:59-60) -> ``ETb.GetStringFromTable(UIntParam(0), UIntParam(1))``
+    (ETb.cs:270-284), where param1 is the gMesValue slot and ``gMesValue[slot]`` is the ROW.
+
+    Matching is case-insensitive on purpose: the engine's lookups are case-sensitive
+    (``Dictionary<String,…>`` ordinal / ``Enum.Parse`` without ``ignoreCase``), so this
+    OVER-approximates — and over-approximating only clamps a slot the engine would not have read,
+    which is harmless. Under-approximating is the failure that ships an IndexOutOfRange.
+
+    Raises :class:`BehaviorError` when a tag's slot parameter is present but is not a plain
+    non-negative decimal integer (``[TEXT=1,-2]``, ``[TEXT=1,x]``, ``[TEXT=1,2.5]``): the engine
+    resolves those through ``Single.TryParse`` + a ``(UInt32)`` cast whose out-of-range behaviour is
+    unspecified, so the slot is not statically knowable and the emitter cannot promise to clamp it.
+    """
+    slots = set()
+    for m in _RE_TEXT_TAG.finditer(str(text)):
+        raw = m.group(2) if m.group(1) else m.group(4)
+        # `String.Split(',', RemoveEmptyEntries)` — so `[TEXT=,3]` yields ONE param, "3", which
+        # lands on param0 (the BANK) and leaves the slot at its 0 default. Modelled, not guessed.
+        params = [p for p in (raw or "").split(",") if p.strip() != ""] if raw else []
+        if len(params) < 2:
+            slots.add(0)                                  # UIntParam(1) -> 0 (FFIXTextTag.cs:71-76)
+            continue
+        p = params[1].strip()
+        if not p.isdigit():
+            raise BehaviorError(
+                f"hud: {m.group(0)!r} — the [TEXT=] slot parameter {params[1]!r} is not a plain "
+                f"non-negative integer, so which gMesValue slot it reads is not statically knowable "
+                f"(the engine goes through Single.TryParse + a (UInt32) cast, FFIXTextTag.cs:71-76) "
+                f"and the emitter cannot promise to clamp it. Write a literal 0..7.")
+        slots.add(int(p))
+    return frozenset(slots)
 
 
 @dataclass
@@ -1723,10 +1881,13 @@ class FieldBehavior:
     def _hud_ref(self, src: str) -> str:
         """Resolve a hud VALUE SOURCE to an RPN fragment: a counter name, the
         live ``gil`` / ``timer`` sysvars, ``hp:<unit>`` (a unit's hit points —
-        the group cell for a roster member), or ``item:<id>`` (the live held
+        the group cell for a roster member), ``item:<id>`` (the live held
         count via ``B_HAVE_ITEM`` — the TOML lane resolves an item NAME to the
-        id before registration)."""
+        id before registration), or ``expr:<RPN tokens>`` (the escape hatch —
+        see :func:`hud_expr_tokens` for what it refuses and why)."""
         src = str(src)
+        if src.startswith(HUD_EXPR_PREFIX):
+            return hud_expr_tokens(src)
         if src == "gil":
             return "B_SYSVAR[6]"
         if src == "timer":
@@ -1752,9 +1913,10 @@ class FieldBehavior:
     def hud(self, text: str, values, window: int = 6,
             txid: int | None = None, digits=2) -> HudSpec:
         """Register a live strip (see :class:`HudSpec`). ``values``: 1..8 value
-        SOURCES — a counter name, ``"gil"``, ``"timer"``, or ``"hp:<unit>"`` —
-        slot i driving ``[NUMB=i]`` in ``text``. The TOML lane wires the minted
-        txid; Python callers pass one explicitly.
+        SOURCES — a counter name, ``"gil"``, ``"timer"``, ``"hp:<unit>"``,
+        ``"item:<id>"``, or ``"expr:<RPN tokens>"`` — slot i driving
+        ``[NUMB=i]`` in ``text``. The TOML lane wires the minted txid; Python
+        callers pass one explicitly.
 
         ``digits``: the widest value a slot will ever show — one int for every
         slot, or a per-slot list (a gil readout wants 6, a headcount 2). The
@@ -1784,6 +1946,14 @@ class FieldBehavior:
         for m in re.finditer(r"\[NUMB=(\d+)", str(text)):
             if int(m.group(1)) >= len(values):
                 raise BehaviorError(f"hud: [NUMB={m.group(1)}] has no value "
+                                    f"(only {len(values)} given)")
+        # A slot a [TEXT=…] tag reads is a table ROW INDEX with no engine-side lower bound
+        # (ETb.cs:270-284). The CLAMP is not checked here — compile() WRAPS the row itself
+        # (hud_row_index_clamp), so an unclamped publish cannot be expressed. What is still
+        # a real authoring error is naming a slot that has no value at all.
+        for slot in sorted(hud_text_table_slots(text)):
+            if slot >= len(values):
+                raise BehaviorError(f"hud: [TEXT=…,{slot}] has no value "
                                     f"(only {len(values)} given)")
         if not 0 <= int(window) <= 7:
             raise BehaviorError("hud: window must be 0..7 (Dialog.WindowID)")
@@ -2636,11 +2806,20 @@ class FieldBehavior:
             # No dirty mirrors: the ENGINE already re-renders only when a value
             # actually changed (HasMessageValueChanged), a gMesValue write is a
             # bare array store, and a mirror would cap a gil readout at Int16.
+            # THE ROW-INDEX AUTO-WRAP. Any slot a [TEXT=…] tag reads is a table row index
+            # with no engine-side lower bound, so the emitter clamps it here rather than
+            # asking the author to spell the clamp and then grading the spelling. This is
+            # what makes an unclamped publish UNREPRESENTABLE instead of merely refused.
+            clamp_slots = hud_text_table_slots(h.text)
             for i, v in enumerate(h.values):
-                cd_blocks.append(opcodes.encode(
-                    0x66, i,
-                    exprasm.assemble(f"{self._hud_ref(v)} B_EXPR_END"),
-                    arg_flags=0b10))
+                ref = self._hud_ref(v)
+                if i in clamp_slots:
+                    ref = hud_row_index_clamp(ref)
+                # the EXPRESSION-VALUED SetTextVariable (66 02 <slot> <tokens> 7F) —
+                # named at eb/opcodes.py; the immediate form above caps at Int16, this
+                # one does not (but a COMPUTED value is 26-bit, opcodes.EXPR_VALUE_MAX).
+                cd_blocks.append(opcodes.set_text_variable_expr(
+                    i, exprasm.assemble(f"{ref} B_EXPR_END")))
             cd_blocks.append(label(f"hud_{hi}_skip"))
         ticker[cooldown_blocks_at:cooldown_blocks_at] = cd_blocks
         for name, _frames in self._cooldowns:

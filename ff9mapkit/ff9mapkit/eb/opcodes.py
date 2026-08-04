@@ -471,6 +471,47 @@ def set_text_variable(slot: int, value: int) -> bytes:   # 0x66 (MESVALUE) argsi
     return encode(0x66, slot, value)
 
 
+# THE EXPRESSION-VALUED SETTEXTVARIABLE ceiling, restated where a caller can see it. A COMPUTED
+# intermediate is 26-bit SIGNED, not Int32: every operator result lands on the CalcStack through
+# EBin.expr_Push_v0_Int24 (EBin.cs:1270-1274), which ORs the Int26 class tag into bits 26-28 with NO
+# mask on _v0, and is read back as ``(t0 << 6) >> 6`` (EBin.cs:1682-1684). Overflow therefore does not
+# truncate -- the high bits collide with the VariableSource field and the entry is re-read as a
+# DIFFERENT variable class. (B_CONST4/B_SYSVAR mask explicitly at EBin.cs:1232/:1243; this push does
+# not.) Only a BARE TERMINAL var token bypasses the push and returns a full Int32 through getv().
+# Same number the behavior tables already carry as TABLE_VALUE_MIN/MAX (content/behavior.py:690-691).
+EXPR_VALUE_MIN = -(1 << 25)
+EXPR_VALUE_MAX = (1 << 25) - 1
+
+
+def set_text_variable_expr(slot: int, expr: bytes) -> bytes:   # 0x66 (MESVALUE), arg1 = expression
+    """SetTextVariable where the VALUE is a runtime EXPRESSION, not an immediate.
+
+    ``expr`` is a bare RPN token blob terminated by ``0x7F`` (build it with
+    :func:`~ff9mapkit.eb.exprasm.assemble`, e.g. ``assemble("Null.SBit[5] B_EXPR_END")``).
+
+    Layout ``66 02 <slot:u8> <tokens... 7F>``. The ``02`` is the instruction's gArgFlag byte, read
+    UNCONDITIONALLY right after the opcode (EventEngine.DoEventCode.cs:43,
+    ``this.gArgFlag = this.geti()``), and **the flag bit index is the OPERAND index, consumed left to
+    right**: MESVALUE reads arg0 via ``getv1`` and arg1 via ``getv2`` (DoEventCode.cs:520-527), and
+    each tests ``gArgFlag & 1`` then shifts (EventEngine.cs:1331-1345 / :1347-1362). So bit0 -> slot,
+    bit1 -> value; 0b10 leaves the slot an immediate and evaluates the value (CalcExpr -> getv).
+
+    WHY IT MATTERS: the IMMEDIATE form's value operand is a sign-extended Int16 read
+    (``(geti() | geti()<<8) << 16 >> 16``), i.e. capped at +/-32767. The expression form is the only
+    way to publish a live counter past that -- but see :data:`EXPR_VALUE_MAX`: a COMPUTED value is
+    26-bit signed, not Int32.
+
+    NOT a new mechanism -- this names an encoding the kit already emits in-game-proven at
+    ``content/behavior.py:2640-2643`` (the behavior HUD's live pass), ``content/numinput.py:413``
+    (the Treno bid stepper's submit echo) and ``content/mognet.py:292`` (mail sender names). The
+    naming/docstring precedent is :func:`enable_dialog_choices_var` (the same trick on 0x7C arg0)."""
+    if not expr or expr[-1] != 0x7F:
+        raise ValueError("set_text_variable_expr: expr must be a B_EXPR_END (0x7F)-terminated token "
+                         "blob -- the engine's CalcExpr walks to that terminator, so an unterminated "
+                         "blob runs off into the next instruction's bytes")
+    return encode(0x66, slot, expr, arg_flags=0b10)
+
+
 def add_gil(amount: int) -> bytes:                     # 0xCE (GILADD) argsize [3]
     """AddGil(amount): add gil to the party purse. ``amount`` is an UNSIGNED 24-bit value -- the engine
     does ``party.gil += amount`` (caps at 9999999), so a negative here wraps to a huge add. To SUBTRACT
