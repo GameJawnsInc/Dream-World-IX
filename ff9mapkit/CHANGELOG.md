@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — fuse off-lattice water tolerance (study 3) — and the honest strait verdict
+- `fuse_layout` refused any off-lattice vert at a shared border. New: an off-lattice vert on
+  a PURE open-water row classifies `water-offlat` and fuses against another placement's
+  water/prefab — a conforming vert of the donor's own sheet cannot tear land. Off-lattice
+  rows carrying land/beach/shallows keep the hard refusal (mutation-verified both ways).
+  The registered target — the Iron Gate strait (comma + reef at 36.2u) — is measured NOT
+  unlocked: the predicate clears its off-lattice sea3 rows, but the reef brings its live
+  sea1 shore wash to the channel frame (4 rows), which the fuse law rightly refuses. The
+  strait class at stock width needs a shore-ladder termination on that frame (the rim-retile
+  family lane), registered as the follow-up.
+
 ### Added — THE CLUSTER SHIFT: compose carried masses at stock archipelago spacing (study 2)
 - `transplant_region` pinned every shift to the ±8u neighbour-strip window, so two carried
   masses could never sit closer than their rects allow (measured floor ~49.8u against stock's

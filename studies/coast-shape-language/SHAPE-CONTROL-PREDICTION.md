@@ -70,7 +70,27 @@ water on both sides.
 * **S-3** Fail-closed: a shift that would push land within `land_margin` of the frame
   still refuses via land-fit.
 
-## Study 3 — THE STRAIT UNLOCK (fuse off-lattice tolerance)
+## Study 3 — THE STRAIT UNLOCK (fuse off-lattice tolerance) — ★ BUILT + SCORED 2026-08-04
+
+**F-1 FALSIFIED — and the falsification is the finding.** The predicate is built
+exactly as scoped (`_side_row`: an off-lattice vert on a PURE open-water row →
+`water-offlat`, lawful against water/prefab) and it clears the off-lattice sea3
+rows — but the Iron Gate still refuses, 6 bad rows → 4. Measured on the reef's
+channel frame: rows carrying `sea1` (3 off-lattice + 1 on-lattice) — the reef
+brings its LIVE SHORE WASH to the frame, and the menu's "blocked by six lines of
+fuse.py" had lumped that under "off-lattice". No fuse predicate can lawfully clear
+it: sea1 is shore-bound copy-only — refusing it is the fuse law's founding case.
+**The strait class at stock width needs a shore-ladder termination on the channel
+frame (the rim-retile family lane), not a fuse predicate** — registered as the
+follow-up.
+
+**F-2 CONFIRMED** — all pre-existing fuse verdicts unchanged (6 tests green; the
+predicate only turns off-lattice→water-offlat on pure-water rows, a strict
+widening).
+
+**F-3 CONFIRMED** — an off-lattice vert on a sea1 row keeps the hard refusal
+(hermetic test + demonstrated live by the Iron Gate itself). 2/2 mutations killed
+(predicate dead / predicate ignoring parts).
 
 The Iron Gate (stock strait #7 rebuilt: comma + reef at 36.2u) fails ONE fuse row class:
 `off-lattice` verts on the reef's original N frame. The menu scoped the fix as one
