@@ -426,6 +426,92 @@ def test_tiled_headland_builds_on_the_crescent_with_rect_containment():
             f"escapes every source tile rect"
 
 
+def test_wedge_ground_law_and_hole_fidelity():
+    import math as _m
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world.extract import decode_id
+    from ff9mapkit.world import transplant as TR
+    from collections import defaultdict
+    # THE WEDGE GROUND LAW (round 5): stock's grass patches are an EDGE-CODED tile
+    # system the clone fill cannot compose -- NEW territory clones only the modal
+    # ground family; a patch family reproduces ONLY in its own offset-zero cells
+    tw = CM.cliff_headland((14, 1), CRES_START, CRES_END, 8.0, size=(4, 2))
+    drop_t = [t for t in tw if isinstance(t, TR.DropTris) and t.part == "terrain"][0]
+    emit_t = [t for t in tw if isinstance(t, TR.EmitTris) and t.part == "terrain"][0]
+    win = CM.CliffWindow((14, 1), CRES_START, CRES_END, size=(4, 2))
+    dropped = [t3 for t3 in win.mains if drop_t._key_set(t3) in drop_t.keys]
+
+    def cell_of(t3):
+        return (_m.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),
+                _m.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0))
+
+    def topo(t3):
+        return decode_id(int(round(t3[0][3][0])))["topograph"]
+    dcells = defaultdict(set)
+    for t3 in dropped:
+        dcells[cell_of(t3)].add(topo(t3))
+    ecells = defaultdict(set)
+    for t3 in emit_t.tris:
+        if topo(t3) != 58:
+            ecells[cell_of(t3)].add(topo(t3))
+    assert any(4 in s for s in dcells.values()), "specimen lost its grass cells"
+    for c, s in ecells.items():
+        if c in dcells:
+            assert s == dcells[c], f"hole cell {c}: dropped {dcells[c]} emitted {s}"
+        else:
+            assert s == {17}, f"wedge cell {c} carries {s} -- patch tiles cloned " \
+                              f"into new territory"
+
+
+def test_mixed_cell_pair_splits_at_the_diagonal():
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world.extract import encode_id
+    # a synthetic 2x2-cell region whose cell (0,0) is MIXED (grass tri + desert tri
+    # split on the anti diagonal): the fill must reproduce BOTH idalls in that cell,
+    # each on its own side, and only the modal family elsewhere
+    id_a = float(encode_id(event=0, area=0, topograph=4))
+    id_b = float(encode_id(event=0, area=0, topograph=17))
+    nrm = (0.0, 1.0, 0.0)
+
+    def vert(x, z, u0, v0, idall):
+        return ((float(x), 0.0, float(z)), nrm,
+                (u0 + 0.015 * (x % 4 if x % 4 or x == 0 else 4.0),
+                 v0 + 0.015 * (z % 4 if z % 4 or z == 0 else 4.0)), (idall, 0, 0, 1))
+
+    def tile_pair(cx, cz, u0, v0, idall):
+        x0, z0 = 4 * cx, 4 * cz
+
+        def vv(dx, dz):
+            return ((x0 + dx, 0.0, z0 + dz), nrm,
+                    (u0 + 0.015 * dx, v0 + 0.015 * dz), (idall, 0, 0, 1))
+        return [[vv(0, 0), vv(4, 0), vv(0, 4)], [vv(4, 0), vv(4, 4), vv(0, 4)]]
+
+    sources = []
+    # cell (0,0): mixed -- grass on the lower-left of the ANTI diagonal, desert upper
+    ga = tile_pair(0, 0, 0.10, 0.10, id_a)[0]
+    gb = tile_pair(0, 0, 0.50, 0.50, id_b)[1]
+    sources += [ga, gb]
+    for cx, cz in ((1, 0), (0, 1), (1, 1)):
+        sources += tile_pair(cx, cz, 0.50, 0.50, id_b)
+    bpts3 = [(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (8.0, 0.0, 0.0), (8.0, 0.0, 4.0),
+             (8.0, 0.0, 8.0), (4.0, 0.0, 8.0), (0.0, 0.0, 8.0), (0.0, 0.0, 4.0)]
+    out = CM._tiled_fill_region(bpts3, {}, sources)
+    got = {}
+    for t3 in out:
+        cx = sum(v[0][0] for v in t3) / 3.0
+        cz = sum(v[0][2] for v in t3) / 3.0
+        cell = (int(cx // 4), int(cz // 4))
+        got.setdefault(cell, set()).add(int(round(t3[0][3][0])))
+        if cell == (0, 0):
+            side = (cx + cz) / 4.0 - 1.0            # anti-diagonal side
+            want = id_a if side < 0 else id_b
+            assert int(round(t3[0][3][0])) == int(want), \
+                f"piece at ({cx:.2f},{cz:.2f}) on the wrong diagonal side"
+    assert got[(0, 0)] == {int(id_a), int(id_b)}, "the mixed cell lost a side"
+    for cell in ((1, 0), (0, 1), (1, 1)):
+        assert got[cell] == {int(id_b)}
+
+
 def test_tiled_fill_refuses_a_wobbly_hole_boundary():
     from ff9mapkit.world import coastmorph as CM
     # the comma's stock tiling jitters up to 1.24u past the 4u lines (measured) --

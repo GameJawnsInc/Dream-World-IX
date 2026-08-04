@@ -798,6 +798,101 @@ def _tiled_fill_region(bpts3, gnrm, sources):
         bc = (math.floor(bx_ / 4.0), math.floor(bz_ / 4.0))
         return best, (4.0 * (c[0] - bc[0]), 4.0 * (c[1] - bc[1]))
 
+    # THE MIXED-CELL PAIR (the grass-edge mismatch, bent-crescent round 5): stock runs
+    # its patch borders along the tile DIAGONAL -- one cell holds e.g. a grass tri AND
+    # a desert tri, and the patch system is edge-coded (interior/edge/corner rects, a
+    # Wang-like land vocabulary). One-source-per-cell flattens every mixed cell and
+    # stamps interior tiles over the border. Keep the PAIR: fill pieces clip at the
+    # cell's exact diagonal and each side carries its own tri's rect + idall, so an
+    # offset-zero refill reproduces the stock patch edge tri-for-tri.
+    cell_pairs = defaultdict(list)
+    for t3, (cx, cz) in zip(sources, cents):
+        cell_pairs[(math.floor(cx / 4.0), math.floor(cz / 4.0))].append(t3)
+
+    # THE WEDGE GROUND LAW (the grass-edge mismatch, bent-crescent round 5): stock's
+    # grass-on-desert patches are an EDGE-CODED tile system (~8 distinct rects --
+    # interior, edge, corner), a Wang-like land vocabulary the clone fill cannot
+    # compose. NEW territory therefore clones only the MODAL ground family; a patch
+    # family reproduces ONLY where stock had it (the offset-zero cells), whose own
+    # edge tiles already carry the transition to open ground. Extending a patch from
+    # interior tiles is the beach-mint fallacy on land.
+    _topo_count = Counter(decode_id(int(round(t3[0][3][0])))["topograph"]
+                          for t3 in sources)
+    _modal_topo = _topo_count.most_common(1)[0][0]
+    _ground = [(t3, c) for t3, c in zip(sources, cents)
+               if decode_id(int(round(t3[0][3][0])))["topograph"] == _modal_topo]
+
+    def pair_for(cell):
+        if cell in cell_pairs:
+            return cell_pairs[cell], cell
+        ccx, ccz = 4.0 * cell[0] + 2.0, 4.0 * cell[1] + 2.0
+        best, bd = None, 1e18
+        for t3, (tx, tz) in _ground:
+            d2 = (ccx - tx) ** 2 + (ccz - tz) ** 2
+            if d2 < bd:
+                best, bd = t3, d2
+        bc = (math.floor(sum(v[0][0] for v in best) / 3.0 / 4.0),
+              math.floor(sum(v[0][2] for v in best) / 3.0 / 4.0))
+        # the nearest MODAL-family tri's cell can be mixed; clone only its modal side
+        pr = [t3 for t3 in cell_pairs[bc]
+              if decode_id(int(round(t3[0][3][0])))["topograph"] == _modal_topo]
+        return (pr or cell_pairs[bc]), bc
+
+    def _diag_of(pair, src_cell):
+        """'main' ((0,0)-(1,1)) or 'anti' ((1,0)-(0,1)) from the pair's shared quad
+        diagonal in the source cell's local frame; None for a uniform pair."""
+        if len(pair) != 2:
+            return None
+        a, b = pair
+        if (_uv_rect(a), tuple(a[0][3])) == (_uv_rect(b), tuple(b[0][3])):
+            return None
+        shared = {_pk(v[0]) for v in a} & {_pk(v[0]) for v in b}
+        if len(shared) != 2:
+            return None
+        cs = {(round((k[0] - 4.0 * src_cell[0]) / 4.0),
+               round((k[2] - 4.0 * src_cell[1]) / 4.0)) for k in shared}
+        if cs == {(0, 0), (1, 1)}:
+            return "main"
+        if cs == {(1, 0), (0, 1)}:
+            return "anti"
+        raise ValueError("TILE-RECT CONTAINMENT: a mixed source cell's diagonal does "
+                         "not snap to a corner pair -- too wobbly for the "
+                         "exact-lattice fill")
+
+    def _side(diag, cell, x, z):
+        fx = (x - 4.0 * cell[0]) / 4.0
+        fz = (z - 4.0 * cell[1]) / 4.0
+        return (fz - fx) if diag == "main" else (fx + fz - 1.0)
+
+    def _tri_for_side(pair, diag, src_cell, sgn):
+        for t3 in pair:
+            tx = sum(v[0][0] for v in t3) / 3.0
+            tz = sum(v[0][2] for v in t3) / 3.0
+            if _side(diag, src_cell, tx, tz) * sgn > 0:
+                return t3
+        return pair[0]
+
+    def _split_at_diag(poly, cell, diag):
+        x0, z0 = 4.0 * cell[0], 4.0 * cell[1]
+        (ax, az), (bx_, bz_) = (((x0, z0), (x0 + 4.0, z0 + 4.0)) if diag == "main"
+                                else ((x0 + 4.0, z0), (x0, z0 + 4.0)))
+        lo, hi = [], []
+        n = len(poly)
+        for i in range(n):
+            p, q = poly[i], poly[(i + 1) % n]
+            sp = (p[0] - ax) * (bz_ - az) - (p[2] - az) * (bx_ - ax)
+            sq = (q[0] - ax) * (bz_ - az) - (q[2] - az) * (bx_ - ax)
+            if sp <= 1e-9:
+                lo.append(p)
+            if sp >= -1e-9:
+                hi.append(p)
+            if (sp < -1e-9 and sq > 1e-9) or (sp > 1e-9 and sq < -1e-9):
+                f = sp / (sp - sq)
+                x = tuple(p[k] + f * (q[k] - p[k]) for k in range(3))
+                lo.append(x)
+                hi.append(x)
+        return [pl for pl in (lo, hi) if len(pl) >= 3]
+
     def build_fill(clearance):
         interior = lattice_interior(clearance)
         pts3 = list(bpts3) + [(px, idw_y(px, pz) + (TR._h01(px, pz) - 0.5) * 0.4, pz)
@@ -918,18 +1013,36 @@ def _tiled_fill_region(bpts3, gnrm, sources):
         cell_maps[key] = m
         return m
 
-    def _emit_piece(tp, nrm_of_p):
+    def _emit_cellwise(tp, nrm_of_p):
+        """Emit one within-cell triangle: resolve the cell's source PAIR, split at the
+        cell diagonal when the pair is mixed, map each side by its own tri's rect."""
         cx = sum(p[0] for p in tp) / 3.0
         cz = sum(p[2] for p in tp) / 3.0
         cell = (math.floor(cx / 4.0), math.floor(cz / 4.0))
-        src, off = src_for(cx, cz)
-        m = _cell_map(cell, src, off)
-        tri = [(p, nrm_of_p(p), tuple(m(p[0], p[2])), tuple(src[0][3])) for p in tp]
-        ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
-        vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
-        if uz * vx - ux * vz <= 0:
-            tri = [tri[0], tri[2], tri[1]]
-        return tri
+        pair, src_cell = pair_for(cell)
+        off = (4.0 * (cell[0] - src_cell[0]), 4.0 * (cell[1] - src_cell[1]))
+        diag = _diag_of(pair, src_cell)
+        pieces = [tp] if diag is None else _split_at_diag(tp, cell, diag)
+        emitted = []
+        for piece in pieces:
+            for j in range(1, len(piece) - 1):
+                pp = (piece[0], piece[j], piece[j + 1])
+                if diag is None:
+                    src = pair[0]
+                else:
+                    pcx = sum(p[0] for p in pp) / 3.0
+                    pcz = sum(p[2] for p in pp) / 3.0
+                    sgn = _side(diag, cell, pcx, pcz)
+                    src = _tri_for_side(pair, diag, src_cell, sgn if sgn else 1.0)
+                m = _cell_map(cell, src, off)
+                tri = [(p, nrm_of_p(p), tuple(m(p[0], p[2])), tuple(src[0][3]))
+                       for p in pp]
+                ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
+                vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
+                if uz * vx - ux * vz <= 0:
+                    tri = [tri[0], tri[2], tri[1]]
+                emitted.append(tri)
+        return emitted
 
     tri_verts = {v[0] for t3 in fill_emit for v in t3}
 
@@ -963,7 +1076,7 @@ def _tiled_fill_region(bpts3, gnrm, sources):
                        + (v[0][2] - p[2]) ** 2)[1]
         polys = _clip_tri_to_cells(pts)
         if len(polys) == 1 and len(polys[0]) == 3:
-            out.append(_emit_piece(tuple(pts), _nrm_at))
+            out.extend(_emit_cellwise(tuple(pts), _nrm_at))
             continue
         for poly in polys:
             ded = []
@@ -976,7 +1089,7 @@ def _tiled_fill_region(bpts3, gnrm, sources):
             if len(ded) < 3:
                 continue
             for j in range(1, len(ded) - 1):
-                out.append(_emit_piece((ded[0], ded[j], ded[j + 1]), _nrm_at))
+                out.extend(_emit_cellwise((ded[0], ded[j], ded[j + 1]), _nrm_at))
 
     # THE FILL WELD PASS: chord verts from different parents can land within the
     # weld-audit near-miss class (0.05u) of each other -- e.g. a chord 0.04u west of
@@ -1015,22 +1128,29 @@ def _tiled_fill_region(bpts3, gnrm, sources):
             raise ValueError(f"MAINS DENSITY GATE: a fill tri's uv density {sv} is "
                              f"outside the source envelope [{lo_env:.4f},{hi_env:.4f}] "
                              f"-- stretch/smush")
-    # the hard gate: every emitted tri's uvs inside its source tile's EXACT uv rect;
-    # eps admits the boundary-snap overhang (_BOUNDARY_SNAP x tile density ~4 texels,
-    # stock's own cut-vert bilinear bleed) and nothing wider
+    # the hard gate: every emitted tri's uvs inside ONE of its cell's pair rects (a
+    # weld-shifted sliver near the diagonal may resolve to either side -- both are
+    # lawful tile maps of that cell); eps admits the boundary-snap overhang
+    # (_BOUNDARY_SNAP x tile density ~4 texels, stock's own cut-vert bilinear bleed)
     for t3 in out:
         cx = sum(v[0][0] for v in t3) / 3.0
         cz = sum(v[0][2] for v in t3) / 3.0
-        src, _off = src_for(cx, cz)
-        us = [v[2][0] for v in src]
-        vs = [v[2][1] for v in src]
-        for v in t3:
-            if not (min(us) - 6e-3 <= v[2][0] <= max(us) + 6e-3
-                    and min(vs) - 6e-3 <= v[2][1] <= max(vs) + 6e-3):
-                raise ValueError(f"TILE-RECT CONTAINMENT: a fill tri at "
-                                 f"({cx:.1f},{cz:.1f}) maps uv ({v[2][0]:.4f},"
-                                 f"{v[2][1]:.4f}) outside its source tile's rect -- "
-                                 f"gutter/foreign atlas content would render")
+        pair, _sc = pair_for((math.floor(cx / 4.0), math.floor(cz / 4.0)))
+        tus = [v[2][0] for v in t3]
+        tvs = [v[2][1] for v in t3]
+        ok = False
+        for src in pair:
+            us = [v[2][0] for v in src]
+            vs = [v[2][1] for v in src]
+            if (min(us) - 6e-3 <= min(tus) and max(tus) <= max(us) + 6e-3
+                    and min(vs) - 6e-3 <= min(tvs) and max(tvs) <= max(vs) + 6e-3):
+                ok = True
+                break
+        if not ok:
+            raise ValueError(f"TILE-RECT CONTAINMENT: a fill tri at "
+                             f"({cx:.1f},{cz:.1f}) maps uvs outside every rect of "
+                             f"its cell's source pair -- gutter/foreign atlas "
+                             f"content would render")
     return out
 
 
