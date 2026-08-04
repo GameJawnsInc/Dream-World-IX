@@ -75,7 +75,10 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
                              f"[[numeric_input]] (validate should have caught this)")
         parts.append(_numinput.recall_bytes(sp))
     if reply_txid is not None:
-        parts.append(_event.message(reply_txid))
+        # the option's own style/window keys dress its reply window (default = plain dialogue)
+        from . import text as _text
+        parts.append(_event.message(reply_txid, window=int(opt.get("window", 1)),
+                                    flags=_text.resolve_style(opt.get("style"))))
     if "give_item" in opt:
         gi = opt["give_item"]
         parts.append(_event.give_item(gi[0], int(gi[1]) if len(gi) > 1 else 1))   # gi[0] = id or name
@@ -89,6 +92,23 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
         parts.append(_event.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
     if "set_scenario" in opt:
         parts.append(_event.set_scenario(int(opt["set_scenario"])))
+    # The full hub-side STORY SEED (narrative-state round 7): a journey row stamps the whole
+    # beat -- flags, save-backed words (the ATE availability state), and the party roster --
+    # BEFORE the warp, so the destination members stay pure verbatim forks with no [startup]
+    # of their own and in-journey progression is never re-stamped at a door.
+    if "set_flags" in opt:
+        from . import startup as _startup
+        parts.append(_startup.startup_body(
+            [(int(p["flag"]), int(p.get("value", 1))) for p in opt["set_flags"]]))
+    if "set_words" in opt:
+        from . import startup as _startup
+        parts.append(_startup.startup_body(
+            [], words=[(int(w["byte"]), int(w["value"])) for w in opt["set_words"]]))
+    if "party_add" in opt or "party_remove" in opt:
+        from . import party as _party
+        parts.append(_party.party_body(
+            adds=[_party.resolve_member(n) for n in opt.get("party_add", ())],
+            removes=[_party.resolve_member(n) for n in opt.get("party_remove", ())]))
     if opt.get("save"):
         # A SAVE row -- open the real save menu from a dialogue choice, so one NPC can be the
         # innkeeper/purser AND the save point instead of standing next to a twin save-moogle prop.
@@ -220,8 +240,16 @@ def branch(option_bodies) -> bytes:
     return out
 
 
+def _prompt_window(prompt_txid: int, window: int, flags: int, actor_uid) -> bytes:
+    """The prompt WindowSync -- attributed to ``actor_uid`` (WindowSyncEx) when given, so a zone
+    choice's menu bubble can point at a named NPC instead of the (tail-less) region entity."""
+    if actor_uid is not None:
+        return opcodes.window_sync_ex(int(actor_uid), window, flags, prompt_txid)
+    return opcodes.window_sync(window, flags, prompt_txid)
+
+
 def region_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128,
-                setup: bytes = b"") -> bytes:
+                setup: bytes = b"", actor_uid: int | None = None) -> bytes:
     """The choice block usable in ANY trigger context (an NPC talk OR a walk-in region): lock the
     player, (optional pre-choose ``setup``), open the prompt+options window, branch on the pick, restore
     control. **No RETURN** -- the caller adds it (NPC) or wraps it in a flag-gated region body (zone).
@@ -232,16 +260,17 @@ def region_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int 
     cursor AND the character. Real FF9 wraps a choice in DisableMove...EnableMove (e.g. the Black Mage
     shop), and the menu still navigates because choice input comes from the dialog system, not field
     control."""
-    return (opcodes.DISABLE_MOVE + setup + opcodes.window_sync(window, flags, prompt_txid)
+    return (opcodes.DISABLE_MOVE + setup + _prompt_window(prompt_txid, window, flags, actor_uid)
             + branch(option_bodies) + opcodes.ENABLE_MOVE)
 
 
 def speak_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128,
-               setup: bytes = b"") -> bytes:
+               setup: bytes = b"", actor_uid: int | None = None) -> bytes:
     """A complete ``_SpeakBTN`` (NPC talk) body for a choice: the choice block + RETURN. ``flags`` 128
     is the standard field dialogue flag (same as plain NPC dialogue). ``setup`` = optional pre-choose
     opcode (see :func:`pre_choose`)."""
-    return region_body(prompt_txid, option_bodies, window=window, flags=flags, setup=setup) + opcodes.RETURN
+    return region_body(prompt_txid, option_bodies, window=window, flags=flags, setup=setup,
+                       actor_uid=actor_uid) + opcodes.RETURN
 
 
 # --------------------------------------------------------------- the SWITCH dispatch (op_0B) ---
@@ -302,9 +331,9 @@ def switch_on_choice(option_bodies) -> bytes:
 
 
 def switch_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128,
-                setup: bytes = b"") -> bytes:
+                setup: bytes = b"", actor_uid: int | None = None) -> bytes:
     """:func:`region_body`'s switch-dispatched twin: lock control, (optional pre-choose ``setup``), open
     the prompt window, then :func:`switch_on_choice`, then restore control. **No RETURN** -- the caller
     adds it. Use this instead of :func:`region_body` for a multi-body or nested menu."""
-    return (opcodes.DISABLE_MOVE + setup + opcodes.window_sync(window, flags, prompt_txid)
+    return (opcodes.DISABLE_MOVE + setup + _prompt_window(prompt_txid, window, flags, actor_uid)
             + switch_on_choice(option_bodies) + opcodes.ENABLE_MOVE)

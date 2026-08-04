@@ -41,7 +41,12 @@ _WORLD_RESERVED_BASE = 9000
 # 7608 bits). At import-chain's defaults (25 members x 64 flags/field) a 12-arc chain needs 19200 bits and
 # OVERFLOWS -> the deploy lint hard-errors. So the fork playbook emits a SMALLER `--flags-per-field` sized so
 # all arcs fit; arcs keep their full member count (the lever is the per-field reservation, not --max-fields).
-SAFE_FLAG_BUDGET = _flags.CHOICE_SCRATCH_FLOOR - _flags.FIRST_SAFE_FLAG     # bits the journey band has for campaigns
+# THE CEILING IS THE KIT-STANDING FLOOR, NOT THE CHOICE SCRATCH. Three sites named a ceiling and only one
+# ENFORCES: campaign.lint_campaign (a3) errors when a member block crosses KIT_STANDING_FLOOR (14664), while
+# this budget and journey's own total check used CHOICE_SCRATCH_FLOOR (16320). Sizing against the higher
+# number over-allocates 1656 bits, so a playbook could pass `lint-journey` and then fail at `build-all` --
+# a lint disagreeing with the build it exists to predict.
+SAFE_FLAG_BUDGET = _flags.KIT_STANDING_FLOOR - _flags.FIRST_SAFE_FLAG       # bits the journey band has for campaigns
 # 40 is an AVERAGE-arc estimate for sizing the flag budget (n_arcs * 40); the chosen flags-per-field is then
 # conservative and the deploy lint checks the real TOTAL (the true backstop), not per-arc. A single arc CAN
 # exceed 40 -- a split-visit catalog region tops out at 48 (l_castle's disc-1 visit), and a whole-zone region

@@ -57,13 +57,23 @@ def open_shop(shop_id: int) -> bytes:
     return opcodes.menu(SHOP_MENU_ID, int(shop_id))
 
 
-def shop_speak_body(shop_id: int, *, greeting_txid: int | None = None) -> bytes:
-    """A shopkeeper NPC's tag-3 talk body: (optional greeting window ->) open the shop -> RETURN. The talk
-    already halts the player, so -- unlike the press-region -- no ``DisableMove`` bracket is needed."""
+def shop_speak_body(shop_id: int, *, greeting_txid: int | None = None,
+                    lock: bool = True, lock_menu: bool = False) -> bytes:
+    """A shopkeeper NPC's tag-3 talk body: lock -> (optional greeting window ->) open the shop ->
+    unlock -> RETURN. ``lock`` (default True) is the stock shop bracket: real shops wrap the whole
+    talk in ``DisableMove...EnableMove`` (119/130 ``Menu(2,·)`` sites sit inside a lock -- the
+    movement census, studies/movement/SURVEY.md). The engine does NOT halt the player for a talk --
+    a window only blocks the NPC's own thread, and while the shop UI itself hard-pauses field
+    scripts, the greeting window and the menu-open/close edges are walkable without the bracket.
+    (The pre-census "the talk already halts the player" claim here was falsified.)"""
     body = b""
     if greeting_txid is not None:
         body += opcodes.window_sync(1, 128, int(greeting_txid))
-    return body + open_shop(shop_id) + opcodes.RETURN
+    body += open_shop(shop_id)
+    if lock:
+        from . import event as _event
+        body = _event.lock_bracket(body, menu=lock_menu)
+    return body + opcodes.RETURN
 
 
 def shop_dispatch(shop_id: int) -> bytes:

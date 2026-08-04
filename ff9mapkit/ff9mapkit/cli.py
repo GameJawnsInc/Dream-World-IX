@@ -32,6 +32,7 @@ Subcommands are wired up incrementally as the library lands:
     models/scenes/catalog - the Info Hub: browse models (+ their animations), battle scenes, or
                             search every reference catalog by name
     extract-templates - regenerate base assets from the user's own FF9 install (no game data shipped)
+    fetch-assets - re-materialize a campaign's gitignored SE-derived member sidecars from your install
     setup     - one-shot: find the FF9 install, remember it, extract base assets, report Memoria status
 
 Anything not yet implemented prints a clear "coming in Phase N" message rather than failing
@@ -163,6 +164,24 @@ def _cmd_extract_templates(args: argparse.Namespace) -> int:
         print(f"\nextract-templates failed: {e}", file=sys.stderr)
         return 1
     print(f"\nOK -- {len(rep['verified'])} assets regenerated + verified against the manifest.")
+    # Repo checkout only (an installed wheel ships no examples/): also re-materialize the bundled
+    # stolen-ember example's gitignored SE-derived sidecars, so a fresh clone/worktree is buildable --
+    # and its test suite runnable -- after this ONE command. Best-effort: a failure here must not
+    # fail the template extraction it rode in on.
+    from pathlib import Path
+    ember = Path(provision.__file__).resolve().parents[2] / "examples" / "stolen-ember" / "campaign.toml"
+    if not provision._is_installed_pkg() and ember.is_file():
+        from . import campaign
+        try:
+            plan = campaign.load_campaign(ember)
+            if campaign.missing_assets(plan, ember.parent):
+                print("\nexamples/stolen-ember: re-materializing its gitignored SE-derived sidecars ...")
+                written = campaign.fetch_assets(plan, ember.parent, game=args.game)
+                print(f"  OK -- {sum(len(f) for f in written.values())} sidecar(s) across "
+                      f"{len(written)} member(s) (authored tomls untouched).")
+        except Exception as e:                            # noqa: BLE001 - the example is not the mission
+            print(f"  examples/stolen-ember sidecars NOT regenerated ({e}); run later:\n"
+                  f"    py -m ff9mapkit fetch-assets {ember}", file=sys.stderr)
     return 0
 
 
@@ -274,6 +293,7 @@ def _cmd_deploy_campaign(args: argparse.Namespace) -> int:
             allow_name_collision=args.allow_name_collision, allow_id_collision=args.allow_id_collision,
             flag_base=args.flag_base, no_promote_csv=args.no_promote_csv, promote_csv_to=args.promote_csv_to,
             out_dist=args.out_dist, allow_reflow=args.reflow_flags,
+            allow_link_wipe=getattr(args, 'allow_link_wipe', False),
             backups_dir=provision.deploy_backups_dir(),
             reverts_dir=provision.deploy_reverts_dir())
     except DeployError as e:
@@ -354,6 +374,347 @@ def _cmd_disasm(args: argparse.Namespace) -> int:
             print(f"  --- func{f.index} tag={f.tag} [{f.abs_start}..{f.abs_end}]")
             for ins in eb.instrs(f):
                 print(f"    {ins}")
+    return 0
+
+
+# The full event corpus: field 818x7 = 5726, battle 562x7 = 3934, world 13x6+15 = 93 -- 9753
+# total (studies/eb-roundtrip/FINDINGS.md + the Rung-7 census). A gate that quietly verifies
+# fewer than this is the "check that cannot fail" defect class -- if the container listing
+# shrinks (key-format drift, a filter typo), the sweep must REFUSE, not pass.
+_EB_CORPUS_FLOOR = 9753
+# Stock raw= entries corpus-wide: 63 structural (world entry-0 lying func tables) + 10
+# encode-verify (unused argFlag bits, 2 jp world binaries) = 73. A raw= entry round-trips
+# TRIVIALLY, so a surge here is how an encoder regression would hide behind a green byte-exact
+# count -- the gate bounds it: more raw= than stock means readable source silently degraded.
+_EB_RAW_BASELINE = 73
+
+
+def _eb_src_verify_all() -> int:
+    """Round-trip EVERY event binary in the install -- field, battle, AND world, all languages --
+    through the .ebs source form and report the byte-exact count per group: the eb-roundtrip
+    arc's standing gate. Exit 0 only when the corpus is full-size AND every binary round-trips."""
+    from . import extract
+    from .eb import ebsrc
+
+    try:
+        bundle = extract._events_bundle()
+        if not bundle:
+            print("no events bundle found -- is the FF9 install reachable?", file=sys.stderr)
+            return 2
+        env = extract._load_env(extract._streaming_assets() / bundle)
+    except ConfigError as ex:
+        print(f"eb-src --verify-all: no FF9 install found ({ex})", file=sys.stderr)
+        return 2
+    todo = []
+    for k, obj in env.container.items():
+        kl = k.lower()
+        if "eventbinary/" in kl and kl.endswith(".eb.bytes"):
+            tail = kl.split("eventbinary/")[1]            # <group>/<lang>/<name>.eb.bytes
+            parts = tail.split("/")
+            todo.append((parts[0], parts[1] if len(parts) > 2 else "?",
+                         parts[-1][:-len(".eb.bytes")], obj))
+    if len(todo) < _EB_CORPUS_FLOOR:
+        print(f"eb-src --verify-all: only {len(todo)} event binaries found "
+              f"(expected {_EB_CORPUS_FLOOR}: field+battle+world x 7 langs) -- refusing to "
+              f"call a partial corpus green", file=sys.stderr)
+        return 2
+    ok, failures, raw_entries = 0, [], 0
+    per_group: dict = {}
+    for group, lang, evt, obj in sorted(todo):
+        data = extract._raw_bytes(obj.read())
+        g = per_group.setdefault(group, [0, 0])
+        g[1] += 1
+        try:
+            src = ebsrc.write_source(data)                # self-verifying
+            assert ebsrc.assemble_source(src) == data
+            ok += 1
+            g[0] += 1
+            raw_entries += sum(1 for ln in src.splitlines()
+                               if ln.lstrip().startswith(".entry") and " raw=" in ln)
+        except Exception as ex:                           # noqa: BLE001 -- report + count, never abort the sweep
+            failures.append((f"{group}/{lang}", evt, str(ex)))
+    groups = " | ".join(f"{g} {n[0]}/{n[1]}" for g, n in sorted(per_group.items()))
+    print(f"{ok}/{len(todo)} binaries round-trip byte-exact ({groups}; "
+          f"raw= entries {raw_entries}, stock baseline {_EB_RAW_BASELINE})")
+    if raw_entries > _EB_RAW_BASELINE:
+        print(f"eb-src --verify-all: {raw_entries} raw= entries exceed the stock baseline of "
+              f"{_EB_RAW_BASELINE} -- readable source is silently degrading to verbatim hex, "
+              f"which round-trips trivially. This is the signature of an encoder/decoder "
+              f"regression; each raw= line names its reason (grep 'kept verbatim').",
+              file=sys.stderr)
+        return 1
+    for lang, evt, msg in failures[:20]:
+        print(f"  FAIL {lang}/{evt}: {msg}", file=sys.stderr)
+    if len(failures) > 20:
+        print(f"  ... and {len(failures) - 20} more", file=sys.stderr)
+    return 1 if failures else 0
+
+
+def _eb_src_naming(target, lang: str):
+    """The OPTIONAL naming layer behind `eb-src`'s comments, for a target resolved BY FIELD ID
+    through the install: ``(mes_entries, field_names, title_suffix)``. Every piece is best-effort
+    -- comments are presentation, so a missing install / text block / (gitignored) dev manifest
+    degrades what the comments SAY and never what the command DOES."""
+    mes_entries = None
+    try:
+        from . import dialogue as _d
+        body = _d.extract_field_mes(str(target), lang=lang)
+        if body:
+            mes_entries = _d.parse_mes(body)
+    except Exception:                                     # noqa: BLE001 -- no install/.mes -> no previews
+        mes_entries = None
+    try:                                                  # ONE guard over the WHOLE name lookup --
+        from . import extract                             # a partial one leaves the tail unguarded
+        from ._fieldtable import FIELD_BY_ID
+        names = extract._manifest_field_names()           # {} without the dev-only manifest
+        # id-keyed FIELD_BY_ID is COMPLETE; find_fields walks the folder-keyed table (which drops
+        # the ~142 fields that share an FBG folder), so it is only the NAME-query fallback
+        fid = int(str(target).strip()) if str(target).strip().isdigit() else None
+        if fid is None:
+            rows = extract.find_fields(target)
+            fid = rows[0]["id"] if len(rows) == 1 else None
+        row = FIELD_BY_ID.get(fid) if fid is not None else None
+        bits = [b for b in ([names.get(fid)] + list(row or [])) if b]
+        return mes_entries, names, (" -- " + " | ".join(bits) if bits else "")
+    except Exception:                                     # noqa: BLE001
+        return mes_entries, {}, ""
+
+
+def _print_source(text: str) -> None:
+    """Print a .ebs whose dialogue previews carry real FF9 text (accented fr/gr/es, jp kana). The
+    encoding half is the HOUSE mechanism every text-dumping verb uses -- :func:`_safe_console`,
+    which reconfigures the streams to substitute instead of raising -- NOT a second encoder of
+    this command's own. What is added here is the honesty: substitution silently LOSES characters,
+    so when the text does not fit the stream say so ONCE on stderr, because what is on screen is
+    then no longer what -o writes."""
+    _safe_console()
+    enc = getattr(sys.stdout, "encoding", None)
+    lossy = False
+    if enc:
+        try:
+            text.encode(enc)                              # a probe, not a conversion
+        except (UnicodeEncodeError, LookupError):
+            lossy = True
+    print(text, end="")
+    if lossy:
+        print(f"eb-src: this console ({enc}) cannot show every character -- some of the text "
+              f"above is degraded to '?'. Write the exact source with -o FILE.", file=sys.stderr)
+
+
+def _cmd_story_seed(args: argparse.Namespace) -> int:
+    import json as _json
+    import os
+
+    from . import flags as _flags, storyseed
+    from .eb import EbScript
+
+    t = args.target
+    if args.chain:
+        if not args.beat:
+            # no beat given: print the zone's ADVANCE LADDER (the story's own flow through
+            # the zone -- the beat-selection surface; a value = the state just after that
+            # advance). Derived from the members' SC writes, never guessed.
+            cpath = args.census or storyseed.find_census()
+            if not cpath or not os.path.isfile(cpath):
+                print("story-seed: dominance_census.json not found (see --census)", file=sys.stderr)
+                return 1
+            census = _json.load(open(cpath, encoding="utf-8"))
+            donors = [d for (_m, d) in storyseed.chain_donors(args.chain)]
+            _safe_console()
+            print("the zone's advance ladder (pick one as --beat; each = the state just "
+                  "after that story advance):")
+            for v, name, writers in storyseed.chain_ladder(census, donors):
+                print(f"  {v:6d}  ({name})  written by donor(s) {writers}")
+            return 0
+        try:
+            beat = int(args.beat)
+        except ValueError:
+            beat = _flags.resolve_scenario(args.beat)
+        cpath = args.census or storyseed.find_census()
+        if not cpath or not os.path.isfile(cpath):
+            print("story-seed: dominance_census.json not found (see --census)", file=sys.stderr)
+            return 1
+        census = _json.load(open(cpath, encoding="utf-8"))
+        from .extract import EventBundle
+        bundle = EventBundle()
+        if args.hub:
+            # THE HUB FORMAT (round 7): derive ONE [[journey]] row carrying the chain's whole
+            # seed (stamped hub-side on the journey PICK, before the warp), install it in the
+            # journeys.toml, and STRIP the members back to pure verbatim forks. Rebuild +
+            # redeploy the members and `gen-hub` + build + deploy the hub after this.
+            if not args.entry:
+                print("story-seed: --hub needs --entry <member field id> (the journey's warp "
+                      "destination, e.g. the zone's entrance member)", file=sys.stderr)
+                return 1
+            if not os.path.isfile(args.hub):
+                print(f"story-seed: journeys.toml not found: {args.hub}", file=sys.stderr)
+                return 1
+            slug = f"{os.path.basename(os.path.normpath(args.chain))}_{beat}"
+            row = storyseed.hub_journey_toml(
+                args.chain, beat, census,
+                lambda d: EbScript.from_bytes(bundle.eb_for_id(d)),
+                entry=int(args.entry), slug=slug)
+            storyseed.update_hub_journeys(args.hub, row, slug)
+            stripped = storyseed.strip_chain_seeds(args.chain)
+            _safe_console()
+            print(row)
+            print()
+            print(f"story-seed: journey {slug!r} installed in {args.hub}")
+            if stripped:
+                print(f"story-seed: {len(stripped)} member(s) stripped to pure verbatim forks "
+                      "(ALL story state now comes from the hub pick) -- rebuild + redeploy them")
+            print("next: ff9mapkit gen-hub <journeys.toml> then build + deploy the hub field")
+            return 0
+        rows = storyseed.seed_chain(args.chain, beat, census,
+                                    lambda d: EbScript.from_bytes(bundle.eb_for_id(d)))
+        _safe_console()
+        for path, mid, donor in rows:
+            print(f"  seeded {mid} (donor {donor}) @ {beat}: {path}")
+            hz = storyseed.backwards_advance_hazards(census, donor, beat)
+            if hz:
+                print(f"    WARN: donor {donor} writes SC {hz} BELOW the seeded beat -- a "
+                      "resident advance sequence run late trips stock's backwards-write "
+                      "debug guard (Skip is safe; or seed this member at its own beat)")
+        if rows:
+            once = storyseed.chain_once_flag([m for (_p, m, _d) in rows])
+            print(f"story-seed: {len(rows)} member(s) seeded @ beat {beat} -- ONCE-stamped "
+                  f"(sentinel bit {once}): the first room entered asserts the beat, later "
+                  "entries never rewind in-chain progression; New Game resets the sentinel")
+        else:
+            print(f"story-seed: {len(rows)} member(s) seeded @ beat {beat}")
+        return 0
+    if t.isdigit():
+        from .extract import EventBundle
+        data = EventBundle().eb_for_id(int(t))
+        if not data:
+            print(f"story-seed: no event script for field id {t}", file=sys.stderr)
+            return 1
+        label = t
+    else:
+        data = open(t, "rb").read()
+        label = t
+    if args.beats:
+        _safe_console()
+        for v, name in storyseed.staged_beats(EbScript.from_bytes(data)):
+            print(f"  {v:6d}  ({name})")
+        return 0
+    if not args.beat:
+        print("story-seed: --beat is required (use --beats to list this field's staged beats)",
+              file=sys.stderr)
+        return 1
+    try:
+        beat = int(args.beat)
+    except ValueError:
+        beat = _flags.resolve_scenario(args.beat)
+    cpath = args.census or storyseed.find_census()
+    if not cpath or not os.path.isfile(cpath):
+        print("story-seed: dominance_census.json not found -- run "
+              "`py research/dominance_census.py` from ff9mapkit/ first (or pass --census)",
+              file=sys.stderr)
+        return 1
+    census = _json.load(open(cpath, encoding="utf-8"))
+    donor = int(t) if t.isdigit() else None
+    _safe_console()
+    print(storyseed.seed_text(EbScript.from_bytes(data), beat, census,
+                              field_label=label, donor=donor))
+    return 0
+
+
+def _cmd_eb_src(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .eb import ebsrc
+
+    if args.verify_all:
+        return _eb_src_verify_all()
+    if not args.target:
+        print("eb-src: give a field id/name or a .eb path (or --verify-all)", file=sys.stderr)
+        return 2
+    plain = getattr(args, "plain", False)
+    mes_entries, field_names = None, None
+    try:
+        p = Path(args.target)
+        if p.is_file():                                   # a bare path: no id, so no .mes / names
+            data = p.read_bytes()
+            title = p.name
+        else:
+            from . import extract
+            data = extract.extract_event_script(args.target, lang=args.lang)
+            if data is None:
+                print(f"eb-src: could not resolve {args.target!r} to a field event binary "
+                      f"(lang {args.lang})", file=sys.stderr)
+                return 2
+            title = f"field {args.target} lang {args.lang}"
+            if not plain:
+                mes_entries, field_names, suffix = _eb_src_naming(args.target, args.lang)
+                title += suffix
+        src = ebsrc.write_source(data, title=title, enrich=not plain,   # raises on any deviation
+                                 mes_entries=mes_entries, field_names=field_names)
+        if args.out:
+            Path(args.out).write_text(src, encoding="utf-8")
+            print(f"wrote {args.out} ({len(src.splitlines())} lines, round-trip verified)")
+        else:
+            _print_source(src)
+    except (ebsrc.EbSrcError, OSError) as ex:
+        print(f"eb-src: {ex}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def _cmd_eb_asm(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .eb import ebsrc
+
+    try:
+        src_path = Path(args.src)
+        out = Path(args.out) if args.out else src_path.with_suffix(".eb")
+        if out.exists() and out.resolve() == src_path.resolve():
+            print(f"eb-asm: output {out} is the source file itself -- assembling would "
+                  f"destroy your source; pass -o with a different path", file=sys.stderr)
+            return 2
+        src = src_path.read_text(encoding="utf-8-sig")
+        against = getattr(args, "against", None)
+        if against:                                       # EDIT-THROUGH-SOURCE: splice, don't rebuild
+            donor_path = Path(against)
+            if out.exists() and donor_path.exists() and out.resolve() == donor_path.resolve():
+                print(f"eb-asm: output {out} is the --against donor itself -- the donor is the "
+                      f"reference this splice is verified against, and overwriting it destroys "
+                      f"your only copy of the original bytes; pass -o with a different path",
+                      file=sys.stderr)
+                return 2
+            donor = donor_path.read_bytes()
+            data, report = ebsrc.assemble_against(src, donor)
+            for line in report:
+                print(f"  spliced {line}")
+            total = ebsrc.count_functions(src)
+            print(f"{len(report)} function(s) spliced, {total - len(report)} untouched "
+                  f"(donor {len(donor)}B -> {len(data)}B)")
+        else:
+            data = ebsrc.assemble_source(src)
+        if args.verify_against:
+            want = Path(args.verify_against).read_bytes()
+            if data != want:
+                n = min(len(data), len(want))
+                at = next((i for i in range(n) if data[i] != want[i]), n)
+                print(f"MISMATCH vs {args.verify_against} at byte {at} "
+                      f"(assembled {len(data)}B, reference {len(want)}B)", file=sys.stderr)
+                return 1
+            print(f"verified: matches {args.verify_against} byte-exact ({len(data)}B)")
+        out.write_bytes(data)
+        print(f"wrote {out} ({len(data)} bytes)")
+        # the --against path gates lint (no-worse-than-donor) before it returns; the full path
+        # has no donor to compare, so at least SAY when the output carries error-class issues
+        # (the softlock/runs-off-the-end family) instead of a bare success line
+        if not against:
+            from .eblint import lint_eb
+            errs = [i for i in lint_eb(data) if i.severity == "error"]
+            if errs:
+                print(f"eb-asm: WARNING: the output has {len(errs)} lint error(s) -- "
+                      f"inspect with `ff9mapkit lint-eb {out}` before deploying", file=sys.stderr)
+    except (ebsrc.EbSrcError, OSError) as ex:
+        print(f"eb-asm: {ex}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -802,10 +1163,11 @@ def _cmd_paint_template(args: argparse.Namespace) -> int:
 
 def _cmd_lint(args: argparse.Namespace) -> int:
     """Check a field.toml WITHOUT building -- ONE pass over every offline validator: schema errors
-    (validate), story/flag logic + dialogue overflow + dup names (lint_logic), reserved flag-band use
-    (lint_flag_bands), walkmesh geometry + content placement + layer art + cutscene movement
-    (verify_walkmesh), and camera pitch range. Warnings are grouped by [section]. Exits 1 if anything is
-    reported, so it's scriptable. Merges a sibling scene.toml first."""
+    (validate), unknown/typo'd keys the build would silently ignore (lint_unknown_keys), story/flag
+    logic + dialogue overflow + dup names (lint_logic), reserved flag-band use (lint_flag_bands),
+    walkmesh geometry + content placement + layer art + cutscene movement (verify_walkmesh), and
+    camera pitch range. Warnings are grouped by [section]. Exits 1 if anything is reported, so it's
+    scriptable. Merges a sibling scene.toml first."""
     from .build import FieldProject, lint_all
     try:
         proj = FieldProject.load(args.field)
@@ -816,7 +1178,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     print(f"lint: {args.field}  [{rep.source}]")
     for p in rep.errors:
         print(f"  ERROR  {p}")
-    for tag, items in (("logic", rep.logic), ("flags", rep.flags),
+    for tag, items in (("schema", rep.unknown), ("logic", rep.logic), ("flags", rep.flags),
                        ("placement", rep.placement), ("camera", rep.camera)):
         for w in items:
             print(f"  warn  [{tag}] {w}")
@@ -1478,6 +1840,56 @@ def _cmd_build_all(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_verify_build(args: argparse.Namespace) -> int:
+    """What is this folder, and is it still what the build produced?
+
+    Works on a staged dist AND on a live mod folder -- .ff9build.json ships with the dist through deploy's
+    copytree, so an install can answer for itself. Without a target it sweeps the stacked FolderNames, which
+    is the question that actually gets asked with 18 worktrees sharing one game install."""
+    from pathlib import Path
+
+    from . import linkreceipt, stamp
+    targets = []
+    if args.target:
+        targets = [Path(args.target)]
+    else:
+        try:
+            game = find_game_path(getattr(args, "game", None))
+            from .deploystack import parse_folder_names
+            ini = game / "Memoria.ini"
+            names = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+            targets = [game / n for n in names if (game / n).is_dir()]
+        except Exception as e:                       # noqa: BLE001 -- no install / unreadable ini
+            print(f"could not resolve the live folder stack ({type(e).__name__}: {e}) -- pass a directory.",
+                  file=sys.stderr)
+            return 2
+        if not targets:
+            print("no stacked mod folders found to verify.", file=sys.stderr)
+            return 2
+    rc = 0
+    for t in targets:
+        if not t.is_dir():
+            print(f"{t}: not a directory", file=sys.stderr)
+            rc = 2
+            continue
+        rep = stamp.verify(t)
+        print(rep.render())
+        if not rep.has_stamp:
+            rc = max(rc, 1 if args.strict else 0)
+        elif rep.has_digest and not rep.clean:
+            rc = 2
+        # A journey's cross-campaign doors exist only as an edit to the INSTALL -- no dist carries them --
+        # so the build stamp cannot see them go. The receipt is the only thing that can.
+        links = linkreceipt.check(t)
+        if links.has_receipt:
+            body = links.render().split("\n", 1)[1]
+            print("  " + body.strip().replace("\n", "\n  "))
+            if not links.satisfied:
+                rc = 2
+        print()
+    return rc
+
+
 def _cmd_reid(args: argparse.Namespace) -> int:
     """Move a campaign's field ids. DRY-RUN unless ``--apply``: this rewrites the author's own files, so the
     default shows the whole plan -- including the deploy-side work reid CANNOT do -- and changes nothing."""
@@ -1648,6 +2060,35 @@ def _cmd_add_field(args: argparse.Namespace) -> int:
     kind = f"forked field {args.source}" if args.source else "blank room"
     print(f"added {m.name} (id {m.new_id}, {kind}) -> {m.toml_rel}; campaign now has {len(plan.members)} "
           f"member(s).\nEdit it: ff9mapkit edit {cpath.parent / m.toml_rel}")
+    return 0
+
+
+def _cmd_fetch_assets(args: argparse.Namespace) -> int:
+    """Re-materialize a campaign's gitignored SE-derived member sidecars (camera.bgx / walkmesh.bgi /
+    native scene / carried bins) from the user's OWN install. The authored tomls are never touched --
+    this is how a fresh clone regenerates e.g. examples/stolen-ember's buildable state."""
+    from pathlib import Path
+
+    from . import campaign
+    if not _has_unitypy():
+        print("fetch-assets needs UnityPy (reads FF9's p0data assetbundles). Install it:\n"
+              "    py -m pip install UnityPy", file=sys.stderr)
+        return 2
+    cpath = Path(args.campaign)
+    try:
+        plan = campaign.load_campaign(cpath)
+        missing = campaign.missing_assets(plan, cpath.parent)
+        if not missing and not args.force:
+            print("every member's SE-derived sidecars are already present -- nothing to fetch "
+                  "(--force re-extracts them all)")
+            return 0
+        written = campaign.fetch_assets(plan, cpath.parent, game=args.game, force=args.force)
+    except (campaign.CampaignError, RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for name, files in written.items():
+        print(f"{name}: wrote {len(files)} sidecar(s): {', '.join(files) if files else '(all present)'}")
+    print(f"re-materialized {len(written)} member(s) from your install; the authored tomls were not touched.")
     return 0
 
 
@@ -6499,6 +6940,60 @@ def build_parser() -> argparse.ArgumentParser:
     ds.add_argument("-a", "--all", action="store_true", help="also list empty entry slots")
     ds.set_defaults(func=_cmd_disasm)
 
+    esr = sub.add_parser("eb-src", help="decompile a field .eb to re-assemblable .ebs source "
+                                        "(byte-exact round trip, self-verified)")
+    esr.add_argument("target", nargs="?", help="a field id/name (extracted from the install) or a "
+                                               ".eb/.eb.bytes path")
+    esr.add_argument("--lang", default="us", help="language when extracting by field id/name "
+                                                  "(us uk jp fr gr it es; default us). Bytecode "
+                                                  "DIFFERS across languages for 71%% of fields")
+    esr.add_argument("-o", "--out", help="write the .ebs here (default: stdout)")
+    esr.add_argument("--plain", action="store_true",
+                     help="omit the explanatory '# ...' comments (warp/model/item/scene names, "
+                          "story-flag bands, routine roles, dialogue previews). Comments are "
+                          "presentation only -- eb-asm strips them either way")
+    esr.add_argument("--verify-all", action="store_true",
+                     help="round-trip EVERY field event binary in the install (all 7 languages) "
+                          "and report N/M byte-exact; exit 1 on any failure")
+    esr.set_defaults(func=_cmd_eb_src)
+
+    sse = sub.add_parser("story-seed", help="emit a [startup] block seeding ONLY the story bits "
+                                            "a field READS, resolved at a target beat (rung 1 "
+                                            "of the narrative-state arc)")
+    sse.add_argument("target", nargs="?", default="",
+                     help="a numeric field id (extracted from the install) or a .eb path")
+    sse.add_argument("--beats", action="store_true",
+                     help="just LIST the ScenarioCounter values this field stages (pick one "
+                          "of these as --beat; a value between gates hits no scene)")
+    sse.add_argument("--beat",
+                     help="ScenarioCounter value, or a milestone name (flags.resolve_scenario)")
+    sse.add_argument("--chain", help="a chain/campaign DIRECTORY (from import-chain): seed "
+                                     "EVERY member's field.toml at --beat (each member "
+                                     "resolved against its own donor's read set)")
+    sse.add_argument("--hub", help="with --chain + --beat: derive ONE [[journey]] row carrying "
+                                   "the chain's whole seed, install it in this journeys.toml "
+                                   "(gen-hub's input), and STRIP the members to pure verbatim "
+                                   "forks -- the journey PICK stamps the beat hub-side, so "
+                                   "in-journey progression is never re-stamped at a door")
+    sse.add_argument("--entry", type=int,
+                     help="with --hub: the journey's warp destination (a member field id, "
+                          "e.g. the zone's entrance member)")
+    sse.add_argument("--census", help="path to dominance_census.json (default: found by walking "
+                                      "up from cwd; regenerate with research/dominance_census.py)")
+    sse.set_defaults(func=_cmd_story_seed)
+
+    eas = sub.add_parser("eb-asm", help="assemble .ebs source back into a complete .eb")
+    eas.add_argument("src", help="path to a .ebs source file")
+    eas.add_argument("-o", "--out", help="output .eb path (default: the source path with .eb)")
+    eas.add_argument("--against", metavar="DONOR.EB",
+                     help="EDIT-THROUGH-SOURCE: splice ONLY the functions whose source differs into "
+                          "this donor .eb's own bytes, leaving every other byte verbatim (minimal "
+                          "diff; an edit to one function cannot perturb another region). Refuses any "
+                          "STRUCTURAL difference from the donor -- assemble the whole file for those")
+    eas.add_argument("--verify-against", metavar="EB",
+                     help="also byte-compare the result against this reference .eb (exit 1 on mismatch)")
+    eas.set_defaults(func=_cmd_eb_asm)
+
     cm = sub.add_parser("camera", help="inspect / regenerate a .bgx camera")
     cm.add_argument("bgx", help="path to a .bgx scene")
     cm.add_argument("--regen", metavar="OUT.bgx", help="rewrite with a re-synthesized camera (round-trip check)")
@@ -6553,8 +7048,9 @@ def build_parser() -> argparse.ArgumentParser:
     bh.set_defaults(func=_cmd_behavior)
 
     ln = sub.add_parser("lint", help="check a field.toml without building -- one pass over every offline "
-                        "validator (schema, story/flag logic, reserved flag bands, walkmesh geometry + "
-                        "content placement, layer art, camera pitch)")
+                        "validator (schema, unknown/typo'd keys the build would silently ignore, story/flag "
+                        "logic, reserved flag bands, walkmesh geometry + content placement, layer art, "
+                        "camera pitch)")
     ln.add_argument("field", help="path to a .field.toml")
     ln.set_defaults(func=_cmd_lint)
 
@@ -6832,6 +7328,16 @@ def build_parser() -> argparse.ArgumentParser:
                          "invalidates every save made before it)")
     ba.set_defaults(func=_cmd_build_all)
 
+    vb = sub.add_parser("verify-build",
+                        help="what a built/installed mod folder IS, and whether its files still match the "
+                             "build that wrote them (reads its .ff9build.json)")
+    vb.add_argument("target", nargs="?", default=None,
+                    help="a dist dir or a live mod folder (default: every folder in Memoria.ini FolderNames)")
+    vb.add_argument("--strict", action="store_true",
+                    help="also exit non-zero when a folder carries NO stamp (predates it, or was hand-made)")
+    vb.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
+    vb.set_defaults(func=_cmd_verify_build)
+
     ri = sub.add_parser("reid",
                         help="MOVE a campaign's field ids (manifest + every member toml + every door), "
                              "in one verified transaction -- dry-run unless --apply")
@@ -6876,6 +7382,16 @@ def build_parser() -> argparse.ArgumentParser:
     af.add_argument("--source", default=None,
                     help="a real field id or unique FBG name to FORK (needs the game); omit for a blank room")
     af.set_defaults(func=_cmd_add_field)
+
+    fa = sub.add_parser("fetch-assets",
+                        help="re-materialize a campaign's gitignored SE-derived member sidecars "
+                             "(camera.bgx / walkmesh.bgi / native scene / carried bins) from your OWN "
+                             "install, without touching the authored tomls (regenerates e.g. "
+                             "examples/stolen-ember on a fresh clone; needs UnityPy)")
+    fa.add_argument("campaign", help="path to the campaign.toml manifest")
+    fa.add_argument("--force", action="store_true",
+                    help="re-extract + overwrite sidecars that already exist (authored tomls still untouched)")
+    fa.set_defaults(func=_cmd_fetch_assets)
 
     fp = sub.add_parser("floorplan",
                         help="compose a hand-drawn multi-room floorplan.json into a wired dungeon "
@@ -8838,6 +9354,9 @@ def build_parser() -> argparse.ArgumentParser:
     dca.add_argument("--reflow-flags", action="store_true", dest="reflow_flags",
                      help="accept a build that MOVES an existing member's story-flag window or text block "
                           "(refused by default -- those bits are save-persistent)")
+    dca.add_argument("--allow-link-wipe", action="store_true", dest="allow_link_wipe",
+                     help="install even though this folder carries journey link patches a "
+                          "wholesale replace will revert (re-run deploy-journey to restore)")
     dca.set_defaults(func=_cmd_deploy_campaign)
 
     dje = sub.add_parser("deploy-journey",

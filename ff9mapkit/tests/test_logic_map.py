@@ -129,6 +129,84 @@ def test_computed_operands_marked_unresolved():
     assert not any(n.calls for n in lm2.nodes), "a computed-uid call draws no edge"
 
 
+# ---- entry arming (EntryInfo.spawns): all THREE init ops, every function ----
+RET = b"\x04"                                          # the 0-arg terminator
+
+
+def _eb_multi(entries) -> bytes:
+    """A multi-entry .eb: per entry a list of (tag, body) (mirrors test_workspace_script_tree's builder)."""
+    blobs = []
+    for funcs in entries:
+        fc = len(funcs)
+        table, bodies, fpos = b"", b"", fc * 4
+        for tag, body in funcs:
+            table += struct.pack("<HH", tag, fpos)
+            bodies += body
+            fpos += len(body)
+        blobs.append(bytes([0, fc]) + table + bodies)
+    head = bytearray(0x80)
+    head[0:2] = b"EV"
+    head[3] = len(blobs)
+    slots, out, off = b"", b"", 8 * len(blobs)
+    for b in blobs:
+        slots += struct.pack("<HHBBH", off, len(b), 0, 0, 0)
+        off += len(b)
+        out += b
+    return bytes(head) + slots + out
+
+
+def test_spawns_counts_all_three_init_ops():
+    """The engine has THREE init ops -- 0x07 InitCode / 0x08 InitRegion / 0x09 InitObject (eventscan.
+    INIT_OPS) -- and all three ARM their slot. Counting only InitObject mislabeled ~77% of gateway/
+    region/helper entries "not spawned" (2026-08 census over 818 US fields: 3998 of 5209; e.g. field
+    2510's InitRegion(13,0) in Main_Init with entry 13 chipped dormant)."""
+    eb = _eb_multi([
+        [(0, bytes([0x09, 1, 0]) + bytes([0x08, 2, 0]) + bytes([0x07, 3, 0]) + RET)],
+        [(0, RET)], [(0, RET)], [(0, RET)],
+    ])
+    lm = LM.build_logic_map(eb)
+    assert [e.spawns for e in lm.entries] == [0, 1, 1, 1]
+
+
+def test_spawns_counts_init_ops_in_every_function_not_just_main_init():
+    """A re-InitObject after a set_flag is a documented kit pattern: an entry armed ONLY from a talk
+    handler (or any non-entry-0 routine) is conditionally spawned, NOT dormant -- so spawns scans
+    EVERY function of EVERY entry, by design (documented on eventscan.scan_armed_entries)."""
+    eb = _eb_multi([
+        [(0, RET)],                                       # Main_Init arms nothing at boot
+        [(0, RET), (3, bytes([0x09, 2, 0]) + RET)],       # entry 1's talk handler arms entry 2
+        [(0, RET)],
+    ])
+    lm = LM.build_logic_map(eb)
+    assert lm.entries[2].spawns == 1
+    assert lm.entries[1].spawns == 0                      # nothing arms the ARMER itself
+
+
+def test_spawns_excludes_party_slot_selectors_for_init_object_only():
+    """InitObject slot operands 251-254 are the engine's PARTY-SLOT selectors (EventEngine.DoEventCode.cs
+    case NEW3: ``sid >= 251 -> partyUID[sid - 251]``), NOT entry indices -- never counted as spawns.
+    Engine-verified asymmetry: ONLY NEW3/InitObject has that remap -- NEW/NEW2 (InitCode 0x07 /
+    InitRegion 0x08) pass the slot straight through, so 251-254 DO arm for those ops."""
+    body = b"".join(bytes([0x09, s, 0]) for s in (251, 252, 253, 254)) + bytes([0x09, 1, 0]) + RET
+    armed = eventscan.scan_armed_entries(EbScript.from_bytes(_eb_multi([[(0, body)], [(0, RET)]])))
+    assert armed == {1: 1}
+    body2 = bytes([0x08, 252, 0]) + bytes([0x07, 251, 0]) + RET
+    armed2 = eventscan.scan_armed_entries(EbScript.from_bytes(_eb_multi([[(0, body2)]])))
+    assert armed2 == {252: 1, 251: 1}
+
+
+@needs_alex
+def test_spawns_matches_scan_armed_entries_on_a_real_field():
+    """build_logic_map's per-entry spawns must equal the shared scanner exactly (ONE owner of the
+    armed semantics -- the eb-src enrichment layer unifies on the same function)."""
+    lm = LM.build_logic_map(ALEX100)
+    armed = eventscan.scan_armed_entries(EbScript.from_bytes(ALEX100))
+    for e in lm.entries:
+        if e.role != "empty":
+            assert e.spawns == armed.get(e.index, 0), (e.index, e.spawns)
+    assert not (set(armed) & set(eventscan.PARTY_UIDS)), "party selectors never masquerade as entries"
+
+
 # ---- whole-field build + cross-checks against the proven scanners (ALEX100) ----
 @needs_alex
 def test_build_logic_map_structure():

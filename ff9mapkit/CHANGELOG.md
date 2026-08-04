@@ -5,6 +5,135 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — several windows at once, text-synchronized beats, and coloured text
+- **Multi-window cutscene steps** `open` / `close` / `wait_window` / `raise` on both scene flavors
+  (narration and a cast). `say` opens one window and blocks; splitting that is how stock builds unison
+  speech, staged countdown captions and a hint held under rolling dialogue — none of which the kit
+  could express. An async window is yours to close, and the build refuses a scene that leaks one.
+- **Text-synchronized signals** — `signal = "+" | n` and `hold` on any line, plus `{ set_signal = n }`
+  and `{ wait_signal = n, timeout = 250 }` steps. A tag inside a line fires when that text appears on
+  screen, so a script can block until a line has finished typing. **The wait is always guarded and
+  there is no unguarded form to author**: stock puts a 250-frame countdown beside every one of these
+  waits (117 of its 319 signal reads), because text is not a guaranteed event and an unguarded spin
+  hangs the field.
+- **Coloured text** via `{name}…{/}` / `{item}…{/}` / `{amount}…{/}` (plus the six colour names stock
+  ships) on every authored line, including choice rows. Colour in FF9 is semantic: it marks the parts
+  of a line that came from the save rather than the script. Emits the game's exact
+  `[CODE][HSHD]…[C8C8C8][HSHD]` pair; unbalanced markup is linted, and a line without markup is
+  byte-identical to before.
+
+### Fixed
+- **A confirm press dismisses every open window, not the topmost one** — so an async window that must
+  survive a line of dialogue needs `hold = true`, or the press that advances the dialogue closes it
+  too. Now refused at build time (this cost a playtest), along with the mirror deadlock of holding a
+  window a `wait_window` is waiting on.
+- **A space after an inline button glyph never renders** — the engine discards every one of them, in
+  both the measuring and drawing passes. Now linted, pointing at stock's own `[DBTN=CROSS]: Confirm`
+  legend form.
+- **Button glyphs measured as zero width** when wrapping, so any `[DBTN]`-bearing line was
+  under-measured.
+
+### Fixed — `[[npc]] face` was documented but never wired; every authored NPC shipped facing south
+- **`face = <0..255>` on an `[[npc]]` now sets which way it stands** (0=south/toward the camera,
+  64=west, 128=north, 192=east — the same compass `[player]`, chest and prop `face` already used).
+  It was documented in `FORMAT.md`, drawn by `tools/field_layout_probe.py`, and named in the layout
+  skill, but the build never read it: `lint` reported it as an unknown key and the value was dropped,
+  so a room laid out with NPCs turned to each other shipped with all of them facing the camera.
+- **No new opcodes.** The facing rides the object's own `SetVar D9(6)` const, which the real-NPC Init's
+  `TurnInstant(D9(6))` already consumed right after `CreateObject` — so the NPC is turned on frame 0
+  (no spawn-facing flash) and `face = 0` is byte-identical to every previous build. Wired on both the
+  synthesized-field and verbatim-fork paths; an out-of-range value is a `lint` error instead of a
+  silent mask. Head-tracking is unchanged and separate: most rigs still turn their *head* toward the
+  player, while the body keeps this facing.
+
+### Changed — cutscene `turn` steps now animate (the stock look) instead of snapping
+- **A `turn` beat rotates the actor with its turn animation** (`TimedTurn`/`TimedTurnEx` at the
+  engine's default speed) instead of instantly snapping its facing (`TurnInstant`), in both the
+  single-actor cutscene and the multi-actor conductor — matching how real FF9 cutscenes turn
+  (in-game verified: solo quarter/half turns, a parallel two-actor turn, and player turns, with
+  control returned cleanly). The instant snap was a hang guard from the era when kit NPCs were
+  player clones without reliable turn clips; every NPC the kit builds now ships real left/right
+  turn clips, so the guard only cost the look.
+- **The softlock rule is unchanged:** the turn is paced by a fixed ~24-frame hold (the anim-hold
+  idiom), never a blocking `WaitTurn`/`WaitTurnEx`. A parallel (`with_prev`) turn fires without an
+  inline hold — its hold folds into the group's one join `Wait`, so the fan stays simultaneous.
+  Init/spawn facing is untouched: `TurnInstant` after `CreateObject` **is** the byte-faithful
+  stock shape there.
+
+### Added — `ff9mapkit lint` now catches misspelled keys the build silently ignores
+- **A typo'd key in a `field.toml` was never an error — it was silently ignored**, which is the whole
+  bug class: `dialouge` on an NPC just means no dialogue, with no message anywhere. `lint` now reports
+  every key the build never reads, with a did-you-mean (`entrace` → `entrance`) — and it knows the
+  difference between a misspelling and a key that is real *somewhere else* (`zone` on an `[[npc]]`
+  names the sections it does belong to).
+- **The key set is harvested from what the build actually reads, not from example files.** A whitelist
+  scraped from authored TOMLs is usage, not a schema — any valid-but-unused key would false-positive.
+  Instead, the pipeline runs over the bundled examples with every dict access recorded, and the schema
+  is what the consumers *ask about* (`_regen_fieldschema.py` → `_fieldschema.py`). A section whose
+  consumers never ran end-to-end offline is recorded but **not enforced** — no confident guesses.
+  Every authored example in the repo lints clean against it.
+
+### Added — `ff9mapkit fetch-assets`: a fresh clone can rebuild the bundled example
+- **New verb `fetch-assets <campaign.toml>`** re-materializes a campaign's gitignored, SE-derived
+  member sidecars (`camera.bgx` / `walkmesh.bgi` / a native member's `scene.bgs.bytes` + `atlas.png` +
+  `mapconfig.bytes` / carried ladder-climb and object bins) from your **own** install — the authored
+  tomls are never touched. It runs the same fork writers `add-field --source` uses, into a scratch
+  dir, and copies over only what a member is missing (`--force` re-extracts everything). This replaces
+  the manual dance the stolen-ember manifest used to document (delete the member dir, re-run
+  `add-field`, restore the toml from git). The provenance gate is unchanged: no Square Enix bytes are
+  shipped or committed — you supply them from the game you own.
+- **`extract-templates` now also runs it for `examples/stolen-ember`** when invoked from a repo
+  checkout (installed wheels ship no `examples/`, so they are unaffected), so one command makes a
+  fresh clone fully buildable *and* its test suite runnable. Best-effort: an example fetch failure
+  warns and points at `fetch-assets` instead of failing the template extraction.
+- The suite's stolen-ember build test previously **failed** on a checkout whose sidecars were never
+  materialized (they are gitignored, and no documented command produced them). It now skips loudly,
+  naming the missing files and the exact `fetch-assets` command.
+
+### Added — `eb-src` / `eb-asm`: byte-exact `.ebs` source for every field event script
+- **`ff9mapkit eb-src <field|path>` decompiles a complete field `.eb` to readable,
+  re-assemblable `.ebs` source, and `ff9mapkit eb-asm` compiles it back — byte-exact.** Function
+  bodies use the proven labeled command-assembler form (symbolic `L<n>` jump/switch targets,
+  pretty expressions); the derivable envelope (entry table offs/sizes, func tables, empty-slot
+  offsets) is computed from grammar, while the 124-byte per-language name block is preserved as
+  verbatim hex. `eb-src` self-verifies: it reassembles its own output and refuses to emit
+  source that doesn't reproduce the input.
+- **Kit-built and kit-edited fields round-trip too**, not just stock: explicit `off=` overrides
+  (stale empty-slot parked offs, out-of-order physical layouts), a per-entry `raw=` escape
+  hatch (func tables the structured form can't express), and `.gap` records (the
+  blank-template lineage keeps live Main_Loop code OUTSIDE any entry's declared span) — all
+  133 currently deployed custom `.eb` files verify byte-exact.
+- **`ff9mapkit eb-src --verify-all` is the standing gate — and it covers the WHOLE event
+  corpus:** every field, battle, and world event binary in your install, all 7 languages —
+  **9753 binaries** (field 5726 + battle 3934 + world 93), reported per group. Two jp-only
+  world binaries carry noise in unused argFlag bits; an entry-level encode-verify ships those
+  entries as verbatim `raw=` rather than silently normalizing them. The gate refuses to pass green on a partial corpus,
+  and every bad input (corrupt file, hand-source syntax error) is a clean one-line error, never
+  a traceback. An expression operand on an opcode that carries no argFlag byte is now a hard
+  assembler error (it used to encode silently different instructions).
+- Grounded by a corpus census (`studies/eb-roundtrip/FINDINGS.md`) that also corrected a
+  long-standing assumption: event bytecode is NOT language-identical (only 238/818 fields are;
+  dialogue-window operands, text-pacing waits, and voice sound ids differ per language, and 94
+  fields differ in length) — so `.ebs` source is per (field, language).
+- **The source is annotated.** `eb-src` output carries trailing `#` comments from the kit's own
+  offline semantic layers: what each entry is (`# NPC (Vivi), talkable`), what each routine does
+  (`# Talk handler — says 8 lines · 2 warps`), and per-instruction joins — `Field(355)  # ->
+  Dali/Pub`, `AddItem(236, 1)  # Potion`, dialogue previews from the field's own `.mes`, battle
+  scene names, story-flag band phrases (`# flag 8511 (stock Mognet lock band)`). Comments are
+  presentation only — `eb-asm` strips every `#`, and the self-verify reassembles the commented
+  text and still demands byte equality. `--plain` turns them off.
+- **`eb-asm --against <donor.eb>` edits THROUGH the source without rebuilding the file.** It
+  assembles each function and splices only the ones whose bytes actually changed into the donor's
+  own bytes, so every untouched byte — header, name block, other functions, `.gap` overhang code,
+  `raw=` entries — is the donor's, and an edit to one function cannot perturb another region even
+  in principle. Changing the Ice Cavern chest's `AddItem` operand in the source moves **1 byte of
+  9268**, with the entry table bit-identical; the CLI reports `1 function(s) spliced, 90 untouched`.
+  It refuses ANY structural difference from the donor by name (a `.func` added/removed/re-tagged, a
+  changed `type=`/`loc=`/`flags=`/`off=`, an edited `raw=` blob or `.gap`) and points at plain
+  `eb-asm`. Three self-verifies guard it: the envelope match, no new `lint-eb` errors, and — the
+  keystone — the splice must agree byte-for-byte with the full reassembly of the same text, so two
+  independent paths have to reach one answer. Composes with `--verify-against`.
+
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
   composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,
@@ -43,6 +172,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **Off the mesh is not automatically wrong.** A normal FF9 NPC stands against the back wall, just
   past the floor edge (the in-game-verified hut oracle has Vivi ~100u out), so the gate now uses the
   same `2 × 96u` talk reach `build`'s own placement lint uses instead of refusing any overhang.
+
+### Fixed — the traversal guard rejected the documented central-cache camera reference
+- **`build`/`lint` on a toml referencing the workspace extract cache crashed validate with
+  `PathTraversalError`.** The asset-ref confinement trusted only the toml's own directory, but
+  `extract-field` / `gen-hub --extract-camera` — and the bundled `continent-v1` waystation example —
+  reference ONE central `.ff9mapkit-cache/fields/<id>/camera.bgx` by design. `FieldProject.path()` now
+  trusts the cache's `fields/` subtree as a second root. The security model is unchanged: the cache's
+  *location* comes from the environment/install, never from the toml, so an untrusted `field.toml`
+  still can't point the build at arbitrary files — and the cache's deploy backups stay off-limits.
+- **An unpopulated cache is now a clean `[camera] borrow scene not found` finding**, not a
+  mid-validate crash — `lint` on a fresh clone points at the `extract-field` command instead of a
+  traceback.
 
 ### Added — see an animation before you attach it (Workspace)
 - **The Models tab plays a model's clips.** The comma blob of action names is a clip LIST (the five

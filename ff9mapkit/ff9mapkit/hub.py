@@ -108,6 +108,13 @@ class Journey:
     entry: int
     set_scenario: "int | None" = None
     entrance: "int | None" = None        # arrival entrance into the entry field (D8:2) -- frames the entry camera
+    # The FULL hub-side story seed (narrative-state round 7 -- `story-seed --hub` derives these):
+    # flags + save-backed words (ATE availability) + the party roster, all stamped by the journey
+    # pick BEFORE the warp, so the destination members stay pure verbatim forks with no [startup].
+    set_flags: "list" = field(default_factory=list)      # each: {flag = <bit>, value = 0|1}
+    set_words: "list" = field(default_factory=list)      # each: {byte = <idx>, value = <u16>}
+    party_add: "list" = field(default_factory=list)      # member names (resolve_member's vocabulary)
+    party_remove: "list" = field(default_factory=list)
 
 
 @dataclass
@@ -213,6 +220,10 @@ def load_journeys(path) -> HubSpec:
             entry=int(j["entry"]),
             set_scenario=int(sc) if sc is not None else None,
             entrance=int(ent) if ent is not None else None,
+            set_flags=[dict(p) for p in j.get("set_flags", [])],
+            set_words=[dict(w) for w in j.get("set_words", [])],
+            party_add=[str(n) for n in j.get("party_add", [])],
+            party_remove=[str(n) for n in j.get("party_remove", [])],
         ))
 
     return hubspec_from_table(data["hub"], journeys)
@@ -263,6 +274,22 @@ def validate_hub(spec: HubSpec) -> "tuple[list, list]":
         if j.set_scenario is not None and not (0 <= j.set_scenario <= SCENARIO_MAX):
             errors.append(f"[[journey]] {j.id!r}: set_scenario {j.set_scenario} out of range "
                           f"(0-{SCENARIO_MAX})")
+        for p in j.set_flags:
+            if not (isinstance(p, dict) and isinstance(p.get("flag"), int)
+                    and int(p.get("value", 1)) in (0, 1)):
+                errors.append(f"[[journey]] {j.id!r}: set_flags rows are "
+                              f"{{flag = <bit index>, value = 0|1}} (got {p!r})")
+        for w in j.set_words:
+            if not (isinstance(w, dict) and isinstance(w.get("byte"), int)
+                    and isinstance(w.get("value"), int)):
+                errors.append(f"[[journey]] {j.id!r}: set_words rows are "
+                              f"{{byte = <idx>, value = <u16>}} (got {w!r})")
+        try:
+            from .content import party as _party_mod
+            for n in (*j.party_add, *j.party_remove):
+                _party_mod.resolve_member(n)
+        except ValueError as e:
+            errors.append(f"[[journey]] {j.id!r}: party member: {e}")
 
     spawn = spec.player_spawn or [0, 0]      # the narrator defaults to the player spawn -> they'd overlap
     npos = spec.narrator_pos if spec.narrator_pos is not None else spawn
@@ -434,6 +461,18 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
         L.append(f"warp = {j.entry}")
         if j.set_scenario is not None:
             L.append(f"set_scenario = {j.set_scenario}")
+        if j.set_flags:
+            rows = ", ".join("{ flag = %d, value = %d }" % (int(p["flag"]), int(p.get("value", 1)))
+                             for p in j.set_flags)
+            L.append(f"set_flags = [ {rows} ]")
+        if j.set_words:
+            rows = ", ".join("{ byte = %d, value = %d }" % (int(w["byte"]), int(w["value"]))
+                             for w in j.set_words)
+            L.append(f"set_words = [ {rows} ]   # save-backed words (e.g. the ATE availability state)")
+        if j.party_add:
+            L.append("party_add = [ " + ", ".join(f'"{_q(n)}"' for n in j.party_add) + " ]")
+        if j.party_remove:
+            L.append("party_remove = [ " + ", ".join(f'"{_q(n)}"' for n in j.party_remove) + " ]")
         if j.entrance is not None:
             L.append(f"entrance = {j.entrance}   # arrival entrance -> frames the entry camera (no static frame)")
         L.append("")

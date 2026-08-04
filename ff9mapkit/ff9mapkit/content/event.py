@@ -29,9 +29,138 @@ from . import region as _region
 EVENT_FLAG_CLASS = _region.GLOB_BOOL
 EVENT_FLAG_BASE = _flags.AUTO_EVENT_BASE
 
+# THE CONTROL LOCK (studies/movement/SURVEY.md): the engine has NO dialog lock -- a window only blocks
+# the CALLING object's script thread, and the player walks freely under any window unless the script
+# says otherwise. Stock says otherwise on 1,108/1,108 window-bearing talk handlers (100.0%), so a
+# locked bracket is the faithful default for anything that opens a BLOCKING window; the only lock-free
+# stock windows are 6 passive WindowAsync banners (the `lock = false` idiom).
+PLAYER_UID = 250            # the controlled player's runtime uid (RunScriptSync target)
+LOCK_DISPATCH_LEVEL = 2     # the RunScriptSync level the real jump/ladder/forced-ATE triggers use
+# Player-entry func tags for LOCKED TREAD-event bodies -- clear of the ladder climbs (17+), the
+# conductor walk tags (20+, the player can be a cast actor), the forced-ATE tag (38) and jumps (40+).
+EVENT_LOCK_TAG_BASE = 60
 
-def message(text_id: int, *, window: int = 1, flags: int = 128) -> bytes:
-    """Body part: open a dialogue window (WindowSync) showing text ``text_id``."""
+
+def lock_bracket(body: bytes, *, menu: bool = False) -> bytes:
+    """``DisableMove; [DisableMenu;] body; [EnableMenu;] EnableMove`` -- the kit's control bracket
+    (stock's shape minus the MAP-latch macro a kit field doesn't maintain; the same proven bare
+    bracket the choice/shop/savepoint lanes ship). ``menu`` adds the savepoint's DisableMenu pair --
+    note a bare DisableMove already suppresses the menu WHILE locked (UCOFF force-disables it);
+    the menu pair is for keeping the suppression explicit and stock-shaped.
+
+    ⚠ ONLY for bodies that run in a normal object thread: a tag-3 press body, an NPC talk body, a
+    code entry. NEVER inline in a region TAG-2 (tread) body -- a tread body's blocking ops stop
+    ticking under its own lock (the in-game forced-ATE freeze); use :func:`locked_dispatch` there."""
+    if menu:
+        return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + body
+                + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE)
+    return opcodes.DISABLE_MOVE + body + opcodes.ENABLE_MOVE
+
+
+def locked_dispatch(tag: int, *, menu: bool = False, player_uid: int = PLAYER_UID) -> bytes:
+    """The TREAD-safe lock: ``DisableMove; [DisableMenu;] RunScriptSync(player, tag); [EnableMenu;]
+    EnableMove`` -- the body itself lives in a player-entry func (whose Waits/windows tick regardless
+    of the lock). Byte-shape of the proven jump/ladder tread dispatch (jump.py)."""
+    call = opcodes.run_script_sync(LOCK_DISPATCH_LEVEL, int(player_uid), int(tag))
+    if menu:
+        return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + call
+                + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE)
+    return opcodes.DISABLE_MOVE + call + opcodes.ENABLE_MOVE
+
+
+# THE DIM BRACKETS -- stock's fade-around-window READING presentations, censused across all 817
+# field scripts (studies/messages/SURVEY.md; 241 bracket sites, ~10 shapes distilled to the 4 with
+# distinct feels + real breadth). Engine truth (EventEngine.DoEventCode.cs:632-648, SceneDirector):
+# FadeFilter's MODE only contributes bit 1 (&2 -> the SUBTRACTIVE channel, else ADDITIVE -- two
+# independent shader globals); the INTENSITY arg is read and DISCARDED; the fader is a full-screen
+# UI panel drawn ABOVE normal dialog depth (54-68), and RaiseWindows' +22 is what lifts a window's
+# text over it -- which is why every bright-text bracket carries the raise, and why "blackout"
+# omits it ON PURPOSE (the text is meant to emerge WITH the scene as the restore lifts).
+#
+#   letter       Mognet mail (100 sites / 50 fields; field 1865 = the kit's byte donor): warm
+#                blackout in (2,24,tint / tint R=G, B=R+20..50 -- nine per-field tints ship,
+#                220,220,250 is the Alexandria/Dali family), text bright on top, restore out.
+#   voice        the disembodied-voice dim (Memoria "A place of memories...", the Oeilvert record,
+#                Kuja in the Palace dungeon, ~40 sites): the window opens and RAISES FIRST, then
+#                the dim ramps in UNDER the already-bright text (2,15,64-grey), restore 7,15.
+#   inscription  the plaque/monument read (Berkmea monument 804 + siblings): a SUBTLE grey
+#                (2,8,96-grey), and the out-half is a mode-2 CROSS-FADE back (2,8,0,0,0), not the
+#                hard channel restore -- the gentlest of the family. Fits a pressed sign.
+#   blackout     Eiko's Ipsen-and-Colin story (1609 Mdn. Sari/Cove): hard cut to black (6,8,white
+#                sub), the window opens INVISIBLE under it, and the restore fades scene + text in
+#                TOGETHER -- NO RaiseWindows, deliberately.
+#
+# `dim_tint` overrides the in-fade colour (the letter's nine stock tints; the grey-depth family:
+# Garland 32,32,32 / Soulcage 48,48,48 / eavesdrop 100,100,100 / Necron 128,128,128).
+# Intensity stays the literal 255 for byte-parity with the mognet donor.
+DIM_STYLES = {
+    #             in-fade              wait  raise  out-fade           out-wait
+    "letter":      ((2, 24, 255, 220, 220, 250), 16, True,  (7, 16, 255, 0, 0, 0), 16),
+    "inscription": ((2, 8, 255, 96, 96, 96),     10, True,  (2, 8, 255, 0, 0, 0),  8),
+    "blackout":    ((6, 8, 255, 255, 255, 255),  9,  False, (7, 16, 255, 0, 0, 0), 16),
+    "voice":       ((2, 15, 255, 64, 64, 64),    15, True,  (7, 15, 255, 0, 0, 0), 15),
+}
+DIM_DEFAULT = "letter"
+
+
+def resolve_dim(value):
+    """Normalize an author ``dim`` value: falsy -> None, ``True`` -> :data:`DIM_DEFAULT`, a name ->
+    itself (validated against :data:`DIM_STYLES`)."""
+    if not value:
+        return None
+    name = DIM_DEFAULT if value is True else str(value).strip().lower()
+    if name not in DIM_STYLES:
+        raise ValueError(f"unknown dim style {value!r} -- one of {', '.join(sorted(DIM_STYLES))} "
+                         f"(or true = {DIM_DEFAULT})")
+    return name
+
+
+def dim_bracket(window: int, flags: int, text_id: int, actor_uid: int | None = None,
+                style: str = DIM_DEFAULT, tint=None) -> bytes:
+    """One stock reading bracket around a window (see :data:`DIM_STYLES`): CalcScreenPos(player) +
+    the in-fade + Wait, the window (``WindowAsync``, +RaiseWindows per the style), ``WaitWindow``,
+    then the out-fade + Wait. The ``voice`` style flips the order engine-faithfully: window + raise
+    FIRST, then the dim ramps in under the text. ``WaitWindow`` keeps the net semantics synchronous.
+    ``tint`` (an (r, g, b)) overrides the in-fade colour."""
+    fade_in, wait_in, raise_win, fade_out, wait_out = DIM_STYLES[style]
+    if tint is not None:
+        r, g, b = (int(v) for v in tint)
+        fade_in = fade_in[:3] + (r, g, b)
+    if actor_uid is not None:
+        win_op = opcodes.window_async_ex(int(actor_uid), window, flags, text_id)
+    else:
+        win_op = opcodes.window_async(window, flags, text_id)
+    raise_op = opcodes.encode(0x8E) if raise_win else b""
+    dim_in = opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, *fade_in) + opcodes.wait(wait_in)
+    close = (opcodes.encode(0x54, int(window))            # WaitWindow: the player reads + dismisses
+             + opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, *fade_out) + opcodes.wait(wait_out))
+    if style == "voice":
+        # the donor order (Memoria/Oeilvert): text up + raised FIRST, dim ramps in under it
+        return win_op + raise_op + dim_in + close
+    if style == "blackout":
+        # the donor order (1609): black FIRST, window opens under it (no raise), then the restore
+        # lifts scene + text together -- the out-fade runs BEFORE the read-wait
+        return (dim_in + win_op + opcodes.wait(4)
+                + opcodes.encode(0xA9, 250) + opcodes.encode(0xEC, *fade_out) + opcodes.wait(wait_out)
+                + opcodes.encode(0x54, int(window)))
+    return dim_in + win_op + raise_op + close
+
+
+def message(text_id: int, *, window: int = 1, flags: int = 128, actor_uid: int | None = None,
+            dim=False, dim_tint=None) -> bytes:
+    """Body part: open a dialogue window (WindowSync) showing text ``text_id``.
+
+    ``actor_uid`` (not None) attributes the window to that object instead of the executing entity --
+    ``WindowSyncEx`` (0x95), stock's own cutscene form: the tail points at the named actor and the
+    camera treats them as the speaker. Attribution only takes effect with the bubble bit set
+    (``flags & 128``); validate enforces that pairing. ``dim`` (``True`` or a :data:`DIM_STYLES`
+    name) swaps the whole presentation for that stock reading bracket (:func:`dim_bracket`);
+    ``dim_tint`` overrides its in-fade colour."""
+    style = resolve_dim(dim)
+    if style:
+        return dim_bracket(window, flags, text_id, actor_uid, style=style, tint=dim_tint)
+    if actor_uid is not None:
+        return opcodes.window_sync_ex(int(actor_uid), window, flags, text_id)
     return opcodes.window_sync(window, flags, text_id)
 
 
@@ -130,7 +259,7 @@ def set_scenario(value: int) -> bytes:
 
 def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_CLASS,
                      requires_flag: int | None = None, requires_set: bool = True,
-                     space_item: int | None = None) -> bytes:
+                     space_item: int | None = None, movement_gate: bool = True) -> bytes:
     """The region ``_Range`` body for an event: a movement gate, an optional ``requires_flag`` story
     gate (the event only fires when that flag is in-state), then ``body`` -- gated
     ``if (!flag) { flag = 1; body }`` when ``once_flag`` is set, so it fires once. The once-flag is set
@@ -140,8 +269,12 @@ def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_C
 
     ``space_item`` (a chest nicety) wraps everything in ``if (GetItemCount(item) < 99) { ... }`` so the
     reward is skipped (and the once-flag NOT set -> retryable) when the bag is full -- exactly FF9's
-    item-chest guard, with the space check OUTERMOST."""
-    parts = [_region.MOVEMENT_GATE]
+    item-chest guard, with the space check OUTERMOST.
+
+    ``movement_gate=False`` (the ``trigger = "action"`` path): a PRESS-fired body (region tag 3) omits
+    the tread path's ``ifnot IsMovementEnabled return`` prologue -- the press itself proves control,
+    and the zone-[[choice]] action bodies ship without it (in-game proven: levers, the ferry)."""
+    parts = [_region.MOVEMENT_GATE] if movement_gate else []
     if requires_flag is not None:
         parts.append(_region.flag_gate(flag_class, requires_flag, require_set=requires_set))
     if once_flag is not None:
@@ -170,17 +303,46 @@ def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: in
     cost ONE filler, not N. ``reserve_party_band`` (the VERBATIM-fork path): every region AND the arm
     entry are seated BELOW the reserved party-character band. The arm's ``InitRegion`` targets the region
     SLOTS, which sit below the band and so are never shifted by a later below-band insert -> stay valid.
+
+    A spec with ``"action": True`` (the ``[[event]] trigger = "action"`` lane) becomes a PRESS region
+    instead of a tread region: func tag :data:`region.INTERACT_TAG` (3), fired on the action button
+    while in the quad -- edge-triggered by the press, so it can NEVER re-fire in a loop, and a
+    ``once = false`` action event is naturally repeatable with no gate flag at all (the repeatable
+    sign). Its body omits the tread movement gate (the press proves control -- the zone-[[choice]]
+    action shape, in-game proven).
+
+    A spec with ``"lock": True`` holds player control for the body (stock's talk-handler law -- see
+    :func:`lock_bracket`; ``"lock_menu"`` adds the DisableMenu pair). On a PRESS spec the bracket
+    wraps the body inline (a tag-3 body is a normal thread). On a TREAD spec the body CANNOT run
+    under its own lock inline (the tag-2 freeze), so it is grafted onto the PLAYER entry as a func
+    (tags :data:`EVENT_LOCK_TAG_BASE`+) and the region emits :func:`locked_dispatch` -- the proven
+    jump-tread shape. The once-latch stays in the region (it must fire the instant the zone trips).
     Returns new .eb bytes."""
     events = list(events)
     if not events:
         return data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     region_slots = []
+    lock_tag = EVENT_LOCK_TAG_BASE
     for ev in events:
-        rb = event_range_body(ev["body"], ev.get("once_flag"), flag_class,
+        action = bool(ev.get("action"))
+        body = ev["body"]
+        if ev.get("lock"):
+            menu = bool(ev.get("lock_menu"))
+            if action:
+                body = lock_bracket(body, menu=menu)
+            else:
+                from .ladder import find_player_entry
+                pe = find_player_entry(EbScript.from_bytes(out))
+                out = edit.add_function(out, pe, lock_tag, bytes(body) + opcodes.RETURN)
+                body = locked_dispatch(lock_tag, menu=menu)
+                lock_tag += 1
+        rb = event_range_body(body, ev.get("once_flag"), flag_class,
                               ev.get("requires_flag"), ev.get("requires_set", True),
-                              space_item=ev.get("space_item"))
+                              space_item=ev.get("space_item"), movement_gate=not action)
         out, slot = _region.inject_region(out, ev["zone"], rb, activate=False,
+                                          tag=(_region.INTERACT_TAG if action else _region.RANGE_TAG),
+                                          bubble=action and bool(ev.get("bubble")),
                                           reserve_party_band=reserve_party_band)
         region_slots.append(slot)
 

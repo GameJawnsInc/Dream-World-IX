@@ -634,13 +634,30 @@ def test_lint_seed_scenario_range(tmp_path):
 
 
 def test_lint_flag_window_overflow(tmp_path):
-    # one fat campaign that needs more flags than the safe band holds
-    big = (CHOICE_SCRATCH_FLOOR - FIRST_SAFE_FLAG) // 64 + 5      # members * 64 > band
+    """The ceiling is the KIT-STANDING floor -- the one campaign.lint_campaign (a3) actually enforces per
+    member. This gated at the choice-scratch floor, 1656 bits higher."""
+    from ff9mapkit.flags import KIT_STANDING_FLOOR
+    big = (KIT_STANDING_FLOOR - FIRST_SAFE_FLAG) // 64 + 5       # members * 64 > the ENFORCED band
     _make_campaign(tmp_path, "ca", members=[f"R{i}" for i in range(big)], id_base=6000)
     p = _write_manifest(tmp_path, '[[journey]]\nid = "x"\ncampaigns = ["ca"]\n'
                                   'entry = { campaign = "ca", field = "R0" }\n')
     errors, _ = journey.lint_manifest(journey.load_journeys(p))
-    assert any("past the choice-scratch floor" in e for e in errors)
+    assert any("past the kit-standing floor" in e for e in errors), errors
+
+
+def test_a_journey_between_the_two_ceilings_is_caught(tmp_path):
+    """★ THE GAP ITSELF: sized to fit under the choice-scratch floor but NOT under the kit-standing floor.
+    A journey in that 1656-bit window passed lint-journey and then hard-errored at build-all -- the lint
+    disagreeing with the build it exists to predict."""
+    from ff9mapkit.flags import CHOICE_SCRATCH_FLOOR as HI
+    from ff9mapkit.flags import KIT_STANDING_FLOOR as LO
+    n = (LO - FIRST_SAFE_FLAG) // 64 + 2                          # past LO, still under HI
+    assert LO < FIRST_SAFE_FLAG + n * 64 <= HI, "fixture no longer straddles the two ceilings"
+    _make_campaign(tmp_path, "cb", members=[f"R{i}" for i in range(n)], id_base=6000)
+    p = _write_manifest(tmp_path, '[[journey]]\nid = "y"\ncampaigns = ["cb"]\n'
+                                  'entry = { campaign = "cb", field = "R0" }\n')
+    errors, _ = journey.lint_manifest(journey.load_journeys(p))
+    assert any("kit-standing floor" in e for e in errors), errors
 
 
 def test_lint_duplicate_journey_id(tmp_path):
@@ -1392,6 +1409,29 @@ def test_preflight_flags_foreign_hub_id_collision(tmp_path):
     col = journey.preflight_collisions(plan, g)
     assert col.has_blockers
     assert any(i == 4500 for (i, *_rest) in col.external_ids)
+
+
+def test_a_shared_text_block_is_a_blocker(tmp_path):
+    """★ A mesID is served by exactly ONE folder's field/<block>.mes across the stacked FolderNames, so two
+    of this journey's campaigns shipping the same block means the loser's dialogue is silently replaced by
+    the winner's. shared_blocks was computed and RENDERED in the report, but left out of has_blockers -- the
+    predicate that decides whether to stop -- so the report said "collision" and the deploy went ahead."""
+    col = journey.JourneyCollisions(shared_blocks=((1073, ("FF9CustomMap-ca", "FF9CustomMap-cb")),))
+    assert col.has_blockers, "a shared text block must stop the deploy, not merely be printed"
+    assert not journey.JourneyCollisions().has_blockers
+
+
+def test_the_id_collision_error_names_the_verb_that_fixes_it(tmp_path):
+    """The message told the author to re-fork with a different --id-base, which DISCARDS hand-authored
+    members. `reid` moves a campaign in place and keeps them, so the remedy names it first."""
+    _make_campaign(tmp_path, "ca", members=["A"], id_base=6000)
+    _make_campaign(tmp_path, "cb", members=["B"], id_base=6000)          # same band -> collision
+    p = _write_manifest(tmp_path, '[[journey]]\nid = "x"\ncampaigns = ["ca", "cb"]\n'
+                                  'entry = { campaign = "ca", field = "A" }\n')
+    errors, _ = journey.lint_manifest(journey.load_journeys(p))
+    clash = [e for e in errors if "claimed by BOTH" in e]
+    assert clash, errors
+    assert "reid" in clash[0] and "--fresh-ids" in clash[0], clash[0]
 
 
 def test_preflight_excludes_this_journeys_own_folders(tmp_path):

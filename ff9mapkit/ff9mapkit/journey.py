@@ -55,7 +55,7 @@ from pathlib import Path
 
 from . import campaign as _campaign
 from . import hub as _hub
-from .flags import CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG
+from .flags import CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, KIT_STANDING_FLOOR
 
 SCENARIO_MAX = 32767
 ID_LO, ID_HI = 4000, 32767                  # custom field-id band (Int16 cap; CLAUDE.md §3)
@@ -541,8 +541,11 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
             return
         if fid in owner and owner[fid] != label:
             errors.append(f"field id {fid} is claimed by BOTH {owner[fid]} and {label} -- EventDB/SceneData "
-                          f"are global; give them disjoint id bands (re-fork a campaign with a different "
-                          f"`import-chain --id-base`, or re-point a bare journey).")
+                          f"are global; give them disjoint id bands. Move one campaign in place with "
+                          f"`ff9mapkit reid <campaign.toml> --id-base N` (rewrites the manifest, every member "
+                          f"and every door, keeping your authored content); re-forking with "
+                          f"`import-chain --id-base N --fresh-ids` also works but DISCARDS hand-authored "
+                          f"members. Or re-point a bare journey.")
         else:
             owner.setdefault(fid, label)
     for folder, (plan, _) in plans.items():
@@ -747,12 +750,16 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
                 errors.append(f"journey {j.id!r}: entry id {j.entry.field} is not a member of campaign "
                               f"{j.entry.campaign!r} -- prefer a member NAME (stable across re-id)")
 
-        # flag windows fit below the choice scratch
+        # Flag windows fit below the KIT-STANDING floor -- the SAME ceiling campaign.lint_campaign (a3)
+        # enforces per member. This used the choice-scratch floor, 1656 bits higher, so a journey could
+        # pass here and then hard-error at build: a lint disagreeing with the build it exists to predict.
         _, high = _flag_windows(j, plans)
-        if high > CHOICE_SCRATCH_FLOOR:
+        if high > KIT_STANDING_FLOOR:
             errors.append(f"journey {j.id!r}: campaigns need {high - FIRST_SAFE_FLAG} flags "
-                          f"({FIRST_SAFE_FLAG}..{high - 1}) -- past the choice-scratch floor "
-                          f"{CHOICE_SCRATCH_FLOOR}. Fewer members, smaller flags_per_field, or split the arc.")
+                          f"({FIRST_SAFE_FLAG}..{high - 1}) -- past the kit-standing floor "
+                          f"{KIT_STANDING_FLOOR}, where the kit's own allocators begin (the AUTO once-flag "
+                          f"bands, the behavior blackboard, siege requests; see flags.py). Fewer members, a "
+                          f"smaller flags_per_field, or split the arc.")
 
         # links: resolve + boundary + connectivity
         names_by = {f: {m.name for m in plans[f][0].members} for f in j.campaigns}
@@ -1585,7 +1592,12 @@ class JourneyCollisions:
 
     @property
     def has_blockers(self) -> bool:
-        return bool(self.external_ids or self.external_names)
+        """SHARED TEXT BLOCKS BELONG HERE. A mesID is served by exactly ONE folder's field/<block>.mes across
+        the stacked FolderNames, so two of this journey's campaigns shipping the same block means the loser's
+        dialogue is silently replaced by the winner's -- the text-shadow trap, and a blocker by any reasonable
+        reading. It was computed and rendered (render_collision_report) but left out of the predicate that
+        decides whether to STOP, so the report said "collision" and the deploy proceeded."""
+        return bool(self.external_ids or self.external_names or self.shared_blocks)
 
 
 def _journey_registrations(plan, *, dists=None, hub_name=None):
@@ -1928,7 +1940,41 @@ def apply_link_rewrites(plan: JourneyDeployPlan, game_root, *, dry_run=False, ba
         results.append({"eb": lk.eb_name, "mode": lk.mode, "remap": dict(lk.remap), "dst_id": lk.dst_id,
                         "langs": len(touched), "regions": regions, "files": touched, "backups": backups,
                         "found": bool(touched)})
+    if not dry_run:
+        _record_link_receipts(plan, game_root, results, mod_folder_override=mod_folder_override)
     return results
+
+
+def _record_link_receipts(plan, game_root, results, *, mod_folder_override=None) -> list:
+    """Leave a ``.ff9links.json`` in every folder this just patched, and re-finalize that folder's stamp.
+
+    Two jobs, and the second is not optional. A journey's doors exist ONLY as an edit to the live install
+    -- no dist contains them, by construction -- so a later single-campaign ``deploy-campaign`` wholesale
+    replace silently reverts them. The receipt makes that detectable
+    (:func:`ff9mapkit.linkreceipt.check`) and gives ``deploy_campaign`` something to refuse on.
+
+    And because patching changes bytes the build stamp already hashed, leaving the stamp alone would make
+    ``verify-build`` report a CORRECT journey deploy as drift. Re-finalizing makes the patched state that
+    folder's truth, so the drift check keeps meaning what it says -- and the receipt is what separates
+    "patched on purpose" from "someone edited the install"."""
+    from . import linkreceipt as _lr
+    from . import stamp as _stamp
+    folders = {mod_folder_override} if mod_folder_override else {lk.src_mod_folder for lk in plan.links}
+    written = []
+    for name in sorted(f for f in folders if f):
+        root = Path(game_root) / name
+        if not root.is_dir():
+            continue
+        # only the results whose files live under THIS folder (single-folder mode puts them all in one)
+        mine = [r for r in results
+                if r.get("found") and any(str(f).startswith(str(root)) for f in r.get("files", []))]
+        cur = _stamp.read(root)
+        if cur:                                        # stamp FIRST: the receipt records post-patch digests,
+            _stamp.write(root, _stamp.finalize(cur, root))    # and both must describe the same bytes
+        p = _lr.write_receipt(root, _lr.build_receipt(root, mine))
+        if p:
+            written.append(str(p))
+    return written
 
 
 def merge_dists(dist_dirs, *, out, folder_name, entry_dist=None) -> dict:

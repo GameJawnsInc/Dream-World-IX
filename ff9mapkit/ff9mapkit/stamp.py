@@ -23,6 +23,7 @@ It ships with the dist through ``deploy``'s existing ``copytree``, so an install
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 from dataclasses import dataclass, field as _dcfield
 from pathlib import Path
@@ -31,6 +32,14 @@ from . import fsutil
 
 STAMP_NAME = ".ff9build.json"
 STAMP_VERSION = 1
+
+# The journey link receipt (:mod:`ff9mapkit.linkreceipt`) -- named HERE, and imported from here by that
+# module, because both files are KIT METADATA about a folder rather than build output and the digest must
+# skip both. Defining it there and importing it here would be a cycle; leaving it out of the exclusion set
+# made a correct journey deploy report the receipt as an "extra" file, so verify-build could never go clean
+# after one. Two features that describe the same folder have to agree on what is IN the folder.
+RECEIPT_NAME = ".ff9links.json"
+_META_NAMES = frozenset({STAMP_NAME, RECEIPT_NAME})
 
 
 def stamp_path(out_root) -> Path:
@@ -65,6 +74,108 @@ def compute(projects, *, mod_name: str, source=None, context: str = "standalone"
         "source": str(source) if source else None,
         "members": sorted(members, key=lambda m: m["id"]),
     }
+
+
+# A 64-bit prefix of the sha256, not the whole digest. This detects DRIFT -- a file that changed since the
+# build wrote it -- not an adversary, so collision resistance is not the property being bought; 1900 files at
+# 64 hex chars is 120KB of JSON shipped into every mod folder for no gain.
+_DIGEST_CHARS = 16
+
+
+def _rel(root: Path, p: Path) -> str:
+    """POSIX-style relative path -- the stamp travels between a dist and an install, and a backslash key
+    written on Windows would never match a lookup made anywhere else."""
+    return p.relative_to(root).as_posix()
+
+
+def content_digest(root) -> dict:
+    """``{relative path: digest}`` for every file under ``root`` except the kit's own metadata.
+
+    This is the half the first version left out. The resolution table answers "did a member's window move";
+    it cannot answer "is what is installed still what the build produced". Nothing else can either --
+    ModDescription.xml carries no id, and the deploy ledger records that an id was deployed, not what bytes
+    landed. So a hand-edited ``.eb`` in the live folder, a half-finished copy, or an install left behind by
+    another worktree all read as healthy."""
+    root = Path(root)
+    out = {}
+    for p in sorted(root.rglob("*")):
+        if not p.is_file() or p.name in _META_NAMES:
+            continue
+        h = hashlib.sha256()
+        with open(p, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        out[_rel(root, p)] = h.hexdigest()[:_DIGEST_CHARS]
+    return out
+
+
+def finalize(stamp: dict, root) -> dict:
+    """Add the content digest to a stamp, AFTER the build wrote its files.
+
+    Deliberately separate from :func:`compute`, which must stay pure over the projects so the diff can
+    REFUSE a bad build before anything is written. Hashes can only exist once the bytes do."""
+    return {**stamp, "files": content_digest(root)}
+
+
+@dataclass
+class VerifyReport:
+    """What a folder's own stamp says about it now."""
+    root: Path
+    stamp: "dict | None" = None
+    missing: list = _dcfield(default_factory=list)     # the build wrote it; it is not there now
+    changed: list = _dcfield(default_factory=list)     # there, with different bytes
+    extra: list = _dcfield(default_factory=list)       # there, and no build put it there
+
+    @property
+    def has_stamp(self) -> bool:
+        return bool(self.stamp)
+
+    @property
+    def has_digest(self) -> bool:
+        return bool(self.stamp and self.stamp.get("files"))
+
+    @property
+    def clean(self) -> bool:
+        return self.has_digest and not (self.missing or self.changed or self.extra)
+
+    def render(self) -> str:
+        if not self.has_stamp:
+            return (f"{self.root}: NO {STAMP_NAME} -- nothing here records what built this folder, so drift "
+                    f"cannot be judged. Rebuild it with a current kit to give it one.")
+        s = self.stamp
+        head = (f"{self.root}\n  built {s.get('built_utc', '?')} by kit {s.get('kit_version', '?')} "
+                f"({s.get('context', '?')}) from {s.get('source') or 'an unrecorded source'}\n"
+                f"  mod {s.get('mod_name', '?')}, {len(s.get('members', []))} member(s)")
+        if not self.has_digest:
+            return head + "\n  (this stamp predates content hashing -- identity only, no drift check)"
+        if self.clean:
+            return head + f"\n  {len(s['files'])} file(s) match the build EXACTLY"
+        L = [head, f"  DRIFT vs the build that wrote this folder:"]
+        for f in self.changed[:20]:
+            L.append(f"    ~ {f} (different bytes)")
+        for f in self.missing[:20]:
+            L.append(f"    - {f} (gone)")
+        for f in self.extra[:20]:
+            L.append(f"    + {f} (not from this build)")
+        n = len(self.changed) + len(self.missing) + len(self.extra)
+        if n > 60:
+            L.append(f"    ... and {n - 60} more")
+        return "\n".join(L)
+
+
+def verify(root) -> VerifyReport:
+    """Re-hash a folder and compare it to its own stamp. Works on a dist AND on a live mod folder -- the
+    stamp ships with the dist through deploy's copytree, so an install can answer for itself."""
+    root = Path(root)
+    rep = VerifyReport(root=root, stamp=read(root))
+    if not rep.has_digest:
+        return rep
+    recorded = rep.stamp["files"]
+    actual = content_digest(root)
+    rep.missing = sorted(set(recorded) - set(actual))
+    rep.extra = sorted(set(actual) - set(recorded))
+    rep.changed = sorted(k for k in set(recorded) & set(actual) if recorded[k] != actual[k])
+    return rep
 
 
 def read(out_root) -> "dict | None":

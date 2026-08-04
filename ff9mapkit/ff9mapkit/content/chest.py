@@ -42,8 +42,12 @@ CHEST_FLAGS_OPEN = 57       # CHEST_FLAGS_CLOSED + disable-talk(8): solid but NO
 CHEST_FLAG_CLASS = _region.GLOB_BOOL   # 0xC4 -- save-persistent gEventGlobal bool
 # The opened-flag is REQUIRED (no auto-allocation): inject_chest takes it as `flag_idx`, and build.validate
 # enforces a DEFINED flag in the safe custom band [flags.FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR) -- so it can't
-# shift on reorder (a positional bit would) or collide with FF9's own chest bitfield ([8376, 8511]). A named
-# [[flag]] is the ergonomic, campaign-unique choice.
+# shift on reorder (a positional bit would). A named [[flag]] is the ergonomic, campaign-unique choice.
+# The requirement stands on that reorder-stability argument ALONE. Its old second justification -- "or collide
+# with FF9's own chest bitfield ([8376, 8511])" -- was a mislabel twice over: 8376-8511 is the MOGNET give/read
+# variant lock table (flags.MOGNET_LOCK_LO/HI), and real FF9 keeps NO per-chest registry anywhere. Its only
+# treasure state is the Treasure-Hunter SCORE regions -- bytes 896-960 + 966-975 at 1 pt/bit and 182-186 at
+# 2 pts/bit, popcounted by EventState.GetTreasureHunterPoints -- so there is no chest bit to collide with.
 
 SET_MODEL = 0x2F
 SET_OBJECT_LOGICAL_SIZE = 0x4B

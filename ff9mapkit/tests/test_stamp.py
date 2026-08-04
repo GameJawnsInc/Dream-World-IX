@@ -88,6 +88,61 @@ def test_every_verb_that_can_hit_the_refusal_accepts_the_flag_it_advertises():
         assert "--reflow-flags" in opts, f"ff9mapkit {verb} can raise the refusal but rejects its own advice"
 
 
+def _finalized(root, **kw):
+    root.mkdir(parents=True, exist_ok=True)
+    s = dict(stamp_version=1, kit_version="x", built_utc="now", mod_name="M",
+             context="standalone", source=None, members=[], **kw)
+    s = stamp.finalize(s, root)
+    stamp.write(root, s)
+    return s
+
+
+def test_the_digest_covers_the_build_and_excludes_the_stamp(tmp_path):
+    """The resolution table answers "did a member's window move". It cannot answer "is what is INSTALLED
+    still what the build produced" -- and nothing else could either: ModDescription.xml carries no id, and
+    the ledger records that an id was deployed, not what bytes landed."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "DictionaryPatch.txt").write_text("FieldScene 6000 11 10 A 6000\n", encoding="utf-8")
+    (tmp_path / "sub" / "EVT_A.eb.bytes").write_bytes(b"\x01\x02\x03")
+    s = _finalized(tmp_path)
+    assert set(s["files"]) == {"DictionaryPatch.txt", "sub/EVT_A.eb.bytes"}
+    assert stamp.STAMP_NAME not in s["files"], "the stamp must not hash itself"
+    assert "/" in "sub/EVT_A.eb.bytes", "keys are POSIX -- a stamp travels from a dist to an install"
+    assert stamp.verify(tmp_path).clean
+
+
+@pytest.mark.parametrize("mutate, field_name", [
+    (lambda p: (p / "sub" / "EVT_A.eb.bytes").write_bytes(b"\x01\x02\x04"), "changed"),   # hand-edited install
+    (lambda p: (p / "sub" / "EVT_A.eb.bytes").unlink(), "missing"),                       # half-finished copy
+    (lambda p: (p / "STRAY.txt").write_text("x", encoding="utf-8"), "extra"),             # foreign leftovers
+])
+def test_verify_catches_every_drift_class(tmp_path, mutate, field_name):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "EVT_A.eb.bytes").write_bytes(b"\x01\x02\x03")
+    _finalized(tmp_path)
+    assert stamp.verify(tmp_path).clean
+    mutate(tmp_path)
+    rep = stamp.verify(tmp_path)
+    assert not rep.clean and getattr(rep, field_name), rep.render()
+
+
+def test_a_stamp_without_a_digest_reports_identity_and_no_false_drift(tmp_path):
+    """Folders deployed before content hashing existed must say so, not invent drift -- a check that cries
+    wolf on every pre-existing install is one nobody reads."""
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    s = _finalized(tmp_path)
+    stamp.write(tmp_path, {k: v for k, v in s.items() if k != "files"})
+    rep = stamp.verify(tmp_path)
+    assert rep.has_stamp and not rep.has_digest
+    assert rep.missing == [] and rep.changed == [] and rep.extra == []
+    assert "identity only" in rep.render()
+
+
+def test_verify_on_a_folder_with_no_stamp_says_so(tmp_path):
+    rep = stamp.verify(tmp_path)
+    assert not rep.has_stamp and f"NO {stamp.STAMP_NAME}" in rep.render()
+
+
 def test_a_missing_or_malformed_stamp_reads_as_none(tmp_path):
     assert stamp.read(tmp_path) is None                       # first build
     (tmp_path / stamp.STAMP_NAME).write_text("{ not json", encoding="utf-8")

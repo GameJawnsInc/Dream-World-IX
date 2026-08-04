@@ -149,6 +149,16 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   large byte-level slice never COLLECTS and the run passes anyway. This is how a black screen once reached
   a playtest. Run in the MAIN repo, or extract templates first. The counts are owned by
   [[project-ff9-test-suite-perf]] — **do not quote a number here.**
+- **DO NOT run the full suite per session — the nightly gate owns it.** Before merging to `master`, run
+  ONLY your domain's test files; the full suite runs nightly on `master` in the gate worktree
+  (`C:\gd\ff9-test-gate`, `tools/nightly_gate.py`) — read `C:\gd\Dream-World-IX\.test-gate\latest.json`
+  before building on master, and a red ledger means bisect yesterday's merges. EXCEPTION: a diff touching
+  the byte-level fork/graft/content core (the install-gated files → [[project-ff9-test-suite-perf]]) runs
+  the full suite itself pre-merge (`-n 6`, in the gate worktree or the MAIN repo). → `tools/nightly_gate.md`.
+  **RED LEDGER → TRIAGE FIRST, before any master work** (a post-merge hook prints the ledger on every
+  merge into master — heed it): re-run the failing file on clean master (deployed-state false reds are
+  real), bisect yesterday's merges with that file, fix if small/in-domain, else REVERT the culprit merge
+  and tell the user. Never build on a red master silently — triage is not optional or deferrable.
 - **New Game lands via a stock field-70 override (`Field(<id>)`), not a DLL edit** — and every
   `deploy_campaign` wholesale-replace WIPES it. Re-run `tools/wire_newgame_from_stock.py <id>` after each
   opening re-deploy. → [[project-ff9-new-game-entry]].
@@ -278,7 +288,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 **Open arcs — status lives in the study, not here:**
 - The Southern Ring (the composed world) — ★ BOARD CLOSED: R1-R5 all playtest-confirmed (hub/hall/ferry, plates, forest+encounters, the boat: wake/plate/land-anywhere/seal/standoff) → `studies/overworld-topography/southern-ring/DESIGN.md`
 - Overworld interior topography — the two-ground landmass (Rung F): ACCEPTED; the generator fold-back ★ DONE (36-gate one-command junction_compose; THE ONE-SITE WORLD LAW: the map holds exactly one landmass of this class) → `studies/overworld-topography/`
-- Narrative-state fork fidelity — a fork still boots at scenario-zero → `ff9mapkit/docs/FORK_FIDELITY.md`
+- Narrative-state ENGINE — ★★ rungs 0-2 + the chain/HUB lane PROVEN: New Game → hub pick → derived mid-story boot played the whole Dali morning and handed off to the real game at the zone edge → `studies/narrative-state/PLAN.md`
 - Co-op field/dialogue lockstep (F3) — two-machine proof pending → `studies/field-coop/`
 - Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
   → `studies/fort-condor/PLAN.md`
@@ -290,6 +300,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Path D, a genuinely new 3rd overworld world — ★★ **rungs 0-5 DONE** (V-shore corner owner-confirmed; coast measured clean island-wide, no rebuild needed); bench REPRODUCIBLE via `bench_pipeline.py all`, gated by `terrain_gate.py` (10 gates, one command), generators refuse a corner-less deploy; NEXT = Rung 6 entrance/exit → `studies/path-d-new-world/NEXT-STUDIES.md`; laws → [[project-ff9-overhang-context-law]]
 - In-game 100%-completion Journal — SCOPED ONLY, nothing started; 7-tier ladder, catalog prose is the dominant cost (not the screen), ScenarioCounter is a chapter heading not a quest key → `studies/completion-journal/PLAN.md`
 - Interactive docs (docsite/) — site+CLI-ref+shots+tutorial system BUILT, gates green; core track S1-S7 drafted (playtest pending), CLI track C1-C4 shipped; UI gate now covers editor FORM labels (`form:<spec>.<key>`, Qt-free, freshness-tested) → `studies/interactive-docs/` (critique + ranked structural items: `REVAMP-CRITIQUE.md`)
+- `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
 **Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
 

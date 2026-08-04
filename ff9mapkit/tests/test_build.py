@@ -1071,8 +1071,10 @@ def test_cutscene_field_builds(tmp_path):
     build_mod([FieldProject.load(p)], out)
     L = ModLayout(out)
     eb = EbScript.from_bytes(L.eb_path("us", "EVT_X.eb.bytes").read_bytes())
+    # the scene entry is the one with a WINDOW (0x1F) -- a bare 0x2D probe would find the shared
+    # control WATCHDOG, which a narration field now ships too (the grant-spin adoption)
     cs = next(e for e in eb.entries if not e.empty and e.type == 0 and e.index != 0
-              and any(i.op == 0x2D for i in iter_code(eb.data, e.func_by_tag(0).abs_start,
+              and any(i.op == 0x1F for i in iter_code(eb.data, e.func_by_tag(0).abs_start,
                                                       e.func_by_tag(0).abs_end)))
     ops = [i.op for i in iter_code(eb.data, cs.func_by_tag(0).abs_start, cs.func_by_tag(0).abs_end)]
     assert 0x2D in ops and 0x1F in ops and 0x2E in ops    # DisableMove, WindowSync, EnableMove

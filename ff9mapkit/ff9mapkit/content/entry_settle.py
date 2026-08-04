@@ -90,10 +90,15 @@ def estimate_entry_settle(camera, spawn, *, stabilizer: int = DEFAULT_STABILIZER
     return min(max(frames, AUTO_MIN_FRAMES), AUTO_MAX_FRAMES)
 
 
-def add_entry_settle(eb_bytes, wait_frames: int = 45) -> bytes:
+def add_entry_settle(eb_bytes, wait_frames: int = 45, *, locked_entrances=()) -> bytes:
     """Insert ``DisableMove ; Wait(wait_frames) ; EnableMove`` just before Main_Init's reveal fade so the
     smooth-camera settles behind the black screen. Returns the input unchanged when ``wait_frames <= 0`` or
-    Main_Init has no reveal fade (nothing to hide behind)."""
+    Main_Init has no reveal fade (nothing to hide behind).
+
+    ``locked_entrances``: the settle's closing ``EnableMove`` is an UNCONDITIONAL grant, which would
+    re-grant control on a ``[player] locked_entrances`` arrival (the arrive-locked contract says the
+    on_entry hook owns that grant). Gate the EnableMove on the same entrance ids -- a locked arrival
+    still gets the black hold (its own DisableMove is a harmless re-lock), just not the grant."""
     if wait_frames <= 0:
         return eb_bytes
     eb = EbScript.from_bytes(eb_bytes)
@@ -114,5 +119,9 @@ def add_entry_settle(eb_bytes, wait_frames: int = 45) -> bytes:
     if fade is None:
         return eb_bytes
     rel = fade.off - f0.abs_start
-    body = opcodes.DISABLE_MOVE + opcodes.wait(wait_frames) + opcodes.ENABLE_MOVE
+    grant = opcodes.ENABLE_MOVE
+    if locked_entrances:
+        from . import entrylock as _entrylock
+        grant = _entrylock._entrance_gate(locked_entrances, len(grant)) + grant
+    body = opcodes.DISABLE_MOVE + opcodes.wait(wait_frames) + grant
     return edit.insert_in_function(eb_bytes, 0, 0, rel, body)

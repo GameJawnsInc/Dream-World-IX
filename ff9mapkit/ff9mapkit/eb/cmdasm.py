@@ -99,6 +99,17 @@ def assemble_instruction(name: str, operands, *, label_offsets=None, instr_end: 
     ac0 = OP_ARG_COUNT[op] if op < len(OP_ARG_COUNT) else 0
     is_expr = [o.startswith("{") for o in operands]
 
+    # Only ops that carry an argFlag byte on the wire (op >= 0x10 with a nonzero arg count) --
+    # plus SET (0x05), whose single operand is implicitly an expression -- can take a { ... }
+    # operand. Anywhere else the decoder reads fixed-width immediates, so emitting expression
+    # bytes would assemble to silently DIFFERENT instructions (jumps/switches/low ops).
+    if any(is_expr) and op != 0x05 and not (op >= 0x10 and ac0 != 0):
+        raise CmdAsmError(f"{name} (op {op:#04x}) carries no argFlag byte -- its operands are "
+                          f"fixed-width immediates and cannot be {{ ... }} expressions")
+    if len(is_expr) > 8 and any(is_expr[8:]):               # the argFlag byte holds 8 bits
+        raise CmdAsmError(f"{name}: operand {is_expr.index(True, 8)} cannot be an expression "
+                          f"(the argFlag byte covers only the first 8 operands)")
+
     if op >= 0x10 and ac0 != 0:                             # an argFlag byte: bit i set == operand i is an expr
         flag = 0
         for i, e in enumerate(is_expr):
@@ -165,7 +176,11 @@ def assemble_instruction(name: str, operands, *, label_offsets=None, instr_end: 
                                   f"[0, 65535]; the function body exceeds the reachable switch span (split it).")
             out += rel.to_bytes(2, "little")
         else:
-            out += _imm_bytes(op, i, int(o))
+            try:
+                val = int(o, 0)                          # base 0: hand-authored hex (0x1F4) works too
+            except ValueError as ex:
+                raise CmdAsmError(f"{name} operand {i}: {o!r} is not an integer immediate") from ex
+            out += _imm_bytes(op, i, val)
     return bytes(out)
 
 
@@ -265,7 +280,7 @@ def _switch_labeled_ops(ins, start: int) -> list:
     return [str(sw.base & 0xFFFF), f"L{default.target - start}"] + [f"L{e.target - start}" for e in cases]
 
 
-def disassemble_items(raw: bytes, start: int, end: int) -> list:
+def disassemble_items(raw: bytes, start: int, end: int, *, predecoded=None) -> list:
     """The inverse of :func:`assemble_block` as a structured list of ``(rel_off | None, text)`` -- one entry per
     SOURCE line, where ``rel_off`` is the function-relative byte offset of an INSTRUCTION line and ``None`` marks
     a ``L<n>:`` label line. Every JUMP and every SWITCH case/default target is rendered as a function-relative
@@ -273,14 +288,21 @@ def disassemble_items(raw: bytes, start: int, end: int) -> list:
     change between a branch and its target RELOCATES automatically. The structured form lets a length-changing
     rebuild splice new source at a precise instruction boundary (then reassemble + splice via
     :func:`ff9mapkit.eb.edit.replace_function_body`). Computed (expression-operand) jumps/switches that can't be
-    resolved offline keep their raw decoded operands (the round-trip still holds; they just don't relocate)."""
-    from ..battle.battleai import _decode_func_pretty          # the pretty operand renderer (general bytecode)
+    resolved offline keep their raw decoded operands (the round-trip still holds; they just don't relocate).
+
+    ``predecoded`` is an OPTIONAL ``(instrs, pretty)`` pair a caller that already walked exactly this
+    ``raw[start:min(end, len(raw))]`` can hand back (``ff9mapkit.eb.ebsrc``'s comment layer does), skipping the
+    two decodes below. Same values, so the returned lines are identical -- it only saves the second pass."""
     end = min(end, len(raw))                                   # a truncated/corrupt/forked .eb can claim a func past the buffer
-    try:
-        instrs = list(_disasm.iter_code(raw, start, end))
-        pretty = {off: (mn, ops) for off, mn, ops in _decode_func_pretty(raw, start, end)}
-    except IndexError as ex:                                   # a malformed expr/operand stream runs off the buffer
-        raise CmdAsmError(f"truncated/malformed bytecode in raw[{start}:{end}]: {ex}") from ex
+    if predecoded is not None:
+        instrs, pretty = predecoded
+    else:
+        from ..battle.battleai import _decode_func_pretty      # the pretty operand renderer (general bytecode)
+        try:
+            instrs = list(_disasm.iter_code(raw, start, end))
+            pretty = {off: (mn, ops) for off, mn, ops in _decode_func_pretty(raw, start, end)}
+        except IndexError as ex:                               # a malformed expr/operand stream runs off the buffer
+            raise CmdAsmError(f"truncated/malformed bytecode in raw[{start}:{end}]: {ex}") from ex
     targets: set = set()
     for ins in instrs:
         if ins.op in _disasm.JUMP_OPS and _disasm.jump_target(ins) is not None:
