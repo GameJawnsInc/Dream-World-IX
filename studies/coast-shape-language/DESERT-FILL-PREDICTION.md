@@ -108,10 +108,35 @@ flag, one-lane law [decode_id-remap specimen]).
 A fresh crescent instance with the (17,1) steered-window **headland-8** (excise +
 `cliff_headland`, the tiled-mains fill + harvested wall cycle) at Disc9 blocks
 (0,4)+4x2 in `FF9CustomMap-world` — the owner-approved crescent at (18,17) is
-untouched. Deploy CLEAN (52 files); rim-retiled with THE CROP-SEAM WIDENING +
-THE CUT-VERT LAW live (107 quads, under 3→0, over 23→0). The promontory sits at
-the rect's east end, world ≈ (192–228, −273..−276), block (3,4). ⏳ awaiting the
-owner's verdict on the fill's tile language vs the native top.
+untouched. The promontory sits at the rect's east end, world ≈ (192–232,
+−264..−276), block (3,4).
+
+### ROUND 4 VERDICT: the fill SHIPPED SHARDS — THE TILE-RECT CONTAINMENT LAW
+
+The owner's screenshot at (210,−275) showed white sky-slivers, water-textured and
+rock-textured patches ON the promontory — measured: **22 of the 51 authored tris
+mapped uvs outside every donor tile rect** (spans to 0.111 ≈ 1.8 tiles; the atlas
+next door is gutter/water/rock). Root cause: the fill evaluated ONE source tile's
+affine map per Delaunay tri (centroid cell) — tris spanning cells, and stock's
+WOBBLY lattice (uv rects exact, geometry jittered to ~2u — the wobble census),
+both push the image out of the rect. The sea zip tolerates exactly this because
+the WATER atlas region self-tiles ("content, not gutter" — its own comment); the
+land atlas does not. **Capability 1 carried the water vocabulary without its
+hidden texture precondition.**
+
+Fix (all mutation-killed, 5/5): outline refinement at cell-line crossings (tiled
+lane only), per-cell clip with boundary/vert chord snapping, THE CUT-VERT-shaped
+cell→rect uv map, a hard rect-containment gate, and a fill weld pass. Redeployed:
+**98 authored tris, 0 escaped**; rim retile re-run (under 3→1 — the registered
+shore-ladder residual; over 23 owner-accepted). ⏳ awaiting the round-5 look.
+
+**HONEST ENVELOPE SHRINKAGE — D-1 rescored.** The comma's hole boundaries wobble
+up to **1.24u** past the 4u lattice; the exact-lattice fill would bleed the
+visible shard class there, so comma windows now REFUSE ("too WOBBLY"). Their
+earlier CLEAN scores were minted by the containment-blind gate set — gates ≠
+oracle, again, measured. Deep shape control drops to **2 of 8 masses** (chain,
+crescent) until the WOBBLY-CELL FILL (fill cells adopting the boundary tiles'
+own wobbly quads) is built — the registered follow-up that reopens the comma.
 
 ## Registered residuals (next capabilities)
 

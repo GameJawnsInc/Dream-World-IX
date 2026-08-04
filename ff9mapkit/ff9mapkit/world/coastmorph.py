@@ -565,6 +565,118 @@ def _uv_sv(t3):
     return (math.sqrt(max((s1 + s2) / 2, 0.0)), math.sqrt(max((s1 - s2) / 2, 0.0)))
 
 
+#: how far past a 4u cell line a region-boundary edge may poke before the per-cell
+#: clip refuses -- stock's tiling is WOBBLY (4u spacing, organic per-vert jitter), and
+#: the clip absorbs a micro-cross by snapping onto the boundary vert, bleeding at most
+#: snap x tile density (~0.006 uv) past the source rect. The line is pinned by the
+#: bent-crescent playtest: <= 0.006 overruns were invisible in-game, >= 0.02 were the
+#: visible shard class. Crescent hole boundaries measure <= 0.17u and pass; the comma's
+#: measure up to 1.24u and refuse HONESTLY (its earlier CLEAN scores came from the
+#: containment-blind gate set) -- a wobbly-cell fill is the registered follow-up.
+_BOUNDARY_SNAP = 0.4
+
+
+def _cell_line_crossings(a, b):
+    """Strictly-interior intersections of segment ``a -> b`` (3D) with the 4u lattice
+    lines, ordered along the segment as ``[(f, point)]`` with the crossed coordinate
+    snapped EXACTLY onto the line (so a later clip at that line re-derives the same
+    vert). An x- and z-crossing at the same fraction (the segment pierces a cell
+    corner) merges into one point with both coordinates snapped."""
+    hits = []
+    for axis in (0, 2):
+        d = b[axis] - a[axis]
+        if abs(d) < 1e-12:
+            continue
+        k0 = math.floor(min(a[axis], b[axis]) / 4.0) + 1
+        k1 = math.ceil(max(a[axis], b[axis]) / 4.0) - 1
+        for k in range(k0, k1 + 1):
+            f = (4.0 * k - a[axis]) / d
+            if 1e-7 < f < 1.0 - 1e-7:
+                hits.append((f, axis, 4.0 * k))
+    hits.sort()
+    out = []
+    for f, axis, c in hits:
+        if out and abs(f - out[-1][0]) < 1e-7:
+            out[-1][1][axis] = c
+            continue
+        p = [a[i] + f * (b[i] - a[i]) for i in range(3)]
+        p[axis] = c
+        out.append((f, p))
+    return [(f, tuple(p)) for f, p in out]
+
+
+def _split_poly(poly, axis, c):
+    """Sutherland-Hodgman split of a convex 3D polygon at the plane ``axis == c``:
+    ``(lo, hi)`` parts. Points ON the plane (within 1e-9) join both sides; the derived
+    crossing verts carry the plane coordinate exactly (shared-edge determinism)."""
+    lo, hi = [], []
+    n = len(poly)
+    for i in range(n):
+        p, q = poly[i], poly[(i + 1) % n]
+        pv, qv = p[axis] - c, q[axis] - c
+        if pv <= 1e-9:
+            lo.append(p)
+        if pv >= -1e-9:
+            hi.append(p)
+        if (pv < -1e-9 and qv > 1e-9) or (pv > 1e-9 and qv < -1e-9):
+            f = pv / (pv - qv)
+            x = [p[k] + f * (q[k] - p[k]) for k in range(3)]
+            x[axis] = c
+            lo.append(tuple(x))
+            hi.append(tuple(x))
+    return lo, hi
+
+
+def _clip_tri_to_cells(tri_pts):
+    """Split one 3D triangle along every 4u lattice line its plan bbox crosses --
+    the pieces each sit inside a single closed cell. Returns the convex 3D polygons
+    (the input unsplit when it already fits one cell)."""
+    polys = [list(tri_pts)]
+    for axis in (0, 2):
+        vals = [p[axis] for p in tri_pts]
+        k0 = math.floor(min(vals) / 4.0) + 1
+        k1 = math.ceil(max(vals) / 4.0) - 1
+        for k in range(k0, k1 + 1):
+            nxt = []
+            for poly in polys:
+                lo, hi = _split_poly(poly, axis, 4.0 * k)
+                if len(lo) >= 3:
+                    nxt.append(lo)
+                if len(hi) >= 3:
+                    nxt.append(hi)
+            polys = nxt
+    return polys
+
+
+def _refine_outline_at_cells(params, kinds, new_base, new_crease):
+    """THE TILE-RECT CONTAINMENT LAW's outline refinement (tiled lane only): insert a
+    real column at every 4u cell-line crossing of the new CREASE chain -- stock coast
+    outlines carry exactly these verts -- so no tiled-fill boundary edge crosses a cell
+    interior and the per-cell clip never has to split a boundary edge (which would
+    T-junction the wall's top run). The base chain and the param/kind ledgers stay
+    index-aligned (the wall builder pairs the chains positionally)."""
+    P, K = [params[0]], [kinds[0]]
+    NB, NC = [new_base[0]], [new_crease[0]]
+    for i in range(len(new_crease) - 1):
+        for f, p in _cell_line_crossings(new_crease[i], new_crease[i + 1]):
+            # a crossing within the snap of an existing column stays UNMINTED -- the
+            # column is effectively on the line (a 0.04u twin vert is a weld-audit
+            # near-miss crack); the fill clip's boundary snap absorbs the residual
+            if min(math.hypot(p[0] - q[0], p[2] - q[2])
+                   for q in (new_crease[i], new_crease[i + 1])) < _BOUNDARY_SNAP:
+                continue
+            P.append(params[i] + f * (params[i + 1] - params[i]))
+            K.append(("new", None))
+            NB.append(tuple(new_base[i][k] + f * (new_base[i + 1][k] - new_base[i][k])
+                            for k in range(3)))
+            NC.append(p)
+        P.append(params[i + 1])
+        K.append(kinds[i + 1])
+        NB.append(new_base[i + 1])
+        NC.append(new_crease[i + 1])
+    return P, K, NB, NC
+
+
 def _tiled_fill(win, drop_mains, new_crease, ck):
     """The TILED-MAINS fill lane (capability 1): same hole-boundary splice as
     :func:`_grass_fill`, but the fill repeats the window's OWN dropped tiles by
@@ -643,6 +755,28 @@ def _tiled_fill_region(bpts3, gnrm, sources):
         return gnrm.get(_pk(best), (0.0, 1.0, 0.0))
     poly_edges = {frozenset((_pk(bpts3[i]), _pk(bpts3[(i + 1) % len(bpts3)])))
                   for i in range(len(bpts3))}
+
+    # THE TILE-RECT CONTAINMENT LAW's precondition: no region boundary edge may cross a
+    # 4u cell interior DEEPLY -- the per-cell clip below would have to split it,
+    # T-junctioning the neighbour (wall top run / kept stock tiles) that owns the other
+    # side. The crease side arrives pre-refined (:func:`_refine_outline_at_cells`);
+    # stock's own coast-cut tiles MICRO-cross (measured 0.05u on the crescent), which
+    # the clip absorbs by snapping onto the boundary vert -- the uv overrun is bounded
+    # by _BOUNDARY_SNAP x tile density (~2 texels, stock's own cut-vert bleed). A
+    # deeper crossing is a composition bug and refuses loudly.
+    for i in range(len(bpts3)):
+        a, b = bpts3[i], bpts3[(i + 1) % len(bpts3)]
+        for f, p in _cell_line_crossings(a, b):
+            ax = 0 if abs(p[0] / 4.0 - round(p[0] / 4.0)) < 1e-6 else 2
+            over = min(abs(a[ax] - p[ax]), abs(b[ax] - p[ax]))
+            if over > _BOUNDARY_SNAP:
+                raise ValueError(f"TILE-RECT CONTAINMENT: the hole boundary is too "
+                                 f"WOBBLY for the exact-lattice fill -- edge "
+                                 f"({a[0]:.2f},{a[2]:.2f})--({b[0]:.2f},{b[2]:.2f}) "
+                                 f"pokes {over:.2f}u past the 4u line at "
+                                 f"({p[0]:.2f},{p[2]:.2f}) (the clip absorbs <= "
+                                 f"{_BOUNDARY_SNAP}u; deeper needs the wobbly-cell "
+                                 f"fill)")
 
     cents = [(sum(v[0][0] for v in t3) / 3.0, sum(v[0][2] for v in t3) / 3.0)
              for t3 in sources]
@@ -732,16 +866,172 @@ def _tiled_fill_region(bpts3, gnrm, sources):
                          f"({len(fill_once - poly_edges)} extra / "
                          f"{len(poly_edges - fill_once)} missing edges = T-junction "
                          f"cracks; missing: {miss})")
+    # THE TILE-RECT CONTAINMENT LAW (the promontory shards): the land atlas is NOT the
+    # self-tiling water sheet -- a fill tri whose uv image leaves its source tile's
+    # atlas rect samples gutter/foreign sub-tiles (white/water/rock shards in-game; the
+    # sea zip's documented escape tolerance is a WATER-texture property, not a general
+    # one). Two moves make containment hold by construction on stock's WOBBLY lattice
+    # (4u spacing, per-vert jitter to ~2u, yet uv rects EXACT -- the reuse census's own
+    # ground truth): (1) clip every fill tri to the 4u cells, snapping chord verts onto
+    # nearby region-boundary verts so the boundary never gains a T-junction vert; and
+    # (2) evaluate uvs by THE CUT-VERT LAW's shape -- the fill cell's EXACT square maps
+    # onto the source tile's EXACT uv rect (fractional position -> rect interpolation,
+    # oriented by the source's own map), never the source affine at a translated point
+    # (the wobble makes that overrun by up to half a tile). Degenerate slivers are
+    # emitted, not culled -- stock ships plan-degenerate tris, and culling would break
+    # once-edge parity against the pieces' neighbours.
+    cell_maps = {}
+
+    def _cell_map(cell, src, off):
+        key = (cell, id(src))
+        got = cell_maps.get(key)
+        if got is not None:
+            return got
+        uvf = TR._affine_uv(src)
+        us = [v[2][0] for v in src]
+        vs = [v[2][1] for v in src]
+        rc = ((min(us), min(vs)), (max(us), min(vs)),
+              (min(us), max(vs)), (max(us), max(vs)))
+        cx0, cz0 = 4.0 * cell[0], 4.0 * cell[1]
+        corners, used = [], set()
+        for gx, gz in ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)):
+            q = uvf(cx0 + 4.0 * gx - off[0], cz0 + 4.0 * gz - off[1])
+            best = min(range(4), key=lambda i: (q[0] - rc[i][0]) ** 2
+                       + (q[1] - rc[i][1]) ** 2)
+            used.add(best)
+            corners.append(rc[best])
+        if len(used) != 4:
+            raise ValueError("TILE-RECT CONTAINMENT: a source tile's map cannot be "
+                             "oriented onto its own uv rect (sheared beyond half a "
+                             "tile) -- no lawful cell map here")
+        c00, c10, c01, c11 = corners
+
+        def m(x, z):
+            fx = (x - cx0) / 4.0
+            fz = (z - cz0) / 4.0
+            w = c11[0] - c10[0] - c01[0] + c00[0]
+            h = c11[1] - c10[1] - c01[1] + c00[1]
+            return (c00[0] + fx * (c10[0] - c00[0]) + fz * (c01[0] - c00[0])
+                    + fx * fz * w,
+                    c00[1] + fx * (c10[1] - c00[1]) + fz * (c01[1] - c00[1])
+                    + fx * fz * h)
+        cell_maps[key] = m
+        return m
+
+    def _emit_piece(tp, nrm_of_p):
+        cx = sum(p[0] for p in tp) / 3.0
+        cz = sum(p[2] for p in tp) / 3.0
+        cell = (math.floor(cx / 4.0), math.floor(cz / 4.0))
+        src, off = src_for(cx, cz)
+        m = _cell_map(cell, src, off)
+        tri = [(p, nrm_of_p(p), tuple(m(p[0], p[2])), tuple(src[0][3])) for p in tp]
+        ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
+        vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
+        if uz * vx - ux * vz <= 0:
+            tri = [tri[0], tri[2], tri[1]]
+        return tri
+
+    tri_verts = {v[0] for t3 in fill_emit for v in t3}
+
+    def _snap_chord(p):
+        # a chord vert landing within the snap of a region-boundary vert BECOMES that
+        # vert (the boundary never gains a T-junction vert; the piece's micro-overhang
+        # past the line is stock's own cut-vert bleed class) -- and one landing within
+        # the weld class of ANY triangulation vert becomes THAT vert (a 0.04u twin is
+        # a weld-audit near-miss crack; both sides of the clipped edge derive the same
+        # snap, so the micro-bend welds)
+        best, bd = None, _BOUNDARY_SNAP ** 2
+        for q in bpts3:
+            d2 = (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
+            if d2 < bd:
+                best, bd = q, d2
+        if best is not None:
+            return best
+        best, bd = None, 0.12 ** 2
+        for q in tri_verts:
+            d2 = (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
+            if d2 < bd:
+                best, bd = q, d2
+        return best if best is not None else p
+
+    out = []
+    for t3 in fill_emit:
+        pts = [v[0] for v in t3]
+
+        def _nrm_at(p, _t3=t3):
+            return min(_t3, key=lambda v: (v[0][0] - p[0]) ** 2
+                       + (v[0][2] - p[2]) ** 2)[1]
+        polys = _clip_tri_to_cells(pts)
+        if len(polys) == 1 and len(polys[0]) == 3:
+            out.append(_emit_piece(tuple(pts), _nrm_at))
+            continue
+        for poly in polys:
+            ded = []
+            for p in (_snap_chord(p) for p in poly):
+                if not ded or any(abs(p[k] - ded[-1][k]) > 1e-9 for k in range(3)):
+                    ded.append(p)
+            while len(ded) > 1 and all(abs(ded[0][k] - ded[-1][k]) <= 1e-9
+                                       for k in range(3)):
+                ded.pop()
+            if len(ded) < 3:
+                continue
+            for j in range(1, len(ded) - 1):
+                out.append(_emit_piece((ded[0], ded[j], ded[j + 1]), _nrm_at))
+
+    # THE FILL WELD PASS: chord verts from different parents can land within the
+    # weld-audit near-miss class (0.05u) of each other -- e.g. a chord 0.04u west of
+    # the cell corner another parent minted exactly. Canonicalize deterministically
+    # (region-boundary verts win, then lexical order); a piece collapsing to fewer
+    # than 3 distinct verts drops, its paired edges cancelling with it.
+    bnd_set = set(bpts3)
+    allv = sorted({v[0] for t3 in out for v in t3})
+    vbuck = defaultdict(list)
+    for p in allv:
+        vbuck[(round(p[0] / 0.05), round(p[2] / 0.05))].append(p)
+
+    def _canon(p):
+        kx, kz = round(p[0] / 0.05), round(p[2] / 0.05)
+        near = [q for dx in (-1, 0, 1) for dz in (-1, 0, 1)
+                for q in vbuck.get((kx + dx, kz + dz), ())
+                if (q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2
+                + (q[2] - p[2]) ** 2 < 0.05 ** 2]
+        return min(near, key=lambda q: (q not in bnd_set, q)) if near else p
+    welded = []
+    for t3 in out:
+        nt = [(_canon(v[0]), v[1], v[2], v[3]) for v in t3]
+        if len({(p[0], p[1], p[2]) for p, _n, _u, _i in nt}) < 3:
+            continue
+        welded.append([tuple(v) for v in nt])
+    out = welded
+
+    # THE MAINS DENSITY GATE, on the FINAL bytes (the cell->rect maps): fill uv
+    # singular values inside the sources' envelope x[0.7, 1.3]
     src_sv = [sv for t3 in sources if (sv := _uv_sv(t3))]
     lo_env = min(s[1] for s in src_sv) * 0.7
     hi_env = max(s[0] for s in src_sv) * 1.3
-    for t3 in fill_emit:
+    for t3 in out:
         sv = _uv_sv(t3)
         if sv and (sv[0] > hi_env or sv[1] < lo_env):
             raise ValueError(f"MAINS DENSITY GATE: a fill tri's uv density {sv} is "
                              f"outside the source envelope [{lo_env:.4f},{hi_env:.4f}] "
                              f"-- stretch/smush")
-    return fill_emit
+    # the hard gate: every emitted tri's uvs inside its source tile's EXACT uv rect;
+    # eps admits the boundary-snap overhang (_BOUNDARY_SNAP x tile density ~4 texels,
+    # stock's own cut-vert bilinear bleed) and nothing wider
+    for t3 in out:
+        cx = sum(v[0][0] for v in t3) / 3.0
+        cz = sum(v[0][2] for v in t3) / 3.0
+        src, _off = src_for(cx, cz)
+        us = [v[2][0] for v in src]
+        vs = [v[2][1] for v in src]
+        for v in t3:
+            if not (min(us) - 6e-3 <= v[2][0] <= max(us) + 6e-3
+                    and min(vs) - 6e-3 <= v[2][1] <= max(vs) + 6e-3):
+                raise ValueError(f"TILE-RECT CONTAINMENT: a fill tri at "
+                                 f"({cx:.1f},{cz:.1f}) maps uv ({v[2][0]:.4f},"
+                                 f"{v[2][1]:.4f}) outside its source tile's rect -- "
+                                 f"gutter/foreign atlas content would render")
+    return out
 
 
 def _freeform_window(donor, start, end, *, disc=1, lod="0_1", game=None):
@@ -6566,6 +6856,16 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
         if min(widths) < 2.0:
             raise ValueError(f"degenerate wall column ({min(widths):.2f}u) even at equal "
                              f"arc -- widen the window or reduce depth")
+    # THE TILE-RECT CONTAINMENT LAW's outline refinement (tiled lane ONLY -- the grass
+    # lane is in-game proven and stays byte-identical): stock coast outlines carry a
+    # vert wherever they cross a 4u cell line; without them the tiled fill's boundary
+    # tris span cells and their translate-clone uvs leave the source tile's atlas rect
+    # (the promontory shards). The wall builder emits one full-tile face per refined
+    # gap -- stock's own faces vary in width, the ramp advances per face.
+    raw_base, raw_params = new_base, params
+    if tiled_lane:
+        params, kinds, new_base, new_crease = _refine_outline_at_cells(
+            params, kinds, new_base, new_crease)
     head_moves = {}
     for idx, (kind, i) in enumerate(kinds):
         if kind == "old" and 0 < i < ncols - 1:
@@ -6714,7 +7014,9 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
         cz = math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0)
         cell_quad.setdefault((cx, cz), TR._quad_of_uv(t3[0][2]))
     d_cols = [bump_of(t_) for t_ in params]
-    _clearance_gate(win, new_base, d_cols)
+    # the SHAPE gate judges the design outline; cell-line refinement inserts collinear
+    # verts that would make near-touching "non-adjacent" segments of one straight run
+    _clearance_gate(win, raw_base, [bump_of(t_) for t_ in raw_params])
     bay_segs = [(new_crease[i], new_crease[i + 1]) for i in range(len(new_crease) - 1)
                 if min(d_cols[i], d_cols[i + 1]) < -0.25]
 

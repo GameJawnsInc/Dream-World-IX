@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE TILE-RECT CONTAINMENT LAW (the promontory shards)
+- The tiled-mains fill assigned each Delaunay tri ONE source tile's affine map by centroid
+  cell; a tri spanning cells (or sitting on stock's WOBBLY lattice — 4u spacing, per-vert
+  jitter to ~2u) mapped uvs outside the source tile's atlas rect and rendered gutter/foreign
+  sub-tiles in-game (white/water/rock shards on the bent crescent's promontory, 22 of 51
+  authored tris measured escaped). The land atlas is not the self-tiling water sheet: the sea
+  zip's documented escape tolerance is a WATER-texture property, and capability 1 carried the
+  vocabulary without that hidden precondition. Now: the new outline refines at every 4u
+  cell-line crossing (stock coast outlines carry exactly these verts; tiled lane only — grass
+  stays byte-identical), fill tris clip per cell with chord verts snapped onto boundary/
+  triangulation verts (no T-junctions; `_BOUNDARY_SNAP` 0.4u, pinned by the playtest's
+  visibility line), uvs evaluate by THE CUT-VERT LAW's shape — the fill cell's EXACT square
+  onto the source tile's EXACT uv rect — and a hard per-tri rect-containment gate plus a fill
+  weld pass (near-miss chord canonicalization) close the class. Redeployed clean: 98 authored
+  tris, 0 escaped. HONEST SHRINKAGE: the comma's hole boundaries wobble to 1.24u past the
+  lattice and now refuse (their earlier CLEAN scores came from the containment-blind gate
+  set); the wobbly-cell fill is the registered follow-up. 5 mutations killed.
+
 ### Added — fuse off-lattice water tolerance (study 3) — and the honest strait verdict
 - `fuse_layout` refused any off-lattice vert at a shared border. New: an off-lattice vert on
   a PURE open-water row classifies `water-offlat` and fuses against another placement's
