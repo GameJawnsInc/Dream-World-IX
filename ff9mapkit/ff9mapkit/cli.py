@@ -4175,6 +4175,34 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
+    """world-rim-retile -- terminate a carried island's cropped shallow ring."""
+    from .world import rimretile as RR
+    cells = _parse_cells(args.cells)
+    dx, dy = (int(v) for v in args.donor.split(","))
+    nx, ny = (int(v) for v in args.size.lower().split("x"))
+    donors = [(dx + i, dy + j) for j in range(ny) for i in range(nx)]
+    rep = RR.rim_retile(args.mod_folder, cells, donors, disc=args.disc,
+                        target_disc=args.target_disc, game=args.game,
+                        apply=not args.dry_run)
+    if rep.get("refused"):
+        raise ConfigError(f"rim-retile refused: {rep['refused']}")
+    b, a = rep["before"], rep["after"]
+    print(f"rim-retile: {rep['variants']} verbatim donor variants, "
+          f"passes={rep['passes']} ({rep['quads']} quad re-tiles)")
+    print(f"  HARD SEAMS (uv under-covers the deep it faces): {b['under']} -> {a['under']}")
+    print(f"  soft over-cover (a transition facing shallow):  {b['over']} -> {a['over']}"
+          f"   of {a['tiles']} rim tiles")
+    if a["under"]:
+        print("  !! WARNING: hard seams remain -- review in-game before shipping")
+    if rep.get("dry_run"):
+        print("  dry run -- nothing written")
+    else:
+        print(f"  wrote {len(rep['written'])} file(s); .prerim backups kept")
+        print("  RELAUNCH (or exit+re-enter the overworld) to apply.")
+    return 0
+
+
 def _cmd_world_transplant(args: argparse.Namespace) -> int:
     """VERBATIM island transplant: carry a complete real coastal block -- land + beach + the full Wang'd
     ocean, every sub-mesh -- to a custom ocean cell, with a 0-mod-4 in-cell shift + 90-degree rotation,
@@ -4404,7 +4432,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             print(f"  !! WARNING {g['gate']}: {g.get('incoherent', '?')} cropped-Wang frame seam(s) on "
                   f"the carried rim ({dn} deep sea3/sea5, {sn} shallow sea1/sea2) -- shipping FF9 abuts "
                   f"neither mid nor shallow water to the deep ring, so review these in-game and re-tile "
-                  f"the rim (wang_rim_retile for sea3/sea5, the {{sea1,sea5}} ladder for sea1/sea2), or "
+                  f"the rim (`world-rim-retile` for sea3/sea5, the {{sea1,sea5}} ladder for sea1/sea2), or "
                   f"pass --enforce-wang-carry to refuse (--allow-wang-seams to silence).")
         if g.get("warn") and g["gate"] == "orphan-decals":
             print(f"  !! WARNING {g['gate']}: {g.get('n_orphans', '?')} orphaned transition-vocabulary "
@@ -8133,6 +8161,21 @@ def build_parser() -> argparse.ArgumentParser:
     wct.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wct.set_defaults(func=_cmd_world_coast)
+
+    wrr = sub.add_parser("world-rim-retile", help=(
+        "terminate a carried island's cropped shallow ring: re-tile its rim with the "
+        "DONOR'S OWN Wang transition tiles (harvested verbatim, never synthesized)"))
+    wrr.add_argument("--mod-folder", required=True)
+    wrr.add_argument("--cells", required=True,
+                     help="the DEPLOYED target cells: 'x,y;x,y' or a range 'x0-x1,y0-y1'")
+    wrr.add_argument("--donor", required=True,
+                     help="the carry's donor anchor 'dx,dy' -- the verbatim tile vocabulary")
+    wrr.add_argument("--size", default="1x1", help="the donor rect NXxNY (default 1x1)")
+    wrr.add_argument("--disc", type=int, default=1, help="the READ disc for the donors")
+    wrr.add_argument("--target-disc", type=int, default=None,
+                     help="the disc the island is DEPLOYED in (e.g. 9 for Path D)")
+    wrr.add_argument("--dry-run", action="store_true")
+    wrr.set_defaults(func=_cmd_world_rim_retile)
 
     wtp = sub.add_parser("world-transplant",
                          help="VERBATIM island transplant: carry a complete real coastal block (land + beach + "

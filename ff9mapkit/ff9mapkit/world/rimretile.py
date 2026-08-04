@@ -1,0 +1,351 @@
+"""ff9mapkit.world.rimretile -- terminate a carried island's CROPPED SHALLOW RING.
+
+Carrying a coastal island standalone necessarily crops the neighbour blocks that hosted its
+sea5 transition rings, so the shallow band ends against the open-ocean deep with no
+transition: a hard ``sea3|deep`` seam along a straight block-frame line. The wang-carry gate
+flags exactly this and has always named the remedy -- *"re-tile the rim"* -- while pointing
+at a study script hardcoded to one island. This is that remedy as a real operator.
+
+THE GOVERNING LAW, learned the expensive way: **CARRY THE TILES, DO NOT AUTHOR THEM.**
+Replacement uvs are HARVESTED byte-exact from the donor's own sea5 termination tiles, and a
+deep-set with no verbatim donor tile REFUSES rather than being synthesized. Two authored-uv
+attempts reached playtests first -- a per-triangle quadrant choice rendered the whole sheet
+as a checkerboard, and a tile-anchored uv stretched every coast-cut triangle -- and both
+passed every geometry gate, because geometry was never what was wrong.
+
+**The edit is a pure REPARTITION.** Each flagged quad keeps its exact verts, normals and
+tangent-x topo; only the uv rect and the containing Sea file change. The (verts, topo)
+multiset is therefore identical before and after -- gated here, not asserted -- so walkmesh
+raycast, coverage and boat legality are preserved by construction.
+
+**It must ITERATE.** The deep-set derivation reads the shade map, and converting sea3->sea5
+changes that map, so neighbours' deep-sets shift underneath a single pass. In-game proven on
+the Path D isthmus: pass 1 leaves 20 residual mismatches, and the fixed point arrives at
+pass 2.
+
+In-game proven 2026-08-04 (the isthmus, donor (6,6)+2x2 at Disc9 (14,12)): the owner's
+verdict was *"that's a pass, the hard edge became a series of Wang tiles"*, with the
+hard-seam class -- tiles whose uv UNDER-covers the deep they face -- measured 3 -> 0.
+"""
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+
+from . import water as W
+from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN, decode_id
+
+SEA = ("sea3", "sea4", "sea5")
+G = 16
+CELL = 4.0
+DIRV = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
+
+
+def cell_of(v):
+    return int(v[0] // CELL), int((-v[2]) // CELL)
+
+
+def corner_of(v, i, j):
+    return (round((v[0] - i * CELL) / CELL), round((-v[2] - j * CELL) / CELL))
+
+
+def part_tris(bm):
+    """``[[(i,j), [(pos,nrm,uv,tan) x3], topo], ...]`` -- one entry per triangle."""
+    out = []
+    if bm is None:
+        return out
+    V, N, U, T, fi = bm.verts, bm.normals, bm.uvs, bm.tangents, bm.flat_index
+    for t in range(len(fi) // 3):
+        idx = fi[3 * t:3 * t + 3]
+        i, j = cell_of([sum(V[k][0] for k in idx) / 3, 0, sum(V[k][2] for k in idx) / 3])
+        out.append([(i, j),
+                    [(tuple(V[k]), tuple(N[k]), tuple(U[k]), tuple(T[k])) for k in idx],
+                    decode_id(int(round(T[idx[0]][0])))["topograph"]])
+    return out
+
+
+def build_part(tris, name, bx, by, disc, lod="0_1"):
+    """Rebuild a flat/unindexed BlockMesh; an UNCHANGED tri list round-trips byte-identically."""
+    pos, nrm, uv, tan, flat, tri_idx = [], [], [], [], [], []
+    vi = 0
+    for tri in tris:
+        base = vi
+        for (p, n, u, t) in tri:
+            pos.append([float(c) for c in p])
+            nrm.append([float(c) for c in n])
+            uv.append([float(u[0]), float(u[1])])
+            tan.append([float(c) for c in t])
+            flat.append(vi)
+            vi += 1
+        tri_idx.append([base, base + 1, base + 2])
+    return BlockMesh(name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by, lod=lod,
+                     vcount=vi, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2),
+                               CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                     flat_index=flat, tris=tri_idx, raw_vbuf=b"", raw_ibuf=b"",
+                     use32=True, submeshes=[])
+
+
+def harvest_variants(donors, *, disc: int = 1, lod: str = "0_1", game=None) -> dict:
+    """``{(strip, rot): {corner: (u, v)}}`` -- the donors' OWN sea5 termination tiles.
+
+    THE VERBATIM SOURCE. ``water.DEEPSET2TILE`` is only the validator that says which
+    variant a deep-set needs; the uv values themselves are never computed here. A donor
+    block with no sea5 part is skipped, and a variant whose instances disagree is dropped
+    rather than averaged -- an inconsistent variant is not a vocabulary.
+    """
+    from . import extract as X
+    per = defaultdict(list)
+    for (dx, dy) in donors:
+        try:
+            bm = X.read_block(dx, dy, disc=disc, lod=lod, part="sea5", game=game)
+        except ValueError as e:
+            if "mesh not found" not in str(e):
+                raise
+            continue
+        corners = defaultdict(dict)
+        for tri in bm.tris:
+            i, j = cell_of([sum(bm.verts[k][0] for k in tri) / 3, 0,
+                            sum(bm.verts[k][2] for k in tri) / 3])
+            for k in tri:
+                corners[(i, j)][corner_of(bm.verts[k], i, j)] = tuple(bm.uvs[k])
+        for d in corners.values():
+            if all(c in d for c in ((0, 0), (1, 0), (1, 1), (0, 1))):
+                fit = W._fit_tile(d)
+                if fit:
+                    _u0, _u1, v0, _v1, name = fit
+                    per[(W._strip_of(v0), name)].append(
+                        {c: d[c] for c in ((0, 0), (1, 0), (1, 1), (0, 1))})
+    out = {}
+    for key, maps in per.items():
+        rep = maps[0]
+        spread = max((abs(m[c][k] - rep[c][k]) for m in maps for c in rep for k in (0, 1)),
+                     default=0.0)
+        if spread <= 1e-4:
+            out[key] = rep
+    return out
+
+
+def _neighbour(shade, water, island, bx, by, i, j, d):
+    di, dj = DIRV[d]
+    ni, nj, nbx, nby = i + di, j + dj, bx, by
+    if ni < 0:
+        nbx, ni = bx - 1, G - 1
+    elif ni >= G:
+        nbx, ni = bx + 1, 0
+    if nj < 0:
+        nby, nj = by - 1, G - 1
+    elif nj >= G:
+        nby, nj = by + 1, 0
+    if (nbx, nby) in shade:
+        return shade[(nbx, nby)][ni][nj], water[(nbx, nby)][ni][nj]
+    return "ring", True                       # off-island: the generic deep ocean ring
+
+
+def _is_deep(sh, wet):
+    # LAND-AWARENESS: a 'sea4' shade with no water triangle is a coast, not deep water.
+    return sh == "ring" or (sh == "sea4" and wet)
+
+
+def deepset(shade, water, island, bx, by, i, j) -> frozenset:
+    """The land-aware marching-band deep-set: which sides face genuine deep water."""
+    return frozenset(d for d in "NESW"
+                     if _is_deep(*_neighbour(shade, water, island, bx, by, i, j, d)))
+
+
+def _grids(cells):
+    from .transplant import _sea_shade_grid, _sea_water_grid
+    shade = {c: _sea_shade_grid(v) for c, v in cells.items()}
+    water = {c: _sea_water_grid(v) for c, v in cells.items()}
+    return shade, water
+
+
+def plan_rim(cells) -> dict:
+    """``{(bx,by): {(i,j): (target_part, deepset)}}`` for every OUTER-FRAME shallow quad."""
+    island = list(cells)
+    shade, water = _grids(cells)
+    xs = sorted({c[0] for c in island})
+    ys = sorted({c[1] for c in island})
+    plan = defaultdict(dict)
+    for (bx, by) in island:
+        for i in range(G):
+            for j in range(G):
+                if not water[(bx, by)][i][j]:
+                    continue
+                if shade[(bx, by)][i][j] not in ("sea3", "sea5"):
+                    continue
+                on_frame = ((bx == xs[0] and i == 0) or (bx == xs[-1] and i == G - 1)
+                            or (by == ys[0] and j == 0) or (by == ys[-1] and j == G - 1))
+                if not on_frame:
+                    continue
+                ds = deepset(shade, water, island, bx, by, i, j)
+                if not ds:
+                    continue
+                plan[(bx, by)][(i, j)] = ("sea4" if len(ds) == 4 else "sea5", ds)
+    return dict(plan)
+
+
+def uncovered(plan, variants) -> list:
+    """Deep-sets the plan needs that the donors' own vocabulary cannot supply, VERBATIM."""
+    need = {ds for cs in plan.values() for (_p, ds) in cs.values() if ds}
+    out = []
+    for ds in sorted(need, key=lambda s: "".join(sorted(s))):
+        opts = W.DEEPSET2TILE.get(ds, [])
+        if not opts or not [o for o in opts if tuple(o) in variants]:
+            out.append("".join(sorted(ds)))
+    return out
+
+
+def apply_rim(cells, plan, variants, *, disc: int, lod: str = "0_1"):
+    """Repartition the flagged quads. Returns ``({(bx,by): {part: BlockMesh}}, n_quads)``."""
+    from .transplant import _sea_shade_grid
+    post, n = {}, 0
+    for (bx, by), cellplan in plan.items():
+        pre = cells[(bx, by)]
+        shade = _sea_shade_grid(pre)
+        buckets = {p: part_tris(pre.get(p)) for p in SEA}
+        for (i, j), (_tp, ds) in cellplan.items():
+            src = shade[i][j]
+            uvmap = variants[tuple(W.DEEPSET2TILE[ds][0])]
+            moved = [e for e in buckets[src] if e[0] == (i, j)]
+            if not moved:
+                continue
+            buckets[src] = [e for e in buckets[src] if e[0] != (i, j)]
+            for [c, verts, topo] in moved:
+                nv = []
+                for (p, nr, _u, t) in verts:
+                    k = corner_of(p, i, j)
+                    nv.append((p, nr, uvmap[(min(max(k[0], 0), 1), min(max(k[1], 0), 1))], t))
+                buckets["sea5"].append([c, nv, topo])
+            n += 1
+        post[(bx, by)] = {p: build_part([e[1] for e in buckets[p]], p.capitalize(),
+                                        bx, by, disc, lod)
+                          for p in SEA if pre.get(p) is not None}
+    return post, n
+
+
+def repartition_ok(before, after) -> bool:
+    """THE NON-REGRESSION GATE: geometry must be untouched -- only shade may change."""
+    def ms(d):
+        return Counter((tuple(round(x, 4) for x in v[0]), t)
+                       for p in SEA if d.get(p) is not None
+                       for [_i, vs, t] in part_tris(d[p]) for v in vs)
+    return all(ms(before[c]) == ms(after[c]) for c in after)
+
+
+def seam_report(cells) -> dict:
+    """``under`` is the DEFECT: a tile facing deep with no transition there IS a hard seam.
+
+    ``over`` (a transition facing shallow) is a gradient where none is needed -- a much
+    subtler class, owner-accepted at 20/82 on the proven isthmus.
+    """
+    shade, water = _grids(cells)
+    island = list(cells)
+    under = over = total = 0
+    for c in island:
+        for (i, j), enc in _sea5_deepsets(cells[c]).items():
+            geo = deepset(shade, water, island, c[0], c[1], i, j)
+            if not geo:
+                continue
+            total += 1
+            if frozenset(enc) != frozenset(geo):
+                if not frozenset(geo) <= frozenset(enc):
+                    under += 1
+                else:
+                    over += 1
+    return dict(tiles=total, under=under, over=over)
+
+
+def _sea5_deepsets(parts) -> dict:
+    """``{(i,j): deepset}`` read back from each sea5 tile's own uv."""
+    bm = parts.get("sea5")
+    out = {}
+    if bm is None:
+        return out
+    corners = defaultdict(dict)
+    for tri in bm.tris:
+        i, j = cell_of([sum(bm.verts[k][0] for k in tri) / 3, 0,
+                        sum(bm.verts[k][2] for k in tri) / 3])
+        for k in tri:
+            corners[(i, j)][corner_of(bm.verts[k], i, j)] = tuple(bm.uvs[k])
+    for (i, j), d in corners.items():
+        fit = W._fit_tile(d)
+        if fit:
+            _u0, _u1, v0, _v1, name = fit
+            for ds, opts in W.DEEPSET2TILE.items():
+                if (W._strip_of(v0), name) in [tuple(o) for o in opts]:
+                    out[(i, j)] = ds
+                    break
+    return out
+
+
+def rim_retile(mod_folder, cells_xy, donors, *, disc: int = 1, target_disc=None,
+               lod: str = "0_1", game=None, apply: bool = False, max_passes: int = 6):
+    """Re-tile a deployed island's cropped shallow rim. Returns a report dict.
+
+    ``cells_xy`` are the DEPLOYED target cells; ``donors`` the blocks the island was carried
+    from (the verbatim vocabulary). Iterates to a fixed point -- see the module docstring:
+    one pass does not converge, because retiling changes the shade map the next pass reads.
+    """
+    from . import mesh as M
+    from .. import config
+    td = disc if target_disc is None else int(target_disc)
+    root = config.find_game_path(game) / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{td}" / lod
+
+    def load():
+        out = {}
+        for (bx, by) in cells_xy:
+            d = {}
+            for part in SEA:
+                p = root / f"r{by}" / f"Block[{bx}][{by}] {part.capitalize()}.ff9mesh"
+                if p.exists():
+                    d[part] = M.blockmesh_from_ff9mesh(str(p), disc=td, x=bx, y=by,
+                                                       lod=lod, part=part)
+            out[(bx, by)] = d
+        return out
+
+    variants = harvest_variants(donors, disc=disc, lod=lod, game=game)
+    if not variants:
+        return dict(refused="no sea5 termination tiles could be harvested from the donors "
+                            "-- there is no verbatim vocabulary to re-tile from")
+    cells = load()
+    if not any(v.get("sea3") or v.get("sea5") for v in cells.values()):
+        return dict(refused="these cells carry no shallow ring -- nothing to re-tile")
+
+    before = seam_report(cells)
+    passes, total = [], 0
+    for _k in range(max_passes):
+        plan = plan_rim(cells)
+        miss = uncovered(plan, variants)
+        if miss:
+            return dict(refused=f"deep-set(s) {miss} have no verbatim donor tile -- "
+                                f"synthesizing one is what produced the checkerboard",
+                        variants=len(variants))
+        post, n = apply_rim(cells, plan, variants, disc=td, lod=lod)
+        if not repartition_ok(cells, post):
+            return dict(refused="repartition gate: geometry changed -- not a pure re-shade")
+        passes.append(n)
+        total += n
+        after = {c: dict(cells[c], **post.get(c, {})) for c in cells}
+        if seam_report(after) == seam_report(cells) and _k:
+            break                                   # fixed point
+        cells = after
+        if len(passes) >= 2 and passes[-1] == passes[-2]:
+            break
+    rep = dict(variants=len(variants), passes=passes, quads=total,
+               before=before, after=seam_report(cells))
+    if not apply:
+        rep["dry_run"] = True
+        return rep
+    written = []
+    for (bx, by), parts in cells.items():
+        for part, bm in parts.items():
+            p = root / f"r{by}" / f"Block[{bx}][{by}] {part.capitalize()}.ff9mesh"
+            bak = p.with_suffix(".ff9mesh.prerim")
+            if p.exists() and not bak.exists():
+                import shutil
+                shutil.copy2(p, bak)
+            M.write_ff9mesh(bm, p)
+            written.append(p)
+    rep["written"] = [str(p) for p in written]
+    return rep

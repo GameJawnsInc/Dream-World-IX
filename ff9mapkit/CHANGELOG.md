@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-rim-retile`: terminate a carried island's cropped shallow ring
+- Carrying a coastal island standalone crops the neighbour blocks that hosted its sea5 transition
+  rings, so its shallow band ends against open ocean with no transition — a hard `sea3|deep` seam
+  along a straight block-frame line. The wang-carry gate has always flagged this and named the
+  remedy, while pointing at a study script hardcoded to one island. **That remedy is now a verb.**
+- **The replacement tiles are HARVESTED byte-exact from the donor's own sea5 terminations.** A
+  deep-set with no verbatim donor tile **refuses** rather than being synthesized — two authored-uv
+  attempts reached playtests first (a checkerboard, then stretched coast tiles) and both passed
+  every geometry gate, because geometry was never what was wrong.
+- **The edit is a pure repartition, gated**: each quad keeps its exact verts, normals and topo, so
+  the `(verts, topo)` multiset is identical before and after and walk/boat legality is preserved by
+  construction. It also **iterates to a fixed point** — retiling changes the shade map the next pass
+  reads, so one pass does not converge.
+- Reports the two classes separately, because only one is the defect: `under` (a tile facing deep
+  with no transition there — the hard seam) and `over` (a transition facing shallow — a gradient
+  where none is needed). In-game proven on the Path D isthmus: **under 3 → 0**.
+
 ### Fixed — three fail-closed gaps in `--ground`
 - **A `beach1` triangle that was neither foam nor water shipped silently.** The branch returned
   any non-foam triangle verbatim with no counter and no refusal, so water and a class nobody has
