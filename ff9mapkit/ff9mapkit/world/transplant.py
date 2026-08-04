@@ -3294,6 +3294,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                                 for d in (strips_with_data & windowed))}
     win_x = ((-extra if "E" in avail else 0.0), (extra if "W" in avail else 0.0))
     win_z = ((-extra if "N" in avail else 0.0), (extra if "S" in avail else 0.0))
+    cluster_bands: list = []
     if shift in (None, "auto"):
         if math.isinf(lb[0]):
             sh_x = sh_z = 0.0
@@ -3307,12 +3308,91 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         if sh_x % 4.0 or sh_z % 4.0:
             raise ValueError(f"shift ({sh_x:+g},{sh_z:+g}) must be multiples of 4 -- 0-mod-4 keeps "
                              f"every 4u lattice tile (the Wang ocean included) fully verbatim")
-        if not (win_x[0] - 1e-9 <= sh_x <= win_x[1] + 1e-9
-                and win_z[0] - 1e-9 <= sh_z <= win_z[1] + 1e-9):
-            raise ValueError(f"shift ({sh_x:+g},{sh_z:+g}) outside the coverage-feasible window "
-                             f"x[{win_x[0]:g},{win_x[1]:g}] z[{win_z[0]:g},{win_z[1]:g}] -- the "
-                             f"only refill data beyond the region frame is its neighbours' "
-                             f"{extra:g}u edge strips (with data: {sorted(avail) or 'none'})")
+        ax_x_out = not (win_x[0] - 1e-9 <= sh_x <= win_x[1] + 1e-9)
+        ax_z_out = not (win_z[0] - 1e-9 <= sh_z <= win_z[1] + 1e-9)
+        if ax_x_out or ax_z_out:
+            # THE CLUSTER SHIFT (study 2): an EXPLICIT shift beyond the strip window is
+            # lawful when the vacated (trailing) band is open water on both sides -- the
+            # trailing border tongue-less AND stripless (nothing to tear, nothing real
+            # to gather) -- one axis at a time, the leading side still governed by
+            # land-fit. The vacancy is minted as stock-shaped sea4 (THE LATTICE LAW)
+            # welded to the sheet's own frame verts, generated in PRE-shift coordinates
+            # so the standard shift + partition welds it like any carried tri. The AUTO
+            # shift never widens: composition spacing is an explicit design choice.
+            if ax_x_out and ax_z_out:
+                raise ValueError("the cluster shift widens ONE axis at a time -- the "
+                                 "diagonal corner band has no fill lane; shift in two "
+                                 "deploys")
+            if (ax_x_out and sh_z != 0.0) or (ax_z_out and sh_x != 0.0):
+                raise ValueError("a cluster shift must be single-axis (the other "
+                                 "component 0) -- a combined shift slides the minted "
+                                 "band off the trailing frame")
+
+            def _rot_sides(ds):
+                return {_DIR_OF[(round(rx), round(rz))]
+                        for (rx, rz) in (_rot_dir(*_DIRS[d], nrot) for d in ds)}
+            r_tongue = _rot_sides(tongue)
+            r_data = _rot_sides({d for d in strips_with_data if d})
+            if ax_x_out:
+                trailing = "E" if sh_x < 0 else "W"
+                mag = abs(sh_x)
+                span = ext_r[0]
+                lead_clear = math.inf if math.isinf(lb[0]) else \
+                    (lb[0] if sh_x < 0 else ext_r[0] - lb[1])
+            else:
+                trailing = "N" if sh_z < 0 else "S"
+                mag = abs(sh_z)
+                span = ext_r[1]
+                lead_clear = math.inf if math.isinf(lb[0]) else \
+                    (lb[2] + ext_r[1] if sh_z < 0 else -lb[3])
+            if mag >= span:
+                raise ValueError(f"cluster shift refused: {mag:g}u would move the whole "
+                                 f"{span:g}u region off its rect")
+            if trailing in r_tongue:
+                raise ValueError(f"cluster shift refused: the trailing side {trailing} "
+                                 f"carries the mass's own land tongue -- shifting would "
+                                 f"tear its coast continuation")
+            if trailing in r_data:
+                raise ValueError(f"cluster shift refused: the trailing side {trailing} "
+                                 f"has real neighbour strip data -- the strip window "
+                                 f"(x[{win_x[0]:g},{win_x[1]:g}] z[{win_z[0]:g},"
+                                 f"{win_z[1]:g}]) governs a data-backed side")
+            if lead_clear - mag < land_margin:
+                raise ValueError(f"cluster shift refused: {mag:g}u pushes the land "
+                                 f"within {land_margin:g}u of the leading frame "
+                                 f"(clearance {lead_clear:g}u) -- land-fit cannot hold")
+            cluster_bands.append((trailing, mag))
+
+    # the cluster vacancy mint (pre-shift frame; shifts and partitions with the carry)
+    if cluster_bands:
+        from . import meshedit as ME
+        sheet = rot_polys.get("sea4") or []
+        if not sheet:
+            raise ValueError("cluster shift refused: the donor carries no sea4 sheet to "
+                             "weld the minted vacancy band to")
+        nrm4 = sheet[0][0][1]
+        a3, b3, c3 = (sheet[0][k][0] for k in range(3))
+        wind4 = -1.0 if ((b3[0] - a3[0]) * (c3[2] - a3[2])
+                         - (c3[0] - a3[0]) * (b3[2] - a3[2])) < 0 else 1.0
+        for (trailing, mag) in cluster_bands:
+            if trailing == "E":
+                x0b, x1b, z0b, z1b = ext_r[0], ext_r[0] + mag, -ext_r[1], 0.0
+                plane_ax, plane_v = 0, ext_r[0]
+            elif trailing == "W":
+                x0b, x1b, z0b, z1b = -mag, 0.0, -ext_r[1], 0.0
+                plane_ax, plane_v = 0, 0.0
+            elif trailing == "N":
+                x0b, x1b, z0b, z1b = 0.0, ext_r[0], 0.0, mag
+                plane_ax, plane_v = 2, 0.0
+            else:
+                x0b, x1b, z0b, z1b = 0.0, ext_r[0], -ext_r[1] - mag, -ext_r[1]
+                plane_ax, plane_v = 2, -ext_r[1]
+            snap = [(v[0][0], v[0][2]) for poly in sheet for v in poly
+                    if abs(v[0][plane_ax] - plane_v) < 0.05 and abs(v[0][1]) < 1e-6]
+            ring = [(x0b, 0.0, z0b), (x1b, 0.0, z0b), (x1b, 0.0, z1b), (x0b, 0.0, z1b)]
+            rot_polys["sea4"].extend(
+                ME.lattice_patch(ring, y=0.0, uv_quads=SEA4_QUADS, idall=SEA4_IDALL,
+                                 normal=tuple(nrm4), winding=wind4, snap_verts=snap))
 
     # 4) SHIFT + RE-PARTITION at the target rect's block borders. Both halves of a border-
     #    straddling tri share bit-identical cut points (the clip `t` is the same expression on

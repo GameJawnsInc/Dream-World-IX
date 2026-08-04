@@ -29,7 +29,32 @@ for each palette mass, enumerate windows (`world-morphs`), then ladder each regi
 
 Deliverable: `MORPH-ENVELOPE.md` — the per-mass shape-dial table.
 
-## Study 2 — THE CLUSTER SHIFT (the shift lock)
+## Study 2 — THE CLUSTER SHIFT (the shift lock) — ★ BUILT + SCORED 2026-08-04
+
+**S-1 CONFIRMED.** The dots (10,17) rot-180 shifted +20E and (10,18) shifted −24W
+into adjacent Path D disc-9 cells both gate CLEAN through the full dry-run (census
+introduced 0, weld pairs 0) at a composed land gap of **5.4u** — inside stock's
+4–20u cluster regime, against the old ~49.8u floor. The trailing vacancy is minted
+as stock-shaped sea4 (`lattice_patch`, THE LATTICE LAW) in PRE-shift coordinates,
+welded to the sheet's own frame verts, so the standard shift+partition welds it
+like any carried tri.
+
+**S-2 CONFIRMED.** The widening applies ONLY to explicit shifts — the auto path
+never cluster-widens (pinned hermetically) — and all 119 pre-existing transplant
+tests including the region/transplant byte-identity law stay green.
+
+**S-3 CONFIRMED, five named refusals:** land within the margin of the leading
+frame; a data-backed trailing side (the ±8u strip window governs there — its clip
+edge is not lattice-shaped, so minting behind it is a registered residual, not
+v1); a tongued trailing side (tested live on the crescent's S tongue); a diagonal
+shift (one axis at a time — the corner band has no fill lane); off-lattice
+(mod-4, pre-existing). 4/4 mutations killed.
+
+**Registered residuals:** the data-backed trailing side (fill beyond a gathered
+strip needs a strip-edge-welded mint); the diagonal corner band; rot of the
+minted band's quadrant hash keys on pre-shift region coords (lawful — the sea4
+quadrant choice is measured-free — but a re-mint at the same world cell hashes
+differently than an excise fill would).
 
 `transplant_region` pins shift to 0 when no tongue opens a window (`avail =
 strips_with_data & windowed`), so two carried masses can never sit closer than their

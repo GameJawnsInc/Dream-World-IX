@@ -784,6 +784,76 @@ def test_region_tongue_ignores_land_dropped_by_the_tweaks(monkeypatch):
     assert s["cells"]["4,2"]["carried"]["terrain"] == 2      # the subject alone
 
 
+def _lattice_sea(x0, x1, z0, z1, *, idall=232.0):
+    """A full 4u-lattice sea4 sheet (stock-shaped) -- the cluster-shift fixtures need a
+    real lattice so the minted vacancy band welds on shared 4u frame verts, exactly as it
+    does against the real donors."""
+    tris = []
+    xi = x0
+    while xi < x1 - 1e-9:
+        zi = z0
+        while zi < z1 - 1e-9:
+            tris += _quad(xi, xi + 4.0, zi, zi + 4.0, idall=idall)
+            zi += 4.0
+        xi += 4.0
+    return tris
+
+
+def _dot_donor():
+    """Donor (1,1): a centred land dot (24u clearance all sides) on a full-cell lattice
+    sea4; every neighbour block empty (prefab ocean) -- the cluster-shift specimen."""
+    return {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0, y=1.0),
+            (1, 1, "sea4"): _lattice_sea(64.0, 128.0, -128.0, -64.0)}
+
+
+def test_region_cluster_shift_mints_the_vacancy(monkeypatch):
+    """THE CLUSTER SHIFT (study 2): an explicit shift beyond the strip window is lawful on
+    a tongue-less, strip-less (prefab-backed) trailing side; the vacated band is minted as
+    stock-shaped sea4 lattice welded to the sheet's own frame verts -- census introduced 0,
+    weld pairs 0. The AUTO shift never widens (composition spacing is an explicit choice)."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_dot_donor()))
+    base = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                                shift=(0.0, 0.0), dry_run=True, census_samples=8)
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-16.0, 0.0), dry_run=True, census_samples=8)
+    assert s["clean"] is True, s["gates"]
+    assert s["shift"] == [-16.0, 0.0]
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] == 0
+    # the minted band adds sea4 beyond the shifted carry (the vacancy is filled, not bare)
+    assert s["cells"]["4,2"]["carried"]["sea4"] > base["cells"]["4,2"]["carried"]["sea4"] - 32
+    # the auto path never cluster-widens: with no tongue and no strips the window is 0
+    s_auto = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                                  shift="auto", dry_run=True, census_samples=8)
+    assert s_auto["shift"] == [0.0, 0.0]
+
+
+def test_region_cluster_shift_fail_closed(monkeypatch):
+    """The cluster shift's named refusals: land within the margin, a data-backed trailing
+    side (the strip window governs there), a tongued trailing side (shifting would tear
+    the coast continuation), and a diagonal (one axis at a time)."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_dot_donor()))
+    with pytest.raises(ValueError, match="pushes the land within"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-24.0, 0.0), dry_run=True, census_samples=8)
+    with pytest.raises(ValueError, match="ONE axis at a time"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-16.0, -16.0), dry_run=True, census_samples=8)
+    blocks = _dot_donor()
+    blocks[(2, 1, "sea4")] = _lattice_sea(128.0, 192.0, -128.0, -64.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    with pytest.raises(ValueError, match="real neighbour strip data"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-16.0, 0.0), dry_run=True, census_samples=8)
+    blocks = _dot_donor()
+    blocks[(1, 1, "terrain")] = _quad(88.0, 127.9, -104.0, -88.0, y=1.0)   # land at E frame
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    with pytest.raises(ValueError, match="land tongue"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-16.0, 0.0), dry_run=True, census_samples=8)
+
+
 def test_region_shift_splits_straddlers_watertight(monkeypatch):
     """An in-region shift carries tris ACROSS the interior border; the re-partition splits them
     with bit-identical cut points on both sides (the _split_at_borders law) -- weld audit 0."""

@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE CLUSTER SHIFT: compose carried masses at stock archipelago spacing (study 2)
+- `transplant_region` pinned every shift to the ±8u neighbour-strip window, so two carried
+  masses could never sit closer than their rects allow (measured floor ~49.8u against stock's
+  4–20u cluster regime). An EXPLICIT shift may now exceed the window when the trailing side is
+  tongue-less AND strip-less (prefab-ocean-backed): the vacated band is minted as stock-shaped
+  sea4 (`lattice_patch`, THE LATTICE LAW) welded to the sheet's own frame verts, generated in
+  pre-shift coordinates so the standard shift+partition welds it like any carried tri. Proven
+  offline: two chain dots composed at a 5.4u land gap, both dry-runs fully CLEAN. The AUTO
+  shift never widens (spacing is an explicit design choice); fail-closed refusals name land
+  within the leading margin, a data-backed trailing side, a tongued trailing side, and
+  diagonal shifts (one axis at a time). Four mutations killed.
+
 ### Added — THE PINCH WALL: single-triangle wall gaps decode (capability 3)
 - Byte-level decode of the "window gap N is neither a clean one-quad wall nor a refined fan"
   refusals: 5 of 6 specimens are THE PINCH — the crease contracts to a point
