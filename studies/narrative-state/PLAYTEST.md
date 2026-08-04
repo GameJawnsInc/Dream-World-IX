@@ -54,3 +54,16 @@ Seeds regenerated + pasted verbatim: 30820 gains `[party] add = ["vivi"]`; 30821
 Same donor, seed now `scenario = 2650` + the same 7 bits + the 4-member party.
 ~ → Reload. Question: does the inn now stage its beat-2650 content (cast/scene/dialogue of
 the party's Dali stay) — distinct from both the empty 2700 state and 30822's Gudo state? PENDING
+
+## Round 4 — the WRONG-SIBLING trap: 30821's donor swapped 352 -> 351
+
+Round 3 (352 @ 2650) was still an empty room. Root cause: one FBG backs MULTIPLE field ids,
+one per story VISIT (the June inn lesson repeating) -- 351 is the FIRST-VISIT Dali Inn
+(villager + save moogle + props staged at every beat of the stay), 352 is the revisit shell
+whose only real content is the 2990-band Gudo state. 30821 is now a verbatim fork of 351
+seeded @ 2650 (tool output verbatim; no [party] block emitted -- 351 gates nothing on party).
+~ -> Reload. Expect: the populated first-visit inn (villager, the save moogle in its barrel).
+PENDING
+
+Deferred by owner decision (round 3): a researched ScenarioCounter -> ExpectedParty map (the
+principled rung-7 answer to the byte-party problem); the adds-and-gates heuristic stands in.
