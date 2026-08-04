@@ -89,3 +89,27 @@ survivor at cell (21,17) tile (9,5) is **stock's own arrangement** (enc E / geo 
 byte-identically in the stock donor rect, which carries 4 such under-readings in this
 window) — re-tiling it would author a change to verbatim stock interior, so it stays.
 Soft over-cover 23/92, the owner-accepted class.
+
+---
+
+## PLAYTEST 3 — the fill passed; THE GHOST SIDECAR was the last artifact
+
+Owner: the iceberg is gone, the island walks and looks good — **L-5 CONFIRMED**. One
+residual: "the rocky part in the middle of the ocean... seems like a carried over Object".
+
+Exactly right. The rock at (1164,−1214) is the donor prefab's **baked harbor**,
+ghost-rendered at its block-local pose: cell (18,18)'s `Donor.txt` named **(14,2)** — the
+object-bearing harbor block — as its sidecar host, and (20,17) named (16,1), the other
+object-bearer. THE SIDECAR OBJECT EXCLUSION existed in the docstring and in the
+*substitute* search loop, but the **natural-donor branch never checked** `obj_by_cell` —
+and the one test named for the law only exercised the substitute path. A law in a
+docstring is a wish; a test that cannot fail on the live path is the same wish twice.
+Every prior carry had object-free donors, so five deploys never surfaced it.
+
+Fixed at the pick: the natural donor is acceptable iff it bears no Object OR the
+transform is the identity (an in-place morph legitimately renders its own object). Both
+cells now host from (14,1); the old test's fixture correctly refuses a cell it previously
+ghost-rendered; mutation (check removed) caught by both tests. Redeployed with
+`--allow-mod-overwrite` (our own two cells' sidecar changed) and the rim retile
+re-applied on top — **a redeploy regenerates the sea meshes and silently discards a prior
+retile; any redeploy of a retiled island must re-run `world-rim-retile`.**

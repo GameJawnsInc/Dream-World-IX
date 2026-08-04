@@ -3389,7 +3389,16 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         nat = (min(nx - 1, max(0, math.floor(dlx / 64.0))),
                min(ny - 1, max(0, math.floor(-dlz / 64.0))))
         pick = pick_parts = None
-        if set(need) <= donor_cell_has[nat]:
+        # THE SIDECAR OBJECT EXCLUSION applies to the NATURAL donor too. This branch
+        # used to skip the object check entirely -- the law lived in the docstring and
+        # the substitute loop below, and the one test named for it only exercised the
+        # substitute path. First live object-bearing carry (the crescent): cell (18,18)'s
+        # natural donor (14,2) hosted it and its baked harbor ghost-rendered in open
+        # ocean at the prefab's block-local pose. At the IDENTITY transform the natural
+        # cell legitimately renders its own object (in-place morphs).
+        identity = (rtarget == disc and nrot == 0 and sh_x == 0.0 and sh_z == 0.0
+                    and (bx + i, by + j) == (dbx + nat[0], dby + nat[1]))
+        if set(need) <= donor_cell_has[nat] and (identity or not obj_by_cell[nat]):
             pick = (dbx + nat[0], dby + nat[1])
             pick_parts = donor_cell_has[nat]
         else:

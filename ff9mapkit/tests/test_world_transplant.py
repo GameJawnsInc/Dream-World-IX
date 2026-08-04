@@ -886,9 +886,13 @@ def test_region_object_cell_never_hosts_foreign_target(monkeypatch):
     s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
                              census_samples=8, dry_run=True)
     # cell (5,2) needs terrain (the straddle): natural (2,1) lacks it; the only superset donor
-    # is (1,1) but it bears an Object -> excluded -> prefab-parts FAILS (no silent ghost)
+    # is (1,1) but it bears an Object -> excluded -> prefab-parts FAILS (no silent ghost).
+    # And since the natural-donor exclusion (the crescent-harbor fix), cell (4,2) refuses
+    # too: its natural (1,1) bears the Object and no object-free substitute covers it --
+    # previously it silently took the object host and ghost-rendered.
     g = next(g for g in s["gates"] if g["gate"] == "prefab-parts")
-    assert g["ok"] is False and g["bad"][0]["cell"] == [5, 2]
+    assert g["ok"] is False
+    assert sorted(b["cell"] for b in g["bad"]) == [[4, 2], [5, 2]]
     # identity transform keeps the object cell's own target legitimate: object-anchor ok
     oa = next(g for g in s["gates"] if g["gate"].startswith("object-anchor"))
     assert oa["ok"] is True and oa["moved"] is False
@@ -900,6 +904,32 @@ def test_region_object_cell_never_hosts_foreign_target(monkeypatch):
                               rot=90, census_samples=8, dry_run=True)
     oa2 = next(g for g in s2["gates"] if g["gate"].startswith("object-anchor"))
     assert oa2["ok"] is False and oa2["moved"] is True
+
+
+def test_region_object_exclusion_applies_to_the_NATURAL_donor(monkeypatch):
+    """The direction the test above never exercised, and the one that shipped: the natural
+    donor SATISFIES the cell's parts, so no substitute search runs, and the object check
+    lived only in the substitute loop. First live object-bearing carry: cell (18,18)'s
+    natural donor (14,2) hosted it and its baked harbor ghost-rendered in open ocean.
+    A foreign target whose natural donor bears an Object must get a SUBSTITUTE sidecar."""
+    blocks = {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (1, 1, "object"): _quad(104.0, 112.0, -100.0, -92.0, y=2.0),
+              (2, 1, "terrain"): _quad(150.0, 170.0, -104.0, -88.0, y=1.0),
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             census_samples=8, dry_run=True, land_margin=0.0, strips="none")
+    # (4,2) maps back to object-bearing (1,1), whose parts cover the need -- the sidecar
+    # must nonetheless be the object-free (2,1)
+    assert s["cells"]["4,2"]["donor"] == [2, 1], s["cells"]["4,2"]
+    # the object-free cell keeps its own natural donor
+    assert s["cells"]["5,2"]["donor"] == [2, 1]
+    # and IN PLACE (identity transform) the object cell legitimately hosts itself
+    s2 = TR.transplant_region("MOD", cell=(1, 1), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                              census_samples=8, dry_run=True, land_margin=0.0, strips="none",
+                              allow_real_target=True)
+    assert s2["cells"]["1,1"]["donor"] == [1, 1]
 
 
 def test_region_census_backmaps_through_the_region_transform(monkeypatch):

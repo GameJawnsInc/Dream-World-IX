@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE GHOST SIDECAR: the object exclusion now applies to the NATURAL donor
+- A region carry's per-cell sidecar law ("an Object-bearing donor cell never hosts a foreign
+  target cell") was enforced only in the *substitute* search; the natural-donor branch skipped the
+  check, so the first object-bearing carry (the crescent) ghost-rendered its donor's baked harbor
+  in open ocean at the prefab's block-local pose. The natural donor now requires no Object or the
+  identity transform (in-place morphs legitimately render their own). The test named for the law
+  only exercised the substitute path — both directions are now covered and mutation-verified.
+- Operational corollary, learned the same session: **a redeploy regenerates the sea meshes and
+  silently discards a prior `world-rim-retile` — always re-run the retile after redeploying.**
+
 ### Fixed — THE LATTICE LAW: the excise fill is now stock-SHAPED water, not just stock-vocabulary water
 - `flat_patch` ear-clipped the whole footprint: lawful geometry, synthetic water shape. Stock sea4 is
   a strict 4u lattice (tri area max 10.5u², edge max 7u); the crescent's fill minted **615u² /
