@@ -259,3 +259,40 @@ def staged_beats(eb: EbScript) -> list[tuple[int, str]]:
     the inn-stay band 2600-2660 and 2790, so nothing special staged)."""
     from . import forkreport
     return [(v, flagsmod.nearest_milestone(v)[1]) for v in forkreport.scenario_gates(eb.data)]
+
+
+OP_ATE = 0xD7
+
+
+def ate_word_seed(eb: EbScript) -> list[int]:
+    """Bytes of the gEventGlobal WORD(s) gating this field's ``ATE(1)`` arm — the
+    availability-bitmask detection (docs/ATE_SYSTEM.md: a cold fork boots with the word 0 →
+    the ATE menu never arms; THIS, not the ScenarioCounter, is why scenario-only forks show
+    no ATE). Mechanized from the rung-0 guards: any word-var condition dominating an ATE(1)
+    site names its byte."""
+    out: set[int] = set()
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            try:
+                fl = FuncFlow.build(eb.data, f.abs_start, f.abs_end)
+            except CfgError:
+                continue
+            for blk in fl.blocks:
+                for ins in blk.instrs:
+                    if ins.op != OP_ATE or ins.imm(0) != 1:
+                        continue
+                    for c in (fl.guards_at(ins.off) or ()):
+                        if c.source == 0 and c.vtype in (4, 5, 6, 7) and c.index > 3:
+                            out.add(c.index)
+    return sorted(out)
+
+
+def render_words(bytes_: list[int]) -> str:
+    if not bytes_:
+        return ""
+    rows = ", ".join("{ byte = %d, value = 1 }" % b for b in bytes_)
+    return (f"words = [ {rows} ]\n"
+            "# ATE availability word(s) detected gating ATE(1): value 1 arms ONE menu row --\n"
+            "# each bit = one offered ATE; WIDEN to the beat's unlocked set (e.g. 0x0F = 4 rows)")

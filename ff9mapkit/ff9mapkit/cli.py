@@ -542,7 +542,11 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
     rep = storyseed.resolve(EbScript.from_bytes(data), beat, census)
     _safe_console()
     print(storyseed.render_startup(rep, field_label=label))
-    party = storyseed.render_party(storyseed.party_seed(EbScript.from_bytes(data)))
+    _eb = EbScript.from_bytes(data)
+    words = storyseed.render_words(storyseed.ate_word_seed(_eb))
+    if words:
+        print(words)
+    party = storyseed.render_party(storyseed.party_seed(_eb))
     if party:
         print()
         print(party)
