@@ -1029,14 +1029,59 @@ def test_retag_flat_conserves_geometry_exactly():
         assert all(v[3][0] == 228.0 for v in b)            # retagged IDALL
 
 
-def test_retag_flat_uv_matches_flat_patch_positional_rule():
-    """The converted band and a neighbouring fill must agree where they meet."""
+def test_retag_flat_uv_is_anchored_on_the_triangle_s_own_tile():
+    """`x/4 % 1` wraps to 0 at every tile edge, so a tile-SPANNING tri collapses to a
+    zero-width uv and stretches one texel across the face. These are stock water tris
+    with median plan area 8u2 against a 16u2 tile, so they span most of one -- the uv
+    must be anchored on the tile and reach 1.0 at its far edge.
+    """
     q = (0.0, 0.0, 0.5039, 0.5079)
-    out = ME.retag_flat([_flat_tri(6.0, -10.0)], uv_quads=(q,), idall=228)
-    for (pos, _n, uv, _t) in out[0]:
-        fu, fv = (pos[0] / 4.0) % 1.0, (-pos[2] / 4.0) % 1.0
-        assert uv == pytest.approx((q[0] + (q[2] - q[0]) * fu,
-                                    q[1] + (q[3] - q[1]) * fv))
+    # a tri spanning a whole tile: x 8->12 sits exactly on tile 2
+    tri = [((8.0, 0.0, -8.0), (0.0, 1.0, 0.0), (0.0, 0.0), (99.0, 0.0, 0.0, 1.0)),
+           ((12.0, 0.0, -8.0), (0.0, 1.0, 0.0), (0.0, 0.0), (99.0, 0.0, 0.0, 1.0)),
+           ((8.0, 0.0, -12.0), (0.0, 1.0, 0.0), (0.0, 0.0), (99.0, 0.0, 0.0, 1.0))]
+    out = ME.retag_flat([tri], uv_quads=(q,), idall=228, winding=None)
+    us = sorted(v[2][0] for v in out[0])
+    vs = sorted(v[2][1] for v in out[0])
+    # the span must cover the full quadrant, not collapse to its origin
+    assert us[-1] - us[0] == pytest.approx(q[2] - q[0]), us
+    assert vs[-1] - vs[0] == pytest.approx(q[3] - q[1]), vs
+
+
+def test_retag_flat_gives_both_tris_of_a_tile_the_SAME_quadrant():
+    """THE PER-TILE QUADRANT LAW -- the defect that shipped a checkerboard.
+
+    Stock: 134 of 135 tiles have every triangle on one quadrant. Choosing per TRIANGLE
+    puts a different atlas sub-tile either side of every tile diagonal.
+    """
+    def tri_at(x, z, flip):
+        pts = ([(x, 0.0, z), (x + 4.0, 0.0, z), (x, 0.0, z - 4.0)] if not flip else
+               [(x + 4.0, 0.0, z), (x + 4.0, 0.0, z - 4.0), (x, 0.0, z - 4.0)])
+        return [(p, (0.0, 1.0, 0.0), (0.0, 0.0), (99.0, 0.0, 0.0, 1.0)) for p in pts]
+
+    for k in range(6):                       # several tiles, both halves of each
+        a = ME._tile_quad_index(tri_at(4.0 * k, -8.0, False), 4)
+        b = ME._tile_quad_index(tri_at(4.0 * k, -8.0, True), 4)
+        assert a == b, f"tile {k}: halves disagree ({a} vs {b})"
+
+
+def test_tile_quad_index_is_not_a_LATTICE():
+    """A low-bit hash makes tile parity PREDICT the quadrant: regular where stock is
+    irregular, which is the checkerboard's cousin."""
+    from collections import Counter
+    best = 0.0
+    idx = {}
+    for gx in range(40):
+        for gz in range(40):
+            tri = [((gx * 4.0 + 2, 0.0, -(gz * 4.0 + 2)),)]
+            idx[(gx, gz)] = ME._tile_quad_index(tri, 4)
+    for m in (2, 3, 4):
+        byp = {}
+        for (gx, gz), q in idx.items():
+            byp.setdefault((gx % m, gz % m), Counter())[q] += 1
+        hit = sum(c.most_common(1)[0][1] for c in byp.values()) / len(idx)
+        best = max(best, hit - len(byp) / len(idx))
+    assert best < 0.45, f"a small lattice predicts the quadrant {best:.0%} of the time"
 
 
 def test_retag_flat_refuses_to_flip_a_face():
