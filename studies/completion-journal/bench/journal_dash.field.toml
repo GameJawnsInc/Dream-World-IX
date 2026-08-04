@@ -84,6 +84,14 @@ pos = [400, -837]
 name = "scribe"
 model = "GEO_NPC_F0_CSO"
 pos = [-400, -837]
+dialogue = """
+== SCRIBE CONTROL ====
+A plain window, no menu.
+Same window id as a page.
+If THIS one also closes by
+itself, the bug is not the
+choice lane."""
+window = 2
 
 [behavior]
 warmup = 30

@@ -781,6 +781,25 @@ def bench_toml(*, pages=PAGES) -> str:
         'name = "scribe"',
         'model = "GEO_NPC_F0_CSO"',
         "pos = [-400, -837]",
+        # ★ THE CONTROL. Four rounds of static hypotheses failed to explain why a PAGE window opens,
+        # renders, then closes itself and exits the tree, while the SELECTOR is fine. Every remaining
+        # candidate splits on one question a playtester can answer in one interaction: is the defect
+        # in the choice->reply transition, or in plain windows on this field at all?
+        # The scribe is a plain multi-line window on the SAME field, SAME window id 2, SAME shape as
+        # a page -- reached by talking, NOT through a selector, and publishing no values.
+        #   scribe window STAYS  -> the fault is the choice->reply transition (the confirm that picks
+        #                           a row reaching the page, or the selector's close touching it)
+        #   scribe window CLOSES -> the fault is not the choice lane at all; it is windows on this
+        #                           field/config, and everything upstream of here has been the wrong
+        #                           tree entirely
+        'dialogue = """',
+        "== SCRIBE CONTROL ====",
+        "A plain window, no menu.",
+        "Same window id as a page.",
+        "If THIS one also closes by",
+        "itself, the bug is not the",
+        'choice lane."""',
+        "window = 2",
         "",
         "[behavior]",
         "warmup = 30",
