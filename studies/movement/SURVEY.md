@@ -261,9 +261,13 @@ byte path except the Reinit gate, which is behavior-identical for every free-roa
    by `Request`'s `level < p.level` guard; a dialog-side save/restore of the mask — no such
    writer exists). So: mechanism OPEN (§11), shape REFUSED in `validate` (empirical, and stock
    never builds it — its own pad-mask sites bracket a window inside a non-re-enterable handler).
-   Round 2 re-benches the lane in stock's locked shape, which isolates mask-from-lock better
-   anyway: the window closes → the lock releases (menu/Action/talk all work) → the feet stay dead
-   until a second book unmasks them.
+   **★ ROUND 3: THE PAD-MASK LANE IS IN-GAME PROVEN** (owner: both beats good). The self-contained
+   cycle (mask → `duration=90` self-closing window → unmask) freezes and thaws; the no-unmask beat
+   shows the mask outliving the lock, verified in place by the window re-opening on a second press.
+   Round 2 was a design failure of mine, not of the lane: a direction mask kills walking AND the
+   menu (see §1 gate 2), so putting the thaw on another book stranded the tester, and the bench
+   text asserted two things the engine contradicts. **DESIGN LAW: whatever removes a direction mask
+   must be triggerable without moving** — the same body, or a trigger underfoot.
 
 ## 11. Open questions
 
@@ -279,12 +283,16 @@ byte path except the Reinit gate, which is behavior-identical for every free-roa
   shape stays the kit's proven idiom; a static freeze check is unsound and was calibrated out.
 - **Why an unlocked, dismissible pad-mask body loses its unmask** (bench 30602 round 1, §10 item 7).
   Everything static checks out — correct emission, symmetric engine clear path, no competing
-  writer, no latch in `MovePC` — yet the player stays frozen. The leading unrefuted hypothesis is
-  RE-ENTRY: with `lock = false` the handler runs with `usercontrol == 1`, so `CollisionRequest`
-  (ProcessEvents.cs:180) keeps polling the press underneath the open window, and the dismissal
-  press edge can re-enter the same tag-3 body — each cycle ending in a fresh mask. Untested; it
-  would show as the window reappearing, which the playtest did not explicitly report. **The same
-  re-entry exposure exists for the (in-game proven, owner-liked) walk-under NPC banner, where it
-  is harmless** — which is why the refusal is scoped to the mask pairing, not to `lock = false`.
+  writer, no latch in `MovePC` — yet the player stayed frozen. Leading hypothesis: **RE-ENTRY** —
+  with `lock = false` the handler runs at `usercontrol == 1`, so `CollisionRequest`
+  (ProcessEvents.cs:180) keeps polling presses *underneath* the open window, and the dismissal
+  edge can re-enter the same tag-3 body, re-masking after the unmask.
+  **Round 3 supplied the control case (owner-observed):** in the LOCKED beat, re-firing a
+  repeatable press event takes **two** Action presses — one to close the window, one to re-trigger
+  — because `usercontrol == 0` while the window is up suppresses the dispatch entirely. So the
+  "one press does both" path exists only in the unlocked shape, exactly where the failure was.
+  Still not directly observed (it would need an instrumented build or a visible re-open), so the
+  refusal stays empirical. **The same exposure exists for the walk-under NPC banner, where it is
+  harmless and in-game proven** — which is why the refusal is scoped to the mask pairing.
 - Whether GlobBool 158/159 residue from stock fields can make a kit field's gateway macro fire
   differently mid-campaign (harmless either way — `ExitField` locks regardless — but untested).

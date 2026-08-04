@@ -17,8 +17,15 @@
 #     the dismiss button, so there is no press to re-enter the handler with.
 #   * WEST book (do this LAST -- it strands you on purpose): mask + a normal locked window and NO
 #     unmask, to show the mask OUTLIVING the lock bracket. Verify standing still: press Action
-#     again and this window REOPENS -- which can only happen if control was returned and the engine
-#     is still dispatching your presses. Escape: ~ -> Reload field (a scene change clears the mask).
+#     TWICE -- press 1 closes the window, press 2 REOPENS it -- which can only happen if control
+#     was returned and the engine is still dispatching your presses. Escape: ~ -> Reload field.
+#
+# ROUND 3 VERDICT (owner): BOTH GOOD -- the pad-mask lane is in-game proven end to end. The two
+# presses are the LOCK's own signature (Action both advances dialog and fires presses; under the
+# lock, usercontrol == 0 while the window is up, so the closing press CANNOT re-enter the handler
+# and a second press is needed). That is the control case for round 1's failure: unlocked, dispatch
+# runs *under* the open window, so there the one closing press could plausibly do both -- close the
+# window AND re-enter the body, re-masking after the unmask. See SURVEY.md 11.
 #   * EAST book (press): arms the STAY_LOCKED ending (sets flag 9150), then ~ -> Reload field.
 #     On the armed reload a narration scene plays and ends WITHOUT giving control back -- the
 #     one-way latch (stock's Festival-timeout idiom). You should be frozen for good: no walking,
@@ -77,7 +84,7 @@ zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
 trigger = "action"
 bubble = true
 mask_buttons = ["directions"]
-message = "Masked, with NO unmask. Walking is dead -- and so is the menu (the engine ties the menu re-grant to the movement mask). But the LOCK did release: press Action again right here and this window reopens, which only works if the engine is still dispatching presses. Escape: ~ then Reload field."
+message = "Masked, with NO unmask. Walking is dead -- and so is the menu (the engine ties the menu re-grant to the movement mask). But the LOCK did release: press Action TWICE right here -- the first press closes this window, the second re-opens it -- which only works if the engine is still dispatching your presses. Escape: ~ then Reload field."
 once = false
 
 [[prop]]
