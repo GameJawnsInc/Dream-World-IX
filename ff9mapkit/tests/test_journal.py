@@ -770,7 +770,21 @@ def test_cli_journal_rows_and_lint(capsys):
     assert "journal row(s)" in capsys.readouterr().out
     assert cli.main(["journal", "rows", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)
-    assert cli.main(["journal", "lint"]) == 0
+    # `--offline` drops the ONE check that reads the game install. This test must not depend on it:
+    # without the flag, a machine that cannot read the install is SUPPOSED to exit 2 (see below).
+    assert cli.main(["journal", "lint", "--offline"]) == 0
+    assert "0 violation(s)" in capsys.readouterr().out
+
+
+def test_cli_journal_lint_returns_2_when_the_INSTALL_cannot_be_read(monkeypatch, capsys):
+    """The key-item denominator is baked into a static .mes at build time, so `journal lint` on the
+    deploy machine is the only thing that can catch a table swap. An unreadable install must FAIL
+    rather than skip the check silently -- and `--offline` is the deliberate, visible opt-out."""
+    from ff9mapkit import cli, journalfield as JF
+    monkeypatch.setattr(JF, "live_key_item_count", lambda: None)
+    assert cli.main(["journal", "lint"]) == 2
+    assert "UNVERIFIED here" in capsys.readouterr().out
+    assert cli.main(["journal", "lint", "--offline"]) == 0
     assert "0 violation(s)" in capsys.readouterr().out
 
 
@@ -827,3 +841,346 @@ def test_real_save_round_trip():
             if r.status != "tracked":
                 assert r.value is None, f"{st.label} {r.id}"
         assert J.render_report(rep, show_all=True)
+
+
+# =================================================================================================
+# T1b -- the IN-GAME half of the same catalog: RowSpec.eb / eb_source / eb_absent.
+#
+# Two families, doing different jobs:
+#   * the SCHEMA family proves the exhaustiveness gate cannot be defaulted past -- a row with neither
+#     an expression nor a reason FAILS, which is the whole point of the field pair;
+#   * the CROSS-VALIDATION family evaluates each expression over a synthetic gEventGlobal and
+#     compares it to THIS module's own offline reader on the same heap. Two implementations of one
+#     row, checked against each other offline -- the same bracket the rung-0 playtest applied
+#     in-game, minus the game.
+# =================================================================================================
+from dataclasses import replace as _replace                      # noqa: E402
+from ff9mapkit.eb import exprasm as _EA, exprsem as _ES          # noqa: E402
+from ff9mapkit.eb.opcodes import EXPR_VALUE_MAX, EXPR_VALUE_MIN  # noqa: E402
+
+
+def _rspec(rid):
+    s = J.row_spec(rid)
+    assert s is not None, rid
+    return s
+
+
+def _fail(tok):
+    raise AssertionError("unexpected leaf %r" % (tok,))
+
+
+def test_every_row_declares_EITHER_an_expression_OR_a_reason():
+    """The exhaustiveness gate, stated as a property of the shipped table."""
+    for s in J.ROWS:
+        assert (s.eb is None) != (s.eb_absent is None), (
+            "%s: exactly one of eb / eb_absent -- got eb=%r eb_absent=%r" % (s.id, s.eb, s.eb_absent))
+    assert sum(1 for s in J.ROWS if s.eb) == len(J.EB_EXPRESSIONS)
+    assert sum(1 for s in J.ROWS if s.eb_absent) == len(J.EB_ABSENT)
+    assert len(J.ROWS) == len(J.EB_EXPRESSIONS) + len(J.EB_ABSENT)
+
+
+def test_a_row_with_NEITHER_fails_lint():
+    """THE GATE ITSELF. A future row that forgets both fields must FAIL, never default to invisible.
+    Built by stripping the fields off a REAL row so the rest of the schema still passes -- otherwise
+    a green result could come from some unrelated rule and the failure would not be attributable."""
+    orphan = _replace(_rspec("chocobo.beak_level"), id="chocobo.newly_added", eb=None, eb_source="",
+                      eb_absent=None)
+    bad = J.lint_rows(rows=[orphan])
+    assert any("exactly one" in m and "chocobo.newly_added" in m for m in bad), bad
+    assert not [m for m in J.lint_rows(rows=[_replace(orphan, eb_absent="no engine read")])
+                if "chocobo.newly_added" in m]
+
+
+def test_a_row_declaring_BOTH_fails_lint():
+    both = _replace(_rspec("chocobo.beak_level"), id="x.y", eb_absent="also a reason")
+    assert any("exactly one" in m for m in J.lint_rows(rows=[both]))
+
+
+def test_an_untracked_row_cannot_declare_an_expression():
+    s = _replace(_rspec("meta.bestiary"), eb="Global.Byte[1]", eb_source="EBin.cs:1866", eb_absent=None)
+    assert any("untracked row cannot declare an eb" in m for m in J.lint_rows(rows=[s]))
+
+
+def test_an_expression_that_does_not_balance_fails_lint():
+    s = _replace(_rspec("chocobo.beak_level"), eb="Global.Byte[139] B_PLUS")
+    assert any("does not evaluate" in m for m in J.lint_rows(rows=[s]))
+
+
+def test_an_expression_that_WRITES_fails_lint():
+    """A page body is not a per-frame hud, but a journal row still READS. Same classifier as the hud
+    lane (eb/exprsem.py), one owner."""
+    s = _replace(_rspec("chocobo.beak_level"), eb="Global.Byte[139] const(1) B_LET")
+    assert any("a journal row READS" in m for m in J.lint_rows(rows=[s]))
+
+
+def test_every_expression_assembles_balances_and_is_effect_free():
+    """Over the WHOLE catalog, not a sample. `exprasm.assemble` is a byte encoder that validates
+    nothing (eb/exprsem.py:5-6); `analyze` is the validator."""
+    for s in J.ROWS:
+        if s.eb is None:
+            continue
+        assert "B_EXPR_END" not in s.eb.split(), s.id
+        blob = _EA.assemble(s.eb + " B_EXPR_END")
+        assert blob and blob[-1] == 0x7F, s.id
+        a = _ES.analyze(s.eb + " B_EXPR_END")
+        assert a.unsafe_to_repeat == (), "%s: %s" % (s.id, a.unsafe_to_repeat)
+        assert J._SOURCE_RE.match(s.eb_source), "%s: %r" % (s.id, s.eb_source)
+
+
+def test_every_expression_is_bounded_inside_the_26_bit_envelope():
+    """The envelope is not advisory: `expr_Push_v0_Int24` ORs the Int26 class tag into bits 26-28
+    with NO mask (EBin.cs:1270-1274), so an overflow is re-read as a DIFFERENT variable class."""
+    for s in J.ROWS:
+        if s.eb is None:
+            continue
+        lo, hi = J.eb_bounds(s.eb)
+        assert EXPR_VALUE_MIN <= lo and hi <= EXPR_VALUE_MAX, "%s: %d..%d" % (s.id, lo, hi)
+
+
+def test_play_time_is_divided_INSIDE_the_expression():
+    """Seconds cap at 8,388,607 (EventEngine.GetSysvar.cs:70-73), so the divide is for READABILITY,
+    not safety -- but the row must still publish hours, not a 7-digit second count."""
+    assert J.eb_bounds(_rspec("meta.play_time").eb) == (0, 8388607 // 3600)
+
+
+def test_eb_bounds_REFUSES_an_operator_or_leaf_it_has_no_rule_for():
+    """The bounds gate may not widen silently when a new operator appears."""
+    with pytest.raises(J.EbBoundsError):
+        J.eb_bounds("Global.Byte[1] B_SINGLE_MINUS")
+    with pytest.raises(J.EbBoundsError):
+        J.eb_bounds("B_SYSVAR[17]")                       # TimerUI.Time -- no declared bound
+
+
+def test_no_expression_publishes_a_RAW_Int24():
+    """BOTH Int24 and UInt24 sign-extend (ONE case label, EBin.cs:1858-1861), and the defect bites
+    only at a FULL field -- unsurfaceable by playtest. The catalog avoids the read entirely; this
+    also proves the guard FIRES on whoever reintroduces it as an 'optimisation'."""
+    assert not [s for s in J.ROWS if s.eb and "Int24[" in s.eb]
+    raw = _replace(_rspec("chocobo.chocographs_found"), eb="Global.Int24[187]",
+                   eb_source="ChocographUI.cs:250")
+    assert any("const4(16777215) B_AND" in m for m in J.lint_rows(rows=[raw]))
+    masked = _replace(raw, eb="Global.Int24[187] const4(16777215) B_AND")
+    assert not [m for m in J.lint_rows(rows=[masked]) if "16777215" in m]
+
+
+# ---- CROSS-VALIDATION: the .eb expression vs this module own offline reader ---------------------
+_GEG_CROSS_ROWS = (
+    "story.scenario", "chocobo.chocographs_found", "chocobo.chocographs_dug", "chocobo.beak_level",
+    "chocobo.dig_ability", "chocobo.beaches", "minigame.stellazzio", "minigame.ragtime_quiz",
+    "minigame.coin_toss", "mognet.delivered", "mognet.stiltzkin_tally", "mognet.letters_carried",
+    "mognet.give_locks", "mognet.read_locks", "mognet.central_discovered",
+    "mognet.paradise_discovered", "combat.yan_blessing", "meta.field_entrance",
+)
+
+
+def _cross_geg():
+    return _geg(scenario=4321, field_entrance=211, beak=57, dig_ability=3,
+                chocograph_found=0x0FFFFF, chocograph_dug=0x0000FF, ragtime=11, coin_toss=44,
+                stellazzio=0b1010101010101, beaches=13, delivered=9, stiltzkin=4, carrying=2,
+                give_locks=37, read_locks=21, mognet_central=True, paradise=True, yan=True)
+
+
+@pytest.mark.parametrize("rid", _GEG_CROSS_ROWS)
+def test_expression_agrees_with_the_offline_reader(rid):
+    g = _cross_geg()
+    offline = _val(_state(g), rid)
+    assert offline.status == "tracked", rid
+    assert J.eb_eval(_rspec(rid).eb, J.eb_geg_reader(g)) == offline.value, rid
+
+
+def test_expression_agrees_on_a_ZERO_heap_too():
+    """A stuck 0 and a correct 0 are identical on one sample -- both polarities, offline edition."""
+    g = _geg()
+    for rid in _GEG_CROSS_ROWS:
+        assert J.eb_eval(_rspec(rid).eb, J.eb_geg_reader(g)) == _val(_state(g), rid).value == 0, rid
+
+
+def test_all_24_chocographs_reads_24_not_minus_one():
+    """The Int24 trap at the exact input that triggers it. The offline reader masks (`_u24`); the
+    expression never touches the sign-extending path at all."""
+    g = _geg(chocograph_found=0xFFFFFF, chocograph_dug=0xFFFFFF)
+    assert J._i24s(g, J.CHOCOGRAPH_FOUND_OFF) == -1               # what the ENGINE Int24 read returns
+    for rid in ("chocobo.chocographs_found", "chocobo.chocographs_dug"):
+        assert J.eb_eval(_rspec(rid).eb, J.eb_geg_reader(g)) == 24 == _val(_state(g), rid).value
+
+
+def test_treasure_hunter_rank_expression_reproduces_the_offline_ladder_at_every_point():
+    """The rank ladder is 8 `>=` tests summed; `Null.SBit[5]` is not in the heap, so the points come
+    from the offline computation -- which is exactly the bracket: same input, two ladders."""
+    eb = _rspec("treasure.hunter_rank").eb
+    for pts in range(0, 700):
+        got = J.eb_eval(eb, lambda t, p=pts: p if t == "Null.SBit[5]" else _fail(t))
+        assert got == J.treasure_hunter_rank(pts)[0], pts
+
+
+def test_hunt_winner_clamp_folds_every_out_of_range_byte_to_row_zero():
+    """`eb_bounds` reports 0..255 here because interval arithmetic is CORRELATION-BLIND -- it cannot
+    see that the multiplicand and the predicate are the same byte. Only evaluation shows the clamp
+    works, and this is the row where a BLANK line (GetStringFromTable returns String.Empty above the
+    row count, ETb.cs:278) would read as a bug."""
+    eb = _rspec("minigame.hunt_winner").eb
+    assert J.eb_bounds(eb) == (0, 255)
+    for b in range(256):
+        g = _geg(hunt_winner=b)
+        got = J.eb_eval(eb, J.eb_geg_reader(g))
+        assert got == (b if b <= 3 else 0), b
+        if b <= 3:                                        # inside the table the two renderers agree
+            assert got == _val(_state(g), "minigame.hunt_winner").value
+
+
+# ---- THE UNIT LAW: the two renderers publish ONE number, or DECLARE the conversion ---------------
+def test_the_cross_validated_rows_are_the_ONLY_geg_backed_rows():
+    """The cross set may not quietly shrink. Every row whose expression reads gEventGlobal and whose
+    offline reader reads the same heap is IN it -- a new row cannot be added to the catalog and left
+    out of the bracket the way meta.play_time was left out of it (which is how a seconds-vs-hours
+    divergence survived: it was excluded from the family that would have caught it)."""
+    def geg_readable(eb):
+        """Membership is DERIVED, not listed: can `eb_geg_reader` drive this whole expression? That
+        is exactly the condition under which the bracket can be built, so the set cannot be pruned by
+        editing a literal."""
+        try:
+            J.eb_eval(eb, J.eb_geg_reader(_geg()))
+            return True
+        except J.EbBoundsError:                 # B_SYSVAR / B_HAVE_ITEM / Null.SBit -- not the heap
+            return False
+
+    geg_backed = {s.id for s in J.ROWS
+                  if s.eb and s.status == "tracked" and s.read is not None and geg_readable(s.eb)}
+    # hunt_winner is the ONE exemption: its upward clamp is correlation-dependent, so it gets an
+    # exhaustive all-256-bytes test of its own instead of one sample here.
+    assert geg_backed - set(_GEG_CROSS_ROWS) == {"minigame.hunt_winner"}
+    assert set(_GEG_CROSS_ROWS) <= geg_backed
+
+
+def test_every_expression_declares_its_unit_relation_to_the_offline_reader():
+    """`eb_scale` has no silent default to fall into: scale 1 means "the same integer" (the bet), and
+    anything else is a DECLARED conversion with a unit that the in-game page renders. lint_rows
+    refuses a scale without a unit, a unit without a scale, and either on an eb-less row."""
+    for s in J.ROWS:
+        assert isinstance(s.eb_scale, int) and s.eb_scale >= 1, s.id
+        assert (s.eb_scale != 1) == bool(s.eb_unit), s.id
+        assert s.eb is not None or (s.eb_scale == 1 and not s.eb_unit), s.id
+    assert {rid for rid, (sc, _u) in J.EB_SCALE.items() if sc != 1} == {"meta.play_time"}
+    for rid in _GEG_CROSS_ROWS:                 # the raw-comparison family is scale-1 BY DEFINITION
+        assert _rspec(rid).eb_scale == 1, rid
+
+
+def test_play_time_the_two_renderers_AGREE_UNDER_THE_DECLARED_SCALE():
+    """THE ROW THAT BROKE THE BET, now bracketed. `journal report` publishes 27733 (the 95000_Setting
+    seconds Double) and the field page publishes 7 (hours) for ONE row id. That is legal only because
+    journal.EB_SCALE declares the conversion -- and this is the test that makes the declaration mean
+    something: offline // eb_scale == eb_eval, exactly, at several magnitudes."""
+    spec = _rspec("meta.play_time")
+    assert (spec.eb_scale, spec.eb_unit) == (3600, "h")
+    for secs in (0, 59, 3599, 3600, 27733, 88044, 2160001):
+        offline = _val(_state(setting=_setting(secs + 0.4)), "meta.play_time")
+        assert offline.value == secs                              # the ROW value is SECONDS
+        assert J.eb_eval(spec.eb, lambda t, v=secs: v) == secs // spec.eb_scale
+    assert J.eb_eval(spec.eb, lambda t: 27733) == 7               # the number the PAGE renders
+
+
+def test_an_UNDECLARED_unit_change_FAILS_lint():
+    """The negative twin: divide inside an expression without saying so and the gate fires."""
+    s = _replace(_rspec("party.gil"), eb="B_SYSVAR[6] const(1000) B_DIV", eb_scale=1000)
+    assert any("eb_scale / eb_unit must be set together" in m for m in J.lint_rows(rows=[s]))
+    s = _replace(_rspec("party.gil"), eb_unit="k")
+    assert any("eb_scale / eb_unit must be set together" in m for m in J.lint_rows(rows=[s]))
+    s = _replace(_rspec("meta.bestiary"), eb_scale=3600, eb_unit="h")
+    assert any("meaningless without an eb" in m for m in J.lint_rows(rows=[s]))
+    s = _replace(_rspec("party.gil"), eb_scale=0)
+    assert any("eb_scale must be an int >= 1" in m for m in J.lint_rows(rows=[s]))
+
+
+def test_an_expression_that_DIVIDES_without_declaring_a_scale_FAILS_lint():
+    """The rule sits at the exact site the defect appeared. Delete meta.play_time's EB_SCALE entry
+    and `journal lint` goes RED instead of quietly re-publishing hours as if they were seconds --
+    which is what happened before, because a consistent (scale 1, unit "") schema is indistinguishable
+    from a row whose renderers agree."""
+    s = _replace(_rspec("meta.play_time"), eb_scale=1, eb_unit="")
+    assert any("eb divides but declares eb_scale 1" in m for m in J.lint_rows(rows=[s]))
+    assert not [m for m in J.lint_rows(rows=[_rspec("meta.play_time")]) if "divides" in m]
+    # ...and the narrowness is deliberate: a SHIFT is bitfield extraction, not a unit change.
+    assert "B_SHIFT_RIGHT" in _rspec("minigame.ragtime_quiz").eb
+    assert _rspec("minigame.ragtime_quiz").eb_scale == 1
+    assert not [m for m in J.lint_rows(rows=[_rspec("minigame.ragtime_quiz")]) if "divides" in m]
+
+
+def test_a_SCALE_whose_expression_was_deleted_FAILS_lint():
+    """A scale orphaned by a row rename would silently fall back to 1 -- i.e. back to "they agree"
+    with nothing having checked that they do."""
+    saved = dict(J.EB_SCALE)
+    J.EB_SCALE["party.gil"] = (60, "m")                   # a row with an eb but no EB_SCALE entry...
+    try:
+        assert not [m for m in J.lint_rows() if "EB_SCALE" in m]      # ...that one is legal on its own
+        J.EB_SCALE["chocobo.beak_level_typo"] = (60, "m")
+        msgs = J.lint_rows()
+        assert any("not in ROWS" in m for m in msgs)
+        assert any("no EB_EXPRESSIONS entry" in m for m in msgs)
+    finally:
+        J.EB_SCALE.clear()
+        J.EB_SCALE.update(saved)
+
+
+def test_rows_json_carries_the_unit_relation():
+    """`journal rows --json` is what a later catalog and the in-game screen both eat, so the scale
+    has to travel WITH the expression -- a consumer must never have to guess the unit."""
+    d = {r["id"]: r for r in J.rows_json()}
+    assert d["meta.play_time"]["eb_scale"] == 3600 and d["meta.play_time"]["eb_unit"] == "h"
+    assert d["party.gil"]["eb_scale"] == 1 and d["party.gil"]["eb_unit"] == ""
+
+
+def test_key_items_expression_counts_the_SAME_set_as_the_offline_row():
+    """SOURCE-OVER-DESIGN. `B_HAVE_ITEM` on an important id -> FF9Item_GetCount_Generic ->
+    FF9Item_IsExistImportant (ff9item.2.cs:229, :343-345) == `rare_item_obtained.Contains(id)`, and
+    the offline row counts entries whose `obtained` flag is true (JsonParser.cs:1004). A key item
+    that is USED is still obtained -- FF9Item_UseImportant only ADDS to `rare_item_used`
+    (ff9item.2.cs:333-336). So the two readers describe ONE quantity and the catalog keeps ONE row."""
+    held = {0, 4, 7}
+    rows = tuple((i, True, i == 4) for i in sorted(held))         # id 4 obtained AND used
+    offline = _val(_state(common=_common(keyitems=rows)), "party.key_items")
+    got = J.eb_eval(_rspec("party.key_items").eb,
+                    lambda t: int(int(t[len("B_HAVE_ITEM("):-1]) - J.ITEM_IMPORTANT_BASE in held))
+    assert got == offline.value == len(held)
+
+
+def test_key_item_expression_spans_exactly_the_baked_window():
+    ids = [int(t[len("const("):-1]) for t in _rspec("party.key_items").eb.split()
+           if t.startswith("const(")]
+    assert ids == list(range(J.ITEM_IMPORTANT_BASE, J.ITEM_IMPORTANT_BASE + J.KEY_ITEM_EB_COUNT))
+
+
+def test_card_expressions_use_the_card_band_and_the_right_shape():
+    held = _rspec("minigame.cards_held").eb
+    kinds = _rspec("minigame.card_kinds").eb
+    for eb in (held, kinds):
+        ids = [int(t[len("const("):-1]) for t in eb.split()
+               if t.startswith("const(") and int(t[len("const("):-1]) >= J.ITEM_CARD_BASE]
+        assert ids == list(range(J.ITEM_CARD_BASE, J.ITEM_CARD_BASE + J.CARD_KINDS_MAX))
+    # kinds counts DISTINCT ids (`> 0`), held counts copies. Two engine functions, two shapes.
+    assert " B_GT" in kinds and " B_GT" not in held
+    deck = {512: 3, 517: 1, 600: 2}                               # 3 kinds, 6 copies
+    read = lambda t: deck.get(int(t[len("B_HAVE_ITEM("):-1]), 0)  # noqa: E731
+    assert J.eb_eval(held, read) == 6
+    assert J.eb_eval(kinds, read) == 3
+
+
+def test_rows_json_carries_the_in_game_half():
+    """`journal rows --json` is the permanent contract a catalog and the in-game screen both eat."""
+    d = {r["id"]: r for r in J.rows_json()}
+    assert d["party.gil"]["eb"] == "B_SYSVAR[6]"
+    assert d["party.gil"]["eb_source"] == "EventEngine.GetSysvar.cs:31-32"
+    assert d["party.gil"]["eb_absent"] is None
+    assert d["meta.bestiary"]["eb"] is None and d["meta.bestiary"]["eb_absent"]
+    json.dumps(J.rows_json())                             # still pure JSON: no callables leaked
+
+
+def test_the_eb_tables_cannot_orphan_a_decision():
+    """A row RENAME must fail loudly rather than silently dropping its expression."""
+    saved = dict(J.EB_EXPRESSIONS)
+    J.EB_EXPRESSIONS["party.gil_typo"] = ("B_SYSVAR[6]", "EventEngine.GetSysvar.cs:31-32")
+    try:
+        assert any("not in ROWS" in m for m in J.lint_rows())
+    finally:
+        J.EB_EXPRESSIONS.clear()
+        J.EB_EXPRESSIONS.update(saved)
+    assert not J.lint_rows()

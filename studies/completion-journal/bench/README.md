@@ -142,3 +142,158 @@ identical on one sample:
 
 Ask for a short in-game **video**, not a verdict — seven numbers in one frame is exactly the
 case where a still and a description diverge.
+
+
+---
+
+# T1b -- the paged completion dashboard (field 30801)
+
+`journal_dash.field.toml` is the **T1b layout bench**. It is GENERATED
+(`ff9mapkit.journalfield.bench_toml()`), a test asserts the checked-in file equals the generator's
+output, and hand-editing it fails the suite.
+
+## What T1b built
+
+| piece | where | what it is |
+|---|---|---|
+| `RowSpec.eb` / `eb_source` / `eb_absent` | `ff9mapkit/ff9mapkit/journal.py` | the in-game half of the ONE row catalog: 31 rows carry an `.eb` expression, 17 carry an explicit reason |
+| `EB_EXPRESSIONS` / `EB_ABSENT` | same | the 48 decisions, contiguous, each with an engine `file:line` |
+| `eb_bounds` / `eb_eval` / `eb_geg_reader` | same | an interval evaluator (the 26-bit gate) and an RPN interpreter (the offline cross-validator) |
+| the exhaustiveness gate | `journal.lint_rows` | EXACTLY ONE of `eb` / `eb_absent`; no third state to default into |
+| `EB_SCALE` / `RowSpec.eb_scale` / `eb_unit` | same | THE UNIT LAW -- the one row (`meta.play_time`) whose renderers publish different units DECLARES the conversion; `lint_rows` refuses an undeclared divide and the cross-validation asserts `offline // scale == eb_eval` |
+| `PAGES`, `render_page`, `page_body`, `talk_body`, `lint_pages` | `ff9mapkit/ff9mapkit/journalfield.py` | the 7-page layout, its `.mes` text, its `.eb` bytes, and every ceiling enforced |
+| `journal pages` / `journal eb` | `ff9mapkit/ff9mapkit/cli.py` | print the measured layout / disassemble the emitted stream |
+
+`py -m ff9mapkit journal lint` now runs BOTH halves and exits 2 on any violation. `--offline` drops
+the ONE check that reads the game install (the `/80` key-item bake); WITHOUT it, a machine that
+cannot read the install FAILS rather than passing on a bake nobody verified.
+
+⚠ **Two things this table used to imply and no longer does.** A `Line` carries neither a denominator
+nor a unit -- both come from the RowSpec, so a page cannot render a fraction or a unit the catalog
+disagrees with, and there is no rule "checking" it because there is no second place to write it. And
+the header/widest-value relation is a CONSTRUCTION of `render_page`, not a gate: it holds for every
+possible page, so nothing lints it (measured -- 120 label widths never fired the old rule). The width
+rule that CAN fail is the 28.0-unit wrap on the grown header.
+
+## The layout: 7 pages, 48 rows, nothing dropped
+
+| page | lines | slots | `.eb` bytes | header / widest value line (units) |
+|---|---|---|---|---|
+| STORY & TREASURE | 5 | 3/8 | 137 | 20.20 / 19.95 |
+| CHOCOBO | 6 | 5/8 | 303 | 21.05 / 20.70 |
+| MINIGAMES | 6 | 5/8 | 119 | 22.95 / 22.45 |
+| TETRA MASTER | 7 | 5/8 | 1430 | 22.60 / 22.10 |
+| MOGNET | 9 | 7/8 | 579 | 20.35 / 19.35 |
+| PARTY | 11 | 2/8 | 415 | 21.75 / 21.70 |
+| COMBAT & META | 11 | 4/8 | 43 | 22.65 / 21.85 |
+| **whole talk handler** | | | **3114 of 65535 (4.8%)** | |
+
+Every one of the 48 catalog rows appears on exactly one page -- as a number, as `--` (a save carries
+it but no expression can reach it) or as `n/a` (the game keeps nothing, or keeps a counter it never
+moves). The placement audit is a lint rule, not a claim.
+
+`minigame` is the only category that had to split, and it splits along the engine's own seam:
+gEventGlobal minigames (MINIGAMES) versus the `30000_MiniGame` deck (TETRA MASTER). `combat` is a
+single row, so it rides with `meta` rather than costing a menu slot for one line.
+
+## Four source-over-design corrections, all load-bearing
+
+**1. `party.key_items` IS readable in-game, and needs no sibling row.** The design refused it, on the
+premise that `B_HAVE_ITEM` reads HELD while the offline row counts OBTAINED, and proposed a new
+`party.key_items_held`. The engine says otherwise: `FF9Item_GetCount_Generic` routes an important id
+to `FF9Item_IsExistImportant` (`ff9item.2.cs:229`), which is literally
+`rare_item_obtained.Contains(id)` (`:343-345`). `rare_item_used` is a SEPARATE set --
+`FF9Item_UseImportant` only ADDS to it (`:333-336`) and never removes from `obtained`; only
+`FF9Item_RemoveImportant` clears both (`:327-331`). The offline reader counts the same set
+(`obtained` per entry, `JsonParser.cs:1004`). **Same quantity, one row, two renderers** -- which is
+the whole bet. Adding the sibling would have shipped two rows for one number.
+
+**2. The `.eb` byte costs in the design table are low by ~25%.** A `Global.Bit[i]` above index 255
+takes the long-index encoding (`0xE4 <u16>`, 4 bytes, not 3), and the interleaved `B_PLUS` per term
+costs 1 more. Measured: 24 bits = 96 bytes for the leaves **plus** 23 `B_PLUS` plus the terminator.
+Every number in the table above is `len()` of the real assembled stream.
+
+**3. `B_HAVE_ITEM`'s value range is BAND-dependent and it matters for width.** An important id (256-511)
+returns 0/1; a regular id returns a Byte count; a card id counts deck entries. A blanket
+over-approximation is not free -- the header width pin is computed against these bounds, so a 4x-wide
+bound widens every window for nothing.
+
+**4. `eb_bounds` is correlation-blind, so the hunt-winner clamp needed EVALUATION, not intervals.**
+Interval arithmetic reports `minigame.hunt_winner` as 0..255 because it cannot see that the
+multiplicand and the predicate are the same byte. `eb_eval` runs the expression over all 256 byte
+values and shows the clamp folds every out-of-range byte to table row 0 -- which matters because
+`GetStringFromTable` guards the UPPER row by returning `String.Empty` (`ETb.cs:278`), i.e. a blank
+line that reads as a bug.
+
+## What the bench IS and IS NOT
+
+**IS:** the seven real pages, verbatim, at their real widths and line counts, in a real modal field
+window. It answers the three questions the offline suite cannot:
+
+1. does a ~26-unit line render **unwrapped**;
+2. does an **11-line** window sit inside `kLimitTop`/`kLimitBottom` at the owner's aspect ratio;
+3. does the `--` vs `n/a` distinction read as **informative** or as broken.
+
+**IS NOT:** the live dashboard. **Every `[NUMB=]` reads 0 here, on purpose.** `field.toml` has no
+lane that carries a raw talk-handler body -- `[[logic_add]]` is refused unless the project carries
+`[verbatim_eb]` (`build.py:930-934`) and `[behavior]` is refused ON a verbatim fork -- so the value
+writes `journalfield.talk_body()` generates cannot be attached from a TOML yet. That seam is one
+`build.py` change (a `[journal]` block) and it is the next rung. The value READS are already
+owner-confirmed in-game from rung 0 on bench 30800; what has never been seen is the LAYOUT.
+
+The two `[TEXT=bank,slot]` rows show their widest table string instead of the tag: the bank is a txid
+the build assigns by POSITION (`build.py:7795-7834`) and is not authorable in a TOML at all.
+
+## Reviewing the emitted `.eb` without building anything
+
+```
+py -m ff9mapkit journal pages            # the layout, every width measured
+py -m ff9mapkit journal eb --page meta   # one page's arm, disassembled
+py -m ff9mapkit journal eb               # the whole talk handler
+```
+
+The COMBAT & META arm in full -- 43 bytes, 4 slot writes and one `WindowSync`:
+
+```
+[0]  SetTextVariable(0, {Global.Bit[1584] B_EXPR_END})
+[7]  SetTextVariable(1, {B_SYSVAR[20] const(3600) B_DIV B_EXPR_END})
+[17] SetTextVariable(2, {B_SYSVAR[20] const(60) B_DIV const(60) B_REM B_EXPR_END})
+[31] SetTextVariable(3, {Global.UInt16[2] B_EXPR_END})
+[37] WindowSync(1, 128, 706)
+```
+
+Two things to read in the whole-handler listing:
+
+* the loop's back-hop prints as `op_01(62434)`. **That is not a bug.** The disassembler renders the
+  operand unsigned; the engine reads a SIGNED int16 via `getShortIP`, so 62434 is -3102 and the jump
+  lands exactly on the loop condition. The two jump ops differ in signedness and it is load-bearing:
+  `0x02` (JMP_IFNOT) reads UNSIGNED and can only go forward, which is why the return hop must be the
+  unconditional `0x01`.
+* there is exactly ONE `op_0B`. Every arm opens a window and a window overwrites sysvar 9, so the
+  per-arm `if (GetChoose()==i)` form would test the PAGE window's answer and misfire from the second
+  row on. `build.py:6097` selects switch dispatch only when a row carries `input`/`qte`, so the
+  generator asks for it explicitly.
+
+## Deploying (the human does this)
+
+```
+py tools/deploy_field.py studies/completion-journal/bench/journal_dash.field.toml --id 30801
+```
+
+* **First deploy of 30801 needs a RELAUNCH** (it registers a DictionaryPatch line). After that,
+  `~` -> Reload field.
+* **Re-read the live registrations first.** EventDB/SceneData are GLOBAL across stacked mod folders
+  and a collision is the null-`.eb` black screen; ~18 worktrees share this install. 30801 was free
+  when this was written; that is a sample, not a registry. **30800 is the rung-0/0b probe -- leave it.**
+
+## What only a playtest can settle
+
+Ask for a short in-game **video**, page by page. Specifically:
+
+1. **PARTY and COMBAT & META** are the tall pages (11 lines). Do they fit, or does the bottom clip?
+2. **MINIGAMES** has the widest header (22.95 units). Does it render on one line?
+3. **PARTY** has eight `--`/`n/a` rows in a row. Does that read as "the game does not keep this", or
+   as "the journal is broken"? If it reads as broken, the fix is prose, not code -- and it is cheaper
+   to learn now than after the wiring rung.
+4. If everything fits comfortably, `[dialogue] wrap` can be raised above 28.0 and the labels can grow.
+   That is a lever the layout does not depend on.

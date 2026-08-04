@@ -6194,19 +6194,99 @@ def _cmd_flags_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_journal_dash(args: argparse.Namespace) -> int:
+    """T1b -- the IN-GAME paged dashboard generated from the same row catalog. `pages` prints the
+    layout with every width MEASURED (content.text.measure, the kit's own proportional model), `eb`
+    disassembles the emitted bytes so the shipped stream is reviewable without a build."""
+    import json as _json
+    from . import journal as _J
+    from . import journalfield as JF
+    if args.action == "pages":
+        reps = JF.measure_pages()
+        if args.json:
+            print(_json.dumps([{"key": r.key, "title": r.title, "lines": r.lines, "slots": r.slots,
+                                "eb_bytes": r.eb_bytes, "header_width": round(r.header_width, 2),
+                                "widest_value_line": round(r.widest_value_line, 2),
+                                "rows": [{"row": a, "kind": b, "literal_width": round(c, 2),
+                                          "worst_case_width": round(d, 2)}
+                                         for a, b, c, d in r.rows]} for r in reps], indent=2))
+            return 0
+        used, budget = JF.eb_budget()
+        banks = {n: 600 + i for i, n in enumerate(JF.TABLES)}
+        live = JF.live_key_item_count()
+        print(f"{len(JF.PAGES)} page(s); key-item denominator {_J.KEY_ITEM_EB_COUNT} "
+              f"(journal.KEY_ITEM_EB_COUNT -- the same constant the .eb sum is built from; this "
+              f"install reads {live if live is not None else 'UNREACHABLE'})\n")
+        print("--- the menu entry ---")
+        for ln in JF.menu_text().split("\n"):
+            print(f"  {_text_measure_line(ln)}")
+        for p, rep in zip(JF.PAGES, reps):
+            print(f"\n--- {rep.key}: {rep.lines} line(s), {rep.slots}/{JF.MES_VALUE_SLOTS} slot(s), "
+                  f"{rep.eb_bytes} .eb byte(s) ---")
+            text, _exprs = JF.render_page(p, banks)
+            for ln, (rid, kind, lit, worst) in zip(text.split("\n")[1:], rep.rows):
+                print(f"  {_text_measure_line(ln)}  worst {worst:5.2f}  {rid} ({kind})")
+            print(f"  {_text_measure_line(text.split(chr(10))[0])}   <- header (rule grown to the "
+                  f"widest line -- cosmetic; the engine bakes Width from the real strings)")
+        print(f"\ntotal .eb body {used} of {budget} ({100.0 * used / budget:.1f}% of the offset budget)")
+        bad = JF.lint_pages(check_live_install=not args.offline)
+        for msg in bad:
+            print(f"journal page layout: {msg}")
+        return 2 if bad else 0
+    # --- eb: the decoded listing ------------------------------------------------------------------
+    banks = {n: 600 + i for i, n in enumerate(JF.TABLES)}
+    txids = {p.key: 700 + i for i, p in enumerate(JF.PAGES)}
+    if args.page:
+        pg = next((p for p in JF.PAGES if p.key == args.page), None)
+        if pg is None:
+            print(f"no such page {args.page!r} (have: {', '.join(p.key for p in JF.PAGES)})")
+            return 2
+        text, exprs = JF.render_page(pg, banks)
+        body = JF.page_body(exprs, txids[pg.key], table_slots=JF.table_slots_of(pg))
+        print(f"page {pg.key!r} -- .mes entry (txid {txids[pg.key]}, [TBLE] banks "
+              f"{banks}):\n")
+        for ln in text.split("\n"):
+            print(f"    {ln}")
+        print(f"\npage {pg.key!r} -- {len(body)} .eb byte(s), {len(exprs)} slot write(s) "
+              f"+ 1 WindowSync:\n")
+    else:
+        body = JF.talk_body(txids, 699, banks)
+        print(f"the whole talk handler -- {len(body)} .eb byte(s) "
+              f"(menu txid 699, page txids {txids}):\n")
+    for ln in JF.pretty_listing(body):
+        print(f"    {ln}")
+    return 0
+
+
+def _text_measure_line(ln: str) -> str:
+    from .content import text as _t
+    return f"{_t.measure(ln):5.2f}u  {ln}"
+
+
 def _cmd_journal(args: argparse.Namespace) -> int:
     """The 100%-completion JOURNAL -- read-only. `report` decodes one save (one section per populated
     slot), `diff` shows what a session moved, `rows` dumps the row catalog (no save, no install), `lint`
     runs the schema gate (exit 2 on any violation, so it works in CI)."""
     import json as _json
     from . import journal as J
+    if args.action in ("pages", "eb"):                                  # T1b: the in-game dashboard
+        return _cmd_journal_dash(args)
     if args.action in ("rows", "lint"):                                 # neither touches a save or the install
         if args.action == "lint":
             bad = J.lint_rows()
             for msg in bad:
                 print(f"journal row schema: {msg}")
-            print(f"{len(J.ROWS)} row(s) checked, {len(bad)} violation(s)")
-            return 2 if bad else 0
+            # The in-game half is part of the same contract, so ONE gate covers both -- a page that
+            # drops a row, busts the 8-slot ceiling or wraps its header fails `journal lint`.
+            # `--offline` drops ONLY the live-install read (the key-item bake): without it, a machine
+            # that cannot see the install FAILS rather than passing on an unverified bake.
+            from . import journalfield as JF
+            pbad = JF.lint_pages(check_live_install=not args.offline)
+            for msg in pbad:
+                print(f"journal page layout: {msg}")
+            print(f"{len(J.ROWS)} row(s) + {len(JF.PAGES)} page(s) checked, "
+                  f"{len(bad) + len(pbad)} violation(s)")
+            return 2 if (bad or pbad) else 0
         specs = J.rows_json()
         if args.json:
             print(_json.dumps(specs, indent=2))
@@ -9189,9 +9269,11 @@ def build_parser() -> argparse.ArgumentParser:
     jr = sub.add_parser("journal",
                         # argparse %-expands help strings -> a literal percent must be doubled
                         help="read a save's 100%%-completion state (report / A->B diff / the row catalog)")
-    jr.add_argument("action", choices=["report", "diff", "rows", "lint"],
+    jr.add_argument("action", choices=["report", "diff", "rows", "lint", "pages", "eb"],
                     help="report: one save ; diff: A->B ; rows: the row catalog (no save, no install) ; "
-                         "lint: the row-schema gate (exit 2 on a violation)")
+                         "lint: the row-schema + page-layout gate (exit 2 on a violation) ; "
+                         "pages: the in-game dashboard layout, every width measured ; "
+                         "eb: the emitted .eb, disassembled")
     jr.add_argument("save", nargs="?", default=None,
                     help="SavedData_ww.dat (per slot), a Memoria extra-save, a save JSON file/text, "
                          "or a bare Base64 gEventGlobal blob")
@@ -9207,6 +9289,12 @@ def build_parser() -> argparse.ArgumentParser:
     jr.add_argument("--all", action="store_true",
                     help="also show the untracked + dead rows (what the game does NOT keep)")
     jr.add_argument("--json", action="store_true", help="emit the rows as JSON (the catalog seed)")
+    jr.add_argument("--page", default=None,
+                    help="eb: disassemble ONE page's arm (default: the whole talk handler)")
+    jr.add_argument("--offline", action="store_true",
+                    help="lint/pages: skip the ONE check that reads the game install (the key-item "
+                         "denominator bake). Without it, a machine that cannot read the install FAILS "
+                         "rather than passing on a bake nobody verified")
     jr.set_defaults(func=_cmd_journal)
 
     from .save import WORLD_ACTORS as S_WORLD_ACTORS

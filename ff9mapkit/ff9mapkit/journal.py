@@ -201,6 +201,29 @@ class RowSpec:
                                            # to notice (the owner stacks Moguri).
     blocked_by: "str | None" = None        # required iff status == "untracked": WHY, and what unblocks it
 
+    # --- the IN-GAME renderer's half (T1b). Populated from :data:`EB_EXPRESSIONS` / :data:`EB_ABSENT`
+    # by :func:`_attach_eb` at import; a row that appears in NEITHER table keeps both None and
+    # `lint_rows` REFUSES it. See the block comment above EB_EXPRESSIONS for why the decisions live
+    # in a table instead of 48 more keyword arguments.
+    eb: "str | None" = None          # the .eb RPN token string WITHOUT the B_EXPR_END terminator -- the
+                                     # emitter appends 0x7F, the same contract behavior.hud_expr_tokens
+                                     # already enforces (content/behavior.py:762-764). Same spelling as
+                                     # the proven `expr:` hud lane minus the prefix.
+    eb_source: str = ""              # file:line of the ENGINE read the expression replicates. Required
+                                     # iff `eb` is set, and often DIFFERENT from `source`: the offline
+                                     # reader walks JsonParser/EventState, the .eb walks
+                                     # EBin/GetSysvar. Two access paths, two citations.
+    eb_absent: "str | None" = None   # required iff `eb` is None: WHY there is no in-game read.
+    eb_scale: int = 1                # THE UNIT LAW. `eb` publishes `read(save).value // eb_scale`. 1 --
+                                     # the default and the rule -- means the two renderers publish the
+                                     # SAME integer, which is the whole one-catalog bet; anything else
+                                     # is a DECLARED unit change that lint_rows forces you to name and
+                                     # that tests/test_journal.py cross-checks numerically. Populated
+                                     # from :data:`EB_SCALE` by :func:`_attach_eb`.
+    eb_unit: str = ""                # the unit suffix the in-game page renders after the value ("h").
+                                     # Required iff eb_scale != 1, refused otherwise. journalfield
+                                     # renders it FROM HERE, so a scaled value cannot print bare.
+
 
 @dataclass(frozen=True)
 class Read:
@@ -841,7 +864,13 @@ ROWS = [
                  "<install>/StreamingAssets/Text/<lang>/KeyItems.strings (keyitems.py:30-48) and are None "
                  "/ empty when the install is unreachable -- the value is still valid. NEVER bake a name "
                  "table: the owner stacks Moguri. rareItemsEx is SPARSE (an unobtained id is ABSENT, not "
-                 "obtained=false), so the array length can never be the denominator."),
+                 "obtained=false), so the array length can never be the denominator. "
+                 "IN-GAME (T1b): the .eb sums B_HAVE_ITEM over item ids 256.. -- the SAME set, because "
+                 "FF9Item_GetCount_Generic routes an important id to FF9Item_IsExistImportant "
+                 "(ff9item.2.cs:229) which is literally `rare_item_obtained.Contains(id)` (:343-345). "
+                 "But an .eb is STATIC, so the id WINDOW (journal.KEY_ITEM_EB_COUNT) is a BUILD-TIME "
+                 "BAKE of what the live table reports -- the one place THE NAMES LAW is deliberately "
+                 "narrowed. journalfield.lint_pages re-reads the live table and FAILS on a mismatch."),
     RowSpec("party.abilities_mastered", "party", "Abilities mastered (party)", None, "",
             "JsonParser.cs:873-897", "live-install", "tracked", "extra", _r_abilities_mastered,
             note="Per-character pa_extended entries with cur >= the live AP requirement -- PARTY STATE. "
@@ -889,7 +918,9 @@ ROWS = [
     RowSpec("meta.play_time", "meta", "Play time", None, "", "JsonParser.cs:74", "engine-read", "tracked",
             "extra", _r_play_time,
             note="95000_Setting/00001_time, a Double of SECONDS (GameState.GameTime rounds it, "
-                 "BattleCalculator.cs:48)."),
+                 "BattleCalculator.cs:48). THE ROW VALUE IS SECONDS. The in-game expression publishes "
+                 "HOURS -- the catalog's ONE declared unit change (journal.EB_SCALE: 3600, 'h'), "
+                 "cross-checked as value // 3600 and rendered with its unit by journalfield."),
     RowSpec("meta.step_count", "meta", "Steps taken", None, "", "JsonParser.cs:519-520", "engine-read",
             "dead", "extra", None,
             note="DEAD: 20000_Event/gStepCount is declared (EventState.cs:8), saved (JsonParser.cs:578), "
@@ -949,6 +980,475 @@ ROWS = [
                  "changing the weighting changes a number the catalog and a later in-game screen both "
                  "consume, so it is a deliberate decision, not a tidy-up."),
 ]
+
+# ==================== the IN-GAME half: one .eb expression per row, or a reason ====================
+# T1b renders this SAME catalog on a field screen. The offline `read` is a Python function over a
+# JournalState; the in-game value is an RPN byte stream, so the second renderer needs a second
+# representation -- a token STRING, because that is the only form BOTH `journal rows --json` (the
+# permanent contract, :func:`rows_json`) and the .eb emitter can consume, and it round-trips through
+# `exprasm.assemble` / `disasm.pretty_expr` so a review diff is readable.
+#
+# WHY A TABLE AND NOT 48 MORE KEYWORD ARGUMENTS ON THE ROWS ABOVE. Three reasons, in order of weight:
+#   1. Two of the expressions are 80 and 100 terms long (:func:`_have_item_sum`) -- generated, not
+#      typed. A generated value cannot be a literal kwarg.
+#   2. The decision "does this row have an in-game read, and if not WHY" is one axis across all 48
+#      rows, and it is the axis the exhaustiveness gate checks. Keeping it contiguous is what makes
+#      "31 declared / 17 refused" readable in one screen instead of grepped out of 300 lines of prose.
+#   3. The gate does not get weaker: :func:`_attach_eb` writes the fields onto the RowSpec, a row in
+#      NEITHER table keeps both fields None, and `lint_rows` refuses that -- so a row added later
+#      FAILS instead of defaulting to "invisible in-game", the same shape as exprsem's
+#      operator-coverage assertion (eb/exprsem.py:8-13). An id in a table that is not in ROWS fails
+#      too, so a rename cannot orphan a decision.
+#
+# The token spellings are the ones `eb/exprasm.py` assembles; `ff9mapkit journal lint` assembles AND
+# stack-walks every one of them (`eb/exprsem.py`), so a malformed expression fails a CI-usable gate
+# before any field references it.
+
+# Item-id bands (ff9item.2.cs:417-427): regular < 256, IMPORTANT 256-511, cards 512-611. `B_HAVE_ITEM`
+# -> `ff9item.FF9Item_GetCount_Generic` (EventEngine.DoCalcOperationExt.cs:13-20) dispatches on those.
+ITEM_IMPORTANT_BASE = 256   # ff9item.2.cs:422-426 -- IsItemImportant(modId >= 256 && < 512)
+ITEM_CARD_BASE = 512        # ff9item.2.cs:428-432 -- IsItemCard(modId >= 512 && < 612)
+# THE ONE BUILD-TIME BAKE in this table. The key-item sum needs a STATIC id window because an `.eb` is
+# a static byte stream -- runtime resolution (THE NAMES LAW, module docstring) is impossible in-game.
+# 80 contiguous ids (0..79 -> item ids 256..335) is what `keyitems.all_keyitems()` reports on this
+# install. journalfield.lint_pages RE-READS the live table and FAILS when it disagrees, so a Moguri
+# swap cannot silently ship an 80-term sum against a different table.
+KEY_ITEM_EB_COUNT = 80
+
+
+def _sum_tokens(terms) -> str:
+    """Sum a list of RPN sub-expressions INTERLEAVED (``t0 t1 B_PLUS t2 B_PLUS ...``) rather than
+    folded at the end (``t0 t1 t2 ... B_PLUS B_PLUS``). Byte-identical either way; the interleaved
+    form holds the CalcStack at depth 2 instead of depth N, which matters because the kit already
+    burned a lane on CalcStack depth (the Path-B cross-product overflow, CLAUDE.md dead ends)."""
+    terms = list(terms)
+    if not terms:
+        raise ValueError("_sum_tokens: no terms")
+    return " ".join([terms[0]] + [f"{t} B_PLUS" for t in terms[1:]])
+
+
+def _bit_popcount(base: int, n: int) -> str:
+    """``n`` consecutive gEventGlobal BITS, summed. Each term is a `Global.Bit[i]` read -- byte
+    ``i>>3`` bit ``i&7`` (EBin.cs:1851-1856).
+
+    THIS IS ALSO THE Int24 SIGN-EXTENSION FIX, structurally. Reading the 24 chocograph bits as one
+    `Global.Int24[187]` hits EBin.cs:1858-1861, where ONE case label covers Int24 AND UInt24 and casts
+    the third byte to SByte -- 24/24 reads -1 and no playtest can surface it (a save with all 24 dug
+    is not reachable in a test session). Summing bits never touches that path, so the defect is
+    UNREPRESENTABLE here rather than merely guarded by a mask someone could later 'optimise' away."""
+    return _sum_tokens(f"Global.Bit[{base + i}]" for i in range(n))
+
+
+def _have_item_sum(base: int, n: int) -> str:
+    """``sum(B_HAVE_ITEM(base+i))`` over ``n`` ids -- the held/obtained count for an item band."""
+    return _sum_tokens(f"const({base + i}) B_HAVE_ITEM" for i in range(n))
+
+
+def _have_kind_sum(base: int, n: int) -> str:
+    """``sum(B_HAVE_ITEM(base+i) > 0)`` -- DISTINCT kinds, not copies. For cards this reproduces
+    `QuadMistDatabase.MiniGame_GetCardKindCount` (:110-116) while :func:`_have_item_sum` over the same
+    band reproduces `MiniGame_GetAllCardCount` (:119-122): `MiniGame_GetCardCount(id)` counts deck
+    entries per id (:154-157), so the plain sum IS the deck length."""
+    return _sum_tokens(f"const({base + i}) B_HAVE_ITEM const(0) B_GT" for i in range(n))
+
+
+def _rank_ladder(value: str, thresholds) -> str:
+    """``sum(value >= T)`` over the ladder's non-zero thresholds -> the rank INDEX, exactly what
+    :func:`treasure_hunter_rank` returns offline (index 0-8 into TH_RANKS)."""
+    return _sum_tokens(f"{value} const({t}) B_GE" for t in thresholds if t)
+
+
+#: row id -> (RPN tokens, engine file:line the expression replicates). 31 of the 48 rows.
+EB_EXPRESSIONS = {
+    # --- story / treasure ---------------------------------------------------------------------
+    "story.scenario": ("Global.UInt16[0]", "EventState.cs:18"),
+    # The memoria_variable lane, OWNER-CONFIRMED in-game on bench 30800 (rung 0): `Null.SBit[N]` is
+    # VariableSource.Null + VariableType.Any -> GetMemoriaCustomVariable((memoria_variable)N)
+    # (EBin.cs:1636-1638). N=5 read real per-save Treasure-Hunter points (0 / 178 / 215).
+    "treasure.hunter_points": ("Null.SBit[5]", "EBin.cs:1703"),
+    "treasure.hunter_rank": (_rank_ladder("Null.SBit[5]", TH_RANK_MIN), "EventState.cs:55-63"),
+
+    # --- chocobo ------------------------------------------------------------------------------
+    "chocobo.chocographs_found": (_bit_popcount(CHOCOGRAPH_FOUND_OFF * 8, CHOCOGRAPH_MAX),
+                                  "ChocographUI.cs:250"),
+    "chocobo.chocographs_dug": (_bit_popcount(CHOCOGRAPH_OPENED_OFF * 8, CHOCOGRAPH_MAX),
+                                "ChocographUI.cs:251"),
+    "chocobo.beak_level": (f"Global.Byte[{BEAK_LEVEL_OFF}]", "EMinigame.cs:282"),
+    "chocobo.dig_ability": (f"Global.Byte[{DIG_ABILITY_OFF}]", "ChocographUI.cs:245"),
+    "chocobo.beaches": (_bit_popcount(SANDY_BEACH_BIT, ENGINE_TARGETS["AllSandyBeach"][0]),
+                        "EMinigame.cs:474-483"),
+
+    # --- minigame -----------------------------------------------------------------------------
+    "minigame.stellazzio": (_bit_popcount(STELLAZZIO_OFF * 8, STELLAZZIO_MAX), "EMinigame.cs:179-185"),
+    "minigame.ragtime_quiz": (f"Global.Byte[{RAGTIME_OFF}] const(3) B_SHIFT_RIGHT const(31) B_AND",
+                              "BattleAchievement.cs:41-42"),
+    # THE UPWARD CLAMP. This value indexes a [TBLE] row, and ETb.GetStringFromTable guards the upper
+    # bound by returning String.Empty (ETb.cs:278) -- a BLANK LINE, which reads as a bug. The
+    # multiply-by-predicate idiom (the same one behavior.hud_row_index_clamp uses for the LOWER bound,
+    # content/behavior.py:736-749) folds any byte > 3 back to row 0 ("---").
+    "minigame.hunt_winner": (f"Global.Byte[{HUNT_WINNER_OFF}] Global.Byte[{HUNT_WINNER_OFF}] "
+                             f"const(3) B_LE B_MULT", "EMinigame.cs:302"),
+    "minigame.coin_toss": (f"Global.Byte[{COIN_TOSS_OFF}]", "EMinigame.cs:335-337"),
+    "minigame.frogs": ("B_SYSVAR[16]", "EventEngine.GetSysvar.cs:51-52"),
+    # NOT B_SYSVAR[19]. GetSysvar case 19 returns the raw count ONLY when
+    # Configuration.TetraMaster.MaxCardCount == 100; otherwise it applies a compatibility remap
+    # (Min(cardCount,95) / a MaxCardCount-relative shift, GetSysvar.cs:57-69) and would silently
+    # disagree with the offline reader on the very row pair the one-catalog bet exists to keep in
+    # sync. The 100-term sum equals MiniGameCard.Count exactly. That costs bytes; pay them.
+    "minigame.cards_held": (_have_item_sum(ITEM_CARD_BASE, CARD_KINDS_MAX),
+                            "QuadMistDatabase.cs:154-157"),
+    "minigame.card_kinds": (_have_kind_sum(ITEM_CARD_BASE, CARD_KINDS_MAX),
+                            "QuadMistDatabase.cs:110-116"),
+    "minigame.collector_points": ("Null.SBit[3]", "EBin.cs:1699"),
+    "minigame.collector_level": ("Null.SBit[4]", "EBin.cs:1701"),
+    "minigame.card_record": ("Null.SBit[0]", "EBin.cs:1693"),
+
+    # --- mognet -------------------------------------------------------------------------------
+    "mognet.delivered": (f"Global.Byte[{MOGNET_DELIVERED_OFF}]", "content/mognet.py:85"),
+    "mognet.stiltzkin_tally": (f"Global.Byte[{MOGNET_STILTZKIN_OFF}]", "content/mognet.py:86"),
+    "mognet.letters_carried": (_sum_tokens(f"Global.Byte[{MOGNET_SLOT_BASE + 4 * k}] const(0) B_GT"
+                                           for k in range(MOGNET_SLOTS)), "content/mognet.py:87-89"),
+    "mognet.give_locks": (_bit_popcount(MOGNET_GIVE_LO, MOGNET_GIVE_HI - MOGNET_GIVE_LO + 1),
+                          "flags.py:274-279"),
+    "mognet.read_locks": (_bit_popcount(MOGNET_READ_LO, MOGNET_READ_HI - MOGNET_READ_LO + 1),
+                          "flags.py:280-283"),
+    "mognet.central_discovered": (f"Global.Bit[{MOGNET_CENTRAL_BIT}]", "WorldConfiguration.cs:188-189"),
+    "mognet.paradise_discovered": (f"Global.Bit[{CHOCOBO_PARADISE_BIT}]", "WorldConfiguration.cs:182-183"),
+
+    # --- party --------------------------------------------------------------------------------
+    "party.gil": ("B_SYSVAR[6]", "EventEngine.GetSysvar.cs:31-32"),
+    # SOURCE-OVER-DESIGN. The approved design refused this row, on the premise that B_HAVE_ITEM reads
+    # HELD while the offline row counts OBTAINED. The engine says otherwise:
+    # FF9Item_GetCount_Generic -> FF9Item_IsExistImportant (ff9item.2.cs:229, :343-345) is exactly
+    # `rare_item_obtained.Contains(id)`, and `rare_item_used` is a SEPARATE set --
+    # FF9Item_UseImportant only ADDS to `used` (:333-336) and never removes from `obtained`; only
+    # FF9Item_RemoveImportant clears both (:327-331). The offline reader counts the same set
+    # (`obtained` per entry, JsonParser.cs:1004 -> save_items.read_keyitems:297). SAME QUANTITY, so
+    # this is one row with two renderers -- which is the whole bet -- and the design's proposed
+    # `party.key_items_held` sibling would have shipped a SECOND row for ONE number.
+    "party.key_items": (_have_item_sum(ITEM_IMPORTANT_BASE, KEY_ITEM_EB_COUNT), "ff9item.2.cs:343-345"),
+
+    # --- combat / meta ------------------------------------------------------------------------
+    "combat.yan_blessing": (f"Global.Bit[{YAN_BLESSING_BIT}]", "BattleAchievement.cs:50-51"),
+    # HOURS -- the ONE row whose two renderers publish different UNITS, and the only reason that is
+    # allowed is that :data:`EB_SCALE` declares the conversion and the cross-validation asserts it.
+    # The page adds a SECOND, page-local slot for the minutes remainder (journalfield) -- the only
+    # two-slot row. Dividing is for READABILITY (600h in 3 digits), NOT overflow safety:
+    # Settings.time is capped at 2,160,001 s (SettingsState.cs) and GetSysvar(20) additionally clamps
+    # to 8,388,607 (GetSysvar.cs:70-73), both far under the 26-bit envelope.
+    "meta.play_time": ("B_SYSVAR[20] const(3600) B_DIV", "EventEngine.GetSysvar.cs:70-73"),
+    # An in-game read EXISTS; the game never moves the counter. `eb` and `status` are ORTHOGONAL and
+    # the schema keeps them so -- collapsing them would render a dead counter as 0% progress.
+    "meta.step_count": ("B_SYSVAR[7]", "EventEngine.GetSysvar.cs:33-34"),
+    "meta.field_entrance": (f"Global.UInt16[{FIELD_ENTRANCE_OFF}]", "EventState.cs:28"),
+}
+
+#: row id -> ``(scale, unit)`` for the ONE row whose ``.eb`` publishes a different UNIT from its
+#: offline reader. THE UNIT LAW: ``eb_eval(row.eb) == read(save).value // scale``, exactly.
+#:
+#: Why this is a schema FIELD and not a comment. The catalog's bet is "one row, two renderers, one
+#: number", and until this table existed ``meta.play_time`` quietly broke it: the offline reader
+#: returns the ``95000_Setting`` seconds Double (27733) while the expression returns hours (7). Two
+#: renderers publishing different numbers for one row id is precisely the divergence the bet exists to
+#: prevent, and NOTHING tied them -- the cross-validation family excluded the row and no lint rule
+#: mentioned units. Declaring the relation makes it CHECKED in three places instead of hoped: the
+#: exhaustive unit cross-test (tests/test_journal.py), ``rows_json`` (a consumer gets the scale next to
+#: the expression), and ``journalfield.render_page``, which renders ``eb_unit`` FROM HERE so a scaled
+#: value cannot print bare next to an unscaled one.
+#:
+#: A row that is not in this table declares scale 1 / unit "" -- the same number, the default, the rule.
+EB_SCALE = {
+    # seconds -> hours. B_SYSVAR[20] is already clamped to 8,388,607 s (EventEngine.GetSysvar.cs:70-73)
+    # and B_DIV truncates, so this is floor division on both sides.
+    "meta.play_time": (3600, "h"),
+}
+
+#: row id -> WHY its ``B_DIV`` does NOT change the unit. The escape hatch for the rule below, and it
+#: costs a written reason rather than silence. Empty today: :data:`EB_SCALE` covers the only divider.
+EB_DIV_SAME_UNIT = {}
+
+#: row id -> WHY there is no in-game read. 17 of the 48 rows. Nothing is silently dropped: every one
+#: of these still gets a LABELLED line on a page ("--" = offline only, "n/a" = the game keeps nothing).
+_EB_ABSENT_ACHIEVEMENT = (
+    "AchievementState, the main-block-only 80000_Achievement node. The row is ALREADY status="
+    "'untracked' with a blocked_by naming the same obstacle, and lint_rows refuses an eb on an "
+    "untracked row -- so the two facts cannot drift apart. No expression opcode reaches it: "
+    "GetSysvar has no case (EventEngine.GetSysvar.cs:8-106), memoria_variable has exactly 11 codes "
+    "and none of these (EBin.cs:2416-2431), flexible_varfunc is item/ability/player/shop conversions "
+    "only (EBin.cs:2388-2414). IN-GAME: 'n/a'.")
+_EB_ABSENT_EXTRA_COUNTER = (
+    "A GameState counter serialized ONLY into the Memoria extra 40000_Common (JsonParser.cs:925-955). "
+    "No expression opcode reads it -- GetSysvar exposes gil=6, steps=7, frogs=16, cards=19, time=20 "
+    "and nothing else (EventEngine.GetSysvar.cs:8-106), which is exactly why those five rows ARE "
+    "readable and these are not. Unblocking needs a Memoria patch adding memoria_variable codes, "
+    "i.e. a DLL -- which T1b is defined to avoid. IN-GAME: '--'.")
+
+EB_ABSENT = {
+    "treasure.chest_atlas":
+        "There is nothing to read. FF9 keeps no per-chest registry; the engine's only treasure metric "
+        "is the blind weighted popcount already shipped as treasure.hunter_points, and this repo's own "
+        "two chest censuses disagree (386 vs 327). The catalog note says THERE MUST NEVER BE a "
+        "chests-N/446 row; the in-game page must not invent one either. IN-GAME: 'n/a', directly under "
+        "the rank that DOES exist.",
+    "minigame.quadmist_opponents": _EB_ABSENT_ACHIEVEMENT,
+    "mognet.stiltzkin_purchases": _EB_ABSENT_ACHIEVEMENT,
+    "party.abilities_ever": _EB_ABSENT_ACHIEVEMENT,
+    "party.passive_abilities_ever": _EB_ABSENT_ACHIEVEMENT,
+    "meta.ates_seen": _EB_ABSENT_ACHIEVEMENT,
+    "meta.synthesis_recipes": _EB_ABSENT_ACHIEVEMENT,
+    "meta.achievement_keys": _EB_ABSENT_ACHIEVEMENT,
+    "party.thefts": _EB_ABSENT_EXTRA_COUNTER,
+    "party.escapes": _EB_ABSENT_EXTRA_COUNTER,
+    "party.battles": _EB_ABSENT_EXTRA_COUNTER,
+    "party.kills_total": _EB_ABSENT_EXTRA_COUNTER,
+    "party.kills_by_category": _EB_ABSENT_EXTRA_COUNTER,
+    "party.abilities_mastered":
+        "An .eb path EXISTS and is REFUSED ON COST, not overlooked. flex(16,3) PLAYER_ABILITY_LEARNT "
+        "is per (character, ability) (EBin.cs:421-435), so a party-wide mastered count is ~8 "
+        "characters x ~100 ability ids = ~800 terms at ~13 bytes = ~10KB -- about 16% of the whole "
+        "0xFFFF offset budget for ONE line -- and the per-character pool sizes come from the live "
+        "install anyway. IN-GAME: '--'.",
+    "meta.bestiary":
+        "No per-species store exists at any tier: AchievementState.enemy_no is a SCALAR and "
+        "40000_Common/kills_per_model counts battle MODELS, not species. IN-GAME: 'n/a'.",
+    "meta.friendly_monsters":
+        "Only the Yan blessing bit is engine-grounded, and it already ships as combat.yan_blessing "
+        "(Bit 1584, BattleAchievement.cs:50-51) on the SAME page two lines above. The other 8 states "
+        "have no engine reader and no decoded gEventGlobal home. IN-GAME: 'n/a' -- deliberately "
+        "adjacent to the one that works, so the hole is legible.",
+    "meta.index":
+        "The offline index pools ~15 tracked rows and is DOMINATED by party.kills_total (10000 of a "
+        "~10600 pooled total), a row the .eb cannot read at all. An in-game index over the readable "
+        "subset would be a DIFFERENT number wearing the same name -- precisely the failure the "
+        "one-catalog-two-renderers bet exists to prevent. IN-GAME: '--'. THE UNLOCK FOR A LATER RUNG "
+        "(not T1b): a page body is ordinary .eb command flow, not a per-frame hud, so SET() writes "
+        "ARE legal there; an index page could accumulate min(v,d) into MAP scratch words and divide "
+        "once. That is still a different pool, so it needs its OWN row id (meta.index_eb) with its "
+        "own offline reader over exactly the .eb-declared subset. Do not retrofit it onto meta.index.",
+}
+
+
+# ---------------------------------------------------------------- the 26-bit envelope, ENFORCED
+# Every COMPUTED intermediate is 26-bit signed, not Int32: an operator result is pushed by
+# `EBin.expr_Push_v0_Int24` (EBin.cs:1270-1274), which ORs the Int26 class tag into bits 26-28 with NO
+# mask, and is read back as `(t0 << 6) >> 6` (EBin.cs:1682-1684). Overflow therefore does not truncate
+# -- the high bits collide with the VariableSource field and the entry is re-read as a DIFFERENT
+# variable class. (B_SYSVAR and B_CONST4 mask explicitly at EBin.cs:1232 / :1243, so those two
+# TRUNCATE instead of corrupting; a bare terminal var token bypasses the push entirely and returns a
+# full Int32 through getv, EBin.cs:1621-1687.) Ceiling: opcodes.EXPR_VALUE_MIN/MAX = +/-33,554,431.
+#
+# A docstring saying "mind the ceiling" is a wish (CLAUDE.md s7), so this is an INTERVAL EVALUATOR the
+# lint gate runs over every declared expression. An operator or leaf it does not know RAISES -- it may
+# not default to "probably fine", which is the exact defect shape `feedback-a-check-that-cannot-fail`
+# names.
+_EB_VARTYPE_BOUNDS = {           # EBin.GetVariableValueInternal, EBin.cs:1847-1876
+    "Bit": (0, 1), "SByte": (-128, 127), "Byte": (0, 255),
+    "Int16": (-32768, 32767), "UInt16": (0, 65535),
+    # ONE case label covers Int24 AND UInt24 and casts the third byte to SByte (EBin.cs:1858-1861).
+    "Int24": (-8388608, 8388607), "UInt24": (-8388608, 8388607),
+}
+_EB_MEMORIA_VAR_BOUNDS = {       # memoria_variable, EBin.cs:2416-2431 -> GetMemoriaCustomVariable :1689
+    0: (0, 65535),               # TETRA_MASTER_WIN   -- SavedData.sWin
+    3: (0, 65535),               # TETRA_MASTER_POINTS-- MiniGame_GetPlayerPoints (:185-199)
+    4: (0, COLLECTOR_LEVEL_MAX),  # TETRA_MASTER_RANK -- MiniGame_GetCollectorLevel (:202-244)
+    # TREASURE_HUNTER_POINTS -- the weighted popcount's arithmetic maximum over flags.TH_POINT_RANGES.
+    5: (0, sum(w * 8 * (hi - lo + 1) for lo, hi, w in _flags.TH_POINT_RANGES)),
+}
+_EB_SYSVAR_BOUNDS = {            # EventEngine.GetSysvar.cs -- ONLY the codes the catalog uses
+    6: (0, GIL_CAP),             # :31-32 party.gil, clamped at BattleCalculator.cs:61
+    # :33-34 gStepCount. DEAD: one assignment repo-wide, `gStepCount = 0` (EventEngine.Initialize.cs:42).
+    # The bound is (0,0) BECAUSE of that, not by convenience -- if the counter ever becomes live this
+    # row's status changes and this bound must be revisited with it.
+    7: (0, 0),
+    16: (0, 65535),              # :51-52 Frogs.Number
+    19: (0, 65535),              # :57-69 card count (the MaxCardCount remap -- unused by this catalog)
+    20: (0, 8388607),            # :70-73 play time in SECONDS, clamped by the engine itself
+}
+
+
+class EbBoundsError(ValueError):
+    """An expression whose value range cannot be bounded from the engine's own declarations."""
+
+
+def eb_bounds(tokens: str) -> "tuple[int, int]":
+    """Interval-evaluate an RPN token string -> ``(lo, hi)``, the value range it can ever produce.
+
+    Deliberately NARROW: it knows exactly the leaves and operators this catalog uses and RAISES on
+    anything else, so adding a new operator to a row forces a decision here instead of silently
+    widening the envelope. ``tokens`` must NOT carry ``B_EXPR_END``."""
+    import re as _re
+    stack: list = []
+    for tok in tokens.split():
+        m = _re.match(r"^const4?\((-?\d+)\)$", tok)
+        if m:
+            v = int(m.group(1))
+            stack.append((v, v))
+            continue
+        m = _re.match(r"^B_SYSVAR\[(\d+)\]$", tok)
+        if m:
+            c = int(m.group(1))
+            if c not in _EB_SYSVAR_BOUNDS:
+                raise EbBoundsError(f"B_SYSVAR[{c}]: no declared bound (EventEngine.GetSysvar.cs) -- "
+                                    f"add one with its file:line rather than assuming a range")
+            stack.append(_EB_SYSVAR_BOUNDS[c])
+            continue
+        m = _re.match(r"^(\w+)\.(\w+)\[(\d+)\]$", tok)
+        if m:
+            src, typ, idx = m.group(1), m.group(2), int(m.group(3))
+            if src == "Null":                      # VariableSource.Null + Any -> memoria_variable
+                if idx not in _EB_MEMORIA_VAR_BOUNDS:
+                    raise EbBoundsError(f"{tok}: no declared bound for memoria_variable {idx}")
+                stack.append(_EB_MEMORIA_VAR_BOUNDS[idx])
+                continue
+            if typ not in _EB_VARTYPE_BOUNDS:
+                raise EbBoundsError(f"{tok}: no declared bound for VariableType {typ!r}")
+            stack.append(_EB_VARTYPE_BOUNDS[typ])
+            continue
+        if tok == "B_HAVE_ITEM":                   # DoCalcOperationExt.cs:13-20 -> FF9Item_GetCount_Generic
+            (arg,) = _pop(stack, 1, tok)
+            # BAND-AWARE, because the band decides the range (ff9item.2.cs:417-432 / :226-232) and a
+            # blanket over-approximation is not free: `_worst_case_width` pins each page's header
+            # against these numbers, so a 4x-too-wide bound would widen every window for nothing.
+            if arg[0] != arg[1]:
+                raise EbBoundsError("B_HAVE_ITEM: the item id must be a CONSTANT to bound it")
+            if ITEM_IMPORTANT_BASE <= arg[0] < ITEM_CARD_BASE:
+                stack.append((0, 1))               # -> FF9Item_IsExistImportant (:229), a bool
+            else:
+                # regular -> FF9ITEM.count, a Byte; card -> deck entries of that id, capped by
+                # Configuration.TetraMaster.MaxCardCount (QuadMistGame.cs:759). 255 covers both.
+                stack.append((0, 255))
+            continue
+        if tok in ("B_GE", "B_GT", "B_LE", "B_LT", "B_EQ", "B_NE"):
+            _pop(stack, 2, tok)
+            stack.append((0, 1))
+            continue
+        if tok == "B_PLUS":
+            b, a = _pop(stack, 2, tok)
+            stack.append((a[0] + b[0], a[1] + b[1]))
+            continue
+        if tok == "B_MULT":
+            b, a = _pop(stack, 2, tok)
+            prod = [x * y for x in a for y in b]
+            stack.append((min(prod), max(prod)))
+            continue
+        if tok in ("B_DIV", "B_REM", "B_SHIFT_RIGHT", "B_AND"):
+            b, a = _pop(stack, 2, tok)
+            if b[0] != b[1]:
+                raise EbBoundsError(f"{tok}: the right operand must be a CONSTANT to bound it "
+                                    f"statically (got {b})")
+            k = b[0]
+            if a[0] < 0:
+                raise EbBoundsError(f"{tok}: the left operand can be negative ({a}) -- C# integer "
+                                    f"division/shift/mask semantics on a negative are not bounded here")
+            if tok == "B_DIV":
+                if k <= 0:
+                    raise EbBoundsError(f"B_DIV by {k}")
+                stack.append((a[0] // k, a[1] // k))
+            elif tok == "B_REM":
+                if k <= 0:
+                    raise EbBoundsError(f"B_REM by {k}")
+                stack.append((0, k - 1))
+            elif tok == "B_SHIFT_RIGHT":
+                stack.append((a[0] >> k, a[1] >> k))
+            else:
+                stack.append((0, min(a[1], k if k >= 0 else a[1])))
+            continue
+        raise EbBoundsError(f"{tok!r}: eb_bounds has no rule for this token -- classify it (with the "
+                            f"engine file:line) instead of letting the 26-bit gate widen silently")
+    if len(stack) != 1:
+        raise EbBoundsError(f"expression leaves {len(stack)} value(s), not 1")
+    return stack[0]
+
+
+def _pop(stack: list, n: int, tok: str) -> list:
+    if len(stack) < n:
+        raise EbBoundsError(f"{tok}: stack underflow ({len(stack)} value(s) available, needs {n})")
+    return [stack.pop() for _ in range(n)]
+
+
+def eb_eval(tokens: str, read) -> int:
+    """Evaluate an RPN token string the way the engine would -- ``read(leaf_token)`` supplies every
+    leaf. ``tokens`` must NOT carry ``B_EXPR_END``.
+
+    THIS IS THE CROSS-VALIDATOR, and it is why it lives beside the expressions instead of in the
+    tests. :func:`eb_bounds` is an INTERVAL evaluator and therefore correlation-blind: it reports
+    ``minigame.hunt_winner`` as 0..255 because it cannot see that the multiplicand and the predicate
+    are the SAME byte. Only evaluation over real inputs can show that the clamp actually folds every
+    byte > 3 to row 0 -- and, more importantly, that each expression agrees with this module's own
+    OFFLINE reader on the same gEventGlobal. Two implementations of one row, checked against each
+    other offline, is the same bracket the rung-0 playtest applied in-game.
+
+    Integer semantics follow C# (``/`` truncates toward zero), which for the non-negative operands
+    this catalog uses is Python's ``//``."""
+    import re as _re
+    st: list = []
+    for tok in tokens.split():
+        m = _re.match(r"^const4?\((-?\d+)\)$", tok)
+        if m:
+            st.append(int(m.group(1)))
+        elif tok == "B_PLUS":
+            b, a = st.pop(), st.pop(); st.append(a + b)
+        elif tok == "B_MULT":
+            b, a = st.pop(), st.pop(); st.append(a * b)
+        elif tok == "B_DIV":
+            b, a = st.pop(), st.pop(); st.append(int(a / b) if b else 0)
+        elif tok == "B_REM":
+            b, a = st.pop(), st.pop(); st.append(a - int(a / b) * b if b else 0)
+        elif tok == "B_AND":
+            b, a = st.pop(), st.pop(); st.append(a & b)
+        elif tok == "B_SHIFT_RIGHT":
+            b, a = st.pop(), st.pop(); st.append(a >> b)
+        elif tok in ("B_GE", "B_GT", "B_LE", "B_LT", "B_EQ", "B_NE"):
+            b, a = st.pop(), st.pop()
+            st.append(int({"B_GE": a >= b, "B_GT": a > b, "B_LE": a <= b, "B_LT": a < b,
+                           "B_EQ": a == b, "B_NE": a != b}[tok]))
+        elif tok == "B_HAVE_ITEM":
+            st.append(read(f"B_HAVE_ITEM({st.pop()})"))
+        else:
+            st.append(read(tok))
+    if len(st) != 1:
+        raise EbBoundsError(f"eb_eval: expression leaves {len(st)} value(s), not 1")
+    return st[0]
+
+
+def eb_geg_reader(geg: bytes):
+    """A ``read`` callback for :func:`eb_eval` backed by a gEventGlobal heap -- resolves
+    ``Global.<Type>[i]`` exactly as ``EBin.GetVariableValueInternal`` does (EBin.cs:1847-1876). Any
+    other leaf (a sysvar, a memoria_variable, an item probe) must be supplied by the caller through
+    ``extra``, because it is NOT in the heap."""
+    import re as _re
+
+    def read(tok, extra=None):
+        m = _re.match(r"^Global\.(\w+)\[(\d+)\]$", tok)
+        if m:
+            typ, idx = m.group(1), int(m.group(2))
+            if typ == "Bit":
+                return _bit(geg, idx)
+            if typ == "Byte":
+                return _u8(geg, idx)
+            if typ == "UInt16":
+                return _u16(geg, idx)
+            if typ in ("Int24", "UInt24"):
+                return _i24s(geg, idx)
+            raise EbBoundsError(f"eb_geg_reader: no rule for VariableType {typ!r}")
+        raise EbBoundsError(f"eb_geg_reader: {tok!r} is not a gEventGlobal read -- supply it yourself")
+    return read
+
+
+def _attach_eb(spec: "RowSpec") -> "RowSpec":
+    """Write the in-game half onto a RowSpec. A row in NEITHER table keeps both fields None, which
+    :func:`lint_rows` refuses -- there is no third state to default into."""
+    from dataclasses import replace as _replace
+    if spec.id in EB_EXPRESSIONS:
+        toks, src = EB_EXPRESSIONS[spec.id]
+        scale, unit = EB_SCALE.get(spec.id, (1, ""))
+        return _replace(spec, eb=toks, eb_source=src, eb_scale=scale, eb_unit=unit)
+    if spec.id in EB_ABSENT:
+        return _replace(spec, eb_absent=EB_ABSENT[spec.id])
+    return spec
+
+
+ROWS = [_attach_eb(r) for r in ROWS]
 
 _ROWS_BY_ID = {r.id: r for r in ROWS}
 
@@ -1215,8 +1715,13 @@ def lint_rows(rows=None) -> list:
       * ``blocked_by`` set iff the row is ``untracked``;
       * an untracked / dead row has NO reader; every other row has one unless it is kit-derived;
       * any denominator taken from :data:`ENGINE_TARGETS` still equals the transcribed value;
-      * ``name_source`` is set on every row that can ever return names.
+      * ``name_source`` is set on every row that can ever return names;
+      * EXACTLY ONE of ``eb`` / ``eb_absent`` -- the in-game exhaustiveness gate (see below);
+      * THE UNIT LAW -- ``eb_scale`` / ``eb_unit`` set together, never on an eb-less row, so an
+        expression that publishes a DIFFERENT unit from its offline reader has to say so
+        (:data:`EB_SCALE`).
     """
+    from .eb import exprasm as _exprasm, exprsem as _exprsem
     rows = ROWS if rows is None else rows
     bad = []
     seen = set()
@@ -1258,6 +1763,90 @@ def lint_rows(rows=None) -> list:
                        f"{targets_by_line[r.denom_source]} at {r.denom_source}")
         if r.name_source is not None and r.provenance != "live-install":
             bad.append(f"{r.id}: name_source is only meaningful on a live-install row")
+
+        # --- THE IN-GAME EXHAUSTIVENESS GATE (T1b) --------------------------------------------
+        # EXACTLY ONE of `eb` / `eb_absent`. There is deliberately no third state, so a row added
+        # later cannot default to "invisible in-game" the way an unclassified operator used to
+        # default to "safe" (eb/exprsem.py:8-13). "I forgot" and "there is nothing to read" are
+        # indistinguishable to a reader, and both must be LOUD.
+        if (r.eb is None) == (r.eb_absent is None):
+            bad.append(f"{r.id}: declare EITHER an eb expression (journal.EB_EXPRESSIONS) OR a "
+                       f"reason (journal.EB_ABSENT) -- exactly one, never neither and never both")
+        if r.eb is not None:
+            if not r.eb_source:
+                bad.append(f"{r.id}: eb without eb_source (cite the engine read it replicates)")
+            elif not _SOURCE_RE.match(r.eb_source):
+                bad.append(f"{r.id}: eb_source {r.eb_source!r} is not a file.ext:line citation")
+            if "B_EXPR_END" in r.eb.split():
+                bad.append(f"{r.id}: drop B_EXPR_END -- the emitter appends the 0x7F terminator")
+            # `exprasm.assemble` is a byte ENCODER and validates nothing (eb/exprsem.py:5-6);
+            # `analyze` is the validator. Run both, so a malformed row fails `journal lint`
+            # (exit 2, CI-usable) before any field references it.
+            try:
+                a = _exprsem.analyze(r.eb + " B_EXPR_END")
+            except _exprsem.ExprSemanticError as e:
+                bad.append(f"{r.id}: eb does not evaluate: {e}")
+            else:
+                if a.unsafe_to_repeat:
+                    # A page body is not a per-frame hud, but a journal row still READS: a write
+                    # here would corrupt save state once per page open instead of once per frame,
+                    # and only one of those is not a corruption. Same classifier, one owner.
+                    bad.append(f"{r.id}: eb carries "
+                               f"{sorted({s.token for s in a.unsafe_to_repeat})} -- a journal row READS")
+            try:
+                _exprasm.assemble(r.eb + " B_EXPR_END")
+            except Exception as e:                              # AssembleError (a ValueError)
+                bad.append(f"{r.id}: eb does not assemble: {e}")
+            try:
+                lo, hi = eb_bounds(r.eb)
+            except EbBoundsError as e:
+                bad.append(f"{r.id}: eb value range is not bounded: {e}")
+            else:
+                from .eb.opcodes import EXPR_VALUE_MAX as _EVMAX, EXPR_VALUE_MIN as _EVMIN
+                if not (_EVMIN <= lo and hi <= _EVMAX):
+                    bad.append(f"{r.id}: eb can produce {lo}..{hi}, outside the 26-bit expression "
+                               f"envelope {_EVMIN}..{_EVMAX} (EBin.cs:1270-1274) -- divide INSIDE "
+                               f"the expression")
+            # The Int24 sign-extension bites ONLY at a full field (23 -> 8388607, 24 -> -1), which
+            # no playtest can surface. So it is guarded HERE, structurally: a raw Int24/UInt24 read
+            # may only be published masked. `_bit_popcount` avoids the read entirely; this rule
+            # exists for whoever later "optimises" a popcount back into one word.
+            toks = r.eb.split()
+            # THE UNIT LAW, at the exact site the defect appeared. An expression that DIVIDES has
+            # almost certainly stopped publishing its offline reader's unit, and declaring nothing is
+            # how `journal report` and the field page came to print 27733 and 7 for one row id. The
+            # rule is narrow on purpose: B_SHIFT_RIGHT is NOT in it, because ragtime_quiz shifts to
+            # EXTRACT a bitfield (which its offline reader does too), so a shift says nothing about
+            # units either way. A divider whose reader divides identically declares that in
+            # EB_DIV_SAME_UNIT -- a written reason, never silence.
+            if "B_DIV" in toks and r.eb_scale == 1 and r.id not in EB_DIV_SAME_UNIT:
+                bad.append(f"{r.id}: eb divides but declares eb_scale 1 -- say what that does to the "
+                           f"unit its offline reader publishes (journal.EB_SCALE), or record in "
+                           f"journal.EB_DIV_SAME_UNIT why the two still agree")
+            for i, t in enumerate(toks):
+                if re.match(r"^\w+\.U?Int24\[\d+\]$", t) and toks[i + 1:i + 3] != ["const4(16777215)",
+                                                                                   "B_AND"]:
+                    bad.append(f"{r.id}: {t} must be followed by `const4(16777215) B_AND` -- BOTH "
+                               f"Int24 and UInt24 sign-extend the third byte (one case label, "
+                               f"EBin.cs:1858-1861), so a full field reads -1")
+        if r.status == "untracked" and r.eb is not None:
+            # untracked == no save-side read at ANY tier; an .eb path would contradict blocked_by.
+            bad.append(f"{r.id}: an untracked row cannot declare an eb expression")
+
+        # --- THE UNIT LAW ------------------------------------------------------------------------
+        # The two renderers publish ONE number per row id -- that is the bet. `eb_scale` is the only
+        # way to opt out of it, and opting out is a DECLARATION: the scale is cross-checked
+        # numerically against the offline reader and the unit is what the in-game page prints after
+        # the value. An undeclared unit change (an .eb dividing where the reader does not) is how
+        # `journal report` and the field screen came to publish 27733 and 7 for the same row.
+        if not isinstance(r.eb_scale, int) or isinstance(r.eb_scale, bool) or r.eb_scale < 1:
+            bad.append(f"{r.id}: eb_scale must be an int >= 1 (got {r.eb_scale!r})")
+        elif (r.eb_scale != 1) != bool(r.eb_unit):
+            bad.append(f"{r.id}: eb_scale / eb_unit must be set together -- an eb that publishes a "
+                       f"DIFFERENT unit from the offline reader must name that unit (got scale "
+                       f"{r.eb_scale!r} / unit {r.eb_unit!r}; declare it in journal.EB_SCALE)")
+        if r.eb is None and (r.eb_scale != 1 or r.eb_unit):
+            bad.append(f"{r.id}: eb_scale / eb_unit are meaningless without an eb expression")
     # The rows whose readers can ever populate `names` must declare where those names come from. Kept as
     # an explicit list because it is a claim about the READER bodies, which no schema field can express.
     by_id = {r.id: r for r in rows}
@@ -1265,4 +1854,19 @@ def lint_rows(rows=None) -> list:
         s = by_id.get(rid)
         if s is not None and not s.name_source:
             bad.append(f"{rid}: returns display names but declares no name_source")
+    # ...and the gate's other half: a decision that no longer has a row. Without this an id RENAME
+    # orphans its expression silently and the renamed row falls back into the "neither" state, which
+    # the per-row rule above would then blame on the wrong edit.
+    if rows is ROWS:
+        both = set(EB_EXPRESSIONS) & set(EB_ABSENT)
+        for rid in sorted(both):
+            bad.append(f"{rid}: appears in BOTH EB_EXPRESSIONS and EB_ABSENT")
+        for rid in sorted((set(EB_EXPRESSIONS) | set(EB_ABSENT) | set(EB_SCALE)
+                           | set(EB_DIV_SAME_UNIT)) - set(by_id)):
+            bad.append(f"{rid}: EB_EXPRESSIONS/EB_ABSENT/EB_SCALE names a row that is not in ROWS")
+        # ...and a scale whose expression was deleted: the row would fall back to scale 1 SILENTLY,
+        # i.e. back to "the two renderers agree" with nothing having checked that they do.
+        for rid in sorted(set(EB_SCALE) - set(EB_EXPRESSIONS)):
+            bad.append(f"{rid}: EB_SCALE names a row with no EB_EXPRESSIONS entry -- a scale without "
+                       f"an expression converts nothing")
     return bad
