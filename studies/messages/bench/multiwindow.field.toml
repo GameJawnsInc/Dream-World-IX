@@ -20,12 +20,23 @@
 #     LOOK FOR: the hint text visible the whole time you dismiss the three lines, then vanishing on
 #     its own after the third. This is the whole point of the async verbs -- `say` alone cannot do it,
 #     because it blocks until its own window is gone.
+#     ★ ROUND 1 FAILED HERE (owner: "the hint goes away when advancing the 'Watch the hint above...'
+#     tailed message") and it was an ENGINE law, not a slip: DialogManager.OnKeyConfirm:335-341 fans a
+#     confirm out to EVERY active dialog, and each closes itself unless FlagButtonInh is set -- which
+#     only the [TIME]/[NFOC] tags ever write. So the press that advanced the line closed the hint too.
+#     The hint now carries `hold = true`, and the build REFUSES the un-held shape (this very toml
+#     linted clean before that check existed). Re-check: the hint must now survive all three presses.
 #
 #   BEAT 3 -- THE UNISON (stock's Zorn & Thorn, test2_41.txt:731-743, in the kit's spelling). Two
 #     speakers' windows open on DIFFERENT ids and hold; the script blocks until BOTH lines have
 #     finished typing (each line's [INCS] tag bumps the signal when its last glyph lands), waits a
 #     beat, then closes both. LOOK FOR, in order:
-#       (a) BOTH windows on screen at once, one per speaker, tails on the right characters;
+#       (a) BOTH windows on screen at once, one per speaker, tails on the right characters, and
+#           ★ ROUND 1 REGRESSION CHECK: both names fully readable. Round 1 rendered "horn" -- the
+#           two windows sat at the same screen height and touched, and since the engine never
+#           repositions to avoid an overlap (CheckDialogOverlap only REPORTS one; the callers just
+#           flip a tail), the lower id drew in front and ate Thorn's "T" and opening quote. The
+#           speakers are now further apart AND staggered in depth;
 #       (b) they are UNDISMISSABLE -- press Action while they are up and NOTHING happens. That is
 #           `hold` ([TIME=-1]); stock's own unison entries carry it, which is why stock polls the
 #           button by hand instead of letting the engine dismiss;
@@ -56,17 +67,23 @@ quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
 spawn = [0, -1800]
 
 # --- the two unison speakers ------------------------------------------------------------------
+# ROUND 1 fixed the STAGING as well as the code. At [-450,-900]/[450,-900] the two unison windows
+# sat at the same screen height and TOUCHED: the engine only flips tails to avoid an overlap
+# (`CheckDialogOverlap` REPORTS, it never repositions), so the lower id simply draws in front and
+# Thorn's window lost its leading "T" and opening quote behind Zorn's. Two windows meant to be read
+# together need real separation -- these are further apart AND staggered in depth, so the bubbles
+# land at different heights and cannot clip each other.
 [[npc]]
 name = "zorn"
 preset = "vivi"
-pos = [-450, -900]
+pos = [-620, -1150]
 dialogue = "The scene is over and you have control. Both of our windows closed themselves -- an async window is the SCRIPT's to dispose, not the player's."
 speaker = "Zorn"
 
 [[npc]]
 name = "thorn"
 preset = "vivi"
-pos = [450, -900]
+pos = [620, -700]
 dialogue = "Disposed themselves, our windows did! Reload the field to watch it again, kupo."
 speaker = "Thorn"
 
@@ -87,8 +104,10 @@ steps = [
 
   # BEAT 2 -- a hint held on window 3 while three dialogue windows roll underneath it.
   # pinned to the TOP of the screen ([MPOS]) so it cannot be covered by the speech bubbles below --
-  # window 3 sits at depth 62 and the dialogue at 68, so an unpinned hint would draw BEHIND them
-  { open = "(HINT: this frameless line is window 3. It stays while the talking below comes and goes.)", window = 3, style = "transparent", window_pos = [24, 16] },
+  # window 3 sits at depth 62 and the dialogue at 68, so an unpinned hint would draw BEHIND them.
+  # ★ hold = true is LOAD-BEARING (round 1 proved it): a confirm press goes to EVERY open window, so
+  # without the dismiss-inhibit the first Action that advances the dialogue also closes this hint.
+  { open = "(HINT: this frameless line is window 3. It stays while the talking below comes and goes.)", window = 3, style = "transparent", window_pos = [24, 16], hold = true },
   { actor = "zorn", say = "Watch the hint above -- it does not budge.", speaker = "Zorn" },
   { actor = "thorn", say = "Budge, it does not! Three windows have opened under it now.", speaker = "Thorn" },
   { actor = "zorn", say = "A `say` could never do this: it blocks until its OWN window is gone.", speaker = "Zorn" },

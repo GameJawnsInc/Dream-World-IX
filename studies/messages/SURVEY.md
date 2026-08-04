@@ -228,6 +228,45 @@ Cancel row alive; the moogle menu distinguishes chose-Cancel from pressed-Cancel
 window between the choice and its sysvar-9 read destroys the result. (The kit's stepper
 already learned this; it generalizes to ALL choice flows.)
 
+## 7a. ★★★ THE BROADCAST-CONFIRM LAW — one press dismisses EVERY window (2026-08-03, in-game)
+
+**A confirm press is not routed to a focused or topmost window. It is delivered to all of them.**
+
+```csharp
+public void OnKeyConfirm(GameObject go) {                    // DialogManager.cs:335-341
+    if (PersistenSingleton<UIManager>.Instance.IsPause) return;
+    foreach (Dialog dialog in this.activeDialogList.ToList())
+        dialog.OnKeyConfirm(go);                             // ← every active window, no filter
+}
+```
+
+Each `Dialog.OnKeyConfirm` then closes itself if it has finished typing and **`!ignoreInputFlag`**
+(`Dialog.cs:789`) — and `ignoreInputFlag` **is** `FlagButtonInh` (`Dialog.cs:408-412`, the same
+backing field). The only writers of it in the whole engine are the `[TIME=n]`/`[TIME=-1]` tag
+(`OnTime` :811-829), `[NFOC]`, and `ForceControlByEvent`.
+
+**Consequence: an async window that is not dismiss-inhibited cannot survive ANY other window's
+dismissal.** The press that advances a line of dialogue takes every other open window down with it.
+So the "persistent hint under rolling dialogue" idiom (§4) is not just async-open + late-close — the
+hint MUST carry `[TIME=-1]` or `[NFOC]`, or it dies on the reader's first press.
+
+**Found in-game, not offline** (bench 30603 round 1, owner: *"the hint goes away when advancing the
+'Watch the hint above...' tailed message"*). The scene linted clean, built clean, and every offline
+gate passed — nothing in a static read of the emitted opcodes can see this, because the defect lives
+in how the *engine* fans out an input. It is the §11-Tier-2 companion to the movement arc's
+CONTROLLER-DEACTIVATION LAW: both are cases where two independently-correct emissions interact through
+engine state the bytes don't mention.
+
+Enforced at the call site: `build._validate_window_scene` refuses an unheld window that is still live
+across a blocking `say`/`wait_window`, and refuses `hold` + `wait_window` on the SAME id (a held window
+can never be dismissed, so that wait would hang forever). Pinned in `test_multiwindow.py`.
+
+**Corollary for two simultaneous attached windows:** the engine does NOT reposition to avoid an
+overlap — `CheckDialogOverlap` (`DialogManager.cs:161-174`) only *reports* one, and the callers use it
+to flip a tail, nothing more. Two bubbles at the same screen height simply overlap, and the LOWER
+window id (higher depth) draws in front, clipping the other's leading glyphs. Stage simultaneous
+speakers with real horizontal separation **and** a depth stagger; do not rely on the engine.
+
 ## 7b. ★★ THE RAISE-SATURATION LAW — the raise is clamped, not uniform (2026-08-03)
 
 `DialogManager.RiseAll` (`:436-446`) bumps a window by `DialogAdditionalRaiseDepth` (22) **only while

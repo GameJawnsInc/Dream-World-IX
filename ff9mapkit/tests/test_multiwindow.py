@@ -226,10 +226,12 @@ def test_open_steps_consume_a_txid_like_say_steps():
 
 
 def test_narration_flavor_takes_the_window_verbs_too(tmp_path):
+    # NB the `hold` here is not decoration -- see THE BROADCAST-CONFIRM LAW below. This test asserted
+    # the un-held shape was legal until the bench proved it isn't.
     toml = BASE + """
 [[cutscene]]
 steps = [
-  { open = "A hint that stays up.", window = 3, style = "transparent" },
+  { open = "A hint that stays up.", window = 3, style = "transparent", hold = true },
   { say = "Rolling dialogue underneath." },
   { close = 3 },
 ]
@@ -343,6 +345,63 @@ def test_the_trailing_cleanup_does_not_read_as_a_missing_source(tmp_path):
     # stock re-zeroes the signal AFTER each handshake; counting that against the wait would flag every
     # correctly-written scene (it did, until the reach was scoped to the steps BEFORE the wait)
     assert _problems(tmp_path, UNISON) == []
+
+
+def test_an_unheld_window_across_a_blocking_say_is_refused(tmp_path):
+    """★ THE BROADCAST-CONFIRM LAW (bench 30603 round 1 -- this exact toml shipped, linted clean, and
+    the hint vanished on the first Action press). DialogManager.OnKeyConfirm:335-341 delivers a confirm
+    to EVERY active dialog; each closes itself unless `ignoreInputFlag` is set, and that field IS
+    `FlagButtonInh`, written only by the [TIME] and [NFOC] tags. So an unheld async window cannot
+    survive any other window's dismissal."""
+    toml = BASE + """
+[[cutscene]]
+steps = [
+  { open = "a hint", window = 3, style = "transparent" },
+  { say = "the press that advances me also kills the hint" },
+  { close = 3 },
+]
+"""
+    probs = _problems(tmp_path, toml)
+    assert any("window 3 (opened at step 0) is still up" in p and "EVERY open window" in p
+               for p in probs)
+
+
+def test_holding_it_is_what_makes_that_legal(tmp_path):
+    toml = BASE + """
+[[cutscene]]
+steps = [
+  { open = "a hint", window = 3, style = "transparent", hold = true },
+  { say = "I advance; the hint stays." },
+  { close = 3 },
+]
+"""
+    assert _problems(tmp_path, toml) == []
+
+
+def test_the_window_being_waited_on_may_itself_be_unheld(tmp_path):
+    # `open` + `wait_window` on the SAME id is the async twin of `say` -- the player is supposed to
+    # dismiss it, so the law must not fire on the very window the wait is for
+    toml = BASE + """
+[[cutscene]]
+steps = [
+  { open = "dismiss me", window = 2 },
+  { wait_window = 2 },
+]
+"""
+    assert _problems(tmp_path, toml) == []
+
+
+def test_hold_plus_wait_window_on_the_same_id_is_refused(tmp_path):
+    # the deadlock the law's own fix would otherwise invite: a held window cannot be dismissed, so a
+    # wait_window on it never returns
+    toml = BASE + """
+[[cutscene]]
+steps = [
+  { open = "you cannot dismiss me", window = 2, hold = true },
+  { wait_window = 2 },
+]
+"""
+    assert any("HANGS" in p for p in _problems(tmp_path, toml))
 
 
 def test_hold_with_duration_is_refused(tmp_path):
