@@ -28,13 +28,20 @@ human-meaningful, and the kit's curated join is **52 anchors carrying only 39
 distinct place names** — `Alexandria Castle` appears 5×, `Lindblum` 3×, and seven
 more names twice (measured over `ff9mapkit/ff9mapkit/flags.py:431-445`). It is a
 nearest-anchor LOCATION lookup — which is exactly what `nearest_milestone()`
-(`flags.py:491-497`) does with it — not a quest list. Worse for the tracker
-framing: **it is not monotonic.** Across 676 fields the census records
-`{'++': 7, '--': 7, '+=': 1, '&=': 1, '|=': 1, '*=': 1, '/=': 1}`
-(`research/CENSUS_DIGEST.md:15`) — **seven fields decrement it** — and
-`EventState.cs:16-22` is an unguarded read/write property. So "SC ≥ close_sc ⇒
-permanently missed" is not a free derivation; every threshold needs proving
-against those 9 relative-op sites.
+(`flags.py:491-497`) does with it — not a quest list.
+
+**Monotonicity is UNRECONCILED and both numbers are in the repo.** The old
+676-field census records `{'++': 7, '--': 7, '+=': 1, …}`
+(`research/CENSUS_DIGEST.md:15`) — seven fields decrementing. The
+narrative-state arc's 818-field probe measures **889 absolute SC writes vs 2
+relative**, i.e. "near-pure absolute assignment", and that arc carries the
+reconciliation as its own open risk #5 (`studies/narrative-state/PLAN.md`).
+Either way `EventState.cs:16-22` is an unguarded read/write property, so
+"SC ≥ close_sc ⇒ permanently missed" is **not** a free derivation — but how
+un-free is currently unknown, and this study should not be cited as having
+settled it. **Do not build a missable column on it until that census is
+reconciled**; it is cheap to settle and it gates the feature's worst failure
+mode.
 
 **Verdict:** the counter is an excellent *chapter heading* and a poor *quest
 key*. Build the journal as a read over the whole state inventory (§2), with
@@ -546,16 +553,28 @@ version-gated and cached to `provision.cache_dir()` rather than committed;
 `research/flag_census.py` decoded all 676 fields with 0 scan errors; room names
 come from `reference/field-manifest.tsv` (817 rows → 389 rooms / 58 areas).
 
-**Do not price this as "re-run the existing generator."** `logic_map.Node`
-(`logic_map.py:73-88`) carries `says`, `gives`, `flags_set`, `flags_read`,
-`warps`, `battles`, `branches`, `unresolved` as **independent flat lists scoped
-to a whole routine** — a bag, not a (grant, latch) tuple. For a one-item
-one-flag chest routine the bag happens to be a pair; for any multi-branch NPC or
-shop routine it is not, and the chest idiom itself splits its latch across a
-guard READ and a SET. Pairing them requires walking `branches`, which the cited
-archetype (`research/gen_flag_lore.py`, 464 LOC) did not do. A computed AddItem
-operand is diverted to `unresolved` (`:359-362`) and `item_inert` grants are
-dropped (`:363`), giving the table a false-negative floor before any curation.
+**Do not price this as "re-run the existing generator" — but the branch-walking
+half now EXISTS.** `logic_map.Node` (`logic_map.py:73-88`) carries `says`,
+`gives`, `flags_set`, `flags_read`, `warps`, `battles`, `branches`, `unresolved`
+as **independent flat lists scoped to a whole routine** — a bag, not a
+(grant, latch) tuple. Pairing them requires real control-flow analysis, which
+`research/gen_flag_lore.py` never did.
+
+**★ SUPERSEDED BY THE NARRATIVE-STATE ARC.** `ff9mapkit/ff9mapkit/eb/cfg.py` now
+ships `FuncFlow` (basic blocks, dominators, if/else polarity, switch-case
+`==`/`in`, compound-AND atoms, join points killing claims, loop-exit negation,
+dead-code = no claim) and `FieldFlow` (arm/call-graph context propagation,
+available-expressions fixpoint, and **kill/def analysis with bit/byte/word
+aliasing** — the once-latch `if(bit==0){bit=1;…}` idiom was producing provably
+false guards at 304 of 2,832 story sites before that fix). `research/dominance_census.py`
+runs it over **818 fields / 34,867 funcs, 0 degraded, deterministic**. That is
+the instrument this tier's generator needed and did not have, already built and
+already adversarially reviewed. **Re-price T4's generator down accordingly — but
+see the coverage ceiling below, which moves the estimate in the other direction.**
+
+A computed AddItem operand is still diverted to `unresolved` (`logic_map.py:359-362`)
+and `item_inert` grants are dropped (`:363`), so the item side keeps its
+false-negative floor.
 
 **Blockers, and they are the reason this tier is rated low.**
 
@@ -571,10 +590,32 @@ dropped (`:363`), giving the table a false-negative floor before any curation.
   set bit in range regardless of provenance, so any non-treasure flag parked
   there inflates the score. **"Chests N/446" is fabrication; "Treasure Hunter:
   287 pts, rank C" is a read.** Ship the rank.
-- **Missability is derived, never observed** — and the derivation is not free
-  (§1: seven fields decrement ScenarioCounter). A wrong threshold confidently
-  tells a player they permanently missed something still obtainable. This is the
-  worst failure mode for the feature and it is a DATA risk, not a code risk.
+- **Missability is derived, never observed, and the narrative-state arc has now
+  MEASURED how derivable it is: not very.** Rung 0 of that arc predicted that
+  CFG dominance would lift SC-window attribution past 55% of write sites. **The
+  prediction was FALSIFIED at 36.2%** (direct dominance 18.3% → +armed context
+  29.4% → +co-located SC advance 36.2%), and only **257 of 974 story bits get a
+  hard SC window**. The reason is structural, not a tooling gap: ~90% of story
+  sites live outside `Main_Init`, and **32% of story sites are once-flag-gated
+  and interaction-driven rather than beat-gated**. Two consequences pull in
+  opposite directions for a journal — a once-flag IS exactly the "did the player
+  do this" latch a collectible row wants (good), but it carries no derivable
+  *window*, so the missable column stays largely un-derivable (bad). A wrong
+  threshold confidently tells a player they permanently missed something still
+  obtainable. Still the worst failure mode, still a DATA risk.
+- **A monotone "collected" latch is WRONG for ~85 bits.** The corpus census finds
+  **94 bits explicitly cleared somewhere**, 85 of them genuine set-then-clear
+  toggles (e.g. the Desert Palace sanctum-cast band 3536-3542, Cleyra 3882/3883).
+  Those need windows `[on, off)`, not a latch. A journal that renders "bit set =
+  obtained forever" will show a collected item reverting to un-collected mid-game.
+  This is a correctness bug the scoping pass did not have and it must be in the
+  catalog schema from the start, not retrofitted.
+- **The treasure question gets a real number from the same census:** **412 of
+  1,110 written bits sit in Treasure-Hunter-scored bytes**, and TH membership is a
+  **cost** signal, not a class signal — seeding those bits inflates the player's
+  rank. That confirms §T4's "the engine blindly counts every set bit in range":
+  ~37% of all script-written bits land in the scored region regardless of whether
+  they represent treasure.
 - **The worktree skip trap is live right here.** `provision.templates_present()`
   returns **False** in this worktree (measured this pass by running it), and
   `ff9mapkit/conftest.py:86-116` drops modules that do game-data I/O at import
@@ -729,15 +770,21 @@ is ever genuinely localized, every figure above ×7.
 
 Sized between (a) and (b), and **serial on one person.** Two parts:
 
-- **Machine:** the 674-field census run. The harness exists and is proven
-  (0 scan errors over 676 fields), but it is a multi-hour run against the install
-  + UnityPy, gated behind both skip axes (§T4), and its output is a bag not a
-  tuple (§T4) so it needs a new branch-walking join, not a re-run.
-- **Human:** the only oracle that promotes a generated row past tier c is a real
-  playthrough with checkpointed saves, diffed with the existing
-  `flags.diff_reports`. The agent cannot play the game (CLAUDE.md §2). This is
-  the owner's time, and the same owner is the playtest gate for every rung above
-  T1.
+- **Machine — got substantially cheaper.** The branch-walking join no longer has
+  to be written: `eb/cfg.py` + `research/dominance_census.py` already run a sound,
+  kill-aware, deterministic dominance pass over 818 fields / 34,867 funcs. What
+  that census CANNOT do is now also measured, which is the more important half:
+  **36.2% site coverage, 257 of 974 story bits windowed.** The instrument is
+  built; the ceiling is the finding.
+- **Human — unchanged, and now with a measured hole.** The only oracle that
+  promotes a generated row is a real playthrough with checkpointed saves, diffed
+  with `flags.diff_reports`. The narrative-state arc's calibration corpus is **19
+  populated saves with NOTHING after SC 7200** — discs 3 and 4 have **zero ground
+  truth**. Since the back half of the game is where most missables and most
+  one-of-a-kind collectibles live, a completion journal is disproportionately
+  exposed to exactly the region with no saves to validate against. **This is a
+  concrete ask for the owner: disc-3/4 checkpointed saves are worth more to this
+  feature than any amount of engineering.**
 
 **Which dominates: (b), by a wide margin, and (c) is the schedule risk.** (a) is
 a copy of a measured file. The catalog is a writing project with an engineering
@@ -873,10 +920,12 @@ re-litigates it.
    (`EBin.cs:1858-1861`) — so a completed field reads **−1**, and any compare
    against 16777215 fails. The engine masks on the next line
    (`EMinigame.cs:434-436`). The masking step was absent from every design.
-8. **"ScenarioCounter is monotonic, so missability is a pure read."** Seven
-   fields decrement it (`research/CENSUS_DIGEST.md:15`) and
-   `EventState.cs:16-22` is unguarded. Every `close_sc` threshold needs proving,
-   not looking up.
+8. **"ScenarioCounter is monotonic, so missability is a pure read."** Refuted,
+   but the *replacement* is now itself unsettled: `CENSUS_DIGEST.md:15` says
+   seven fields decrement it; the narrative-state 818-field probe says 889
+   absolute writes vs 2 relative. `EventState.cs:16-22` is unguarded either way,
+   so a `close_sc` threshold still needs proving rather than looking up — but see
+   §1: **this study did not settle the count, and neither has anyone else yet.**
 9. **"`SCENARIO_MILESTONES` gives 52 story beats."** 52 keys, **39 distinct
    names** (measured). A naive render lists Alexandria Castle five times, and a
    "34 / 52 beats" progress row has 13 duplicate denominators. It is an AREA
@@ -982,7 +1031,15 @@ verified this pass; see §T1's blockers for the narrower gap that replaces it.)*
 2. **What is the census residue?** Run the grant↔latch join on a **20-field
    slice** and count how many treasure rows resolve unambiguously, before quoting
    any T4 band. That single number decides whether T4 is a project or a research
-   program.
+   program. **Now much cheaper to answer** — `eb/cfg.py`'s `FieldFlow` already
+   gives kill-aware guard attribution per write site, so this is a join over an
+   existing census rather than new analysis. Expect the answer to be bounded by
+   the arc's measured 36.2% / 257-of-974, not better.
+2b. **Reconcile the ScenarioCounter relative-write count** (7 fields vs 2 sites,
+   §1). Cheap, and it gates whether a missable column is derivable at all.
+2c. **Can the owner supply disc-3/4 saves?** The calibration corpus stops at SC
+   7200. The back half of the game holds most of the missables this feature is
+   for, and has no ground truth. See §4c.
 3. **What is the MINIMUM catalog that makes the feature worth shipping?** If the
    answer is "the ~25-counter dashboard", T1b is the product and §4b's dominant
    cost never has to be paid. If it is "every chest", T4's data risk is the
