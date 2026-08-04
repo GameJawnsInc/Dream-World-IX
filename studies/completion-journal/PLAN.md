@@ -6,7 +6,7 @@
 > not against stock Memoria. No in-game behaviour was observed by anyone in this
 > pass — where a mechanism has never run, it says UNVERIFIED.
 
-**STATUS: ★ rung 0 OWNER-CONFIRMED in-game (bench 30800) — the DLL-free read
+**STATUS: ★ rungs 0 + 0b OWNER-CONFIRMED in-game (bench 30800) — EVERY DLL-free read path works: memoria-variables, gEventGlobal bit/byte/Int24/UInt16, B_HAVE_ITEM, flex(), and composed arithmetic with the clamp idiom. The in-game `.eb` and the offline decoder cross-validate exactly (§7.1). ★ T1 BUILT — 48-row `journal report` over a real save container. NEXT = the T2-vs-catalog scope call (§7.2 Q3).**
 paths work; `Null.SBit[5]` returns real Treasure-Hunter points, and the in-game
 `.eb` and the offline decoder cross-validate exactly (§7.1). ★ T1 BUILT — 48-row
 `journal report` over a real save container. NEXT = rung 0b, a 2-row re-probe to
@@ -1060,7 +1060,44 @@ every state EXCEPT 24/24 completion — meaning a completion journal is precisel
 the feature that reaches it, and it can never be caught by testing on a partial
 save. **Always mask; never rely on a playtest to reveal this one.**
 
-**6. Cosmetic, but a real T1b datum:** the header word-wrapped
+### ★ RUNG-0b RESULT — the flex lane is CONFIRMED, and every zero is explained
+
+Re-probed 30800 with a decomposition matrix instead of seven independent reads,
+because `_v0 = 0` is set *before* the switch (`EBin.cs:360`) and so a fallthrough
+is byte-identical to a real zero — no value-inspection trick can separate them.
+
+| row | FILE1 (SC 6000) | FILE2 (SC 7200) | reading |
+|---|---|---|---|
+| ZIDANE LV `flex(13,1)` | **16** | **22** | ★ **the flex lane WORKS** |
+| BADCHR LV `flex(13,1)` arg 99 | 0 | 0 | ★ negative control fires |
+| ACT6 TO ID `flex(6,1)` | 6 | 6 | ★ pure conversion works |
+| PARTY SLOT0 `flex(10,1)` | 0 | 0 | correct — Zidane IS old-index 0 |
+| AA6 NOEQ / EQ `flex(16,3)` | 0 / 0 | 0 / 0 | correct — see below |
+
+**`PLAYER_LEVEL` returns 16 and 22 and TRACKS the save.** It takes the identical
+`GetPlayer(CharacterOldIndexToID(args[0]))` path `PLAYER_ABILITY_LEARNT` uses, so
+the whole lane — 0xD3 emission, commandId, argCount, left-to-right arg push,
+character resolve — is proven. The same call with index 99 returns 0, so the
+null-player fallthrough is real and observable. **Both polarities of one engine
+line, in one round.**
+
+**And the original ambiguity had a mundane cause: ability id 6 is `Full-Life`.**
+`abilities.name_of(6)` = Full-Life (an AA), and `abilities.pool_for_preset(0)`
+shows Zidane's 48-ability pool **does not contain it** — it is White Magic.
+So `FF9Abil_GetIndex(Zidane, 6) < 0` → `break` → 0, every time, on every save.
+Rung 0's probe had baked the literal `6` arbitrarily ("no resolver in a
+falsification path"), and it happened to pick a spell the character structurally
+cannot learn. **The read was never broken; the question was malformed.**
+
+**Residual, stated rather than glossed:** we proved the lane works and that the
+break path yields 0, but we have **not** observed `PLAYER_ABILITY_LEARNT`
+returning **1**. That arm is a one-line comparison and the lane around it is
+confirmed, so this does not warrant another round — but any journal row built on
+it must pick an ability **in that character's pool**, which is checkable offline
+via `abilities.pool_for_preset()`. A row that silently asks for an out-of-pool
+ability reads 0 forever and looks like un-collected progress.
+
+**Cosmetic, and a real T1b datum:** the header word-wrapped
 (`=== COMPLETION PROBE / RUNG` / `0 ====`). The window's real character budget is
 narrower than the authored line. T1b's page layout must be measured against the
 live window, not assumed — this is the same class as §T2 blocker (b).
