@@ -241,6 +241,8 @@ def render_party(ps: dict) -> str:
         bits = []
         if ps["player"]:
             bits.append(f"donor player: {'/'.join(ps['player'])} (non-Zidane -- must exist)")
+            L.insert(0, "# NOTE: `add` never removes -- if the real beat is SOLO "
+                        f"{'/'.join(ps['player'])}, also set remove = [the others] (author call)")
         if ps["gated"]:
             bits.append(f"field adds AND gates on: {', '.join(ps['gated'])}")
         L.append("# " + "; ".join(bits))
@@ -248,3 +250,12 @@ def render_party(ps: dict) -> str:
         L.append(f"# dormant party checks NOT seeded: {', '.join(ps['dormant'])} -- checked "
                  "but never added by this field; assert by hand only if the beat truly has them")
     return "\n".join(L)
+
+
+def staged_beats(eb: EbScript) -> list[tuple[int, str]]:
+    """The ScenarioCounter values this field's own scripts DISPATCH on (with milestone labels)
+    — the beats the field actually stages. Seeding a beat BETWEEN gates lands in whatever band
+    contains it; pick a staged value to hit a scene (the Dali-2700 lesson: 2700 fell between
+    the inn-stay band 2600-2660 and 2790, so nothing special staged)."""
+    from . import forkreport
+    return [(v, flagsmod.nearest_milestone(v)[1]) for v in forkreport.scenario_gates(eb.data)]

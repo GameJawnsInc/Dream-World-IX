@@ -519,6 +519,15 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
     else:
         data = open(t, "rb").read()
         label = t
+    if args.beats:
+        _safe_console()
+        for v, name in storyseed.staged_beats(EbScript.from_bytes(data)):
+            print(f"  {v:6d}  ({name})")
+        return 0
+    if not args.beat:
+        print("story-seed: --beat is required (use --beats to list this field's staged beats)",
+              file=sys.stderr)
+        return 1
     try:
         beat = int(args.beat)
     except ValueError:
@@ -6814,7 +6823,10 @@ def build_parser() -> argparse.ArgumentParser:
                                             "a field READS, resolved at a target beat (rung 1 "
                                             "of the narrative-state arc)")
     sse.add_argument("target", help="a numeric field id (extracted from the install) or a .eb path")
-    sse.add_argument("--beat", required=True,
+    sse.add_argument("--beats", action="store_true",
+                     help="just LIST the ScenarioCounter values this field stages (pick one "
+                          "of these as --beat; a value between gates hits no scene)")
+    sse.add_argument("--beat",
                      help="ScenarioCounter value, or a milestone name (flags.resolve_scenario)")
     sse.add_argument("--census", help="path to dominance_census.json (default: found by walking "
                                       "up from cwd; regenerate with research/dominance_census.py)")

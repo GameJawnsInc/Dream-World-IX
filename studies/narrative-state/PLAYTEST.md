@@ -41,5 +41,16 @@ Seeds regenerated + pasted verbatim: 30820 gains `[party] add = ["vivi"]`; 30821
 `add = ["garnet", "steiner", "vivi", "zidane"]` (Quina correctly excluded as dormant).
 ~ → Reload is enough (ids already registered — no relaunch).
 
-- 30820 re-test: the scene should still fire, WITHOUT the Slot debug windows. PENDING
-- 30821 re-test: does the beat-2700 inn now show its cast/scene (and differ from 30822)? PENDING
+- 30820 re-test: **PASS** — Vivi added, scene good. Owner note: Zidane KEPT (add never
+  removes) — the solo-Vivi call is the author's; the tool now prints exactly that hint
+  (`[party] remove` exists for it).
+- 30821 re-test @ 2700: still no scene, party correct → **the BEAT was wrong, not the party**:
+  SC 2700 = "Dali (underground)" and falls BETWEEN 352's staged gates (2600-2660 inn-stay
+  band, then 2790/2980/2990). An idle inn may even be faithful there. Tool fix: `story-seed
+  --beats` lists the field's staged ScenarioCounter values so the author picks one.
+
+## Round 3 — 30821 re-seeded at a STAGED beat (2650, mid inn-stay band)
+
+Same donor, seed now `scenario = 2650` + the same 7 bits + the 4-member party.
+~ → Reload. Question: does the inn now stage its beat-2650 content (cast/scene/dialogue of
+the party's Dali stay) — distinct from both the empty 2700 state and 30822's Gudo state? PENDING
