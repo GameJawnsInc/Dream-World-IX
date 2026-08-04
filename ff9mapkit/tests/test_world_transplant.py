@@ -956,13 +956,14 @@ def test_region_object_cell_never_hosts_foreign_target(monkeypatch):
     s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
                              census_samples=8, dry_run=True)
     # cell (5,2) needs terrain (the straddle): natural (2,1) lacks it; the only superset donor
-    # is (1,1) but it bears an Object -> excluded -> prefab-parts FAILS (no silent ghost).
-    # And since the natural-donor exclusion (the crescent-harbor fix), cell (4,2) refuses
-    # too: its natural (1,1) bears the Object and no object-free substitute covers it --
-    # previously it silently took the object host and ghost-rendered.
+    # is (1,1) but it bears an Object -> excluded as a FOREIGN host -> prefab-parts FAILS
+    # (no silent ghost). Cell (4,2) is the object's OWN natural cell on a pose-lawful
+    # carry (rot 0, shift 0, object untweaked) -- THE OBJECT POSE LAW keeps it, and the
+    # prefab renders the object on its own carried ground.
     g = next(g for g in s["gates"] if g["gate"] == "prefab-parts")
     assert g["ok"] is False
-    assert sorted(b["cell"] for b in g["bad"]) == [[4, 2], [5, 2]]
+    assert sorted(b["cell"] for b in g["bad"]) == [[5, 2]]
+    assert s["cells"]["4,2"]["donor"] == [1, 1]
     # identity transform keeps the object cell's own target legitimate: object-anchor ok
     oa = next(g for g in s["gates"] if g["gate"].startswith("object-anchor"))
     assert oa["ok"] is True and oa["moved"] is False
@@ -976,30 +977,42 @@ def test_region_object_cell_never_hosts_foreign_target(monkeypatch):
     assert oa2["ok"] is False and oa2["moved"] is True
 
 
-def test_region_object_exclusion_applies_to_the_NATURAL_donor(monkeypatch):
-    """The direction the test above never exercised, and the one that shipped: the natural
-    donor SATISFIES the cell's parts, so no substitute search runs, and the object check
-    lived only in the substitute loop. First live object-bearing carry: cell (18,18)'s
-    natural donor (14,2) hosted it and its baked harbor ghost-rendered in open ocean.
-    A foreign target whose natural donor bears an Object must get a SUBSTITUTE sidecar."""
+def test_region_object_sidecar_obeys_THE_OBJECT_POSE_LAW(monkeypatch):
+    """THE OBJECT POSE LAW (the bent crescent's cave door, 2026-08-04): an object rides
+    its NATURAL sidecar iff its pose stays lawful -- the carry UNROTATED and UNSHIFTED
+    and the object's verts untouched by the tweaks. The prefab then renders the object
+    where its carried ground expects it (the stock look; the authored rock plug was
+    playtest-refused as a non-stock cliff face). A ROTATED carry, a SHIFTED carry, or an
+    object whose ground the tweaks dropped (the excised-harbor ghost class) still gets a
+    SUBSTITUTE sidecar."""
     blocks = {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0, y=1.0),
               (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
               (1, 1, "object"): _quad(104.0, 112.0, -100.0, -92.0, y=2.0),
               (2, 1, "terrain"): _quad(150.0, 170.0, -104.0, -88.0, y=1.0),
               (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
     monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    # pose-lawful (rot 0, shift 0, object untouched): the natural donor KEEPS the cell
+    # and the prefab renders its own object on its own carried ground
     s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
                              census_samples=8, dry_run=True, land_margin=0.0, strips="none")
-    # (4,2) maps back to object-bearing (1,1), whose parts cover the need -- the sidecar
-    # must nonetheless be the object-free (2,1)
+    assert s["cells"]["4,2"]["donor"] == [1, 1], s["cells"]["4,2"]
+    # a ROTATED carry cannot pose the prefab object: substitute (under rot 180 the
+    # object cell (1,1) maps to target (5,2))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), rot=180,
+                             shift=(0.0, 0.0), census_samples=8, dry_run=True,
+                             land_margin=0.0, strips="none")
+    assert s["cells"]["5,2"]["donor"] == [2, 1], s["cells"]["5,2"]
+    # an object whose verts the tweaks DROP (the excised-harbor ghost class -- its base
+    # welded to the dropped geometry): substitute. The object here shares the terrain
+    # quad's verts exactly, like the harbor's sheet-welded base.
+    blocks2 = dict(blocks)
+    blocks2[(1, 1, "object")] = _quad(88.0, 104.0, -104.0, -88.0, y=1.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    drop = TR.DropTris("terrain", blocks2[(1, 1, "terrain")])
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             tweaks=[drop], census_samples=8, dry_run=True,
+                             land_margin=0.0, strips="none")
     assert s["cells"]["4,2"]["donor"] == [2, 1], s["cells"]["4,2"]
-    # the object-free cell keeps its own natural donor
-    assert s["cells"]["5,2"]["donor"] == [2, 1]
-    # and IN PLACE (identity transform) the object cell legitimately hosts itself
-    s2 = TR.transplant_region("MOD", cell=(1, 1), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
-                              census_samples=8, dry_run=True, land_margin=0.0, strips="none",
-                              allow_real_target=True)
-    assert s2["cells"]["1,1"]["donor"] == [1, 1]
 
 
 def test_region_census_backmaps_through_the_region_transform(monkeypatch):

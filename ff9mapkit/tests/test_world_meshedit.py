@@ -1365,15 +1365,15 @@ def test_deepen_shallow_plan_refuses_a_ring_less_donor(monkeypatch):
     assert "no shallow ring" in rep["refused"]
 
 
-def test_excise_plugs_a_fully_welded_object_aperture(monkeypatch):
-    """EXCISE v4 -- THE APERTURE PLUG. An object tri whose verts are ALL welded into the
-    KEPT terrain is a hole-filling face (a cave-door aperture in a massif); the carry
-    ships neither the object nor the prefab, so the hole shows sky (the bent crescent's
-    white rectangle, playtest 2026-08-04). The plug re-emits the object's own geometry
-    clad in the adjacent rock tri's own map (edge continuation, never per-vert atlas
-    mixing). An aperture welded only into the EXCISED mass is NOT plugged (it would
-    float over the fill), and a partially-welded object (a harbor ON ground) is not an
-    aperture."""
+def test_excise_counts_a_fully_welded_object_aperture(monkeypatch):
+    """THE APERTURE CENSUS. An object tri whose verts are ALL welded into the KEPT
+    terrain is a hole-filling face (a cave-door aperture in a massif); the carry ships
+    no objects, so a rotated/shifted deploy shows sky there (the bent crescent's white
+    rectangle, playtest 2026-08-04). An authored rock plug was playtested and REFUSED
+    (a flat non-stock cliff face -- THE FORM LESSON): excise only REPORTS the count;
+    the lawful fill is THE OBJECT POSE LAW in transplant_region. An aperture welded
+    only into the EXCISED mass is not counted (its mass is gone), nor is a
+    partially-welded object (a harbor ON ground)."""
     from ff9mapkit.world import transplant as TR
 
     kept = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
@@ -1397,12 +1397,7 @@ def test_excise_plugs_a_fully_welded_object_aperture(monkeypatch):
     monkeypatch.setattr(TR, "world_tris", fake_world_tris)
     tweaks, rep = TR.excise_plan((0, 0), (1, 1))
     assert not rep.get("refused"), rep.get("refused")
-    assert rep.get("aperture_plugs") == 1
-    plug_tw = [tw for tw in tweaks if isinstance(tw, TR.EmitTris) and tw.part == "terrain"]
-    assert len(plug_tw) == 1 and len(plug_tw[0].tris) == 1
-    plug = plug_tw[0].tris[0]
-    # edge continuation: uv/idall copied from the kept rock tri at the SAME verts
-    src = {tuple(round(c, 4) for c in v[0]): v for v in kept[0]}
-    for v in plug:
-        s = src[tuple(round(c, 4) for c in v[0])]
-        assert v[2] == s[2] and v[3] == s[3]
+    assert rep.get("apertures") == 1
+    # NO authored plug: excise emits no terrain (the sky/door decision is the carry's)
+    assert not [tw for tw in tweaks
+                if isinstance(tw, TR.EmitTris) and tw.part == "terrain"]

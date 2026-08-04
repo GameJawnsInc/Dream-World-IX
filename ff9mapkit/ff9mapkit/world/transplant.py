@@ -3478,7 +3478,25 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         # cell legitimately renders its own object (in-place morphs).
         identity = (rtarget == disc and nrot == 0 and sh_x == 0.0 and sh_z == 0.0
                     and (bx + i, by + j) == (dbx + nat[0], dby + nat[1]))
-        if set(need) <= donor_cell_has[nat] and (identity or not obj_by_cell[nat]):
+        # THE OBJECT POSE LAW (the bent crescent's cave door, 2026-08-04): an object may
+        # ride its NATURAL sidecar iff its pose stays lawful -- the carry UNROTATED and
+        # UNSHIFTED and the object's verts untouched by the tweaks (not dropped, not
+        # displaced). The prefab then renders the object exactly where its carried
+        # ground expects it (the stock look; a flat authored plug read as a non-stock
+        # cliff face). The ghost class -- the excised harbor whose ground was dropped --
+        # fails the untouched test; a rotated or shifted carry fails the pose test.
+        obj_ok = not obj_by_cell[nat]
+        if not obj_ok and nrot == 0 and sh_x == 0.0 and sh_z == 0.0:
+            okeys = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+                     for t in obj_by_cell[nat] for v in t}
+            # touched by ANY part's drops or displaces -- the ghost harbor's base verts
+            # were welded to the SHEET (sea4), not to land
+            touched = {k for tw in tweaks if isinstance(tw, DropTris)
+                       for ks in tw.keys for k in ks}
+            touched |= {k for tw in tweaks if isinstance(tw, (VertexDisplace, SeaBump))
+                        for k in tw.moves}
+            obj_ok = not (okeys & touched)
+        if set(need) <= donor_cell_has[nat] and (identity or obj_ok):
             pick = (dbx + nat[0], dby + nat[1])
             pick_parts = donor_cell_has[nat]
         else:
@@ -4112,62 +4130,35 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
     if emitted:
         tweaks.append(EmitTris("sea4", emitted))
 
-    # THE APERTURE PLUG (excise v4, playtest 2026-08-04): an object tri whose verts are
-    # ALL welded into the rect's terrain is a hole-filling FACE -- a cave-door aperture
-    # in a massif, filled by the prefab's Object in situ. The carry ships neither the
-    # object nor a plug, so the hole shows SKY (a flat pale rectangle mid-rock, the bent
-    # crescent). Plug it VERBATIM: the object's own geometry, clad per-vert in the
-    # surrounding ROCK's own uv/idall/normal sampled at the welded verts (never a
-    # plan-affine map -- the face is vertical, plan-degenerate). Deterministic sample:
-    # the first terrain instance in read order. Fail-closed: a partially-welded object
-    # (a harbor standing ON ground) is not an aperture and is not plugged.
+    # THE APERTURE CENSUS (playtest 2026-08-04): an object tri whose verts are ALL
+    # welded into the KEPT terrain is a hole-filling FACE -- a cave-door aperture in a
+    # massif, filled by the prefab's Object in situ. The carry ships no objects, so on a
+    # ROTATED or SHIFTED carry the hole shows SKY. An authored rock plug was playtested
+    # and refused (a flat non-stock cliff face -- THE FORM LESSON), so the lawful fill
+    # is THE OBJECT POSE LAW in transplant_region: an unrotated, unshifted carry keeps
+    # the object-bearing natural sidecar and the prefab renders the real door. Here the
+    # apertures are only COUNTED (report key ``apertures``) so a rotated deploy can be
+    # warned that its massif will show sky.
     def _vk(v):
         return (round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
-    terr_tris = []
-    terr_sample = {}
-    key_tris = {}
+    terr_keys = set()
     for by_ in range(dy, dy + ny):
         for bx_ in range(dx, dx + nx):
             for t in world_tris(bx_, by_, "terrain", disc=disc, lod=lod, game=game):
-                ti = len(terr_tris)
-                terr_tris.append(t)
                 for v in t:
-                    k = _vk(v)
-                    terr_sample.setdefault(k, (v[1], v[2], v[3]))
-                    key_tris.setdefault(k, []).append(ti)
+                    terr_keys.add(_vk(v))
     dropped_land_keys = {k for tw in tweaks if isinstance(tw, DropTris)
                          and tw.part in LAND_PARTS for ks in tw.keys for k in ks}
-    plugs = []
+    n_apertures = 0
     for by_ in range(dy, dy + ny):
         for bx_ in range(dx, dx + nx):
             for t in world_tris(bx_, by_, "object", disc=disc, lod=lod, game=game):
                 keys = [_vk(v) for v in t]
-                if not all(k in terr_sample for k in keys):
-                    continue
-                if any(k in dropped_land_keys for k in keys):
-                    continue                # an aperture in the EXCISED mass: no plug
-                # THE EDGE CONTINUATION: clad the plug in ONE adjacent rock tri's map
-                # (shared verts keep its uvs, the remaining vert takes its remaining
-                # vert's uv -- the patch mirrored across the shared edge). Per-vert
-                # sampling MIXES atlas tiles across the face (measured: one vert 0.5 uv
-                # away from its neighbours = a smear); the fallback only fires when no
-                # rock tri shares an edge.
-                cnt = collections.Counter(ti for k in keys for ti in key_tris[k])
-                rims = sorted(ti for ti, c in cnt.items() if c >= 2)
-                if rims:
-                    rt = terr_tris[rims[0]]
-                    rk = {_vk(v): v for v in rt}
-                    spare = [v for v in rt if _vk(v) not in keys]
-                    out = []
-                    for v, k in zip(t, keys):
-                        src = rk.get(k) or (spare[0] if spare else rt[0])
-                        out.append((v[0], src[1], src[2], src[3]))
-                    plugs.append(out)
-                else:
-                    plugs.append([(v[0],) + terr_sample[k] for v, k in zip(t, keys)])
-    if plugs:
-        report["aperture_plugs"] = len(plugs)
-        tweaks.append(EmitTris("terrain", plugs))
+                if all(k in terr_keys for k in keys) \
+                        and not any(k in dropped_land_keys for k in keys):
+                    n_apertures += 1
+    if n_apertures:
+        report["apertures"] = n_apertures
     return tweaks, report
 
 
