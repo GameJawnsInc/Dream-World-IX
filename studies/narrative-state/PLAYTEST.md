@@ -18,8 +18,28 @@ refuses to auto-seed (reported in the toml comments — if the Dali door looks w
 first suspect); **party composition is not seeded** (rung 7) — a scene gating on a specific
 cast member may silently not fire (the Ice Cavern lesson).
 
-## Results
+## Results — round 1 (owner, 2026-08-03)
 
-- 30820 (111 @ 1152): PENDING
-- 30821 (352 @ 2700): PENDING
-- 30822 (352 @ 3000): PENDING
+- 30820 (111 @ 1152): **PASS** — the "no vacancies" scene fired. Noise: "Slot 0/Slot 1" debug
+  windows — the DONOR'S OWN dev-instrumentation surfacing because the party was Zidane, not
+  Vivi (the same phenomenon as the 1860 wrong-sibling case). Party is the ingredient.
+- 30821 (352 @ 2700): **INCONCLUSIVE-FAIL** — slot errors, no scene/cast; Zidane-only party.
+  fork-report's Party-need axis had PREDICTED exactly this ("seed [party] to the beat's cast
+  or the gated scene won't fire") — the tool just didn't consume it.
+- 30822 (352 @ 3000): **PASS** — observably different state (a Snot-nosed Gudo innkeeper now
+  offers a room). Same bytes as 30821; only scenario + bit 2073 differ. **The seed drives
+  behavior in-game — the arc's first proof.**
+
+**Round-1 verdict: party state IS part of the beat** (the owner's call, matching the June Ice
+Cavern lesson). Fixed same-day: `story-seed` now also emits `[party]` — `add` = the cast the
+field both ADDS and GATES on, plus a non-Zidane donor player; required-but-never-added members
+(the dormant-Quina class) are reported assert-by-hand, never auto-seeded.
+
+## Round 2 — 30820 + 30821 redeployed with the party-aware seed (30822 untouched)
+
+Seeds regenerated + pasted verbatim: 30820 gains `[party] add = ["vivi"]`; 30821 gains
+`add = ["garnet", "steiner", "vivi", "zidane"]` (Quina correctly excluded as dormant).
+~ → Reload is enough (ids already registered — no relaunch).
+
+- 30820 re-test: the scene should still fire, WITHOUT the Slot debug windows. PENDING
+- 30821 re-test: does the beat-2700 inn now show its cast/scene (and differ from 30822)? PENDING

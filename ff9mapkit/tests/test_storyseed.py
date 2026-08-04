@@ -86,3 +86,24 @@ def test_real_553_seed(tmp_path):
     rep = storyseed.resolve(EbScript.from_bytes(data), 3110,
                             json.load(open(cpath, encoding="utf-8")))
     assert any(v.bit == 2647 and v.decision == "set" for v in rep.verdicts)
+
+
+def _install_eb(fid):
+    from ff9mapkit.extract import EventBundle
+    try:
+        return EventBundle().eb_for_id(fid)
+    except Exception:
+        pytest.skip("install unavailable")
+
+
+def test_party_seed_nonzidane_player_111():
+    ps = storyseed.party_seed(EbScript.from_bytes(_install_eb(111)))
+    assert ps["add"] == ["vivi"] and ps["player"] == ["Vivi"]
+
+
+def test_party_seed_dali_cast_and_dormant_quina_352():
+    ps = storyseed.party_seed(EbScript.from_bytes(_install_eb(352)))
+    assert ps["add"] == ["garnet", "steiner", "vivi", "zidane"]
+    assert ps["dormant"] == ["Quina"]          # checked but never added -> assert-by-hand only
+    out = storyseed.render_party(ps)
+    assert "[party]" in out and "Quina" in out and "NOT seeded" in out

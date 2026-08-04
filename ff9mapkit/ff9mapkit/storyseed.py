@@ -199,3 +199,52 @@ def render_startup(rep: SeedReport, *, field_label: str = "") -> str:
             L.append(f"# bit {v.bit}: UNKNOWN, defaulting clear -- {v.note} "
                      f"(writers {list(v.writers)})")
     return "\n".join(L)
+
+
+def party_seed(eb: EbScript) -> dict:
+    """The party evidence for a fork of this field: ``add`` = the cast the field's own party
+    ops both ADD and GATE on (its story reset builds the beat's roster), plus the donor's
+    non-Zidane player identity (the controlled body must exist); ``dormant`` = members the
+    field CHECKS but never adds (a cross-beat branch, e.g. a pre-join Quina check) — reported
+    for the author to assert, never auto-seeded (the wrong extra member is a false beat)."""
+    from . import eventscan, forkreport
+    from .content.party import CHAR_OLD_INDEX
+
+    ops = forkreport.scan_party_ops(eb.data)
+    req, adds = set(ops.get("required", ())), set(ops.get("adds", ()))
+    add_ids = sorted(req & adds)
+    pents = eventscan.resolve_player_entries(eb)
+    pnames = []
+    for pe in pents:
+        try:
+            pnames.append(forkreport.player_name(eventscan._player_model(eb, pe)))
+        except Exception:
+            pass
+    player_add = [] if any(n == "Zidane" for n in pnames) else \
+        [n for n in pnames if n and not n.startswith("?")]
+    name = lambda i: CHAR_OLD_INDEX.get(i, f"char{i}")           # noqa: E731
+    return {
+        "add": sorted({*(name(i).lower() for i in add_ids), *(n.lower() for n in player_add)}),
+        "player": player_add,
+        "gated": [name(i) for i in add_ids],
+        "dormant": [name(i) for i in sorted(req - adds)],
+    }
+
+
+def render_party(ps: dict) -> str:
+    if not ps["add"] and not ps["dormant"]:
+        return ""
+    L = []
+    if ps["add"]:
+        L.append("[party]")
+        L.append("add = [ " + ", ".join(f'"{n}"' for n in ps["add"]) + " ]")
+        bits = []
+        if ps["player"]:
+            bits.append(f"donor player: {'/'.join(ps['player'])} (non-Zidane -- must exist)")
+        if ps["gated"]:
+            bits.append(f"field adds AND gates on: {', '.join(ps['gated'])}")
+        L.append("# " + "; ".join(bits))
+    if ps["dormant"]:
+        L.append(f"# dormant party checks NOT seeded: {', '.join(ps['dormant'])} -- checked "
+                 "but never added by this field; assert by hand only if the beat truly has them")
+    return "\n".join(L)
