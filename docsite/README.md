@@ -55,6 +55,14 @@ dialog halves are harvested by driving the Workspace headlessly; the form half i
 out of `ff9mapkit/editor/forms.py`'s `<THING>_SPEC` lists, so it needs no Qt and picks up a newly
 added spec automatically.
 
+A handful of labels paint **live machine state** — the Build tab's deploy ledger ("N deployed
+here…"), where New Game currently lands, this box's ffmpeg and PySide6. `uiharvest._pin_live_state`
+pins those at the source before the harvest, exactly as `shots.toml`'s `pin` entries neutralize
+machine-specific painted text in figures; without it the committed inventory drifts whenever any
+concurrent session deploys into the shared mod folder, and `--check` reports the world instead of
+the UI. A new live-state label is caught by `machine_leaks()` (paths) or by the twin-harvest fence
+in `tests/test_uiharvest_pins.py` (counts) — not by review.
+
 ## Tests
 
 ```

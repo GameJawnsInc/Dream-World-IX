@@ -20,6 +20,11 @@ Two harvests, one inventory:
     picked up mechanically: a spec added to forms.py later enters the inventory on the next run
     with no edit here.
 
+Labels that PAINT LIVE MACHINE STATE (the deploy ledger's count, the New-Game target, this box's
+ffmpeg) are pinned at the source first -- see _pin_live_state. Without that the committed file
+drifts whenever any concurrent session deploys into the shared mod folder, and `--check` reports
+the world rather than the UI.
+
 Usage:
   py docsite/uiharvest.py            # write docsite/assets/ui-inventory.json
   py docsite/uiharvest.py --check    # re-harvest to memory, diff against the committed file
@@ -28,9 +33,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import json
+import re
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -47,6 +55,106 @@ except ImportError:  # pragma: no cover
 # gui_snap DIALOG_OPENERS keys; inventory paths use the dash->underscore noun ("new_journey.x").
 HARVEST_DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions",
                    "import-fields", "setup", "prefs")
+
+
+# --------------------------------------------------------------------------------- live-state pins
+# Some rendered labels PAINT LIVE MACHINE STATE into their own text: the mod folder's deploy ledger
+# ("410 deployed here · ..."), where New Game currently lands, this worktree's .ff9deploy.toml
+# target, this box's ffmpeg and PySide6. Harvested raw they make the committed inventory drift on
+# every unrelated deploy by any concurrent session (observed 410 -> 422 mid-session, and the mod
+# folders are SHARED) and differ on every machine -- so `--check` would alarm on the WORLD instead
+# of on the UI, which is the one thing it exists to watch. shots.toml pins exactly this painted text
+# for FIGURES; below is that idiom applied to WORDS, pinned at the SOURCE the way gui_snap's
+# _pin_setup_state / _pin_world_state / _pin_anim_cache family does, so the harvested sentence stays
+# REAL prose in its real format instead of a placeholder a tutorial could never match.
+#
+# Values are fixed and plausible, never this machine's: three ledger rows, two of them undoable.
+PINNED_LEDGER = (
+    {"kind": "field", "id": "4003", "name": "glade", "script": "revert_deploy_4003.py", "mtime": 0.0},
+    {"kind": "field", "id": "4005", "name": "hut_int", "script": None, "mtime": None},
+    {"kind": "campaign", "id": None, "name": "revert_campaign.py", "script": "revert_campaign.py",
+     "mtime": 0.0},
+)
+PINNED_NEWGAME = 4000                        # where the New-Game override reads as pointing
+PINNED_DEPLOY_TARGET = ("FF9CustomMap", None)   # jobs.detect_deploy_target's own default -> slot 4003
+PINNED_HEALTH = {"ffmpeg": "C:\\ffmpeg\\bin\\ffmpeg.exe",
+                 "PySide6": "present"}       # health's OWN no-__version__ wording; never a version
+# The absolute paths the pins deliberately paint (gui_snap's _pin_setup_state(game=True) resolves the
+# install to C:/FF9; PINNED_HEALTH paints the ffmpeg row). Any OTHER drive-lettered path in the
+# harvest is a leak -- see machine_leaks().
+PINNED_PATHS = ("C:\\FF9", "C:\\ffmpeg\\bin\\ffmpeg.exe")
+
+
+class _pin_live_state:
+    """Replace every live read a harvested label paints with a fixed value.
+
+    Each target is bound EAGERLY in __init__, so a renamed or moved function raises AttributeError
+    right here -- at the pin -- instead of silently leaving the harvest un-pinned and machine-
+    dependent again. The health rewrite additionally asserts it FIRED (a renamed row is a caught
+    error, not a quiet no-op)."""
+
+    def __init__(self):
+        from ff9mapkit import health
+        from ff9mapkit.editor import jobs
+        self.jobs, self.health = jobs, health
+        self._orig = (jobs.scan_deployed_reverts, jobs.current_newgame_target,
+                      jobs.detect_deploy_target, health.health_report)
+
+    def __enter__(self):
+        real_report = self._orig[3]
+
+        def report(*a, **k):
+            rows = real_report(*a, **k)
+            fired = set()
+            for r in rows:
+                if r["label"] in PINNED_HEALTH:
+                    r["value"], r["level"], r["advice"] = PINNED_HEALTH[r["label"]], "ok", ""
+                    fired.add(r["label"])
+            missing = sorted(set(PINNED_HEALTH) - fired)
+            if missing:
+                raise SystemExit(f"uiharvest: health_report no longer emits {missing} -- the row was "
+                                 f"renamed or dropped; fix PINNED_HEALTH or the harvest goes back to "
+                                 f"recording this machine")
+            return rows
+
+        self.jobs.scan_deployed_reverts = lambda *_a, **_k: [dict(r) for r in PINNED_LEDGER]
+        self.jobs.current_newgame_target = lambda *_a, **_k: PINNED_NEWGAME
+        self.jobs.detect_deploy_target = lambda *_a, **_k: PINNED_DEPLOY_TARGET
+        self.health.health_report = report
+        return self
+
+    def __exit__(self, *exc):
+        (self.jobs.scan_deployed_reverts, self.jobs.current_newgame_target,
+         self.jobs.detect_deploy_target, self.health.health_report) = self._orig
+        return False
+
+
+_ABS_PATH = re.compile(r"[A-Za-z]:[\\/][^\s]*")
+
+
+def machine_leaks(inv: dict) -> list[str]:
+    """Harvested strings carrying THIS machine's fingerprint -- the backstop for a volatile label
+    added AFTER _pin_live_state was written.
+
+    Honest about its reach: it catches PATHS (an unpinned drive-lettered path, or this box's home /
+    temp / repo dir quoted anywhere). A live COUNT or version number in some future label is NOT
+    path-shaped and slips past -- that class is caught by the twin-harvest fence in
+    docsite/tests/test_uiharvest_pins.py, which harvests twice under different live state."""
+    marks = [str(Path.home()), tempfile.gettempdir(), str(REPO)]
+    leaks = []
+    for skey, ents in inv["surfaces"].items():
+        for key, ent in ents.items():
+            for field in ("text", "a11y", "placeholder"):
+                s = ent.get(field)
+                if not s:
+                    continue
+                for m in marks:
+                    if m.lower() in s.lower():
+                        leaks.append(f"{skey} {key}.{field}: quotes this machine's {m!r}")
+                for tok in _ABS_PATH.findall(s):
+                    if not any(tok == p or tok.startswith(p + "\\") for p in PINNED_PATHS):
+                        leaks.append(f"{skey} {key}.{field}: unpinned absolute path {tok!r}")
+    return sorted(set(leaks))
 
 
 class capture_next_dialog:
@@ -195,13 +303,17 @@ def harvest_forms() -> dict[str, dict]:
     return surfaces
 
 
-def harvest() -> dict:
+def harvest(*, pin_live: bool = True) -> dict:
+    """The full inventory. ``pin_live=False`` un-pins the live-state reads -- ONLY the stability
+    fence uses it, to prove the injected state actually reaches a label (a twin-harvest check that
+    cannot tell pinned from unreachable is a check that cannot fail)."""
     gs = _load_gui_snap()
     ctx = gs._Ctx(SimpleNamespace(theme="light", scale=100, guided="guided", width=1280,
                                   height=850, campaign=None, thumb_source=None,
                                   out=str(gs._SCRATCH / "uiharvest")))
     surfaces: dict[str, dict] = {}
-    with gs._pin_setup_state(game=True, templates=True):
+    live = _pin_live_state() if pin_live else contextlib.nullcontext()
+    with gs._pin_setup_state(game=True, templates=True), live:
         win = gs._make_win(ctx)
         for tab, attr in sorted(gs.TAB_ATTRS.items()):
             surfaces[f"tab:{tab}"] = _harvest_doc(getattr(win, attr), attr)
@@ -219,6 +331,13 @@ def harvest() -> dict:
     inv = {"kit_version": _kit_version(),
            "note": "generated by docsite/uiharvest.py -- do not hand-edit",
            "surfaces": surfaces}
+    if pin_live:
+        leaks = machine_leaks(inv)
+        if leaks:
+            raise SystemExit("uiharvest: the harvest recorded THIS MACHINE -- the committed "
+                             "inventory would drift on every other box:\n  " + "\n  ".join(leaks)
+                             + "\n(a new label paints live state: pin it at the source in "
+                               "_pin_live_state, the way the ledger/newgame/health reads are)")
     n = sum(len(v) for v in surfaces.values())
     nf = sum(len(v) for v in forms.values())
     print(f"harvested {n} controls across {len(surfaces)} surfaces "
