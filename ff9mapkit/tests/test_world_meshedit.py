@@ -746,6 +746,110 @@ def test_excise_still_refuses_a_genuine_interior_sheet_hole(monkeypatch):
     assert "refused" in rep
 
 
+def test_excise_closes_a_structure_notch_over_the_object_base(monkeypatch):
+    """EXCISE v3 -- THE STRUCTURE NOTCH. The world sheet is CUT under baked structures
+    (measured: block (14,2)'s harbor base is exactly the 5 'interior' waterline verts the
+    gate refused on the crescent, byte-exact). THE OBJECT ANCHOR means no carry ships the
+    structure, so a dropped mass's structure footprint must be CLOSED OVER by the fill.
+
+    Here the crumb's ring vert (52,-12) has no sea4 partner and is off-frame -- v2 refuses
+    it -- but it is the y=0 base of the block's own object mesh, so v3 deletes the detour
+    and fills straight across.
+    """
+    from ff9mapkit.world import transplant as TR
+
+    kept = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
+            _tri([(10.0, -40.0), (15.0, -50.0), (8.0, -48.0)]),
+            _tri([(20.0, -40.0), (25.0, -46.0), (15.0, -50.0)])]
+    # ring order A(64,-8) B(64,-24) C(52,-20) D(52,-12): two frame verts, one sea4-shared,
+    # one structure-base
+    crumb = [_tri([(64.0, -8.0), (64.0, -24.0), (52.0, -20.0)]),
+             _tri([(64.0, -8.0), (52.0, -20.0), (52.0, -12.0)])]
+    sea4 = [_tri([(0.0, 0.0), (40.0, 0.0), (52.0, -20.0)]),
+            _tri([(0.0, 0.0), (52.0, -20.0), (0.0, -64.0)])]
+    # the structure: one tri whose ONLY y=0 vert is the notch vert; the rest are up the wall
+    obj = [_tri([(52.0, 0.0, -12.0), (48.0, 3.0, -10.0), (48.0, 3.0, -14.0)])]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4, "object": obj}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    _tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+
+    assert not rep.get("refused"), rep.get("refused")
+    assert rep["weld_exact"] is True, rep.get("weld_missing")
+    assert rep.get("structure_base") == 1
+    assert rep["fill_tris"] >= 1, "the fill must close over the notch, not vanish"
+
+
+def test_excise_notch_deletion_never_touches_a_run_without_waterline_verts(monkeypatch):
+    """The vacuous direction of v3's discriminant: ``all(v in obj_base for wl)`` over an
+    EMPTY waterline list is true, so without the ``if not wl`` guard, the mere presence of
+    a structure anywhere in the rect would delete every off-frame crop-profile corner --
+    ordinary coast geometry with nothing structural about it. The corner must survive and
+    appear (flattened) in the fill boundary.
+    """
+    from ff9mapkit.world import transplant as TR
+
+    kept = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
+            _tri([(10.0, -40.0), (15.0, -50.0), (8.0, -48.0)]),
+            _tri([(20.0, -40.0), (25.0, -46.0), (15.0, -50.0)])]
+    # ring A(64,-8) B(64,-24) C(52,-20) P(56,y=2,-14): frame, frame, sea4-shared, and a
+    # RAISED off-frame profile corner (a crop-slice step, not a structure base)
+    crumb = [_tri([(64.0, -8.0), (64.0, -24.0), (52.0, -20.0)]),
+             _tri([(64.0, -8.0), (52.0, -20.0), (56.0, 2.0, -14.0)])]
+    sea4 = [_tri([(0.0, 0.0), (40.0, 0.0), (52.0, -20.0)]),
+            _tri([(0.0, 0.0), (52.0, -20.0), (0.0, -64.0)])]
+    obj = [_tri([(30.0, 0.0, -30.0), (28.0, 3.0, -28.0), (28.0, 3.0, -32.0)])]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4, "object": obj}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+
+    assert not rep.get("refused"), rep.get("refused")
+    assert not rep.get("structure_base")
+    fill = [t for tw in tweaks if isinstance(tw, TR.EmitTris) for t in tw.emit()]
+    corners = {(round(v[0][0], 3), round(v[0][2], 3)) for t in fill for v in t}
+    assert (56.0, -14.0) in corners, "the profile corner was deleted from the fill boundary"
+
+
+def test_excise_still_refuses_when_the_interior_vert_is_not_the_structures_base(monkeypatch):
+    """The fail-closed direction of v3: an object mesh being PRESENT in the rect must not
+    excuse an interior vert the structure does not own. Same fixture, but the object's
+    base vert is elsewhere -- the v1 refusal must survive. Without this, a discriminant
+    forced always-true passes every test while shipping unweldable fills.
+    """
+    from ff9mapkit.world import transplant as TR
+
+    kept = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
+            _tri([(10.0, -40.0), (15.0, -50.0), (8.0, -48.0)]),
+            _tri([(20.0, -40.0), (25.0, -46.0), (15.0, -50.0)])]
+    crumb = [_tri([(64.0, -8.0), (64.0, -24.0), (52.0, -20.0)]),
+             _tri([(64.0, -8.0), (52.0, -20.0), (52.0, -12.0)])]
+    sea4 = [_tri([(0.0, 0.0), (40.0, 0.0), (52.0, -20.0)]),
+            _tri([(0.0, 0.0), (52.0, -20.0), (0.0, -64.0)])]
+    obj = [_tri([(30.0, 0.0, -30.0), (28.0, 3.0, -28.0), (28.0, 3.0, -32.0)])]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4, "object": obj}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    _tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+
+    assert rep["weld_exact"] is False
+    assert (52.0, 0.0, -12.0) in [tuple(v) for v in rep["weld_missing"]]
+    assert "refused" in rep
+    assert not rep.get("structure_base")
+
+
 def test_excise_fill_does_not_fan_across_a_block_border(monkeypatch):
     """THE FAN LAW at the EXCISE call site -- two helpers deep from where it is spent.
 

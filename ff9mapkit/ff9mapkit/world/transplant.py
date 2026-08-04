@@ -3200,10 +3200,28 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         "S": [((dbx + i, dby + ny), 2, -64.0 * (dby + ny) - extra, False) for i in range(nx)]}
     borders = {"E": (0, 64.0 * (dbx + nx), -1.0), "W": (0, 64.0 * dbx, 1.0),
                "N": (2, -64.0 * dby, -1.0), "S": (2, -64.0 * (dby + ny), 1.0)}
+    # THE TONGUE IS JUDGED ON THE LAND THAT SURVIVES THE TWEAKS. An excised mass whose
+    # land touches a border must not open that border's window: the strip would gather
+    # the mass's own continuation from beyond the frame -- the ghost of the thing just
+    # dropped -- steer the auto-shift with it, and put foreign land on the frame.
+    # Measured on the crescent (14,1)+4x2: pre-tweak tongues S,W turned a fully-clean
+    # carry into land-fit FAIL + 26 introduced census misses + object-anchor moved=True.
+    # Read-only key probe (DropTris.apply mutates its scope-gate counter, so it must not
+    # be called here); EmitTris refills are not counted, which can only close a window a
+    # drop opened -- never open one.
+    _dropped_land = {k for tw_ in tweaks if isinstance(tw_, DropTris)
+                     and tw_.part in LAND_PARTS for k in tw_.keys}
+
+    def _land_dropped(tri):
+        return _dropped_land and frozenset(
+            (round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+            for v in tri) in _dropped_land
+
     tongue = {d for d, (axis, plane, sgn) in borders.items()
               if any(sgn * (v[0][axis] - plane) <= 1.0
                      for c in dcells for p in parts if p in LAND_PARTS
-                     for tri in donor_cell_part[c][p] for v in tri)}
+                     for tri in donor_cell_part[c][p]
+                     if not _land_dropped(tri) for v in tri)}
     if strips == "auto":
         gathered, windowed = set(strip_specs), tongue
     elif strips == "all":
@@ -3813,6 +3831,17 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
 
     sea4_keys = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
                  for t in sea4 for v in t}
+    # THE STRUCTURE NOTCH (excise v3). The world sheet is CUT under baked structures the
+    # way sea4 is cut under land, and it welds to the structure's y=0 base verts. THE
+    # OBJECT ANCHOR (above) means no carry ever ships the structure, so a dropped mass's
+    # structure footprint must be CLOSED OVER by the fill, not left as a void notch.
+    # Measured on the one live case map-wide ((14,0)+4x3, the crescent): block (14,2)'s
+    # harbor base is exactly the 5 "interior" waterline verts the gate was refusing,
+    # byte-exact, and its entire waterline base is those 5 verts.
+    obj_base = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+                for by in range(dy, dy + ny) for bx in range(dx, dx + nx)
+                for t in world_tris(bx, by, "object", disc=disc, lod=lod, game=game)
+                for v in t if abs(v[0][1]) < 1e-6}
     _fx0, _fx1 = 64.0 * dx, 64.0 * (dx + nx)
     _fz1, _fz0 = -64.0 * dy, -64.0 * (dy + ny)
 
@@ -3881,6 +3910,43 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
             if abs(cross) > 1e-3:                     # a real corner, not a profile step
                 keep.append(v)
         plan = keep
+        # THE STRUCTURE-NOTCH DELETION. The ring detours off the frame around a baked
+        # structure's base (leave the frame, cross the base verts, return to the frame);
+        # deleting the WHOLE detour -- base verts and the off-frame profile verts between
+        # the frame departures -- closes the fill straight across the notch. Deleting
+        # only the y=0 base verts is not enough: the surviving off-frame profile corner
+        # re-routes the boundary and leaves a void sliver along the frame. Fail-closed
+        # three ways: a run with NO waterline vert is kept verbatim (the vacuous case --
+        # an ordinary off-frame coast corner must never be touched), a waterline vert
+        # that is not byte-exact in the rect's own object base keeps its run and refuses
+        # below, and a rect with no object mesh skips the pass entirely.
+        if obj_base and len(plan) >= 3:
+            n = len(plan)
+            off = [not (_shared(v) or _on_frame(v)) for v in plan]
+            if any(off) and not all(off):
+                start = off.index(False)              # rotate so runs never wrap
+                runs, cur = [], []
+                for k in range(n):
+                    idx = (start + k) % n
+                    if off[idx]:
+                        cur.append(idx)
+                    elif cur:
+                        runs.append(cur)
+                        cur = []
+                if cur:
+                    runs.append(cur)
+                drop = set()
+                for run in runs:
+                    wl = [plan[k] for k in run if abs(plan[k][1]) < 1e-6]
+                    if not wl:
+                        continue
+                    if all((round(v[0], 4), round(v[1], 4), round(v[2], 4)) in obj_base
+                           for v in wl):
+                        drop |= set(run)
+                        report["structure_base"] = (report.get("structure_base", 0)
+                                                    + len(wl))
+                if drop:
+                    plan = [v for k, v in enumerate(plan) if k not in drop]
         if len(plan) < 3:
             continue
         for v in plan:                                # THE EXACTNESS GATE

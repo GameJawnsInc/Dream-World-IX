@@ -753,6 +753,37 @@ def test_region_2x1_verbatim_carry(monkeypatch):
     assert ("sidecar", 4, 2) in kinds and ("sidecar", 5, 2) in kinds
 
 
+def test_region_tongue_ignores_land_dropped_by_the_tweaks(monkeypatch):
+    """THE TONGUE IS JUDGED ON THE LAND THAT SURVIVES THE TWEAKS. An excised mass whose
+    land touches a border must not open that border's window -- the strip would gather the
+    mass's own continuation from beyond the frame (the ghost of the thing just dropped).
+    Measured on the crescent (14,1)+4x2: the pre-tweak tongue turned a clean carry into
+    land-fit FAIL + 26 introduced misses + object-anchor moved=True.
+    """
+    blocks = {(1, 1, "terrain"): (_quad(80.0, 96.0, -104.0, -88.0, y=1.0)          # the subject
+                                  + _quad(120.0, 128.0, -104.0, -88.0, y=1.0)),    # a border crumb
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (2, 1, "terrain"): _quad(128.0, 136.0, -104.0, -88.0, y=1.0),        # its continuation
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    crumb = _quad(120.0, 128.0, -104.0, -88.0, y=1.0)
+
+    # WITHOUT the drop the crumb's land reaches the E border: the window opens
+    s0 = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1), shift=(0.0, 0.0),
+                              census_samples=8, land_margin=0.0, dry_run=True)
+    assert s0["strips"] == ["E"]
+
+    # WITH the drop the surviving land stops at 96: the window must close, and the
+    # (2,1) continuation must not be carried
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1), shift=(0.0, 0.0),
+                             census_samples=8, land_margin=0.0, dry_run=True,
+                             tweaks=[TR.DropTris("terrain", crumb)])
+    assert s["strips"] == []
+    assert s["window"] == {"x": [0.0, 0.0], "z": [0.0, 0.0]}, (
+        "a window opened by dropped land would let a shift pull the ghost inside")
+    assert s["cells"]["4,2"]["carried"]["terrain"] == 2      # the subject alone
+
+
 def test_region_shift_splits_straddlers_watertight(monkeypatch):
     """An in-region shift carries tris ACROSS the interior border; the re-partition splits them
     with bit-identical cut points on both sides (the _split_at_borders law) -- weld audit 0."""

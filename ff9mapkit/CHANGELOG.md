@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — excise v3: THE STRUCTURE NOTCH — a dropped mass's baked-structure footprint closes over
+- The world sheet is CUT under baked structures the way sea4 is cut under land, and it welds to the
+  structure's y=0 base verts. `TR.PARTS` never collects `object`, so an excised mass owning a
+  structure (measured: the crescent's harbor at block `(14,2)` — its 5 "interior" waterline verts
+  are the structure's entire base, byte-exact) refused as an unweldable sheet hole. Since THE
+  OBJECT ANCHOR means no carry ever ships the structure, `excise_plan` now deletes the ring's whole
+  off-frame detour around a structure base and fills straight across — sea4 where the harbor stood.
+- **Fail-closed three ways**: a run with no waterline vert is never touched (an ordinary crop
+  profile corner), a waterline vert not byte-exact in the rect's own object base still refuses with
+  the v1 reason, and a structure-free rect skips the pass. Swept every 2x2/3x2/4x3 rect on disc 1:
+  exactly one rect ever reaches the exactness gate and fails it, and it is this one.
+- Unlocks the crescent — `(14,1)+4x2`, 8624u², 78% walkable, terrain 1386: the largest carry in the
+  palette, `gates CLEAN`.
+
+### Fixed — THE GHOST TONGUE: the island-tongue rule is judged on land that survives the tweaks
+- `transplant_region` judged the tongue on **pre-tweak** land, so an excised mass touching a border
+  opened that border's window and the strips carried the mass's own continuation — the ghost of the
+  thing just dropped — back into the carry, steering the auto-shift with it (measured on the
+  crescent: land-fit FAIL + 26 introduced census misses + `object-anchor moved=True`, all cleared).
+  The probe is read-only over `DropTris` keys (`apply()` mutates its scope-gate counter). The
+  isthmus's own redeploy was failing the same way and now carries exactly its published 578.
+
 ### Added — `world-rim-retile`: terminate a carried island's cropped shallow ring
 - Carrying a coastal island standalone crops the neighbour blocks that hosted its sea5 transition
   rings, so its shallow band ends against open ocean with no transition — a hard `sea3|deep` seam

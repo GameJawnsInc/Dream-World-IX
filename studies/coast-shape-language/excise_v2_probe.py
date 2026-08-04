@@ -89,9 +89,12 @@ def main() -> int:
     for ci in foreign:
         ks = {key(v[0]) for t in comps[ci] for v in t}
         # the waterline = this assembly's boundary vertices
+        # boundary_cycles emits EXACT floats (the E-2 round-to-key fix); round here or
+        # every comparison against the rounded key sets silently fails. Caught by the
+        # impossible reading "95 free verts carrying no parts at all".
         bnd = set()
         for cyc in ME.boundary_cycles(comps[ci]):
-            bnd |= set(cyc)
+            bnd |= {key(v) for v in cyc}
         bad = [k for k in bnd if k not in sea4_keys]
         cls = Counter()
         for k in bad:
