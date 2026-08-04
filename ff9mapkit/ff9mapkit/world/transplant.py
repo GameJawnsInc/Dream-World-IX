@@ -3930,3 +3930,50 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
     if emitted:
         tweaks.append(EmitTris("sea4", emitted))
     return tweaks, report
+
+
+#: the shore-bound shallow bands -- COPY-ONLY, never synthesizable in open water
+SHALLOW_PARTS = ("sea1", "sea2", "sea3", "sea5")
+
+
+def deepen_shallow_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1",
+                        game=None, parts=SHALLOW_PARTS):
+    """Re-shade a carried island's SHALLOW RING as deep ocean. Returns ``(tweaks, report)``.
+
+    THE RING-CUT problem: an island's shallow ladder is welded to its coast but extends
+    past any rect that contains the island, so a carry crops it and the ring terminates
+    along straight block-frame lines in open ocean -- a hard sea3->sea4 edge with no
+    ladder. Measured on donor (6,6): stock continues 294 shallow tris north past the frame.
+    Enlarging the rect does not help; it triggers THE RING-CUT TRAP and excises the island.
+
+    Owner-confirmed in game across three deploys: the two islands carrying NO ring (the
+    comma, the corner isle) show no artifact; the one carrying a cropped ring does.
+
+    So drop the ring's SHADE, not its geometry: every shallow tri is re-emitted into sea4
+    verbatim in position, normal and winding, with only uv and IDALL changed
+    (:func:`meshedit.retag_flat`). Nothing is triangulated, no vertex moves, the tri count
+    is conserved, and the island ends up in uniform deep water like every other clean
+    carry. This is a LOOK edit; the water was never geometrically wrong.
+    """
+    from . import meshedit as ME
+    dx, dy = int(donor[0]), int(donor[1])
+    nx, ny = int(size[0]), int(size[1])
+    tweaks, converted, per_part = [], [], {}
+    for p in parts:
+        got = []
+        for j in range(ny):
+            for i in range(nx):
+                got += world_tris(dx + i, dy + j, p, disc=disc, lod=lod, game=game)
+        if not got:
+            continue
+        per_part[p] = len(got)
+        tweaks.append(DropTris(p, got))
+        converted += ME.retag_flat(got, uv_quads=SEA4_QUADS, idall=SEA4_IDALL)
+    if converted:
+        tweaks.append(EmitTris("sea4", converted))
+    report = dict(dropped=per_part, converted=len(converted),
+                  conserved=(sum(per_part.values()) == len(converted)))
+    if not converted:
+        report["refused"] = ("this donor carries no shallow ring -- nothing to deepen "
+                             "(the comma and the corner isle are already deep-water)")
+    return tweaks, report

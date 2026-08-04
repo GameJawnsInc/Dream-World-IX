@@ -732,3 +732,47 @@ def flat_patch(ring, *, y: float, uv_quads, idall: int, normal=(0.0, 1.0, 0.0),
                          (float(idall), 0.0, 0.0, 1.0)))
         out.append(poly)
     return out
+
+
+def retag_flat(tris, *, uv_quads, idall: int, pick=None, winding: float = -1.0) -> list:
+    """Re-shade flat water triangles into another band's vocabulary, geometry VERBATIM.
+
+    The counterpart to :func:`flat_patch`: that one FILLS a hole with new triangles, this
+    one leaves every triangle exactly where it is and changes only what it looks like.
+    Positions, normals and vertex order are untouched, so the tri count cannot change and
+    no weld can move -- the edit is unable to introduce a crack by construction.
+
+    Why this and not drop-and-fill: removing an island's shallow ring leaves an ANNULUS
+    (bounded inside by the waterline, outside by the deep sheet's inner edge), which
+    :func:`flat_patch` cannot fill -- it takes a simple ring. And nothing about the ring's
+    geometry is wrong: stock sea3/sea5 are flat at y=0, share the deep sheet's normal byte
+    constant, and wind the same way. Only the SHADE is wrong once the ring has been cropped
+    out of its context.
+
+    UV follows the same positional rule as :func:`flat_patch` (4u period inside the chosen
+    quadrant), so a converted band and a neighbouring fill agree where they meet.
+    ``winding`` is asserted, not imposed: a caller converting a band that does not already
+    wind the target's way is doing something other than a re-shade and should know.
+    """
+    quads = [tuple(float(c) for c in q) for q in uv_quads]
+    if not quads:
+        raise ValueError("retag_flat needs at least one uv quadrant")
+    out = []
+    for ti, t3 in enumerate(tris):
+        cross = ((t3[1][0][0] - t3[0][0][0]) * (t3[2][0][2] - t3[0][0][2])
+                 - (t3[2][0][0] - t3[0][0][0]) * (t3[1][0][2] - t3[0][0][2]))
+        if winding and cross and cross * winding < 0:
+            raise ValueError(
+                f"retag_flat: triangle {ti} winds {'+' if cross > 0 else '-'} but the "
+                f"target band winds {'+' if winding > 0 else '-'} -- a re-shade must not "
+                f"flip a face (a back-facing sea tri renders yet reads as void)")
+        u0, v0, u1, v1 = quads[(pick(ti) if pick else ti) % len(quads)]
+        poly = []
+        for (pos, nrm, _uv, _tan) in t3:
+            fu = (pos[0] / 4.0) % 1.0
+            fv = (-pos[2] / 4.0) % 1.0
+            poly.append((tuple(float(c) for c in pos), tuple(float(c) for c in nrm),
+                         (u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv),
+                         (float(idall), 0.0, 0.0, 1.0)))
+        out.append(poly)
+    return out

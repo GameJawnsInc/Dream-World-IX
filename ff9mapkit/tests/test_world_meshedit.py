@@ -1006,3 +1006,63 @@ def test_carried_subject_guard_can_be_overridden_deliberately(monkeypatch):
     monkeypatch.setattr(TR, "world_tris", fake)
     _tw, rep = TR.excise_plan((0, 0), (1, 1), keep_largest=False)
     assert "excises its own subject" not in (rep.get("refused") or "")
+
+
+# ------------------------------------------------------- THE RING DROP (re-shade)
+
+def _flat_tri(x, z, *, wind=-1.0, nrm=(-0.121, 0.979, 0.167)):
+    """A flat y=0 water tri wound to `wind` (stock sea winds negative)."""
+    a, b, c = (x, 0.0, z), (x + 2.0, 0.0, z), (x, 0.0, z - 2.0)
+    if wind > 0:
+        b, c = c, b
+    return [(p, nrm, (0.3, 0.3), (99.0, 0.0, 0.0, 1.0)) for p in (a, b, c)]
+
+
+def test_retag_flat_conserves_geometry_exactly():
+    """A re-shade must be unable to move a weld: positions and normals verbatim."""
+    src = [_flat_tri(4.0 * i, -8.0) for i in range(6)]
+    out = ME.retag_flat(src, uv_quads=((0.0, 0.0, 0.5, 0.5),), idall=228)
+    assert len(out) == len(src)
+    for a, b in zip(src, out):
+        assert [v[0] for v in a] == [v[0] for v in b]      # positions
+        assert [v[1] for v in a] == [v[1] for v in b]      # normals
+        assert all(v[3][0] == 228.0 for v in b)            # retagged IDALL
+
+
+def test_retag_flat_uv_matches_flat_patch_positional_rule():
+    """The converted band and a neighbouring fill must agree where they meet."""
+    q = (0.0, 0.0, 0.5039, 0.5079)
+    out = ME.retag_flat([_flat_tri(6.0, -10.0)], uv_quads=(q,), idall=228)
+    for (pos, _n, uv, _t) in out[0]:
+        fu, fv = (pos[0] / 4.0) % 1.0, (-pos[2] / 4.0) % 1.0
+        assert uv == pytest.approx((q[0] + (q[2] - q[0]) * fu,
+                                    q[1] + (q[3] - q[1]) * fv))
+
+
+def test_retag_flat_refuses_to_flip_a_face():
+    """A back-facing sea tri RENDERS yet reads as void -- a re-shade must never cause it."""
+    with pytest.raises(ValueError, match="must not.*flip|winds"):
+        ME.retag_flat([_flat_tri(0.0, 0.0, wind=+1.0)],
+                      uv_quads=((0.0, 0.0, 0.5, 0.5),), idall=228, winding=-1.0)
+
+
+def test_deepen_shallow_plan_conserves_the_tri_count(monkeypatch):
+    """Every dropped shallow tri must reappear as deep water -- no hole, no extra."""
+    from ff9mapkit.world import transplant as TR
+    ring = [_flat_tri(4.0 * i, -12.0) for i in range(7)]
+
+    def fake(bx, by, part, **kw):
+        return ring if part == "sea3" else []
+
+    monkeypatch.setattr(TR, "world_tris", fake)
+    _tw, rep = TR.deepen_shallow_plan((0, 0), (1, 1))
+    assert rep["dropped"] == {"sea3": 7} and rep["converted"] == 7
+    assert rep["conserved"] is True
+
+
+def test_deepen_shallow_plan_refuses_a_ring_less_donor(monkeypatch):
+    """The comma and the corner isle are already deep-water -- saying so beats a no-op."""
+    from ff9mapkit.world import transplant as TR
+    monkeypatch.setattr(TR, "world_tris", lambda *a, **k: [])
+    _tw, rep = TR.deepen_shallow_plan((0, 0), (1, 1))
+    assert "no shallow ring" in rep["refused"]

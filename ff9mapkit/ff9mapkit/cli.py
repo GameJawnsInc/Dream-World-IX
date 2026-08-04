@@ -4218,6 +4218,17 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             if not ex_tweaks:
                 print("   (nothing crosses the frame -- the rect is already clean)")
             tweaks = list(tweaks) + list(ex_tweaks)
+        if getattr(args, "deepen_shallow", False):
+            dp_tweaks, dp_rep = TR.deepen_shallow_plan(
+                (dx, dy), (snx, sny), disc=args.disc, game=args.game)
+            print(f"deepen-shallow: dropped={dp_rep['dropped']} "
+                  f"converted={dp_rep['converted']} conserved={dp_rep['conserved']}")
+            if dp_rep.get("refused"):
+                raise ConfigError(f"--deepen-shallow refused: {dp_rep['refused']}")
+            if not dp_rep["conserved"]:
+                raise ConfigError("--deepen-shallow: tri count not conserved -- a re-shade "
+                                  "must convert every dropped triangle and no others")
+            tweaks = list(tweaks) + list(dp_tweaks)
         # the cliff-coast morphs build their tweak sets from the donor bytes, every law
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
@@ -8200,6 +8211,14 @@ def build_parser() -> argparse.ArgumentParser:
                           "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
                           "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
                           "reaches a land component is refused offline.")
+    wtp.add_argument("--deepen-shallow", action="store_true",
+                     help="re-shade the carried island's SHALLOW RING (sea1/2/3/5) as deep "
+                          "ocean. An island's ring extends past any rect that contains the "
+                          "island, so a carry crops it and it ends along straight "
+                          "block-frame lines in open water -- a hard sea3->sea4 edge with "
+                          "no ladder. Geometry, normals and winding transport VERBATIM; "
+                          "only uv and IDALL change, so the tri count is conserved and no "
+                          "weld can move. Refuses a donor that carries no ring.")
     wtp.add_argument("--excise", action="store_true",
                      help="drop every landmass whose LAND crosses the donor rect frame "
                           "and re-zip deep ocean over its footprint. Unlocks rects that "
