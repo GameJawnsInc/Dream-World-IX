@@ -16,6 +16,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   strait class at stock width needs a shore-ladder termination on that frame (the rim-retile
   family lane), registered as the follow-up.
 
+### Fixed — the rim retile's two shifted-carry laws (found by the cluster-shift playtest)
+- **THE CROP-SEAM WIDENING**: `plan_rim` audited only outer-frame shallow quads — correct for
+  unshifted carries (crop lines land on the frame), blind for a cluster-shifted carry whose
+  crop lines land mid-cell. A quad is now planned on MEASURED seam truth anywhere: sea3
+  touching deep (stock abuts sea3 to deep nowhere map-wide), or a sea5 whose encoded deep-set
+  mismatches its geometric one. **THE CUT-VERT LAW**: `apply_rim` corner-snapped every vert's
+  uv — invisible on full frame tiles, a stretched-face smear on the coast-cut partial tiles
+  the widening newly plans; the variant's 4-corner map is now evaluated AT the vert (bilinear;
+  bit-identical on lattice corners). Both mutation-killed. The composed dot pair is
+  playtest-confirmed with both fixes live.
+
 ### Added — THE CLUSTER SHIFT: compose carried masses at stock archipelago spacing (study 2)
 - `transplant_region` pinned every shift to the ±8u neighbour-strip window, so two carried
   masses could never sit closer than their rects allow (measured floor ~49.8u against stock's
