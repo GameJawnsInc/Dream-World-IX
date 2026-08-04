@@ -5,6 +5,34 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — several windows at once, text-synchronized beats, and coloured text
+- **Multi-window cutscene steps** `open` / `close` / `wait_window` / `raise` on both scene flavors
+  (narration and a cast). `say` opens one window and blocks; splitting that is how stock builds unison
+  speech, staged countdown captions and a hint held under rolling dialogue — none of which the kit
+  could express. An async window is yours to close, and the build refuses a scene that leaks one.
+- **Text-synchronized signals** — `signal = "+" | n` and `hold` on any line, plus `{ set_signal = n }`
+  and `{ wait_signal = n, timeout = 250 }` steps. A tag inside a line fires when that text appears on
+  screen, so a script can block until a line has finished typing. **The wait is always guarded and
+  there is no unguarded form to author**: stock puts a 250-frame countdown beside every one of these
+  waits (117 of its 319 signal reads), because text is not a guaranteed event and an unguarded spin
+  hangs the field.
+- **Coloured text** via `{name}…{/}` / `{item}…{/}` / `{amount}…{/}` (plus the six colour names stock
+  ships) on every authored line, including choice rows. Colour in FF9 is semantic: it marks the parts
+  of a line that came from the save rather than the script. Emits the game's exact
+  `[CODE][HSHD]…[C8C8C8][HSHD]` pair; unbalanced markup is linted, and a line without markup is
+  byte-identical to before.
+
+### Fixed
+- **A confirm press dismisses every open window, not the topmost one** — so an async window that must
+  survive a line of dialogue needs `hold = true`, or the press that advances the dialogue closes it
+  too. Now refused at build time (this cost a playtest), along with the mirror deadlock of holding a
+  window a `wait_window` is waiting on.
+- **A space after an inline button glyph never renders** — the engine discards every one of them, in
+  both the measuring and drawing passes. Now linted, pointing at stock's own `[DBTN=CROSS]: Confirm`
+  legend form.
+- **Button glyphs measured as zero width** when wrapping, so any `[DBTN]`-bearing line was
+  under-measured.
+
 ### Fixed — `[[npc]] face` was documented but never wired; every authored NPC shipped facing south
 - **`face = <0..255>` on an `[[npc]]` now sets which way it stands** (0=south/toward the camera,
   64=west, 128=north, 192=east — the same compass `[player]`, chest and prop `face` already used).

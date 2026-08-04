@@ -607,6 +607,45 @@ readable wants the unbuilt `[[event]] trigger="action"` follow-up:**
 10. **Per-language authored text** — accept `dialogue = { us = "...", fr = "..." }`;
     `mes_parts` is already per-language, only the broadcast needs splitting.
 
+### ★ THE TWO OPEN PIECES — the whole gap list's live items (2026-08-04)
+
+Everything else in Tiers 1-2 is built and in-game proven. These two are what a next session picks up,
+written to be startable cold.
+
+**A. Per-language authored text (item 10).** Today every language gets the SAME authored string: the
+build resolves one line and broadcasts it to all 7 (`suffix, {lang: suffix for lang in langs}` — the
+pattern repeats at each `_verbatim_*_messages` site and in `collect_text`). The plumbing underneath is
+ALREADY per-language — `mes_parts` is keyed by lang and `[[logic_edit]] kind="text"` edits donor lines
+per-language today — so the work is splitting the broadcast, not building a channel.
+- **Seam:** every `{lang: suffix for lang in langs}` construction in `build.py`, plus `_add`/`_add_raw`
+  in `collect_text` (which assemble ONE line and hand it to `build_mes`).
+- **Shape:** accept a table wherever a string is accepted (`dialogue`, `message`, `say`/`open`, choice
+  `prompt`/`text`/`reply`, `speaker`); missing languages fall back to `us`, which keeps every existing
+  single-string project byte-identical.
+- **Watch:** wrapping is per-language (widths differ by script); the speaker convention differs by
+  language and the engine knows it — `VoicePlayer.cs:147-155` detects the name line by `\n“` (English),
+  `\n「` (Japanese), `:\n` (German/French), `\n─` (Italian/Spanish). `with_speaker` emits the English
+  form unconditionally, so a per-language lane should carry the per-language attribution shape too, or
+  VA name-keyed lookups silently miss on non-English.
+
+**B. Mid-line signals — `signal_at = "word"` (the rest of item 7).** `signal`/`hold` and the guarded
+`wait_signal` are built and proven, but a signal tag can only land at the END of a line, so a script
+can block until a line finishes typing and no finer. The engine substrate is finer-grained than the
+kit: `[SIGL]`/`[INCS]` fire at whatever text POSITION they occupy, typewriter-aware.
+- **Why it matters:** end-of-line sync gives unison. MID-line sync is what times a camera cut, an SFX
+  sting, or an actor's flinch to a *particular word* — the capability §8 called "far more general".
+- **Seam:** `text.dress_window` appends the tag as a suffix; mid-line means splicing at a match inside
+  the string BEFORE wrapping (so the tag doesn't land inside a wrapped word), then the existing
+  `wait_signal` steps gate on it unchanged.
+- **Shape:** `signal_at = "<substring>"` (first occurrence, error if absent so a typo is not a silent
+  no-op), or a list for several marks in one line.
+- **Precedent, and its limit:** stock's `[SIGL]` sites are mid-line (`"YES![WAIT=30][SIGL=1] THAT'S
+  IT![WAIT=25][SIGL=2]"`, quoted in `DialogBoxSymbols.cs:846`) — so the SHAPE is stock-grounded, but
+  stock only ever consumes it for window-open sync. Anything beyond that is ours, and the Tier-3 rule
+  applies: ground each use against a real site before shipping it as an idiom.
+- ⚠ **`[PSND=id]` is NOT the shortcut it looks like.** §6b: zero stock uses in field text. The
+  earlier recommendation of it as the "zero-logic SFX variant" was a parser-read, not a census result.
+
 **Tier 3 — non-stock presentation (engine-present, stock-unused):**
 11. **The single-window spinner** `[NUMB=value,sel]` (recipe in `Dialog.cs:1429-1474`) —
     a cleaner numeric_input v2 with no cursor windows.
