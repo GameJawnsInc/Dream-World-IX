@@ -547,7 +547,14 @@ class GroundRetile:
         rank = sorted(counts.items(), key=lambda kv: -kv[1])
         top, n = rank[0]
         runner = rank[1][1] if len(rank) > 1 else 0
-        if n < floor or (runner and n < margin * runner):
+        # A UNANIMOUS READ IS NOT AMBIGUOUS. The floor exists to stop a handful of stray
+        # tris naming a family when another family is also present; with no competitor at
+        # all there is nothing to be ambiguous BETWEEN. Donor (12,10) -- a real carryable
+        # 1x1 island -- reads {'grass': 11} and was refused purely for being small, which
+        # blocks a legitimate donor for no measurement reason.
+        unanimous = runner == 0 and n >= 4
+        dominant = runner > 0 and n >= margin * runner and n >= floor
+        if not (unanimous or dominant):
             raise ValueError(
                 f"donor {donor or ''} has no dominant ground family in its mains "
                 f"({dict(rank)}) -- pass src= explicitly rather than let it be guessed")

@@ -700,3 +700,28 @@ def test_ground_retile_is_SILENT_on_the_proven_pair(monkeypatch):
         _w.simplefilter("always")
         TR.GroundRetile.for_donor((1, 1), "desert", strips="none")
     assert not [c for c in caught if "MEASURED PATH" in str(c.message)]
+
+
+def test_mains_family_accepts_a_UNANIMOUS_small_donor():
+    """A real 1x1 carryable island read {'grass': 11} and was refused for being small.
+
+    The floor guards against a few stray tris outvoting a present competitor; with no
+    competitor there is nothing to be ambiguous between.
+    """
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world.transplant import GroundRetile
+    u0, v0, u1, v1 = G.ground_main_region("grass")
+    tris = [_mains_tri((u0 + u1) / 2, (v0 + v1) / 2) for _ in range(11)]
+    assert GroundRetile._mains_family(tris, (12, 10)) == "grass"
+
+
+def test_mains_family_still_refuses_a_small_CONTESTED_donor():
+    """The relaxation must not swallow the ambiguity case it was carved out of."""
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world.transplant import GroundRetile
+    tris = []
+    for fam, k in (("grass", 6), ("desert", 5)):
+        u0, v0, u1, v1 = G.ground_main_region(fam)
+        tris += [_mains_tri((u0 + u1) / 2, (v0 + v1) / 2) for _ in range(k)]
+    with pytest.raises(ValueError, match="no dominant ground family"):
+        GroundRetile._mains_family(tris, (0, 0))

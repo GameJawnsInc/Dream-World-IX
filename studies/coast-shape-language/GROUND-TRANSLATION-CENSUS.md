@@ -87,3 +87,41 @@ that regressed a clean case (`EXCISE-V2-PREDICTION.md`, attempt 2). The measurem
 deliverable; the implementation deserves a fresh context.
 
 Regenerate: `py studies/coast-shape-language/ground_translation_census.py --disc 1`
+
+---
+
+## WHAT `desert -> grass` ACTUALLY UNLOCKS TODAY — verified independently 2026-08-02
+
+The implementation is correct and the mains now classify (355 on the comma island, where
+it was 0). But its **practical intersection with the carryable donor pool is empty**, and
+the implementing round did not state this — it demonstrated the retile gate passing on
+`(14,1)`, a *continental* block that fails `land-fit` and can never be carried as an
+island.
+
+Every carryable unit, re-checked here against `--ground grass`:
+
+| donor unit | detected src | result |
+|---|---|---|
+| `(9,5)+2x3` the comma | **desert** | retile builds, **full carry FAILS** — 395 unclassified (rock 49 x294, brush 38 x101) |
+| `(6,4)+2x2` | snow | refused by the layout-support bar (0.219 < 0.50) — the new gate working |
+| `(7,17)+4x2`, `(10,17)`, `(10,18)` | grass | no-op, already grass |
+| `(12,10)` | grass | (was refused as "no dominant family" on 11 tris — fixed, see below) |
+
+**So no landmass we can carry can currently be restyled.** The one desert-source carryable
+island is blocked by its own mountain massif, and declining to mint a passthrough for that
+massif was correct: measured map-wide on disc 1, **brush(38) shares 534 edges with desert
+and ZERO with grass** (verified independently here, not taken on report). Retiling the
+ground out from under that fringe would place brush on grass — a configuration stock builds
+zero times.
+
+**The honest status: `desert -> grass` is a correct capability with no current customer.**
+It becomes useful the moment excise v2 lands a desert island without a massif, or a
+rock/brush translation is measured.
+
+### One over-strict refusal fixed
+
+`_mains_family` refused donor `(12,10)` — a real carryable 1x1 island — because it read
+`{'grass': 11}` and 11 fell below the ambiguity floor of 12. But there was no competing
+family at all. **A unanimous read is not ambiguous**; the floor exists to stop a few stray
+tris outvoting a family that is actually present. Now: unanimous (no runner-up, >= 4 tris)
+is accepted; contested reads still require the margin AND the floor. Both cases are tested.
