@@ -30,7 +30,29 @@ entire HonoBehavior list — a total freeze.
 | # | Gate | State variable | Script access | Key engine sites |
 |---|---|---|---|---|
 | 1 | **usercontrol** | `EventContext.usercontrol` (global byte, NOT per-actor) | `DisableMove` 0x2D / `EnableMove` 0x2E; **`ExitField` 0x9E zeroes it too**; read-only as sysvar 2 (`IsMovementEnabled`) | write: `DoEventCode.cs:1048/1066`, `:866` (ExitField), `EventEngine.cs:627` (zeroed on EVERY field load); read: `FieldMapActorController.cs:638-641` |
-| 2 | **pad mask** | `EventInput.PSXCntlPadMask[0]` | `AddControllerMask` 0xB9 / `RemoveControllerMask` 0xBA; `DisableMenu` sets only the menu bit | masking any direction bit flips `isMovementControl=false` → full stop **independent of usercontrol** (`EventInput.cs:395-401`, `FieldMapActorController.cs:586`). ⚠ **A direction mask also kills the MENU**: `EnableMove`'s re-grant is `SetMenuControlEnable(IsMenuON && IsMovementControl)` (`DoEventCode.cs:1076`), so under one the player can neither walk NOR open the menu — button presses are all that survive (exactly stock's tutorial shape). Whatever removes the mask must be reachable **without moving**. |
+| 2 | **pad mask** | `EventInput.PSXCntlPadMask[0]` | `AddControllerMask` 0xB9 / `RemoveControllerMask` 0xBA; `DisableMenu` sets only the menu bit | masking any direction bit flips `isMovementControl=false` → full stop **independent of usercontrol** (`EventInput.cs:395-401`, `FieldMapActorController.cs:586`). ⚠ **A direction mask also kills the MENU**: `EnableMove`'s re-grant is `SetMenuControlEnable(IsMenuON && IsMovementControl)` (`DoEventCode.cs:1076`), so under one the player can neither walk NOR open the menu — button presses are all that survive (exactly stock's tutorial shape). Whatever removes the mask must be reachable **without moving**. ★★ **AND THE MASK DOES NOT UNDO ITSELF — see the law below.** |
+
+### ★★ THE CONTROLLER-DEACTIVATION LAW (traced 2026-08-03; it explains bench 30602 round 1)
+
+**Clearing a movement mask does not restore walking.** Four engine facts in a chain:
+
+1. while the player's controller is active, `!EventInput.IsMovementControl` makes it call
+   `SetPlayerControlEnable(false)` **on itself** — a direction mask *deactivates the controller*
+   (`FieldMapActorController.cs:170-173`);
+2. `RemoveControllerMask` restores `IsMovementControl` and re-activates **nothing**;
+3. a deactivated controller **early-returns out of `HonoUpdate`**, skipping every movement path,
+   whenever `IsMenuControlEnable || IsWarningDialogEnable` (`:161-169`);
+4. in field mode the only script-reachable re-activator is **`EnableMove`**
+   (`DoEventCode.cs:1068`; the rest are the ladder flag, the save/pause UIs, and the field HUD's
+   `OnShownAction` at load).
+
+So a **locked** mask body self-heals twice over — its `DisableMove` clears the menu flag (so step 3
+falls through instead of returning) and its closing `EnableMove` re-activates the controller — while
+an **unlocked** one leaves the menu flag up and never revives: *frozen permanently*. That is exactly
+round 1 (unlocked, froze for good) versus round 3 (locked, thawed). **Kit rule, now emitted
+automatically:** an unlocked body that unmasks a movement bit carries its own `EnableMove`
+(`content/movement.unmask_pad(revive=True)`); an unlocked body that masks and never unmasks is
+refused, because nothing in the field can undo it.
 | 3 | **actor suspend** | `originalActor.state != stateRunning` | battle end (`EnterBattleEnd` suspends every object until the tag-10 handler returns at level 0) | `EventEngine.cs:780-791`, `FieldMapActorController.cs:588` |
 | 4 | **UI player-control** | `FieldMapActorController.isActive` via `SetPlayerControlEnable` | none (engine-side: menus, shops, save, pause, transitions) | ⚠ quirk: `isActive==false` ALONE falls through into movement unless `IsMenuControlEnable` or `IsWarningDialogEnable` is also true (`FieldMapActorController.cs:161-169`) |
 
@@ -281,18 +303,13 @@ byte path except the Reinit gate, which is behavior-identical for every free-roa
   an already-running body's script VM ticks regardless. So the kit's in-game forced-ATE freeze
   (real, observed, fixed by delegation) has some OTHER discriminant — untraced. The delegation
   shape stays the kit's proven idiom; a static freeze check is unsound and was calibrated out.
-- **Why an unlocked, dismissible pad-mask body loses its unmask** (bench 30602 round 1, §10 item 7).
-  Everything static checks out — correct emission, symmetric engine clear path, no competing
-  writer, no latch in `MovePC` — yet the player stayed frozen. Leading hypothesis: **RE-ENTRY** —
-  with `lock = false` the handler runs at `usercontrol == 1`, so `CollisionRequest`
-  (ProcessEvents.cs:180) keeps polling presses *underneath* the open window, and the dismissal
-  edge can re-enter the same tag-3 body, re-masking after the unmask.
-  **Round 3 supplied the control case (owner-observed):** in the LOCKED beat, re-firing a
-  repeatable press event takes **two** Action presses — one to close the window, one to re-trigger
-  — because `usercontrol == 0` while the window is up suppresses the dispatch entirely. So the
-  "one press does both" path exists only in the unlocked shape, exactly where the failure was.
-  Still not directly observed (it would need an instrumented build or a visible re-open), so the
-  refusal stays empirical. **The same exposure exists for the walk-under NPC banner, where it is
-  harmless and in-game proven** — which is why the refusal is scoped to the mask pairing.
+- ~~Why an unlocked, dismissible pad-mask body loses its unmask~~ **★ ANSWERED — see THE
+  CONTROLLER-DEACTIVATION LAW (§1 gate 2 / §10 item 7). The re-entry hypothesis was WRONG**: it
+  cannot even fire (`Request`'s `level < p.level` guard blocks re-dispatch while the body is
+  suspended on its window, and the resume is deferred a frame by `EBin`'s `next0()`, by which
+  time the press edge is stale). The real mechanism is the actor controller switching *itself*
+  off and never being revived. Round 3's two-press observation remains true and is explained by
+  the same gate (`usercontrol == 0` suppresses the press dispatch under a locked window) — it was
+  a real clue pointing at the wrong suspect.
 - Whether GlobBool 158/159 residue from stock fields can make a kit field's gateway macro fire
   differently mid-campaign (harmless either way — `ExitField` locks regardless — but untested).

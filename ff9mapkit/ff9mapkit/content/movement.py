@@ -74,15 +74,46 @@ def button_mask(names) -> int:
     return m
 
 
+MOVEMENT_BITS = BUTTONS["directions"]     # Up|Right|Down|Left -- the bits that trip the law below
+
+
 def mask_pad(buttons) -> bytes:
     """Body part: ``AddControllerMask(0, mask)`` -- the named buttons stop arriving (directions =
-    walking stops). Standing state: pair with a later :func:`unmask_pad` (another event, a scene end)."""
+    walking stops). Standing state: pair with a later :func:`unmask_pad` (another event, a scene end).
+
+    ⚠ See THE CONTROLLER-DEACTIVATION LAW on :func:`unmask_pad`: masking a MOVEMENT bit makes the
+    player's actor controller switch ITSELF off, and only ``EnableMove`` switches it back on."""
     return opcodes.encode(0xB9, 0, button_mask(buttons))
 
 
-def unmask_pad(buttons) -> bytes:
-    """Body part: ``RemoveControllerMask(0, mask)`` -- re-enable the named buttons."""
-    return opcodes.encode(0xBA, 0, button_mask(buttons))
+def unmask_pad(buttons, *, revive: bool = False) -> bytes:
+    """Body part: ``RemoveControllerMask(0, mask)`` -- re-enable the named buttons. With ``revive``
+    (and a MOVEMENT bit in the mask) an ``EnableMove`` follows it; see the law.
+
+    ★ THE CONTROLLER-DEACTIVATION LAW (traced 2026-08-03 to explain bench 30602 round 1, where an
+    unlocked mask/unmask body left the player frozen for good even though the unmask demonstrably
+    ran). Clearing the mask is NOT enough to restore walking:
+
+      1. while the player's controller is active, ``!EventInput.IsMovementControl`` makes it call
+         ``SetPlayerControlEnable(false)`` on ITSELF -- so a direction mask DEACTIVATES the
+         controller (``FieldMapActorController.cs:170-173``);
+      2. ``RemoveControllerMask`` restores ``IsMovementControl`` but re-activates NOTHING;
+      3. a deactivated controller early-returns out of ``HonoUpdate`` -- skipping every movement
+         path -- whenever ``IsMenuControlEnable || IsWarningDialogEnable`` (``:161-169``);
+      4. in field mode the only script-reachable re-activator is **EnableMove**
+         (``DoEventCode.cs:1068``; the others are the ladder flag, the save/pause UIs, and the
+         field HUD's own ``OnShownAction`` at load).
+
+    So a LOCKED body self-heals twice over -- its ``DisableMove`` clears the menu flag (so step 3
+    falls through instead of returning) and its closing ``EnableMove`` re-activates the controller
+    -- while an UNLOCKED body leaves the menu flag up and never revives: frozen permanently. That
+    is exactly what round 1 shipped and round 3's locked cycle avoided. Hence ``revive``: an
+    unlocked body that unmasks a movement bit must emit the ``EnableMove`` itself."""
+    m = button_mask(buttons)
+    out = opcodes.encode(0xBA, 0, m)
+    if revive and (m & MOVEMENT_BITS):
+        out += opcodes.ENABLE_MOVE        # re-activate the controller (the ONLY script-side way)
+    return out
 
 
 def control_value_for_angle(angle_deg: float) -> int:

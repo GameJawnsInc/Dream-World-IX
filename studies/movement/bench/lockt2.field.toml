@@ -58,6 +58,29 @@ spawn = [0, -1900]
 [encounter]
 scene = "BSC_EF_R007"          # Evil Forest, the weakest battles -- one quick fight proves the grant
 
+# --- NORTH-EAST book: THE ROUND-1 SHAPE, NOW FIXED (the mechanism test) ----------------------
+# Round 1's exact failing beat -- UNLOCKED, DISMISSIBLE window, mask+unmask in one body -- plus the
+# one opcode the traced mechanism says was missing: an EnableMove after the unmask, which is the
+# only thing in field mode that re-activates the actor controller a movement mask switched off
+# (FieldMapActorController.cs:170-173 deactivates; DoEventCode.cs:1068 revives). The kit emits it
+# automatically now for an unlocked unmask. PREDICTION: freeze while the window is up, thaw the
+# instant you dismiss it. If this thaws, the mechanism is confirmed and round 1 is fully explained.
+[[event]]
+name = "round1_fixed"
+zone = [[550, -1650], [850, -1650], [850, -1450], [550, -1450]]
+trigger = "action"
+bubble = true
+lock = false
+mask_buttons = ["directions"]
+message = "The round-1 shape, unlocked and dismissible. Try to walk NOW (dead). Dismiss me and walk again -- if you can, the missing EnableMove was the whole bug."
+unmask_buttons = ["directions"]
+once = false
+
+[[prop]]
+prop = "book"
+pos = [700, -1380]
+collision = false
+
 # --- MIDDLE book (DO THIS FIRST): the self-contained freeze/thaw cycle -----------------------
 # The lawful shape: a SELF-CLOSING window (duration) between the mask and the unmask. Nothing to
 # dismiss, so nothing can re-enter this handler -- round 1's failing beat was the dismissible form.

@@ -2657,24 +2657,21 @@ def validate(project: FieldProject) -> list[str]:
             elif src.get("lock_menu") is not None:
                 problems.append(f"{label}: lock_menu is not wired on this block (it lives on "
                                 f"[[npc]], [[event]] and [cutscene])")
-            # PAD MASK + UNLOCKED DISMISSIBLE WINDOW = IN-GAME PROVEN BROKEN (LOCKT2 @30602,
-            # 2026-08-03: the mask applied, the window dismissed, and the unmask never took --
-            # the player stayed frozen). Mechanism NOT established: the emitted order is right
-            # (mask, window, unmask, RET -- verified in the shipped .eb) and the engine's clear
-            # path is symmetric, so this is an empirical refusal, not a modelled one. What is
-            # certain is that stock never builds this shape: its pad-mask sites (the field-212
-            # chest and siblings) mask around a window inside a handler that is NOT re-enterable,
-            # and 1,108/1,108 of its window-bearing talk handlers lock. `lock = false` on a
-            # message-less or self-closing (`duration`) body is untouched -- as is the plain
-            # walk-under NPC banner, which is in-game proven (WINSTYLE, owner-confirmed).
+            # THE CONTROLLER-DEACTIVATION LAW (content/movement.unmask_pad; traced from bench
+            # 30602 round 1). A movement mask makes the player's controller deactivate ITSELF,
+            # and only `EnableMove` revives it -- so an UNLOCKED body that masks and never
+            # unmasks strands the player permanently with nothing in the field able to undo it
+            # (a locked body is self-healing: its closing EnableMove revives the controller).
+            # The kit now emits the revive automatically for an unlocked `unmask_buttons`, so
+            # mask+unmask in one unlocked body is fine; masking with NO unmask is the trap.
             if (lv is False and src.get("mask_buttons") is not None
-                    and src.get("message") is not None and src.get("duration") is None):
+                    and src.get("unmask_buttons") is None):
                 problems.append(
-                    f"{label}: mask_buttons with lock = false and a dismissible message is a "
-                    f"PROVEN-BROKEN shape (the unmask does not take -- the player stays frozen; "
-                    f"bench 30602). Use the stock shape -- keep the lock (the mask outlives the "
-                    f"bracket, so the freeze still shows after control returns) -- or make the "
-                    f"window self-closing with duration = N.")
+                    f"{label}: mask_buttons with lock = false and no unmask_buttons strands the "
+                    f"player -- a movement mask deactivates the actor controller and only "
+                    f"EnableMove revives it, which an unlocked body never emits. Add "
+                    f"unmask_buttons to this body (the kit then emits the revive), or drop "
+                    f"lock = false so the bracket's own EnableMove closes it.")
         elif src.get("lock") is not None or src.get("lock_menu") is not None:
             problems.append(f"{label}: the control keys (lock / lock_menu) are not supported on "
                             f"this block -- they live on [[npc]], [[event]], [[on_entry]] and "
@@ -5453,6 +5450,10 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
             warnings.append(f"[[event]] #{j} has no zone -- skipped on the verbatim fork.")
             continue
         parts = []
+        # the lock resolves EARLY here: an UNLOCKED body that unmasks a movement bit must emit its
+        # own EnableMove to revive the deactivated controller (THE CONTROLLER-DEACTIVATION LAW,
+        # content/movement.unmask_pad); a locked body's closing bracket already does it.
+        _ev_locked = bool(ev.get("lock", (ev.get("trigger") or "walk") == "action"))
         if "mask_buttons" in ev:                          # partial control: buttons stop arriving FIRST,
             parts.append(_movement.mask_pad(ev["mask_buttons"]))   # before any window (the tutorial idiom)
         item_id = _items.resolve(ev["give_item"][0]) if "give_item" in ev else None
@@ -5484,7 +5485,7 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
                                             dim=ev.get("dim", False),
                                             dim_tint=ev.get("dim_tint")))
         if "unmask_buttons" in ev:                        # ...and re-arrive LAST (after any window)
-            parts.append(_movement.unmask_pad(ev["unmask_buttons"]))
+            parts.append(_movement.unmask_pad(ev["unmask_buttons"], revive=not _ev_locked))
         once_flag = None
         if ev.get("once", True):
             _cap = max_auto_events(project)
@@ -6132,6 +6133,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         specs, flag_counter = [], 0
         for j, ev in enumerate(events):
             parts = []
+            # see the twin site above: an UNLOCKED unmask of a movement bit carries its own
+            # EnableMove (THE CONTROLLER-DEACTIVATION LAW, content/movement.unmask_pad)
+            _ev_locked = bool(ev.get("lock", (ev.get("trigger") or "walk") == "action"))
             if "mask_buttons" in ev:                      # partial control: buttons stop arriving FIRST,
                 parts.append(_movement.mask_pad(ev["mask_buttons"]))   # before any window (the tutorial idiom)
             item_id = _items.resolve(ev["give_item"][0]) if "give_item" in ev else None
@@ -6172,7 +6176,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                                 dim=ev.get("dim", False),
                                                 dim_tint=ev.get("dim_tint")))
             if "unmask_buttons" in ev:                    # ...and re-arrive LAST (after any window)
-                parts.append(_movement.unmask_pad(ev["unmask_buttons"]))
+                parts.append(_movement.unmask_pad(ev["unmask_buttons"], revive=not _ev_locked))
             once_flag = None
             if ev.get("once", True):
                 _cap = max_auto_events(project)

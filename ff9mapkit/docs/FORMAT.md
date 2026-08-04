@@ -456,11 +456,13 @@ mirrors that law with per-lane defaults:
   `ClearPadMask`), so it cannot leak across fields. Because the mask **outlives the lock bracket**,
   the natural shape is a normal *locked* event: when its window closes control returns — menu,
   Action and talking all work — and the feet stay dead until something unmasks them.
-  ⚠ **`mask_buttons` + `lock = false` + a dismissible message is refused** — that combination was
-  in-game proven broken (the mask applied, the window dismissed, the unmask never took and the
-  player stayed frozen; bench 30602). The emitted opcode order is correct and the engine's clear
-  path is symmetric, so the mechanism is *not* established — but stock never builds that shape, so
-  the kit refuses it rather than shipping a coin-flip. Use the lock, or `duration = N`.
+  ⚠ **Clearing the mask does not, by itself, restore walking** — the *controller-deactivation law*.
+  A movement mask makes the player's actor controller switch **itself** off
+  (`FieldMapActorController.cs:170-173`), `RemoveControllerMask` re-activates nothing, and the only
+  script-reachable revive is **`EnableMove`** (`DoEventCode.cs:1068`). A **locked** body self-heals
+  (its closing `EnableMove` revives it); an **unlocked** one would freeze the player permanently, so
+  the kit emits the `EnableMove` for you after an unlocked `unmask_buttons`. What is **refused** is
+  an unlocked body that masks and *never* unmasks — nothing in the field could undo it.
 
 ### Rotating casts (story-event fields)
 

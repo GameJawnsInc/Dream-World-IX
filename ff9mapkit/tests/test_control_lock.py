@@ -573,11 +573,46 @@ mask_buttons = ["konami"]
     assert any("unknown button" in p for p in probs)
 
 
-def test_validate_refuses_mask_with_unlocked_dismissible_window(tmp_path):
-    """IN-GAME PROVEN BROKEN (bench 30602 round 1): mask_buttons + lock = false + a dismissible
-    message left the player frozen -- the unmask never took, though the emitted order was right.
-    Mechanism unestablished; the refusal is empirical. The two lawful shapes still pass."""
-    broken = BASE + """
+def test_unlocked_unmask_emits_the_revive_enable_move():
+    """THE CONTROLLER-DEACTIVATION LAW (movement.unmask_pad): a movement mask deactivates the
+    player's actor controller (FieldMapActorController.cs:170-173) and ONLY EnableMove revives it
+    (DoEventCode.cs:1068), so an unlocked unmask must carry its own EnableMove. A locked body's
+    closing bracket already does it -- its bytes stay exactly as round 3 proved them in-game."""
+    from ff9mapkit.content import movement as _movement
+    plain = _movement.unmask_pad("directions")
+    assert plain == opcodes.encode(0xBA, 0, 240)                       # locked path: unchanged
+    revived = _movement.unmask_pad("directions", revive=True)
+    assert revived == opcodes.encode(0xBA, 0, 240) + opcodes.ENABLE_MOVE
+    # a NON-movement mask never deactivates the controller -> no revive even when asked
+    assert _movement.unmask_pad(["select"], revive=True) == opcodes.encode(0xBA, 0, 1)
+
+
+def test_unlocked_mask_cycle_builds_with_the_revive(tmp_path):
+    toml = BASE + """
+[[event]]
+zone = [[-200, -500], [200, -500], [200, -300], [-200, -300]]
+trigger = "action"
+lock = false
+mask_buttons = ["directions"]
+message = "frozen"
+unmask_buttons = ["directions"]
+"""
+    eb = _build_eb(tmp_path, toml)
+    assert (opcodes.encode(0xBA, 0, 240) + opcodes.ENABLE_MOVE) in eb
+    # the locked twin keeps the round-3-proven shape: the bracket owns the EnableMove
+    sub = tmp_path / "b"
+    sub.mkdir()
+    locked = _build_eb(sub, toml.replace("lock = false\n", ""))
+    assert (opcodes.DISABLE_MOVE + opcodes.encode(0xB9, 0, 240)) in locked
+    assert (opcodes.encode(0xBA, 0, 240) + opcodes.ENABLE_MOVE) in locked   # bracket's, not a dup
+    assert (opcodes.encode(0xBA, 0, 240) + opcodes.ENABLE_MOVE
+            + opcodes.ENABLE_MOVE) not in locked
+
+
+def test_validate_refuses_an_unlocked_mask_with_no_unmask(tmp_path):
+    """The real trap the law identifies: unlocked + masked + never unmasked = a permanent strand
+    (nothing in the field can revive the controller). mask+unmask in one unlocked body is fine."""
+    stranding = BASE + """
 [[event]]
 zone = [[-200, -500], [200, -500], [200, -300], [-200, -300]]
 trigger = "action"
@@ -585,15 +620,12 @@ lock = false
 mask_buttons = ["directions"]
 message = "frozen"
 """
-    probs = validate(_project(tmp_path, broken))
-    assert any("PROVEN-BROKEN shape" in p for p in probs)
-
-    # lawful A: keep the lock (stock's shape -- the mask outlives the bracket)
-    locked = broken.replace("lock = false\n", "")
-    assert validate(_project(tmp_path, locked)) == []
-    # lawful B: self-closing banner -- nothing can re-enter the handler
-    timed = broken.replace('message = "frozen"', 'message = "frozen"\nduration = 90')
-    assert validate(_project(tmp_path, timed)) == []
+    assert any("strands the player" in p for p in validate(_project(tmp_path, stranding)))
+    # with the unmask in the same body -> allowed (the kit emits the revive)
+    ok = stranding + 'unmask_buttons = ["directions"]\n'
+    assert validate(_project(tmp_path, ok)) == []
+    # locked + no unmask -> allowed (the bracket's EnableMove revives it)
+    assert validate(_project(tmp_path, stranding.replace("lock = false\n", ""))) == []
     # and the in-game-proven walk-under NPC banner stays legal (owner-confirmed, WINSTYLE)
     drifter = BASE + """
 [[npc]]
