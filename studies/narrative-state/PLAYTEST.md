@@ -81,3 +81,15 @@ THE LOAD-BEARING READ FOR THE DECISION GATE: across four rounds, the bit-RESOLUT
 never failed -- every miss was a seed-INPUT affordance (party cast, staged-beat choice,
 sibling visit-id), each closed by a small tool verb (--beats, [party], fork-report). The
 demand-driven seed is sufficient for single-field forks.
+
+## Rung 2 — the ATE avail-word calibration (slot 30823) ★ PASS
+
+`story-seed 552 --beat 3115` DETECTED the ATE availability word (byte 236) mechanically --
+any word-var condition dominating the field's ATE(1) arm -- and emitted the words seed; the
+one documented author step widened value 1 -> 0x0F (four menu rows). Verbatim Lindblum-552
+fork at 30823: **owner-confirmed the ATE prompt was available** -- the July known-good result
+reproduced through the tool path. The same detection finds Evil Forest 200's byte 236 and
+Dali 351's 239/296 unaided (the doc only gestured at those).
+
+RUNG 2 CLOSED. Detection replaced the planned hand-curated table -- strictly better: it
+covers every ATE hub, not three documented regions.

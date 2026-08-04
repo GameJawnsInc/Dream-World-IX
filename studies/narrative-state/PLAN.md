@@ -179,7 +179,14 @@ Each rung lands independently with its own falsifier. ★ = owner playtest.
   hint). Four playtest rounds: the bit model never failed; all misses were input affordances.
   Small follow-up queued: a shared-FBG sibling hint on story-seed/import (the wrong-sibling
   trap hit twice across arcs). DEFERRED by owner: the researched SC→ExpectedParty map (rung 7).
-- **DECISION GATE: OPEN** — demand-driven seeding satisfied all single-field playtests;
+- **Rung 2: DONE ★ (2026-08-03).** The planned curated word table was replaced by MECHANICAL
+  detection: `ate_word_seed` finds any word-var condition dominating an `ATE(1)` arm via the
+  rung-0 guards (552/200 -> byte 236 = the proven case; Dali 351 -> 239/296 unaided). Emitted
+  as `words = [{byte, value=1}]` + the widen-to-beat comment. Calibration playtest at 30823
+  owner-confirmed (the July Small-Town-Knight result reproduced through the tool path).
+- **DECISION GATE: RESOLVED (owner, option a)** — rungs 3–6 SHELVED unless a campaign
+  playtest demands them; next = the campaign lane (demand-driven seeding across every member
+  of a chain, the rung-8 flavor). — demand-driven seeding satisfied all single-field playtests;
   rungs 3–6 (full beat model) are now a campaign/New-Game-at-beat-N concern, not a
   single-fork one. Owner to scope.
 - Open question for the owner: any path to disc-3/4 calibration saves, or accept playtest-only
