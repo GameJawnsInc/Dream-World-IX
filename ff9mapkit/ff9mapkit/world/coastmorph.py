@@ -248,6 +248,21 @@ class CliffWindow:
         for i in range(len(self.base) - 1):
             bl, cl = self.base[i], self.crease[i]
             br, cr = self.base[i + 1], self.crease[i + 1]
+            if _pk(cl) == _pk(cr):
+                # THE PINCH (capability 3): the crease contracts to a point and the
+                # wall gap is ONE triangle -- a real stock vocabulary (crescent x4,
+                # chain, comma). The bump displaces it like any tile; the structural
+                # rebuild refuses it positionally (its wall vocabulary is quad-based).
+                roles3 = {_pk(bl), _pk(br), _pk(cl)}
+                tris = [t for t in self.cliff if _key_set(t) <= roles3
+                        and _key_set(t) & {_pk(bl), _pk(br)}]
+                if len(tris) != 1:
+                    raise ValueError(f"window gap {i} is neither a clean one-quad wall "
+                                     f"nor a refined fan ({len(tris)} tris at a "
+                                     f"crease-pinch)")
+                self.quads.append(tris)
+                self.refined.append([])
+                continue
             roles = {_pk(bl), _pk(cl), _pk(br), _pk(cr)}
             tris = [t for t in self.cliff if _key_set(t) <= roles]
             extra = []
@@ -6422,6 +6437,12 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
     win = CliffWindow(donor, start, end, size=size, disc=disc, lod=lod, game=game)
     ncols = len(win.base)
     gaps = ncols - 1
+    # a crease-pinch gap cannot take a quad pattern -- refuse POSITIONALLY so the
+    # scanner's sub-window search cuts the window at the pinch (the bump handles it)
+    for i in range(gaps):
+        if _pk(win.crease[i]) == _pk(win.crease[i + 1]):
+            raise ValueError(f"window gap {i} is a crease-pinch -- the structural wall "
+                             f"rebuild is quad-based; the conforming bow still applies")
 
     drop_wall = [t for q in win.quads for t in q]
     ck = [_pk(p) for p in win.crease]

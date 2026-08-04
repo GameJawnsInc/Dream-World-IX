@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE PINCH WALL: single-triangle wall gaps decode (capability 3)
+- Byte-level decode of the "window gap N is neither a clean one-quad wall nor a refined fan"
+  refusals: 5 of 6 specimens are THE PINCH — the crease contracts to a point
+  (`crease[i] == crease[i+1]` byte-exact) and the wall gap is ONE triangle, a real stock
+  vocabulary (crescent ×4, chain, comma) that hard-failed `CliffWindow` construction, killing
+  even the bump. The decode now accepts a pinch gap (exactly one tri on its 3 roles, else the
+  old refusal); `cliff_bump` displaces it like any tile; the structural morphs refuse it
+  POSITIONALLY ("window gap K is a crease-pinch"), which the scanner's refusal-steered
+  sub-window search turns into viable sub-runs. Results: 4 of 5 pinch-blocked windows bump at
+  their geometric ceilings (one carries sea1+sea2+sea3+sea5 — capabilities 2+3 compounding),
+  and SIX new structural sub-windows open on the crescent's (17,1)/(14,2)/(15,2) runs. With
+  all three capabilities: deep morphs on 3 of 8 palette masses (was 1), the shallow bump on
+  every mass with a window. Two mutations killed.
+
 ### Added — THE SHALLOW BOW: the conforming bump on shallow-fronted shores (capability 2)
 - The cliff verbs refused any window whose waterline touches sea3/sea5 ("pure sea4" law) —
   correct for the structural morphs (part-scoped tweaks would leave coincident verts behind),

@@ -483,6 +483,28 @@ def test_shallow_bow_refuses_a_beach_front(monkeypatch):
         CM.cliff_bump((8, 17), SHAL_START, SHAL_END, 2.5)
 
 
+#: the chain's (9,18) window: contains a CREASE-PINCH gap (crease[i] == crease[i+1],
+#: the wall is one triangle) -- the decode hard-failed here before capability 3
+PINCH_START, PINCH_END = (632.0, -1152.94921875), (608.0, -1152.0)
+
+
+def test_pinch_window_bumps_but_refuses_structural():
+    from ff9mapkit.world import coastmorph as CM
+    # THE PINCH (capability 3): the decode accepts a crease-pinch gap as one tri, so
+    # the conforming bow works on the window...
+    win = CM.CliffWindow((9, 18), PINCH_START, PINCH_END)
+    pinches = [i for i in range(len(win.base) - 1)
+               if CM._pk(win.crease[i]) == CM._pk(win.crease[i + 1])]
+    assert pinches, "specimen no longer contains a pinch gap"
+    assert all(len(win.quads[i]) == 1 for i in pinches)
+    tweaks = CM.cliff_bump((9, 18), PINCH_START, PINCH_END, 2.5)
+    assert [t.part for t in tweaks[:2]] == ["terrain", "sea4"]
+    # ...while the structural rebuild refuses POSITIONALLY (quad-based wall vocabulary;
+    # the named gap lets the scanner steer a sub-window around it)
+    with pytest.raises(ValueError, match=r"window gap \d+ is a crease-pinch"):
+        CM.cliff_headland((9, 18), PINCH_START, PINCH_END, 6.0)
+
+
 def test_harvest_folds_the_wrap_seam():
     from types import SimpleNamespace
     from ff9mapkit.world import coastmorph as CM
