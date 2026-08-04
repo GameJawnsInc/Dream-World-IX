@@ -5,6 +5,61 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — several windows at once, text-synchronized beats, and coloured text
+- **Multi-window cutscene steps** `open` / `close` / `wait_window` / `raise` on both scene flavors
+  (narration and a cast). `say` opens one window and blocks; splitting that is how stock builds unison
+  speech, staged countdown captions and a hint held under rolling dialogue — none of which the kit
+  could express. An async window is yours to close, and the build refuses a scene that leaks one.
+- **Text-synchronized signals** — `signal = "+" | n` and `hold` on any line, plus `{ set_signal = n }`
+  and `{ wait_signal = n, timeout = 250 }` steps. A tag inside a line fires when that text appears on
+  screen, so a script can block until a line has finished typing. **The wait is always guarded and
+  there is no unguarded form to author**: stock puts a 250-frame countdown beside every one of these
+  waits (117 of its 319 signal reads), because text is not a guaranteed event and an unguarded spin
+  hangs the field.
+- **Coloured text** via `{name}…{/}` / `{item}…{/}` / `{amount}…{/}` (plus the six colour names stock
+  ships) on every authored line, including choice rows. Colour in FF9 is semantic: it marks the parts
+  of a line that came from the save rather than the script. Emits the game's exact
+  `[CODE][HSHD]…[C8C8C8][HSHD]` pair; unbalanced markup is linted, and a line without markup is
+  byte-identical to before.
+
+### Fixed
+- **A confirm press dismisses every open window, not the topmost one** — so an async window that must
+  survive a line of dialogue needs `hold = true`, or the press that advances the dialogue closes it
+  too. Now refused at build time (this cost a playtest), along with the mirror deadlock of holding a
+  window a `wait_window` is waiting on.
+- **A space after an inline button glyph never renders** — the engine discards every one of them, in
+  both the measuring and drawing passes. Now linted, pointing at stock's own `[DBTN=CROSS]: Confirm`
+  legend form.
+- **Button glyphs measured as zero width** when wrapping, so any `[DBTN]`-bearing line was
+  under-measured.
+
+### Fixed — `[[npc]] face` was documented but never wired; every authored NPC shipped facing south
+- **`face = <0..255>` on an `[[npc]]` now sets which way it stands** (0=south/toward the camera,
+  64=west, 128=north, 192=east — the same compass `[player]`, chest and prop `face` already used).
+  It was documented in `FORMAT.md`, drawn by `tools/field_layout_probe.py`, and named in the layout
+  skill, but the build never read it: `lint` reported it as an unknown key and the value was dropped,
+  so a room laid out with NPCs turned to each other shipped with all of them facing the camera.
+- **No new opcodes.** The facing rides the object's own `SetVar D9(6)` const, which the real-NPC Init's
+  `TurnInstant(D9(6))` already consumed right after `CreateObject` — so the NPC is turned on frame 0
+  (no spawn-facing flash) and `face = 0` is byte-identical to every previous build. Wired on both the
+  synthesized-field and verbatim-fork paths; an out-of-range value is a `lint` error instead of a
+  silent mask. Head-tracking is unchanged and separate: most rigs still turn their *head* toward the
+  player, while the body keeps this facing.
+
+### Changed — cutscene `turn` steps now animate (the stock look) instead of snapping
+- **A `turn` beat rotates the actor with its turn animation** (`TimedTurn`/`TimedTurnEx` at the
+  engine's default speed) instead of instantly snapping its facing (`TurnInstant`), in both the
+  single-actor cutscene and the multi-actor conductor — matching how real FF9 cutscenes turn
+  (in-game verified: solo quarter/half turns, a parallel two-actor turn, and player turns, with
+  control returned cleanly). The instant snap was a hang guard from the era when kit NPCs were
+  player clones without reliable turn clips; every NPC the kit builds now ships real left/right
+  turn clips, so the guard only cost the look.
+- **The softlock rule is unchanged:** the turn is paced by a fixed ~24-frame hold (the anim-hold
+  idiom), never a blocking `WaitTurn`/`WaitTurnEx`. A parallel (`with_prev`) turn fires without an
+  inline hold — its hold folds into the group's one join `Wait`, so the fan stays simultaneous.
+  Init/spawn facing is untouched: `TurnInstant` after `CreateObject` **is** the byte-faithful
+  stock shape there.
+
 ### Added — `ff9mapkit lint` now catches misspelled keys the build silently ignores
 - **A typo'd key in a `field.toml` was never an error — it was silently ignored**, which is the whole
   bug class: `dialouge` on an NPC just means no dialogue, with no message anywhere. `lint` now reports

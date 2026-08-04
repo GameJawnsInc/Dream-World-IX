@@ -116,11 +116,13 @@ def forced_ate_region(zone, ate_tag: int = FORCED_ATE_TAG, *, player_uid: int = 
     """A type-1 TREAD region that fires the forced-ATE warp the moment the player walks in -- the ladder/jump
     dispatch shape: Init ``SetRegion`` / tread ``MOVEMENT_GATE; DisableMove; RunScriptSync(2, player, ate_tag)``.
     The lock is set HERE (the region), but the timed sequence runs in the RunScript'd player func (so its Waits
-    tick). The func warps away, so control never returns to this region (the destination restores it)."""
+    tick). The func warps away, so control never returns to this region (the destination restores it). The
+    trailing RETURN is runtime-unreachable (the sync callee ``Field()``s away, so the call never returns) but
+    keeps the body structurally terminated for eblint's reachability check."""
     import struct as _struct
     init = _region.set_region(zone) + opcodes.RETURN
     tread = (_region.MOVEMENT_GATE + opcodes.DISABLE_MOVE
-             + opcodes.run_script_sync(2, int(player_uid), int(ate_tag)))
+             + opcodes.run_script_sync(2, int(player_uid), int(ate_tag)) + opcodes.RETURN)
     funcs = [(0, init), (_region.RANGE_TAG, tread)]
     table, pos = b"", len(funcs) * 4
     for tag, body in funcs:
@@ -166,6 +168,119 @@ def set_flag(idx: int, value: int = 1, *, flag_class=CUTSCENE_FLAG_CLASS) -> byt
     return _region.set_var(flag_class, idx, value)
 
 
+# The step kinds that CARRY AN AUTHORED LINE, and so consume one txid each. `compile_steps` reads
+# ``txids`` positionally, so every site that counts, slices, or registers scene text must agree with it
+# exactly -- a miscount doesn't fail the build, it silently shifts every later line onto the wrong entry.
+# There were six independent ``"say" in s`` tests before ``open`` existed; they all route through here now.
+TEXT_STEP_KINDS = ("say", "open")
+
+# The multi-window + signal verbs. Like say/wait/set_flag these are CONDUCTOR-level (they act on the
+# window system and the global signal, not on an actor), so both the narration and the cast flavors
+# accept them and neither requires an `actor`.
+# ``set_signal`` (not ``signal``) is the script-side verb ON PURPOSE: ``signal`` is already the
+# TEXT-side key that puts an [INCS]/[SIGL] tag inside a say/open line, and a step carrying both an
+# action key and a text key would trip the one-action-per-step rule. The naming also matches the
+# engine (SetDialogProgression) and the kit's own ``set_flag``.
+WINDOW_STEP_KINDS = ("open", "close", "wait_window", "raise", "set_signal", "wait_signal")
+
+
+def step_text(s):
+    """The authored line a step carries (``say`` or ``open``), or ``None`` for an action-only step."""
+    if not isinstance(s, dict):
+        return None
+    for k in TEXT_STEP_KINDS:
+        if k in s:
+            return s[k]
+    return None
+
+
+def text_steps(steps):
+    """Just the line-carrying steps, in author order -- the order ``txids`` is consumed in."""
+    return [s for s in (steps or []) if step_text(s) is not None]
+
+
+# --- multi-window scene verbs (messages survey Tier-2 item 8) ----------------------------------------
+# `say` is ONE window opened and waited on in a single blocking op. Stock's richer presentations all
+# come from splitting that: open a window and keep running, so several stand at once (two speakers in
+# unison, a hint held under rolling dialogue, staged countdown captions, HUD panels). The engine verbs
+# are WindowAsync/Ex + CloseWindow + WaitWindow + RaiseWindows; these are their step-level wrappers.
+def open_window(text_id: int, *, window: int = 1, flags: int = 128, actor_uid: int | None = None,
+                raise_after: bool = False) -> bytes:
+    """Step: open ``text_id`` in window ``window`` WITHOUT blocking -- the script runs on with the
+    window still up. ``actor_uid`` attributes it to an actor (``WindowAsyncEx``; attribution needs the
+    bubble bit 128, else the engine nulls the target). ``raise_after`` appends ``RaiseWindows``, which
+    is needed only when a fade filter is up (THE RAISE LAW) -- and see
+    :func:`ff9mapkit.eb.opcodes.raise_windows` for why it must be one raise per open, never a bare
+    re-raise.
+
+    An async window is the script's responsibility: close it (:func:`close_window`), wait it
+    (:func:`wait_window`), or re-issue the same id to replace it. Leaving one open past the end of a
+    scene leaves it on screen."""
+    b = (opcodes.window_async_ex(actor_uid, window, flags, text_id) if actor_uid is not None
+         else opcodes.window_async(window, flags, text_id))
+    return b + (opcodes.raise_windows() if raise_after else b"")
+
+
+def close_window(window: int) -> bytes:
+    """Step: dispose window ``window`` (see :func:`ff9mapkit.eb.opcodes.close_window` for the two
+    engine surprises -- it turns the page on a ``[PAGE]`` entry, and it blocks on a voiced window)."""
+    return opcodes.close_window(window)
+
+
+def wait_window(window: int) -> bytes:
+    """Step: block until window ``window`` is gone -- the player's dismissal, a ``duration`` expiry, or
+    a script close from another object. Waiting a window nothing ever closes hangs the script."""
+    return opcodes.wait_window(window)
+
+
+def raise_windows() -> bytes:
+    """Step: lift the active windows above the fade-filter panel."""
+    return opcodes.raise_windows()
+
+
+# --- text-synchronized signals (messages survey Tier-2 item 7) ---------------------------------------
+# THE SIGNAL-TIMEOUT LAW. A signal wait spins until the TEXT reaches a tag, and text is not a
+# guaranteed event: a shorter translation may omit the tag, a skip may race it, a window may be
+# replaced before its tag renders. Stock never trusts it -- 117 of the 319 signal waits across the 81
+# fields that use them carry a frame countdown beside the condition
+# (`while ((GetDialogProgression < 2) && (VAR_GlobUInt8_29 > 0))`, field 41 Zorn & Thorn @734), and
+# the guard is seeded to 250 frames (~8s) at every one of them. So the kit's wait is guarded by
+# construction: there is no unguarded form to author. The counter is a MAP int16 (transient, wiped on
+# field load) rather than stock's save-backed global byte, so it can never leak into a save.
+SIGNAL_GUARD_IDX = 3           # MAP.I16[3] -- the spin-wait countdown (the ladder owns MAP.I16[2])
+SIGNAL_GUARD_FRAMES = 250      # stock's own seed at every guarded wait site
+
+
+def signal(value: int = 0) -> bytes:
+    """Step: write ``ETb.gMesSignal`` (read back as sysvar 8). Stock's use is always ZERO-then-wait --
+    the counting is done by the ``[INCS]`` tags inside the text, not by the script."""
+    return opcodes.set_dialog_progression(value)
+
+
+def wait_signal(target: int = 1, *, timeout: int = SIGNAL_GUARD_FRAMES,
+                guard_idx: int = SIGNAL_GUARD_IDX) -> bytes:
+    """Step: block until the text-side signal reaches ``target`` -- or until ``timeout`` frames pass.
+    Compiles stock's exact guarded shape (THE SIGNAL-TIMEOUT LAW above)::
+
+        set guard = timeout
+        while ( (sysvar8 < target) && (guard > 0) ) { Wait(1) ; guard-- }
+
+    ``timeout`` is in frames (~30/s). It is a CEILING, not a schedule: when the signal arrives the
+    loop exits that frame. Pair with :func:`signal` (0) before opening the windows, so a stale value
+    from an earlier beat cannot satisfy the wait immediately."""
+    if int(timeout) <= 0:
+        raise ValueError("wait_signal timeout must be a positive frame count -- an unguarded signal "
+                         "spin can hang the field if the text never reaches its tag")
+    cond = (bytes([_region.EXPR_OP])
+            + _region.push_sysvar(_region.SYSVAR_MES_SIGNAL)
+            + bytes([_region.T_CONST]) + _region._i16(int(target)) + bytes([_region.T_LT])
+            + _region._push_var(_region.MAP_INT16, guard_idx)
+            + bytes([_region.T_CONST]) + _region._i16(0) + bytes([_region.T_GT])
+            + bytes([_region.T_ANDAND, _region.T_END]))
+    body = opcodes.wait(1) + _region.dec_var(_region.MAP_INT16, guard_idx)
+    return _region.set_var(_region.MAP_INT16, guard_idx, int(timeout)) + _region.while_block(cond, body)
+
+
 # --- actor-context steps (v2) -- only valid inside an `actor` cutscene (run in the NPC's entry) ---
 # How fast the actor rotates toward its destination while walking (omega, 0..255). High = the
 # turn-while-walk arc shrinks to ~nothing, so a walk to a point BEHIND the actor turns and goes
@@ -199,9 +314,13 @@ def actor_teleport(x: int, z: int) -> bytes:
 
 # Cutscene steps are NON-BLOCKING on the animation system: we never use WaitAnimation/WaitTurn,
 # because they HANG if the actor's anim playback doesn't drive them to completion (a player-cloned
-# NPC's walk/turn anims don't always engage -> WaitTurn/WaitAnimation never return -> softlock). A
-# turn is done INSTANTLY (no turn anim needed); an animation is played then given a fixed hold.
+# NPC's walk/turn anims don't always engage -> WaitTurn/WaitAnimation never return -> softlock).
+# An animation/turn is fired, then given a fixed hold instead of a blocking wait.
 ANIM_HOLD = 40          # frames to let a played animation run before the next step (~1.3s)
+TURN_SPEED = 16         # the engine's default turn speed (StartTurn: tspeed 0 -> 16)
+TURN_HOLD = 24          # frames to let an animated turn play out before the next step (engine worst
+#                         case ~ the turn clip's frame count at speed 16 for a >=90deg turn --
+#                         EventEngine.StartTurn: num2 = (clipFrames << 4) / tspeed; small turns snap)
 
 
 def actor_animation(anim: int, hold: int = ANIM_HOLD) -> bytes:
@@ -211,9 +330,13 @@ def actor_animation(anim: int, hold: int = ANIM_HOLD) -> bytes:
 
 
 def actor_turn(angle: int) -> bytes:
-    """Step: face ``angle`` INSTANTLY (0=south, 64=west, 128=north, 192=east). Instant (TurnInstant) so
-    it works without a turn animation and never hangs."""
-    return opcodes.turn_instant(int(angle))
+    """Step: face ``angle`` (0=south, 64=west, 128=north, 192=east), ANIMATED -- ``TimedTurn`` at the
+    stock default speed + a fixed ``Wait`` hold, never ``WaitTurn`` (which hangs if the turn anim
+    doesn't drive it to completion). Every kit NPC ships left/right turn clips (``build_npc_init``'s
+    five anim setters), so the turn plays like a real cutscene turn; the hold keeps the next beat
+    from starting mid-turn. (TurnInstant was the pre-2026-07 shape -- a hang guard from the
+    player-clone NPC era, kept only where stock itself is instant: Init facing.)"""
+    return opcodes.timed_turn(int(angle), TURN_SPEED) + opcodes.wait(TURN_HOLD)
 
 
 def actor_face(uid: int = PLAYER_UID, speed: int = 16) -> bytes:
@@ -230,11 +353,38 @@ def compile_steps(steps, txids, *, say_flags: int = 128) -> bytes:
     Actor steps are only meaningful inside an ``actor`` cutscene (they act on the executing object);
     :func:`ff9mapkit.build.validate` enforces that. ``say_flags`` is the window flag for every ``say``
     step -- pass ``ATE_CAPTION_FLAG`` (64) to render a compulsory ATE's windows with the ATE caption.
-    Same encoders the round-trip tests cover."""
+    A step's own ``style`` / ``window`` keys override per line (an explicit step style wins over
+    ``say_flags``). Same encoders the round-trip tests cover."""
+    from . import text as _text
     out, ti = [], 0
     for s in steps:
         if "say" in s:
-            out.append(say(txids[ti], flags=say_flags)); ti += 1
+            # dim swaps the whole presentation for the letter bracket (async + RaiseWindows +
+            # WaitWindow -- the raise is what puts the text ABOVE the fade); routed through
+            # event.message so both forms have ONE owner
+            b = _event.message(txids[ti], window=int(s.get("window", 1)),
+                               flags=_text.resolve_style(s.get("style"), default=say_flags),
+                               dim=s.get("dim", False), dim_tint=s.get("dim_tint"))
+            out.append(b)
+            ti += 1
+        elif "open" in s:
+            # an ASYNC window: it stays up and the scene runs on (the multi-window verbs). A raise is
+            # its OWN step ({raise = true}) exactly as it is its own opcode in stock -- folding it in
+            # as a sub-key would collide with the bare verb in the one-action-per-step rule.
+            out.append(open_window(txids[ti], window=int(s.get("window", 1)),
+                                   flags=_text.resolve_style(s.get("style"), default=say_flags)))
+            ti += 1
+        elif "close" in s:
+            out.append(close_window(int(s["close"])))
+        elif "wait_window" in s:
+            out.append(wait_window(int(s["wait_window"])))
+        elif "raise" in s:
+            out.append(raise_windows())
+        elif "set_signal" in s:
+            out.append(signal(int(s["set_signal"])))
+        elif "wait_signal" in s:
+            out.append(wait_signal(int(s["wait_signal"]),
+                                   timeout=int(s.get("timeout", SIGNAL_GUARD_FRAMES))))
         elif "wait" in s:
             out.append(wait(int(s["wait"])))
         elif "set_flag" in s:
@@ -307,7 +457,9 @@ REORDER_WAIT = 2
 
 def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
                reorder: int = REORDER_WAIT, *, ate_mode: int | None = None,
-               then_warp: int | None = None, gate: bytes = b"", end_writes: bytes = b"") -> bytes:
+               then_warp: int | None = None, gate: bytes = b"", end_writes: bytes = b"",
+               owns_control: bool = True, lock_menu: bool = False, stay_locked: bool = False,
+               grant_spin: bool = False, watchdog_flag: int | None = None) -> bytes:
     """The cutscene function body: a brief reorder ``Wait`` (so the lock outlives Main_Init's EnableMove)
     then ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated ``if (!once_flag) { ...;
     once_flag = 1 }`` when ``once_flag`` is set (so it plays once).
@@ -323,15 +475,52 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
     so the destination doesn't load in the clear (the static-screen bug). Field() transitions from this
     InitCode'd entry just like the World-Hub menu-row warp does (same code-entry context -- NOT the
     Main_Init no-op case)."""
-    pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
-    inner = pre + opcodes.DISABLE_MOVE
+    # owns_control=False (parity with the conductor's key, previously conductor-only -- the
+    # narration lane silently ignored it): no reorder wait, no lock, no restore -- the scene plays
+    # with the player free (a background narration). lock_menu adds the savepoint's DisableMenu
+    # pair inside the bracket (the stock macro locks the menu alongside movement).
+    #
+    # grant_spin (the build's default for a synth load-narration): the REORDER_WAIT guess LOSES
+    # whenever the player-init's entry grant lands late -- it is model-load-timed, so on a slow
+    # load the grant fires AFTER the 2-frame lock and frees the player mid-scene (the WINSTYLE
+    # walkable countdown, in-game 2026-08-03; the same race the conductor fought 2026-06-28).
+    # The cure is the conductor's PROVEN machinery verbatim: raise the watchdog MAP flag, lock,
+    # then SPIN until the engine/init grant actually lands and re-lock -- the lock that holds.
+    if owns_control:
+        if grant_spin:
+            from . import conductor as _conductor    # local: conductor imports this module
+            inner = b""
+            if watchdog_flag is not None:
+                inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 1)
+            inner += opcodes.DISABLE_MOVE
+            if lock_menu:
+                inner += opcodes.DISABLE_MENU
+            inner += _conductor.wait_for_control_then_lock()
+        else:
+            pre = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
+            inner = pre + opcodes.DISABLE_MOVE
+            if lock_menu:
+                inner += opcodes.DISABLE_MENU
+    else:
+        inner = b""
     if ate_mode is not None:
         inner += opcodes.ate(int(ate_mode))
     inner += b"".join(steps)
     if ate_mode is not None:
         inner += opcodes.ate(0)
-    if then_warp is None:
-        inner += opcodes.ENABLE_MOVE                      # restore control (a normal cutscene stays put)
+    if owns_control and grant_spin and watchdog_flag is not None:
+        inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 0)   # lower BEFORE the re-grant
+    if owns_control and then_warp is None:
+        if stay_locked:
+            # the ONE-WAY latch (stock's 156, movement survey 3/ 10 item 7): the scene ends with the
+            # player still locked and latches STAY_LOCKED so nothing re-grants -- not even a scripted
+            # battle's Main_Reinit (its grant gate tests the same bit). Per-visit by construction
+            # (the MAP array resets on field load). A timed-sequence / point-of-no-return ending.
+            inner += _region.set_var(_region.MAP_BOOL, _region.STAY_LOCKED_IDX, 1)
+        else:
+            if lock_menu:
+                inner += opcodes.ENABLE_MENU
+            inner += opcodes.ENABLE_MOVE                  # restore control (a normal cutscene stays put)
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes (built by the caller) INSIDE the once-gate
     # (before the once-flag set) -- the story advances exactly once, only when the scene actually played;
     # with then_warp the writes land before the warp fires. Empty -> byte-identical.
@@ -355,16 +544,27 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
 def inject_cutscene(data, steps, *, once_flag: int | None = None, flag_class=CUTSCENE_FLAG_CLASS,
                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                     ate_mode: int | None = None, then_warp: int | None = None,
-                    gate: bytes = b"", end_writes: bytes = b"") -> bytes:
+                    gate: bytes = b"", end_writes: bytes = b"",
+                    owns_control: bool = True, lock_menu: bool = False, stay_locked: bool = False,
+                    grant_spin: bool = False, watchdog_flag: int | None = None) -> bytes:
     """Append a cutscene code entry (the sequence in :func:`build_body`) and run it on field load via
     an ``InitCode`` (over a Wait filler, or inserted into Main_Init). Returns new .eb bytes.
     ``ate_mode`` (not None) styles it as a compulsory ATE (the ``ATE(mode)`` HUD bracket); ``then_warp``
     (a field id) makes it auto-return with ``Field(then_warp)`` at the end. ``gate`` / ``end_writes`` =
-    the director story-gate prologue + end-of-scene story advance (see :func:`build_body`)."""
+    the director story-gate prologue + end-of-scene story advance; ``owns_control`` / ``lock_menu`` /
+    ``grant_spin`` / ``watchdog_flag`` = the control-bracket levers (see :func:`build_body`).
+
+    With ``grant_spin`` the activation PINS to the Main_Init INSERT path (never a Wait filler) --
+    THE TICK-ORDER LAW: the scene's spin must tick BEFORE the shared watchdog's re-lock, so the
+    watchdog is activated first and scenes after (insert is LIFO -> scenes sit above it)."""
     body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode, then_warp=then_warp,
-                      gate=gate, end_writes=end_writes)
+                      gate=gate, end_writes=end_writes,
+                      owns_control=owns_control, lock_menu=lock_menu, stay_locked=stay_locked,
+                      grant_spin=grant_spin, watchdog_flag=watchdog_flag)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     slot = EbScript.from_bytes(data).first_free_slot()
     out = edit.append_entry(data, slot, entry)
+    if grant_spin:
+        return edit.activate_block(out, opcodes.init_code(slot, 0))
     return edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,
                          spawn_wait_occurrence=spawn_wait_occurrence)

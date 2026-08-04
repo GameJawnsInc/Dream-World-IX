@@ -211,6 +211,106 @@ def test_npc_is_appended_and_spawned():
     assert 0x09 in _ops(eb, 0, 0)
 
 
+# --- [[npc]] face: the standing facing byte -------------------------------------------------------
+# `face` was documented on [[npc]] (FORMAT.md, the layout skill, npc.set_player_facing's own
+# docstring) long before it was wired, so the build silently dropped it and EVERY authored NPC
+# shipped facing 0 -- the inverted-cardinals class the layout skill exists to prevent. These pin
+# the wiring at the byte the engine actually reads.
+
+def _init_body(data: bytes, slot: int) -> bytes:
+    f0 = EbScript.from_bytes(data).entry(slot).func_by_tag(0)
+    return data[f0.abs_start:f0.abs_end]
+
+
+def _facing_const(face: int) -> bytes:
+    """``SetVar D9(6) = face`` -- 05 D9 06 7D <i16 LE> 2C 7F (npc._d9_const's engine form)."""
+    return bytes([0x05, 0xD9, 0x06, 0x7D, face & 0xFF, (face >> 8) & 0xFF, 0x2C, 0x7F])
+
+
+def _injected_facings(data: bytes) -> list[int]:
+    """The D9(6) facing const of every INJECTED object entry, in slot order (the player's own entry
+    is excluded -- its facing is `[player] face`, a different key on a different object)."""
+    s = EbScript.from_bytes(data)
+    out = []
+    for e in s.entries:
+        f0 = None if e.empty else e.func_by_tag(0)
+        if f0 is None:
+            continue
+        body = data[f0.abs_start:f0.abs_end]
+        if npc._CREATE_OBJECT not in body or any(i.op == npc.DEFINE_PLAYER for i in s.instrs(f0)):
+            continue
+        k = body.index(bytes([0x05, 0xD9, 0x06, 0x7D]))
+        out.append(int.from_bytes(body[k + 4:k + 6], "little"))
+    return out
+
+
+def test_npc_facing_rides_the_d9_6_const_the_init_turn_consumes():
+    """facing= writes the object's OWN D9(6) const, which the real-NPC Init's TurnInstant(D9(6))
+    consumes right after CreateObject -- so the NPC is turned on frame 0, with no extra opcode."""
+    slot = EbScript.from_bytes(CLEAN).first_free_slot()
+    out = npc.inject_npc(CLEAN, 0, -700, facing=192, preset="vivi", talk_text_id=500, slot=slot)
+    body = _init_body(out, slot)
+    assert _facing_const(192) in body                                  # 192 = east
+    # order: the const is SET before CreateObject, and TurnInstant reads it after
+    assert body.index(_facing_const(192)) < body.index(npc._CREATE_OBJECT) < body.index(npc._TURN_INSTANT)
+
+
+def test_npc_facing_default_is_byte_identical_to_the_old_output():
+    """The default (0 = south, toward the camera) must reproduce every pre-existing build exactly."""
+    assert (npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500)
+            == npc.inject_npc(CLEAN, 100, -500, facing=0, preset="vivi", talk_text_id=500))
+
+
+def test_npc_facing_changes_exactly_one_byte():
+    """A facing costs NO opcode -- it is the const the template already carried. Anything else
+    (an appended TurnInstant, a shifted body) would move offsets the seat/spawn math depends on."""
+    slot = EbScript.from_bytes(CLEAN).first_free_slot()
+    south = npc.inject_npc(CLEAN, 100, -500, facing=0, preset="vivi", talk_text_id=500, slot=slot)
+    west = npc.inject_npc(CLEAN, 100, -500, facing=64, preset="vivi", talk_text_id=500, slot=slot)
+    assert len(south) == len(west)
+    f0 = EbScript.from_bytes(south).entry(slot).func_by_tag(0)
+    at = f0.abs_start + _init_body(south, slot).index(_facing_const(0)) + 4    # the const's low byte
+    assert [i for i, (a, b) in enumerate(zip(south, west)) if a != b] == [at]
+
+
+def test_npc_face_key_reaches_the_built_script(tmp_path):
+    """END TO END -- the gap this closes: `face = 64` in the field.toml must land in the .eb, on
+    THAT NPC's own object. An NPC with no `face` keeps the 0 default."""
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "F"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
+        '[player]\nspawn = [0, 150]\n\n'
+        '[[npc]]\nname = "west"\npreset = "vivi"\npos = [-100, 0]\nface = 64\ndialogue = "."\n\n'
+        '[[npc]]\nname = "plain"\npreset = "vivi"\npos = [100, 0]\ndialogue = "."\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert build.validate(proj) == []
+    _mes, npc_txids = build.collect_text(proj)[:2]
+    eb = build.build_script(proj, "us", npc_txids)
+    assert _injected_facings(eb) == [64, 0]              # "west" turned; "plain" kept the default
+
+
+def test_npc_face_out_of_range_is_a_validate_problem(tmp_path):
+    from ff9mapkit import build
+    base = ('[field]\nid = 4003\nname = "F"\narea = 11\ntext_block = 1073\n\n'
+            '[camera]\npitch = 45\nfov = 42.2\n\n'
+            '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n')
+
+    def probs(face_line):
+        p = tmp_path / "f.field.toml"
+        p.write_text(base + '[[npc]]\nname = "a"\npreset = "vivi"\npos = [0, 0]\n' + face_line,
+                     encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+
+    assert any("face" in x and "0..255" in x for x in probs("face = 300\n"))
+    assert any("face" in x and "0..255" in x for x in probs("face = -1\n"))
+    assert any("face" in x and "0..255" in x for x in probs('face = "north"\n'))
+    assert probs("face = 128\n") == [] and probs("") == []
+
+
 def test_encounter_injected():
     out = encounter.inject_encounter(CLEAN, scene=67, freq=255)
     eb = EbScript.from_bytes(out)
@@ -226,13 +326,15 @@ def test_reinit_with_and_without_fade():
     eb = EbScript.from_bytes(out)
     assert eb.to_bytes() == out
     assert eb.entry(0).func_by_tag(10) is not None
-    assert _ops(eb, 0, 10) == [0xEC, 0x2E, 0x04]     # FadeFilter, EnableMove, return
+    assert _ops(eb, 0, 10) == [0xEC, 0x05, 0x02, 0x2E, 0x04]   # FadeFilter, grant-gate expr,
+    #                                                            JMP_FALSE, EnableMove, return --
+    #                                                            restore-not-grant (survey item 7)
     # the player object (entry 1) survived the entry-0 growth + relocation
     assert eb.entry(1).func_by_tag(0) is not None
     assert 0x2C in _ops(eb, 1, 0)                    # DefinePlayerCharacter still intact
 
     plain = reinit.add_reinit(CLEAN, with_fade=False)
-    assert _ops(EbScript.from_bytes(plain), 0, 10) == [0x2E, 0x04]
+    assert _ops(EbScript.from_bytes(plain), 0, 10) == [0x05, 0x02, 0x2E, 0x04]
 
 
 def test_reinit_with_prologue():
@@ -283,7 +385,8 @@ def test_apply_wipe_warp_into_existing_reinit():
     eb = EbScript.from_bytes(out)
     ops = _ops(eb, 0, 10)
     assert ops[0] == 0x05 and 0x2B in ops                          # the check runs FIRST, warp present
-    assert ops[-3:] == [0xEC, 0x2E, 0x04]                          # the donor's original tail is intact
+    assert ops[-5:] == [0xEC, 0x05, 0x02, 0x2E, 0x04]              # the donor's original tail is intact
+    #                                                                (fade + the gated grant + return)
     assert eb.entry(1).func_by_tag(0) is not None                  # later entries survived the relocation
     # no tag-10 (a battle-less donor) -> byte-identical; no [deathrules] -> byte-identical
     assert _apply_wipe_warp(SimpleNamespace(raw=dr), CLEAN) == CLEAN
@@ -537,6 +640,101 @@ def test_event_repeatable_has_no_flag():
     assert rng == region.MOVEMENT_GATE + event.give_gil(500) + opcodes.RETURN
 
 
+def test_event_action_trigger_press_region():
+    # trigger="action": an INTERACT (tag 3) region -- edge-triggered by the press. No movement gate
+    # (the press proves control; the zone-[[choice]] action shape), and once=None consumes no flag:
+    # the body is exactly message + RETURN. The repeatable sign.
+    ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.message(500), "once_flag": None,
+                                       "action": True}])
+    eb = EbScript.from_bytes(out)
+    e = next(x for x in eb.entries
+             if not x.empty and x.type == 1 and x.func_by_tag(region.INTERACT_TAG))
+    f = e.func_by_tag(region.INTERACT_TAG)
+    body = eb.data[f.abs_start:f.abs_end]
+    assert body == event.message(500) + opcodes.RETURN
+    assert region.MOVEMENT_GATE not in body
+    assert not e.func_by_tag(region.RANGE_TAG)             # a press region, not a tread region
+
+
+def test_event_action_trigger_once_still_latches():
+    # once=true on an action event keeps the exact chest-convention once-gate (flag set FIRST)
+    ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.message(500), "once_flag": 202,
+                                       "action": True}])
+    eb = EbScript.from_bytes(out)
+    e = next(x for x in eb.entries
+             if not x.empty and x.type == 1 and x.func_by_tag(region.INTERACT_TAG))
+    f = e.func_by_tag(region.INTERACT_TAG)
+    body = eb.data[f.abs_start:f.abs_end]
+    assert region.cond_not(region.GLOB_BOOL, 202) in body
+    assert body.index(region.set_var(region.GLOB_BOOL, 202, 1)) < body.index(opcodes.window_sync(1, 128, 500))
+    assert region.MOVEMENT_GATE not in body
+
+
+def test_event_action_bubble_tread_companion():
+    # bubble=True on an action event: the save-moogle cask shape -- a tag-2 tread companion arming
+    # Bubble(1) per frame in the quad (the "!" prompt; a per-frame poll, so leaving clears it).
+    # Default (no bubble) stays a 2-func press region: stock's silent discover-by-pressing sign.
+    ZONE = [(0, 0), (100, 0), (100, 100), (0, 100)]
+    out = event.inject_events(CLEAN, [{"zone": ZONE, "body": event.message(500), "once_flag": None,
+                                       "action": True, "bubble": True}])
+    eb = EbScript.from_bytes(out)
+    e = next(x for x in eb.entries
+             if not x.empty and x.type == 1 and x.func_by_tag(region.INTERACT_TAG))
+    tread = e.func_by_tag(region.RANGE_TAG)
+    assert tread and eb.data[tread.abs_start:tread.abs_end] == (
+        region.MOVEMENT_GATE + opcodes.bubble(1) + opcodes.RETURN)
+    press = e.func_by_tag(region.INTERACT_TAG)
+    assert eb.data[press.abs_start:press.abs_end] == event.message(500) + opcodes.RETURN
+
+
+def test_event_bubble_needs_action_trigger(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "v.field.toml"
+    p.write_text(
+        '[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n'
+        '[camera]\npitch=45\nfov=42.2\n\n'
+        '[walkmesh]\nquad=[[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[event]]\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\nmessage="hi"\nbubble=true\n',
+        encoding="utf-8")
+    assert any("bubble" in x and "action" in x
+               for x in build.validate(build.FieldProject.load(p)))
+
+
+def test_event_trigger_walk_is_byte_identical_to_default(tmp_path):
+    # `trigger = "walk"` spelled out must build the exact same bytes as the key absent
+    from ff9mapkit import build
+    base = ('[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n'
+            '[camera]\npitch=45\nfov=42.2\n\n'
+            '[walkmesh]\nquad=[[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+            '[[event]]\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\nmessage="hi"\n')
+    ebs = []
+    for i, extra in enumerate(("", 'trigger="walk"\n')):
+        p = tmp_path / f"z{i}.field.toml"
+        p.write_text(base + extra, encoding="utf-8")
+        proj = build.FieldProject.load(p)
+        et = build.collect_text(proj)[2]
+        ebs.append(build.build_script(proj, "us", {}, event_txids=et))
+    assert ebs[0] == ebs[1]
+
+
+def test_event_action_trigger_validation(tmp_path):
+    from ff9mapkit import build
+    base = ('[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n'
+            '[camera]\npitch=45\nfov=42.2\n\n'
+            '[walkmesh]\nquad=[[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+            '[[event]]\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\nmessage="hi"\n')
+    def probs(extra):
+        p = tmp_path / "v.field.toml"
+        p.write_text(base + extra, encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+    assert probs('trigger="action"\nonce=false\n') == []                    # the repeatable sign
+    assert any('trigger' in x for x in probs('trigger="press"\n'))          # unknown trigger
+    # a repeatable press that PAYS is an item faucet -- refused
+    assert any("faucet" in x for x in probs('trigger="action"\nonce=false\ngive_item=[236,1]\n'))
+
+
 def test_event_batch_shares_one_wait():
     """Two events must consume only ONE Main_Init Wait filler (shared arming entry)."""
     evs = [{"zone": [(i * 100, 0), (i * 100 + 50, 0), (i * 100 + 50, 50), (i * 100, 50)],
@@ -727,7 +925,7 @@ def test_conductor_drives_two_actors_by_id():
     assert body.startswith(region.cond_not(region.GLOB_BOOL, 8100))    # gated by the once flag
     # the reorder Wait (so the lock outlives Main_Init's EnableMove) sits inside the gate, before DisableMove
     assert body.index(cutscene.wait(cutscene.REORDER_WAIT)) < body.index(opcodes.DISABLE_MOVE)
-    assert opcodes.turn_instant_ex(11, 128) in body                    # garnet turns, by id
+    assert opcodes.timed_turn_ex(11, 128, cutscene.TURN_SPEED) in body  # garnet turns, ANIMATED, by id
     assert opcodes.window_sync_ex(11, 0, 128, 1000) in body            # garnet's line, by id
     assert opcodes.run_animation_ex(12, 2307) in body                  # steiner animates, by id
     assert opcodes.window_sync_ex(12, 0, 128, 1001) in body            # steiner's line, by id
@@ -753,7 +951,7 @@ def test_conductor_polls_for_control_grant_then_locks():
     bops = [i.op for i in iter_code(body, 0, len(body))]
     assert 0x03 in bops                                           # the control-grant poll is present
     for k, op in enumerate(bops):                                 # each say/turn beat is re-locked (DisableMove)
-        if op in (0x95, 0x87):
+        if op in (0x95, 0xBB):
             assert bops[k - 1] == 0x2D, f"beat op {op:#x} not re-locked"
     # owns_control = False -> no lock, no poll (the field keeps control)
     body2 = conductor.build_body([{"actor": "player", "say": "a"}], {}, [500], once_flag=None, owns_control=False)
@@ -767,11 +965,13 @@ def test_conductor_player_resolves_to_250():
 
 
 def test_conductor_avoids_blocking_waits_on_actors():
-    """Softlock guard: anim/turn use the NON-blocking forms (RunAnimationEx+Wait, TurnInstantEx) -- never
-    WaitAnimationEx/WaitTurnEx, which hang on a player-cloned actor whose clip doesn't drive the wait."""
+    """Softlock guard: anim/turn use the NON-blocking fire-and-hold forms (RunAnimationEx+Wait,
+    TimedTurnEx+Wait) -- never WaitAnimationEx/WaitTurnEx, which hang if the clip doesn't drive the wait."""
     body = conductor.build_body([{"actor": "player", "animation": 1713}, {"actor": "player", "turn": 64}],
                                 {}, [], once_flag=None)
-    assert opcodes.run_animation_ex(250, 1713) in body and opcodes.turn_instant_ex(250, 64) in body
+    assert opcodes.run_animation_ex(250, 1713) in body
+    assert opcodes.timed_turn_ex(250, 64, cutscene.TURN_SPEED) in body   # animated (the stock look) ...
+    assert opcodes.wait(cutscene.TURN_HOLD) in body                      # ... paced by a fixed hold
     assert opcodes.wait_animation_ex(250) not in body and opcodes.wait_turn_ex(250) not in body
 
 
@@ -942,6 +1142,16 @@ def test_conductor_parallel_anim_absorbs_hold_into_join():
     assert ops == [0x10, 0xBD, 0x22, 0x14]                         # async walk, RunAnimationEx, Wait(hold), drain
     assert ops.count(0x22) == 1                                    # the hold is the join Wait, not a per-anim Wait
     assert opcodes.wait(cutscene.ANIM_HOLD) in body
+
+
+def test_conductor_parallel_turn_fires_without_inline_hold():
+    """A parallel turn FIRES (TimedTurnEx, no inline Wait -- an inline hold would serialize the fan) and
+    its hold is absorbed into the ONE join Wait, exactly like a parallel anim."""
+    steps = [{"actor": "a", "walk": [0, 0]}, {"actor": "b", "turn": 64, "with_prev": True}]
+    body = conductor.compile_steps(steps, {"a": 5, "b": 6}, [], tag_calls={0: (5, 20)}, join_tags={5: 19})
+    ops = [i.op for i in iter_code(body, 0, len(body))]
+    assert ops == [0x10, 0xBB, 0x22, 0x14]                         # async walk, TimedTurnEx, Wait(hold), drain
+    assert opcodes.wait(cutscene.TURN_HOLD) in body
 
 
 def test_conductor_parallel_walk_field_builds_end_to_end(tmp_path):

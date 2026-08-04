@@ -56,7 +56,16 @@ NPC_ENTRY_TYPE = 2                       # real NPC object entries are type 2 (s
 DEFAULT_LOGICAL_SIZE = (14, 14, 22)      # collision box; the common real value (moogles + most humans)
 MOOGLE_ANIMSET = 50                      # the moogle SetModel animset (real Mosh/Mogliana/Stiltzkin)
 DEFAULT_ANIMSET = 50                     # phased fallback for an unknown model (refined by the per-model catalog)
-DEFAULT_HEAD_FOCUS = (0, 65)             # non-moogle default: no automatic head-track (static facing)
+# (SelfMask, TargetMask), in the order SetHeadFocusMask (0x8B) reads them. THE PAIRING IS
+# DIRECTIONAL: A turns its head toward B iff A.TargetMask & B.SelfMask != 0, at 31..2000u
+# (EventEngine.ProcessNeck.CollisionNeck:127 -- the runtime test; DoEventCode NECKID:2042 sets the
+# fields and raises actNeckT|actNeckM). ⚠ This constant's comment used to read "no automatic
+# head-track (static facing)" and that was WRONG on the looking half: SelfMask 0 only means nobody
+# turns toward THIS npc; TargetMask 65 shares bit 0 and bit 6 with the player template's SelfMask
+# 97, so the npc DOES turn its head to watch the player. Head focus never moves the BODY -- that
+# needs FollowFocus (0x91), which the kit does not emit -- so it cannot override `[[npc]] face`
+# (in-game confirmed on bench 30900: six authored facings held with the player inside neck range).
+DEFAULT_HEAD_FOCUS = (0, 65)             # non-moogle default: unfocusable BY others, still watches the player
 STAND_SPEED = bytes([0x86, 0x00, 0x0E, 0x10, 0x12, 0x14])    # SetAnimationStandSpeed(14,16,18,20) -- invariant
 NPC_STANDBY_LOOP = bytes([0x22, 0x00, 0x01, 0x01, 0xFA, 0xFF])   # yield(1) + JMP -6: the real standby loop
 _CREATE_OBJECT = bytes([0x1D, 0x03, 0xD9, 0x00, 0x7F, 0xD9, 0x04, 0x7F])   # CreateObject(D9(0), D9(4))
@@ -205,16 +214,26 @@ def _player_rig(data) -> tuple:
     return model, animset, anims
 
 
-def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, animset=None,
-               anims=None, talk_text_id: int = 62, slot: int | None = None,
+def inject_npc(data, x: int, z: int, *, facing: int = 0, preset: str | None = None, model=None,
+               animset=None, anims=None, talk_text_id: int = 62, slot: int | None = None,
                spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                gate_flag: int | None = None, gate_require_set: bool = True,
                appears_scenario_min: int | None = None, appears_scenario_max: int | None = None,
                intro: bytes | None = None, speak_body: bytes | None = None,
                init_tail: bytes | None = None, bare: bool = False,
                reserve_party_band: bool = False, logical_size=None,
-               boot_spawn: bool = True) -> bytes:
-    """Inject an NPC at world (x, z). Returns new .eb bytes.
+               boot_spawn: bool = True, talk_window: int = 1, talk_flags: int = 128,
+               talk_dim=False, talk_dim_tint=None,
+               talk_lock: bool = True, talk_lock_menu: bool = False) -> bytes:
+    """Inject an NPC at world (x, z), standing turned to ``facing``. Returns new .eb bytes.
+
+    ``facing`` is the raw FF9 compass byte (0=south/toward the camera, 64=west, 128=north, 192=east) --
+    the ``[[npc]] face`` key. It rides the object's OWN ``SetVar D9(6)`` const, which the real-NPC Init's
+    ``TurnInstant(D9(6))`` consumes right after ``CreateObject`` (:func:`build_npc_init`), so the NPC is
+    already turned on frame 0 -- no spawn-facing flash, and no extra opcode over the default. The default
+    0 reproduces every pre-existing build byte-for-byte. (A ``[[prop]]`` sets its facing through a SECOND
+    ``TurnInstant`` in ``init_tail`` instead -- :func:`ff9mapkit.content.prop.prop_init_tail`, byte-matched
+    to the shipping prop objects; leave that path alone.)
 
     ``reserve_party_band`` (the VERBATIM-fork path): a real field packs its NPC slots and reserves the
     LAST 9 entry slots for the playable characters (addressed positionally by the engine), so the kit's
@@ -256,7 +275,7 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
 
     # Init (tag 0): the real-NPC object shape, emitted FROM SCRATCH -- no player clone, no control cruft,
     # UNCONDITIONAL (the OBJECT-INIT GATE LAW). Story/beat gating wraps the InitObject call site below.
-    body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z,
+    body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z, facing=int(facing),
                            head_focus=head_focus, logical_size=ls,
                            init_tail=bytes(init_tail or b""))
     # Loop (tag 1): the real 2-op standby. An ACTOR cutscene's `intro` choreography PREPENDS here (NOT the
@@ -273,7 +292,24 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
         table = struct.pack("<HH", 0, 1 * 4)
         entry_bytes = bytes([NPC_ENTRY_TYPE, 1]) + table + body0
     else:
-        f2 = speak_body if speak_body is not None else (opcodes.window_sync(1, 128, talk_text_id) + opcodes.RETURN)
+        # talk_window/talk_flags/talk_dim: the [[npc]] `window`/`style`/`dim` keys (default 1/128,
+        # no dim = the classic dialogue bubble; MES from the NPC's own tag-3 attributes the window
+        # to the NPC itself; dim = the letter-reading fade bracket around the talk window).
+        # talk_lock (default True): the ENGINE HAS NO DIALOG LOCK -- a WindowSync only blocks this
+        # NPC's own thread, and the player walks freely under the open window unless the talk body
+        # locks. Stock locks on 1,108/1,108 window-bearing talk handlers (100.0%, the movement
+        # census -- studies/movement/SURVEY.md), so the bracket is the faithful default; lock=false
+        # is the deliberate opt-out. (The old "the talk already halts the player" belief was
+        # falsified by that census.)
+        if speak_body is not None:
+            f2 = speak_body
+        else:
+            from . import event as _event
+            win = _event.message(talk_text_id, window=int(talk_window), flags=int(talk_flags),
+                                 dim=talk_dim, dim_tint=talk_dim_tint)
+            if talk_lock:
+                win = _event.lock_bracket(win, menu=talk_lock_menu)
+            f2 = win + opcodes.RETURN
         # IsActuallyTalkable (the per-frame talk-icon poll) blindly reads tag3[ip+7]/[ip+8]; a talk func
         # shorter than 9 bytes indexes PAST the entry buffer -> an IndexOutOfRange every frame the player is
         # near. Real talk funcs are 100+ bytes; pad ours to >= 9 (dead bytes after RETURN -> behaviour same).

@@ -1,0 +1,181 @@
+# MESGT2 -- the message-survey TIER-2 bench (studies/messages/SURVEY.md §11 items 7 and 8):
+# the MULTI-WINDOW verbs (open/close/wait_window/raise) and TEXT-SYNCHRONIZED SIGNALS.
+#
+# WHY IT IS ONE LOAD-TIME SCENE AND NOT FOUR BOOKS. A `[[cutscene]]` is a field-LOAD hook -- there is
+# no press-triggered multi-step scene in the kit -- so an "arm a book, then reload" bench would repeat
+# the exact two-step that confused the LOCKT2 round-4 read. Instead all three beats play back to back
+# on entry, `once = false`, so `~ -> Reload field` replays the whole thing. Nothing here can strand
+# you: every window is closed by the script, the one signal wait is capped at 250 frames by
+# construction, and control is never withheld at the end.
+#
+# WHAT EACH BEAT PROVES, and what to look for:
+#
+#   BEAT 1 -- STAGED CAPTIONS ("On your mark! / Get set! / GO!"). Stock's countdown idiom
+#     (test2_510.txt:919-932): async + Wait + Close, all on the SAME window id, so each caption
+#     REPLACES the last in place. LOOK FOR: three captions in one spot, each ~1s, no player input --
+#     they must advance on their own. If you have to press anything, the timing shape is wrong.
+#
+#   BEAT 2 -- A HELD HINT UNDER ROLLING DIALOGUE (stock test2_178.txt:1297-1307). A transparent
+#     window on id 3 stays up while THREE ordinary dialogue windows open and close beneath it.
+#     LOOK FOR: the hint text visible the whole time you dismiss the three lines, then vanishing on
+#     its own after the third. This is the whole point of the async verbs -- `say` alone cannot do it,
+#     because it blocks until its own window is gone.
+#     ★ ROUND 1 FAILED HERE (owner: "the hint goes away when advancing the 'Watch the hint above...'
+#     tailed message") and it was an ENGINE law, not a slip: DialogManager.OnKeyConfirm:335-341 fans a
+#     confirm out to EVERY active dialog, and each closes itself unless FlagButtonInh is set -- which
+#     only the [TIME]/[NFOC] tags ever write. So the press that advanced the line closed the hint too.
+#     The hint now carries `hold = true`, and the build REFUSES the un-held shape (this very toml
+#     linted clean before that check existed). Re-check: the hint must now survive all three presses.
+#
+#   BEAT 3 -- THE UNISON (stock's Zorn & Thorn, test2_41.txt:731-743, in the kit's spelling). Two
+#     speakers' windows open on DIFFERENT ids and hold; the script blocks until BOTH lines have
+#     finished typing (each line's [INCS] tag bumps the signal when its last glyph lands), waits a
+#     beat, then closes both. LOOK FOR, in order:
+#       (a) BOTH windows on screen at once, one per speaker, tails on the right characters, and
+#           ★ ROUND 1 REGRESSION CHECK: both names fully readable. Round 1 rendered "horn" -- the
+#           two windows sat at the same screen height and touched, and since the engine never
+#           repositions to avoid an overlap (CheckDialogOverlap only REPORTS one; the callers just
+#           flip a tail), the lower id drew in front and ate Thorn's "T" and opening quote. The
+#           speakers are now further apart AND staggered in depth;
+#       (b) they are UNDISMISSABLE -- press Action while they are up and NOTHING happens. That is
+#           `hold` ([TIME=-1]); stock's own unison entries carry it, which is why stock polls the
+#           button by hand instead of letting the engine dismiss;
+#       (c) ★ THE DIAGNOSTIC: how long the pair sits after the SECOND line finishes typing. The
+#           authored wait is 60 frames (~2s). The guard is 250 frames (~8.3s). So a SHORT pause means
+#           the text->script signal arrived and the handshake works; a LONG one (4x) means it never
+#           fired and the wait burned its whole timeout. Please time this one roughly -- it is the
+#           only beat whose failure looks like success.
+#
+# ★★ ROUND 2 VERDICT (owner: "good, ~2-3s on the double-window pause") -- ALL THREE BEATS PASS.
+# The pause measurement is the one that matters: 2-3s is the authored 60-frame wait, not the
+# 250-frame (~8.3s) guard, so the [INCS] tags fired as each line finished typing and `wait_signal`
+# exited ON THE SIGNAL. Text-synchronized choreography is proven in-game, not merely traced. Round 1's
+# two defects (the un-held hint dying to a broadcast confirm; Thorn's window clipped to "horn" by an
+# unavoided overlap) are both fixed and both are now LAWS in SURVEY.md §7a.
+#
+# The two NPCs are the speakers; talk to either afterwards to confirm ordinary dialogue is unharmed
+# and control came back. Random battles are OFF -- this bench is about windows.
+#
+# Deploy: py tools/deploy_field.py studies/messages/bench/multiwindow.field.toml --id 30603
+# (NEW id -> the first deploy registers it: one game RELAUNCH, then ~ -> Warp to field -> 30603.)
+
+[field]
+id = 30603
+name = "MESGT2"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1800]
+
+# --- the two unison speakers ------------------------------------------------------------------
+# ROUND 1 fixed the STAGING as well as the code. At [-450,-900]/[450,-900] the two unison windows
+# sat at the same screen height and TOUCHED: the engine only flips tails to avoid an overlap
+# (`CheckDialogOverlap` REPORTS, it never repositions), so the lower id simply draws in front and
+# Thorn's window lost its leading "T" and opening quote behind Zorn's. Two windows meant to be read
+# together need real separation -- these are further apart AND staggered in depth, so the bubbles
+# land at different heights and cannot clip each other.
+[[npc]]
+name = "zorn"
+preset = "vivi"
+pos = [-620, -1150]
+face = 0
+dialogue = "The scene is over and you have control. Both of our windows closed themselves -- an async window is the SCRIPT's to dispose, not the player's."
+speaker = "Zorn"
+
+[[npc]]
+name = "thorn"
+preset = "vivi"
+pos = [620, -700]
+face = 0
+dialogue = "Disposed themselves, our windows did! Reload the field to watch it again, kupo."
+speaker = "Thorn"
+
+# --- BEAT 4: COLOURED TEXT (SURVEY.md §6b -- the in-text census) -------------------------------
+# Colour is the game's third most-used tag (20,438 pushes, every one of the 64 text blocks) and it is
+# SEMANTIC: stock colours what it did NOT author -- a substituted name cyan, a quantity or item
+# yellow. Talk to the merchant and check, in order:
+#   (a) "Ore" and "300 Gil" are YELLOW, the player's own name is CYAN, the prose around them is plain
+#       white -- i.e. the coloured words are exactly the ones that came out of the save;
+#   (b) the colour RESTORES cleanly after each span (no bleed into the following words) -- stock never
+#       pops with [-], it re-pushes white, and this line exercises three spans in a row;
+#   (c) the CHOICE below it colours its ROWS as well as its prompt (the row pass is separate code --
+#       without it a coloured prompt would sit over plain rows in the same entry);
+#   (d) the button glyph in the prompt draws a real sprite, not the literal text "[DBTN=CROSS]".
+[[npc]]
+name = "merchant"
+preset = "vivi"
+pos = [0, -700]
+face = 0
+speaker = "Merchant"
+dialogue = "Bring me an {item}Ore{/} and I'll pay {amount}300 Gil{/} for it, {name}[ZDNE]{/}. Plain words stay white."
+
+# ★★ ROUND 3 ANSWERED IT, AND THE ANSWER WAS AN ENGINE LAW (owner: "the colon follows nicely, the two
+# spaces on either side still makes it appear uneven... more space on the left than the right").
+# That asymmetry was real, not perception. It is NOT sprite overhang -- the engine DELIBERATELY DROPS
+# every space after an inline image, in both passes (NGUIText.cs:885 measure, :1081 print), and the
+# `afterImage` flag is cleared only by a NON-space character, so consecutive spaces are ALL swallowed.
+# Padding right of a glyph is impossible at any width; the left side is untouched, hence left-heavy.
+# This is WHY the census found zero spaces after a glyph in stock (§6b): ':' works precisely because
+# it is a non-space character. The kit now LINTS a space after a glyph instead of letting it no-op.
+#
+# ★★ ROUND 4 ANSWERED (owner: "NBSP reads as a gap, not sure how it fits visually though but
+# technically it works"). U+00A0 is NOT in `IsSpace` (NGUIText.cs:660-663 covers only ' ', U+2009
+# thin, U+200A hair, U+200B zero-width), so it survives the drop and renders -- the engine does leave
+# one escape hatch for a glyph mid-sentence. It stays an ESCAPE HATCH and not the house style: stock
+# writes a glyph mid-sentence ZERO times in 40,896 entries, so the shape has no precedent at any
+# spacing, and "not sure how it fits" is what an off-idiom construction looks like. The legend row is
+# the recommendation; the lint names the hatch for anyone who truly needs it.
+[[choice]]
+npc = "merchant"
+prompt = "Trade the {item}Ore{/}?"
+speaker = "Merchant"
+options = [
+  { text = "Sell for {amount}300 Gil{/}", reply = "Sold! The rows colour too, kupo." },
+  { text = "[DBTN=CROSS]: Legend row (stock's own idiom, colon, no space)", reply = "That is the shape stock uses 128 times." },
+  { text = "NBSP: [DBTN=CROSS]  then a word", reply = "If you can read a GAP before 'then', U+00A0 survives the drop and mid-sentence glyphs are usable." },
+  { text = "Keep it", reply = "Suit yourself." },
+]
+
+# --- the scene: all three beats, in order ------------------------------------------------------
+[[cutscene]]
+once = false
+actors = ["zorn", "thorn"]
+steps = [
+  # BEAT 1 -- staged captions, one window id, each replacing the last. No input required.
+  { open = "On your mark!", window = 5, style = "notail" },
+  { wait = 40 },
+  { open = "Get set!", window = 5, style = "notail" },
+  { wait = 40 },
+  { open = "GO!", window = 5, style = "notail" },
+  { wait = 40 },
+  { close = 5 },
+  { wait = 20 },
+
+  # BEAT 2 -- a hint held on window 3 while three dialogue windows roll underneath it.
+  # pinned to the TOP of the screen ([MPOS]) so it cannot be covered by the speech bubbles below --
+  # window 3 sits at depth 62 and the dialogue at 68, so an unpinned hint would draw BEHIND them.
+  # ★ hold = true is LOAD-BEARING (round 1 proved it): a confirm press goes to EVERY open window, so
+  # without the dismiss-inhibit the first Action that advances the dialogue also closes this hint.
+  { open = "(HINT: this frameless line is window 3. It stays while the talking below comes and goes.)", window = 3, style = "transparent", window_pos = [24, 16], hold = true },
+  { actor = "zorn", say = "Watch the hint above -- it does not budge.", speaker = "Zorn" },
+  { actor = "thorn", say = "Budge, it does not! Three windows have opened under it now.", speaker = "Thorn" },
+  { actor = "zorn", say = "A `say` could never do this: it blocks until its OWN window is gone.", speaker = "Zorn" },
+  { close = 3 },
+  { wait = 20 },
+
+  # BEAT 3 -- the unison. Both windows hold; the wait ends when both lines have typed out.
+  { set_signal = 0 },
+  { actor = "zorn",  open = "We'll be very grateful!",  speaker = "Zorn",  window = 2, signal = "+", hold = true },
+  { actor = "thorn", open = "Very grateful, we'll be!", speaker = "Thorn", window = 3, signal = "+", hold = true },
+  { wait_signal = 2 },
+  { wait = 60 },
+  { close = 2 },
+  { close = 3 },
+  { set_signal = 0 },
+]

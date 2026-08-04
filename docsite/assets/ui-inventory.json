@@ -994,6 +994,10 @@
     "kind": "coord",
     "text": "Position (x, z)"
    },
+   "face": {
+    "kind": "optint",
+    "text": "Facing (0-255)"
+   },
    "requires_flag": {
     "kind": "flagref",
     "text": "Appears when flag set"

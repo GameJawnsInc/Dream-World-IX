@@ -32,6 +32,7 @@ from .content import coop as _coop
 from .content import cutscene as _cutscene
 from .content import conductor as _conductor
 from .content import encounter as _enc
+from .content import entrylock as _entrylock
 from .content import event as _event
 from .content import gateway as _gw
 from .content import jump as _jump
@@ -137,12 +138,15 @@ def _auto_settle_frames(project, warnings=None) -> int:
 
 
 def _camera_entry_settle(cam):
-    """The ``entry_settle`` a camera table (dict) or [[camera]] multicam list carries, or None."""
+    """The ``entry_settle`` a camera table (dict) or [[camera]] multicam list carries, or None.
+    None means ABSENT (the build then defaults to "auto"); an explicit 0/false is the opt-out and
+    must round-trip as itself -- on multicam, a truthy value in any block wins (the settle is one
+    Main_Init-wide hold), else an explicit 0/false wins over absence."""
     if isinstance(cam, dict):
         return cam.get("entry_settle")
     if isinstance(cam, list):
-        return next((c.get("entry_settle") for c in cam
-                     if isinstance(c, dict) and c.get("entry_settle")), None)
+        vals = [c.get("entry_settle") for c in cam if isinstance(c, dict)]
+        return next((v for v in vals if v), next((v for v in vals if v is not None), None))
     return None
 
 
@@ -1388,6 +1392,10 @@ def validate(project: FieldProject) -> list[str]:
             except ValueError as e:
                 problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} archetype: {e}")
         label = f"[[npc]] {n.get('name', '#' + str(i))!r}"
+        fc = n.get("face")
+        if fc is not None and not (isinstance(fc, int) and not isinstance(fc, bool) and 0 <= fc <= 255):
+            problems.append(f"{label} face {fc!r} must be a raw facing byte 0..255 "
+                            f"(0=south 64=west 128=north 192=east)")
         _validate_gate_exclusive(n, label, problems)
         try:                                              # rotating-cast beat window (min inclusive, max exclusive)
             smin, smax = _scenario_window_of(n)
@@ -1475,9 +1483,16 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
         _validate_gate_exclusive(ev, "[[event]]", problems)
         if not any(k in ev for k in ("message", "give_item", "remove_item", "gil", "set_flag",
-                                     "give_folklore")):
+                                     "give_folklore", "mask_buttons", "unmask_buttons")):
             problems.append("[[event]] needs at least one action "
-                            "(message / give_item / remove_item / gil / set_flag / give_folklore)")
+                            "(message / give_item / remove_item / gil / set_flag / give_folklore / "
+                            "mask_buttons / unmask_buttons)")
+        for k in ("mask_buttons", "unmask_buttons"):
+            if k in ev:
+                try:
+                    _movement.button_mask(ev[k])
+                except (ValueError, TypeError) as e:
+                    problems.append(f"[[event]] {k}: {e}")
         for k in ("give_item", "remove_item"):
             if k in ev:
                 try:
@@ -1493,6 +1508,18 @@ def validate(project: FieldProject) -> list[str]:
         for k in ("received", "require_space"):
             if ev.get(k) and "give_item" not in ev:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
+        trig = ev.get("trigger")
+        if trig is not None and trig not in ("walk", "action"):
+            problems.append(f"[[event]] trigger {trig!r} must be \"walk\" (tread, the default) or "
+                            f"\"action\" (press-to-fire, edge-triggered -- the repeatable sign)")
+        if trig == "action" and ev.get("once", True) is False and any(
+                k in ev for k in ("give_item", "gil")):
+            problems.append("[[event]] trigger=\"action\" with once=false and a give_item/gil reward "
+                            "is an infinite item/gil faucet (every press pays out) -- set once=true, "
+                            "or drop the reward from a repeatable sign")
+        if ev.get("bubble") and trig != "action":
+            problems.append("[[event]] bubble (the \"!\" press prompt) needs trigger = \"action\" -- "
+                            "a walk event's tread slot IS its trigger, there is no press to prompt for")
     from .content import chest as _chest
     for k, ch in enumerate(project.raw.get("chest", [])):
         _validate_gate_exclusive(ch, f"[[chest]] #{k}", problems)
@@ -2617,17 +2644,228 @@ def validate(project: FieldProject) -> list[str]:
                                 f"(-1 = last row)")
             if all(o.get("disabled") for o in opts):
                 problems.append(f"[[choice]] #{c} has every option disabled (nothing selectable)")
-        t = ch.get("tail")
+            for oi, o in enumerate(opts):
+                # `entrance` rides a warp row (event.warp writes D8:2 before the Field()) -- it was
+                # consumed by the emitter but invisible to the schema harvest until this probe
+                oe = o.get("entrance")
+                if oe is not None and "warp" not in o:
+                    problems.append(f"[[choice]] #{c} option {oi}: entrance needs warp (it is the "
+                                    f"arrival-entrance the warp sets before Field())")
+                elif oe is not None and not (isinstance(oe, int) and not isinstance(oe, bool)
+                                             and 0 <= oe <= 0x7FFF):
+                    problems.append(f"[[choice]] #{c} option {oi}: entrance must be 0..32767 "
+                                    f"(got {oe!r})")
+    # THE WINDOW-ATTRIBUTE SWEEP -- tail + the shared presentation keys (style/window/actor/instant/
+    # speed/duration/window_pos/box), validated UNIFORMLY across every dialogue-bearing block. One
+    # sweep, one rulebook: the per-block tail checks it replaces covered only 4 of the 11 blocks, so
+    # a typo'd tail on the others silently shipped as a dead [TAIL=...] tag.
+    _wa_npc_names = {n.get("name") for n in project.raw.get("npc", []) if n.get("name")}
+    _wa_verbatim = bool(project.raw.get("verbatim_eb"))
+    def _check_window_attrs(label: str, src: dict, *, actor: str = "no",
+                            opcode_side: bool = True, text_side: bool = True,
+                            allow_dim: bool = True, lock: str = "no", lock_default=True):
+        # actor: "no" (key unsupported here) | "yes" | "player-only" (verbatim: slots assigned later)
+        # | "cast" (a cutscene cast step -- its actor names the performer, validated elsewhere).
+        # opcode_side/text_side=False: the block does NOT wire those keys, so DON'T probe them --
+        # a validate probe would register them in the harvested schema as accepted-but-inert
+        # (the unknown-key lint then covers strays there instead).
+        # lock: "no" | "yes" (lock + lock_menu wired) | "lock-only" ([[on_entry]]: no menu pair).
+        # lock_default = what an absent `lock` resolves to (differs per block/trigger).
+        if lock != "no":
+            lv = src.get("lock")
+            if lv is not None and not isinstance(lv, bool):
+                problems.append(f"{label} lock must be true/false (hold player control for the "
+                                f"body -- stock's talk-handler law; got {lv!r})")
+            if lock == "yes":
+                lm = src.get("lock_menu")
+                if lm is not None and not isinstance(lm, bool):
+                    problems.append(f"{label} lock_menu must be true/false (got {lm!r})")
+                elif lm and not src.get("lock", lock_default):
+                    problems.append(f"{label}: lock_menu needs the lock (the DisableMenu pair "
+                                    f"lives inside the DisableMove bracket) -- drop lock = false "
+                                    f"or lock_menu")
+            elif src.get("lock_menu") is not None:
+                problems.append(f"{label}: lock_menu is not wired on this block (it lives on "
+                                f"[[npc]], [[event]] and [cutscene])")
+            # THE CONTROLLER-DEACTIVATION LAW (content/movement.unmask_pad; traced from bench
+            # 30602 round 1). A movement mask makes the player's controller deactivate ITSELF,
+            # and only `EnableMove` revives it -- so an UNLOCKED body that masks and never
+            # unmasks strands the player permanently with nothing in the field able to undo it
+            # (a locked body is self-healing: its closing EnableMove revives the controller).
+            # The kit now emits the revive automatically for an unlocked `unmask_buttons`, so
+            # mask+unmask in one unlocked body is fine; masking with NO unmask is the trap.
+            if (lv is False and src.get("mask_buttons") is not None
+                    and src.get("unmask_buttons") is None):
+                problems.append(
+                    f"{label}: mask_buttons with lock = false and no unmask_buttons strands the "
+                    f"player -- a movement mask deactivates the actor controller and only "
+                    f"EnableMove revives it, which an unlocked body never emits. Add "
+                    f"unmask_buttons to this body (the kit then emits the revive), or drop "
+                    f"lock = false so the bracket's own EnableMove closes it.")
+        elif src.get("lock") is not None or src.get("lock_menu") is not None:
+            problems.append(f"{label}: the control keys (lock / lock_menu) are not supported on "
+                            f"this block -- they live on [[npc]], [[event]], [[on_entry]] and "
+                            f"[cutscene]. (A [[choice]] is ALWAYS locked: without the bracket "
+                            f"the d-pad would move the character under the menu.)")
+        t = src.get("tail")
         if t is not None and t not in _text.TAIL_CODES:
-            problems.append(f"[[choice]] #{c} tail {t!r} is not a valid TAIL code")
-    # speaker (a name prefix) + tail (the dialogue-window pointer) are optional dialogue modifiers
-    for label, items in (("[[npc]]", project.raw.get("npc", [])),
-                         ("[[event]]", project.raw.get("event", []))):
-        for it in items:
-            t = it.get("tail")
-            if t is not None and t not in _text.TAIL_CODES:
-                problems.append(f"{label} tail {t!r} is not a valid TAIL code "
-                                f"({', '.join(sorted(_text.TAIL_CODES))})")
+            problems.append(f"{label} tail {t!r} is not a valid TAIL code "
+                            f"({', '.join(sorted(_text.TAIL_CODES))})")
+        flags = None
+        if opcode_side:
+            try:
+                flags = _text.resolve_style(src.get("style"))
+            except ValueError as e:
+                problems.append(f"{label} {e}")
+            w = src.get("window")
+            if w is not None and (isinstance(w, bool) or not isinstance(w, int) or not 0 <= w <= 7):
+                problems.append(f"{label} window must be 0..7 (the script window ids; got {w!r})")
+            if allow_dim:
+                try:
+                    _dim_style = _event.resolve_dim(src.get("dim"))
+                except ValueError as e:
+                    _dim_style = None
+                    problems.append(f"{label} {e}")
+                dt = src.get("dim_tint")
+                if dt is not None and not (isinstance(dt, (list, tuple)) and len(dt) == 3
+                                           and all(isinstance(v, int) and 0 <= v <= 255 for v in dt)):
+                    problems.append(f"{label} dim_tint must be [r, g, b] with 0..255 components")
+                elif dt is not None and _dim_style is None and not src.get("dim"):
+                    problems.append(f"{label} dim_tint needs dim (it overrides a bracket's in-fade "
+                                    f"colour; there is no bracket without dim)")
+            elif src.get("dim"):
+                problems.append(f"{label}: `dim` (the stock reading fade brackets) is not wired on "
+                                f"this block -- it lives on [[npc]], [[event]], [[on_entry]] and "
+                                f"cutscene say steps")
+        if text_side:
+            src.get("instant")      # no value check (any truthiness works) -- the probe registers the
+                                    # key in the harvested schema for blocks only this sweep reads
+            d = src.get("duration")
+            if d is not None and (isinstance(d, bool) or not isinstance(d, int) or d < 1):
+                problems.append(f"{label} duration must be an int >= 1 (frames until the window "
+                                f"auto-closes; got {d!r})")
+            sp = src.get("speed")
+            if sp is not None and (isinstance(sp, bool) or not isinstance(sp, int)
+                                   or not 1 <= sp <= 255):
+                problems.append(f"{label} speed must be 1..255 (typewriter [SPED]; got {sp!r})")
+            wp = src.get("window_pos")
+            if wp is not None and not (isinstance(wp, (list, tuple)) and len(wp) == 2):
+                problems.append(f"{label} window_pos must be [x, y] (the window's top-left, y down)")
+            elif wp is not None and t is not None:
+                problems.append(f"{label}: window_pos PINS the window and the engine draws no tail "
+                                f"on a pinned window -- drop tail or window_pos")
+            bx = src.get("box")
+            if bx is not None and not (isinstance(bx, (list, tuple)) and len(bx) == 2
+                                       and all(isinstance(v, int) and v >= 0 for v in bx)):
+                problems.append(f"{label} box must be [width, lines] (the [STRT] geometry)")
+            sg = src.get("signal")
+            if sg is not None and not (sg is True or (isinstance(sg, str) and sg.strip() == "+")
+                                       or (isinstance(sg, int) and not isinstance(sg, bool))):
+                problems.append(f"{label} signal must be \"+\" (increment -> [INCS]) or an int "
+                                f"(set -> [SIGL=n]); got {sg!r}")
+            hd = src.get("hold")
+            if hd is not None and not isinstance(hd, bool):
+                problems.append(f"{label} hold must be true/false (undismissable [TIME=-1]; "
+                                f"got {hd!r})")
+            if hd and d is not None:
+                problems.append(f"{label}: hold and duration are the same engine tag with opposite "
+                                f"meanings ([TIME=-1] holds forever, [TIME=n] auto-closes after n "
+                                f"frames) -- keep one.")
+        a = src.get("actor") if opcode_side else None
+        if a is not None and actor != "cast":      # "cast": the step's actor IS the performer
+            if actor == "no":
+                problems.append(f"{label}: `actor` is not supported on this block (it exists on "
+                                f"[[event]], [[on_entry]] and zone [[choice]]; a cutscene attributes "
+                                f"lines via its cast)")
+            elif not isinstance(a, str) or (a != "player" and a not in _wa_npc_names):
+                problems.append(f"{label} actor {a!r} must be \"player\" or a named [[npc]]")
+            elif actor == "player-only" and a != "player":
+                problems.append(f"{label}: a named-NPC actor is not supported on a verbatim fork yet "
+                                f"(NPC slots are assigned after this window emits) -- only \"player\"")
+            elif flags is not None and not flags & 128:
+                problems.append(f"{label}: actor needs a bubble-family style (the engine drops the "
+                                f"attribution unless the 128 bit is set) -- use bubble / bubble_nopan "
+                                f"/ bubble_notail / bubble_transparent")
+    _wa_ev_actor = "player-only" if _wa_verbatim else "yes"
+    _wa_choice_npcs = {ch.get("npc") for ch in project.raw.get("choice", []) if ch.get("npc")}
+    for i, n in enumerate(project.raw.get("npc", [])):
+        _check_window_attrs(f"[[npc]] {n.get('name') or '#' + str(i)}", n, lock="yes")
+        if n.get("lock") is False and n.get("name") in _wa_choice_npcs:
+            problems.append(f"[[npc]] {n.get('name')!r}: lock = false with an attached [[choice]] "
+                            f"-- a choice menu NEEDS the lock (the d-pad would move the character "
+                            f"under the menu; stock wraps every choice). Drop lock = false.")
+    for j, ev in enumerate(project.raw.get("event", [])):
+        # the lock default is trigger-shaped: a press body locks (stock's 100.0% talk-handler
+        # law), a tread body stays free (the toast idiom = stock's passive banners)
+        _check_window_attrs(f"[[event]] #{j}", ev, actor=_wa_ev_actor, lock="yes",
+                            lock_default=((ev.get("trigger") or "walk") == "action"))
+    def _entrance_vals(v):
+        vals = [v] if isinstance(v, int) and not isinstance(v, bool) else v
+        if not (isinstance(vals, list) and vals
+                and all(isinstance(e, int) and not isinstance(e, bool) and 0 <= e <= 0x7FFF
+                        for e in vals)):
+            return None
+        return [int(e) for e in vals]
+    for k, h in enumerate(project.raw.get("on_entry", [])):
+        if isinstance(h, dict):
+            _check_window_attrs(f"[[on_entry]] #{k}", h, actor=_wa_ev_actor, lock="lock-only")
+            if h.get("entrance") is not None and _entrance_vals(h["entrance"]) is None:
+                problems.append(f"[[on_entry]] #{k} entrance must be an entrance id (0..32767) or "
+                                f"a list of them -- the arrival D8:2 values this beat fires for")
+    # [player] locked_entrances -- arrive-locked entry (stock's entrance-gated grant). The grant
+    # is withheld for these entrance ids, so for EVERY one of them some story-UNGATED [[on_entry]]
+    # hook (whose own `entrance` gate is absent or covers it) must carry the grant tail -- else
+    # the player arrives frozen forever. Prefer an entrance-gated hook: an ungated one also fires
+    # on plain entries, where its lock bracket interleaves with a load [cutscene]'s (the first
+    # EnableMove frees the player mid-scene -- the WINSTYLE intro-dim leak). Synth-only.
+    _le = (project.raw.get("player") or {}).get("locked_entrances")
+    if _le is not None:
+        _le_vals = _entrance_vals(_le) if isinstance(_le, list) else None
+        if _le_vals is None:
+            problems.append("[player] locked_entrances must be a non-empty list of entrance ids "
+                            "(0..32767) -- the General_FieldEntrance values that arrive locked")
+        elif _wa_verbatim:
+            problems.append("[player] locked_entrances is synth-only -- a verbatim fork ships the "
+                            "donor's own grant logic (gate a donor arrival with [[logic_edit]] "
+                            "instead)")
+        else:
+            for e in _le_vals:
+                def _covers(h):
+                    he = h.get("entrance")
+                    hv = _entrance_vals(he) if he is not None else None
+                    return (isinstance(h, dict) and h.get("requires_flag") is None
+                            and h.get("requires_scenario") is None
+                            and (he is None or (hv is not None and e in hv)))
+                if not any(_covers(h) for h in project.raw.get("on_entry", [])):
+                    problems.append(f"[player] locked_entrances: entrance {e} has no [[on_entry]] "
+                                    f"hook to hand control back (needs one with no "
+                                    f"requires_flag/requires_scenario whose `entrance` is absent "
+                                    f"or covers {e}) -- without it the player arrives frozen "
+                                    f"forever.")
+    for c, ch in enumerate(project.raw.get("choice", [])):
+        _check_window_attrs(f"[[choice]] #{c}", ch, allow_dim=False,
+                            actor=("no" if ch.get("npc") else _wa_ev_actor))
+        if ch.get("bubble") and ("zone" not in ch or (ch.get("trigger") or "action") != "action"):
+            problems.append(f"[[choice]] #{c} bubble (the \"!\" press prompt) needs a zone choice "
+                            f"with trigger = \"action\"")
+        if ch.get("npc") and ch.get("actor") is not None:
+            problems.append(f"[[choice]] #{c}: an NPC-attached choice already attributes its window "
+                            f"to that NPC -- drop `actor`")
+        for oi, o in enumerate(ch.get("options", [])):
+            _check_window_attrs(f"[[choice]] #{c} option {oi}", o, allow_dim=False)
+    for k, co in enumerate(project.raw.get("coop", [])):
+        _check_window_attrs(f"[[coop]] #{k}", co, opcode_side=False)
+    for k, p in enumerate(project.raw.get("prop", [])):
+        _check_window_attrs(f"[[prop]] #{k}", p, opcode_side=False)
+    for k, ch in enumerate(project.raw.get("chest", [])):
+        _check_window_attrs(f"[[chest]] #{k}", ch, opcode_side=False, text_side=False)
+    for k, sp in enumerate(project.raw.get("savepoint", [])):
+        _check_window_attrs(f"[[savepoint]] #{k}", sp, opcode_side=False, text_side=False)
+    for _ci, cs in enumerate(_cutscene.blocks(project.raw.get("cutscene"))):
+        for _sk, s in enumerate(cs.get("steps") or []):
+            if _cutscene.step_text(s) is not None:
+                _check_window_attrs(f"[cutscene] step {_sk}", s,
+                                    actor=("cast" if cs.get("actors") else "no"))
     _cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
     for _ci, cs in enumerate(_cs_blocks):
         # the [[cutscene]] DISPATCH (#13 v2): several scenes per field, each validated alone. A singleton
@@ -2650,6 +2888,25 @@ def validate(project: FieldProject) -> list[str]:
         if cs.get("requires_flag") is not None and cs.get("requires_flag_clear") is not None:
             problems.append(f"{lbl} set requires_flag OR requires_flag_clear, not both (stack a second "
                             "condition on requires_scenario instead)")
+        lm = cs.get("lock_menu")
+        if lm is not None and not isinstance(lm, bool):
+            problems.append(f"{lbl} lock_menu must be true/false (hold the main menu shut for the "
+                            f"scene, the stock macro's DisableMenu pair; got {lm!r})")
+        elif lm and cs.get("owns_control", True) is False:
+            problems.append(f"{lbl}: lock_menu needs the control bracket -- drop owns_control = "
+                            f"false or lock_menu (the menu pair lives inside the DisableMove "
+                            f"bracket)")
+        sl = cs.get("stay_locked")
+        if sl is not None and not isinstance(sl, bool):
+            problems.append(f"{lbl} stay_locked must be true/false (end the scene with the player "
+                            f"still locked + the one-way stay-locked latch; got {sl!r})")
+        elif sl:
+            if cs.get("owns_control", True) is False:
+                problems.append(f"{lbl}: stay_locked needs the control bracket -- drop owns_control "
+                                f"= false or stay_locked (there is no lock to keep)")
+            if cs.get("then_warp") is not None:
+                problems.append(f"{lbl}: stay_locked with then_warp is redundant -- a warp already "
+                                f"leaves without re-granting (the destination owns control); drop one")
         for rk in ("requires_flag", "requires_flag_clear"):
             rv = cs.get(rk)
             if rv is not None and (isinstance(rv, bool) or not isinstance(rv, int)):
@@ -2688,7 +2945,7 @@ def validate(project: FieldProject) -> list[str]:
             _validate_conductor(project, cs, problems, lbl=lbl)   # the cast scene (the conductor)
         else:
             steps = cs.get("steps")                        # narration: say / wait / set_flag only
-            global_keys = ("say", "wait", "set_flag")
+            global_keys = ("say", "wait", "set_flag") + _cutscene.WINDOW_STEP_KINDS
             actor_keys = ("walk", "path", "teleport", "animation", "turn", "face_player")
             if not isinstance(steps, list) or not steps:
                 problems.append(f"{lbl} needs a non-empty steps = [ {{say=...}}, {{wait=...}}, ... ] list")
@@ -2700,9 +2957,9 @@ def validate(project: FieldProject) -> list[str]:
                     elif present[0] not in global_keys:
                         problems.append(f"{lbl} step {k} uses {present[0]!r}, which needs a cast -- add "
                                         f"actors = [\"<npc name>\"] (the step then runs on that actor).")
-                    t = s.get("tail")
-                    if t is not None and t not in _text.TAIL_CODES:
-                        problems.append(f"{lbl} step {k} tail {t!r} is not a valid TAIL code")
+                    # (step tail/style/window are checked by the window-attribute sweep above)
+        # the multi-window ledger is conductor-level, so it runs for BOTH flavors
+        _validate_window_scene(cs, problems, lbl=lbl)
         if "ate_mode" in cs and not cs.get("ate"):
             problems.append(f"{lbl} ate_mode is set but ate is not true -- set ate = true to style "
                             "this cutscene as a compulsory ATE (or drop ate_mode).")
@@ -3027,18 +3284,34 @@ def lint_logic(project: FieldProject) -> list[str]:
     # dialogue that won't fit on screen. With wrapping ON, only an unbreakable over-wide word can
     # still overflow; with wrapping OFF, any hand-written line over the budget will run off-screen.
     wrap = _wrap_width(project)
-    texts = []
+    texts, authored = [], []          # (label, EXPANDED line) for width; (label, RAW) for markup
     for n in raw.get("npc", []):
         if "dialogue" in n:
             texts.append((f"NPC {n.get('name', '?')!r}", _text.with_speaker(n.get("speaker"), n["dialogue"])))
+            authored.append((f"NPC {n.get('name', '?')!r}", n["dialogue"]))
     for ev in raw.get("event", []):
         if "message" in ev:
             texts.append((f"event {ev.get('name', '?')!r}", _text.with_speaker(ev.get("speaker"), ev["message"])))
+            authored.append((f"event {ev.get('name', '?')!r}", ev["message"]))
     for _ck, _cb in enumerate(_cutscene.blocks(raw.get("cutscene"))):
         for k, s in enumerate(_cb.get("steps", [])):
-            if "say" in s:
-                texts.append((f"cutscene #{_ck} say #{k}" if _ck else f"cutscene say #{k}",
-                              _text.with_speaker(s.get("speaker"), s["say"])))
+            _line = _cutscene.step_text(s)
+            if _line is not None:
+                _lbl = f"cutscene #{_ck} say #{k}" if _ck else f"cutscene say #{k}"
+                texts.append((_lbl, _text.with_speaker(s.get("speaker"), _line)))
+                authored.append((_lbl, _line))
+    for c, ch in enumerate(raw.get("choice", [])):
+        authored.append((f"choice #{c} prompt", ch.get("prompt", "")))
+        for o, opt in enumerate(ch.get("options", []) or []):
+            authored.append((f"choice #{c} option #{o}", opt.get("text", "")))
+            if opt.get("reply"):
+                authored.append((f"choice #{c} option #{o} reply", opt["reply"]))
+    # colour markup is checked on the RAW line -- by the time it reaches `texts` it is already expanded
+    for who, src in authored:
+        for prob in _text.markup_problems(src):
+            out.append(f"{who}: {prob}")
+        for prob in _text.space_after_glyph_problems(src):
+            out.append(f"{who}: {prob}")
     for who, t in texts:
         if wrap is None:                       # wrapping disabled: every over-budget line overflows
             for ln in t.replace("[PAGE]", "\n").split("\n"):
@@ -4670,7 +4943,8 @@ def _field_load_inject(label: str, field_name: str, fn):
 
 
 def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto,
-                    *, drop_messages: bool = False, warnings: list | None = None) -> bytes:
+                    *, drop_messages: bool = False, warnings: list | None = None,
+                    npc_slots: dict | None = None) -> bytes:
     """Arm the ``[[on_entry]]`` hooks (gated, once field-LOAD beats) into ``eb`` -- each a code entry run by
     an ``InitCode`` in Main_Init (the declarative entry-beat hook, FORK_FIDELITY.md #10). Shared by
     :func:`build_script` (synthesize path) AND the verbatim-`.eb` path in :func:`build_field` (which bypasses
@@ -4713,10 +4987,31 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
         item_pairs = [(it[0] if isinstance(it, (list, tuple)) else it,
                        int(it[1]) if isinstance(it, (list, tuple)) and len(it) > 1 else 1)
                       for it in h.get("items", [])]
+        _w, _f, _uid = _window_attrs(h, npc_slots, label=f"[[on_entry]] #{k}")
         hooks.append({"message_txid": txid, "set_flag_pairs": pairs,
                       "scenario": sc, "item_pairs": item_pairs, "gil": h.get("gil"),
                       "once_flag": once_flag, "requires_flag": rf,
-                      "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc})
+                      "requires_set": bool(h.get("requires_set", True)), "requires_scenario": rsc,
+                      "message_window": _w, "message_flags": _f, "message_actor_uid": _uid,
+                      "message_dim": h.get("dim", False), "message_dim_tint": h.get("dim_tint"),
+                      "message_lock": bool(h.get("lock", True)),
+                      "entrance": h.get("entrance")})
+    # [player] locked_entrances: the entry grant is entrance-gated away, so for EVERY locked
+    # entrance some hook must hand control back (grant_control -- outside its once block). A hook
+    # qualifies for entrance e when it has no requires gate (a story-gated hook can early-return
+    # before any tail) and its own `entrance` gate is absent or covers e. The first qualifying hook
+    # per entrance gets the tail (validate guarantees coverage). NOTE the unlock hook should
+    # normally BE entrance-gated: an ungated one also fires on plain entries, where its lock
+    # bracket + grant interleave with a load [cutscene]'s bracket and free the player mid-scene
+    # (the WINSTYLE intro-dim leak, in-game 2026-08-03).
+    _locked = (project.raw.get("player") or {}).get("locked_entrances") or []
+    for e in _locked:
+        for hk, h in zip(hooks, on_entry):
+            he = h.get("entrance")
+            covers = he is None or (int(e) in ([he] if isinstance(he, int) else list(he)))
+            if h.get("requires_flag") is None and h.get("requires_scenario") is None and covers:
+                hk["grant_control"] = True
+                break
     return _onentry.inject_on_entries(eb, hooks)
 
 
@@ -4855,15 +5150,17 @@ def _verbatim_on_entry_messages(project: FieldProject, langs) -> tuple[dict, dic
         return {}, {}
     base = _appended_txid_base(project, langs)
     wrap = _wrap_width(project)
-    lines, tails, txid_by_hook = [], [], {}
+    lines, tails, strts, txid_by_hook = [], [], [], {}
     for i, (k, h) in enumerate(msg_hooks):
         line = _text.with_speaker(h.get("speaker"), h["message"])
         if wrap is not None:
             line = _text.wrap_text(line, wrap)[0]
+        line, strt, tail = _text.dress_window(h, line)
         lines.append(line)
-        tails.append(h.get("tail"))
+        tails.append(tail)
+        strts.append(strt)
         txid_by_hook[k] = base + i
-    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return txid_by_hook, {lang: suffix for lang in langs}
 
 
@@ -4950,9 +5247,10 @@ def _verbatim_event_messages(project: FieldProject, langs) -> tuple[dict, dict]:
             line = _text.with_speaker(ev.get("speaker"), ev["message"])
             if wrap is not None:
                 line = _text.wrap_text(line, wrap)[0]
+            line, strt, tail = _text.dress_window(ev, line)
             lines.append(line)
-            tails.append(ev.get("tail"))
-            strts.append(None)
+            tails.append(tail)
+            strts.append(strt)
         txid_by_idx[j] = base + k
     suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return txid_by_idx, {lang: suffix for lang in langs}
@@ -5036,30 +5334,36 @@ def _verbatim_choice_messages(project: FieldProject, langs) -> tuple[dict, dict]
             + _logic_add_message_count(project) + _verbatim_npc_message_count(project)
             + _verbatim_event_message_count(project) + _verbatim_chest_message_count(project))
     wrap = _wrap_width(project)
-    lines, tails, choice_txids = [], [], {}
+    lines, tails, strts, choice_txids = [], [], [], {}
     for c, ch in voiced:
         q = _text.with_speaker(ch.get("speaker"), ch.get("prompt", ""))
         if wrap is not None:
             q = _text.wrap_text(q, wrap)[0]
-        opts = [str(o.get("text", "")) for o in ch.get("options", [])]
+        # choice ROWS are not wrapped (a row is short by design) but they do take colour markup --
+        # the prompt gets it via with_speaker, so without this the two halves of one entry disagree
+        opts = [_text.apply_markup(str(o.get("text", ""))) for o in ch.get("options", [])]
         pre_tag = _choice.pre_choose(ch)[1]                  # [PCHC]/[PCHM] config tag (default/cancel/hide)
-        prompt_line = pre_tag + q + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(opts)
+        prompt_line = (_text.menu_pos_tag(ch.get("window_pos")) + pre_tag + q + _text.CHOICE_OPEN
+                       + ("\n" + _text.CHOICE_INDENT).join(opts))
         if ch.get("instant"):                                # [IMME] = pop the menu fully drawn (FF9 shop menus)
             prompt_line += _text.CHOICE_IMME
         prompt_txid = base + len(lines)                      # build_mes assigns base + line-index, in order
         lines.append(prompt_line)
-        tails.append(ch.get("tail"))
+        tails.append(_text.default_tail(ch))                 # pinned/detached -> tail-less (the geometry law)
+        strts.append(tuple(int(v) for v in ch["box"]) if ch.get("box") is not None else None)
         replies = {}
         for oi, o in enumerate(ch.get("options", [])):
             if o.get("reply"):
                 line = _text.with_speaker(o.get("speaker"), o["reply"])
                 if wrap is not None:
                     line = _text.wrap_text(line, wrap)[0]
+                line, strt, tail = _text.dress_window(o, line)
                 replies[oi] = base + len(lines)
                 lines.append(line)
-                tails.append(o.get("tail"))
+                tails.append(tail)
+                strts.append(strt)
         choice_txids[c] = {"prompt": prompt_txid, "replies": replies}
-    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return choice_txids, {lang: suffix for lang in langs}
 
 
@@ -5090,15 +5394,17 @@ def _verbatim_prop_messages(project: FieldProject, langs) -> tuple[dict, dict]:
             + _verbatim_event_message_count(project) + _verbatim_chest_message_count(project)
             + _verbatim_choice_message_count(project))
     wrap = _wrap_width(project)
-    lines, tails, txid_by_idx = [], [], {}
+    lines, tails, strts, txid_by_idx = [], [], [], {}
     for k, (j, p) in enumerate(voiced):
         line = _text.with_speaker(p.get("speaker"), p["dialogue"])
         if wrap is not None:
             line = _text.wrap_text(line, wrap)[0]
+        line, strt, tail = _text.dress_window(p, line)
         lines.append(line)
-        tails.append(p.get("tail"))
+        tails.append(tail)
+        strts.append(strt)
         txid_by_idx[j] = base + k
-    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
@@ -5113,7 +5419,7 @@ def _verbatim_cutscene_message_count(project: FieldProject) -> int:
     cs = _verbatim_conductor_block(project)
     if cs is None:
         return 0
-    return sum(1 for s in (cs.get("steps") or []) if "say" in s)
+    return len(_cutscene.text_steps(cs.get("steps")))
 
 
 def _verbatim_conductor_block(project: FieldProject):
@@ -5131,7 +5437,7 @@ def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dic
     cs = _verbatim_conductor_block(project)
     if cs is None:
         return [], {}
-    say_steps = [s for s in (cs.get("steps") or []) if "say" in s]
+    say_steps = _cutscene.text_steps(cs.get("steps"))
     if not say_steps:
         return [], {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
@@ -5139,15 +5445,17 @@ def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dic
             + _verbatim_event_message_count(project) + _verbatim_chest_message_count(project)
             + _verbatim_choice_message_count(project) + _verbatim_prop_message_count(project))
     wrap = _wrap_width(project)
-    lines, tails, txids = [], [], []
+    lines, tails, strts, txids = [], [], [], []
     for s in say_steps:
-        line = _text.with_speaker(s.get("speaker"), s["say"])
+        line = _text.with_speaker(s.get("speaker"), _cutscene.step_text(s))
         if wrap is not None:
             line = _text.wrap_text(line, wrap)[0]
+        line, strt, tail = _text.dress_window(s, line)
         txids.append(base + len(lines))
         lines.append(line)
-        tails.append(s.get("tail"))
-    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+        tails.append(tail)
+        strts.append(strt)
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return txids, {lang: suffix for lang in langs}
 
 
@@ -5213,6 +5521,12 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
             warnings.append(f"[[event]] #{j} has no zone -- skipped on the verbatim fork.")
             continue
         parts = []
+        # the lock resolves EARLY here: an UNLOCKED body that unmasks a movement bit must emit its
+        # own EnableMove to revive the deactivated controller (THE CONTROLLER-DEACTIVATION LAW,
+        # content/movement.unmask_pad); a locked body's closing bracket already does it.
+        _ev_locked = bool(ev.get("lock", (ev.get("trigger") or "walk") == "action"))
+        if "mask_buttons" in ev:                          # partial control: buttons stop arriving FIRST,
+            parts.append(_movement.mask_pad(ev["mask_buttons"]))   # before any window (the tutorial idiom)
         item_id = _items.resolve(ev["give_item"][0]) if "give_item" in ev else None
         if "give_item" in ev:
             gi = ev["give_item"]
@@ -5235,7 +5549,14 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
                 parts.append(opcodes.set_text_variable(0, item_id))
                 parts.append(_event.message(event_txids[j], window=7, flags=0))
             else:
-                parts.append(_event.message(event_txids[j]))
+                # verbatim path: NPC slots aren't assigned yet here, so `actor` supports "player"
+                # only (a named-NPC actor is refused by validate on a verbatim fork)
+                _w, _f, _uid = _window_attrs(ev, None, label=f"[[event]] #{j}")
+                parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid,
+                                            dim=ev.get("dim", False),
+                                            dim_tint=ev.get("dim_tint")))
+        if "unmask_buttons" in ev:                        # ...and re-arrive LAST (after any window)
+            parts.append(_movement.unmask_pad(ev["unmask_buttons"], revive=not _ev_locked))
         once_flag = None
         if ev.get("once", True):
             _cap = max_auto_events(project)
@@ -5247,8 +5568,17 @@ def _inject_verbatim_events(project: FieldProject, eb: bytes, event_txids: dict,
             flag_counter += 1
         gf, gs = _gate_of(ev)
         space_item = item_id if ev.get("require_space") and item_id is not None else None
+        _act = (ev.get("trigger") or "walk") == "action"
         specs.append({"zone": [tuple(p) for p in ev["zone"][:4]], "body": b"".join(parts),
-                      "once_flag": once_flag, "requires_flag": gf, "requires_set": gs, "space_item": space_item})
+                      "once_flag": once_flag, "requires_flag": gf, "requires_set": gs,
+                      "space_item": space_item,
+                      "action": _act,
+                      # stock's law: a press body ALWAYS locks (1,108/1,108 talk handlers); a tread
+                      # body's default stays free (the kit's proven toast idiom = stock's passive
+                      # banners). `lock` overrides either way; a locked tread delegates (inject_events).
+                      "lock": bool(ev.get("lock", _act)),
+                      "lock_menu": bool(ev.get("lock_menu")),
+                      "bubble": bool(ev.get("bubble"))})
     return _event.inject_events(eb, specs, reserve_party_band=True) if specs else eb
 
 
@@ -5279,15 +5609,17 @@ def _verbatim_npc_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
             + _logic_add_message_count(project))
     wrap = _wrap_width(project)
-    lines, tails, txid_by_idx = [], [], {}
+    lines, tails, strts, txid_by_idx = [], [], [], {}
     for j, (i, n) in enumerate(voiced + silent):
         line = _text.with_speaker(n.get("speaker"), n.get("dialogue") or _text.DEFAULT_SILENT_TALK)
         if wrap is not None:
             line = _text.wrap_text(line, wrap)[0]
+        line, strt, tail = _text.dress_window(n, line)
         lines.append(line)
-        tails.append(n.get("tail"))
+        tails.append(tail)
+        strts.append(strt)
         txid_by_idx[i] = base + j
-    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails)
+    suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return txid_by_idx, {lang: suffix for lang in langs}
 
 
@@ -5368,16 +5700,24 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
             opt_bodies = [_choice.option_body(o, replies.get(oi))
                           for oi, o in enumerate(ch.get("options", []))]
             setup, _ = _choice.pre_choose(ch)
-            sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
+            _cw, _cf, _ = _window_attrs(ch, None, label=f"[[choice]] npc={name!r}")
+            sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup, window=_cw, flags=_cf)
         elif n.get("opens_shop") is not None:
             # the greeting is this NPC's own `dialogue` line (txid above); no dialogue -> straight to the shop.
             sb = _shop.shop_speak_body(int(n["opens_shop"]),
-                                       greeting_txid=txid if n.get("dialogue") else None)
+                                       greeting_txid=txid if n.get("dialogue") else None,
+                                       lock=n.get("lock", True), lock_menu=bool(n.get("lock_menu")))
         pos = n["pos"]
         slot = EbScript.from_bytes(eb).entry_count - _object.PARTY_BAND_SIZE   # the slot this insert will take
-        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
+        _nw, _nf, _ = _window_attrs(n, None, label=f"[[npc]] {name}")
+        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), facing=int(n.get("face") or 0),
+                             talk_text_id=txid, gate_flag=gf,
                              gate_require_set=gs, appears_scenario_min=smin, appears_scenario_max=smax,
-                             speak_body=sb, reserve_party_band=True, **kwargs)
+                             speak_body=sb, reserve_party_band=True,
+                             talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
+                             talk_dim_tint=n.get("dim_tint"),
+                             talk_lock=n.get("lock", True), talk_lock_menu=bool(n.get("lock_menu")),
+                             **kwargs)
         if n.get("name"):
             npc_slots[n["name"]] = slot                                       # name -> uid (stable below the band)
     return eb, npc_slots
@@ -5496,6 +5836,7 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
         once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
         warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
         owns_control=bool(cs.get("owns_control", True)),
+        lock_menu=bool(cs.get("lock_menu")), stay_locked=bool(cs.get("stay_locked")),
         then_warp=(int(cs["then_warp"]) if cs.get("then_warp") else None),
         ate_mode=_ate_mode,
         tag_calls=tag_calls, join_tags=join_tags, reserve_party_band=True,
@@ -5703,7 +6044,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
     _cs_slices, _cs_off = [], 0
     for _b in cs_blocks:
-        _n_say = sum(1 for s in (_b.get("steps") or []) if "say" in s)
+        _n_say = len(_cutscene.text_steps(_b.get("steps")))
         _cs_slices.append(cutscene_txids[_cs_off:_cs_off + _n_say])
         _cs_off += _n_say
 
@@ -5752,20 +6093,29 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                               input_specs=input_specs, qte_slots=qte_slots)
                           for oi, o in enumerate(ch.get("options", []))]
             setup, _ = _choice.pre_choose(ch)
+            _cw, _cf, _ = _window_attrs(ch, None, label=f"[[choice]] npc={n.get('name')!r}")
             if any("input" in o or "qte" in o for o in ch.get("options", [])):
                 # an `input` row opens the stepper's windows -> switch dispatch (sysvar-9 law)
-                sb = _choice.switch_body(ct["prompt"], opt_bodies, setup=setup) + opcodes.RETURN
+                sb = _choice.switch_body(ct["prompt"], opt_bodies, setup=setup,
+                                         window=_cw, flags=_cf) + opcodes.RETURN
             else:
-                sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup)
+                sb = _choice.speak_body(ct["prompt"], opt_bodies, setup=setup, window=_cw, flags=_cf)
         elif n.get("opens_shop") is not None:
             # a shopkeeper: talk -> (optional greeting window ->) open the shop (Menu(2, id)). The greeting
             # is this NPC's own `dialogue` line (txid assigned above); no dialogue -> straight to the shop.
             sb = _shop.shop_speak_body(int(n["opens_shop"]),
-                                       greeting_txid=txid if n.get("dialogue") else None)
-        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
+                                       greeting_txid=txid if n.get("dialogue") else None,
+                                       lock=n.get("lock", True), lock_menu=bool(n.get("lock_menu")))
+        _nw, _nf, _ = _window_attrs(n, None, label=f"[[npc]] {n.get('name') or '#' + str(i)}")
+        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), facing=int(n.get("face") or 0),
+                             talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
                              appears_scenario_max=smax, speak_body=sb,
-                             boot_spawn=(n.get("name") not in _pooled_bh), **kwargs)
+                             boot_spawn=(n.get("name") not in _pooled_bh),
+                             talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
+                             talk_dim_tint=n.get("dim_tint"),
+                             talk_lock=n.get("lock", True), talk_lock_menu=bool(n.get("lock_menu")),
+                             **kwargs)
         if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:
@@ -5856,6 +6206,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         specs, flag_counter = [], 0
         for j, ev in enumerate(events):
             parts = []
+            # see the twin site above: an UNLOCKED unmask of a movement bit carries its own
+            # EnableMove (THE CONTROLLER-DEACTIVATION LAW, content/movement.unmask_pad)
+            _ev_locked = bool(ev.get("lock", (ev.get("trigger") or "walk") == "action"))
+            if "mask_buttons" in ev:                      # partial control: buttons stop arriving FIRST,
+                parts.append(_movement.mask_pad(ev["mask_buttons"]))   # before any window (the tutorial idiom)
             item_id = _items.resolve(ev["give_item"][0]) if "give_item" in ev else None
             if "give_item" in ev:
                 gi = ev["give_item"]
@@ -5889,7 +6244,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     parts.append(opcodes.set_text_variable(0, item_id))
                     parts.append(_event.message(event_txids[j], window=7, flags=0))
                 else:
-                    parts.append(_event.message(event_txids[j]))
+                    _w, _f, _uid = _window_attrs(ev, npc_slots, label=f"[[event]] #{j}")
+                    parts.append(_event.message(event_txids[j], window=_w, flags=_f, actor_uid=_uid,
+                                                dim=ev.get("dim", False),
+                                                dim_tint=ev.get("dim_tint")))
+            if "unmask_buttons" in ev:                    # ...and re-arrive LAST (after any window)
+                parts.append(_movement.unmask_pad(ev["unmask_buttons"], revive=not _ev_locked))
             once_flag = None
             if ev.get("once", True):
                 _cap = max_auto_events(project)
@@ -5905,9 +6265,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             gf, gs = _gate_of(ev)
             # chest space-check: skip the reward (and don't set the once-flag) if the bag is full
             space_item = item_id if ev.get("require_space") and item_id is not None else None
+            _act = (ev.get("trigger") or "walk") == "action"
             specs.append({"zone": [tuple(p) for p in ev["zone"][:4]],
                           "body": b"".join(parts), "once_flag": once_flag,
-                          "requires_flag": gf, "requires_set": gs, "space_item": space_item})
+                          "requires_flag": gf, "requires_set": gs, "space_item": space_item,
+                          "action": _act,
+                          # stock's law: a press body ALWAYS locks (1,108/1,108 talk handlers); a
+                          # tread body's default stays free (the toast idiom = stock's passive
+                          # banners). `lock` overrides; a locked tread delegates via the player entry.
+                          "lock": bool(ev.get("lock", _act)),
+                          "lock_menu": bool(ev.get("lock_menu")),
+                          "bubble": bool(ev.get("bubble"))})
         eb = _event.inject_events(eb, specs)
 
     # treasure chests: an openable, savable chest (one object -- a save-flag-gated open/closed pose Init + a
@@ -5943,6 +6311,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                   else _choice.region_body)
         zone = [tuple(p) for p in ch["zone"][:4]]
         gf, gs = _gate_of(ch)
+        _w, _f, _uid = _window_attrs(ch, npc_slots, label=f"[[choice]] #{c}")
         if (ch.get("trigger") or "action") == "action":
             # one-shot lever = requires_flag_clear + a "consume" option that sets that flag. When the
             # flag ends up set (consume picked), TerminateEntry the region so its interaction prompt
@@ -5952,17 +6321,19 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # lever shows no prompt on later visits either.
             one_shot = gf is not None and not gs
             if one_shot:
-                body = (_rbody(ct["prompt"], opt_bodies, setup=setup)
+                body = (_rbody(ct["prompt"], opt_bodies, setup=setup, window=_w, flags=_f, actor_uid=_uid)
                         + _region.if_block(_region.cond_truthy(_region.GLOB_BOOL, gf),
                                            opcodes.terminate_entry(255)) + opcodes.RETURN)
                 body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
                 init_body = _region.gated_set_region(zone, _region.GLOB_BOOL, gf)
             else:
-                body = _rbody(ct["prompt"], opt_bodies, setup=setup) + opcodes.RETURN
+                body = _rbody(ct["prompt"], opt_bodies, setup=setup, window=_w, flags=_f,
+                              actor_uid=_uid) + opcodes.RETURN
                 if gf is not None:
                     body = _region.flag_gate(_region.GLOB_BOOL, gf, require_set=gs) + body
                 init_body = None
-            eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG, init_body=init_body)
+            eb, _slot = _region.inject_region(eb, zone, body, tag=_region.INTERACT_TAG,
+                                              init_body=init_body, bubble=bool(ch.get("bubble")))
             zone_choice_slots[c] = _slot
         else:
             if (_auto.base is not None and "flag" not in ch
@@ -5974,7 +6345,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             fidx = int(ch["flag"]) if "flag" in ch else _auto.choice(choice_flag_counter)
             if "flag" not in ch:
                 choice_flag_counter += 1
-            rb = _event.event_range_body(_rbody(ct["prompt"], opt_bodies, setup=setup), fidx,
+            rb = _event.event_range_body(_rbody(ct["prompt"], opt_bodies, setup=setup, window=_w,
+                                                flags=_f, actor_uid=_uid), fidx,
                                          flag_class=_region.GLOB_BOOL, requires_flag=gf, requires_set=gs)
             reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
             eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
@@ -6039,8 +6411,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # without it a slow field entry outlives the conductor's spin cap and the player can wander into an
     # actor's synchronous walk path (which then stalls forever). Injected once, before the first conductor.
     _wd_flag = None
-    if any(isinstance(cs.get("actors"), list) and cs.get("actors") and cs.get("owns_control", True)
-           for cs in cs_blocks):
+    if any(cs.get("owns_control", True) for cs in cs_blocks):
+        # cast AND narration scenes share the one watchdog: the narration lane's reorder-wait lost
+        # the entry-grant race (the player-init grant is model-load-timed -- the WINSTYLE walkable
+        # countdown, 2026-08-03), so it now runs the conductor's grant-spin + watchdog machinery.
         eb = _conductor.inject_watchdog(eb)
         _wd_flag = _conductor.WATCHDOG_MAP_FLAG
     _cs_tag_state: dict = {}
@@ -6063,6 +6437,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
             owns_control=bool(cs.get("owns_control", True)),
+            lock_menu=bool(cs.get("lock_menu")), stay_locked=bool(cs.get("stay_locked")),
             then_warp=(int(cs["then_warp"]) if cs.get("then_warp") else None),
             say_flags=cs_say_flags, ate_mode=cs_ate_mode,
             tag_calls=tag_calls, join_tags=join_tags,
@@ -6083,14 +6458,19 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         then_warp = int(cs["then_warp"]) if cs.get("then_warp") else None
         _, cs_gate, cs_end = _cutscene_story_bits(cs)      # the director gate + story advance (#13)
         eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag, ate_mode=cs_ate_mode,
-                                       then_warp=then_warp, gate=cs_gate, end_writes=cs_end)
+                                       then_warp=then_warp, gate=cs_gate, end_writes=cs_end,
+                                       owns_control=bool(cs.get("owns_control", True)),
+                                       lock_menu=bool(cs.get("lock_menu")),
+                                       stay_locked=bool(cs.get("stay_locked")),
+                                       grant_spin=bool(cs.get("owns_control", True)),
+                                       watchdog_flag=_wd_flag)
 
     # on-entry beats ([[on_entry]]): a gated, once field-load hook -- a narration message and/or a
     # story-state write (set_scenario / set_flags), fired the moment the player enters but ONLY when
     # requires_flag / requires_scenario match. Re-authors an entry cutscene for a SYNTHESIZE fork (a
     # verbatim fork carries the real one in the donor .eb; docs/FORK_FIDELITY.md #10). Each hook is
     # a code entry armed by InitCode in Main_Init. Absent -> no injection (byte-identical).
-    eb = _apply_on_entry(project, eb, on_entry_txids, _auto)
+    eb = _apply_on_entry(project, eb, on_entry_txids, _auto, npc_slots=npc_slots)
     eb = _apply_sps_triggers(project, eb)                   # [[sps]] Tier-2 create+place triggers (synth path)
 
     # [ate]: synthesize an Active Time Event -- the blinking "Active Time Event" prompt + a SELECT-opened
@@ -6590,6 +6970,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             if _a.get("face") is not None and not 0 <= int(_a["face"]) <= 255:
                 raise ValueError(f"[[player.arrival]] entrance {_e}: face must be 0-255")
         eb = _npc.inject_player_arrivals(eb, _arr)
+    # [player] locked_entrances: arrive with control WITHHELD at these entrance ids -- stock's
+    # entrance-gated grant (the movement census's race-free arrive-locked mechanism; both template
+    # grant sites are gated). The unlock is the first ungated [[on_entry]] hook's grant_control
+    # tail (wired in _apply_on_entry; validate guarantees it exists). Synth-only -- entrylock
+    # raises on a non-template player/Main_Init.
+    _locked = project.raw.get("player", {}).get("locked_entrances")
+    if _locked:
+        eb = _entrylock.gate_grant_on_entrances(eb, _locked)
     # [player] model= : re-skin the player avatar (the World-Hub Moogle PC, or any model on a free-roam
     # field). Resolved like an [[npc]] model (name/GEO/id -> movement clips via the Info Hub join). Movement
     # clips only -- a scripted-gesture field would glitch (same caveat as --swap-player), so it's free-roam-only.
@@ -6607,10 +6995,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # engine's per-frame smooth-camera follower (FieldMap.CenterCameraOnPlayer, scaled by Memoria.ini
     # CameraStabilizer) converges UNSEEN -- else a large-delta warp-in (e.g. the World Hub via a New-Game/debug-warp
     # warp) visibly eases the camera to rest over a few seconds. Engine-independent (no DLL). [camera]
-    # entry_settle = <frames>; absent/0 = off (byte-identical). A [[camera]] MULTICAM field reads it from
-    # any of its blocks (first nonzero wins -- the settle is a Main_Init-wide hold, not per-camera; it used
-    # to be silently SKIPPED on multicam, the exact scrolling class that needs it most). See content.entry_settle.
+    # entry_settle = <frames>; ABSENT = "auto" (the synthesized-field DEFAULT, owner 2026-08-03 --
+    # the scaffold/import already emit it, this covers hand-authored tomls; auto resolves to 0 =
+    # byte-identical when the camera doesn't drift); explicit 0/false = off. A [[camera]] MULTICAM
+    # field reads it from any of its blocks (first nonzero wins -- the settle is a Main_Init-wide
+    # hold, not per-camera; it used to be silently SKIPPED on multicam, the exact scrolling class
+    # that needs it most). See content.entry_settle.
     _settle = _camera_entry_settle(project.raw.get("camera"))   # [camera] dict or [[camera]] multicam list
+    if _settle is None:
+        _settle = "auto"
     if _settle:
         if _entry_settle.is_auto(_settle):         # "auto" = compute the hold from the warp-in delta (rung 7)
             _n = _auto_settle_frames(project, warnings)
@@ -6620,7 +7013,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             except (TypeError, ValueError):        # any other string -- lint_entry_settle explains it; don't crash
                 _n = 0
         _pre_settle = eb
-        eb = _entry_settle.add_entry_settle(eb, _n)
+        # the settle's closing EnableMove must not re-grant on an arrive-locked entrance
+        # (the on_entry hook owns that grant) -- gate it on the same ids
+        eb = _entry_settle.add_entry_settle(eb, _n, locked_entrances=_locked or ())
         if eb is _pre_settle and _n > 0 and warnings is not None:
             _msg = (f"[camera] entry_settle = {_n}: NOT applied -- Main_Init has no plain reveal "
                     f"fade to hide the wait behind (the entry will show the camera settle)")
@@ -6842,6 +7237,116 @@ def _resolve_actor_animation(project, who, actor_npc, action):
     return _resolve_model_gesture(mid, action)
 
 
+def _validate_window_scene(cs, problems, lbl="[cutscene]"):
+    """Validate the MULTI-WINDOW verbs of one cutscene block (either flavor -- they are conductor-level).
+
+    An async window is a resource the script owns, and the two ways to leak it are both silent in a
+    build: a window left open outlives the scene on screen, and a HELD (``[TIME=-1]``) window left open
+    can never be dismissed by the player at all. So the ledger here is the window-side twin of the
+    lock-hygiene lint: walk the steps, track which ids are live, and report what is still live at the
+    end. A ``wait_window`` counts as a close (it blocks until the window goes, so past it the id is
+    gone), and re-issuing an id replaces rather than stacks."""
+    steps = [s for s in (cs.get("steps") or []) if isinstance(s, dict)]
+    live, held = {}, {}                      # window id -> step index that opened it / held it
+    for k, s in enumerate(steps):
+        if "open" in s:
+            w = s.get("window", 1)
+            if not isinstance(w, int) or isinstance(w, bool) or not 0 <= w <= 7:
+                continue                     # the attribute sweep already reported the bad id
+            live[w] = k
+            if s.get("hold"):
+                held[w] = k
+            else:
+                held.pop(w, None)
+        elif "close" in s or "wait_window" in s:
+            w = s.get("close", s.get("wait_window"))
+            if isinstance(w, int) and not isinstance(w, bool):
+                if w not in live and 0 <= w <= 7:
+                    verb = "close" if "close" in s else "wait_window"
+                    problems.append(f"{lbl} step {k}: {verb} = {w} but this scene never opens window "
+                                    f"{w} -- a stray close is a no-op, and a stray wait_window returns "
+                                    f"immediately (so it does NOT hold the scene the way it reads).")
+                if "wait_window" in s and w in held:
+                    problems.append(f"{lbl} step {k}: wait_window = {w} on a window opened with "
+                                    f"hold = true HANGS -- `hold` inhibits the dismiss button, so the "
+                                    f"window the wait is waiting for can never be dismissed. Use "
+                                    f"{{ close = {w} }}, or drop hold so the player can dismiss it.")
+                live.pop(w, None)
+                held.pop(w, None)
+        # ★ THE BROADCAST-CONFIRM LAW (bench 30603 round 1, traced to DialogManager.cs:335-341). A
+        # confirm press is delivered to EVERY active dialog -- `foreach (Dialog d in activeDialogList)
+        # d.OnKeyConfirm(go)` -- there is no focused or topmost window. Each one then closes itself
+        # unless `ignoreInputFlag` is set, and that field IS `FlagButtonInh`, which ONLY the [TIME]
+        # and [NFOC] tags ever write. So an unheld async window does not survive the next dismissal
+        # of ANY other window: the press that advances the dialogue takes the hint down with it.
+        blocking = ("say" in s) or ("wait_window" in s)
+        if blocking:
+            waited = s.get("wait_window")
+            for w, ok in sorted(live.items()):
+                if w in held or w == waited:
+                    continue
+                verb = "say" if "say" in s else f"wait_window = {waited}"
+                problems.append(
+                    f"{lbl} step {k}: window {w} (opened at step {ok}) is still up when this "
+                    f"{verb} waits for a dismissal, and it is not held -- a confirm press goes to "
+                    f"EVERY open window at once, so the press that advances this line also closes "
+                    f"window {w}. Add hold = true to the step-{ok} open (it is already closed later, "
+                    f"or the ledger will say so).")
+    for w, k in sorted(held.items()):
+        problems.append(f"{lbl} step {k}: open ... hold = true on window {w} is never closed -- "
+                        f"`hold` sets [TIME=-1], which INHIBITS the dismiss button, so nothing in the "
+                        f"game can take that window off the screen. Add {{ close = {w} }} later in "
+                        f"the scene (stock's unison closes both windows itself), or drop hold.")
+    for w, k in sorted(live.items()):
+        if w in held:
+            continue                          # already reported above, and more precisely
+        problems.append(f"{lbl} step {k}: window {w} is opened and never closed -- an async window "
+                        f"outlives the scene and stays on screen. Add {{ close = {w} }} or "
+                        f"{{ wait_window = {w} }} (the player's dismissal), or use `say` instead, "
+                        f"which opens and waits in one blocking op.")
+    # A signal wait spins for its whole timeout unless something raises the signal. Sources: an [INCS]
+    # or [SIGL=n] inside a say/open line in this scene, or a set_signal step. A source in ANOTHER
+    # object is legitimate (stock's unison has each speaker's own entry open its own window), so this
+    # can only be a warning-shaped message, never a refusal.
+    waits = [(k, s["wait_signal"]) for k, s in enumerate(steps) if "wait_signal" in s]
+    if waits:
+        def _reach_before(stop):
+            """The signal value this scene's own steps can have reached by step ``stop``. Only the
+            steps BEFORE the wait count -- stock's own cleanup re-zeroes the signal AFTER each
+            handshake, and folding that in would read as 'no source' on a correct scene."""
+            v, seen = 0, False
+            for s in steps[:stop]:
+                sg = s.get("signal")
+                if "set_signal" in s and isinstance(s["set_signal"], int):
+                    v, seen = s["set_signal"], True
+                elif sg is True or (isinstance(sg, str) and sg.strip() == "+"):
+                    v, seen = v + 1, True
+                elif isinstance(sg, int) and not isinstance(sg, bool):
+                    v, seen = (sg if sg >= 0 else v + 1), True
+            return v, seen
+        for k, target in waits:
+            reach, has_source = _reach_before(k)
+            if not isinstance(target, int) or isinstance(target, bool):
+                problems.append(f"{lbl} step {k}: wait_signal must be an int (the signal value to "
+                                f"wait for); got {target!r}")
+            elif not has_source:
+                problems.append(f"{lbl} step {k}: wait_signal = {target} but no line in this scene "
+                                f"carries a `signal` tag and no step sets one, so this wait can only "
+                                f"end by timing out. Add signal = \"+\" to the say/open lines it is "
+                                f"waiting on (or drop the wait).")
+            elif reach < target:
+                problems.append(f"{lbl} step {k}: wait_signal = {target} but this scene's own lines "
+                                f"only reach {reach} -- unless another object raises it, the wait "
+                                f"will burn its full timeout before continuing.")
+        for k, s in enumerate(steps):
+            to = s.get("timeout")
+            if "wait_signal" in s and to is not None and (isinstance(to, bool)
+                                                          or not isinstance(to, int) or to < 1):
+                problems.append(f"{lbl} step {k}: timeout must be a positive frame count "
+                                f"(stock seeds every guarded signal wait to "
+                                f"{_cutscene.SIGNAL_GUARD_FRAMES}); got {to!r}")
+
+
 def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
     """Validate a CAST cutscene (``actors = [...]``, the conductor -- #13 v3's one actor mechanism): each
     cast name = an ``[[npc]]`` or ``"player"``; steps = ``say`` / ``wait`` / ``set_flag`` (conductor-level;
@@ -6855,7 +7360,7 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
             problems.append(f"{lbl} actors entry {nm!r} is not a defined [[npc]] name (or \"player\")")
     known = set(cast) | {"player"}
     sole = cast[0] if len(cast) == 1 else None
-    global_keys = ("say", "wait", "set_flag")
+    global_keys = ("say", "wait", "set_flag") + _cutscene.WINDOW_STEP_KINDS
     actor_keys = ("walk", "path", "teleport", "face_player", "animation", "turn")
     npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
     move_reg = _position_registry(project)
@@ -6870,7 +7375,9 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
                             f"({' / '.join(global_keys + actor_keys)})")
             continue
         act, who = present[0], s.get("actor", sole if present[0] in actor_keys else None)
-        if (act in actor_keys or (act == "say" and who is not None)):
+        # say/open take an OPTIONAL actor (it attributes the window -- WindowSyncEx/WindowAsyncEx);
+        # only validate the name when one is given, since an unattributed line is legitimate narration.
+        if (act in actor_keys or (act in _cutscene.TEXT_STEP_KINDS and who is not None)):
             if who is None:
                 problems.append(f"{lbl} step {k} ({act}) needs actor = \"<name>\" (a cast of one lets you "
                                 f"omit it)")
@@ -7267,6 +7774,24 @@ def _wrap_width(project: FieldProject):
     return float(w)
 
 
+def _window_attrs(src: dict, npc_slots: dict | None = None, *, default_flags: int = 128,
+                  label: str = "dialogue block"):
+    """Resolve a dialogue block's OPCODE-side window keys -- ``style`` (a :data:`content.text.STYLE_NAMES`
+    name or raw flags byte), ``window`` (0-7), ``actor`` (an [[npc]] name or "player" -> the window is
+    attributed to that object via WindowSyncEx) -- to ``(window, flags, actor_uid)``. Every key absent
+    -> ``(1, default_flags, None)``, byte-identical to the pre-key emitters. ``validate`` reports these
+    problems up front; the raises here are the can't-continue backstop."""
+    flags = _text.resolve_style(src.get("style"), default=default_flags)
+    window = int(src.get("window", 1))
+    actor_uid = None
+    a = src.get("actor")
+    if a is not None:
+        actor_uid = _cutscene.PLAYER_UID if a == "player" else (npc_slots or {}).get(a)
+        if actor_uid is None:
+            raise BuildError(f"{label}: actor {a!r} names no [[npc]] (validate should have caught this)")
+    return window, flags, actor_uid
+
+
 def collect_text(project: FieldProject):
     """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
     chest_txids, gateway_txids, coop_txids, savepoint_txids, behavior_txids, numinput_txids). All field
@@ -7289,13 +7814,16 @@ def collect_text(project: FieldProject):
     wrap = _wrap_width(project)
 
     def _add(src, text):
-        # apply the optional `speaker` prefix + per-line `tail`, then auto-wrap; record where it landed
+        # apply the optional `speaker` prefix + per-line `tail`, then auto-wrap; record where it landed.
+        # dress_window applies the shared window-attribute keys (window_pos/speed/instant/duration/box)
+        # -- every key absent leaves (line, None, tail) byte-identical to the pre-key layout.
         line = _text.with_speaker(src.get("speaker"), text)
         if wrap is not None:
             line = _text.wrap_text(line, wrap)[0]
+        line, strt, tail = _text.dress_window(src, line)
         lines.append(line)
-        tails.append(src.get("tail"))
-        strts.append(None)
+        tails.append(tail)
+        strts.append(strt)
         return len(lines) - 1
 
     def _add_raw(line, tail, strt=None):
@@ -7322,8 +7850,9 @@ def collect_text(project: FieldProject):
     # slices per block, so each block's compile consumes exactly its own txids.
     for _cb in _cutscene.blocks(project.raw.get("cutscene")):
         for step in _cb.get("steps", []):
-            if "say" in step:
-                cs_pos.append(_add(step, step["say"]))
+            _line = _cutscene.step_text(step)
+            if _line is not None:
+                cs_pos.append(_add(step, _line))
     # choices: the prompt + option rows are ONE entry (prompt[CHOO][MOVE]opt0\n[MOVE]opt1...); each
     # option's optional `reply` is its own entry. The question is wrapped; the menu rows are not (a row
     # is short by design -- an over-wide one is caught by lint, not silently re-flowed).
@@ -7331,12 +7860,18 @@ def collect_text(project: FieldProject):
         q = _text.with_speaker(ch.get("speaker"), ch.get("prompt", ""))
         if wrap is not None:
             q = _text.wrap_text(q, wrap)[0]
-        opts = [str(o.get("text", "")) for o in ch.get("options", [])]
+        # choice ROWS are not wrapped (a row is short by design) but they do take colour markup --
+        # the prompt gets it via with_speaker, so without this the two halves of one entry disagree
+        opts = [_text.apply_markup(str(o.get("text", ""))) for o in ch.get("options", [])]
         pre_tag = _choice.pre_choose(ch)[1]   # [PCHC]/[PCHM] config tag (default/cancel/disabled); "" if none
-        prompt_line = pre_tag + q + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(opts)
+        # stock's tag order is [MPOS][PCHC/PCHM]...: a window_pos pin leads the entry (and, like every
+        # pinned window, ships tail-less unless an explicit tail insists -- the engine draws none anyway)
+        prompt_line = (_text.menu_pos_tag(ch.get("window_pos")) + pre_tag + q + _text.CHOICE_OPEN
+                       + ("\n" + _text.CHOICE_INDENT).join(opts))
         if ch.get("instant"):                 # [IMME] = pop the menu fully drawn, no type-on (FF9 shop menus)
             prompt_line += _text.CHOICE_IMME
-        ch_prompt_pos[c] = _add_raw(prompt_line, ch.get("tail"))
+        ch_strt = tuple(int(v) for v in ch["box"]) if ch.get("box") is not None else None
+        ch_prompt_pos[c] = _add_raw(prompt_line, _text.default_tail(ch), strt=ch_strt)
         for oi, o in enumerate(ch.get("options", [])):
             if o.get("reply"):
                 ch_reply_pos[(c, oi)] = _add(o, o["reply"])
@@ -9180,6 +9715,21 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings += _emit_scripts(projects, layout, mod_name)
     start_warnings += bp_warnings
     start_warnings += text_warnings
+
+    # Cross-field lock hygiene (movement survey Tier-2): a member that warps into a SIBLING whose script
+    # never grants control ships a guaranteed arrival softlock -- the one lock bug no single-field
+    # validator can see. Literal Field() targets only; destinations outside this build are out of scope.
+    if len(projects) > 1:
+        from . import eblint as _eblint_x
+        _eb_by_id = {}
+        for p in projects:
+            if p.id is None:
+                continue
+            try:
+                _eb_by_id[p.id] = layout.eb_path(langs[0], f"EVT_{p.name}.eb.bytes").read_bytes()
+            except OSError:
+                continue
+        start_warnings += [str(i) for i in _eblint_x.lint_warp_grants(_eb_by_id)]
 
     layout.mod_description.write_text(
         "<Mod>\n"

@@ -68,7 +68,7 @@ Author a camera from a simple spec **or** borrow a real one.
 | `window_width` | the width the `fov` is measured against (default = `range[0]`). For a scrolling room set it to the visible screen width (`384`) so a wide `range` doesn't change the focal length. |
 | `proj`, `depth_offset`, `viewport`, `center_offset` | advanced overrides (`proj` = explicit focal length; sensible GRGR-derived defaults). |
 | `borrow` | path to a `.bgx` whose `CAMERA` block to copy verbatim (instead of `pitch`/`fov`). |
-| `entry_settle` | OPTIONAL frames to hold the screen black on field entry before the reveal (absent/`0` = off; `"auto"` = computed). See below. |
+| `entry_settle` | frames to hold the screen black on field entry before the reveal. **Absent = `"auto"`** (the synthesized-field default — computed from the warp-in delta, and 0/byte-identical when the camera doesn't drift); explicit `0`/`false` = off. See below. |
 
 **`entry_settle` — hide the warp-in camera ease.** The engine runs a smooth-camera follower on *every*
 field; on entry it eases the camera from the scene centre to the player over ~a second (scaled by the
@@ -76,10 +76,12 @@ user's `Memoria.ini CameraStabilizer`). Real fields hide this because their entr
 cast setup) fills the time before the reveal — a lean synthesized field reveals almost immediately, so on
 a large-delta entry you *watch* the camera drift. `entry_settle = <frames>` inserts
 `DisableMove; Wait(n); EnableMove` just before Main_Init's reveal fade: the screen is still black there,
-so the camera converges unseen — the same black-hold the real game performs naturally. Use it on
-synthesized/BG-borrow fields whose spawn sits far from the camera's initial target (scrolling rooms
-especially — `fork-report` suggests it for those); **~45 is the proven starting value** (the World Hub
-ships 45–60). **`entry_settle = "auto"` computes the hold for you**: the build measures the warp-in
+so the camera converges unseen — the same black-hold the real game performs naturally. **Every
+synthesized build defaults to `"auto"` when the key is absent** (so hand-authored fields look right
+without thinking about it; the scaffold and `import` emit the key explicitly); write `0` to opt out.
+On an arrive-locked field (`[player] locked_entrances`) the settle's closing `EnableMove` is
+entrance-gated, so the locked-arrival contract holds. Explicit values: **~45 is the proven starting
+point** (the World Hub ships 45–60). **`entry_settle = "auto"` computes the hold for you**: the build measures the warp-in
 delta (the px distance between the camera's pre-player-bind rest position and its spawn-centred
 target, replicating the engine's projection + viewport clamp), converts it to frames under the
 engine's geometric ease (baked for the default `CameraStabilizer = 85` — it's a per-user setting, so
@@ -216,6 +218,7 @@ world coords (no offset) — they are already the exact engine positions.
 | `spawn` | `[x, z]` where the player appears on entry (the DEFAULT arrival — see `[[player.arrival]]` for per-door spots). |
 | `face` | OPTIONAL spawn facing (0..255; 0=south, 64=west, 128=north, 192=east — the same compass `[[npc]]`/chest `face` uses). Absent = the template default (0). |
 | `model` | **re-skin who you WALK as** — a model **id**, an exact **GEO name** (`"GEO_NPC_F0_MOG"` the Moogle PC), or an archetype/model name resolved via the Info Hub catalog (the same join `[[npc]] model` uses). Its movement clips (idle/walk/run/turn) auto-resolve. This is the build-side complement to `import --swap-player`. **Movement clips only** — a field that scripts player gestures would glitch, so it's free-roam-only. |
+| `locked_entrances` | `[entrance, …]` — arrive with control **withheld** at these entrance ids (the values a warp's `entrance =` sets). Stock's own arrive-locked mechanism: the engine zeroes control on every field load and the field's grant is simply **gated off** for these entrances — race-free, no timing dance. The unlock is an `[[on_entry]]` hook covering each locked entrance (no `requires_*` gates; its `entrance` absent or matching — **prefer `entrance`-gated**, so the beat stays off plain entries), which the build gives a control-grant tail; validate requires coverage, else the player would arrive frozen forever. Use for chained cutscenes: the departing scene sets `then_warp`, the destination locks that entrance and plays its own entry beat. Synth-only (a verbatim donor keeps its own grant logic). |
 
 ### `[[player.arrival]]` (optional, repeatable) — per-door arrival spots
 
@@ -272,6 +275,7 @@ automatically, so a forked field keeps its per-door arrivals out of the box.
 | `animset` | the model's **head height** (positions the dialogue box; cosmetic). |
 | `anims` | OPTIONAL `{ stand, walk, run, left, right }` clip-id **override** — only to hand-pick gestures; if omitted, a `model` auto-resolves its own (see them with `ff9mapkit models <name>`). Values are whole **clip ids**, not gesture names (the `.eb` anim setters take a u16). The build warns on an unknown id, and on an id that is not one of *this* model's own clips (a foreign rig's clip binds by bone name and can pose the model wrong); ids in the mint band `60000-65535` are exempt, since they register at launch. In the Workspace this field has a **Browse…** that previews the rig's clips and fills the whole line — its text form there is `stand=560, walk=571` (blank slot = auto). |
 | `pos` | `[x, z]`. |
+| `face` | OPTIONAL standing facing (0..255; 0=south/toward the camera, 64=west, 128=north, 192=east — the same compass `[player]`/chest/prop `face` uses). Absent = 0. Rides the object's own `TurnInstant`, so the NPC is already turned on frame 0. **Head-tracking cannot override it.** An NPC does turn its *head* to watch the player at 31–2000u (the `SetHeadFocusMask` pairing: it looks at you iff its TargetMask shares a bit with your SelfMask — the kit's default mask does, as do 118 of the 156 catalogued rigs), but head focus never rotates the **body**; that needs `FollowFocus` (`0x91`), which the kit never emits. So `face` is what the NPC's shoulders hold, permanently. In-game confirmed. |
 | `dialogue` | a line shown when talked to (assigned a non-colliding high text id automatically). |
 | `text_id` | use an explicit text id instead of `dialogue`. |
 | `speaker` | optional attribution, rendered FF9's own way — the name on its own line, then the dialogue in curly quotes. See *Speaker names & the tail* below. |
@@ -320,6 +324,260 @@ tail = "UPL"                          # pointer from the upper-left
 Multi-line dialogue keeps **one** quote pair — the auto-wrap opens `“` on the first dialogue line and
 closes `”` on the last, exactly as stock does. (Avoid `[PAGE]` inside a *spoken* line with a speaker:
 stock never quotes across a page break — give each conversation line its own entry/`say` step.)
+
+### Window styling (style · window · actor · instant · speed · duration · window_pos · box)
+
+Every dialogue-bearing block — `[[npc]]`, `[[event]]`, `[[on_entry]]`, `[[choice]]` (+ its options),
+and cutscene `say` steps — takes the same optional presentation keys. All default to exactly what the
+kit always emitted (an ordinary speech bubble), so omitting them changes nothing.
+
+- **`style`** — which of FF9's window styles to use. Named for the nine forms the stock game ships:
+
+  | name | looks like | stock uses it for |
+  |---|---|---|
+  | `"bubble"` *(default)* | speech bubble, tail at the speaker | ordinary dialogue |
+  | `"plain"` | screen-fixed plain panel | system announces, signs, pickers |
+  | `"notail"` | chat frame, fixed, no tail | tutorial pages, HUD toasts |
+  | `"transparent"` | frameless floating text | letters, narration overlays, counters |
+  | `"mognet"` | plain panel + “Mognet” caption | moogle menus |
+  | `"ate"` | plain panel + “Active Time Event” caption | ATE titles and pickers |
+  | `"bubble_nopan"` | bubble, camera does **not** pan to the speaker | QTE prompts, rituals |
+  | `"bubble_notail"` | attached to the actor but tail-less | off-screen voices, “Zzz…” |
+  | `"bubble_transparent"` | frameless text floating on the actor | the Hot & Cold dig number |
+
+  A raw flags byte (0–255) is also accepted. Captions (`mognet`/`ate`) only exist in the non-bubble
+  family — the engine drops the caption if the bubble bit is set, which is why there is no
+  `"bubble_ate"`. A non-bubble style with no explicit `tail` **centers** like stock's own system
+  windows (on a detached window a tail code is a screen-corner anchor, not a pointer — set `tail`
+  only if you want that corner anchoring).
+- **`window`** — the script window id **0–7** (default 1). Two windows on **different** ids coexist;
+  re-using an id replaces that window. Stock's conventions: 0–4 dialogue, 5 announce, 6 HUD, 7 the
+  “Received …!” system slot.
+- **`actor`** — attribute the window to `"player"` or a named `[[npc]]`: the tail points at them and
+  the camera treats them as the speaker (the engine's `WindowSyncEx`, stock's own cutscene form). On
+  `[[event]]`, `[[on_entry]]` and **zone** `[[choice]]` (an NPC-attached choice already speaks from
+  its NPC; a cutscene attributes lines via its cast). Needs a bubble-family `style`. On a verbatim
+  fork only `"player"` resolves.
+- **`instant`** — `true` pops the window fully drawn (`[IMME]`, FF9's selector/system convention).
+- **`speed`** — typewriter speed 1–255 (`[SPED=n]`; higher = slower reveal, engine tick table).
+- **`duration`** — auto-close after N frames (`[TIME=n]`); the player cannot dismiss it early. On a
+  blocking window this is a timed beat — stock's “On your mark! / Get set! / GO!” shape without the
+  wait-and-close boilerplate.
+- **`window_pos`** — `[x, y]` pins the window at an absolute position (`[MPOS]`; top-left corner, y
+  measured down, PSX-screen units ~320×224). Pinning **detaches** the window from any speaker and a
+  pinned window draws **no tail** (don't combine with `tail`).
+- **`box`** — `[width, lines]` sets the `[STRT]` geometry. The engine auto-measures width whenever it
+  can, so `width` mostly matters for centering system boxes; `lines` acts as a minimum height.
+- **`dim`** — wrap the window in one of **stock's reading fade brackets** (censused across all 817
+  field scripts; 241 bracket sites). On `[[npc]]`, `[[event]]`, `[[on_entry]]` and cutscene `say`
+  steps; pairs naturally with `style = "transparent"`:
+
+  | value | stock source | the feel |
+  |---|---|---|
+  | `true` / `"letter"` | Mognet mail (100 sites, 50 fields) | warm blackout in, **text bright on top**, restore out |
+  | `"voice"` | the Memoria/Oeilvert/Kuja narrations | the text appears **first**, then the room dims under it |
+  | `"inscription"` | the Berkmea monument, plaques | a **subtle** grey that cross-fades back — the gentlest |
+  | `"blackout"` | Eiko's Ipsen-and-Colin story | hard cut to black; scene and text **fade in together** |
+
+  **`dim_tint = [r, g, b]`** overrides the in-fade colour: the letter ships nine per-field tints in
+  stock (`[220,220,250]` Alexandria/Dali · `[150,150,200]` Ice Cavern/Prima Vista · `[100,100,150]`
+  Burmecia …), and the voice family spans grey depths (`[32,32,32]` Garland · `[48,48,48]` Soulcage
+  · `[100,100,100]` the library eavesdrop · `[128,128,128]` Necron).
+
+  **Faithful text pairings** (from the 12,711-entry speaker census): stock never Name-attributes a
+  dimmed window. A **letter** opens with a *"From X to Y"* header line, a **voice**/**blackout**
+  line is fully unattributed, an **inscription** is the carved text itself. A character's inner
+  thought is NOT a dimmed window in stock — it's a normal speech bubble with `speaker` and a fully
+  parenthesized line. Setting `speaker` on a dimmed window builds fine but has no stock precedent.
+
+```toml
+[[event]]                       # a sign on a wall: plain panel, pops instantly
+zone = [[-300,-1100],[300,-1100],[300,-900],[-300,-900]]
+message = "= Lindblum Air Cab =\nTo the Theater District"
+style = "plain"
+instant = true
+once = false
+
+[[cutscene]]
+steps = [
+  { say = "GO!", style = "notail", duration = 45 },        # a timed race caption
+  { say = "(...did it start?)", speaker = "[VIVI]" },
+]
+```
+
+### Coloured text (`{item}…{/}`)
+
+Any authored line — NPC dialogue, event messages, cutscene lines, choice prompts *and* choice rows —
+takes colour markup. Write `{colour}text{/}`; the build expands it to FF9's own tag pair.
+
+**Colour in FF9 is semantic, not decorative.** Counted across the whole shipping script (20,438 colour
+pushes, in every one of the game's 64 field text blocks), stock colours the parts of a line it *did not
+author*: a substituted name in cyan, a quantity or item in yellow. It is how the game tells the reader
+"this word came out of your save, not the script." Emphasis is not what it's for.
+
+| write | colour | stock uses it for |
+|---|---|---|
+| `{name}` | cyan | a substituted name — a character, a place |
+| `{item}` / `{amount}` | yellow | an item name, a quantity, gil |
+| `{cyan}` `{yellow}` `{pink}` `{brown}` `{green}` `{white}` | — | direct control, if you need it |
+
+```toml
+dialogue = "Bring me an {item}Ore{/} and I'll pay {amount}300 Gil{/}, {name}[ZDNE]{/}."
+```
+
+Close every span with `{/}` — the build warns on an unclosed span or a stray close. Braces that aren't
+a known colour name are left alone as ordinary prose, and a line with no markup is emitted byte for
+byte as before. There is no grey: `909090` is in the engine palette and stock never uses it.
+
+> The system "Received …!" box is deliberately **not** coloured — stock writes it plain (64 sites, one
+> per text block) because the whole box is already non-prose. The kit's received box matches that.
+
+Button glyphs pass through as `[DBTN=NAME]` (or `[CBTN=NAME]`, which follows the player's rebinding).
+The names stock ships: `SELECT` `START` `PAD` `SQUARE` `CROSS` `CIRCLE` `TRIANGLE` `UP` `DOWN` `LEFT`
+`RIGHT`.
+
+> ⚠ **You cannot put a space after a glyph** — the engine discards every space that follows an inline
+> image, all of them, not just the first (it is skipped in both the measuring and the drawing pass).
+> Thin, hair and zero-width spaces go the same way. So write stock's own shape, a colon straight after
+> the glyph:
+>
+> ```toml
+> text = "[DBTN=CROSS]: Confirm"        # stock uses this 128 times
+> ```
+>
+> A glyph mid-sentence (`"Press [DBTN=CROSS] to pick."`) renders flush against the next word no matter
+> how you space it; the build warns. Stock never writes that shape — a glyph either leads a legend row
+> or ends a phrase.
+>
+> There is one escape hatch if you really need it: a **no-break space** (`U+00A0`) is not treated as a
+> space by the engine, so it survives and renders as a gap. It works, but stock does it nowhere, so
+> reach for it only when the legend form genuinely won't do.
+
+### Several windows at once (open · close · wait_window · raise)
+
+A `say` step opens one window and blocks on it. Stock's richer presentations all come from *splitting*
+that: open a window, keep running, and close it later — so two speakers can talk in unison, a hint can
+hang under rolling dialogue, or captions can stage themselves. These are cutscene steps and work in
+both flavors (narration and a cast):
+
+| step | what it emits | notes |
+|---|---|---|
+| `{ open = "line", window = N }` | `WindowAsync` (`WindowAsyncEx` with an `actor`) | takes every window-styling key above; the scene runs on |
+| `{ close = N }` | `CloseWindow` | on a `[PAGE]` entry this turns the page instead — one close per page |
+| `{ wait_window = N }` | `WaitWindow` | blocks until that window is gone (the player's dismissal) |
+| `{ raise = true }` | `RaiseWindows` | lifts text above a fade filter — needed only inside one |
+
+An open window is **yours to close.** The build refuses a scene that opens a window and never closes,
+waits, or re-issues it, because an async window outlives the scene and simply stays on screen. Stock
+raises **once per open** and never re-raises an unchanged stack: the engine's raise is clamped per
+window, so a third bare raise makes higher window ids draw in *front* of lower ones.
+
+> ⚠ **A confirm press goes to *every* open window, not the topmost one.** So an async window that has
+> to survive a line of dialogue must be **held** (`hold = true`, below) — otherwise the same press that
+> advances the dialogue closes it too. The build refuses the unheld case. The one exception is the
+> window a `wait_window` is waiting on: that one is *meant* to be dismissed, so leave it unheld (and
+> holding it would hang the wait forever — also refused).
+>
+> ⚠ **Two windows on screen at once can overlap, and the engine will not move them.** It only flips
+> tails; the lower window id draws in front and clips the other's first characters. Give simultaneous
+> speakers real horizontal separation *and* a bit of depth stagger.
+
+### Text-synchronized beats (signal · hold · wait_signal · set_signal)
+
+FF9 has one clock that runs from the *text* back to the *script*: a tag inside a line fires when that
+position in the string appears on screen, and the script can block until it does. That is how stock
+makes two windows pop in unison, and the same substrate will time a camera cut or a sound sting to a
+particular word.
+
+- **`signal = "+"`** on a `say`/`open` line — `[INCS]`, bump the signal when the line finishes typing.
+  `signal = n` sets it to `n` instead (`[SIGL=n]`).
+- **`hold = true`** — `[TIME=-1]`: the window cannot be dismissed and stands until the script closes
+  it. Pair it with `signal` for stock's unison shape; a bare `[INCS]` does **not** inhibit the button,
+  which is why stock's own entries carry both tags. (Mutually exclusive with `duration`.)
+- **`{ set_signal = n }`** — write the signal from the script (`SetDialogProgression`). Stock always
+  zeroes it before a handshake and again after.
+- **`{ wait_signal = n, timeout = 250 }`** — block until the signal reaches `n`.
+
+**The wait is always guarded, and there is no unguarded form.** Text is not a guaranteed event — a
+shorter translation may omit the tag, a skip may race it — so stock puts a frame countdown beside every
+one of these waits and seeds it to 250 frames (~8s). `timeout` is a ceiling, not a schedule: the loop
+exits the frame the signal arrives. The build reports a `wait_signal` whose target no line in the scene
+can reach, since that wait can only end by timing out.
+
+```toml
+[[cutscene]]                                   # stock's Zorn & Thorn unison, in the kit's spelling
+actors = ["zorn", "thorn"]
+steps = [
+  { set_signal = 0 },
+  { actor = "zorn",  open = "We'll be very grateful!",  speaker = "Zorn",  window = 2, signal = "+", hold = true },
+  { actor = "thorn", open = "Very grateful, we'll be!", speaker = "Thorn", window = 3, signal = "+", hold = true },
+  { wait_signal = 2 },                         # both lines have finished typing
+  { wait = 90 },                               # let the player read them together
+  { close = 2 },
+  { close = 3 },
+  { set_signal = 0 },
+]
+```
+
+### Control locking (lock · lock_menu)
+
+**The engine has no dialog lock.** A window only blocks the script thread of the object that opened
+it — the player walks freely under any open window unless the script locks control. Stock locks on
+**every** window-bearing talk handler (1,108 of 1,108 — the movement census,
+`studies/movement/SURVEY.md`), and its only lock-free windows are six passive banners. The kit
+mirrors that law with per-lane defaults:
+
+- **`lock`** — hold player control (`DisableMove`…`EnableMove`) around the body.
+  - `[[npc]]` dialogue: **default `true`** (the stock talk bracket). `lock = false` is the
+    deliberate walk-under opt-out.
+  - `[[event]]` `trigger = "action"`: **default `true`** (stock's press-sign shape — a locked read).
+  - `[[event]]` `trigger = "walk"` (tread): **default `false`** — the toast/banner idiom (stock's
+    passive `WindowAsync` banners; the countdown captions). `lock = true` turns a tread event into
+    a held story beat: the body is compiled into a **player function** and dispatched with
+    `RunScriptSync` — the delegation shape proven in-game (an inline lock + `Wait` tread body froze
+    on a real playtest; the exact engine discriminant is still open, so the kit always delegates).
+  - `[[on_entry]]`: **default `true`** (the entry beat already locked); `lock = false` shows the
+    message as a free banner during the entry.
+  - A `[[choice]]` is **always** locked (without the bracket the d-pad would move the character
+    under the menu) — it takes no `lock` key.
+  - ⚠ **One lock-holding entry beat at a time.** An `[[on_entry]]` message and a load `[cutscene]`
+    are separate concurrent entries, each with its own bracket — dismissing one fires its
+    `EnableMove` and frees the player in the middle of the other. Keep them disjoint: gate the
+    hook (`entrance` / `requires_*`), or give it `lock = false`.
+- **`lock_menu`** — additionally hold the main menu shut (`DisableMenu`…`EnableMenu`, the save
+  point's proven double bracket) for the body. On `[[npc]]`, `[[event]]` and `[cutscene]`. Note a
+  bare `lock` already suppresses the menu *while movement is locked* (the engine couples them);
+  `lock_menu` keeps the suppression explicit and stock-macro-shaped. Needs the lock.
+- **After a battle, the grant is restore-not-grant.** The after-battle handler (`Main_Reinit`)
+  re-enables control **only if control was on before the battle** — the engine restores the
+  pre-battle state and the kit's handler reads it — so a scripted battle that fires in the middle
+  of a locked scene returns *still locked* and the scene's own bracket hands control back. (Stock's
+  Reinit has the same semantics via its flag macro.) Nothing to author; stated here because it is
+  the contract `stay_locked` and scripted battles rely on.
+- **Partial control** (`[[event]] mask_buttons` / `unmask_buttons`) — stock's tutorial/minigame
+  lane (`AddControllerMask`): the named buttons simply stop arriving, and masking the
+  **directions** freezes walking *independently of the lock*, leaving button presses live.
+  ⚠ Masking **any** direction bit stops *all* walking (the engine's movement mask is all-or-nothing,
+  `EventInput.CheckPlayerControl`) **and kills the main menu** — `EnableMove`'s menu re-grant is
+  `IsMenuON && IsMovementControl` (`DoEventCode.cs:1076`), so a direction mask suppresses the menu
+  even after control returns. What survives is button presses, which is exactly stock's tutorial
+  shape (you can only press what the tutorial wants). Design accordingly: **while a direction mask
+  is up the player cannot reach anything**, so whatever removes it must be triggerable from where
+  they stand (or be in the same body).
+  Names: `select start up right down left l1 l2 r1 r2 triangle circle cross square`, plus the
+  group `"directions"` (stock's own 240 — the Marsh/Chocobo tutorial walk-freeze). A mask is
+  **standing state**: pair the masking event with an unmasking one — it does not auto-restore,
+  though any scene transition (a field warp, a battle) clears it (`SceneDirector.ReplaceNow` →
+  `ClearPadMask`), so it cannot leak across fields. Because the mask **outlives the lock bracket**,
+  the natural shape is a normal *locked* event: when its window closes control returns — menu,
+  Action and talking all work — and the feet stay dead until something unmasks them.
+  ⚠ **Clearing the mask does not, by itself, restore walking** — the *controller-deactivation law*.
+  A movement mask makes the player's actor controller switch **itself** off
+  (`FieldMapActorController.cs:170-173`), `RemoveControllerMask` re-activates nothing, and the only
+  script-reachable revive is **`EnableMove`** (`DoEventCode.cs:1068`). A **locked** body self-heals
+  (its closing `EnableMove` revives it); an **unlocked** one would freeze the player permanently, so
+  the kit emits the `EnableMove` for you after an unlocked `unmask_buttons`. What is **refused** is
+  an unlocked body that masks and *never* unmasks — nothing in the field could undo it.
 
 ### Rotating casts (story-event fields)
 
@@ -778,9 +1036,11 @@ index = 8720
 
 ## `[[event]]` (optional, repeatable)
 
-A region the player **walks into** that fires authored logic — show a message, give an item / gil,
-set a story flag — optionally **once** (a looted chest, a one-time line, an ATE). Built on the same
-flag-gated conditional region as the camera switch; any number of events share one arming slot.
+A region that fires authored logic — show a message, give an item / gil, set a story flag —
+optionally **once** (a looted chest, a one-time line, an ATE). By default the player **walks into**
+it; `trigger = "action"` makes it **press-to-fire** instead (walk up, press the action button — the
+repeatable sign/readable). Built on the same flag-gated conditional region as the camera switch; any
+number of events share one arming slot.
 
 ```toml
 [[event]]                 # a treasure: give a Potion + a message, once
@@ -789,10 +1049,13 @@ give_item = [232, 1]      # [item_id, count]
 gil = 500                 # (optional) also add gil
 message = "Got a Potion!" # (optional) popup dialogue
 
-[[event]]                 # a repeatable ambient line
+[[event]]                 # a readable sign: press to read, any number of times
 zone = [[-700,-400],[-300,-400],[-300,-800],[-700,-800]]
-message = "A cool breeze blows through."
-once = false
+trigger = "action"
+message = "= NOTICE =\nBeware of falling moogles."
+style = "plain"
+instant = true
+once = false              # edge-triggered by the press -> repeatable, and consumes NO flag
 ```
 
 | key | meaning |
@@ -806,7 +1069,12 @@ once = false
 | `require_space` | *(give_item only)* `true` = **chest behavior**: skip the whole event (and don't set the `once` flag, so it's retryable) if the bag is full — `if (GetItemCount(item) < 99) { … }`. |
 | `gil` | gil to give; **negative subtracts** (e.g. `gil = -100` charges 100). `AddGil` / `RemoveGil`. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag (gate other content on it). |
-| `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside). Use `true` for a one-time line; `false` suits a continuous effect. A true "once per visit" (re-fires only after you leave and re-enter) isn't supported yet — it needs a leave-detecting re-arm zone. |
+| `trigger` | `"walk"` (default) = fires on tread. `"action"` = fires on the **action button** while standing in the zone — edge-triggered by the press, so it can never loop; the natural form for signs, plaques, and inspectables. |
+| `bubble` | *(action only)* `true` = show the floating **"!" prompt** while the player stands in the zone (the save-moogle-cask shape — a tread companion arms `Bubble(1)` per frame). Default `false`: stock's *silent* readable, discovered by pressing — both conventions are authentic; pick by how discoverable the spot should be. Also on a zone `[[choice]]` with `trigger = "action"`. |
+| `lock` / `lock_menu` | hold player control (and optionally the main menu) for the body — default **on** for `"action"` (stock locks every press-read), **off** for `"walk"` (the toast idiom); a locked walk event compiles its body into a player function (the tread-safe dispatch). See *Control locking* above. |
+| `mask_buttons` / `unmask_buttons` | **partial control** (stock's tutorial lane, `AddControllerMask`): the named buttons stop/resume arriving — `"directions"` freezes walking while every other button stays live. A list of button names (or one name); the mask is standing state, so pair a masking event with an unmasking one. See *Control locking* above for names + semantics. |
+| *(re-firing a repeatable press)* | The Action button both **advances dialogue** and **fires presses**, so re-triggering a `once = false` action event while its own window is still open takes **two** presses — one closes the window, one re-fires. In-game confirmed (bench 30602); it is the lock's signature (control is off while the window is up, so the closing press can't reach the trigger). |
+| `once` | `true` (default) = fires once ever, then never again (a GlobBool persists the state — a looted chest). `false` on a **walk** trigger = fires **continuously while the player stands in the zone** (FF9's region trigger is *level*-triggered, not edge-triggered — a `false` message re-pops the instant you close it if you're still inside; suits a continuous effect only). `false` on an **action** trigger = re-fires once per press — the repeatable readable, and it consumes **no** gate flag. A walk-triggered "once per visit" (re-fires only after leaving and re-entering) isn't supported yet — it needs a leave-detecting re-arm zone. |
 | `flag` | explicit (save-persistent) flag index for the `once` guard (default auto from `9100`, the kit's safe-band event auto band — clear of ALL real-FF9 usage, and the allocator skips indices your project uses explicitly; override for a shipped mod to avoid cross-field clashes). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the event only fires when that story flag is SET / CLEAR (gate one event behind another). |
 
@@ -924,6 +1192,11 @@ once = true                                 # default: fire once ever (a save-pe
 - The gates (`requires_scenario` / `requires_flag`) sit *outside* the once-check, so a hook whose condition
   isn't met yet returns without spending its once-flag — it can still fire on a **later** entry once the beat
   is reached.
+- **`entrance`** — an entrance id (or a list) gating the beat on **how the player arrived** (the `D8:2`
+  arrival var every kit warp/gateway sets): the beat fires only for a matching arrival, burning no
+  once-flag otherwise. The natural per-door entry beat, and the right shape for a
+  `[player] locked_entrances` unlock hook (it keeps the beat off plain entries, where its control
+  bracket would interleave with a load `[cutscene]`'s — see *Control locking*).
 - `set_scenario` / `set_flags` follow the same band rules as `[startup]` (assert REAL story bits below the safe band;
   the lint flags a write into a genuinely *reserved* region). `message` shares the field's `.mes` block.
 - A campaign member's per-member flag block is fully reserved, so a `once` hook there needs an explicit
@@ -1827,7 +2100,12 @@ steps = [
 | `wait` | pause this many frames. |
 | `set_flag` | `[var, value]` — set a GlobBool story flag mid-scene. |
 
-The scene auto-locks control (`DisableMove`…`EnableMove`); with `once` it won't replay on re-entry.
+The scene auto-locks control (`DisableMove`…`EnableMove`) unless `owns_control = false`; with
+`once` it won't replay on re-entry. A **walk-bearing** locked cast scene (any `walk`/`path` step)
+also brackets the walkmesh attribute mask like stock's own lock macro — `SetTriangleFlagMask(127)`
+under the lock so scripted routes can cross RESTRICTED triangles (cutscene-only bridges/stairs on
+forked real fields), `255` restored with the enable (a `then_warp` exit skips the restore; the
+engine resets the mask on field load).
 
 Cutscene-level keys (alongside `steps`):
 
@@ -1835,6 +2113,10 @@ Cutscene-level keys (alongside `steps`):
 |---|---|
 | `once` | `true` (default) = play once ever (save-persistent flag); `false` = every entry. |
 | `flag` | explicit GlobBool index for the once-guard (default auto `9200+`). |
+| `owns_control` | `true` (default) = the scene holds player control (a cast scene adds the grant-catch spin + the shared watchdog; narration uses the reorder-wait). `false` = the scene plays with the player **free** — a background narration / ambient choreography (no lock, no spin, no watchdog). |
+| `warmup` | frames a **cast** scene waits for actors to spawn when `owns_control = false` (with the lock, the grant spin doubles as the settle and `warmup` is unused). |
+| `lock_menu` | additionally hold the **main menu** shut for the scene (`DisableMenu`…`EnableMenu`, the stock macro's menu pair — stock players can't open the menu mid-cutscene only because stock scripts lock it). Needs `owns_control`. On a `then_warp` exit the menu mask clears with the transition. |
+| `stay_locked` | the scene ends with the player **still locked**, and latches the one-way stay-locked flag (stock's own index 156, the Festival-timeout idiom) so nothing re-grants — not even a scripted battle's after-battle handler. For a timed sequence / point-of-no-return ending where a *later* scene or warp owns what happens next. Needs `owns_control`; redundant with `then_warp` (a warp already leaves without re-granting). Per-visit: a field re-load clears the latch. |
 | `requires_scenario` | **the story-event director GATE**: the scene only plays when the **ScenarioCounter `== N`** (an int or an area name, e.g. `"Dali"`). Outside its beat the scene simply doesn't exist — and its `once` flag isn't burned, so it still plays when the story reaches the beat. |
 | `requires_flag` / `requires_flag_clear` | the scene only plays while this GlobBool (index or `[[flag]]` name) is SET / CLEAR. Stacks with `requires_scenario` (both must hold). One or the other, not both. |
 | `set_scenario` | **the story-event director ADVANCE**: at scene end, set the **ScenarioCounter** (int or area name) — the story moves to the next beat, exactly once, only when the scene actually played (the write sits inside the once-guard). |
@@ -1939,7 +2221,7 @@ Actor steps (each needs its `actor` tag — omitted only with a cast of ONE, whe
 | `path` | a **list** of targets to walk through in order — `path = ["door", "fountain", "altar"]` (names or `[x,z]`). Each leg is a straight walk, stall‑checked but **not** auto‑routed — use it to force an exact route (a plain `walk` already routes itself). |
 | `teleport` | a target to **instantly** move to (name or `[x, z]`). Put it **first** to start a walk-in from off-screen. |
 | `animation` | a gesture **by name** (`"glad"`, `"angry"`, `"yawn"`, …) resolved against that actor's preset model, **or** a raw numeric id. Played, then held ~40 frames (no hang on a looping clip). See *Character gestures* below. |
-| `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — an instant face (softlock-safe on player-cloned actors). |
+| `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — an **animated** turn (the actor plays its turn clip, stock speed), then held ~24 frames so the next beat starts facing-settled. Softlock-safe: the hold is a fixed wait, never a blocking `WaitTurn`. |
 | `face_player` | `true` — turn to face the player. |
 
 `say` / `wait` / `set_flag` also work in a cast scene (interleaved in order): a `say` **with** an `actor`

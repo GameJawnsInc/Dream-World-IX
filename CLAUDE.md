@@ -155,6 +155,10 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   before building on master, and a red ledger means bisect yesterday's merges. EXCEPTION: a diff touching
   the byte-level fork/graft/content core (the install-gated files → [[project-ff9-test-suite-perf]]) runs
   the full suite itself pre-merge (`-n 6`, in the gate worktree or the MAIN repo). → `tools/nightly_gate.md`.
+  **RED LEDGER → TRIAGE FIRST, before any master work** (a post-merge hook prints the ledger on every
+  merge into master — heed it): re-run the failing file on clean master (deployed-state false reds are
+  real), bisect yesterday's merges with that file, fix if small/in-domain, else REVERT the culprit merge
+  and tell the user. Never build on a red master silently — triage is not optional or deferrable.
 - **New Game lands via a stock field-70 override (`Field(<id>)`), not a DLL edit** — and every
   `deploy_campaign` wholesale-replace WIPES it. Re-run `tools/wire_newgame_from_stock.py <id>` after each
   opening re-deploy. → [[project-ff9-new-game-entry]].

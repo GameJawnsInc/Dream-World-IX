@@ -336,7 +336,7 @@ def test_build_field_verbatim_with_cutscene_conductor_end_to_end(tmp_path):
         speak_uids = {i.imm(0) for i in s.instrs(cond) if i.op == 0x95}   # WindowSyncEx targets, by uid
         assert band_lo in speak_uids and 250 in speak_uids       # lefty (below-band uid) + the player speak by id
         ops = [i.op for i in s.instrs(cond)]
-        assert 0x87 in ops and 0xBD in ops                       # TurnInstantEx + RunAnimationEx (drive actors by id)
+        assert 0xBB in ops and 0xBD in ops                       # TimedTurnEx + RunAnimationEx (drive actors by id)
         assert 0x2D in ops and 0x2E in ops                       # control lock + release
         # the walk beat: lefty's below-band entry got a walk tag (20), and the conductor RunScriptSyncs into it
         assert s.entry(band_lo).func_by_tag(20) is not None, "walk tag on lefty's below-band entry"
