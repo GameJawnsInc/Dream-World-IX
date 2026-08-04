@@ -1,4 +1,52 @@
-# THE PALETTE — what we can carry, verified (2026-08-02)
+# THE PALETTE — guarded re-census, 2026-08-02 (SUPERSEDES everything below)
+
+**7 masses carry real land.** Every row measured by mass-attributed carried terrain, with
+`excise_plan`'s carried-subject guard active; the three previously-unconfirmed rows were
+then verified against the game with a real `--dry-run`.
+
+| donor | size | area | relief | walk | carries | |
+|---|---|---|---|---|---|---|
+| `(9,5)` | 2x3 | 5312u² | **19.1** | 0.67 | **917** | the comma — DEPLOYED |
+| `(6,6)` | 2x2 | 3616u² | 8.2 | **0.79** | **578** | the isthmus — DEPLOYED, excise-only |
+| `(6,4)` | 2x2 | 2592u² | 6.9 | 0.00 | 551 | the crystal reef, unlandable by design |
+| **`(0,0)`** | **1x1** | **1584u²** | **8.9** | **0.61** | **406** | **new — a clean single-block carry** |
+| `(7,17)` | 4x2 | 2080u² | 5.0 | 0.76 | 314 | the island chain |
+| `(6,4)` | 1x2 | 544u² | 8.0 | 0.00 | 113 | reef fragment |
+| `(17,16)` | 2x1 | 736u² | 3.3 | 0.70 | 108 | small |
+
+`(0,0)` is the find: **1584u², 61% walkable, 406 triangles out of ONE block, gates clean,
+no excise needed.** Earlier censuses missed it because they required ≥500u² *and* applied a
+clearance test that the map-corner block fails.
+
+**Confirmed not carryable:** Daguerreo (keeps 25, drops 1670), the sinuous island (keeps 0),
+the `(14,0)` crescent (5 interior waterline verts), and four continents too big for any rect.
+
+## Excise's honest scorecard
+
+Of the 7, **one** — the isthmus — needed excise at all. The other six carry clean without it.
+Excise cost two traps (ring-cut, carried-subject) and three wrong palettes. What it bought
+that lasts is the **guard**, which is now load-bearing for every carry, excise or not.
+
+## THE INSTRUMENT LAW
+
+Three censuses, three faults, each caught by a number that was internally consistent but
+IMPOSSIBLE — never by reading the code:
+
+1. **one rect per mass, never retried** → Daguerreo "unavailable" when another rect held it.
+2. **credited a mass with any land in the rect** → mass 9 (544u²) reported 798, the reef's
+   own number, for a mass a fifth its size.
+3. **double-offset coordinates** (`world_tris` already returns world coords) → the palette
+   collapsed to exactly one mass, and it was the one at block `(0,0)`, where the offset is
+   zero.
+
+Every fault moved the headline the same way — fewer real carries than claimed: 16 → 10 → 4
+→ 7. **A census is an instrument, and an unfalsified instrument is a hypothesis.** The rule
+that now applies: no palette figure is quotable until the rows are verified against the game
+by `--dry-run`, and `carried: terrain:N` is read on every one.
+
+---
+
+# (superseded) THE PALETTE — what we can carry, verified (2026-08-02)
 
 > ## ⚠ CORRECTION 2026-08-02 — the table below was WRONG. Read this first.
 >
