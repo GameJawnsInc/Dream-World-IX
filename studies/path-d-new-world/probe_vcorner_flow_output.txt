@@ -1,0 +1,54 @@
+loading LIVE (post-sea-cut) world ...
+=== A) THE WEDGE FAN, decoded per heading ===
+   [cold] standing y=3.2 n_ok=17/32; failing headings:
+      h11 (123.75deg) -> (377.22,-509.84): mask  Terrain#45 topo=58 y=3.12 (scan) [p1]
+      h12 (135.00deg) -> (377.17,-509.91): mask  Terrain#44 topo=58 y=2.47 (scan) [p1]
+      h13 (146.25deg) -> (377.1,-509.96): mask  Terrain#44 topo=58 y=1.8 (scan) [p1]
+      h14 (157.50deg) -> (377.03,-510.0): mask  Terrain#44 topo=58 y=1.2 (scan) [p1]
+      h15 (168.75deg) -> (376.95,-510.03): mask  Terrain#44 topo=58 y=0.7 (scan) [p1]
+      h16 (180.00deg) -> (376.86,-510.04): mask  Terrain#44 topo=58 y=0.32 (scan) [p1]
+      h17 (191.25deg) -> (376.77,-510.03): mask  Terrain#44 topo=58 y=0.07 (scan) [p1]
+      h18 (202.50deg) -> (376.69,-510.0): mask  Sea4#1000 topo=56 y=0.0 (scan) [p1]
+      h19 (213.75deg) -> (376.62,-509.96): mask  Sea4#1001 topo=56 y=0.0 (scan) [p1]
+      h20 (225.00deg) -> (376.55,-509.91): mask  Terrain#44 topo=58 y=0.17 (scan) [p1]
+      h21 (236.25deg) -> (376.5,-509.84): mask  Terrain#44 topo=58 y=0.49 (scan) [p1]
+      h22 (247.50deg) -> (376.46,-509.77): mask  Terrain#44 topo=58 y=0.93 (scan) [p1]
+      h23 (258.75deg) -> (376.43,-509.69): mask  Terrain#44 topo=58 y=1.48 (scan) [p1]
+      h24 (270.00deg) -> (376.42,-509.6): mask  Terrain#44 topo=58 y=2.11 (scan) [p1]
+      h25 (281.25deg) -> (376.43,-509.51): mask  Terrain#44 topo=58 y=2.81 (scan) [p1]
+   [warmed, stalled at (419.79,-561.51)] n_ok=16/32; reasons:
+      13/32 mask(Terrain#389 mapid=232 topo=58 cache)
+       3/32 mask(Terrain#390 mapid=232 topo=58 cache)
+
+=== B) COAST HUG [THE CORNER, south + hug west] along=180deg inward bias 22deg ===
+   spawn ( 377.5, -503.0): CAUGHT at (376.39,-509.42); moves=13 deflects=4 stalls=383 first_stall=(376.39, -509.42, 17)
+   spawn ( 377.2, -505.5): CAUGHT at (376.39,-509.38); moves=8 deflects=2 stalls=390 first_stall=(376.39, -509.38, 10)
+   spawn ( 377.0, -507.0): CAUGHT at (376.41,-509.38); moves=5 deflects=1 stalls=394 first_stall=(376.41, -509.38, 6)
+
+=== B) COAST HUG [THE CORNER, south + hard hug] along=180deg inward bias 45deg ===
+   spawn ( 377.5, -503.0): CAUGHT at (372.78,-506.50); moves=13 deflects=2 stalls=385 first_stall=(372.78, -506.5, 15)
+   spawn ( 377.2, -505.5): CAUGHT at (374.00,-507.49); moves=8 deflects=2 stalls=390 first_stall=(374.0, -507.49, 10)
+
+=== B) COAST HUG [THE CORNER, north + hug west] along=0deg inward bias -22deg ===
+   spawn (380.5,-513.5): not clean lawn, skipped
+   spawn (379.5,-512.5): not clean lawn, skipped
+
+=== B) COAST HUG [CONTROL east shore, south + hug east] along=180deg inward bias -22deg ===
+   spawn ( 446.5, -496.0): PASSED at step 49; moves=41 deflects=9 stalls=0 first_stall=None
+   spawn ( 446.5, -500.0): PASSED at step 39; moves=36 deflects=4 stalls=0 first_stall=None
+
+=== C) THE PINCH: standable-strip width across the corner path ===
+   station (375.60, -507.60): strip ~4.0u
+   station (375.85, -508.00): strip ~3.9u
+   station (376.10, -508.40): strip ~3.7u
+   station (376.35, -508.80): strip ~3.6u
+   station (376.60, -509.20): strip ~3.4u
+   station (376.85, -509.60): strip ~3.1u
+   station (377.10, -510.00): strip ~2.8u
+   station (377.35, -510.40): strip ~2.6u
+   station (377.60, -510.80): strip ~2.3u
+   station (377.85, -511.20): strip ~2.0u
+   station (378.10, -511.60): strip ~1.7u
+   station (378.35, -512.00): strip ~1.5u
+   station (378.60, -512.40): strip ~1.2u
+   station (378.85, -512.80): strip ~0.9u

@@ -2341,7 +2341,13 @@ def emit(composed, out_dir, *, plan=None, log=None, force=False):
             raise ComposeError(f"emit needs one consecutive id run, got {ids} -- campaign.add_field's "
                                f"allocator is max(existing)+1 and cannot express a gap")
 
-        cplan = _campaign.new_campaign(composed.name, composed.mod_folder, out, id_base=base)
+        # ★ THE MANIFEST IS MERGE-BEARING TOO, NOT JUST THE ROOMS. [[flag]] rows, [[seam]] rows and a tuned
+        # flag_base/flags_per_field live ONLY here -- no room toml carries them -- so a fresh render drops
+        # them. The allocation reset is the silent half: flags_per_field 16 -> 64 moves every member's
+        # story-flag window and corrupts a live save with nothing able to detect it. `force` discards it on
+        # purpose, exactly as it discards the rooms and the art.
+        cplan = _campaign.new_campaign(composed.name, composed.mod_folder, out, id_base=base,
+                                       on_existing="replace" if force else "preserve")
         for room in composed.rooms:
             member = _campaign.add_field(cplan, out, name=room.name)
             if member.new_id != room.field_id:           # the allocator and the pre-flight must agree

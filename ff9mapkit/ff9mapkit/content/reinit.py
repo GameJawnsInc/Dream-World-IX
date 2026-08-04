@@ -5,10 +5,19 @@ After a random battle, EventEngine restores the field then calls Request(entry0,
 0 does ``ExitBattleEnd`` un-suspend them. Battle fields ship a Main_Reinit; fields cloned
 from a cutscene field (like our blank) have none, so the player stays frozen after battle.
 
-Minimal handler: ``EnableMove ; return``. With ``with_fade=True`` it is prefixed with a quick
-``FadeFilter`` fade-in, because the battle-return fade is a 256-frame *timed* fade that only a
-field-issued FadeFilter overrides (Main_Init issues one, but after battle the field runs
-tag-10, not Main_Init).
+The handler is RESTORE-NOT-GRANT (movement survey Tier-2 item 7, stock's own Reinit semantics):
+``if (IsMovementEnabled && !MAP156) EnableMove``. The engine restores the PRE-BATTLE
+``usercontrol`` via context-copy BEFORE requesting tag-10 (EventEngine.cs:668-669), so sysvar 2
+here reads the pre-battle lock state -- the engine's restored context IS the latch, no script
+flag bookkeeping needed (stock maintains GlobBool 158 for the same job). A battle that fired
+inside a lock (a scripted / behavior-tree ``Battle`` -- random encounters cannot accumulate
+while locked) returns still locked, and the interrupted bracket's own EnableMove restores
+control when its scene finishes; the old unconditional grant freed the player mid-scene.
+MAP-bool 156 (:data:`region.STAY_LOCKED_IDX`) is the one-way stay-locked latch. A free-roam
+battle reads sysvar2==1 and 156==0, so the grant runs exactly as before. With ``with_fade=True``
+the body is prefixed with a quick ``FadeFilter`` fade-in, because the battle-return fade is a
+256-frame *timed* fade that only a field-issued FadeFilter overrides (Main_Init issues one, but
+after battle the field runs tag-10, not Main_Init).
 
 Re-layout: entry-0's function table grows by one 4-byte slot (existing funcs' fpos += 4); the
 new function body is appended after entry-0's code; every later entry shifts in the file so
@@ -21,13 +30,21 @@ import struct
 
 from ..binutils import set_u16, u16
 from ..eb import EbScript, opcodes
+from . import region as _region
 
 REINIT_TAG = 10
+
+# `if (IsMovementEnabled && !MAP156)` -- the restore-not-grant gate (module docstring): sysvar 2
+# carries the engine-restored pre-battle lock state; MAP 156 is the one-way stay-locked latch.
+GRANT_GATE = bytes([_region.EXPR_OP, _region.T_SYSVAR, _region.SYSVAR_USERCONTROL,
+                    _region.MAP_BOOL, _region.STAY_LOCKED_IDX,
+                    _region.T_NOT, _region.T_ANDAND, _region.T_END])
 
 
 def add_reinit(eb_bytes, *, with_fade: bool = True, fade_frames: int = 16,
                tag: int = REINIT_TAG, prologue: bytes = b"") -> bytes:
-    """Add an entry-0 tag-10 handler (EnableMove; return), optionally with a fast fade-in.
+    """Add an entry-0 tag-10 handler (``if (control was on && !stay-locked) EnableMove; return``),
+    optionally with a fast fade-in. See the module docstring for the restore-not-grant gate.
 
     ``prologue`` (default empty) is raw bytecode run FIRST -- before the fade-in/EnableMove -- e.g. the
     ``[deathrules] on_defeat`` wipe-warp check (:func:`ff9mapkit.battle.deathrules.field_prologue`), which
@@ -35,7 +52,7 @@ def add_reinit(eb_bytes, *, with_fade: bool = True, fade_frames: int = 16,
     body = bytes(prologue)
     if with_fade:
         body += opcodes.fade_filter(2, fade_frames, 0, 0, 0, 0)   # SUB => fade-IN over N frames
-    body += opcodes.ENABLE_MOVE + opcodes.RETURN
+    body += _region.if_block(GRANT_GATE, opcodes.ENABLE_MOVE) + opcodes.RETURN
 
     b = bytearray(eb_bytes)
     entry_count = b[3]

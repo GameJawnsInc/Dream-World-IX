@@ -1568,6 +1568,36 @@ def test_recompose_preserves_hand_authored_content_instead_of_destroying_it(tmp_
     assert "npc" not in _read(tmp_path) and "chest" not in _read(tmp_path)
 
 
+def test_recompose_preserves_the_manifest_not_just_the_rooms(tmp_path):
+    """★ THE OTHER HALF OF THE SAME BUG. The rooms were merged; the MANIFEST was not. [[flag]] rows,
+    [[seam]] rows and a tuned flag_base/flags_per_field live ONLY in campaign.toml -- no room toml
+    carries them -- and `new_campaign` rendered a FRESH plan straight over the top.
+
+    The [[flag]] loss is at least loud: a member gating on the lost NAME fails the next lint. The
+    allocation reset is the silent one -- flags_per_field 16 -> 64 moves every member's story-flag
+    window, so a live save reads the wrong bits, and nothing anywhere detects it."""
+    from ff9mapkit import campaign as C
+    plan = _plan()
+    F.compose_and_emit(plan, tmp_path, log=None)
+    cpath = tmp_path / "campaign.toml"
+    cp = C.load_campaign(cpath)
+    cp.flags = [{"name": "boss_defeated", "index": 9100}]
+    cp.seams = [{"frm": cp.members[0].name, "to_real": 1001, "kind": "portal", "note": "out"}]
+    cp.flag_base, cp.flags_per_field = 9000, 16
+    C._save_plan(cp, tmp_path)
+
+    F.compose_and_emit(plan, tmp_path, log=None)                     # recompose the UNCHANGED plan
+    after = C.load_campaign(cpath)
+    assert [f["name"] for f in after.flags] == ["boss_defeated"], "authored [[flag]] rows must survive"
+    assert len(after.seams) == 1 and after.seams[0]["to_real"] == 1001
+    assert (after.flag_base, after.flags_per_field) == (9000, 16), \
+        "an allocation reset silently relocates every member's flag window"
+    assert {m.name for m in after.members} == {m.name for m in cp.members}, "members still rebuilt"
+
+    F.compose_and_emit(plan, tmp_path, log=None, force=True)         # force discards the manifest too
+    assert C.load_campaign(cpath).flags == []
+
+
 def test_the_merge_reads_the_room_before_anything_is_written(tmp_path):
     """`new_campaign` rebuilds the manifest and `add_field` scaffolds each member OVER the room
     directory -- so by the time the room tomls are rewritten, both the old toml and the old art are

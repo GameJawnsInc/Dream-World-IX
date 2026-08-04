@@ -67,6 +67,10 @@ def _init_object(slot: int) -> bytes:
     return bytes([0x09, slot, 0])                      # InitObject(slot, arg) -- 1-byte args, no flag byte
 
 
+def _init_region(slot: int) -> bytes:
+    return bytes([0x08, slot, 0])                      # InitRegion(slot, arg) -- same encoding as InitObject
+
+
 def _set_model(mid: int) -> bytes:
     return bytes([0x2F, 0x00]) + struct.pack("<H", mid) + b"\x00"    # SetModel(model u16, animset u8)
 
@@ -117,9 +121,11 @@ def _eb_file(entries) -> bytes:
 def demo_verbatim_eb(model_id: int = 0) -> bytes:
     """The demo field: Main_Init (spawns + a story-beat SWITCHEX) · a player · a talkable NPC
     (dialogue + reward + a kit-band once-flag) · a DORMANT object (defined, never spawned) · a
-    warp+battle trigger entry."""
-    # entry 0 tag 0: spawn 1/2/4 (entry 3 stays dormant), push SC, dispatch beats 1900/2005
-    spawns = _init_object(1) + _init_object(2) + _init_object(4)
+    warp+battle trigger entry -- armed by InitRegion, the way real fields arm region entries
+    (spawns must count all THREE init ops, not just InitObject). The InitObject(252) is the
+    engine's party-slot selector -- it must NOT count as arming an entry."""
+    # entry 0 tag 0: spawn 1/2, arm region 4 (entry 3 stays dormant), push SC, dispatch beats 1900/2005
+    spawns = _init_object(1) + _init_object(2) + _init_region(4) + _init_object(252)
     sw_off = len(spawns) + len(_expr_scenario())       # the switch's function-relative offset
     sw_len = 2 + 2 * 5                                 # op+count + 5 u16 args (default + 2 pairs)
     anchor = sw_off + 4                                # 0x06 reloffs anchor at O+4
@@ -200,6 +206,22 @@ def test_script_tree_speaks_the_engines_conventions_in_human_words(win, app, tmp
     assert " / tag " not in flat, "no row falls back to the machine 'kind / tag N' form"
     # a defined-but-never-spawned entry is chipped on its ROW, not only in the detail
     assert any("· not spawned" in r for r in rows), rows.keys()
+
+
+def test_region_armed_trigger_is_not_labeled_dormant(win, app, tmp_path):
+    """The demo's invisible trigger is armed by InitRegion (0x08) -- all THREE engine init ops count as
+    spawns, not just InitObject (pre-fix, a real fork mislabeled ~77% of region/helper entries dormant).
+    The InitObject(252) party-slot selector arms nothing; entry 3 stays the only dormant row."""
+    from ff9mapkit.workspace.shell import _DETAIL
+    assert win.open_campaign(make_demo_campaign(tmp_path / "demo"))
+    grp = _script_group(win, app)
+    rows = {grp.child(i).text(0): "\n".join(grp.child(i).data(0, _DETAIL) or [])
+            for i in range(grp.childCount())}
+    trig = next(k for k in rows if "invisible trigger" in k)
+    assert "not spawned" not in trig, trig
+    assert "spawned: 1x" in rows[trig], rows[trig]
+    dormant = [k for k in rows if "· not spawned" in k]
+    assert len(dormant) == 1 and dormant[0].startswith("entry 3"), dormant
 
 
 def test_script_group_teaches_the_story_beat_lever(win, app, tmp_path):

@@ -1,0 +1,42 @@
+44 boundary edges in the zone
+
+chain 0: 17 verts
+   v 0 ( 383.90, -500.00)  -> seg  3.37u @  190.1deg
+   v 1 ( 383.31, -503.31)  -> seg  0.70u @  190.1deg  turn   -0.0deg
+   v 2 ( 383.19, -504.00)  -> seg  2.60u @  195.1deg  turn   +5.1deg
+   v 3 ( 382.51, -506.51)  -> seg  0.53u @  195.2deg  turn   +0.1deg
+   v 4 ( 382.37, -507.02)  -> seg  1.01u @  195.1deg  turn   -0.1deg
+   v 5 ( 382.11, -508.00)  -> seg  2.10u @  154.7deg  turn  -40.4deg  <== TURN
+   v 6 ( 383.01, -509.90)  -> seg  2.33u @  154.7deg  turn   +0.0deg
+   v 7 ( 384.00, -512.00)  -> seg  2.01u @  180.0deg  turn  +25.3deg
+   v 8 ( 384.00, -514.01)  -> seg  0.20u @  180.0deg  turn   +0.0deg
+   v 9 ( 384.00, -514.20)  -> seg  1.80u @  180.0deg  turn   +0.0deg
+   v10 ( 384.00, -516.00)  -> seg  0.45u @  180.0deg  turn   +0.0deg
+   v11 ( 384.00, -516.45)  -> seg  0.09u @  160.5deg  turn  -19.5deg
+   v12 ( 384.03, -516.53)  -> seg  1.13u @  160.4deg  turn   -0.1deg
+   v13 ( 384.41, -517.60)  -> seg  2.55u @  160.4deg  turn   +0.0deg
+   v14 ( 385.26, -520.00)  -> seg  0.50u @  165.1deg  turn   +4.7deg
+   v15 ( 385.39, -520.48)  -> seg  1.00u @  276.0deg  turn +110.9deg  <== TURN
+   v16 ( 384.39, -520.38)
+
+chain 1: 13 verts
+   v 0 ( 371.24, -500.01)  -> seg  3.10u @  178.8deg
+   v 1 ( 371.31, -503.11)  -> seg  0.95u @  159.6deg  turn  -19.2deg
+   v 2 ( 371.64, -504.00)  -> seg  2.42u @  159.6deg  turn   +0.0deg
+   v 3 ( 372.48, -506.27)  -> seg  4.55u @  129.4deg  turn  -30.2deg
+   v 4 ( 376.00, -509.16)  -> seg  0.37u @  129.3deg  turn   -0.1deg
+   v 5 ( 376.29, -509.40)  -> seg  4.09u @  114.9deg  turn  -14.5deg
+   v 6 ( 380.00, -511.12)  -> seg  1.24u @  114.8deg  turn   -0.0deg
+   v 7 ( 381.12, -511.64)  -> seg  0.86u @  114.9deg  turn   +0.0deg
+   v 8 ( 381.90, -512.00)  -> seg  2.83u @  138.2deg  turn  +23.3deg
+   v 9 ( 383.79, -514.11)  -> seg  0.61u @  234.8deg  turn  +96.6deg  <== TURN
+   v10 ( 383.29, -514.46)  -> seg  3.93u @  234.8deg  turn   +0.0deg
+   v11 ( 380.08, -516.73)  -> seg  3.27u @  181.5deg  turn  -53.3deg  <== TURN
+   v12 ( 380.00, -520.00)
+
+chain 2: 5 verts
+   v 0 ( 380.94, -520.48)  -> seg  0.47u @  343.8deg
+   v 1 ( 380.81, -520.03)  -> seg  3.21u @   95.7deg  turn +111.9deg  <== TURN
+   v 2 ( 384.00, -520.34)  -> seg  2.24u @  275.7deg  turn -180.0deg  <== TURN
+   v 3 ( 381.77, -520.12)  -> seg  2.06u @  163.7deg  turn -112.0deg  <== TURN
+   v 4 ( 382.35, -522.10)

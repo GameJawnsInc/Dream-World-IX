@@ -58,7 +58,20 @@ def require_block_in_grid(x: int, y: int, *, context: str = "") -> None:
 
 
 def write_ff9mesh(bm, path) -> Path:
-    """Serialize a :class:`~ff9mapkit.world.extract.BlockMesh` to the ``.ff9mesh`` format the engine reads."""
+    """Serialize a :class:`~ff9mapkit.world.extract.BlockMesh` to the ``.ff9mesh`` format the engine reads.
+
+    THE UNINDEXED CONTRACT (enforced): the engine's walk-mesh build (WMBlock.AddWalkMesh,
+    WMBlock.cs:60-73) iterates ``vertices.Length / 3`` and indexes ``triangles[i*3]`` — it
+    expects FULLY UNINDEXED meshes, ``vcount == index count`` (3 fresh verts per triangle,
+    the layout of every stock block). vcount > icount OVERRUNS the index buffer at block
+    registration and bricks the block (missing tile, stranded movement, warp brick — the
+    2026-08-02 V-corner deploy); vcount < icount builds TriangleNormals short (a latent
+    query-time hazard). Emit per-tri-expanded geometry; re-pack with a vertex expansion
+    if an edit produced shared verts."""
+    assert bm.vcount == len(bm.flat_index), (
+        f"UNINDEXED CONTRACT violated: vcount {bm.vcount} != index count {len(bm.flat_index)} "
+        f"-- the engine (WMBlock.AddWalkMesh) iterates vertices.Length/3 over triangles[i*3]; "
+        f"expand to 3 fresh verts per triangle before writing")
     verts, normals, uvs, tangents = bm.verts, bm.normals, bm.uvs, bm.tangents
     flags = (1 if normals else 0) | (2 if uvs else 0) | (4 if tangents else 0)
     idx = bm.flat_index

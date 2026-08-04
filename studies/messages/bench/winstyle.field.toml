@@ -1,0 +1,169 @@
+# WINSTYLE -- the Tier-1 window-attribute bench + the [[event]] action trigger
+# + THE CONTROL-LOCK ROUND (studies/movement/SURVEY.md Tier-1).
+# Layout probed (tools/field_layout_probe.py) AND sized by the render math: row z-gaps >= 600u so
+# the gaps read BIGGER on screen than the tallest landmark. Landmarks are BOOKS (small model 233)
+# with collision = false, so nothing ever blocks a pad.
+#
+# Front -> back: spawn / CENTER STORY PAD + two WALL PADS / two PRESS SPOTS / the four talkers.
+# The lock checks (this round -- try to WALK while each window is up):
+#   * every talker except the Drifter now HOLDS you (the stock talk bracket, new default);
+#   * the DRIFTER (back row, between center and east) is `lock = false`: you can walk away
+#     mid-sentence -- the un-stock walk-under, kept as the deliberate opt-out;
+#   * the WEST sign's inscription now HOLDS you while dimmed (press events lock by default);
+#   * the CENTER pad (first steps forward) is a LOCKED TREAD beat -- it should hold you for one
+#     window then release (the delegated player-func dispatch, the tread-freeze-safe shape);
+#   * the WEST toast still lets you walk under it (tread default unchanged);
+#   * the Mognet menu's middle row WARPS to this same field at a LOCKED entrance: you arrive
+#     mid-room, held until the entry beat closes, then control returns ([player] locked_entrances).
+#     The beat is entrance-gated to that door (plain entries/reloads: countdown only, no beat).
+# Deploy: py tools/deploy_field.py studies/messages/bench/winstyle.field.toml --id 30601
+
+[field]
+id = 30601
+name = "WINSTYLE"
+area = 11
+
+[camera]
+pitch = 40
+# entry_settle: ABSENT on purpose -- exercises the synthesized-field DEFAULT ("auto"; resolves to
+# ~50 frames here). Its EnableMove is entrance-gated, so the locked-arrival contract still holds.
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+locked_entrances = [5]          # the Mognet menu's warp row arrives here locked
+
+[[player.arrival]]
+entrance = 5
+pos = [0, -700]
+face = 0
+
+# --- the locked-arrival unlock beat: entrance-gated to the warp door ONLY. (Round 2 fix: an
+# ungated hook also fired on plain entries, where its lock bracket ran CONCURRENTLY with the
+# countdown cutscene's -- dismissing it freed the player mid-countdown, the intro-dim leak.) ---
+[[on_entry]]
+entrance = 5
+once = false
+message = "You came through the locked door -- you were HELD until this window. Control returns when it closes."
+style = "notail"
+
+# --- the entry countdown: `duration` staged captions -------------------------------------
+[[cutscene]]
+once = true
+steps = [
+  { say = "On your mark!", style = "notail", duration = 45 },
+  { say = "Get set!", style = "notail", duration = 45 },
+  { say = "GO!", style = "notail", duration = 30 },
+  { say = "...and this is the voice dim: these words appear first, then the room sinks beneath them...", style = "transparent", dim = "voice" },
+  { say = "Books mark the spots. Side walls ahead: walk-in pads. Mid-room: press at the west book (it prompts) and the east book (silent, like a stock sign). Talkers at the back.", speaker = "Bench" },
+]
+
+# --- CENTER pad: the LOCKED TREAD story beat (the delegated dispatch) --------------------
+[[event]]
+name = "story_beat"
+zone = [[-125, -1650], [125, -1650], [125, -1400], [-125, -1400]]
+lock = true
+message = "A held story beat: you walked in, the game took the reins, and it hands them back when this closes."
+style = "notail"
+
+[[prop]]
+prop = "book"
+pos = [200, -1525]
+collision = false
+
+# --- WEST wall pad: the walk-in self-closing toast ---------------------------------------
+[[event]]
+name = "toast"
+zone = [[-1200, -1650], [-950, -1650], [-950, -1400], [-1200, -1400]]
+message = "A no-tail toast. It closes itself in three seconds -- and this one is walk-triggered, so it re-fires while you stand here."
+style = "notail"
+duration = 90
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-880, -1525]
+collision = false
+
+# --- EAST wall pad: attributed to the crier ----------------------------------------------
+[[event]]
+name = "crier_call"
+zone = [[950, -1650], [1200, -1650], [1200, -1400], [950, -1400]]
+message = "Hear ye!  This bubble should point at ME, the crier at the back."
+speaker = "Crier"
+actor = "crier"
+once = false
+
+[[prop]]
+prop = "book"
+pos = [880, -1525]
+collision = false
+
+# --- WEST press spot: the sign, WITH the "!" bubble --------------------------------------
+[[event]]
+name = "sign"
+zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
+trigger = "action"
+bubble = true
+message = "= WINSTYLE BENCH =\nCarved letters on a plaque -- the subtle inscription dim, cross-fading back out."
+style = "transparent"
+instant = true
+dim = "inscription"
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-700, -880]
+collision = false
+
+# --- EAST press spot: the pinned Mognet menu, SILENT -------------------------------------
+[[choice]]
+zone = [[550, -1150], [850, -1150], [850, -950], [550, -950]]
+prompt = "A pinned menu with the Mognet caption, kupo?"
+style = "mognet"
+window_pos = [20, 16]
+instant = true
+options = [
+  { text = "Looks right", reply = "Kupo!" },
+  { text = "Warp: the locked arrival", warp = 30601, entrance = 5 },
+  { text = "Looks wrong", reply = "Kupooo..." },
+]
+
+[[prop]]
+prop = "book"
+pos = [700, -880]
+collision = false
+
+# --- the back row of talkers --------------------------------------------------------------
+[[npc]]
+name = "control"
+preset = "vivi"
+pos = [-800, -350]
+dialogue = "I am the CONTROL: the classic speech bubble, tail at me."
+speaker = "Control"
+
+[[npc]]
+name = "crier"
+preset = "vivi"
+pos = [800, -350]
+dialogue = "Talk to me directly and I use a fixed chat frame with no tail."
+speaker = "Crier"
+style = "notail"
+
+[[npc]]
+name = "whisperer"
+preset = "vivi"
+pos = [0, -350]
+dialogue = "From the Bench to you --\n\nThe letter dim: the room goes warm-dark and these frameless words stay bright.\n\nNo speaker line -- stock letters never carry one."
+style = "transparent"
+dim = true
+
+[[npc]]
+name = "drifter"
+preset = "vivi"
+pos = [400, -350]
+dialogue = "I am the lock = false Drifter: walk away mid-sentence, I won't hold you. (Every other talker now grips you like the real game.)"
+speaker = "Drifter"
+lock = false

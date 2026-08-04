@@ -1,0 +1,118 @@
+loading LIVE world (the tuck build) ...
+
+=== REPLAY [LIVE tuck build]: spawn (376.5,-501.5) y=3.47, heading south ===
+   step   0 move    at (376.50,-501.94) y=3.44 | ring+= slot 1: Terrain#13 topo=42 [WALK]
+   step   5 move    at (376.50,-504.11) y=3.20 | ring+= slot 2: Terrain#222 topo=0 [WALK]
+   step   6 move    at (376.50,-504.55) y=3.20 | ring+= slot 3: Terrain#77 topo=0 [WALK]
+   step  10 move    at (376.50,-506.30) y=3.20 | ring+= slot 4: Terrain#78 topo=0 [WALK]
+   step  17 move    at (376.50,-509.36) y=3.20 | ring+= slot 5: Terrain#133 topo=0 [WALK]
+   step  18 deflect at (376.86,-509.60) y=3.20 | ring+= slot 7: Terrain#45 topo=58 [BLOCK]
+   step  19 stall   at (376.86,-509.60) y=3.20 | ring+= slot 8: Sea4#430 topo=56 [BLOCK]
+   step  19 STALL at (376.86,-509.60) y=3.20
+   ring [at stall, step 19] (slot order newest=8):
+      slot 0: empty
+      slot 1: blk(5, 7) Terrain#13 mapid=1704 topo=42 [WALK] ny=0.967 (376.00,3.46,-500.00) (379.63,4.06,-504.00) (376.00,3.15,-504.00)
+      slot 2: blk(5, 7) Terrain#222 mapid=0 topo=0 [WALK] ny=1.000 (376.59,3.20,-504.59) (376.40,3.20,-504.00) (379.63,3.20,-504.00)
+      slot 3: blk(5, 7) Terrain#77 mapid=0 topo=0 [WALK] ny=1.000 (376.29,3.20,-509.40) (376.00,3.20,-504.00) (376.59,3.20,-504.59)
+      slot 4: blk(5, 7) Terrain#78 mapid=0 topo=0 [WALK] ny=1.000 (376.29,3.20,-509.40) (376.59,3.20,-504.59) (377.90,3.20,-508.79)
+      slot 5: blk(5, 7) Terrain#133 mapid=0 topo=0 [WALK] ny=1.000 (377.90,3.20,-508.79) (380.00,3.20,-511.12) (376.29,3.20,-509.40)
+      slot 6: blk(5, 7) Terrain#44 mapid=232 topo=58 [BLOCK] ny=0.115 (375.29,0.00,-509.33) (376.29,3.20,-509.40) (380.90,0.00,-512.00)
+      slot 7: blk(5, 7) Terrain#45 mapid=232 topo=58 [BLOCK] ny=0.130 (380.90,0.00,-512.00) (376.29,3.20,-509.40) (380.00,3.20,-511.12)
+      slot 8: blk(5, 7) Sea4#430 mapid=224 topo=56 [BLOCK] ny=1.000 (376.00,0.00,-508.00) (380.00,0.00,-512.00) (376.00,0.00,-512.00)
+      slot 9: empty
+   per-heading answers (p1 at speed 0.4375):
+      h 0 (  0.00deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 1 ( 11.25deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 2 ( 22.50deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 3 ( 33.75deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 4 ( 45.00deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 5 ( 56.25deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 6 ( 67.50deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 7 ( 78.75deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 8 ( 90.00deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 9 (101.25deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h10 (112.50deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h11 (123.75deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h12 (135.00deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h13 (146.25deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h14 (157.50deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h15 (168.75deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h16 (180.00deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h17 (191.25deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h18 (202.50deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h19 (213.75deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h20 (225.00deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h21 (236.25deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h22 (247.50deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h23 (258.75deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h24 (270.00deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h25 (281.25deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h26 (292.50deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h27 (303.75deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h28 (315.00deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h29 (326.25deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h30 (337.50deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h31 (348.75deg): cache slot 8 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+   headings that would pass p1: 0/32
+   POISONING TRIS (cache answers that mask-reject):
+      32/32 Sea4#430 mapid=224 topo=56 ny=1.000 (376.00,0.00,-508.00) (380.00,0.00,-512.00) (376.00,0.00,-512.00)
+   PERMANENCE: 100 turning ticks -> still stuck; ring FROZEN (cache answered everything)
+
+loading PRE-TUCK pristine control ...
+
+=== REPLAY [PRE-TUCK pristine]: spawn (376.5,-501.5) y=3.20, heading south ===
+   step   0 move    at (376.50,-501.94) y=3.20 | ring+= slot 1: Terrain#53 topo=0 [WALK]
+   step   5 move    at (376.50,-504.12) y=3.20 | ring+= slot 2: Terrain#74 topo=0 [WALK]
+   step   6 move    at (376.50,-504.56) y=3.20 | ring+= slot 3: Terrain#37 topo=0 [WALK]
+   step  17 move    at (376.50,-509.38) y=3.20 | ring+= slot 4: Terrain#47 topo=0 [WALK]
+   step  18 deflect at (376.86,-509.62) y=3.20 | ring+= slot 6: Terrain#29 topo=58 [BLOCK]
+   step  19 stall   at (376.86,-509.62) y=3.20 | ring+= slot 7: Sea4#430 topo=56 [BLOCK]
+   step  19 STALL at (376.86,-509.62) y=3.20
+   ring [at stall, step 19] (slot order newest=7):
+      slot 0: empty
+      slot 1: blk(5, 7) Terrain#53 mapid=0 topo=0 [WALK] ny=1.000 (376.00,3.20,-504.00) (376.00,3.20,-500.00) (380.00,3.20,-504.00)
+      slot 2: blk(5, 7) Terrain#74 mapid=0 topo=0 [WALK] ny=1.000 (376.00,3.20,-504.00) (380.00,3.20,-504.00) (380.00,3.20,-508.00)
+      slot 3: blk(5, 7) Terrain#37 mapid=0 topo=0 [WALK] ny=1.000 (376.29,3.20,-509.40) (376.00,3.20,-504.00) (380.00,3.20,-508.00)
+      slot 4: blk(5, 7) Terrain#47 mapid=0 topo=0 [WALK] ny=1.000 (376.29,3.20,-509.40) (380.00,3.20,-508.00) (381.90,3.20,-512.00)
+      slot 5: blk(5, 7) Terrain#28 mapid=232 topo=58 [BLOCK] ny=0.115 (375.29,0.00,-509.33) (376.29,3.20,-509.40) (380.90,0.00,-512.00)
+      slot 6: blk(5, 7) Terrain#29 mapid=232 topo=58 [BLOCK] ny=0.130 (376.29,3.20,-509.40) (381.90,3.20,-512.00) (380.90,0.00,-512.00)
+      slot 7: blk(5, 7) Sea4#430 mapid=224 topo=56 [BLOCK] ny=1.000 (376.00,0.00,-508.00) (380.00,0.00,-512.00) (376.00,0.00,-512.00)
+      slot 8: empty
+      slot 9: empty
+   per-heading answers (p1 at speed 0.4375):
+      h 0 (  0.00deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 1 ( 11.25deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 2 ( 22.50deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 3 ( 33.75deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 4 ( 45.00deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 5 ( 56.25deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 6 ( 67.50deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 7 ( 78.75deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 8 ( 90.00deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h 9 (101.25deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h10 (112.50deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h11 (123.75deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h12 (135.00deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h13 (146.25deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h14 (157.50deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h15 (168.75deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h16 (180.00deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h17 (191.25deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h18 (202.50deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h19 (213.75deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h20 (225.00deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h21 (236.25deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h22 (247.50deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h23 (258.75deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h24 (270.00deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h25 (281.25deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h26 (292.50deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h27 (303.75deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h28 (315.00deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h29 (326.25deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h30 (337.50deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+      h31 (348.75deg): cache slot 7 Sea4#430 topo=56 y=0.00 -> MASK-REJECT
+   headings that would pass p1: 0/32
+   POISONING TRIS (cache answers that mask-reject):
+      32/32 Sea4#430 mapid=224 topo=56 ny=1.000 (376.00,0.00,-508.00) (380.00,0.00,-512.00) (376.00,0.00,-512.00)
+   PERMANENCE: 100 turning ticks -> still stuck; ring FROZEN (cache answered everything)

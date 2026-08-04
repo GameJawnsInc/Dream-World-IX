@@ -66,6 +66,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
+from terrace_wall_strip import corner_guard                 # noqa: E402
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "ff9mapkit"))
@@ -484,6 +486,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
+    if args.apply:
+        corner_guard(getattr(args, "corner_follows", False))
     OUTD.mkdir(parents=True, exist_ok=True)
 
     tris, bms = load_bench()
@@ -1213,6 +1217,8 @@ def main() -> int:
     if fails:
         print("\nT1: GATES RED -- not deployable")
         return 1
+    if args.apply:
+        corner_guard(getattr(args, "corner_follows", False))
     if not args.apply:
         print("\nT1: gates green (offline). Review the renders; re-run with --apply to deploy.")
         return 0

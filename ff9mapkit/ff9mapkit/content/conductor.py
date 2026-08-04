@@ -14,17 +14,17 @@ conductor level -- but a beat marked ``with_prev = true`` runs IN PARALLEL with 
 PARALLEL beats ("these run together") use FF9's real async-fork + script-level join, confirmed in the engine
 (``EventEngine.DoEventCode.cs``: ``requestAcceptable(obj, lv) == lv < obj.level``):
   * each parallel member is FORKED non-blocking -- a walk via ``RunScriptAsync`` (op 0x10, which bypasses the
-    level gate and spawns the walk in the actor's context), an anim via ``RunAnimationEx``, an instant turn
-    via ``TurnInstantEx``;
+    level gate and spawns the walk in the actor's context), an anim via ``RunAnimationEx``, a turn via
+    ``TimedTurnEx`` (fire-and-forget; its hold folds into the join Wait);
   * the conductor then JOINS: one ``Wait`` covering the longest anim hold (anims play while walks run async),
     then a ``RunScriptSync`` (op 0x14) into each walking actor's bare-``RETURN`` join tag -- which ``stay()``s
     on the actor's busy script level until its async walk RETURNs (frees the level). That per-actor sync-drain
     is the engine's ONLY async barrier (``WaitSharedScript`` only joins the SAME object's own shared script,
     not a global wait). A ``say`` / ``wait`` / ``set_flag`` is a sequential barrier -- never ``with_prev``.
 
-Softlock care, mirroring the kit's existing cutscene rules on player-cloned actors:
-  * ``turn`` uses ``TurnInstantEx`` (instant, no wait) -- never ``WaitTurnEx`` (a player clone's turn anim
-    may not drive the wait to completion -> hang);
+Softlock care, mirroring the kit's existing cutscene rules:
+  * ``turn`` uses ``TimedTurnEx`` (animated, the stock look) + a fixed ``Wait`` hold -- never
+    ``WaitTurnEx`` (a clip that doesn't drive the wait to completion hangs it);
   * ``anim`` uses ``RunAnimationEx`` + a fixed ``Wait`` hold -- never ``WaitAnimationEx`` (same hang risk).
 """
 
@@ -119,16 +119,17 @@ def _uid_for(name, uid_by_name):
     return uid_by_name.get(name)
 
 
-def actor_say(uid: int, text_id: int, *, flags: int = 128) -> bytes:
-    """Step: the actor at ``uid`` speaks ``text_id`` -- ``WindowSyncEx(uid, 0, flags, txid)`` (the window
-    is attributed to that actor by id, so its tail points at them). Blocks until dismissed."""
-    return opcodes.window_sync_ex(uid, 0, flags, int(text_id))
+def actor_say(uid: int, text_id: int, *, flags: int = 128, window: int = 0) -> bytes:
+    """Step: the actor at ``uid`` speaks ``text_id`` -- ``WindowSyncEx(uid, window, flags, txid)`` (the
+    window is attributed to that actor by id, so its tail points at them). Blocks until dismissed."""
+    return opcodes.window_sync_ex(uid, int(window), flags, int(text_id))
 
 
-def actor_turn(uid: int, angle: int) -> bytes:
-    """Step: face ``angle`` INSTANTLY (0=S, 64=W, 128=N, 192=E) -- ``TurnInstantEx(uid, angle)``. Instant
-    (no ``WaitTurnEx``) so it never hangs on a player-cloned actor whose turn anim doesn't complete."""
-    return opcodes.turn_instant_ex(uid, int(angle))
+def actor_turn(uid: int, angle: int, hold: int = _cutscene.TURN_HOLD) -> bytes:
+    """Step: face ``angle`` (0=S, 64=W, 128=N, 192=E) ANIMATED -- ``TimedTurnEx(uid, angle, 16)`` + a
+    fixed ``Wait`` hold (the anim-hold idiom; NOT ``WaitTurnEx``, which hangs if the turn anim doesn't
+    drive it to completion)."""
+    return opcodes.timed_turn_ex(uid, int(angle), _cutscene.TURN_SPEED) + opcodes.wait(int(hold))
 
 
 def actor_anim(uid: int, anim: int, hold: int = _cutscene.ANIM_HOLD) -> bytes:
@@ -183,9 +184,42 @@ def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, tag_calls):
     name = s.get("actor")
     uid = _uid_for(name, uid_by_name) if name else None
     if "say" in s:
-        b = (actor_say(uid, txids[ti], flags=say_flags) if uid is not None
-             else _cutscene.say(txids[ti], flags=say_flags))
+        # per-step style/window override (an explicit step style wins over the scene's say_flags);
+        # an actor-attributed line defaults to window 0 (stock's cutscene slot), narration to 1
+        from . import text as _text
+        _sf = _text.resolve_style(s.get("style"), default=say_flags)
+        if s.get("dim"):
+            # the letter bracket owns the whole presentation (async + RaiseWindows + WaitWindow;
+            # the raise puts the text ABOVE the fade) -- actor attribution rides WindowAsyncEx
+            from . import event as _event
+            b = _event.message(txids[ti], window=int(s.get("window", 0 if uid is not None else 1)),
+                               flags=_sf, actor_uid=uid, dim=s.get("dim", False),
+                               dim_tint=s.get("dim_tint"))
+        elif uid is not None:
+            b = actor_say(uid, txids[ti], flags=_sf, window=int(s.get("window", 0)))
+        else:
+            b = _cutscene.say(txids[ti], window=int(s.get("window", 1)), flags=_sf)
         return b, ti + 1
+    if "open" in s:
+        # the ASYNC twin of `say`: the window stays up and the conductor runs on, so several actors
+        # can hold windows at once (the unison shape). Attribution rides WindowAsyncEx when the step
+        # names an actor.
+        from . import text as _text
+        return _cutscene.open_window(txids[ti],
+                                     window=int(s.get("window", 0 if uid is not None else 1)),
+                                     flags=_text.resolve_style(s.get("style"), default=say_flags),
+                                     actor_uid=uid), ti + 1
+    if "close" in s:
+        return _cutscene.close_window(int(s["close"])), ti
+    if "wait_window" in s:
+        return _cutscene.wait_window(int(s["wait_window"])), ti
+    if "raise" in s:
+        return _cutscene.raise_windows(), ti
+    if "set_signal" in s:
+        return _cutscene.signal(int(s["set_signal"])), ti
+    if "wait_signal" in s:
+        return _cutscene.wait_signal(int(s["wait_signal"]),
+                                     timeout=int(s.get("timeout", _cutscene.SIGNAL_GUARD_FRAMES))), ti
     if "wait" in s:
         return opcodes.wait(int(s["wait"])), ti
     if "set_flag" in s:
@@ -212,7 +246,7 @@ def _emit_parallel_group(group, uid_by_name, tag_calls, join_tags) -> bytes:
     """Emit a PARALLEL group (2+ beats that run together). Each member is FORKED non-blocking, then the
     conductor JOINS. Fork: a walk/path -> ``RunScriptAsync(2, uid, tag)`` (op 0x10, no level gate -> always
     spawns the tag in the actor's context); an animation -> ``RunAnimationEx`` (fire only, the hold is
-    absorbed into the join); an instant turn -> ``TurnInstantEx`` (no wait). Join (block until the whole group
+    absorbed into the join); a turn -> ``TimedTurnEx`` (fire only, same). Join (block until the whole group
     is done): one ``Wait(max anim-hold)`` -- the anims play out while the walks run async alongside -- then a
     ``RunScriptSync(2, uid, join_tag)`` per WALKING actor, which ``stay()``s on the actor's busy script level
     until its async walk RETURNs (the engine's only async barrier). Only ``walk`` / ``path`` / ``turn`` /
@@ -235,7 +269,8 @@ def _emit_parallel_group(group, uid_by_name, tag_calls, join_tags) -> bytes:
         elif "turn" in s:
             if uid is None:
                 raise ValueError(f"conductor parallel step {s!r}: turn needs actor = \"<name>\"")
-            fan.append(actor_turn(uid, s["turn"]))                          # instant -- nothing to join
+            fan.append(opcodes.timed_turn_ex(uid, int(s["turn"]), _cutscene.TURN_SPEED))  # fire only;
+            max_hold = max(max_hold, _cutscene.TURN_HOLD)                   # hold -> the join Wait
         elif "animation" in s:
             if uid is None:
                 raise ValueError(f"conductor parallel step {s!r}: animation needs actor = \"<name>\"")
@@ -333,7 +368,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
                warmup: int = _cutscene.DEFAULT_WARMUP, owns_control: bool = True,
                then_warp: int | None = None, say_flags: int = 128, ate_mode: int | None = None,
                reorder: int = _cutscene.REORDER_WAIT, tag_calls=None, join_tags=None,
-               gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None) -> bytes:
+               gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None,
+               lock_menu: bool = False, stay_locked: bool = False) -> bytes:
     """The conductor function body, run from a standalone ``InitCode``-armed code entry.
 
     Shape: ``[Wait(reorder)] [DisableMove] [Wait(warmup)] <beats> [EnableMove]`` gated
@@ -352,13 +388,25 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
     (1) ``DisableMove`` immediately, (2) ``wait_for_control_then_lock`` -- SPINS until the engine RE-grants
     control, then ``DisableMove`` again so the lock lands AFTER the grant -- and (3) ``compile_steps(relock=True)``
     re-locks before every beat as a backstop. The spin doubles as the actor-spawn settle (it runs ~until the
-    grant, by which point the InitObject'd actors exist for the by-id ``*Ex`` ops)."""
+    grant, by which point the InitObject'd actors exist for the by-id ``*Ex`` ops).
+
+    A WALK-bearing locked scene (any ``walk``/``path`` step) also brackets the walkmesh attribute mask,
+    stock's own macro pair: ``SetTriangleFlagMask(127)`` under the lock (RESTRICTED triangles become
+    crossable, so a scripted route over a cutscene-only bridge/stair -- common on forked real fields --
+    doesn't wedge), ``SetTriangleFlagMask(255)`` restored with the enable. A walkless scene emits neither
+    (byte-identical to before); a ``then_warp`` scene skips the restore (the engine resets the mask to 255
+    on every field load, WalkMesh.cs:1690)."""
+    walks = any(("walk" in s or "path" in s) for s in steps)
     inner = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
     if owns_control:
         if watchdog_flag is not None:                 # raise the scene-running flag FIRST: from here on the
             inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 1)   # watchdog re-locks ANY grant
         inner += opcodes.DISABLE_MOVE                 # disable, so the spin waits for the engine's RE-grant
+        if lock_menu:                                 # the stock macro's menu pair: held for the whole scene
+            inner += opcodes.DISABLE_MENU             # (the spin/per-beat re-locks only re-issue DisableMove;
         inner += wait_for_control_then_lock()         # ... spin to that grant, then re-lock (the lock that holds)
+        if walks:
+            inner += opcodes.set_triangle_flag_mask(127)   # restricted triangles crossable for the scene's walks
     elif warmup > 0:
         inner += opcodes.wait(int(warmup))            # no lock: still settle so the actors exist before the beats
     if ate_mode is not None:
@@ -370,7 +418,17 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
     if owns_control and watchdog_flag is not None:    # lower the flag BEFORE re-granting (on the warp path the
         inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 0)   # MAP array resets at field unload)
     if owns_control and then_warp is None:
-        inner += opcodes.ENABLE_MOVE
+        if stay_locked:
+            # the ONE-WAY latch (stock's 156): end still locked + latch so nothing re-grants (the
+            # Main_Reinit grant gate tests the same bit). Stock's enable macro skips the STFM restore
+            # inside its 156 guard too, so a walk scene leaves the mask -- matched here.
+            inner += _region.set_var(_region.MAP_BOOL, _region.STAY_LOCKED_IDX, 1)
+        else:
+            if lock_menu:
+                inner += opcodes.ENABLE_MENU          # the menu mask is independent of the move lock --
+            inner += opcodes.ENABLE_MOVE              # clear it or the menu stays dead after the scene
+            if walks:
+                inner += opcodes.set_triangle_flag_mask(255)   # restore with the enable, like the stock macro
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes INSIDE the once-gate (before the once-flag
     # set) -- the story advances exactly once, only when the scene actually played. Empty -> byte-identical.
     inner += end_writes
@@ -391,7 +449,8 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
                      owns_control: bool = True, then_warp: int | None = None, say_flags: int = 128,
                      ate_mode: int | None = None,
                      tag_calls=None, join_tags=None, reserve_party_band: bool = False,
-                     gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None) -> bytes:
+                     gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None,
+                     lock_menu: bool = False, stay_locked: bool = False) -> bytes:
     """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init.
     Returns new .eb bytes. ``tag_calls`` (a dict ``step_index -> (uid, tag)``) maps each tag-kind step
     (walk/path/teleport/face_player) to its pre-generated per-actor tag; ``join_tags`` (``uid ->
@@ -409,7 +468,8 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
     body = build_body(steps, uid_by_name, txids, once_flag, flag_class=flag_class, warmup=warmup,
                       owns_control=owns_control, then_warp=then_warp, say_flags=say_flags,
                       ate_mode=ate_mode, tag_calls=tag_calls, join_tags=join_tags,
-                      gate=gate, end_writes=end_writes, watchdog_flag=watchdog_flag)
+                      gate=gate, end_writes=end_writes, watchdog_flag=watchdog_flag,
+                      lock_menu=lock_menu, stay_locked=stay_locked)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
     return edit.activate_block(out, opcodes.init_code(slot, 0))

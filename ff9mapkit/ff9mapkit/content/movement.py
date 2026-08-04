@@ -1,4 +1,4 @@
-"""Set the player movement control direction (TWIST / SetControlDirection, opcode 0x67).
+"""Player-control shaping: the TWIST control direction, and the PARTIAL-CONTROL pad-mask lane.
 
 FF9 rotates raw WASD/stick input (x = right, z = forward) about world-Y by an angle BEFORE
 applying it, so "up" on the controller matches "up the screen" for the field's camera. The engine
@@ -11,6 +11,27 @@ matching TWIST.
 
 This is the missing half of authoring a yawed custom field: :mod:`ff9mapkit.scene.guide`/``cam``
 place the camera + walkmesh correctly at any yaw, and this makes the controls match.
+
+PARTIAL CONTROL (movement survey 1/ 2, Tier-2 item 7): ``AddControllerMask`` (0xB9) ORs button
+bits into ``EventInput.PSXCntlPadMask[0]`` -- a masked button simply stops arriving, and masking
+any DIRECTION bit stops walking **independently of the DisableMove lock** (EventInput.cs:397:
+``isMovementControl=false`` whenever the mask covers a movement bit). ``RemoveControllerMask``
+(0xBA) clears bits. This is stock's tutorial / minigame lane -- the only control shaping that can
+freeze WALKING while leaving chosen BUTTONS live: Marsh/Chocobo tutorials mask 240 (the four
+directions), field 178 masks 255 (directions+Select+Start), field 95 unmasks Select alone. Note
+``DisableMenu`` is this same mechanism (the engine masks the menu bit); the mask survives a
+``DisableMove``/``EnableMove`` bracket.
+
+⚠ TWO CONSEQUENCES OF A **DIRECTION** MASK, both engine-read and both design-shaping:
+  * it is ALL-OR-NOTHING -- ``CheckPlayerControl`` sets ``isMovementControl = false`` if the mask
+    covers ANY of Up/Right/Down/Left, so masking one axis stops all walking (there is no
+    walk-sideways-only state);
+  * it KILLS THE MENU even after control returns -- ``EnableMove``'s re-grant is
+    ``SetMenuControlEnable(IsMenuON && IsMovementControl)`` (DoEventCode.cs:1076).
+So while a direction mask is up the player can neither walk nor open the menu: **button presses
+are all that survive**, and whatever removes the mask must be reachable without moving (the same
+body, or a trigger under their feet). Learned the hard way on bench 30602 round 2, which stranded
+the playtester by putting the unmask on a different book.
 """
 
 from __future__ import annotations
@@ -18,6 +39,81 @@ from __future__ import annotations
 from ..eb import EbScript, edit, opcodes
 
 TWIST_OP = 0x67
+
+# The engine's physical-button bits (EventInput.cs:537-550) by author-facing name, plus the group
+# stock's tutorials actually use. The script operand is a u16, so only the physical page is
+# reachable (the logical Cancel/Confirm/Menu bits at 0x10000+ are engine-internal).
+BUTTONS = {
+    "select": 0x0001, "start": 0x0008,
+    "up": 0x0010, "right": 0x0020, "down": 0x0040, "left": 0x0080,
+    "l2": 0x0100, "r2": 0x0200, "l1": 0x0400, "r1": 0x0800,
+    "triangle": 0x1000, "circle": 0x2000, "cross": 0x4000, "square": 0x8000,
+    # groups
+    "directions": 0x00F0,        # Up|Right|Down|Left -- the walk freeze (stock's 240)
+}
+
+
+def button_mask(names) -> int:
+    """OR the named buttons into one pad-mask value. ``names`` = a name, an int mask, or a list of
+    either. Raises on an unknown name (the validator surfaces this as a build problem)."""
+    if isinstance(names, (int,)) and not isinstance(names, bool):
+        return int(names)
+    if isinstance(names, str):
+        names = [names]
+    m = 0
+    for n in names:
+        if isinstance(n, int) and not isinstance(n, bool):
+            m |= n
+            continue
+        key = str(n).strip().lower()
+        if key not in BUTTONS:
+            raise ValueError(f"unknown button {n!r} -- one of {', '.join(sorted(BUTTONS))} (or a raw mask)")
+        m |= BUTTONS[key]
+    if not 0 < m <= 0xFFFF:
+        raise ValueError(f"pad mask {m:#x} out of the u16 operand range")
+    return m
+
+
+MOVEMENT_BITS = BUTTONS["directions"]     # Up|Right|Down|Left -- the bits that trip the law below
+
+
+def mask_pad(buttons) -> bytes:
+    """Body part: ``AddControllerMask(0, mask)`` -- the named buttons stop arriving (directions =
+    walking stops). Standing state: pair with a later :func:`unmask_pad` (another event, a scene end).
+
+    ⚠ See THE CONTROLLER-DEACTIVATION LAW on :func:`unmask_pad`: masking a MOVEMENT bit makes the
+    player's actor controller switch ITSELF off, and only ``EnableMove`` switches it back on."""
+    return opcodes.encode(0xB9, 0, button_mask(buttons))
+
+
+def unmask_pad(buttons, *, revive: bool = False) -> bytes:
+    """Body part: ``RemoveControllerMask(0, mask)`` -- re-enable the named buttons. With ``revive``
+    (and a MOVEMENT bit in the mask) an ``EnableMove`` follows it; see the law.
+
+    ★ THE CONTROLLER-DEACTIVATION LAW (traced 2026-08-03 to explain bench 30602 round 1, where an
+    unlocked mask/unmask body left the player frozen for good even though the unmask demonstrably
+    ran). Clearing the mask is NOT enough to restore walking:
+
+      1. while the player's controller is active, ``!EventInput.IsMovementControl`` makes it call
+         ``SetPlayerControlEnable(false)`` on ITSELF -- so a direction mask DEACTIVATES the
+         controller (``FieldMapActorController.cs:170-173``);
+      2. ``RemoveControllerMask`` restores ``IsMovementControl`` but re-activates NOTHING;
+      3. a deactivated controller early-returns out of ``HonoUpdate`` -- skipping every movement
+         path -- whenever ``IsMenuControlEnable || IsWarningDialogEnable`` (``:161-169``);
+      4. in field mode the only script-reachable re-activator is **EnableMove**
+         (``DoEventCode.cs:1068``; the others are the ladder flag, the save/pause UIs, and the
+         field HUD's own ``OnShownAction`` at load).
+
+    So a LOCKED body self-heals twice over -- its ``DisableMove`` clears the menu flag (so step 3
+    falls through instead of returning) and its closing ``EnableMove`` re-activates the controller
+    -- while an UNLOCKED body leaves the menu flag up and never revives: frozen permanently. That
+    is exactly what round 1 shipped and round 3's locked cycle avoided. Hence ``revive``: an
+    unlocked body that unmasks a movement bit must emit the ``EnableMove`` itself."""
+    m = button_mask(buttons)
+    out = opcodes.encode(0xBA, 0, m)
+    if revive and (m & MOVEMENT_BITS):
+        out += opcodes.ENABLE_MOVE        # re-activate the controller (the ONLY script-side way)
+    return out
 
 
 def control_value_for_angle(angle_deg: float) -> int:

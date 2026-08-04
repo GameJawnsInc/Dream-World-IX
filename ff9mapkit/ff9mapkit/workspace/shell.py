@@ -4487,7 +4487,9 @@ class Workspace(QMainWindow):
                 continue
             model = f"  {e.model_name or ('model ' + str(e.model_id))}" if e.model_id is not None else ""
             # "defined, not spawned" was detail-only -- surface it on the ROW (a talk handler on an entry
-            # Main_Init never InitObject()s is dormant content, worth seeing without a click)
+            # NO init op ever arms is dormant content, worth seeing without a click). spawns counts all
+            # THREE init ops across every routine (eventscan.scan_armed_entries), so the chip means
+            # "nothing in this script ever activates it" -- not merely "Main_Init lacks an InitObject".
             dormant = "  · not spawned" if e.role in ("npc", "object") and not e.spawns else ""
             # entry_label, not e.role: a real fork shows a WALL of model-less 'logic' rows -- the split
             # (invisible trigger vs script helper) is what tells the player-facing ones from the plumbing
@@ -4518,7 +4520,9 @@ class Workspace(QMainWindow):
         if e.model_id is not None:
             out.append(f"model: {e.model_name or e.model_id}")
         if e.role not in ("main", "player"):
-            out.append(f"spawned: {e.spawns}x" if e.spawns else "defined, not spawned")
+            out.append(f"spawned: {e.spawns}x (an InitObject/InitRegion/InitCode arms it — at startup "
+                       "or from another routine)" if e.spawns
+                       else "defined, not spawned — no init call in this script ever activates it")
         out.append(f"functions (tags): {LM.fmt_tags(e.tags) or '—'}")
         return out
 

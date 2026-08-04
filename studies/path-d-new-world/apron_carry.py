@@ -42,6 +42,8 @@ def main() -> int:
     ap.add_argument("--probe", action="store_true",
                     help="dump final tris near named debug coordinates")
     args = ap.parse_args()
+    if args.apply:
+        corner_guard(getattr(args, "corner_follows", False))
     OUTD.mkdir(parents=True, exist_ok=True)
 
     tris, bms = load_bench()
@@ -1525,6 +1527,8 @@ def main() -> int:
     if fails:
         print("\nAPRON: GATES RED -- not deployable")
         return 1
+    if args.apply:
+        corner_guard(getattr(args, "corner_follows", False))
     if not args.apply:
         print("\nAPRON: gates green (offline). Review the renders; --apply to deploy.")
         return 0

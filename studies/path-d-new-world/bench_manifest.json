@@ -1,0 +1,11 @@
+{
+ "accepted": {
+  "5,7": "8aae0fc89ce67c97210240a2a5258503",
+  "6,7": "35bd5ba4cf71f37e9fc6658376f747f7",
+  "7,7": "d04d800ee7457aa6b926d0479bd978b3",
+  "5,8": "6c847c053abfe64a938e914a2ddabc68",
+  "6,8": "0a25f3e467cd83fde986bd44735b919e",
+  "7,8": "a5c6b3857f375d7245ff3fdf7aaee9ac"
+ },
+ "note": "md5 of the live, owner-accepted Disc9 bench Terrain blocks (playtest 12). A rebuild that does not reproduce these is a regression \u2014 diff it before deploying."
+}

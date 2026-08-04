@@ -136,6 +136,59 @@ def test_generated_revert_skips_when_snapshot_missing(tmp_path):
     assert (live / "keep.txt").exists()                             # snapshot missing -> live left untouched, not nuked
 
 
+def _minimal_campaign(tmp_path, mod_folder):
+    """A prebuilt dist + its sibling manifest (is_dist_dir needs both markers AND the manifest)."""
+    camp_dir = tmp_path / "camp"
+    dist = camp_dir / "dist"
+    dist.mkdir(parents=True)
+    (dist / "DictionaryPatch.txt").write_text("FieldScene 4000 11 10 TEST 1073\n", encoding="utf-8")
+    (dist / "ModDescription.xml").write_text("<Mod/>", encoding="utf-8")
+    (dist / "EVT_B.eb.bytes").write_bytes(b"UNPATCHED")          # what a dist carries, by construction
+    fd = camp_dir / "F1"
+    fd.mkdir()
+    (fd / "F1.field.toml").write_text('[field]\nid = 4000\nname = "F1"\narea = 11\n', encoding="utf-8")
+    (camp_dir / "campaign.toml").write_text(
+        f'[campaign]\nname = "T"\nmod_folder = "{mod_folder}"\nid_base = 4000\nflag_base = 8712\n'
+        'flags_per_field = 64\nentry_field = "F1"\nentry_entrance = 0\n\n'
+        '[[field]]\nname = "F1"\nsource = 100\nid = 4000\nmode = "borrow"\ntoml = "F1/F1.field.toml"\n',
+        encoding="utf-8")
+    return dist
+
+
+@pytest.mark.parametrize("allow, expect_wiped", [(False, False), (True, True)])
+def test_a_wholesale_replace_refuses_to_revert_journey_links(tmp_path, allow, expect_wiped):
+    """★ THE FAST LOOP ATE THE SLOW LOOP'S OUTPUT. A journey's cross-campaign doors are an edit to the
+    INSTALLED .eb -- no dist can carry them, because the destination is another campaign's id. So a
+    single-campaign redeploy (rmtree + copytree of the unpatched dist) reverted them silently. JOURNEYS.md
+    warned in prose; prose is not a mechanism."""
+    from ff9mapkit import linkreceipt as lr
+    from ff9mapkit import stamp
+    game = tmp_path / "game"
+    mod_folder = "FF9CustomMap-links"
+    live_root = game / mod_folder
+    live_root.mkdir(parents=True)
+    patched = live_root / "EVT_B.eb.bytes"
+    patched.write_bytes(b"PATCHED")                              # the journey's door, applied in place
+    stamp.write(live_root, stamp.finalize(
+        {"stamp_version": 1, "kit_version": "x", "built_utc": "t", "mod_name": mod_folder,
+         "context": "journey", "source": None, "members": []}, live_root))
+    lr.write_receipt(live_root, lr.build_receipt(live_root, [{
+        "eb": "EVT_B", "mode": "field_remap", "dst_id": 6501, "remap": {300: 6501},
+        "files": [str(patched)], "found": True}]))
+
+    dist = _minimal_campaign(tmp_path, mod_folder)
+    rep = deploy.deploy_campaign(dist, game=game, mod_folder=mod_folder, apply=True,
+                                 allow_link_wipe=allow, backups_dir=tmp_path / "b",
+                                 reverts_dir=tmp_path / "r", verbose=False)
+    if expect_wiped:
+        assert rep["applied"] is True
+        assert patched.read_bytes() == b"UNPATCHED", "--allow-link-wipe must still install"
+    else:
+        assert rep["applied"] is False, "the default must REFUSE rather than silently revert the doors"
+        assert patched.read_bytes() == b"PATCHED", "nothing may be installed on a refusal"
+        assert lr.check(live_root).satisfied, "the links must still be intact after the refusal"
+
+
 def test_wholesale_replace_failure_restores_snapshot(tmp_path, monkeypatch):
     # a mid-copytree failure installing the dist over live_root must NOT leave a half-installed folder with
     # no revert -- it must restore live_root from the pre-install snapshot and still leave a valid revert script.
@@ -154,7 +207,12 @@ def test_wholesale_replace_failure_restores_snapshot(tmp_path, monkeypatch):
     (dist / "ModDescription.xml").write_text("<Mod/>", encoding="utf-8")
     field_dir = camp_dir / "F1"
     field_dir.mkdir()
-    (field_dir / "F1.field.toml").write_text("", encoding="utf-8")         # empty member toml -> lint stays silent
+    # A MINIMAL but HONEST member: its [field] id has to AGREE with the manifest's, or lint's
+    # manifest/artifact reconciliation refuses the deploy long before the copytree this test is about.
+    # (This was an empty file, commented "lint stays silent" -- true, and exactly the blind spot: an
+    # empty member cannot register field 4000, so the silence was the bug, not a convenience.)
+    (field_dir / "F1.field.toml").write_text('[field]\nid = 4000\nname = "F1"\narea = 11\n',
+                                             encoding="utf-8")
     (camp_dir / "campaign.toml").write_text(
         '[campaign]\n'
         'name = "T"\n'

@@ -1,0 +1,19 @@
+DEPLOYED Block[5][7] Sea4.ff9mesh (r7)   backup: Block[5][7] Sea4.ff9mesh.r7.20260802-020657
+DEPLOYED Block[6][7] Sea4.ff9mesh (r7)   backup: Block[6][7] Sea4.ff9mesh.r7.20260802-020657
+DEPLOYED Block[7][7] Sea4.ff9mesh (r7)   backup: Block[7][7] Sea4.ff9mesh.r7.20260802-020657
+DEPLOYED Block[5][8] Sea4.ff9mesh (r8)   backup: Block[5][8] Sea4.ff9mesh.r8.20260802-020657
+DEPLOYED Block[6][8] Sea4.ff9mesh (r8)   backup: Block[6][8] Sea4.ff9mesh.r8.20260802-020657
+DEPLOYED Block[7][8] Sea4.ff9mesh (r8)   backup: Block[7][8] Sea4.ff9mesh.r8.20260802-020657
+revert: C:\gd\Dream-World-IX\.claude\worktrees\peaceful-rhodes-445d5a\studies\path-d-new-world\revert_vcorner_seacut.py
+REPLAY [LIVE post-deploy]: stalled at (419.04,-561.42), ESCAPED after 0 turning ticks -> PASS
+
+=== WALKERS [LIVE post-deploy]: 8 stalls, 0 HARD-TRAPPED (0 escape headings, own AND cold ring), 0 ring-poisoned ===
+   seek  hd= 0 r0=14.0 step= 20 at (380.33,-516.56) y= 3.20 escape own=16 cold=16
+   seek  hd=12 r0=20.0 step=  6 at (395.32,-511.33) y=26.09 escape own=16 cold=16
+   seek  hd=15 r0=20.0 step= 30 at (380.76,-516.25) y= 3.20 escape own=16 cold=16
+   fixed hd= 9 r0= 8.0 step= 20 at (376.90,-509.66) y= 3.20 escape own=17 cold=17
+   fixed hd= 9 r0=14.0 step= 34 at (376.88,-509.63) y= 3.20 escape own=17 cold=17
+   fixed hd= 9 r0=20.0 step= 48 at (376.89,-509.63) y= 3.20 escape own=17 cold=17
+   fixed hd=10 r0= 8.0 step= 20 at (375.82,-509.00) y= 3.20 escape own=16 cold=16
+   fixed hd=12 r0=20.0 step=  7 at (395.22,-511.74) y=26.18 escape own=14 cold=14
+post-deploy: replay PASS, own-ring-0 stalls 0 (PASS)

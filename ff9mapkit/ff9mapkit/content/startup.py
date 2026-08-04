@@ -7,9 +7,14 @@ author **assert the story beat the forked field represents**: set the ScenarioCo
 field and have it boot in the right beat" (see ``docs/FORK_FIDELITY.md`` #1).
 
 The presets run **first in Main_Init** (prepended to entry-0 tag-0) so every gate evaluated afterwards --
-region triggers, gated NPCs/doors, conditional content -- sees the asserted state. They re-assert on **every
-field entry** (idempotent beat assertion): right for a fork that stands for one beat. For a chain, put
-``[startup]`` on the ENTRY field only and advance the story with gateway-side writes (a separate feature).
+region triggers, gated NPCs/doors, conditional content -- sees the asserted state. By default they
+re-assert on **every field entry** (idempotent beat assertion): right for a single fork that stands for
+one beat. For a CHAIN that is a progression killer -- the player's own advances (the resident scripts
+writing a new ScenarioCounter, once-bits latching) get REWOUND at every door (the Dali round-5 lesson:
+the shop scene advanced 2600 -> 2610 and leaving the shop stamped 2600 back). ``once = <flag>`` wraps
+the whole stamp in a sentinel GLOB-bit guard: the FIRST entry into any member stamps the beat and sets
+the sentinel; every later entry leaves the running story alone. Share ONE sentinel across a chain's
+members. New Game zeroes ``gEventGlobal``, so a fresh run re-stamps.
 
 Grounded entirely in :mod:`ff9mapkit.content.region`'s byte-for-byte primitives: a story bit is
 ``set_var(GLOB_BOOL, idx, 0|1)``; the ScenarioCounter is the save-backed UInt16 at ``gEventGlobal`` byte 0
@@ -55,7 +60,7 @@ def scenario_window_conds(scenario_min=None, scenario_max=None) -> list:
     return conds
 
 
-def startup_body(presets, scenario=None, words=(), byte_writes=()) -> bytes:
+def startup_body(presets, scenario=None, words=(), byte_writes=(), once_flag=None) -> bytes:
     """The Main_Init preset sequence (the bare bytecode, no entry/return wrapper -- it is prepended INTO
     Main_Init). ``scenario`` (int, or None) sets the ScenarioCounter; ``presets`` is an iterable of
     ``(bit_index, value)`` story-bit pairs (truthy -> set, falsy -> clear). Two width-distinct word levers:
@@ -71,7 +76,11 @@ def startup_body(presets, scenario=None, words=(), byte_writes=()) -> bytes:
 
     Writes run scenario -> words -> byte_writes -> bits, so a later, narrower write refines an earlier wider
     one (a ``byte`` can fix one byte of a seeded ``word``; a ``flag`` can refine one bit). Returns ``b""`` when
-    there is nothing to preset (so a field with no ``[startup]`` stays byte-identical)."""
+    there is nothing to preset (so a field with no ``[startup]`` stays byte-identical).
+
+    ``once_flag`` (a GLOB bit index): wrap the whole stamp in the once-sentinel guard --
+    ``if (Bit[once_flag] == 0) { <stamp>; Bit[once_flag] = 1 }`` -- so the state is asserted exactly
+    once per save and the player's own progression is never rewound (the chain lever)."""
     out = b""
     if scenario is not None:
         out += _region.set_var(_region.GLOB_UINT16, SCENARIO_BYTE, int(scenario))
@@ -81,17 +90,25 @@ def startup_body(presets, scenario=None, words=(), byte_writes=()) -> bytes:
         out += _region.set_var(_region.GLOB_BYTE, int(byte_idx), int(value) & BYTE_VALUE_MAX)
     for idx, val in presets:
         out += _region.set_var(_region.GLOB_BOOL, int(idx), 1 if val else 0)
+    if out and once_flag is not None:
+        out = _region.if_block(
+            _region.cond_eq(_region.GLOB_BOOL, int(once_flag), 0),
+            out + _region.set_var(_region.GLOB_BOOL, int(once_flag), 1))
     return out
 
 
-def inject_startup(eb, presets, scenario=None, words=(), byte_writes=()) -> bytes:
+def inject_startup(eb, presets, scenario=None, words=(), byte_writes=(), once_flag=None,
+                   always_words=()) -> bytes:
     """Prepend the preset sequence to **Main_Init** (entry 0, tag 0) so it runs first at field load.
 
     Byte-safe: inserting at function offset 0 can never be straddled by one of the function's own jumps,
     and :func:`ff9mapkit.eb.edit.insert_in_function` fixes every entry/func table offset. A no-op (returns
     the input bytes unchanged) when there is nothing to preset -- so a field without ``[startup]`` builds
-    byte-for-byte as before."""
-    body = startup_body(presets, scenario, words, byte_writes)
+    byte-for-byte as before. ``once_flag`` guards the seed writes (see :func:`startup_body`);
+    ``always_words`` are word writes that stay OUTSIDE the guard and run every entry (the ``outpost``
+    registration is last-write-wins by contract)."""
+    body = startup_body(presets, scenario, words, byte_writes, once_flag)
+    body += startup_body([], None, always_words)
     if not body:
         return bytes(eb) if isinstance(eb, (bytes, bytearray)) else eb.to_bytes()
     return edit.insert_in_function(eb, 0, 0, 0, body)

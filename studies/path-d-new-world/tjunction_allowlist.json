@@ -1,0 +1,44 @@
+[
+ {
+  "vert_edge": [
+   [
+    382.22199,
+    3.2,
+    -515.21777
+   ],
+   [
+    380.08343,
+    3.2,
+    -516.72851
+   ],
+   [
+    383.29307,
+    3.2,
+    -514.46366
+   ]
+  ],
+  "offset": 0.001378,
+  "reason": "present when the owner accepted the corner at playtest 12; sub-0.0014u and not visible in game or in the render gate"
+ },
+ {
+  "vert_edge": [
+   [
+    374.69517,
+    3.2,
+    -512.0
+   ],
+   [
+    374.43385,
+    3.2,
+    -511.17206
+   ],
+   [
+    374.93061,
+    3.2,
+    -512.74598
+   ]
+  ],
+  "offset": 6e-06,
+  "reason": "present when the owner accepted the corner at playtest 12; sub-0.0014u and not visible in game or in the render gate"
+ }
+]

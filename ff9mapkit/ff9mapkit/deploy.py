@@ -187,6 +187,7 @@ def render_revert_campaign(live_root, snap, warp_revert, name, stamp, csv_revert
 def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None, apply=False,
                     allow_artless=False, no_warp=False, allow_name_collision=False, allow_id_collision=False,
                     flag_base=None, no_promote_csv=False, promote_csv_to=None, out_dist=None,
+                    allow_reflow=False, allow_link_wipe=False,
                     backups_dir, reverts_dir, verbose=True) -> dict:
     """Reversibly install a built campaign mod into ``<game>/<mod_folder>`` + wire New Game to its entry.
 
@@ -277,7 +278,8 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
         dist_root = prebuilt_dist
     else:
         out_d = Path(out_dist) if out_dist else (target.parent / "dist")
-        info = C.build_campaign(target, out=out_d, allow_artless=allow_artless, flag_base=flag_base)
+        info = C.build_campaign(target, out=out_d, allow_artless=allow_artless, flag_base=flag_base,
+                                allow_reflow=allow_reflow)
         dist_root = Path(info["out"])
         for w in info["warnings"]:
             out("  warn:", w)
@@ -357,6 +359,22 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     _lost = _regs_wiped(live, dist_root)
     if _lost:
         out("  !! " + _wiped_regs_warning(_lost))
+    # LINK RECEIPT GUARD. A journey's cross-campaign doors exist ONLY as an edit to the installed .eb --
+    # no dist carries them, because the destination is another campaign's id and only the journey knows
+    # it. The wholesale replace below therefore REVERTS them, silently, and the fast loop (iterate on one
+    # campaign) eats the slow loop's output (assemble the journey). docs/JOURNEYS.md warns in prose; prose
+    # is not a mechanism. REFUSE unless the author says otherwise -- reverting is nearly always what they
+    # would have wanted to avoid, and re-running deploy-journey restores it.
+    from . import linkreceipt as _lr
+    _links = _lr.check(live_root)
+    if _links.has_receipt and not allow_link_wipe:
+        err("\nABORT (nothing installed): this folder carries journey link patches that a wholesale "
+            "replace would revert.\n" + _links.render())
+        err("\n  The dist cannot contain these -- they target another campaign's ids. After deploying this "
+            "campaign, re-run `ff9mapkit deploy-journey` to re-apply them, or pass --allow-link-wipe to "
+            "install anyway and lose them until you do.")
+        report["applied"] = False
+        return report
     try:
         shutil.rmtree(live_root, ignore_errors=True)
         shutil.copytree(dist_root, live_root)
@@ -801,7 +819,8 @@ def _install_hub(hub_toml, hub_id, hub_folder, game, *, backups_dir, reverts_dir
     return str(rev)
 
 
-def _apply_journey(manifest, plan, *, game, newgame, hub_out, backups_dir, reverts_dir, out, err):
+def _apply_journey(manifest, plan, *, game, newgame, hub_out, backups_dir, reverts_dir, out, err,
+                   allow_reflow=False):
     """The ONE-SHOT in-game deploy: each campaign (seeded entry) -> links -> hub -> New Game, with ONE unified
     revert. Returns ``(rc, unified_revert_path_or_None)``."""
     import tempfile
@@ -855,7 +874,8 @@ def _apply_journey(manifest, plan, *, game, newgame, hub_out, backups_dir, rever
         out(f"  building {s.folder} (flag_base {s.flag_base}{seednote}) -> {dist}")
         try:
             C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks,
-                             text_block_base=s.text_block_base, extra_flag_names=J.manifest_flag_names(manifest))
+                             text_block_base=s.text_block_base, extra_flag_names=J.manifest_flag_names(manifest),
+                             allow_reflow=allow_reflow)
         except Exception as e:                            # noqa: BLE001
             err(f"\nABORT (no game files touched): campaign {s.folder} does not build -- {e}")
             return 2, None
@@ -976,7 +996,7 @@ def _folder_is_ours(live_root, manifest) -> bool:
 
 
 def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow_collision, hub_out,
-                          backups_dir, reverts_dir, out, err):
+                          backups_dir, reverts_dir, out, err, allow_reflow=False):
     """ONE-SHOT single-folder deploy: build every campaign + the hub offline, MERGE them into ONE mod folder,
     install it (snapshot + wholesale-replace), apply the links IN that folder, optionally wire New Game. Returns
     ``(rc, unified_revert_path_or_None)``."""
@@ -1019,7 +1039,8 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
         out(f"  building {s.folder} (flag_base {s.flag_base}) -> {dist}")
         try:
             C.build_campaign(s.campaign_path, out=dist, flag_base=s.flag_base, seed_blocks=s.seed_blocks,
-                             text_block_base=s.text_block_base, extra_flag_names=J.manifest_flag_names(manifest))
+                             text_block_base=s.text_block_base, extra_flag_names=J.manifest_flag_names(manifest),
+                             allow_reflow=allow_reflow)
         except Exception as e:                            # noqa: BLE001
             err(f"\nABORT (no game files touched): campaign {s.folder} does not build -- {e}")
             return 2, None
@@ -1153,7 +1174,8 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
 
 
 def deploy_journey(journeys, *, game=None, apply=False, newgame="none", apply_links=False, single_folder=None,
-                   allow_collision=False, hub_out=None, backups_dir, reverts_dir, verbose=True) -> dict:
+                   allow_collision=False, hub_out=None, allow_reflow=False,
+                   backups_dir, reverts_dir, verbose=True) -> dict:
     """Deploy (or dry-run) a multi-campaign journey manifest. SAFE BY DEFAULT: with ``apply=False`` it lints +
     prints the resolved namespace + the ordered deploy playbook and touches nothing. ``apply=True`` runs the
     whole playbook in one shot (each campaign -> links -> hub -> optional New Game) with ONE unified revert;
@@ -1185,10 +1207,12 @@ def deploy_journey(journeys, *, game=None, apply=False, newgame="none", apply_li
         if single_folder is not None:
             rc, rev = _apply_journey_single(manifest, plan, game=game, newgame=newgame, single_folder=single_folder,
                                             allow_collision=allow_collision, hub_out=hub_out,
-                                            backups_dir=backups_dir, reverts_dir=reverts_dir, out=out, err=err)
+                                            backups_dir=backups_dir, reverts_dir=reverts_dir, out=out, err=err,
+                                            allow_reflow=allow_reflow)
         else:
             rc, rev = _apply_journey(manifest, plan, game=game, newgame=newgame, hub_out=hub_out,
-                                     backups_dir=backups_dir, reverts_dir=reverts_dir, out=out, err=err)
+                                     backups_dir=backups_dir, reverts_dir=reverts_dir, out=out, err=err,
+                                     allow_reflow=allow_reflow)
         report.update(ok=(rc == 0), rc=rc, revert=rev)
         return report
 

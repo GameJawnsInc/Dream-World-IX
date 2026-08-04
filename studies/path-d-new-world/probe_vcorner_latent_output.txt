@@ -1,0 +1,10 @@
+loading LIVE world (the tuck build) ...
+
+=== LATENT SWEEP [LIVE tuck build]: 17074 standable pts, 0 HARD-LOCK-ARMED, 974 poisonable (partial cover) ===
+
+=== REFINED [LIVE tuck build]: 2 of 974 poisonable pts hide a HARD-LOCK sliver within 0.5u (step 0.1) ===
+   sliver at ( 376.60, -509.50) y= 3.20 poisoner Sea4#430 mapid=224 topo=56 pin_d=0.1
+   sliver at ( 377.00, -509.70) y= 3.20 poisoner Sea4#430 mapid=224 topo=56 pin_d=0.5
+   poisoner tris: Sea4#430 x2
+
+report: C:\gd\Dream-World-IX\.claude\worktrees\peaceful-rhodes-445d5a\studies\path-d-new-world\out\vcorner_trap\latent.json
