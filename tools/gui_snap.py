@@ -1301,6 +1301,10 @@ def snap_cutscene(ctx: _Ctx, state: str) -> None:
         doc.rail.setCurrentRow(1)
         _settle(4)
     _grab(ctx, f"cutscene-{state}", win)
+    # the PANE grab is the committable one: the window's status bar paints this run's random
+    # scratch path, so a whole-window figure can never pixel-diff clean (the form:* figures
+    # grab doc_host for the same reason). The doc widget carries no machine-specific text.
+    _grab(ctx, f"cutscene-{state}-pane", doc)
     if state in ("doc", "storyboard", "staged"):       # the canvas is the subject -- grab IT too
         _grab(ctx, f"cutscene-{state}-canvas", doc.canvas)
     _close(win)

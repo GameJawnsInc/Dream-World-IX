@@ -47,7 +47,9 @@ except ImportError:  # pragma: no cover
 
 # Surfaces the manifest may use. Every gui_snap surface is fixture-pinned, but the docs grow this
 # list DELIBERATELY, one review at a time -- an allowlist cannot rot open.
-ALLOWED_FAMILIES = {"tab", "home", "form", "dlg", "script", "console", "drift"}
+# "cutscene" joined with the doc-tab redesign: its surfaces render the GLEN fixture owned by
+# tests/test_cutscenedoc.py -- kit-authored, zero Square-Enix pixels.
+ALLOWED_FAMILIES = {"tab", "home", "form", "dlg", "script", "console", "drift", "cutscene"}
 # Families the in-process adapter can open (window in hand -> annotations + pins work). The rest
 # run black-box through their gui_snap function and cannot carry annotations. Dialog widgets are
 # addressed by LABEL (a11y name or rendered text -- dialogs hold no attr paths), the same handle

@@ -16,6 +16,39 @@ accepted. Everything marked ★ below was reproduced first-hand; probes in
 
 ---
 
+## Sprint 2 — THE REDESIGN: the Cutscene DOC TAB (shipped offline 2026-08-04; awaits a playtest)
+
+The user ratified the review's §4/§B design: a dedicated **Cutscene tab** in the Author rail
+(Behavior-tab idiom), with the Editor tree's node demoted to a summary + a door — **ONE write
+surface**. Six commits (`1539e396..`): the `cutscenescan` model layer (projections, the
+beat-indexed storyboard, paintable verdicts, ops that own their undo labels, two drift fences),
+a behavior-neutral `StageCanvas` subclass seam, the read-only landing, THE FLIP, the seven
+`cutscene:*` snap surfaces, and the docsite re-anchor.
+
+What this closes from the plan: **B2** (with_prev, now compiler-gated in the editor), **B3+**
+(speaker/tail/speed *and* the whole message-box pacing family — style/window/[SPED]/[IMME]/
+[TIME=n]/hold/signal — which master's dress_window work had already made LEGAL step keys;
+`_fieldschema.py:33` is the receipt), **B4** (wrap preview), **B5** (markers on the stage),
+**B6** (actor combo), **B7** (requires_flag_clear/set_flags/flag in CUTSCENE_SPEC), **B8**
+(rowtools + duplicate; the add lane ADVANCES so a conversation types straight through),
+**B11-equivalent** (the rail renders the whole dispatch; scene add/dup/delete are ops — the
+tree keeps ONE node, so `_SINGLE` never changed), **B12** (the storyboard — beats, never a
+clock), and B1 grew painted verdicts + the warm-mesh auto re-judge. The dispatch gate rule now
+warns LIVE (`dispatch_problems`, drift-fenced against `build.validate`).
+
+Still deferred: **B9/B13/B14** (compiler vocabulary — cue steps, in-scene choice, the verbatim
+cap), `window_pos`/`box` step keys (TOML-only, behind the Open-the-.toml door), **A6-A8,
+A10-A13, A15-A17**. New known-smalls: a staging verdict whose target sits off-view isn't
+auto-fit into the canvas (the note + list carry the words); the storyboard say strip shows the
+FIRST text line of a beat only (a beat can only carry one — say is a sequential barrier).
+
+Learned en route, the fixture edition: **a sole-cast scene can never legally use `with_prev`**
+— the compiler rejects one actor doing two things at once, so the GLEN fixture (and any
+parallel-beat teaching) needs two cast members. And the docsite's own gates caught three
+defects before any human looked (the un-scrolled editor's 1604px minimum, the settings card's
+1181px, five bar buttons chopping mid-glyph at 150%) plus one nondeterminism (the status bar
+painting the run's scratch path — the figure now grabs the PANE).
+
 ## Sprint 1 — SHIPPED (offline; awaits a playtest)
 
 | Item | What landed |

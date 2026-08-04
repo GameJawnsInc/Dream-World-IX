@@ -1,6 +1,6 @@
 {
  "shot": "editor-cutscene",
- "surface": "form:cutscene",
+ "surface": "cutscene:editor",
  "theme": "light",
  "scale": 100,
  "kit_version": "1.0.0b17",
@@ -10,7 +10,7 @@
  },
  "annotations": [],
  "size": [
-  891,
-  1341
+  905,
+  576
  ]
 }
