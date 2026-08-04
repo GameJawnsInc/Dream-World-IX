@@ -591,11 +591,16 @@ class StepLadder(QWidget):
             for glyph, tip, cb in (
                     ("↑", "Move this step up", lambda _=False, s=i: self.actions["move"](s, -1)),
                     ("↓", "Move this step down", lambda _=False, s=i: self.actions["move"](s, +1)),
-                    ("✎", "Edit this step", lambda _=False, s=i: self.actions["edit"](s)),
+                    ("pencil", "Edit this step (click again to fold)",
+                     lambda _=False, s=i: self.actions["edit"](s)),
                     ("⧉", "Duplicate this step", lambda _=False, s=i: self.actions["dup"](s)),
                     ("✕", "Remove this step (Ctrl+Z undoes)",
                      lambda _=False, s=i: self.actions["delete"](s))):
-                btn = QPushButton(glyph)
+                if glyph == "pencil":              # SVG, never U+270E (the pixelly-fallback law)
+                    btn = QPushButton()
+                    btn.setIcon(icons.icon("pencil", self.pal["text"]))
+                else:
+                    btn = QPushButton(glyph)
                 btn.setProperty("role", "rowtool")
                 btn.setToolTip(tip)
                 btn.setAccessibleName(f"{tip} — step {i}")
@@ -756,7 +761,8 @@ class CutsceneDoc(QWidget):
                                      "nothing is selected).")
         self.add_step_btn.clicked.connect(self._add_step)
         bh.addWidget(self.add_step_btn)
-        self.settings_btn = widgets.ElideButton("✎ Settings")
+        self.settings_btn = widgets.ElideButton("Settings")
+        self.settings_btn.setIcon(icons.icon("pencil", self.pal["text"]))   # SVG, never U+270E
         self.settings_btn.setProperty("role", "quiet")
         self.settings_btn.setCheckable(True)
         self.settings_btn.setToolTip("The scene's cast, gates, and story writes — every "
@@ -943,6 +949,8 @@ class CutsceneDoc(QWidget):
         if hasattr(self, "canvas"):
             self.canvas.retheme(pal)
             self.ladder.pal = pal
+            self.settings_btn.setIcon(icons.icon("pencil", pal["text"]))
+            # (the ladder rows' pencil re-tints on the _render below -- rows rebuild)
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(self._guide_state)    # rebuild: the glyph pixmap is palette-tinted
         elif self._raw is not None and self._member:
@@ -1178,6 +1186,11 @@ class CutsceneDoc(QWidget):
     def _edit_step(self, i):
         st = self._steps()
         if not 0 <= i < len(st):
+            return
+        if (self.editor.scene is not None and self.editor.insert_at is None
+                and self.editor.step_i == i):
+            self._close_editor()                   # reclicking the open row's Edit FOLDS it
+            self._render()
             return
         if self.settings_btn.isChecked():
             self.settings_btn.setChecked(False)    # the accordion holds ONE panel at a time

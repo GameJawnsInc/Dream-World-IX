@@ -620,6 +620,34 @@ def test_nothing_shows_the_accordion_panels_while_parentless(doc, tmp_path, monk
     assert doc.settings_card.parent() is doc.ladder          # still seated + shown the right way
 
 
+def test_reclicking_edit_folds_the_open_row(doc, tmp_path):
+    """Playtest ask: the row's Edit is a TOGGLE — reclicking the open row folds the panel;
+    clicking another row switches to it (never folds)."""
+    _fed(doc, tmp_path)
+    doc._edit_step(2)
+    assert doc.editor.scene is not None
+    doc._edit_step(2)                                        # same row again -> fold
+    assert doc.editor.scene is None
+    doc._edit_step(2)
+    doc._edit_step(1)                                        # a DIFFERENT row -> switch, not fold
+    assert doc.editor.scene is not None and doc.editor.step_i == 1
+
+
+def test_the_edit_affordances_wear_the_svg_pencil_not_the_codepoint(doc, tmp_path):
+    """Playtest ask: U+270E falls back to a pixelly legacy glyph on Windows. The Settings
+    toggle and the per-row Edit wear the authored SVG (the call-site law: an icon nobody
+    sets is a glyph that never improved)."""
+    from PySide6.QtWidgets import QPushButton
+    _fed(doc, tmp_path)
+    assert not doc.settings_btn.icon().isNull()
+    assert "✎" not in doc.settings_btn.text()
+    edit_btn = next(b for b in doc.ladder.findChildren(QPushButton)
+                    if b.accessibleName().startswith("Edit this step") and " step 0" in b.accessibleName())
+    assert not edit_btn.icon().isNull() and edit_btn.text() == ""
+    from ff9mapkit.workspace import icons
+    assert "pencil" in icons.names()                         # the family owns it (parity census)
+
+
 def test_settings_and_the_editor_are_mutually_exclusive(doc, tmp_path):
     _fed(doc, tmp_path)
     doc._edit_step(2)

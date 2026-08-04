@@ -54,11 +54,12 @@ Build a three-step narration: press **＋ Step**, pick a **Type**, fill **Value*
 
 After each Apply the editor stays open and moves to the next row, so a conversation types
 straight through. **＋ Step** inserts after whichever row is selected — you can go back and
-write a line into the middle later; a row's **✎** reopens it for editing, **↑ ↓ ⧉ ✕** reorder,
-duplicate, and remove it. As you type a **Say**, the preview underneath shows where the line
-will break on the FF9 screen — the game never wraps text itself.
+write a line into the middle later; a row's **pencil** unfolds it for editing (click again to
+fold), **↑ ↓ ⧉ ✕** reorder, duplicate, and remove it. As you type a **Say**, the preview
+underneath shows where the line will break on the FF9 screen — the game never wraps text
+itself.
 
-Under **✎ Settings**, leave **Play once** checked: the scene plays a single time ever, guarded
+Under **Settings**, leave **Play once** checked: the scene plays a single time ever, guarded
 by a save-persistent flag allocated automatically — the same mechanism as S4's chest. Control
 locks for the duration on its own.
 
@@ -68,7 +69,7 @@ again during authoring, deploy again and reload — a redeploy starts the field'
 the **Test slot**, [S1](s1-fork-and-deploy.md)'s name for this same scratch id).
 
 A scene can also drive NPCs — walk them, turn them, have them speak — by naming them under
-**Cast** in **✎ Settings**: the stage below the ladder then shows every walk on the room's
+**Cast** in **Settings**: the stage below the ladder then shows every walk on the room's
 floor, **Check the staging** (right column) warns about any walk that would stall the scene,
 and **▶ Storyboard** scrubs the scene beat by beat. Gated to story beats (**Requires beat** /
 **Then set beat**) a set of scenes becomes FF9's own story-event dispatch — one `[[cutscene]]`

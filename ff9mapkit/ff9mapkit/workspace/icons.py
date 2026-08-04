@@ -113,6 +113,11 @@ _ICONS: dict[str, str] = {
     "play": '<path d="M8 5.5l11 6.5-11 6.5V5.5z"/>',
     "pause": '<path d="M8 5v14"/><path d="M16 5v14"/>',
     "reset": '<path d="M5.5 9A8 8 0 1 1 4 13"/><path d="M5.5 4v5H10"/>',
+    # edit (the Cutscene accordion's unfold affordance) — SVG, never U+270E: the pencil
+    # codepoint falls back to a legacy bitmap-ish font on Windows and renders as a pixelly
+    # smudge (playtest-caught on the Settings toggle).
+    "pencil": '<path d="M17 3.5a2.6 2.6 0 0 1 3.7 3.7L8 19.9 3.5 21l1.1-4.5L17 3.5z"/>'
+              '<path d="M14.5 6l3.7 3.7"/>',
 }
 
 
