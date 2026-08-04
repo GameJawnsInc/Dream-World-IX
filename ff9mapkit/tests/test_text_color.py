@@ -175,3 +175,33 @@ options = [
     got = collect_text(FieldProject.load(p))
     blob = "".join(str(v) for v in (got.values() if isinstance(got, dict) else got))
     assert "[C8B040][HSHD]Potion[C8C8C8][HSHD]" in blob
+
+
+# --- THE SPACE-AFTER-GLYPH LAW ------------------------------------------------------------------
+
+def test_a_space_after_a_glyph_is_reported():
+    """NGUIText drops every space following an inline image -- :885 skips the advance and :1081 skips
+    the draw, and `afterImage` is cleared only by a NON-space character, so consecutive spaces all
+    vanish. Padding right of a glyph is impossible at any width; the author gets told, not no-opped."""
+    assert _text.space_after_glyph_problems("Press [DBTN=CROSS] to pick.")
+    assert _text.space_after_glyph_problems("Padded:  [DBTN=CROSS]  two spaces")   # 2 is no better
+    assert _text.space_after_glyph_problems("[ICON=27] x")                         # any inline image
+
+
+def test_stocks_colon_idiom_is_clean():
+    # ':' is a non-space character, so it clears afterImage and renders -- which is exactly why the
+    # shipping game uses it 128 times and uses a space zero times
+    assert _text.space_after_glyph_problems("[DBTN=CROSS]: Confirm") == []
+    assert _text.space_after_glyph_problems("no glyph at all") == []
+
+
+def test_the_zero_width_family_is_covered_too():
+    # NGUIText.IsSpace covers ' ', U+2009 thin, U+200A hair and U+200B zero-width -- all dropped
+    for ch in (" ", "\u2009", "\u200a", "\u200b"):
+        assert _text.space_after_glyph_problems(f"[DBTN=CROSS]{ch}x"), repr(ch)
+
+
+def test_a_no_break_space_is_not_flagged():
+    # U+00A0 is NOT in IsSpace, so it should survive the drop -- the one candidate padding character.
+    # Bench 30603 round 4 asks whether the font actually has a glyph for it.
+    assert _text.space_after_glyph_problems("[DBTN=CROSS]\u00a0\u00a0then") == []

@@ -285,11 +285,39 @@ sprite inline. Eleven names ship, with counts: `SELECT` 72 · `START` 64 · `PAD
 | a space | **0** | — |
 
 So stock's prose never flows *through* a glyph. A glyph either leads a legend row (colon, no space)
-or terminates a phrase. ⚠ **Authoring consequence, found in-game** (bench 30603 round 2): a line
-written `Press [DBTN=CROSS] to pick.` renders with the glyph flush against "to" even though the space
-is present in the `.mes` — the sprite is drawn wider than the advance it reserves, so it swallows a
-single following space. Stock never hit this because it never writes that shape. Prefer the legend
-form; if you do want a glyph mid-sentence, pad it explicitly.
+or terminates a phrase.
+
+### ★★★ THE SPACE-AFTER-GLYPH LAW — and *why* stock has no space there
+
+Found in-game (bench 30603 rounds 2-3, owner: *"the colon follows nicely, the two spaces on either
+side still makes it appear uneven… more space on the left than the right"*). That asymmetry is real,
+and the first explanation — sprite overhang — was **wrong**. The engine drops the spaces on purpose,
+in **both** passes:
+
+```csharp
+// measure  NGUIText.cs:885
+if (!isSpace || !afterImage) { currentX += advanceX; … }
+// print    NGUIText.cs:1081
+if (!afterImage || ch != ' ')  { …draw the glyph… }
+```
+
+`afterImage` is set where the image advances `currentX` (`:820`) and is cleared **only by a non-space
+character** — a space skips the whole block without clearing the flag. So:
+
+1. **Every consecutive space after a glyph is swallowed, not merely the first.** Padding to the right
+   is impossible at any width, which is exactly the left-heavy result the playtest saw (the left side
+   is untouched; the right side vanishes entirely).
+2. `IsSpace` (`:660-663`) is `' '`, U+2009 thin, U+200A hair, U+200B zero-width — none of them work.
+3. **This is WHY the census found zero spaces after a glyph.** Stock's `:` idiom works precisely
+   because a colon is a non-space character that clears the flag. The game didn't avoid the shape by
+   taste; the shape does not render.
+
+⚠ **U+00A0 (no-break space) is NOT in `IsSpace`** and should therefore survive — the one candidate
+padding character. Bench 30603 round 4 asks whether the font actually has a glyph for it. Until that
+is answered, **the legend form is the only reliable way to put a glyph next to words.**
+
+Enforced: `text.space_after_glyph_problems` lints a space following any inline-image tag
+(`DBTN`/`CBTN`/`KCBT`/`JCBT`/`ICON`/`SPRT`) rather than letting the author's spacing silently no-op.
 
 ### ★ 16 documented tags stock never uses in field text
 

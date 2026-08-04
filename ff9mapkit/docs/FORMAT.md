@@ -436,6 +436,19 @@ Button glyphs pass through as `[DBTN=NAME]` (or `[CBTN=NAME]`, which follows the
 The names stock ships: `SELECT` `START` `PAD` `SQUARE` `CROSS` `CIRCLE` `TRIANGLE` `UP` `DOWN` `LEFT`
 `RIGHT`.
 
+> ⚠ **You cannot put a space after a glyph** — the engine discards every space that follows an inline
+> image, all of them, not just the first (it is skipped in both the measuring and the drawing pass).
+> Thin, hair and zero-width spaces go the same way. So write stock's own shape, a colon straight after
+> the glyph:
+>
+> ```toml
+> text = "[DBTN=CROSS]: Confirm"        # stock uses this 128 times
+> ```
+>
+> A glyph mid-sentence (`"Press [DBTN=CROSS] to pick."`) renders flush against the next word no matter
+> how you space it; the build warns. Stock never writes that shape — a glyph either leads a legend row
+> or ends a phrase.
+
 ### Several windows at once (open · close · wait_window · raise)
 
 A `say` step opens one window and blocks on it. Stock's richer presentations all come from *splitting*

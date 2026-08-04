@@ -182,6 +182,35 @@ COLOR_ALIASES = {"name": "cyan", "item": "yellow", "amount": "yellow"}
 BUTTON_GLYPHS = {"SELECT": 72, "START": 64, "PAD": 52, "SQUARE": 23, "CROSS": 22, "UP": 15,
                  "LEFT": 15, "RIGHT": 15, "CIRCLE": 15, "DOWN": 15, "TRIANGLE": 14}
 
+# ★★ THE SPACE-AFTER-GLYPH LAW (traced from bench 30603 round 3, owner: "two spaces on either side
+# still makes it appear uneven... more space on the left than the right"). An inline image does not
+# merely overhang -- the engine DELIBERATELY DROPS every space that follows one, in both passes:
+#
+#   measure  NGUIText.cs:885   if (!isSpace || !afterImage) { currentX += advanceX; ... }
+#   print    NGUIText.cs:1081  if (!afterImage || ch != ' ')  { ...draw the glyph... }
+#
+# `afterImage` is set where the image advances currentX (:820) and is cleared only by a NON-space
+# character -- a space skips the whole block without clearing it. So EVERY consecutive space after a
+# glyph is swallowed, not just the first: padding to the right is impossible at any width, which is
+# exactly the left-heavy asymmetry the playtest saw. `IsSpace` (:660-663) also covers thin (U+2009),
+# hair (U+200A) and zero-width (U+200B) spaces, so none of those work either.
+#
+# This is WHY stock never writes a space after a glyph (§6b: 128 sites use ':' and 192 a following
+# tag, zero use a space) -- its legend idiom works precisely because ':' is a non-space character
+# that clears the flag. Authors get a lint rather than an invisible no-op.
+IMAGE_TAGS = ("DBTN", "CBTN", "KCBT", "JCBT", "ICON", "SPRT")
+_SPACE_AFTER_IMAGE = re.compile(r"\[(" + "|".join(IMAGE_TAGS) + r")(?:=[^\]]*)?\][   ​]")
+
+
+def space_after_glyph_problems(text) -> list:
+    """Report each inline-image tag followed by a space -- the engine drops it (see THE
+    SPACE-AFTER-GLYPH LAW above), so the author's spacing silently does nothing."""
+    return [f"[{m.group(1)}...] is followed by a space, which the engine DROPS (every consecutive "
+            f"one, not just the first) -- stock's idiom is a colon right after the glyph "
+            f"(\"[{m.group(1)}=CROSS]: Confirm\"); a space can never separate it from the next word"
+            for m in _SPACE_AFTER_IMAGE.finditer(str(text or ""))]
+
+
 MARKUP_CLOSE = "{/}"
 _MARKUP = re.compile(r"\{(/|[A-Za-z_][A-Za-z0-9_]*)\}")
 

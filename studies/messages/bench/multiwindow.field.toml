@@ -115,14 +115,19 @@ face = 0
 speaker = "Merchant"
 dialogue = "Bring me an {item}Ore{/} and I'll pay {amount}300 Gil{/} for it, {name}[ZDNE]{/}. Plain words stay white."
 
-# ROUND 3 asks ONE question: how to space a button glyph. The round-2 prompt read "Press [X] to
-# pick." and the glyph sat flush against "to" -- the authored space IS in the .mes (verified in the
-# deployed entry), so the sprite is drawn wider than the advance it reserves and swallows one space.
-# The census says stock NEVER writes that shape: across all 64 blocks, the character after a button
-# glyph is ALWAYS either ':' (128 sites -- "[START]: Overwrite", a legend row) or '[' (192 sites --
-# another tag, the glyph ending the phrase). ZERO plain spaces. So the three rows below are stock's
-# two idioms plus the padded mid-sentence form; report which reads correctly and whether the double
-# space actually clears the glyph.
+# ★★ ROUND 3 ANSWERED IT, AND THE ANSWER WAS AN ENGINE LAW (owner: "the colon follows nicely, the two
+# spaces on either side still makes it appear uneven... more space on the left than the right").
+# That asymmetry was real, not perception. It is NOT sprite overhang -- the engine DELIBERATELY DROPS
+# every space after an inline image, in both passes (NGUIText.cs:885 measure, :1081 print), and the
+# `afterImage` flag is cleared only by a NON-space character, so consecutive spaces are ALL swallowed.
+# Padding right of a glyph is impossible at any width; the left side is untouched, hence left-heavy.
+# This is WHY the census found zero spaces after a glyph in stock (§6b): ':' works precisely because
+# it is a non-space character. The kit now LINTS a space after a glyph instead of letting it no-op.
+#
+# ROUND 4 asks the one question the law leaves open. `IsSpace` (NGUIText.cs:660-663) covers exactly
+# ' ', U+2009 thin, U+200A hair and U+200B zero-width -- so a NO-BREAK SPACE (U+00A0) is NOT in the
+# list and should survive. Row 3 uses one. If it renders as a gap, mid-sentence glyphs become usable;
+# if it renders as a box or nothing, the font lacks the glyph and the legend form is the only shape.
 [[choice]]
 npc = "merchant"
 prompt = "Trade the {item}Ore{/}?"
@@ -130,7 +135,7 @@ speaker = "Merchant"
 options = [
   { text = "Sell for {amount}300 Gil{/}", reply = "Sold! The rows colour too, kupo." },
   { text = "[DBTN=CROSS]: Legend row (stock's own idiom, colon, no space)", reply = "That is the shape stock uses 128 times." },
-  { text = "Padded:  [DBTN=CROSS]  two spaces each side", reply = "Does the glyph clear the words now?" },
+  { text = "NBSP: [DBTN=CROSS]  then a word", reply = "If you can read a GAP before 'then', U+00A0 survives the drop and mid-sentence glyphs are usable." },
   { text = "Keep it", reply = "Suit yourself." },
 ]
 

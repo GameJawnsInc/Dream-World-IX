@@ -3284,6 +3284,8 @@ def lint_logic(project: FieldProject) -> list[str]:
     for who, src in authored:
         for prob in _text.markup_problems(src):
             out.append(f"{who}: {prob}")
+        for prob in _text.space_after_glyph_problems(src):
+            out.append(f"{who}: {prob}")
     for who, t in texts:
         if wrap is None:                       # wrapping disabled: every over-budget line overflows
             for ln in t.replace("[PAGE]", "\n").split("\n"):
