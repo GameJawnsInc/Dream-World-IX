@@ -1,5 +1,8 @@
 # THE LATTICE FILL — registered 2026-08-04, after the crescent playtest
 
+> ★ **CLOSED, owner-confirmed (playtest 4): "the rock is gone, all looks right now."**
+> The crescent is live at `(18,17)+4x2` on disc 9: lattice fill, Wanged rim, no ghost.
+
 ## What the playtest showed
 
 The crescent itself walks and looks good (owner-confirmed). Two defects, both mine:

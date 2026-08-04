@@ -12,7 +12,7 @@ then verified against the game with a real `--dry-run`.
 
 | donor | size | area | relief | walk | carries | |
 |---|---|---|---|---|---|---|
-| **`(14,1)`** | **4x2** | **8624u²** | — | **0.78** | **1386** | **the crescent — excise v3, CLEAN, undeployed** |
+| **`(14,1)`** | **4x2** | **8624u²** | — | **0.78** | **1386** | **the crescent — ★ DEPLOYED (18,17) disc 9, owner-confirmed** |
 | `(9,5)` | 2x3 | 5312u² | **19.1** | 0.67 | **917** | the comma — DEPLOYED |
 | `(6,6)` | 2x2 | 3616u² | 8.2 | **0.79** | **578** | the isthmus — DEPLOYED, excise-only |
 | `(6,4)` | 2x2 | 2592u² | 6.9 | 0.00 | 551 | the crystal reef, unlandable by design |
