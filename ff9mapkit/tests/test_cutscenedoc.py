@@ -588,6 +588,38 @@ def test_set_rows_lifts_the_accordion_panel_instead_of_deleting_it(doc, tmp_path
     assert doc._steps()[2]["say"] == "still editable after a refill"
 
 
+def test_nothing_shows_the_accordion_panels_while_parentless(doc, tmp_path, monkeypatch):
+    """(M) THE PHANTOM-WINDOW FENCE, entry side: showing a PARENTLESS widget makes it a
+    top-level OS window for an instant (playtest-caught: the editor flickered as its own
+    window on the first ✎ of a scene). Only set_inset may show — AFTER seating."""
+    from PySide6.QtWidgets import QFrame
+    _fed(doc, tmp_path)
+    assert doc.editor.parent() is None                       # the exact first-edit state
+    flashes = []
+    # Patch the PYTHON-callable seams on QFrame (both panels are QFrames). Patching
+    # QWidget.setVisible alone is a spy that cannot see: C++-side show() never routes
+    # through a Python override -- the first cut of this fence was vacuous exactly so.
+    real_show, real_sv = QFrame.show, QFrame.setVisible
+
+    def spy_show(self):
+        if self in (doc.editor, doc.settings_card) and self.parent() is None:
+            flashes.append(f"{type(self).__name__}.show")
+        real_show(self)
+
+    def spy_sv(self, on):
+        if on and self in (doc.editor, doc.settings_card) and self.parent() is None:
+            flashes.append(f"{type(self).__name__}.setVisible")
+        real_sv(self, on)
+
+    monkeypatch.setattr(QFrame, "show", spy_show)
+    monkeypatch.setattr(QFrame, "setVisible", spy_sv)
+    doc._edit_step(2)                                        # the flicker's exact gesture
+    doc.settings_btn.setChecked(True)                        # ...and the latent settings half
+    monkeypatch.undo()
+    assert not flashes, f"shown while parentless (a top-level flash): {flashes}"
+    assert doc.settings_card.parent() is doc.ladder          # still seated + shown the right way
+
+
 def test_settings_and_the_editor_are_mutually_exclusive(doc, tmp_path):
     _fed(doc, tmp_path)
     doc._edit_step(2)

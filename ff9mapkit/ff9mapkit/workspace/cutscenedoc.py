@@ -439,7 +439,10 @@ class StepEditor(QFrame):
         self.note.setText("")
         widgets.set_state(self.note, "")
         self._on_kind()
-        self.show()
+        # NO self.show() here: on the FIRST edit the editor is still PARENTLESS, and showing a
+        # parentless widget makes it a top-level OS window for the instant before set_inset
+        # reparents it (playtest-caught flicker -- the phantom-window law, entry side). Only
+        # set_inset shows, AFTER seating.
 
     def read_step(self) -> dict:
         """The step the widgets describe. Raises ValueError with the field named."""
@@ -1119,10 +1122,11 @@ class CutsceneDoc(QWidget):
 
     # -- scene settings (Apply-committed: a per-keystroke checkpoint would spam undo) --
     def _toggle_settings(self, on):
-        self.settings_card.setVisible(on)
         if on:
             self._close_editor()                   # the accordion holds ONE panel at a time
-            self._fill_settings()
+            self._fill_settings()                  # (NO show here -- the card may be parentless,
+        else:                                      # and only set_inset shows, AFTER seating:
+            self.settings_card.hide()              # the phantom-window flicker's other half)
         if self._raw is not None and self._stack.currentWidget() is self._content:
             self._render()                         # seat / clear the inset
 
