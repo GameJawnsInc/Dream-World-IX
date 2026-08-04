@@ -1363,3 +1363,41 @@ def test_deepen_shallow_plan_refuses_a_ring_less_donor(monkeypatch):
     monkeypatch.setattr(TR, "world_tris", lambda *a, **k: [])
     _tw, rep = TR.deepen_shallow_plan((0, 0), (1, 1))
     assert "no shallow ring" in rep["refused"]
+
+
+def test_excise_counts_a_fully_welded_object_aperture(monkeypatch):
+    """THE APERTURE CENSUS. An object tri whose verts are ALL welded into the KEPT
+    terrain is a hole-filling face (a cave-door aperture in a massif); the carry ships
+    no objects, so a rotated/shifted deploy shows sky there (the bent crescent's white
+    rectangle, playtest 2026-08-04). An authored rock plug was playtested and REFUSED
+    (a flat non-stock cliff face -- THE FORM LESSON): excise only REPORTS the count;
+    the lawful fill is THE OBJECT POSE LAW in transplant_region. An aperture welded
+    only into the EXCISED mass is not counted (its mass is gone), nor is a
+    partially-welded object (a harbor ON ground)."""
+    from ff9mapkit.world import transplant as TR
+
+    kept = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
+            _tri([(10.0, -40.0), (15.0, -50.0), (8.0, -48.0)]),
+            _tri([(20.0, -40.0), (25.0, -46.0), (15.0, -50.0)])]
+    crumb = [_tri([(64.0, -8.0), (64.0, -24.0), (52.0, -20.0)]),
+             _tri([(64.0, -8.0), (52.0, -20.0), (52.0, -12.0)])]
+    sea4 = [_tri([(0.0, 0.0), (40.0, 0.0), (52.0, -20.0)]),
+            _tri([(0.0, 0.0), (52.0, -20.0), (0.0, -64.0)])]
+    # aperture: fully welded into the KEPT mass's first tri; decoy: fully welded into the
+    # CRUMB (dropped -> no plug); structure: the crumb's notch base, partially welded
+    obj = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
+           _tri([(64.0, -8.0), (64.0, -24.0), (52.0, -20.0)]),
+           _tri([(52.0, 0.0, -12.0), (48.0, 3.0, -10.0), (48.0, 3.0, -14.0)])]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4, "object": obj}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+    assert not rep.get("refused"), rep.get("refused")
+    assert rep.get("apertures") == 1
+    # NO authored plug: excise emits no terrain (the sky/door decision is the carry's)
+    assert not [tw for tw in tweaks
+                if isinstance(tw, TR.EmitTris) and tw.part == "terrain"]

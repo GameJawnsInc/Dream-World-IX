@@ -152,3 +152,39 @@ def test_plan_rim_flags_interior_crop_seams(monkeypatch):
     assert (7, 7) not in got                     # the sheet interior is lawful
     edge = {(i, j) for i in (6, 7, 8) for j in (6, 7, 8)} - {(7, 7)}
     assert edge <= got, sorted(edge - got)       # every crop-edge tile is planned
+
+
+def test_tile_uv_interpolates_a_cut_vert_and_keeps_corners_exact():
+    """THE CUT-VERT LAW: the variant map is EVALUATED at the vert, never corner-snapped.
+    Corner verts stay bit-identical to the harvested corners; a mid-tile vert of a
+    coast-cut triangle gets the tile's real map at its position (the corner snap smeared
+    it into a stretched face -- playtest 2026-08-04)."""
+    uvmap = {(0, 0): (0.0, 0.5), (1, 0): (0.25, 0.5),
+             (1, 1): (0.25, 0.75), (0, 1): (0.0, 0.75)}
+    i, j = 3, 2                                # tile x 12..16, world z -8..-12
+    assert RR._tile_uv(uvmap, (12.0, 0.0, -8.0), i, j) == uvmap[(0, 0)]
+    assert RR._tile_uv(uvmap, (16.0, 0.0, -12.0), i, j) == uvmap[(1, 1)]
+    u, v = RR._tile_uv(uvmap, (13.0, 0.0, -10.0), i, j)   # 1/4 across, 1/2 down
+    assert abs(u - 0.0625) < 1e-9 and abs(v - 0.625) < 1e-9
+    assert (u, v) not in uvmap.values()
+
+
+def test_plan_rim_spares_the_shore_system(monkeypatch):
+    """THE SHORE SCOPE: inside a live shore system sea4 lawfully runs UNDER the shallow
+    bands (sea4-under-land), so tile-local deep arithmetic false-flags lawful ladder
+    tiles -- the interior seam rules apply only away from shore. A sea3 patch tile with
+    LAND in its 8-neighbourhood is spared; the open-water side of the same patch is
+    still planned (the genuine crop-seam class)."""
+    shade_g = [["sea4"] * RR.G for _ in range(RR.G)]
+    for i in (6, 7, 8):
+        for j in (6, 7, 8):
+            shade_g[i][j] = "sea3"
+    water_g = [[True] * RR.G for _ in range(RR.G)]
+    water_g[5][6] = False                        # land west of the patch's NW corner
+    monkeypatch.setattr(RR, "_grids",
+                        lambda cells: ({(5, 5): shade_g}, {(5, 5): water_g}))
+    monkeypatch.setattr(RR, "_sea5_deepsets", lambda parts: {})
+    plan = RR.plan_rim({(5, 5): {}})
+    got = set(plan.get((5, 5), {}))
+    assert (6, 6) not in got and (6, 7) not in got   # shore-adjacent: spared
+    assert (8, 6) in got and (8, 8) in got           # open-water crop edge: planned

@@ -172,6 +172,51 @@ def plan_rim(cells) -> dict:
     shade, water = _grids(cells)
     xs = sorted({c[0] for c in island})
     ys = sorted({c[1] for c in island})
+
+    # THE SHORE SCOPE (2026-08-04, the bent crescent's beach): inside a live shore
+    # system, sea4 lawfully runs UNDER the shallow bands (the sea4-under-land law), so
+    # tile-local "sea3 touches deep" arithmetic false-flags lawful ladder tiles -- the
+    # measured-seam rules apply only AWAY from shore (no land / beach1 / sea1 / sea2 in
+    # the 8-neighbourhood). Genuine crop seams (the dot pair's channel) are open-water.
+    def _bins(bm):
+        g = [[False] * G for _ in range(G)]
+        if bm is None:
+            return g
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // CELL)
+            if 0 <= i < G and 0 <= j < G:
+                g[i][j] = True
+        return g
+    shore = {}
+    for c in island:
+        g = [[False] * G for _ in range(G)]
+        for p in ("sea1", "sea2", "beach1"):
+            b = _bins(cells[c].get(p))
+            for i in range(G):
+                for j in range(G):
+                    g[i][j] = g[i][j] or b[i][j]
+        for i in range(G):
+            for j in range(G):
+                g[i][j] = g[i][j] or not water[c][i][j]     # a dry cell is land
+        shore[c] = g
+
+    def _near_shore(bx, by, i, j):
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                ni, nj, nbx, nby = i + di, j + dj, bx, by
+                if ni < 0:
+                    nbx, ni = bx - 1, G - 1
+                elif ni >= G:
+                    nbx, ni = bx + 1, 0
+                if nj < 0:
+                    nby, nj = by - 1, G - 1
+                elif nj >= G:
+                    nby, nj = by + 1, 0
+                if (nbx, nby) in shore and shore[(nbx, nby)][ni][nj]:
+                    return True
+        return False
+
     plan = defaultdict(dict)
     for (bx, by) in island:
         enc5 = _sea5_deepsets(cells[(bx, by)])
@@ -187,8 +232,13 @@ def plan_rim(cells) -> dict:
                     continue
                 on_frame = ((bx == xs[0] and i == 0) or (bx == xs[-1] and i == G - 1)
                             or (by == ys[0] and j == 0) or (by == ys[-1] and j == G - 1))
-                seam = (sh == "sea3"
-                        or frozenset(enc5.get((i, j), ())) != frozenset(ds))
+                # UNDER only -- the defect class (a tile facing deep with no transition
+                # there). An OVER (a transition facing shallow) is a needless gradient,
+                # owner-accepted at 20/82 on the proven isthmus; converting it churned
+                # 23 coast tiles into visible shards on the bent crescent (2026-08-04).
+                seam = (not _near_shore(bx, by, i, j)
+                        and (sh == "sea3"
+                             or not frozenset(ds) <= frozenset(enc5.get((i, j), ()))))
                 if not (on_frame or seam):
                     continue
                 plan[(bx, by)][(i, j)] = ("sea4" if len(ds) == 4 else "sea5", ds)
@@ -204,6 +254,24 @@ def uncovered(plan, variants) -> list:
         if not opts or not [o for o in opts if tuple(o) in variants]:
             out.append("".join(sorted(ds)))
     return out
+
+
+def _tile_uv(uvmap, p, i, j):
+    """The variant's map evaluated AT the vert: bilinear over the 4 harvested corner uvs
+    at the vert's fractional position in the tile. On a full tile's corner verts this is
+    bit-identical to the corner lookup (fractions are exactly 0/1 on the lattice); on a
+    COAST-CUT triangle's mid-tile verts it is the tile's real axis-aligned wang-rect map
+    -- the corner SNAP smeared them (the stretched-face playtest, 2026-08-04; the module
+    docstring's second authored-uv failure, re-created from the inside by the crop-seam
+    widening planning partial tiles)."""
+    fx = min(max((p[0] - i * CELL) / CELL, 0.0), 1.0)
+    fz = min(max((-p[2] - j * CELL) / CELL, 0.0), 1.0)
+    u00, u10 = uvmap[(0, 0)], uvmap[(1, 0)]
+    u11, u01 = uvmap[(1, 1)], uvmap[(0, 1)]
+    return ((u00[0] * (1 - fx) + u10[0] * fx) * (1 - fz)
+            + (u01[0] * (1 - fx) + u11[0] * fx) * fz,
+            (u00[1] * (1 - fx) + u10[1] * fx) * (1 - fz)
+            + (u01[1] * (1 - fx) + u11[1] * fx) * fz)
 
 
 def apply_rim(cells, plan, variants, *, disc: int, lod: str = "0_1"):
@@ -224,8 +292,7 @@ def apply_rim(cells, plan, variants, *, disc: int, lod: str = "0_1"):
             for [c, verts, topo] in moved:
                 nv = []
                 for (p, nr, _u, t) in verts:
-                    k = corner_of(p, i, j)
-                    nv.append((p, nr, uvmap[(min(max(k[0], 0), 1), min(max(k[1], 0), 1))], t))
+                    nv.append((p, nr, _tile_uv(uvmap, p, i, j), t))
                 buckets["sea5"].append([c, nv, topo])
             n += 1
         post[(bx, by)] = {p: build_part([e[1] for e in buckets[p]], p.capitalize(),
