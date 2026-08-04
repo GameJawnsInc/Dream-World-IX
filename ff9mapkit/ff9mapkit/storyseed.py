@@ -212,12 +212,20 @@ def resolve(eb: EbScript, beat: int, census: dict) -> SeedReport:
     return rep
 
 
-def render_startup(rep: SeedReport, *, field_label: str = "") -> str:
-    """The paste-ready ``[startup]`` block + provenance comments."""
+def render_startup(rep: SeedReport, *, field_label: str = "", once_flag: int | None = None) -> str:
+    """The paste-ready ``[startup]`` block + provenance comments. ``once_flag`` emits the
+    once-sentinel guard (the chain lever): the stamp fires on the FIRST entry into any member
+    sharing the sentinel and never again, so in-chain story progression (the resident scripts'
+    own SC advances and once-bits) is never rewound at a door."""
     L = [f"# story-seed{' for ' + field_label if field_label else ''} @ beat {rep.beat}"
          f" ({flagsmod.nearest_milestone(rep.beat)[1]})"]
     L.append("[startup]")
     L.append(f"scenario = {rep.beat}")
+    if once_flag is not None:
+        L.append(f"once = {once_flag}")
+        L.append("# once-stamp sentinel (shared chain-wide): the first room entered stamps the "
+                 "beat and sets this bit; later entries leave the RUNNING story alone. New Game "
+                 "zeroes it for a fresh run.")
     setters = rep.set_bits
     if setters:
         rows = ", ".join("{ flag = %d, value = 1 }" % v.bit for v in setters)
@@ -497,11 +505,14 @@ def render_words(word_vals: dict[int, int | None]) -> str:
 
 
 def seed_text(eb: EbScript, beat: int, census: dict, *, field_label: str = "",
-              donor: int | None = None, zone_donors: list[int] | None = None) -> str:
+              donor: int | None = None, zone_donors: list[int] | None = None,
+              once_flag: int | None = None) -> str:
     """The complete seed for one field: [startup] (+ derived ATE words) + [party]. *donor*
     enables the beat-windowed party filter and the ATE mask derivation; *zone_donors* widens
-    the mask's writer set to the whole chain (avail state is zone-global)."""
-    parts = [render_startup(resolve(eb, beat, census), field_label=field_label)]
+    the mask's writer set to the whole chain (avail state is zone-global); *once_flag* emits
+    the once-sentinel guard (chains stamp once, never rewinding in-chain progression)."""
+    parts = [render_startup(resolve(eb, beat, census), field_label=field_label,
+                            once_flag=once_flag)]
     detected = ate_word_seed(eb)
     if detected:
         writers = zone_donors or ([donor] if donor is not None else [])
@@ -543,6 +554,11 @@ def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tu
             continue
         members.append((p, int(m_id.group(1)), int(m_donor.group(1)), text))
     zone = sorted({d for (_p, _m, d, _t) in members})
+    # ONE once-stamp sentinel for the whole chain, derived from the lowest member id into the
+    # safe custom band -- the first room entered stamps the beat; every other member sees the
+    # sentinel set and leaves the RUNNING story alone (the Dali round-5 lesson: a per-entry
+    # stamp rewinds the player's own SC advances at every door)
+    once = chain_once_flag([m for (_p, m, _d, _t) in members]) if members else None
     out = []
     for p, mid, donor, text in members:
         lines = text.splitlines(keepends=True)
@@ -551,11 +567,18 @@ def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tu
         if not base.endswith("\n"):
             base += "\n"
         seed = seed_text(eb_for_donor(donor), beat, census, field_label=str(donor),
-                         donor=donor, zone_donors=zone)
+                         donor=donor, zone_donors=zone, once_flag=once)
         with open(p, "w", encoding="utf-8", newline="") as fh:
             fh.write(base + seed + "\n")
         out.append((p, mid, donor))
     return out
+
+
+def chain_once_flag(member_ids: list[int]) -> int:
+    """The chain's shared once-stamp sentinel bit: deterministic from the lowest member id,
+    inside the safe custom band (>= FIRST_SAFE_FLAG -- the 8512 lesson). Distinct chains land
+    on distinct bits as long as their id bases differ mod 1024 (dev chains mint spread bases)."""
+    return flagsmod.FIRST_SAFE_FLAG + (min(member_ids) % 1024)
 
 
 def chain_ladder(census: dict, donors: list[int]) -> list[tuple[int, str, list[int]]]:

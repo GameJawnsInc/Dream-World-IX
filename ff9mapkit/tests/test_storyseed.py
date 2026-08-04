@@ -136,6 +136,47 @@ def test_seed_chain_appends_and_replaces(tmp_path):
     assert text2.count("# story-seed") == 1 and "scenario = 2000" in text2
 
 
+def test_seed_chain_emits_shared_once_sentinel(tmp_path):
+    # every member gets the SAME once-stamp sentinel (safe band), so the first room entered
+    # stamps the beat and later doors never rewind in-chain progression (the round-5 lesson)
+    for name, mid in (("M1", 30830), ("M2", 30833)):
+        d = tmp_path / name
+        d.mkdir()
+        (d / f"{name}.field.toml").write_text(
+            f"id = {mid}\ndonor = 553\n[verbatim_eb]\ndonor = 553\n", encoding="utf-8")
+    eb = _field_reading(2647)
+    c = _census(2647, sc=[[0, 7, 0, "==", 3110]])
+    storyseed.seed_chain(str(tmp_path), 3110, c, lambda _d: eb)
+    want = storyseed.chain_once_flag([30830, 30833])
+    from ff9mapkit import flags as flagsmod
+    assert want >= flagsmod.FIRST_SAFE_FLAG
+    for name in ("M1", "M2"):
+        text = (tmp_path / name / f"{name}.field.toml").read_text(encoding="utf-8")
+        assert f"once = {want}" in text
+
+
+def test_startup_once_guard_bytecode_roundtrip():
+    # the injected once-guard must decode as `if (Bit[S]==0) { stamp...; Bit[S]=1 }` through
+    # the kit's OWN readers: the rung-0 CFG sees the guard cond, and the stamp is skipped when
+    # the sentinel is set (jump-if-false over body incl. the sentinel write)
+    from ff9mapkit.content import startup as _startup
+    from ff9mapkit.eb.cfg import FuncFlow, parse_set, OP_SET
+    body = _startup.startup_body([(2647, 1)], scenario=2600, words=[(297, 1)], once_flag=8822)
+    plain = _startup.startup_body([(2647, 1)], scenario=2600, words=[(297, 1)])
+    assert body != plain and plain in body            # the guard WRAPS the same stamp bytes
+    code = body + bytes([0x04])                       # RET terminator for the CFG
+    fl = FuncFlow.build(code, 0, len(code))
+    writes = [parse_set(code, ins) for blk in fl.blocks for ins in blk.instrs
+              if ins.op == OP_SET]
+    assigns = [(st.vtype, st.index, st.value) for st in writes if st.kind == "assign"]
+    assert (1, 8822, 1) in assigns                    # the sentinel latch write
+    sc_writes = [st for st in writes if st.kind == "assign" and st.vtype in (6, 7)
+                 and st.index == 0]
+    g = fl.guards_at(sc_writes[0].off)
+    assert any(c.vtype in (0, 1) and c.index == 8822 and c.cmp == "==" and c.value == 0
+               for c in g)                            # the stamp is DOMINATED by sentinel==0
+
+
 def test_backwards_advance_hazard_detection():
     c = {"sc_sites": [{"field": 352, "value": 2600}, {"field": 352, "value": 2990},
                       {"field": 351, "value": 2660}]}

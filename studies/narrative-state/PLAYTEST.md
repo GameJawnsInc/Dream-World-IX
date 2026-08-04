@@ -197,4 +197,30 @@ All three fixes derivational, none Dali-specific:
 Chain re-seeded @ 2600 (words = byte 297 = 1 zone-wide; latches clear) + all 12 deployed.
 **30841 is a NEW id -- RELAUNCH once**, then walk from 30840. Expect: the ATE prompt arms as
 the morning plays (the first offer fires after the wake sequence / crossing Dali/Field, the
-Garnet-to-weapon-shop one included), party still Marcus-free. PENDING
+Garnet-to-weapon-shop one included), party still Marcus-free.
+
+**Round 5 verdict: THE ATE FIX PROVED, then a NEW defect class** (owner, 2026-08-04): the
+story-required ATE fired, Garnet reached the weapon shop, and the Dagger scene in 30835
+played -- the whole ATE derivation stack (297 hub word + clear latches + field 450's ping)
+works. But the scene stayed REPLAYABLE and the story softlocked: **the scene's own advance
+(SC 2600 -> 2610, owner-observed in the title bar) was REWOUND to 2600 on leaving the shop**
+-- every member's [startup] stamp re-asserts the beat at every door, so in-chain progression
+can never survive a room transition. Round 1 had noted the re-stamp as "Skip-safe"; it is
+actually the progression killer for any chain.
+
+## Round 6 -- the ONCE-STAMP: seed a chain's beat exactly once per save
+
+`[startup] once = <flag>` (new build lever, all forks): wraps the whole stamp in a sentinel
+GLOB-bit guard -- `if (Bit[S]==0) { stamp; S=1 }` -- byte-verified through the kit's own CFG
+(the stamp is dominated by `sentinel == 0`). `story-seed --chain` now emits ONE shared
+sentinel for all members (safe band, derived from the lowest member id: bit 8822 for this
+chain): the FIRST room entered asserts the beat; after that the story lives its own life --
+the shop scene's 2610 advance persists, once-scenes stay once, the [deathrules] outpost
+word stays outside the guard (every-entry by contract). Single-field seeds are unchanged
+(per-entry re-stamp stays the deliberate testing behavior).
+
+All 12 members re-seeded + redeployed (content-only -- ~ -> Reload / re-warp, NO relaunch).
+**Walk it from a fresh New Game -> warp 30840** (the current save's sentinel/latches are
+dirty from the previous rounds; New Game zeroes them). Expect: the morning plays THROUGH --
+ATEs offered, the shop scene fires ONCE, SC stays 2610 after it, Dagger relocates (back at
+the inn), no rewind at any door. PENDING

@@ -4485,10 +4485,18 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
     presets += _navimap.marker_presets(su.get("reveal_markers"))
     words = [(int(w["byte"]), int(w["value"])) for w in su.get("words", [])]
     byte_writes = [(int(b["byte"]), int(b["value"])) for b in su.get("bytes", [])]
+    once = su.get("once")
+    if once is not None:
+        once = _flags.resolve(once, names)
+        if _flags.is_reserved(once) or _flags.named_word_at(once // 8) is not None:
+            raise BuildError(
+                f"[startup] once = {once} lands in a reserved band / named engine word -- pick a "
+                f"sentinel bit at or above {_flags.FIRST_SAFE_FLAG} (the safe custom band)")
+    always_words = []
     if outpost:
         from .battle import deathrules as _dr
-        words.append((_dr.OUTPOST_BYTE, int(project.field["id"])))
-    return _startup.inject_startup(eb, presets, sc, words, byte_writes)
+        always_words.append((_dr.OUTPOST_BYTE, int(project.field["id"])))
+    return _startup.inject_startup(eb, presets, sc, words, byte_writes, once, always_words)
 
 
 def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None) -> bytes:

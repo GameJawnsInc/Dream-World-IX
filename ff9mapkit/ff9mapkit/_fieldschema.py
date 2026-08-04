@@ -67,7 +67,7 @@ VOCAB = {
     'siege.raider': ('anim', 'autoroute', 'contact', 'count', 'damage', 'death_anim', 'dialogue', 'entrance', 'hp', 'interval', 'leash', 'linger', 'model', 'name', 'route', 'speed', 'speeds', 'wave'),
     'sps': ('abr', 'clone_sps', 'copy_from', 'framerate', 'frames', 'id', 'pos', 'rgb', 'scale', 'size', 'slot', 'template', 'texture', 'uv', 'y'),
     'start_inventory': ('items',),
-    'startup': ('bytes', 'flags', 'reveal_markers', 'scenario', 'words'),
+    'startup': ('bytes', 'flags', 'once', 'reveal_markers', 'scenario', 'words'),
     'startup.flags': ('flag', 'value'),
     'synthesis': ('bubble', 'recipes', 'shop', 'zone'),
     'synthesis.recipes': ('ingredients', 'price', 'result'),

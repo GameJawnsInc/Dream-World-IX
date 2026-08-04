@@ -547,7 +547,13 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
                 print(f"    WARN: donor {donor} writes SC {hz} BELOW the seeded beat -- a "
                       "resident advance sequence run late trips stock's backwards-write "
                       "debug guard (Skip is safe; or seed this member at its own beat)")
-        print(f"story-seed: {len(rows)} member(s) seeded @ beat {beat}")
+        if rows:
+            once = storyseed.chain_once_flag([m for (_p, m, _d) in rows])
+            print(f"story-seed: {len(rows)} member(s) seeded @ beat {beat} -- ONCE-stamped "
+                  f"(sentinel bit {once}): the first room entered asserts the beat, later "
+                  "entries never rewind in-chain progression; New Game resets the sentinel")
+        else:
+            print(f"story-seed: {len(rows)} member(s) seeded @ beat {beat}")
         return 0
     if t.isdigit():
         from .extract import EventBundle
