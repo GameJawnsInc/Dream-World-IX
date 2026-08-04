@@ -721,34 +721,34 @@ class CutsceneDoc(QWidget):
         bh.setSpacing(10)
         self.scene_title = widgets.role_label("—", "cardtitle")
         bh.addWidget(self.scene_title)
-        self.scene_gate = widgets.ElideLabel("", min_ch=12)
+        self.scene_gate = widgets.ElideLabel("", min_ch=8)
         bh.addWidget(self.scene_gate, 1)
-        self.add_step_btn = QPushButton("＋ Step")
+        self.add_step_btn = widgets.ElideButton("＋ Step")
         self.add_step_btn.setProperty("role", "quiet")
         self.add_step_btn.setToolTip("Insert a step after the selected row (at the end when "
                                      "nothing is selected).")
         self.add_step_btn.clicked.connect(self._add_step)
         bh.addWidget(self.add_step_btn)
-        self.settings_btn = QPushButton("✎ Settings")
+        self.settings_btn = widgets.ElideButton("✎ Settings")
         self.settings_btn.setProperty("role", "quiet")
         self.settings_btn.setCheckable(True)
         self.settings_btn.setToolTip("The scene's cast, gates, and story writes — every "
                                      "[[cutscene]] block key the forms own.")
         self.settings_btn.toggled.connect(self._toggle_settings)
         bh.addWidget(self.settings_btn)
-        self.dup_scene_btn = QPushButton("⧉ Scene")
+        self.dup_scene_btn = widgets.ElideButton("⧉ Scene")
         self.dup_scene_btn.setProperty("role", "quiet")
         self.dup_scene_btn.setToolTip("Duplicate this scene (mind the gate — two scenes with "
                                       "the same gate are a build error, and PROBLEMS says so).")
         self.dup_scene_btn.clicked.connect(self._dup_scene)
         bh.addWidget(self.dup_scene_btn)
-        self.del_scene_btn = QPushButton("− Scene")
+        self.del_scene_btn = widgets.ElideButton("− Scene")
         self.del_scene_btn.setProperty("role", "quiet")
         self.del_scene_btn.setToolTip("Delete THIS scene only (Ctrl+Z undoes; the file changes "
                                       "on Save, not now).")
         self.del_scene_btn.clicked.connect(self._del_scene)
         bh.addWidget(self.del_scene_btn)
-        self.board_btn = QPushButton("▶ Storyboard")
+        self.board_btn = widgets.ElideButton("▶ Storyboard")
         self.board_btn.setProperty("role", "quiet")
         self.board_btn.setCheckable(True)
         self.board_btn.setToolTip(
@@ -775,9 +775,17 @@ class CutsceneDoc(QWidget):
         schw = QWidget()
         schw.setLayout(sc_head)
         sc_lay.addWidget(schw)
-        self._settings_host = QVBoxLayout()
+        # the form SCROLLS inside a capped well: ten spec fields put a ~700px floor under the
+        # card, and a pane denied its height must scroll, never clip (the round-13 law)
+        sc_host = QWidget()
+        self._settings_host = QVBoxLayout(sc_host)
         self._settings_host.setContentsMargins(0, 0, 0, 0)
-        sc_lay.addLayout(self._settings_host)
+        self._settings_scroll = QScrollArea()
+        self._settings_scroll.setWidgetResizable(True)
+        self._settings_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._settings_scroll.setWidget(sc_host)
+        self._settings_scroll.setMaximumHeight(int(340 * self._scale / 100))
+        sc_lay.addWidget(self._settings_scroll)
         self.settings_note = widgets.caption("")
         self.settings_note.setWordWrap(True)
         sc_lay.addWidget(self.settings_note)
@@ -832,8 +840,15 @@ class CutsceneDoc(QWidget):
             self.pal, on_apply=self._apply_step, on_close=self._close_editor,
             pick_anim=self._pick_anim_for_step, on_pick_stage=self._arm_stage_pick,
             wrap_width_fn=lambda: cutscenescan.wrap_width(self._merged()))
-        self.editor.hide()
-        self._vsplit.addWidget(self.editor)
+        # the editor SCROLLS in its splitter slot: with the pacing drawer open it is taller
+        # than any slot the vsplit can honestly give it (snap-measured 1604px of minimum
+        # against an 850px window -- the round-13 clip, pre-empted)
+        self._editor_scroll = QScrollArea()
+        self._editor_scroll.setWidgetResizable(True)
+        self._editor_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._editor_scroll.setWidget(self.editor)
+        self._editor_scroll.hide()
+        self._vsplit.addWidget(self._editor_scroll)
         self.canvas = CutsceneStage(self.pal, scale=self._scale,
                                     on_move=self._on_stage_move,
                                     on_insert=self._on_stage_insert,
@@ -845,8 +860,9 @@ class CutsceneDoc(QWidget):
         split.addWidget(center)
         split.setStretchFactor(1, 1)
         # under-budget on purpose: an over-budget request lets Qt starve the CENTER pane
-        # (the behavior splitter's snap-measured lesson)
-        split.setSizes([int(170 * k), int(530 * k)])
+        # (the behavior splitter's snap-measured lesson). 200, not the behavior rail's 170:
+        # a scene row carries its GATE ("plays at beat 100") and the snap showed it eliding.
+        split.setSizes([int(200 * k), int(500 * k)])
         self._hsplit = split
         outer.addWidget(split, 1)
         return page
@@ -905,6 +921,7 @@ class CutsceneDoc(QWidget):
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
             self.board_slider.setMinimumWidth(int(120 * pct / 100))
+            self._settings_scroll.setMaximumHeight(int(340 * pct / 100))
 
     def retheme(self, pal):
         self.pal = pal
@@ -1130,6 +1147,7 @@ class CutsceneDoc(QWidget):
             return
         self._selected_step = i
         self.editor.open_step(self._scene, i, st[i], self._cast())
+        self._editor_scroll.show()
         self._open_editor_guard()
         self._render()
 
@@ -1138,6 +1156,7 @@ class CutsceneDoc(QWidget):
             return
         at = (self._selected_step + 1) if self._selected_step is not None else len(self._steps())
         self.editor.open_step(self._scene, None, {"say": ""}, self._cast(), insert_at=at)
+        self._editor_scroll.show()
         self._open_editor_guard()
 
     def _open_editor_guard(self):
@@ -1150,6 +1169,8 @@ class CutsceneDoc(QWidget):
 
     def _close_editor(self):
         self.editor.hide()
+        if hasattr(self, "_editor_scroll"):
+            self._editor_scroll.hide()             # the scroll well must not linger as a blank band
         self.editor.scene = self.editor.step_i = self.editor.insert_at = None
         self._disarm_stage_pick()
 

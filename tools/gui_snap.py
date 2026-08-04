@@ -1241,6 +1241,71 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
+CUTSCENE_STATES = ("guide", "doc", "editor", "settings", "storyboard", "staged", "narration")
+
+
+def _load_cutscene_demo():
+    """The GLEN fixture's builder lives in tests/test_cutscenedoc.py -- ONE owner (kit-authored,
+    zero Square-Enix bytes; a genuinely ROUTED walk), loaded by path because tests/ is not a
+    package -- the behavior demo's own pattern."""
+    import importlib.util
+    p = REPO / "ff9mapkit" / "tests" / "test_cutscenedoc.py"
+    spec = importlib.util.spec_from_file_location("_cutscene_demo_fixture", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def snap_cutscene(ctx: _Ctx, state: str) -> None:
+    """The Cutscene tab (the redesign): the no-field front door ('guide'), the demo dispatch's
+    rail + ladder + stage ('doc'), the step editor open on the attributed say with the pacing
+    drawer expanded ('editor'), the scene-settings card ('settings'), the beat storyboard over
+    the ROUTED walk ('storyboard'), a staging verdict painted on the failing leg ('staged'),
+    and the narration scene's face ('narration')."""
+    if state not in CUTSCENE_STATES:
+        raise ValueError(f"unknown cutscene state {state!r} (know: {', '.join(CUTSCENE_STATES)})")
+    win = _make_win(ctx)
+    if state == "guide":
+        win.tabs.setCurrentWidget(win.cutscene_doc)
+        _settle(4)
+        _grab(ctx, "cutscene-guide", win)
+        _close(win)
+        return
+    demo = _load_cutscene_demo()
+    root = _SCRATCH / "cutscene_demo"                  # stable path -- mkdtemp breaks pixel-diffing
+    if root.exists():
+        shutil.rmtree(root, ignore_errors=True)
+    toml = demo.make_cutscene_field(root)
+    assert win.open_field(toml), "the cutscene demo field must open"
+    win.tabs.setCurrentWidget(win.cutscene_doc)        # the shell feed runs on tab show
+    _settle(6)
+    doc = win.cutscene_doc
+    if state == "editor":
+        doc._edit_step(2)                              # the attributed say: text box + preview
+        doc.editor.extras.toggle_button.click()        # the pacing drawer is the subject
+        _settle(4)
+    elif state == "settings":
+        doc.settings_btn.setChecked(True)
+        _settle(4)
+    elif state == "storyboard":
+        doc.stage_now(sync=True)                       # warm mesh: the walk shows ROUTED
+        doc.board_btn.setChecked(True)
+        doc._show_beat(0)
+        _settle(4)
+    elif state == "staged":
+        doc._steps()[0]["walk"] = [2000, 2000]         # an in-memory stall; nothing is saved
+        doc._render()
+        doc.stage_now(sync=True)                       # the verdict paints on the failing leg
+        _settle(4)
+    elif state == "narration":
+        doc.rail.setCurrentRow(1)
+        _settle(4)
+    _grab(ctx, f"cutscene-{state}", win)
+    if state in ("doc", "storyboard", "staged"):       # the canvas is the subject -- grab IT too
+        _grab(ctx, f"cutscene-{state}-canvas", doc.canvas)
+    _close(win)
+
+
 CONSOLE_STATES = ("log", "find", "miss", "jobs")
 
 
@@ -1321,14 +1386,14 @@ def snap_form(ctx: _Ctx, state: str) -> None:
                     'zone = [[300, -400], [700, -400], [700, -800], [300, -800]]\n'),
         "chest": ('[[chest]]\npos = [0, 80]\nitem = ["Potion", 1]\nflag = "chest_potion"\n\n'
                   '[[flag]]\nname = "chest_potion"\nindex = 8720\n'),
-        # S5's subject: a minimal narration cutscene (say / wait / say), once-guarded
+        # post-redesign: the tree node is a SUMMARY + the door to the Cutscene tab -- the subject
+        # here is the summary card itself (per-scene lines + the accented "Open the Cutscene tab").
+        # The step-editing surfaces are the cutscene:* snaps.
         "cutscene": ('[cutscene]\nonce = true\nsteps = [\n'
                      '  { say = "The hut is silent..." },\n  { wait = 30 },\n'
                      '  { say = "...for now." },\n]\n'),
-        # THE DISPATCH -- several beat-gated scenes on one field (the shipped stolen-ember shape). This
-        # state was UNREVIEWABLE until the [[cutscene]] deadlock was fixed: mounting the tab on a plural
-        # section raised out of _commit_active and trapped the editor. It is pinned so it stays fixed --
-        # the subject is the "editing scene #1 of N" banner and a cast scene's staging row.
+        # THE DISPATCH through the summary: every scene named with its gate (the old form edited
+        # scene #0 and hid the rest -- the summary must NOT repeat that lie by omission).
         "cutscene-dispatch": (
             '[[cutscene]]\nactors = ["Boletta"]\nrequires_scenario = 100\nset_scenario = 200\n'
             'steps = [\n  { say = "You came back." },\n  { walk = [0, 80], actor = "Boletta" },\n]\n\n'
@@ -1493,8 +1558,8 @@ def _snap_anim_dialog(ctx: _Ctx, key: str) -> None:
     """The two animation pickers, opened through their REAL call sites (a bare _make_win has no open
     field, so a hand-called constructor would photograph a surface no user can reach):
 
-      * ``anim-picker``    -- the CUTSCENE step's Browse, on an `animation` step whose actor is the
-        field's own NPC (shell._mount_cutscene -> shell._actor_model_hint);
+      * ``anim-picker``    -- the CUTSCENE step editor's Browse (the DOC tab, post-redesign), on an
+        `animation` step whose actor is the field's own NPC (CutsceneDoc -> shell._actor_model_hint);
       * ``animset-picker`` -- the [[npc]] form's `anims` Browse (forms_qt's browse closure ->
         shell._pick's early return).
 
@@ -1518,12 +1583,17 @@ def _snap_anim_dialog(ctx: _Ctx, key: str) -> None:
                     _settle(6)
                     _child_named(win, QPushButton, "Browse Movement clips").click()
                 else:
-                    win._goto_tree_section("GLADE", "cutscene")
+                    win.tabs.setCurrentWidget(win.cutscene_doc)   # the DOC owns the step editor now
                     _settle(6)
+                    doc = win.cutscene_doc
+                    if doc._stack.currentWidget() is doc._guide_page:
+                        doc._add_scene()               # a scene to host the step (in-memory copy)
+                    doc._add_step()
+                    _settle(2)
                     combo = _child_named(win, QComboBox, "Cutscene step type")
                     combo.setCurrentIndex(list(_forms.STEP_KIND).index("animation"))
                     _child_named(win, QLineEdit, "Cutscene step value").setText(pin.label)
-                    _child_named(win, QLineEdit, "Cutscene step actor").setText("Boletta")
+                    _child_named(win, QComboBox, "Cutscene step actor").setEditText("Boletta")
                     _settle()
                     _child_named(win, QPushButton,
                                  "Browse animations this actor's model can play").click()
@@ -1588,6 +1658,7 @@ def all_surfaces() -> list[str]:
             + [f"drift:{s}" for s in DRIFT_STATES]
             + [f"script:{s}" for s in SCRIPT_STATES]
             + [f"behavior:{s}" for s in BEHAVIOR_STATES]
+            + [f"cutscene:{s}" for s in CUTSCENE_STATES]
             + [f"trace:{s}" for s in TRACE_STATES]
             + [f"place:{s}" for s in PLACE_STATES]
             + [f"floorplan:{s}" for s in FLOORPLAN_STATES]
@@ -1641,6 +1712,8 @@ def main() -> None:
                 snap_script(ctx, rest)
             elif kind == "behavior":
                 snap_behavior(ctx, rest)
+            elif kind == "cutscene":
+                snap_cutscene(ctx, rest)
             elif kind == "trace":
                 snap_trace(ctx, rest)
             elif kind == "place":
