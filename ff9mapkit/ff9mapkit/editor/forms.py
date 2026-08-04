@@ -101,6 +101,8 @@ NPC_SPEC = [
     Field("speaker", "Speaker name", STR, "optional name before the line, e.g. Vivi (or [VIVI] for a renameable party name)"),
     Field("tail", "Window tail", STR, _TAIL_HELP + ". Default UPR."),
     Field("pos", "Position (x, z)", COORD, "where it stands on the floor; usually placed in Blender"),
+    Field("face", "Facing (0-255)", OPTINT,
+          "which way it stands: 0=south (toward the camera), 64=west, 128=north, 192=east"),
     Field("requires_flag", "Appears when flag set", FLAGREF,
           "story gate: show only after this flag (name or index) is set", catalog="flag"),
     Field("requires_flag_clear", "Appears when flag clear", FLAGREF,

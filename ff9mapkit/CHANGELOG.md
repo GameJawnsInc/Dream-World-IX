@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `[[npc]] face` was documented but never wired; every authored NPC shipped facing south
+- **`face = <0..255>` on an `[[npc]]` now sets which way it stands** (0=south/toward the camera,
+  64=west, 128=north, 192=east — the same compass `[player]`, chest and prop `face` already used).
+  It was documented in `FORMAT.md`, drawn by `tools/field_layout_probe.py`, and named in the layout
+  skill, but the build never read it: `lint` reported it as an unknown key and the value was dropped,
+  so a room laid out with NPCs turned to each other shipped with all of them facing the camera.
+- **No new opcodes.** The facing rides the object's own `SetVar D9(6)` const, which the real-NPC Init's
+  `TurnInstant(D9(6))` already consumed right after `CreateObject` — so the NPC is turned on frame 0
+  (no spawn-facing flash) and `face = 0` is byte-identical to every previous build. Wired on both the
+  synthesized-field and verbatim-fork paths; an out-of-range value is a `lint` error instead of a
+  silent mask. Head-tracking is unchanged and separate: most rigs still turn their *head* toward the
+  player, while the body keeps this facing.
+
 ### Changed — cutscene `turn` steps now animate (the stock look) instead of snapping
 - **A `turn` beat rotates the actor with its turn animation** (`TimedTurn`/`TimedTurnEx` at the
   engine's default speed) instead of instantly snapping its facing (`TurnInstant`), in both the

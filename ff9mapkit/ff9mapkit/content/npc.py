@@ -205,8 +205,8 @@ def _player_rig(data) -> tuple:
     return model, animset, anims
 
 
-def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, animset=None,
-               anims=None, talk_text_id: int = 62, slot: int | None = None,
+def inject_npc(data, x: int, z: int, *, facing: int = 0, preset: str | None = None, model=None,
+               animset=None, anims=None, talk_text_id: int = 62, slot: int | None = None,
                spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                gate_flag: int | None = None, gate_require_set: bool = True,
                appears_scenario_min: int | None = None, appears_scenario_max: int | None = None,
@@ -216,7 +216,15 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                boot_spawn: bool = True, talk_window: int = 1, talk_flags: int = 128,
                talk_dim=False, talk_dim_tint=None,
                talk_lock: bool = True, talk_lock_menu: bool = False) -> bytes:
-    """Inject an NPC at world (x, z). Returns new .eb bytes.
+    """Inject an NPC at world (x, z), standing turned to ``facing``. Returns new .eb bytes.
+
+    ``facing`` is the raw FF9 compass byte (0=south/toward the camera, 64=west, 128=north, 192=east) --
+    the ``[[npc]] face`` key. It rides the object's OWN ``SetVar D9(6)`` const, which the real-NPC Init's
+    ``TurnInstant(D9(6))`` consumes right after ``CreateObject`` (:func:`build_npc_init`), so the NPC is
+    already turned on frame 0 -- no spawn-facing flash, and no extra opcode over the default. The default
+    0 reproduces every pre-existing build byte-for-byte. (A ``[[prop]]`` sets its facing through a SECOND
+    ``TurnInstant`` in ``init_tail`` instead -- :func:`ff9mapkit.content.prop.prop_init_tail`, byte-matched
+    to the shipping prop objects; leave that path alone.)
 
     ``reserve_party_band`` (the VERBATIM-fork path): a real field packs its NPC slots and reserves the
     LAST 9 entry slots for the playable characters (addressed positionally by the engine), so the kit's
@@ -258,7 +266,7 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
 
     # Init (tag 0): the real-NPC object shape, emitted FROM SCRATCH -- no player clone, no control cruft,
     # UNCONDITIONAL (the OBJECT-INIT GATE LAW). Story/beat gating wraps the InitObject call site below.
-    body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z,
+    body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z, facing=int(facing),
                            head_focus=head_focus, logical_size=ls,
                            init_tail=bytes(init_tail or b""))
     # Loop (tag 1): the real 2-op standby. An ACTOR cutscene's `intro` choreography PREPENDS here (NOT the

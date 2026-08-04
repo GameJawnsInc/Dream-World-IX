@@ -211,6 +211,106 @@ def test_npc_is_appended_and_spawned():
     assert 0x09 in _ops(eb, 0, 0)
 
 
+# --- [[npc]] face: the standing facing byte -------------------------------------------------------
+# `face` was documented on [[npc]] (FORMAT.md, the layout skill, npc.set_player_facing's own
+# docstring) long before it was wired, so the build silently dropped it and EVERY authored NPC
+# shipped facing 0 -- the inverted-cardinals class the layout skill exists to prevent. These pin
+# the wiring at the byte the engine actually reads.
+
+def _init_body(data: bytes, slot: int) -> bytes:
+    f0 = EbScript.from_bytes(data).entry(slot).func_by_tag(0)
+    return data[f0.abs_start:f0.abs_end]
+
+
+def _facing_const(face: int) -> bytes:
+    """``SetVar D9(6) = face`` -- 05 D9 06 7D <i16 LE> 2C 7F (npc._d9_const's engine form)."""
+    return bytes([0x05, 0xD9, 0x06, 0x7D, face & 0xFF, (face >> 8) & 0xFF, 0x2C, 0x7F])
+
+
+def _injected_facings(data: bytes) -> list[int]:
+    """The D9(6) facing const of every INJECTED object entry, in slot order (the player's own entry
+    is excluded -- its facing is `[player] face`, a different key on a different object)."""
+    s = EbScript.from_bytes(data)
+    out = []
+    for e in s.entries:
+        f0 = None if e.empty else e.func_by_tag(0)
+        if f0 is None:
+            continue
+        body = data[f0.abs_start:f0.abs_end]
+        if npc._CREATE_OBJECT not in body or any(i.op == npc.DEFINE_PLAYER for i in s.instrs(f0)):
+            continue
+        k = body.index(bytes([0x05, 0xD9, 0x06, 0x7D]))
+        out.append(int.from_bytes(body[k + 4:k + 6], "little"))
+    return out
+
+
+def test_npc_facing_rides_the_d9_6_const_the_init_turn_consumes():
+    """facing= writes the object's OWN D9(6) const, which the real-NPC Init's TurnInstant(D9(6))
+    consumes right after CreateObject -- so the NPC is turned on frame 0, with no extra opcode."""
+    slot = EbScript.from_bytes(CLEAN).first_free_slot()
+    out = npc.inject_npc(CLEAN, 0, -700, facing=192, preset="vivi", talk_text_id=500, slot=slot)
+    body = _init_body(out, slot)
+    assert _facing_const(192) in body                                  # 192 = east
+    # order: the const is SET before CreateObject, and TurnInstant reads it after
+    assert body.index(_facing_const(192)) < body.index(npc._CREATE_OBJECT) < body.index(npc._TURN_INSTANT)
+
+
+def test_npc_facing_default_is_byte_identical_to_the_old_output():
+    """The default (0 = south, toward the camera) must reproduce every pre-existing build exactly."""
+    assert (npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500)
+            == npc.inject_npc(CLEAN, 100, -500, facing=0, preset="vivi", talk_text_id=500))
+
+
+def test_npc_facing_changes_exactly_one_byte():
+    """A facing costs NO opcode -- it is the const the template already carried. Anything else
+    (an appended TurnInstant, a shifted body) would move offsets the seat/spawn math depends on."""
+    slot = EbScript.from_bytes(CLEAN).first_free_slot()
+    south = npc.inject_npc(CLEAN, 100, -500, facing=0, preset="vivi", talk_text_id=500, slot=slot)
+    west = npc.inject_npc(CLEAN, 100, -500, facing=64, preset="vivi", talk_text_id=500, slot=slot)
+    assert len(south) == len(west)
+    f0 = EbScript.from_bytes(south).entry(slot).func_by_tag(0)
+    at = f0.abs_start + _init_body(south, slot).index(_facing_const(0)) + 4    # the const's low byte
+    assert [i for i, (a, b) in enumerate(zip(south, west)) if a != b] == [at]
+
+
+def test_npc_face_key_reaches_the_built_script(tmp_path):
+    """END TO END -- the gap this closes: `face = 64` in the field.toml must land in the .eb, on
+    THAT NPC's own object. An NPC with no `face` keeps the 0 default."""
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "F"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
+        '[player]\nspawn = [0, 150]\n\n'
+        '[[npc]]\nname = "west"\npreset = "vivi"\npos = [-100, 0]\nface = 64\ndialogue = "."\n\n'
+        '[[npc]]\nname = "plain"\npreset = "vivi"\npos = [100, 0]\ndialogue = "."\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert build.validate(proj) == []
+    _mes, npc_txids = build.collect_text(proj)[:2]
+    eb = build.build_script(proj, "us", npc_txids)
+    assert _injected_facings(eb) == [64, 0]              # "west" turned; "plain" kept the default
+
+
+def test_npc_face_out_of_range_is_a_validate_problem(tmp_path):
+    from ff9mapkit import build
+    base = ('[field]\nid = 4003\nname = "F"\narea = 11\ntext_block = 1073\n\n'
+            '[camera]\npitch = 45\nfov = 42.2\n\n'
+            '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n')
+
+    def probs(face_line):
+        p = tmp_path / "f.field.toml"
+        p.write_text(base + '[[npc]]\nname = "a"\npreset = "vivi"\npos = [0, 0]\n' + face_line,
+                     encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+
+    assert any("face" in x and "0..255" in x for x in probs("face = 300\n"))
+    assert any("face" in x and "0..255" in x for x in probs("face = -1\n"))
+    assert any("face" in x and "0..255" in x for x in probs('face = "north"\n'))
+    assert probs("face = 128\n") == [] and probs("") == []
+
+
 def test_encounter_injected():
     out = encounter.inject_encounter(CLEAN, scene=67, freq=255)
     eb = EbScript.from_bytes(out)
