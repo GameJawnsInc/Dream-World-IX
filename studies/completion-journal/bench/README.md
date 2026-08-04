@@ -88,11 +88,38 @@ form and desyncs the param list; the divergence is inert only because its one ca
 
 ## What is deliberately NOT here
 
-**The `[TEXT=bank,slot]` glyph.** Rendering one needs a minted text *entry* whose body is
-split by `[TBLE=]`, and the kit's only `[TBLE=]` emitter is hardwired to the Mognet roster
-(`build.py`, `build_mes_fixed`). That is rung 0b and wants a `[[text_table]]` lane — which
-is T1b's whole prose layer, not probe-only scaffolding. Slot 6 therefore publishes the
-*clamped number* instead, which still exercises the guard expression.
+**The `[TEXT=bank,slot]` glyph — ★ NO LONGER MISSING, the lane shipped.** This section used to
+read: rendering one needs a minted text *entry* whose body is split by `[TBLE=]`, and the kit's
+only `[TBLE=]` emitter is hardwired to the Mognet roster, so **slot 6 of the rung-0 probe
+publishes the clamped number instead**. That remains true of the *probe* (`journal_probe.field.toml`
+is a recorded artifact and is not re-cut), and it is what left T1b shipping two frozen literal
+rows — the Treasure-Hunter rank stuck on `H`, the Hunt winner on a fixed name — until the owner
+reported them: *"T hunter rank and chests opened are wrong."*
+
+The lane is now `ff9mapkit/ff9mapkit/content/texttable.py`:
+
+```toml
+[[text_table]]
+name = "th_rank"
+rows = ["H", "G", "F", "E", "D", "C", "B", "A", "S"]
+```
+
+Each block becomes one `.mes` entry, `[TBLE=<n>,]` + the rows newline-separated, added **last** so
+a field without one is byte-identical to before. The bank operand of a `[TEXT=<name>,slot]` tag is
+a **name**, and `build.collect_text` substitutes the txid it actually allocated (through
+`content.text.txid_map`, the same function `build_mes` derives its own mapping from — one owner, so
+the substituted id cannot be off by one from the id the entry lands on). A hand-authored bank number
+was never possible and now is never needed; an *unknown* name raises at the substitution site rather
+than shipping, because the in-game symptom is `String.Empty` — a blank line, no log, which a player
+reads as a bug.
+
+**Bank txids above 255 are fine.** `NGUIText.GetDialogWidthFromSpecialOpcode` (`NGUIText.cs:60-84`)
+carries a second, packed `[TEXT=]` decode for `tableId > Byte.MaxValue` that the replacement path
+does not implement — but that decoder is reachable only from `OnWidths`, i.e. the `[WDTH]` tag,
+which Memoria marks `// Dummied`. The live render is a plain
+`ETb.GetStringFromTable(UIntParam(0), UIntParam(1))` (`DialogBoxSymbols.cs:59-60`). The bench's
+banks land at txid 509/510 and render through that one function. Do **not** add `[WDTH=]` to an
+entry carrying a `[TEXT=]`.
 
 The guard itself ships regardless, and it is no longer something the author can get wrong:
 `compile()` **wraps** every slot a `[TEXT=…]` tag reads in `E E const(0) B_GE B_MULT`

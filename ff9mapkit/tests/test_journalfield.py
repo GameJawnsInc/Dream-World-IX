@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 
 import pytest
 
@@ -30,7 +31,11 @@ from ff9mapkit.content import region as R, text as T
 from ff9mapkit.eb import disasm as D, exprasm as EA, exprsem as ES, opcodes as OPC
 from ff9mapkit.eb.opcodes import EXPR_VALUE_MAX, EXPR_VALUE_MIN
 
-BANKS = {"th_rank": 600, "hunt": 601}
+# ⚠ THERE IS NO `BANKS` FIXTURE ANY MORE, and its absence is the fix. `render_page` used to take
+# {table name: txid} and every caller invented one -- the CLI, the lint, the budget probe and these
+# tests each spelled their own, and the BENCH could not spell a real one at all, which is how the
+# widest-literal placeholder ("T.Hunter rank  H", frozen) shipped and reached a playtest. A bank now
+# has exactly one spelling: the [[text_table]] NAME, resolved to a txid by the build.
 
 
 # ---- the shipped layout ------------------------------------------------------------------------
@@ -70,16 +75,58 @@ def test_NOTHING_ELSE_depends_on_the_install(monkeypatch):
         outs.append(JF.bench_toml())
         assert JF.lint_pages(check_live_install=False) == []
     assert outs[0] == outs[1] == outs[2]
-    kline = next(ln for ln in outs[0].split("\n") if ln.startswith("Key items"))
+    # `Key items` is now the LAST line of the Party page, so the closing """ rides it (a newline
+    # before the delimiter would ship a trailing blank line and cost a rendered window row).
+    kline = next(ln for ln in outs[0].split("\n") if ln.startswith("Key items")).rstrip('"')
     assert kline.endswith(f"[NUMB=1]/{J.KEY_ITEM_EB_COUNT}"), kline
 
 
-def test_every_catalog_row_is_placed_exactly_once():
-    """Nothing is silently dropped and nothing is invented: the 48 rows and the 48 lines are the
-    same set. A row with no in-game read still gets a labelled '--' / 'n/a' line."""
+def test_every_catalog_row_is_placed_exactly_once_OR_is_declared_unrenderable():
+    """THE PLACEMENT AUDIT, both arms, over the whole catalog -- no third state.
+
+    It used to read "the 48 rows and the 48 lines are the same set", which was only expressible while
+    a page carried a line for rows that can never hold a value and rendered '--' or 'n/a' there. The
+    owner's verdict on bench 30801 killed that ("party is full of blank values, as is combat"), so a
+    page now renders values only -- and the audit gained an arm rather than losing one: a renderable
+    row must be placed, an unrenderable row must NOT be. Every row is still accounted for on every
+    run, which is the property the single-arm rule bought."""
     placed = [ln.row for p in JF.PAGES for ln in p.lines]
-    assert len(placed) == len(set(placed)) == len(J.ROWS)
-    assert set(placed) == {s.id for s in J.ROWS}
+    assert len(placed) == len(set(placed))                    # nothing placed twice
+    want = {s.id for s in J.ROWS if JF.renderable(s.id)}
+    assert set(placed) == want
+    assert len(want) == 30 and len(J.ROWS) == 48              # 30 renderable, 18 declared, pinned
+    # ...and every one of the 18 has a WRITTEN reason, so nothing is merely absent
+    for s in J.ROWS:
+        if not JF.renderable(s.id):
+            assert s.eb_absent or s.status in JF.UNRENDERABLE_STATUS, s.id
+            assert JF.unrenderable_reason(s.id).strip(), s.id
+
+
+def test_the_ONE_row_with_an_eb_that_is_still_unrenderable():
+    """meta.step_count is why `renderable` is not simply `eb is not None`. `B_SYSVAR[7]` is a real
+    read of a real counter the GAME NEVER MOVES, so rendering it would print a permanent 'Steps 0' --
+    a number that reads as 0% progress and as a bug. `eb` and `status` are orthogonal."""
+    dead = [s.id for s in J.ROWS if s.eb is not None and not JF.renderable(s.id)]
+    assert dead == ["meta.step_count"]
+    assert J.row_spec("meta.step_count").eb == "B_SYSVAR[7]"
+    assert J.row_spec("meta.step_count").status == "dead"
+    assert "meta.step_count" not in {ln.row for p in JF.PAGES for ln in p.lines}
+
+
+def test_no_page_renders_a_PLACEHOLDER_string():
+    """The owner could not tell '--' (offline only) from 'n/a' (not tracked anywhere) -- both read as
+    a broken row -- and 'S. purchases' was an unexplained abbreviation for a row that can never show
+    anything. Checked on the rendered text, not on the Line kinds."""
+    for p in JF.PAGES:
+        text, _e = JF.render_page(p)
+        for ln in text.split("\n")[1:]:
+            assert not ln.rstrip().endswith("--"), (p.key, ln)
+            assert "n/a" not in ln, (p.key, ln)
+            assert "[NUMB=" in ln or "[TEXT=" in ln, (p.key, ln)
+    # ...and the label the owner could not decode is on no page (the generated bench COMMENTARY
+    # still quotes the verdict, which is why this reads the RENDERED replies, not the whole file).
+    assert not any("S. purchases" in JF.render_page(p)[0] for p in JF.PAGES)
+    assert "= offline only" not in JF.menu_text()             # the legend for a gone placeholder
 
 
 def test_no_page_assigns_more_than_eight_slots():
@@ -109,13 +156,13 @@ def test_render_page_GROWS_the_header_rule_to_the_widest_line():
     content/text.py:487-497 calls approximate, so this property is NOT an in-game width guarantee and
     must not be cited as one."""
     probe = JF.Page("probe", "T", "T", (JF.Line("party.gil", "Gil", "num"),))   # 7-digit worst case
-    text, _exprs = JF.render_page(probe, BANKS)
+    text, _exprs = JF.render_page(probe)
     header = text.split("\n")[0]
     assert header.startswith("== T ="), header                # the rule GREW past the bare "== T "
     # and NO [IMME]: an instant reply is dismissed by the very press that opened it
     # (THE BROADCAST-CONFIRM LAW, studies/messages/SURVEY.md §7a -- see render_page).
     assert "[IMME]" not in text, text[:120]
-    assert T.measure(header) > JF._worst_case_width(probe.lines[0], BANKS)
+    assert T.measure(header) > JF._worst_case_width(probe.lines[0])
 
 
 def test_no_page_header_reaches_the_build_time_wrap():
@@ -150,7 +197,7 @@ def test_the_menu_fits_the_choice_row_cap_and_cancel_is_last():
 def test_denominators_are_literal_text_never_a_slot():
     """A baked '/24' costs zero slots and zero opcodes -- which is what makes 7 pages fit inside the
     8-slot ceiling. The number is checkable in the rendered text against denom_source."""
-    text, exprs = JF.render_page(JF.PAGES[1], BANKS)     # chocobo
+    text, exprs = JF.render_page(JF.PAGES[1])     # chocobo
     assert len(exprs) == 5
     assert f"/{J.CHOCOGRAPH_MAX}" in text and "/21" in text and "/99" in text
 
@@ -164,9 +211,8 @@ def test_every_rendered_fraction_IS_the_catalog_denominator():
     `journal report` printed 37/64, with no offline signal anywhere. `Line` no longer HAS a
     denominator field, so the two cannot disagree -- this test is the proof of that, and it also
     pins the exclusions (a table/dash/na line and a run-mode row render no fraction at all)."""
-    import re
     for p in JF.PAGES:
-        text, _e = JF.render_page(p, BANKS)
+        text, _e = JF.render_page(p)
         for line, rendered in zip(p.lines, text.split("\n")[1:]):
             spec = J.row_spec(line.row)
             got = re.search(r"/(\d+)$", rendered)             # "n/a" is not a fraction
@@ -181,7 +227,7 @@ def test_every_rendered_fraction_IS_the_catalog_denominator():
 def test_a_run_mode_or_exclusive_row_gets_NO_denominator():
     """Same exclusion the offline index applies (journal.py:1080-1084): a fraction that cannot
     legitimately fill reads as a bug."""
-    text, _ = JF.render_page(next(p for p in JF.PAGES if p.key == "cards"), BANKS)
+    text, _ = JF.render_page(next(p for p in JF.PAGES if p.key == "cards"))
     lines = {ln.split("[")[0].strip(): ln for ln in text.split("\n")}
     assert J.row_spec("minigame.collector_points").run_mode
     assert "/" not in lines["Coll. points"] and "/" not in lines["Coll. level"]
@@ -190,17 +236,29 @@ def test_a_run_mode_or_exclusive_row_gets_NO_denominator():
 
 def test_the_two_TBLE_banks_come_from_the_catalog_not_a_copy():
     assert JF.TABLES["th_rank"] == J.TH_RANKS
-    assert JF.table_texts()["th_rank"].startswith("[TBLE]")
+    assert JF.table_texts()["th_rank"].startswith("[TBLE=9,]")     # stock's form: row count first
     assert JF.table_texts()["hunt"].split("\n")[2:3] == ["Vivi"]   # byte 313 == 2, EMinigame.cs:302
+    # the preview and the build's own emitter are ONE function, never two spellings of the tag
+    from ff9mapkit.content import texttable as TT
+    assert JF.table_texts() == {n: TT.entry_text(r) for n, r in JF.TABLES.items()}
+    assert JF.text_table_blocks() == [{"name": "th_rank", "rows": list(J.TH_RANKS)},
+                                      {"name": "hunt", "rows": ["---", "Zidane", "Vivi", "Freya"]}]
 
 
-def test_the_bank_is_substituted_never_authored():
-    """collect_text assigns txids by POSITION (build.py:7795-7834), so a hand-written [TEXT=600,2]
-    bakes a txid that moves the moment a line is added above it. Every renderer takes the banks in."""
-    text, _ = JF.render_page(JF.PAGES[0], {"th_rank": 4242, "hunt": 1})
-    assert "[TEXT=4242,2]" in text
+def test_a_page_emits_the_BANK_NAME_and_never_a_NUMBER():
+    """collect_text assigns txids BY POSITION (content.text.txid_map), so a hand-written [TEXT=600,2]
+    bakes an id that moves the moment a line is added above it -- and the failure is silent (a wrong
+    bank renders another table's row; a bank with no entry renders String.Empty, i.e. a BLANK line,
+    which a player reads as a bug). This module therefore has no number it could get wrong: it emits
+    the [[text_table]] NAME and the build substitutes. An unknown table is refused, not emitted."""
+    text, _ = JF.render_page(JF.PAGES[0])
+    assert "[TEXT=th_rank,2]" in text
+    assert re.search(r"\[TEXT=\d", text) is None, text
+    for p in JF.PAGES:
+        assert re.search(r"\[TEXT=\d", JF.render_page(p)[0]) is None, p.key
     with pytest.raises(KeyError):
-        JF.render_page(JF.PAGES[0], {})
+        JF.render_page(JF.Page("p", "T", "T",
+                               (JF.Line("treasure.hunter_rank", "R", "table", table="nope"),)))
 
 
 # ---- the emitted .eb ---------------------------------------------------------------------------
@@ -208,7 +266,7 @@ def test_a_page_publishes_every_value_BEFORE_the_window_opens():
     """Order is load-bearing: `Dialog.AutomaticSize` bakes the width over the values present at
     open, and never re-sizes afterwards."""
     p = next(p for p in JF.PAGES if p.key == "mognet")
-    _text, exprs = JF.render_page(p, BANKS)
+    _text, exprs = JF.render_page(p)
     body = JF.page_body(exprs, 704, table_slots=JF.table_slots_of(p))
     ins = list(D.iter_code(body, 0, len(body)))
     assert [i.op for i in ins] == [0x66] * len(exprs) + [0x1F]
@@ -223,7 +281,7 @@ def test_a_TEXT_slot_is_clamped_by_the_EMITTER_not_by_the_author():
     from ff9mapkit.content.behavior import hud_row_index_clamp
     p = JF.PAGES[0]                                       # story: slot 2 feeds [TEXT=]
     assert JF.table_slots_of(p) == (2,)
-    _t, exprs = JF.render_page(p, BANKS)
+    _t, exprs = JF.render_page(p)
     body = JF.page_body(exprs, 700, table_slots=JF.table_slots_of(p))
     ins = list(D.iter_code(body, 0, len(body)))
     clamped = EA.assemble(hud_row_index_clamp(exprs[2]) + " B_EXPR_END")
@@ -235,7 +293,7 @@ def test_a_TEXT_slot_is_clamped_by_the_EMITTER_not_by_the_author():
 def test_every_table_slot_on_every_page_is_clamped():
     for p in JF.PAGES:
         from ff9mapkit.content.behavior import hud_row_index_clamp
-        _t, exprs = JF.render_page(p, BANKS)
+        _t, exprs = JF.render_page(p)
         body = JF.page_body(exprs, 700, table_slots=JF.table_slots_of(p))
         for slot in JF.table_slots_of(p):
             assert EA.assemble(hud_row_index_clamp(exprs[slot]) + " B_EXPR_END") in body
@@ -245,7 +303,7 @@ def test_the_talk_handler_uses_SWITCH_dispatch_never_per_arm_if_blocks():
     """Every arm opens a window and a window overwrites sysvar 9, so `choice.branch`'s per-arm
     re-read of GetChoose() would test the PAGE window's answer (content/choice.py:283-300).
     ⚠ build.py:6097 selects switch dispatch only for input/qte rows, so the generator must ask."""
-    body = JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699, BANKS)
+    body = JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699)
     ops = [i.op for i in D.iter_code(body, 0, len(body))]
     assert ops.count(R.SETREGION_OP) == 0
     assert ops.count(0x0B) == 1                           # exactly ONE switch, read once
@@ -260,7 +318,7 @@ def test_the_loop_latch_is_a_MAP_bit_and_the_close_arm_clears_it():
     """MAP scope, not GLOB: per-field transient, no save write. `EventContext.mapvar = new Byte[80]`
     (EventContext.cs:9) -> bit indices 0..639, so the latch must be inside that."""
     assert 0 <= JF.LOOP_LATCH_BIT < 80 * 8
-    body = JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699, BANKS)
+    body = JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699)
     assert R.set_var(R.MAP_BOOL, JF.LOOP_LATCH_BIT, 1) in body
     assert R.set_var(R.MAP_BOOL, JF.LOOP_LATCH_BIT, 0) in body
     from ff9mapkit.eb import opcodes as OPC
@@ -273,7 +331,7 @@ def test_the_loop_jumps_BACKWARD_to_the_condition():
     SIGNEDNESS: 0x02 (JMP_IFNOT) reads its operand UNSIGNED and can only go forward, 0x01 (JMP)
     reads a SIGNED int16. The disassembler prints the operand unsigned, so 62434 IS -3102."""
     import struct
-    body = JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699, BANKS)
+    body = JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699)
     ins = list(D.iter_code(body, 0, len(body)))
     hop = ins[-3]                                         # ... back-hop, EnableMove, RETURN
     assert hop.op == R.JMP_UNCOND
@@ -287,7 +345,7 @@ def test_the_whole_dashboard_fits_the_eb_offset_budget():
     """Measured on the REAL emitted stream against binutils.EB_FILE_BUDGET -- never len() of
     something else."""
     used, budget = JF.eb_budget()
-    assert used == len(JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699, BANKS))
+    assert used == len(JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699))
     assert used < budget // 4, f"{used} of {budget}"
 
 
@@ -305,7 +363,7 @@ def test_page_local_expressions_get_the_same_gate_as_row_expressions():
 
 
 def test_play_time_renders_as_hours_h_minutes():
-    text, exprs = JF.render_page(JF.PAGES[-1], BANKS)
+    text, exprs = JF.render_page(JF.PAGES[-1])
     assert "[NUMB=1]h[NUMB=2]" in text
     assert exprs[1] == J.row_spec("meta.play_time").eb
     assert J.eb_eval(exprs[1], lambda t: 3600 * 7 + 60 * 42) == 7
@@ -321,7 +379,7 @@ def test_the_UNIT_comes_from_the_catalog_so_a_SCALED_value_cannot_print_BARE():
     assert J.row_spec("meta.play_time").eb_scale == 3600
     assert J.row_spec("meta.play_time").eb_unit == "h"
     for p in JF.PAGES:
-        text, _e = JF.render_page(p, BANKS)
+        text, _e = JF.render_page(p)
         for line, rendered in zip(p.lines, text.split("\n")[1:]):
             spec = J.row_spec(line.row)
             if line.kind == "num" and spec.eb_scale != 1:
@@ -340,6 +398,10 @@ def test_pretty_listing_restores_the_disassembler():
 # ---- THE NEGATIVE TWINS: every ceiling above must be able to FAIL -------------------------------
 def _page(*lines, title="X"):
     return (JF.Page("probe", title, "Probe", tuple(lines)),)
+
+
+#: rows that CAN be probed with a `num` line without tripping the placement audit's second arm
+_LIVE = [s.id for s in J.ROWS if JF.renderable(s.id)]
 
 
 def _all_but(rows):
@@ -362,8 +424,8 @@ def test_a_ninth_slot_FAILS_the_gate():
 
 
 def test_a_fourteenth_line_FAILS_the_gate():
-    rows = [s.id for s in J.ROWS if s.eb_absent][:14]     # rows that legitimately render "n/a"
-    probe = _page(*[JF.Line(r, "L", "na") for r in rows])
+    rows = _LIVE[:14]
+    probe = _page(*[JF.Line(r, "L", "num") for r in rows])
     bad = JF.lint_pages(pages=_all_but(set(rows)) + probe,
                         check_live_install=False)
     assert any("rendered lines >" in m for m in bad), bad
@@ -374,15 +436,16 @@ def test_a_too_wide_value_line_FAILS_the_gate():
     CONSTRUCTION, so "header is widest" can never fail on page data -- but a value line wide enough
     to push that grown header past the 28.0 wrap makes the HEADER re-flow onto two lines at build.
     That is the failure this catches, and it is what bounds LINE_BUDGET."""
-    probe = _page(JF.Line("meta.bestiary", "A label far too long to fit a window", "na"))
-    bad = JF.lint_pages(pages=_all_but({"meta.bestiary"}) + probe,
+    probe = _page(JF.Line("combat.yan_blessing", "A label far too long to fit a window", "num"))
+    bad = JF.lint_pages(pages=_all_but({"combat.yan_blessing"}) + probe,
                         check_live_install=False)
     assert any("units >" in m for m in bad), bad
     assert any("re-flow it onto two lines" in m for m in bad), bad
 
 
 def test_a_DROPPED_row_FAILS_the_gate():
-    assert any("on NO page" in m
+    """ARM ONE of the placement audit: a row that CAN carry a value must be on a page."""
+    assert any("is on NO " in m
                for m in JF.lint_pages(pages=_all_but({"party.gil"}),
                                       check_live_install=False))
 
@@ -394,21 +457,32 @@ def test_a_row_placed_TWICE_fails_the_gate():
                                       check_live_install=False))
 
 
-def test_rendering_a_number_for_an_eb_absent_row_FAILS_the_gate():
+def test_PLACING_an_eb_absent_row_FAILS_the_gate():
+    """ARM TWO of the placement audit, and the arm the old single-arm rule did not have: a row with
+    NO .eb expression cannot be on a page at all. It used to be legal there as a '--'/'n/a' line, and
+    the owner reported those as broken values."""
     probe = _page(JF.Line("party.thefts", "Steals", "num"))
-    assert any("declares eb_absent" in m
-               for m in JF.lint_pages(pages=_all_but({"party.thefts"}) + probe,
-                                      check_live_install=False))
+    bad = JF.lint_pages(pages=_all_but({"party.thefts"}) + probe, check_live_install=False)
+    assert any("can never carry a value" in m and "eb_absent" in m for m in bad), bad
 
 
-def test_rendering_a_number_for_a_DEAD_row_FAILS_the_gate():
-    """meta.step_count HAS an .eb read (B_SYSVAR[7]) and the game never moves the counter. The page
-    must render 'n/a', never 0 -- `eb` and `status` are orthogonal facts."""
+def test_PLACING_a_DEAD_row_FAILS_the_gate():
+    """meta.step_count HAS an .eb read (B_SYSVAR[7]) and the game never moves the counter, so a page
+    that rendered it would print a permanent 'Steps 0'. `eb` and `status` are orthogonal facts, and
+    the same arm catches both -- that is why `renderable` is not `eb is not None`."""
     assert J.row_spec("meta.step_count").eb == "B_SYSVAR[7]"
     assert J.row_spec("meta.step_count").status == "dead"
     probe = _page(JF.Line("meta.step_count", "Steps", "num"))
-    assert any("must render" in m
-               for m in JF.lint_pages(pages=_all_but({"meta.step_count"}) + probe, check_live_install=False))
+    bad = JF.lint_pages(pages=_all_but({"meta.step_count"}) + probe, check_live_install=False)
+    assert any("can never carry a value" in m and "status='dead'" in m for m in bad), bad
+
+
+def test_a_PLACEHOLDER_kind_FAILS_the_gate():
+    """There is no 'dash'/'na' kind any more, and a Page that invents one must not render anything
+    silently -- the audit's second arm catches the row, and the kind rule catches the line."""
+    probe = _page(JF.Line("party.thefts", "Steals", "na"))
+    bad = JF.lint_pages(pages=_all_but({"party.thefts"}) + probe, check_live_install=False)
+    assert any("has kind 'na'" in m for m in bad), bad
 
 
 def test_the_key_item_numerator_and_denominator_CANNOT_disagree():
@@ -424,14 +498,14 @@ def test_the_key_item_numerator_and_denominator_CANNOT_disagree():
     ids = [int(t[len("const("):-1]) for t in J.row_spec("party.key_items").eb.split()
            if t.startswith("const(")]
     assert len(ids) == J.KEY_ITEM_EB_COUNT
-    text, _e = JF.render_page(next(p for p in JF.PAGES if p.key == "party"), BANKS)
+    text, _e = JF.render_page(next(p for p in JF.PAGES if p.key == "party"))
     assert f"/{len(ids)}" in text
 
 
 def test_a_bad_page_local_expression_FAILS_the_gate():
-    probe = _page(JF.Line("meta.bestiary", "Q", "num", extra=("Global.Byte[1] B_PLUS",),
+    probe = _page(JF.Line("combat.yan_blessing", "Q", "num", extra=("Global.Byte[1] B_PLUS",),
                           extra_source="EBin.cs:1866"))
-    bad = JF.lint_pages(pages=_all_but({"meta.bestiary"}) + probe,
+    bad = JF.lint_pages(pages=_all_but({"combat.yan_blessing"}) + probe,
                         check_live_install=False)
     assert any("does not evaluate" in m for m in bad), bad
 
@@ -467,9 +541,16 @@ def test_the_bench_toml_parses_and_carries_the_load_bearing_pieces():
     assert [o["text"] for o in ch["options"]] == [p.menu for p in JF.PAGES] + [JF.MENU_CLOSE]
     assert "reply" not in ch["options"][-1]                 # Close does nothing but close
     for p, o in zip(JF.PAGES, ch["options"]):
-        assert o["reply"] == JF._bench_page_text(p)
-        assert "[TEXT=" not in o["reply"]                   # the bank is a build-assigned txid
+        assert o["reply"] == JF.bench_page_text(p) == JF.render_page(p)[0]
         assert not o["reply"].endswith(chr(10))            # a trailing blank line costs a window row
+    # THE BENCH DECLARES ITS OWN [TBLE] BANKS, and its page text carries the real tag rather than the
+    # widest literal row it used to freeze in (owner: "T hunter rank and chests opened are wrong").
+    assert d["text_table"] == JF.text_table_blocks()
+    names = {t["name"] for t in d["text_table"]}
+    refs = [(t, s) for o in ch["options"] for t, s in
+            re.findall(r"\[TEXT=([^,\]]+),(\d+)\]", o.get("reply", ""))]
+    assert refs == [("th_rank", "2"), ("hunt", "4")]
+    assert {t for t, _s in refs} <= names                   # every reference resolves in this field
 
 
 @pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
@@ -484,7 +565,7 @@ def test_every_bench_page_carries_its_own_value_list():
     for p, o in zip(JF.PAGES, opts):
         assert o["values"] == list(JF.bench_page_values(p)), p.key
         assert all(v.startswith("expr:") for v in o["values"])
-        _t, exprs = JF.render_page(p, BANKS)
+        _t, exprs = JF.render_page(p)
         assert [v[len("expr:"):] for v in o["values"]] == list(exprs)   # the catalog's, not a copy
     assert "values" not in opts[-1]                       # Close publishes nothing and opens nothing
 
@@ -512,16 +593,108 @@ def built_bench_eb(tmp_path_factory):
     return ModLayout(out).eb_path("us", "EVT_JOURNALDASH.eb.bytes").read_bytes()
 
 
+@pytest.fixture(scope="module")
+def built_bench_mes(tmp_path_factory):
+    """BUILD the checked-in bench and hand back ``{txid: entry body}`` from its emitted ``.mes``.
+
+    The .eb half of the dashboard was already read from the artifact; the STRING half was not, and
+    that is where the frozen-rank defect lived. `journalfield` can only be asked what tag it would
+    write -- whether the build turned that tag's NAME into the txid the [TBLE] entry actually landed
+    on is a property of the emitted file and nothing else. An off-by-one there renders another
+    table's row or a blank line, in-game, with no error anywhere."""
+    from pathlib import Path
+    from ff9mapkit.build import FieldProject, build_mod
+    out = tmp_path_factory.mktemp("journal_bench_text")
+    build_mod([FieldProject.load(Path(_BENCH))], out, mod_name="FF9CustomMap")
+    raw = (out / "FF9_Data/embeddedasset/text/us/field"
+           / f"{JF.BENCH_FIELD_ID}.mes").read_text(encoding="utf-8")
+    pat = re.compile(r"_\[TXID=(\d+)\](?:\[STRT=[^\]]*\])?(?:\[TAIL=[^\]]*\])?(.*?)\[ENDN\]", re.S)
+    return {int(m.group(1)): m.group(2) for m in pat.finditer(raw)}
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_mes_CONTAINS_a_TBLE_entry_per_declared_bank(built_bench_mes):
+    """The emitted .mes used to contain ZERO [TBLE] entries -- `grep -c TBLE` returned 0 -- because
+    the kit had no general emitter and the bench froze each tag to a literal row instead."""
+    from ff9mapkit.content import texttable as TT
+    banks = {t: b for t, b in built_bench_mes.items() if TT.TABLE_OPEN in b}
+    assert len(banks) == len(JF.TABLES) == 2
+    assert sorted(banks.values()) == sorted(JF.table_texts().values())
+    # rows survive the text pipeline verbatim: the engine splits the body on '\n' after the tag
+    # (DialogBoxSymbols.cs:35-38), so a re-flow or an escaped newline would silently re-number them
+    for name, rows in JF.TABLES.items():
+        body = next(b for b in banks.values() if b == TT.entry_text(rows))
+        assert body.split("]", 1)[1].split("\n") == list(rows), name
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_mes_TAG_BANK_IS_the_txid_the_build_assigned(built_bench_mes):
+    """THE OFF-BY-ONE GATE, on the artifact. Every `[TEXT=bank,slot]` in the shipped .mes must carry
+    a NUMBER (a surviving name would be parsed as bank 0 by the engine's Single.TryParse) and that
+    number must be the txid of the entry holding THAT table's rows -- not the one before or after it.
+    `ETb.GetStringFromTable` returns String.Empty for an unknown bank: a blank line, no error."""
+    from ff9mapkit.content import texttable as TT
+    by_body = {b: t for t, b in built_bench_mes.items()}
+    want = {name: by_body[TT.entry_text(rows)] for name, rows in JF.TABLES.items()}
+    # what the pages ASK for, by name + slot, straight off the generator
+    asked = [(ln.table, slot) for p in JF.PAGES
+             for slot, ln in zip(_slots_of(p), p.lines) if ln.kind == "table"]
+    assert asked == [("th_rank", 2), ("hunt", 4)]
+    got = sorted((int(m.group(1)), int(m.group(2)))
+                 for b in built_bench_mes.values()
+                 for m in re.finditer(r"\[TEXT=([^,\]]+),(\d+)\]", b))
+    assert got == sorted((want[t], s) for t, s in asked), (got, want)
+    # ...and no tag kept a NAME: the substitution ran on every line, not just the ones we looked at
+    assert not [m.group(0) for b in built_bench_mes.values()
+                for m in re.finditer(r"\[TEXT=([^,\]]+),(\d+)\]", b)
+                if not m.group(1).isdigit()]
+
+
+def _slots_of(page):
+    """The gMesValue slot each of ``page``'s lines publishes into -- the same walk `render_page` and
+    `table_slots_of` do, spelled once for the tests that need the pairing."""
+    out, slot = [], 0
+    for ln in page.lines:
+        out.append(slot)
+        slot += 1 + len(ln.extra)
+    return out
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_mes_carries_NO_frozen_table_literal(built_bench_mes):
+    """The defect in its own words: the rank line shipped as `T.Hunter rank          H`, a literal,
+    on every save. A page line naming a table must end in the tag."""
+    from ff9mapkit.content import texttable as TT
+    pages = [b for b in built_bench_mes.values() if TT.TABLE_OPEN not in b]
+    rank = [ln for b in pages for ln in b.split("\n") if ln.startswith("T.Hunter rank")]
+    hunt = [ln for b in pages for ln in b.split("\n") if ln.startswith("Hunt winner")]
+    assert len(rank) == len(hunt) == 1
+    assert re.search(r"\[TEXT=\d+,2\]$", rank[0]), rank
+    assert re.search(r"\[TEXT=\d+,4\]$", hunt[0]), hunt
+    for row in list(JF.TABLES["th_rank"]) + list(JF.TABLES["hunt"]):
+        assert not rank[0].endswith(row) and not hunt[0].endswith(row)
+
+
 @pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
 def test_the_BUILT_eb_carries_every_page_value_write_on_the_right_slot(built_bench_eb):
     """Per page, per slot: the exact `SetTextVariable(slot, <expr>)` blob the catalog expression
     assembles to is PRESENT in the built .eb, exactly once, and the blobs appear in page order and
-    then slot order. Byte-exact, so a right-count/wrong-expression wiring fails too."""
+    then slot order. Byte-exact, so a right-count/wrong-expression wiring fails too.
+
+    ⚠ A SLOT A `[TEXT=]` TAG READS IS EXPECTED IN ITS CLAMPED FORM, and that is new: the bench's page
+    text now carries the real tag, so `content/choice.py:option_values_body` reads the reply with
+    `hud_text_table_slots` and wraps `hud_row_index_clamp` around exactly those slots. While the bench
+    substituted the widest literal row, nothing in the reply indexed the table and nothing clamped --
+    an unclamped negative row index throws in `ETb.GetStringFromTable` once per rendered frame."""
+    from ff9mapkit.content.behavior import hud_row_index_clamp
     prev = -1
     for p in JF.PAGES:
+        clamped_slots = set(JF.table_slots_of(p))
         for slot, src in enumerate(JF.bench_page_values(p)):
-            blob = OPC.set_text_variable_expr(
-                slot, EA.assemble(src[len("expr:"):] + " B_EXPR_END"))
+            toks = src[len("expr:"):]
+            if slot in clamped_slots:
+                toks = hud_row_index_clamp(toks)
+            blob = OPC.set_text_variable_expr(slot, EA.assemble(toks + " B_EXPR_END"))
             assert built_bench_eb.count(blob) == 1, f"{p.key} slot {slot}: {built_bench_eb.count(blob)}"
             off = built_bench_eb.index(blob)
             assert off > prev, f"{p.key} slot {slot} is emitted out of order ({off} after {prev})"

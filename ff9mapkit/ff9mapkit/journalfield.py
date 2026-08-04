@@ -57,7 +57,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field as _field
 
 from . import journal as _J
-from .content import choice as _choice, region as _region, text as _text
+from .content import choice as _choice, region as _region, text as _text, texttable as _texttable
 from .eb import exprasm as _exprasm, exprsem as _exprsem, opcodes as _opcodes
 
 # ============================ engine ceilings (TRANSCRIBED, with their file:line) ============================
@@ -86,9 +86,18 @@ PAGE_FLAGS = 128         # the standard field dialogue flag, same as plain NPC d
 # is the TXID of an entry in THIS field's own .mes whose body starts with `[TBLE]` and whose rows are
 # \n-separated (FF9TextTool.cs:650-659, NGUIText.cs:1536 `TableStart = "TBLE"`).
 #
-# ⚠ THE BANK IS NOT AUTHORABLE. collect_text assigns txids by POSITION (build.py:7795-7834), so a
-# hand-written `[TEXT=600,2]` in a TOML bakes a txid that moves the moment a line is added above it.
-# Every renderer here therefore takes the banks as a PARAMETER and substitutes them in a second pass.
+# ⚠ THE BANK IS NOT AUTHORABLE -- and the fix for that is now a LANE, not a workaround. `collect_text`
+# assigns txids by POSITION (`content.text.txid_map`), so a hand-written `[TEXT=600,2]` bakes an id that
+# moves the moment a line is added above it. `content.texttable` closes the loop: a `[[text_table]]`
+# block declares `name` + `rows`, the build allocates its `.mes` entry LAST and substitutes the assigned
+# txid into every `[TEXT=<name>,slot]` reference. So every renderer here emits the NAME and nothing in
+# this module ever spells a bank number.
+#
+# WHAT THIS REPLACED, because the replacement is the point: `_bench_page_text` used to rewrite each
+# `[TEXT=]` tag to that table's WIDEST LITERAL ROW, so the shipped bench froze the Treasure-Hunter rank
+# at "H" and the Hunt winner at a fixed name while the .eb published the correct index into a slot
+# nothing read. The computation was right the whole time (215 pts -> index 1 -> 'G', matching the
+# owner's debug menu); only the tag was missing. Owner verdict, bench 30801: "T hunter rank ... wrong".
 TABLES = {
     # rank index 0-8 -> the ladder letters. Identical order to journal.TH_RANKS, asserted in lint_pages.
     "th_rank": _J.TH_RANKS,
@@ -100,16 +109,60 @@ TABLES = {
 }
 
 
+# ============================ what a page may render ============================
+#: A row whose ``RowSpec.status`` is one of these has NO live value even where an ``.eb`` expression
+#: exists. ``meta.step_count`` is the whole reason this is separate from ``eb is None``: ``B_SYSVAR[7]``
+#: reads a real counter the GAME NEVER MOVES, so rendering it would print a permanent "Steps 0" -- a
+#: number that looks like 0% progress and reads as a bug. `eb` and `status` are orthogonal; collapsing
+#: them either drops a working row or ships a dead one.
+UNRENDERABLE_STATUS = ("untracked", "dead")
+
+
+def renderable(row_id: str) -> bool:
+    """Whether a catalog row can carry a LIVE value on a page in-game.
+
+    THE PAGE RULE, one owner. A page renders a row iff the row has an ``.eb`` expression AND a status
+    that expression can honestly publish. Everything else -- the 17 rows with no expression at all and
+    the one dead counter -- keeps its declared reason, stays in :data:`journal.ROWS`, and still prints
+    in ``journal rows`` / ``journal report``; it simply does not take a line on a screen where it could
+    only ever say "--" or "n/a".
+
+    WHY THOSE PLACEHOLDERS HAD TO GO, verbatim from the owner's bench-30801 verdict: "party is full of
+    blank values, as is combat", and "mognet seems good but idk what S. purchases is". The Party page
+    was 11 lines of which 2 held numbers; Combat & Meta was 11 of which 3. The "--" (offline only) vs
+    "n/a" (not tracked anywhere) distinction is invisible to a player -- both read as a broken row --
+    and ``S. purchases`` was an unexplained abbreviation for a row that can never show anything."""
+    spec = _J.row_spec(row_id)
+    return (spec is not None and spec.eb is not None and spec.status not in UNRENDERABLE_STATUS)
+
+
+def unrenderable_reason(row_id: str) -> str:
+    """Why :func:`renderable` refuses ``row_id`` -- the row's OWN declared reason, never a new one."""
+    spec = _J.row_spec(row_id)
+    if spec is None:
+        return "not a journal row id"
+    if spec.eb is None:
+        return f"eb_absent: {spec.eb_absent}"
+    return (f"status={spec.status!r}: an .eb read exists but the value is not live "
+            f"(journal.ROWS {row_id})")
+
+
 # ============================ the page schema ============================
 @dataclass(frozen=True)
 class Line:
-    """One rendered line of one page. ``row`` is a :data:`journal.ROWS` id -- ALWAYS, including for a
-    ``dash``/``na`` line, because the placement audit in :func:`lint_pages` is what makes "nothing is
-    silently dropped" a checked property instead of a claim."""
+    """One rendered line of one page. ``row`` is a :data:`journal.ROWS` id -- ALWAYS, because the
+    placement audit in :func:`lint_pages` is what makes "nothing is silently dropped" a checked
+    property instead of a claim.
+
+    ⚠ THERE ARE NO LONGER ``dash``/``na`` KINDS. A page used to carry a line for every catalog row and
+    render "--" or "n/a" where no value could exist; :func:`renderable` now decides, and a row it
+    refuses is absent from :data:`PAGES` entirely rather than present-but-blank. The audit did not get
+    weaker -- it got a second arm (a renderable row on NO page is still a violation, and an
+    unrenderable row ON a page is now one too), so there is still no way for a row to vanish silently."""
     row: str
     label: str                        # the PAGE label. Often shorter than RowSpec.label: 26 units is
                                       # the whole line, and the header has to stay wider than it.
-    kind: str                         # "num" | "table" | "dash" | "na"
+    kind: str                         # "num" | "table"
     table: "str | None" = None        # kind == "table": which of TABLES
     extra: tuple = ()                 # page-local EXTRA expressions after the row's own (play time's
                                       # minutes remainder is the only one). Each costs another slot and
@@ -130,17 +183,23 @@ class Page:
     lines: tuple = ()
 
 
-#: THE LAYOUT. 7 pages, all 48 catalog rows placed exactly once, every line measured.
+#: THE LAYOUT. 7 pages; every RENDERABLE catalog row (:func:`renderable`) placed exactly once, every
+#: line measured. The 18 rows that cannot carry a live value are on no page at all -- see
+#: :func:`renderable` for the owner verdict that removed them and :func:`lint_pages` for the audit that
+#: keeps their absence deliberate rather than accidental.
 #:
 #: `minigame` is the oversized category (11 rows, 10 numeric -- over the 8-slot ceiling), so it splits
 #: along the engine's OWN seam: gEventGlobal minigames (P3) vs the `30000_MiniGame` deck (P4). `combat`
 #: is a single row, so it rides with `meta` rather than costing a menu slot for one line.
+#:
+#: The seven pages and their menu order are OWNER-CONFIRMED in-game on bench 30801 and deliberately
+#: unchanged: Party is now a two-line page and Combat & Meta a three-line one, which is honest, and
+#: re-shuffling categories would churn a surface that already playtested green.
 PAGES = (
     Page("story", "STORY & TREASURE", "Story & treasure", (
         Line("story.scenario", "Scenario", "num"),
         Line("treasure.hunter_points", "T.Hunter pts", "num"),
         Line("treasure.hunter_rank", "T.Hunter rank", "table", table="th_rank"),
-        Line("treasure.chest_atlas", "Chests opened", "na"),
     )),
     Page("chocobo", "CHOCOBO", "Chocobo", (
         Line("chocobo.chocographs_found", "Chocographs", "num"),
@@ -162,7 +221,6 @@ PAGES = (
         Line("minigame.collector_points", "Coll. points", "num"),
         Line("minigame.collector_level", "Coll. level", "num"),
         Line("minigame.card_record", "Wins", "num"),
-        Line("minigame.quadmist_opponents", "Opponents", "na"),
     )),
     Page("mognet", "MOGNET", "Mognet", (
         Line("mognet.delivered", "Delivered", "num"),
@@ -172,21 +230,12 @@ PAGES = (
         Line("mognet.stiltzkin_tally", "Stiltzkin", "num"),
         Line("mognet.central_discovered", "Central", "num"),
         Line("mognet.paradise_discovered", "Paradise", "num"),
-        Line("mognet.stiltzkin_purchases", "S. purchases", "na"),
     )),
     Page("party", "PARTY", "Party", (
         Line("party.gil", "Gil", "num"),
         # denominator = journal.KEY_ITEM_EB_COUNT, the SAME constant the .eb's B_HAVE_ITEM sum is
         # built from -- see `_denom_of` rule 3 and the live-install gate in `lint_pages`.
         Line("party.key_items", "Key items", "num"),
-        Line("party.abilities_mastered", "Abil. mastered", "dash"),
-        Line("party.thefts", "Steals", "dash"),
-        Line("party.escapes", "Escapes", "dash"),
-        Line("party.battles", "Battles", "dash"),
-        Line("party.kills_total", "Kills", "dash"),
-        Line("party.kills_by_category", "Kills by type", "dash"),
-        Line("party.abilities_ever", "Abil. ever", "na"),
-        Line("party.passive_abilities_ever", "Support ever", "na"),
     )),
     Page("meta", "COMBAT & META", "Combat & meta", (
         Line("combat.yan_blessing", "Yan blessing", "num"),
@@ -196,27 +245,15 @@ PAGES = (
              extra=("B_SYSVAR[20] const(60) B_DIV const(60) B_REM",),
              extra_source="EventEngine.GetSysvar.cs:70-73"),
         Line("meta.field_entrance", "Last entrance", "num"),
-        # An .eb read EXISTS (`B_SYSVAR[7]`) but the game never moves the counter, so the page renders
-        # "n/a" and never 0. `eb` and `status` are orthogonal; collapsing them would show a dead
-        # counter as 0% progress.
-        Line("meta.step_count", "Steps", "na"),
-        Line("meta.ates_seen", "ATEs seen", "na"),
-        Line("meta.bestiary", "Bestiary", "na"),
-        Line("meta.synthesis_recipes", "Synthesis", "na"),
-        Line("meta.friendly_monsters", "Friendly mon.", "na"),
-        Line("meta.achievement_keys", "Achievements", "na"),
-        Line("meta.index", "Index", "dash"),
     )),
 )
 
 #: The menu's own text. "Close" is LAST because with no `[PCHC]`/`[PCHM]` the engine's CANCEL row is the
 #: last one (content/choice.py:20-21) -- pressing B must close the journal, not open the last page.
+#: ⚠ NO LEGEND LINE. It used to read "-- = offline only", explaining a placeholder no page renders any
+#: more; a legend for something that is not on screen is noise on the one window every player sees.
 MENU_PROMPT = "Read which page?"
-MENU_LEGEND = "-- = offline only"
 MENU_CLOSE = "Close"
-
-DASH_TEXT = "--"     # the row exists and a save carries it, but no .eb expression can reach it
-NA_TEXT = "n/a"      # the GAME keeps nothing to read (or keeps a counter it never moves)
 
 
 # ============================ rendering ============================
@@ -230,15 +267,22 @@ def _pad_to(label: str, target: float) -> str:
     return out
 
 
-def _value_text(line: "Line", banks: dict, slot: int) -> str:
+def _value_text(line: "Line", slot: int) -> str:
+    """The tag this line's value renders through.
+
+    A ``table`` line emits the ``[[text_table]]`` NAME as the bank, never a number: the real bank is a
+    txid the build assigns by position, and it substitutes the name at the moment every entry is
+    allocated (``content.texttable.resolve``, called from ``build.collect_text``). So this module -- the
+    only place the dashboard's text is written -- has no number it could get wrong, which is a stronger
+    property than checking one."""
     if line.kind == "num":
         return f"[NUMB={slot}]"
     if line.kind == "table":
-        bank = banks.get(line.table)
-        if bank is None:
-            raise KeyError(f"page line {line.row}: no [TBLE] bank supplied for table {line.table!r}")
-        return f"[TEXT={bank},{slot}]"
-    return DASH_TEXT if line.kind == "dash" else NA_TEXT
+        if line.table not in TABLES:
+            raise KeyError(f"page line {line.row}: unknown [TBLE] table {line.table!r}")
+        return f"[TEXT={line.table},{slot}]"
+    raise KeyError(f"page line {line.row}: unknown line kind {line.kind!r} -- a page renders a "
+                   f"number or a table row; a row with no live value is not on a page at all")
 
 
 def _denom_of(line: "Line") -> "int | None":
@@ -259,7 +303,7 @@ def _denom_of(line: "Line") -> "int | None":
     """
     spec = _J.row_spec(line.row)
     if line.kind != "num" or spec is None:
-        return None
+        return None                                       # a `table` line renders a NAME, not a count
     if spec.run_mode or spec.exclusive_group:
         return None
     if line.row == "party.key_items":
@@ -275,32 +319,35 @@ def _unit_of(line: "Line") -> str:
     return spec.eb_unit if (line.kind == "num" and spec is not None) else ""
 
 
-def render_page(page: "Page", banks: dict) -> tuple:
+def render_page(page: "Page") -> tuple:
     """``(text, exprs)`` for one page: the ``.mes`` entry body, and the RPN token strings to publish
-    into slots 0..len(exprs)-1 IN ORDER, before the window opens."""
+    into slots 0..len(exprs)-1 IN ORDER, before the window opens.
+
+    ⚠ NO ``banks`` PARAMETER, deliberately -- it used to take ``{table name: txid}`` and every caller
+    had to invent one (the CLI, the lint, the budget probe and the bench each spelled their own, and
+    the bench's could not be a real txid at all, which is how the widest-literal placeholder got in).
+    A ``[TEXT=]`` bank has exactly one legitimate spelling now: the ``[[text_table]]`` name, resolved by
+    the build. See :func:`_value_text`."""
     exprs: list = []
     body: list = []
     for line in page.lines:
-        if line.kind in ("num", "table"):
-            spec = _J.row_spec(line.row)
-            slot = len(exprs)
-            exprs.append(spec.eb)
-            val = _value_text(line, banks, slot) + _unit_of(line)
-            for i, ex in enumerate(line.extra):
-                exprs.append(ex)
-                val += f"[NUMB={slot + 1 + i}]"
-            den = _denom_of(line)
-            if den is not None:
-                val += f"/{den}"
-        else:
-            val = _value_text(line, banks, 0)
+        spec = _J.row_spec(line.row)
+        slot = len(exprs)
+        exprs.append(spec.eb)
+        val = _value_text(line, slot) + _unit_of(line)
+        for i, ex in enumerate(line.extra):
+            exprs.append(ex)
+            val += f"[NUMB={slot + 1 + i}]"
+        den = _denom_of(line)
+        if den is not None:
+            val += f"/{den}"
         body.append(_pad_to(line.label, VALUE_COLUMN) + val)
     # THE HEADER RULE, by construction: extend the `=` run until it out-measures every line, so the
     # rule reaches the window edge instead of stopping short of it. This is COSMETIC -- the engine
     # bakes Width from the real rendered strings at open (Dialog.AutomaticSize, Dialog.cs:1560-1591),
     # which is why `page_body` publishes the values FIRST and why `lint_pages` no longer re-asserts
     # the relation as if it were a gate on page data (it cannot fail for any Page input).
-    widest = max(_worst_case_width(line, banks) for line in page.lines)
+    widest = max(_worst_case_width(line) for line in page.lines)
     header = f"== {page.title} "
     while _text.measure(header) <= widest:
         header += "="
@@ -319,12 +366,16 @@ def render_page(page: "Page", banks: dict) -> tuple:
     return header + "\n" + "\n".join(body), tuple(exprs)
 
 
-def _worst_case_width(line: "Line", banks: dict) -> float:
+def _worst_case_width(line: "Line") -> float:
     """A line's width with every tag replaced by the WIDEST thing it can ever render. ``[NUMB]``'s
     modelled tag width is 4.0 units (content/text.py:527-529), which is only ~4 digits -- gil renders
-    7 -- so the LINE_BUDGET rule has to be computed against real values, not against the tag."""
+    7 -- so the LINE_BUDGET rule has to be computed against real values, not against the tag. A
+    ``[TEXT=]`` tag measures 4.0 the same way, and its widest ROW ("Zidane") is 6 -- so the table lines
+    are measured against the row, which is the honest worst case."""
     spec = _J.row_spec(line.row)
-    if line.kind == "num":
+    if line.kind == "table":
+        val = max(TABLES[line.table], key=_text.measure)
+    else:
         _lo, hi = _J.eb_bounds(spec.eb)
         val = str(hi) + _unit_of(line)
         for ex in line.extra:
@@ -333,29 +384,35 @@ def _worst_case_width(line: "Line", banks: dict) -> float:
         den = _denom_of(line)
         if den is not None:
             val += f"/{den}"
-    elif line.kind == "table":
-        val = max(TABLES[line.table], key=_text.measure)
-    else:
-        val = DASH_TEXT if line.kind == "dash" else NA_TEXT
     return _text.measure(_pad_to(line.label, VALUE_COLUMN) + val)
 
 
 def menu_text(pages=PAGES) -> str:
-    """The ONE ``[CHOO]`` entry -- prompt, legend, then one row per page plus Close. The Black Mage
-    shop shape (content/choice.py:7-13): prompt and rows are a single text entry."""
+    """The ONE ``[CHOO]`` entry -- prompt then one row per page plus Close. The Black Mage shop shape
+    (content/choice.py:7-13): prompt and rows are a single text entry."""
     rows = "\n".join(f"  {p.menu}" for p in pages) + f"\n  {MENU_CLOSE}"
-    return f"[IMME]{MENU_PROMPT}\n{MENU_LEGEND}\n[CHOO]{rows}"
+    return f"[IMME]{MENU_PROMPT}\n[CHOO]{rows}"
 
 
-def page_texts(banks: dict, *, pages=PAGES) -> dict:
+def page_texts(*, pages=PAGES) -> dict:
     """``{page.key: (text, exprs)}`` for every page."""
-    return {p.key: render_page(p, banks) for p in pages}
+    return {p.key: render_page(p) for p in pages}
 
 
 def table_texts() -> dict:
-    """``{name: entry_body}`` for the two ``[TBLE]`` banks -- the entries whose txids become the
-    ``bank`` operand of every ``[TEXT=bank,slot]`` this dashboard emits."""
-    return {name: "[TBLE]" + "\n".join(rows) for name, rows in TABLES.items()}
+    """``{name: entry_body}`` for the ``[TBLE]`` banks, in the exact ``.mes`` form the build emits.
+
+    Delegates to :func:`content.texttable.entry_text` rather than re-spelling the tag: the emitted
+    entry and this preview have to be one string, or a review here would certify bytes the build never
+    writes."""
+    return {name: _texttable.entry_text(rows) for name, rows in TABLES.items()}
+
+
+def text_table_blocks() -> list:
+    """The ``[[text_table]]`` blocks a field carrying this dashboard must declare -- ``[{name, rows}]``,
+    generated from :data:`TABLES` so a field can never ship a bank whose rows disagree with the ones
+    :func:`render_page` measured its widths against."""
+    return [{"name": name, "rows": list(rows)} for name, rows in TABLES.items()]
 
 
 # ============================ the .eb side ============================
@@ -387,15 +444,13 @@ def table_slots_of(page: "Page") -> tuple:
     """Which slots of ``page`` feed a ``[TEXT=]`` tag (so :func:`page_body` clamps them)."""
     out, slot = [], 0
     for line in page.lines:
-        if line.kind not in ("num", "table"):
-            continue
         if line.kind == "table":
             out.append(slot)
         slot += 1 + len(line.extra)
     return tuple(out)
 
 
-def talk_body(page_txids: dict, menu_txid: int, banks: dict, *,
+def talk_body(page_txids: dict, menu_txid: int, *,
               pages=PAGES, latch_bit: int = LOOP_LATCH_BIT, window: int = PAGE_WINDOW,
               flags: int = PAGE_FLAGS) -> bytes:
     """The COMPLETE talk handler: lock control, then loop { menu -> one page } until Close, unlock,
@@ -414,7 +469,7 @@ def talk_body(page_txids: dict, menu_txid: int, banks: dict, *,
     scope means per-field transient with no save write (``EventContext.mapvar = new Byte[80]``,
     EventContext.cs:9, so ``n`` must be < 640). ``while_block`` is the kit's existing backward-jump
     construct -- the only genuinely new thing here is which condition it tests."""
-    texts = page_texts(banks, pages=pages)
+    texts = page_texts(pages=pages)
     arms = []
     for p in pages:
         _txt, exprs = texts[p.key]
@@ -454,17 +509,16 @@ class PageReport:
     rows: list = _field(default_factory=list)             # [(row_id, kind, literal_w, worst_w)]
 
 
-def measure_pages(*, banks: "dict | None" = None, pages=PAGES) -> list:
+def measure_pages(*, pages=PAGES) -> list:
     """Per-page line counts, slot counts, emitted ``.eb`` bytes and measured widths."""
-    banks = banks if banks is not None else {n: 600 + i for i, n in enumerate(TABLES)}
     out = []
     for p in pages:
-        text, exprs = render_page(p, banks)
+        text, exprs = render_page(p)
         body = page_body(exprs, 700, table_slots=table_slots_of(p))
         rendered = text.split("\n")
         rows = []
         for line, lit in zip(p.lines, rendered[1:]):
-            rows.append((line.row, line.kind, _text.measure(lit), _worst_case_width(line, banks)))
+            rows.append((line.row, line.kind, _text.measure(lit), _worst_case_width(line)))
         out.append(PageReport(p.key, p.title, len(rendered), len(exprs), len(body),
                               _text.measure(rendered[0]),
                               max(w for _r, _k, _l, w in rows) if rows else 0.0, rows))
@@ -498,11 +552,22 @@ def lint_pages(*, pages=PAGES, check_live_install: bool = True) -> list:
     ``journal.KEY_ITEM_EB_COUNT`` is a violation, and so is an install this machine cannot read at
     all -- that is exactly the machine on which the one build-time bake is least verifiable, so it
     must not be the machine where the check silently passes. Pass ``False`` to state deliberately
-    that this run is offline-only (every test in the suite does; ``journal lint --offline`` does)."""
-    banks = {n: 600 + i for i, n in enumerate(TABLES)}
+    that this run is offline-only (every test in the suite does; ``journal lint --offline`` does).
+
+    THE PLACEMENT AUDIT, RESTATED -- and it did not get weaker. It used to read "every catalog row is
+    on exactly one page", which was only expressible while a page carried a line for rows that can
+    never hold a value. It now reads **"every catalog row is on exactly one page OR is declared
+    unrenderable"**: two arms, no third state, both fail loudly.
+
+      * a :func:`renderable` row on NO page is a violation -- a working row cannot silently vanish;
+      * an UNRENDERABLE row ON a page is a violation -- nothing may render "--"/"n/a" again by
+        accident, and nothing may render a live number for a counter the game never moves.
+
+    Every one of the 48 rows is therefore accounted for on every run, which is exactly the property the
+    single-arm rule bought, and the second arm is new coverage the old rule did not have."""
     bad: list = []
 
-    # --- placement: every catalog row on EXACTLY one page, no invented rows -----------------------
+    # --- placement: exactly one page, OR declared unrenderable -- no third state -------------------
     placed: dict = {}
     for p in pages:
         for line in p.lines:
@@ -513,25 +578,26 @@ def lint_pages(*, pages=PAGES, check_live_install: bool = True) -> list:
         if len(where) > 1:
             bad.append(f"{rid}: placed on {len(where)} pages ({', '.join(where)}) -- exactly one")
     for spec in _J.ROWS:
-        if spec.id not in placed:
-            bad.append(f"{spec.id}: on NO page. Nothing is silently dropped -- give it a number, a "
-                       f"'--' or an 'n/a' line")
+        where = placed.get(spec.id, [])
+        if renderable(spec.id):
+            if not where:
+                bad.append(f"{spec.id}: carries an .eb expression and a live status but is on NO "
+                           f"page. A working row cannot silently vanish -- place it, or declare in "
+                           f"journal.ROWS why it cannot render (eb_absent / status)")
+        elif where:
+            bad.append(f"{spec.id}: is on page(s) {', '.join(where)} but can never carry a value "
+                       f"({unrenderable_reason(spec.id)}). It keeps its reason and stays in the "
+                       f"catalog, `journal rows` and `journal report` -- a PAGE renders values only")
 
-    # --- the row/line agreement: a page may not render a number a row refuses --------------------
+    # --- the row/line agreement --------------------------------------------------------------------
     for p in pages:
         for line in p.lines:
             spec = _J.row_spec(line.row)
             if spec is None:
                 continue
-            if line.kind in ("num", "table"):
-                if spec.eb is None:
-                    bad.append(f"page {p.key}: {line.row} renders a value but declares eb_absent")
-                if spec.status in ("untracked", "dead"):
-                    bad.append(f"page {p.key}: {line.row} is status={spec.status!r} -- it must render "
-                               f"'{NA_TEXT}', never a number")
-            elif spec.eb is not None and spec.status not in ("untracked", "dead"):
-                bad.append(f"page {p.key}: {line.row} has a working eb expression but renders "
-                           f"{line.kind!r}")
+            if line.kind not in ("num", "table"):
+                bad.append(f"page {p.key}: {line.row} has kind {line.kind!r} -- a page line renders "
+                           f"'num' or 'table'; there is no placeholder kind any more")
             if line.kind == "table" and line.table not in TABLES:
                 bad.append(f"page {p.key}: {line.row} names unknown table {line.table!r}")
             if bool(line.extra) != bool(line.extra_source):
@@ -563,7 +629,7 @@ def lint_pages(*, pages=PAGES, check_live_install: bool = True) -> list:
     # message above is the actionable one. Reporting a measurement crash on top would bury it.
     if bad:
         return bad
-    for rep in measure_pages(banks=banks, pages=pages):
+    for rep in measure_pages(pages=pages):
         if rep.slots > MES_VALUE_SLOTS:
             bad.append(f"page {rep.key}: {rep.slots} value slots > the engine's {MES_VALUE_SLOTS} "
                        f"(ETb.SetMesValue clamps scriptID 0..7 against Int32[8])")
@@ -639,12 +705,18 @@ def lint_pages(*, pages=PAGES, check_live_install: bool = True) -> list:
 # load, so all seven pages rendered the PREVIOUS bench's slot vector -- plausible numbers, in the right
 # columns, entirely stale ("Mognet: In hand 22/3"). An unwritten slot does not render blank.
 #
-# WHAT IS STILL DELIBERATELY UNLIKE THE SHIPPED DASHBOARD, and why that is not the same defect:
-#   * the two `[TEXT=bank,slot]` rows render their WIDEST table string instead of the tag, because the
-#     bank is a txid `collect_text` assigns by POSITION (build.py:7795-7834) and is not authorable in a
-#     TOML at all. Their slot is still PUBLISHED (so every slot index below it matches the shipped
-#     page exactly); nothing in the bench reads it, so nothing clamps it -- the clamp is emitted for
-#     the slots an option's own reply actually indexes.
+# THE THIRD DEFECT THIS FILE CARRIED -- THE FROZEN STRING ROWS, now closed.
+#   `_bench_page_text` used to rewrite every `[TEXT=bank,slot]` tag to that table's WIDEST LITERAL ROW,
+#   because the bank is a txid `collect_text` assigns BY POSITION and no TOML could name it. The bench
+#   therefore shipped a Treasure-Hunter rank frozen at "H" and a Hunt winner frozen at a fixed name --
+#   correct WIDTHS, dead VALUES -- while the .eb dutifully published the right row index into a slot no
+#   tag read. Owner verdict, bench 30801: "T hunter rank and chests opened are wrong". The computation
+#   was never wrong (215 pts -> index 1 -> 'G', matching the debug menu). The missing piece was a
+#   general [TBLE] emitter, which is now `content/texttable.py`: the bench declares `[[text_table]]`
+#   banks, the pages carry a real `[TEXT=<name>,slot]` tag, and the build substitutes the txid it
+#   actually allocated. The bench text is now IDENTICAL to the shipped dashboard's, tag for tag.
+#
+# WHAT IS STILL DELIBERATELY UNLIKE THE SHIPPED DASHBOARD:
 #   * the menu is a flat `[[choice]]`, not :func:`talk_body`'s re-open loop: one page per talk.
 #
 # The text AND the expressions are GENERATED, never hand-copied, so the bench cannot drift from the
@@ -655,23 +727,15 @@ BENCH_FIELD_ID = 30801     # dev scratch. NOT 30800 -- that is the recorded rung
 BENCH_PROMPT = "Which page? (BENCH 30801 --\nthe numbers are LIVE)"
 
 
-def _bench_page_text(page: "Page") -> str:
-    """A page rendered for the LAYOUT bench: identical to the shipped text except that a
-    ``[TEXT=bank,slot]`` tag becomes its WIDEST literal row.
+def bench_page_text(page: "Page") -> str:
+    """A page rendered for the bench -- byte-identical to the shipped dashboard's ``.mes`` body.
 
-    Why substitute: the bank is a txid the build assigns by POSITION (build.py:7795-7834), so it is
-    not authorable in a TOML at all. Using the widest row keeps the width measurement HONEST (it is
-    the worst case the real tag can render) while making the bench self-contained."""
-    banks = {n: 0 for n in TABLES}
-    text, _exprs = render_page(page, banks)
-    out = []
-    tbl_lines = [ln for ln in page.lines if ln.kind == "table"]
-    for row in text.split("\n"):
-        if "[TEXT=" in row and tbl_lines:
-            widest = max(TABLES[tbl_lines.pop(0).table], key=_text.measure)
-            row = row[:row.index("[TEXT=")] + widest
-        out.append(row)
-    return "\n".join(out)
+    There is no substitution left to do: :func:`render_page` emits `[TEXT=<table name>,slot]`, the
+    bench declares the matching ``[[text_table]]`` blocks, and ``build.collect_text`` back-substitutes
+    the txid it allocated. A bench that renders something the dashboard does not is a bench whose
+    playtest verdict lands on the wrong thing, which is precisely what the widest-literal placeholder
+    cost."""
+    return render_page(page)[0]
 
 
 def bench_page_values(page: "Page") -> tuple:
@@ -679,9 +743,8 @@ def bench_page_values(page: "Page") -> tuple:
     the ``expr:`` prefix ``content/choice.py``'s option lane accepts.
 
     Taken from :func:`render_page` -- the SAME tuple :func:`page_body` emits -- so the bench cannot
-    publish a number the shipped dashboard would not. The banks are irrelevant here (they only affect
-    the TEXT), which is why any dict does."""
-    _text_unused, exprs = render_page(page, {n: 0 for n in TABLES})
+    publish a number the shipped dashboard would not."""
+    _text_unused, exprs = render_page(page)
     return tuple(f"expr:{e}" for e in exprs)
 
 
@@ -717,9 +780,20 @@ def bench_toml(*, pages=PAGES) -> str:
         "#   entirely stale. A generator-only test could not see it; the test that catches it now builds",
         "#   this file and reads the emitted .eb.",
         "#",
-        "# The two [TEXT=bank,slot] rows show their WIDEST table string instead of the tag: the bank is",
-        "# a txid the build assigns by POSITION (build.py:7795-7834) and is not authorable. Their slot",
-        "# is still published, so every later slot index matches the shipped page exactly.",
+        "# THE THIRD DEFECT -- the two STRING rows that never resolved (owner: \"T hunter rank ... wrong\").",
+        "#   T.Hunter rank and Hunt winner render a [TBLE] table row, and this bench used to substitute",
+        "#   each [TEXT=bank,slot] tag with that table's WIDEST LITERAL ROW -- so the rank was frozen at",
+        "#   \"H\" and the winner at a fixed name, while the .eb published the CORRECT row index into a",
+        "#   slot no tag read. The computation was never wrong (215 pts -> index 1 -> 'G', matching the",
+        "#   debug menu, EventState.cs:53-61); the bank is a txid the build assigns BY POSITION and no",
+        "#   TOML could name it. [[text_table]] closes that: the bank is declared by NAME below, the page",
+        "#   carries a real [TEXT=<name>,slot] tag, and build.collect_text substitutes the txid it",
+        "#   actually allocated (content/texttable.py). The reply's [TEXT=] slot is clamped automatically",
+        "#   -- ETb.GetStringFromTable has no LOWER bound and a negative row index throws every frame.",
+        "#",
+        "# THE FOURTH -- rows that could never carry a value (owner: \"party is full of blank values, as",
+        "# is combat\", \"idk what S. purchases is\"). A page now renders ONLY rows with a live .eb read;",
+        "# the 18 that cannot keep their declared reason in the catalog and in `journal rows`/`report`.",
         "#",
         "# The value reads are owner-confirmed in-game (rung 0, bench 30800): Null.SBit[5],",
         "# Global.UInt16/Byte/Bit, const(n) B_HAVE_ITEM, flex(), and composed B_DIV/B_GE/B_MULT.",
@@ -832,6 +906,20 @@ def bench_toml(*, pages=PAGES) -> str:
         "    [[behavior.unit.branch]]",
         "    do = { hold = [-400, -837] }   # stand still; the unit row is a compile gate",
         "",
+        "# --- THE [TBLE] STRING BANKS ----------------------------------------------------------------",
+        "# Each block becomes ONE .mes entry whose body is `[TBLE=<n>,]` + the rows, \\n-separated",
+        "# (DialogBoxSymbols.cs:35-38 splits on '\\n' and ignores the tag's parameters). The entry's TXID",
+        "# is the `bank` operand of a [TEXT=bank,slot] tag -- assigned BY POSITION, so it is NAMED here",
+        "# and substituted by build.collect_text. A page never spells a bank number.",
+        "# The rows are GENERATED from journalfield.TABLES, which is journal.TH_RANKS itself for the rank",
+        "# ladder -- so the index the .eb computes and the letter the window prints come from ONE list.",
+    ]
+    for _tt in text_table_blocks():
+        L += ["[[text_table]]",
+              f'name = "{_tt["name"]}"',
+              "rows = [" + ", ".join(f'"{r}"' for r in _tt["rows"]) + "]",
+              ""]
+    L += [
         "# --- THE MENU + THE SEVEN PAGES ------------------------------------------------------------",
         "# `Close` is LAST: with no [PCHC]/[PCHM] the engine's CANCEL row is the last one",
         "# (content/choice.py:20-21), so pressing B must close the journal, not open the last page.",
@@ -853,7 +941,7 @@ def bench_toml(*, pages=PAGES) -> str:
         L += ["  [[choice.options]]",
               f'  text = "{p.menu}"',
               '  reply = """',
-              _bench_page_text(p) + '"""',
+              bench_page_text(p) + '"""',
               # NO `instant` -- THE BROADCAST-CONFIRM LAW kills an instant page (see render_page).
               # ⚠ A DIFFERENT WINDOW ID FROM THE SELECTOR. The choice block's own window is id 1,
               # and a reply defaults to id 1 too (content/choice.py:249, `opt.get("window", 1)`) --
@@ -897,7 +985,6 @@ def eb_budget(*, pages=PAGES) -> tuple:
     """``(bytes, EB_FILE_BUDGET)`` for the whole dashboard body -- the real emitted stream, measured,
     never ``len()`` of something else. The .eb offset budget is 0xFFFF (binutils.EB_FILE_BUDGET)."""
     from .binutils import EB_FILE_BUDGET
-    banks = {n: 600 + i for i, n in enumerate(TABLES)}
     txids = {p.key: 700 + i for i, p in enumerate(pages)}
-    body = talk_body(txids, 699, banks, pages=pages)
+    body = talk_body(txids, 699, pages=pages)
     return len(body), EB_FILE_BUDGET

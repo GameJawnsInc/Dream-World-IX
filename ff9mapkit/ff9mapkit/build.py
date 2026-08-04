@@ -44,6 +44,7 @@ from .content import gauge as _gauge
 from .content import numinput as _numinput
 from .content import qte as _qte
 from .content import siege as _siege
+from .content import texttable as _texttable
 from .content import object as _object
 from .content import onentry as _onentry
 from .content import pathfind as _pathfind
@@ -2385,6 +2386,11 @@ def validate(project: FieldProject) -> list[str]:
         if "name" not in m or ("pos" not in m and "path" not in m):
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a point) or "
                             "path = [[x, z], ...] (a route)")
+    # [[text_table]] banks + every [TEXT=<name>,slot] reference to one. Reported here as well as
+    # enforced in collect_text because the in-game symptom of a bad bank is String.Empty -- a blank
+    # line, no error, no log (ETb.cs:270-283) -- so it must surface in `lint`/Check with the authored
+    # key that carries it, not only as a build traceback.
+    problems.extend(_texttable.validate(project.raw))
     # [[numeric_input]] steppers (the Treno-bid substrate, content.numinput): validate each block and
     # collect the names the option-level `input =` key may reference.
     ni_names = set()
@@ -8282,8 +8288,26 @@ def collect_text(project: FieldProject):
             continue
         for _part, _txt, _strt in _qte.mes_texts(_qs):
             ni_pos[("qte", _qi, _part)] = _add_raw(_txt, "", strt=_strt)
+    # [[text_table]] banks: this field's own [TBLE] string tables, one .mes entry each (rows are
+    # \n-separated after the tag -- DialogBoxSymbols.cs:35-38). Added LAST, after every window entry,
+    # so a field with no [[text_table]] keeps the previous text layout byte-identical. Tail-less,
+    # default (10,1) geometry: a bank is DATA, never opened as a window -- the same shape the Mognet
+    # roster entry already ships.
+    tt_pos = {}
+    for _tt in _texttable.blocks(project.raw):
+        tt_pos[_tt.name] = _add_raw(_texttable.entry_text(_tt.rows), "")
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}, {}, {}
+    # ⚠ THE BACK-SUBSTITUTION, and why it happens HERE and not in the authored TOML. A `[TEXT=bank,slot]`
+    # bank is a TXID (FF9TextTool.GetTableText, FF9TextTool.cs:650-659) and txids are assigned BY
+    # POSITION, so the id is not knowable until every line is allocated -- which is now. The banks come
+    # from `text.txid_map`, the SAME function `build_mes` derives its mapping from, so the substituted id
+    # cannot be off by one from the id the entry actually lands on. Run unconditionally: a named bank with
+    # no [[text_table]] must fail LOUDLY here (`texttable.resolve` raises), because the in-game symptom is
+    # `String.Empty` -- a blank line, no error, which reads as a bug. A line with no named reference is
+    # returned byte-identical, so this pass is a no-op for every field that does not use the lane.
+    _banks = {_n: _text.txid_map(len(lines))[_p] for _n, _p in tt_pos.items()}
+    lines = [_texttable.resolve(_ln, _banks) for _ln in lines]
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     # a network moogle's field also ships text entry 0 = the ROSTER (install names + the new identity),
     # at its donor-fixed LOW txid -- legal only in this field's own minted block (validate enforces it)

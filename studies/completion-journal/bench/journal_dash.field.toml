@@ -20,9 +20,20 @@
 #   entirely stale. A generator-only test could not see it; the test that catches it now builds
 #   this file and reads the emitted .eb.
 #
-# The two [TEXT=bank,slot] rows show their WIDEST table string instead of the tag: the bank is
-# a txid the build assigns by POSITION (build.py:7795-7834) and is not authorable. Their slot
-# is still published, so every later slot index matches the shipped page exactly.
+# THE THIRD DEFECT -- the two STRING rows that never resolved (owner: "T hunter rank ... wrong").
+#   T.Hunter rank and Hunt winner render a [TBLE] table row, and this bench used to substitute
+#   each [TEXT=bank,slot] tag with that table's WIDEST LITERAL ROW -- so the rank was frozen at
+#   "H" and the winner at a fixed name, while the .eb published the CORRECT row index into a
+#   slot no tag read. The computation was never wrong (215 pts -> index 1 -> 'G', matching the
+#   debug menu, EventState.cs:53-61); the bank is a txid the build assigns BY POSITION and no
+#   TOML could name it. [[text_table]] closes that: the bank is declared by NAME below, the page
+#   carries a real [TEXT=<name>,slot] tag, and build.collect_text substitutes the txid it
+#   actually allocated (content/texttable.py). The reply's [TEXT=] slot is clamped automatically
+#   -- ETb.GetStringFromTable has no LOWER bound and a negative row index throws every frame.
+#
+# THE FOURTH -- rows that could never carry a value (owner: "party is full of blank values, as
+# is combat", "idk what S. purchases is"). A page now renders ONLY rows with a live .eb read;
+# the 18 that cannot keep their declared reason in the catalog and in `journal rows`/`report`.
 #
 # The value reads are owner-confirmed in-game (rung 0, bench 30800): Null.SBit[5],
 # Global.UInt16/Byte/Bit, const(n) B_HAVE_ITEM, flex(), and composed B_DIV/B_GE/B_MULT.
@@ -116,6 +127,21 @@ warmup = 30
     [[behavior.unit.branch]]
     do = { hold = [-400, -837] }   # stand still; the unit row is a compile gate
 
+# --- THE [TBLE] STRING BANKS ----------------------------------------------------------------
+# Each block becomes ONE .mes entry whose body is `[TBLE=<n>,]` + the rows, \n-separated
+# (DialogBoxSymbols.cs:35-38 splits on '\n' and ignores the tag's parameters). The entry's TXID
+# is the `bank` operand of a [TEXT=bank,slot] tag -- assigned BY POSITION, so it is NAMED here
+# and substituted by build.collect_text. A page never spells a bank number.
+# The rows are GENERATED from journalfield.TABLES, which is journal.TH_RANKS itself for the rank
+# ladder -- so the index the .eb computes and the letter the window prints come from ONE list.
+[[text_table]]
+name = "th_rank"
+rows = ["H", "G", "F", "E", "D", "C", "B", "A", "S"]
+
+[[text_table]]
+name = "hunt"
+rows = ["---", "Zidane", "Vivi", "Freya"]
+
 # --- THE MENU + THE SEVEN PAGES ------------------------------------------------------------
 # `Close` is LAST: with no [PCHC]/[PCHM] the engine's CANCEL row is the last one
 # (content/choice.py:20-21), so pressing B must close the journal, not open the last page.
@@ -132,8 +158,7 @@ the numbers are LIVE)"""
 == STORY & TREASURE 
 Scenario                 [NUMB=0]
 T.Hunter pts            [NUMB=1]
-T.Hunter rank          H
-Chests opened         n/a"""
+T.Hunter rank          [TEXT=th_rank,2]"""
   window = 2
   values = [
     "expr:Global.UInt16[0]",
@@ -167,7 +192,7 @@ Stellazzio               [NUMB=0]/13
 Ragtime                  [NUMB=1]/16
 Treno coins             [NUMB=2]/51
 Frogs                      [NUMB=3]/99
-Hunt winner            Zidane"""
+Hunt winner            [TEXT=hunt,4]"""
   window = 2
   values = [
     "expr:Global.Bit[2840] Global.Bit[2841] B_PLUS Global.Bit[2842] B_PLUS Global.Bit[2843] B_PLUS Global.Bit[2844] B_PLUS Global.Bit[2845] B_PLUS Global.Bit[2846] B_PLUS Global.Bit[2847] B_PLUS Global.Bit[2848] B_PLUS Global.Bit[2849] B_PLUS Global.Bit[2850] B_PLUS Global.Bit[2851] B_PLUS Global.Bit[2852] B_PLUS",
@@ -185,8 +210,7 @@ Cards held               [NUMB=0]
 Card kinds               [NUMB=1]/100
 Coll. points              [NUMB=2]
 Coll. level                [NUMB=3]
-Wins                       [NUMB=4]
-Opponents               n/a"""
+Wins                       [NUMB=4]"""
   window = 2
   values = [
     "expr:const(512) B_HAVE_ITEM const(513) B_HAVE_ITEM B_PLUS const(514) B_HAVE_ITEM B_PLUS const(515) B_HAVE_ITEM B_PLUS const(516) B_HAVE_ITEM B_PLUS const(517) B_HAVE_ITEM B_PLUS const(518) B_HAVE_ITEM B_PLUS const(519) B_HAVE_ITEM B_PLUS const(520) B_HAVE_ITEM B_PLUS const(521) B_HAVE_ITEM B_PLUS const(522) B_HAVE_ITEM B_PLUS const(523) B_HAVE_ITEM B_PLUS const(524) B_HAVE_ITEM B_PLUS const(525) B_HAVE_ITEM B_PLUS const(526) B_HAVE_ITEM B_PLUS const(527) B_HAVE_ITEM B_PLUS const(528) B_HAVE_ITEM B_PLUS const(529) B_HAVE_ITEM B_PLUS const(530) B_HAVE_ITEM B_PLUS const(531) B_HAVE_ITEM B_PLUS const(532) B_HAVE_ITEM B_PLUS const(533) B_HAVE_ITEM B_PLUS const(534) B_HAVE_ITEM B_PLUS const(535) B_HAVE_ITEM B_PLUS const(536) B_HAVE_ITEM B_PLUS const(537) B_HAVE_ITEM B_PLUS const(538) B_HAVE_ITEM B_PLUS const(539) B_HAVE_ITEM B_PLUS const(540) B_HAVE_ITEM B_PLUS const(541) B_HAVE_ITEM B_PLUS const(542) B_HAVE_ITEM B_PLUS const(543) B_HAVE_ITEM B_PLUS const(544) B_HAVE_ITEM B_PLUS const(545) B_HAVE_ITEM B_PLUS const(546) B_HAVE_ITEM B_PLUS const(547) B_HAVE_ITEM B_PLUS const(548) B_HAVE_ITEM B_PLUS const(549) B_HAVE_ITEM B_PLUS const(550) B_HAVE_ITEM B_PLUS const(551) B_HAVE_ITEM B_PLUS const(552) B_HAVE_ITEM B_PLUS const(553) B_HAVE_ITEM B_PLUS const(554) B_HAVE_ITEM B_PLUS const(555) B_HAVE_ITEM B_PLUS const(556) B_HAVE_ITEM B_PLUS const(557) B_HAVE_ITEM B_PLUS const(558) B_HAVE_ITEM B_PLUS const(559) B_HAVE_ITEM B_PLUS const(560) B_HAVE_ITEM B_PLUS const(561) B_HAVE_ITEM B_PLUS const(562) B_HAVE_ITEM B_PLUS const(563) B_HAVE_ITEM B_PLUS const(564) B_HAVE_ITEM B_PLUS const(565) B_HAVE_ITEM B_PLUS const(566) B_HAVE_ITEM B_PLUS const(567) B_HAVE_ITEM B_PLUS const(568) B_HAVE_ITEM B_PLUS const(569) B_HAVE_ITEM B_PLUS const(570) B_HAVE_ITEM B_PLUS const(571) B_HAVE_ITEM B_PLUS const(572) B_HAVE_ITEM B_PLUS const(573) B_HAVE_ITEM B_PLUS const(574) B_HAVE_ITEM B_PLUS const(575) B_HAVE_ITEM B_PLUS const(576) B_HAVE_ITEM B_PLUS const(577) B_HAVE_ITEM B_PLUS const(578) B_HAVE_ITEM B_PLUS const(579) B_HAVE_ITEM B_PLUS const(580) B_HAVE_ITEM B_PLUS const(581) B_HAVE_ITEM B_PLUS const(582) B_HAVE_ITEM B_PLUS const(583) B_HAVE_ITEM B_PLUS const(584) B_HAVE_ITEM B_PLUS const(585) B_HAVE_ITEM B_PLUS const(586) B_HAVE_ITEM B_PLUS const(587) B_HAVE_ITEM B_PLUS const(588) B_HAVE_ITEM B_PLUS const(589) B_HAVE_ITEM B_PLUS const(590) B_HAVE_ITEM B_PLUS const(591) B_HAVE_ITEM B_PLUS const(592) B_HAVE_ITEM B_PLUS const(593) B_HAVE_ITEM B_PLUS const(594) B_HAVE_ITEM B_PLUS const(595) B_HAVE_ITEM B_PLUS const(596) B_HAVE_ITEM B_PLUS const(597) B_HAVE_ITEM B_PLUS const(598) B_HAVE_ITEM B_PLUS const(599) B_HAVE_ITEM B_PLUS const(600) B_HAVE_ITEM B_PLUS const(601) B_HAVE_ITEM B_PLUS const(602) B_HAVE_ITEM B_PLUS const(603) B_HAVE_ITEM B_PLUS const(604) B_HAVE_ITEM B_PLUS const(605) B_HAVE_ITEM B_PLUS const(606) B_HAVE_ITEM B_PLUS const(607) B_HAVE_ITEM B_PLUS const(608) B_HAVE_ITEM B_PLUS const(609) B_HAVE_ITEM B_PLUS const(610) B_HAVE_ITEM B_PLUS const(611) B_HAVE_ITEM B_PLUS",
@@ -206,8 +230,7 @@ Variants out            [NUMB=2]/64
 Variants read          [NUMB=3]/64
 Stiltzkin                  [NUMB=4]
 Central                    [NUMB=5]/1
-Paradise                 [NUMB=6]/1
-S. purchases           n/a"""
+Paradise                 [NUMB=6]/1"""
   window = 2
   values = [
     "expr:Global.Byte[1032]",
@@ -224,15 +247,7 @@ S. purchases           n/a"""
   reply = """
 == PARTY =============
 Gil                          [NUMB=0]
-Key items               [NUMB=1]/80
-Abil. mastered         --
-Steals                     --
-Escapes                  --
-Battles                    --
-Kills                        --
-Kills by type            --
-Abil. ever                n/a
-Support ever           n/a"""
+Key items               [NUMB=1]/80"""
   window = 2
   values = [
     "expr:B_SYSVAR[6]",
@@ -245,14 +260,7 @@ Support ever           n/a"""
 == COMBAT & META =====
 Yan blessing            [NUMB=0]/1
 Play time                [NUMB=1]h[NUMB=2]
-Last entrance          [NUMB=3]
-Steps                      n/a
-ATEs seen              n/a
-Bestiary                  n/a
-Synthesis                n/a
-Friendly mon.          n/a
-Achievements         n/a
-Index                      --"""
+Last entrance          [NUMB=3]"""
   window = 2
   values = [
     "expr:Global.Bit[1584]",

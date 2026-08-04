@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[[text_table]]`, a field's own string banks
+- **`[[text_table]]`** declares a `[TBLE]` string bank (`name` + `rows`) and any authored line can read
+  a row from it with `[TEXT=<name>,slot]`, where the slot holds the row index the `.eb` publishes. The
+  bank operand is a **txid in the field's own `.mes`**, and the build assigns txids **by position** —
+  so a hand-written `[TEXT=612,2]` bakes an id that moves the moment a line is added above it, and
+  every way that goes wrong is silent in-game (a wrong bank renders another table's row; a bank with
+  no entry renders `String.Empty`, i.e. a blank line, with no log). The lane therefore takes a name,
+  allocates the entry **last** — so a field without one is byte-identical to before — and substitutes
+  the real txid, from the same function `build_mes` derives its own mapping from. An unknown name is
+  refused at the substitution site, not merely reported. This is what a prose row like a Treasure-
+  Hunter *rank letter* or a Festival-of-the-Hunt *winner name* needs; before it, the kit's only
+  `[TBLE]` emitter was hardwired to the Mognet roster.
+
 ### Added — several windows at once, text-synchronized beats, and coloured text
 - **Multi-window cutscene steps** `open` / `close` / `wait_window` / `raise` on both scene flavors
   (narration and a cast). `say` opens one window and blocks; splitting that is how stock builds unison
@@ -23,6 +36,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   byte-identical to before.
 
 ### Fixed
+- **The completion dashboard's two STRING rows never resolved, and its pages drew rows that can never
+  hold a value.** T.Hunter rank and Hunt winner render a `[TBLE]` row, and with no general `[TBLE]`
+  emitter the shipped bench substituted each tag with that table's *widest literal row* — so the rank
+  was frozen at `H` and the winner at a fixed name on every save, while the `.eb` dutifully published
+  the correct index into a slot nothing read (the computation was never wrong: 215 pts → index 1 →
+  `G`, matching the in-game debug menu). Both now carry a real `[TEXT=<bank>,slot]` tag through the new
+  `[[text_table]]` lane. Separately, a page used to carry a line for **all 48** catalog rows and print
+  `--` (offline only) or `n/a` (not tracked anywhere) where no value could exist — a distinction that
+  is invisible to a player, so Party read as 9 broken rows out of 11 and Combat & Meta as 8 of 11. A
+  page now renders only the 30 rows with a live read; the other 18 keep their declared reason and stay
+  in the catalog, `journal rows` and `journal report`. The placement audit grew a second arm to match
+  ("on exactly one page **or** declared unrenderable", no third state), so a working row still cannot
+  vanish silently — and a row whose `.eb` read exists but whose counter the game never moves
+  (`meta.step_count`) is refused from a page rather than printing a permanent `0`.
 - **A turbo-dialog session silently ate every readout window** — FF9's dialogue skip
   (`Memoria.ini [Control] TurboDialog`, on by default; latched with **F9**, or held as
   RightBumper/Shift + Confirm) synthesizes a confirm *every frame with no player input*, and the

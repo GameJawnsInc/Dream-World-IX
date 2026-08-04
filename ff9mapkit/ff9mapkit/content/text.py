@@ -553,11 +553,25 @@ def mes_entry(text: str, txid: int, *, strt: tuple = (10, 1), tail: str = DEFAUL
     return f"_[TXID={txid}][STRT={strt_s}]{tail_s}{text}[ENDN]"
 
 
+def txid_map(count: int, *, start_txid: int = DEFAULT_BASE_TXID) -> dict:
+    """``{position: TXID}`` for ``count`` sequentially-built entries -- **THE assignment rule, with one
+    owner**. :func:`build_mes` computes its mapping from here, so a caller that needs an entry's txid
+    *before* the body exists cannot drift from what ``build_mes`` will actually assign.
+
+    That caller is real: a ``[[text_table]]`` bank is referenced by ``[TEXT=<bank>,slot]`` tags inside
+    OTHER lines, so the reference has to be substituted into the line text before the body is built --
+    i.e. the txid must be known one step earlier than ``build_mes`` returns it. Re-deriving
+    ``start_txid + i`` at that call site would be a second copy of the rule, and the failure mode of a
+    drifted copy is an off-by-one bank that renders the WRONG TABLE or a blank line in-game."""
+    return {i: start_txid + i for i in range(int(count))}
+
+
 def build_mes(lines, *, start_txid: int = DEFAULT_BASE_TXID, tails=None, strts=None) -> tuple[str, dict]:
     """Build a ``.mes`` file body from an ordered list of dialogue strings.
 
     Returns ``(text, mapping)`` where ``mapping[i]`` is the TXID assigned to ``lines[i]`` (so a
-    caller can point each NPC's WindowSync at the right id). TXIDs are ``start_txid + i``.
+    caller can point each NPC's WindowSync at the right id). TXIDs are ``start_txid + i``
+    (:func:`txid_map`).
     ``tails`` (optional) is a per-line list of TAIL codes; ``None``/missing entries use
     :data:`DEFAULT_TAIL`. ``strts`` (optional) is a per-line ``(x, y)`` window geometry; ``None``/missing
     entries use ``mes_entry``'s default ``(10, 1)`` -- so existing callers stay byte-identical. (A FF9
@@ -565,10 +579,9 @@ def build_mes(lines, *, start_txid: int = DEFAULT_BASE_TXID, tails=None, strts=N
     pass its real geometry, not the dialogue default.)
     """
     entries = []
-    mapping = {}
+    mapping = txid_map(len(lines), start_txid=start_txid)
     for i, line in enumerate(lines):
-        txid = start_txid + i
-        mapping[i] = txid
+        txid = mapping[i]
         _t = tails[i] if (tails and i < len(tails)) else None
         tail = DEFAULT_TAIL if _t is None else _t          # None = unspecified -> default; "" = explicit NO tail
         strt = (strts[i] if strts and i < len(strts) and strts[i] else (10, 1))

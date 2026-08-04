@@ -9,7 +9,7 @@ pipeline completed). See ff9mapkit/fieldschema.py; regenerate with
 """
 
 VOCAB = {
-    '': ('_siege_conflict', '_siege_error', 'ability_feature', 'ability_gem', 'armor', 'ate', 'battle_action', 'battle_attack', 'battle_bgm', 'battle_enemy', 'battle_patch', 'behavior', 'camera', 'camera_zone', 'carry_text', 'character', 'character_param', 'chest', 'chocobo', 'choice', 'command_set', 'coop', 'cutscene', 'deathrules', 'dialogue', 'difficulty', 'encounter', 'equip_bonus', 'equipment', 'event', 'ferry', 'field', 'flag', 'folklore', 'gateway', 'gateway_carry', 'gauge', 'item', 'item_effect', 'item_text', 'jump', 'ladder', 'layers', 'learn', 'leveling', 'logic_add', 'logic_edit', 'lowhp', 'magic_sword_set', 'marker', 'mint', 'music', 'npc', 'numeric_input', 'object', 'on_entry', 'party', 'platform', 'playable', 'player', 'player_func', 'prop', 'qte', 'rebalance', 'save_moogle', 'savepoint', 'scene', 'shop', 'siege', 'sps', 'sps_edit', 'start_inventory', 'startup', 'status', 'status_set', 'summon', 'synthesis', 'synthesis_edit', 'verbatim_eb', 'walkmesh', 'weapon'),
+    '': ('_siege_conflict', '_siege_error', 'ability_feature', 'ability_gem', 'armor', 'ate', 'battle_action', 'battle_attack', 'battle_bgm', 'battle_enemy', 'battle_patch', 'behavior', 'camera', 'camera_zone', 'carry_text', 'character', 'character_param', 'chest', 'chocobo', 'choice', 'command_set', 'coop', 'cutscene', 'deathrules', 'dialogue', 'difficulty', 'encounter', 'equip_bonus', 'equipment', 'event', 'ferry', 'field', 'flag', 'folklore', 'gateway', 'gateway_carry', 'gauge', 'item', 'item_effect', 'item_text', 'jump', 'ladder', 'layers', 'learn', 'leveling', 'logic_add', 'logic_edit', 'lowhp', 'magic_sword_set', 'marker', 'mint', 'music', 'npc', 'numeric_input', 'object', 'on_entry', 'party', 'platform', 'playable', 'player', 'player_func', 'prop', 'qte', 'rebalance', 'save_moogle', 'savepoint', 'scene', 'shop', 'siege', 'sps', 'sps_edit', 'start_inventory', 'startup', 'status', 'status_set', 'summon', 'synthesis', 'synthesis_edit', 'text_table', 'verbatim_eb', 'walkmesh', 'weapon'),
     'armor': ('m_def', 'm_eva', 'name', 'p_def', 'p_eva'),
     'behavior': ('alternators', 'brains', 'byte_band', 'counters', 'group', 'hud', 'pool', 'public_flags', 'scan', 'schedule', 'table', 'tick', 'timer', 'unit', 'warmup'),
     'behavior.alternators': ('frames', 'name'),
@@ -72,6 +72,7 @@ VOCAB = {
     'startup.flags': ('flag', 'value'),
     'synthesis': ('bubble', 'recipes', 'shop', 'zone'),
     'synthesis.recipes': ('ingredients', 'price', 'result'),
+    'text_table': ('name', 'rows'),
     'walkmesh': ('bgi', 'character_offset', 'frame', 'links', 'obj', 'quad', 'reference'),
     'weapon': ('category', 'elements', 'model', 'name', 'power', 'rate', 'status_index'),
 }
@@ -132,6 +133,7 @@ ENFORCED = frozenset({
     'startup.flags',
     'synthesis',
     'synthesis.recipes',
+    'text_table',
     'walkmesh',
     'weapon',
 })

@@ -1847,6 +1847,49 @@ Add a second interactable on the same spot gated `requires_flag = 8001`.)
 
 ---
 
+## `[[text_table]]` (optional)
+
+A **string bank** this field owns: a list of rows a dialogue line can pick from at runtime with
+`[TEXT=<name>,slot]`, where `slot` is a `gMesValue` slot (0-7) holding the **row index**. Use it for
+any value that is a *word* rather than a number — a rank letter, a winner's name, a state label.
+
+```toml
+[[text_table]]
+name = "th_rank"
+rows = ["H", "G", "F", "E", "D", "C", "B", "A", "S"]
+```
+
+```toml
+# ...and anywhere a line is authored (npc dialogue, an event message, a choice reply, a hud strip):
+reply = """Treasure Hunter rank  [TEXT=th_rank,2]"""
+values = ["expr:...", "expr:...", "expr:<the row index 0..8>"]   # slot 2 = the index
+```
+
+| key | meaning |
+|---|---|
+| `name` | how `[TEXT=<name>,slot]` refers to this bank. Letters/digits/`._-`, starting with a letter or underscore. **Not** a bare number — that is the raw txid form. |
+| `rows` | the strings, in index order. Row *i* is what renders when the published slot value is *i*. A row may not contain a newline (rows are newline-separated inside the entry). |
+
+**Why a name and not a number.** The bank operand the engine wants is a **TXID in this field's own
+`.mes`**, and the build assigns txids **by position** — so a hand-written `[TEXT=612,2]` bakes an id
+that moves the moment a line is added above it. Worse, every failure is silent in-game: a wrong bank
+renders another table's row, and a bank with no entry renders an empty string (a **blank line**, no
+error, no log). So you name it, and the build substitutes the id it actually allocated. A reference to
+a bank you did not declare is a build error.
+
+A numeric bank still works and is left alone (`[TEXT=0,0]` is the Mognet roster idiom), so nothing
+that already emitted a raw tag changes.
+
+**Publishing the index.** The slot is an ordinary `gMesValue` slot — fill it from a `[[choice]]`
+option's `values` list or a `[[behavior.hud]]` strip, exactly like a `[NUMB=]` slot. The kit wraps a
+non-negative clamp around any slot a `[TEXT=]` tag reads: the engine bounds the *upper* row but not
+the lower one, and a negative index throws once per rendered frame.
+
+⚠ Do **not** put `[WDTH=]` on an entry that carries a `[TEXT=]` — the engine's width pass has a
+second, divergent decode of the tag behind that path.
+
+---
+
 ## `[[numeric_input]]` (optional)
 
 The game's own **number-entry widget** — the Treno auction's 3-digit bid stepper (nine shipping

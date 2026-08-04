@@ -6,7 +6,7 @@
 > not against stock Memoria. No in-game behaviour was observed by anyone in this
 > pass — where a mechanism has never run, it says UNVERIFIED.
 
-**STATUS: ★ rungs 0 + 0b + T1 + T1b ALL OWNER-CONFIRMED in-game. Every DLL-free read path works, the offline `journal report` reads a real save, and the 7-page in-game dashboard opens and holds on bench 30801. ⚠ Windows self-closing during a playtest = TURBO-DIALOG (F9), not the mod -- check that FIRST (§7.1). NEXT = verify the page NUMBERS in-game, then the T2-vs-catalog scope call (§7.2 Q3).**
+**STATUS: ★ rungs 0 + 0b + T1 + T1b ALL OWNER-CONFIRMED in-game. Every DLL-free read path works, the offline `journal report` reads a real save, and the 7-page in-game dashboard opens, holds, and shows its own LIVE numbers on bench 30801 (Chocobo 9/24 found, beak 16/99; Mognet delivered 12; Party gil 27684, key items 21/80; Meta play time 31h31). ⚠ Windows self-closing during a playtest = TURBO-DIALOG (F9), not the mod -- check that FIRST (§7.1). ★ ROUND 6 closed the owner's two remaining verdicts, both UNPLAYTESTED: the `[[text_table]]` lane so the two STRING rows resolve live (T.Hunter rank, Hunt winner) instead of shipping a frozen literal, and pages that render ONLY rows with a live `.eb` read (the 18 that cannot keep their reason in the catalog, off the screen) -- Party is now 2 lines, Combat & Meta 3, and "S. purchases" is gone. NEXT = playtest 30801 for the rank letter + winner name, then the T2-vs-catalog scope call (§7.2 Q3).**
 paths work; `Null.SBit[5]` returns real Treasure-Hunter points, and the in-game
 `.eb` and the offline decoder cross-validate exactly (§7.1). ★ T1 BUILT — 48-row
 `journal report` over a real save container. NEXT = rung 0b, a 2-row re-probe to
@@ -381,11 +381,28 @@ authoring, not after a black window.
 is refused unless the project carries `[verbatim_eb]` (`build.py:930-934`), so
 the journal prop either rides a verbatim fork or ships on a synthesized field —
 decide before authoring, it changes the deploy story. (b) **`[TBLE]`'s upper
-bound is unreconciled:** `NGUIText.GetDialogWidthFromSpecialOpcode` carries a
-second, packed `[TEXT=]` decode for `tableId > Byte.MaxValue` (constant row) that
-`DialogBoxSymbols`' replacement path does not implement — so the **width pass and
-the render pass can diverge on a large table**, and T1b's entire prose layer is
-`[TBLE]`. Keep banks under 256 until that is benched.
+bound — ★ RESOLVED, and the caveat was narrower than it read.**
+`NGUIText.GetDialogWidthFromSpecialOpcode` (`NGUIText.cs:60-84`) does carry a
+second, packed `[TEXT=]` decode for `tableId > Byte.MaxValue` that
+`DialogBoxSymbols`' replacement path does not implement — but that decoder's
+**only** call site is `OnWidths`, the `[WDTH]` tag handler, which Memoria marks
+`// Dummied` (`DialogBoxSymbols.cs:905`). The live render is a plain
+`ETb.GetStringFromTable(UIntParam(0), UIntParam(1))`
+(`DialogBoxSymbols.cs:59-60`), and width comes from `Dialog.AutomaticSize` over
+the rendered strings. So the two passes cannot diverge unless an entry carries
+`[WDTH=]`, which the kit never emits. **The under-256 rule is retired**; the real
+rule is "no `[WDTH=]` on an entry that carries a `[TEXT=]`". The shipped bench's
+banks are txid 509/510.
+
+**★ THE `[[text_table]]` LANE SHIPPED** (`ff9mapkit/ff9mapkit/content/texttable.py`).
+A block declares `name` + `rows`; the build emits one `[TBLE=<n>,]` `.mes` entry
+per bank (added last, so a field without one stays byte-identical) and
+back-substitutes the allocated txid into every `[TEXT=<name>,slot]` reference
+through `content.text.txid_map` — the same function `build_mes` derives its own
+mapping from, so an off-by-one bank is unrepresentable rather than checked. An
+unknown name raises at the substitution site: the in-game symptom of a bad bank is
+`String.Empty`, a blank line with no log. This is what unfroze T1b's two string
+rows (owner: *"T hunter rank and chests opened are wrong"*).
 
 **Unexercised mechanism, must be benched:** `Null.SBit[5]` for
 `TREASURE_HUNTER_POINTS`. The encoding is verified statically —

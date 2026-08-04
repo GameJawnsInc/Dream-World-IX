@@ -6212,18 +6212,24 @@ def _cmd_journal_dash(args: argparse.Namespace) -> int:
                                          for a, b, c, d in r.rows]} for r in reps], indent=2))
             return 0
         used, budget = JF.eb_budget()
-        banks = {n: 600 + i for i, n in enumerate(JF.TABLES)}
         live = JF.live_key_item_count()
+        n_off = len(_J.ROWS) - sum(1 for s in _J.ROWS if JF.renderable(s.id))
         print(f"{len(JF.PAGES)} page(s); key-item denominator {_J.KEY_ITEM_EB_COUNT} "
               f"(journal.KEY_ITEM_EB_COUNT -- the same constant the .eb sum is built from; this "
-              f"install reads {live if live is not None else 'UNREACHABLE'})\n")
-        print("--- the menu entry ---")
+              f"install reads {live if live is not None else 'UNREACHABLE'})")
+        print(f"{len(_J.ROWS) - n_off} of {len(_J.ROWS)} catalog row(s) can carry a live value and are "
+              f"placed; {n_off} are unrenderable and are on NO page (they keep their reason in "
+              f"`journal rows` / `journal report`)\n")
+        print(f"--- the [TBLE] banks (one .mes entry each, txid assigned by the build) ---")
+        for name, body in JF.table_texts().items():
+            print(f"  {name}: {body!r}")
+        print("\n--- the menu entry ---")
         for ln in JF.menu_text().split("\n"):
             print(f"  {_text_measure_line(ln)}")
         for p, rep in zip(JF.PAGES, reps):
             print(f"\n--- {rep.key}: {rep.lines} line(s), {rep.slots}/{JF.MES_VALUE_SLOTS} slot(s), "
                   f"{rep.eb_bytes} .eb byte(s) ---")
-            text, _exprs = JF.render_page(p, banks)
+            text, _exprs = JF.render_page(p)
             for ln, (rid, kind, lit, worst) in zip(text.split("\n")[1:], rep.rows):
                 print(f"  {_text_measure_line(ln)}  worst {worst:5.2f}  {rid} ({kind})")
             print(f"  {_text_measure_line(text.split(chr(10))[0])}   <- header (rule grown to the "
@@ -6234,23 +6240,22 @@ def _cmd_journal_dash(args: argparse.Namespace) -> int:
             print(f"journal page layout: {msg}")
         return 2 if bad else 0
     # --- eb: the decoded listing ------------------------------------------------------------------
-    banks = {n: 600 + i for i, n in enumerate(JF.TABLES)}
     txids = {p.key: 700 + i for i, p in enumerate(JF.PAGES)}
     if args.page:
         pg = next((p for p in JF.PAGES if p.key == args.page), None)
         if pg is None:
             print(f"no such page {args.page!r} (have: {', '.join(p.key for p in JF.PAGES)})")
             return 2
-        text, exprs = JF.render_page(pg, banks)
+        text, exprs = JF.render_page(pg)
         body = JF.page_body(exprs, txids[pg.key], table_slots=JF.table_slots_of(pg))
-        print(f"page {pg.key!r} -- .mes entry (txid {txids[pg.key]}, [TBLE] banks "
-              f"{banks}):\n")
+        print(f"page {pg.key!r} -- .mes entry (txid {txids[pg.key]}; a [TEXT=<name>,slot] bank is a "
+              f"[[text_table]] name the build resolves to a txid):\n")
         for ln in text.split("\n"):
             print(f"    {ln}")
         print(f"\npage {pg.key!r} -- {len(body)} .eb byte(s), {len(exprs)} slot write(s) "
               f"+ 1 WindowSync:\n")
     else:
-        body = JF.talk_body(txids, 699, banks)
+        body = JF.talk_body(txids, 699)
         print(f"the whole talk handler -- {len(body)} .eb byte(s) "
               f"(menu txid 699, page txids {txids}):\n")
     for ln in JF.pretty_listing(body):
