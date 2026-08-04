@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the placement ground query gained a spatial index (a pure accelerator)
+- `placement.build_index`/`build_meshlist_index` (promoted from `coastnav._build_grid`, which now
+  aliases them — one copy, so a calibration fix lands once) + an `index=` fast path on `place()`;
+  `census()` indexes by default. Byte-identical verdicts by construction (ascending AABB buckets
+  reproduce the file-order first hit), gated by a dense agreement test over stacked/skipped/
+  down-wound/bucket-spanning geometry. Measured 34x on the audit's 4.6k-tri census benchmark
+  (larger on stacked meshlists, where a MISS used to scan every triangle of every part) — the
+  fix that makes "sample the census finer" affordable (audit rec 2, CRITIC #2).
+
 ### Added — `world-render`: the offline overworld renderer, promoted into the kit
 - `world.render` — the Path D render gate's engine-faithful software rasterizer (UNLIT,
   NEAREST, alpha-0=white, game-eye cull, perspective-correct UV, per-pixel owner buffer),

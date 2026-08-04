@@ -111,27 +111,11 @@ def deployed_sea_cells(mod_folder: str, disc: int, game=None):
     return sorted(cells)
 
 
-_GRID = 8.0  #: spatial-index bucket size (block-local units)
-
-
-def _build_grid(bm):
-    """Uniform-grid index over triangle 2D AABBs, block-local (x, z) -> ascending tri indices.
-
-    Buckets hold ascending triangle indices, and any triangle covering a point is in that point's
-    bucket (AABB overlap), so a bucket scan returns exactly the file-order first hit the full scan
-    returns -- the index is a pure accelerator, never a semantic change. It is what makes the
-    per-cell ground scan (~2.5k samples x O(all tris) before) cheap enough to be an emitter
-    default; the un-indexed pass was the ~hour-per-pass cost measured on 2026-07-30."""
-    grid = {}
-    for t, tri in enumerate(bm.tris):
-        xs = [bm.verts[k][0] for k in tri]
-        zs = [bm.verts[k][2] for k in tri]
-        for gx in range(math.floor((min(xs) - 1e-6) / _GRID),
-                        math.floor((max(xs) + 1e-6) / _GRID) + 1):
-            for gz in range(math.floor((min(zs) - 1e-6) / _GRID),
-                            math.floor((max(zs) + 1e-6) / _GRID) + 1):
-                grid.setdefault((gx, gz), []).append(t)
-    return grid
+# the spatial index was promoted to placement.build_index (2026-08-04, audit rec 2) so a
+# calibration fix lands ONCE; these aliases keep every call site and the measured semantics
+# (the un-indexed pass was the ~hour-per-pass cost measured on 2026-07-30).
+from .placement import INDEX_GRID as _GRID               # noqa: E402
+from .placement import build_index as _build_grid        # noqa: E402
 
 
 class _Loader:

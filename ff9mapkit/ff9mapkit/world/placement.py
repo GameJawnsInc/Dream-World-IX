@@ -34,6 +34,7 @@ IDALL_SKIP = {4078, 4088, 2040}
 WALK_RAY_START = 2.34375
 WALK_RAY_DIST = 2.8                                      # ff9.rayDistance -- DEAD in WMBlock.Raycast
 SKY_RAY_START = 400.0
+INDEX_GRID = 8.0  #: spatial-index bucket size (same frame/units as the meshes)
 
 
 def _decode_topo(idall: int):
@@ -41,17 +42,50 @@ def _decode_topo(idall: int):
     return decode_id(idall)["topograph"]
 
 
-def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True):
+def build_index(bm):
+    """Uniform-grid index over triangle 2D AABBs, (x, z) -> ascending tri indices (promoted from
+    ``coastnav._build_grid``, the proven emitter-default accelerator).
+
+    Buckets hold ascending triangle indices, and any triangle covering a point is in that point's
+    bucket (AABB overlap), so a bucket scan returns exactly the file-order first hit the full scan
+    returns -- the index is a pure accelerator, never a semantic change. ``extract.py`` guarantees
+    ``bm.tris[t] == flat_index[3t:3t+3]``, so tri indices map 1:1 between the two topology views.
+    A dense census over a stacked meshlist is O(all tris) per sample without it -- minutes per gate
+    run at region scale, which is what made "sample finer" unaffordable."""
+    grid = {}
+    for t, tri in enumerate(bm.tris):
+        xs = [bm.verts[k][0] for k in tri]
+        zs = [bm.verts[k][2] for k in tri]
+        for gx in range(math.floor((min(xs) - 1e-6) / INDEX_GRID),
+                        math.floor((max(xs) + 1e-6) / INDEX_GRID) + 1):
+            for gz in range(math.floor((min(zs) - 1e-6) / INDEX_GRID),
+                            math.floor((max(zs) + 1e-6) / INDEX_GRID) + 1):
+                grid.setdefault((gx, gz), []).append(t)
+    return grid
+
+
+def build_meshlist_index(meshlist):
+    """Per-mesh :func:`build_index` grids aligned with ``meshlist``'s order -- hand the result to
+    ``place(index=...)``. Build once per meshlist, never per sample."""
+    return [build_index(bm) for _, bm in meshlist]
+
+
+def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True, index=None):
     """The engine ground query at ``(x, z)`` from height ``y``. ``meshlist`` = ``[(name, BlockMesh)]`` in
     the block's REGISTRATION order (Object, Terrain, ..., Sea1..6), all in the same (block-local or world)
     frame as ``x, z``. Returns ``(ground_y, mesh_name, idall, topograph)``; a miss returns
-    ``(0.0, "MISS", 0, None)`` -- the engine's defaultHeight fallback."""
+    ``(0.0, "MISS", 0, None)`` -- the engine's defaultHeight fallback. ``index`` (optional) = the
+    :func:`build_meshlist_index` of THIS meshlist; a pure accelerator, byte-identical verdicts."""
     origin_y = y + (SKY_RAY_START if sky else WALK_RAY_START)
     # NO max drop in either mode: the engine passes ff9.rayDistance (2.8) into WMBlock.Raycast
     # but that parameter is never read -- descent of any height is legal, only the climb gates.
-    for name, bm in meshlist:
+    for mi, (name, bm) in enumerate(meshlist):
         V, T, fi = bm.verts, bm.tangents, bm.flat_index
-        for t in range(len(fi) // 3):
+        if index is None:
+            cand = range(len(fi) // 3)
+        else:
+            cand = index[mi].get((math.floor(x / INDEX_GRID), math.floor(z / INDEX_GRID)), ())
+        for t in cand:
             idx = fi[3 * t:3 * t + 3]
             idall = int(round(T[idx[0]][0]))
             if idall in IDALL_SKIP:
@@ -87,11 +121,12 @@ def census(meshlist, *, span=(2.0, 62.0, -62.0, -2.0), samples: int = 24, y: flo
     counts = collections.Counter()
     miss = []
     points = []
+    index = build_meshlist_index(meshlist)               # once per census -- pure accelerator
     for i in range(samples):
         for j in range(samples):
             px = x0 + (x1 - x0) * i / (samples - 1)
             pz = z0 + (z1 - z0) * j / (samples - 1)
-            gy, name, idall, topo = place(meshlist, px, pz, y, sky=True)
+            gy, name, idall, topo = place(meshlist, px, pz, y, sky=True, index=index)
             counts[(name, topo)] += 1
             points.append((px, pz, gy, name, topo))
             if name == "MISS":

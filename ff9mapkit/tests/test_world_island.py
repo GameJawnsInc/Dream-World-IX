@@ -106,6 +106,54 @@ def test_census_reports_misses():
     assert len(cen["miss"]) > 0 and ("Terrain", 0) in cen["counts"]
 
 
+# ---- the spatial index (audit rec 2: the accelerator that makes dense censuses affordable) --------------------------
+
+def _nasty_meshlist():
+    """Every semantics the index could plausibly break, in one meshlist: stacked same-plan tris
+    (buffer order decides), a down-wound top, an engine-skipped idall, a tri crossing bucket
+    borders, a second mesh shadowed by the first, and empty space."""
+    lower = [(0.0, 1.0, 0.0), (8.0, 1.0, 0.0), (0.0, 1.0, -8.0)]
+    upper = [(0.0, 5.0, 0.0), (8.0, 5.0, 0.0), (0.0, 5.0, -8.0)]
+    spanner = [(5.0, 2.0, -5.0), (21.0, 2.0, -5.0), (5.0, 2.0, -21.0)]   # crosses the 8u/16u bucket lines
+    skip = sorted(P.IDALL_SKIP)[0]
+    surface = [(-8.0, 0.0, 8.0), (24.0, 0.0, 8.0), (-8.0, 0.0, -24.0)]
+    terr = _bm([(lower, GRASS), (_DOWN, GRASS), (upper, skip), (upper, GRASS), (spanner, GRASS)])
+    sea = _bm([(surface, SEA)])
+    return [("Terrain", terr), ("Sea4", sea)]
+
+
+def test_place_index_is_a_pure_accelerator():
+    """Indexed and unindexed ``place`` agree at EVERY probe of a dense lattice that lands on tri
+    edges, bucket borders (0, 8, 16), interior points, and off-mesh space -- ascending bucket order
+    reproduces the file-order first hit, so the index can never change a verdict."""
+    ml = _nasty_meshlist()
+    idx = P.build_meshlist_index(ml)
+    probes = [(-9.0 + i * 0.5, 9.0 - j * 0.5) for i in range(70) for j in range(70)]
+    assert (0.0, 0.0) in probes and (8.0, -8.0) in probes and (16.0, -16.0) in probes
+    for px, pz in probes:
+        assert P.place(ml, px, pz, index=idx) == P.place(ml, px, pz), (px, pz)
+    # the walk-ray window must thread through identically too
+    for py, sky in ((0.0, False), (2.0, False), (800.0, True)):
+        assert P.place(ml, 2.0, -2.0, y=py, sky=sky, index=idx) == \
+            P.place(ml, 2.0, -2.0, y=py, sky=sky)
+
+
+def test_census_indexed_matches_pointwise_unindexed_place():
+    """``census`` now builds the index internally; its every reported point must equal the
+    unindexed ``place`` verdict at that sample -- the accelerator is invisible in the output."""
+    ml = _nasty_meshlist()
+    cen = P.census(ml, span=(-9.0, 25.0, -25.0, 9.0), samples=24)
+    for px, pz, gy, name, topo in cen["points"]:
+        egy, ename, _, etopo = P.place(ml, px, pz, 0.0, sky=True)
+        assert (gy, name, topo) == (egy, ename, etopo), (px, pz)
+
+
+def test_coastnav_reuses_the_placement_index():
+    """The promotion left ONE copy: coastnav's grid builder is placement's, same bucket size."""
+    from ff9mapkit.world import coastnav as CN
+    assert CN._build_grid is P.build_index and CN._GRID == P.INDEX_GRID
+
+
 # ---- fill_missing_grid_quads ----------------------------------------------------------------------------------------
 
 def _grid_plane(missing=()):
