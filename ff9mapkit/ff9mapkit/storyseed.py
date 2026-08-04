@@ -574,6 +574,98 @@ def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tu
     return out
 
 
+def hub_journey_toml(chain_dir: str, beat: int, census: dict, eb_for_donor, *,
+                     entry: int, slug: str | None = None, name: str | None = None) -> str:
+    """A ``[[journey]]`` row for the World Hub (``gen-hub``) carrying the CHAIN'S WHOLE derived
+    seed -- the hub-format answer to beat seeding (round 7): the journey PICK stamps scenario +
+    flags + words + party hub-side and then warps, so the members stay pure verbatim forks and
+    in-journey progression is never re-stamped at a door. The seed is the UNION over members of
+    the same per-member derivations ``seed_chain`` used to emit (bit resolution is global, so
+    the union is consistent; the ATE words derive zone-wide; the party is the windowed union)."""
+    members = chain_donors(chain_dir)
+    if not members:
+        raise ValueError(f"no chain members (donor= field.tomls) under {chain_dir}")
+    zone = sorted({d for (_m, d) in members})
+    set_bits: dict[int, int] = {}
+    words: dict[int, int] = {}
+    party: set[str] = set()
+    for _mid, donor in members:
+        eb = eb_for_donor(donor)
+        for v in resolve(eb, beat, census).verdicts:
+            if v.decision == "set":
+                set_bits[v.bit] = 1
+        detected = ate_word_seed(eb)
+        if detected:
+            vals = ate_word_values(list(detected), beat, census, zone)
+            for b, val in vals.items():
+                if val is None and detected[b] == "cmp":
+                    val = 1                      # the comparison-channel placeholder
+                if val is not None:
+                    words[b] = words.get(b, 0) | val
+        party |= set(party_seed(eb, beat=beat, census=census, donor=donor)["add"])
+    slug = slug or f"{os.path.basename(os.path.normpath(chain_dir))}_{beat}"
+    label = name or f"{flagsmod.nearest_milestone(beat)[1]} (SC {beat})"
+    L = ["[[journey]]",
+         f'id    = "{slug}"',
+         f'name  = "{label}"',
+         f"entry = {entry}",
+         f"set_scenario = {beat}"]
+    if set_bits:
+        rows = ", ".join("{ flag = %d, value = %d }" % (b, v) for b, v in sorted(set_bits.items()))
+        L.append(f"set_flags = [ {rows} ]")
+    if words:
+        rows = ", ".join("{ byte = %d, value = %d }" % (b, v) for b, v in sorted(words.items()))
+        L.append(f"set_words = [ {rows} ]")
+    if party:
+        L.append("party_add = [ " + ", ".join(f'"{n}"' for n in sorted(party)) + " ]")
+    return "\n".join(L)
+
+
+def update_hub_journeys(journeys_path: str, row_toml: str, slug: str) -> None:
+    """Insert (or replace, marker-delimited by *slug*) one generated ``[[journey]]`` row in a
+    ``journeys.toml``. The ``[hub]`` presentation table stays the author's; only the marked
+    generated rows are touched."""
+    begin = f'# --- story-seed journey "{slug}" (generated; re-run story-seed --hub to refresh) ---'
+    end = f'# --- end story-seed journey "{slug}" ---'
+    text = open(journeys_path, encoding="utf-8").read()
+    block = f"{begin}\n{row_toml}\n{end}\n"
+    if begin in text and end in text:
+        pre = text[:text.index(begin)]
+        post = text[text.index(end) + len(end):].lstrip("\n")
+        text = pre + block + post
+    else:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += "\n" + block
+    with open(journeys_path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+
+
+def strip_chain_seeds(chain_dir: str) -> list[tuple[str, int, int]]:
+    """Remove the generated ``# story-seed`` block from every member field.toml under
+    *chain_dir* -- the members become pure verbatim forks (retarget maps only) and ALL story
+    state comes from the hub journey pick. Returns ``[(path, member_id, donor_id)]`` for the
+    members that had a seed to strip."""
+    import glob
+    import re
+    out = []
+    for p in sorted(glob.glob(os.path.join(chain_dir, "**", "*.field.toml"), recursive=True)):
+        text = open(p, encoding="utf-8").read()
+        m_donor = re.search(r"^donor\s*=\s*(\d+)", text, re.M)
+        m_id = re.search(r"^id\s*=\s*(\d+)", text, re.M)
+        if not m_donor or not m_id:
+            continue
+        lines = text.splitlines(keepends=True)
+        cut = next((i for i, l in enumerate(lines) if l.startswith("# story-seed")), None)
+        if cut is None:
+            continue
+        base = "".join(lines[:cut])
+        with open(p, "w", encoding="utf-8", newline="") as fh:
+            fh.write(base)
+        out.append((p, int(m_id.group(1)), int(m_donor.group(1))))
+    return out
+
+
 def chain_once_flag(member_ids: list[int]) -> int:
     """The chain's shared once-stamp sentinel bit: deterministic from the lowest member id,
     inside the safe custom band (>= FIRST_SAFE_FLAG -- the 8512 lesson). Distinct chains land

@@ -28,7 +28,7 @@ VOCAB = {
     'camera.scroll': ('enabled', 'frame_count', 'scroll_type'),
     'chest': ('box', 'face', 'flag', 'gil', 'item', 'message', 'model', 'options', 'pos', 'requires_flag', 'requires_flag_clear', 'set_flag', 'set_flags', 'steps', 'tail'),
     'choice': ('cancel', 'default', 'flag', 'instant', 'npc', 'once', 'options', 'prompt', 'requires_flag', 'requires_flag_clear', 'set_flag', 'set_flags', 'speaker', 'steps', 'tail', 'trigger', 'zone'),
-    'choice.options': ('disabled', 'flag', 'gil', 'give_item', 'input', 'options', 'qte', 'recall', 'remove_item', 'reply', 'requires_flag', 'requires_flag_clear', 'save', 'set_flag', 'set_flags', 'set_scenario', 'speaker', 'steps', 'tail', 'text', 'warp', 'worldmap'),
+    'choice.options': ('disabled', 'flag', 'gil', 'give_item', 'input', 'options', 'party_add', 'party_remove', 'qte', 'recall', 'remove_item', 'reply', 'requires_flag', 'requires_flag_clear', 'save', 'set_flag', 'set_flags', 'set_scenario', 'set_words', 'speaker', 'steps', 'tail', 'text', 'warp', 'worldmap'),
     'cutscene': ('actor', 'actors', 'ate', 'ate_mode', 'exit_warp', 'flag', 'once', 'options', 'requires_flag', 'requires_flag_clear', 'requires_scenario', 'set_flag', 'set_flags', 'set_scenario', 'steps', 'then_warp', 'warmup'),
     'cutscene.steps': ('actor', 'anim', 'animation', 'face_player', 'flag', 'options', 'path', 'requires_flag', 'requires_flag_clear', 'say', 'set_flag', 'set_flags', 'speaker', 'steps', 'tail', 'teleport', 'turn', 'wait', 'walk'),
     'dialogue': ('wrap',),

@@ -2568,6 +2568,32 @@ def validate(project: FieldProject) -> list[str]:
                 if "set_scenario" in o and not (isinstance(o["set_scenario"], int) and 0 <= o["set_scenario"] <= 32767):
                     problems.append(f"[[choice]] #{c} option {oi} set_scenario {o['set_scenario']!r} must be "
                                     f"a ScenarioCounter value 0..32767")
+                # the full hub-side story seed: flags / save-backed words / party roster
+                if "set_flags" in o:
+                    sf = o["set_flags"]
+                    if not isinstance(sf, list) or not all(
+                            isinstance(p, dict) and isinstance(p.get("flag"), int)
+                            and int(p.get("value", 1)) in (0, 1) for p in sf):
+                        problems.append(f"[[choice]] #{c} option {oi} set_flags must be a list of "
+                                        f"{{flag = <bit index>, value = 0|1}}")
+                if "set_words" in o:
+                    sw = o["set_words"]
+                    if not isinstance(sw, list) or not all(
+                            isinstance(w, dict) and isinstance(w.get("byte"), int)
+                            and 0 <= w["byte"] <= _startup.WORD_BYTE_MAX
+                            and isinstance(w.get("value"), int)
+                            and 0 <= w["value"] <= _startup.WORD_VALUE_MAX for w in sw):
+                        problems.append(f"[[choice]] #{c} option {oi} set_words must be a list of "
+                                        f"{{byte = 0..{_startup.WORD_BYTE_MAX}, "
+                                        f"value = 0..{_startup.WORD_VALUE_MAX}}}")
+                for pk in ("party_add", "party_remove"):
+                    if pk in o:
+                        from .content import party as _party_mod
+                        for n in (o[pk] if isinstance(o[pk], list) else [o[pk]]):
+                            try:
+                                _party_mod.resolve_member(n)
+                            except ValueError as e:
+                                problems.append(f"[[choice]] #{c} option {oi} {pk}: {e}")
                 if "input" in o and (not isinstance(o["input"], str) or o["input"] not in ni_names):
                     problems.append(f"[[choice]] #{c} option {oi} input {o.get('input')!r} is not a "
                                     f"defined [[numeric_input]] name")

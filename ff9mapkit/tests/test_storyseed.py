@@ -155,6 +155,53 @@ def test_seed_chain_emits_shared_once_sentinel(tmp_path):
         assert f"once = {want}" in text
 
 
+def test_hub_journey_row_update_and_strip(tmp_path):
+    # the hub format (round 7): ONE [[journey]] row carries the chain's whole derived seed;
+    # installing it is marker-idempotent; stripping returns members to pure verbatim forks
+    for name, mid, donor in (("M1", 30830, 553), ("M2", 30833, 554)):
+        d = tmp_path / name
+        d.mkdir()
+        (d / f"{name}.field.toml").write_text(
+            f"id = {mid}\ndonor = {donor}\n[verbatim_eb]\ndonor = {donor}\n", encoding="utf-8")
+    eb = _field_reading(2647)
+    c = _census(2647, sc=[[0, 7, 0, "==", 3110]])
+    row = storyseed.hub_journey_toml(str(tmp_path), 3115, c, lambda _d: eb,
+                                     entry=30830, slug="test_3115")
+    assert 'id    = "test_3115"' in row and "set_scenario = 3115" in row
+    assert "entry = 30830" in row and "{ flag = 2647, value = 1 }" in row
+    jt = tmp_path / "journeys.toml"
+    jt.write_text('[hub]\nname = "X"\nid = 30850\n', encoding="utf-8")
+    storyseed.update_hub_journeys(str(jt), row, "test_3115")
+    storyseed.update_hub_journeys(str(jt), row, "test_3115")     # replace, never duplicate
+    assert jt.read_text(encoding="utf-8").count("[[journey]]") == 1
+    storyseed.seed_chain(str(tmp_path), 3115, c, lambda _d: eb)
+    assert len(storyseed.strip_chain_seeds(str(tmp_path))) == 2
+    for name in ("M1", "M2"):
+        t = (tmp_path / name / f"{name}.field.toml").read_text(encoding="utf-8")
+        assert "# story-seed" not in t and "[startup]" not in t
+    assert storyseed.strip_chain_seeds(str(tmp_path)) == []      # nothing left to strip
+
+
+def test_hub_render_and_option_body_carry_the_seed():
+    # the journey row's seed reaches the compiled choice option: gen-hub renders the keys and
+    # option_body emits the same startup/party bytes the [startup]/[party] path uses
+    from ff9mapkit import hub as _hub
+    from ff9mapkit.content import choice as _choice, party as _party, startup as _startup
+    j = _hub.Journey(id="dali_2600", name="Dali (2600)", entry=30840, set_scenario=2600,
+                     set_words=[{"byte": 297, "value": 1}],
+                     party_add=["garnet", "steiner", "vivi", "zidane"])
+    spec = _hub.HubSpec(name="NS_HUB", id=30850, borrow_bg="X", journeys=[j])
+    text = _hub.render_hub_field_toml(spec)
+    assert "set_words = [ { byte = 297, value = 1 } ]" in text
+    assert 'party_add = [ "garnet", "steiner", "vivi", "zidane" ]' in text
+    body = _choice.option_body({"set_scenario": 2600,
+                                "set_words": [{"byte": 297, "value": 1}],
+                                "party_add": ["vivi"], "warp": 30840})
+    assert _startup.startup_body([], words=[(297, 1)]) in body
+    assert _party.add_member(1) in body                          # vivi = CharacterOldIndex 1
+    assert body.index(_party.add_member(1)) < body.index(b"\x2b")  # party BEFORE the warp
+
+
 def test_startup_once_guard_bytecode_roundtrip():
     # the injected once-guard must decode as `if (Bit[S]==0) { stamp...; Bit[S]=1 }` through
     # the kit's OWN readers: the rung-0 CFG sees the guard cond, and the stamp is skipped when

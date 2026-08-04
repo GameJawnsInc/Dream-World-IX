@@ -537,6 +537,34 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
         census = _json.load(open(cpath, encoding="utf-8"))
         from .extract import EventBundle
         bundle = EventBundle()
+        if args.hub:
+            # THE HUB FORMAT (round 7): derive ONE [[journey]] row carrying the chain's whole
+            # seed (stamped hub-side on the journey PICK, before the warp), install it in the
+            # journeys.toml, and STRIP the members back to pure verbatim forks. Rebuild +
+            # redeploy the members and `gen-hub` + build + deploy the hub after this.
+            if not args.entry:
+                print("story-seed: --hub needs --entry <member field id> (the journey's warp "
+                      "destination, e.g. the zone's entrance member)", file=sys.stderr)
+                return 1
+            if not os.path.isfile(args.hub):
+                print(f"story-seed: journeys.toml not found: {args.hub}", file=sys.stderr)
+                return 1
+            slug = f"{os.path.basename(os.path.normpath(args.chain))}_{beat}"
+            row = storyseed.hub_journey_toml(
+                args.chain, beat, census,
+                lambda d: EbScript.from_bytes(bundle.eb_for_id(d)),
+                entry=int(args.entry), slug=slug)
+            storyseed.update_hub_journeys(args.hub, row, slug)
+            stripped = storyseed.strip_chain_seeds(args.chain)
+            _safe_console()
+            print(row)
+            print()
+            print(f"story-seed: journey {slug!r} installed in {args.hub}")
+            if stripped:
+                print(f"story-seed: {len(stripped)} member(s) stripped to pure verbatim forks "
+                      "(ALL story state now comes from the hub pick) -- rebuild + redeploy them")
+            print("next: ff9mapkit gen-hub <journeys.toml> then build + deploy the hub field")
+            return 0
         rows = storyseed.seed_chain(args.chain, beat, census,
                                     lambda d: EbScript.from_bytes(bundle.eb_for_id(d)))
         _safe_console()
@@ -6875,6 +6903,14 @@ def build_parser() -> argparse.ArgumentParser:
     sse.add_argument("--chain", help="a chain/campaign DIRECTORY (from import-chain): seed "
                                      "EVERY member's field.toml at --beat (each member "
                                      "resolved against its own donor's read set)")
+    sse.add_argument("--hub", help="with --chain + --beat: derive ONE [[journey]] row carrying "
+                                   "the chain's whole seed, install it in this journeys.toml "
+                                   "(gen-hub's input), and STRIP the members to pure verbatim "
+                                   "forks -- the journey PICK stamps the beat hub-side, so "
+                                   "in-journey progression is never re-stamped at a door")
+    sse.add_argument("--entry", type=int,
+                     help="with --hub: the journey's warp destination (a member field id, "
+                          "e.g. the zone's entrance member)")
     sse.add_argument("--census", help="path to dominance_census.json (default: found by walking "
                                       "up from cwd; regenerate with research/dominance_census.py)")
     sse.set_defaults(func=_cmd_story_seed)

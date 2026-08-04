@@ -223,4 +223,27 @@ All 12 members re-seeded + redeployed (content-only -- ~ -> Reload / re-warp, NO
 **Walk it from a fresh New Game -> warp 30840** (the current save's sentinel/latches are
 dirty from the previous rounds; New Game zeroes them). Expect: the morning plays THROUGH --
 ATEs offered, the shop scene fires ONCE, SC stays 2610 after it, Dagger relocates (back at
-the inn), no rewind at any door. PENDING
+the inn), no rewind at any door. SUPERSEDED UNPLAYED -- owner redirected to the HUB format
+(round 7) before walking it; the once-stamp lever stays in the kit for hub-less campaigns.
+
+## Round 7 -- THE HUB FORMAT: the journey pick stamps the seed, members carry none
+
+Owner's design call: this arc's product is "test any part of the game from a New Game" --
+that is a HUB, and the seed belongs to the TRANSITION (the journey pick), not to the rooms.
+Re-stamping on pick is CORRECT semantics (a deliberate re-entry into a scenario); at a door
+it was a bug. No sentinel needed at all.
+
+Built on the proven World-Hub generator: `[[choice.options]]` (and gen-hub's `[[journey]]`)
+gain the FULL seed vocabulary -- `set_flags` + `set_words` (save-backed words, the ATE
+availability state) + `party_add`/`party_remove` -- compiled hub-side BEFORE the warp.
+`story-seed --chain <dir> --beat N --hub journeys.toml --entry <id>` derives ONE journey row
+(the union of the members' derivations: zero flags at 2600 under the strict rule, words
+208=0 + 297=1, party = the four) and STRIPS every member back to a pure verbatim fork.
+
+Deployed: hub **30850** (Gargan Roo backdrop, Moogle PC, Stiltzkin narrator -- the proven
+example rig) + all 12 members rebuilt seedless. **RELAUNCH once** (30850 is a new id), then:
+**New Game -> ~ Warp 30850 -> talk to Stiltzkin -> pick "Dali (SC 2600)"** -> it stamps the
+seed and warps to the village entrance. Expect: the same green run round 6 predicted --
+ATEs offered, the shop scene once, SC 2610 persists, Dagger relocates, no rewind at any
+door -- plus: re-picking the journey from the hub re-stamps 2600 (a fresh test run,
+deliberate). PENDING

@@ -89,6 +89,23 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
         parts.append(_event.set_flag(int(sf[0]), int(sf[1]) if len(sf) > 1 else 1))
     if "set_scenario" in opt:
         parts.append(_event.set_scenario(int(opt["set_scenario"])))
+    # The full hub-side STORY SEED (narrative-state round 7): a journey row stamps the whole
+    # beat -- flags, save-backed words (the ATE availability state), and the party roster --
+    # BEFORE the warp, so the destination members stay pure verbatim forks with no [startup]
+    # of their own and in-journey progression is never re-stamped at a door.
+    if "set_flags" in opt:
+        from . import startup as _startup
+        parts.append(_startup.startup_body(
+            [(int(p["flag"]), int(p.get("value", 1))) for p in opt["set_flags"]]))
+    if "set_words" in opt:
+        from . import startup as _startup
+        parts.append(_startup.startup_body(
+            [], words=[(int(w["byte"]), int(w["value"])) for w in opt["set_words"]]))
+    if "party_add" in opt or "party_remove" in opt:
+        from . import party as _party
+        parts.append(_party.party_body(
+            adds=[_party.resolve_member(n) for n in opt.get("party_add", ())],
+            removes=[_party.resolve_member(n) for n in opt.get("party_remove", ())]))
     if opt.get("save"):
         # A SAVE row -- open the real save menu from a dialogue choice, so one NPC can be the
         # innkeeper/purser AND the save point instead of standing next to a twin save-moogle prop.
