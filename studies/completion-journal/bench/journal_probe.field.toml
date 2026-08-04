@@ -1,30 +1,31 @@
 # =====================================================================================
-# COMPLETION-JOURNAL RUNG-0 PROBE  --  field 30800
+# COMPLETION-JOURNAL RUNG-0b PROBE  --  field 30800
 # =====================================================================================
-# ONE window, SEVEN live reads, ONE playtest round. It falsifies the DLL-free half of the
-# journal ladder: if a row reads a stuck 0 while the game state says otherwise, that
-# mechanism is dead and the tier that depends on it must be re-scoped.
+# ONE window, SEVEN live reads, ONE playtest round.
 #
-# WHAT IS AND IS NOT IN DOUBT. The expression-valued SetTextVariable itself is NOT the
-# question -- it already ships and is in-game proven at content/behavior.py (the HUD live
-# pass), content/numinput.py:413 (the Treno bid stepper, bench 30417) and
-# content/mognet.py:292 (mail sender names). What has ZERO precedent here is:
-#   * slot 0 -- `Null.SBit[5]`, a MEMORIA CUSTOM VARIABLE read (EBin.cs:1689 ->
-#     GetMemoriaCustomVariable, memoria_variable.TREASURE_HUNTER_POINTS = index 5,
-#     EBin.cs:2416-2431 / :1703-1704). Never executed by this kit.
-#   * slot 5 -- `flex(16,3)`, a flexible_varfunc read (PLAYER_ABILITY_LEARNT, the 17th
-#     entry of EBin.cs:2388-2413; implementation EBin.cs:421-435). Never executed either.
-# Slots 1-4 and 6 are cheap confirmations that ride along in the same window.
+# RUNG 0 (this same field, earlier strip) ALREADY PASSED and is not re-tested here:
+#   * `Null.SBit[5]` -> real per-save Treasure-Hunter points (0 / 178 / 215). The
+#     memoria_variable lane WORKS. That was the ladder's largest unknown; it is closed.
+#   * `Global.UInt16[0]`, `const(256) B_HAVE_ITEM`, and the B_DIV/B_GE/B_MULT clamp all
+#     confirmed. The in-game reads cross-validated EXACTLY against the offline decoder
+#     (`ff9mapkit journal report`) on the same save container -- two implementations,
+#     two access paths, same three numbers.
+#   * The Int24 sign-extension row could not fire and does not need a playtest: it is
+#     provable that it bites ONLY at the 24th chocograph (23 -> 8388607, 24 -> -1).
 #
-# DEPLOY (the HUMAN does this -- the agent does not):
+# WHAT RUNG 0b EXISTS FOR: flex(16,3) PLAYER_ABILITY_LEARNT read 0 on every save, and a
+# 0 there is NOT interpretable -- see the matrix on the values block below. This strip
+# brackets the same engine line with a known-good and a known-bad input so that a 0
+# becomes evidence instead of an open question.
+#
+# REDEPLOY (the HUMAN does this -- the agent does not):
 #   py tools/deploy_field.py studies/completion-journal/bench/journal_probe.field.toml --id 30800
-# 30800 is a FIRST deploy of a new id -> needs a RELAUNCH (it registers a DictionaryPatch
-# line). Re-read <game>/FF9CustomMap/DictionaryPatch.txt AND FF9CustomMap-world's before
-# deploying: EventDB/SceneData are GLOBAL across stacked folders and ~18 worktrees share
-# this install, so "30800 was free an hour ago" is not a registry.
+# 30800 is ALREADY REGISTERED (FieldScene 30800 + MessageFile 30800), so a rung-0b
+# redeploy is a `~` -> Reload field, NOT a relaunch. Only the .eb content changed.
 #
 # READ IT WITH A REAL SAVE, NOT A FRESH ONE. A fresh save shows 0/0/0 and proves nothing:
-# a stuck 0 is indistinguishable from a correct 0. Every row needs BOTH polarities.
+# a stuck 0 is indistinguishable from a correct 0. Every row needs BOTH polarities --
+# which is exactly what rows 1 and 6 now provide structurally rather than by luck.
 
 [field]
 id = 30800               # dev-scratch band (30000-32767; fldMapNo is Int16, max 32767)
@@ -96,65 +97,61 @@ warmup = 30              # frames before the ticker starts (the strip opens afte
   # (behaviortoml.HUD_DIGITS_REACHABLE). The raw chocograph row can render nine glyphs
   # ("-8388608"), which no sentinel can reserve -- that is why the header line is the
   # width pin (see `text` below), not `digits`.
-  digits = [3, 5, 5, 5, 1, 1, 5]
+  digits = [5, 2, 2, 3, 1, 1, 1]
   values = [
-    # 0  TREASURE-HUNTER POINTS. `Null.SBit[5]` -> token 0xC0|(0<<2)|3 = 0xC3, index 05.
-    #    EvaluateValueExpression (EBin.cs:1621) -> case VariableSource.Null -> case
-    #    VariableType.Any -> GetMemoriaCustomVariable((memoria_variable)(t0 & 0xFFFF)).
-    #    The SPELLING IS FORCED: the kit's VAR_TYPE maps 0 -> "SBit" only, so
-    #    `Null.Any[5]` will not assemble. Every other varType under Null falls through
-    #    to `return 0` at EBin.cs:1672 -- silently.
-    "expr:Null.SBit[5]",
-    # 1  SCENARIO COUNTER. Global.UInt16[0] -> 0xC0|(7<<2)|0 = 0xDC, index 00. The UInt16
-    #    arm (EBin.cs:1870-1872) is buffer[0] | buffer[1]<<8 -- byte-identical to
-    #    EventState.ScenarioCounter (EventState.cs:16-18). A chapter heading, NOT a quest
-    #    key; it is here to be seen moving, not to be trusted as completion state.
+    # ===== RUNG 0b: DECOMPOSE THE flex() QUESTION =====================================
+    # Rung 0 left ONE row unresolved: flex(16,3) PLAYER_ABILITY_LEARNT read 0 on every
+    # save. That 0 is NOT interpretable on its own, and the reason is in the engine:
+    # expr_customSubCommand sets `_v0 = 0;` BEFORE the switch (EBin.cs:360), then the
+    # PLAYER_ABILITY_LEARNT arm `break`s WITHOUT assigning whenever the player is null,
+    # has no AP, or the ability id is not in that character's list (EBin.cs:421-435).
+    # So a fallthrough is a DETERMINISTIC 0, byte-identical to a true "not mastered".
+    # (Rung 0 initially guessed `_v0` was left stale, which would have let a sentinel
+    # distinguish them. It does not -- the zeroing is explicit. No value-inspection
+    # trick can separate these two cases, so the probe must separate them STRUCTURALLY.)
+    #
+    # THE MATRIX. Rows 1 and 6 bracket the same code path with a known-good and a
+    # known-bad input; row 3 tests flex() with no player dependency at all:
+    #   row 1 > 0                -> the whole flex lane works (emit -> dispatch -> args
+    #                               -> GetPlayer), because PLAYER_LEVEL takes the SAME
+    #                               GetPlayer(CharacterOldIndexToID(args[0])) path
+    #   row 6 == 0 AND row 1 > 0 -> the null-player fallthrough is real and observable
+    #   => rows 4/5 == 0 is then a SEMANTIC answer about Zidane, not a broken read
+    #   row 1 == 0 too           -> mechanism suspect; row 3 says whether it is flex-wide
+    #                               or specific to the GetPlayer arms
+    # =================================================================================
+    # 0  SCENARIO COUNTER -- the control. Proves the ticker runs and the strip renders
+    #    at all. Confirmed live in rung 0 (6000 / 7200 / 0 on New Game).
     "expr:Global.UInt16[0]",
-    # 2  CHOCOGRAPH "FOUND" BITFIELD, RAW. Byte 187 (bytes 187-189; OPENED is 184-186)
-    #    per flags.py:378-382. Int24 -> 0xC0|(2<<2)|0 = 0xC8, index BB.
-    #    BOTH Int24 AND UInt24 SIGN-EXTEND: EBin.cs:1858-1861 falls Int24 through into
-    #    UInt24 and casts the top byte `(SByte)buffer[ofs+2] << 16`. There is NO unsigned
-    #    24-bit spelling. 24/24 chocographs found reads -1 either way. Observing that in
-    #    the wild is the point of this row.
-    "expr:Global.Int24[187]",
-    # 3  ...AND MASKED. const4 is B_CONST4 (0x7E + 4 LE bytes; the engine masks the read
-    #    to 26 bits at EBin.cs:1243, and 0xFFFFFF fits). B_AND is 0x24 (EBin.cs:807-814),
-    #    RPN order `A B B_AND` = A & B. 16777215 is inside the 26-bit positive range, so
-    #    this row is safe. Expected all-found reading: 16777215 while row 2 reads -1.
-    "expr:Global.Int24[187] const4(16777215) B_AND",
-    # 4  ONE KEY ITEM HELD. B_HAVE_ITEM (0x64) -> ff9item.FF9Item_GetCount_Generic, which
-    #    routes 256 <= id%1000 < 512 to IsItemImportant -> FF9Item_IsExistImportant(id-256)
-    #    ? 1 : 0. So const(256) = IMPORTANT ID 0. Stay in 0-79 (the vanilla key-item band,
-    #    content/folklore.py:93-94): 80-254 is the Folklore codex MINT band, and a read
-    #    there returns a codex entry, not a stock key item. Cross-check Menu > Key Items.
-    "expr:const(256) B_HAVE_ITEM",
-    # 5  ONE ABILITY LEARNT. flex(16,3) -> D3 10 00 03 = flexible_varfunc index 16,
-    #    PLAYER_ABILITY_LEARNT, 3 args. expr_customSubCommand (EBin.cs:351-359) pops
-    #    `for (i = argCount-1; i>=0; i--)`, so args are pushed LEFT TO RIGHT:
-    #      args[0] = CharacterOldIndex   -> const(0)  = Zidane
-    #      args[1] = unified ability id  -> const(6)  = AA:6 (the literal is baked here on
-    #                                       purpose; no resolver in a falsification path)
-    #      args[2] = count equipment-granted abilities -> const(0) = no, learnt only
-    #    TEST BOTH POLARITIES in one round: a stuck 0 and a correct 0 look identical.
+    # 1  *** THE MECHANISM TEST *** flex(13,1) = PLAYER_LEVEL.
+    #    _v0 = GetPlayer(CharacterOldIndexToID((CharacterOldIndex)args[0]))?.level ?? 0
+    #    (EBin.cs:396). This is the SAME GetPlayer lookup PLAYER_ABILITY_LEARNT uses,
+    #    with a payload that cannot be legitimately 0 for a live party member. Non-zero
+    #    here proves the entire flex lane end to end: 0xD3 emission, commandId, argCount,
+    #    left-to-right arg push, and the character resolve.
+    "expr:const(0) flex(13,1)",
+    # 2  flex(10,1) = PARTY_MEMBER -- slot 0's CharacterOldIndex. A second mechanism
+    #    witness that never touches GetPlayer's null arm (EBin.cs:388-394). Zidane in
+    #    slot 0 reads 0, so treat this row as corroboration for a NON-zero party, not as
+    #    a standalone pass/fail -- it is here to disambiguate row 1 if row 1 surprises.
+    "expr:const(0) flex(10,1)",
+    # 3  flex(6,1) = ABILITY_ACTIVE_TO_ID(6) -- a PURE TABLE CONVERSION
+    #    (ff9abil.GetAbilityIdFromActiveAbility, EBin.cs:373). Zero player state, zero
+    #    save state. If rows 1/2 read 0 but this one does not, the fault is in the
+    #    GetPlayer arms; if this reads 0 too, the fault is the flex lane itself.
+    "expr:const(6) flex(6,1)",
+    # 4  THE ORIGINAL UNRESOLVED ROW, unchanged: PLAYER_ABILITY_LEARNT(Zidane, 6, noEquip).
+    #    args[2]=0 means "learnt only" -- do not count an ability granted by equipment.
     "expr:const(0) const(6) const(0) flex(16,3)",
-    # 6  A CLAMPED COMPUTED ROW INDEX. `E E const(0) B_GE B_MULT` = E * (E >= 0) -- the
-    #    multiply-by-predicate idiom, because there is no numeric clamp operator
-    #    (B_LMAX/B_LMIN are PARTY-MEMBER argmax/argmin selectors,
-    #    EventEngine.OperatorExtract.cs:80-130, and reaching for them silently yields a
-    #    member bitmask). This is the guard a [TEXT=bank,slot] row needs:
-    #    ETb.GetStringFromTable (ETb.cs:272-284) bounds the slot and the UPPER row but has
-    #    NO lower bound, so a negative indexes tableText[-n] and throws -- once per
-    #    RENDERED FRAME, since a hud row re-parses every frame.
-    #    THE [TEXT=] GLYPH ITSELF IS RUNG 0b, NOT HERE: rendering it needs a minted text
-    #    ENTRY split by [TBLE=], and the kit's only [TBLE=] emitter is hardwired to the
-    #    Mognet roster. This row therefore publishes the clamped NUMBER; the glyph half
-    #    lands when the [[text_table]] lane exists.
-    #    WRITTEN OUT LONGHAND ON PURPOSE, as the demonstration of the idiom. The AUTHOR no
-    #    longer has to: any slot a [TEXT=...] tag reads is wrapped by the EMITTER
-    #    (behavior.hud_row_index_clamp) so an unclamped publish is unrepresentable rather
-    #    than merely refused. This slot feeds [NUMB=6], not [TEXT=], so what ships here is
-    #    exactly the bytes below -- the wrap is scoped to row-index slots.
-    "expr:Global.UInt16[0] const(1000) B_DIV Global.UInt16[0] const(1000) B_DIV const(0) B_GE B_MULT",
+    # 5  ...AND THE OTHER POLARITY: args[2]=1 also scans the 5 equip slots for an item
+    #    granting ability 6 (EBin.cs:430-433). A 1 here with a 0 in row 4 is a clean,
+    #    fully-explained result: the read works, and Zidane has it equipped-not-mastered.
+    "expr:const(0) const(6) const(1) flex(16,3)",
+    # 6  *** THE NEGATIVE CONTROL *** PLAYER_LEVEL(99). CharacterOldIndex 99 resolves to
+    #    no player, so `?? 0` fires and this MUST read 0. Paired with row 1 it brackets
+    #    the same line of engine code with a known-good and a known-bad input -- which is
+    #    what makes a 0 anywhere else in this strip interpretable instead of ambiguous.
+    "expr:const(99) flex(13,1)",
   ]
   # THE WIDTH PIN. Dialog.AutomaticSize bakes Width ONCE at open from parser.MaxWidth --
   # the WIDEST RENDERED LINE -- and a later value change only re-parses, never re-sizes.
@@ -165,11 +162,16 @@ warmup = 30              # frames before the ticker starts (the strip opens afte
   # the LEGACY PACKED form (one operand, bank=(t>>4)&3, slot=t&7) while the render path
   # reads two independent params -- the divergence is currently inert because its only
   # call site is "// Dummied", and adding [WDTH] is exactly what activates it.
-  text = """[MPOS=8,8]=== COMPLETION PROBE / RUNG 0 ====
-TH POINTS      [NUMB=0]
-SCENARIO       [NUMB=1]
-CHOCO RAW      [NUMB=2]
-CHOCO MASKED   [NUMB=3]
-KEY ITEM 0     [NUMB=4]
-ZIDANE AA:6    [NUMB=5]
-CLAMPED ROW    [NUMB=6]"""
+  # WIDTH, MEASURED NOT GUESSED: rung 0's header "=== COMPLETION PROBE / RUNG 0 ====" (33
+  # chars) WRAPPED in-game after "RUNG", so the live window fits ~27. The header must stay
+  # the widest RENDERED line (Dialog.AutomaticSize bakes Width once at open from
+  # parser.MaxWidth and a later value change re-parses without re-sizing), so it is now 21
+  # chars against a widest value row of ~17.
+  text = """[MPOS=8,8]== FLEX PROBE / 0B ==
+SCENARIO       [NUMB=0]
+ZIDANE LV      [NUMB=1]
+PARTY SLOT0    [NUMB=2]
+ACT6 TO ID     [NUMB=3]
+AA6 NOEQ       [NUMB=4]
+AA6 EQ         [NUMB=5]
+BADCHR LV      [NUMB=6]"""
