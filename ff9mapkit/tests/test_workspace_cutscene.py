@@ -30,7 +30,7 @@ os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")
 pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,      # noqa: E402
-                               QLineEdit, QListWidget, QPlainTextEdit, QPushButton)
+                               QLabel, QLineEdit, QListWidget, QPlainTextEdit, QPushButton)
 
 from ff9mapkit.editor import forms                                       # noqa: E402
 from ff9mapkit.editor.theme import pick_palette                          # noqa: E402
@@ -286,6 +286,97 @@ def test_forms_parallel_steps_matches_the_compilers_own_rule():
     """The checkbox must never offer a beat validate() will reject."""
     from ff9mapkit import build
     assert tuple(forms.PARALLEL_STEPS) == tuple(build.PARALLEL_STEP_KINDS)
+
+
+def test_the_gui_can_author_EVERY_global_step_the_compiler_accepts():
+    """THE GAP THIS FENCE EXISTS FOR: a parallel session added six global step kinds to the compiler
+    (open/close/wait_window/raise/set_signal/wait_signal) and documented them in FORMAT.md, while the
+    GUI's STEP_KIND stayed at nine. The capability shipped, the surface did not, and nothing failed --
+    the classic call-site gap, re-created from a direction neither session could see alone.
+
+    `global_keys` is built the same way at build.py:2948 and :7363; mirror it here so the next kind
+    added to the compiler turns this red instead of quietly becoming unauthorable."""
+    from ff9mapkit.content import cutscene as C
+    compiler_globals = ("say", "wait", "set_flag") + C.WINDOW_STEP_KINDS
+    assert set(forms.GLOBAL_STEPS) == set(compiler_globals), \
+        f"GUI can't author: {set(compiler_globals) - set(forms.GLOBAL_STEPS)}"
+    for k in compiler_globals:                    # a kind with no label crashes the combo at mount
+        assert k in forms.STEP_KIND and k in forms.STEP_LABEL and k in forms.STEP_HELP
+
+
+def test_text_steps_matches_the_txid_counter():
+    """`open` carries a LINE and consumes a text id exactly like `say` (content.cutscene.text_steps,
+    which the build's txid slicing reads). A text kind the GUI treated as a plain value would put the
+    author's line in a single-line box with no wrap preview -- and shift every later txid."""
+    from ff9mapkit.content import cutscene as C
+    assert tuple(forms.TEXT_STEPS) == tuple(C.TEXT_STEP_KINDS)
+
+
+def _pick_kind(w, kind):
+    w["combo"].setCurrentIndex(list(forms.STEP_KIND).index(kind))
+    assert w["combo"].currentData() == kind
+
+
+def test_every_new_window_step_round_trips_through_the_widget(win, tmp_path):
+    """Author one of each new kind through the real controls, then read the doc."""
+    _mounted(win, tmp_path, _HEAD + '[cutscene]\nsteps = [ { wait = 1 } ]\n')
+    w = _widgets(win)
+    steps = win._doc(_MEMBER).data["cutscene"]["steps"]
+    for kind, typed, expect in (("open", "A line that stays up", "A line that stays up"),
+                                ("close", "2", 2),
+                                ("wait_window", "2", 2),
+                                ("set_signal", "3", 3),
+                                ("wait_signal", "3", 3),
+                                ("raise", "", True)):
+        w["list"].setCurrentRow(w["list"].count() - 1)
+        _pick_kind(w, kind)
+        if kind in forms.TEXT_STEPS:
+            w["text"].setPlainText(typed)
+        else:
+            w["value"].setText(typed)
+        w["buttons"]["Add step"].click()
+        assert steps[-1].get(kind) == expect, f"{kind}: wrote {steps[-1]!r}"
+
+
+def test_a_valueless_step_hides_its_value_box(win, tmp_path):
+    """`raise` and `face_player` take no value -- an editable box there invites a wrong answer."""
+    _mounted(win, tmp_path, _SINGLETON)
+    w = _widgets(win)
+    _pick_kind(w, "raise")
+    # isHIDDEN, not isVisible: with no ancestor shown offscreen, isVisible() is False for every
+    # widget, so it cannot tell "deliberately hidden" from "window never shown".
+    assert w["value"].isHidden() and w["text"].isHidden()
+    _pick_kind(w, "close")
+    assert not w["value"].isHidden(), "a valued step must get its box back"
+
+
+def test_the_open_step_gets_the_dialogue_box_and_wrap_preview(win, tmp_path):
+    """`open` is a TEXT step: multi-line box + preview, exactly like `say`."""
+    _mounted(win, tmp_path, _SINGLETON)
+    w = _widgets(win)
+    _pick_kind(w, "open")
+    assert not w["text"].isHidden(), "a text step needs the multi-line box"
+    assert w["value"].isHidden()
+    prev = next(c for c in win.doc_host.findChildren(QLabel)
+                if "On-screen preview" in c.text() or c.objectName() == "say_preview")
+    assert not prev.isHidden(), "the wrap preview must follow `open` too"
+
+
+def test_what_the_gui_writes_for_the_new_kinds_actually_COMPILES(win, tmp_path):
+    """Offline != in-game, but a shape validate() rejects is knowable now. The window verbs must
+    balance (the build refuses a scene that leaks an open window), so open+close is the honest pair."""
+    from ff9mapkit import build
+    p = _mounted(win, tmp_path, _HEAD + '[cutscene]\nsteps = [ { wait = 1 } ]\n')
+    w = _widgets(win)
+    for kind, typed in (("open", "held line"), ("set_signal", "1"),
+                        ("wait_signal", "1"), ("raise", ""), ("close", "1")):
+        w["list"].setCurrentRow(w["list"].count() - 1)
+        _pick_kind(w, kind)
+        (w["text"].setPlainText if kind in forms.TEXT_STEPS else w["value"].setText)(typed)
+        w["buttons"]["Add step"].click()
+    win._commit(_MEMBER, "cutscene", forms.CUTSCENE_SPEC, win._save_ctx["getters"], single=True)
+    probs = [x for x in build.validate(build.FieldProject.load(p)) if "cutscene" in x]
+    assert not probs, f"the GUI wrote a scene the compiler rejects: {probs}"
 
 
 def _with_prev_box(win):

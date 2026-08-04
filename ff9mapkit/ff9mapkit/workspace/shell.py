@@ -7756,7 +7756,8 @@ class Workspace(QMainWindow):
         vrow.addWidget(anim_browse)
         sv.addWidget(QLabel("Type:"))
         sv.addWidget(type_combo)
-        sv.addWidget(QLabel("Value:"))
+        value_label = QLabel("Value:")     # bound: a valueless step (raise / face_player) hides it
+        sv.addWidget(value_label)
         sv.addLayout(vrow)
         sv.addWidget(value_text)
         sv.addWidget(say_preview)
@@ -7766,7 +7767,9 @@ class Workspace(QMainWindow):
         sv.addWidget(with_prev)
 
         def is_say():
-            return type_combo.currentData() == "say"
+            """Does this step carry an authored LINE? `say` AND `open` do (forms.TEXT_STEPS, mirroring
+            the build's own txid counter), so both get the dialogue box and the wrap preview."""
+            return type_combo.currentData() in forms.TEXT_STEPS
 
         def value_get():
             return value_text.toPlainText().replace("\\n", "\n") if is_say() else value_line.text()
@@ -7775,14 +7778,18 @@ class Workspace(QMainWindow):
             (value_text.setPlainText if is_say() else value_line.setText)(s)
 
         def swap_value_widget():
-            """Show the multi-line box for 'say', the line edit otherwise; carry the typed text across."""
+            """Show the multi-line box for a TEXT step, the line edit otherwise; carry the typed text
+            across. A valueless step (raise / face_player) hides the value row entirely -- a box that
+            cannot be filled in is a box that invites a wrong answer."""
             say = is_say()
             if say and not value_text.isVisible():
                 value_text.setPlainText(value_line.text())
             elif not say and value_text.isVisible():
                 value_line.setText(value_text.toPlainText().replace("\n", " "))
+            valueless = forms.STEP_KIND.get(type_combo.currentData()) == forms.BOOL
             value_text.setVisible(say)
-            value_line.setVisible(not say)
+            value_line.setVisible(not say and not valueless)
+            value_label.setVisible(not valueless)
             say_preview.setVisible(say)            # the wrap preview belongs to the dialogue box only
             anim_browse.setVisible(type_combo.currentData() == "animation")
             sync_with_prev()

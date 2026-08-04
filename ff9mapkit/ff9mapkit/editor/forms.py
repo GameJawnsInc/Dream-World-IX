@@ -355,19 +355,31 @@ SECTION_HELP = {
 # cutscene steps: each is a dict with exactly one action key.
 STEP_KIND = {
     "say": STR, "wait": INT, "set_flag": PAIR,                    # any cutscene
+    "open": STR, "close": INT, "wait_window": INT,               # any cutscene (multi-window)
+    "raise": BOOL, "set_signal": INT, "wait_signal": INT,       # any cutscene (windows + text signals)
     "walk": POINT, "path": PATH, "teleport": POINT,              # actor only (movement)
     "animation": ANIM, "turn": INT, "face_player": BOOL,        # actor only (anim/facing)
 }
 STEP_LABEL = {
     "say": "Say (dialogue)", "wait": "Wait (frames)", "set_flag": "Set flag (idx, val)",
+    "open": "Open a window (async)", "close": "Close a window", "wait_window": "Wait for a window",
+    "raise": "Raise windows above a fade", "set_signal": "Set text signal",
+    "wait_signal": "Wait for text signal",
     "walk": "Walk to", "path": "Walk a route", "teleport": "Teleport to",
     "animation": "Play animation", "turn": "Turn (angle 0-255)", "face_player": "Face the player",
 }
 # live hint shown for the selected step type (what to type in the Value box).
 STEP_HELP = {
-    "say": "dialogue text shown in a window",
+    "say": "dialogue text shown in a window (blocks until dismissed)",
     "wait": "frames to pause (30 ≈ 1 second)",
     "set_flag": "story flag as \"index, value\" -- e.g. 8712, 1 (custom flags live in 8712+)",
+    "open": "dialogue text in a window that STAYS UP while the scene runs on -- close it later with "
+            "'Close a window'. Set Window to keep two on screen at once",
+    "close": "the window id to dispose (the number you opened it with)",
+    "wait_window": "block until that window id is gone -- dismissed, expired, or closed by a script",
+    "raise": "(no value) lift the open windows above a fade-filter panel",
+    "set_signal": "set the text-side signal to this number (a beat other steps can wait on)",
+    "wait_signal": "block until the text signal reaches this number (guarded by a timeout)",
     "walk": "a marker name, @player, or \"x, z\" (auto-routes around obstacles)",
     "path": "a route through waypoints: \"a; b; c\" (names or x z)",
     "teleport": "instantly move to a marker / @player / \"x, z\"",
@@ -375,8 +387,14 @@ STEP_HELP = {
     "turn": "face an angle 0-255 (0=south, 64=west, 128=north, 192=east)",
     "face_player": "(no value) turn to face the player",
 }
-GLOBAL_STEPS = ("say", "wait", "set_flag")
+GLOBAL_STEPS = ("say", "wait", "set_flag", "open", "close", "wait_window",
+                "raise", "set_signal", "wait_signal")
 ACTOR_STEPS = ("walk", "path", "teleport", "animation", "turn", "face_player")
+# The kinds that carry an authored LINE, so they consume a text id and deserve the dialogue box +
+# the on-screen wrap preview. Mirrors ``content.cutscene.TEXT_STEP_KINDS`` (which the build's txid
+# counter reads) and is fenced against it -- a text kind the GUI treats as a plain value would put
+# the author's line in a single-line box with no preview, and silently shift every later txid.
+TEXT_STEPS = ("say", "open")
 # Which kinds may run IN PARALLEL with the preceding beat (`with_prev`). Mirrors
 # ``build.PARALLEL_STEP_KINDS`` -- the compiler's own rule -- and is fenced against it in
 # test_workspace_cutscene, so the checkbox can never offer a beat the validator will reject.
