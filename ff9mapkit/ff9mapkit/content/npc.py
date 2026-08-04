@@ -56,7 +56,16 @@ NPC_ENTRY_TYPE = 2                       # real NPC object entries are type 2 (s
 DEFAULT_LOGICAL_SIZE = (14, 14, 22)      # collision box; the common real value (moogles + most humans)
 MOOGLE_ANIMSET = 50                      # the moogle SetModel animset (real Mosh/Mogliana/Stiltzkin)
 DEFAULT_ANIMSET = 50                     # phased fallback for an unknown model (refined by the per-model catalog)
-DEFAULT_HEAD_FOCUS = (0, 65)             # non-moogle default: no automatic head-track (static facing)
+# (SelfMask, TargetMask), in the order SetHeadFocusMask (0x8B) reads them. THE PAIRING IS
+# DIRECTIONAL: A turns its head toward B iff A.TargetMask & B.SelfMask != 0, at 31..2000u
+# (EventEngine.ProcessNeck.CollisionNeck:127 -- the runtime test; DoEventCode NECKID:2042 sets the
+# fields and raises actNeckT|actNeckM). ⚠ This constant's comment used to read "no automatic
+# head-track (static facing)" and that was WRONG on the looking half: SelfMask 0 only means nobody
+# turns toward THIS npc; TargetMask 65 shares bit 0 and bit 6 with the player template's SelfMask
+# 97, so the npc DOES turn its head to watch the player. Head focus never moves the BODY -- that
+# needs FollowFocus (0x91), which the kit does not emit -- so it cannot override `[[npc]] face`
+# (in-game confirmed on bench 30900: six authored facings held with the player inside neck range).
+DEFAULT_HEAD_FOCUS = (0, 65)             # non-moogle default: unfocusable BY others, still watches the player
 STAND_SPEED = bytes([0x86, 0x00, 0x0E, 0x10, 0x12, 0x14])    # SetAnimationStandSpeed(14,16,18,20) -- invariant
 NPC_STANDBY_LOOP = bytes([0x22, 0x00, 0x01, 0x01, 0xFA, 0xFF])   # yield(1) + JMP -6: the real standby loop
 _CREATE_OBJECT = bytes([0x1D, 0x03, 0xD9, 0x00, 0x7F, 0xD9, 0x04, 0x7F])   # CreateObject(D9(0), D9(4))
