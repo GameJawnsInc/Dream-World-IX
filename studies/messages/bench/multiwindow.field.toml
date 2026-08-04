@@ -1,0 +1,107 @@
+# MESGT2 -- the message-survey TIER-2 bench (studies/messages/SURVEY.md §11 items 7 and 8):
+# the MULTI-WINDOW verbs (open/close/wait_window/raise) and TEXT-SYNCHRONIZED SIGNALS.
+#
+# WHY IT IS ONE LOAD-TIME SCENE AND NOT FOUR BOOKS. A `[[cutscene]]` is a field-LOAD hook -- there is
+# no press-triggered multi-step scene in the kit -- so an "arm a book, then reload" bench would repeat
+# the exact two-step that confused the LOCKT2 round-4 read. Instead all three beats play back to back
+# on entry, `once = false`, so `~ -> Reload field` replays the whole thing. Nothing here can strand
+# you: every window is closed by the script, the one signal wait is capped at 250 frames by
+# construction, and control is never withheld at the end.
+#
+# WHAT EACH BEAT PROVES, and what to look for:
+#
+#   BEAT 1 -- STAGED CAPTIONS ("On your mark! / Get set! / GO!"). Stock's countdown idiom
+#     (test2_510.txt:919-932): async + Wait + Close, all on the SAME window id, so each caption
+#     REPLACES the last in place. LOOK FOR: three captions in one spot, each ~1s, no player input --
+#     they must advance on their own. If you have to press anything, the timing shape is wrong.
+#
+#   BEAT 2 -- A HELD HINT UNDER ROLLING DIALOGUE (stock test2_178.txt:1297-1307). A transparent
+#     window on id 3 stays up while THREE ordinary dialogue windows open and close beneath it.
+#     LOOK FOR: the hint text visible the whole time you dismiss the three lines, then vanishing on
+#     its own after the third. This is the whole point of the async verbs -- `say` alone cannot do it,
+#     because it blocks until its own window is gone.
+#
+#   BEAT 3 -- THE UNISON (stock's Zorn & Thorn, test2_41.txt:731-743, in the kit's spelling). Two
+#     speakers' windows open on DIFFERENT ids and hold; the script blocks until BOTH lines have
+#     finished typing (each line's [INCS] tag bumps the signal when its last glyph lands), waits a
+#     beat, then closes both. LOOK FOR, in order:
+#       (a) BOTH windows on screen at once, one per speaker, tails on the right characters;
+#       (b) they are UNDISMISSABLE -- press Action while they are up and NOTHING happens. That is
+#           `hold` ([TIME=-1]); stock's own unison entries carry it, which is why stock polls the
+#           button by hand instead of letting the engine dismiss;
+#       (c) ★ THE DIAGNOSTIC: how long the pair sits after the SECOND line finishes typing. The
+#           authored wait is 60 frames (~2s). The guard is 250 frames (~8.3s). So a SHORT pause means
+#           the text->script signal arrived and the handshake works; a LONG one (4x) means it never
+#           fired and the wait burned its whole timeout. Please time this one roughly -- it is the
+#           only beat whose failure looks like success.
+#
+# The two NPCs are the speakers; talk to either afterwards to confirm ordinary dialogue is unharmed
+# and control came back. Random battles are OFF -- this bench is about windows.
+#
+# Deploy: py tools/deploy_field.py studies/messages/bench/multiwindow.field.toml --id 30603
+# (NEW id -> the first deploy registers it: one game RELAUNCH, then ~ -> Warp to field -> 30603.)
+
+[field]
+id = 30603
+name = "MESGT2"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1800]
+
+# --- the two unison speakers ------------------------------------------------------------------
+[[npc]]
+name = "zorn"
+preset = "vivi"
+pos = [-450, -900]
+dialogue = "The scene is over and you have control. Both of our windows closed themselves -- an async window is the SCRIPT's to dispose, not the player's."
+speaker = "Zorn"
+
+[[npc]]
+name = "thorn"
+preset = "vivi"
+pos = [450, -900]
+dialogue = "Disposed themselves, our windows did! Reload the field to watch it again, kupo."
+speaker = "Thorn"
+
+# --- the scene: all three beats, in order ------------------------------------------------------
+[[cutscene]]
+once = false
+actors = ["zorn", "thorn"]
+steps = [
+  # BEAT 1 -- staged captions, one window id, each replacing the last. No input required.
+  { open = "On your mark!", window = 5, style = "notail" },
+  { wait = 40 },
+  { open = "Get set!", window = 5, style = "notail" },
+  { wait = 40 },
+  { open = "GO!", window = 5, style = "notail" },
+  { wait = 40 },
+  { close = 5 },
+  { wait = 20 },
+
+  # BEAT 2 -- a hint held on window 3 while three dialogue windows roll underneath it.
+  # pinned to the TOP of the screen ([MPOS]) so it cannot be covered by the speech bubbles below --
+  # window 3 sits at depth 62 and the dialogue at 68, so an unpinned hint would draw BEHIND them
+  { open = "(HINT: this frameless line is window 3. It stays while the talking below comes and goes.)", window = 3, style = "transparent", window_pos = [24, 16] },
+  { actor = "zorn", say = "Watch the hint above -- it does not budge.", speaker = "Zorn" },
+  { actor = "thorn", say = "Budge, it does not! Three windows have opened under it now.", speaker = "Thorn" },
+  { actor = "zorn", say = "A `say` could never do this: it blocks until its OWN window is gone.", speaker = "Zorn" },
+  { close = 3 },
+  { wait = 20 },
+
+  # BEAT 3 -- the unison. Both windows hold; the wait ends when both lines have typed out.
+  { set_signal = 0 },
+  { actor = "zorn",  open = "We'll be very grateful!",  speaker = "Zorn",  window = 2, signal = "+", hold = true },
+  { actor = "thorn", open = "Very grateful, we'll be!", speaker = "Thorn", window = 3, signal = "+", hold = true },
+  { wait_signal = 2 },
+  { wait = 60 },
+  { close = 2 },
+  { close = 3 },
+  { set_signal = 0 },
+]

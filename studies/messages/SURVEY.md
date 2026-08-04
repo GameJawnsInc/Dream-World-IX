@@ -228,6 +228,27 @@ Cancel row alive; the moogle menu distinguishes chose-Cancel from pressed-Cancel
 window between the choice and its sysvar-9 read destroys the result. (The kit's stepper
 already learned this; it generalizes to ALL choice flows.)
 
+## 7b. ★★ THE RAISE-SATURATION LAW — the raise is clamped, not uniform (2026-08-03)
+
+`DialogManager.RiseAll` (`:436-446`) bumps a window by `DialogAdditionalRaiseDepth` (22) **only while
+its depth is below `DialogMaximumDepth + DialogAdditionalRaiseDepth` = 90**. Base depth is `68 - 2*id`,
+so the ceiling is reached at different raise counts per id:
+
+| id | base | after 1 | after 2 | after 3 |
+|---|---|---|---|---|
+| 0 | 68 | **90** (saturated) | 90 | 90 |
+| 1 | 66 | 88 | **110** | 110 |
+| 7 | 54 | 76 | **98** | 98 |
+
+So the "id 0 is frontmost" rule (§5) holds only up to saturation: **after a third raise the id order
+INVERTS** — window 1 sits at 110, in front of window 0's 90. Stock never trips it because it raises
+once per window OPEN (7,285 of 7,590 raises sit immediately after a `WindowAsync`); each new window
+enters below the raised ones and is lifted together with them, preserving order. A bare re-raise of an
+unchanged stack is the shape that breaks it, and stock has none. (Cross-check: the Treno 5-window
+keypad, §4's richest multi-window UI, calls `RaiseWindows` **zero** times — the raise belongs to the
+fade brackets of §11b, not to multi-window UI.) Kit: `opcodes.raise_windows` carries the law, and
+`open` never folds a raise in — it stays a separate step, as it is a separate opcode in stock.
+
 ## 8. Signals — text-synchronized choreography (mechanism corrected)
 
 `SetDialogProgression(n)` (0xE3) writes `ETb.gMesSignal`; sysvar 8 reads it
@@ -240,6 +261,59 @@ which is why grep-level reads mislabel it. **The general capability: a script ca
 until the text reaches a marked syllable** — mid-line camera cuts, SFX stings, actor
 reactions timed to words. Stock uses it only for window-open sync; the substrate is far
 more general.
+
+### 8b. ★★ The FULL unison recipe, and THE SIGNAL-TIMEOUT LAW (2026-08-03 — supersedes the sketch above)
+
+Reading the whole site rather than the `while` line changes the shape materially. Field 41 @731-743,
+verbatim, is **six** beats, not three:
+
+```
+SetDialogProgression( 0 )                                   ; zero it
+WindowAsync( 2, 128, 182 )                                  ; Zorn's window (Thorn's obj opens win 3 @908)
+set VAR_GlobUInt8_29 = 250                                  ; ★ SEED A FRAME COUNTDOWN
+while ( (GetDialogProgression < 2) && (VAR_GlobUInt8_29 > 0) ) { Wait(1) ; VAR_GlobUInt8_29-- }
+while ( (!IsButton(Confirm)) && (!IsButton(Moogle)) ) { Wait(1) }   ; ★ poll the dismiss MANUALLY
+CloseWindow( 2 ) ; CloseWindow( 3 ) ; SetDialogProgression( 0 )     ; ★ close BOTH, re-zero
+```
+
+Four things the one-liner missed:
+
+1. **★ THE SIGNAL-TIMEOUT LAW — stock never trusts the signal.** Every guarded wait seeds a 250-frame
+   (~8s) countdown beside the condition. Census across all 817 scripts: 319 `GetDialogProgression`
+   reads in 81 fields, of which **117 carry the guard** (112 × `< 2`, 3 × `< 4`, 2 × `< 3`); the
+   unguarded shapes (`== 0` ×113, `!GetDialogProgression` ×42, `< 1` ×31) are single-window waits where
+   the script itself is the only writer. **A cross-object/text-driven wait is ALWAYS guarded.** Reason:
+   text is not a guaranteed event — a shorter translation can omit the tag, a skip can race it, a
+   replaced window never renders its own tag — and an unguarded spin then hangs the field forever.
+2. **The script polls the dismiss button itself**, because the windows are undismissable (below).
+3. **The script closes both windows**, and re-zeroes the signal after.
+4. **The counting is entirely in the text.** Field 41 contains 31 `SetDialogProgression` calls and
+   **every one of them is `SetDialogProgression(0)`** — nothing in the script ever writes 1 or 2. The
+   `< 2` is reached by two `[INCS]` tags, one per speaker's entry. That is the strongest available
+   confirmation of §12's correction, and it is visible only by grepping the *whole* field.
+
+**★ THE BRACKET-FORM CAVEAT (new).** Memoria has TWO tags behind the name `IncreaseSignal`:
+
+| what the text says | enum reached | effect |
+|---|---|---|
+| `[INCS]` (bracket/original format — what the kit writes) | `IncreaseSignalEx` | signal only |
+| `{IncreaseSignal}` (modern curly format) | `IncreaseSignal` | signal **+ `FlagButtonInh`** |
+
+`FFIXTextTag.OriginalTagNames:343` maps the string `"INCS"` to the **Ex** (signal-only) form; the
+compound one is reachable only from the curly format and is what `Import/Fields/FieldTags.cs:45`
+rewrites the sequence **`[INCS][TIME=-1]` → `{IncreaseSignal}`** into. So stock's unison entries carry
+that PAIR, and the `[TIME=-1]` is **load-bearing, not redundant** — it is what makes the window
+undismissable, which is in turn why the script has to poll `IsButton` itself. Emitting `[INCS]` alone
+leaves the window dismissable and the player can race the handshake.
+
+Also corrected while here: `[TIME=n]` has a **third** mode. `OnTime` (`DialogBoxSymbols.cs:811-829`)
+sets `EndMode = n` + `FlagButtonInh` for `n > 0`, sets `FlagButtonInh` alone for `-1`, and for **`0`
+CLEARS `FlagButtonInh`** — re-granting dismissal to a window an earlier tag inhibited.
+
+**BUILT** (kit `1.0.0b17`+): cutscene steps `open` / `close` / `wait_window` / `raise` (item 8) and
+`set_signal` / `wait_signal` + the text-side `signal` / `hold` keys (item 7). The wait compiles stock's
+guarded shape and there is **no unguarded form to author** — `timeout <= 0` raises. Emissions and
+laws pinned in `ff9mapkit/tests/test_multiwindow.py`.
 
 ## 9. The other channels (not the field dialog window)
 
@@ -331,13 +405,15 @@ readable wants the unbuilt `[[event]] trigger="action"` follow-up:**
    `Voices/{lang}/{text_block}/va_{txid}.ogg` on every window. A `[[npc]] voice = "file.ogg"`
    key + a deploy copy step = full VA with zero DLL. (Choice-row and per-page variants
    free.) Nothing in the kit touches this today.
-7. **Text-synchronized choreography** — `[SIGL]`/`[INCS]` + sysvar-8 polling as a
-   cutscene step (`say` with `signal_at = "word"` → split-insert `[INCS]`, next steps
-   gated on the signal). Mid-line camera cuts / SFX stings; the engine substrate is
-   proven by stock's unison windows. `[PSND=id]` is the zero-logic variant for pure SFX.
-8. **Multi-window scene verbs** — cutscene/behavior step kinds `open`/`close`/`wait_window`
-   (wrappers for 0x20/0x21/0x54/0x8E exist only as raw `encode` inside mognet/numinput).
-   Unlocks the Mogster two-window tutorial form, unison speech, staged countdowns.
+7. **Text-synchronized choreography** — ★ **BUILT** (§8b): `signal = "+"|n` / `hold` on any
+   say/open line, `{set_signal = n}` and the guarded `{wait_signal = n, timeout = 250}` step.
+   Mid-line camera cuts / SFX stings now compose from these. STILL UNBUILT: splitting a signal
+   into the MIDDLE of a line (`signal_at = "word"`) — today the tag lands at the end — and
+   `[PSND=id]`, the zero-logic pure-SFX variant.
+8. **Multi-window scene verbs** — ★ **BUILT**: cutscene step kinds `open`/`close`/`wait_window`/
+   `raise` on both flavors (narration + cast), with a window ledger that refuses a leaked or
+   un-closable window. Unlocks unison speech, staged countdowns, a held hint under rolling
+   dialogue. STILL UNBUILT: the same verbs as `[behavior]` step kinds.
 9. **`variables = [...]` on any line** — bind gMesValue slots to flags/counters/gil
    before the window (the chest already does exactly this); gives every line live
    `[NUMB]`/`[ITEM]`/`[TEXT]` access + `[PNEW=bit]` conditional icons.

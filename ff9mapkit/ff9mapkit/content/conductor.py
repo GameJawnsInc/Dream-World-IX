@@ -200,6 +200,26 @@ def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, tag_calls):
         else:
             b = _cutscene.say(txids[ti], window=int(s.get("window", 1)), flags=_sf)
         return b, ti + 1
+    if "open" in s:
+        # the ASYNC twin of `say`: the window stays up and the conductor runs on, so several actors
+        # can hold windows at once (the unison shape). Attribution rides WindowAsyncEx when the step
+        # names an actor.
+        from . import text as _text
+        return _cutscene.open_window(txids[ti],
+                                     window=int(s.get("window", 0 if uid is not None else 1)),
+                                     flags=_text.resolve_style(s.get("style"), default=say_flags),
+                                     actor_uid=uid), ti + 1
+    if "close" in s:
+        return _cutscene.close_window(int(s["close"])), ti
+    if "wait_window" in s:
+        return _cutscene.wait_window(int(s["wait_window"])), ti
+    if "raise" in s:
+        return _cutscene.raise_windows(), ti
+    if "set_signal" in s:
+        return _cutscene.signal(int(s["set_signal"])), ti
+    if "wait_signal" in s:
+        return _cutscene.wait_signal(int(s["wait_signal"]),
+                                     timeout=int(s.get("timeout", _cutscene.SIGNAL_GUARD_FRAMES))), ti
     if "wait" in s:
         return opcodes.wait(int(s["wait"])), ti
     if "set_flag" in s:

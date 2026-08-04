@@ -2728,6 +2728,19 @@ def validate(project: FieldProject) -> list[str]:
             if bx is not None and not (isinstance(bx, (list, tuple)) and len(bx) == 2
                                        and all(isinstance(v, int) and v >= 0 for v in bx)):
                 problems.append(f"{label} box must be [width, lines] (the [STRT] geometry)")
+            sg = src.get("signal")
+            if sg is not None and not (sg is True or (isinstance(sg, str) and sg.strip() == "+")
+                                       or (isinstance(sg, int) and not isinstance(sg, bool))):
+                problems.append(f"{label} signal must be \"+\" (increment -> [INCS]) or an int "
+                                f"(set -> [SIGL=n]); got {sg!r}")
+            hd = src.get("hold")
+            if hd is not None and not isinstance(hd, bool):
+                problems.append(f"{label} hold must be true/false (undismissable [TIME=-1]; "
+                                f"got {hd!r})")
+            if hd and d is not None:
+                problems.append(f"{label}: hold and duration are the same engine tag with opposite "
+                                f"meanings ([TIME=-1] holds forever, [TIME=n] auto-closes after n "
+                                f"frames) -- keep one.")
         a = src.get("actor") if opcode_side else None
         if a is not None and actor != "cast":      # "cast": the step's actor IS the performer
             if actor == "no":
@@ -2820,7 +2833,7 @@ def validate(project: FieldProject) -> list[str]:
         _check_window_attrs(f"[[savepoint]] #{k}", sp, opcode_side=False, text_side=False)
     for _ci, cs in enumerate(_cutscene.blocks(project.raw.get("cutscene"))):
         for _sk, s in enumerate(cs.get("steps") or []):
-            if isinstance(s, dict) and "say" in s:
+            if _cutscene.step_text(s) is not None:
                 _check_window_attrs(f"[cutscene] step {_sk}", s,
                                     actor=("cast" if cs.get("actors") else "no"))
     _cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
@@ -2902,7 +2915,7 @@ def validate(project: FieldProject) -> list[str]:
             _validate_conductor(project, cs, problems, lbl=lbl)   # the cast scene (the conductor)
         else:
             steps = cs.get("steps")                        # narration: say / wait / set_flag only
-            global_keys = ("say", "wait", "set_flag")
+            global_keys = ("say", "wait", "set_flag") + _cutscene.WINDOW_STEP_KINDS
             actor_keys = ("walk", "path", "teleport", "animation", "turn", "face_player")
             if not isinstance(steps, list) or not steps:
                 problems.append(f"{lbl} needs a non-empty steps = [ {{say=...}}, {{wait=...}}, ... ] list")
@@ -2915,6 +2928,8 @@ def validate(project: FieldProject) -> list[str]:
                         problems.append(f"{lbl} step {k} uses {present[0]!r}, which needs a cast -- add "
                                         f"actors = [\"<npc name>\"] (the step then runs on that actor).")
                     # (step tail/style/window are checked by the window-attribute sweep above)
+        # the multi-window ledger is conductor-level, so it runs for BOTH flavors
+        _validate_window_scene(cs, problems, lbl=lbl)
         if "ate_mode" in cs and not cs.get("ate"):
             problems.append(f"{lbl} ate_mode is set but ate is not true -- set ate = true to style "
                             "this cutscene as a compulsory ATE (or drop ate_mode).")
@@ -3248,9 +3263,10 @@ def lint_logic(project: FieldProject) -> list[str]:
             texts.append((f"event {ev.get('name', '?')!r}", _text.with_speaker(ev.get("speaker"), ev["message"])))
     for _ck, _cb in enumerate(_cutscene.blocks(raw.get("cutscene"))):
         for k, s in enumerate(_cb.get("steps", [])):
-            if "say" in s:
+            _line = _cutscene.step_text(s)
+            if _line is not None:
                 texts.append((f"cutscene #{_ck} say #{k}" if _ck else f"cutscene say #{k}",
-                              _text.with_speaker(s.get("speaker"), s["say"])))
+                              _text.with_speaker(s.get("speaker"), _line)))
     for who, t in texts:
         if wrap is None:                       # wrapping disabled: every over-budget line overflows
             for ln in t.replace("[PAGE]", "\n").split("\n"):
@@ -5348,7 +5364,7 @@ def _verbatim_cutscene_message_count(project: FieldProject) -> int:
     cs = _verbatim_conductor_block(project)
     if cs is None:
         return 0
-    return sum(1 for s in (cs.get("steps") or []) if "say" in s)
+    return len(_cutscene.text_steps(cs.get("steps")))
 
 
 def _verbatim_conductor_block(project: FieldProject):
@@ -5366,7 +5382,7 @@ def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dic
     cs = _verbatim_conductor_block(project)
     if cs is None:
         return [], {}
-    say_steps = [s for s in (cs.get("steps") or []) if "say" in s]
+    say_steps = _cutscene.text_steps(cs.get("steps"))
     if not say_steps:
         return [], {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
@@ -5376,7 +5392,7 @@ def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dic
     wrap = _wrap_width(project)
     lines, tails, strts, txids = [], [], [], []
     for s in say_steps:
-        line = _text.with_speaker(s.get("speaker"), s["say"])
+        line = _text.with_speaker(s.get("speaker"), _cutscene.step_text(s))
         if wrap is not None:
             line = _text.wrap_text(line, wrap)[0]
         line, strt, tail = _text.dress_window(s, line)
@@ -5972,7 +5988,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
     _cs_slices, _cs_off = [], 0
     for _b in cs_blocks:
-        _n_say = sum(1 for s in (_b.get("steps") or []) if "say" in s)
+        _n_say = len(_cutscene.text_steps(_b.get("steps")))
         _cs_slices.append(cutscene_txids[_cs_off:_cs_off + _n_say])
         _cs_off += _n_say
 
@@ -7164,6 +7180,92 @@ def _resolve_actor_animation(project, who, actor_npc, action):
     return _resolve_model_gesture(mid, action)
 
 
+def _validate_window_scene(cs, problems, lbl="[cutscene]"):
+    """Validate the MULTI-WINDOW verbs of one cutscene block (either flavor -- they are conductor-level).
+
+    An async window is a resource the script owns, and the two ways to leak it are both silent in a
+    build: a window left open outlives the scene on screen, and a HELD (``[TIME=-1]``) window left open
+    can never be dismissed by the player at all. So the ledger here is the window-side twin of the
+    lock-hygiene lint: walk the steps, track which ids are live, and report what is still live at the
+    end. A ``wait_window`` counts as a close (it blocks until the window goes, so past it the id is
+    gone), and re-issuing an id replaces rather than stacks."""
+    steps = [s for s in (cs.get("steps") or []) if isinstance(s, dict)]
+    live, held = {}, {}                      # window id -> step index that opened it / held it
+    for k, s in enumerate(steps):
+        if "open" in s:
+            w = s.get("window", 1)
+            if not isinstance(w, int) or isinstance(w, bool) or not 0 <= w <= 7:
+                continue                     # the attribute sweep already reported the bad id
+            live[w] = k
+            if s.get("hold"):
+                held[w] = k
+            else:
+                held.pop(w, None)
+        elif "close" in s or "wait_window" in s:
+            w = s.get("close", s.get("wait_window"))
+            if isinstance(w, int) and not isinstance(w, bool):
+                if w not in live and 0 <= w <= 7:
+                    verb = "close" if "close" in s else "wait_window"
+                    problems.append(f"{lbl} step {k}: {verb} = {w} but this scene never opens window "
+                                    f"{w} -- a stray close is a no-op, and a stray wait_window returns "
+                                    f"immediately (so it does NOT hold the scene the way it reads).")
+                live.pop(w, None)
+                held.pop(w, None)
+    for w, k in sorted(held.items()):
+        problems.append(f"{lbl} step {k}: open ... hold = true on window {w} is never closed -- "
+                        f"`hold` sets [TIME=-1], which INHIBITS the dismiss button, so nothing in the "
+                        f"game can take that window off the screen. Add {{ close = {w} }} later in "
+                        f"the scene (stock's unison closes both windows itself), or drop hold.")
+    for w, k in sorted(live.items()):
+        if w in held:
+            continue                          # already reported above, and more precisely
+        problems.append(f"{lbl} step {k}: window {w} is opened and never closed -- an async window "
+                        f"outlives the scene and stays on screen. Add {{ close = {w} }} or "
+                        f"{{ wait_window = {w} }} (the player's dismissal), or use `say` instead, "
+                        f"which opens and waits in one blocking op.")
+    # A signal wait spins for its whole timeout unless something raises the signal. Sources: an [INCS]
+    # or [SIGL=n] inside a say/open line in this scene, or a set_signal step. A source in ANOTHER
+    # object is legitimate (stock's unison has each speaker's own entry open its own window), so this
+    # can only be a warning-shaped message, never a refusal.
+    waits = [(k, s["wait_signal"]) for k, s in enumerate(steps) if "wait_signal" in s]
+    if waits:
+        def _reach_before(stop):
+            """The signal value this scene's own steps can have reached by step ``stop``. Only the
+            steps BEFORE the wait count -- stock's own cleanup re-zeroes the signal AFTER each
+            handshake, and folding that in would read as 'no source' on a correct scene."""
+            v, seen = 0, False
+            for s in steps[:stop]:
+                sg = s.get("signal")
+                if "set_signal" in s and isinstance(s["set_signal"], int):
+                    v, seen = s["set_signal"], True
+                elif sg is True or (isinstance(sg, str) and sg.strip() == "+"):
+                    v, seen = v + 1, True
+                elif isinstance(sg, int) and not isinstance(sg, bool):
+                    v, seen = (sg if sg >= 0 else v + 1), True
+            return v, seen
+        for k, target in waits:
+            reach, has_source = _reach_before(k)
+            if not isinstance(target, int) or isinstance(target, bool):
+                problems.append(f"{lbl} step {k}: wait_signal must be an int (the signal value to "
+                                f"wait for); got {target!r}")
+            elif not has_source:
+                problems.append(f"{lbl} step {k}: wait_signal = {target} but no line in this scene "
+                                f"carries a `signal` tag and no step sets one, so this wait can only "
+                                f"end by timing out. Add signal = \"+\" to the say/open lines it is "
+                                f"waiting on (or drop the wait).")
+            elif reach < target:
+                problems.append(f"{lbl} step {k}: wait_signal = {target} but this scene's own lines "
+                                f"only reach {reach} -- unless another object raises it, the wait "
+                                f"will burn its full timeout before continuing.")
+        for k, s in enumerate(steps):
+            to = s.get("timeout")
+            if "wait_signal" in s and to is not None and (isinstance(to, bool)
+                                                          or not isinstance(to, int) or to < 1):
+                problems.append(f"{lbl} step {k}: timeout must be a positive frame count "
+                                f"(stock seeds every guarded signal wait to "
+                                f"{_cutscene.SIGNAL_GUARD_FRAMES}); got {to!r}")
+
+
 def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
     """Validate a CAST cutscene (``actors = [...]``, the conductor -- #13 v3's one actor mechanism): each
     cast name = an ``[[npc]]`` or ``"player"``; steps = ``say`` / ``wait`` / ``set_flag`` (conductor-level;
@@ -7177,7 +7279,7 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
             problems.append(f"{lbl} actors entry {nm!r} is not a defined [[npc]] name (or \"player\")")
     known = set(cast) | {"player"}
     sole = cast[0] if len(cast) == 1 else None
-    global_keys = ("say", "wait", "set_flag")
+    global_keys = ("say", "wait", "set_flag") + _cutscene.WINDOW_STEP_KINDS
     actor_keys = ("walk", "path", "teleport", "face_player", "animation", "turn")
     npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
     move_reg = _position_registry(project)
@@ -7192,7 +7294,9 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
                             f"({' / '.join(global_keys + actor_keys)})")
             continue
         act, who = present[0], s.get("actor", sole if present[0] in actor_keys else None)
-        if (act in actor_keys or (act == "say" and who is not None)):
+        # say/open take an OPTIONAL actor (it attributes the window -- WindowSyncEx/WindowAsyncEx);
+        # only validate the name when one is given, since an unattributed line is legitimate narration.
+        if (act in actor_keys or (act in _cutscene.TEXT_STEP_KINDS and who is not None)):
             if who is None:
                 problems.append(f"{lbl} step {k} ({act}) needs actor = \"<name>\" (a cast of one lets you "
                                 f"omit it)")
@@ -7665,8 +7769,9 @@ def collect_text(project: FieldProject):
     # slices per block, so each block's compile consumes exactly its own txids.
     for _cb in _cutscene.blocks(project.raw.get("cutscene")):
         for step in _cb.get("steps", []):
-            if "say" in step:
-                cs_pos.append(_add(step, step["say"]))
+            _line = _cutscene.step_text(step)
+            if _line is not None:
+                cs_pos.append(_add(step, _line))
     # choices: the prompt + option rows are ONE entry (prompt[CHOO][MOVE]opt0\n[MOVE]opt1...); each
     # option's optional `reply` is its own entry. The question is wrapped; the menu rows are not (a row
     # is short by design -- an over-wide one is caught by lint, not silently re-flowed).

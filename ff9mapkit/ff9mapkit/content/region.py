@@ -106,6 +106,7 @@ KEY_START = 8         # EventInput.Start (8u)
 # A couple of useful system-variable codes (EventEngine.GetSysvar switch): 2 = usercontrol
 # (IsMovementEnabled), 9 = ETb.GetChoose() = the index the player picked in the last choice window.
 SYSVAR_USERCONTROL = 2
+SYSVAR_MES_SIGNAL = 8     # ETb.gMesSignal -- the text->script clock (SetDialogProgression / [SIGL]/[INCS])
 SYSVAR_CHOICE = 9
 
 # The one-way STAY-LOCKED latch (MAP bool; movement survey 3): stock's own index 156 -- "never
@@ -312,6 +313,33 @@ def if_else(cond: bytes, then_body: bytes, else_body: bytes) -> bytes:
 def if_not_block(cond: bytes, body: bytes) -> bytes:
     """``if (!cond) { body }`` -> cond + ``03 <len(body):i16>`` (jump-if-TRUE past body) + body."""
     return cond + bytes([JMP_TRUE]) + _i16(len(body)) + body
+
+
+T_POST_MINUS = 0x05   # B_POST_MINUS -- the `VAR--` postfix form (`05 <var> 05 7F`); B_POST_PLUS is 0x04,
+                      # real-field verified as the mognet counter's Byte[1032]++ (mognet.py:102)
+
+
+def dec_var(var_class, idx: int) -> bytes:
+    """``VAR--`` -> ``05 <var> 05 7F`` (B_POST_MINUS). The loop-counter decrement stock's own guarded
+    spin-waits use (``set VAR_GlobUInt8_29--`` in the HW rendering)."""
+    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_POST_MINUS, T_END])
+
+
+def while_block(cond: bytes, body: bytes) -> bytes:
+    """``while (cond) { body }`` -- the kit's first BACKWARD-jumping construct.
+
+    Emits ``cond + 02 <len(body)+3> + body + 01 <-(whole loop):i16>``: the jump-if-false clears both
+    the body and the back-hop, and the unconditional hop returns to the top of ``cond``.
+
+    ⚠ The two jump ops differ in SIGNEDNESS and it is load-bearing here: ``0x02`` (JMP_IFNOT) reads
+    its operand UNSIGNED via ``getUShortIP``, so it can only ever jump FORWARD, while ``0x01`` (JMP)
+    reads a SIGNED int16 -- which is why the loop's return hop must be the unconditional op and why
+    a loop body over 32767 bytes cannot be encoded (raised as a ValueError rather than silently
+    wrapping into a forward jump)."""
+    span = len(cond) + 3 + len(body) + 3          # cond + exit-hop + body + the back-hop
+    if span > 32767:
+        raise ValueError(f"while_block body too large to encode a backward jump ({span} bytes > 32767)")
+    return cond + bytes([JMP_FALSE]) + _i16(len(body) + 3) + body + jump(-span)
 
 
 def guarded_call(guards, body: bytes) -> bytes:

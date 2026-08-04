@@ -168,6 +168,119 @@ def set_flag(idx: int, value: int = 1, *, flag_class=CUTSCENE_FLAG_CLASS) -> byt
     return _region.set_var(flag_class, idx, value)
 
 
+# The step kinds that CARRY AN AUTHORED LINE, and so consume one txid each. `compile_steps` reads
+# ``txids`` positionally, so every site that counts, slices, or registers scene text must agree with it
+# exactly -- a miscount doesn't fail the build, it silently shifts every later line onto the wrong entry.
+# There were six independent ``"say" in s`` tests before ``open`` existed; they all route through here now.
+TEXT_STEP_KINDS = ("say", "open")
+
+# The multi-window + signal verbs. Like say/wait/set_flag these are CONDUCTOR-level (they act on the
+# window system and the global signal, not on an actor), so both the narration and the cast flavors
+# accept them and neither requires an `actor`.
+# ``set_signal`` (not ``signal``) is the script-side verb ON PURPOSE: ``signal`` is already the
+# TEXT-side key that puts an [INCS]/[SIGL] tag inside a say/open line, and a step carrying both an
+# action key and a text key would trip the one-action-per-step rule. The naming also matches the
+# engine (SetDialogProgression) and the kit's own ``set_flag``.
+WINDOW_STEP_KINDS = ("open", "close", "wait_window", "raise", "set_signal", "wait_signal")
+
+
+def step_text(s):
+    """The authored line a step carries (``say`` or ``open``), or ``None`` for an action-only step."""
+    if not isinstance(s, dict):
+        return None
+    for k in TEXT_STEP_KINDS:
+        if k in s:
+            return s[k]
+    return None
+
+
+def text_steps(steps):
+    """Just the line-carrying steps, in author order -- the order ``txids`` is consumed in."""
+    return [s for s in (steps or []) if step_text(s) is not None]
+
+
+# --- multi-window scene verbs (messages survey Tier-2 item 8) ----------------------------------------
+# `say` is ONE window opened and waited on in a single blocking op. Stock's richer presentations all
+# come from splitting that: open a window and keep running, so several stand at once (two speakers in
+# unison, a hint held under rolling dialogue, staged countdown captions, HUD panels). The engine verbs
+# are WindowAsync/Ex + CloseWindow + WaitWindow + RaiseWindows; these are their step-level wrappers.
+def open_window(text_id: int, *, window: int = 1, flags: int = 128, actor_uid: int | None = None,
+                raise_after: bool = False) -> bytes:
+    """Step: open ``text_id`` in window ``window`` WITHOUT blocking -- the script runs on with the
+    window still up. ``actor_uid`` attributes it to an actor (``WindowAsyncEx``; attribution needs the
+    bubble bit 128, else the engine nulls the target). ``raise_after`` appends ``RaiseWindows``, which
+    is needed only when a fade filter is up (THE RAISE LAW) -- and see
+    :func:`ff9mapkit.eb.opcodes.raise_windows` for why it must be one raise per open, never a bare
+    re-raise.
+
+    An async window is the script's responsibility: close it (:func:`close_window`), wait it
+    (:func:`wait_window`), or re-issue the same id to replace it. Leaving one open past the end of a
+    scene leaves it on screen."""
+    b = (opcodes.window_async_ex(actor_uid, window, flags, text_id) if actor_uid is not None
+         else opcodes.window_async(window, flags, text_id))
+    return b + (opcodes.raise_windows() if raise_after else b"")
+
+
+def close_window(window: int) -> bytes:
+    """Step: dispose window ``window`` (see :func:`ff9mapkit.eb.opcodes.close_window` for the two
+    engine surprises -- it turns the page on a ``[PAGE]`` entry, and it blocks on a voiced window)."""
+    return opcodes.close_window(window)
+
+
+def wait_window(window: int) -> bytes:
+    """Step: block until window ``window`` is gone -- the player's dismissal, a ``duration`` expiry, or
+    a script close from another object. Waiting a window nothing ever closes hangs the script."""
+    return opcodes.wait_window(window)
+
+
+def raise_windows() -> bytes:
+    """Step: lift the active windows above the fade-filter panel."""
+    return opcodes.raise_windows()
+
+
+# --- text-synchronized signals (messages survey Tier-2 item 7) ---------------------------------------
+# THE SIGNAL-TIMEOUT LAW. A signal wait spins until the TEXT reaches a tag, and text is not a
+# guaranteed event: a shorter translation may omit the tag, a skip may race it, a window may be
+# replaced before its tag renders. Stock never trusts it -- 117 of the 319 signal waits across the 81
+# fields that use them carry a frame countdown beside the condition
+# (`while ((GetDialogProgression < 2) && (VAR_GlobUInt8_29 > 0))`, field 41 Zorn & Thorn @734), and
+# the guard is seeded to 250 frames (~8s) at every one of them. So the kit's wait is guarded by
+# construction: there is no unguarded form to author. The counter is a MAP int16 (transient, wiped on
+# field load) rather than stock's save-backed global byte, so it can never leak into a save.
+SIGNAL_GUARD_IDX = 3           # MAP.I16[3] -- the spin-wait countdown (the ladder owns MAP.I16[2])
+SIGNAL_GUARD_FRAMES = 250      # stock's own seed at every guarded wait site
+
+
+def signal(value: int = 0) -> bytes:
+    """Step: write ``ETb.gMesSignal`` (read back as sysvar 8). Stock's use is always ZERO-then-wait --
+    the counting is done by the ``[INCS]`` tags inside the text, not by the script."""
+    return opcodes.set_dialog_progression(value)
+
+
+def wait_signal(target: int = 1, *, timeout: int = SIGNAL_GUARD_FRAMES,
+                guard_idx: int = SIGNAL_GUARD_IDX) -> bytes:
+    """Step: block until the text-side signal reaches ``target`` -- or until ``timeout`` frames pass.
+    Compiles stock's exact guarded shape (THE SIGNAL-TIMEOUT LAW above)::
+
+        set guard = timeout
+        while ( (sysvar8 < target) && (guard > 0) ) { Wait(1) ; guard-- }
+
+    ``timeout`` is in frames (~30/s). It is a CEILING, not a schedule: when the signal arrives the
+    loop exits that frame. Pair with :func:`signal` (0) before opening the windows, so a stale value
+    from an earlier beat cannot satisfy the wait immediately."""
+    if int(timeout) <= 0:
+        raise ValueError("wait_signal timeout must be a positive frame count -- an unguarded signal "
+                         "spin can hang the field if the text never reaches its tag")
+    cond = (bytes([_region.EXPR_OP])
+            + _region.push_sysvar(_region.SYSVAR_MES_SIGNAL)
+            + bytes([_region.T_CONST]) + _region._i16(int(target)) + bytes([_region.T_LT])
+            + _region._push_var(_region.MAP_INT16, guard_idx)
+            + bytes([_region.T_CONST]) + _region._i16(0) + bytes([_region.T_GT])
+            + bytes([_region.T_ANDAND, _region.T_END]))
+    body = opcodes.wait(1) + _region.dec_var(_region.MAP_INT16, guard_idx)
+    return _region.set_var(_region.MAP_INT16, guard_idx, int(timeout)) + _region.while_block(cond, body)
+
+
 # --- actor-context steps (v2) -- only valid inside an `actor` cutscene (run in the NPC's entry) ---
 # How fast the actor rotates toward its destination while walking (omega, 0..255). High = the
 # turn-while-walk arc shrinks to ~nothing, so a walk to a point BEHIND the actor turns and goes
@@ -254,6 +367,24 @@ def compile_steps(steps, txids, *, say_flags: int = 128) -> bytes:
                                dim=s.get("dim", False), dim_tint=s.get("dim_tint"))
             out.append(b)
             ti += 1
+        elif "open" in s:
+            # an ASYNC window: it stays up and the scene runs on (the multi-window verbs). A raise is
+            # its OWN step ({raise = true}) exactly as it is its own opcode in stock -- folding it in
+            # as a sub-key would collide with the bare verb in the one-action-per-step rule.
+            out.append(open_window(txids[ti], window=int(s.get("window", 1)),
+                                   flags=_text.resolve_style(s.get("style"), default=say_flags)))
+            ti += 1
+        elif "close" in s:
+            out.append(close_window(int(s["close"])))
+        elif "wait_window" in s:
+            out.append(wait_window(int(s["wait_window"])))
+        elif "raise" in s:
+            out.append(raise_windows())
+        elif "set_signal" in s:
+            out.append(signal(int(s["set_signal"])))
+        elif "wait_signal" in s:
+            out.append(wait_signal(int(s["wait_signal"]),
+                                   timeout=int(s.get("timeout", SIGNAL_GUARD_FRAMES))))
         elif "wait" in s:
             out.append(wait(int(s["wait"])))
         elif "set_flag" in s:

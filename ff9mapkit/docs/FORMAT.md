@@ -404,6 +404,62 @@ steps = [
 ]
 ```
 
+### Several windows at once (open · close · wait_window · raise)
+
+A `say` step opens one window and blocks on it. Stock's richer presentations all come from *splitting*
+that: open a window, keep running, and close it later — so two speakers can talk in unison, a hint can
+hang under rolling dialogue, or captions can stage themselves. These are cutscene steps and work in
+both flavors (narration and a cast):
+
+| step | what it emits | notes |
+|---|---|---|
+| `{ open = "line", window = N }` | `WindowAsync` (`WindowAsyncEx` with an `actor`) | takes every window-styling key above; the scene runs on |
+| `{ close = N }` | `CloseWindow` | on a `[PAGE]` entry this turns the page instead — one close per page |
+| `{ wait_window = N }` | `WaitWindow` | blocks until that window is gone (the player's dismissal) |
+| `{ raise = true }` | `RaiseWindows` | lifts text above a fade filter — needed only inside one |
+
+An open window is **yours to close.** The build refuses a scene that opens a window and never closes,
+waits, or re-issues it, because an async window outlives the scene and simply stays on screen. Stock
+raises **once per open** and never re-raises an unchanged stack: the engine's raise is clamped per
+window, so a third bare raise makes higher window ids draw in *front* of lower ones.
+
+### Text-synchronized beats (signal · hold · wait_signal · set_signal)
+
+FF9 has one clock that runs from the *text* back to the *script*: a tag inside a line fires when that
+position in the string appears on screen, and the script can block until it does. That is how stock
+makes two windows pop in unison, and the same substrate will time a camera cut or a sound sting to a
+particular word.
+
+- **`signal = "+"`** on a `say`/`open` line — `[INCS]`, bump the signal when the line finishes typing.
+  `signal = n` sets it to `n` instead (`[SIGL=n]`).
+- **`hold = true`** — `[TIME=-1]`: the window cannot be dismissed and stands until the script closes
+  it. Pair it with `signal` for stock's unison shape; a bare `[INCS]` does **not** inhibit the button,
+  which is why stock's own entries carry both tags. (Mutually exclusive with `duration`.)
+- **`{ set_signal = n }`** — write the signal from the script (`SetDialogProgression`). Stock always
+  zeroes it before a handshake and again after.
+- **`{ wait_signal = n, timeout = 250 }`** — block until the signal reaches `n`.
+
+**The wait is always guarded, and there is no unguarded form.** Text is not a guaranteed event — a
+shorter translation may omit the tag, a skip may race it — so stock puts a frame countdown beside every
+one of these waits and seeds it to 250 frames (~8s). `timeout` is a ceiling, not a schedule: the loop
+exits the frame the signal arrives. The build reports a `wait_signal` whose target no line in the scene
+can reach, since that wait can only end by timing out.
+
+```toml
+[[cutscene]]                                   # stock's Zorn & Thorn unison, in the kit's spelling
+actors = ["zorn", "thorn"]
+steps = [
+  { set_signal = 0 },
+  { actor = "zorn",  open = "We'll be very grateful!",  speaker = "Zorn",  window = 2, signal = "+", hold = true },
+  { actor = "thorn", open = "Very grateful, we'll be!", speaker = "Thorn", window = 3, signal = "+", hold = true },
+  { wait_signal = 2 },                         # both lines have finished typing
+  { wait = 90 },                               # let the player read them together
+  { close = 2 },
+  { close = 3 },
+  { set_signal = 0 },
+]
+```
+
 ### Control locking (lock · lock_menu)
 
 **The engine has no dialog lock.** A window only blocks the script thread of the object that opened

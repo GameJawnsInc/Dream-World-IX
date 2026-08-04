@@ -393,12 +393,63 @@ def enable_move() -> bytes:                          # 0x2E (UCON) 0 args
 
 
 # --- text windows ---
+# Window ids run 0..7; 255 is the engine's "no window" SENTINEL and must never be emitted
+# (studies/messages/SURVEY.md §1). Re-issuing a live id REPLACES that window (ETb.cs:96); distinct
+# ids coexist. Depth is 68 - 2*id, so LOWER id draws in FRONT -- but see :func:`raise_windows`.
+NO_WINDOW = 255
+
+
 def window_sync(win: int, flags: int, text_id: int) -> bytes:   # 0x1F
     return encode(0x1F, win, flags, text_id)
 
 
 def window_async(win: int, flags: int, text_id: int) -> bytes:  # 0x20
     return encode(0x20, win, flags, text_id)
+
+
+def close_window(win: int) -> bytes:                            # 0x21 (CLOSE) argsize [1]
+    """CloseWindow(win): dispose window ``win``. Two engine surprises, both playtest-relevant:
+
+    * on a ``[PAGE]``-split entry this TURNS THE PAGE instead of closing (``Dialog.Hide()``
+      short-circuits while pages remain -- Dialog.cs:616-624), so a paged window needs one close
+      per remaining page;
+    * it can BLOCK after all -- a window carrying a voice-acting clip and no choices stalls the
+      script until the clip ends (DoEventCode.cs:527-558)."""
+    return encode(0x21, win)
+
+
+def wait_window(win: int) -> bytes:                             # 0x54 (WAITMES) argsize [1]
+    """WaitWindow(win): block (``gCur.wait = 254``) until window ``win`` is no longer active --
+    the second half of stock's most common message idiom, ``WindowAsync ; RaiseWindows ; WaitWindow``
+    (7,285 of 7,590 RaiseWindows sit immediately after a WindowAsync). Waiting a window that was
+    never opened returns immediately; waiting one the script never closes hangs forever."""
+    return encode(0x54, win)
+
+
+def raise_windows() -> bytes:                                   # 0x8E (RAISE) 0 args
+    """RaiseWindows(): lift every ACTIVE window above the fade-filter panel (+22 depth,
+    ``DialogManager.RiseAll``). Needed only inside a FadeFilter bracket -- the fader is a UI layer
+    above dialog depth 54-68, and this is what puts text over it (THE RAISE LAW, SURVEY §11b);
+    stock's multi-window UIs (the Treno keypad) never call it.
+
+    ⚠ **THE RAISE-SATURATION LAW.** The raise is CLAMPED, not uniform: a window is bumped only
+    while its depth is ``< DialogMaximumDepth + DialogAdditionalRaiseDepth`` (= 68 + 22 = 90,
+    DialogManager.cs:436-446). Window 0 starts at 68 and saturates at 90 after ONE raise, while
+    window 7 starts at 54 and climbs 76 -> 98 -- so once a scene issues a third raise the id order
+    INVERTS and the higher id draws in front. Stock never trips this because it raises once per
+    window OPEN (each new window enters below the raised ones and is lifted with them). Emit it the
+    same way -- one raise per open, never a bare re-raise of an unchanged stack."""
+    return encode(0x8E)
+
+
+def set_dialog_progression(value: int) -> bytes:                # 0xE3 (SETSIGNAL) argsize [1]
+    """SetDialogProgression(value): write ``ETb.gMesSignal`` (DoEventCode.cs:2980), which scripts
+    read back as **sysvar 8**. This is the script half of FF9's text-synchronized handshake; the
+    text half is the ``[SIGL=n]``/``[INCS]`` tags, which fire when their position in the string
+    APPEARS on screen (DialogBoxSymbols.OnSignal, typewriter-aware and de-duplicated to one signal
+    per EventEngine tick). Stock's use is always zero-then-wait: 694 sets across 81 fields, and in
+    the Zorn & Thorn field EVERY set is 0 -- the counting is done entirely by in-text tags."""
+    return encode(0xE3, value)
 
 
 # --- audio ---

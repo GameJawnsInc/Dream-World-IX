@@ -146,6 +146,37 @@ def menu_pos_tag(pos) -> str:
     return f"[MPOS={x},{y}]"
 
 
+# --- text-synchronized SIGNALS (studies/messages/SURVEY.md §8) ---------------------------------------
+# A signal tag fires when its POSITION IN THE STRING appears on screen -- typewriter-aware, so a tag at
+# the end of a line means "this line has finished typing". It writes ETb.gMesSignal, which a script reads
+# back as sysvar 8; that is FF9's only text->script clock. Two spellings, and the difference is NOT
+# cosmetic:
+#   [INCS]    increment    (DialogBoxSymbols.cs:500-505)
+#   [SIGL=n]  set to n     (:506-507; the param is a plain Int32 -- OnSignal takes any value, and any
+#                           NEGATIVE value increments, so [SIGL=-1] == [INCS])
+# ⚠ THE BRACKET-FORM CAVEAT. Memoria has a second, compound tag ALSO called IncreaseSignal that both
+# signals AND sets FlagButtonInh (undismissable) -- but it is reachable only from the modern curly
+# format (`{IncreaseSignal}`); the ORIGINAL bracket table this kit writes maps the string "INCS" to
+# IncreaseSignalEx, which signals and nothing more (FFIXTextTag.cs:343 OriginalTagNames). That is why
+# stock's unison entries carry the PAIR `[INCS][TIME=-1]` -- Memoria's own importer collapses exactly
+# that pair into the compound token (Import/Fields/FieldTags.cs:45). So an author who wants stock's
+# shape needs `hold = true` alongside the signal; emitting the signal alone leaves the window
+# dismissable and the player can race the handshake.
+SIGNAL_INCREMENT = "+"
+HOLD_TAG = "[TIME=-1]"        # FlagButtonInh only -- undismissable, closes only when the script says so
+
+
+def signal_tag(value) -> str:
+    """The text-side signal tag for an author ``signal`` value: ``"+"`` (or a negative int) ->
+    ``[INCS]``; an int ``n >= 0`` -> ``[SIGL=n]``. ``None``/``False`` -> ``""``."""
+    if value is None or value is False:
+        return ""
+    if value is True or (isinstance(value, str) and value.strip() == SIGNAL_INCREMENT):
+        return "[INCS]"
+    n = int(value)
+    return "[INCS]" if n < 0 else f"[SIGL={n}]"
+
+
 def dress_window(src: dict, line: str):
     """Apply a dialogue block's TEXT-side window-attribute keys to an assembled (already speaker-
     attributed, already wrapped) line. Returns ``(line, strt, tail)`` for the ``.mes`` entry:
@@ -157,6 +188,14 @@ def dress_window(src: dict, line: str):
     * ``instant``     -> ``[IMME]`` (pop fully drawn -- FF9's selector/system-window convention).
     * ``duration = n`` -> a trailing ``[TIME=n]`` (auto-close after n frames; the player cannot
       dismiss it early -- the engine sets FlagButtonInh). A WindowSync + duration = a timed beat.
+      ``duration = 0`` is the engine's third mode: it CLEARS FlagButtonInh, re-granting dismissal
+      to a window some earlier tag inhibited (``OnTime`` DialogBoxSymbols.cs:811-829).
+    * ``hold = true`` -> a trailing ``[TIME=-1]``: undismissable with no auto-close, so the window
+      stands until the SCRIPT closes it. The half of stock's unison shape that keeps the player
+      from racing a signal handshake.
+    * ``signal = "+" | n`` -> a trailing :func:`signal_tag` (``[INCS]`` / ``[SIGL=n]``), which fires
+      when the line finishes typing. Placed BEFORE the time tag so the signal lands with the last
+      glyph rather than after the close.
     * ``box = [w, lines]`` -> the ``[STRT]`` geometry. NB the engine auto-measures WIDTH whenever it
       can (``AutomaticSize``); ``w`` only matters on the no-autoresize paths, ``lines`` is a MINIMUM.
 
@@ -166,7 +205,11 @@ def dress_window(src: dict, line: str):
         pre += f"[SPED={int(src['speed'])}]"
     if src.get("instant"):
         pre += CHOICE_IMME
-    suf = f"[TIME={int(src['duration'])}]" if src.get("duration") is not None else ""
+    suf = signal_tag(src.get("signal"))
+    if src.get("hold"):
+        suf += HOLD_TAG
+    elif src.get("duration") is not None:
+        suf += f"[TIME={int(src['duration'])}]"
     strt = tuple(int(v) for v in src["box"]) if src.get("box") is not None else None
     return pre + line + suf, strt, default_tail(src)
 
