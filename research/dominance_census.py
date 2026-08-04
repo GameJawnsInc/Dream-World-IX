@@ -69,6 +69,7 @@ def main() -> int:
     bundle = EventBundle()
     bit_sites: list[dict] = []
     sc_sites: list[dict] = []
+    field_flows: list = []
     stats = defaultdict(int)
     degraded: list[list] = []
 
@@ -83,6 +84,7 @@ def main() -> int:
             continue
         stats["fields_scanned"] += 1
         ff = FieldFlow.build(eb)
+        field_flows.append(ff)
         for key, reason in ff.degraded.items():
             stats["funcs_degraded"] += 1
             degraded.append([fid, key[0], key[1], reason])
@@ -90,15 +92,17 @@ def main() -> int:
             ei, fi = key
             ftag = eb.entries[ei].funcs[fi].tag
             stats["funcs_analyzed"] += 1
-            for k in ("negated_compound", "condless_branches"):
-                stats[k] += fl.stats[k]
+            for k in ("negated_compound", "condless_branches", "unsure_conds"):
+                stats[k] += fl.stats.get(k, 0)
             ctx = ff.ctx.get(key, {})
             ctx_direct = [c for c, a in ctx.items() if not a]
             ctx_armed = [c for c, a in ctx.items() if a]
             for st, blk in fl.iter_sets(eb.data):
                 if st.kind != "assign" or st.source != 0:
                     continue
-                guards = list(fl.guards_of_block(blk) or ()) + ctx_direct
+                r = fl.guards_at_ex(st.off)
+                site_guards, ycross, ccross = r if r else ((), False, False)
+                guards = list(site_guards) + ctx_direct
                 sc = [c for c in guards if c.is_scenario]
                 sc_armed = [c for c in ctx_armed if c.is_scenario]
                 flg = [c for c in guards if c.is_glob_bit]
@@ -120,6 +124,7 @@ def main() -> int:
                         "flags": [_cond_row(c) for c in flg],
                         "flags_armed": [_cond_row(c) for c in flg_armed],
                         "other": [_cond_row(c) for c in other],
+                        "cross": ("y" if ycross else "") + ("c" if ccross else ""),
                         "sib": _sibling_ops(fl, blk),
                     })
                 elif st.vtype in (6, 7) and st.index == 0 and st.value is not None:
@@ -131,6 +136,10 @@ def main() -> int:
                         "sc_armed": [_cond_row(c) for c in sc_armed],
                         "flags": [_cond_row(c) for c in flg],
                     })
+
+    stats["killed_guards"] = sum(
+        fl.stats.get("killed_guards", 0)
+        for ffl in field_flows for fl in ffl.flows.values())
 
     # story-site metrics: the byte-23 handshake and the Mognet bands are compiled dispatch
     # noise (77% of raw sites) -- the falsifier is scored on the STORY population

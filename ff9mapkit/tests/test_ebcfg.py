@@ -464,3 +464,228 @@ def test_fieldflow_guards_at_splits_direct_and_armed():
     direct, armed = ff.guards_at(1, 0, write_off)
     assert Cond(0, 1, 600, "!=", 0) in direct
     assert Cond(0, 7, 0, "==", 3110) in armed
+
+
+# ---------------------------------------------------------------------------
+# kill semantics (the review's HIGH: a guard must not survive assignment to its variable)
+
+def test_once_latch_kills_its_own_guard():
+    # if (bit==0) { bit=1; OTHER writes... } -- after bit=1 the ==0 guard is FALSE
+    fl, body = _flow("""
+        SET({Global.Bit[3816] const(0) B_EQ B_EXPR_END})
+        JMP_IFNOT(out)
+        SET({Global.Bit[3816] const(1) B_LET B_EXPR_END})
+        SET({Global.Bit[3831] const(1) B_LET B_EXPR_END})
+    out:
+        RET()
+    """)
+    latch = _off_of(body, 0x05, 1)
+    downstream = _off_of(body, 0x05, 2)
+    assert fl.guards_at(latch) == (Cond(0, 1, 3816, "==", 0),)   # still true AT the latch write
+    assert fl.guards_at(downstream) == ()                        # killed after it
+    assert fl.stats.get("killed_guards", 0) >= 1
+
+
+def test_cross_block_kill_reaches_block_entry():
+    # the killing write sits in an intermediate block; the guard must be gone at the
+    # DOWNSTREAM block's entry (the review's field-100 shape)
+    fl, body = _flow(f"""
+        SET({{{SC} const(3740) B_GE B_EXPR_END}})
+        JMP_IFNOT(out)
+        SET({{{SC} const(9999) B_LET B_EXPR_END}})
+        NOTHING()
+    mid:
+        SET({{Global.Bit[50] const(1) B_LET B_EXPR_END}})
+    out:
+        RET()
+    """)
+    assert fl.guards_at(_off_of(body, 0x05, 2)) == ()
+
+
+def test_byte_write_kills_aliased_bit_guard():
+    # writing Global.Byte[2] overwrites bits 16..23 -- a guard on bit 20 must die
+    fl, body = _flow("""
+        SET({Global.Bit[20] B_EXPR_END})
+        JMP_IFNOT(out)
+        SET({Global.Byte[2] const(0) B_LET B_EXPR_END})
+        SET({Global.Bit[900] const(1) B_LET B_EXPR_END})
+    out:
+        RET()
+    """)
+    assert fl.guards_at(_off_of(body, 0x05, 2)) == ()
+
+
+def test_unrelated_write_spares_the_guard():
+    fl, body = _flow("""
+        SET({Global.Bit[20] B_EXPR_END})
+        JMP_IFNOT(out)
+        SET({Global.Byte[100] const(3) B_LET B_EXPR_END})
+        SET({Global.Bit[900] const(1) B_LET B_EXPR_END})
+    out:
+        RET()
+    """)
+    assert fl.guards_at(_off_of(body, 0x05, 2)) == (Cond(0, 1, 20, "!=", 0),)
+
+
+def test_map_write_does_not_kill_global_guard():
+    fl, body = _flow("""
+        SET({Global.Bit[20] B_EXPR_END})
+        JMP_IFNOT(out)
+        SET({Map.Byte[2] const(0) B_LET B_EXPR_END})
+        SET({Global.Bit[900] const(1) B_LET B_EXPR_END})
+    out:
+        RET()
+    """)
+    assert fl.guards_at(_off_of(body, 0x05, 2)) == (Cond(0, 1, 20, "!=", 0),)
+
+
+def test_yield_and_call_cross_flags():
+    fl, body = _flow(f"""
+        SET({{{SC} const(2000) B_GE B_EXPR_END}})
+        JMP_IFNOT(out)
+        WindowSync(6, 0, 12)
+        SET({{Global.Bit[900] const(1) B_LET B_EXPR_END}})
+    out:
+        RET()
+    """)
+    conds, yields, calls = fl.guards_at_ex(_off_of(body, 0x05, 1))
+    assert conds == (Cond(0, 7, 0, ">=", 2000),)     # a yield FLAGS, it does not kill
+    assert yields is True and calls is False
+
+
+def test_jmp_if_false_edge_gets_negation():
+    fl, body = _flow(f"""
+        SET({{{SC} const(3000) B_GE B_EXPR_END}})
+        JMP_IF(taken)
+        SET({{Global.Bit[70] const(1) B_LET B_EXPR_END}})
+        RET()
+    taken:
+        RET()
+    """)
+    assert fl.guards_at(_off_of(body, 0x05, 1)) == (Cond(0, 7, 0, "<", 3000),)
+
+
+def test_or_branch_counts_unsure():
+    fl, _ = _flow(f"""
+        SET({{{SC} const(2000) B_EQ {SC} const(3000) B_EQ B_OROR B_EXPR_END}})
+        JMP_IFNOT(after)
+        NOTHING()
+    after:
+        RET()
+    """)
+    assert fl.stats["unsure_conds"] == 1
+
+
+def test_innermost_guard_block_and_dominated_by():
+    fl, body = _flow(f"""
+        SET({{{SC} const(2000) B_GE B_EXPR_END}})
+        JMP_IFNOT(end)
+        SET({{Global.Bit[10] B_EXPR_END}})
+        JMP_IFNOT(end)
+        SET({{Global.Bit[11] const(1) B_LET B_EXPR_END}})
+    end:
+        RET()
+    """)
+    write_blk = fl.block_at(_off_of(body, 0x05, 2))
+    inner = fl.innermost_guard_block(write_blk)
+    assert inner is not None
+    assert write_blk in fl.dominated_by(inner)
+    assert fl.blocks[inner].start > 0                 # the inner region, not the outer
+
+
+def test_fieldflow_call_context_propagates_direct():
+    # Main_Init calls its OWN tag-7 func (uid 0 = main; never armed -> a call-only target):
+    # the callee's ctx must carry the call site's SC guard as DIRECT
+    eb = EbScript.from_bytes(_eb_field([
+        (0, [(0, f"""
+            SET({{{SC} const(4600) B_EQ B_EXPR_END}})
+            JMP_IFNOT(skip)
+            RunScript(0, 0, 7)
+        skip:
+            RET()
+        """),
+             (7, "SET({Global.Bit[700] const(1) B_LET B_EXPR_END})\nRET()")]),
+    ]))
+    ff = FieldFlow.build(eb)
+    assert _sc_ctx(ff, (0, 1)) == [("==", 4600, False)]      # direct, not armed
+
+
+def test_fieldflow_armed_entry_intersects_call_guard_away():
+    # an ARMED entry's funcs can also run via the engine path, so a guarded call into one
+    # must NOT survive the intersection with the (unguarded) arm edge -- pessimistic, sound;
+    # the call EDGE still records the guard for rung 4's per-edge intervals
+    eb = EbScript.from_bytes(_eb_field([
+        (0, [(0, f"""
+            InitObject(1, 0)
+            SET({{{SC} const(4600) B_EQ B_EXPR_END}})
+            JMP_IFNOT(skip)
+            RunScript(0, 1, 7)
+        skip:
+            RET()
+        """)]),
+        (5, [(0, "RET()"),
+             (7, "SET({Global.Bit[700] const(1) B_LET B_EXPR_END})\nRET()")]),
+    ]))
+    ff = FieldFlow.build(eb)
+    assert _sc_ctx(ff, (1, 1)) == []
+    assert any(dst == (1, 1) and any(c.is_scenario and c.value == 4600 for c in guards)
+               for (_src, dst, guards, _armed) in ff.edges)
+
+
+def test_fieldflow_mixed_inedge_requires_all_known():
+    # one root-guarded arm + one arm from an entry NEVER reached from a root: the target
+    # must claim NOTHING (the all-in-edges-known rule -- the review's surviving mutant)
+    eb = EbScript.from_bytes(_eb_field([
+        (0, [(0, f"""
+            SET({{{SC} const(5555) B_EQ B_EXPR_END}})
+            JMP_IFNOT(skip)
+            InitObject(2, 0)
+        skip:
+            RET()
+        """)]),
+        (5, [(0, "InitObject(2, 0)\nRET()")]),        # entry 1: an orphan (never armed)
+        (5, [(0, "SET({Global.Bit[710] const(1) B_LET B_EXPR_END})\nRET()")]),
+    ]))
+    ff = FieldFlow.build(eb)
+    assert _sc_ctx(ff, (2, 0)) == []
+
+
+def test_fieldflow_explicit_uid_call_resolves_to_slot():
+    # InitObject(1, 128) gives entry 1 runtime uid 128; RunScript(_,128,7) must reach it,
+    # and the entry-index rule must NOT fire for the remapped slot
+    eb = EbScript.from_bytes(_eb_field([
+        (0, [(0, f"""
+            InitObject(1, 128)
+            SET({{{SC} const(4600) B_EQ B_EXPR_END}})
+            JMP_IFNOT(skip)
+            RunScript(0, 128, 7)
+        skip:
+            RET()
+        """)]),
+        (5, [(0, "RET()"),
+             (7, "SET({Global.Bit[700] const(1) B_LET B_EXPR_END})\nRET()")]),
+    ]))
+    ff = FieldFlow.build(eb)
+    # the call resolves THROUGH the uid map to slot 1 -- seen as a recorded call edge
+    assert any(dst == (1, 1) and not armed
+               and any(c.is_scenario and c.value == 4600 for c in guards)
+               for (_src, dst, guards, armed) in ff.edges)
+
+
+def test_fieldflow_arm_site_guard_is_kill_aware():
+    # the review's field-1109 shape: the once-latch flips ITS OWN bit before the arm --
+    # the armed entry must NOT inherit the dead ==0 guard
+    eb = EbScript.from_bytes(_eb_field([
+        (0, [(0, """
+            SET({Global.Bit[3889] const(0) B_EQ B_EXPR_END})
+            JMP_IFNOT(skip)
+            SET({Global.Bit[3889] const(1) B_LET B_EXPR_END})
+            InitObject(1, 0)
+        skip:
+            RET()
+        """)]),
+        (5, [(0, "SET({Global.Bit[720] const(1) B_LET B_EXPR_END})\nRET()")]),
+    ]))
+    ff = FieldFlow.build(eb)
+    assert all(not (c.is_glob_bit and c.index == 3889)
+               for c in ff.ctx.get((1, 0), {}))

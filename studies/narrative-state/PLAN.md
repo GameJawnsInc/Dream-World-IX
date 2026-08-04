@@ -150,6 +150,29 @@ Each rung lands independently with its own falsifier. ★ = owner playtest.
     reader logic doing the tightening. The ladder is unchanged; only the estimator weighting
     moved. Per-arm-site edges are preserved in `FieldFlow.edges` for rung 4's intervals
     (merged ctx correctly drops equalities for multi-beat arms — the rotating-cast shape).
+- **Rung 0 adversarial review (ultracode, 18 agents: 4 finder lenses → refute-by-default
+  verification): 39 raw findings → 7 confirmed, 7 refuted at verification. ALL 7 FIXED
+  (2026-08-03):**
+  - **HIGH — no kill/def analysis**: guards survived assignment to their own variable (the
+    once-latch `if(bit==0){bit=1;...}` idiom; 304/2832 story sites carried a provably-false
+    guard, byte-exact repros on fields 1109/701/100). Fixed: `guards_at_ex` — per-instruction
+    kills inside the block + cross-block path kills, with bit/byte/word ALIASING; unknown-target
+    writes (0xD3 statements, computed assigns) kill everything; a `killed_guards` counter makes
+    the loss visible (47 759 corpus-wide). Arm/call edges now stamp the guards at the ARMING
+    INSTRUCTION, kill-aware. Honest residual, flagged not hidden: opcode side effects and
+    cross-script interleaving are unmodeled — each site carries `yields_crossed`/`calls_crossed`
+    flags so rung 4 can discount.
+  - MED×3 / LOW×3: the all-in-edges-known fixpoint rule now mutant-tested (mixed root+orphan
+    in-edge); call-context propagation tested (call-only main-entry target = direct ctx; an
+    armed entry's intersection correctly drops a call guard — per-edge data kept for rung 4);
+    explicit-uid Inits resolved via a per-field uid→slot map (the engine defaults uid=sid only
+    when the operand is 0 — Obj.cs; 376 formerly-unresolvable call sites, and the entry-index
+    rule now refuses remapped slots instead of possibly mis-targeting); Instance-source conds no
+    longer cross edges (per-object state); JMP_IF false-edge negation tested; the vacuous
+    `unsure_conds >= 0` assertion replaced (the counter was DEAD — now live: 32 140 corpus-wide);
+    `innermost_guard_block`/`dominated_by` unit-tested. 41 tests total.
+  - Post-fix census: sound coverage essentially unchanged (SC-direct 499 vs 518 pre-fix — the
+    falsified verdict stands on honest numbers; windowed bits 255).
 - Rung 1 (story-seed): NEXT.
 - Open question for the owner: any path to disc-3/4 calibration saves, or accept playtest-only
   validation for the late game? (Answered 2026-08-03: playtest-only for now, tentatively.)

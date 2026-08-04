@@ -43,7 +43,8 @@ _CMP_TOKENS = {24: "<", 25: ">", 26: "<=", 27: ">=", 28: "<", 29: ">", 30: "<=",
                32: "==", 33: "!=", 34: "==", 35: "!="}
 _NEGATE = {"<": ">=", ">": "<=", "<=": ">", ">=": "<", "==": "!=", "!=": "=="}
 _AND_TOKENS = {36, 39}          # B_AND / B_ANDAND -- both operands must hold
-_NOT_TOKENS = {14, 15, 16}      # B_NOT / B_NOT_E / B_COMP
+_NOT_TOKENS = {14, 15}          # B_NOT / B_NOT_E (logical). B_COMP 16 is BITWISE complement --
+#                                 ~(a==b) is always truthy, so it must stay opaque, never a negation
 _ASSIGN_PURE = {44, 45, 46}     # B_LET / B_LET_A / B_LET_E
 _ASSIGN_ALL = frozenset(range(44, 70))
 _T_CONST, _T_CONST4, _T_END = 0x7D, 0x7E, 0x7F
@@ -52,6 +53,66 @@ _T_CONST, _T_CONST4, _T_END = 0x7D, 0x7E, 0x7F
 class CfgError(ValueError):
     """A function whose bytes cannot be soundly analyzed (decode overrun, off-boundary jump,
     undecodable switch). Callers skip the function and COUNT it — never analyze a guess."""
+
+
+def _var_bit_range(vtype: int, index: int):
+    """A variable reference normalized to a BIT-unit range (for aliasing-aware kills):
+    bit types index bits; byte/word/int24 types index BYTES (engine EBin.cs getVarOperation)."""
+    if vtype in (0, 1):
+        return (index, index)
+    if vtype in (4, 5):
+        return (index * 8, index * 8 + 7)
+    if vtype in (6, 7):
+        return (index * 8, index * 8 + 15)
+    return (index * 8, index * 8 + 23)          # Int24/UInt24
+
+
+def _cond_killed(c: Cond, writes) -> bool:
+    lo, hi = _var_bit_range(c.vtype, c.index)
+    for (src, wlo, whi) in writes:
+        if src == c.source and wlo <= hi and lo <= whi:
+            return True
+    return False
+
+
+def stmt_write_effect(raw: bytes, ins):
+    """What one instruction may WRITE: None (nothing modeled), "ALL" (unknown target — kills
+    every guard), or ``(source, bit_lo, bit_hi)``. Only ``SET`` statements are modeled; opcode
+    side effects are outside this contract (see FuncFlow.guards_of_block's honest-limits note)."""
+    if ins.op != OP_SET:
+        return None
+    pos, limit = ins.off + 1, ins.end
+    if pos >= limit:
+        return None
+    lead = raw[pos]
+    if lead == 0xD3:
+        return "ALL"                            # a flexible-varfunc statement writes engine state
+    st = parse_set(raw, ins)
+    if st.kind == "assign":
+        return (st.source, *_var_bit_range(st.vtype, st.index))
+    if st.kind in ("cond", "read"):
+        return None
+    # 'other': scan the token stream for any assignment operator — unknown target
+    scan = pos
+    while scan < limit:
+        o = raw[scan]; scan += 1
+        if o == 0xD3:
+            scan += 3; continue
+        if o == 0x7E:
+            scan += 4; continue
+        if o in (0x7D, 0x78):
+            scan += 2; continue
+        if o >= 0xE0:
+            scan += 2; continue
+        if o >= 0xC0:
+            scan += 1; continue
+        if o in (0x29, 0x5F, 0x79, 0x7A):
+            scan += 1; continue
+        if o == _T_END:
+            break
+        if o in _ASSIGN_ALL:
+            return "ALL"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +350,18 @@ def parse_set(raw: bytes, ins: Instr) -> SetStmt:
 # ---------------------------------------------------------------------------
 # the CFG
 
+def _ops_by_name(names):
+    from ._optables import OP_NAMES
+    return frozenset(op for op, nm in OP_NAMES.items() if nm in names)
+
+
+_YIELD_OPS = _ops_by_name({
+    "Wait", "WindowSync", "WaitWindow", "WaitAnimation", "WaitTurn", "WaitTurnEx",
+    "WaitSharedScript", "WaitAnimationEx", "WaitSpecialAnimation", "WaitDialog",
+})
+_CALL_OPS = frozenset({0x10, 0x12, 0x14, 0x16, 0x18, 0x1A})
+
+
 @dataclass
 class Block:
     index: int
@@ -305,12 +378,13 @@ class FuncFlow:
     Build with :meth:`build`; query with :meth:`guards_at` (absolute byte offset of an
     instruction → the tuple of :class:`Cond` proven to hold there, or None for dead code)."""
 
-    def __init__(self, blocks, entry, dom, block_of, stats):
+    def __init__(self, blocks, entry, dom, block_of, stats, data: bytes):
         self.blocks = blocks
         self.entry = entry
         self._dom = dom                              # per-block bitmask of dominators
         self._block_of = block_of                    # instr offset -> block index
-        self.stats = stats                           # {'negated_compound': n, 'unsure_conds': n}
+        self.stats = stats                           # incl. the killed_guards counter
+        self._data = data
         self._guard_cache: dict[int, tuple] = {}
 
     # -- construction -------------------------------------------------------
@@ -390,7 +464,7 @@ class FuncFlow:
                     # bare-read truth test: `if (var) {...}` -- the common flag-gate idiom
                     return ((Cond(st.source, st.vtype, st.index, "!=", 0),),
                             (Cond(st.source, st.vtype, st.index, "==", 0),))
-                if st.kind == "cond" and st.cond_kind == "unsure":
+                if st.cond_kind == "unsure":
                     stats["unsure_conds"] += 1
             else:
                 stats["condless_branches"] += 1
@@ -489,44 +563,151 @@ class FuncFlow:
         for b in range(n):
             if not (reach >> b & 1):
                 dom[b] = 0                            # dead code: no dominance claims
-        return cls(blocks, entry if instrs else 0, dom, block_of, stats)
+        return cls(blocks, entry if instrs else 0, dom, block_of, stats, data)
 
     # -- queries ------------------------------------------------------------
 
     def block_at(self, off: int) -> int | None:
         return self._block_of.get(off)
 
-    def guards_of_block(self, b: int) -> tuple | None:
-        """Every Cond proven to hold on entry to block *b* (dead code → None)."""
-        if self._dom[b] == 0:
-            return None
-        if b in self._guard_cache:
-            return self._guard_cache[b]
-        out: list[Cond] = []
+    def _fwd_reach(self) -> list[int]:
+        """Per-block bitmask of blocks reachable from it (incl. itself); cached."""
+        if not hasattr(self, "_fwd"):
+            n = len(self.blocks)
+            fwd = [1 << b for b in range(n)]
+            changed = True
+            while changed:
+                changed = False
+                for b in range(n):
+                    m = fwd[b]
+                    for (s, _c) in self.blocks[b].succs:
+                        m |= fwd[s]
+                    if m != fwd[b]:
+                        fwd[b] = m
+                        changed = True
+            self._fwd = fwd
+        return self._fwd
+
+    def _raw_guards(self, b: int) -> list:
+        """[(S_block, conds)] from the dominator chain, un-killed. Internal."""
+        out = []
         mask = self._dom[b]
         d = 0
         while mask:
             if mask & 1:
                 blk = self.blocks[d]
-                if d != self.entry and blk.preds and len(set(blk.preds)) == 1 \
-                        and len(blk.preds) == 1:
+                if d != self.entry and len(blk.preds) == 1:
                     p = blk.preds[0]
                     if self._dom[p]:
                         for (s, conds) in self.blocks[p].succs:
                             if s == d and conds:
-                                out.extend(conds)
+                                out.append((d, conds))
             mask >>= 1
             d += 1
+        return out
+
+    def _block_writes(self, data: bytes, b: int):
+        """Aggregate write effect of block *b*: (ranges, all_flag) — cached."""
+        if not hasattr(self, "_bw"):
+            self._bw = {}
+        if b not in self._bw:
+            ranges: list = []
+            allw = False
+            for ins in self.blocks[b].instrs:
+                w = stmt_write_effect(data, ins)
+                if w == "ALL":
+                    allw = True
+                elif w is not None:
+                    ranges.append(w)
+            self._bw[b] = (ranges, allw)
+        return self._bw[b]
+
+    def guards_of_block(self, b: int) -> tuple | None:
+        """Every Cond proven to hold ON ENTRY to block *b* (dead code → None) — KILL-AWARE:
+        a guard whose variable may be assigned on some path between the guarding edge and *b*'s
+        entry is dropped (bit/byte/word ALIASING included; an unknown-target write kills all).
+
+        Honest limits (recorded, not hidden): opcode side effects outside ``SET`` statements and
+        cross-script interleaving across yields are NOT modeled — use :meth:`guards_at_ex`'s
+        ``yields_crossed``/``calls_crossed`` flags to discount those sites downstream."""
+        if self._dom[b] == 0:
+            return None
+        if b in self._guard_cache:
+            return self._guard_cache[b]
+        data = self._data
+        fwd = self._fwd_reach()
+        out: list[Cond] = []
+        for (S, conds) in self._raw_guards(b):
+            if S == b:
+                out.extend(conds)                       # kills inside b handled per-instruction
+                continue
+            # path blocks: reachable from S and reaching b, excluding b itself
+            kill_ranges: list = []
+            kill_all = False
+            for B in range(len(self.blocks)):
+                if B == b or not (fwd[S] >> B & 1) or not (fwd[B] >> b & 1):
+                    continue
+                r, a = self._block_writes(data, B)
+                kill_ranges.extend(r)
+                kill_all = kill_all or a
+            if kill_all:
+                self.stats["killed_guards"] = self.stats.get("killed_guards", 0) + len(conds)
+                continue
+            for c in conds:
+                if _cond_killed(c, kill_ranges):
+                    self.stats["killed_guards"] = self.stats.get("killed_guards", 0) + 1
+                else:
+                    out.append(c)
         result = tuple(out)
         self._guard_cache[b] = result
         return result
 
+    def guards_at_ex(self, off: int):
+        """(conds, yields_crossed, calls_crossed) proven AT the instruction starting at *off* —
+        entry guards minus everything killed by earlier writes in the same block. The two flags
+        report whether a yielding op / a script call sits between any guard and the site (a
+        cross-script write there could invalidate a guard the model cannot see)."""
+        b = self._block_of.get(off)
+        if b is None or self._dom[b] == 0:
+            return None
+        conds = list(self.guards_of_block(b) or ())
+        data = self._data
+        yields = calls = False
+        # cross-block flags along the guard paths
+        fwd = self._fwd_reach()
+        for (S, _c) in self._raw_guards(b):
+            for B in range(len(self.blocks)):
+                if B == b or not (fwd[S] >> B & 1) or not (fwd[B] >> b & 1):
+                    continue
+                for ins in self.blocks[B].instrs:
+                    if ins.op in _YIELD_OPS:
+                        yields = True
+                    elif ins.op in _CALL_OPS:
+                        calls = True
+        # per-instruction walk inside the block, up to (not including) the site
+        for ins in self.blocks[b].instrs:
+            if ins.off >= off:
+                break
+            if ins.op in _YIELD_OPS:
+                yields = True
+            elif ins.op in _CALL_OPS:
+                calls = True
+            w = stmt_write_effect(data, ins)
+            if w == "ALL":
+                if conds:
+                    self.stats["killed_guards"] = self.stats.get("killed_guards", 0) + len(conds)
+                conds = []
+            elif w is not None and conds:
+                kept = [c for c in conds if not _cond_killed(c, [w])]
+                self.stats["killed_guards"] = \
+                    self.stats.get("killed_guards", 0) + (len(conds) - len(kept))
+                conds = kept
+        return tuple(conds), yields, calls
+
     def guards_at(self, off: int) -> tuple | None:
         """Guards proven at the instruction starting at *off* (None = dead code / unknown off)."""
-        b = self._block_of.get(off)
-        if b is None:
-            return None
-        return self.guards_of_block(b)
+        r = self.guards_at_ex(off)
+        return None if r is None else r[0]
 
     def dominated_by(self, d: int) -> list[int]:
         """Indices of every reachable block dominated by block *d* (including *d*)."""
@@ -619,15 +800,45 @@ class FieldFlow:
 
         pents = eventscan.resolve_player_entries(eb)
         n_entries = len(eb.entries)
+
+        # runtime uid map from the field's own Init sites: the engine defaults an object's uid
+        # to its slot ONLY when the Init's uid operand is 0 (Obj.cs: `if (uid == 0) uid = sid`);
+        # an explicit operand REPLACES it. A uid claimed by conflicting slots is ambiguous.
+        uid_to_slot: dict[int, int] = {}
+        ambiguous_uids: set[int] = set()
+        explicit_slots: set[int] = set()
+        for key, fl in flows.items():
+            for blk in fl.blocks:
+                if fl._dom[blk.index] == 0:
+                    continue
+                for ins in blk.instrs:
+                    slot = eventscan.armed_slot(ins)
+                    if slot is None:
+                        continue
+                    u = ins.imm(1)
+                    eff = slot if not u else int(u)
+                    if eff != slot:
+                        explicit_slots.add(slot)
+                    if eff in uid_to_slot and uid_to_slot[eff] != slot:
+                        ambiguous_uids.add(eff)
+                    uid_to_slot[eff] = slot
+
+        def _drop_instance(conds):
+            # an Instance var is per-object state -- the caller's Instance[i] is NOT the
+            # callee's Instance[i], so such conds must never cross an edge
+            return tuple(c for c in conds if c.source != 2)
+
         edges: list = []
         for key, fl in flows.items():
             ei, fi = key
             for blk in fl.blocks:
                 if fl._dom[blk.index] == 0:
                     continue
-                guards = fl.guards_of_block(blk.index) or ()
                 for ins in blk.instrs:
                     slot = eventscan.armed_slot(ins)
+                    if slot is not None or ins.op in RUNSCRIPT_OPS or ins.op in (0x16, 0x18, 0x1A):
+                        r = fl.guards_at_ex(ins.off)
+                        guards = _drop_instance(r[0]) if r else ()
                     if slot is not None:
                         for dst in keys_by_entry.get(slot, []):
                             edges.append((key, dst, guards, True))
@@ -637,8 +848,19 @@ class FieldFlow:
                         if uid is None or tag is None:
                             stats["expr_calls"] += 1
                             continue
-                        _kind, targets = eventscan.resolve_uid(
-                            uid, ei, player_entries=pents, entry_count=n_entries)
+                        if uid in ambiguous_uids:
+                            stats["unresolved_calls"] += 1
+                            continue
+                        if uid in uid_to_slot:
+                            targets = [uid_to_slot[uid]]
+                        elif uid in explicit_slots:
+                            # this slot's runtime uid was remapped away -- the entry-index rule
+                            # would target the WRONG object
+                            stats["unresolved_calls"] += 1
+                            continue
+                        else:
+                            _kind, targets = eventscan.resolve_uid(
+                                uid, ei, player_entries=pents, entry_count=n_entries)
                         if not targets:
                             stats["unresolved_calls"] += 1
                             continue
