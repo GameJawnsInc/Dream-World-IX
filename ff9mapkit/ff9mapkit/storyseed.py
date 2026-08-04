@@ -126,6 +126,39 @@ def _site_lo(site: dict) -> tuple[int, str] | None:
     return best
 
 
+def _sc_by_func(census: dict) -> dict:
+    """(field, entry, func) -> the SC values that function itself writes (estimator E3)."""
+    d: dict = {}
+    for s in census.get("sc_sites", ()):
+        d.setdefault((s["field"], s["entry"], s["func"]), []).append(s["value"])
+    return d
+
+
+def _field_env(census: dict) -> dict[int, int]:
+    """field -> its lowest literal SC write (estimator E4, the writer-field envelope)."""
+    d: dict[int, int] = {}
+    for s in census.get("sc_sites", ()):
+        f = s["field"]
+        if f not in d or s["value"] < d[f]:
+            d[f] = s["value"]
+    return d
+
+
+def _site_lo_full(site: dict, sc_by_func: dict, field_env: dict) -> tuple[int, str] | None:
+    """The full estimator ladder for ANY censused site (party/word/bit alike): the site's own
+    proven SC window (direct, then armed), else a co-located SC advance in the same function
+    (E3), else the writer field's envelope (E4). None = the site carries no SC evidence."""
+    best = _site_lo(site)
+    if best:
+        return best
+    k = (site["field"], site["entry"], site["func"])
+    if k in sc_by_func:
+        return (min(sc_by_func[k]), "advance")
+    if site["field"] in field_env:
+        return (field_env[site["field"]], "envelope")
+    return None
+
+
 def resolve(eb: EbScript, beat: int, census: dict) -> SeedReport:
     """Resolve the field's read set at *beat* against the census evidence."""
     by_bit: dict[int, list] = {}
@@ -201,18 +234,47 @@ def render_startup(rep: SeedReport, *, field_label: str = "") -> str:
     return "\n".join(L)
 
 
-def party_seed(eb: EbScript) -> dict:
+def _window_party_adds(add_ids, beat, census, donor):
+    """Split *add_ids* into (kept, windowed_out) at *beat* using the census party_sites:
+    a member whose EVERY add site in this donor first fires at an SC ABOVE the beat belongs
+    to a different visit's roster (the Dali-Marcus lesson) and is windowed OUT — reported
+    with its earliest SC, never silently dropped. A member with no census evidence is kept
+    (the pre-window behavior; evidence absence is not evidence of absence)."""
+    by_char: dict[int, list] = {}
+    for s in census.get("party_sites", ()):
+        if s["field"] == donor and s["kind"] == "add" and s.get("char") is not None:
+            by_char.setdefault(s["char"], []).append(s)
+    scf, fenv = _sc_by_func(census), _field_env(census)
+    kept, out = [], []
+    for i in add_ids:
+        los = [e[0] for e in (_site_lo_full(s, scf, fenv) for s in by_char.get(i, ()))
+               if e is not None]
+        if los and min(los) > beat:
+            out.append((i, min(los)))
+        else:
+            kept.append(i)
+    return kept, out
+
+
+def party_seed(eb: EbScript, beat: int | None = None, census: dict | None = None,
+               donor: int | None = None) -> dict:
     """The party evidence for a fork of this field: ``add`` = the cast the field's own party
     ops both ADD and GATE on (its story reset builds the beat's roster), plus the donor's
     non-Zidane player identity (the controlled body must exist); ``dormant`` = members the
     field CHECKS but never adds (a cross-beat branch, e.g. a pre-join Quina check) — reported
-    for the author to assert, never auto-seeded (the wrong extra member is a false beat)."""
+    for the author to assert, never auto-seeded (the wrong extra member is a false beat).
+    With *beat*+*census*+*donor*, the adds are WINDOWED: a member whose add sites all prove
+    an SC above the beat is excluded and reported under ``future`` (the same rung-0 guard
+    evidence the [startup] bits use — no hand rules)."""
     from . import eventscan, forkreport
     from .content.party import CHAR_OLD_INDEX
 
     ops = forkreport.scan_party_ops(eb.data)
     req, adds = set(ops.get("required", ())), set(ops.get("adds", ()))
     add_ids = sorted(req & adds)
+    windowed_out: list[tuple[int, int]] = []
+    if beat is not None and census is not None and donor is not None:
+        add_ids, windowed_out = _window_party_adds(add_ids, beat, census, donor)
     pents = eventscan.resolve_player_entries(eb)
     pnames = []
     for pe in pents:
@@ -228,11 +290,12 @@ def party_seed(eb: EbScript) -> dict:
         "player": player_add,
         "gated": [name(i) for i in add_ids],
         "dormant": [name(i) for i in sorted(req - adds)],
+        "future": [(name(i), lo) for i, lo in windowed_out],
     }
 
 
 def render_party(ps: dict) -> str:
-    if not ps["add"] and not ps["dormant"]:
+    if not ps["add"] and not ps["dormant"] and not ps.get("future"):
         return ""
     L = []
     if ps["add"]:
@@ -246,6 +309,9 @@ def render_party(ps: dict) -> str:
         if ps["gated"]:
             bits.append(f"field adds AND gates on: {', '.join(ps['gated'])}")
         L.append("# " + "; ".join(bits))
+    for n, lo in ps.get("future", ()):
+        L.append(f"# {n}: windowed OUT -- this donor's add first fires at SC {lo} > beat "
+                 "(a different visit's roster)")
     if ps["dormant"]:
         L.append(f"# dormant party checks NOT seeded: {', '.join(ps['dormant'])} -- checked "
                  "but never added by this field; assert by hand only if the beat truly has them")
@@ -289,22 +355,74 @@ def ate_word_seed(eb: EbScript) -> list[int]:
     return sorted(out)
 
 
-def render_words(bytes_: list[int]) -> str:
-    if not bytes_:
+def ate_word_values(byte_idxs: list[int], beat: int, census: dict,
+                    donors: list[int]) -> dict[int, int | None]:
+    """Derive each detected avail byte's value AT the beat from the census word_sites: among
+    the *donors*' literal writes covering the byte whose windowed SC is at/below the beat,
+    the latest PURE write (the reset idiom) sets the floor, and every write from that floor
+    up ORs in (the accumulation idiom — B_OR_LET per unlocked ATE). None = no windowed write
+    found (the caller falls back to the value-1 placeholder). No hand tables: the mask is
+    read off the same guard evidence the [startup] bits use."""
+    ds = set(donors)
+    scf, fenv = _sc_by_func(census), _field_env(census)
+    out: dict[int, int | None] = {}
+    for bidx in byte_idxs:
+        cands = []                                   # (lo, pure, byte_contribution)
+        for s in census.get("word_sites", ()):
+            if s["field"] not in ds or s.get("value") is None:
+                continue
+            span = 1 if s["vt"] in (6, 7) else 0     # a word write covers idx..idx+1
+            if not (s["idx"] <= bidx <= s["idx"] + span):
+                continue
+            e = _site_lo_full(s, scf, fenv)
+            if e is None or e[0] > beat:
+                continue
+            v = int(s["value"]) & 0xFFFF
+            contrib = (v >> 8) & 0xFF if bidx == s["idx"] + 1 else v & 0xFF
+            cands.append((e[0], bool(s.get("pure")), contrib))
+        if not cands:
+            out[bidx] = None
+            continue
+        pures = [lo for lo, p, _v in cands if p]
+        floor = max(pures) if pures else min(lo for lo, _p, _v in cands)
+        val = 0
+        for lo, _p, v in cands:
+            if lo >= floor:
+                val |= v
+        out[bidx] = val
+    return out
+
+
+def render_words(word_vals: dict[int, int | None]) -> str:
+    if not word_vals:
         return ""
-    rows = ", ".join("{ byte = %d, value = 1 }" % b for b in bytes_)
-    return (f"words = [ {rows} ]\n"
-            "# ATE availability word(s) detected gating ATE(1): value 1 arms ONE menu row --\n"
-            "# each bit = one offered ATE; WIDEN to the beat's unlocked set (e.g. 0x0F = 4 rows)")
+    rows = ", ".join("{ byte = %d, value = %d }" % (b, 1 if v is None else v)
+                     for b, v in sorted(word_vals.items()))
+    L = [f"words = [ {rows} ]"]
+    derived = [(b, v) for b, v in sorted(word_vals.items()) if v is not None]
+    fallback = [b for b, v in sorted(word_vals.items()) if v is None]
+    if derived:
+        L.append("# ATE availability word(s) gating ATE(1); value = OR of the donors' writes "
+                 "windowed at/below the beat (each bit = one offered ATE)")
+    if fallback:
+        L.append(f"# byte(s) {fallback}: no windowed write derived -- value 1 arms ONE menu "
+                 "row; WIDEN to the beat's unlocked set (e.g. 0x0F = 4 rows)")
+    return "\n".join(L)
 
 
-def seed_text(eb: EbScript, beat: int, census: dict, *, field_label: str = "") -> str:
-    """The complete seed for one field: [startup] (+ detected ATE words) + [party]."""
+def seed_text(eb: EbScript, beat: int, census: dict, *, field_label: str = "",
+              donor: int | None = None, zone_donors: list[int] | None = None) -> str:
+    """The complete seed for one field: [startup] (+ derived ATE words) + [party]. *donor*
+    enables the beat-windowed party filter and the ATE mask derivation; *zone_donors* widens
+    the mask's writer set to the whole chain (avail state is zone-global)."""
     parts = [render_startup(resolve(eb, beat, census), field_label=field_label)]
-    w = render_words(ate_word_seed(eb))
-    if w:
-        parts.append(w)
-    p = render_party(party_seed(eb))
+    bytes_ = ate_word_seed(eb)
+    if bytes_:
+        writers = zone_donors or ([donor] if donor is not None else [])
+        vals = ate_word_values(bytes_, beat, census, writers) if writers \
+            else {b: None for b in bytes_}
+        parts.append(render_words(vals))
+    p = render_party(party_seed(eb, beat=beat, census=census, donor=donor))
     if p:
         parts.append("\n" + p)
     return "\n".join(parts)
@@ -326,20 +444,24 @@ def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tu
     Returns [(toml_path, member_id, donor_id)]."""
     import glob
     import re
-    out = []
+    members = []
     for p in sorted(glob.glob(os.path.join(chain_dir, "**", "*.field.toml"), recursive=True)):
         text = open(p, encoding="utf-8").read()
         m_donor = re.search(r"^donor\s*=\s*(\d+)", text, re.M)
         m_id = re.search(r"^id\s*=\s*(\d+)", text, re.M)
         if not m_donor or not m_id:
             continue
-        donor, mid = int(m_donor.group(1)), int(m_id.group(1))
+        members.append((p, int(m_id.group(1)), int(m_donor.group(1)), text))
+    zone = sorted({d for (_p, _m, d, _t) in members})
+    out = []
+    for p, mid, donor, text in members:
         lines = text.splitlines(keepends=True)
         cut = next((i for i, l in enumerate(lines) if l.startswith("# story-seed")), None)
         base = "".join(lines[:cut]) if cut is not None else text
         if not base.endswith("\n"):
             base += "\n"
-        seed = seed_text(eb_for_donor(donor), beat, census, field_label=str(donor))
+        seed = seed_text(eb_for_donor(donor), beat, census, field_label=str(donor),
+                         donor=donor, zone_donors=zone)
         with open(p, "w", encoding="utf-8", newline="") as fh:
             fh.write(base + seed + "\n")
         out.append((p, mid, donor))

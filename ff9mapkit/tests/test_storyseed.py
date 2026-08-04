@@ -133,6 +133,73 @@ def test_backwards_advance_hazard_detection():
     assert storyseed.backwards_advance_hazards(c, 351, 2650) == []
 
 
+def _ws(idx, value, sc_val, *, vt=5, pure=True, field=352):
+    return {"idx": idx, "vt": vt, "value": value, "pure": pure, "field": field,
+            "entry": 0, "func": 0, "off": 0, "sc": [[0, 7, 0, "==", sc_val]], "sc_armed": []}
+
+
+def test_party_windowing_excludes_future_visit_add():
+    # the chain-round-3 red case in miniature: char 10 (Marcus) adds only under a LATER
+    # visit's SC window; char 1's add is windowed at the beat; char 3 has no census evidence
+    c = {"party_sites": [
+        {"kind": "add", "char": 10, "field": 350, "entry": 35, "func": 0, "off": 0,
+         "sc": [], "sc_armed": [[0, 7, 0, ">=", 2990]]},
+        {"kind": "add", "char": 1, "field": 350, "entry": 2, "func": 0, "off": 0,
+         "sc": [[0, 7, 0, "==", 2600]], "sc_armed": []}],
+        "sc_sites": []}
+    kept, out = storyseed._window_party_adds([1, 3, 10], 2600, c, 350)
+    assert kept == [1, 3]                    # windowed-in + no-evidence fallback
+    assert out == [(10, 2990)]               # the Marcus class: a later visit's roster
+    kept2, out2 = storyseed._window_party_adds([1, 10], 3000, c, 350)
+    assert kept2 == [1, 10] and out2 == []   # at its own beat the add is back in
+
+
+def test_ate_word_values_pure_floor_then_or():
+    c = {"word_sites": [
+        _ws(236, 1, 1000), _ws(236, 3, 2600),
+        _ws(236, 4, 2610, pure=False), _ws(236, 8, 5000, pure=False)],
+        "sc_sites": []}
+    assert storyseed.ate_word_values([236], 2600, c, [352]) == {236: 3}   # latest pure resets
+    assert storyseed.ate_word_values([236], 2620, c, [352]) == {236: 7}   # then ORs accumulate
+    assert storyseed.ate_word_values([236], 2500, c, [352]) == {236: 1}
+    assert storyseed.ate_word_values([236], 900, c, [352]) == {236: None}
+    assert storyseed.ate_word_values([236], 2600, c, [999]) == {236: None}  # donors only
+
+
+def test_ate_word_value_word_write_covers_high_byte():
+    c = {"word_sites": [_ws(236, 0x0201, 100, vt=6)], "sc_sites": []}
+    assert storyseed.ate_word_values([236, 237], 100, c, [352]) == {236: 1, 237: 2}
+
+
+def test_render_words_derived_vs_fallback():
+    out = storyseed.render_words({239: 6, 296: None})
+    assert "{ byte = 239, value = 6 }" in out and "{ byte = 296, value = 1 }" in out
+    assert "windowed" in out and "WIDEN" in out
+
+
+def test_red_case_dali_350_marcus_windowed_out():
+    """The chain-round-3 red case, pinned on real bytes: at the Dali morning beat (2600),
+    donor 350's Marcus add (a 2990-band visit's roster) is windowed OUT, and the zone's
+    ATE availability masks derive nonzero (the ATEs are story-required at Dali)."""
+    import json
+    cpath = storyseed.find_census()
+    if not cpath:
+        pytest.skip("census not generated")
+    census = json.load(open(cpath, encoding="utf-8"))
+    if "party_sites" not in census or "word_sites" not in census:
+        pytest.skip("census predates party/word capture -- re-run dominance_census.py")
+    eb350 = EbScript.from_bytes(_install_eb(350))
+    ps = storyseed.party_seed(eb350, beat=2600, census=census, donor=350)
+    assert "marcus" not in ps["add"]
+    assert any(n == "Marcus" for n, _lo in ps["future"])
+    eb352 = EbScript.from_bytes(_install_eb(352))
+    ps2 = storyseed.party_seed(eb352, beat=2600, census=census, donor=352)
+    assert "vivi" in ps2["add"] and "marcus" not in ps2["add"]
+    zone = [312, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359]
+    vals = storyseed.ate_word_values(storyseed.ate_word_seed(eb352), 2600, census, zone)
+    assert vals and all(v for v in vals.values())
+
+
 def test_chain_ladder_is_the_write_channel():
     c = {"sc_sites": [{"field": 352, "value": 2600}, {"field": 354, "value": 2610},
                       {"field": 352, "value": 2650}, {"field": 999, "value": 5000}]}

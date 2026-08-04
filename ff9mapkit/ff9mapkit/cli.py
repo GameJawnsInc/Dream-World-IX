@@ -579,17 +579,10 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 1
     census = _json.load(open(cpath, encoding="utf-8"))
-    rep = storyseed.resolve(EbScript.from_bytes(data), beat, census)
+    donor = int(t) if t.isdigit() else None
     _safe_console()
-    print(storyseed.render_startup(rep, field_label=label))
-    _eb = EbScript.from_bytes(data)
-    words = storyseed.render_words(storyseed.ate_word_seed(_eb))
-    if words:
-        print(words)
-    party = storyseed.render_party(storyseed.party_seed(_eb))
-    if party:
-        print()
-        print(party)
+    print(storyseed.seed_text(EbScript.from_bytes(data), beat, census,
+                              field_label=label, donor=donor))
     return 0
 
 

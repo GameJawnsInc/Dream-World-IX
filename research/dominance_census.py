@@ -32,8 +32,11 @@ for p in (os.path.join(_REPO, "ff9mapkit"), _REPO):
 
 from ff9mapkit.extract import EventBundle, ID_TO_EVT            # noqa: E402
 from ff9mapkit.eb import EbScript                               # noqa: E402
-from ff9mapkit.eb.cfg import CfgError, FieldFlow, FuncFlow     # noqa: E402
+from ff9mapkit.eb.cfg import CfgError, FieldFlow, FuncFlow, OP_SET  # noqa: E402
 from ff9mapkit.eb._optables import OP_NAMES                     # noqa: E402
+from ff9mapkit.forkreport import (                              # noqa: E402
+    PARTY_NONE, REMOVE_PARTY_OP, SET_PARTY_RESERVE_OP, _PARTYADD_RE, _PARTYCHK_RE)
+import struct                                                   # noqa: E402
 
 # the ops worth recording next to a story-bit write (feeds the classifier's reward-adjacency
 # and roster signals). Resolved by NAME so a table renumbering can't silently rot this list.
@@ -69,6 +72,8 @@ def main() -> int:
     bundle = EventBundle()
     bit_sites: list[dict] = []
     sc_sites: list[dict] = []
+    party_sites: list[dict] = []
+    word_sites: list[dict] = []
     field_flows: list = []
     stats = defaultdict(int)
     degraded: list[list] = []
@@ -97,6 +102,57 @@ def main() -> int:
             ctx = ff.ctx.get(key, {})
             ctx_direct = [c for c, a in ctx.items() if not a]
             ctx_armed = [c for c, a in ctx.items() if a]
+
+            def _chan(off):
+                """(sc, sc_armed, flags, flags_armed, other, cross) at *off* — the same
+                channels bit_sites carry, shared by the party/word site emitters."""
+                r = fl.guards_at_ex(off)
+                site_guards, ycross, ccross = r if r else ((), False, False)
+                guards = list(site_guards) + ctx_direct
+                return ([c for c in guards if c.is_scenario],
+                        [c for c in ctx_armed if c.is_scenario],
+                        [c for c in guards if c.is_glob_bit],
+                        [c for c in ctx_armed if c.is_glob_bit],
+                        [c for c in guards if not c.is_scenario and not c.is_glob_bit],
+                        ("y" if ycross else "") + ("c" if ccross else ""))
+
+            # party-membership sites (B_PARTYADD/B_PARTYCHK expression tokens; RemoveParty /
+            # SetPartyReserve statement ops) — each with the guards proven AT the site, so
+            # story-seed can WINDOW a fork's [party] to the beat (the Dali-Marcus lesson:
+            # an add in a different visit's SC window is not this beat's roster)
+            for blk in fl.blocks:
+                if fl._dom[blk.index] == 0:
+                    continue
+                for ins in blk.instrs:
+                    hits: list[tuple[str, int | None]] = []
+                    if ins.op == OP_SET:
+                        chunk = eb.data[ins.off:ins.end]
+                        for h in _PARTYADD_RE.findall(chunk):
+                            hits.append(("add", struct.unpack("<H", h)[0]))
+                        for h in _PARTYCHK_RE.findall(chunk):
+                            hits.append(("check", struct.unpack("<H", h)[0]))
+                    elif ins.op == REMOVE_PARTY_OP:
+                        ch = int(ins.args[0]) if ins.args and not any(ins.arg_is_expr) else None
+                        hits.append(("remove", ch))
+                    elif ins.op == SET_PARTY_RESERVE_OP:
+                        ch = int(ins.args[0]) if ins.args and not any(ins.arg_is_expr) else None
+                        hits.append(("reserve", ch))
+                    if not hits:
+                        continue
+                    sc, sc_armed, flg, flg_armed, other, cross = _chan(ins.off)
+                    for kind, ch in hits:
+                        if ch == PARTY_NONE:
+                            continue
+                        stats["party_sites"] += 1
+                        party_sites.append({
+                            "kind": kind, "char": ch,
+                            "field": fid, "entry": ei, "func": ftag, "off": ins.off,
+                            "sc": [_cond_row(c) for c in sc],
+                            "sc_armed": [_cond_row(c) for c in sc_armed],
+                            "flags": [_cond_row(c) for c in flg],
+                            "cross": cross,
+                        })
+
             for st, blk in fl.iter_sets(eb.data):
                 if st.kind != "assign" or st.source != 0:
                     continue
@@ -131,6 +187,19 @@ def main() -> int:
                     stats["sc_write_sites"] += 1
                     sc_sites.append({
                         "value": st.value,
+                        "field": fid, "entry": ei, "func": ftag, "off": st.off,
+                        "sc": [_cond_row(c) for c in sc],
+                        "sc_armed": [_cond_row(c) for c in sc_armed],
+                        "flags": [_cond_row(c) for c in flg],
+                    })
+                elif st.vtype in (4, 5, 6, 7) and st.index > 3 and st.value is not None:
+                    # a literal GLOB byte/word write (incl. OR-compound assigns -- the ATE
+                    # availability-mask accumulation idiom); index units are BYTES for all
+                    # four vtypes (engine getVarOperation), so word writes span idx..idx+1
+                    stats["word_write_sites"] += 1
+                    word_sites.append({
+                        "idx": st.index, "vt": st.vtype, "value": st.value,
+                        "op": st.op_token, "pure": st.pure,
                         "field": fid, "entry": ei, "func": ftag, "off": st.off,
                         "sc": [_cond_row(c) for c in sc],
                         "sc_armed": [_cond_row(c) for c in sc_armed],
@@ -181,6 +250,8 @@ def main() -> int:
         "degraded_funcs": degraded,
         "bit_sites": bit_sites,
         "sc_sites": sc_sites,
+        "party_sites": party_sites,
+        "word_sites": word_sites,
     }
     dest = os.path.join(_HERE, "dominance_census.json")
     with open(dest, "w", encoding="utf-8") as fh:

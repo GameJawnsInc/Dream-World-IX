@@ -211,3 +211,20 @@ The fix is NOT new rules -- it is the same guard machinery applied to two more o
    assigns incl. OR-compounds, any Global index, with guards).
 2. `party_seed(beat)` filters adds by window; `ate word value` = OR of windowed writes.
 Owner's standing directive honored: derive, never exception-patch.
+
+**APPLIED (same day).** Census now emits `party_sites` (2,468) + `word_sites` (26,783), each
+with the bit-site guard channels; `_site_lo_full` extends the estimator ladder (window >
+armed > co-located advance > field envelope) to any censused site. `party_seed(eb, beat,
+census, donor)` windows the adds -- a member whose every add site proves an SC above the
+beat is excluded and REPORTED (`future`), never silently dropped; a no-evidence member is
+kept (absence of evidence is not evidence of absence). `ate_word_values` derives each avail
+byte: the latest PURE write at/below the beat is the floor (the reset idiom), every write
+from the floor up ORs in (the B_OR_LET accumulation idiom); word writes alias their high
+byte. On the real bytes the derivation reads exactly the red case's answer off the corpus:
+donor 350's Marcus/Steiner adds are armed under `SC >= 2990` (a later visit's roster --
+windowed OUT at 2600), Garnet's own 350-add sits at SC==2639, and the Dali masks derive as
+byte 239 = 0x06, byte 296 = 0xC0 -- the round-3 placeholder (value 1 = bit 0) had armed a
+row that does not exist at this beat, which is WHY no ATE showed. Chain re-seeded @2600 +
+redeployed (slots 30830-30840); the red case is pinned as tests
+(`test_red_case_dali_350_marcus_windowed_out` + synthetic window/OR-floor tests). Playtest
+round 4 = the green run: PLAYTEST.md.

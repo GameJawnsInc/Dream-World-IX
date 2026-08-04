@@ -137,4 +137,28 @@ Fix: `story-seed --chain` with NO --beat now prints the zone's ADVANCE LADDER de
 the members' SC writes (2530/2540 overlook naming scene -> 2600 morning wake -> 2610 shop ->
 2640 bar -> 2650 inn -> 2660 -> 2680) -- "the morning" reads directly off it. Chain re-seeded
 @ 2600 + redeployed (round 3). Expect: Vivi present, ATEs armed (value-1 placeholder = one
-row per hub), no backwards-write guard. PENDING
+row per hub), no backwards-write guard.
+
+**Round 3 verdict: FAIL, kept as the RED TEST CASE** (owner, 2026-08-03) -- two defects, one
+shared cause (party ops + word writes censused WITHOUT the rung-0 guards):
+- **Marcus in the morning party** -- donor 350 (windmill) adds-and-gates him, but that add is
+  armed under `SC >= 2990` (a LATER visit's roster); the adds∩gates heuristic was beat-blind.
+- **No ATEs** (story-REQUIRED: without one, Garnet never reaches the weapon shop) -- the
+  value-1 placeholder arms bit 0, a row that does not EXIST at this beat; the real mask was
+  underivable because the census had no word-write channel.
+
+## Round 4 -- both fixes applied: beat-WINDOWED party + DERIVED ATE mask
+
+Same guard machinery, two more op classes (no hand rules): the census now captures
+`party_sites` + `word_sites` with the bit-site guard channels; `party_seed` windows the adds
+(350's Marcus/Steiner windowed OUT at 2990, reported in the toml comments); `ate_word_values`
+derives each avail byte as latest-pure-floor-then-OR of the zone's windowed writes -- Dali
+reads off the corpus as **byte 239 = 6, byte 296 = 192** (vs the failed placeholder 1). The
+red case is pinned as tests. Chain re-seeded @ 2600, all 11 slots redeployed; ~ -> Reload
+(or re-warp) is enough.
+
+Walk it again from 30840 (village entrance). Expect GREEN: party = Zidane/Vivi/Garnet(Dagger)/
+Steiner -- **no Marcus**; **ATEs offered** (the masks above -- including the one that moves
+Garnet to the weapon shop); rooms staged at the morning beat; the 30831 overlook still shows
+its faithful-empty state (its scene lives at 2525-2540) and still warns Skip-safe if its
+naming sequence is somehow triggered. PENDING
