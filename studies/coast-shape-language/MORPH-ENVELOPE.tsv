@@ -1,44 +1,44 @@
 mass	block	kind	L	verb	scanner	binding	verified
 comma	(10, 5)	cliff	97.7	cliff-bump	1.5	D=2: depth 2 folds a tile at the waterline -- the conforming-bump envelope is geometric (~2.5u on real shores)	
-comma	(10, 5)	cliff	97.7	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-comma	(10, 5)	cliff	97.7	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+comma	(10, 5)	cliff	97.7	cliff-headland	8.0		8.0:CLEAN 12.0:refused:CRACK GATE: the tiled fill's boundary does not match the region at any interior clearance 
+comma	(10, 5)	cliff	97.7	cliff-bay	4.0	D=6: new outline vert 8 escapes the drop sets -- depth too large for the local terrain/water (a component or f	4.0:CLEAN 8.0:refused:new outline vert 8 escapes the drop sets -- depth too large for the local terrain/water (a
 comma	(9, 6)	cliff	47.8	cliff-bump	2.5		
-comma	(9, 6)	cliff	47.8	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-comma	(9, 6)	cliff	47.8	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+comma	(9, 6)	cliff	47.8	cliff-headland	8.0		8.0:CLEAN 12.0:CLEAN 16.0:refused:LEDGER: net dropped-emitted sea != the wedge's signed area
+comma	(9, 6)	cliff	47.8	cliff-bay	6.0		6.0:CLEAN 10.0:refused:new outline vert 4 escapes the drop sets -- depth too large for the local terrain/water (a
 comma	(10, 6)	cliff	34.5	cliff-bump	2.5		
-comma	(10, 6)	cliff	34.5	cliff-headland	None	D=8: window gap 7 is neither a clean one-quad wall nor a refined fan (2 tris, 1 refined verts)	
-comma	(10, 6)	cliff	34.5	cliff-bay	None	D=6: window gap 7 is neither a clean one-quad wall nor a refined fan (2 tris, 1 refined verts)	
+comma	(10, 6)	cliff	34.5	cliff-headland	6.0	D=8: new outline vert 3 escapes the drop sets -- depth too large for the local terrain/water (a component or f	6.0:refused:window gap 48 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)
+comma	(10, 6)	cliff	34.5	cliff-bay	6.0		6.0:refused:window gap 47 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)
 comma	(10, 6)	cliff	100.0	cliff-bump	2.5		
-comma	(10, 6)	cliff	100.0	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-comma	(10, 6)	cliff	100.0	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+comma	(10, 6)	cliff	100.0	cliff-headland	8.0		8.0:refused:window gap 28 is neither a clean one-quad wall nor a refined fan (2 tris, 1 refined verts)
+comma	(10, 6)	cliff	100.0	cliff-bay	3.0	D=4: new outline vert 8 escapes the drop sets -- depth too large for the local terrain/water (a component or f	3.0:refused:window gap 28 is neither a clean one-quad wall nor a refined fan (2 tris, 1 refined verts)
 comma	(9, 7)	cliff	66.0	cliff-bump	2.0	D=2.5: depth 2.5 folds a tile at the waterline -- the conforming-bump envelope is geometric (~2.5u on real sho	
-comma	(9, 7)	cliff	66.0	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-comma	(9, 7)	cliff	66.0	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+comma	(9, 7)	cliff	66.0	cliff-headland	8.0		8.0:refused:window gap 10 is neither a clean one-quad wall nor a refined fan (2 tris, 1 refined verts)
+comma	(9, 7)	cliff	66.0	cliff-bay	6.0		6.0:refused:window gap 10 is neither a clean one-quad wall nor a refined fan (2 tris, 1 refined verts)
 comma	(10, 7)	cliff	15.1	cliff-bump	2.5		
 comma	(10, 7)	cliff	15.1	cliff-headland	None	D=8: window gap 3 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
 comma	(10, 7)	cliff	15.1	cliff-bay	None	D=6: window gap 3 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
 isthmus	(6, 6)	cliff	79.8	cliff-bump	None	D=2.5: the morph window's waterline touches sea3 (49 vert instance(s), first at (441.3242,-416.0000)) -- cliff	
-isthmus	(6, 6)	cliff	79.8	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-isthmus	(6, 6)	cliff	79.8	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+isthmus	(6, 6)	cliff	79.8	cliff-headland	None	D=8: the window's top carries topo-19 with 9% uv-rect reuse (34 tris / 28 rects) -- a painted-mural family (th	
+isthmus	(6, 6)	cliff	79.8	cliff-bay	None	D=6: the window's top carries topo-19 with 9% uv-rect reuse (34 tris / 28 rects) -- a painted-mural family (th	
 isthmus	(7, 6)	cliff	117.3	cliff-bump	None	D=2.5: the morph window's waterline touches sea3 (78 vert instance(s), first at (460.0000,-405.8633)) -- cliff	
-isthmus	(7, 6)	cliff	117.3	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-isthmus	(7, 6)	cliff	117.3	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+isthmus	(7, 6)	cliff	117.3	cliff-headland	None	D=8: the window's top carries topo-49 with 0% uv-rect reuse (6 tris / 6 rects) -- a painted-mural family (the 	
+isthmus	(7, 6)	cliff	117.3	cliff-bay	None	D=6: the window's top carries topo-49 with 0% uv-rect reuse (6 tris / 6 rects) -- a painted-mural family (the 	
 isthmus	(6, 7)	cliff	29.6	cliff-bump	1.5	D=2: depth 2 folds a tile at the waterline -- the conforming-bump envelope is geometric (~2.5u on real shores)	
-isthmus	(6, 7)	cliff	29.6	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-isthmus	(6, 7)	cliff	29.6	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+isthmus	(6, 7)	cliff	29.6	cliff-headland	None	D=8: the window's top carries topo-19 with 37% uv-rect reuse (131 tris / 76 rects) -- a painted-mural family (	
+isthmus	(6, 7)	cliff	29.6	cliff-bay	None	D=6: the window's top carries topo-19 with 37% uv-rect reuse (131 tris / 76 rects) -- a painted-mural family (	
 isthmus	(6, 7)	cliff	112.6	cliff-bump	1.0	D=1.5: depth 1.5 folds a tile at the waterline -- the conforming-bump envelope is geometric (~2.5u on real sho	
-isthmus	(6, 7)	cliff	112.6	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-isthmus	(6, 7)	cliff	112.6	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+isthmus	(6, 7)	cliff	112.6	cliff-headland	None	D=8: the window's top carries topo-19 with 37% uv-rect reuse (131 tris / 76 rects) -- a painted-mural family (	
+isthmus	(6, 7)	cliff	112.6	cliff-bay	None	D=6: the window's top carries topo-19 with 37% uv-rect reuse (131 tris / 76 rects) -- a painted-mural family (	
 isthmus	(7, 7)	cliff	33.6	cliff-bump	1.5	D=2: depth 2 folds a tile at the waterline -- the conforming-bump envelope is geometric (~2.5u on real shores)	
-isthmus	(7, 7)	cliff	33.6	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-isthmus	(7, 7)	cliff	33.6	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+isthmus	(7, 7)	cliff	33.6	cliff-headland	None	D=8: the window's top carries topo-49 with 0% uv-rect reuse (26 tris / 21 rects) -- a painted-mural family (th	
+isthmus	(7, 7)	cliff	33.6	cliff-bay	None	D=6: the window's top carries topo-49 with 0% uv-rect reuse (26 tris / 21 rects) -- a painted-mural family (th	
 isthmus	(7, 7)	cliff	45.4	cliff-bump	2.5		
-isthmus	(7, 7)	cliff	45.4	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-isthmus	(7, 7)	cliff	45.4	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+isthmus	(7, 7)	cliff	45.4	cliff-headland	None	D=3: the window's clean gaps cover only 0/4 grass texture phases and no unambiguous ramp-consistent 4-phase wa	
+isthmus	(7, 7)	cliff	45.4	cliff-bay	None	D=6: the window's clean gaps cover only 0/4 grass texture phases and no unambiguous ramp-consistent 4-phase wa	
 reef	-	-	0	-	no-windows		
 corner	(0, 0)	cliff	172.1	cliff-bump	2.0	D=2.5: depth 2.5 folds a tile at the waterline -- the conforming-bump envelope is geometric (~2.5u on real sho	
-corner	(0, 0)	cliff	172.1	cliff-headland	None	D=8: new outline vert 7 escapes the drop sets -- depth too large for the local terrain/water (a component or f	
-corner	(0, 0)	cliff	172.1	cliff-bay	None	D=6: new outline vert 22 escapes the drop sets -- depth too large for the local terrain/water (a component or 	
+corner	(0, 0)	cliff	172.1	cliff-headland	None	D=3: the window's top mixes grass with topo [37, 49] -- no single fill language spans the drop; shrink the win	
+corner	(0, 0)	cliff	172.1	cliff-bay	None	D=2: the window's top mixes grass with topo [37, 49] -- no single fill language spans the drop; shrink the win	
 chain	(7, 17)	beach	29.1	beach-bump	None	D=0.5: SHAPE-CLASS GATE: this beach is concave (pocket) (chord devs -2.2..-0.5 over 29u); the bow takes it to 	
 chain	(7, 17)	beach	29.1	beach-reshape	None	D=0.5: SHAPE-CLASS GATE: this beach is concave (pocket) (chord devs -2.2..-0.5 over 29u); the morph takes it t	
 chain	(7, 17)	beach	29.1	beach-slide	None	D=4: a displaced vert is welded to the grass berm (an end-cap corner mid-window?) -- the slide window must rea	
@@ -92,26 +92,26 @@ crescent	(15, 1)	beach	60.5	beach-bump	1.0	D=1.5: SHAPE-CLASS GATE: this beach i
 crescent	(15, 1)	beach	60.5	beach-reshape	None	D=2.5: the waterline window is not uniform 4u lattice columns -- the band map is x-quantized; v1 reshapes colu	
 crescent	(15, 1)	beach	60.5	beach-slide	None	D=4: the berm behind this beach carries no grass mains (a painted wash) -- the baked-terrain law: no fill lang	
 crescent	(15, 1)	cliff	65.7	cliff-bump	2.5		
-crescent	(15, 1)	cliff	65.7	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-crescent	(15, 1)	cliff	65.7	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+crescent	(15, 1)	cliff	65.7	cliff-headland	3.0	D=4: new outline vert 6 escapes the drop sets -- depth too large for the local terrain/water (a component or f	3.0:gate:land-fit
+crescent	(15, 1)	cliff	65.7	cliff-bay	4.0	D=6: new outline vert 6 escapes the drop sets -- depth too large for the local terrain/water (a component or f	4.0:refused:new outline vert 6 escapes the drop sets -- depth too large for the local terrain/water (a
 crescent	(16, 1)	cliff	51.2	cliff-bump	None	D=2.5: the morph window's waterline touches sea3 (33 vert instance(s), first at (1027.9492,-107.5039)) -- clif	
-crescent	(16, 1)	cliff	51.2	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-crescent	(16, 1)	cliff	51.2	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+crescent	(16, 1)	cliff	51.2	cliff-headland	None	D=8: the morph window's waterline touches sea3 (33 vert instance(s), first at (1027.9492,-107.5039)) -- cliff 	
+crescent	(16, 1)	cliff	51.2	cliff-bay	None	D=6: the morph window's waterline touches sea3 (33 vert instance(s), first at (1027.9492,-107.5039)) -- cliff 	
 crescent	(16, 1)	cliff	68.7	cliff-bump	2.5		
-crescent	(16, 1)	cliff	68.7	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-crescent	(16, 1)	cliff	68.7	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+crescent	(16, 1)	cliff	68.7	cliff-headland	8.0		8.0:CLEAN 12.0:gate:drop[terrain],drop[sea3],drop[sea5]
+crescent	(16, 1)	cliff	68.7	cliff-bay	4.0	D=6: GRAIN GATE: a tiled fill edge is 9.7u (> 6.6) at every interior clearance -- off the real terrain grain, 	4.0:CLEAN 8.0:refused:GRAIN GATE: a tiled fill edge is 9.7u (> 6.6) at every interior clearance -- off the real 
 crescent	(17, 1)	cliff	101.1	cliff-bump	2.5		
-crescent	(17, 1)	cliff	101.1	cliff-headland	None	D=8: window gap 10 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
-crescent	(17, 1)	cliff	101.1	cliff-bay	None	D=6: window gap 10 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
+crescent	(17, 1)	cliff	101.1	cliff-headland	8.0		8.0:CLEAN 12.0:gate:drop[terrain],drop[sea3],drop[sea5],census
+crescent	(17, 1)	cliff	101.1	cliff-bay	6.0		6.0:CLEAN 10.0:gate:drop[terrain],drop[sea3],drop[sea5]
 crescent	(14, 2)	cliff	60.0	cliff-bump	2.5		
-crescent	(14, 2)	cliff	60.0	cliff-headland	None	D=8: window gap 13 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
-crescent	(14, 2)	cliff	60.0	cliff-bay	None	D=6: window gap 13 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
+crescent	(14, 2)	cliff	60.0	cliff-headland	8.0		8.0:refused:new outline vert 4 escapes the drop sets -- depth too large for the local terrain/water (a
+crescent	(14, 2)	cliff	60.0	cliff-bay	6.0		6.0:gate:drop[terrain]
 crescent	(15, 2)	cliff	42.0	cliff-bump	2.5		
-crescent	(15, 2)	cliff	42.0	cliff-headland	None	D=8: window gap 0 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
-crescent	(15, 2)	cliff	42.0	cliff-bay	None	D=6: window gap 0 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
+crescent	(15, 2)	cliff	42.0	cliff-headland	8.0		8.0:refused:new outline vert 4 escapes the drop sets -- depth too large for the local terrain/water (a
+crescent	(15, 2)	cliff	42.0	cliff-bay	4.0	D=6: new outline vert 4 escapes the drop sets -- depth too large for the local terrain/water (a component or f	4.0:gate:land-fit,drop[terrain]
 crescent	(16, 2)	cliff	69.2	cliff-bump	None	D=2.5: the morph window's waterline touches sea3 (42 vert instance(s), first at (1074.9766,-135.4297)) -- clif	
-crescent	(16, 2)	cliff	69.2	cliff-headland	None	D=8: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
-crescent	(16, 2)	cliff	69.2	cliff-bay	None	D=6: the window's top carries no grass mains -- a painted-mural family (the baked-terrain law: no fill languag	
+crescent	(16, 2)	cliff	69.2	cliff-headland	None	D=8: the morph window's waterline touches sea3 (42 vert instance(s), first at (1074.9766,-135.4297)) -- cliff 	
+crescent	(16, 2)	cliff	69.2	cliff-bay	None	D=6: the morph window's waterline touches sea3 (42 vert instance(s), first at (1074.9766,-135.4297)) -- cliff 	
 crescent	(17, 2)	cliff	100.2	cliff-bump	None	D=2.5: window gap 13 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
 crescent	(17, 2)	cliff	100.2	cliff-headland	None	D=8: window gap 13 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	
 crescent	(17, 2)	cliff	100.2	cliff-bay	None	D=6: window gap 13 is neither a clean one-quad wall nor a refined fan (1 tris, 0 refined verts)	

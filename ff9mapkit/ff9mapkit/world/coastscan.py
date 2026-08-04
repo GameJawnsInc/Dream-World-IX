@@ -186,7 +186,8 @@ def cliff_windows(bx, by, *, disc=1, lod="0_1", game=None):
 #: refusal classes that are DEPTH-INDEPENDENT (window structure / seam laws) -- one rung
 #: settles them; anything else (band/hug/fold/strain/reach envelopes) shrinks with depth
 _STRUCTURAL = re.compile(
-    r"window gap|outline vert|touches (sea|beach)|no grass mains|"
+    r"window gap|touches (sea|beach)|no grass mains|painted-mural|"
+    r"no mains terrain|no unambiguous ramp-consistent|"
     r"not a waterline run|not on the waterline chain|uniform 4u lattice|"
     r"z-dominant|south-facing|no beach1|no topo-58|matched waterline/sand|"
     r"has no sand seam|sits on the block frame|one open polyline|"

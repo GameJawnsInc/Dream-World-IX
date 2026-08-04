@@ -14,10 +14,14 @@ The laws this module encodes (each byte-measured, then in-game proven):
 * **Drop, don't drag** -- every tri touching a moved vert is dropped and re-filled natively;
   a survivor whose vert drags smears its tile (the sunburst class). The displace tweak then
   gates that ZERO survivors reference moved verts.
-* **Native grass fill** -- the wedge re-fills on the 4u lattice with per-cell mains
-  quadrant+rotation (avoid-same vs real neighbours) via :func:`grassland.mains_uv`; gated by
-  the CRACK GATE (fill once-edges == region boundary segments exactly) and the GRAIN GATE
-  (no edge over 6.6u).
+* **Native mains fill, ONE LANE per window** -- a pure-grass drop re-fills parametrically
+  (per-cell mains quadrant+rotation, avoid-same vs real neighbours, via
+  :func:`grassland.mains_uv`); a pure NON-grass drop re-fills by TRANSLATE-CLONE of its own
+  dropped tiles (:func:`_tiled_fill_region` -- the proven water vocabulary on land), admitted
+  by THE MEASURED MURAL GATE (uv-rect reuse >= :data:`MURAL_REUSE_MIN`; topo number never
+  decides) and additionally gated by the MAINS DENSITY GATE; a MIXED drop refuses (no single
+  fill language). Both lanes share the CRACK GATE (fill once-edges == region boundary
+  segments exactly) and the GRAIN GATE (no edge over 6.6u).
 * **Water never drags, never clamps** -- moved water verts re-evaluate through the tile's own
   affine (:class:`transplant.SeaBump`); the rebuilt shore ring is a ZIP STRIP (short tris
   outline<->outer-boundary, the real conforming-fan structure), each tri carrying ONE dropped
@@ -147,7 +151,8 @@ class CliffWindow:
                 self.sea4 += TR.world_tris(cx, cy, "sea4", disc=disc, lod=lod, game=game)
         topo = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"]
         self.cliff = [t for t in self.terr if topo(t) == 58]
-        self.grass = [t for t in self.terr if topo(t) == 0]
+        self.mains = [t for t in self.terr if topo(t) != 58]
+        self.grass = [t for t in self.mains if topo(t) == 0]
         if not self.cliff:
             raise ValueError(f"donor {donor} has no topo-58 cliff band")
 
@@ -486,6 +491,229 @@ def _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass):
                          f"off the real terrain grain, reads as stretch")
 
     return grass_emit
+
+
+#: THE MEASURED MURAL DISCRIMINANT (the morph-envelope study): tiled coast tops measure
+#: 52-93% uv-rect reuse, genuine murals 5-9% -- the gate sits in the gap, nearer the
+#: mural side so a borderline family refuses (fail-closed: a wrong refusal costs a
+#: capability, a wrong fill costs a playtest)
+MURAL_REUSE_MIN = 0.40
+
+
+def _uv_rect(t3):
+    us = [v[2][0] for v in t3]
+    vs = [v[2][1] for v in t3]
+    return (round(min(us), 3), round(max(us), 3), round(min(vs), 3), round(max(vs), 3))
+
+
+def _tile_language(tris):
+    """``(n_tris, n_rects, reuse)`` -- ``reuse`` is the fraction of tris whose uv-rect is
+    used >= 3x in ``tris``. The morph-envelope study's discriminant: a topo family with
+    high reuse is a TILE VOCABULARY (repeatable = fillable); a family of one-off rects
+    is a painted mural (no fill language). Topo NUMBER does not decide -- topo-49 is 90%
+    tiled on the crescent and 5% unique on the isthmus."""
+    cnt = Counter(_uv_rect(t3) for t3 in tris)
+    n = len(tris)
+    reused = sum(c for c in cnt.values() if c >= 3)
+    return n, len(cnt), (reused / n if n else 0.0)
+
+
+def _uv_sv(t3):
+    """The tri's plan->uv singular values (max, min) -- texture density extremes. None
+    for a plan-degenerate tri."""
+    (p0, _, uv0, _), (p1, _, uv1, _), (p2, _, uv2, _) = t3
+    d1 = (p1[0] - p0[0], p1[2] - p0[2])
+    d2 = (p2[0] - p0[0], p2[2] - p0[2])
+    e1 = (uv1[0] - uv0[0], uv1[1] - uv0[1])
+    e2 = (uv2[0] - uv0[0], uv2[1] - uv0[1])
+    det = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(det) < 1e-9:
+        return None
+    inv = ((d2[1] / det, -d2[0] / det), (-d1[1] / det, d1[0] / det))
+    a, b = (e1[0] * inv[0][0] + e2[0] * inv[1][0], e1[0] * inv[0][1] + e2[0] * inv[1][1])
+    c, d = (e1[1] * inv[0][0] + e2[1] * inv[1][0], e1[1] * inv[0][1] + e2[1] * inv[1][1])
+    s1 = a * a + b * b + c * c + d * d
+    s2 = math.hypot(a * a + b * b - c * c - d * d, 2 * (a * c + b * d))
+    return (math.sqrt(max((s1 + s2) / 2, 0.0)), math.sqrt(max((s1 - s2) / 2, 0.0)))
+
+
+def _tiled_fill(win, drop_mains, new_crease, ck):
+    """The TILED-MAINS fill lane (capability 1): same hole-boundary splice as
+    :func:`_grass_fill`, but the fill repeats the window's OWN dropped tiles by
+    translate-clone instead of the parametric grass mains -- CARRY THE TILES applied to
+    the fill (the proven water vocabulary of the sea zip's ``tile_for``, on land)."""
+    gloop, gpos, _guv, gnrm = _boundary_loop(drop_mains)
+    for k in (ck[0], ck[-1]):
+        if k not in gloop:
+            raise ValueError("window crease end not on the mains hole boundary")
+    crease_run = [_pk(p) for p in win.crease_chain]
+    nrun = len(crease_run)
+    for k in (crease_run[0], crease_run[-1]):
+        i0 = gloop.index(k)
+        rot = gloop[i0:] + gloop[:i0]
+        if all(rot[i] == crease_run[i] for i in range(nrun)):
+            gloop = rot
+            break
+        if all(rot[i] == crease_run[-1 - i] for i in range(nrun)):
+            gloop = rot
+            crease_run = list(reversed(crease_run))
+            break
+    else:
+        raise ValueError("crease run not contiguous on the mains hole boundary")
+    outer_cr = new_crease if crease_run[0] == ck[0] else list(reversed(new_crease))
+    bpts3 = list(outer_cr) + [gpos[k] for k in gloop[nrun:]]
+    return _tiled_fill_region(bpts3, gnrm, drop_mains)
+
+
+def _tiled_fill_region(bpts3, gnrm, sources):
+    """The translate-clone fill over ONE closed boundary loop: 4u interior lattice +
+    Delaunay + the CRACK and GRAIN gates exactly like :func:`_grass_fill_region`, but
+    each fill tri carries the map of the nearest SOURCE tile (a dropped mains tri),
+    evaluated translate-shifted into the source's own 4u cell -- offset zero where the
+    fill cell still holds a dropped tile, so the original look reproduces in place.
+    idall comes per-tri from the source (the real topo travels with the tile). Gated by
+    THE MAINS DENSITY GATE: fill uv singular values inside the sources' envelope
+    x[0.7, 1.3] (the water-density-gate form on land)."""
+    poly2 = [(p[0], p[2]) for p in bpts3]
+
+    def lattice_interior(clearance):
+        pts = []
+        xs = [p[0] for p in poly2]
+        zs = [p[1] for p in poly2]
+        for gx in range(int(min(xs) // 4) - 1, int(max(xs) // 4) + 2):
+            for gz in range(int(min(zs) // 4) - 1, int(max(zs) // 4) + 2):
+                px, pz = 4.0 * gx, 4.0 * gz
+                if not _in_poly(px, pz, poly2):
+                    continue
+                clear = True
+                for k in range(len(poly2)):
+                    (x1, z1), (x2, z2) = poly2[k], poly2[(k + 1) % len(poly2)]
+                    ex, ez = x2 - x1, z2 - z1
+                    L2 = ex * ex + ez * ez or 1.0
+                    tt = max(0.0, min(1.0, ((px - x1) * ex + (pz - z1) * ez) / L2))
+                    if math.hypot(px - (x1 + tt * ex), pz - (z1 + tt * ez)) < clearance:
+                        clear = False
+                        break
+                if clear:
+                    pts.append((px, pz))
+        return pts
+
+    def idw_y(px, pz):
+        num = den = 0.0
+        for p in bpts3:
+            w = 1.0 / ((px - p[0]) ** 2 + (pz - p[2]) ** 2 + 1e-6)
+            num += w * p[1]
+            den += w
+        return num / den
+
+    def near_nrm(px, pz):
+        best, bd = None, 1e18
+        for p in bpts3:
+            d2 = (px - p[0]) ** 2 + (pz - p[2]) ** 2
+            if d2 < bd:
+                best, bd = p, d2
+        return gnrm.get(_pk(best), (0.0, 1.0, 0.0))
+    poly_edges = {frozenset((_pk(bpts3[i]), _pk(bpts3[(i + 1) % len(bpts3)])))
+                  for i in range(len(bpts3))}
+
+    cents = [(sum(v[0][0] for v in t3) / 3.0, sum(v[0][2] for v in t3) / 3.0)
+             for t3 in sources]
+    cell_src = {}
+    for t3, (cx, cz) in zip(sources, cents):
+        cell_src.setdefault((math.floor(cx / 4.0), math.floor(cz / 4.0)), t3)
+
+    def src_for(cx, cz):
+        c = (math.floor(cx / 4.0), math.floor(cz / 4.0))
+        if c in cell_src:
+            return cell_src[c], (0.0, 0.0)
+        best, bd = None, 1e18
+        for t3, (tx, tz) in zip(sources, cents):
+            d2 = (cx - tx) ** 2 + (cz - tz) ** 2
+            if d2 < bd:
+                best, bd = t3, d2
+        bx_ = sum(v[0][0] for v in best) / 3.0
+        bz_ = sum(v[0][2] for v in best) / 3.0
+        bc = (math.floor(bx_ / 4.0), math.floor(bz_ / 4.0))
+        return best, (4.0 * (c[0] - bc[0]), 4.0 * (c[1] - bc[1]))
+
+    def build_fill(clearance):
+        interior = lattice_interior(clearance)
+        pts3 = list(bpts3) + [(px, idw_y(px, pz) + (TR._h01(px, pz) - 0.5) * 0.4, pz)
+                              for (px, pz) in interior]
+        nrms = [gnrm.get(_pk(p)) or near_nrm(p[0], p[2]) for p in bpts3] \
+               + [near_nrm(px, pz) for (px, pz) in interior]
+        emit = []
+        xz = [(p[0], p[2]) for p in pts3]
+        for (ia, ib, ic) in sorted(_delaunay(xz)):
+            tri_pts = [pts3[k] for k in (ia, ib, ic)]
+            tri_nrm = [nrms[k] for k in (ia, ib, ic)]
+            cx = sum(p[0] for p in tri_pts) / 3.0
+            cz = sum(p[2] for p in tri_pts) / 3.0
+            if not _in_poly(cx, cz, poly2):
+                continue
+            src, (ox, oz) = src_for(cx, cz)
+            uvf = TR._affine_uv(src)
+            idall_src = tuple(src[0][3])
+            tri = [(p, nr, tuple(uvf(p[0] - ox, p[2] - oz)), idall_src)
+                   for p, nr in zip(tri_pts, tri_nrm)]
+            ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
+            vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
+            if uz * vx - ux * vz <= 0:
+                tri = [tri[0], tri[2], tri[1]]
+            emit.append(tri)
+        fe_count = defaultdict(int)
+        for t3 in emit:
+            ps = [v[0] for v in t3]
+            for i in range(3):
+                fe_count[frozenset((_pk(ps[i]), _pk(ps[(i + 1) % 3])))] += 1
+        fill_once = {e for e, c in fe_count.items() if c == 1}
+        return emit, fill_once
+
+    # THE CLEARANCE LADDER, GRAIN-AWARE: unlike grass (whose hole boundaries keep the
+    # ~4.4u column grain), a tiled hole can leave >6.6u Delaunay spans at the proven 1.4
+    # clearance -- so the grain gate sits INSIDE the ladder and the ladder carries one
+    # DENSER rung (0.9) to break long spans before falling back to the sparser rungs
+    # that rescue T-junction cracks.
+    fill_emit = None
+    grain_best = None
+    crack_miss = None
+    for clearance in (1.4, 0.9, 1.9, 2.4, 2.9):
+        emit, fill_once = build_fill(clearance)
+        if fill_once != poly_edges:
+            if crack_miss is None:
+                crack_miss = (fill_once, poly_edges)
+            continue
+        longest = max(max(math.dist(t3[i][0], t3[(i + 1) % 3][0]) for i in range(3))
+                      for t3 in emit)
+        if longest > MAX_GRAIN:
+            if grain_best is None or longest < grain_best:
+                grain_best = longest
+            continue
+        fill_emit = emit
+        break
+    if fill_emit is None:
+        if grain_best is not None:
+            raise ValueError(f"GRAIN GATE: a tiled fill edge is {grain_best:.1f}u "
+                             f"(> {MAX_GRAIN}) at every interior clearance -- off the "
+                             f"real terrain grain, reads as stretch")
+        fill_once, _pe = crack_miss
+        miss = [" -- ".join(f"({a[0]:.1f},{a[2]:.1f})" for a in sorted(e))
+                for e in list(poly_edges - fill_once)[:4]]
+        raise ValueError(f"CRACK GATE: the tiled fill's boundary does not match the "
+                         f"region at any interior clearance "
+                         f"({len(fill_once - poly_edges)} extra / "
+                         f"{len(poly_edges - fill_once)} missing edges = T-junction "
+                         f"cracks; missing: {miss})")
+    src_sv = [sv for t3 in sources if (sv := _uv_sv(t3))]
+    lo_env = min(s[1] for s in src_sv) * 0.7
+    hi_env = max(s[0] for s in src_sv) * 1.3
+    for t3 in fill_emit:
+        sv = _uv_sv(t3)
+        if sv and (sv[0] > hi_env or sv[1] < lo_env):
+            raise ValueError(f"MAINS DENSITY GATE: a fill tri's uv density {sv} is "
+                             f"outside the source envelope [{lo_env:.4f},{hi_env:.4f}] "
+                             f"-- stretch/smush")
+    return fill_emit
 
 
 def _freeform_window(donor, start, end, *, disc=1, lod="0_1", game=None):
@@ -6119,6 +6347,45 @@ def cliff_lobes(donor, start, end, depths, *, size=(1, 1), disc: int = 1,
                           game=game)
 
 
+def _harvest_wall_cycles(win, bk, ck, gaps):
+    """Candidate wall U 4-cycles harvested from the window's OWN clean gaps (D-5: the
+    grass CYC constants are one wall family's ramp, not the law): cluster the left-column
+    U values (tol 0.004), fold +0.25 wrap-seam clusters onto their canonical, keep the 4
+    heaviest, and return every cyclic order -- the caller keeps the one that is
+    ramp-consistent and refuses on none or many. Returns [] under 4 canonical values."""
+    import itertools
+    vals = []
+    for qi in range(gaps):
+        if len(win.quads[qi]) != 2:
+            continue
+        left = {bk[qi], ck[qi]}
+        for t3 in win.quads[qi]:
+            for v in t3:
+                if _pk(v[0]) in left:
+                    vals.append(v[2][0])
+    clusters = []                                          # [mean, count]
+    for u in sorted(vals):
+        for c in clusters:
+            if abs(u - c[0]) < 0.004:
+                c[0] = (c[0] * c[1] + u) / (c[1] + 1)
+                c[1] += 1
+                break
+        else:
+            clusters.append([u, 1])
+    folded = []
+    for c in clusters:
+        for c2 in clusters:
+            if c2 is not c and abs(c[0] - 0.25 - c2[0]) < 0.006:
+                c2[1] += c[1]                              # a wrap-seam form: fold it in
+                break
+        else:
+            folded.append(c)
+    if len(folded) < 4:
+        return []
+    canon = sorted(round(c[0], 4) for c in sorted(folded, key=lambda c: -c[1])[:4])
+    return [(canon[0],) + rest for rest in itertools.permutations(canon[1:])]
+
+
 def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
                    lod: str = "0_1",
                    game=None):
@@ -6134,17 +6401,38 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
     # refinement verts VANISH (every tri touching one is dropped; nothing references them
     # after the rebuild) -- they trigger grass drops exactly like moved column creases
     refined_keys = {_pk(p) for gap in win.refined for p in gap}
-    drop_grass = [t for t in win.grass
+    drop_mains = [t for t in win.mains
                   if _key_set(t) & (moved_ck | refined_keys)
                   or any({ck[i], ck[i + 1]} <= _key_set(t) for i in range(gaps))]
-    if not drop_grass:
-        # THE BAKED-TERRAIN REFUSAL: no grass behind the window's crease = a painted-mural
-        # top family (highland 17/38/49 etc., e.g. the whole (9,5) island) -- there is NO
-        # tile language to re-fill with (the baked-terrain law), so structural morphs
-        # cannot hold here. The conforming bow (cliff_bump) still applies: it drags.
-        raise ValueError("the window's top carries no grass mains -- a painted-mural family "
-                         "(the baked-terrain law: no fill language). Structural morphs need "
-                         "a grass top; cliff_bump (the conforming bow) still applies")
+    if not drop_mains:
+        raise ValueError("no mains terrain behind the window's crease -- the coast top is "
+                         "bare wall here; structural morphs need a top to consume. "
+                         "cliff_bump (the conforming bow) still applies")
+    # THE BAKED-TERRAIN REFUSAL, MEASURED (the morph-envelope study): topo-0 grass keeps
+    # the parametric fill; any other consumed topo must be a TILED family in the window's
+    # own census -- coastal 17/38/49 tops here are 52-93% uv-rect reuse (a real language
+    # the tiled lane repeats), while a genuinely uv-unique family (the real mural class,
+    # 5-9%) has no fill language and refuses. Topo NUMBER never decides.
+    _topo_of = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"]
+    drop_topos = {_topo_of(t3) for t3 in drop_mains}
+    tiled_lane = drop_topos - {0}
+    # THE ONE-LANE LAW (fail-closed): a drop mixing grass with a tiled family has no
+    # single fill language -- the parametric lane would paint grass over the foreign
+    # tiles and the clone lane would repeat anti-tiling grass. Refuse honestly; the
+    # capability target (desert/brush tops) is pure non-grass.
+    if tiled_lane and 0 in drop_topos:
+        raise ValueError(f"the window's top mixes grass with topo "
+                         f"{sorted(tiled_lane)} -- no single fill language spans the "
+                         f"drop; shrink the window or the depth")
+    for tp in sorted(tiled_lane):
+        n_t, n_r, reuse = _tile_language([t3 for t3 in win.mains if _topo_of(t3) == tp])
+        if reuse < MURAL_REUSE_MIN:
+            raise ValueError(
+                f"the window's top carries topo-{tp} with {100 * reuse:.0f}% uv-rect "
+                f"reuse ({n_t} tris / {n_r} rects) -- a painted-mural family (the "
+                f"baked-terrain law: no fill language; tiled tops measure >= "
+                f"{100 * MURAL_REUSE_MIN:.0f}%). cliff_bump (the conforming bow) still "
+                f"applies")
     _assert_pure_sea4(win, moved_bk | moved_ck | refined_keys, disc=disc, lod=lod, game=game)
 
     # --- the new outline. PINNED scheme first (the proven arithmetic: old columns
@@ -6276,12 +6564,15 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
     # the FULL old crease chain (refinement verts bend the real crease line)
     crease_poly = [(p[0], p[2]) for p in new_crease] + \
                   [(p[0], p[2]) for p in reversed(win.crease_chain)]
-    have = {_key_set(t) for t in drop_grass}
-    drop_grass = drop_grass + [t3 for t3 in win.grass
-                               if _key_set(t3) not in have and _overlaps(t3, crease_poly)]
+    # extensions admit ONLY already-gated families (a NEW topo entering here would dodge
+    # the mural gate); an unconsumable foreign tri leaves the outline/surv gates to refuse
+    have = {_key_set(t) for t in drop_mains}
+    drop_mains = drop_mains + [t3 for t3 in win.mains
+                               if _key_set(t3) not in have and _topo_of(t3) in drop_topos
+                               and _overlaps(t3, crease_poly)]
     # every interior outline vert (base AND crease) must land in DROPPED territory (sea for
-    # a headland, grass/wall for a bay) -- else the refill polygons cannot contain it
-    dropped_all = drop_sea + drop_wall + drop_grass
+    # a headland, mains/wall for a bay) -- else the refill polygons cannot contain it
+    dropped_all = drop_sea + drop_wall + drop_mains
     for chain in (new_base, new_crease):
         for i, nb in enumerate(chain[1:-1], 1):
             if not any(_pip_xz(nb[0], nb[2], t3) for t3 in dropped_all):
@@ -6296,48 +6587,77 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
     # clean-gap window reproduces the positional qi%4 mapping exactly. ---
     CYC = (0.8242, 0.7617, 0.6992, 0.8867)
 
-    def canon_u(vals):
+    def canon_u(vals, cyc=CYC):
         # the wrap quad's corners carry the SEAM value (canonical + 0.25) -- fold both ways
         for u in vals:
             for u2 in (u, u - 0.25, u + 0.25):
-                for c in CYC:
+                for c in cyc:
                     if abs(u2 - c) < 0.004:
                         return c
         return None
-    phase_pat = {}
-    u0 = None
-    for qi in range(gaps):
-        if len(win.quads[qi]) != 2:
-            continue
-        roles = {bk[qi]: "bl", ck[qi]: "cl", bk[qi + 1]: "br", ck[qi + 1]: "cr"}
-        out = {}
-        for t3 in win.quads[qi]:
-            for v in t3:
-                out.setdefault(roles[_pk(v[0])], (v[2], v[1]))
-        split = [tuple(roles[_pk(v[0])] for v in t3) for t3 in win.quads[qi]]
-        u = canon_u([out["bl"][0][0], out["cl"][0][0]])
-        if u is not None:
-            phase_pat.setdefault(u, (out, split))
-            if u0 is None:
-                u0 = CYC[(CYC.index(u) - qi) % 4]      # back-step the ramp to gap 0
+
+    def collect_phases(cyc):
+        """(phase_pat, u0, consistent) against a candidate 4-cycle: donor patterns per
+        canonical U, the back-stepped gap-0 phase, and whether every matching clean gap
+        agrees with the ramp."""
+        phase_pat, u0, consistent = {}, None, True
+        for qi in range(gaps):
+            if len(win.quads[qi]) != 2:
+                continue
+            roles = {bk[qi]: "bl", ck[qi]: "cl", bk[qi + 1]: "br", ck[qi + 1]: "cr"}
+            out = {}
+            for t3 in win.quads[qi]:
+                for v in t3:
+                    out.setdefault(roles[_pk(v[0])], (v[2], v[1]))
+            split = [tuple(roles[_pk(v[0])] for v in t3) for t3 in win.quads[qi]]
+            u = canon_u([out["bl"][0][0], out["cl"][0][0]], cyc)
+            if u is not None:
+                phase_pat.setdefault(u, (out, split))
+                if u0 is None:
+                    u0 = cyc[(cyc.index(u) - qi) % 4]      # back-step the ramp to gap 0
+                elif u != cyc[(cyc.index(u0) + qi) % 4]:
+                    consistent = False
+        return phase_pat, u0, consistent
+
+    # THE GRASS CYC FIRST -- the proven constants, exactly the shipped behavior (no
+    # consistency demand) so every grass window stays byte-identical. When they cover
+    # fewer than 4 phases, HARVEST the window's own cycle: a non-grass wall carries its
+    # own 4-phase U ramp (measured on the crescent: 0.4277/0.4902/0.5527/0.6152, wrap
+    # seam +0.25) -- and a harvested cycle must be FULLY ramp-consistent and unambiguous
+    # (fail-closed: a misassigned pattern emits a garbage wall).
+    phase_pat, u0, _ = collect_phases(CYC)
+    wall_cyc = CYC
     if len(phase_pat) < 4:
-        raise ValueError(f"the window's clean gaps cover only {len(phase_pat)}/4 texture "
-                         f"phases -- widen the window")
+        got = None
+        for cyc in _harvest_wall_cycles(win, bk, ck, gaps):
+            pp, hu0, cons = collect_phases(cyc)
+            if len(pp) == 4 and cons:
+                if got is not None:
+                    got = None                             # ambiguous -- refuse
+                    break
+                got = (pp, hu0, cyc)
+        if got is None:
+            raise ValueError(f"the window's clean gaps cover only {len(phase_pat)}/4 "
+                             f"grass texture phases and no unambiguous ramp-consistent "
+                             f"4-phase wall cycle harvests from the window's own gaps -- "
+                             f"widen the window")
+        phase_pat, u0, wall_cyc = got
     idall_wall = tuple(drop_wall[0][0][3])
     wall_emit = []
     for qi in range(len(new_base) - 1):
-        corners, split = phase_pat[CYC[(CYC.index(u0) + qi) % 4]]
+        corners, split = phase_pat[wall_cyc[(wall_cyc.index(u0) + qi) % 4]]
         pos = {"bl": new_base[qi], "br": new_base[qi + 1],
                "cl": new_crease[qi], "cr": new_crease[qi + 1]}
         for tri_roles in split:
             wall_emit.append([(pos[r], corners[r][1], corners[r][0], idall_wall)
                               for r in tri_roles])
 
-    # --- the native grass fill over the hole + wedge. THE RING-EXTENSION LADDER: a bay
-    # rim diving within a couple of units of the hole's inner boundary leaves a SUB-GRAIN
-    # corridor no triangulation can make lawful -- when the fill fails its gates, consume
-    # one more grass ring along the LANDWARD-displaced segments (drop-don't-drag, one level
-    # deeper) and rebuild. Margin 0 runs first, keeping the proven builds byte-identical. ---
+    # --- the native mains fill over the hole + wedge (parametric grass, or the tiled
+    # translate-clone lane). THE RING-EXTENSION LADDER: a bay rim diving within a couple
+    # of units of the hole's inner boundary leaves a SUB-GRAIN corridor no triangulation
+    # can make lawful -- when the fill fails its gates, consume one more mains ring along
+    # the LANDWARD-displaced segments (drop-don't-drag, one level deeper) and rebuild.
+    # Margin 0 runs first, keeping the proven builds byte-identical. ---
     cell_quad = {}
     for t3 in win.grass:
         cx = math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0)
@@ -6353,24 +6673,28 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
         L2 = ex * ex + ez * ez or 1.0
         tt = max(0.0, min(1.0, ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / L2))
         return math.hypot(p[0] - (a[0] + tt * ex), p[2] - (a[2] + tt * ez))
-    grass_emit = None
+    fill_emit = None
     last_err = None
     for margin in (0.0, 3.2):
-        dg = drop_grass
+        dg = drop_mains
         if margin > 0.0:
             if not bay_segs:
                 break
             have = {_key_set(t) for t in dg}
-            dg = dg + [t3 for t3 in win.grass if _key_set(t3) not in have
+            dg = dg + [t3 for t3 in win.mains if _key_set(t3) not in have
+                       and _topo_of(t3) in drop_topos
                        and any(_seg_dist(v[0], a, b) < margin
                                for v in t3 for (a, b) in bay_segs)]
         try:
-            grass_emit = _grass_fill(win, dg, new_crease, ck, cell_quad)
-            drop_grass = dg
+            if tiled_lane:
+                fill_emit = _tiled_fill(win, dg, new_crease, ck)
+            else:
+                fill_emit = _grass_fill(win, dg, new_crease, ck, cell_quad)
+            drop_mains = dg
             break
         except ValueError as e:
             last_err = e
-    if grass_emit is None:
+    if fill_emit is None:
         raise last_err
     # --- the sea ZIP STRIP back to the new outline ---
     loop, pos_of, uv_of, nrm_of = _boundary_loop(drop_sea)
@@ -6463,27 +6787,12 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
             continue
         sea_ring.append(t3)
 
-    # THE WATER DENSITY GATE + THE LEDGER
-    def uv_sv(t3):
-        (p0, _, uv0, _), (p1, _, uv1, _), (p2, _, uv2, _) = t3
-        d1 = (p1[0] - p0[0], p1[2] - p0[2])
-        d2 = (p2[0] - p0[0], p2[2] - p0[2])
-        e1 = (uv1[0] - uv0[0], uv1[1] - uv0[1])
-        e2 = (uv2[0] - uv0[0], uv2[1] - uv0[1])
-        det = d1[0] * d2[1] - d1[1] * d2[0]
-        if abs(det) < 1e-9:
-            return None
-        inv = ((d2[1] / det, -d2[0] / det), (-d1[1] / det, d1[0] / det))
-        a, b = (e1[0] * inv[0][0] + e2[0] * inv[1][0], e1[0] * inv[0][1] + e2[0] * inv[1][1])
-        c, d = (e1[1] * inv[0][0] + e2[1] * inv[1][0], e1[1] * inv[0][1] + e2[1] * inv[1][1])
-        s1 = a * a + b * b + c * c + d * d
-        s2 = math.hypot(a * a + b * b - c * c - d * d, 2 * (a * c + b * d))
-        return (math.sqrt(max((s1 + s2) / 2, 0.0)), math.sqrt(max((s1 - s2) / 2, 0.0)))
-    real_sv = [sv for t3 in drop_sea if (sv := uv_sv(t3))]
+    # THE WATER DENSITY GATE + THE LEDGER (uv singular values via module-level _uv_sv)
+    real_sv = [sv for t3 in drop_sea if (sv := _uv_sv(t3))]
     lo_env = min(s[1] for s in real_sv) * 0.7
     hi_env = max(s[0] for s in real_sv) * 1.3
     for t3 in sea_ring:
-        sv = uv_sv(t3)
+        sv = _uv_sv(t3)
         if sv and (sv[0] > hi_env or sv[1] < lo_env):
             raise ValueError(f"WATER DENSITY GATE: a ring tri's uv density {sv} is outside "
                              f"the real envelope [{lo_env:.4f},{hi_env:.4f}] -- stretch/smush")
@@ -6505,7 +6814,7 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
     if min(abs(delta - poly_a), abs(delta + poly_a)) > 1.0:
         raise ValueError("LEDGER: net dropped-emitted sea != the wedge's signed area")
 
-    excl = [_key_set(t) for t in drop_wall + drop_grass + drop_sea]
+    excl = [_key_set(t) for t in drop_wall + drop_mains + drop_sea]
     surv = _count_instances(win, {_pk(p) for p in head_moves}, exclude_sets=excl)
     # in the FREE-resample scheme interior columns are DELETED, not moved: any surviving
     # reference (a non-grass/sea component touching the crease) would be a crack
@@ -6514,8 +6823,8 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
         raise ValueError(f"{surv_all - surv} surviving tri-vert instance(s) reference "
                          f"deleted window columns -- a component outside the drop sets "
                          f"touches the crease; the drop-don't-drag law cannot hold here")
-    return [TR.DropTris("terrain", drop_wall + drop_grass),
+    return [TR.DropTris("terrain", drop_wall + drop_mains),
             TR.DropTris("sea4", drop_sea),
             TR.VertexDisplace(moves=head_moves, expected=surv),
-            TR.EmitTris("terrain", wall_emit + grass_emit),
+            TR.EmitTris("terrain", wall_emit + fill_emit),
             TR.EmitTris("sea4", sea_ring)]

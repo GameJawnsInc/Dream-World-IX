@@ -1,5 +1,12 @@
 # THE MORPH ENVELOPE — what shape dials each palette mass actually has (2026-08-04)
 
+> **★ CAPABILITY 1 BUILT (same day): the misclassification below is FIXED.** The
+> tiled-mains fill (`DESERT-FILL-PREDICTION.md`, scored) flipped comma + crescent to
+> deep-bendable — **3 of 8 masses** now admit headland/bay (chain, comma, crescent).
+> The isthmus's refusal survived measurement honestly: its deep windows consume topo-49
+> at 5% reuse, a REAL mural. `MORPH-ENVELOPE.tsv` is regenerated post-fix; the table
+> below documents the pre-fix state that motivated the build.
+
 Sweep: `morph_envelope.py` — `coastscan.scan_block` over every block of every palette
 rect, scanner-passing deep windows then verified by real `transplant_region --dry-run`
 ladders. Raw table: `MORPH-ENVELOPE.tsv`. Registered in `SHAPE-CONTROL-PREDICTION.md`.

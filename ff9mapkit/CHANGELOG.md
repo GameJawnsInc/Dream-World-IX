@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE TILED-MAINS FILL: deep coast morphs on desert/brush tops (capability 1)
+- The cliff morphs' "no grass mains — painted-mural" refusal fired on *not grass*, not on
+  *mural*: the morph-envelope study measured 5 of 6 refused coast tops at 81–98% uv-rect reuse —
+  heavily tiled families with a real fill language. `cliff_headland`/`cliff_bay` now admit them:
+  **THE MEASURED MURAL GATE** (uv-rect reuse ≥ 40%, censused over the window's own rect; topo
+  number never decides — topo-49 is 90% tiled on one island and 5% unique on another) and a
+  **translate-clone fill lane** that repeats the window's own dropped tiles (the proven water
+  vocabulary applied to land; per-tri source idall, MAINS DENSITY GATE, grain-aware clearance
+  ladder with a denser 0.9 rung). The wall rebuild's U-cycle is now **harvested from the window's
+  own clean gaps** when the grass CYC constants don't cover it (ramp-consistency + ambiguity
+  refusals); the grass path stays byte-identical (content-dump-verified) and all golden hashes
+  hold. **THE ONE-LANE LAW**: a drop mixing grass with a tiled family refuses — no single fill
+  language spans it — and ring extensions admit only already-gated families. Result: deep shape
+  control went from 1 to 3 of the 8 palette masses (chain + comma + crescent, all verified
+  through the real region transplant gates); the isthmus honestly refuses (its windows consume a
+  genuine 5%-reuse mural). Six mutations killed; the coast scanner also stops treating
+  "outline vert escapes" as depth-independent, so probe ladders report honest ceilings.
+
 ### Fixed — THE GHOST SIDECAR: the object exclusion now applies to the NATURAL donor
 - A region carry's per-cell sidecar law ("an Object-bearing donor cell never hosts a foreign
   target cell") was enforced only in the *substitute* search; the natural-donor branch skipped the

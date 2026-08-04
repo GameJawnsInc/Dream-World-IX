@@ -363,13 +363,134 @@ NOSE_SLIDE_START = (1198.0273, -997.3633)
 NOSE_SLIDE_END = (1173.1484, -1013.8867)
 
 
-def test_structural_refuses_a_grassless_top():
+#: the comma's (9,6) window (desert topo-17 top, 93% uv-rect reuse) and the isthmus's
+#: (7,6) window (topo-19 tiled + topo-49 at 0% local reuse -- the REAL mural class)
+COMMA_START, COMMA_END = (640.0, -416.0), (620.09765625, -448.0)
+ISTH_START, ISTH_END = (462.83203125, -448.0), (448.0, -405.85546875)
+
+
+def test_structural_refuses_a_uv_unique_top():
     from ff9mapkit.world import coastmorph as CM
-    # the (9,5) continent-island-A donor has ZERO grass (highland/mural top families) --
-    # the baked-terrain law: no fill language, so structural morphs refuse cleanly and
-    # only the conforming bow applies. Window = a clean run on block (10,6).
-    with pytest.raises(ValueError, match="no grass mains"):
-        CM.cliff_headland((10, 6), (695.6, -407.9), (680.0, -436.0), 6.0)
+    # THE MEASURED MURAL GATE (capability 1): topo NUMBER never decides -- the isthmus's
+    # topo-49 is uv-unique HERE (0% local reuse) while the crescent's topo-49 is 90%
+    # tiled. The refusal names the offending topo and its measured reuse.
+    with pytest.raises(ValueError, match=r"topo-49.*painted-mural"):
+        CM.cliff_headland((7, 6), ISTH_START, ISTH_END, 6.0)
+
+
+def test_tiled_headland_builds_on_the_comma():
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world.extract import decode_id
+    from ff9mapkit.world.transplant import _tri_area2_3d
+    # the morph-envelope flip: a desert top (93% uv-rect reuse) is a TILE VOCABULARY,
+    # not a mural -- the tiled lane repeats the window's own dropped tiles
+    drop_t, drop_s, disp, emit_t, emit_s = CM.cliff_headland((9, 6), COMMA_START,
+                                                             COMMA_END, 6.0)
+    assert disp.expected == 0                       # the DROP-DON'T-DRAG law holds
+    assert len(emit_t.tris) > 0 and len(emit_s.tris) > 0
+    assert all(_tri_area2_3d(t3) > 1e-6 for t3 in emit_t.tris + emit_s.tris)
+    # D-4 CARRIED VOCABULARY: every emitted terrain idall already exists in the window's
+    # own terrain (wall 58 + the dropped tiles' families travel with the clones; nothing
+    # is minted), and the desert family itself is present in the fill
+    win = CM.CliffWindow((9, 6), COMMA_START, COMMA_END)
+    real_idalls = {tuple(t3[0][3]) for t3 in win.terr}
+    emitted = {tuple(t3[0][3]) for t3 in emit_t.tris}
+    assert emitted <= real_idalls
+    topos = {decode_id(int(round(i[0])))["topograph"] for i in emitted}
+    assert 17 in topos and 58 in topos
+    # ...and the clone is a TRANSLATE-clone: every non-wall fill uv sits inside some
+    # dropped tile's uv-rect expanded by its own span (a raw extrapolation walks whole
+    # rect-widths out of the atlas; the translate offset keeps the eval point in the
+    # source tile's own cell)
+    wall_idall = {tuple(t3[0][3]) for t3 in win.cliff}
+    dropped_srcs = [t3 for t3 in win.mains if drop_t._key_set(t3) in drop_t.keys]
+    assert dropped_srcs, "no dropped mains reconstructed from the window"
+    rects = []
+    for t3 in dropped_srcs:
+        us = [v[2][0] for v in t3]
+        vs = [v[2][1] for v in t3]
+        du, dv = max(us) - min(us), max(vs) - min(vs)
+        rects.append((min(us) - du, max(us) + du, min(vs) - dv, max(vs) + dv))
+    for t3 in emit_t.tris:
+        if tuple(t3[0][3]) in wall_idall:
+            continue
+        for v in t3:
+            u, vv = v[2]
+            assert any(r[0] <= u <= r[1] and r[2] <= vv <= r[3] for r in rects), \
+                f"fill uv ({u:.3f},{vv:.3f}) escapes every expanded source rect"
+
+
+def test_mural_gate_reads_the_measured_threshold(monkeypatch):
+    from ff9mapkit.world import coastmorph as CM
+    # threshold at 1.01: even the 93%-tiled comma reads as mural (the gate is live)
+    monkeypatch.setattr(CM, "MURAL_REUSE_MIN", 1.01)
+    with pytest.raises(ValueError, match="painted-mural"):
+        CM.cliff_headland((9, 6), COMMA_START, COMMA_END, 6.0)
+    # threshold at 0.0: the isthmus's uv-unique topo-49 passes the gate and the window
+    # fails LATER for a different reason -- the gate reads the constant both ways
+    monkeypatch.setattr(CM, "MURAL_REUSE_MIN", 0.0)
+    with pytest.raises(ValueError) as ei:
+        CM.cliff_headland((7, 6), ISTH_START, ISTH_END, 6.0)
+    assert "painted-mural" not in str(ei.value)
+
+
+def test_harvest_folds_the_wrap_seam():
+    from types import SimpleNamespace
+    from ff9mapkit.world import coastmorph as CM
+    # SYNTHETIC seam specimen (no palette wall witnesses the fold, so this pins it):
+    # 5 clean gaps whose left-column U runs 0.30/0.40/0.50/0.60 and one wrap gap whose
+    # left corners carry the SEAM form 0.55 (= 0.30 + 0.25). The fold must merge it onto
+    # 0.30 so the canonical set is the true 4-cycle -- without the fold the seam cluster
+    # displaces a canonical from the top-4.
+    left_us = [0.30, 0.40, 0.50, 0.60, 0.55]
+    base = [(4.0 * i, 0.0, 0.0) for i in range(len(left_us) + 1)]
+    crease = [(4.0 * i, 2.0, -2.0) for i in range(len(left_us) + 1)]
+    quads = []
+    for i, u in enumerate(left_us):
+        bl, cl, br, cr = base[i], crease[i], base[i + 1], crease[i + 1]
+        t1 = [(bl, (0, 1, 0), (u, 0.1), (0,)), (cl, (0, 1, 0), (u, 0.2), (0,)),
+              (br, (0, 1, 0), (u + 0.06, 0.1), (0,))]
+        t2 = [(cl, (0, 1, 0), (u, 0.2), (0,)), (cr, (0, 1, 0), (u + 0.06, 0.2), (0,)),
+              (br, (0, 1, 0), (u + 0.06, 0.1), (0,))]
+        quads.append([t1, t2])
+    win = SimpleNamespace(quads=quads)
+    bk = [CM._pk(p) for p in base]
+    ck = [CM._pk(p) for p in crease]
+    cycles = CM._harvest_wall_cycles(win, bk, ck, len(left_us))
+    assert cycles, "no candidate cycles harvested"
+    assert sorted(cycles[0]) == [0.3, 0.4, 0.5, 0.6], sorted(cycles[0])
+
+
+def test_one_lane_law_refuses_a_mixed_top(monkeypatch):
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import extract as EX
+    # the crescent's (16,1) window consumes topo-17 AND topo-49 tiles; remapping the
+    # 49-family idalls to grass makes the drop MIX grass with a tiled family -- no
+    # single fill language spans it, so the one-lane law must refuse
+    real = EX.decode_id
+
+    def fake(i):
+        d = dict(real(i))
+        if d["topograph"] == 49:
+            d["topograph"] = 0
+        return d
+    monkeypatch.setattr(CM, "decode_id", fake)
+    with pytest.raises(ValueError, match="mixes grass"):
+        CM.cliff_headland((16, 1), (1088.0, -84.0), (1024.0, -71.421875), 6.0)
+
+
+def test_wall_cycle_harvests_on_a_non_grass_wall():
+    from ff9mapkit.world import coastmorph as CM
+    # D-5: the desert wall carries its OWN 4-phase U ramp (the grass CYC constants match
+    # almost none of its gaps) -- the harvest reads it from the window's clean gaps
+    win = CM.CliffWindow((9, 6), COMMA_START, COMMA_END)
+    bk = [CM._pk(p) for p in win.base]
+    ck = [CM._pk(p) for p in win.crease]
+    cycles = CM._harvest_wall_cycles(win, bk, ck, len(win.base) - 1)
+    assert cycles, "no candidate cycles harvested"
+    got = sorted(cycles[0])
+    want = (0.4277, 0.4902, 0.5527, 0.6152)
+    assert all(abs(g - w) < 0.003 for g, w in zip(got, want)), got
 
 
 def test_headland_refuses_an_illegal_gap_count():
