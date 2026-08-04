@@ -2440,18 +2440,27 @@ def _atlas_gate_mountain(new_parents, *, game=None, log=print):
 
 
 # ---- census + deploy ------------------------------------------------------------------------
-def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None):
-    """Per changed block: the engine placement census (hidden aux parts + the synthetic
-    full sea plane, the studies' exact configuration) must ground EVERYWHERE (MISS=0).
-    ``probe = ((wx, wz), expected_topo)`` additionally grounds one world point."""
-    import dataclasses
+def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, baseline=None):
+    """Per changed block: the engine placement census (hidden aux parts + the CUT sea plane)
+    must ground EVERYWHERE (MISS=0). ``probe = ((wx, wz), expected_topo)`` additionally
+    grounds one world point.
+
+    THE SEA IS CUT, NOT WHOLE (dead-gate revival, audit rec 4): the island lane deploys
+    ``_cut_plane`` Sea4 -- no ocean under land (SEA4-UNDER-LAND) -- so censusing an UNCUT
+    plane made ``MISS == 0`` unreachable for the terrain-hole class this gate exists to
+    catch (a hole grounded on phantom sea at y=0). ``baseline`` maps blk -> the PRE-EDIT
+    terrain: the disk's Sea4 was cut against THAT footprint, so a hole the edit opens has
+    nothing beneath it exactly when the gate cuts against the same baseline. Without
+    ``baseline`` the cut falls back to the edited bm (the island-lane configuration --
+    still strictly closer to shipping bytes than the whole plane)."""
     from . import placement as P
-    from .island import _sea_plane
+    from .island import _sea_plane, _cut_plane
     plane = _sea_plane(disc, game=game)
     for blk, bm in sorted(changed.items()):
         bx, by = blk
         hid = lambda nm_: M.hidden_block_mesh(name=nm_, disc=disc, x=bx, y=by)  # noqa: E731
-        sea = dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4")
+        under = baseline.get(blk, bm) if baseline is not None else bm
+        sea = _cut_plane(plane, bx, by, frozenset(), under)
         meshlist = [("Object", hid("Object")), ("Terrain", bm), ("Sea1", hid("Sea1")),
                     ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")), ("Sea4", sea),
                     ("Sea5", hid("Sea5"))]

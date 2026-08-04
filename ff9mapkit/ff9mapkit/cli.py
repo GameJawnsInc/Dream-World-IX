@@ -4650,7 +4650,7 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
                               near=None if exact else (wx, wz), donor=(dx, dy),
                               disc=args.disc, game=args.game)
         IN.census_gate(res["changed"], disc=args.disc, game=args.game,
-                       probe=(res["center"], 37))
+                       probe=(res["center"], 37), baseline=blocks)
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
                               game=args.game, skip_mirror=args.skip_mirror,
@@ -4683,7 +4683,7 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
         res = IN.build_hill(soup, center=(wx, wz) if exact else None,
                             near=None if exact else (wx, wz),
                             height=args.height, radius=args.radius)
-        IN.census_gate(res["changed"], disc=args.disc, game=args.game)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks)
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
                               game=args.game, skip_mirror=args.skip_mirror,
@@ -4734,7 +4734,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         res = IN.carve_mountain(soup, center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
                                 ground=args.ground, disc=args.disc, game=args.game)
-        IN.census_gate(res["changed"], disc=args.disc, game=args.game)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks)
         if not args.dry_run:
             # both inner writers force-skip their own auto-mirror -- the CLI unions their
             # written paths and does ONE mirror pass for the whole carve, below.

@@ -800,3 +800,67 @@ def test_interior_pipeline_reproduces_deployed_island_e(tmp_path):
             got = paths[blk].read_bytes()
         dep = (modw / f"r{blk[1]}" / f"Block[{blk[0]}][{blk[1]}] Terrain.ff9mesh")
         assert got == dep.read_bytes(), f"block {blk} differs from the deployed island E"
+
+
+# ---- the census gate's CUT sea plane (audit rec 4: the dead-gate revival) -------------------------------------------
+
+SEA57 = float(encode_id(topograph=57))
+
+
+def _sea_grid_plane(n=16, cell=4.0):
+    """A synthetic full-cell Sea4 plane at y=0 (the shape ``island._sea_plane`` returns), local frame."""
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            x0, x1 = i * cell, (i + 1) * cell
+            z0, z1 = -j * cell, -(j + 1) * cell
+            tris.append((((x0, 0.0, z0), (x1, 0.0, z0), (x0, 0.0, z1)), SEA57, 0.5))
+            tris.append((((x1, 0.0, z0), (x1, 0.0, z1), (x0, 0.0, z1)), SEA57, 0.5))
+    return _bm(tris, name="Block[0][0] Sea4")
+
+
+def _grid_block_with_hole(bx, by, hole_cells, y=3.2, n=16, cell=4.0):
+    """``_grid_block`` minus the 4u cells in ``hole_cells`` -- the punched-terrain fixture."""
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            if (i, j) in hole_cells:
+                continue
+            x0, x1 = i * cell, (i + 1) * cell
+            z0, z1 = -j * cell, -(j + 1) * cell
+            tris.append((((x0, y, z0), (x1, y, z0), (x0, y, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, y, z0), (x1, y, z1), (x0, y, z1)), GRASS, _MAIN_U))
+    return _bm(tris, name=f"Block[{bx}][{by}] Terrain", x=bx, y=by)
+
+
+def test_census_gate_raises_on_a_punched_terrain_hole(monkeypatch):
+    """THE DEAD-GATE REVIVAL. The gate used to census an UNCUT full-cell Sea4 the island lane
+    never deploys, so a terrain hole grounded on phantom sea at y=0 and the ``MISS == 0``
+    predicate was UNREACHABLE for the one class it exists to catch. Cut against the BASELINE
+    terrain (the footprint the disk's Sea4 was actually cut against), a punched cell has
+    nothing beneath it -> MISS -> raise. Revert the ``_cut_plane`` swap in ``census_gate``
+    and this test goes red -- that is its entire point."""
+    from ff9mapkit.world import island as I
+    monkeypatch.setattr(I, "_sea_plane", lambda disc, game=None: _sea_grid_plane())
+    intact = _grid_block(0, 0)
+    IN.census_gate({(0, 0): intact}, baseline={(0, 0): intact})       # control: gates clean
+    for hole in ({(6, 6)}, {(6, 6), (7, 6), (6, 7), (7, 7)}):
+        punched = _grid_block_with_hole(0, 0, hole)
+        with pytest.raises(ValueError, match="placement MISS"):
+            IN.census_gate({(0, 0): punched}, baseline={(0, 0): intact})
+
+
+def test_census_gate_detects_holes_even_without_baseline(monkeypatch):
+    """Fallback semantics (no baseline -> cut vs the edited bm) still detect punched holes:
+    the cut drops a sea TRI only when all three corners are under land, and every
+    hole-BOUNDARY sea tri's corners lie ON the remaining terrain's edges (edge-inclusive),
+    so the boundary strip drops and MISSes regardless of hole size -- the complementarity
+    trap ("cut-vs-current backfills what you punched") does not occur at tri granularity.
+    ``baseline=`` (wired at every CLI call site) remains the DISK-truth cut: on disk the
+    whole hole is void, not just its rim."""
+    from ff9mapkit.world import island as I
+    monkeypatch.setattr(I, "_sea_plane", lambda disc, game=None: _sea_grid_plane())
+    IN.census_gate({(0, 0): _grid_block(0, 0)})
+    for hole in ({(6, 6)}, {(6, 6), (7, 6), (6, 7), (7, 7)}):
+        with pytest.raises(ValueError, match="placement MISS"):
+            IN.census_gate({(0, 0): _grid_block_with_hole(0, 0, hole)})

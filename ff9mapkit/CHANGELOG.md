@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the interior census gate could not fire: it scored an UNCUT Sea4 no lane deploys
+- `interior.census_gate` censused the whole synthetic sea plane, so any terrain hole grounded
+  on phantom sea at y=0 and the `MISS == 0` predicate was unreachable for the one stranding
+  class it exists to catch (a study ledger had already banked its silence as a pass signal).
+  Now it cuts the plane via `island._cut_plane` — against the PRE-EDIT terrain when the new
+  `baseline=` is given (the disk's Sea4 was cut against that footprint; all three
+  `world-forest`/`hill`/`mountain` call sites pass it), else against the edited bm. Proven
+  red-on-old/green-on-new by a hermetic punched-hole test (single-cell and 2x2, monkeypatched
+  sea plane, no install); a companion test pins that hole-BOUNDARY sea tris drop even without
+  baseline (the per-tri conservative cut, edge-inclusive). Audit rec 4, step 1.
+
 ### Fixed — the world relaunch tax was self-imposed: geometry edits apply via the scene reload
 - Playtest-proven (hill deployed, byte-swapped mid-session, vanished on the next reload;
   `Memoria.log` re-reads every `[WorldMeshOverride]` per reload): the world-scene rebuild
