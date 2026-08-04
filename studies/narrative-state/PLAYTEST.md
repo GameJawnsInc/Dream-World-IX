@@ -246,4 +246,15 @@ example rig) + all 12 members rebuilt seedless. **RELAUNCH once** (30850 is a ne
 seed and warps to the village entrance. Expect: the same green run round 6 predicted --
 ATEs offered, the shop scene once, SC 2610 persists, Dagger relocates, no rewind at any
 door -- plus: re-picking the journey from the hub re-stamps 2600 (a fresh test run,
-deliberate). PENDING
+deliberate).
+
+**Round 7 verdict: PASS ** -- THE ARC'S PAYOFF (owner, 2026-08-04): "got to 404 (Dali
+underground)". The WHOLE Dali morning played through on derived state -- ATEs armed (the
+story-required one included), the shop scene advanced the story and it PERSISTED, the
+windmill sequence ran -- and the story itself carried the player past the chain's edge:
+404 (the underground) is not a member, so its gateway is a live seam into the REAL game,
+which picked the run up mid-story seamlessly (story state is save-global and coherent).
+A New Game save is now playing FF9 from the middle, booted off corpus-derived state
+through a hub menu pick. This is the "test any part of the game from a New Game" product
+working end to end: hub pick -> derived seed -> forked zone plays the story -> hand-off
+to the real game at the zone boundary.
