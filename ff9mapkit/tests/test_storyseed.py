@@ -22,8 +22,19 @@ def _census(bit, value=1, sc=None, sc_armed=None, field=999):
 def test_window_evidence_decides_set_vs_clear():
     eb = _field_reading(2647)
     c = _census(2647, sc=[[0, 7, 0, "==", 3110]])
-    assert storyseed.resolve(eb, 3110, c).verdicts[0].decision == "set"
+    assert storyseed.resolve(eb, 3111, c).verdicts[0].decision == "set"
     assert storyseed.resolve(eb, 3000, c).verdicts[0].decision == "clear"
+
+
+def test_strict_within_beat_rule():
+    # lo == beat -> the write happens DURING this beat's own play, so the bit boots clear
+    # (the Dali-latch lesson: pre-tripping a beat's own once-latches suppresses its content)
+    eb = _field_reading(2647)
+    c = _census(2647, sc=[[0, 7, 0, "==", 3110]])
+    v = storyseed.resolve(eb, 3110, c).verdicts[0]
+    assert v.decision == "clear" and v.lo == 3110
+    out = storyseed.render_startup(storyseed.resolve(eb, 3110, c))
+    assert "DURING this beat" in out
 
 
 def test_armed_and_envelope_fallbacks():
@@ -52,8 +63,8 @@ def test_reserved_band_read_is_refused():
 def test_render_contains_provenance_and_flags_row():
     eb = _field_reading(2647)
     out = storyseed.render_startup(
-        storyseed.resolve(eb, 3110, _census(2647, sc=[[0, 7, 0, "==", 3110]])))
-    assert "[startup]" in out and "scenario = 3110" in out
+        storyseed.resolve(eb, 3115, _census(2647, sc=[[0, 7, 0, "==", 3110]])))
+    assert "[startup]" in out and "scenario = 3115" in out
     assert "{ flag = 2647, value = 1 }" in out and "window" in out
 
 
@@ -83,7 +94,7 @@ def test_real_553_seed(tmp_path):
     if not cpath:
         pytest.skip("census not generated")
     import json
-    rep = storyseed.resolve(EbScript.from_bytes(data), 3110,
+    rep = storyseed.resolve(EbScript.from_bytes(data), 3115,
                             json.load(open(cpath, encoding="utf-8")))
     assert any(v.bit == 2647 and v.decision == "set" for v in rep.verdicts)
 
@@ -171,6 +182,19 @@ def test_ate_word_value_word_write_covers_high_byte():
     assert storyseed.ate_word_values([236, 237], 100, c, [352]) == {236: 1, 237: 2}
 
 
+def test_ate_word_value_evidence_free_zone_write_is_arrival_state():
+    # a zone donor's pure write with NO SC evidence contributes before every beat (the Dali
+    # hub-enable 297 = 1, written by the village entrance with no SC gate)
+    site = {"idx": 297, "vt": 7, "value": 1, "pure": True, "field": 359,
+            "entry": 0, "func": 0, "off": 0, "sc": [], "sc_armed": []}
+    c = {"word_sites": [site], "sc_sites": []}
+    assert storyseed.ate_word_values([297], 2600, c, [359]) == {297: 1}
+    # a later windowed pure write still supersedes it as the floor
+    c["word_sites"].append(_ws(297, 64, 2790, vt=7, field=456))
+    assert storyseed.ate_word_values([297], 2600, c, [359, 456]) == {297: 1}
+    assert storyseed.ate_word_values([297], 2800, c, [359, 456]) == {297: 64}
+
+
 def test_render_words_derived_vs_fallback():
     out = storyseed.render_words({239: 6, 296: None})
     assert "{ byte = 239, value = 6 }" in out and "{ byte = 296, value = 1 }" in out
@@ -195,9 +219,22 @@ def test_red_case_dali_350_marcus_windowed_out():
     eb352 = EbScript.from_bytes(_install_eb(352))
     ps2 = storyseed.party_seed(eb352, beat=2600, census=census, donor=352)
     assert "vivi" in ps2["add"] and "marcus" not in ps2["add"]
-    zone = [312, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359]
-    vals = storyseed.ate_word_values(storyseed.ate_word_seed(eb352), 2600, census, zone)
-    assert vals and all(v for v in vals.values())
+    # the ATE round-4 lesson pinned: the REAL Dali avail word is the hub-enable 297 (a
+    # bitwise `& 1` test, invisible to the comparison channel), written by the entrance
+    # with no SC gate; the room-code/sequencer words 239/296 are donor-self-managed and
+    # must NOT be detected
+    zone = [312, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 450]
+    det = storyseed.ate_word_seed(EbScript.from_bytes(_install_eb(351)))
+    assert det.get(297) == "expr" and 239 not in det and 296 not in det
+    vals = storyseed.ate_word_values([297], 2600, census, zone)
+    assert vals[297] == 1
+    # the proven rung-2 Lindblum case still detects via the comparison channel
+    det552 = storyseed.ate_word_seed(EbScript.from_bytes(_install_eb(552)))
+    assert det552.get(236) == "cmp"
+    # and the morning latches boot CLEAR under the strict within-beat rule
+    rep = storyseed.resolve(EbScript.from_bytes(_install_eb(351)), 2600, census)
+    for bit in (2064, 2075, 2079):
+        assert any(v.bit == bit and v.decision == "clear" for v in rep.verdicts)
 
 
 def test_chain_ladder_is_the_write_channel():

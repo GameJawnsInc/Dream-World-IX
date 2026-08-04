@@ -202,7 +202,12 @@ def resolve(eb: EbScript, beat: int, census: dict) -> SeedReport:
                                            note="writers carry no SC evidence"))
             continue
         lo, kind = best
-        rep.verdicts.append(BitVerdict(bit, "set" if lo <= beat else "clear",
+        # STRICT within-beat rule (the Dali-latch lesson): lo == beat means the write happens
+        # DURING this beat's own play (the seed target is the state at the instant the SC
+        # first equals the beat), so the bit boots clear and the resident scripts flip it --
+        # seeding it set replays the beat with its own latches pre-tripped, which SUPPRESSES
+        # once-guarded content (the ATE offer chain enters only while its latch is 0).
+        rep.verdicts.append(BitVerdict(bit, "set" if lo < beat else "clear",
                                        lo=lo, estimator=kind, writers=writers))
     return rep
 
@@ -222,8 +227,12 @@ def render_startup(rep: SeedReport, *, field_label: str = "") -> str:
             L.append(f"# bit {v.bit}: SET -- first settable at SC {v.lo} ({v.estimator}; "
                      f"writers {list(v.writers)})")
         elif v.decision == "clear":
-            L.append(f"# bit {v.bit}: clear -- first settable at SC {v.lo} > beat "
-                     f"({v.estimator})")
+            if v.lo == rep.beat:
+                L.append(f"# bit {v.bit}: clear -- flips DURING this beat (first settable "
+                         f"at SC {v.lo} == beat; the resident scripts set it as the beat plays)")
+            else:
+                L.append(f"# bit {v.bit}: clear -- first settable at SC {v.lo} > beat "
+                         f"({v.estimator})")
         elif v.decision == "toggle":
             L.append(f"# bit {v.bit}: TOGGLE, not seeded -- {v.note}")
         elif v.decision == "refused":
@@ -330,13 +339,70 @@ def staged_beats(eb: EbScript) -> list[tuple[int, str]]:
 OP_ATE = 0xD7
 
 
+def _expr_word_reads(data: bytes, ins) -> set[int]:
+    """Global word/byte indexes (vtype 4-7, idx > 3) token-read anywhere in one SET
+    statement's expression — catches BITWISE availability tests (``word & 1``) that the
+    comparison parser rightly treats as opaque (the Dali-297 lesson)."""
+    out: set[int] = set()
+    pos, limit = ins.off + 1, ins.end
+    while pos < limit:
+        o = data[pos]; pos += 1
+        if o == 0xD3:
+            pos += 3; continue
+        if o == 0x7E:
+            pos += 4; continue
+        if o in (0x7D, 0x78):
+            pos += 2; continue
+        if o >= 0xC0:
+            idx = (data[pos] | (data[pos + 1] << 8)) if o >= 0xE0 else data[pos]
+            pos += 2 if o >= 0xE0 else 1
+            if (o & 3) == 0 and ((o >> 2) & 7) in (4, 5, 6, 7) and idx > 3:
+                out.add(idx)
+            continue
+        if o in (0x29, 0x5F, 0x79, 0x7A):
+            pos += 1; continue
+        if o == 0x7F:
+            break
+    return out
+
+
+def _self_written_words(eb: EbScript) -> set[int]:
+    """Byte indexes of Global word/byte vars this field's OWN scripts assign (any function —
+    the field manages that state itself, so a seed for it is at best noise and at worst a
+    mis-ordering: the room-code/sequencing words the Dali controllers rewrite at entry)."""
+    from .eb.cfg import parse_set
+    out: set[int] = set()
+    for e in eb.entries:
+        if e.empty:
+            continue
+        for f in e.funcs:
+            try:
+                fl = FuncFlow.build(eb.data, f.abs_start, f.abs_end)
+            except CfgError:
+                continue
+            for st, _blk in fl.iter_sets(eb.data):
+                if st.kind == "assign" and st.source == 0 and st.vtype in (4, 5, 6, 7) \
+                        and st.index is not None and st.index > 3:
+                    span = 1 if st.vtype in (6, 7) else 0
+                    out.update(range(st.index, st.index + span + 1))
+    return out
+
+
 def ate_word_seed(eb: EbScript) -> list[int]:
     """Bytes of the gEventGlobal WORD(s) gating this field's ``ATE(1)`` arm — the
-    availability-bitmask detection (docs/ATE_SYSTEM.md: a cold fork boots with the word 0 →
-    the ATE menu never arms; THIS, not the ScenarioCounter, is why scenario-only forks show
-    no ATE). Mechanized from the rung-0 guards: any word-var condition dominating an ATE(1)
-    site names its byte."""
-    out: set[int] = set()
+    availability detection (docs/ATE_SYSTEM.md: a cold fork boots with the word 0 → the ATE
+    menu never arms; THIS, not the ScenarioCounter, is why scenario-only forks show no ATE).
+    Two evidence channels, both from the rung-0 CFG: word-var COMPARISONS dominating an
+    ATE(1) site, and word-vars token-read in the dominator chain's branch statements (the
+    bitwise ``word & 1`` hub-enable idiom is opaque to the comparison parser). Words the
+    field's OWN scripts assign are then excluded — that is self-managed sequencing state
+    (room codes, frame counters) the resident logic rewrites at entry; what remains is the
+    EXTERNAL story state a fork must seed.
+
+    Returns ``{byte_idx: channel}`` — ``'cmp'`` (a proven comparison gate; seeded even
+    without a derivable value) or ``'expr'`` (an opaque-test read; seeded ONLY when a value
+    derives — the token scan may over-collect neighbours of the arm)."""
+    cands: dict[int, str] = {}
     for e in eb.entries:
         if e.empty:
             continue
@@ -351,8 +417,24 @@ def ate_word_seed(eb: EbScript) -> list[int]:
                         continue
                     for c in (fl.guards_at(ins.off) or ()):
                         if c.source == 0 and c.vtype in (4, 5, 6, 7) and c.index > 3:
-                            out.add(c.index)
-    return sorted(out)
+                            cands[c.index] = "cmp"
+                    b = fl.block_at(ins.off)
+                    if b is None:
+                        continue
+                    mask = fl._dom[b]
+                    d = 0
+                    while mask:
+                        if mask & 1:
+                            dblk = fl.blocks[d]
+                            if len(dblk.instrs) >= 2 \
+                                    and dblk.instrs[-1].op in (0x02, 0x03, 0x06, 0x0B, 0x0D) \
+                                    and dblk.instrs[-2].op == OP_SET:
+                                for idx in _expr_word_reads(eb.data, dblk.instrs[-2]):
+                                    cands.setdefault(idx, "expr")
+                        mask >>= 1
+                        d += 1
+    self_w = _self_written_words(eb)
+    return {i: ch for i, ch in sorted(cands.items()) if i not in self_w}
 
 
 def ate_word_values(byte_idxs: list[int], beat: int, census: dict,
@@ -362,7 +444,10 @@ def ate_word_values(byte_idxs: list[int], beat: int, census: dict,
     the latest PURE write (the reset idiom) sets the floor, and every write from that floor
     up ORs in (the accumulation idiom — B_OR_LET per unlocked ATE). None = no windowed write
     found (the caller falls back to the value-1 placeholder). No hand tables: the mask is
-    read off the same guard evidence the [startup] bits use."""
+    read off the same guard evidence the [startup] bits use. A donor write with NO SC
+    evidence at all contributes BEFORE every beat (lo = -1): within the zone's own writer
+    set, an unordered pure write is arrival/enable state (the Dali hub word 297 = 1,
+    written by the village entrance with no SC gate)."""
     ds = set(donors)
     scf, fenv = _sc_by_func(census), _field_env(census)
     out: dict[int, int | None] = {}
@@ -375,11 +460,12 @@ def ate_word_values(byte_idxs: list[int], beat: int, census: dict,
             if not (s["idx"] <= bidx <= s["idx"] + span):
                 continue
             e = _site_lo_full(s, scf, fenv)
-            if e is None or e[0] > beat:
+            lo = -1 if e is None else e[0]
+            if lo > beat:
                 continue
             v = int(s["value"]) & 0xFFFF
             contrib = (v >> 8) & 0xFF if bidx == s["idx"] + 1 else v & 0xFF
-            cands.append((e[0], bool(s.get("pure")), contrib))
+            cands.append((lo, bool(s.get("pure")), contrib))
         if not cands:
             out[bidx] = None
             continue
@@ -416,11 +502,15 @@ def seed_text(eb: EbScript, beat: int, census: dict, *, field_label: str = "",
     enables the beat-windowed party filter and the ATE mask derivation; *zone_donors* widens
     the mask's writer set to the whole chain (avail state is zone-global)."""
     parts = [render_startup(resolve(eb, beat, census), field_label=field_label)]
-    bytes_ = ate_word_seed(eb)
-    if bytes_:
+    detected = ate_word_seed(eb)
+    if detected:
         writers = zone_donors or ([donor] if donor is not None else [])
-        vals = ate_word_values(bytes_, beat, census, writers) if writers \
-            else {b: None for b in bytes_}
+        vals = ate_word_values(list(detected), beat, census, writers) if writers \
+            else {b: None for b in detected}
+        # 'expr'-channel words are speculative (opaque-test token scan): seed only when a
+        # value actually derived; 'cmp'-channel words keep the placeholder fallback
+        vals = {b: v for b, v in vals.items()
+                if v is not None or detected[b] == "cmp"}
         parts.append(render_words(vals))
     p = render_party(party_seed(eb, beat=beat, census=census, donor=donor))
     if p:

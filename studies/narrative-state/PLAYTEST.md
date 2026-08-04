@@ -161,4 +161,40 @@ Walk it again from 30840 (village entrance). Expect GREEN: party = Zidane/Vivi/G
 Steiner -- **no Marcus**; **ATEs offered** (the masks above -- including the one that moves
 Garnet to the weapon shop); rooms staged at the morning beat; the 30831 overlook still shows
 its faithful-empty state (its scene lives at 2525-2540) and still warns Skip-safe if its
-naming sequence is somehow triggered. PENDING
+naming sequence is somehow triggered.
+
+**Round 4 verdict: HALF GREEN (owner, 2026-08-04)** -- party FIXED ("no marcus this time");
+ATEs still absent, softlocked at the same progression point. The derived mask was for the
+WRONG MODEL: eb-src forensics on 351's controller (entry 4) decoded Dali's REAL ATE machine,
+which is nothing like the proven Lindblum `word[236] != 0` idiom:
+- word 239 = a ROOM CODE each field writes itself at entry (351->2, 352->6, 353->9, 359->0);
+  SByte 296 = a frame counter the controller manages. Detection had named the sequencer, not
+  the mask (their tests are COMPARISONS; the real mask's test is bitwise, hence invisible).
+- the real state: hub-enable **UInt16[297] & 1** + six XOR PAIRS of story bits (2072/2077,
+  2073/2078, 2087/2086, 2075/2064, 2076/2065, 2074/2079) -- offer when unlocked XOR viewed;
+  the controller itself flips the latches DURING the morning.
+- our seed had SET 2064/2075/2079 (envelope lo == 2600) -- pre-tripping the beat's own
+  latches, which SUPPRESSES the offer chain (it enters only while its latch is 0).
+- the unlock ping **bit 2102 = 1 is written ONLY by field 450 (Dali/Field)** in the whole
+  corpus (region window SC < 2610 + a resident loop) -- and 450 was NOT in the chain (a
+  different FBG zone; the windmill's exit was a live seam back into the real game).
+
+## Round 5 -- the derived trio: strict within-beat rule + detection v2 + field 450
+
+All three fixes derivational, none Dali-specific:
+1. **Strict within-beat rule** (resolve): evidence lo == beat now seeds CLEAR ("flips DURING
+   this beat") -- the seed target is the state at the instant the SC first equals the beat;
+   the resident scripts flip the beat's own latches as it plays.
+2. **ATE detection v2**: adds the dominator-chain token-scan channel (catches bitwise
+   `word & 1` hub tests) and EXCLUDES words the donor's own scripts assign (self-managed
+   room codes/counters). Dali now detects 297 and drops 239/296; Lindblum 552 still detects
+   236 via the comparison channel. Values: an SC-evidence-free zone write counts as arrival
+   state (lo = -1) -- 359's `297 = 1` derives the hub seed.
+3. **Field 450 imported as member 30841** (DL_FLD, verbatim; 9 village exits + self
+   retargeted, 451/453 later-visit siblings left as seams; all 11 old members' maps gained
+   `450 = 30841`).
+
+Chain re-seeded @ 2600 (words = byte 297 = 1 zone-wide; latches clear) + all 12 deployed.
+**30841 is a NEW id -- RELAUNCH once**, then walk from 30840. Expect: the ATE prompt arms as
+the morning plays (the first offer fires after the wake sequence / crossing Dali/Field, the
+Garnet-to-weapon-shop one included), party still Marcus-free. PENDING
