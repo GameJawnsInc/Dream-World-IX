@@ -77,3 +77,55 @@ Nothing stale survived.
 
 Four mutations, four caught: positions no longer preserved, the winding guard never firing,
 uv abandoning the positional rule, and the plan converting fewer tris than it drops.
+
+
+---
+
+## THE RING DROP WAS THE WRONG FIX ENTIRELY — playtest 2, 2026-08-04
+
+**R-4 is moot: I solved a problem the owner did not have.**
+
+The ask was that the ring's cut edge be **re-tiled with proper Wang transitions** so the
+shallow band terminates lawfully into deep water. I removed the ring instead. Owner:
+*"now it's just all deep sea water instead of what I was asking for (the edge to be
+auto-Wanged)"*. Deleting a feature is not fixing its edge.
+
+**And the execution was independently bad.** Owner: *"look at the stretched, hard-edged deep
+sea tiles near the coast"*. That is the tile-anchored UV I introduced while fixing the
+checkerboard: it clamps each vertex into its triangle's centroid tile, which is right for
+lattice-aligned tiles and wrong for the coast-cut triangles, whose vertices fall outside
+that tile and get flattened onto its edge. **My fix for bug 2 created bug 3.**
+
+### The remedy was named in the advisory I dismissed as noise
+
+The wang-carry warning says, verbatim: *"re-tile the rim (`wang_rim_retile` for sea3/sea5,
+the {sea1,sea5} ladder for sea1/sea2)"*. I read that advisory, decided it was noise because
+the owner said the LAND edge looked fine, and never checked that it named a remedy. It did.
+
+Two caveats, both worth knowing:
+* **`wang_rim_retile` is not a shipped verb.** It exists only as
+  `studies/overworld-topography/wang_rim_retile.py`, hardcoded to the `(8,17)` desert-beach
+  island. The advisory points at something a user cannot run.
+* But the approach is **precedented and correct**, and its design note states the principle
+  I violated: the replacement sea5 UVs are *"HARVESTED byte-exact from the donor island's
+  OWN real sea5 termination tiles ... NOT synthesized"*, with geometry, normals and topo
+  identical — a pure repartition between the Sea3/Sea4/Sea5 files.
+
+### What the right fix looks like
+
+For each of the 18 flagged rim quads on the isthmus: terminate the cropped shallow into the
+deep ring with a real sea5 transition tile whose deep-set points outward, harvested from
+donor `(6,6)+2x2`'s own termination tiles. Verts, normals and topo unchanged; only the uv
+rect and the containing Sea file change. Non-regression is airtight by construction because
+the triangle multiset is preserved.
+
+Adapting the script means generalising its hardcoded `ISLAND`/`DONORS` disc-1 case to a
+disc-9 target.
+
+### THE STANDING LESSON, now paid for three times in one feature
+
+Every failure here came from AUTHORING texture instead of CARRYING it. The owner named it
+before the second playtest — *"i thought we solved the whole Wang-patching transplant
+thing"* — and it is solved, for carrying. `--deepen-shallow` should be treated as a dead
+end, not a tool: it deletes a feature to avoid re-tiling it, and there is no case where
+that is the right trade.
