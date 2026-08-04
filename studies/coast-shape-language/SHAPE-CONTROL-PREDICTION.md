@@ -56,6 +56,13 @@ minted band's quadrant hash keys on pre-shift region coords (lawful — the sea4
 quadrant choice is measured-free — but a re-mint at the same world cell hashes
 differently than an excise fill would).
 
+**★ DEPLOYED for playtest 2026-08-04**: the pair live at Disc9 blocks
+(19,0)/(20,0) in `FF9CustomMap-world` via `fuse_layout` (11 override files, fused
+border 0 bad / 0 grade jumps, no wang advisories). A = (10,17) rot-180 shift
++20E, B = (10,18) shift −24W; the 5.4u channel runs along the shared frame
+x=1280, z ≈ −10..−45. Revert = delete the Block[19][0]/Block[20][0] files.
+⏳ awaiting the owner's verdict.
+
 `transplant_region` pins shift to 0 when no tongue opens a window (`avail =
 strips_with_data & windowed`), so two carried masses can never sit closer than their
 rects allow — measured floor 49.8u against stock's cluster regime of **4–20u** gaps. The
