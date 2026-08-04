@@ -62,8 +62,22 @@ one per story VISIT (the June inn lesson repeating) -- 351 is the FIRST-VISIT Da
 (villager + save moogle + props staged at every beat of the stay), 352 is the revisit shell
 whose only real content is the 2990-band Gudo state. 30821 is now a verbatim fork of 351
 seeded @ 2650 (tool output verbatim; no [party] block emitted -- 351 gates nothing on party).
-~ -> Reload. Expect: the populated first-visit inn (villager, the save moogle in its barrel).
-PENDING
+~ -> Reload. Expect: the populated first-visit inn.
+**PASS (owner, 2026-08-03): the save moogle and the SLEEPING INNKEEPER present -- the
+first-visit inn at its beat.** (Owner correction folded in: not all save moogles have
+barrels -- the cask is field 407's furniture, not a moogle universal.)
 
 Deferred by owner decision (round 3): a researched ScenarioCounter -> ExpectedParty map (the
 principled rung-7 answer to the byte-party problem); the adds-and-gates heuristic stands in.
+
+## Rung-1 verdict: CLOSED ★ (all three slots owner-confirmed)
+
+- 30820 / 111 @ 1152: the gated "no vacancies" cutscene fires; party seed silenced the donor
+  debug windows.
+- 30821 / 351 @ 2650: the first-visit inn staged (sleeping innkeeper + save moogle).
+- 30822 / 352 @ 3000: the revisit state (Gudo offering a room) -- same-FBG A/B proven.
+
+THE LOAD-BEARING READ FOR THE DECISION GATE: across four rounds, the bit-RESOLUTION model
+never failed -- every miss was a seed-INPUT affordance (party cast, staged-beat choice,
+sibling visit-id), each closed by a small tool verb (--beats, [party], fork-report). The
+demand-driven seed is sufficient for single-field forks.

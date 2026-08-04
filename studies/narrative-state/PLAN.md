@@ -173,6 +173,14 @@ Each rung lands independently with its own falsifier. ★ = owner playtest.
     `innermost_guard_block`/`dominated_by` unit-tested. 41 tests total.
   - Post-fix census: sound coverage essentially unchanged (SC-direct 499 vs 518 pre-fix — the
     falsified verdict stands on honest numbers; windowed bits 255).
-- Rung 1 (story-seed): NEXT.
+- **Rung 1: DONE ★ (2026-08-03, all 3 playtest slots owner-confirmed — PLAYTEST.md).**
+  `story-seed <field> --beat <N|name>` + `--beats` (staged-beat discovery) + `[party]`
+  emission (adds∩gates cast + non-Zidane donor player; dormant checks assert-by-hand; solo
+  hint). Four playtest rounds: the bit model never failed; all misses were input affordances.
+  Small follow-up queued: a shared-FBG sibling hint on story-seed/import (the wrong-sibling
+  trap hit twice across arcs). DEFERRED by owner: the researched SC→ExpectedParty map (rung 7).
+- **DECISION GATE: OPEN** — demand-driven seeding satisfied all single-field playtests;
+  rungs 3–6 (full beat model) are now a campaign/New-Game-at-beat-N concern, not a
+  single-fork one. Owner to scope.
 - Open question for the owner: any path to disc-3/4 calibration saves, or accept playtest-only
   validation for the late game? (Answered 2026-08-03: playtest-only for now, tentatively.)
