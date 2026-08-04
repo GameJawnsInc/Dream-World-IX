@@ -209,6 +209,89 @@ mobile-only · `[PNEW(=bit)]` icon shown iff `gMesValue[0]&amp;(1&lt;&lt;bit)`.
 (`FF9TextTool.cs:63-94`). Load is a per-txid CUMULATIVE MERGE, base game LAST-applied-
 first → [[project-ff9-text-block-shadow]].
 
+## 6b. ★★ THE IN-TEXT CENSUS — what stock actually writes inside its entries (2026-08-03)
+
+**The gap this closes.** Everything above §6 was censused from the *script* side (the 817 HW exports):
+opcodes, flags, window ids, fade brackets. §6 itself was never a census at all — it is a **capability
+list read off the engine parser**, so it says which tags exist and nothing about which stock uses. This
+reads the real `.mes` for every field text block in the install (`dialogue.extract_field_mes`) and
+counts. **64 blocks, 40,896 entries.**
+
+**★ First surprise, and it is structural: there are only 64 field text blocks for 831 mapped fields.**
+Text is per-ZONE, not per-field — block 694 serves 35 fields, 289 serves 28, 276 serves 27, and exactly
+ONE block in the game is used by a single field. `FF9TextTool.FieldZoneId` is that zone id. Consequences:
+the text-block shadow law (§10, [[project-ff9-text-block-shadow]]) is far broader than "a field" — writing
+a real block collides with a whole *town*; and a voice file keyed `Voices/{lang}/{zone}/va_{n}` covers a
+zone's entire dialogue, which is why Echo-S-style packs are organized the way they are.
+
+| tag | uses | blocks | tag | uses | blocks |
+|---|---|---|---|---|---|
+| `STRT` | 40,896 | 64 | `WAIT` | 1,068 | 64 |
+| `ENDN` | 38,006 | 64 | **`OFFT`** | **1,023** | **64** |
+| **colour** | **20,438** | **64** | `NFOC` | 981 | 64 |
+| **`HSHD`** | **20,438** | **64** | `MPOS` | 714 | 57 |
+| `SPED` | 15,277 | 64 | `ICON` | 663 | 57 |
+| `TAIL` | 12,702 | 64 | `NUMB` | 493 | 64 |
+| `MOVE` | 8,135 | 64 | `NANI` | 473 | 55 |
+| `WDTH` *(dummied)* | 5,877 | 64 | `XTAB` | 470 | 64 |
+| `IMME` | 5,352 | 64 | `PCHM` | 438 | 57 |
+| `TEXT` | 4,893 | 57 | `DBTN` | 304 | 64 |
+| `CENT` | 3,822 | 64 | `ITEM` | 294 | 64 |
+| `TIME` | 2,918 | 64 | `TBLE` | 171 | 57 |
+| `FEED` | 2,637 | 64 | **`INCS`** | **121** | **9** |
+| `CHOO` | 1,927 | 64 | **`SIGL`** | **63** | **10** |
+| `PCHC` | 1,489 | 64 | `PAGE` | 20 | 2 |
+
+Name tags: `ZDNE` 5,928 · `DGGR` 5,126 · `STNR` 2,659 · `VIVI` 1,321 · `FRYA` 1,143 · `QUIN` 4.
+
+### ★ Colour is the third most-used tag in the game, and it is SEMANTIC
+
+20,438 pushes, in every single block — not the decorative afterthought §6 implies. Six codes only:
+
+| code | uses | what it marks |
+|---|---|---|
+| `C8C8C8` white | 9,953 | **the RESTORE** — the explicit pop back to body text |
+| `68C0D8` cyan | 9,603 | **substituted names** — almost always wrapping a `[TEXT=0,n]` |
+| `C8B040` yellow | 404 | **quantities and items** — `[NUMB=0] Gil`, `[ITEM=0]`, "Card" |
+| `B880E0` pink | 246 | mostly dev/`Debug` strings |
+| `D06050` brown | 210 | rare |
+| `78C840` green | 22 | 2 blocks |
+
+**THE COLOUR LAW: stock colours what it did not author.** Cyan and yellow mark the *runtime-substituted*
+parts of a line — a name the player chose, a number, an item — so colour is how FF9 tells the reader
+"this word came from your save, not the script." It is not emphasis and never decoration.
+
+Two hard sub-laws, both exact:
+1. **Every colour push is paired with `[HSHD]`.** The counts are identical to the unit: 20,438 = 20,438.
+   Memoria's importer encodes exactly this pair as its named colour tokens (`FieldTags.cs:40-45`,
+   `"[68C0D8][HSHD]" -> "{Cyan}"`). A bare colour with no shadow toggle is not a shape stock ships.
+2. **Stock NEVER pops with `[-]`** — zero occurrences across all 64 blocks. It re-pushes `C8C8C8`
+   explicitly to close every span. `[-]` parses, but emitting it is off-idiom.
+
+`909090` grey, listed in §6's palette, appears **zero** times in field text.
+
+### ★ 16 documented tags stock never uses in field text
+
+`ANIM` · `NTUR` · `PSND` · `NSHD` · `BCOL` · `FONT` · `SPAY` · `FRAM` · `SPRT` · `KCBT` · `JCBT` ·
+`PNEW` · `MIRR` · `JSTF` · `LOADMES` · `TXID`.
+
+This **reframes Tier 3**. Those were listed as "engine-present, stock-unused" capabilities to adopt; the
+census says several are Memoria extensions or engine leftovers with no shipping precedent at all, so
+adopting one is *invention*, not fidelity — the project's own incremental-verbatim-first rule applies.
+⚠ Note especially **`PSND`** (the SFX-at-a-text-position tag §11 item 7 recommends as the zero-logic
+sting variant): **zero stock uses**, so it is unproven rather than merely underused.
+
+### Corrections to §6 from this census
+
+1. **`[OFFT]` is NOT "stock-rare"** — 1,023 uses across all 64 blocks. That claim was a guess.
+2. **`[WDTH]` ships 5,877 inert tags** in all 64 blocks — stock's own values are ignored too, which
+   independently corroborates the §12.1 DUMMIED finding rather than resting on the source read alone.
+3. **`[PAGE]` is nearly unused** (20 uses, 2 blocks). The kit supports it; stock effectively does not.
+4. Pervasive-but-under-exposed by the kit: `SPED` (15,277, every block), `MOVE` (8,135), `TIME` (2,918,
+   every block), `NFOC` (981, every block), `TEXT` (4,893), `ICON` (663), `DBTN` (304).
+5. `INCS`/`SIGL` are now *counted*, not inferred: 121 and 63 uses in 9 and 10 blocks — small, deliberate,
+   and consistent with §8b's reading of the unison idiom.
+
 ## 7. Choices
 
 No choice opcode — rows live in the text after `[CHOO]` (first row line); the block runs
