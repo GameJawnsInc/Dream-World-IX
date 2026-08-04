@@ -264,11 +264,19 @@ CUTSCENE_SPEC = [
           "blank = always"),
     Field("requires_flag", "Requires flag set", FLAGREF,
           "only plays while this story flag (name/idx) is set", catalog="flag"),
+    Field("requires_flag_clear", "Requires flag clear", FLAGREF,
+          "only plays while this story flag (name/idx) is UNSET — the other half of a flag gate",
+          catalog="flag"),
     Field("set_scenario", "Then set beat", SCENARIOREF,
           "the DIRECTOR ADVANCE: at scene end, move the story to this beat (once, only when it played)"),
+    Field("set_flags", "Then set flags", FLAGDICTLIST,
+          'story bits raised at scene end (inside the once-gate): "name, 1; other, 0"'),
     Field("then_warp", "Then warp to field", OPTINT,
           "end the scene with a fade + warp to this field id (how a forced-ATE scene returns)"),
-    Field("warmup", "Warmup frames", OPTINT, "default 30 (let the field settle)"),
+    Field("flag", "Once-flag override", OPTINT,
+          "advanced: pin THIS gEventGlobal bit as the scene's once-flag (blank = auto-allocated; "
+          "a campaign member's 2nd+ scene needs one)", advanced=True),
+    Field("warmup", "Warmup frames", OPTINT, "default 30 (let the field settle)", advanced=True),
 ]
 MARKER_SPEC = [
     Field("name", "Name", STR, "a label; reference it in a cutscene as walk = \"<name>\""),

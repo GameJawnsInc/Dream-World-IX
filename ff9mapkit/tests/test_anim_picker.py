@@ -306,7 +306,9 @@ def _open_cutscene(win, tmp_path, toml):
     p = tmp_path / "cs.field.toml"
     p.write_text(toml, encoding="utf-8")
     assert win.open_field(p)
-    win._goto_tree_section(_MEMBER, "cutscene")          # the member key is the [field] NAME, not the file
+    win.tabs.setCurrentWidget(win.cutscene_doc)          # the DOC tab owns the step editor now
+    assert win.cutscene_doc._member == _MEMBER           # (the member key is the [field] NAME)
+    win.cutscene_doc._edit_step(0)                       # open the animation step in the editor
     return p
 
 

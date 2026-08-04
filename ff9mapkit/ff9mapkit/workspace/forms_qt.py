@@ -112,7 +112,9 @@ DIALOGUE_KEYS = {"dialogue", "message", "prompt", "reply"}
 def _wrap_preview_panel(line_edit, get_text, wrap_width):
     """A read-only pane under a dialogue field: how the line breaks on the FF9 screen, live as you type.
     Reuses the exact build-time wrapper (:func:`..dialogue.wrap_preview`). ``wrap_width`` None = the field
-    set ``[dialogue] wrap = false`` (author wraps by hand) -> show the text raw, no preview break."""
+    set ``[dialogue] wrap = false`` (author wraps by hand) -> show the text raw, no preview break.
+    ``wrap_width`` may be a CALLABLE (re-read per refresh) for a long-lived panel whose field can
+    change under it -- the Cutscene doc's step editor outlives any one field."""
     panel = QWidget()
     pv = QVBoxLayout(panel)
     pv.setContentsMargins(0, 4, 0, 0)
@@ -140,8 +142,9 @@ def _wrap_preview_panel(line_edit, get_text, wrap_width):
 
     def refresh(*_):
         txt = get_text() or ""
-        box.setPlainText((_dlg.wrap_preview(txt, wrap_width) if wrap_width is not None else txt) or "(empty)")
-        over = _dlg.overflow(txt, wrap_width) if (txt and wrap_width is not None) else []
+        ww = wrap_width() if callable(wrap_width) else wrap_width
+        box.setPlainText((_dlg.wrap_preview(txt, ww) if ww is not None else txt) or "(empty)")
+        over = _dlg.overflow(txt, ww) if (txt and ww is not None) else []
         if over:
             note.setText(f"⚠ {len(over)} line(s) may overflow the window — verify in-game.")
             note.setProperty("state", "warn")

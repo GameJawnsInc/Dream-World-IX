@@ -21,6 +21,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication          # noqa: E402
 
+from ff9mapkit.editor import forms                   # noqa: E402
 from ff9mapkit.editor.theme import pick_palette      # noqa: E402
 from ff9mapkit.workspace import cutscenescan         # noqa: E402
 from ff9mapkit.workspace import shell                # noqa: E402
@@ -53,10 +54,18 @@ name = "Cid"
 model = "GEO_SUB_F0_CID"
 pos = [0, 400]
 
+# Mira is CAST (the parallel beat needs a second actor: the compiler rejects one actor doing
+# two things at once); she stands clear of Cid's route through the lower band.
 [[npc]]
 name = "Mira"
 model = "GEO_SUB_F0_CID"
 pos = [-250, -200]
+
+# Tam is NOT cast -- the stage's obstacle row.
+[[npc]]
+name = "Tam"
+model = "GEO_SUB_F0_CID"
+pos = [250, 520]
 
 # the altar sits ACROSS the mesh's wall slot from Cid, so the straight walk is blocked and
 # the compiler ROUTES it -- the storyboard's straight-to-routed upgrade is real in this fixture
@@ -65,12 +74,12 @@ name = "altar"
 pos = [900, 400]
 
 [[cutscene]]
-actors = ["Cid"]
+actors = ["Cid", "Mira"]
 requires_scenario = 100
 set_scenario = 200
 steps = [
-  { walk = "altar" },
-  { turn = 128, with_prev = true },
+  { walk = "altar", actor = "Cid" },
+  { turn = 128, actor = "Mira", with_prev = true },
   { say = "Made it to the altar.", speaker = "Cid" },
 ]
 
@@ -163,7 +172,7 @@ def test_the_rail_renders_the_whole_dispatch(doc, tmp_path):
     raw, _ = _fed(doc, tmp_path)
     rows = cutscenescan.scene_rows(raw)
     assert doc.rail.count() == len(rows) == 2
-    assert "scene #0" in doc.rail.item(0).text() and "cast 1" in doc.rail.item(0).text()
+    assert "scene #0" in doc.rail.item(0).text() and "cast 2" in doc.rail.item(0).text()
     assert "narration" in doc.rail.item(1).text()
     assert "plays at beat 100" in doc.rail.item(0).text()
 
@@ -182,8 +191,8 @@ def test_the_canvas_draws_markers_cast_obstacles_and_legs(doc, tmp_path):
     _fed(doc, tmp_path)
     t = _tags(doc.canvas)
     assert t["marker"] == 1                             # altar — review B5, finally on a canvas
-    assert t["post"] == 1                               # Cid, the cast
-    assert t["npc"] == 1                                # Mira, an obstacle
+    assert t["post"] == 2                               # Cid + Mira, the cast
+    assert t["npc"] == 1                                # Tam, an obstacle
     assert t["player"] == 1                             # the spawn (player not in the cast)
     assert t["leg"] >= 1 and t["target"] == 1           # the walk to the altar
 
@@ -337,6 +346,245 @@ def test_the_open_toml_door_reaches_the_member_file(win, tmp_path, monkeypatch):
         "path", url.toLocalFile()) or True)
     win.cutscene_doc.toml_btn.click()
     assert opened["path"].endswith("GLEN.field.toml")
+
+
+# ------------------------------------------------------------------ THE WRITE SURFACE (the flip)
+def _apply_say(doc, text):
+    doc.editor.value_text.setPlainText(text)
+    doc._apply_step()
+
+
+def test_three_consecutive_say_steps_all_survive(doc, tmp_path):
+    """THE SAME-KIND OVERWRITE, retired for good: the add lane inserts then ADVANCES, so a
+    conversation types straight through — three lines in, three out."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)                          # the narration scene: 2 steps
+    doc._selected_step = None
+    doc._add_step()                                    # add mode, at the end
+    for line in ("Cid: Well now.", "Cid: That's torn it.", "Cid: Rubbish!"):
+        _apply_say(doc, line)
+    says = [s.get("say") for s in doc._steps() if "say" in s]
+    assert says[-3:] == ["Cid: Well now.", "Cid: That's torn it.", "Cid: Rubbish!"]
+
+
+def test_add_step_inserts_after_the_selection(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._on_step_select(0)                             # select the first narration line
+    doc._add_step()
+    assert doc.editor.insert_at == 1
+    _apply_say(doc, "slotted in")
+    assert doc._steps()[1]["say"] == "slotted in"
+    assert "wait" in doc._steps()[2], "the old tail moved down, nothing overwritten"
+
+
+def test_update_can_change_a_steps_kind_in_place_and_preserves_unknown_keys(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._steps()[0]["mystery"] = 7                     # a key the editor does not know
+    doc._edit_step(0)                                  # the say line
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("wait"))
+    doc.editor.value_line.setText("45")
+    doc._apply_step()
+    s = doc._steps()[0]
+    assert s.get("wait") == 45 and "say" not in s, "the kind changed IN PLACE"
+    assert s.get("mystery") == 7, "unknown keys survive the editor (the extras rule)"
+
+
+def test_clearing_a_managed_key_in_the_editor_pops_it(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc._edit_step(2)                                  # the attributed say (speaker = Cid)
+    assert doc.editor.x_speaker.text() == "Cid"
+    doc.editor.x_speaker.clear()
+    doc._apply_step()
+    assert "speaker" not in doc._steps()[2], "a cleared managed key must POP, not linger"
+
+
+def test_the_pacing_extras_round_trip_and_validate_clean(doc, tmp_path):
+    """The message-box vocabulary the compiler already reads off a text step — now writable.
+    The written step must round-trip AND pass the build's own window-attribute sweep."""
+    import copy as _copy
+    from ff9mapkit import build as _build
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)
+    doc.editor.x_speaker.setText("Narrator")
+    doc.editor.x_duration.setText("90")
+    doc.editor.x_speed.setText("4")
+    doc.editor.x_instant.setChecked(True)
+    doc._apply_step()
+    s = doc._steps()[0]
+    assert s["speaker"] == "Narrator" and s["duration"] == 90
+    assert s["speed"] == 4 and s["instant"] is True
+    problems = _build.validate(_build.FieldProject(_copy.deepcopy(doc._raw), tmp_path))
+    assert not [p for p in problems if "[cutscene]" in p], problems
+    # and a bad number is refused with the field NAMED, before any op fires
+    doc._edit_step(0)
+    doc.editor.x_duration.setText("soon")
+    n = len(doc._steps())
+    doc._apply_step()
+    assert "duration" in doc.editor.note.text()
+    assert len(doc._steps()) == n and doc._steps()[0]["duration"] == 90, "no op fired"
+
+
+def test_a_window_step_round_trips_and_the_valueless_kind_hides_its_value(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._add_step()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("open"))
+    assert not doc.editor.value_text.isHidden(), "open is a TEXT step: the dialogue box"
+    assert not doc.editor.say_preview.isHidden(), "…and the wrap preview"
+    doc.editor.value_text.setPlainText("The window stays up")
+    doc.editor.x_window.setText("2")
+    doc._apply_step()
+    added = doc._steps()[doc.editor.insert_at - 1]
+    assert added == {"open": "The window stays up", "window": 2}
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("raise"))
+    assert doc.editor.value_line.isHidden() and doc.editor.value_label.isHidden(), \
+        "a valueless step hides the value row"
+    doc._apply_step()
+    assert doc._steps()[doc.editor.insert_at - 1] == {"raise": True}
+
+
+def test_with_prev_is_gated_by_the_compilers_rule_and_row_position(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc._edit_step(1)                                  # the turn step, row 1
+    assert doc.editor.with_prev.isEnabled(), "turn on row 1 may run in parallel"
+    doc._edit_step(0)                                  # row 0: nothing to run with
+    assert not doc.editor.with_prev.isEnabled()
+    doc._edit_step(2)                                  # a say can never parallelize
+    assert not doc.editor.with_prev.isEnabled()
+
+
+def test_ladder_rowtools_reorder_duplicate_and_delete(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    says = lambda: [forms.step_key(s) for s in doc._steps()]      # noqa: E731
+    assert says() == ["say", "wait"]
+    doc._move_step(1, -1)
+    assert says() == ["wait", "say"], "Up must move the step EARLIER"
+    doc._move_step(0, -1)                              # boundary: a no-op, never a raise
+    assert says() == ["wait", "say"]
+    doc._dup_step(0)
+    assert says() == ["wait", "wait", "say"], "the copy sits directly AFTER its source"
+    doc._steps()[1]["wait"] = 99
+    assert doc._steps()[0]["wait"] == 30, "the duplicate is a DEEP copy"
+    doc._del_step(1)
+    assert says() == ["wait", "say"]
+
+
+def test_scene_ops_add_duplicate_delete(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc._add_scene()
+    assert doc.rail.count() == 3 and doc._scene == 2, "add lands ON the new scene"
+    doc._dup_scene()
+    assert doc.rail.count() == 4 and doc._scene == 3
+    assert "the same gate" in doc.problems_lbl.text() or "UNGATED" in doc.problems_lbl.text(), \
+        "duplicating a scene collides its gate — PROBLEMS must say so LIVE"
+    doc._del_scene()
+    doc._del_scene()
+    assert doc.rail.count() == 2 and len(doc._raw["cutscene"]) == 2
+
+
+def test_the_noscene_guide_action_authors_the_first_scene(doc, tmp_path):
+    head = FIELD_TOML.split("[[cutscene]]")[0]
+    _fed(doc, tmp_path, head)
+    assert doc._guide_state == "noscene"
+    doc._add_scene()
+    assert doc._stack.currentWidget() is doc._content
+    assert isinstance(doc._raw["cutscene"], list) and len(doc._raw["cutscene"]) == 1
+
+
+def test_scene_settings_apply_writes_the_gate_and_keeps_the_steps(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.settings_btn.setChecked(True)
+    g = doc._settings_getters
+    assert g is not None
+    g["requires_scenario"].__self__.setText("777")     # the getter is the widget's bound .text
+    steps_before = list(doc._raw["cutscene"][0]["steps"])
+    doc._apply_settings()
+    b = doc._raw["cutscene"][0]
+    assert b["requires_scenario"] == 777
+    assert b["steps"] == steps_before, "settings must never touch the steps"
+    assert "plays at beat 777" in doc.rail.item(0).text(), "the rail follows the applied gate"
+
+
+def test_the_stage_drop_rewrites_the_selected_target(doc, tmp_path):
+    """One drop = one op = one label — through the INHERITED drag machinery, driven at the
+    world-frame seam the behavior suite uses."""
+    _fed(doc, tmp_path)
+    doc._on_step_select(0)                             # the walk step -> its target grows a handle
+    assert doc.canvas._edit and len(doc.canvas._move_items) == 1
+    labels = []
+    doc.on_edit = lambda m, lbl: labels.append(lbl)
+    doc._member = doc._member                          # (unchanged; on_edit now captures)
+    assert doc.canvas._begin_drag(("handle", 0))
+    doc.canvas._drag_world(500, 250)
+    doc.canvas._end_drag()
+    assert doc._raw["cutscene"][0]["steps"][0]["walk"] == [500, 250]
+    assert len(labels) == 1 and 'was "altar"' in labels[0], \
+        "dragging a NAMED target must SAY the meaning changed"
+
+
+def test_pick_on_the_stage_fills_the_value(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc._edit_step(0)
+    doc.editor.pick_btn.click()
+    assert doc.canvas.on_sim_click is not None, "the one-shot click lane is armed"
+    doc.canvas.on_sim_click(123.4, -56.6)
+    assert doc.editor.value_line.text() == "123, -57"
+    assert doc.canvas.on_sim_click is None, "one shot only"
+
+
+def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
+    _fed(doc, tmp_path)
+    doc.stage_now(sync=True)
+    assert doc._stage_armed and doc._wmesh is not None
+    monkeypatch.setattr(cutscenescan, "load_walkmesh",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("disk touched")))
+    doc._steps()[0]["walk"] = [2000, 2000]             # an edit that now stalls
+    doc.stage_now(sync=True)                           # the re-judge rides the WARM mesh
+    assert doc._last_stage.warnings, "the warm re-judge must catch the new stall"
+    # and a committed edit ARMS the debounced re-judge
+    doc._after_edit("test edit")
+    assert doc._restage_timer.isActive()
+
+
+# ------------------------------------------------------------------ shell: undo + one-writer
+def test_a_doc_edit_lands_by_reference_dirty_and_one_undo_step(win, tmp_path):
+    p = make_cutscene_field(tmp_path)
+    win.open_field(p)
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    n = len(win._undo_stack)
+    doc.rail.setCurrentRow(1)
+    doc._add_step()
+    doc.editor.value_text.setPlainText("an undoable line")
+    doc._apply_step()
+    assert any(s.get("say") == "an undoable line"
+               for s in win._doc("GLEN").data["cutscene"][1]["steps"]), \
+        "the op mutated the OPEN doc (by reference)"
+    assert "GLEN" in win._dirty_members()
+    assert len(win._undo_stack) == n + 1, "exactly one undo step per Apply"
+    win.tabs.setCurrentWidget(win.doc_scroll)
+    win._undo()
+    assert win.tabs.currentWidget() is win.cutscene_doc, \
+        "undo focus lands back on the TAB (the cutscene_tab token)"
+    assert not any(s.get("say") == "an undoable line"
+                   for s in win._doc("GLEN").data["cutscene"][1]["steps"])
+
+
+def test_the_editor_tree_summary_has_no_write_path(win, tmp_path):
+    """THE ONE-WRITE-SURFACE FENCE: the summary carries no _save_ctx, so no nav/undo/save
+    boundary can fold stale widget values back over a doc edit."""
+    p = make_cutscene_field(tmp_path)
+    win.open_field(p)
+    win._goto_tree_section("GLEN", "cutscene")
+    assert win._save_ctx is None
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    win.cutscene_doc._add_scene()                      # a doc edit while the summary was mounted
+    assert win._commit_active() is True                # the old fold boundary: now a no-op
+    assert len(win._doc("GLEN").data["cutscene"]) == 3, "nothing folded back over the edit"
 
 
 # ------------------------------------------------------------------ chrome
