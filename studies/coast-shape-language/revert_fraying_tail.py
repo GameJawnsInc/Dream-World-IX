@@ -1,4 +1,4 @@
-"""Revert the Path D Disc9 carries: the FRAYING TAIL anchor and THE ISTHMUS.
+"""Revert the Path D Disc9 carries: the FRAYING TAIL anchor, THE ISTHMUS, THE CORNER ISLE.
 
 The five target cells were EMPTY before this deploy (`mod-overwrite: existing=0`), so the
 revert is a clean delete -- nothing is being restored over, and nothing else in the
@@ -19,7 +19,8 @@ ROOT = GAME / "FF9CustomMap-world" / "FF9_Data" / "WorldMap" / "Disc9" / "0_1"
 
 ANCHOR = [(11, 12), (10, 13), (11, 13), (10, 14), (11, 14)]   # comma, (10,12)+2x3
 ISTHMUS = [(14, 12), (15, 12), (14, 13), (15, 13)]            # waisted, (14,12)+2x2
-SETS = {"anchor": ANCHOR, "isthmus": ISTHMUS}
+CORNER = [(13, 15)]                                           # (0,0) 1x1, a pure carry
+SETS = {"anchor": ANCHOR, "isthmus": ISTHMUS, "corner": CORNER}
 PARTS = ("Terrain.ff9mesh", "Sea3.ff9mesh", "Sea5.ff9mesh", "Sea4.ff9mesh",
          "Donor.txt")
 
