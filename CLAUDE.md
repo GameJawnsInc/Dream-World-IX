@@ -288,7 +288,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 **Open arcs — status lives in the study, not here:**
 - The Southern Ring (the composed world) — ★ BOARD CLOSED: R1-R5 all playtest-confirmed (hub/hall/ferry, plates, forest+encounters, the boat: wake/plate/land-anywhere/seal/standoff) → `studies/overworld-topography/southern-ring/DESIGN.md`
 - Overworld interior topography — the two-ground landmass (Rung F): ACCEPTED; the generator fold-back ★ DONE (36-gate one-command junction_compose; THE ONE-SITE WORLD LAW: the map holds exactly one landmass of this class) → `studies/overworld-topography/`
-- Narrative-state fork fidelity — a fork still boots at scenario-zero → `ff9mapkit/docs/FORK_FIDELITY.md`
+- Narrative-state ENGINE — ★ rungs 0-2 DONE (dominance instrument; story-seed startup/party/words all playtests owner-confirmed); gate RESOLVED: full model shelved, next = chain seeding → `studies/narrative-state/PLAN.md`
 - Co-op field/dialogue lockstep (F3) — two-machine proof pending → `studies/field-coop/`
 - Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
   → `studies/fort-condor/PLAN.md`
