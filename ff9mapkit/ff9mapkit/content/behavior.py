@@ -731,6 +731,15 @@ HUD_EXPR_WRITE_OPS = exprsem.WRITE_OPS
 HUD_EXPR_IMPURE_OPS = exprsem.IMPURE_OPS
 # the guard the EMITTER writes around a [TEXT=] row slot: `<E> <E> const(0) B_GE B_MULT`
 HUD_EXPR_CLAMP_TAIL = ("const(0)", "B_GE", "B_MULT")
+#: the default diagnostic prefix for a value source authored on the HUD surface. Both value-source
+#: entry points (:func:`hud_expr_tokens` and :meth:`FieldBehavior._hud_ref`) default their ``label``
+#: to it, so the two cannot drift — and, more to the point, so neither of them has to spell a bare
+#: `label` that is not a parameter. A free `label` in this module resolves to the `eb.labelasm.label`
+#: FUNCTION imported at the top, and an f-string formats that without erroring: four `[[behavior.hud]]`
+#: refusals once shipped reading `<function label at 0x...> 'hp:ghost': unknown unit 'ghost'`, because
+#: a find/replace parameterising hud_expr_tokens overshot into _hud_ref, which has no such parameter.
+#: tests/test_source_fstring_capture.py now fails the whole package on that shape.
+HUD_VALUE_LABEL = "hud value"
 
 
 def hud_row_index_clamp(ref: str) -> str:
@@ -749,46 +758,55 @@ def hud_row_index_clamp(ref: str) -> str:
     return f"{ref} {ref} " + " ".join(HUD_EXPR_CLAMP_TAIL)
 
 
-def hud_expr_tokens(src: str) -> str:
+def hud_expr_tokens(src: str, *, label: str = HUD_VALUE_LABEL) -> str:
     """Validate an ``expr:<RPN tokens>`` hud source and return the bare token string.
 
     Assembles it here (with the ``B_EXPR_END`` the emitter appends) so a bad token fails at
     BUILD time, never in-game; then :func:`eb.exprsem.analyze` checks the RPN actually balances
-    and refuses every assigning / impure operator — see :data:`HUD_EXPR_WRITE_OPS`."""
+    and refuses every assigning / impure operator — see :data:`HUD_EXPR_WRITE_OPS`.
+
+    ``label`` names the SURFACE the source was authored on. It exists so a SECOND lane can reuse
+    this validator instead of forking it: :func:`content.choice.option_values_body` publishes a
+    ``[[choice]]`` option's ``values`` into the same ``gMesValue`` slots through the same
+    :func:`eb.opcodes.set_text_variable_expr` emitter, so it wants exactly these three refusals —
+    and a second copy of them is the copy that drifts. The refusal REASONS below are phrased for a
+    per-frame ticker because that is the harsher of the two lanes; a choice value is published once
+    per window open instead, which still re-runs every time the player re-opens the page, and a
+    write or an RNG roll inside a DISPLAY expression is a defect in either lane."""
     toks = str(src)[len(HUD_EXPR_PREFIX):].strip()
     if not toks:
-        raise BehaviorError(f"hud value {src!r}: expr: needs RPN tokens, e.g. "
+        raise BehaviorError(f"{label} {src!r}: expr: needs RPN tokens, e.g. "
                             f"'expr:Null.SBit[5]' or 'expr:const(256) B_HAVE_ITEM'")
     if "B_EXPR_END" in toks.split():
-        raise BehaviorError(f"hud value {src!r}: drop B_EXPR_END — the emitter appends the "
+        raise BehaviorError(f"{label} {src!r}: drop B_EXPR_END — the emitter appends the "
                             f"0x7F terminator itself")
     try:
         exprasm.assemble(toks + " B_EXPR_END")            # the encoder: token spelling + byte layout
     except Exception as e:                                # AssembleError (a ValueError)
-        raise BehaviorError(f"hud value {src!r}: {e}")
+        raise BehaviorError(f"{label} {src!r}: {e}")
     # EFFECTS FIRST, then balance: an expression can be both, and "you put a save-state write in a
     # per-frame value" is the more actionable of the two diagnoses.
     try:
         sems = exprsem.token_sems(toks + " B_EXPR_END")
     except exprsem.ExprSemanticError as e:
-        raise BehaviorError(f"hud value {src!r}: {e}")
+        raise BehaviorError(f"{label} {src!r}: {e}")
     wsems = [s for s in sems if s.effect == exprsem.WRITE]
     if wsems:
         raise BehaviorError(
-            f"hud value {src!r}: {sorted({s.token for s in wsems})} ASSIGN through the expression, "
+            f"{label} {src!r}: {sorted({s.token for s in wsems})} ASSIGN through the expression, "
             f"and a hud value is re-evaluated every tick — that would rewrite save state on every "
             f"frame ({wsems[0].why}). A hud row reads; use a counter/table action to write.")
     impure = [s for s in sems if s.effect == exprsem.IMPURE]
     if impure:
         raise BehaviorError(
-            f"hud value {src!r}: {sorted({t.token for t in impure})} mutate shared runtime "
+            f"{label} {src!r}: {sorted({t.token for t in impure})} mutate shared runtime "
             f"state, and a hud value is re-evaluated every tick — {impure[0].why}. A hud row reads.")
     # …and the encoder is NOT a validator: assemble() does no arity or stack-balance checking at
     # all, so this is the pass that makes the docstring's "fails at BUILD time" claim true.
     try:
         exprsem.analyze(toks + " B_EXPR_END")
     except exprsem.ExprSemanticError as e:
-        raise BehaviorError(f"hud value {src!r}: {e}")
+        raise BehaviorError(f"{label} {src!r}: {e}")
     return toks
 
 
@@ -846,6 +864,50 @@ def hud_text_table_slots(text: str) -> frozenset:
                 f"(the engine goes through Single.TryParse + a (UInt32) cast, FFIXTextTag.cs:71-76) "
                 f"and the emitter cannot promise to clamp it. Write a literal 0..7.")
         slots.add(int(p))
+    return frozenset(slots)
+
+
+# THE [NUMB=] DECODER — symmetric with `_RE_TEXT_TAG` above, and here for the same reason: the naive
+# `\[NUMB=(\d+)` pattern that four call sites each spelled for themselves cannot see three other
+# spellings the engine's own tag reader accepts, and every one of them READS a gMesValue slot.
+#   * `[NUMB]` — `IntParam(0)` returns 0 when `ParamCount <= 0` (FFIXTextTag.cs:68-74), so a bare tag
+#     renders SLOT 0, exactly as bare `[TEXT]` does;
+#   * `{Variable n}` — FFIXTextTag.TryRead's BRACE form parses the enum name and splits its params on
+#     comma with RemoveEmptyEntries (FFIXTextTag.cs:88-130); `Memoria`'s own field-text export writes
+#     `[NUMB=n]` back out in exactly that spelling (ExportFieldTags.cs:35);
+#   * `[NUMB=id,slot]` — the SECOND parameter is the overlay-compare, and it is a second READ:
+#     `ETb.gMesValue[tag.IntParam(1)] == mesScriptId` (DialogBoxSymbols.cs:164).
+# The read is UNCLAMPED — `ETb.gMesValue[mesScriptId]` against `Int32[8]` (ETb.cs:230-234) — so a slot
+# >= 8 is an IndexOutOfRange once per rendered frame rather than a wrong number, and a slot nothing
+# published renders the last field's leftovers. Over-approximating (case-insensitive, like the TEXT
+# decoder) only demands a value for a slot the engine would not have read; under-approximating is what
+# ships the stale render.
+_RE_NUMB_TAG = re.compile(r"\[(NUMB)(?:=([^\]]*))?\]|\{(Variable)(?:[ \t]+([^}]*))?\}", re.IGNORECASE)
+
+
+def hud_numb_slots(text: str) -> frozenset:
+    """The gMesValue slots a row's ``[NUMB=...]`` tags RENDER — every spelling (see `_RE_NUMB_TAG`).
+
+    Raises :class:`BehaviorError` on a parameter that is not a plain non-negative decimal integer,
+    for the same reason :func:`hud_text_table_slots` does: the engine resolves it through
+    ``Single.TryParse`` + an ``(Int32)`` cast (FFIXTextTag.cs:68-74), so which slot it reads is not
+    statically knowable and no lane can promise to have published it."""
+    slots = set()
+    for m in _RE_NUMB_TAG.finditer(str(text)):
+        raw = m.group(2) if m.group(1) else m.group(4)
+        params = [p for p in (raw or "").split(",") if p.strip() != ""] if raw else []
+        if not params:
+            slots.add(0)                                  # IntParam(0) -> 0 (FFIXTextTag.cs:68-74)
+            continue
+        for p in params[:2]:                              # param0 = the value, param1 = the overlay
+            p = p.strip()
+            if not p.isdigit():
+                raise BehaviorError(
+                    f"{m.group(0)!r} — the [NUMB=] parameter {p!r} is not a plain non-negative "
+                    f"integer, so which gMesValue slot it reads is not statically knowable (the "
+                    f"engine goes through Single.TryParse + an (Int32) cast, FFIXTextTag.cs:68-74). "
+                    f"Write a literal 0..7.")
+            slots.add(int(p))
     return frozenset(slots)
 
 
@@ -1878,16 +1940,23 @@ class FieldBehavior:
         self._scans.append(sc)
         return sc
 
-    def _hud_ref(self, src: str) -> str:
+    def _hud_ref(self, src: str, *, label: str = HUD_VALUE_LABEL) -> str:
         """Resolve a hud VALUE SOURCE to an RPN fragment: a counter name, the
         live ``gil`` / ``timer`` sysvars, ``hp:<unit>`` (a unit's hit points —
         the group cell for a roster member), ``item:<id>`` (the live held
         count via ``B_HAVE_ITEM`` — the TOML lane resolves an item NAME to the
         id before registration), or ``expr:<RPN tokens>`` (the escape hatch —
-        see :func:`hud_expr_tokens` for what it refuses and why)."""
+        see :func:`hud_expr_tokens` for what it refuses and why).
+
+        ``label`` is a PARAMETER, not a free name, and that is the whole point:
+        this module imports ``eb.labelasm.label`` at :59, so a bare ``label`` in
+        one of the refusals below binds to that FUNCTION and formats as
+        ``<function label at 0x...>`` instead of raising. It is spelled the same
+        way as :func:`hud_expr_tokens`' seam so a second lane could reuse this
+        resolver too."""
         src = str(src)
         if src.startswith(HUD_EXPR_PREFIX):
-            return hud_expr_tokens(src)
+            return hud_expr_tokens(src, label=label)
         if src == "gil":
             return "B_SYSVAR[6]"
         if src == "timer":
@@ -1896,17 +1965,17 @@ class FieldBehavior:
             try:
                 iid = int(src[5:])
             except ValueError:
-                raise BehaviorError(f"hud value {src!r}: item: takes a resolved item "
+                raise BehaviorError(f"{label} {src!r}: item: takes a resolved item "
                                     f"ID (the TOML lane resolves names)")
             if not 0 <= iid <= 254:
-                raise BehaviorError(f"hud value {src!r}: item id must be 0..254")
+                raise BehaviorError(f"{label} {src!r}: item id must be 0..254")
             return f"const({iid}) B_HAVE_ITEM"
         if src.startswith("hp:"):
             unit = src[3:]
             if unit not in self.units:
-                raise BehaviorError(f"hud value {src!r}: unknown unit {unit!r}")
+                raise BehaviorError(f"{label} {src!r}: unknown unit {unit!r}")
             if self.units[unit].hp is None and unit not in self._member:
-                raise BehaviorError(f"hud value {src!r}: unit {unit!r} has no hp=")
+                raise BehaviorError(f"{label} {src!r}: unit {unit!r} has no hp=")
             return self._hp_ref(unit)
         return self._counter_ref(src)                     # raises if unknown
 
@@ -1943,9 +2012,11 @@ class FieldBehavior:
             raise BehaviorError("hud: digits must be 1..7 (the width reserve)")
         if not str(text).strip():
             raise BehaviorError("hud: text must be non-empty")
-        for m in re.finditer(r"\[NUMB=(\d+)", str(text)):
-            if int(m.group(1)) >= len(values):
-                raise BehaviorError(f"hud: [NUMB={m.group(1)}] has no value "
+        # Every spelling of the tag, through the shared decoder — a bare `[NUMB]` reads slot 0 and a
+        # `{Variable n}` reads slot n, and the `\[NUMB=(\d+)` pattern this replaced saw neither.
+        for slot in sorted(hud_numb_slots(text)):
+            if slot >= len(values):
+                raise BehaviorError(f"hud: [NUMB={slot}] has no value "
                                     f"(only {len(values)} given)")
         # A slot a [TEXT=…] tag reads is a table ROW INDEX with no engine-side lower bound
         # (ETb.cs:270-284). The CLAMP is not checked here — compile() WRAPS the row itself

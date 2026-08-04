@@ -2633,6 +2633,65 @@ def validate(project: FieldProject) -> list[str]:
                 if "qte" in o and "input" in o:
                     problems.append(f"[[choice]] #{c} option {oi}: one modal game per row -- "
                                     f"qte and input can't share an option")
+                # THE COVERAGE RULE runs on EVERY option, OUTSIDE the `values` guard below, because
+                # the shape it exists to catch has no `values` key at all: a reply carrying [NUMB=n]
+                # and nothing to fill it renders the last field's leftover slot vector. Nested under
+                # `if VALUES_KEY in o` it could only fire for rows that had already opted in, so the
+                # original defect validated clean. One rulebook, shared with the emitter that refuses
+                # it: content/choice.py:reply_slot_problems.
+                for _tail in _choice.reply_slot_problems(o):
+                    problems.append(f"[[choice]] #{c} option {oi} {_tail}")
+                # `values` -- the LIVE NUMBERS lane (content/choice.py:option_values_body). Same
+                # rulebook as [[behavior.hud]]'s `values`, reached through the SAME validator
+                # (behavior.hud_expr_tokens / hud_text_table_slots), because both publish into the
+                # one Int32[8] gMesValue array through the same 0x66 emitter.
+                if _choice.VALUES_KEY in o:
+                    from .content import behavior as _behavior
+                    try:
+                        vals = _choice.option_values(o)
+                    except ValueError as e:
+                        problems.append(f"[[choice]] #{c} option {oi}: {e}")
+                        vals = []
+                    if not vals:
+                        problems.append(f"[[choice]] #{c} option {oi} values must name at least one "
+                                        f"'expr:<RPN tokens>' source (slot i is values[i])")
+                    elif len(vals) > _choice.MES_VALUE_SLOTS:
+                        # ETb.SetMesValue clamps scriptID to 0..7 against Int32[8] (ETb.cs:230-234):
+                        # a 9th value overwrites slot 7 in-game instead of failing.
+                        problems.append(
+                            f"[[choice]] #{c} option {oi} has {len(vals)} values > the engine's "
+                            f"{_choice.MES_VALUE_SLOTS} gMesValue slots (ETb.SetMesValue clamps "
+                            f"scriptID 0..7 against Int32[8], ETb.cs:230-234)")
+                    for vi, v in enumerate(vals):
+                        s = str(v)
+                        if not s.startswith(_behavior.HUD_EXPR_PREFIX):
+                            problems.append(
+                                f"[[choice]] #{c} option {oi} values[{vi}] {v!r} must be an "
+                                f"'{_behavior.HUD_EXPR_PREFIX}<RPN tokens>' source")
+                            continue
+                        try:
+                            _behavior.hud_expr_tokens(s, label=f"[[choice]] #{c} option {oi} "
+                                                               f"values[{vi}]")
+                        except Exception as e:                # BehaviorError (a ValueError)
+                            problems.append(str(e))
+                    reply = str(o.get("reply") or "")
+                    if not reply.strip():
+                        problems.append(
+                            f"[[choice]] #{c} option {oi}: values needs a `reply` to render into -- "
+                            f"gMesValue persists across field loads, so publishing with no window of "
+                            f"this row's own only changes the NEXT field's numbers")
+                    for mk in ("input", "recall", "qte"):
+                        if mk in o:
+                            # the stepper's submit/recall loads gMesValue slot 0 for its echo
+                            # (content/numinput.py:413); `values` is emitted after it and starts at
+                            # slot 0, so the echo would be silently overwritten.
+                            problems.append(
+                                f"[[choice]] #{c} option {oi}: values can't share a row with "
+                                f"{mk!r} -- that modal loads gMesValue slot 0 with its own echo and "
+                                f"values[0] would overwrite it")
+                    # (the [NUMB=]/[TEXT=] coverage scan that used to live here is the hoisted
+                    # `reply_slot_problems` call above -- nested here it could not see a reply whose
+                    # tags had NO `values` key behind them at all, which was the shipped defect)
         if isinstance(opts, list) and opts:
             n = len(opts)
             d = ch.get("default")

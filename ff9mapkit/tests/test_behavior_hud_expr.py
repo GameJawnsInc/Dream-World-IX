@@ -242,6 +242,75 @@ def test_TEXT_slot_out_of_range_is_refused():
         fb.hud("[NUMB=0] [TEXT=1,3]", ["expr:Null.SBit[5]"], txid=900)
 
 
+# ------------------------------------------------------------- the [NUMB=] decoder
+@pytest.mark.parametrize("text,slots", [
+    ("a [NUMB=6] b", {6}),
+    ("[NUMB]", {0}),                 # IntParam(0) -> 0 when ParamCount <= 0 (FFIXTextTag.cs:68-74)
+    ("[NUMB=]", {0}),                # RemoveEmptyEntries leaves no params at all
+    ("[NUMB= 3 ]", {3}),             # Single.TryParse eats surrounding whitespace
+    ("[NUMB=1,2]", {1, 2}),          # param1 is the overlay compare -- a SECOND read
+    ("{Variable 4}", {4}),           # Memoria's own export spelling (ExportFieldTags.cs:35)
+    ("{Variable}", {0}),
+    ("[numb=5]", {5}),               # over-approximated on case (the safe direction)
+    ("[TEXT=1,6] no NUMB tag", set()),
+    ("[NUMB=0][NUMB=2]", {0, 2}),
+])
+def test_hud_numb_slots_covers_every_spelling_the_engine_accepts(text, slots):
+    """The `\\[NUMB=(\\d+)` pattern this decoder replaced saw ONE of these. Each other row is a real
+    gMesValue READ in the engine (FFIXTextTag.TryRead :88-150 + IntParam :68-74 ->
+    DialogBoxSymbols.ParseVariableTextReplaceTags :154-170), and the read is UNCLAMPED against
+    Int32[8], so a slot nothing published is the last field's leftovers -- or an IndexOutOfRange."""
+    assert B.hud_numb_slots(text) == slots
+
+
+@pytest.mark.parametrize("text", ["[NUMB=-2]", "[NUMB=x]", "[NUMB=2.5]", "{Variable 0,-1}"])
+def test_a_NUMB_parameter_that_is_not_statically_knowable_is_refused(text):
+    with pytest.raises(B.BehaviorError, match="not statically knowable"):
+        B.hud_numb_slots(text)
+
+
+@pytest.mark.parametrize("text,slot", [
+    ("[NUMB=0] {Variable 3}", 3),     # the brace spelling
+    ("[NUMB=0,5]", 5),                # the overlay-compare parameter -- a real second read
+])
+def test_a_NUMB_SPELLING_THE_OLD_REGEX_MISSED_is_refused_by_hud(text, slot):
+    """Both rows publish one value and render a slot nothing wrote. `\\[NUMB=(\\d+)` matched neither,
+    so both used to compile and then render the previous field's leftover number."""
+    fb = _bare()
+    with pytest.raises(B.BehaviorError, match=rf"\[NUMB={slot}\] has no value"):
+        fb.hud(text, ["expr:Null.SBit[5]"], txid=900)
+
+
+# ----------------------------------------------- the refusal PREFIX, pinned exactly
+@pytest.mark.parametrize("src,tail", [
+    ("item:abc", "item: takes a resolved item ID (the TOML lane resolves names)"),
+    ("item:900", "item id must be 0..254"),
+    ("hp:ghost", "unknown unit 'ghost'"),
+])
+def test_hud_ref_refusals_are_prefixed_with_the_SURFACE_not_a_function_repr(src, tail):
+    """THE DEFECT THIS PINS. ``_hud_ref``'s four refusals interpolated a bare ``label`` -- which is
+    not a parameter of that method, so it resolved to the ``eb.labelasm.label`` FUNCTION imported at
+    behavior.py:59 and rendered ``<function label at 0x...> 'hp:ghost': unknown unit 'ghost'``. A
+    substring match on the tail cannot see that; the assertion is anchored at the start of the
+    message for exactly that reason. (tests/test_source_fstring_capture.py fails the whole package on
+    the shape, not just this call site.)"""
+    fb = _bare()
+    with pytest.raises(B.BehaviorError) as e:
+        fb._hud_ref(src)
+    assert str(e.value) == f"{B.HUD_VALUE_LABEL} {src!r}: {tail}"
+
+
+def test_hud_ref_refusals_take_the_CALLERS_label():
+    """The same seam `hud_expr_tokens` exposes, so a second surface reuses the resolver as-is."""
+    fb = _bare()
+    with pytest.raises(B.BehaviorError) as e:
+        fb._hud_ref("item:900", label="[[choice]] option values[2]")
+    assert str(e.value).startswith("[[choice]] option values[2] 'item:900': ")
+    with pytest.raises(B.BehaviorError) as e:                # ...and it reaches the expr: lane too
+        fb._hud_ref("expr:", label="[[choice]] option values[2]")
+    assert str(e.value).startswith("[[choice]] option values[2] 'expr:': ")
+
+
 # ------------------------------------------------------- the SILENT-IGNORE precondition
 def test_a_hud_only_behavior_block_compiles_to_nothing_and_lints_clean():
     """``behaviortoml.table()`` is ``return b if isinstance(b, dict) and b.get("unit")

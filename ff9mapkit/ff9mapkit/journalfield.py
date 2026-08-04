@@ -614,23 +614,33 @@ def lint_pages(*, pages=PAGES, check_live_install: bool = True) -> list:
 # ============================ the bench field ============================
 # ⚠ READ THIS BEFORE READING THE GENERATED TOML.
 #
-# `field.toml` HAS NO LANE THAT CARRIES A RAW TALK-HANDLER BODY. `[[logic_add]]` is refused unless the
-# project carries `[verbatim_eb]` (build.py:930-934) and `[behavior]` is refused ON a verbatim fork, so
-# the two lanes are mutually exclusive and neither can host :func:`talk_body`. Wiring the LIVE dashboard
-# therefore needs one new build seam (a `[journal]` block that calls this module), which is a build.py
-# change and is NOT in this tier.
+# THE BENCH IS LIVE. It rides the ordinary `[[choice]]` lane end to end: each menu row is one option,
+# the page text is that option's `reply`, and the option's `values` list publishes the SAME catalog
+# expressions this module's :func:`page_body` emits, into gMesValue 0..N-1, immediately before the
+# reply window opens (`content/choice.py:option_values_body`).
 #
-# So the bench below is deliberately and explicitly a LAYOUT BENCH, not the dashboard: it ships the
-# real generated page text through the ordinary `[[choice]]` reply lane, with the `[NUMB=]` tags
-# rendering whatever gMesValue already holds (0 on a fresh field). That is exactly what answers the
-# three questions the design says only a playtest can settle -- does a line at this width wrap, does an
-# 11-line window fit the owner's aspect ratio, does the '--' vs 'n/a' distinction read as informative
-# -- and it answers NONE of the value questions, which are already owner-confirmed from rung 0.
+# IT SHIPPED ONCE AS A MOCKUP, AND THAT IS THE DEFECT THIS LANE CLOSES. The first cut had no value
+# writes at all -- `[[logic_add]]` is refused without `[verbatim_eb]` (build.py:930-934) and
+# `[behavior]` is refused ON a verbatim fork, so neither existing lane could attach a raw talk-handler
+# body, and the bench went out with the tags reading whatever gMesValue already held. gMesValue is
+# `Int32[8]` allocated once at engine init (EventEngine.Initialize.cs:30) and never cleared on a field
+# load, so all seven pages rendered the PREVIOUS bench's slot vector -- plausible numbers, in the right
+# columns, entirely stale ("Mognet: In hand 22/3"). An unwritten slot does not render blank.
 #
-# The text is GENERATED, never hand-copied, so the bench cannot drift from the catalog; a test asserts
-# the checked-in file equals this function's output byte for byte.
+# WHAT IS STILL DELIBERATELY UNLIKE THE SHIPPED DASHBOARD, and why that is not the same defect:
+#   * the two `[TEXT=bank,slot]` rows render their WIDEST table string instead of the tag, because the
+#     bank is a txid `collect_text` assigns by POSITION (build.py:7795-7834) and is not authorable in a
+#     TOML at all. Their slot is still PUBLISHED (so every slot index below it matches the shipped
+#     page exactly); nothing in the bench reads it, so nothing clamps it -- the clamp is emitted for
+#     the slots an option's own reply actually indexes.
+#   * the menu is a flat `[[choice]]`, not :func:`talk_body`'s re-open loop: one page per talk.
+#
+# The text AND the expressions are GENERATED, never hand-copied, so the bench cannot drift from the
+# catalog; a test asserts the checked-in file equals this function's output byte for byte, and a second
+# test asserts the BUILT `.eb` carries the value writes (a generator-only test cannot see an unwired
+# field -- that is exactly how the mockup passed).
 BENCH_FIELD_ID = 30801     # dev scratch. NOT 30800 -- that is the recorded rung-0/0b probe.
-BENCH_PROMPT = "Which page? (LAYOUT BENCH:\nevery number reads 0)"
+BENCH_PROMPT = "Which page? (BENCH 30801 --\nthe numbers are LIVE)"
 
 
 def _bench_page_text(page: "Page") -> str:
@@ -652,8 +662,19 @@ def _bench_page_text(page: "Page") -> str:
     return "\n".join(out)
 
 
+def bench_page_values(page: "Page") -> tuple:
+    """The ``values`` list for one bench page: the page's own expressions in slot order, each carrying
+    the ``expr:`` prefix ``content/choice.py``'s option lane accepts.
+
+    Taken from :func:`render_page` -- the SAME tuple :func:`page_body` emits -- so the bench cannot
+    publish a number the shipped dashboard would not. The banks are irrelevant here (they only affect
+    the TEXT), which is why any dict does."""
+    _text_unused, exprs = render_page(page, {n: 0 for n in TABLES})
+    return tuple(f"expr:{e}" for e in exprs)
+
+
 def bench_toml(*, pages=PAGES) -> str:
-    """The T1b LAYOUT bench as a complete, lint-clean ``field.toml`` (id 30801). DO NOT DEPLOY from
+    """The T1b bench as a complete, lint-clean ``field.toml`` (id 30801). DO NOT DEPLOY from
     here -- the human deploys.
 
     HERMETIC BY CONSTRUCTION: every number in the emitted text comes from the catalog, nothing from
@@ -663,31 +684,33 @@ def bench_toml(*, pages=PAGES) -> str:
     job is to be byte-identical to what the tests and the playtester see."""
     L = [
         "# " + "=" * 85,
-        f"# COMPLETION-JOURNAL T1b -- LAYOUT BENCH  --  field {BENCH_FIELD_ID}",
+        f"# COMPLETION-JOURNAL T1b -- LIVE DASHBOARD BENCH  --  field {BENCH_FIELD_ID}",
         "# " + "=" * 85,
         "# GENERATED by `ff9mapkit.journalfield.bench_toml()` from the ONE row catalog",
         "# (ff9mapkit/ff9mapkit/journal.py). DO NOT HAND-EDIT: tests/test_journalfield.py asserts this",
         "# file equals the generator's output byte for byte, so a hand edit fails the suite.",
         "#",
-        "# WHAT THIS BENCH IS, AND WHAT IT IS NOT.",
-        "#   IS:     the seven real dashboard pages, verbatim, at their real widths and line counts,",
-        "#           in a real modal field window. It answers the three questions the offline suite",
-        "#           CANNOT: (a) does a ~26-unit line render unwrapped, (b) does an 11-line window sit",
-        "#           inside kLimitTop/kLimitBottom at the owner's aspect ratio, (c) does the '--' vs",
-        "#           'n/a' distinction read as informative or as broken.",
-        "#   IS NOT: the live dashboard. EVERY [NUMB=] READS 0 HERE, on purpose. field.toml has no lane",
-        "#           that carries a raw talk-handler body ([[logic_add]] needs [verbatim_eb],",
-        "#           build.py:930-934; [behavior] is refused on a verbatim fork), so the value writes",
-        "#           this module generates -- `journalfield.talk_body`, 3114 reviewable bytes, decode",
-        "#           them with `py -m ff9mapkit journal eb` -- cannot be attached from a TOML yet. That",
-        "#           seam is one build.py change and it is the next rung, not this one.",
-        "#           The value reads themselves are ALREADY owner-confirmed in-game (rung 0, bench",
-        "#           30800): Null.SBit[5], Global.UInt16/Byte/Bit, const(n) B_HAVE_ITEM, flex(), and",
-        "#           composed B_DIV/B_GE/B_MULT arithmetic all read correct per-save values.",
+        "# WHAT THIS BENCH IS.",
+        "#   The seven real dashboard pages, verbatim, at their real widths and line counts, in a real",
+        "#   modal field window -- and THE NUMBERS ARE LIVE. Each option's `values` list publishes that",
+        "#   page's catalog expressions into gMesValue 0..N-1 immediately before its reply window opens",
+        "#   (content/choice.py:option_values_body -> eb/opcodes.py:set_text_variable_expr, the same",
+        "#   0x66 encoding the behavior HUD and the Treno bid stepper already ship in-game).",
+        "#",
+        "# THE DEFECT THIS FILE ONCE CARRIED, kept written down because it is invisible in-game.",
+        "#   The first cut of this bench had NO value writes -- `grep -c 'expr:'` returned 0 -- and it",
+        "#   did not render blanks or zeros: ETb.gMesValue is Int32[8] allocated once at engine init",
+        "#   (EventEngine.Initialize.cs:30) and is NEVER cleared on a field load, so all seven pages",
+        "#   rendered the PREVIOUS bench's leftover slot vector. Plausible numbers, right columns,",
+        "#   entirely stale. A generator-only test could not see it; the test that catches it now builds",
+        "#   this file and reads the emitted .eb.",
         "#",
         "# The two [TEXT=bank,slot] rows show their WIDEST table string instead of the tag: the bank is",
-        "# a txid the build assigns by POSITION (build.py:7795-7834) and is not authorable. The widest",
-        "# row is the honest worst case for a width test.",
+        "# a txid the build assigns by POSITION (build.py:7795-7834) and is not authorable. Their slot",
+        "# is still published, so every later slot index matches the shipped page exactly.",
+        "#",
+        "# The value reads are owner-confirmed in-game (rung 0, bench 30800): Null.SBit[5],",
+        "# Global.UInt16/Byte/Bit, const(n) B_HAVE_ITEM, flex(), and composed B_DIV/B_GE/B_MULT.",
         "#",
         "# DEPLOY (the HUMAN does this -- the agent does not):",
         f"#   py tools/deploy_field.py studies/completion-journal/bench/journal_dash.field.toml --id {BENCH_FIELD_ID}",
@@ -768,12 +791,18 @@ def bench_toml(*, pages=PAGES) -> str:
         "",
     ]
     for p in pages:
+        vals = bench_page_values(p)
         L += ["  [[choice.options]]",
               f'  text = "{p.menu}"',
               '  reply = """',
               _bench_page_text(p) + '"""',
               "  instant = true",
-              ""]
+              # slot i is values[i] -- the [NUMB=i] indices in the reply above are render_page's own,
+              # so the two orders are the same order by construction. Long lines are the catalog's
+              # summed expressions (100 B_HAVE_ITEM terms for the card count), not formatting.
+              "  values = ["]
+        L += [f'    "{v}",' for v in vals]
+        L += ["  ]", ""]
     L += ["  [[choice.options]]",
           f'  text = "{MENU_CLOSE}"',
           ""]

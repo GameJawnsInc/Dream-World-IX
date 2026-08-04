@@ -27,7 +27,7 @@ import pytest
 from ff9mapkit import journal as J
 from ff9mapkit import journalfield as JF
 from ff9mapkit.content import region as R, text as T
-from ff9mapkit.eb import disasm as D, exprasm as EA, exprsem as ES
+from ff9mapkit.eb import disasm as D, exprasm as EA, exprsem as ES, opcodes as OPC
 from ff9mapkit.eb.opcodes import EXPR_VALUE_MAX, EXPR_VALUE_MIN
 
 BANKS = {"th_rank": 600, "hunt": 601}
@@ -467,6 +467,96 @@ def test_the_bench_toml_parses_and_carries_the_load_bearing_pieces():
         assert o["reply"] == JF._bench_page_text(p)
         assert "[TEXT=" not in o["reply"]                   # the bank is a build-assigned txid
         assert not o["reply"].endswith(chr(10))            # a trailing blank line costs a window row
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_every_bench_page_carries_its_own_value_list():
+    """Slot i is values[i], and the [NUMB=i] indices in the reply are `render_page`'s own numbering,
+    so the two orders are the same order by construction. This is the GENERATOR half only -- it is
+    exactly the assertion that passed while the bench shipped unwired, which is why it is followed by
+    a test that reads the BUILT .eb."""
+    import tomllib
+    d = tomllib.loads(io.open(_BENCH, encoding="utf-8").read())
+    opts = d["choice"][0]["options"]
+    for p, o in zip(JF.PAGES, opts):
+        assert o["values"] == list(JF.bench_page_values(p)), p.key
+        assert all(v.startswith("expr:") for v in o["values"])
+        _t, exprs = JF.render_page(p, BANKS)
+        assert [v[len("expr:"):] for v in o["values"]] == list(exprs)   # the catalog's, not a copy
+    assert "values" not in opts[-1]                       # Close publishes nothing and opens nothing
+
+
+# ---- THE BUILT ARTIFACT: the test that would have caught the mockup -----------------------------
+@pytest.fixture(scope="module")
+def built_bench_eb(tmp_path_factory):
+    """BUILD the checked-in bench and hand back its emitted ``.eb`` bytes.
+
+    THE POINT, stated plainly. T1b shipped as a layout mockup: `journalfield` generated 3114 bytes of
+    correct, reviewed value writes and NOTHING carried them into a field, because `[[logic_add]]` is
+    refused without `[verbatim_eb]` (build.py:930-934) and `[behavior]` is refused on a verbatim fork.
+    Every offline test in this module stayed green, because every one of them tested the GENERATOR.
+    In-game all seven pages then rendered the previous bench's leftover gMesValue vector -- ETb's
+    `Int32[8]` is allocated once at engine init (EventEngine.Initialize.cs:30) and never cleared on a
+    field load, so an unwritten slot renders stale, not blank.
+
+    A test that only asks `journalfield` what it would emit cannot see an unwired field. This one
+    asks the .eb the build actually wrote."""
+    from pathlib import Path
+    from ff9mapkit.build import FieldProject, build_mod
+    from ff9mapkit.config import ModLayout
+    out = tmp_path_factory.mktemp("journal_bench_mod")
+    build_mod([FieldProject.load(Path(_BENCH))], out, mod_name="FF9CustomMap")
+    return ModLayout(out).eb_path("us", "EVT_JOURNALDASH.eb.bytes").read_bytes()
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_eb_carries_every_page_value_write_on_the_right_slot(built_bench_eb):
+    """Per page, per slot: the exact `SetTextVariable(slot, <expr>)` blob the catalog expression
+    assembles to is PRESENT in the built .eb, exactly once, and the blobs appear in page order and
+    then slot order. Byte-exact, so a right-count/wrong-expression wiring fails too."""
+    prev = -1
+    for p in JF.PAGES:
+        for slot, src in enumerate(JF.bench_page_values(p)):
+            blob = OPC.set_text_variable_expr(
+                slot, EA.assemble(src[len("expr:"):] + " B_EXPR_END"))
+            assert built_bench_eb.count(blob) == 1, f"{p.key} slot {slot}: {built_bench_eb.count(blob)}"
+            off = built_bench_eb.index(blob)
+            assert off > prev, f"{p.key} slot {slot} is emitted out of order ({off} after {prev})"
+            prev = off
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_eb_has_EXACTLY_the_expected_number_of_value_writes(built_bench_eb):
+    """The count rule, which is the half that catches BOTH failure directions: zero writes (the
+    mockup) and a stray extra publish nobody asked for. Counted by DECODING the .eb, not by
+    substring-searching it, so an 0x66 byte inside an expression operand cannot inflate it."""
+    from ff9mapkit.eb.model import EbScript
+    eb = EbScript.from_bytes(built_bench_eb)
+    got = [i for e in eb.entries if not e.empty for f in e.funcs
+           for i in eb.instrs(f) if i.name == "SetTextVariable"]
+    want = sum(len(JF.bench_page_values(p)) for p in JF.PAGES)
+    assert want == 31                                     # 3+5+5+5+7+2+4 -- pinned, not derived twice
+    assert len(got) == want, f"{len(got)} SetTextVariable ops in the built .eb, expected {want}"
+    assert [i.imm(0) for i in got] == [s for p in JF.PAGES
+                                       for s in range(len(JF.bench_page_values(p)))]
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_eb_publishes_each_page_BEFORE_that_pages_window_opens(built_bench_eb):
+    """Dialog bakes its width ONCE at open over the values present (Dialog.AutomaticSize,
+    Dialog.cs:1560-1591) and never re-sizes, so a publish after the WindowSync would render at a
+    width measured over the previous field's numbers. Checked on the built stream: every page's LAST
+    value write is followed by a WindowSync before the next page's FIRST value write."""
+    from ff9mapkit.eb.model import EbScript
+    eb = EbScript.from_bytes(built_bench_eb)
+    stream = [i for e in eb.entries if not e.empty for f in e.funcs for i in eb.instrs(f)
+              if i.name in ("SetTextVariable", "WindowSync")]
+    # the talk handler's shape, in order: [prompt WindowSync] then per page N x 0x66 + 1 x WindowSync
+    kinds = [i.name for i in stream]
+    want = ["WindowSync"]
+    for p in JF.PAGES:
+        want += ["SetTextVariable"] * len(JF.bench_page_values(p)) + ["WindowSync"]
+    assert kinds[:len(want)] == want, kinds[:len(want)]
 
 
 @pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")

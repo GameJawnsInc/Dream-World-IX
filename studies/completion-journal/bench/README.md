@@ -148,9 +148,10 @@ case where a still and a description diverge.
 
 # T1b -- the paged completion dashboard (field 30801)
 
-`journal_dash.field.toml` is the **T1b layout bench**. It is GENERATED
+`journal_dash.field.toml` is the **T1b dashboard bench -- live**. It is GENERATED
 (`ff9mapkit.journalfield.bench_toml()`), a test asserts the checked-in file equals the generator's
-output, and hand-editing it fails the suite.
+output, and hand-editing it fails the suite. A second test BUILDS it and asserts the emitted `.eb`
+carries the value writes (see "It shipped once as a mockup" below).
 
 ## What T1b built
 
@@ -225,24 +226,41 @@ values and shows the clamp folds every out-of-range byte to table row 0 -- which
 `GetStringFromTable` guards the UPPER row by returning `String.Empty` (`ETb.cs:278`), i.e. a blank
 line that reads as a bug.
 
-## What the bench IS and IS NOT
+## What the bench IS
 
-**IS:** the seven real pages, verbatim, at their real widths and line counts, in a real modal field
-window. It answers the three questions the offline suite cannot:
+The seven real pages, verbatim, at their real widths and line counts, in a real modal field window,
+**with live numbers**. It answers the three questions the offline suite cannot:
 
 1. does a ~26-unit line render **unwrapped**;
 2. does an **11-line** window sit inside `kLimitTop`/`kLimitBottom` at the owner's aspect ratio;
 3. does the `--` vs `n/a` distinction read as **informative** or as broken.
 
-**IS NOT:** the live dashboard. **Every `[NUMB=]` reads 0 here, on purpose.** `field.toml` has no
-lane that carries a raw talk-handler body -- `[[logic_add]]` is refused unless the project carries
-`[verbatim_eb]` (`build.py:930-934`) and `[behavior]` is refused ON a verbatim fork -- so the value
-writes `journalfield.talk_body()` generates cannot be attached from a TOML yet. That seam is one
-`build.py` change (a `[journal]` block) and it is the next rung. The value READS are already
-owner-confirmed in-game from rung 0 on bench 30800; what has never been seen is the LAYOUT.
+Each menu row is a `[[choice]]` option; the page text is its `reply`; and the option's **`values`**
+list publishes that page's catalog expressions into `gMesValue` 0..N-1 immediately before the reply
+window opens (`content/choice.py:option_values_body` -> `eb/opcodes.py:set_text_variable_expr`).
+
+### It shipped once as a mockup, and that is worth remembering
+
+The first cut had **no value writes at all** -- `grep -c "expr:"` on the TOML returned 0. Neither
+existing lane could attach a raw talk-handler body (`[[logic_add]]` is refused unless the project
+carries `[verbatim_eb]`, `build.py:930-934`; `[behavior]` is refused ON a verbatim fork), so the
+generator was right and the wiring was simply absent.
+
+**It did not render zeros.** `ETb.gMesValue` is `Int32[8]` allocated once at engine init
+(`EventEngine.Initialize.cs:30`) and is never cleared on a field load, so all seven pages rendered
+the *previous* bench's leftover slot vector -- `[7200, 22, 0, 6, 0, 0, 0]`, the rung-0b probe's
+readings from bench 30800. Plausible numbers, in the right columns, entirely stale ("Mognet: In hand
+22/3"). An unwritten slot is not blank; it is whatever the last field to write it left there.
+
+The lesson that generalizes past this bench: **an offline test of a generator cannot see an unwired
+field.** `tests/test_journalfield.py` now BUILDS this TOML and asserts the emitted `.eb` carries the
+expected `SetTextVariable` ops -- right count, right slots, right expressions, per page.
 
 The two `[TEXT=bank,slot]` rows show their widest table string instead of the tag: the bank is a txid
-the build assigns by POSITION (`build.py:7795-7834`) and is not authorable in a TOML at all.
+the build assigns by POSITION (`build.py:7795-7834`) and is not authorable in a TOML at all. Their
+slot is still *published*, so every later slot index matches the shipped page exactly; nothing in the
+bench reads it, so nothing clamps it (the non-negative `[TEXT=]` clamp is emitted for the slots an
+option's own reply actually indexes).
 
 ## Reviewing the emitted `.eb` without building anything
 

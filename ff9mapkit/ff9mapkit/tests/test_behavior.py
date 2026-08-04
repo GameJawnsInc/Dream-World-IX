@@ -1430,8 +1430,12 @@ def test_hud_value_sources_and_per_slot_digits():
     # hp:<roster member> reaches into the group's hp CELL
     fb.hud("[NUMB=0]", ["hp:mu"], window=5, txid=941)
     assert "B_VECTOR" in fb._hud_ref("hp:mu")
-    with pytest.raises(B.BehaviorError, match="unknown unit"):
+    with pytest.raises(B.BehaviorError, match="unknown unit") as _e:
         fb._hud_ref("hp:ghost")
+    # ANCHORED, not a substring: the message PREFIX once rendered `<function label at 0x...>` (a bare
+    # `label` in _hud_ref resolved to the eb.labelasm import), and a substring match on the tail could
+    # not see it. The class-wide guard is tests/test_source_fstring_capture.py.
+    assert str(_e.value) == f"{B.HUD_VALUE_LABEL} 'hp:ghost': unknown unit 'ghost'"
     with pytest.raises(B.BehaviorError, match="digits list"):
         fb.hud("[NUMB=0]", ["kills"], window=4, txid=942, digits=[2, 2])
 
