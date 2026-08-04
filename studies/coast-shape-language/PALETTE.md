@@ -47,3 +47,55 @@ its `(5,15)` rect.
 
 `(6,4)`'s **walk 0.00** is not a defect: the crystal reef is unlandable in stock too. It is
 the pool's only pure-scenery object — useful precisely because you sail past it.
+
+---
+
+## THE RING-CUT TRAP — playtest of the isthmus, 2026-08-02
+
+**Verdict: walkable, renders, shape reads.** Criteria 1–3 and 5 pass. One real artifact,
+and one thing I got wrong.
+
+### What I got wrong: the Wang advisory
+
+I relayed the gate's "18 cropped-Wang frame seams" as something the owner would see at the
+island's rim. The owner checked and **the land edge has working transition tiles against
+that depth** — the advisory says an adjacency is unusual, not that it renders wrong. Passing
+a gate's advisory along as a visual prediction is a category error; the gate scores
+element-vs-marginals and has never had an opinion about pixels.
+
+### The real artifact: the shallow ring is CUT at the rect frame
+
+The deployed sheets are byte-faithful to stock — normal constant `(-0.121, 0.979, 0.167)`,
+all-negative winding, identical tri counts. Nothing is malformed. What is wrong is the
+carry's EXTENT:
+
+| stock shallow tris (sea1/2/3/5) around donor `(6,6)+2x2` | |
+|---|---|
+| inside the rect | `(6,6)` 391, `(7,6)` 247, `(6,7)` 0, `(7,7)` 6 |
+| **north, OUTSIDE the rect** | **`(6,5)` 278, `(7,5)` 16** |
+
+**294 triangles of shallow water continue north past the rect frame and were cut.** The
+island's ring therefore terminates along straight block-frame lines in open ocean — a hard
+sea3→sea4 edge with no ladder, which from water level reads as a plate standing in the sea.
+
+### THE RING-CUT TRAP: a BIGGER rect can destroy the carry
+
+The obvious fix — enlarge the rect to contain the ring — **fails, and destructively**:
+
+| rect | carried terrain | dropped terrain | wang |
+|---|---|---|---|
+| `(6,6)+2x2` (shipped) | **578** | 109 | 18 incoherent |
+| `(6,5)+2x3` | **34** | 1003 | 0 incoherent |
+| `(5,5)+3x3` | **34** | 1590 | 0 incoherent |
+
+Because **excise's unit is the ASSEMBLY — island plus its welded water ring** — enlarging
+the rect enlarges the assembly, which then touches the *new* frame, is classified foreign,
+and is dropped. The island is excised and a 34-triangle crumb is carried in its place.
+
+**And every gate goes GREEN while this happens** — `wang-carry incoherent=0`,
+`weld-audit pairs=0`, `census miss=0 introduced=0`, `dry run: gates CLEAN`. The gates score
+what was carried; none asks whether the thing you wanted is still in it. A carry that drops
+its own subject is indistinguishable, gate-wise, from a clean one.
+
+**Guard needed:** compare carried terrain against the target mass's known tri count and
+refuse when the carry loses its subject. Until then, read `carried:` on every excise run.
