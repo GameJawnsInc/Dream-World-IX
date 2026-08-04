@@ -129,3 +129,58 @@ before the second playtest — *"i thought we solved the whole Wang-patching tra
 thing"* — and it is solved, for carrying. `--deepen-shallow` should be treated as a dead
 end, not a tool: it deletes a feature to avoid re-tiling it, and there is no case where
 that is the right trade.
+
+
+---
+
+## ★ THE RIM RE-TILE PASSED — playtest 3, 2026-08-04
+
+Owner: *"that's a pass, the hard edge became a series of Wang tiles"*.
+
+The cropped shallow ring now terminates into deep water through real transition tiles
+instead of stopping at a straight block-frame line. **Measured before the playtest, and the
+number that predicted it:** tiles whose uv UNDER-covers the deep they face — the hard-seam
+class — went **3 → 0**.
+
+### What worked, stated so it is not re-learned
+
+**Carrying, not authoring.** The replacement uvs were harvested byte-exact from donor
+`(6,6)`'s own sea5 termination tiles; all six deep-sets the plan needed were covered
+verbatim, so nothing was synthesized. Geometry was a pure repartition — the (verts+topo)
+multiset identical per cell, gated — so the edit *could not* move a vertex or flip a face.
+
+Contrast the two failures, both of which authored uv:
+* per-triangle quadrant → a checkerboard across the whole sheet;
+* tile-anchored uv → stretched, hard-edged tiles on the coast-cut triangles.
+
+### The three things I got wrong, in order
+
+1. **Wrong problem.** The ask was to re-tile the rim; I deleted the ring
+   (`--deepen-shallow`). Now removed from the CLI — it deletes a feature to avoid
+   re-tiling it, and there is no case where that is the right trade. The function is kept,
+   marked as a superseded dead end, because its measurement is still true.
+2. **Dismissed the advisory that named the remedy.** The wang-carry warning says
+   *"re-tile the rim (wang_rim_retile ...)"*. I read it, decided it was noise because the
+   owner said the LAND edge looked fine, and never checked that it named a fix.
+3. **Two gate mis-calibrations**, both nearly shipping: a guessed threshold band that
+   passed the broken sheet by 0.015, and a lattice check too narrow to see the lattice it
+   was written for.
+
+### One real subtlety worth keeping
+
+**A single pass does not converge.** The deep-set derivation reads the shade map, and
+converting sea3→sea5 changes that map, so neighbours' deep-sets shift underneath the first
+pass. Re-running reaches a fixed point at pass 2 (27 quads, all sea5→sea5, stable through
+pass 4). Any future rim retile must iterate.
+
+### Residual, honestly
+
+20 of 82 rim tiles still OVER-cover — a transition facing shallow, a gradient where none is
+needed. Owner-accepted as-is. It is a different and much subtler class than the hard seam,
+and not worth authoring surface to chase.
+
+### Next, if this is ever productized
+
+`wang_rim_retile` is still not a shipped verb — the advisory points users at a study script.
+`isthmus_rim_retile.py` is the second instance of the same pattern, which is usually the
+point at which it should become one.

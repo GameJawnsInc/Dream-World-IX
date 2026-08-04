@@ -3938,7 +3938,15 @@ SHALLOW_PARTS = ("sea1", "sea2", "sea3", "sea5")
 
 def deepen_shallow_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1",
                         game=None, parts=SHALLOW_PARTS):
-    """Re-shade a carried island's SHALLOW RING as deep ocean. Returns ``(tweaks, report)``.
+    """DEAD END, SUPERSEDED -- kept for the measurement, NOT exposed on the CLI.
+
+    Re-shades a carried island's shallow ring as deep ocean. It works, and it is the wrong
+    thing: deleting a feature to avoid re-tiling its edge. Playtested and rejected --
+    "now it's just all deep sea water instead of what I was asking for". The right fix is
+    to RE-TILE the cropped rim with the donor's own Wang termination tiles
+    (studies/coast-shape-language/isthmus_rim_retile.py), which passed.
+
+    Re-shade a carried island's SHALLOW RING as deep ocean. Returns ``(tweaks, report)``.
 
     THE RING-CUT problem: an island's shallow ladder is welded to its coast but extends
     past any rect that contains the island, so a carry crops it and the ring terminates
