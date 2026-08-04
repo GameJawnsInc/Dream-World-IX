@@ -6,7 +6,7 @@
 > not against stock Memoria. No in-game behaviour was observed by anyone in this
 > pass — where a mechanism has never run, it says UNVERIFIED.
 
-**STATUS: ★ rungs 0 + 0b OWNER-CONFIRMED in-game (bench 30800) — EVERY DLL-free read path works: memoria-variables, gEventGlobal bit/byte/Int24/UInt16, B_HAVE_ITEM, flex(), and composed arithmetic with the clamp idiom. The in-game `.eb` and the offline decoder cross-validate exactly (§7.1). ★ T1 BUILT — 48-row `journal report` over a real save container. NEXT = the T2-vs-catalog scope call (§7.2 Q3).**
+**STATUS: ★ rungs 0 + 0b + T1 + T1b ALL OWNER-CONFIRMED in-game. Every DLL-free read path works, the offline `journal report` reads a real save, and the 7-page in-game dashboard opens and holds on bench 30801. ⚠ Windows self-closing during a playtest = TURBO-DIALOG (F9), not the mod -- check that FIRST (§7.1). NEXT = verify the page NUMBERS in-game, then the T2-vs-catalog scope call (§7.2 Q3).**
 paths work; `Null.SBit[5]` returns real Treasure-Hunter points, and the in-game
 `.eb` and the offline decoder cross-validate exactly (§7.1). ★ T1 BUILT — 48-row
 `journal report` over a real save container. NEXT = rung 0b, a 2-row re-probe to
@@ -1096,6 +1096,42 @@ confirmed, so this does not warrant another round — but any journal row built 
 it must pick an ability **in that character's pool**, which is checkable offline
 via `abilities.pool_for_preset()`. A row that silently asks for an out-of-pool
 ability reads 0 forever and looks like un-collected progress.
+
+### ★ T1b — BUILT, and the five-round bug was TURBO-DIALOG, not the mod
+
+The dashboard ships 7 pages over the same 48-row catalog as the offline report
+(31 rows carry an `.eb` expression, 17 declare a reason, a row with neither or
+both fails lint). Owner-confirmed in-game: the selector works, pages open, and
+the windows hold.
+
+**They did not hold for five rounds, and none of it was the mod.**
+`Memoria.ini [Control] TurboDialog = 1` (the DEFAULT) plus the `TurboKey` latch
+makes `ShouldTurboDialog` (`UIKeyTrigger.cs:974-991`) return true **with no key
+pressed**, so `UIKeyTrigger.cs:834-837` broadcasts `OnKeyConfirm` to every open
+window every frame and any window without `FlagButtonInh` closes the moment it
+finishes animating. **F9 toggles it, it survives field reloads for the whole
+session, and nothing on screen says so.**
+
+**The methodological lesson, which cost more than the bug.** Four candidate fixes
+were shipped one per playtest — instant selector (wrong, restored), `[IMME]` on
+replies (a real defect, real gate, not this), window-id reuse (no change),
+branch-vs-switch (not applicable). The round that actually moved was the one that
+shipped a **control** instead of a fix: a plain NPC window on the same field,
+same window id, no selector. It closed too, which eliminated the entire choice
+lane in one interaction.
+
+**And the earlier "control" was invalid** — bench 30800 carries `[NFOC]`, which
+sets `FlagButtonInh` and makes a window *structurally immune* to this exact
+mechanism. "30800 stayed open" was evidence of nothing. A `[NFOC]`/`[TIME]`
+window can never be a control for a dismissal bug.
+
+**Design consequence for any tier above T1b:** a blocking `WindowSync` info page
+**cannot be made turbo-proof from TOML**. The only immunity flags (`[NFOC]`,
+`[TIME=n]`) also block the player's own confirm and hang the script waiting for a
+dismissal that never comes. A page that must survive a player's turbo setting
+needs the async shape — `WindowAsync` + `[NFOC]` + an explicit input poll. **This
+is a real product question, not a bench quirk: turbo is on by default, so a
+shipped journal would flash past for anyone who ever pressed F9.**
 
 **Cosmetic, and a real T1b datum:** the header word-wrapped
 (`=== COMPLETION PROBE / RUNG` / `0 ====`). The window's real character budget is

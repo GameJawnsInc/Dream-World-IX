@@ -302,6 +302,111 @@ def apply_markup(text):
 SIGNAL_INCREMENT = "+"
 HOLD_TAG = "[TIME=-1]"        # FlagButtonInh only -- undismissable, closes only when the script says so
 
+# ★ THE TURBO-CONFIRM LAW (the ENVIRONMENTAL sibling of THE BROADCAST-CONFIRM LAW, SURVEY.md §7a).
+# The broadcast law is about a press the PLAYER makes; this one is about a press the ENGINE
+# SYNTHESIZES, every frame, with the player's hands off the pad:
+#   UIKeyTrigger.Update -> HandleDialogControlKeyPressCustomInput() runs unconditionally on every
+#   render frame (UIKeyTrigger.cs:198). Its gate (UIKeyTrigger.cs:834) is
+#   `<a dialog-progress key went down> || ShouldTurboDialog(...)`, and ShouldTurboDialog
+#   (UIKeyTrigger.cs:974-991) returns TRUE WITH NO KEY DOWN whenever `Configuration.Control
+#   .TurboDialog` is on (Memoria.ini [Control] TurboDialog -- DEFAULT 1, so on for everyone),
+#   `preventTurboKey` is false, the latched `TurboKey` is set (F9 toggles it, :393-399, no on-screen
+#   indicator, persists across field reloads for the whole game session) or RightBumper/Shift is held
+#   with a confirm key, AND `DialogManager.IsDialogNeedControl()` is true -- which is merely "some
+#   open dialog has FlagButtonInh == false" (DialogManager.cs:422-427). It then calls
+#   Dialogs.OnKeyConfirm (:837), which fans out to EVERY active dialog with no filter
+#   (DialogManager.cs:334-340), and each Dialog.OnKeyConfirm calls Hide() the moment
+#   `currentState == CompleteAnimation && !ignoreInputFlag` (Dialog.cs:789-796).
+# SYMPTOM, exactly: the window plays its OPEN animation, the text shows, and it immediately plays the
+# CLOSE animation and unwinds the whole handler -- with no input. A CHOICE window is immune by
+# accident (UILabel.cs:804-806 sets preventTurboKey while a choice/overlay renders), which is why a
+# selector survives and every page opened after it dies.
+#
+# THE ONE LEVER that blocks the SYNTHESIZED press and leaves the PLAYER's own working: `[NTUR]`
+# (NGUIText.NoTurboDialog = "NTUR" -> FFIXTextTagCode.TurboOff -> DialogBoxSymbols.cs:327-329 sets
+# UIKeyTrigger.preventTurboKey = true). It is UPSTREAM Memoria, not one of our patches, so it is safe
+# on a stock engine. Note what it is NOT: it does not touch FlagButtonInh, so unlike [NFOC]/[TIME=n]
+# it does not make the window undismissable -- which matters, because a BLOCKING WindowSync page that
+# the player cannot dismiss hangs the script forever on `wait == 254` (EBin.cs:137-148). The flag is
+# sticky: nothing clears preventTurboKey until a confirm/cancel is actually delivered
+# (UIKeyTrigger.cs:838/849), so one render pass of the tag protects the window for its whole life.
+NO_TURBO_TAG = "[NTUR]"
+
+# The tags that already make a window immune to the confirm fan-out because they set
+# Dialog.FlagButtonInh (DialogBoxSymbols.cs:593-598 NoFocus, :811-829 OnTime): such a window reports
+# "needs no control", so ShouldTurboDialog's IsDialogNeedControl() gate never opens for it.
+_TURBO_INHIBITORS = (NO_TURBO_TAG, "[NFOC]", "[TIME=")
+
+# The tags that render a LIVE VALUE into the window -- gMesValue via [NUMB=n], a text-table string via
+# [TEXT=bank,slot], an item name via [ITEM=n]. A window carrying one of these is a READOUT: the player
+# opened it to READ A NUMBER, so an auto-skip does not "speed up the story", it deletes the feature.
+# That is the class the kit turbo-proofs by default (:func:`dress_window`).
+_VALUE_TAG_RE = re.compile(r"\[(?:NUMB|TEXT|ITEM)=")
+
+
+def renders_live_value(line: str) -> bool:
+    """True when ``line`` renders a runtime value ([NUMB=]/[TEXT=]/[ITEM=]) -- i.e. it is a READOUT
+    window whose whole point is to be read. See :data:`NO_TURBO_TAG`."""
+    return bool(_VALUE_TAG_RE.search(str(line or "")))
+
+
+def turbo_skippable(line: str) -> bool:
+    """True when ``line`` carries NO turbo inhibitor, so a turbo session's synthesized confirm
+    (:data:`NO_TURBO_TAG`) closes the window the instant it finishes typing."""
+    s = str(line or "")
+    return not any(t in s for t in _TURBO_INHIBITORS)
+
+
+def window_inhibited(src: dict, line: str) -> bool:
+    """True when this window is ALREADY immune to the confirm fan-out -- the author wrote an
+    inhibitor tag into the text, or ``hold`` / ``duration = n>=1`` will append a ``[TIME=...]`` that
+    sets ``Dialog.FlagButtonInh``. (``duration = 0`` is the engine's third mode -- it CLEARS
+    FlagButtonInh, so it inhibits nothing.)"""
+    if not turbo_skippable(line):
+        return True
+    if src.get("hold"):
+        return True
+    d = src.get("duration")
+    return d is not None and not isinstance(d, bool) and int(d) != 0
+
+
+# The key each dialogue-bearing block carries its authored BODY under. Kept here, not in build, so the
+# emitter (dress_window) and the validator score the same string.
+BODY_KEYS = ("dialogue", "message", "reply", "say", "open", "text")
+
+
+def body_text(src: dict) -> str:
+    """The authored body of a dialogue-bearing block -- the string BEFORE the speaker prefix. The
+    readout test reads this, never the speaker-dressed line: a variable speaker is itself a
+    ``[TEXT=bank,slot]`` tag, and scoring that as a readout would turbo-proof every named-speaker
+    window in the kit.
+
+    Read through a PLAIN COPY on purpose. This is the one place in the kit that asks a block about
+    keys it may not own -- an ``[[npc]]`` has no ``reply``, a choice option has no ``dialogue`` --
+    and ``src.get`` on a live tree is a schema PROBE (fieldschema._Spy.get), so probing all six here
+    would harvest ``reply``/``say``/``open`` into ``[[npc]]``'s vocabulary and silently bless
+    ``[[npc]] reply = "..."`` as a legal key. ``dict(src)`` is the documented exhaustive read: it
+    records nothing (fieldschema._Spy docstring), and the values are unchanged."""
+    if isinstance(src, dict):
+        plain = dict(src)
+        for k in BODY_KEYS:
+            v = plain.get(k)
+            if isinstance(v, str):
+                return v
+    return ""
+
+
+def want_no_turbo(src: dict, line: str) -> bool:
+    """Whether :func:`dress_window` emits :data:`NO_TURBO_TAG` for this window. Default ON for a
+    readout, OFF otherwise; an explicit ``no_turbo`` wins either way; an already-inhibited window
+    never gets it (a second inhibitor buys nothing and costs bytes)."""
+    if window_inhibited(src, line):
+        return False
+    v = src.get("no_turbo")
+    if v is not None:
+        return bool(v)
+    return renders_live_value(body_text(src))
+
 
 def signal_tag(value) -> str:
     """The text-side signal tag for an author ``signal`` value: ``"+"`` (or a negative int) ->
@@ -335,13 +440,29 @@ def dress_window(src: dict, line: str):
       glyph rather than after the close.
     * ``box = [w, lines]`` -> the ``[STRT]`` geometry. NB the engine auto-measures WIDTH whenever it
       can (``AutomaticSize``); ``w`` only matters on the no-autoresize paths, ``lines`` is a MINIMUM.
+    * ``no_turbo`` -> ``[NTUR]`` (:data:`NO_TURBO_TAG`) -- THE TURBO-CONFIRM LAW. **Defaults to ON for
+      a READOUT window** (one that renders [NUMB=]/[TEXT=]/[ITEM=], :func:`renders_live_value`),
+      because a turbo session synthesizes a confirm EVERY FRAME and closes any such window the instant
+      it finishes typing, with no player input at all. Set ``no_turbo = false`` to opt a readout back
+      out (validate then refuses it -- an opt-out of a law has to be loud, not silent); set
+      ``no_turbo = true`` on a plain narrative window to protect that one too. Already dismiss-
+      inhibited ([NFOC] / a ``hold`` / a ``duration``) -> nothing is added, the window is already
+      immune. This is the ONLY inhibitor that does not also set FlagButtonInh, i.e. the only one that
+      keeps the player's own Confirm working -- and a blocking WindowSync page the player cannot
+      dismiss hangs the script on ``wait == 254`` (EBin.cs:137-148).
 
-    Every key absent -> ``(line, None, src.get("tail"))``, byte-identical to the pre-key layout."""
+    Every key absent -> ``(line, None, src.get("tail"))``, byte-identical to the pre-key layout, unless
+    the line is a readout (then it gains ``[NTUR]`` -- see above)."""
     pre = menu_pos_tag(src.get("window_pos"))
     if src.get("speed") is not None:
         pre += f"[SPED={int(src['speed'])}]"
     if src.get("instant"):
         pre += CHOICE_IMME
+    # ★ THE TURBO-CONFIRM LAW, applied at the call site EVERY dialogue-bearing block routes through
+    # (build.collect_text._add). A docstring rule would be a wish: the tag has to be emitted here or
+    # authors ship turbo-skippable readouts and never learn why their page vanished.
+    if want_no_turbo(src, line):
+        pre += NO_TURBO_TAG
     suf = signal_tag(src.get("signal"))
     if src.get("hold"):
         suf += HOLD_TAG

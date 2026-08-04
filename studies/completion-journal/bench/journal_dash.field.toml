@@ -27,6 +27,20 @@
 # The value reads are owner-confirmed in-game (rung 0, bench 30800): Null.SBit[5],
 # Global.UInt16/Byte/Bit, const(n) B_HAVE_ITEM, flex(), and composed B_DIV/B_GE/B_MULT.
 #
+# THE SECOND DEFECT THIS FILE CARRIED -- the window that closed itself (rounds 1-5).
+#   Every page, and the plain scribe window too, played its open animation, showed its text,
+#   then immediately played the close animation and unwound the whole handler, with no input.
+#   Nothing in the 4617 emitted bytes explains it: no CloseWindow, no CloseAllWindows, no
+#   [TIME], no second window on a live id, and the [behavior] ticker holds no window opcode at
+#   all. The closer is OUTSIDE the .eb -- THE TURBO-CONFIRM LAW (content/text.py:NO_TURBO_TAG):
+#   with Memoria.ini [Control] TurboDialog on (its DEFAULT) and the F9 TurboKey latched -- or
+#   RightBumper/Shift held -- UIKeyTrigger.cs:834 synthesizes a confirm EVERY FRAME,
+#   DialogManager.cs:334-340 fans it to every open window with no filter, and Dialog.cs:789-796
+#   hides each one the instant it reaches CompleteAnimation. A CHOICE window is immune by
+#   accident (UILabel.cs:804-806), which is exactly why the SELECTOR survived and every page
+#   opened after it died. The kit now emits [NTUR] on readout windows automatically; the scribe
+#   asks for it explicitly, because it is not a readout and it is the control.
+#
 # DEPLOY (the HUMAN does this -- the agent does not):
 #   py tools/deploy_field.py studies/completion-journal/bench/journal_dash.field.toml --id 30801
 # FIRST deploy of 30801 needs a RELAUNCH (it registers a DictionaryPatch line); after
@@ -86,12 +100,13 @@ model = "GEO_NPC_F0_CSO"
 pos = [-400, -837]
 dialogue = """
 == SCRIBE CONTROL ====
-A plain window, no menu.
-Same window id as a page.
-If THIS one also closes by
-itself, the bug is not the
-choice lane."""
+Plain window, no menu.
+Turbo-proofed this round.
+If THIS one still shuts by
+itself, a REAL confirm is
+arriving -- not turbo."""
 window = 2
+no_turbo = true         # [NTUR] -- THE TURBO-CONFIRM LAW
 
 [behavior]
 warmup = 30

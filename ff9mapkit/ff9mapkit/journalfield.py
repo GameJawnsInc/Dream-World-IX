@@ -724,6 +724,20 @@ def bench_toml(*, pages=PAGES) -> str:
         "# The value reads are owner-confirmed in-game (rung 0, bench 30800): Null.SBit[5],",
         "# Global.UInt16/Byte/Bit, const(n) B_HAVE_ITEM, flex(), and composed B_DIV/B_GE/B_MULT.",
         "#",
+        "# THE SECOND DEFECT THIS FILE CARRIED -- the window that closed itself (rounds 1-5).",
+        "#   Every page, and the plain scribe window too, played its open animation, showed its text,",
+        "#   then immediately played the close animation and unwound the whole handler, with no input.",
+        "#   Nothing in the 4617 emitted bytes explains it: no CloseWindow, no CloseAllWindows, no",
+        "#   [TIME], no second window on a live id, and the [behavior] ticker holds no window opcode at",
+        "#   all. The closer is OUTSIDE the .eb -- THE TURBO-CONFIRM LAW (content/text.py:NO_TURBO_TAG):",
+        "#   with Memoria.ini [Control] TurboDialog on (its DEFAULT) and the F9 TurboKey latched -- or",
+        "#   RightBumper/Shift held -- UIKeyTrigger.cs:834 synthesizes a confirm EVERY FRAME,",
+        "#   DialogManager.cs:334-340 fans it to every open window with no filter, and Dialog.cs:789-796",
+        "#   hides each one the instant it reaches CompleteAnimation. A CHOICE window is immune by",
+        "#   accident (UILabel.cs:804-806), which is exactly why the SELECTOR survived and every page",
+        "#   opened after it died. The kit now emits [NTUR] on readout windows automatically; the scribe",
+        "#   asks for it explicitly, because it is not a readout and it is the control.",
+        "#",
         "# DEPLOY (the HUMAN does this -- the agent does not):",
         f"#   py tools/deploy_field.py studies/completion-journal/bench/journal_dash.field.toml --id {BENCH_FIELD_ID}",
         f"# FIRST deploy of {BENCH_FIELD_ID} needs a RELAUNCH (it registers a DictionaryPatch line); after",
@@ -781,25 +795,34 @@ def bench_toml(*, pages=PAGES) -> str:
         'name = "scribe"',
         'model = "GEO_NPC_F0_CSO"',
         "pos = [-400, -837]",
-        # ★ THE CONTROL. Four rounds of static hypotheses failed to explain why a PAGE window opens,
-        # renders, then closes itself and exits the tree, while the SELECTOR is fine. Every remaining
-        # candidate splits on one question a playtester can answer in one interaction: is the defect
-        # in the choice->reply transition, or in plain windows on this field at all?
-        # The scribe is a plain multi-line window on the SAME field, SAME window id 2, SAME shape as
-        # a page -- reached by talking, NOT through a selector, and publishing no values.
-        #   scribe window STAYS  -> the fault is the choice->reply transition (the confirm that picks
-        #                           a row reaching the page, or the selector's close touching it)
-        #   scribe window CLOSES -> the fault is not the choice lane at all; it is windows on this
-        #                           field/config, and everything upstream of here has been the wrong
-        #                           tree entirely
+        # ★ THE CONTROL -- and now the FIX VERIFIER. Round 5 kept it and gave it the fix, because it
+        # is the minimal shape that failed: a plain multi-line window on the SAME field, the SAME
+        # window id 2, reached by TALKING (no selector) and publishing NO values. Its verdict last
+        # round -- it closed by itself too -- is what proved the fault was never the choice lane.
+        # WHAT IT MEASURES NOW (THE TURBO-CONFIRM LAW, content/text.py:NO_TURBO_TAG): a turbo session
+        # synthesizes a confirm EVERY FRAME (UIKeyTrigger.cs:834/974-991) and the fan-out
+        # (DialogManager.cs:334-340) hides any window that has finished typing (Dialog.cs:789-796).
+        # `no_turbo` emits [NTUR], the one tag that blocks the SYNTHESIZED press while leaving the
+        # PLAYER's own working.
+        #   scribe window HOLDS until you press Confirm -> the turbo fan-out was the closer; the
+        #                           seven pages (turbo-proofed automatically, they are readouts) work
+        #   scribe window STILL closes itself -> turbo is eliminated: a REAL confirm is being
+        #                           delivered (mouse click on the box, a repeating pad, an OnScreen
+        #                           button), and that is the next question -- not the .eb
+        # NB the body must not spell a tag literally: anything in square brackets is PARSED, not
+        # printed -- a line reading "no-turbo is on" as [NTUR] would emit the tag, be swallowed by
+        # the parser, and satisfy the inhibitor test by accident (measured: it did, first cut).
         'dialogue = """',
         "== SCRIBE CONTROL ====",
-        "A plain window, no menu.",
-        "Same window id as a page.",
-        "If THIS one also closes by",
-        "itself, the bug is not the",
-        'choice lane."""',
+        "Plain window, no menu.",
+        "Turbo-proofed this round.",
+        "If THIS one still shuts by",
+        "itself, a REAL confirm is",
+        'arriving -- not turbo."""',
         "window = 2",
+        # NOT a readout (no [NUMB=]/[TEXT=]/[ITEM=]), so the default would leave it turbo-skippable
+        # like any narrative line. Asked for explicitly: this window's whole job is to be the control.
+        "no_turbo = true         # [NTUR] -- THE TURBO-CONFIRM LAW",
         "",
         "[behavior]",
         "warmup = 30",

@@ -23,6 +23,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   byte-identical to before.
 
 ### Fixed
+- **A turbo-dialog session silently ate every readout window** — FF9's dialogue skip
+  (`Memoria.ini [Control] TurboDialog`, on by default; latched with **F9**, or held as
+  RightBumper/Shift + Confirm) synthesizes a confirm *every frame with no player input*, and the
+  engine delivers it to every open window, closing each one the instant its text finishes showing.
+  The window opens, the text appears, and it immediately plays its closing animation and unwinds the
+  whole handler — indistinguishable from a script bug, and invisible in the emitted bytes (it cost
+  four rounds on a dashboard bench). A choice menu is immune already, so the *selector* survives and
+  only the pages die, which points the blame in exactly the wrong direction. Windows that render a
+  live value (`[NUMB=]`/`[TEXT=]`/`[ITEM=]`) now emit `[NTUR]` automatically — the one inhibitor that
+  blocks the synthesized press while leaving the player's own Confirm working. New **`no_turbo`** key
+  overrides it either way on any dialogue-bearing block; `lint` refuses `no_turbo = false` on a
+  readout. Narrative dialogue stays skippable, like the base game's.
 - **A confirm press dismisses every open window, not the topmost one** — so an async window that must
   survive a line of dialogue needs `hold = true`, or the press that advances the dialogue closes it
   too. Now refused at build time (this cost a playtest), along with the mirror deadlock of holding a

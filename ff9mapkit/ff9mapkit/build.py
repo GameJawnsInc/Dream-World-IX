@@ -2854,6 +2854,30 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"{label}: hold and duration are the same engine tag with opposite "
                                 f"meanings ([TIME=-1] holds forever, [TIME=n] auto-closes after n "
                                 f"frames) -- keep one.")
+            # ★ THE TURBO-CONFIRM LAW at the call site (content/text.py:NO_TURBO_TAG).
+            # dress_window turbo-proofs a READOUT window automatically, so the only way to ship one
+            # that a turbo session eats is to opt OUT on purpose -- and an opt-out of a law has to be
+            # LOUD. Owner playtest, bench 30801: a page "opens, and when it's finished with the
+            # opening animation and the text shows, it immediately does the closing animation and
+            # exits the entire dialogue tree", with no input.
+            nt = src.get("no_turbo")
+            if nt is not None and not isinstance(nt, bool):
+                problems.append(f"{label} no_turbo must be true/false (emit [NTUR] so a turbo "
+                                f"session's synthesized confirm cannot close this window; "
+                                f"got {nt!r})")
+            elif nt is False:
+                _body = _text.body_text(src)
+                if _text.renders_live_value(_body) and not _text.window_inhibited(src, _body):
+                    problems.append(
+                        f"{label}: no_turbo = false on a READOUT window (it renders [NUMB=]/"
+                        f"[TEXT=]/[ITEM=]). With TurboDialog on -- Memoria.ini's default -- and the "
+                        f"F9 TurboKey latched (or RightBumper/Shift held), UIKeyTrigger.cs:834 "
+                        f"synthesizes a confirm EVERY FRAME with no input, DialogManager.cs:334-340 "
+                        f"fans it to every open window and Dialog.cs:789-796 hides this one the "
+                        f"instant it finishes typing -- the player never reads the number. Drop "
+                        f"no_turbo = false, or inhibit the window instead with hold/duration/[NFOC] "
+                        f"(NB those also block the PLAYER's confirm, so a blocking window then hangs "
+                        f"the script on wait == 254).")
         a = src.get("actor") if opcode_side else None
         if a is not None and actor != "cast":      # "cast": the step's actor IS the performer
             if actor == "no":
