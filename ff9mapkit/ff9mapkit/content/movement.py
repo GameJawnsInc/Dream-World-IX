@@ -20,7 +20,18 @@ any DIRECTION bit stops walking **independently of the DisableMove lock** (Event
 freeze WALKING while leaving chosen BUTTONS live: Marsh/Chocobo tutorials mask 240 (the four
 directions), field 178 masks 255 (directions+Select+Start), field 95 unmasks Select alone. Note
 ``DisableMenu`` is this same mechanism (the engine masks the menu bit); the mask survives a
-``DisableMove``/``EnableMove`` bracket (EnableMove's menu re-grant checks it, survey 1).
+``DisableMove``/``EnableMove`` bracket.
+
+⚠ TWO CONSEQUENCES OF A **DIRECTION** MASK, both engine-read and both design-shaping:
+  * it is ALL-OR-NOTHING -- ``CheckPlayerControl`` sets ``isMovementControl = false`` if the mask
+    covers ANY of Up/Right/Down/Left, so masking one axis stops all walking (there is no
+    walk-sideways-only state);
+  * it KILLS THE MENU even after control returns -- ``EnableMove``'s re-grant is
+    ``SetMenuControlEnable(IsMenuON && IsMovementControl)`` (DoEventCode.cs:1076).
+So while a direction mask is up the player can neither walk nor open the menu: **button presses
+are all that survive**, and whatever removes the mask must be reachable without moving (the same
+body, or a trigger under their feet). Learned the hard way on bench 30602 round 2, which stranded
+the playtester by putting the unmask on a different book.
 """
 
 from __future__ import annotations

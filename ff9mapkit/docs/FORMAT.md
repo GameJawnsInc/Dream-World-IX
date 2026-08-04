@@ -441,7 +441,14 @@ mirrors that law with per-lane defaults:
   the contract `stay_locked` and scripted battles rely on.
 - **Partial control** (`[[event]] mask_buttons` / `unmask_buttons`) — stock's tutorial/minigame
   lane (`AddControllerMask`): the named buttons simply stop arriving, and masking the
-  **directions** freezes walking *independently of the lock* while every other button stays live.
+  **directions** freezes walking *independently of the lock*, leaving button presses live.
+  ⚠ Masking **any** direction bit stops *all* walking (the engine's movement mask is all-or-nothing,
+  `EventInput.CheckPlayerControl`) **and kills the main menu** — `EnableMove`'s menu re-grant is
+  `IsMenuON && IsMovementControl` (`DoEventCode.cs:1076`), so a direction mask suppresses the menu
+  even after control returns. What survives is button presses, which is exactly stock's tutorial
+  shape (you can only press what the tutorial wants). Design accordingly: **while a direction mask
+  is up the player cannot reach anything**, so whatever removes it must be triggerable from where
+  they stand (or be in the same body).
   Names: `select start up right down left l1 l2 r1 r2 triangle circle cross square`, plus the
   group `"directions"` (stock's own 240 — the Marsh/Chocobo tutorial walk-freeze). A mask is
   **standing state**: pair the masking event with an unmasking one — it does not auto-restore,

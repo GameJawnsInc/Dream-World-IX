@@ -1,19 +1,24 @@
 # LOCKT2 -- the movement-survey TIER-2 bench (studies/movement/SURVEY.md 10 items 5-7).
 #
-# ROUND 2. Round 1 verdict: east book GOOD, battle GOOD, WEST BOOK BROKEN -- "dismissing the west
-# book keeps the movement locked". That beat paired mask_buttons with lock = false and a
-# DISMISSIBLE window: the mask applied and the unmask never took. The emitted order was correct
-# (mask, WindowSync, unmask, RET -- read back out of the shipped .eb) and the engine's clear path
-# is symmetric, so the mechanism is NOT established -- but stock never builds that shape (its own
-# pad-mask sites bracket a window inside a handler that cannot be re-entered), and the kit now
-# REFUSES it in validate. Round 2 uses stock's shape instead, which proves the lane better anyway:
+# ROUND 3. Round 2 was MY design error, twice over (owner: "still move locked after the west book
+# closes. this dialogue is nonsense - you can't talk to the NPC if you're unable to move to them"):
+#   (1) a directions mask kills ALL walking, so putting the THAW on a different book stranded the
+#       player -- the freeze persisting was the mask WORKING, but nothing could prove the unmask;
+#   (2) the text claimed you could talk to the NPC (unreachable) and that the menu opens -- ALSO
+#       FALSE: EnableMove's menu re-grant is `IsMenuON && IsMovementControl`
+#       (DoEventCode.cs:1076), so a direction mask kills the MENU too. Walk, menu: both dead;
+#       button presses are all that survive. That IS stock's tutorial lane (you can only press
+#       what the tutorial wants), and it means every beat must be verifiable STANDING STILL.
 #
-#   * WEST book (press, LOCKED -- the default): masks the directions, then a normal held window.
-#     When it closes the LOCK IS RELEASED but the MASK PERSISTS -- so you get the whole point of
-#     partial control in one beat: control is yours (the menu opens, Action works, you can talk to
-#     the Control NPC) yet YOUR FEET ARE DEAD. That separation is invisible under a plain lock.
-#   * MIDDLE book (press, LOCKED): unmask -- your feet thaw. If the west book freezes and the
-#     middle book thaws, the pad-mask lane is proven end to end.
+#   * MIDDLE book (do this FIRST): the self-contained cycle -- mask + a SELF-CLOSING window
+#     (duration) + unmask. Press it, try to walk while the window is up (dead), let it time out on
+#     its own, then walk again (restored). No stranding. This is the lawful shape validate now
+#     requires, and it also tests round 1's leading hypothesis: with `duration` the engine inhibits
+#     the dismiss button, so there is no press to re-enter the handler with.
+#   * WEST book (do this LAST -- it strands you on purpose): mask + a normal locked window and NO
+#     unmask, to show the mask OUTLIVING the lock bracket. Verify standing still: press Action
+#     again and this window REOPENS -- which can only happen if control was returned and the engine
+#     is still dispatching your presses. Escape: ~ -> Reload field (a scene change clears the mask).
 #   * EAST book (press): arms the STAY_LOCKED ending (sets flag 9150), then ~ -> Reload field.
 #     On the armed reload a narration scene plays and ends WITHOUT giving control back -- the
 #     one-way latch (stock's Festival-timeout idiom). You should be frozen for good: no walking,
@@ -46,34 +51,38 @@ spawn = [0, -1900]
 [encounter]
 scene = "BSC_EF_R007"          # Evil Forest, the weakest battles -- one quick fight proves the grant
 
-# --- WEST book: FREEZE the feet (mask_buttons, stock's locked shape) ------------------------
+# --- MIDDLE book (DO THIS FIRST): the self-contained freeze/thaw cycle -----------------------
+# The lawful shape: a SELF-CLOSING window (duration) between the mask and the unmask. Nothing to
+# dismiss, so nothing can re-enter this handler -- round 1's failing beat was the dismissible form.
+[[event]]
+name = "cycle"
+zone = [[-150, -1150], [150, -1150], [150, -950], [-150, -950]]
+trigger = "action"
+bubble = true
+mask_buttons = ["directions"]
+message = "Feet masked. TRY TO WALK -- dead. This window closes itself in ~3s and unmasks; then walk again."
+duration = 90
+unmask_buttons = ["directions"]
+once = false
+
+[[prop]]
+prop = "book"
+pos = [0, -880]
+collision = false
+
+# --- WEST book (DO THIS LAST -- it strands you): the mask OUTLIVES the lock ------------------
 [[event]]
 name = "freeze"
 zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
 trigger = "action"
 bubble = true
 mask_buttons = ["directions"]
-message = "FROZEN FEET. This window took the normal lock -- but when it closes the lock is RELEASED and the pad MASK stays. So: the menu opens, Action works, you can talk to the NPC at the back -- and walking is DEAD. That is partial control. Press the MIDDLE book to thaw."
+message = "Masked, with NO unmask. Walking is dead -- and so is the menu (the engine ties the menu re-grant to the movement mask). But the LOCK did release: press Action again right here and this window reopens, which only works if the engine is still dispatching presses. Escape: ~ then Reload field."
 once = false
 
 [[prop]]
 prop = "book"
 pos = [-700, -880]
-collision = false
-
-# --- MIDDLE book: THAW (unmask_buttons) -----------------------------------------------------
-[[event]]
-name = "thaw"
-zone = [[-150, -1150], [150, -1150], [150, -950], [-150, -950]]
-trigger = "action"
-bubble = true
-unmask_buttons = ["directions"]
-message = "THAWED -- walking is restored. (If the west book froze you and this thawed you, the pad-mask lane works end to end.)"
-once = false
-
-[[prop]]
-prop = "book"
-pos = [0, -880]
 collision = false
 
 # --- EAST book: arm the stay_locked ending --------------------------------------------------
