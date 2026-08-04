@@ -93,3 +93,17 @@ Dali 351's 239/296 unaided (the doc only gestured at those).
 
 RUNG 2 CLOSED. Detection replaced the planned hand-curated table -- strictly better: it
 covers every ATE hub, not three documented regions.
+
+## The campaign lane — an 11-field Dali chain at ONE beat (slots 30830-30840) PENDING
+
+`import-chain 351 --verbatim --whole-zone` (11 fields, 59 in-chain gateways retargeted) then
+ONE command: `story-seed --chain <dir> --beat 2650` seeded every member against its own
+donor's read set. Deployed additively (per-member deploy_field --id; never the wholesale
+campaign replace). **RELAUNCH once** (11 new ids), then ~ -> Warp 30831 (DL_ENT, the village
+entrance; the inn is 30830, donor 351).
+
+The question the whole arc has been building to: **walk beat-2650 Dali as a coherent place**
+-- doors warp between the forks, each room staged at the same beat (villagers about, the inn's
+sleeping keeper + moogle, the shop staffed). Report anything scenario-zero-ish or
+beat-INCONSISTENT between rooms (the cross-room coherence is the new claim; single rooms were
+rung 1).

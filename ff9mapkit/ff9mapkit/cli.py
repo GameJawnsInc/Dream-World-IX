@@ -509,6 +509,28 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
     from .eb import EbScript
 
     t = args.target
+    if args.chain:
+        if not args.beat:
+            print("story-seed: --chain needs --beat", file=sys.stderr)
+            return 1
+        try:
+            beat = int(args.beat)
+        except ValueError:
+            beat = _flags.resolve_scenario(args.beat)
+        cpath = args.census or storyseed.find_census()
+        if not cpath or not os.path.isfile(cpath):
+            print("story-seed: dominance_census.json not found (see --census)", file=sys.stderr)
+            return 1
+        census = _json.load(open(cpath, encoding="utf-8"))
+        from .extract import EventBundle
+        bundle = EventBundle()
+        rows = storyseed.seed_chain(args.chain, beat, census,
+                                    lambda d: EbScript.from_bytes(bundle.eb_for_id(d)))
+        _safe_console()
+        for path, mid, donor in rows:
+            print(f"  seeded {mid} (donor {donor}) @ {beat}: {path}")
+        print(f"story-seed: {len(rows)} member(s) seeded @ beat {beat}")
+        return 0
     if t.isdigit():
         from .extract import EventBundle
         data = EventBundle().eb_for_id(int(t))
@@ -6826,12 +6848,16 @@ def build_parser() -> argparse.ArgumentParser:
     sse = sub.add_parser("story-seed", help="emit a [startup] block seeding ONLY the story bits "
                                             "a field READS, resolved at a target beat (rung 1 "
                                             "of the narrative-state arc)")
-    sse.add_argument("target", help="a numeric field id (extracted from the install) or a .eb path")
+    sse.add_argument("target", nargs="?", default="",
+                     help="a numeric field id (extracted from the install) or a .eb path")
     sse.add_argument("--beats", action="store_true",
                      help="just LIST the ScenarioCounter values this field stages (pick one "
                           "of these as --beat; a value between gates hits no scene)")
     sse.add_argument("--beat",
                      help="ScenarioCounter value, or a milestone name (flags.resolve_scenario)")
+    sse.add_argument("--chain", help="a chain/campaign DIRECTORY (from import-chain): seed "
+                                     "EVERY member's field.toml at --beat (each member "
+                                     "resolved against its own donor's read set)")
     sse.add_argument("--census", help="path to dominance_census.json (default: found by walking "
                                       "up from cwd; regenerate with research/dominance_census.py)")
     sse.set_defaults(func=_cmd_story_seed)

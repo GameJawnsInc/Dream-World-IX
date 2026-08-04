@@ -296,3 +296,41 @@ def render_words(bytes_: list[int]) -> str:
     return (f"words = [ {rows} ]\n"
             "# ATE availability word(s) detected gating ATE(1): value 1 arms ONE menu row --\n"
             "# each bit = one offered ATE; WIDEN to the beat's unlocked set (e.g. 0x0F = 4 rows)")
+
+
+def seed_text(eb: EbScript, beat: int, census: dict, *, field_label: str = "") -> str:
+    """The complete seed for one field: [startup] (+ detected ATE words) + [party]."""
+    parts = [render_startup(resolve(eb, beat, census), field_label=field_label)]
+    w = render_words(ate_word_seed(eb))
+    if w:
+        parts.append(w)
+    p = render_party(party_seed(eb))
+    if p:
+        parts.append("\n" + p)
+    return "\n".join(parts)
+
+
+def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tuple[str, int, int]]:
+    """Append a seed to EVERY member field.toml under *chain_dir* (a fresh seed replaces a
+    prior one -- the '# story-seed' marker delimits). ``eb_for_donor(donor_id) -> EbScript``.
+    Returns [(toml_path, member_id, donor_id)]."""
+    import glob
+    import re
+    out = []
+    for p in sorted(glob.glob(os.path.join(chain_dir, "**", "*.field.toml"), recursive=True)):
+        text = open(p, encoding="utf-8").read()
+        m_donor = re.search(r"^donor\s*=\s*(\d+)", text, re.M)
+        m_id = re.search(r"^id\s*=\s*(\d+)", text, re.M)
+        if not m_donor or not m_id:
+            continue
+        donor, mid = int(m_donor.group(1)), int(m_id.group(1))
+        lines = text.splitlines(keepends=True)
+        cut = next((i for i, l in enumerate(lines) if l.startswith("# story-seed")), None)
+        base = "".join(lines[:cut]) if cut is not None else text
+        if not base.endswith("\n"):
+            base += "\n"
+        seed = seed_text(eb_for_donor(donor), beat, census, field_label=str(donor))
+        with open(p, "w", encoding="utf-8", newline="") as fh:
+            fh.write(base + seed + "\n")
+        out.append((p, mid, donor))
+    return out

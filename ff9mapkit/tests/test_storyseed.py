@@ -107,3 +107,19 @@ def test_party_seed_dali_cast_and_dormant_quina_352():
     assert ps["dormant"] == ["Quina"]          # checked but never added -> assert-by-hand only
     out = storyseed.render_party(ps)
     assert "[party]" in out and "Quina" in out and "NOT seeded" in out
+
+
+def test_seed_chain_appends_and_replaces(tmp_path):
+    d = tmp_path / "M1"
+    d.mkdir()
+    toml = d / "M1.field.toml"
+    toml.write_text("id = 30999\ndonor = 553\n[verbatim_eb]\ndonor = 553\n", encoding="utf-8")
+    eb = _field_reading(2647)
+    c = _census(2647, sc=[[0, 7, 0, "==", 3110]])
+    rows = storyseed.seed_chain(str(tmp_path), 3110, c, lambda _d: eb)
+    assert rows == [(str(toml), 30999, 553)]
+    text = toml.read_text(encoding="utf-8")
+    assert "[startup]" in text and "scenario = 3110" in text
+    rows2 = storyseed.seed_chain(str(tmp_path), 2000, c, lambda _d: eb)
+    text2 = toml.read_text(encoding="utf-8")
+    assert text2.count("# story-seed") == 1 and "scenario = 2000" in text2
