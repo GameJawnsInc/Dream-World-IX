@@ -5,8 +5,10 @@ assignment uses the STATIC field table (extract.ID_TO_FBG, baked from Memoria so
 validity is checked with tomllib. A final real-bytes test forks the actual Ice Cavern and is skipped when
 the FF9 install / UnityPy is absent."""
 
+import shutil
 import tomllib
 from collections import OrderedDict
+from pathlib import Path
 
 import pytest
 
@@ -359,6 +361,16 @@ def _plan_with_ids(ids):
                                  entry_name="A", entry_entrance=0, members=members)
 
 
+def test_validate_ids_refuses_the_engine_reserved_world_hole():
+    """EventDB[9000..9012] are the world-state dispatchers (EVT_WORLD_WORLD00..12), so a FieldScene there
+    clobbers the world scripts. The journey tier, the floorplan pre-flight and reid all guarded this --
+    the CAMPAIGN lane, which every one of them ultimately builds through, did not."""
+    for band in ([9000], [9012], [8999, 9005]):
+        with pytest.raises(campaign.CampaignError, match="world-map hole"):
+            campaign.validate_ids(_plan_with_ids(band))
+    campaign.validate_ids(_plan_with_ids([8999, 9013]))           # either side of the hole is fine
+
+
 def test_validate_ids():
     campaign.validate_ids(_plan_with_ids([6000, 6001, 6002]))            # ok
     for bad in ([6000, 6000], [3999], [40000], []):
@@ -381,6 +393,46 @@ def _lint_plan(tmp_path, *, members=None, edges=None, seams=None, entry="A", mem
         (d / f"{m.name}.field.toml").write_text(
             f'[field]\nid = {m.new_id}\nname = "{m.name}"\narea = 11\n{extra}', encoding="utf-8")
     return plan
+
+
+def test_a_freshly_built_campaign_verifies_clean(tmp_path):
+    """★ THE GATE CAUGHT ITS OWN AUTHOR. build_mod finalizes the content digest when IT finishes, and
+    build_campaign then writes ForkDonorPatch.txt into the same dist -- so the digest described a folder
+    that no longer existed and a BRAND-NEW build reported drift. A drift check that cries wolf on a fresh
+    build is one nobody believes, which makes it worse than none."""
+    pytest.importorskip("ff9mapkit.build")
+    from ff9mapkit import stamp
+    ember = Path(__file__).resolve().parents[2] / "examples" / "stolen-ember"
+    if not (ember / "campaign.toml").is_file():
+        pytest.skip("stolen-ember example not present")
+    # A tracked checkout ships only the authored tomls: the example's fork sidecars (camera.bgx /
+    # walkmesh.bgi / TRAIL's native scene) are SE-derived, gitignored, and NOT produced by
+    # extract-templates -- so a fresh clone/worktree cannot build the example at all. Skip LOUDLY,
+    # naming the one command that materializes them (extract-templates also runs it in a checkout).
+    missing = campaign.missing_assets(campaign.load_campaign(ember / "campaign.toml"), ember)
+    if missing:
+        pytest.skip(f"stolen-ember's SE-derived sidecars are not materialized in this checkout "
+                    f"(gitignored; extract-templates alone does not produce them): missing {missing}. "
+                    f"Regenerate from your own install:  py -m ff9mapkit fetch-assets {ember / 'campaign.toml'}")
+    work = tmp_path / "se"
+    shutil.copytree(ember, work)
+    out = tmp_path / "dist"
+    campaign.build_campaign(work / "campaign.toml", out=out)
+    assert (out / "ForkDonorPatch.txt").is_file(), "fixture must exercise the post-build write"
+    rep = stamp.verify(out)
+    assert rep.clean, rep.render()
+
+
+def test_lint_refuses_a_flag_width_below_one(tmp_path):
+    """★ At flags_per_field = 0 the window [base+i*K, base+i*K+K-1] degenerates to hi = lo-1: an EMPTY range
+    that satisfies every band check while EVERY member sits on the SAME base -- member 2's cutscene
+    once-flag IS member 1's. Nothing anywhere had a floor, so it linted clean with zero errors and built."""
+    plan = _lint_plan(tmp_path)
+    plan.flags_per_field = 0
+    errs = campaign.lint_campaign(plan, tmp_path)[0]
+    assert any("flags_per_field" in e and "at least 1 bit" in e for e in errs), errs
+    plan.flags_per_field = 1                                      # 1 bit = a lone [[cutscene]]: legal
+    assert campaign.lint_campaign(plan, tmp_path)[0] == []
 
 
 def test_lint_structural_pass(tmp_path):

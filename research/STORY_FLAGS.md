@@ -11,6 +11,16 @@ three adversarial verdicts are applied inline.*
 appendix) · `make_digest.py` (regenerates the digest) · `flag_catalog.toml` (the named-flag registry seed
 this report recommends). See `README.md`.
 
+> ⚠ **DATED RESEARCH LOG — `ff9mapkit/ff9mapkit/flags.py` is the source of truth for every band.** Two
+> claims from the original 2026-06 census have since been refuted and are corrected in §2's heap map and
+> the §-appendix registry above; the dated narrative further down (the campaign-collision analysis, the
+> `flag_base` recommendation, open question #3) still carries them and is kept only as record.
+> **(1)** Bits **8376–8511** are the MOGNET give/read variant lock tables, **not** a treasure-chest
+> registry — real FF9 has no per-chest registry anywhere, and Treasure-Hunter rank is scored from the
+> separate bytes 182–186 + 896–975. **(2)** The first safe custom bit is **8712**, not 8512 — that census
+> was BOOL-only and missed stock's byte-addressed read-mail payload at Byte[1064–1088]. Allocating at
+> 8512 corrupts a live save.
+
 ---
 
 ## 1. Executive summary
@@ -99,11 +109,12 @@ single-source/uncertain.
 | **896–960** | — | **Treasure-Hunter "standard" region** — opened chests / searched icons / event items, **1 pt/bit** | Bit-packed Byte[65] | (a)+(b) | `EventState.cs:65-66`; FF Wiki |
 | **896–975** | ~7168–7807 | **The main dense story-flag heap** — every area writes here (327 distinct bits, ~140 fields). Overlaps the TH-standard scoring region. | Bit | (a)/(b) | `EventState.cs:65-68`; census |
 | **966–975** | — | **Treasure-Hunter "extra" region** — 1 pt/bit | Bit-packed Byte[10] | (a) | `EventState.cs:67-68` |
-| **1024–1045 / 1064–1079** | — | Byte-addressed accesses near (not overlapping) the chest block, from the same 48-field dispatch routine | Byte, 48 fields | (b) | census |
-| **1047–1063** | **8376–8511** | **TREASURE-CHEST registry block** — a **byte-identical 130-entry dispatch block** (WindowSync + set/gate a literal chest bit, branch) emitted verbatim into **~48 chest fields** (e.g. 115, 300, 2203) → the census sees all 48 as writers of every bit. **★ The band the campaign allocator collides with.** ⚠ The stock engine does **NOT** read this region — the TH rank is scored from the **separate** bytes 182–186 + 896–975 above (`GetTreasureHunterPoints`); this band is reserved purely because real field logic gates/sets it. | Bit (& Byte view) | (b) | census (verified from `.eb` bytes; **NOT** GetTreasureHunterPoints) |
+| **1024–1045 / 1064–1079** | — | The stock **MOGNET mailbox** (1024–1045: wipe-guard, delivered counter, Stiltzkin tally, 12 letter-slot bytes) and the **read-mail row scratch** (1064–1079), from the same ~48-field moogle dispatch routine | Byte, 48 fields | (a)/(b) | `content/mognet.py` decode; census |
+| **1047–1063** | **8376–8511** | **MOGNET variant LOCK tables** — the give-side one-shot locks (8376–8439, anchor 8383), the read-side locks (8440–8503, anchor 8447), and the margin byte 1063 (8504–8511). The **byte-identical 130-entry dispatch block** (WindowSync + set/gate a literal bit, branch) emitted verbatim into ~48–58 moogle fields (e.g. 115, 300, 1102) is the twin lock tables — **not chests**. **★ The band the pre-b18 campaign allocator collided with.** ⚠ Long mislabelled here as a "treasure-chest registry": real FF9 has **no per-chest registry at all**, and the TH rank is scored from the **separate** bytes 182–186 + 896–975 above (`GetTreasureHunterPoints`). Truth: `ff9mapkit/ff9mapkit/flags.py` (`MOGNET_LOCK_LO/HI`). | Bit (& Byte view) | (a) | `content/mognet.py` decode (fields 115/300/1102, instruction-cited); live-save verified |
 | **1100–1291** | — | **Legacy** ability-usage counters (Byte[192], now moved to `gAbilityUsage` dict; bytes may be cleared) | Byte | (a) | `JsonParser.cs:539` |
 | **2040** | **16320–16335** | Choice-visibility scratch mask (`MASK_SCRATCH_IDX`); engine-reserved, transient | Global UInt16 | (a) | `region.py:57` |
-| **8512+** | **≥8512** | **CLEAR** — unused by any real field. The safe band for custom flags. | — | (a)/(b) | census (`bit_flag_max=8511`) |
+| **1064–1088** | **8512–8711** | **Stock READ-MAIL payload** — row VARIANTS Byte[1064–1073] (8512–8591) + row SENDERS Byte[1079–1088] (8632–8711), **whole-byte-written on every Mognet open** at any moogle with known letters. Ordinary play clobbers any custom bit here. **NEVER allocate.** (Bytes 1074–1078 = 8592–8631 are the stock-clear hole the kit's deathrules outpost word uses.) | Byte (bit view) | (a) | census 2026-07-19 (byte-var sweep); `flags.READMAIL_PAYLOAD_LO/HI` |
+| **1089+** | **≥8712** | **CLEAR** — the first bit clear of ALL real-FF9 usage, bools **and** byte-addressed vars. `flags.FIRST_SAFE_FLAG` = **8712**; the safe band is **[8712, 16048)** and is internally partitioned (campaign lane / kit-standing lane) by `flags.py`. ⚠ The 2026-06 census here originally read **8512** — it was BOOL-only and missed the byte-addressed read-mail payload above. **8512 is a save-corrupter; use 8712.** | — | (a) | `ff9mapkit/ff9mapkit/flags.py` (source of truth); census 2026-07-19 |
 
 **ScenarioCounter chapter banding (empirical, area→value).** Near-monotonic; the engine does *not* advance
 it by a fixed step and disc boundaries are not round numbers (the "disc N starts at value X" forum claim is
@@ -306,7 +317,8 @@ A starter table of the best-named flags/regions/milestones defensible *now*. Tie
 | `_RESERVED_TH_standard` | bytes 896–960 | Bit-packed | Treasure-Hunter scored flags (1 pt/bit) | (a) | `EventState.cs:65-66` |
 | `_RESERVED_TH_extra` | bytes 966–975 | Bit-packed | Treasure-Hunter extra (1 pt/bit) | (a) | `EventState.cs:67-68` |
 | `_RESERVED_TH_double` | bytes 182–186 | Bit-packed | World-map Choco chests (2 pts/bit) | (a) | `EventState.cs:69-70` |
-| `_RESERVED_chest_opened` | bits 8376–8511 | Bit (Byte view 1047–63) | Global chest-opened bitfield, 48 fields | (a)/(b) | census |
+| `_RESERVED_mognet_locks` | bits 8376–8511 | Bit (Byte view 1047–63) | Mognet give/read variant one-shot lock tables, ~48–58 moogle fields (was mislabelled `_RESERVED_chest_opened`) | (a) | `content/mognet.py` decode |
+| `_RESERVED_readmail_payload` | bits 8512–8711 | Byte (1064–1088) | Stock read-mail row variants/senders; whole-byte-written on every Mognet open | (a) | census 2026-07-19 |
 | `ChocographFound` / `ChocographOpened` | bytes 187+i / 184+i | Byte | Chocograph treasure tracking | (a) | `ChocographUI.cs:250-251` |
 | `ChocoDigLevel` | byte 191 | Byte | Choco's dig ability level | (a) | `ChocographUI.cs:245` |
 | `_RESERVED_worldmap_unlocks` | bytes 92–102 | Bit/Byte | Location-unlock / Navi cursor (consumed by C#) | (a)/(b) | `ff9.cs:2259-2333` |

@@ -3,7 +3,9 @@ cloned from a cutscene template needs (else ``ExitBattleEnd`` never un-suspends 
 
 Synthetic multi-entry ``.eb`` fixtures (hand-built, mirroring ``EbScript``'s real layout -- see
 ``test_logic_add._eb``) pin, byte-for-byte and without touching the game install:
-  * the new tag-10 body's exact bytes (fade-in + EnableMove + return, prologue-first, fade-optional);
+  * the new tag-10 body's exact bytes (fade-in + the RESTORE-NOT-GRANT gated EnableMove + return,
+    prologue-first, fade-optional) -- the grant runs only when the engine-restored pre-battle
+    ``usercontrol`` says control was ON and the stay-locked latch (MAP 156) is clear;
   * entry-0's PRE-EXISTING functions keep their tag, shift fpos by exactly +4, and keep their body bytes;
   * a tag-10 collision raises ``ValueError``;
   * every LATER entry's table offset shifts by exactly ``growth`` (and its body bytes ride along
@@ -25,6 +27,10 @@ EM = opcodes.ENABLE_MOVE                # 0x2E, 0 args
 DM = opcodes.DISABLE_MOVE               # 0x2D, 0 args
 EM_RET = EM + RET
 FADE_IN = opcodes.fade_filter(2, 16, 0, 0, 0, 0)
+# `if (IsMovementEnabled && !MAP156) { EnableMove }` -- the restore-not-grant tail (GRANT_GATE +
+# JMP_FALSE over the 1-byte EnableMove). Pinned byte-for-byte: 05 7A 02 C5 9C 0E 27 7F 02 01 00 2E.
+GATED_EM = R.GRANT_GATE + bytes([0x02, 0x01, 0x00]) + EM
+assert GATED_EM == bytes([0x05, 0x7A, 0x02, 0xC5, 0x9C, 0x0E, 0x27, 0x7F, 0x02, 0x01, 0x00, 0x2E])
 
 
 def _eb_multi(*entries) -> bytes:
@@ -92,7 +98,7 @@ def test_add_reinit_normal_multi_entry():
 
     f10 = new.entry(0).func_by_tag(10)
     assert f10 is not None
-    assert out[f10.abs_start:f10.abs_end] == FADE_IN + EM + RET
+    assert out[f10.abs_start:f10.abs_end] == FADE_IN + GATED_EM + RET
 
     new_by_tag = {f.tag: f for f in new.entry(0).funcs}
     for f in orig.entry(0).funcs:                       # every pre-existing entry-0 function...
@@ -111,11 +117,11 @@ def test_add_reinit_tag_collision_raises():
 
 
 def test_add_reinit_no_fade():
-    """with_fade=False -> the tag-10 body is EXACTLY EnableMove;RET, no FadeFilter bytes at all."""
+    """with_fade=False -> the tag-10 body is EXACTLY the gated EnableMove;RET, no FadeFilter at all."""
     eb = _eb_multi([(0, RET)])
     out = R.add_reinit(eb, with_fade=False)
     f10 = EbScript.from_bytes(out).entry(0).func_by_tag(10)
-    assert out[f10.abs_start:f10.abs_end] == EM + RET
+    assert out[f10.abs_start:f10.abs_end] == GATED_EM + RET
     assert _clean(out)
 
 
@@ -126,7 +132,7 @@ def test_add_reinit_prologue_runs_first():
     f10 = EbScript.from_bytes(out).entry(0).func_by_tag(10)
     body = out[f10.abs_start:f10.abs_end]
     assert body.startswith(DM)
-    assert body == DM + FADE_IN + EM + RET
+    assert body == DM + FADE_IN + GATED_EM + RET
     assert _clean(out)
 
 

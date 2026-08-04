@@ -510,6 +510,19 @@ def validate_ids(plan: CampaignPlan):
     bad = [i for i in ids if not (4000 <= i <= 32767)]
     if bad:
         raise CampaignError(f"member ids out of range {sorted(set(bad))}: must be 4000-32767 (fldMapNo is Int16)")
+    # The engine-RESERVED world-map hole. EventDB[9000..9012] are the world-state dispatchers
+    # (EVT_WORLD_WORLD00..12), so a FieldScene there clobbers the world scripts. The journey tier guards it
+    # (journey.WORLD_ID_LO/HI), the floorplan pre-flight guards it, and reid refuses to move onto it -- but
+    # the CAMPAIGN lane, which every one of those ultimately builds through, did not. A hand-edited manifest
+    # or a plain `add-field` walking the allocator up from 8990 lands in it with nothing to say so.
+    from .journey import WORLD_ID_HI, WORLD_ID_LO
+    hole = sorted({i for i in ids if WORLD_ID_LO <= i <= WORLD_ID_HI})
+    if hole:
+        raise CampaignError(
+            f"member ids {hole} land in the engine-RESERVED world-map hole {WORLD_ID_LO}-{WORLD_ID_HI} "
+            f"(EventDB[{WORLD_ID_LO}..{WORLD_ID_HI}] = the world-state dispatchers EVT_WORLD_WORLD00..12) -- "
+            f"a FieldScene there clobbers the world scripts. Move the campaign clear of the hole: "
+            f"`ff9mapkit reid <campaign.toml> --id-base N`.")
 
 
 def apply_seed_blocks(raw: dict, blocks: dict) -> None:
@@ -672,6 +685,16 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         (Path(out) / "ForkDonorPatch.txt").write_text(
             "# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n" + "\n".join(donor_lines) + "\n",
             encoding="utf-8", newline="\n")
+        # RE-STAMP: build_mod finalized the content digest when IT finished, and the line above then
+        # rewrote a file inside the dist -- so the digest described a folder that no longer existed and a
+        # freshly built campaign reported ForkDonorPatch.txt as drift. (Caught by `verify-build` on its
+        # first real build, which is the gate doing its job on the hand that wrote it.) Anything that
+        # writes into `out` after build_mod has to refresh the stamp, or the drift check cries wolf --
+        # and a drift check nobody believes is not a check.
+        from . import stamp as _stamp
+        if info.get("stamp"):
+            info["stamp"] = _stamp.finalize(info["stamp"], out)
+            _stamp.write(out, info["stamp"])
     info["plan"] = plan
     info["out"] = str(Path(out).resolve())
     info["warnings"] = list(lint_warnings) + list(info.get("warnings", []))
@@ -733,7 +756,22 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
                       f"(edges/seams + the campaign navigator key on them)")
 
     K = plan.flags_per_field                      # (a3) per-member flag blocks: in the provably-safe band,
-    for i, m in enumerate(plan.members):          #      clear of real-FF9's chest bitfield + the scratch
+    #                                                    clear of real-FF9's chest bitfield + the scratch
+    # A WIDTH BELOW 1 IS NOT A SMALL WINDOW, IT IS NO WINDOW. Every check below is written in terms of
+    # [lo, hi] = [base + i*K, base + i*K + K - 1], and at K=0 that degenerates to hi = lo - 1: an EMPTY
+    # range that satisfies every band test while every member sits on the SAME base, so member 2's
+    # cutscene once-flag IS member 1's. Nothing anywhere had a floor -- not load_campaign (:497), not
+    # new_campaign, not the CLI -- so `flags_per_field = 0` linted clean and built a campaign whose
+    # members all share one bit. Negative K only errored by accident (the window walks DOWN past the
+    # safe floor and trips the check below).
+    if K < 1:
+        errors.append(f"[campaign] flags_per_field = {K} -- a member's flag block must be at least 1 bit "
+                      f"wide. At {K} every member's window starts on the SAME bit ({plan.flag_base}), so "
+                      f"their auto once-flags are the same flags -> SAVE CORRUPTION. The width must cover "
+                      f"the member's own layout: 1 (a [[cutscene]]) + one bit per auto-flagged [[event]], "
+                      f"and 33+ if any member has a walk-[[choice]] (choices start after the event block).")
+        K = 1                                      # keep the per-member checks below meaningful, not absurd
+    for i, m in enumerate(plan.members):
         lo, hi = plan.flag_base + i * K, plan.flag_base + i * K + K - 1
         if lo < FIRST_SAFE_FLAG:
             errors.append(f"member {m.name}: flag block {lo}-{hi} dips below the safe floor "
@@ -852,32 +890,11 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
     seam_reals = {s["to_real"] for s in plan.seams if isinstance(s.get("to_real"), int)}
     known_dests = member_ids | seam_reals
 
-    def _rows(raw, key):
-        """An array-of-tables block, defensively. A member that writes `[gateway]` where `[[gateway]]` was
-        meant parses as a bare dict, and a lint that crashes on it reports nothing at all -- the shape is
-        build.validate's to reject, so skip it here rather than raise."""
-        v = raw.get(key)
-        return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
-
-    def _dest_ids(raw):
-        """Every INTRA-CAMPAIGN destination id a member's field.toml names: declarative [[gateway]] to (an int
-        id; the "worldmap" string is a walk-out, not a field target), plus the VALUES of the verbatim door
-        retarget tables ({<donor real id> = <this campaign's fork id>}) -- the keys are donor ids and are
-        meant to be foreign."""
-        out = []
-        for gw in _rows(raw, "gateway"):
-            t = gw.get("to")
-            if isinstance(t, int) and not isinstance(t, bool) and t > 0:
-                out.append(("[[gateway]] to", t))
-        veb = raw.get("verbatim_eb")
-        tables = [veb.get("retarget") if isinstance(veb, dict) else None]
-        tables += [gc.get("retarget") for gc in _rows(raw, "gateway_carry")]
-        for rt in tables:
-            if isinstance(rt, dict):
-                for k, v in rt.items():
-                    if isinstance(v, int) and not isinstance(v, bool) and v > 0:
-                        out.append((f"retarget {k} ->", v))
-        return out
+    # The door-target list is NOT local to this lint. `ff9mapkit.reid` rewrites the same keys when a
+    # campaign moves band, and while the two tables were maintained separately they drifted: an id-bearing
+    # key present in one and absent from the other means reid strands a door at a retired id and THIS check
+    # then certifies the result clean. One owner (:mod:`ff9mapkit.idsites`), both read it.
+    from .idsites import dest_ids as _dest_ids
 
     for m in plan.members:
         raw = member_raw.get(m.name)
@@ -1387,6 +1404,100 @@ def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None)
         plan.entry_name = name
     _save_plan(plan, manifest_dir)
     return member
+
+
+# ---- SE-derived member sidecars: what a tracked checkout is missing + how to re-materialize it ----
+# The per-mode sidecars a forked member's BUILD reads (its authored toml references them by these fixed
+# names). Everything else the fork writers emit (object/gateway bins, background.png, carrytext) is
+# copied opportunistically by fetch_assets, but its absence is legal -- the authored toml may not
+# reference it.
+_REQUIRED_ASSETS = {
+    "borrow": ("camera.bgx", "walkmesh.bgi"),
+    "native": ("camera.bgx", "walkmesh.bgi", "scene.bgs.bytes", "atlas.png"),
+}
+
+
+def _member_required_assets(plan: CampaignPlan, m: Member) -> tuple:
+    if not m.real_id or m.mode not in _REQUIRED_ASSETS:
+        return ()                                        # blank/editable member: nothing SE-derived
+    if m.needs_export:                                   # logic-only stub: no art shipped, just the frame
+        return _REQUIRED_ASSETS["borrow"]
+    req = _REQUIRED_ASSETS[m.mode]
+    if plan.verbatim:                                    # a verbatim member also ships its donor's whole .eb
+        req = req + (f"{m.name}.verbatim_eb.bin",)
+    return req
+
+
+def missing_assets(plan: CampaignPlan, manifest_dir) -> "dict[str, list[str]]":
+    """The SE-derived sidecars a build of this campaign needs that are NOT on disk (member -> missing
+    names). A tracked checkout ships only the authored tomls -- the fork sidecars are gitignored
+    (provenance gate: zero Square Enix bytes in the repo) and ``extract-templates`` does NOT produce
+    them -- so a fresh clone/worktree reports every forked member here until :func:`fetch_assets` runs."""
+    manifest_dir = Path(manifest_dir)
+    out = {}
+    for m in plan.members:
+        mdir = (manifest_dir / m.toml_rel).parent
+        miss = [a for a in _member_required_assets(plan, m) if not (mdir / a).is_file()]
+        if miss:
+            out[m.name] = miss
+    return out
+
+
+def fetch_assets(plan: CampaignPlan, manifest_dir, *, game=None, force=False) -> "dict[str, list[str]]":
+    """Re-materialize the gitignored SE-derived sidecars of a campaign's forked members from the user's
+    OWN install, WITHOUT touching the authored tomls. Returns {member name: files written}.
+
+    Runs the same fork writers ``add-field --source`` / ``write_campaign`` use, but into a scratch dir,
+    then copies over only the sidecar files a member is missing (``force`` re-copies them all) -- the
+    writer's freshly generated field.toml is discarded, so the authored toml (the tracked, hand-edited
+    artifact) is never rewritten. This replaces the old manual dance the stolen-ember manifest used to
+    document (delete the member dir, re-run ``add-field``, restore the toml from git)."""
+    import shutil
+    import tempfile
+
+    from . import extract
+    from ._fieldtext import EVENT_ID_TO_MES
+    manifest_dir = Path(manifest_dir)
+    remap = {m.real_id: m.new_id for m in plan.members if m.real_id}
+    written: dict = {}
+    for m in plan.members:
+        required = _member_required_assets(plan, m)
+        if not required:
+            continue
+        mdir = (manifest_dir / m.toml_rel).parent
+        if not force and all((mdir / a).is_file() for a in required):
+            continue
+        with tempfile.TemporaryDirectory(prefix=f"ff9mk-fetch-{m.name}-") as td:
+            donor = str(m.real_id)                       # fork by ID (folders can be shared across ids)
+            if m.needs_export:                           # logic-only stub: just the camera + walkmesh frame
+                extract.extract_field(donor, td, game=game)
+            elif plan.verbatim:                          # mirror write_campaign's verbatim member call
+                extract.write_native_project(donor, td, name=m.name, field_id=m.new_id,
+                                             text_block=EVENT_ID_TO_MES.get(m.real_id, 1073),
+                                             game=game, id_remap=remap, verbatim=True)
+            elif m.mode == "borrow":
+                extract.write_field_project(donor, td, name=m.name, field_id=m.new_id,
+                                            game=game, id_remap=remap)
+            else:
+                extract.write_native_project(donor, td, name=m.name, field_id=m.new_id,
+                                             game=game, id_remap=remap)
+            files = []
+            for src in sorted(Path(td).rglob("*")):
+                if not src.is_file() or src.name.endswith(".field.toml"):
+                    continue                             # the generated toml: the authored one stays
+                rel = src.relative_to(td)
+                dest = mdir / rel
+                if dest.exists() and not force:
+                    continue
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dest)
+                files.append(str(rel))
+        still = [a for a in required if not (mdir / a).is_file()]
+        if still:
+            raise CampaignError(f"{m.name}: the fork writer produced no {still} for donor field "
+                                f"{m.real_id} -- the member's authored toml expects them")
+        written[m.name] = files
+    return written
 
 
 # NOTE: the Phase-D per-item mutation API (remove_field / rename_field / set_entry / add_edge /

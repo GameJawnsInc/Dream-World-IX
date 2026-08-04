@@ -249,6 +249,47 @@ def test_room_coordinates_are_not_reported_as_leftover_ids(tmp_path):
     assert not any("pos" in h or "zone" in h for h in rp.residual), rp.residual
 
 
+def test_reid_and_lint_cover_the_SAME_id_sites(tmp_path):
+    """★ THE ANTI-DRIFT TEST. reid REWRITES these keys and lint (e3) CHECKS them; while the two tables
+    were separate they drifted, and `[[platform]] warp_to` landed in NEITHER -- so a move stranded an
+    elevator at a retired id and the lint certified it clean. For every door site in the shared table:
+    reid must move it, AND lint must reject it when it names a non-member."""
+    from ff9mapkit import idsites
+    blocks = {
+        "gateway": '\n[[gateway]]\nto = {v}\nentrance = 0\n',
+        "ladder": '\n[[ladder]]\ntop_field = {v}\n',
+        "cutscene": '\n[[cutscene]]\nthen_warp = {v}\n',
+        "platform": '\n[[platform]]\nwarp_to = {v}\n',
+        "logic_edit": '\n[[logic_edit]]\nkind = "field"\nentry = 0\ntag = 4\nold = 301\nnew = {v}\n',
+        "verbatim_eb": '\n[verbatim_eb]\nbin = "a.eb"\nretarget = {{ 300 = {v} }}\n',
+        "gateway_carry": '\n[[gateway_carry]]\nbin = "g.bin"\nretarget = {{ 300 = {v} }}\n',
+    }
+    door_blocks = {p[0] for (p, k) in idsites.OUR_ID_SITES if (p, k) != (("field",), "id")}
+    assert door_blocks <= set(blocks), f"shared table grew a block with no coverage here: {door_blocks - set(blocks)}"
+
+    for block, tmpl in blocks.items():
+        # (a) reid MOVES it -- pointed at a real sibling member (6001)
+        cpath = _write(tmp_path, a_extra=tmpl.format(v=6001))
+        _run(cpath, id_base=6500)
+        txt = (tmp_path / "A" / "A.field.toml").read_text(encoding="utf-8")
+        assert "6501" in txt and "6001" not in txt, f"{block}: reid did not move its id\n{txt}"
+        # (b) lint REJECTS it -- pointed at a custom-band id no member owns
+        cpath = _write(tmp_path, a_extra=tmpl.format(v=6999))
+        errs = campaign.lint_campaign(campaign.load_campaign(cpath), tmp_path)[0]
+        assert any("6999" in e for e in errs), f"{block}: lint (e3) did not flag a dangling target: {errs}"
+
+
+def test_a_gil_logic_edit_is_neither_moved_nor_flagged(tmp_path):
+    """The kind gate holds on BOTH sides: `new` on a kind="gil" row is an amount, and the custom id band
+    overlaps ordinary amounts."""
+    le = '\n[[logic_edit]]\nkind = "gil"\nentry = 0\ntag = 4\nold = 5\nnew = 6999\n'
+    cpath = _write(tmp_path, a_extra=le)
+    errs = campaign.lint_campaign(campaign.load_campaign(cpath), tmp_path)[0]
+    assert not any("6999" in e for e in errs), errs
+    _run(cpath, id_base=6500)
+    assert "new = 6999" in (tmp_path / "A" / "A.field.toml").read_text(encoding="utf-8")
+
+
 # ---- refusals ----------------------------------------------------------------------------
 @pytest.mark.parametrize("kw, needle", [
     (dict(id_base=9005), "world-map hole"),

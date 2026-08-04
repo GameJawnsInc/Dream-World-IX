@@ -106,7 +106,16 @@ KEY_START = 8         # EventInput.Start (8u)
 # A couple of useful system-variable codes (EventEngine.GetSysvar switch): 2 = usercontrol
 # (IsMovementEnabled), 9 = ETb.GetChoose() = the index the player picked in the last choice window.
 SYSVAR_USERCONTROL = 2
+SYSVAR_MES_SIGNAL = 8     # ETb.gMesSignal -- the text->script clock (SetDialogProgression / [SIGL]/[INCS])
 SYSVAR_CHOICE = 9
+
+# The one-way STAY-LOCKED latch (MAP bool; movement survey 3): stock's own index 156 -- "never
+# re-grant control this session" (44 stock fields: the Festival timeout, the Alexandria escape).
+# Set-only; the MAP array resets on field load, so the latch is per-visit by construction. Kit
+# consumers: `[cutscene] stay_locked` sets it; the Main_Reinit grant gate honors it (reinit.py).
+# Using stock's index means kit content added to a verbatim fork composes with the donor's own
+# macro semantics (the donor's enable macro tests the same bit).
+STAY_LOCKED_IDX = 156
 JMP_FALSE = 0x02      # jump-if-false  02 <skip:i16>
 JMP_TRUE = 0x03       # jump-if-true   03 <skip:i16>
 SETREGION_OP = 0x29
@@ -306,6 +315,33 @@ def if_not_block(cond: bytes, body: bytes) -> bytes:
     return cond + bytes([JMP_TRUE]) + _i16(len(body)) + body
 
 
+T_POST_MINUS = 0x05   # B_POST_MINUS -- the `VAR--` postfix form (`05 <var> 05 7F`); B_POST_PLUS is 0x04,
+                      # real-field verified as the mognet counter's Byte[1032]++ (mognet.py:102)
+
+
+def dec_var(var_class, idx: int) -> bytes:
+    """``VAR--`` -> ``05 <var> 05 7F`` (B_POST_MINUS). The loop-counter decrement stock's own guarded
+    spin-waits use (``set VAR_GlobUInt8_29--`` in the HW rendering)."""
+    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_POST_MINUS, T_END])
+
+
+def while_block(cond: bytes, body: bytes) -> bytes:
+    """``while (cond) { body }`` -- the kit's first BACKWARD-jumping construct.
+
+    Emits ``cond + 02 <len(body)+3> + body + 01 <-(whole loop):i16>``: the jump-if-false clears both
+    the body and the back-hop, and the unconditional hop returns to the top of ``cond``.
+
+    ⚠ The two jump ops differ in SIGNEDNESS and it is load-bearing here: ``0x02`` (JMP_IFNOT) reads
+    its operand UNSIGNED via ``getUShortIP``, so it can only ever jump FORWARD, while ``0x01`` (JMP)
+    reads a SIGNED int16 -- which is why the loop's return hop must be the unconditional op and why
+    a loop body over 32767 bytes cannot be encoded (raised as a ValueError rather than silently
+    wrapping into a forward jump)."""
+    span = len(cond) + 3 + len(body) + 3          # cond + exit-hop + body + the back-hop
+    if span > 32767:
+        raise ValueError(f"while_block body too large to encode a backward jump ({span} bytes > 32767)")
+    return cond + bytes([JMP_FALSE]) + _i16(len(body) + 3) + body + jump(-span)
+
+
 def guarded_call(guards, body: bytes) -> bytes:
     """Wrap ``body`` (typically a 3-byte ``InitObject``) in CALL-SITE guards -- the stock story-gating
     idiom. ``guards`` = iterable of ``(cond_bytes, proceed_when_true)``; the body runs only while every
@@ -358,7 +394,7 @@ def gated_set_region(zone, var_class, idx: int) -> bytes:
 
 
 def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag: int = RANGE_TAG,
-                       init_body: bytes | None = None) -> bytes:
+                       init_body: bytes | None = None, bubble: bool = False) -> bytes:
     """Assemble a type-1 region entry: Init (tag 0 = SetRegion(zone) + ``init_extra``; return) + a
     trigger func at ``tag`` (default :data:`RANGE_TAG` 2 = tread, every frame in the quad;
     :data:`INTERACT_TAG` 3 = press-action-in-quad, a lever/sign). ``init_extra`` runs once on field
@@ -367,6 +403,14 @@ def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag:
     :func:`gated_set_region` for a one-shot trigger that vanishes once spent)."""
     ib = init_body if init_body is not None else (set_region(zone) + init_extra + opcodes.RETURN)
     funcs = [(0, ib), (tag, range_body)]
+    if bubble:
+        # the "!" prompt for a PRESS region (tag 3): a tag-2 tread companion arms Bubble(1) every
+        # frame the player stands in the quad -- the save-moogle cask's exact shape
+        # (savepoint.savepoint_region, in-game proven). Bubble is a per-frame POLL (EIcon.PollFIcon),
+        # so leaving the quad clears it with no explicit Bubble(0). Meaningless on a tread region
+        # (tag 2 IS the trigger there) -- callers gate on tag == INTERACT_TAG.
+        funcs = [(0, ib), (RANGE_TAG, MOVEMENT_GATE + opcodes.bubble(1) + opcodes.RETURN),
+                 (tag, range_body)]
     table_len = len(funcs) * 4
     table = bytearray()
     pos = table_len
@@ -391,7 +435,8 @@ def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:
 
 def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, activate: bool = True,
                   spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0, init_extra: bytes = b"",
-                  tag: int = RANGE_TAG, init_body: bytes | None = None, reserve_party_band: bool = False):
+                  tag: int = RANGE_TAG, init_body: bytes | None = None, reserve_party_band: bool = False,
+                  bubble: bool = False):
     """Append a conditional region (Init=SetRegion(zone) + ``init_extra``, Range=range_body) into a
     free slot.
 
@@ -402,7 +447,8 @@ def inject_region(data, zone, range_body: bytes, *, slot: int | None = None, act
     ``reserve_party_band`` (the VERBATIM-fork path): seat the region BELOW the engine's reserved
     party-character band instead of into a free slot (else it lands in an unused character slot)."""
     from . import object as _object             # local: object imports region -> avoid the top-level cycle
-    entry = build_region_entry(zone, range_body, init_extra=init_extra, tag=tag, init_body=init_body)
+    entry = build_region_entry(zone, range_body, init_extra=init_extra, tag=tag, init_body=init_body,
+                               bubble=bubble)
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band, slot=slot)
     if activate:
         out = edit.activate(out, opcodes.init_region(slot, 0), spawn_wait_n=spawn_wait_n,

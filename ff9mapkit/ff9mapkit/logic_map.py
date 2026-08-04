@@ -47,7 +47,6 @@ RUNSCRIPT_NAMES = {0x10: "RunScriptAsync", 0x12: "RunScript", 0x14: "RunScriptSy
 REPLY_OPS = (0x16, 0x18, 0x1A)            # Reply[Async|Sync] -- dispatch to the DYNAMIC caller (unresolvable)
 STARTSEQ_OP = 0x43         # RunSharedScript / STARTSEQ(entry) -- launch a concurrent Seq by ENTRY index
 EXPR_STMT_OP = 0x05        # an expression statement (flag reads/writes ride here)
-INIT_OBJECT_OP = 0x09      # InitObject(slot, arg) in Main_Init -- spawns/activates an object entry
 DEFINE_PC_OP = 0x2C        # DefinePlayerCharacter
 
 # GLOB story-flag expression tokens (shared with eventscan's raw-byte scanners) -----------------------
@@ -100,7 +99,8 @@ class EntryInfo:
     model_id: int | None = None
     model_name: str | None = None
     talkable: bool = False
-    spawns: int = 0               # how many times Main_Init InitObject()s this entry (0 = not spawned)
+    spawns: int = 0               # init ops arming this entry -- ANY of InitCode/InitRegion/InitObject, in
+    #                               ANY function (eventscan.scan_armed_entries; 0 = nothing ever activates it)
     tags: list = _dc_field(default_factory=list)
 
 
@@ -313,14 +313,11 @@ def build_logic_map(eb_bytes, *, entries=None, field_id: int = 0, fbg_name: str 
     player_entries = eventscan.resolve_player_entries(eb)
     gateway_entries = {g["entry_idx"] for g in eventscan.scan_gateway_entries(data)}
 
-    # count Main_Init InitObject() spawns per entry (0 = the entry is defined but never activated)
-    spawns: dict = {}
-    e0 = next((e for e in eb.entries if not e.empty and e.index == 0), None)
-    f0 = e0.func_by_tag(0) if e0 else None
-    if f0 is not None:
-        for ins in eb.instrs(f0):
-            if ins.op == INIT_OBJECT_OP and ins.args and isinstance(ins.args[0], int):
-                spawns[int(ins.args[0])] = spawns.get(int(ins.args[0]), 0) + 1
+    # per-entry ARM count: every InitCode/InitRegion/InitObject anywhere in the script (0 = defined but
+    # never activated). eventscan.scan_armed_entries owns the semantics (all 3 ops, all funcs, party
+    # selectors 251-254 excluded) -- counting only entry-0 InitObject mislabeled ~77% of region/helper
+    # entries "not spawned".
+    spawns = eventscan.scan_armed_entries(eb)
 
     for e in eb.entries:
         if e.empty:

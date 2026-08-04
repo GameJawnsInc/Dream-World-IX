@@ -43,6 +43,106 @@ def test_round_trip_through_disk(tmp_path):
     assert stamp.read(tmp_path) == s
 
 
+@pytest.mark.parametrize("label, kw, want_blocking", [
+    # a real journey rebase: EVERY member shifts by one delta and keeps its width
+    ("uniform rebase of all members",
+     dict(moved_flags=[("A", (8712, 8775), (9000, 9063)), ("B", (8776, 8839), (9064, 9127))]), False),
+    # the case the first version missed: a delete slides ONE member, and an interleaved standalone build
+    # flips the context, so the drift shipped labelled as the journey's assignment
+    ("only one of two members slid", dict(moved_flags=[("B", (8776, 8839), (8712, 8775))]), True),
+    ("non-uniform deltas",
+     dict(moved_flags=[("A", (8712, 8775), (9000, 9063)), ("B", (8776, 8839), (9200, 9263))]), True),
+    ("flags_per_field changed under it",
+     dict(moved_flags=[("A", (8712, 8775), (9000, 9015)), ("B", (8776, 8839), (9016, 9031))]), True),
+    ("a member vanished too", dict(moved_flags=[("A", (8712, 8775), (9000, 9063))], removed=["C"]), True),
+])
+def test_a_context_flip_exempts_only_the_moves_a_rebase_explains(label, kw, want_blocking):
+    """A standalone build and a journey build share one <campaign>/dist/.ff9build.json, so the context flips
+    routinely -- the Workspace's Build-campaign button is a bare build-all. Exempting EVERY moved window on a
+    flip therefore disarmed the gate for exactly the workflow it was written for."""
+    d = stamp.StampDiff(total=2, context_changed=("standalone", "journey"), **kw)
+    assert d.blocking is want_blocking, label
+    assert d.changed, "a context flip must never render as 'unchanged' -- the saves are not interchangeable"
+
+
+def test_without_a_context_flip_any_moved_window_blocks():
+    d = stamp.StampDiff(total=2, moved_flags=[("A", (8712, 8775), (9000, 9063))])
+    assert d.blocking is True
+
+
+def test_every_verb_that_can_hit_the_refusal_accepts_the_flag_it_advertises():
+    """refusal() ends "re-run with --reflow-flags". It shipped on build-all and deploy-campaign only, while
+    `build`, `deploy-journey` and tools/deploy_campaign.py can all raise it -- so the escape hatch the
+    message named was rejected by the command that printed it, and the only way through was deleting
+    .ff9build.json, which disarms the gate for that folder permanently."""
+    import argparse
+
+    from ff9mapkit import cli
+    d = stamp.StampDiff(moved_flags=[("A", (8712, 8775), (8776, 8839))], total=1)
+    assert "--reflow-flags" in d.refusal(), "the refusal no longer names the flag -- update this test"
+
+    parser = cli.build_parser()
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    for verb in ("build", "build-all", "deploy-campaign", "deploy-journey"):
+        opts = {s for a in sub.choices[verb]._actions for s in a.option_strings}
+        assert "--reflow-flags" in opts, f"ff9mapkit {verb} can raise the refusal but rejects its own advice"
+
+
+def _finalized(root, **kw):
+    root.mkdir(parents=True, exist_ok=True)
+    s = dict(stamp_version=1, kit_version="x", built_utc="now", mod_name="M",
+             context="standalone", source=None, members=[], **kw)
+    s = stamp.finalize(s, root)
+    stamp.write(root, s)
+    return s
+
+
+def test_the_digest_covers_the_build_and_excludes_the_stamp(tmp_path):
+    """The resolution table answers "did a member's window move". It cannot answer "is what is INSTALLED
+    still what the build produced" -- and nothing else could either: ModDescription.xml carries no id, and
+    the ledger records that an id was deployed, not what bytes landed."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "DictionaryPatch.txt").write_text("FieldScene 6000 11 10 A 6000\n", encoding="utf-8")
+    (tmp_path / "sub" / "EVT_A.eb.bytes").write_bytes(b"\x01\x02\x03")
+    s = _finalized(tmp_path)
+    assert set(s["files"]) == {"DictionaryPatch.txt", "sub/EVT_A.eb.bytes"}
+    assert stamp.STAMP_NAME not in s["files"], "the stamp must not hash itself"
+    assert "/" in "sub/EVT_A.eb.bytes", "keys are POSIX -- a stamp travels from a dist to an install"
+    assert stamp.verify(tmp_path).clean
+
+
+@pytest.mark.parametrize("mutate, field_name", [
+    (lambda p: (p / "sub" / "EVT_A.eb.bytes").write_bytes(b"\x01\x02\x04"), "changed"),   # hand-edited install
+    (lambda p: (p / "sub" / "EVT_A.eb.bytes").unlink(), "missing"),                       # half-finished copy
+    (lambda p: (p / "STRAY.txt").write_text("x", encoding="utf-8"), "extra"),             # foreign leftovers
+])
+def test_verify_catches_every_drift_class(tmp_path, mutate, field_name):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "EVT_A.eb.bytes").write_bytes(b"\x01\x02\x03")
+    _finalized(tmp_path)
+    assert stamp.verify(tmp_path).clean
+    mutate(tmp_path)
+    rep = stamp.verify(tmp_path)
+    assert not rep.clean and getattr(rep, field_name), rep.render()
+
+
+def test_a_stamp_without_a_digest_reports_identity_and_no_false_drift(tmp_path):
+    """Folders deployed before content hashing existed must say so, not invent drift -- a check that cries
+    wolf on every pre-existing install is one nobody reads."""
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    s = _finalized(tmp_path)
+    stamp.write(tmp_path, {k: v for k, v in s.items() if k != "files"})
+    rep = stamp.verify(tmp_path)
+    assert rep.has_stamp and not rep.has_digest
+    assert rep.missing == [] and rep.changed == [] and rep.extra == []
+    assert "identity only" in rep.render()
+
+
+def test_verify_on_a_folder_with_no_stamp_says_so(tmp_path):
+    rep = stamp.verify(tmp_path)
+    assert not rep.has_stamp and f"NO {stamp.STAMP_NAME}" in rep.render()
+
+
 def test_a_missing_or_malformed_stamp_reads_as_none(tmp_path):
     assert stamp.read(tmp_path) is None                       # first build
     (tmp_path / stamp.STAMP_NAME).write_text("{ not json", encoding="utf-8")

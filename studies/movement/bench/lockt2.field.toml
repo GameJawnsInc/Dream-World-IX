@@ -1,0 +1,157 @@
+# LOCKT2 -- the movement-survey TIER-2 bench (studies/movement/SURVEY.md 10 items 5-7).
+#
+# ROUND 3. Round 2 was MY design error, twice over (owner: "still move locked after the west book
+# closes. this dialogue is nonsense - you can't talk to the NPC if you're unable to move to them"):
+#   (1) a directions mask kills ALL walking, so putting the THAW on a different book stranded the
+#       player -- the freeze persisting was the mask WORKING, but nothing could prove the unmask;
+#   (2) the text claimed you could talk to the NPC (unreachable) and that the menu opens -- ALSO
+#       FALSE: EnableMove's menu re-grant is `IsMenuON && IsMovementControl`
+#       (DoEventCode.cs:1076), so a direction mask kills the MENU too. Walk, menu: both dead;
+#       button presses are all that survive. That IS stock's tutorial lane (you can only press
+#       what the tutorial wants), and it means every beat must be verifiable STANDING STILL.
+#
+#   * MIDDLE book (do this FIRST): the self-contained cycle -- mask + a SELF-CLOSING window
+#     (duration) + unmask. Press it, try to walk while the window is up (dead), let it time out on
+#     its own, then walk again (restored). No stranding. This is the lawful shape validate now
+#     requires, and it also tests round 1's leading hypothesis: with `duration` the engine inhibits
+#     the dismiss button, so there is no press to re-enter the handler with.
+#   * WEST book (do this LAST -- it strands you on purpose): mask + a normal locked window and NO
+#     unmask, to show the mask OUTLIVING the lock bracket. Verify standing still: press Action
+#     TWICE -- press 1 closes the window, press 2 REOPENS it -- which can only happen if control
+#     was returned and the engine is still dispatching your presses. Escape: ~ -> Reload field.
+#
+# ROUND 3 VERDICT (owner): BOTH GOOD -- the pad-mask lane is in-game proven end to end. The two
+# presses are the LOCK's own signature (Action both advances dialog and fires presses; under the
+# lock, usercontrol == 0 while the window is up, so the closing press CANNOT re-enter the handler
+# and a second press is needed).
+#
+# ★★ ROUND 4 VERDICT (owner: "good"): the NORTH-EAST book -- round 1's exact failing shape plus the
+# one missing EnableMove -- FREEZES AND THAWS. THE CONTROLLER-DEACTIVATION LAW IS CONFIRMED IN GAME
+# (SURVEY.md 1): a movement mask makes the actor controller deactivate itself, RemoveControllerMask
+# revives nothing, and only EnableMove brings it back. Round 1 is fully explained and closed; the
+# earlier re-entry hypothesis is dead (it cannot even fire -- Request's level guard + EBin's
+# one-frame resume deferral).
+#   * EAST book (press): ARMS the STAY_LOCKED ending (sets flag 9150) and nothing more -- pressing
+#     it leaves you free. `stay_locked` ends a SCENE and scenes are LOAD-TIME hooks, so the demo is
+#     inherently two-step: ~ -> Reload field, and on THAT load the scene plays and ends without
+#     giving control back (frozen for good: no walking, no menu; the scene disarms its own flag, so
+#     the next ~ -> Reload is a normal load). Round-4 note: the owner flagged that the book's text
+#     read as if the freeze happened on the press -- a TEXT defect of mine, not a behaviour change
+#     (the body is unchanged: DisableMove, set flag, window, EnableMove). Text now says so plainly.
+#   * RANDOM BATTLES are ON (Evil Forest, the weakest scene): fight ONE and verify control + menu
+#     return normally afterward -- the after-battle grant is now GATED (restore-not-grant), and a
+#     free-roam battle must be behavior-identical to before. (The gate's other half -- a battle
+#     that fires INSIDE a lock returns still-locked -- needs a scripted battle; the Fort Condor
+#     bench is the natural stage for that later.)
+#
+# The back-row talker is the CONTROL: a normal held talk, before and after a battle.
+# Deploy: py tools/deploy_field.py studies/movement/bench/lockt2.field.toml --id 30602
+# (NEW id -> the first deploy registers it: one game RELAUNCH, then ~ -> Warp to field -> 30602.)
+
+[field]
+id = 30602
+name = "LOCKT2"
+area = 11
+
+[camera]
+pitch = 40
+# entry_settle: absent on purpose -- the synthesized-field "auto" default applies.
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+[encounter]
+scene = "BSC_EF_R007"          # Evil Forest, the weakest battles -- one quick fight proves the grant
+
+# --- NORTH-EAST book: THE ROUND-1 SHAPE, NOW FIXED (the mechanism test) ----------------------
+# Round 1's exact failing beat -- UNLOCKED, DISMISSIBLE window, mask+unmask in one body -- plus the
+# one opcode the traced mechanism says was missing: an EnableMove after the unmask, which is the
+# only thing in field mode that re-activates the actor controller a movement mask switched off
+# (FieldMapActorController.cs:170-173 deactivates; DoEventCode.cs:1068 revives). The kit emits it
+# automatically now for an unlocked unmask. PREDICTION: freeze while the window is up, thaw the
+# instant you dismiss it. If this thaws, the mechanism is confirmed and round 1 is fully explained.
+[[event]]
+name = "round1_fixed"
+zone = [[550, -1650], [850, -1650], [850, -1450], [550, -1450]]
+trigger = "action"
+bubble = true
+lock = false
+mask_buttons = ["directions"]
+message = "The round-1 shape, unlocked and dismissible. Try to walk NOW (dead). Dismiss me and walk again -- if you can, the missing EnableMove was the whole bug."
+unmask_buttons = ["directions"]
+once = false
+
+[[prop]]
+prop = "book"
+pos = [700, -1380]
+collision = false
+
+# --- MIDDLE book (DO THIS FIRST): the self-contained freeze/thaw cycle -----------------------
+# The lawful shape: a SELF-CLOSING window (duration) between the mask and the unmask. Nothing to
+# dismiss, so nothing can re-enter this handler -- round 1's failing beat was the dismissible form.
+[[event]]
+name = "cycle"
+zone = [[-150, -1150], [150, -1150], [150, -950], [-150, -950]]
+trigger = "action"
+bubble = true
+mask_buttons = ["directions"]
+message = "Feet masked. TRY TO WALK -- dead. This window closes itself in ~3s and unmasks; then walk again."
+duration = 90
+unmask_buttons = ["directions"]
+once = false
+
+[[prop]]
+prop = "book"
+pos = [0, -880]
+collision = false
+
+# --- WEST book (DO THIS LAST -- it strands you): the mask OUTLIVES the lock ------------------
+[[event]]
+name = "freeze"
+zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
+trigger = "action"
+bubble = true
+mask_buttons = ["directions"]
+message = "Masked, with NO unmask. Walking is dead -- and so is the menu (the engine ties the menu re-grant to the movement mask). But the LOCK did release: press Action TWICE right here -- the first press closes this window, the second re-opens it -- which only works if the engine is still dispatching your presses. Escape: ~ then Reload field."
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-700, -880]
+collision = false
+
+# --- EAST book: arm the stay_locked ending --------------------------------------------------
+[[event]]
+name = "arm_ending"
+zone = [[550, -1150], [850, -1150], [850, -950], [550, -950]]
+trigger = "action"
+bubble = true
+set_flag = [9150, 1]
+message = "ARMED -- and NOTHING changes yet: you can still walk. `stay_locked` ends a SCENE, and scenes run at field load, so it takes two steps. Open ~ then Reload field: on THAT load the entry scene plays and ends without giving control back, and only then are you frozen for good (no walking, no menu). Escape: ~ then Reload field again -- the scene disarms itself."
+once = false
+
+[[prop]]
+prop = "book"
+pos = [700, -880]
+collision = false
+
+# --- the armed reload's ending scene: stay_locked -------------------------------------------
+[[cutscene]]
+once = false
+requires_flag = 9150
+stay_locked = true
+steps = [
+  { say = "This is a stay_locked ending. When this window closes, control does NOT return: no walking, no menu -- the one-way latch is down (stock's 156). The ~ debug menu still opens; use Reload field to escape.", style = "notail" },
+  { set_flag = [9150, 0] },
+]
+
+# --- the back-row control talker -------------------------------------------------------------
+[[npc]]
+name = "control"
+preset = "vivi"
+pos = [0, -350]
+dialogue = "I am the CONTROL: a normal held talk. Check me before and after a random battle -- the after-battle grant is gated now, and a free-roam battle must feel exactly like it always did."
+speaker = "Control"
