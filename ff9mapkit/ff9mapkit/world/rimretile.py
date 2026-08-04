@@ -187,8 +187,12 @@ def plan_rim(cells) -> dict:
                     continue
                 on_frame = ((bx == xs[0] and i == 0) or (bx == xs[-1] and i == G - 1)
                             or (by == ys[0] and j == 0) or (by == ys[-1] and j == G - 1))
+                # UNDER only -- the defect class (a tile facing deep with no transition
+                # there). An OVER (a transition facing shallow) is a needless gradient,
+                # owner-accepted at 20/82 on the proven isthmus; converting it churned
+                # 23 coast tiles into visible shards on the bent crescent (2026-08-04).
                 seam = (sh == "sea3"
-                        or frozenset(enc5.get((i, j), ())) != frozenset(ds))
+                        or not frozenset(ds) <= frozenset(enc5.get((i, j), ())))
                 if not (on_frame or seam):
                     continue
                 plan[(bx, by)][(i, j)] = ("sea4" if len(ds) == 4 else "sea5", ds)
