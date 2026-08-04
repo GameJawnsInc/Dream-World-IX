@@ -125,3 +125,67 @@ rock/brush translation is measured.
 family at all. **A unanimous read is not ambiguous**; the floor exists to stop a few stray
 tris outvoting a family that is actually present. Now: unanimous (no runner-up, >= 4 tris)
 is accepted; contested reads still require the margin AND the floor. Both cases are tested.
+
+---
+
+## THE FRINGE LAW — why `desert -> grass` can never complete on a real desert island
+
+Picking up where the desert round's verification agent died. With excise v2 landed, three
+more masses became carryable, so the question was whether any of them gives `desert->grass`
+its first customer. One is desert-source — **the waisted isthmus `(6,6)+2x2`**, which is
+also the rect that gates fully clean under `--excise`. It was the best candidate available.
+
+It refuses:
+
+```
+GATE retile[desert->grass]: mains=239 wall=175 recovered=48 budget=60
+                            unclassified=264 tris, topo 5x16, 38x40, 45x114, 49x78, 58x...
+```
+
+The ground translates fine — 239 mains, 175 wall, 48 recovered. What refuses is the
+island's **interior features**. Same story on the comma island (rock 49 x294, brush 38 x101).
+
+### Which features could lawfully pass through, measured map-wide on disc 1
+
+Shared-edge contact between each feature class and the two ground families:
+
+| feature | ↔ grass | ↔ desert | verdict |
+|---|---|---|---|
+| mountain-rock (49) | 2611 | 1483 | **family-independent** — passthrough justified |
+| lip-wall (58) | 1491 | 1847 | **family-independent** — passthrough justified |
+| scrub (5) | 38 | 331 | family-independent but heavily desert-skewed |
+| **brush (38)** | **0** | **534** | **DESERT-BOUND** |
+| forest (36) | 217 | 0 | **GRASS-BOUND** |
+| forest-low (37) | 301 | 0 | **GRASS-BOUND** |
+| rock62 | 166 | 0 | GRASS-BOUND |
+| canyon-rock (45), rock7 | 0 | 0 | no direct ground contact |
+
+### THE FRINGE LAW
+
+**Brush is desert's fringe; forest is grass's fringe. Each borders its own family and
+never the other** — 534 vs 0, and 518 vs 0, counts that are nearly mirror images.
+
+That is what closes the lane. **Every real desert island in FF9 carries brush** (the comma
+101 tris, the isthmus 40). Retiling its ground to grass would leave a desert-only fringe
+sitting on grass — a configuration stock builds **zero** times. Completing the retile would
+mean translating brush -> forest as well, and forest is not a texture swap: the canopy is
+distinctive *geometry* (THE CANOPY CARRY LAW — carry a real canopy blob, never synthesize
+it), so forest tiles on brush geometry would be forest in name only.
+
+**So the ceiling is structural, not a missing measurement.** No further census unlocks
+`desert -> grass` on a real desert island, because the target configuration does not exist
+in the source material.
+
+### What was deliberately NOT built
+
+A rock+lip passthrough is measurement-justified (both are genuinely family-independent) and
+would cut the comma's refusals 395 -> 101 and the isthmus's 264 -> ~170. **Both still fail,
+on brush and canyon.** So it mints new behaviour in the retile for zero unlocked donors —
+THE DEFECT FOLLOWS THE AUTHORSHIP, declined. It becomes worth building only if a
+featureless desert island turns up, and the census says there isn't one.
+
+### Where restyle actually stands
+
+`--ground` is a **ground-only operator, and it works on featureless islands.** Its one
+in-game-proven success, `(7,17) grass->desert`, is a small beach island with no massif. Any
+landmass with interior relief refuses — correctly, and now legibly.
