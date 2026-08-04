@@ -53,6 +53,7 @@ from ..editor.theme import THEME_CHOICES, derive, pick_palette
 from . import cutscenescan
 from .battledoc import BattleDoc
 from .behaviordoc import BehaviorDoc
+from .cutscenedoc import CutsceneDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .floorplandoc import FloorplanDoc
@@ -958,6 +959,8 @@ class Workspace(QMainWindow):
             self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
         if getattr(self, "behavior_doc", None) is not None:
             self.behavior_doc.retheme(pal)                    # the stage canvas + guide glyph paint too
+        if getattr(self, "cutscene_doc", None) is not None:
+            self.cutscene_doc.retheme(pal)                    # its stage canvas + guide glyph too
         if getattr(self, "trace_doc", None) is not None:
             self.trace_doc.retheme(pal)                       # the backdrop canvas paints too
         if getattr(self, "place_doc", None) is not None:
@@ -1015,6 +1018,8 @@ class Workspace(QMainWindow):
             self.world_doc.set_scale(self._text_scale)  # the world atlas canvas paints too
         if getattr(self, "behavior_doc", None) is not None:
             self.behavior_doc.set_scale(self._text_scale)   # the behavior stage canvas too
+        if getattr(self, "cutscene_doc", None) is not None:
+            self.cutscene_doc.set_scale(self._text_scale)   # the cutscene stage canvas too
         if getattr(self, "trace_doc", None) is not None:
             self.trace_doc.set_scale(self._text_scale)      # the backdrop canvas too
         if getattr(self, "place_doc", None) is not None:
@@ -1799,6 +1804,15 @@ class Workspace(QMainWindow):
         self.behavior_doc = BehaviorDoc(self.pal, scale=self._text_scale,
                                         on_edit=self._on_behavior_edit)
         self.tabs.addTab(self.behavior_doc, "Behavior")
+        # the Cutscene doc tab (the redesign — studies/cutscene-authoring/REVIEW.md): the scene
+        # rail renders the WHOLE [[cutscene]] dispatch, the ladder its steps, the stage its
+        # staging, the strip a beat-indexed storyboard. Feed contract = Behavior's (the shell
+        # pushes the parsed open dict; the doc's one disk touch is the staging check's walkmesh).
+        self.cutscene_doc = CutsceneDoc(self.pal, scale=self._text_scale,
+                                        on_edit=self._on_cutscene_edit,
+                                        flag_names_fn=self._campaign_flag_names,
+                                        open_toml=self._open_member_toml)
+        self.tabs.addTab(self.cutscene_doc, "Cutscene")
         # click-authoring Rung 3 (studies/click-authoring): place NPCs/props/spawn/arrival by
         # clicking a forked room's OWN art (every click raycasts the donor walkmesh). The shell
         # PUSHES the open doc (tab show / tree select, the Behavior contract); the doc's one
@@ -1827,8 +1841,8 @@ class Workspace(QMainWindow):
             ("Home", [self._welcome_tab]),
             # Floorplan authors the TOPOLOGY; the Map renders it. They are complements, so they
             # share the Author rail.
-            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.place_doc,
-                        self.floorplan_doc]),
+            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.cutscene_doc,
+                        self.place_doc, self.floorplan_doc]),
             ("Assets", [self.import_field, self.trace_doc, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
             ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
@@ -4844,6 +4858,9 @@ class Workspace(QMainWindow):
         if (getattr(self, "behavior_doc", None) is not None
                 and self.tabs.currentWidget() is self.behavior_doc):
             self._feed_behavior()                  # a field switch while Behavior is showing follows live
+        if (getattr(self, "cutscene_doc", None) is not None
+                and self.tabs.currentWidget() is self.cutscene_doc):
+            self._feed_cutscene()                  # same live-follow for the Cutscene surface
         if (getattr(self, "place_doc", None) is not None
                 and self.tabs.currentWidget() is self.place_doc):
             self._feed_place()                     # same live-follow for the Place surface
@@ -4940,6 +4957,7 @@ class Workspace(QMainWindow):
             return
         w = self.tabs.currentWidget()
         self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
+        self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
         if w in (self.doc_scroll, self.map):
             self.crumb.set(self._content_crumbs)
             self._set_chip(self._content_chip)
@@ -4964,6 +4982,10 @@ class Workspace(QMainWindow):
         elif w is self.behavior_doc:               # read-only render of the open field -> no edit chip;
             self._feed_behavior()                  # re-fed on each show so it tracks the open doc
             self.crumb.set([bc.Crumb("behavior", w.crumb_label())])
+            self._set_chip(None)
+        elif w is getattr(self, "cutscene_doc", None):   # the cutscene doc: re-fed on each show
+            self._feed_cutscene()
+            self.crumb.set([bc.Crumb("cutscene", w.crumb_label())])
             self._set_chip(None)
         elif w is self.place_doc:                  # placement on the open field -> re-fed on each show
             self._feed_place()
@@ -5014,6 +5036,55 @@ class Workspace(QMainWindow):
             self._insp_lay.removeWidget(w)         # reparented to None flashes as its own OS
             w.setParent(None)                      # window (the ladder's phantom-window lesson);
             self.insp_body.show()                  # kept alive by the doc's own reference
+
+    def _on_cutscene_edit(self, member, label):
+        """A Cutscene-tab edit landed in the open doc (the doc mutated it in place through
+        cutscenescan's pure ops): dirty-dot the member, record ONE undo step whose focus lands
+        back on the Cutscene tab (NOT the ``"cutscene"`` token — that is the Editor TREE node's,
+        and _goto_focus would yank undo to the wrong surface), and re-feed."""
+        self._touch(member)
+        self._checkpoint(member, label, "cutscene_tab")
+        self._feed_cutscene()
+
+    def _mount_cutscene_instruments(self, on):
+        """Dock the Cutscene doc's Problems/Staging column into the INSPECTOR while that tab
+        shows — the Behavior contract exactly (the SAME widget moves, so a staging report
+        survives the tab round-trip). Mutually exclusive with the behavior column by
+        construction: only one of the two tabs can be current."""
+        doc = getattr(self, "cutscene_doc", None)
+        if doc is None or getattr(self, "_insp_lay", None) is None:
+            return
+        w = doc.instruments
+        mounted = w.parent() is not None
+        if on and not mounted:
+            self.insp_body.hide()
+            self._insp_lay.addWidget(w, 1)
+            w.show()
+        elif not on and mounted:
+            w.hide()                               # hide BEFORE the reparent: a visible widget
+            self._insp_lay.removeWidget(w)         # reparented to None flashes as its own OS
+            w.setParent(None)                      # window (the ladder's phantom-window lesson)
+            self.insp_body.show()
+
+    def _feed_cutscene(self):
+        """Push the OPEN field's parsed dict into the Cutscene doc — BY REFERENCE (the feed
+        contract), plus the live ``merged`` lane so staging/storyboard see the scene.toml split."""
+        doc = getattr(self, "cutscene_doc", None)
+        if doc is None:
+            return
+        member = self._behavior_target()
+        fd = self._safe_doc(member) if member else None
+        if fd is None:
+            doc.show_none()
+            return
+        doc.show_field(member, fd.data, self.member_paths.get(member),
+                       dirty=member in set(self._dirty_members()), merged_fn=fd.merged)
+
+    def _open_member_toml(self, member):
+        """The 'Open the .toml' door — every key a form doesn't reach is authorable there."""
+        p = self.member_paths.get(member)
+        if p is not None:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
     def _behavior_target(self):
         """The field member the Behavior tab renders: the tree selection's owning field, else the
@@ -5193,6 +5264,8 @@ class Workspace(QMainWindow):
             ("Go to World (overworld atlas)", "view", lambda: self.tabs.setCurrentWidget(self.world_doc)),
             ("Go to Behavior (NPC AI ladders)", "view",
              lambda: self.tabs.setCurrentWidget(self.behavior_doc)),
+            ("Go to Cutscene (scenes & storyboard)", "view",
+             lambda: self.tabs.setCurrentWidget(self.cutscene_doc)),
             ("Go to Place (click content onto the art)", "view",
              lambda: self.tabs.setCurrentWidget(self.place_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
@@ -5429,6 +5502,15 @@ class Workspace(QMainWindow):
                 self.tree.setCurrentItem(node)       # _on_select re-feeds from the restored data
             else:
                 self._feed_behavior()
+            return
+        if key == "cutscene_tab":                    # a Cutscene-DOC edit -> land back on that tab
+            node = getattr(self, "_member_items", {}).get(member)    # (the bare "cutscene" token is
+            if getattr(self, "cutscene_doc", None) is not None:      # the Editor TREE node's, below)
+                self.tabs.setCurrentWidget(self.cutscene_doc)        # fires _feed_cutscene on show
+            if node is not None and self.tree.currentItem() is not node:
+                self.tree.setCurrentItem(node)       # _on_select re-feeds from the restored data
+            else:
+                self._feed_cutscene()
             return
         if key == "place":                           # a Place-tab drop -> land back on the art
             node = getattr(self, "_member_items", {}).get(member)
