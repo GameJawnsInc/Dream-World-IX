@@ -3219,6 +3219,11 @@ _SAND_EPS_U = 0.004
 #: Desert ``eps_v`` must stay under half the 1-texel run-seam/cap-land gap (579 vs
 #: 580) or the tiers smear. topo 33 = the Lost Continent's foam-less frozen shore
 #: (+330 texels) -- measured, NOT yet a mintable family.
+#: SNOW's shore-sand topograph -- the third member of the 31/32/33 shore-sand family and
+#: the one SAND_BANDS does not cover. Named so the refusal can say WHICH class is missing
+#: instead of letting the block read as beachless. Not a band entry: its pins are unmeasured.
+_SAND_SNOW_TOPO = 33
+
 SAND_BANDS = {
     "grass": dict(topo=31, du=0.0, eps_v=_SAND_EPS_V,
                   v_land=SAND_V_LAND, v_seam=SAND_V_SEAM,
@@ -3241,6 +3246,25 @@ def _sand_band_family(terr, *, what="donor"):
             if tp == fam["topo"]:
                 counts[name] = counts.get(name, 0) + 1
     if not counts:
+        # ATTESTED BUT UNMEASURED: topo 33 is SNOW's shore sand, the third member of the
+        # 31/32/33 family. SAND_BANDS holds only grass(31) and desert(32), so a topo-33
+        # block used to read as BEACHLESS -- src then fell through to the mains and the
+        # sand tris refused later as anonymous "unclassified", which names neither the
+        # class nor why it is missing. Measured on disc 1: 42 tris across exactly 5
+        # blocks (6,3) (7,2) (7,3) (8,2) (8,3), all snow-mains, u 0.5859-0.7090 and v
+        # rows 0.4678/0.4971/0.5000/0.5127/0.5293 -- structurally desert's band shifted
+        # -0.0674 in v, but with an extra row desert has no counterpart for, so the
+        # v-remap pins are NOT derivable by analogy and are deliberately not guessed.
+        # Those 5 blocks belong to one 39,712u2 continent that no donor rect can contain,
+        # so no carry is blocked by this; what was wrong was the DIAGNOSIS.
+        if any(decode_id(int(round(t3[0][3][0])))["topograph"] == _SAND_SNOW_TOPO
+               for t3 in terr):
+            raise ValueError(
+                f"{what} carries the SNOW shore-sand band (topo {_SAND_SNOW_TOPO}), which "
+                f"is attested in stock but whose v-remap pins are UNMEASURED -- "
+                f"SAND_BANDS covers only {sorted(SAND_BANDS)}. Carry this donor verbatim. "
+                f"To lift this, measure the snow band the way island717_retile_census.py "
+                f"measured desert's (see coastmorph._SAND_SNOW_TOPO).")
         return None
     if len(counts) > 1:
         raise ValueError(f"{what} carries MIXED sand families {counts} -- "

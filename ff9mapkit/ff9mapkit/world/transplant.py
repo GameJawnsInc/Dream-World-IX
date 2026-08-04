@@ -435,6 +435,18 @@ class GroundRetile:
                 self.n["foam"] += 1
                 return [(p, nr, uvv, self._retag(tan, self.foam_dst))
                         for (p, nr, uvv, tan) in poly]
+            # THE SILENT BRANCH, CLOSED. This used to `return poly` for ANY non-foam
+            # beach1 tri -- correct for water by the verbatim policy, but it could not
+            # tell water from a class nobody has measured, so an unmeasured one shipped
+            # silently while the identical class in `terrain` refused. Census of every
+            # beach1 topograph in disc 1: {30: 443, 34: 280, 53: 4, 55: 10} -- foam and
+            # water only, nothing else, so refusing the remainder cannot fire on stock
+            # data and costs no shipped donor.
+            btopo = decode_id(int(round(poly[0][3][0])))["topograph"]
+            if btopo in self._WATER:
+                self.n["beach1_water"] += 1
+                return poly
+            self._refuse(part, btopo, poly, None)
             return poly
         if part != "terrain":
             return poly
@@ -718,7 +730,14 @@ class GroundRetile:
         rec = sorted({u["cell"] for u in pre.unclassified
                       if u["part"] == "terrain" and u["topo"] in FAMILY_TOPOS[src]})
         cq, co = G.assign_mains(set(rec), seed=0xF93)
-        budget = sum(1 for u in pre.unclassified if u["cell"] in set(rec))
+        # COUNT ONLY WHAT CAN ACTUALLY RECOVER. `rec` is the set of CELLS holding at least
+        # one source-family refusal, but budgeting every refusal in those cells counts
+        # foreign classes that the recover path will never take -- so expected["recovered"]
+        # became unreachable and the gate could only fail. The predicate here is the same
+        # one that selects `rec`, counted per TRI instead of per cell.
+        budget = sum(1 for u in pre.unclassified
+                     if u["cell"] in set(rec) and u["part"] == "terrain"
+                     and u["topo"] in FAMILY_TOPOS[src])
         expected = {k: pre.n[k] for k in ("mains", "wall", "sand", "foam",
                                           "sand_degenerate_recovered")}
         expected["recovered"] = budget

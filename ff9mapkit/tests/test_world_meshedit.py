@@ -852,3 +852,82 @@ def test_mains_family_still_refuses_a_small_CONTESTED_donor():
         tris += [_mains_tri((u0 + u1) / 2, (v0 + v1) / 2) for _ in range(k)]
     with pytest.raises(ValueError, match="no dominant ground family"):
         GroundRetile._mains_family(tris, (0, 0))
+
+
+# ------------------------------------- the three fail-closed gaps (measured, then closed)
+
+def _beach_tri(topo):
+    """A tri carrying `topo` -- via encode_id, because the topograph is BIT-ENCODED in
+    the IDALL, not the raw tangent.x. Writing the bare number silently decodes to
+    something else (55 -> 10), which is a test that measures nothing."""
+    from ff9mapkit.world.extract import encode_id
+    idall = float(encode_id(topograph=topo))
+    v = ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.5, 0.5), (idall, 0.0, 0.0, 1.0))
+    return [v, v, v]
+
+
+def test_beach1_water_passes_verbatim_and_is_COUNTED():
+    """Water in beach1 is correctly verbatim -- but it must be visible, not silent."""
+    from ff9mapkit.world.transplant import GroundRetile
+    gt = GroundRetile(dst="desert", src="grass")
+    out = gt.apply("beach1", _beach_tri(55))          # 55 is water
+    assert out is not None and gt.n["beach1_water"] == 1
+    assert not gt.unclassified
+
+
+def test_beach1_UNMEASURED_class_now_refuses():
+    """The guard must be observed to FIRE. Before this, any non-foam beach1 tri passed
+    verbatim with no counter -- water and an unmeasured class were indistinguishable."""
+    from ff9mapkit.world.transplant import GroundRetile
+    gt = GroundRetile(dst="desert", src="grass")
+    gt.apply("beach1", _beach_tri(41))                # neither foam (30/34) nor water
+    assert gt.unclassified and gt.unclassified[0]["topo"] == 41
+    assert gt.gate()["ok"] is False
+
+
+def test_snow_sand_band_refuses_BY_NAME():
+    """topo 33 used to make a block read as beachless; the failure named nothing."""
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="SNOW shore-sand band"):
+        CM._sand_band_family([_beach_tri(CM._SAND_SNOW_TOPO)], what="donor (7,3)")
+
+
+def test_a_block_with_no_sand_at_all_is_still_beachless():
+    """The snow refusal must not swallow the ordinary no-sand case."""
+    from ff9mapkit.world import coastmorph as CM
+    assert CM._sand_band_family([_beach_tri(0)], what="donor") is None
+
+
+def test_recover_budget_counts_only_what_can_actually_recover(monkeypatch):
+    """The budget used to count EVERY refusal in a recover cell, including foreign
+    classes the recover path never takes -- making expected["recovered"] unreachable,
+    so the gate could only ever fail. Donor (4,12) budgeted 8 against 5 reachable tris.
+    """
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world import transplant as TR
+    from ff9mapkit.world.extract import encode_id
+
+    u0, v0, u1, v1 = G.ground_main_region("grass")
+    inside = ((u0 + u1) / 2, (v0 + v1) / 2)     # classifies as mains -> names src=grass
+    outside = (0.999, 0.999)                    # in-family topo, no class -> recoverable
+
+    def tri(topo, uv, x=2.0, z=-2.0):
+        v = ((x, 0.0, z), (0.0, 1.0, 0.0), uv, (float(encode_id(topograph=topo)),
+                                                0.0, 0.0, 1.0))
+        return [v, v, v]
+
+    def fake(bx, by, part, **kw):
+        if part != "terrain" or (bx, by) != (1, 1):
+            return []
+        return ([tri(0, inside) for _ in range(40)]      # grass mains, sets src
+                + [tri(0, outside)]                       # in-family refusal: RECOVERABLE
+                + [tri(49, outside)] * 3)                 # mountain rock: never recoverable
+
+    monkeypatch.setattr(TR, "world_tris", fake)
+    monkeypatch.setattr(CM, "_sand_band_family", lambda *a, **k: None)
+    gt = TR.GroundRetile.for_donor((1, 1), "desert", strips="none")
+    assert gt.src == "grass"
+    # 4 refusals share the cell; only the ONE in-family tri can recover.
+    assert gt.recover_budget == 1, gt.recover_budget
+    assert gt.expected["recovered"] == 1

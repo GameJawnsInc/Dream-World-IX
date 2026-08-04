@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — three fail-closed gaps in `--ground`
+- **A `beach1` triangle that was neither foam nor water shipped silently.** The branch returned
+  any non-foam triangle verbatim with no counter and no refusal, so water and a class nobody has
+  measured were indistinguishable — while the *same* class in `terrain` refused. Water now passes
+  verbatim and is counted (`beach1_water`); anything else refuses. Census of every `beach1`
+  topograph in disc 1 is `{30: 443, 34: 280, 53: 4, 55: 10}` — foam and water only — so the new
+  refusal cannot fire on stock data and costs no shipped donor.
+- **Snow's shore sand (topo 33) made a block read as BEACHLESS.** `SAND_BANDS` covers grass(31)
+  and desert(32) only, so the third member of the family fell through: the source family was then
+  guessed from the mains and the sand triangles refused later as anonymous "unclassified". It now
+  refuses **by name**, saying which class is missing and how to measure it. Attested on disc 1 as
+  42 triangles across 5 blocks, all snow-mains.
+- **The recover budget counted refusals that could never recover.** Recover *cells* are chosen by
+  source-family refusals, but the budget summed **every** refusal in those cells, including foreign
+  classes the recover path never takes — making `expected["recovered"]` unreachable, so the gate
+  could only fail. Donor `(4,12)` budgeted 8 against 5 reachable triangles; now 5.
+
 ### Fixed — `--excise` no longer cracks a fill at a block border
 - **The two large laddered rects now build clean.** The sinuous island `(3,11)+2x4` and
   Daguerreo `(5,15)+3x2` were being refused by the weld audit with one and four near-miss
