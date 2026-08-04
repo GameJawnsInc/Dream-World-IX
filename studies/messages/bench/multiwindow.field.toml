@@ -84,6 +84,7 @@ spawn = [0, -1800]
 name = "zorn"
 preset = "vivi"
 pos = [-620, -1150]
+face = 0
 dialogue = "The scene is over and you have control. Both of our windows closed themselves -- an async window is the SCRIPT's to dispose, not the player's."
 speaker = "Zorn"
 
@@ -91,6 +92,7 @@ speaker = "Zorn"
 name = "thorn"
 preset = "vivi"
 pos = [620, -700]
+face = 0
 dialogue = "Disposed themselves, our windows did! Reload the field to watch it again, kupo."
 speaker = "Thorn"
 
