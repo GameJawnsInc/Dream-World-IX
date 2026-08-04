@@ -511,8 +511,21 @@ def _cmd_story_seed(args: argparse.Namespace) -> int:
     t = args.target
     if args.chain:
         if not args.beat:
-            print("story-seed: --chain needs --beat", file=sys.stderr)
-            return 1
+            # no beat given: print the zone's ADVANCE LADDER (the story's own flow through
+            # the zone -- the beat-selection surface; a value = the state just after that
+            # advance). Derived from the members' SC writes, never guessed.
+            cpath = args.census or storyseed.find_census()
+            if not cpath or not os.path.isfile(cpath):
+                print("story-seed: dominance_census.json not found (see --census)", file=sys.stderr)
+                return 1
+            census = _json.load(open(cpath, encoding="utf-8"))
+            donors = [d for (_m, d) in storyseed.chain_donors(args.chain)]
+            _safe_console()
+            print("the zone's advance ladder (pick one as --beat; each = the state just "
+                  "after that story advance):")
+            for v, name, writers in storyseed.chain_ladder(census, donors):
+                print(f"  {v:6d}  ({name})  written by donor(s) {writers}")
+            return 0
         try:
             beat = int(args.beat)
         except ValueError:

@@ -131,3 +131,12 @@ def test_backwards_advance_hazard_detection():
     assert storyseed.backwards_advance_hazards(c, 352, 2650) == [2600]   # the Dali morning write
     assert storyseed.backwards_advance_hazards(c, 352, 2500) == []      # nothing below the beat
     assert storyseed.backwards_advance_hazards(c, 351, 2650) == []
+
+
+def test_chain_ladder_is_the_write_channel():
+    c = {"sc_sites": [{"field": 352, "value": 2600}, {"field": 354, "value": 2610},
+                      {"field": 352, "value": 2650}, {"field": 999, "value": 5000}]}
+    ladder = storyseed.chain_ladder(c, [352, 354])
+    assert [(v, w) for v, _n, w in ladder] == [(2600, [352]), (2610, [354]), (2650, [352])]
+    # a non-member's write never enters the zone's ladder
+    assert all(v != 5000 for v, _n, _w in ladder)

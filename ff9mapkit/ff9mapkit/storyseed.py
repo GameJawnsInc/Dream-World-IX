@@ -344,3 +344,33 @@ def seed_chain(chain_dir: str, beat: int, census: dict, eb_for_donor) -> list[tu
             fh.write(base + seed + "\n")
         out.append((p, mid, donor))
     return out
+
+
+def chain_ladder(census: dict, donors: list[int]) -> list[tuple[int, str, list[int]]]:
+    """The zone's ADVANCE LADDER: every ScenarioCounter value the member donors' own scripts
+    WRITE, sorted, with milestone label + the writers. The story's flow through the zone is
+    this ladder -- the resident content moments are the intervals between consecutive writes,
+    and 'boot the zone at moment K' means seeding AT the K-th write value (the state just
+    after that advance). This is the beat-selection surface for a chain; the --beats GATE
+    list is a dispatch map, not the story's own flow (the Dali lesson: picking mid-gate-band
+    2650 landed five sub-beats into the zone's storyline)."""
+    ds = set(donors)
+    by_val: dict[int, set] = {}
+    for x in census.get("sc_sites", ()):
+        if x["field"] in ds and x["value"] > 0:
+            by_val.setdefault(x["value"], set()).add(x["field"])
+    return [(v, flagsmod.nearest_milestone(v)[1], sorted(w)) for v, w in sorted(by_val.items())]
+
+
+def chain_donors(chain_dir: str) -> list[tuple[int, int]]:
+    """[(member_id, donor_id)] for every member field.toml under *chain_dir*."""
+    import glob
+    import re
+    out = []
+    for p in sorted(glob.glob(os.path.join(chain_dir, "**", "*.field.toml"), recursive=True)):
+        text = open(p, encoding="utf-8").read()
+        m_d = re.search(r"^donor\s*=\s*(\d+)", text, re.M)
+        m_i = re.search(r"^id\s*=\s*(\d+)", text, re.M)
+        if m_d and m_i:
+            out.append((int(m_i.group(1)), int(m_d.group(1))))
+    return out

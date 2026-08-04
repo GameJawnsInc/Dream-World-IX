@@ -124,3 +124,17 @@ rung 1).
   @ 2650 -> [2600]).
 - LESSON for the study: one beat per zone is right for STANDING state; members holding
   advance SEQUENCES want a beat at-or-before their own writes (or accept the skippable guard).
+
+### Chain rounds 2-3 — the beat was GUESSED, not derived; now it derives
+
+Round 2 (@2650 after Skip): NOT stock -- no ATEs, Vivi already gone. Owner's critique lands:
+the RE knowledge should DERIVE the beat, not need per-case corrections. ROOT CAUSE: beat
+choice used the wrong evidence channel -- `--beats` lists the zone's READ gates (dispatch
+boundaries); the story's flow through a zone is its WRITE ladder (the advances its own
+scripts perform). 2650 = "just after the inn's advance" = Vivi-already-gone, correctly.
+
+Fix: `story-seed --chain` with NO --beat now prints the zone's ADVANCE LADDER derived from
+the members' SC writes (2530/2540 overlook naming scene -> 2600 morning wake -> 2610 shop ->
+2640 bar -> 2650 inn -> 2660 -> 2680) -- "the morning" reads directly off it. Chain re-seeded
+@ 2600 + redeployed (round 3). Expect: Vivi present, ATEs armed (value-1 placeholder = one
+row per hub), no backwards-write guard. PENDING
