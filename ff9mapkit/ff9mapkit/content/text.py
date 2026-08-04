@@ -146,6 +146,112 @@ def menu_pos_tag(pos) -> str:
     return f"[MPOS={x},{y}]"
 
 
+# --- COLOUR + GLYPH markup (studies/messages/SURVEY.md §6b, the in-text census) ----------------------
+# Colour is the third most-used tag in the shipping game -- 20,438 pushes across all 64 field text
+# blocks -- and it is SEMANTIC, not decorative. Counted over the whole corpus, stock colours the parts
+# of a line it did NOT author: cyan wraps a substituted name (almost always a [TEXT=0,n]), yellow wraps
+# a quantity or an item ("[NUMB=0] Gil", "[ITEM=0]", "Card"). Colour is how FF9 tells the reader "this
+# word came out of your save, not the script."
+#
+# Two laws from the census, both exact:
+#   1. every colour push is paired with [HSHD] -- the counts match to the unit (20,438 == 20,438), and
+#      Memoria's own importer encodes exactly that pair as its named colour tokens (FieldTags.cs:40-45,
+#      "[68C0D8][HSHD]" -> "{Cyan}");
+#   2. stock NEVER pops with [-] (zero occurrences) -- it re-pushes C8C8C8 explicitly to close a span.
+# So a span is  [CODE][HSHD] ... [C8C8C8][HSHD]  and nothing else is stock-shaped.
+#
+# ⚠ NOT auto-applied to the system announce box. Stock writes " Received [ITEM=0]! " with NO colour
+# (64 sites, one per block) while an item named inside NPC PROSE is wrapped yellow (52 sites). The
+# whole box is already non-prose, so there is nothing to distinguish -- and the kit's received box is
+# byte-faithful to that shape. Auto-colouring substitutions everywhere would have broken it.
+COLOR_WHITE = "C8C8C8"
+COLOR_CODES = {                 # the SIX codes that appear in shipping field text, with their counts
+    "white": COLOR_WHITE,       # 9,953 -- the restore
+    "cyan": "68C0D8",           # 9,603 -- substituted names
+    "yellow": "C8B040",         #   404 -- quantities + items
+    "pink": "B880E0",           #   246
+    "brown": "D06050",          #   210
+    "green": "78C840",          #    22
+}
+# Semantic aliases -- the names that carry the CONVENTION rather than the pigment. Prefer these.
+COLOR_ALIASES = {"name": "cyan", "item": "yellow", "amount": "yellow"}
+# 909090 grey is in the engine palette and is used ZERO times in field text; it is deliberately absent.
+
+# Button glyphs: [DBTN=NAME] draws the platform's button sprite inline ([CBTN=NAME] honours the
+# player's rebinding). These eleven names are every one stock uses, with their corpus counts.
+BUTTON_GLYPHS = {"SELECT": 72, "START": 64, "PAD": 52, "SQUARE": 23, "CROSS": 22, "UP": 15,
+                 "LEFT": 15, "RIGHT": 15, "CIRCLE": 15, "DOWN": 15, "TRIANGLE": 14}
+
+MARKUP_CLOSE = "{/}"
+_MARKUP = re.compile(r"\{(/|[A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def resolve_color(name: str) -> str:
+    """A markup colour name (or semantic alias) -> its 6-hex code. Raises on an unknown name."""
+    key = str(name).strip().lower()
+    key = COLOR_ALIASES.get(key, key)
+    try:
+        return COLOR_CODES[key]
+    except KeyError:
+        raise ValueError(f"unknown colour {name!r} -- one of "
+                         f"{', '.join(sorted(set(COLOR_CODES) | set(COLOR_ALIASES)))}")
+
+
+def color_span(name: str, text: str) -> str:
+    """One stock-shaped colour span: ``[CODE][HSHD]text[C8C8C8][HSHD]``."""
+    return f"[{resolve_color(name)}][HSHD]{text}[{COLOR_WHITE}][HSHD]"
+
+
+def markup_problems(text) -> list:
+    """Author-facing problems in a line's ``{colour}...{/}`` markup: unknown names, and a span left
+    open at end of line. Unknown ``{...}`` that is NOT a colour name is left ALONE (it may be literal
+    prose), so only a recognised-looking-but-wrong name is reported."""
+    out, depth = [], 0
+    for m in _MARKUP.finditer(str(text or "")):
+        tok = m.group(1)
+        if tok == "/":
+            depth -= 1
+            if depth < 0:
+                out.append(f"{MARKUP_CLOSE} with no colour span open")
+                depth = 0
+            continue
+        key = tok.strip().lower()
+        if key in COLOR_CODES or key in COLOR_ALIASES:
+            depth += 1
+    if depth > 0:
+        out.append(f"{depth} colour span(s) left open -- close each with {MARKUP_CLOSE}")
+    return out
+
+
+def apply_markup(text):
+    """Expand ``{colour}...{/}`` spans to stock's ``[CODE][HSHD]...[C8C8C8][HSHD]`` shape.
+
+    A NO-OP on any line without a recognised colour name, so every pre-existing emission stays
+    byte-identical. Unrecognised ``{...}`` passes through untouched (it may be literal prose). Runs
+    BEFORE wrapping, so the emitted tags measure as zero-width like every other control tag rather
+    than eating the line budget."""
+    s = str(text)
+    if "{" not in s:
+        return text
+    open_spans = []
+
+    def _sub(m):
+        tok = m.group(1)
+        if tok == "/":
+            if not open_spans:
+                return m.group(0)                  # unbalanced; validation reports it
+            open_spans.pop()
+            return f"[{COLOR_WHITE}][HSHD]"
+        key = tok.strip().lower()
+        key = COLOR_ALIASES.get(key, key)
+        if key not in COLOR_CODES:
+            return m.group(0)                      # not a colour -- leave the author's braces alone
+        open_spans.append(key)
+        return f"[{COLOR_CODES[key]}][HSHD]"
+
+    return _MARKUP.sub(_sub, s)
+
+
 # --- text-synchronized SIGNALS (studies/messages/SURVEY.md §8) ---------------------------------------
 # A signal tag fires when its POSITION IN THE STRING appears on screen -- typewriter-aware, so a tag at
 # the end of a line means "this line has finished typing". It writes ETb.gMesSignal, which a script reads
@@ -269,14 +375,18 @@ def with_speaker(speaker, text: str) -> str:
                                                                     silent thought -- parens, no quotes
         with_speaker(None, anything)     -> unchanged               narration/system: no name, no quotes
 
+    Colour markup (``{item}Ore{/}``) is expanded here, before any wrapping, so it applies at every
+    prose site that attributes a line and its emitted tags measure zero-width. A line with no
+    recognised ``{colour}`` name comes through byte-identical.
+
     ``speaker`` may be a literal name, a renameable-character tag (``[ZDNE]``/``[VIVI]``/...), or a
     variable like ``[TEXT=0,0]``. Auto-wrap composes cleanly: the ``\\n`` makes the name its own
     segment, and the quotes glue to the first/last words so a wrapped body keeps ONE quote pair
     spanning all its lines -- exactly the stock shape. (An audible hushed aside -- stock's rare
     ``“(Kupo!)”`` -- is unattributed in the wild; author it as literal text with your own quotes.)"""
     if not speaker:
-        return text
-    t = str(text)
+        return apply_markup(text)
+    t = apply_markup(str(text))
     if t.startswith("(") and t.endswith(")"):
         return f"{speaker}\n{t}"                        # the silent-thought convention
     return f"{speaker}\n{QUOTE_OPEN}{t}{QUOTE_CLOSE}"
@@ -390,6 +500,8 @@ def _tag_render_width(tag: str) -> float:
         return 6.0          # a (renameable) party name; ~6 characters
     if code in ("TEXT", "NUMB", "ITEM", "ICON"):
         return 4.0          # an inserted variable / item name / icon; rough
+    if code in ("DBTN", "CBTN", "KCBT", "JCBT"):
+        return 2.0          # a button glyph draws a sprite roughly two characters wide
     return 0.0              # color / format / page / control tag -> no glyphs
 
 

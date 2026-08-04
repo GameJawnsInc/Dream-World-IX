@@ -405,6 +405,37 @@ steps = [
 ]
 ```
 
+### Coloured text (`{item}…{/}`)
+
+Any authored line — NPC dialogue, event messages, cutscene lines, choice prompts *and* choice rows —
+takes colour markup. Write `{colour}text{/}`; the build expands it to FF9's own tag pair.
+
+**Colour in FF9 is semantic, not decorative.** Counted across the whole shipping script (20,438 colour
+pushes, in every one of the game's 64 field text blocks), stock colours the parts of a line it *did not
+author*: a substituted name in cyan, a quantity or item in yellow. It is how the game tells the reader
+"this word came out of your save, not the script." Emphasis is not what it's for.
+
+| write | colour | stock uses it for |
+|---|---|---|
+| `{name}` | cyan | a substituted name — a character, a place |
+| `{item}` / `{amount}` | yellow | an item name, a quantity, gil |
+| `{cyan}` `{yellow}` `{pink}` `{brown}` `{green}` `{white}` | — | direct control, if you need it |
+
+```toml
+dialogue = "Bring me an {item}Ore{/} and I'll pay {amount}300 Gil{/}, {name}[ZDNE]{/}."
+```
+
+Close every span with `{/}` — the build warns on an unclosed span or a stray close. Braces that aren't
+a known colour name are left alone as ordinary prose, and a line with no markup is emitted byte for
+byte as before. There is no grey: `909090` is in the engine palette and stock never uses it.
+
+> The system "Received …!" box is deliberately **not** coloured — stock writes it plain (64 sites, one
+> per text block) because the whole box is already non-prose. The kit's received box matches that.
+
+Button glyphs pass through as `[DBTN=NAME]` (or `[CBTN=NAME]`, which follows the player's rebinding).
+The names stock ships: `SELECT` `START` `PAD` `SQUARE` `CROSS` `CIRCLE` `TRIANGLE` `UP` `DOWN` `LEFT`
+`RIGHT`.
+
 ### Several windows at once (open · close · wait_window · raise)
 
 A `say` step opens one window and blocks on it. Stock's richer presentations all come from *splitting*

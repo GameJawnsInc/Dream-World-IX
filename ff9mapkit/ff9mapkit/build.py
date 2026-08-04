@@ -3258,19 +3258,32 @@ def lint_logic(project: FieldProject) -> list[str]:
     # dialogue that won't fit on screen. With wrapping ON, only an unbreakable over-wide word can
     # still overflow; with wrapping OFF, any hand-written line over the budget will run off-screen.
     wrap = _wrap_width(project)
-    texts = []
+    texts, authored = [], []          # (label, EXPANDED line) for width; (label, RAW) for markup
     for n in raw.get("npc", []):
         if "dialogue" in n:
             texts.append((f"NPC {n.get('name', '?')!r}", _text.with_speaker(n.get("speaker"), n["dialogue"])))
+            authored.append((f"NPC {n.get('name', '?')!r}", n["dialogue"]))
     for ev in raw.get("event", []):
         if "message" in ev:
             texts.append((f"event {ev.get('name', '?')!r}", _text.with_speaker(ev.get("speaker"), ev["message"])))
+            authored.append((f"event {ev.get('name', '?')!r}", ev["message"]))
     for _ck, _cb in enumerate(_cutscene.blocks(raw.get("cutscene"))):
         for k, s in enumerate(_cb.get("steps", [])):
             _line = _cutscene.step_text(s)
             if _line is not None:
-                texts.append((f"cutscene #{_ck} say #{k}" if _ck else f"cutscene say #{k}",
-                              _text.with_speaker(s.get("speaker"), _line)))
+                _lbl = f"cutscene #{_ck} say #{k}" if _ck else f"cutscene say #{k}"
+                texts.append((_lbl, _text.with_speaker(s.get("speaker"), _line)))
+                authored.append((_lbl, _line))
+    for c, ch in enumerate(raw.get("choice", [])):
+        authored.append((f"choice #{c} prompt", ch.get("prompt", "")))
+        for o, opt in enumerate(ch.get("options", []) or []):
+            authored.append((f"choice #{c} option #{o}", opt.get("text", "")))
+            if opt.get("reply"):
+                authored.append((f"choice #{c} option #{o} reply", opt["reply"]))
+    # colour markup is checked on the RAW line -- by the time it reaches `texts` it is already expanded
+    for who, src in authored:
+        for prob in _text.markup_problems(src):
+            out.append(f"{who}: {prob}")
     for who, t in texts:
         if wrap is None:                       # wrapping disabled: every over-budget line overflows
             for ln in t.replace("[PAGE]", "\n").split("\n"):
@@ -5290,7 +5303,9 @@ def _verbatim_choice_messages(project: FieldProject, langs) -> tuple[dict, dict]
         q = _text.with_speaker(ch.get("speaker"), ch.get("prompt", ""))
         if wrap is not None:
             q = _text.wrap_text(q, wrap)[0]
-        opts = [str(o.get("text", "")) for o in ch.get("options", [])]
+        # choice ROWS are not wrapped (a row is short by design) but they do take colour markup --
+        # the prompt gets it via with_speaker, so without this the two halves of one entry disagree
+        opts = [_text.apply_markup(str(o.get("text", ""))) for o in ch.get("options", [])]
         pre_tag = _choice.pre_choose(ch)[1]                  # [PCHC]/[PCHM] config tag (default/cancel/hide)
         prompt_line = (_text.menu_pos_tag(ch.get("window_pos")) + pre_tag + q + _text.CHOICE_OPEN
                        + ("\n" + _text.CHOICE_INDENT).join(opts))
@@ -7809,7 +7824,9 @@ def collect_text(project: FieldProject):
         q = _text.with_speaker(ch.get("speaker"), ch.get("prompt", ""))
         if wrap is not None:
             q = _text.wrap_text(q, wrap)[0]
-        opts = [str(o.get("text", "")) for o in ch.get("options", [])]
+        # choice ROWS are not wrapped (a row is short by design) but they do take colour markup --
+        # the prompt gets it via with_speaker, so without this the two halves of one entry disagree
+        opts = [_text.apply_markup(str(o.get("text", ""))) for o in ch.get("options", [])]
         pre_tag = _choice.pre_choose(ch)[1]   # [PCHC]/[PCHM] config tag (default/cancel/disabled); "" if none
         # stock's tag order is [MPOS][PCHC/PCHM]...: a window_pos pin leads the entry (and, like every
         # pinned window, ships tail-less unless an explicit tail insists -- the engine draws none anyway)

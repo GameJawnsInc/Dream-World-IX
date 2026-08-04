@@ -96,6 +96,34 @@ face = 0
 dialogue = "Disposed themselves, our windows did! Reload the field to watch it again, kupo."
 speaker = "Thorn"
 
+# --- BEAT 4: COLOURED TEXT (SURVEY.md §6b -- the in-text census) -------------------------------
+# Colour is the game's third most-used tag (20,438 pushes, every one of the 64 text blocks) and it is
+# SEMANTIC: stock colours what it did NOT author -- a substituted name cyan, a quantity or item
+# yellow. Talk to the merchant and check, in order:
+#   (a) "Ore" and "300 Gil" are YELLOW, the player's own name is CYAN, the prose around them is plain
+#       white -- i.e. the coloured words are exactly the ones that came out of the save;
+#   (b) the colour RESTORES cleanly after each span (no bleed into the following words) -- stock never
+#       pops with [-], it re-pushes white, and this line exercises three spans in a row;
+#   (c) the CHOICE below it colours its ROWS as well as its prompt (the row pass is separate code --
+#       without it a coloured prompt would sit over plain rows in the same entry);
+#   (d) the button glyph in the prompt draws a real sprite, not the literal text "[DBTN=CROSS]".
+[[npc]]
+name = "merchant"
+preset = "vivi"
+pos = [0, -700]
+face = 0
+speaker = "Merchant"
+dialogue = "Bring me an {item}Ore{/} and I'll pay {amount}300 Gil{/} for it, {name}[ZDNE]{/}. Plain words stay white."
+
+[[choice]]
+npc = "merchant"
+prompt = "Trade the {item}Ore{/}? Press [DBTN=CROSS] to pick."
+speaker = "Merchant"
+options = [
+  { text = "Sell for {amount}300 Gil{/}", reply = "Sold! The rows colour too, kupo." },
+  { text = "Keep it", reply = "Suit yourself." },
+]
+
 # --- the scene: all three beats, in order ------------------------------------------------------
 [[cutscene]]
 once = false
