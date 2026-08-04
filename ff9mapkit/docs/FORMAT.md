@@ -424,6 +424,16 @@ waits, or re-issues it, because an async window outlives the scene and simply st
 raises **once per open** and never re-raises an unchanged stack: the engine's raise is clamped per
 window, so a third bare raise makes higher window ids draw in *front* of lower ones.
 
+> ⚠ **A confirm press goes to *every* open window, not the topmost one.** So an async window that has
+> to survive a line of dialogue must be **held** (`hold = true`, below) — otherwise the same press that
+> advances the dialogue closes it too. The build refuses the unheld case. The one exception is the
+> window a `wait_window` is waiting on: that one is *meant* to be dismissed, so leave it unheld (and
+> holding it would hang the wait forever — also refused).
+>
+> ⚠ **Two windows on screen at once can overlap, and the engine will not move them.** It only flips
+> tails; the lower window id draws in front and clips the other's first characters. Give simultaneous
+> speakers real horizontal separation *and* a bit of depth stagger.
+
 ### Text-synchronized beats (signal · hold · wait_signal · set_signal)
 
 FF9 has one clock that runs from the *text* back to the *script*: a tag inside a line fires when that

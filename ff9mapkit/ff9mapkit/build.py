@@ -7215,8 +7215,32 @@ def _validate_window_scene(cs, problems, lbl="[cutscene]"):
                     problems.append(f"{lbl} step {k}: {verb} = {w} but this scene never opens window "
                                     f"{w} -- a stray close is a no-op, and a stray wait_window returns "
                                     f"immediately (so it does NOT hold the scene the way it reads).")
+                if "wait_window" in s and w in held:
+                    problems.append(f"{lbl} step {k}: wait_window = {w} on a window opened with "
+                                    f"hold = true HANGS -- `hold` inhibits the dismiss button, so the "
+                                    f"window the wait is waiting for can never be dismissed. Use "
+                                    f"{{ close = {w} }}, or drop hold so the player can dismiss it.")
                 live.pop(w, None)
                 held.pop(w, None)
+        # ★ THE BROADCAST-CONFIRM LAW (bench 30603 round 1, traced to DialogManager.cs:335-341). A
+        # confirm press is delivered to EVERY active dialog -- `foreach (Dialog d in activeDialogList)
+        # d.OnKeyConfirm(go)` -- there is no focused or topmost window. Each one then closes itself
+        # unless `ignoreInputFlag` is set, and that field IS `FlagButtonInh`, which ONLY the [TIME]
+        # and [NFOC] tags ever write. So an unheld async window does not survive the next dismissal
+        # of ANY other window: the press that advances the dialogue takes the hint down with it.
+        blocking = ("say" in s) or ("wait_window" in s)
+        if blocking:
+            waited = s.get("wait_window")
+            for w, ok in sorted(live.items()):
+                if w in held or w == waited:
+                    continue
+                verb = "say" if "say" in s else f"wait_window = {waited}"
+                problems.append(
+                    f"{lbl} step {k}: window {w} (opened at step {ok}) is still up when this "
+                    f"{verb} waits for a dismissal, and it is not held -- a confirm press goes to "
+                    f"EVERY open window at once, so the press that advances this line also closes "
+                    f"window {w}. Add hold = true to the step-{ok} open (it is already closed later, "
+                    f"or the ledger will say so).")
     for w, k in sorted(held.items()):
         problems.append(f"{lbl} step {k}: open ... hold = true on window {w} is never closed -- "
                         f"`hold` sets [TIME=-1], which INHIBITS the dismiss button, so nothing in the "
