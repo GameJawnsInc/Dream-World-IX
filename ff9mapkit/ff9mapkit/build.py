@@ -2657,6 +2657,24 @@ def validate(project: FieldProject) -> list[str]:
             elif src.get("lock_menu") is not None:
                 problems.append(f"{label}: lock_menu is not wired on this block (it lives on "
                                 f"[[npc]], [[event]] and [cutscene])")
+            # PAD MASK + UNLOCKED DISMISSIBLE WINDOW = IN-GAME PROVEN BROKEN (LOCKT2 @30602,
+            # 2026-08-03: the mask applied, the window dismissed, and the unmask never took --
+            # the player stayed frozen). Mechanism NOT established: the emitted order is right
+            # (mask, window, unmask, RET -- verified in the shipped .eb) and the engine's clear
+            # path is symmetric, so this is an empirical refusal, not a modelled one. What is
+            # certain is that stock never builds this shape: its pad-mask sites (the field-212
+            # chest and siblings) mask around a window inside a handler that is NOT re-enterable,
+            # and 1,108/1,108 of its window-bearing talk handlers lock. `lock = false` on a
+            # message-less or self-closing (`duration`) body is untouched -- as is the plain
+            # walk-under NPC banner, which is in-game proven (WINSTYLE, owner-confirmed).
+            if (lv is False and src.get("mask_buttons") is not None
+                    and src.get("message") is not None and src.get("duration") is None):
+                problems.append(
+                    f"{label}: mask_buttons with lock = false and a dismissible message is a "
+                    f"PROVEN-BROKEN shape (the unmask does not take -- the player stays frozen; "
+                    f"bench 30602). Use the stock shape -- keep the lock (the mask outlives the "
+                    f"bracket, so the freeze still shows after control returns) -- or make the "
+                    f"window self-closing with duration = N.")
         elif src.get("lock") is not None or src.get("lock_menu") is not None:
             problems.append(f"{label}: the control keys (lock / lock_menu) are not supported on "
                             f"this block -- they live on [[npc]], [[event]], [[on_entry]] and "

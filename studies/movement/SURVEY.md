@@ -250,6 +250,20 @@ byte path except the Reinit gate, which is behavior-identical for every free-roa
    pre-battle `usercontrol` via context-copy BEFORE requesting tag-10 (EventEngine.cs:668-669), so
    the handler gates its grant on `IsMovementEnabled && !MAP156`: the engine's restored context IS
    the latch stock maintains GlobBool 158 for.
+   **Playtest (bench 30602 round 1): `stay_locked` GOOD, the after-battle grant GOOD (free-roam
+   regression clean).** The pad-mask beat FAILED — and the failing beat was an unlawful shape *I*
+   authored into the bench: `mask_buttons` + `lock = false` + a DISMISSIBLE window. The mask
+   applied; the unmask never took. The emitted order is right (`AddControllerMask, WindowSync,
+   RemoveControllerMask, RET` — read back out of the shipped `.eb`), the engine's clear path is
+   symmetric (`PSXCntlClearPadMask` → `CheckPlayerControl` → `isMovementControl = true`), no other
+   code writes those bits, and `MovePC` re-reads the flag every frame with no latch. **Two
+   mechanisms were proposed and both refuted by the source** (a tread-companion clobber — refused
+   by `Request`'s `level < p.level` guard; a dialog-side save/restore of the mask — no such
+   writer exists). So: mechanism OPEN (§11), shape REFUSED in `validate` (empirical, and stock
+   never builds it — its own pad-mask sites bracket a window inside a non-re-enterable handler).
+   Round 2 re-benches the lane in stock's locked shape, which isolates mask-from-lock better
+   anyway: the window closes → the lock releases (menu/Action/talk all work) → the feet stay dead
+   until a second book unmasks them.
 
 ## 11. Open questions
 
@@ -263,5 +277,14 @@ byte path except the Reinit gate, which is behavior-identical for every free-roa
   an already-running body's script VM ticks regardless. So the kit's in-game forced-ATE freeze
   (real, observed, fixed by delegation) has some OTHER discriminant — untraced. The delegation
   shape stays the kit's proven idiom; a static freeze check is unsound and was calibrated out.
+- **Why an unlocked, dismissible pad-mask body loses its unmask** (bench 30602 round 1, §10 item 7).
+  Everything static checks out — correct emission, symmetric engine clear path, no competing
+  writer, no latch in `MovePC` — yet the player stays frozen. The leading unrefuted hypothesis is
+  RE-ENTRY: with `lock = false` the handler runs with `usercontrol == 1`, so `CollisionRequest`
+  (ProcessEvents.cs:180) keeps polling the press underneath the open window, and the dismissal
+  press edge can re-enter the same tag-3 body — each cycle ending in a fresh mask. Untested; it
+  would show as the window reappearing, which the playtest did not explicitly report. **The same
+  re-entry exposure exists for the (in-game proven, owner-liked) walk-under NPC banner, where it
+  is harmless** — which is why the refusal is scoped to the mask pairing, not to `lock = false`.
 - Whether GlobBool 158/159 residue from stock fields can make a kit field's gateway macro fire
   differently mid-campaign (harmless either way — `ExitField` locks regardless — but untested).

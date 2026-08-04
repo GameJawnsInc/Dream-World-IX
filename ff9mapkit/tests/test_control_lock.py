@@ -571,3 +571,36 @@ mask_buttons = ["konami"]
 """
     probs = validate(_project(tmp_path, toml))
     assert any("unknown button" in p for p in probs)
+
+
+def test_validate_refuses_mask_with_unlocked_dismissible_window(tmp_path):
+    """IN-GAME PROVEN BROKEN (bench 30602 round 1): mask_buttons + lock = false + a dismissible
+    message left the player frozen -- the unmask never took, though the emitted order was right.
+    Mechanism unestablished; the refusal is empirical. The two lawful shapes still pass."""
+    broken = BASE + """
+[[event]]
+zone = [[-200, -500], [200, -500], [200, -300], [-200, -300]]
+trigger = "action"
+lock = false
+mask_buttons = ["directions"]
+message = "frozen"
+"""
+    probs = validate(_project(tmp_path, broken))
+    assert any("PROVEN-BROKEN shape" in p for p in probs)
+
+    # lawful A: keep the lock (stock's shape -- the mask outlives the bracket)
+    locked = broken.replace("lock = false\n", "")
+    assert validate(_project(tmp_path, locked)) == []
+    # lawful B: self-closing banner -- nothing can re-enter the handler
+    timed = broken.replace('message = "frozen"', 'message = "frozen"\nduration = 90')
+    assert validate(_project(tmp_path, timed)) == []
+    # and the in-game-proven walk-under NPC banner stays legal (owner-confirmed, WINSTYLE)
+    drifter = BASE + """
+[[npc]]
+name = "drifter"
+preset = "vivi"
+pos = [0, -700]
+dialogue = "walk away mid-sentence"
+lock = false
+"""
+    assert validate(_project(tmp_path, drifter)) == []

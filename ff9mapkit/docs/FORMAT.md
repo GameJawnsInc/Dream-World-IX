@@ -446,7 +446,14 @@ mirrors that law with per-lane defaults:
   group `"directions"` (stock's own 240 — the Marsh/Chocobo tutorial walk-freeze). A mask is
   **standing state**: pair the masking event with an unmasking one — it does not auto-restore,
   though any scene transition (a field warp, a battle) clears it (`SceneDirector.ReplaceNow` →
-  `ClearPadMask`), so it cannot leak across fields.
+  `ClearPadMask`), so it cannot leak across fields. Because the mask **outlives the lock bracket**,
+  the natural shape is a normal *locked* event: when its window closes control returns — menu,
+  Action and talking all work — and the feet stay dead until something unmasks them.
+  ⚠ **`mask_buttons` + `lock = false` + a dismissible message is refused** — that combination was
+  in-game proven broken (the mask applied, the window dismissed, the unmask never took and the
+  player stayed frozen; bench 30602). The emitted opcode order is correct and the engine's clear
+  path is symmetric, so the mechanism is *not* established — but stock never builds that shape, so
+  the kit refuses it rather than shipping a coin-flip. Use the lock, or `duration = N`.
 
 ### Rotating casts (story-event fields)
 
