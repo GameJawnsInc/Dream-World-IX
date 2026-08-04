@@ -142,6 +142,34 @@ def test_synth_path_unchanged_by_new_param():
     assert a == b
 
 
+def _entry_facing(eb: EbScript, idx: int) -> int:
+    """The ``SetVar D9(6) = <face>`` const in this entry's Init -- what ``TurnInstant(D9(6))`` reads."""
+    f0 = eb.entry(idx).func_by_tag(0)
+    body = eb.data[f0.abs_start:f0.abs_end]
+    k = body.index(bytes([0x05, 0xD9, 0x06, 0x7D]))
+    return int.from_bytes(body[k + 4:k + 6], "little")
+
+
+def test_verbatim_npc_face_is_wired_below_the_band():
+    """`[[npc]] face` on a VERBATIM fork: the fork call site passes it too (the synthesize path is
+    covered in test_content.py), the band-aware insert preserves it, and the donor stays lint-clean."""
+    from ff9mapkit import build
+    data = _alex100()
+    band_lo = EbScript.from_bytes(data).entry_count - BAND
+    proj = build.FieldProject(
+        {"field": {"id": 4003, "name": "V", "area": 11, "source_field": 100},
+         "npc": [{"name": "west", "preset": "vivi", "pos": [120, 240], "face": 64},
+                 {"name": "plain", "preset": "vivi", "pos": [160, 240]}]},
+        Path("."))
+    warnings = []
+    out, slots = build._inject_verbatim_npcs(proj, data, {}, warnings=warnings)
+    eb = EbScript.from_bytes(out)
+    assert slots == {"west": band_lo, "plain": band_lo + 1}
+    assert _entry_facing(eb, slots["west"]) == 64          # authored -> turned west
+    assert _entry_facing(eb, slots["plain"]) == 0          # unauthored -> the 0 default
+    assert _errors(out) == _errors(data)
+
+
 # ----------------------------------------------- regions: a NEW [[gateway]] / [[event]] below the band
 
 def _errors(b):

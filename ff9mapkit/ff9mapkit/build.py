@@ -1392,6 +1392,10 @@ def validate(project: FieldProject) -> list[str]:
             except ValueError as e:
                 problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} archetype: {e}")
         label = f"[[npc]] {n.get('name', '#' + str(i))!r}"
+        fc = n.get("face")
+        if fc is not None and not (isinstance(fc, int) and not isinstance(fc, bool) and 0 <= fc <= 255):
+            problems.append(f"{label} face {fc!r} must be a raw facing byte 0..255 "
+                            f"(0=south 64=west 128=north 192=east)")
         _validate_gate_exclusive(n, label, problems)
         try:                                              # rotating-cast beat window (min inclusive, max exclusive)
             smin, smax = _scenario_window_of(n)
@@ -5655,7 +5659,8 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
         pos = n["pos"]
         slot = EbScript.from_bytes(eb).entry_count - _object.PARTY_BAND_SIZE   # the slot this insert will take
         _nw, _nf, _ = _window_attrs(n, None, label=f"[[npc]] {name}")
-        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
+        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), facing=int(n.get("face") or 0),
+                             talk_text_id=txid, gate_flag=gf,
                              gate_require_set=gs, appears_scenario_min=smin, appears_scenario_max=smax,
                              speak_body=sb, reserve_party_band=True,
                              talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
@@ -6051,7 +6056,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                        greeting_txid=txid if n.get("dialogue") else None,
                                        lock=n.get("lock", True), lock_menu=bool(n.get("lock_menu")))
         _nw, _nf, _ = _window_attrs(n, None, label=f"[[npc]] {n.get('name') or '#' + str(i)}")
-        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
+        eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), facing=int(n.get("face") or 0),
+                             talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
                              appears_scenario_max=smax, speak_body=sb,
                              boot_spawn=(n.get("name") not in _pooled_bh),
