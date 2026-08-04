@@ -139,6 +139,7 @@ class CliffWindow:
         nx, ny = (int(size[0]), int(size[1]))
         self.donor = (dbx, dby)
         self.size = (nx, ny)
+        self._read = (disc, lod, game)
         # REGION-AWARE: read every cell of the rect, not just the anchor. Adjacent stock
         # blocks weld EXACTLY at a shared border (measured over the four interior borders
         # of (6,6)+2x2: 12/12, 10/10, 11/11, 7/7 terrain verts, all shared), so the base
@@ -303,6 +304,17 @@ class CliffWindow:
             nh = (-nh[0], -nh[1])
         self.nhat = nh
 
+    def part_tris(self, part):
+        """A water/beach part read across the WHOLE rect (region-aware, like terr/sea4 --
+        an anchor-cell-only read let a region window's shallow coincidence dodge the
+        purity gates)."""
+        disc, lod, game = self._read
+        out = []
+        for cy in range(self.donor[1], self.donor[1] + self.size[1]):
+            for cx in range(self.donor[0], self.donor[0] + self.size[0]):
+                out += TR.world_tris(cx, cy, part, disc=disc, lod=lod, game=game)
+        return out
+
     def moved(self, p, d):
         return (p[0] + d * self.nhat[0], p[1], p[2] + d * self.nhat[1])
 
@@ -326,14 +338,15 @@ def _count_instances(win, keys, exclude_sets=()):
     return n
 
 
-def _assert_pure_sea4(win, keyed, *, disc, lod, game):
+def _assert_pure_sea4(win, keyed):
     """The window's moved waterline verts may touch ONLY terrain + sea4 -- a coincident vert
     in another water part would stay behind under the part-scoped tweaks = a weld crack.
     The refusal NAMES the offending vert (positional -- the coast window scanner steers
-    its sub-window search by it, like the ``window gap K`` decode refusals)."""
+    its sub-window search by it, like the ``window gap K`` decode refusals). Holds for the
+    STRUCTURAL morphs; the conforming bow carries shallow coincidence instead (the
+    SHALLOW BOW), because a bump never drops or refills a sheet."""
     for part in ("sea1", "sea2", "sea3", "sea5", "beach1"):
-        tris = TR.world_tris(*win.donor, part, disc=disc, lod=lod, game=game)
-        hits = [v[0] for t3 in tris for v in t3 if _pk(v[0]) in keyed]
+        hits = [v[0] for t3 in win.part_tris(part) for v in t3 if _pk(v[0]) in keyed]
         if hits:
             raise ValueError(f"the morph window's waterline touches {part} ({len(hits)} "
                              f"vert instance(s), first at ({hits[0][0]:.4f},"
@@ -6275,12 +6288,27 @@ def cliff_bump(donor, start, end, depth, *, size=(1, 1), disc: int = 1,
             moves[p] = (d * win.nhat[0], 0.0, d * win.nhat[1])
     d_cols.append(0.0)
     keyed = {_pk(p): v for p, v in moves.items()}
-    _assert_pure_sea4(win, keyed, disc=disc, lod=lod, game=game)
+    # THE SHALLOW BOW (capability 2): a bump never drops or refills a sheet, so shallow
+    # coincidence is CARRIED, not refused -- one SeaBump per coincident part with the
+    # proven affine re-eval semantics. beach1 coincidence still refuses: a beach-fronted
+    # run is the beach verbs' domain (the interleaved ramp assembly, not a cliff shore).
+    shallow = {}
+    for part in ("sea1", "sea2", "sea3", "sea5"):
+        tris = win.part_tris(part)
+        n = sum(_pk(v[0]) in keyed for t3 in tris for v in t3)
+        if n:
+            shallow[part] = (n, tris)
+    bhits = [v[0] for t3 in win.part_tris("beach1") for v in t3 if _pk(v[0]) in keyed]
+    if bhits:
+        raise ValueError(f"the morph window's waterline touches beach1 ({len(bhits)} vert "
+                         f"instance(s), first at ({bhits[0][0]:.4f},{bhits[0][2]:.4f})) -- "
+                         f"a beach-fronted run is the beach verbs' domain")
     new_base = [(p[0] + d * win.nhat[0], p[1], p[2] + d * win.nhat[1])
                 for p, d in zip(win.base, d_cols)]
     _clearance_gate(win, new_base, d_cols)
-    # the offline fold precheck (the ~2.5u envelope law, made a build-time refusal)
-    for tris in (win.terr, win.sea4):
+    # the offline fold precheck (the ~2.5u envelope law, made a build-time refusal),
+    # over the shallow sheets too -- their tiles fold at the same amplitudes
+    for tris in (win.terr, win.sea4, *(t for (_n, t) in shallow.values())):
         for t3 in tris:
             if not any(_pk(v[0]) in keyed for v in t3):
                 continue
@@ -6299,7 +6327,9 @@ def cliff_bump(donor, start, end, depth, *, size=(1, 1), disc: int = 1,
     n_land = sum(_pk(v[0]) in keyed for t3 in win.terr for v in t3)
     n_sea = sum(_pk(v[0]) in keyed for t3 in win.sea4 for v in t3)
     return [TR.VertexDisplace(moves=moves, expected=n_land, part="terrain"),
-            TR.SeaBump(moves=moves, expected=n_sea)]
+            TR.SeaBump(moves=moves, expected=n_sea)] + \
+           [TR.SeaBump(moves=moves, expected=n, part=p)
+            for p, (n, _t) in sorted(shallow.items())]
 
 
 def cliff_headland(donor, start, end, depth, *, size=(1, 1), disc: int = 1,
@@ -6433,7 +6463,7 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
                 f"baked-terrain law: no fill language; tiled tops measure >= "
                 f"{100 * MURAL_REUSE_MIN:.0f}%). cliff_bump (the conforming bow) still "
                 f"applies")
-    _assert_pure_sea4(win, moved_bk | moved_ck | refined_keys, disc=disc, lod=lod, game=game)
+    _assert_pure_sea4(win, moved_bk | moved_ck | refined_keys)
 
     # --- the new outline. PINNED scheme first (the proven arithmetic: old columns
     # displaced + one new column per gap midpoint; needs gaps = 0 mod 4). If it is not
@@ -6546,8 +6576,7 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
     # overlapping an undropped sea1/2/3/5/beach1 tile would leave new land poking through
     # (or a shore band unre-zipped). Windows near a shallow ladder get an honest refusal.
     for part in ("sea1", "sea2", "sea3", "sea5", "beach1"):
-        tris = TR.world_tris(*win.donor, part, disc=disc, lod=lod, game=game)
-        for t3 in tris:
+        for t3 in win.part_tris(part):
             if _overlaps(t3, wedge_poly):
                 raise ValueError(f"the morph's footprint reaches {part} -- a cliff morph "
                                  f"needs pure sea4 within its reach (the cliff seam law); "

@@ -434,6 +434,55 @@ def test_mural_gate_reads_the_measured_threshold(monkeypatch):
     assert "painted-mural" not in str(ei.value)
 
 
+#: the chain's (8,17) shallow-fronted window (sea3+sea5 at the waterline; the old
+#: pure-sea4 law refused every verb here)
+SHAL_START, SHAL_END = (512.0, -1115.4921875), (512.0, -1129.46875)
+
+
+def test_shallow_bow_carries_the_coincident_sheets():
+    from ff9mapkit.world import coastmorph as CM
+    # THE SHALLOW BOW (capability 2): a bump never drops or refills a sheet, so shallow
+    # coincidence is CARRIED -- one SeaBump per part, exact expected counts, same moves
+    tweaks = CM.cliff_bump((8, 17), SHAL_START, SHAL_END, 2.5)
+    parts = [(t.part, t.expected) for t in tweaks]
+    assert parts == [("terrain", 17), ("sea4", 2), ("sea3", 2), ("sea5", 3)], parts
+    # every water tweak carries the SAME move set -- the weld moves as one
+    move_sets = {frozenset(t.moves) for t in tweaks[1:]}
+    assert len(move_sets) == 1
+    # the structural morphs keep the pure-sea4 law (the ladder rebuild is a later rung)
+    with pytest.raises(ValueError, match="touches sea3"):
+        CM.cliff_headland((8, 17), SHAL_START, SHAL_END, 6.0)
+
+
+def test_shallow_bow_is_region_aware():
+    from ff9mapkit.world import coastmorph as CM
+    # the purity/carriage reads span the WHOLE rect: the same window invoked on the
+    # chain's (7,17)+4x2 region (anchor cell holds none of the coincidence) must carry
+    # the identical sea3/sea5 tweaks -- an anchor-only read once let this dodge the gates
+    tweaks = CM.cliff_bump((7, 17), SHAL_START, SHAL_END, 2.5, size=(4, 2))
+    parts = dict((t.part, t.expected) for t in tweaks)
+    assert parts.get("sea3") == 2 and parts.get("sea5") == 3, parts
+
+
+def test_shallow_bow_refuses_a_beach_front(monkeypatch):
+    from ff9mapkit.world import coastmorph as CM
+    # beach1 coincidence refuses (the beach verbs' domain). No palette cliff window
+    # fronts a beach, so the specimen is injected: a fake beach1 tri welded onto one of
+    # the window's moved base verts.
+    win_probe = CM.CliffWindow((8, 17), SHAL_START, SHAL_END)
+    moved = win_probe.base[1]
+    fake = [(moved, (0, 1, 0), (0.1, 0.1), (228.0,)),
+            ((moved[0] + 2, moved[1], moved[2]), (0, 1, 0), (0.2, 0.1), (228.0,)),
+            ((moved[0], moved[1], moved[2] + 2), (0, 1, 0), (0.1, 0.2), (228.0,))]
+    real = CM.CliffWindow.part_tris
+
+    def spiked(self, part):
+        return [fake] if part == "beach1" else real(self, part)
+    monkeypatch.setattr(CM.CliffWindow, "part_tris", spiked)
+    with pytest.raises(ValueError, match="touches beach1"):
+        CM.cliff_bump((8, 17), SHAL_START, SHAL_END, 2.5)
+
+
 def test_harvest_folds_the_wrap_seam():
     from types import SimpleNamespace
     from ff9mapkit.world import coastmorph as CM

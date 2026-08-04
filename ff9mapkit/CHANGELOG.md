@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE SHALLOW BOW: the conforming bump on shallow-fronted shores (capability 2)
+- The cliff verbs refused any window whose waterline touches sea3/sea5 ("pure sea4" law) —
+  correct for the structural morphs (part-scoped tweaks would leave coincident verts behind),
+  over-broad for the bump, which never drops or refills a sheet. `cliff_bump` now CARRIES the
+  coincidence: one part-scoped `SeaBump` per shallow sheet (the proven affine re-eval — the
+  caustic stays pinned, the waterline cuts it at a new place), exact per-part expected counts,
+  and the fold precheck extended over the shallow tiles. beach1 coincidence still refuses (the
+  beach verbs' domain); headland/bay on shallow shores keep the unchanged refusal (the ladder
+  rebuild is a registered future rung). 9 of the 10 shallow-refused palette windows flip at the
+  full 2.5u envelope; the tenth folds a tile at 1.0u (a genuine geometric ceiling). Also fixes
+  THE ANCHOR-ONLY READ GAP: the purity and reach gates read only the anchor cell's water parts,
+  so a region window in a non-anchor cell dodged them — all readers now span the rect
+  (`CliffWindow.part_tris`), with a region-aware test. Three mutations killed.
+
 ### Added — THE TILED-MAINS FILL: deep coast morphs on desert/brush tops (capability 1)
 - The cliff morphs' "no grass mains — painted-mural" refusal fired on *not grass*, not on
   *mural*: the morph-envelope study measured 5 of 6 refused coast tops at 81–98% uv-rect reuse —
