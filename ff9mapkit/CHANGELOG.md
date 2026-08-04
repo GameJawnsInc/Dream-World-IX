@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE WEDGE GROUND LAW + THE MIXED-CELL PAIR (the grass-edge mismatch)
+- Round 5 on the bent crescent: stock's grass-on-desert patches are an EDGE-CODED tile
+  system (~8 distinct rects — interior/edge/corner, a Wang-like land vocabulary) that a
+  nearest-source clone cannot compose; the fill had extended the patch into new territory
+  with interior tiles and Voronoi-chunk borders. Now NEW territory clones only the MODAL
+  ground family; a patch family reproduces only in its own offset-zero cells, whose stock
+  edge tiles already carry the transition (the beach-mint lesson, on land). Mixed cells
+  (two topos on the tile diagonal) keep their PAIR — pieces split at the exact diagonal,
+  each side carrying its own rect + idall. 3 mutations killed; redeployed — the fill's
+  grass is the faithful 7-tri stock fragment, the wedge pure desert.
+
 ### Fixed — THE TILE-RECT CONTAINMENT LAW (the promontory shards)
 - The tiled-mains fill assigned each Delaunay tri ONE source tile's affine map by centroid
   cell; a tri spanning cells (or sitting on stock's WOBBLY lattice — 4u spacing, per-vert

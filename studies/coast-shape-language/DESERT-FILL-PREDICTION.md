@@ -130,6 +130,19 @@ cell→rect uv map, a hard rect-containment gate, and a fill weld pass. Redeploy
 **98 authored tris, 0 escaped**; rim retile re-run (under 3→1 — the registered
 shore-ladder residual; over 23 owner-accepted). ⏳ awaiting the round-5 look.
 
+### ROUND 5: THE WEDGE GROUND LAW + THE MIXED-CELL PAIR
+
+"Still mismatched and seaming near the grass" — measured: stock's grass patches
+are an EDGE-CODED tile system (~8 distinct rects; the stock patch south of the
+fill uses them, the fill's grass used 2 interior rects everywhere). The wedge's
+nearest-source clone had EXTENDED the patch into new territory with interior
+tiles on Voronoi-chunk borders. Fix: new territory clones only the MODAL ground
+family (patch families reproduce only in their own offset-zero cells — their
+stock edge tiles carry the transition; the beach-mint fallacy applies on land),
+and mixed diagonal cells keep their source PAIR (split at the exact diagonal,
+per-side rect+idall — synthetic specimen). Redeployed: fill grass = the faithful
+7-tri stock fragment, wedge pure desert. ⏳ round-6 look.
+
 **HONEST ENVELOPE SHRINKAGE — D-1 rescored.** The comma's hole boundaries wobble
 up to **1.24u** past the 4u lattice; the exact-lattice fill would bleed the
 visible shard class there, so comma windows now REFUSE ("too WOBBLY"). Their
