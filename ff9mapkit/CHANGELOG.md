@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-render`: the offline overworld renderer, promoted into the kit
+- `world.render` — the Path D render gate's engine-faithful software rasterizer (UNLIT,
+  NEAREST, alpha-0=white, game-eye cull, perspective-correct UV, per-pixel owner buffer),
+  promoted from `studies/path-d-new-world/render_gate.py` as a site-parameterized library
+  (the meshedit precedent; the study file is now a thin shim bound to the bench preset).
+  Byte-faithful lift: the six committed bench cameras render 0-px-identical, and the
+  bench's flow/blank/holes/peer gates stay green through the shim.
+- `world-render --around WX,WZ | --preset bench-vshore` — render deployed blocks with an
+  auto-derived rig reproducing the two committed close-range vantage classes (near-top-down
+  ~60° `close_*`, low waterline `graze_*`, four azimuths each, heights anchored to the
+  site's own median ground). Read-only; a report, never a gate — the blind-spot ledger
+  prints with every run. Needs numpy (`ff9mapkit[image]`).
+
 ### Added — fuse off-lattice water tolerance (study 3) — and the honest strait verdict
 - `fuse_layout` refused any off-lattice vert at a shared border. New: an off-lattice vert on
   a PURE open-water row classifies `water-offlat` and fuses against another placement's

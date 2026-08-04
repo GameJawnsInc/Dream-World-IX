@@ -5175,6 +5175,76 @@ def _cmd_world_minimap(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_render(args: argparse.Namespace) -> int:
+    """Offline textured render of deployed overworld blocks (``world.render``, promoted from the Path D
+    render gate). READ-ONLY over the install; a report, never a build failure -- exit 0 with diffs printed."""
+    import dataclasses as _dc
+    from pathlib import Path
+    from .world import render as R
+    try:
+        if args.around:
+            try:
+                wx, wz = (float(v) for v in args.around.split(","))
+            except ValueError:
+                print(f"--around wants WX,WZ (world coords), got {args.around!r}", file=sys.stderr)
+                return 2
+            site = R.RenderSite(cells=R.cells_around(wx, wz, radius=args.radius),
+                                disc=args.disc if args.disc is not None else 9,
+                                mod_folder=args.mod_folder or "FF9CustomMap-world")
+            batches = R.load_batches(site)
+            if not batches:
+                print(f"no deployed .ff9mesh under {site.mod_folder} Disc{site.disc} near "
+                      f"({wx:g},{wz:g}) -- nothing to render", file=sys.stderr)
+                return 2
+            gy = args.ground_y if args.ground_y is not None else \
+                R.ground_y_near(batches, wx, wz)
+            views = R.views_around(wx, wz, ground_y=gy)
+        else:
+            try:
+                site, views = R.PRESETS[args.preset]
+            except KeyError:
+                print(f"unknown preset {args.preset!r} (have: {', '.join(sorted(R.PRESETS))})",
+                      file=sys.stderr)
+                return 2
+            if args.disc is not None or args.mod_folder:
+                site = _dc.replace(site, disc=args.disc if args.disc is not None else site.disc,
+                                   mod_folder=args.mod_folder or site.mod_folder)
+            batches = R.load_batches(site)
+            if not batches:
+                print(f"no deployed .ff9mesh under {site.mod_folder} Disc{site.disc} -- "
+                      "nothing to render", file=sys.stderr)
+                return 2
+        if args.views:
+            keep = {v.strip() for v in args.views.split(",")}
+            unknown = keep - set(views)
+            if unknown:
+                print(f"unknown view(s) {sorted(unknown)} (have: {', '.join(views)})",
+                      file=sys.stderr)
+                return 2
+            views = {n: v for n, v in views.items() if n in keep}
+        out = Path(args.out)
+        nt = sum(len(t) for _, _, _, t in batches)
+        print(f"[world-render] {len(batches)} part batches, {nt} tris, {len(views)} views -> {out}")
+        imgs = {vn: R.raster(v, batches, vn, site=site, out_dir=out)
+                for vn, v in views.items()}
+        if args.diff:
+            from PIL import Image as _Img
+            ref = Path(args.diff)
+            print(f"[world-render] diff vs {ref} (report only -- never a failure):")
+            for vn, img in imgs.items():
+                rp = ref / f"{vn}.png"
+                if not rp.is_file():
+                    print(f"   diff {vn}: no reference {rp.name}, skipped")
+                    continue
+                import numpy as _np
+                R.diff(img, _np.asarray(_Img.open(rp).convert("RGB")), vn, out_dir=out)
+    except (ConfigError, FileNotFoundError, RuntimeError, ValueError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"\n{R.BLIND_SPOTS}")
+    return 0
+
+
 def _cmd_world_rename_markers(args: argparse.Namespace) -> int:
     """Rename overworld minimap markers: rewrite the world text block (68) txid-0 label at ``locId+1`` and shadow
     it per-language into the mod folder (``embeddedasset/text/<lang>/field/68.mes``). No DLL; RELAUNCH to apply."""
@@ -8914,6 +8984,39 @@ def build_parser() -> argparse.ArgumentParser:
                           "disc -- compositing one namespace overwrites the map a composite of another produced.")
     wmm.add_argument("--dry-run", action="store_true", help="report the plan, write nothing")
     wmm.set_defaults(func=_cmd_world_minimap)
+
+    wrd = sub.add_parser("world-render",
+                         help="offline textured RENDER of deployed overworld blocks (the promoted Path D "
+                              "render gate): engine-faithful stills -- UNLIT, NEAREST, alpha-0=white, "
+                              "game-eye cull -- so an agent can SEE geometry without a playtest. "
+                              "READ-ONLY over the install; needs numpy (pip install ff9mapkit[image]). "
+                              "A report, never a gate: a clean render is a regression harness, NOT an "
+                              "oracle -- owner playtests remain the verdict.")
+    tgt = wrd.add_mutually_exclusive_group(required=True)
+    tgt.add_argument("--around", metavar="WX,WZ",
+                     help="derive cameras at this world-coord target: 1 ortho top + 4 near-top-down "
+                          "close_* (~60 deg, the owner_close class) + 4 low graze_* (near edge-on to "
+                          "the waterline) + 1 overview, from all four azimuths (the rig cannot know "
+                          "which side the sea is on)")
+    tgt.add_argument("--preset", help="a committed site+camera preset (bench-vshore = the Path D "
+                                      "V-shore bench, byte-comparable with the study's renders)")
+    wrd.add_argument("--radius", type=float, default=96.0,
+                     help="--around block-cover radius in world units (default 96 -- the target block "
+                          "plus its ring; absent blocks skip free)")
+    wrd.add_argument("--ground-y", type=float, default=None,
+                     help="waterline/ground height anchoring the --around rig (default: median Terrain "
+                          "vert height within 8u of the target)")
+    wrd.add_argument("--disc", type=int, default=None, help="world disc (default 9, the Path D world)")
+    wrd.add_argument("--mod-folder", default=None,
+                     help="the FolderNames mod folder whose deployed WorldMap tree to read "
+                          "(default FF9CustomMap-world)")
+    wrd.add_argument("--views", default=None,
+                     help="comma-separated subset of view names to render (default: all)")
+    wrd.add_argument("--out", default="out/world_render", help="PNG output dir (default out/world_render)")
+    wrd.add_argument("--diff", default=None, metavar="DIR",
+                     help="pixel-diff each view against DIR/<view>.png from a prior run; REPORTED, "
+                          "never a failure (every world edit changes pixels by design)")
+    wrd.set_defaults(func=_cmd_world_render)
 
     wrm = sub.add_parser("world-rename-markers",
                          help="rename overworld minimap MARKER labels: rewrite the world text (block 68), shadowed "
