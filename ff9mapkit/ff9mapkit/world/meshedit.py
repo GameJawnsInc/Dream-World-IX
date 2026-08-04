@@ -738,6 +738,189 @@ def flat_patch(ring, *, y: float, uv_quads, idall: int, normal=(0.0, 1.0, 0.0),
     return out
 
 
+def _clip_plan(poly, axis: int, plane: float, below: bool):
+    """Sutherland-Hodgman half-plane clip of a plan polygon [(x, z), ...].
+
+    Keeps ORIGINAL vertices that are inside (byte-exact -- the ring reuse contract) and
+    mints crossings by the same lerp expression regardless of which side asks, so two
+    lattice cells clipping the same edge against their shared plane produce the SAME
+    point (the watertightness argument the transplant's border re-partition already uses).
+    """
+    out = []
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        av, bv = a[axis], b[axis]
+        ain = (av <= plane + 1e-9) if below else (av >= plane - 1e-9)
+        bin_ = (bv <= plane + 1e-9) if below else (bv >= plane - 1e-9)
+        if ain:
+            out.append(a)
+        if ain != bin_:
+            t = (plane - av) / (bv - av)
+            p = (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+            out.append((plane, p[1]) if axis == 0 else (p[0], plane))
+    # collapse consecutive duplicates a grazing clip can mint
+    dedup = []
+    for p in out:
+        if not dedup or abs(p[0] - dedup[-1][0]) > 1e-9 or abs(p[1] - dedup[-1][1]) > 1e-9:
+            dedup.append(p)
+    if len(dedup) > 1 and abs(dedup[0][0] - dedup[-1][0]) < 1e-9 \
+            and abs(dedup[0][1] - dedup[-1][1]) < 1e-9:
+        dedup.pop()
+    return dedup
+
+
+def _plan_area2(poly) -> float:
+    return abs(sum(poly[i][0] * poly[(i + 1) % len(poly)][1]
+                   - poly[(i + 1) % len(poly)][0] * poly[i][1]
+                   for i in range(len(poly))))
+
+
+def _despur(poly):
+    """Remove zero-width spurs (A, X, A) a half-plane clip mints where the ring boundary
+    runs along the clip plane and back -- the ear-clipper cannot eat a repeated vertex
+    (measured: the crescent's cell (235,-42) piece carried (940,-168), (940,-164),
+    (940,-168) and stuck with 5 verts)."""
+    poly = list(poly)
+    changed = True
+    while changed and len(poly) >= 3:
+        changed = False
+        n = len(poly)
+        for i in range(n):                            # adjacent duplicate (snap can mint)
+            a, b = poly[i], poly[(i + 1) % n]
+            if abs(a[0] - b[0]) < 1e-9 and abs(a[1] - b[1]) < 1e-9:
+                del poly[(i + 1) % n]
+                changed = True
+                break
+        if changed:
+            continue
+        for i in range(n):
+            a, b = poly[i], poly[(i + 2) % n]
+            if abs(a[0] - b[0]) < 1e-9 and abs(a[1] - b[1]) < 1e-9:
+                for k in sorted(((i + 1) % n, (i + 2) % n), reverse=True):
+                    del poly[k]
+                changed = True
+                break
+    return poly
+
+
+def lattice_patch(ring, *, y: float, uv_quads, idall: int, normal=(0.0, 1.0, 0.0),
+                  winding: float = -1.0, tile: float = 4.0,
+                  snap_verts=(), snap_tol: float = 0.049) -> list[list[tuple]]:
+    """Fill a ring with STOCK-SHAPED water: full 4u lattice tiles plus per-cell margins.
+
+    THE LATTICE LAW. :func:`flat_patch` ear-clips the whole footprint, which is lawful
+    GEOMETRY and a synthetic WATER SHAPE: stock sea4 is a strict 4u lattice (measured:
+    tri area median 8.0 max 10.5u2, edge max 7.0u), while the crescent's 41-tri ear-clip
+    fill minted 615u2 / 71.5u-edge triangles. The engine's wave animation displaces
+    per-vertex, so a giant triangle renders as a faceted 'iceberg' with its single tile
+    quadrant smeared across ~18 tiles of water (playtest 2026-08-04). Shape is part of
+    the vocabulary; carry it.
+
+    Construction: clip the ring polygon to every 4u lattice cell it overlaps. A piece
+    that IS the full cell becomes stock's own two tris (diagonal orientation mixed per
+    tile by the calibrated hash -- stock measures 298 NW-SE / 156 NE-SW); a partial piece
+    is ear-clipped WITHIN its cell, so no emitted triangle spans a tile. Ring vertices
+    are reused byte-exact (the clipper keeps inside originals); adjacent cells share
+    every minted crossing by identical-expression construction. UV is the per-tile
+    quadrant (both tris of a tile agree -- THE PER-TILE QUADRANT LAW) with the positional
+    rule inside the quadrant, and ``winding``/``normal`` follow the sheet as in
+    :func:`flat_patch`.
+    """
+    quads = [tuple(float(c) for c in q) for q in uv_quads]
+    if not quads:
+        raise ValueError("lattice_patch needs at least one uv quadrant")
+    plan = [(float(p[0]), float(p[2])) for p in ring]
+    exact = {(round(p[0], 6), round(p[2], 6)): (float(p[0]), float(p[2])) for p in ring}
+    # DENSIFY FIRST, one chain: a lattice line crossing a ring edge mints a vertex, and
+    # when the neighbouring sheet already subdivides that boundary a hair away, the pair
+    # is a near-miss the weld audit (rightly) refuses -- measured on the crescent:
+    # (912.0, -160.8919) minted 0.012u from sea4's own (912.0117, -160.8945). A minted
+    # vertex within ``snap_tol`` of an EXISTING sheet vertex snaps ONTO it. The rule is
+    # deterministic on position, so two cells clipping the same edge snap identically
+    # and stay watertight; ring verts themselves are never snapped.
+    snap_grid: dict = {}
+    for p in snap_verts:
+        q = (float(p[0]), float(p[-1])) if len(p) > 2 else (float(p[0]), float(p[1]))
+        snap_grid.setdefault((int(q[0] // 1), int(q[1] // 1)), []).append(q)
+
+    def _snap(p):
+        if not snap_grid or (round(p[0], 6), round(p[1], 6)) in exact:
+            return p
+        best, bd = p, snap_tol
+        gx, gz = int(p[0] // 1), int(p[1] // 1)
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for q in snap_grid.get((gx + dx, gz + dz), ()):
+                    d = math.hypot(p[0] - q[0], p[1] - q[1])
+                    if d < bd:
+                        best, bd = q, d
+        return best
+    if len(plan) < 3:
+        raise ValueError("ring needs at least three points")
+    xs = [p[0] for p in plan]
+    zs = [p[1] for p in plan]
+    gx0, gx1 = math.floor(min(xs) / tile), math.ceil(max(xs) / tile)
+    gz0, gz1 = math.floor(min(zs) / tile), math.ceil(max(zs) / tile)
+
+    out = []
+
+    def emit(tri, qi, cx0, cz1):
+        # UV is positional RELATIVE TO THE CELL, far edge at 1.0 -- the modulo rule
+        # ((x/4) % 1) wraps a lattice-aligned far edge back to 0, which collapses a full
+        # tile's four corners onto the quadrant corner: one texel smeared over the tile
+        # (measured: the gate read 121 of 142 fill tiles as quadrant (0,0) with
+        # adjacent-variation 0.098 against stock's 0.880). Every tri is within one cell,
+        # so the cell frame is well-defined.
+        u0, v0, u1, v1 = quads[qi]
+        cross = ((tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1])
+                 - (tri[2][0] - tri[0][0]) * (tri[1][1] - tri[0][1]))
+        if winding and cross * winding < 0:
+            tri = (tri[0], tri[2], tri[1])
+        poly = []
+        for p in tri:
+            src = exact.get((round(p[0], 6), round(p[1], 6)), p)   # ring verts byte-exact
+            fu = (p[0] - cx0) / tile
+            fv = (cz1 - p[1]) / tile
+            poly.append(((float(src[0]), float(y), float(src[1])),
+                         tuple(float(c) for c in normal),
+                         (u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv),
+                         (float(idall), 0.0, 0.0, 1.0)))
+        out.append(poly)
+
+    for gx in range(gx0, gx1 + 1):
+        for gz in range(gz0, gz1 + 1):
+            x0, x1 = gx * tile, (gx + 1) * tile
+            z0, z1 = gz * tile, (gz + 1) * tile
+            piece = plan
+            for (axis, plane, below) in ((0, x0, False), (0, x1, True),
+                                         (1, z0, False), (1, z1, True)):
+                piece = _clip_plan(piece, axis, plane, below)
+                if len(piece) < 3:
+                    break
+            piece = _despur([_snap(p) for p in piece])
+            if len(piece) < 3 or _plan_area2(piece) < 1e-9:
+                continue
+            # the per-TILE choices: quadrant, and diagonal orientation for a full cell.
+            # Cell indices in the SAME convention as _tile_quad_index's centroid mapping
+            # (plan z IS world z), so a fill tile and a retagged tile at one location
+            # hash identically.
+            cgx, cgz = int((x0 + tile / 2.0) // tile), int((-(z0 + tile / 2.0)) // tile)
+            qi = _cell_quad_index(cgx, cgz, len(quads))
+            if (_plan_area2(piece) >= 2.0 * tile * tile - 1e-6 and len(piece) == 4):
+                c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+                h = (_cell_quad_index(cgx, cgz, 1 << 30) >> 7) & 1
+                if h:                                             # NE-SW hypotenuse
+                    tris = [(c00, c10, c01), (c10, c11, c01)]
+                else:                                             # NW-SE hypotenuse
+                    tris = [(c00, c10, c11), (c00, c11, c01)]
+            else:
+                tris = earclip(piece, quality=True)
+            for t in tris:
+                emit(t, qi, x0, z1)
+    return out
+
+
 def _tile_origin(tri, tile: float = 4.0) -> tuple[float, float]:
     """World (x, -z) origin of the 4u tile a flat triangle sits in, keyed on its centroid."""
     cx = sum(v[0][0] for v in tri) / 3.0
@@ -755,12 +938,22 @@ def _tile_quad_index(tri, n_quads: int, tile: float = 4.0) -> int:
     """
     cx = sum(v[0][0] for v in tri) / 3.0
     cz = sum(v[0][2] for v in tri) / 3.0
-    gx, gz = int(cx // tile), int((-cz) // tile)
-    # A MIXING hash, not `(a*p ^ b*q) % n`. Taking a modulus keeps only the LOW BITS, so
-    # large primes collapse to a small lattice: the first version made tile parity PREDICT
-    # the quadrant, every neighbour differed (adjacent-variation 1.000 against stock's
-    # 0.880), and the sheet alternated in perfect lockstep -- regular where stock is
-    # irregular. Avalanche the bits first so the low bits actually depend on all of them.
+    return _cell_quad_index(int(cx // tile), int((-cz) // tile), n_quads)
+
+
+def _cell_quad_index(gx: int, gz: int, n_quads: int) -> int:
+    """The tile hash on CELL INDICES -- callers that already know the cell must use this
+    rather than faking a triangle for :func:`_tile_quad_index` (a 1-vert fake divides by
+    the 3 of a real centroid, collapsing neighbouring cells onto one key: measured on the
+    first lattice fill as quadrant counts 119/10/1/5 and adjacent-variation 0.078 against
+    stock's 0.880 -- a flat repeat).
+
+    A MIXING hash, not `(a*p ^ b*q) % n`. Taking a modulus keeps only the LOW BITS, so
+    large primes collapse to a small lattice: the first version made tile parity PREDICT
+    the quadrant, every neighbour differed (adjacent-variation 1.000 against stock's
+    0.880), and the sheet alternated in perfect lockstep -- regular where stock is
+    irregular. Avalanche the bits first so the low bits actually depend on all of them.
+    """
     h = (gx * 0x9E3779B1) ^ (gz * 0x85EBCA77)
     h &= 0xFFFFFFFF
     h ^= h >> 16

@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE LATTICE LAW: the excise fill is now stock-SHAPED water, not just stock-vocabulary water
+- `flat_patch` ear-clipped the whole footprint: lawful geometry, synthetic water shape. Stock sea4 is
+  a strict 4u lattice (tri area max 10.5u², edge max 7u); the crescent's fill minted **615u² /
+  71.5u-edge** triangles, and the wave-animated sheet rendered them in-game as a faceted "iceberg"
+  with one tile quadrant smeared across ~18 tiles. New `meshedit.lattice_patch`: full 4u tiles as
+  stock builds them (per-tile quadrant, mixed diagonals), margins clipped per cell so no triangle
+  spans a tile. Final fill: 308 tris, max 8.02u² / 5.66u, uv statistics inside the tiling gate's
+  stock bands.
+- Three latent defects fixed on the way, each with a both-sides test: the modulo-wrap UV
+  (`(x/4)%1` collapses a lattice-aligned tile onto one texel — inherited from `flat_patch`'s
+  formula), a zero-width clip spur jamming the ear-clipper, and **excise being FAIL-OPEN on a
+  skipped ring** (tweaks handed back with the assembly dropped and nothing filled — now refuses).
+  Boundary crossings snap onto the sheet's own exact-float vertices (DENSIFY FIRST; round to key,
+  emit the float).
+
 ### Added — excise v3: THE STRUCTURE NOTCH — a dropped mass's baked-structure footprint closes over
 - The world sheet is CUT under baked structures the way sea4 is cut under land, and it welds to the
   structure's y=0 base verts. `TR.PARTS` never collects `object`, so an excised mass owning a

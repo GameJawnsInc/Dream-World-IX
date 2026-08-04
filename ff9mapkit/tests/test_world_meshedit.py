@@ -746,6 +746,147 @@ def test_excise_still_refuses_a_genuine_interior_sheet_hole(monkeypatch):
     assert "refused" in rep
 
 
+# ---------------------------------------------------------------- THE LATTICE LAW
+
+QUADS4 = ((0.0, 0.0, 0.5, 0.5), (0.5, 0.0, 1.0, 0.5),
+          (0.0, 0.5, 0.5, 1.0), (0.5, 0.5, 1.0, 1.0))
+#: an irregular ~20x16u ring seated off-lattice, ring verts off the 4u grid
+LRING = [(1.3, 0.0, -1.7), (21.1, 0.0, -2.2), (22.4, 0.0, -14.9), (10.0, 0.0, -17.8),
+         (0.6, 0.0, -13.1)]
+
+
+def test_lattice_patch_no_triangle_spans_a_tile():
+    """THE LATTICE LAW: stock sea4 is a strict 4u lattice (tri area max 10.5u2, edge max
+    7u); the crescent's whole-footprint ear-clip minted 615u2 / 71.5u-edge triangles that
+    the wave-animated sheet rendered as a faceted iceberg. Every emitted triangle must
+    live inside ONE 4u cell."""
+    out = ME.lattice_patch(LRING, y=0.0, uv_quads=QUADS4, idall=228)
+    assert out
+    for t in out:
+        xs = [v[0][0] for v in t]
+        zs = [v[0][2] for v in t]
+        assert max(xs) - min(xs) <= 4.0 + 1e-6 and max(zs) - min(zs) <= 4.0 + 1e-6
+        cellx = {math.floor((x - 1e-9) / 4.0) for x in xs if x - min(xs) > 1e-9}
+        assert math.dist((min(xs), min(zs)), (max(xs), max(zs))) <= 5.66
+
+
+def test_lattice_patch_full_tile_uv_spans_the_whole_quadrant():
+    """The modulo-wrap defect: (x/4)%1 maps a lattice-aligned far edge back to 0, so a
+    full tile's corners all collapse onto the quadrant corner -- one texel smeared over
+    the tile (measured: 121 of 142 fill tiles read as one quadrant, adjacent-variation
+    0.098 vs stock's 0.880). A full tile's uvs must span its full quadrant rect."""
+    ring = [(0.0, 0.0, 0.0), (16.0, 0.0, 0.0), (16.0, 0.0, -16.0), (0.0, 0.0, -16.0)]
+    out = ME.lattice_patch(ring, y=0.0, uv_quads=QUADS4, idall=228)
+    by_cell = {}
+    for t in out:
+        c = (math.floor(sum(v[0][0] for v in t) / 3.0 / 4.0),
+             math.floor(-sum(v[0][2] for v in t) / 3.0 / 4.0))
+        by_cell.setdefault(c, []).append(t)
+    assert len(by_cell) == 16
+    for c, tris in by_cell.items():
+        us = [v[2][0] for t in tris for v in t]
+        vs = [v[2][1] for t in tris for v in t]
+        assert abs((max(us) - min(us)) - 0.5) < 1e-6, "u must span the quadrant"
+        assert abs((max(vs) - min(vs)) - 0.5) < 1e-6, "v must span the quadrant"
+        qs = {(min(us), min(vs))}
+        assert len(qs) == 1                            # per-tile coherence
+
+
+def test_lattice_patch_quadrants_spread_not_collapse():
+    """The 1-vert fake-key defect: _tile_quad_index divides by a real centroid's 3, so a
+    single-vertex key collapsed neighbouring cells onto one hash (quadrants 119/10/1/5).
+    Over a 16x16-cell sheet every quadrant must appear substantially."""
+    ring = [(0.0, 0.0, 0.0), (64.0, 0.0, 0.0), (64.0, 0.0, -64.0), (0.0, 0.0, -64.0)]
+    out = ME.lattice_patch(ring, y=0.0, uv_quads=QUADS4, idall=228)
+    from collections import Counter
+    c = Counter()
+    quad_of = {}
+    for t in out:
+        us = [v[2][0] for v in t]
+        vs = [v[2][1] for v in t]
+        q = (min(us) >= 0.5, min(vs) >= 0.5)
+        c[q] += 1
+        cell = (math.floor(sum(v[0][0] for v in t) / 3.0 / 4.0),
+                math.floor(-sum(v[0][2] for v in t) / 3.0 / 4.0))
+        quad_of[cell] = q
+    assert len(c) == 4
+    assert max(c.values()) / min(c.values()) <= 2.5    # the uv gate's own skew ceiling
+    # ADJACENT variation, the statistic that actually caught the collapse: a key that
+    # merges neighbouring cells makes runs of identical quadrants (measured 0.098 against
+    # stock's 0.880; a 3-cell collapse still passes presence + skew at ~0.33)
+    pairs = diff = 0
+    for (gx, gz), q in quad_of.items():
+        for nb in ((gx + 1, gz), (gx, gz + 1)):
+            if nb in quad_of:
+                pairs += 1
+                diff += (quad_of[nb] != q)
+    assert pairs and diff / pairs >= 0.5, f"adjacent-variation {diff}/{pairs} -- a lattice/collapsed key"
+
+
+def test_lattice_patch_reuses_ring_verts_byte_exact_and_snaps_to_floats():
+    """Two float laws in one fixture. Ring verts appear byte-exact (the weld contract),
+    and a minted lattice crossing within snap_tol of an EXISTING sheet vertex lands on
+    that vertex's EXACT float -- snapping onto a 4dp-rounded key mints the very
+    0.00002u near-miss the snap exists to remove (measured on the crescent)."""
+    ring = [(1.23456789, 0.0, -0.5), (9.87654321, 0.0, -0.5),
+            (9.87654321, 0.0, -9.5), (1.23456789, 0.0, -9.5)]
+    sheet_vert = (4.0001234567, -0.4998765)            # ~0.0002 off the x=4 crossing
+    out = ME.lattice_patch(ring, y=0.0, uv_quads=QUADS4, idall=228,
+                           snap_verts=[sheet_vert])
+    got = {(v[0][0], v[0][2]) for t in out for v in t}
+    for rx, _y, rz in ring:
+        assert (rx, rz) in got, "ring vert not byte-exact in the fill"
+    assert sheet_vert in got, "the crossing must snap onto the sheet vert's exact float"
+    assert not any(abs(x - 4.0) < 1e-9 and abs(z - -0.5) < 1e-6 for (x, z) in got), \
+        "the un-snapped crossing must not survive alongside the snapped one"
+
+
+def test_lattice_patch_survives_a_spur_polygon():
+    """The stuck-clip regression: a ring whose boundary runs along a cell plane and back
+    mints an (A, X, A) spur that jams the ear-clipper ('stuck with 5 vertices' on the
+    crescent's (940,-164) cell). The patch must fill it, not raise."""
+    ring = [(0.5, 0.0, -0.5), (7.5, 0.0, -0.5), (8.0, 0.0, -4.0), (7.5, 0.0, -7.5),
+            (4.0, 0.0, -4.0),                          # touches the interior lattice cross
+            (0.5, 0.0, -7.5)]
+    out = ME.lattice_patch(ring, y=0.0, uv_quads=QUADS4, idall=228)
+    assert out
+    area = sum(abs((t[1][0][0] - t[0][0][0]) * (t[2][0][2] - t[0][0][2])
+                   - (t[2][0][0] - t[0][0][0]) * (t[1][0][2] - t[0][0][2])) / 2
+               for t in out)
+    assert area > 20.0                                 # the footprint is actually covered
+
+
+def test_excise_refuses_when_a_ring_cannot_be_filled(monkeypatch):
+    """FAIL CLOSED ON A SKIPPED RING: a ring that raises out of the fill used to be
+    recorded in skipped_rings and the tweaks handed back anyway -- a DROP with no fill,
+    a silent void the size of the footprint (surfaced when the first lattice cut jammed:
+    weld_exact=True, fill=0, no refusal)."""
+    from ff9mapkit.world import transplant as TR
+
+    kept = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
+            _tri([(10.0, -40.0), (15.0, -50.0), (8.0, -48.0)]),
+            _tri([(20.0, -40.0), (25.0, -46.0), (15.0, -50.0)])]
+    crumb = [_tri([(64.0, -8.0), (64.0, -24.0), (52.0, -20.0)])]
+    sea4 = [_tri([(0.0, 0.0), (40.0, 0.0), (52.0, -20.0)]),
+            _tri([(0.0, 0.0), (52.0, -20.0), (0.0, -64.0)])]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+
+    def jam(*a, **k):
+        raise ValueError("ear-clip stuck with 5 vertices")
+    monkeypatch.setattr(TR.ME if hasattr(TR, "ME") else __import__(
+        "ff9mapkit.world.meshedit", fromlist=["x"]), "lattice_patch", jam)
+
+    tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+    assert rep.get("refused"), "a dropped-but-unfilled footprint must refuse"
+    assert tweaks == []
+
+
 def test_excise_closes_a_structure_notch_over_the_object_base(monkeypatch):
     """EXCISE v3 -- THE STRUCTURE NOTCH. The world sheet is CUT under baked structures
     (measured: block (14,2)'s harbor base is exactly the 5 'interior' waterline verts the
@@ -782,6 +923,13 @@ def test_excise_closes_a_structure_notch_over_the_object_base(monkeypatch):
     assert rep["weld_exact"] is True, rep.get("weld_missing")
     assert rep.get("structure_base") == 1
     assert rep["fill_tris"] >= 1, "the fill must close over the notch, not vanish"
+    # THE LATTICE LAW at the excise call site: the fill must be stock-SHAPED water --
+    # no triangle spanning a 4u tile (whole-footprint ear-clip minted 71.5u edges on the
+    # crescent and rendered as a faceted iceberg)
+    fill = [t for tw in _tweaks if isinstance(tw, TR.EmitTris) for t in tw.emit()]
+    for t in fill:
+        for i in range(3):
+            assert math.dist(t[i][0], t[(i + 1) % 3][0]) <= 5.66
 
 
 def test_excise_notch_deletion_never_touches_a_run_without_waterline_verts(monkeypatch):

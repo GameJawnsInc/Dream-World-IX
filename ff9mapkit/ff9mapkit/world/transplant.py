@@ -3971,13 +3971,40 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
                 report["weld_exact"] = False
                 report["weld_missing"].append(v)
         try:
-            emitted += ME.flat_patch(plan, y=0.0, uv_quads=SEA4_QUADS,
-                                     idall=SEA4_IDALL, normal=sea4_normal,
-                                     winding=sea4_wind)
+            # THE LATTICE LAW: the fill must be stock-SHAPED water, not just stock-
+            # vocabulary water. flat_patch's whole-footprint ear-clip minted 615u2 /
+            # 71.5u-edge triangles on the crescent (stock sea4 ceiling: 10.5u2 / 7u),
+            # and the wave-animated sheet rendered them as a faceted 'iceberg' with
+            # stretched tiles (playtest 2026-08-04). lattice_patch emits full 4u tiles
+            # plus per-cell margins, so no triangle spans a tile.
+            # snap targets carry the EXACT floats (round to key, emit the float -- the
+            # E-2 law): snapping onto a 4dp-rounded key mints the very near-miss pair
+            # the snap exists to remove, 0.00002u wide.
+            sea4_wl = {}
+            for t in sea4:
+                for v in t:
+                    if abs(v[0][1]) < 1e-6:
+                        sea4_wl.setdefault((round(v[0][0], 4), round(v[0][2], 4)),
+                                           (v[0][0], v[0][2]))
+            emitted += ME.lattice_patch(plan, y=0.0, uv_quads=SEA4_QUADS,
+                                        idall=SEA4_IDALL, normal=sea4_normal,
+                                        winding=sea4_wind,
+                                        snap_verts=list(sea4_wl.values()))
             report["rings"] += 1
         except ValueError as e:
             report.setdefault("skipped_rings", []).append(str(e))
     report["fill_tris"] = len(emitted)
+    # FAIL CLOSED ON A SKIPPED RING. A ring that raised out of the fill was previously
+    # recorded in ``skipped_rings`` and the plan handed back anyway -- tweaks that DROP
+    # the assembly and fill nothing, i.e. a silent void the size of its footprint
+    # (surfaced when the first lattice_patch cut jammed the ear-clipper: weld_exact=True,
+    # fill=0, no refusal). A caller holding tweaks is entitled to assume they are sound.
+    if report.get("skipped_rings"):
+        report["refused"] = (
+            f"{len(report['skipped_rings'])} ring(s) could not be filled "
+            f"({report['skipped_rings'][0]}) -- refusing rather than dropping the "
+            f"assembly and leaving its footprint as a void")
+        return [], report
 
     # THE CAPABILITY BOUNDARY, ENFORCED RATHER THAN DOCUMENTED. Measured over a
     # gate-verified sample: excise is clean when the excised mass is a bare land crumb
