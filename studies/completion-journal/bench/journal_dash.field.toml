@@ -98,7 +98,6 @@ warmup = 30
 # (content/choice.py:20-21), so pressing B must close the journal, not open the last page.
 [[choice]]
 npc = "keeper"
-instant = true          # [IMME] -- a selector pops fully drawn (FF9's own shop/menu convention)
 prompt = """
 Which page? (BENCH 30801 --
 the numbers are LIVE)"""

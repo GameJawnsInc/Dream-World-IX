@@ -783,7 +783,15 @@ def bench_toml(*, pages=PAGES) -> str:
         "# (content/choice.py:20-21), so pressing B must close the journal, not open the last page.",
         "[[choice]]",
         'npc = "keeper"',
-        "instant = true          # [IMME] -- a selector pops fully drawn (FF9's own shop/menu convention)",
+        # NO `instant` ON THE CHOICE BLOCK. It was here with the note "[IMME] -- a selector pops
+        # fully drawn (FF9's own shop/menu convention)", which was an ASSERTION nobody checked
+        # against a real field, and this bench was the ONLY [[choice]] in the repository that set
+        # it -- every shipped choice (ferry, siege, shop, hub) omits it. Playtest 30801 round 2:
+        # the selector closed the moment it opened. `[IMME]` is a WINDOW-level tag consumed before
+        # render (DialogBoxSymbols.cs:576-658) while a selector is initialised later, from
+        # Dialog.AfterShown -> InitializeChoice (Dialog.cs:647, gated on HasChoices at :29-36),
+        # so an instant-popped selector is a shape stock never builds. Left off until some real
+        # field is shown to do it. The per-OPTION `instant` stays: those are plain reply windows.
         # the closing delimiter rides the LAST content line: a newline before it would ship a
         # trailing blank line into the .mes, costing a rendered line against the ~13-line ceiling.
         'prompt = """',
