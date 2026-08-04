@@ -191,3 +191,23 @@ Each rung lands independently with its own falsifier. ★ = owner playtest.
   single-fork one. Owner to scope.
 - Open question for the owner: any path to disc-3/4 calibration saves, or accept playtest-only
   validation for the late game? (Answered 2026-08-03: playtest-only for now, tentatively.)
+
+## Next block (from the chain playtest, 2026-08-03): BEAT-WINDOWED party + word derivation
+
+Chain round 3 surfaced two derivation gaps with ONE shared cause -- party ops and word
+writes are censused WITHOUT the rung-0 guards that bit writes get:
+- **Marcus seeded into the Dali morning party** (donor 350 adds-and-gates him -- in a branch
+  whose SC window is a DIFFERENT visit; Vivi's own add lives in a window the beat-blind
+  heuristic ignored). The adds∩gates heuristic must become: adds whose SITE guards' windows
+  cover the seeded beat.
+- **The ATE mask is underivable** (story-REQUIRED at Dali: without one ATE, Garnet never
+  reaches the weapon shop). The avail word's bits are written by story scripts under SC
+  windows; capturing Global WORD/BYTE literal writes with guards makes the mask = OR of
+  values whose windows <= beat.
+
+The fix is NOT new rules -- it is the same guard machinery applied to two more op classes:
+1. census + storyseed capture `party_sites` (B_PARTYADD/RemoveParty/SetPartyReserve tokens
+   inside SET statements, with guards_at_ex at the site) and `word_sites` (vtype 4-7 literal
+   assigns incl. OR-compounds, any Global index, with guards).
+2. `party_seed(beat)` filters adds by window; `ate word value` = OR of windowed writes.
+Owner's standing directive honored: derive, never exception-patch.
