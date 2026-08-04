@@ -4111,6 +4111,63 @@ def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=Non
         return [], report
     if emitted:
         tweaks.append(EmitTris("sea4", emitted))
+
+    # THE APERTURE PLUG (excise v4, playtest 2026-08-04): an object tri whose verts are
+    # ALL welded into the rect's terrain is a hole-filling FACE -- a cave-door aperture
+    # in a massif, filled by the prefab's Object in situ. The carry ships neither the
+    # object nor a plug, so the hole shows SKY (a flat pale rectangle mid-rock, the bent
+    # crescent). Plug it VERBATIM: the object's own geometry, clad per-vert in the
+    # surrounding ROCK's own uv/idall/normal sampled at the welded verts (never a
+    # plan-affine map -- the face is vertical, plan-degenerate). Deterministic sample:
+    # the first terrain instance in read order. Fail-closed: a partially-welded object
+    # (a harbor standing ON ground) is not an aperture and is not plugged.
+    def _vk(v):
+        return (round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+    terr_tris = []
+    terr_sample = {}
+    key_tris = {}
+    for by_ in range(dy, dy + ny):
+        for bx_ in range(dx, dx + nx):
+            for t in world_tris(bx_, by_, "terrain", disc=disc, lod=lod, game=game):
+                ti = len(terr_tris)
+                terr_tris.append(t)
+                for v in t:
+                    k = _vk(v)
+                    terr_sample.setdefault(k, (v[1], v[2], v[3]))
+                    key_tris.setdefault(k, []).append(ti)
+    dropped_land_keys = {k for tw in tweaks if isinstance(tw, DropTris)
+                         and tw.part in LAND_PARTS for ks in tw.keys for k in ks}
+    plugs = []
+    for by_ in range(dy, dy + ny):
+        for bx_ in range(dx, dx + nx):
+            for t in world_tris(bx_, by_, "object", disc=disc, lod=lod, game=game):
+                keys = [_vk(v) for v in t]
+                if not all(k in terr_sample for k in keys):
+                    continue
+                if any(k in dropped_land_keys for k in keys):
+                    continue                # an aperture in the EXCISED mass: no plug
+                # THE EDGE CONTINUATION: clad the plug in ONE adjacent rock tri's map
+                # (shared verts keep its uvs, the remaining vert takes its remaining
+                # vert's uv -- the patch mirrored across the shared edge). Per-vert
+                # sampling MIXES atlas tiles across the face (measured: one vert 0.5 uv
+                # away from its neighbours = a smear); the fallback only fires when no
+                # rock tri shares an edge.
+                cnt = collections.Counter(ti for k in keys for ti in key_tris[k])
+                rims = sorted(ti for ti, c in cnt.items() if c >= 2)
+                if rims:
+                    rt = terr_tris[rims[0]]
+                    rk = {_vk(v): v for v in rt}
+                    spare = [v for v in rt if _vk(v) not in keys]
+                    out = []
+                    for v, k in zip(t, keys):
+                        src = rk.get(k) or (spare[0] if spare else rt[0])
+                        out.append((v[0], src[1], src[2], src[3]))
+                    plugs.append(out)
+                else:
+                    plugs.append([(v[0],) + terr_sample[k] for v, k in zip(t, keys)])
+    if plugs:
+        report["aperture_plugs"] = len(plugs)
+        tweaks.append(EmitTris("terrain", plugs))
     return tweaks, report
 
 

@@ -172,6 +172,51 @@ def plan_rim(cells) -> dict:
     shade, water = _grids(cells)
     xs = sorted({c[0] for c in island})
     ys = sorted({c[1] for c in island})
+
+    # THE SHORE SCOPE (2026-08-04, the bent crescent's beach): inside a live shore
+    # system, sea4 lawfully runs UNDER the shallow bands (the sea4-under-land law), so
+    # tile-local "sea3 touches deep" arithmetic false-flags lawful ladder tiles -- the
+    # measured-seam rules apply only AWAY from shore (no land / beach1 / sea1 / sea2 in
+    # the 8-neighbourhood). Genuine crop seams (the dot pair's channel) are open-water.
+    def _bins(bm):
+        g = [[False] * G for _ in range(G)]
+        if bm is None:
+            return g
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // CELL)
+            if 0 <= i < G and 0 <= j < G:
+                g[i][j] = True
+        return g
+    shore = {}
+    for c in island:
+        g = [[False] * G for _ in range(G)]
+        for p in ("sea1", "sea2", "beach1"):
+            b = _bins(cells[c].get(p))
+            for i in range(G):
+                for j in range(G):
+                    g[i][j] = g[i][j] or b[i][j]
+        for i in range(G):
+            for j in range(G):
+                g[i][j] = g[i][j] or not water[c][i][j]     # a dry cell is land
+        shore[c] = g
+
+    def _near_shore(bx, by, i, j):
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                ni, nj, nbx, nby = i + di, j + dj, bx, by
+                if ni < 0:
+                    nbx, ni = bx - 1, G - 1
+                elif ni >= G:
+                    nbx, ni = bx + 1, 0
+                if nj < 0:
+                    nby, nj = by - 1, G - 1
+                elif nj >= G:
+                    nby, nj = by + 1, 0
+                if (nbx, nby) in shore and shore[(nbx, nby)][ni][nj]:
+                    return True
+        return False
+
     plan = defaultdict(dict)
     for (bx, by) in island:
         enc5 = _sea5_deepsets(cells[(bx, by)])
@@ -191,8 +236,9 @@ def plan_rim(cells) -> dict:
                 # there). An OVER (a transition facing shallow) is a needless gradient,
                 # owner-accepted at 20/82 on the proven isthmus; converting it churned
                 # 23 coast tiles into visible shards on the bent crescent (2026-08-04).
-                seam = (sh == "sea3"
-                        or not frozenset(ds) <= frozenset(enc5.get((i, j), ())))
+                seam = (not _near_shore(bx, by, i, j)
+                        and (sh == "sea3"
+                             or not frozenset(ds) <= frozenset(enc5.get((i, j), ()))))
                 if not (on_frame or seam):
                     continue
                 plan[(bx, by)][(i, j)] = ("sea4" if len(ds) == 4 else "sea5", ds)

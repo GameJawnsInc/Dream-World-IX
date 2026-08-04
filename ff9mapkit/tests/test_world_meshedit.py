@@ -1363,3 +1363,46 @@ def test_deepen_shallow_plan_refuses_a_ring_less_donor(monkeypatch):
     monkeypatch.setattr(TR, "world_tris", lambda *a, **k: [])
     _tw, rep = TR.deepen_shallow_plan((0, 0), (1, 1))
     assert "no shallow ring" in rep["refused"]
+
+
+def test_excise_plugs_a_fully_welded_object_aperture(monkeypatch):
+    """EXCISE v4 -- THE APERTURE PLUG. An object tri whose verts are ALL welded into the
+    KEPT terrain is a hole-filling face (a cave-door aperture in a massif); the carry
+    ships neither the object nor the prefab, so the hole shows sky (the bent crescent's
+    white rectangle, playtest 2026-08-04). The plug re-emits the object's own geometry
+    clad in the adjacent rock tri's own map (edge continuation, never per-vert atlas
+    mixing). An aperture welded only into the EXCISED mass is NOT plugged (it would
+    float over the fill), and a partially-welded object (a harbor ON ground) is not an
+    aperture."""
+    from ff9mapkit.world import transplant as TR
+
+    kept = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
+            _tri([(10.0, -40.0), (15.0, -50.0), (8.0, -48.0)]),
+            _tri([(20.0, -40.0), (25.0, -46.0), (15.0, -50.0)])]
+    crumb = [_tri([(64.0, -8.0), (64.0, -24.0), (52.0, -20.0)]),
+             _tri([(64.0, -8.0), (52.0, -20.0), (52.0, -12.0)])]
+    sea4 = [_tri([(0.0, 0.0), (40.0, 0.0), (52.0, -20.0)]),
+            _tri([(0.0, 0.0), (52.0, -20.0), (0.0, -64.0)])]
+    # aperture: fully welded into the KEPT mass's first tri; decoy: fully welded into the
+    # CRUMB (dropped -> no plug); structure: the crumb's notch base, partially welded
+    obj = [_tri([(10.0, -40.0), (20.0, -40.0), (15.0, -50.0)]),
+           _tri([(64.0, -8.0), (64.0, -24.0), (52.0, -20.0)]),
+           _tri([(52.0, 0.0, -12.0), (48.0, 3.0, -10.0), (48.0, 3.0, -14.0)])]
+
+    def fake_world_tris(bx, by, part, **kw):
+        if (bx, by) != (0, 0):
+            return []
+        return {"terrain": kept + crumb, "sea4": sea4, "object": obj}.get(part, [])
+
+    monkeypatch.setattr(TR, "world_tris", fake_world_tris)
+    tweaks, rep = TR.excise_plan((0, 0), (1, 1))
+    assert not rep.get("refused"), rep.get("refused")
+    assert rep.get("aperture_plugs") == 1
+    plug_tw = [tw for tw in tweaks if isinstance(tw, TR.EmitTris) and tw.part == "terrain"]
+    assert len(plug_tw) == 1 and len(plug_tw[0].tris) == 1
+    plug = plug_tw[0].tris[0]
+    # edge continuation: uv/idall copied from the kept rock tri at the SAME verts
+    src = {tuple(round(c, 4) for c in v[0]): v for v in kept[0]}
+    for v in plug:
+        s = src[tuple(round(c, 4) for c in v[0])]
+        assert v[2] == s[2] and v[3] == s[3]

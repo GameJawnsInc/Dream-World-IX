@@ -167,3 +167,24 @@ def test_tile_uv_interpolates_a_cut_vert_and_keeps_corners_exact():
     u, v = RR._tile_uv(uvmap, (13.0, 0.0, -10.0), i, j)   # 1/4 across, 1/2 down
     assert abs(u - 0.0625) < 1e-9 and abs(v - 0.625) < 1e-9
     assert (u, v) not in uvmap.values()
+
+
+def test_plan_rim_spares_the_shore_system(monkeypatch):
+    """THE SHORE SCOPE: inside a live shore system sea4 lawfully runs UNDER the shallow
+    bands (sea4-under-land), so tile-local deep arithmetic false-flags lawful ladder
+    tiles -- the interior seam rules apply only away from shore. A sea3 patch tile with
+    LAND in its 8-neighbourhood is spared; the open-water side of the same patch is
+    still planned (the genuine crop-seam class)."""
+    shade_g = [["sea4"] * RR.G for _ in range(RR.G)]
+    for i in (6, 7, 8):
+        for j in (6, 7, 8):
+            shade_g[i][j] = "sea3"
+    water_g = [[True] * RR.G for _ in range(RR.G)]
+    water_g[5][6] = False                        # land west of the patch's NW corner
+    monkeypatch.setattr(RR, "_grids",
+                        lambda cells: ({(5, 5): shade_g}, {(5, 5): water_g}))
+    monkeypatch.setattr(RR, "_sea5_deepsets", lambda parts: {})
+    plan = RR.plan_rim({(5, 5): {}})
+    got = set(plan.get((5, 5), {}))
+    assert (6, 6) not in got and (6, 7) not in got   # shore-adjacent: spared
+    assert (8, 6) in got and (8, 8) in got           # open-water crop edge: planned
