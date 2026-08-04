@@ -795,12 +795,11 @@ def bench_toml(*, pages=PAGES) -> str:
         "# (content/choice.py:20-21), so pressing B must close the journal, not open the last page.",
         "[[choice]]",
         'npc = "keeper"',
-        # `instant` is OFF on the choice block, but NOT because it is unsafe -- correcting a wrong
-        # call made here mid-debug: studies/messages/bench/winstyle.field.toml:127 sets it on a
-        # [[choice]] and that bench is playtested, so an instant SELECTOR is fine. (The claim that
-        # this was the only such choice in the repo was a bad grep -- too narrow a -B window.)
-        # The real defect was per-OPTION `instant`; see render_page. Left off here only because the
-        # selector is confirmed working in this shape and the round should change one thing.
+        # THE SELECTOR IS INSTANT and that is correct -- an instant open is the normal shape for a
+        # choice menu (owner), and studies/messages/bench/winstyle.field.toml:127 ships it on a
+        # playtested [[choice]]. A selector is dismissed by a SELECTION, not by the broadcast
+        # confirm, so [IMME] is safe here; it is the per-OPTION reply that must not be instant.
+        "instant = true          # [IMME] -- the selector pops fully drawn",
         # the closing delimiter rides the LAST content line: a newline before it would ship a
         # trailing blank line into the .mes, costing a rendered line against the ~13-line ceiling.
         'prompt = """',
@@ -814,6 +813,14 @@ def bench_toml(*, pages=PAGES) -> str:
               '  reply = """',
               _bench_page_text(p) + '"""',
               # NO `instant` -- THE BROADCAST-CONFIRM LAW kills an instant page (see render_page).
+              # ⚠ A DIFFERENT WINDOW ID FROM THE SELECTOR. The choice block's own window is id 1,
+              # and a reply defaults to id 1 too (content/choice.py:249, `opt.get("window", 1)`) --
+              # so the page re-opened the SAME Dialog the selector was mid-CLOSE on. Reusing an id
+              # across a close is the shape that renders a page and then plays the previous
+              # window's close animation over it, which is exactly the reported symptom. Depth is
+              # 68 - 2*id (Dialog.cs:1949-1959), so id 2 sits behind id 1 -- harmless, the selector
+              # is gone by then.
+              "  window = 2",
               # slot i is values[i] -- the [NUMB=i] indices in the reply above are render_page's own,
               # so the two orders are the same order by construction. Long lines are the catalog's
               # summed expressions (100 B_HAVE_ITEM terms for the card count), not formatting.
