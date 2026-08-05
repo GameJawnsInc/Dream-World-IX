@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the world deploy LEDGER + the ownership refusal (the shared-install seam)
+- Every `deploy_override` write appends one JSON line (cell/part/discs/sha256/kit/utc/argv)
+  to `<mod_folder>/.ff9world.jsonl` — append-only JSONL because 18+ concurrent sessions
+  share one install. Before overwriting DIFFERING bytes the seam now (a) REFUSES when the
+  on-disk bytes match no ledger entry — another session or a hand edit owns them
+  (`force_overwrite=True` / `$FF9_WORLD_FORCE_OVERWRITE` overrides; an empty ledger is
+  permissive, the bootstrap case) — and (b) parks a `.bak-<ts>` beside the file (hoisted
+  from the interior lane so ALL nine writers get it; backups are invisible to the disc
+  mirror and the fuse existing-overrides gate, whose bare `startswith` was a live hazard).
+  `world-ledger [--drift]` reads it back: last write per target + every deployed file
+  matching no entry. Mesh bytes untouched (`ff9mesh_bytes` factored for in-memory compare;
+  the determinism pin is the headline test), and `read_ff9mesh` now rejects a foreign
+  version int instead of silently riding an abandoned experiment. Audit rec 6 — the item
+  three lenses converged on (the Grimhorn-falls overwrite class).
+
 ### Changed — THE PATCH-AVOIDANCE LAW supersedes patch consumption (owner round 7)
 - The whole-component consumption below survived one deploy: it LEGALLY ate the
   crescent's visible authored meadow (the wobble-escape ladder bit its rim, patch-whole

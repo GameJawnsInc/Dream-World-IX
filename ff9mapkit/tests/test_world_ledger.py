@@ -1,0 +1,141 @@
+"""The world deploy ledger + the ownership refusal at THE one write seam (audit rec 6).
+
+Hermetic (tmp game root, synthetic meshes). The pinned invariants, most important first:
+the DETERMINISM regression guard -- ledgering must never touch mesh bytes (this is the
+test that would have caught an embedded-provenance-chunk design); the append-only JSONL
+line per write; the ownership refusal when on-disk bytes match no ledger entry (18+
+concurrent sessions share ONE install); backup-on-differing-overwrite with a name the
+disc mirror and the fuse existing-overrides gate both ignore; the bootstrap permissive
+case; the read-side version reject; and the stamp _META_NAMES exclusion.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+
+import pytest
+
+from ff9mapkit import stamp
+from ff9mapkit.world import discmirror as DM, fuse as F, mesh as M, placement as P
+from ff9mapkit.world.extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+
+GRASS = float(encode_id(topograph=0))
+
+
+def _bm(y=3.2, x=5, by=7):
+    corners = [(0.0, y, 0.0), (8.0, y, 0.0), (0.0, y, -8.0)]
+    pos, nrm, uv, tan, flat = [], [], [], [], []
+    for c in corners:
+        pos.append(list(c)); nrm.append([0.0, 1.0, 0.0]); uv.append([0.0, 0.0])
+        tan.append([GRASS, 0.0, 0.0, 1.0]); flat.append(len(pos) - 1)
+    return BlockMesh(name=f"Block[{x}][{by}] Terrain", disc=1, x=x, y=by, lod="0_1",
+                     vcount=3, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                     flat_index=flat, tris=[[0, 1, 2]], raw_vbuf=b"", raw_ibuf=b"",
+                     use32=True, submeshes=[])
+
+
+def _deploy(tmp, bm, **kw):
+    return M.deploy_override(bm, mod_folder="TestMod", game=tmp, **kw)
+
+
+def _ledger_lines(tmp):
+    p = tmp / "TestMod" / M.LEDGER_NAME
+    return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines()] if p.is_file() else []
+
+
+def test_deploys_stay_byte_deterministic_and_each_write_ledgers(tmp_path):
+    """THE DETERMINISM PIN: two identical deploys produce byte-identical mesh files (the
+    ledger is a SIDECAR -- embedding provenance in the format is refused by design), the
+    ledger gains one line per write, and identical bytes take no backup."""
+    p1 = _deploy(tmp_path, _bm())
+    b1 = p1.read_bytes()
+    p2 = _deploy(tmp_path, _bm())
+    assert p1 == p2 and p2.read_bytes() == b1
+    lines = _ledger_lines(tmp_path)
+    assert len(lines) == 2
+    assert lines[0]["cell"] == [5, 7] and lines[0]["part"] == "Terrain"
+    assert lines[0]["sha256"] == hashlib.sha256(b1).hexdigest()
+    assert not list(p1.parent.glob("*.bak-*"))            # identical bytes: no backup churn
+
+
+def test_differing_redeploy_backs_up_and_the_backup_is_invisible(tmp_path):
+    """A legitimate re-deploy (prior bytes ARE ledgered) succeeds, parks the old bytes as
+    .bak-<ts>, and that name is invisible to the disc mirror's block regex AND the fuse
+    existing-overrides gate (whose bare startswith was a live hazard)."""
+    p1 = _deploy(tmp_path, _bm(y=3.2))
+    old = p1.read_bytes()
+    p2 = _deploy(tmp_path, _bm(y=5.0))
+    assert p2.read_bytes() != old
+    baks = list(p2.parent.glob("*.bak-*"))
+    assert len(baks) == 1 and baks[0].read_bytes() == old
+    assert DM._BLOCK_RE.match(baks[0].name) is None
+    hits = F._existing_overrides([(5, 7)], "TestMod", disc=1, lod="0_1", game=tmp_path)
+    assert [h for h in hits if ".bak-" in h] == [] and len(hits) == 1
+
+
+def test_foreign_bytes_refuse_and_force_overrides(tmp_path):
+    """THE OWNERSHIP REFUSAL: on-disk bytes matching NO ledger entry belong to another
+    session or a hand edit -- refuse before the damage, name the last ledger write. The
+    escape hatch is explicit."""
+    p1 = _deploy(tmp_path, _bm(y=3.2))
+    p1.write_bytes(p1.read_bytes() + b"X")                # a hand edit / another era
+    with pytest.raises(ValueError, match="match(es)? no ledger entry"):
+        _deploy(tmp_path, _bm(y=5.0))
+    p2 = _deploy(tmp_path, _bm(y=5.0), force_overwrite=True)
+    assert p2.read_bytes() == M.ff9mesh_bytes(_bm(y=5.0))
+
+
+def test_preledger_tree_is_permissive_but_still_backs_up(tmp_path):
+    """Bootstrap: a deployed tree with NO ledger (every pre-rec-6 world) must not refuse --
+    but the differing overwrite still parks a backup."""
+    dest = tmp_path / "TestMod" / M.override_relpath(1, 5, 7, "0_1", "Terrain")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"F9WM" + b"\x00" * 32)              # unledgered pre-existing bytes
+    p = _deploy(tmp_path, _bm())
+    assert p.read_bytes() == M.ff9mesh_bytes(_bm())
+    assert len(list(p.parent.glob("*.bak-*"))) == 1
+
+
+def test_read_rejects_a_foreign_version(tmp_path):
+    """An abandoned experiment's v2 file used to ride along silently -- now the read side
+    refuses it by version, not just magic."""
+    p = M.write_ff9mesh(_bm(), tmp_path / "v.ff9mesh")
+    raw = bytearray(p.read_bytes())
+    raw[4] = 9                                            # version int32 LE at offset 4
+    p.write_bytes(bytes(raw))
+    with pytest.raises(ValueError, match="version 9"):
+        M.read_ff9mesh(p)
+
+
+def test_ledger_name_is_meta_everywhere():
+    """The _META_NAMES lesson (stamp.py): a meta file missing from the exclusion set makes
+    a correct deploy report an 'extra' file. One literal, pinned across both owners."""
+    assert stamp.WORLD_LEDGER_NAME == M.LEDGER_NAME
+    assert M.LEDGER_NAME in stamp._META_NAMES
+
+
+def test_argv_rides_the_ledger(tmp_path):
+    M.set_deploy_argv(["world-terrain", "--at", "1", "2"])
+    try:
+        _deploy(tmp_path, _bm())
+        assert _ledger_lines(tmp_path)[-1]["argv"] == ["world-terrain", "--at", "1", "2"]
+    finally:
+        M.set_deploy_argv([])
+
+
+def test_backup_lands_in_the_target_namespace(tmp_path):
+    """THE READ/WRITE DISC SPLIT law, carried into the seam backup: with disc=9 the
+    compare, the backup, and the write all aim at the Disc9 namespace -- comparing or
+    backing up Disc1 while writing Disc9 would back up the wrong file (the law the
+    deploy_changed test pinned before the backup moved to the seam)."""
+    p1 = _deploy(tmp_path, _bm(y=3.2), disc=9)
+    old = p1.read_bytes()
+    assert "Disc9" in p1.parts
+    p2 = _deploy(tmp_path, _bm(y=5.0), disc=9)
+    baks = list(p2.parent.glob("*.bak-*"))
+    assert len(baks) == 1 and baks[0].read_bytes() == old
+    assert "Disc9" in baks[0].parts
+    d1 = tmp_path / "TestMod" / "FF9_Data" / "WorldMap" / "Disc1"
+    assert not d1.exists()                                # nothing leaked into Disc1

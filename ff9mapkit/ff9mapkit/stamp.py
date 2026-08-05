@@ -39,7 +39,11 @@ STAMP_VERSION = 1
 # made a correct journey deploy report the receipt as an "extra" file, so verify-build could never go clean
 # after one. Two features that describe the same folder have to agree on what is IN the folder.
 RECEIPT_NAME = ".ff9links.json"
-_META_NAMES = frozenset({STAMP_NAME, RECEIPT_NAME})
+# the world deploy ledger (world/mesh.LEDGER_NAME -- a drift test pins the two literals):
+# per the receipt lesson above, a meta file missing from this set makes a correct deploy
+# report itself as carrying an "extra" file.
+WORLD_LEDGER_NAME = ".ff9world.jsonl"
+_META_NAMES = frozenset({STAMP_NAME, RECEIPT_NAME, WORLD_LEDGER_NAME})
 
 
 def stamp_path(out_root) -> Path:

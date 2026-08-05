@@ -5260,6 +5260,54 @@ def _cmd_world_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_ledger(args: argparse.Namespace) -> int:
+    """Read the world deploy ledger: the last write per (disc, cell, part), and with ``--drift`` every
+    deployed .ff9mesh whose bytes match NO ledger entry (a hand edit, another era, or a pre-ledger deploy).
+    Reconciliation, not quality scoring -- it makes no claim about whether the geometry is good."""
+    import hashlib
+    import json
+    from pathlib import Path
+    from .world import mesh as WM
+    try:
+        mod_root = Path(find_game_path(args.game)) / args.mod_folder
+    except ConfigError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    lp = mod_root / WM.LEDGER_NAME
+    entries = []
+    if lp.is_file():
+        for line in lp.read_text(encoding="utf-8").splitlines():
+            try:
+                entries.append(json.loads(line))
+            except ValueError:
+                continue
+    if args.disc is not None:
+        entries = [e for e in entries if e.get("write_disc") == args.disc]
+    last = {}
+    for e in entries:
+        last[(e.get("write_disc"), tuple(e.get("cell", ())), e.get("part"))] = e
+    print(f"{len(entries)} ledger line(s), {len(last)} distinct (disc, cell, part) target(s) in "
+          f"{args.mod_folder}/{WM.LEDGER_NAME}")
+    for (d, cell, part), e in sorted(last.items()):
+        argv = " ".join(e.get("argv") or []) or "(argv unrecorded)"
+        print(f"  Disc{d} {cell} {part:8s} {e.get('utc')}  kit {e.get('kit')}  {argv[:80]}")
+    if args.drift:
+        known = {e.get("sha256") for e in entries}
+        wm_root = mod_root / "FF9_Data" / "WorldMap"
+        drift = []
+        for p in sorted(wm_root.rglob("Block*.ff9mesh")) if wm_root.is_dir() else []:
+            if args.disc is not None and f"Disc{args.disc}" not in p.parts:
+                continue
+            if hashlib.sha256(p.read_bytes()).hexdigest() not in known:
+                drift.append(p)
+        print(f"\ndrift: {len(drift)} deployed file(s) match no ledger entry"
+              + (" (pre-ledger deploys are expected here until each is re-deployed once)"
+                 if drift else ""))
+        for p in drift[:40]:
+            print(f"  {p.relative_to(mod_root)}")
+    return 0
+
+
 def _cmd_world_rename_markers(args: argparse.Namespace) -> int:
     """Rename overworld minimap markers: rewrite the world text block (68) txid-0 label at ``locId+1`` and shadow
     it per-language into the mod folder (``embeddedasset/text/<lang>/field/68.mes``). No DLL; RELAUNCH to apply."""
@@ -9185,6 +9233,20 @@ def build_parser() -> argparse.ArgumentParser:
                           "never a failure (every world edit changes pixels by design)")
     wrd.set_defaults(func=_cmd_world_render)
 
+    wlg = sub.add_parser("world-ledger",
+                         help="read the world DEPLOY LEDGER (.ff9world.jsonl -- every deploy_override "
+                              "write appends cell/part/discs/sha256/kit/utc/argv): the last write per "
+                              "target, and with --drift every deployed .ff9mesh whose bytes match no "
+                              "ledger entry (a hand edit, another session's era, or a pre-ledger "
+                              "deploy). Reconciliation, never quality scoring.")
+    wlg.add_argument("--mod-folder", required=True,
+                     help="the FolderNames mod folder whose ledger + WorldMap tree to read")
+    wlg.add_argument("--disc", type=int, default=None, help="only this write-disc namespace")
+    wlg.add_argument("--drift", action="store_true",
+                     help="hash every deployed Block*.ff9mesh and report unledgered bytes")
+    wlg.add_argument("--game", default=None, help=argparse.SUPPRESS)
+    wlg.set_defaults(func=_cmd_world_ledger)
+
     wrm = sub.add_parser("world-rename-markers",
                          help="rename overworld minimap MARKER labels: rewrite the world text (block 68), shadowed "
                               "per-language into the mod folder. No DLL; relaunch to apply.")
@@ -9701,6 +9763,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        from .world import mesh as _wm
+        _wm.set_deploy_argv(sys.argv[1:] if argv is None else list(argv))
+    except Exception:                                     # the ledger rides along; never blocks a verb
+        pass
     return args.func(args)
 
 

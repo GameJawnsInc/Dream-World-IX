@@ -68,6 +68,15 @@ def write_ff9mesh(bm, path) -> Path:
     2026-08-02 V-corner deploy); vcount < icount builds TriangleNormals short (a latent
     query-time hazard). Emit per-tri-expanded geometry; re-pack with a vertex expansion
     if an edit produced shared verts."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(ff9mesh_bytes(bm))
+    return path
+
+
+def ff9mesh_bytes(bm) -> bytes:
+    """The exact ``.ff9mesh`` serialization of ``bm`` as bytes -- :func:`write_ff9mesh`
+    without the file, so callers can byte-compare against a deployed file WITHOUT writing."""
     assert bm.vcount == len(bm.flat_index), (
         f"UNINDEXED CONTRACT violated: vcount {bm.vcount} != index count {len(bm.flat_index)} "
         f"-- the engine (WMBlock.AddWalkMesh) iterates vertices.Length/3 over triangles[i*3]; "
@@ -89,10 +98,7 @@ def write_ff9mesh(bm, path) -> Path:
         for t in tangents:
             out += struct.pack("<4f", t[0], t[1], t[2], t[3])
     out += struct.pack("<%di" % len(idx), *idx)
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(bytes(out))
-    return path
+    return bytes(out)
 
 
 def read_ff9mesh(path) -> dict:
@@ -102,6 +108,10 @@ def read_ff9mesh(path) -> dict:
     if data[:4] != MAGIC:
         raise ValueError("not a .ff9mesh (bad magic)")
     version, vcount, icount, flags = struct.unpack_from("<iiii", data, 4)
+    if version != VERSION:
+        raise ValueError(f"unsupported .ff9mesh version {version} (this kit writes/reads "
+                         f"{VERSION}) -- {path}: a stale or foreign override; nothing enforced "
+                         "this before, so an abandoned experiment could ride along silently")
     off = 20
 
     def take(n, dim):
@@ -173,8 +183,65 @@ def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: i
     return dest
 
 
+#: the world lane's append-only deploy ledger, one JSON line per deploy_override write,
+#: living at <game>/<mod_folder>/.ff9world.jsonl. JSONL, not JSON: 18+ concurrent sessions
+#: share this install, and append-only single lines avoid the read-modify-write race.
+LEDGER_NAME = ".ff9world.jsonl"
+_DEPLOY_ARGV: list | None = None
+
+
+def set_deploy_argv(argv) -> None:
+    """Record the CLI invocation once per process; every ledger line carries it. Called by
+    ``cli.main`` -- 33 deploy_override call sites read it from here instead of threading a
+    parameter through all of them."""
+    global _DEPLOY_ARGV
+    _DEPLOY_ARGV = list(argv)
+
+
+def _ledger_path(mod_root: Path) -> Path:
+    return mod_root / LEDGER_NAME
+
+
+def _ledger_shas(mod_root: Path, disc: int, x: int, y: int, part: str):
+    """Every sha256 this install's ledger has recorded for the cell+part, plus the LAST
+    full entry (for the refusal message). Missing/empty ledger -> (set(), None)."""
+    import json
+    p = _ledger_path(mod_root)
+    if not p.is_file():
+        return set(), None
+    shas, last = set(), None
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue                                     # a torn concurrent line never blocks
+        if e.get("cell") == [x, y] and e.get("part") == part and e.get("write_disc") == disc:
+            shas.add(e.get("sha256"))
+            last = e
+    return shas, last
+
+
+def _append_ledger(mod_root: Path, dest: Path, bm, part: str, write_disc: int) -> None:
+    import hashlib
+    import json
+    from datetime import datetime, timezone
+    from .. import __version__
+    if dest is None or not Path(dest).exists():
+        return                                           # a stubbed writer wrote nothing to ledger
+    entry = {"cell": [bm.x, bm.y], "part": part, "write_disc": write_disc,
+             "read_disc": bm.disc, "sha256": hashlib.sha256(Path(dest).read_bytes()).hexdigest(),
+             "kit": __version__, "utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             "argv": _DEPLOY_ARGV}
+    with open(_ledger_path(mod_root), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+
+
 def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: str = "Terrain",
-                    disc: int | None = None) -> Path:
+                    disc: int | None = None, backup: bool = True,
+                    force_overwrite: bool = False) -> Path:
     """Write ``bm`` as a loose ``.ff9mesh`` override into ``<game>/<mod_folder>/<override_relpath>`` -- where the
     custom engine (WorldMeshOverride) picks it up at world load. ``part`` = the block layer (``"Terrain"`` default,
     or ``"Object"`` for the building mesh). The mod_folder must be a stacked ``FolderNames`` entry (e.g.
@@ -189,11 +256,44 @@ def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: s
 
     This is deliberately THE one write seam rather than retagging ``bm`` at each call site: several builders
     re-wrap a mesh with ``dataclasses.replace(...)`` WITHOUT carrying ``disc`` (e.g. island's ``_cut_plane``), so a
-    per-call retag silently loses the target on those paths."""
+    per-call retag silently loses the target on those paths.
+
+    THE DEPLOY LEDGER + THE OWNERSHIP REFUSAL (audit rec 6; 18+ concurrent sessions share
+    ONE install). Every write appends one JSON line to ``<mod_folder>/.ff9world.jsonl``
+    (cell, part, discs, sha256, kit version, utc, argv). Before overwriting DIFFERING
+    bytes: if the ledger has entries for this cell+part and none matches what is on disk,
+    another session or a hand edit owns those bytes -- REFUSE (``force_overwrite=True`` or
+    ``$FF9_WORLD_FORCE_OVERWRITE`` overrides). An empty/missing ledger is permissive (the
+    bootstrap case). ``backup=True`` parks differing bytes beside the file as
+    ``<name>.bak-<ts>`` first (the interior lane's proven naming; backups are invisible to
+    the disc mirror and the fuse existing-overrides gate by construction). Mesh bytes are
+    untouched -- deploys stay byte-deterministic."""
+    import os
     require_block_in_grid(bm.x, bm.y, context=f"deploy_override {part}")
-    dest = config.find_game_path(game) / mod_folder / override_relpath(
-        bm.disc if disc is None else int(disc), bm.x, bm.y, lod, part)
-    return write_ff9mesh(bm, dest)
+    wdisc = bm.disc if disc is None else int(disc)
+    mod_root = config.find_game_path(game) / mod_folder
+    dest = mod_root / override_relpath(wdisc, bm.x, bm.y, lod, part)
+    if dest.exists():
+        cur = dest.read_bytes()
+        if cur != ff9mesh_bytes(bm):
+            import hashlib
+            shas, last = _ledger_shas(mod_root, wdisc, bm.x, bm.y, part)
+            cur_sha = hashlib.sha256(cur).hexdigest()
+            if shas and cur_sha not in shas and not force_overwrite \
+                    and not os.environ.get("FF9_WORLD_FORCE_OVERWRITE"):
+                raise ValueError(
+                    f"refusing to overwrite {dest.name}: its bytes match no ledger entry -- "
+                    f"another session or a hand edit owns them (last ledger write: "
+                    f"{(last or {}).get('utc')} argv={(last or {}).get('argv')}). "
+                    "Pass force_overwrite=True / set FF9_WORLD_FORCE_OVERWRITE to proceed.")
+            if backup:
+                import shutil
+                from datetime import datetime
+                ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+                shutil.copyfile(dest, dest.with_name(dest.name + f".bak-{ts}"))
+    out = write_ff9mesh(bm, dest)
+    _append_ledger(mod_root, out, bm, part, wdisc)
+    return out
 
 
 def sample_ground_y(terrain_bm, lx: float, lz: float) -> float:
