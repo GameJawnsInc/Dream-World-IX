@@ -1,4 +1,7 @@
-# Batch-2 playtest defects — forensics + fixes (2026-08-05, both FIXED live)
+# Batch-2 playtest defects — forensics + fixes (2026-08-05)
+
+> **★ Both fixes owner-verified in-game same day: "looks good."** c4 approved as the next
+> round ("c4 next") — in progress below.
 
 ## 1. The clipped desert wedge at (473,−643) — FIXED
 
