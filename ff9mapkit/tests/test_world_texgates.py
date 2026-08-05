@@ -520,3 +520,28 @@ def test_verify_landmass_enforce_texgates_folds_a_defect_into_clean():
     assert enf_rep["clean"] is False
     assert not enf_rep["texgates"][0]["ok"]
     assert I.verify_landmass(built, enforce_texgates=True, allow_texgates=True)["clean"] is True
+
+
+def test_gate_status_key_tells_the_reporting_truth():
+    """Audit rec 9's surviving payload: `ok` is the deploy verdict (True under WARN-default
+    even when dirty), so a headline derived from `ok` alone printed "gates CLEAN" over a
+    live warn row. `status` is the reporting truth."""
+    from ff9mapkit.world.texgates import _gate
+    assert _gate("g", enforce=False, allow=False, dirty=False, detail=0)["status"] == "pass"
+    warn = _gate("g", enforce=False, allow=False, dirty=True, detail=1)
+    assert warn["ok"] is True and warn["status"] == "warn"
+    fail = _gate("g", enforce=True, allow=False, dirty=True, detail=1)
+    assert fail["ok"] is False and fail["status"] == "fail"
+    assert _gate("g", enforce=True, allow=True, dirty=True, detail=1)["status"] == "pass"
+
+
+def test_the_cli_headline_never_says_clean_over_a_warn():
+    """[[feedback-a-check-that-cannot-fail]]: the exact defect was `clean = all(g["ok"])`
+    printing CLEAN three lines under a warning. The helper is the one voice now."""
+    from ff9mapkit.cli import _world_gate_headline
+    clean = _world_gate_headline([{"status": "pass"}, {"status": "pass"}], "gates CLEAN")
+    assert clean == "gates CLEAN"
+    honest = _world_gate_headline([{"status": "pass"}, {"status": "warn"}], "gates CLEAN")
+    assert "CLEAN" not in honest and "WARN" in honest
+    legacy = _world_gate_headline([{"ok": True, "warn": True}], "gates CLEAN")
+    assert "CLEAN" not in legacy                          # rows without `status` still count

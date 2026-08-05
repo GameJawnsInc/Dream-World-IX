@@ -209,6 +209,10 @@ def _gate(name, *, enforce, allow, dirty, detail, **extra):
     d["warn"] = bool(dirty) and not enforce and not allow
     d["detail"] = detail if detail else 0
     d["ok"] = bool(allow or (not enforce) or not dirty)
+    # the honest headline key (audit rec 9): `ok` is the DEPLOY verdict (True under
+    # WARN-default even when dirty); `status` is the REPORTING truth -- a CLI headline
+    # derived from `ok` alone printed "gates CLEAN" in the same breath as a warn row.
+    d["status"] = "fail" if not d["ok"] else ("warn" if d["warn"] else "pass")
     return d
 
 
@@ -442,6 +446,13 @@ def texture_sea_gates(cell_meshes, region_cells, *, quad_ori=None, enforce: bool
     :func:`sea_plan_gate` (a caller with no water parts in hand -- its predicates B/C would be
     vacuous rather than wrong, but reporting a vacuous gate is noise)."""
     recs = terrain_records(cell_meshes, region_cells)
+    # AUDIT REC 9's "promote the calibrated two to enforce-by-default" was tried here on
+    # 2026-08-04 and REFUTED by this kit's own corpus (recorded so it is not re-proposed):
+    # family-rect fails REAL desert-family region carries ("desert out-of-region" -- the
+    # 1.000/2017-tris calibration covered grass mains only), and zero-uv-area, clean on the
+    # whole real carry corpus, still flips 20+ hermetic fixtures whose synthetic meshes carry
+    # dummy UVs. An enforce-default belongs at a VERBATIM-carry call site if anywhere, never
+    # in this composite. All four gates keep the blanket `enforce`; `allow` waives.
     out = [zero_uv_area_gate(cell_meshes, region_cells, enforce=enforce, allow=allow, records=recs),
            one_window_gate(cell_meshes, region_cells, quad_ori=quad_ori, enforce=enforce,
                            allow=allow, records=recs),

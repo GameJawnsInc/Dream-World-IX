@@ -3726,6 +3726,16 @@ def _world_coupling_note(*, coastnav: bool = True, minimap: bool = True,
         print("  COUPLED, not rebuilt: " + "; ".join(lines) + ".")
 
 
+def _world_gate_headline(rows, clean_text: str) -> str:
+    """The honest gate headline (audit rec 9): 'gates CLEAN' may not print in the same
+    breath as a warn row. Derived from the worst `status`/`warn` across the rows."""
+    warns = sum(1 for g in rows if g.get("status") == "warn" or (g.get("warn") and g.get("ok")))
+    if warns == 0:
+        return clean_text
+    return (f"gates: {warns} WARN, 0 FAIL (WARN-default -- review the rows above; "
+            "--enforce-texture-gates to refuse, --allow-texture-gates to waive)")
+
+
 def _cmd_world_deploy(args: argparse.Namespace) -> int:
     """Deploy an (optionally reshaped) overworld block, or a whole reshaped region, as loose .ff9mesh override(s)
     (needs the WorldMeshOverride engine patch). Reshapes (--hill/--crater/--flatten) are seam-continuous: the edit
@@ -4441,7 +4451,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             print("NOT CLEAN -- deploy refused", file=sys.stderr)
             return 2
         if args.dry_run:
-            print("dry run: gates CLEAN -- re-run without --dry-run to deploy")
+            print("dry run: " + _world_gate_headline(summary["gates"],
+                  "gates CLEAN") + " -- re-run without --dry-run to deploy")
             return 0
         print("deployed:")
         for q in summary["deployed"]:
@@ -4499,7 +4510,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         print("NOT CLEAN -- deploy refused (every gate must pass; iterate with --dry-run)", file=sys.stderr)
         return 2
     if args.dry_run:
-        print("dry run: gates CLEAN -- re-run without --dry-run to deploy")
+        print("dry run: " + _world_gate_headline(summary["gates"],
+              "gates CLEAN") + " -- re-run without --dry-run to deploy")
         return 0
     print("deployed:")
     for q in summary["deployed"]:
@@ -4651,8 +4663,9 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
         print("  !! coast-nav SKIPPED (--skip-coastnav): the mint's water has no keel/standoff/"
               "landability classes -- straddling triangles are boat-permeable until stamped "
               "(ff9mapkit world-coastnav).")
-    print("all gates CLEAN (geometry, UV language, placement census: 0 MISS). "
-          "~ -> World -> Teleport to the centre; a first-time block needs a world re-entry.")
+    print(_world_gate_headline(summary["report"].get("texgates", []),
+                               "all gates CLEAN (geometry, UV language, placement census: 0 MISS)")
+          + ". ~ -> World -> Teleport to the centre; a first-time block needs a world re-entry.")
     return 0
 
 
@@ -8602,13 +8615,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "a zero-UV-area / bit-identical-UV Terrain tri above the 0.0005 ceiling "
                           "(the constant-UV stamp -- the flat-sheet stain the Rung-F UV arc spent 8 "
                           "in-game rounds removing), a ground tri whose UVs escape its own family's "
-                          "catalogued mains rect (a transparent atlas gutter = white in game), or a "
-                          "sea-plan violation (land fully submerged under the y=0 plane, adjacent "
-                          "blocks' Sea4 plan areas differing by more than 4x -- the degenerate "
-                          "one-blob Sea4 stub -- or real water overlapping land in plan beyond "
-                          "stock's own 0.1913 headline). All three measure CLEAN on real stock "
-                          "bytes, so this is safe to enforce on a verbatim carry; it stays opt-in "
-                          "only to match the two carry gates above.")
+                          "catalogued mains rect (a transparent atlas gutter = white in game; NOTE "
+                          "measured 2026-08-04 to false-positive on real DESERT region carries -- "
+                          "its stock calibration covered grass mains), or a sea-plan violation. "
+                          "Report-only stays the default; the dry-run headline now says WARN "
+                          "honestly instead of CLEAN.")
     wtp.add_argument("--allow-texture-gates", action="store_true", dest="allow_texture_gates",
                      help="waive THE TEXTURE + SEA GATES even when enforced "
                           "(--enforce-texture-gates).")

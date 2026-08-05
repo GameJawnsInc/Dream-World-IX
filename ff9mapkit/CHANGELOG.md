@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the gate headline stops lying, and a REFUTATION worth recording
+- `world-transplant`/`world-morphs`/`world-island` printed "gates CLEAN" in the same breath
+  as warn rows (`clean = all(g["ok"])` is the DEPLOY verdict; under WARN-default a dirty
+  gate keeps `ok=True`). Every texgate row now carries a `status` (pass/warn/fail) and the
+  three headlines derive from one `_world_gate_headline` helper — a warn row can never
+  print as CLEAN again. ALSO: the audit's companion step ("promote the two 1.000-calibrated
+  texture gates to enforce-by-default") was tried and REFUTED by the kit's own corpus —
+  family-rect fails real desert-family region carries (its stock calibration covered grass
+  mains only) and zero-uv-area flips 20+ dummy-UV hermetic fixtures; the refutation is
+  recorded at the composite so it is not re-proposed. Audit rec 9 (the honesty half;
+  the terrain-reshape climb gate follows separately with its own calibration).
+
 ### Added — the coupling note: what a geometry edit silently invalidates
 - Six audit lenses reviewed the producer side; nobody asked what is a FUNCTION of the
   geometry. The disc mirror was the only auto-run post-step — vehicle legality

@@ -17,7 +17,9 @@ THE LAWS this module encodes (learned over 11 in-game passes -- do not relearn t
   polylines are load-bearing WELDS: slide them whole, never re-draw their boundaries.
 * NEVER hand-type mesh geometry: real donor verts are off-lattice floats; a rounded coordinate
   renders as a hairline crack. :class:`PatchRecover` CAPTURES exact floats from the tris it
-  drops, and :func:`ff9mapkit.world.mesh.weld_audit` gates every build (expect 0 pairs).
+  drops, and :func:`ff9mapkit.world.mesh.weld_audit` gates every TRANSPLANT build (expect 0
+  pairs; other write paths carry their own gates -- a false "every build" here once trained
+  an agent to skip wiring one).
 
 Tweaks are objects with ``part`` (the sub-mesh they edit), ``apply(part, poly) -> poly | None``
 (donor WORLD coords, pre-rotation -- so a tweak is rotation-invariant), ``emit() -> [poly]``
