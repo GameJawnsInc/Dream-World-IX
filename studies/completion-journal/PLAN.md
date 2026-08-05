@@ -635,10 +635,13 @@ false-negative floor.
   *window*, so the missable column stays largely un-derivable (bad). A wrong
   threshold confidently tells a player they permanently missed something still
   obtainable. Still the worst failure mode, still a DATA risk.
-- **A monotone "collected" latch is WRONG for ~85 bits.** The corpus census finds
-  **94 bits explicitly cleared somewhere**, 85 of them genuine set-then-clear
-  toggles (e.g. the Desert Palace sanctum-cast band 3536-3542, Cleyra 3882/3883).
-  Those need windows `[on, off)`, not a latch. A journal that renders "bit set =
+- **A monotone "collected" latch is WRONG for ~76 bits.** The corpus census finds
+  **94 bits explicitly cleared somewhere**, 85 of them set-then-clear, and the
+  ground-truth pass ("Q2 MEASURED" §7.1) trims that to **~76 credible
+  per-location toggles** after excluding 9 reused-dispatch bits. (The original
+  example here — "Desert Palace sanctum band 3536-3542" — was REFUTED by that
+  pass: those bits are clear-only, never machine-set; the real Desert Palace
+  toggle region is 3552-3599.) Those need windows `[on, off)`, not a latch. A journal that renders "bit set =
   obtained forever" will show a collected item reverting to un-collected mid-game.
   This is a correctness bug the scoping pass did not have and it must be in the
   catalog schema from the start, not retrofitted.
@@ -1179,6 +1182,106 @@ CalcStack or writes save state fails at build. And re-check the live
 `DictionaryPatch.txt` before deploying, because ~18 concurrent worktrees share
 one install and the registrations move.
 
+### ★ Q2 + Q2b + THE TOGGLE CENSUS — MEASURED (the full-fidelity gate numbers)
+
+Six-agent adversarial pass over all 818 fields (not a 20-field slice — the full
+corpus cost the same 2 minutes). Instruments: `research/treasure_join.py` +
+`wf-q2-artifacts/` (the fold/indirect/rejoin scripts the verifiers wrote);
+regenerable JSONs beside them, gitignored.
+
+**Q2 ANSWER: the chest atlas IS generator-grade — but not at the number the raw
+script printed, and the honest unit is the REWARD EVENT, not the grant site.**
+
+- The script's own headline (2,343 grant sites, 70.5% single-latch) **measures
+  dead code**. FF9's compiler emits a 4-arm reward macro (clamped-gil / item /
+  card / literal-gil) and folds the selector to a literal; `FieldFlow` does not
+  constant-fold, so **1,200 of 2,343 sites (51.2%) are statically unreachable
+  template arms — and they are 100% latch/latch-write by construction** (dead
+  arms sit inside the once-guard). Live-site single-latch is 39.8%. Neither
+  number is the answer.
+- **The honest unit: grouping by (field, latch-bit) gives 400 direct reward
+  events over 341 distinct latch bits; 344 (86%) have exactly one live grant
+  site** — a clean item-id + latch-bit pair a generator can emit. Calibrated:
+  two hand-disassembled latches byte-confirmed (f706 Elixir/7687, f301 Ice
+  Cavern Tent/7271; Ice Cavern's 8 chests are the contiguous run 7264-7271).
+- **The `unresolved` class is one missing INTER-PROCEDURAL join, not unminable
+  treasure.** One shared dispatcher (caller: `Byte[226]=Bit[N]`,
+  `Int16[224]=<literal reward code>`, `RunScriptSync(2,uid,12|13)`, commit
+  `Bit[N]=Byte[226]`) absorbs 286 of 298 unresolved + 140 of 294 bare rows.
+  **204 call sites across 120 fields carry LITERAL codes** (85 item / 14 card /
+  105 gil) — all machine-derivable at the CALLER. Reward-code encoding decoded
+  and engine-confirmed: 0-255 item, 256-511 key item, 512-611 card, ≥1000 gil
+  (amount = code−1000) — which is why dead literal-gil arms read as ~16.7M gil
+  (`item_id − 1000`): **986 of 2,343 rows are "gil" and almost none are gil.**
+- **Derivable total ≈ 400 direct + ~204 indirect ≈ 600 rewards over ~500 latch
+  bits.** The residue after the upgrades is mostly latch-less BY DESIGN and
+  correctly excluded from a chest atlas: Chocobo H&C dig payouts (table-driven),
+  Stellazzio turn-ins (SC-windowed), story key items latched by SC/visit, and
+  the `B_HAVE_ITEM(id)==0`-guarded key items — the inventory IS the latch, and
+  the journal already reads inventory.
+- **Verifier refutations the v2 generator MUST fix** (8/10 + 8/10 samples
+  confirmed; the refutations are structural): **(F4)** an unguarded grant can
+  false-pair to a NEIGHBORING chest's bit when `innermost_guard_block` walks
+  out (proven at f600); **(F5)** one reward's rows can split across two bits
+  (f2803, f2259, f764); **(F6)** **48 of 332 live strong latch bits (14.5%) are
+  story gates, not treasure** — worst case bit 3818, a Gizamaluke CATCH-UP flag
+  that Main_Init mass-sets when SC≥3740: a journal reading it as "collected" is
+  a guaranteed false positive. The mass-set-under-SC idiom is itself derivable
+  → the generator needs a catch-up-set filter; **(F7)** 7 live latch bits carry
+  more than one item id. Also: the write side must accept the
+  `Bit[N] = <variable>` commit form (135 corpus-wide), the same-function
+  fallback must actually be implemented (docstring promised, code didn't), and
+  the atlas must KEY ON THE LATCH BIT, not the field id — disc-variant fields
+  (911/1911 Treno) carry identical bits and double-count.
+- **TREASURE HUNTER RANK IS NOT A COMPLETION METRIC** (engine-verified,
+  EventState.cs:53-72): bytes 961-965 — bits 7688-7727 — are NOT scored yet
+  hold **33 real chest latches** (Cleyra, Burmecia/Vault, Mountain Path, Fossil
+  Roo, Oeilvert, Alexandria/Steeple, Bran Bal); and the 2-pt chocograph band
+  1456-1495 receives ZERO field-script writes (written by the chocograph
+  layer, not `.eb`). The journal's completeness bar must count latch bits; the
+  rank stays display-only.
+
+**Q2b ANSWER: ZERO ScenarioCounter relative writes exist.** 889 absolute
+literal SC writes across 818 fields, 0 relative/computed — measured two
+independent ways (CFG-reachable and raw linear; `research/sc_relative_scan.py`),
+agreeing exactly. Both prior figures ("7 fields", "2 sites") were regex
+artifacts of `flag_census.py`'s cruder scanner (3 flagged fields re-examined by
+hand: no relative SC write in any). **One whole non-derivability class for the
+missable column is gone** — a `SC >= close_sc ⇒ missed` rule can never be
+invalidated by a relative delta. The remaining open half is absolute-value
+ORDERING across branching paths (§7.2 Q2c's saves are the oracle for that).
+
+**THE TOGGLE CENSUS: PLAN.md's 94/85 reproduces EXACTLY** (`research/
+set_clear_census.py`), and the strict init-zeroing contamination is ZERO. But 9
+of the 85 are reused compiled dispatch/housekeeping (184, 189, 197-199, 808,
+2102-2103, 2611, 2650, 3612) — exclude them; **~76 narrow per-location bits are
+the credible `[on,off)` window population** for the schema. **One of this
+study's own worked examples is REFUTED: the "Desert Palace sanctum band
+3536-3542" is NOT a set-then-clear toggle** — those 7 bits are cleared once
+each and never machine-set anywhere (read-only guards over native party state);
+the REAL Desert Palace toggle content is the 26-bit region 3552-3599.
+
+**THE TURBO-PROOF PAGE: the believed shape was half a defect mint.**
+`ShouldTurboDialog` has TWO arms (UIKeyTrigger.cs:974-991). Arm A (:981-982) is
+the known broadcast; **arm B (:984-988) fires exactly when every open window is
+dismiss-inhibited AND any has Auto/Transparent style AND the script armed
+`B_KEYON` — and it SYNTHESIZES a Confirm into the script's own input stream.**
+So "`[NFOC]` + poll" alone reproduces the bug through a second mechanism. The
+proven shape (assembled + disassembled offline, 32 bytes/page): **`WindowAsync`
+with flags 0** (Plain style — structurally outside arm B's predicate) **+
+`[NTUR][NFOC]` + a `B_KEYON(0xB0000)` poll + `Wait(8)` debounce + `CloseWindow`
++ `Wait(4)`**, values published before the open so AutomaticSize bakes real
+widths. The shape is STOCK-COMMON — 2,034 poll-adjacent-async sites across 115
+fields — so this is not a shape stock never builds. Kit gaps to close while
+building it: `want_no_turbo` (content/text.py:399-408) is **backwards** for
+inhibited windows (suppresses `[NTUR]` exactly where arm B needs it);
+`hold = true` on a SYNC reply emits `[TIME=-1]` on a `WindowSync` — an
+unconditional softlock nothing lints; no `[NFOC]` authoring key; no polled-page
+concept; three private button-mask tables and no style↔turbo law. Cross-lane
+exposure (recorded, out of this arc's scope): `[[qte]]`, `[[behavior.hud]]`,
+and numinput all open Auto/Transparent inhibited windows while polling — inside
+arm B's predicate — so a latched F9 can resolve a QTE with no press.
+
 ### 7.2 The other open questions, in the order they gate work
 
 *(The pass opened with "does `save.py` decrypt a real slot?" — **ANSWERED, yes**,
@@ -1189,15 +1292,13 @@ verified this pass; see §T1's blockers for the narrower gap that replaces it.)*
    surfaces and different catalogs. The ladder is stable under the first reading
    and partly wrong under the second. This is the cheapest question to answer and
    it reorders everything below it.
-2. **What is the census residue?** Run the grant↔latch join on a **20-field
-   slice** and count how many treasure rows resolve unambiguously, before quoting
-   any T4 band. That single number decides whether T4 is a project or a research
-   program. **Now much cheaper to answer** — `eb/cfg.py`'s `FieldFlow` already
-   gives kill-aware guard attribution per write site, so this is a join over an
-   existing census rather than new analysis. Expect the answer to be bounded by
-   the arc's measured 36.2% / 257-of-974, not better.
-2b. **Reconcile the ScenarioCounter relative-write count** (7 fields vs 2 sites,
-   §1). Cheap, and it gates whether a missable column is derivable at all.
+2. **★ ANSWERED — see "Q2 MEASURED" above.** Generator-grade at the reward-event
+   unit: 400 direct + ~204 indirect ≈ 600 derivable rewards over ~500 latch
+   bits, with a mandatory v2 upgrade list (constant fold, caller join, variable
+   commit form, catch-up filter, latch-bit keying).
+2b. **★ ANSWERED — zero relative SC writes exist** (889 absolute, 0 relative;
+   both prior figures were scanner artifacts). The missable column's remaining
+   derivability risk is absolute-value ordering across branches, not deltas.
 2c. **Can the owner supply disc-3/4 saves?** The calibration corpus stops at SC
    7200. The back half of the game holds most of the missables this feature is
    for, and has no ground truth. See §4c.
