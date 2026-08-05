@@ -1,4 +1,8 @@
-# Rung 6 playtest — the 9013 round trip (deployed 2026-08-05, awaiting owner)
+# Rung 6 playtest — the 9013 round trip
+
+> **★ PASS (owner, 2026-08-05): "! showed and warped me back, the loop works."** Both stages
+> confirmed in one session — entry landed on the lawn, the east-band walk reached the trigger,
+> the "!" raised, Confirm warped back to the bench. Rung 6 closed; script kept for re-runs.
 
 **What's live:** bench field **30950 (PATHDGATE)** in `FF9CustomMap` with a gateway that warps
 into world **9013**, and a Confirm-gated exit trigger on 9013's south shore that warps back to

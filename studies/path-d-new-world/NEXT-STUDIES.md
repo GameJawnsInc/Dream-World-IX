@@ -231,6 +231,16 @@ artifact, a backwards max/min metric, and drop-in instead of traverse testing).
 
 **Rung 5 is therefore done.** Next: Rung 6.
 
+> **★ RUNG 6 CLOSED (2026-08-05, owner-confirmed): "! showed and warped me back, the loop
+> works."** The full round trip — bench field 30950 → `WorldMap(9013)` → land on the V-shore
+> bench lawn (425,−479) → walk the east band → "!" + Confirm at cell (13,17) → `Field(30950)`
+> back. Build, deploy scripts, site survey, and the corrections that reshaped the rung
+> (9013's `.eb` is a verbatim WORLD11 clone, NOT blank; arrival is the position record, not a
+> mapIndex table; (800,−672) is the grid centre, not an island) → [`rung6/`](rung6/) +
+> memory `project-ff9-path-d-new-world`. **The PLAN.md §3 ladder (rungs 0–6) is complete.**
+> What remains is §8's deliberately-deferred polish (encounters, minimap, banner, vehicles,
+> a real entrance from a REAL field instead of the scratch bench) — owner's call on ordering.
+
 ---
 
 ## P4 — PATH D RUNG 6, ENTRANCE / EXIT  ← **next**
