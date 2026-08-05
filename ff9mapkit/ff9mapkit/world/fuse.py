@@ -119,7 +119,11 @@ def _existing_overrides(cells, mod_folder: str, *, disc: int, lod: str, game=Non
         if not d.is_dir():
             continue
         prefix = f"Block[{x}][{y}] "
-        hits.extend(str(p) for p in sorted(d.iterdir()) if p.name.startswith(prefix))
+        # extension filter (audit rec 6): the write seam parks `.bak-<ts>` copies beside a
+        # deployed file, and a bare startswith would count them as deployed overrides --
+        # tripping this gate forever after the first legitimate re-deploy.
+        hits.extend(str(p) for p in sorted(d.iterdir())
+                    if p.name.startswith(prefix) and p.suffix in (".ff9mesh", ".txt"))
     return hits
 
 

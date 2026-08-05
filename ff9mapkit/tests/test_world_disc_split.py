@@ -158,8 +158,9 @@ def test_deploy_changed_compares_and_writes_in_the_same_namespace(monkeypatch, t
                             disc=1, target_disc=9, backup=True)
     assert seen["disc"] == 9, "the write must land in the target namespace"
     assert out, "stale Disc9 bytes must be seen as a CHANGE (the compare read the target file)"
-    baks = list(dep9.parent.glob("*.bak-*"))
-    assert baks, "the pre-write backup must be of the TARGET namespace's file"
+    # the pre-write backup moved to THE one write seam (deploy_override, audit rec 6) --
+    # its in-the-TARGET-namespace law is pinned by
+    # test_world_ledger.py::test_backup_lands_in_the_target_namespace
 
 
 # --- 4. fuse_layout threads the split into its engine and its collision pre-check -----------------------------
