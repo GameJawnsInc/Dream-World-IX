@@ -1,5 +1,13 @@
 # Overworld 3D-interface review — ranked recommendations
 
+> **★ BOARD CLOSED 2026-08-05 — all 18 recommendations shipped (or explicitly refused with
+> reasons recorded in code).** Recs 1–10 + 14–18 this branch, 11–13 the topology session;
+> per-rec commits + the three mechanism corrections discovered on contact (census baseline,
+> texgate enforce refutation, per-tick climb ceiling) are recorded in
+> `project-ff9-overworld-3d-interface-review` (memory) and `ff9mapkit/CHANGELOG.md`. The
+> "Refused by verification" list below stays live — check it before proposing world
+> gate/refactor work.
+
 **Date:** 2026-08-04 · **Scope:** how the toolkit interfaces with the 3D overworld — data structures, math, pipelines, tooling, validation. Not the field/battle pillars except by contrast.
 
 **Method:** staged multi-agent audit run as an external 3D-game-technology consultancy would. 4 recon scouts built a shared dossier ([DOSSIER.md](DOSSIER.md)); 6 practice-area experts (geometry pipeline, tools UX, procedural content, spatial math, validation/QA, engine integration) produced 40 findings against real code ([RAW-FINDINGS.md](RAW-FINDINGS.md), summaries in [EXPERT-SUMMARIES.md](EXPERT-SUMMARIES.md)); the 40 findings were clustered into 15 themes and each cluster was adversarially verified by an independent skeptic that re-read the cited code and attempted refutation ([VERDICTS.md](VERDICTS.md)); a completeness critic then hunted for what all six lenses missed and found 5 more, two of them measured with scripts run against this worktree and the live install ([CRITIC.md](CRITIC.md)). **No cluster was refuted; 5 were confirmed outright, 10 confirmed with corrections; every verdict at high confidence.** Several expensive sub-proposals were refuted during verification and are recorded in "Refused by verification" below so they are not re-proposed.
