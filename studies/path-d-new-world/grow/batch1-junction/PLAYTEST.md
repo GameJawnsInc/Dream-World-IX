@@ -1,4 +1,13 @@
-# Grow-9013 Batch 1 — the JUNCTION landmass gateway (deployed 2026-08-05, awaiting owner)
+# Grow-9013 Batch 1 — the JUNCTION landmass gateway
+
+> **★ PASS (owner, 2026-08-05, with screenshot): "that worked"** — entry landed on the grass
+> plain, the dune crossing walked, the "!" raised at the seam, Confirm warped back. The
+> screenshot shows the two-ground front reading correctly at ground level, the V-shore
+> island on the horizon, and the minimap live. **ONE DEFECT FILED: "some random desert
+> triangle"** — an isolated sharp desert-textured triangle on the grass at ~the trigger
+> seam's south edge, disconnected from the ecotone's organic boundary. Forensics + fix
+> below/in TRIANGLE.md; the arming write is ruled out by construction (IDALL bits only,
+> UVs byte-identical) pending byte re-verification.
 
 **What's live:** bench field **30951 (PATHDGATE2)** warps into 9013 landing on the
 **junction-compose two-ground landmass** (the SW island you verdicted "looks identical to the
