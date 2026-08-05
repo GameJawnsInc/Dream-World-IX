@@ -277,3 +277,70 @@ def test_real_engine_atlas_is_what_renders():
     img = A.load_atlas("terrain", cache=False)
     # NOT necessarily square: Moguri's HD terrain atlas is 2048x4096. UVs are normalized, so any dims render.
     assert img.mode == "RGBA" and img.width >= 1024 and img.height >= 1024
+
+
+# ---------------------------------------------------------------- the atlas-laundering guard (audit rec 17)
+# add_tile paints into the atlas the ENGINE resolves -- on a Moguri install that is Moguri's HD
+# artwork -- and deploys the painted whole into the mod folder. The guard warns on a loose
+# third-party base, records lineage in a .provenance.json sidecar, and carries the taint
+# forward across repaints of our own override.
+
+def _free_atlas():
+    im = Image.new("RGBA", (128, 128), (10, 20, 30, 255))
+    for y in range(80, 128):
+        for x in range(80, 128):
+            im.putpixel((x, y), (0, 0, 0, 0))
+    return im
+
+
+def test_add_tile_warns_and_records_on_third_party_base(tmp_path, monkeypatch):
+    import json
+    import warnings
+    g = _mk_game(tmp_path, folders=("MoguriMain",))
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    moguri = _put_loose(g, "MoguriMain", part="object", lower=True)       # the HD override wins the sweep
+    monkeypatch.setattr(A, "load_atlas", lambda part="object", game=None: _free_atlas())
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        info = A.add_tile(A.make_test_tile(48), "object", mod_folder="FF9CustomMap", tile_px=48)
+    assert info["third_party"] is True and info["source"] == "loose"
+    assert str(moguri).lower() == info["source_path"].lower()   # File.Exists is case-insensitive
+    assert any("THIRD-PARTY" in str(x.message) for x in w)
+    prov = json.loads((tmp_path / "game" / "FF9CustomMap" /
+                       "StreamingAssets/assets/resources/worldmap/textures/"
+                       "res(1_24)_objects.png.provenance.json").read_text())
+    assert prov["third_party"] is True
+    assert prov["source_path"].lower() == str(moguri).lower()
+
+
+def test_add_tile_bundle_base_is_clean_and_still_recorded(tmp_path, monkeypatch):
+    import json
+    import warnings
+    g = _mk_game(tmp_path, folders=())
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    monkeypatch.setattr(A, "load_atlas", lambda part="object", game=None: _free_atlas())
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        info = A.add_tile(A.make_test_tile(48), "object", mod_folder="FF9CustomMap", tile_px=48)
+    assert info["third_party"] is False and info["source"] == "bundle"
+    assert not any("THIRD-PARTY" in str(x.message) for x in w)
+    prov = json.loads((g / "FF9CustomMap" /
+                       "StreamingAssets/assets/resources/worldmap/textures/"
+                       "res(1_24)_objects.png.provenance.json").read_text())
+    assert prov["third_party"] is False and prov["painted_over"] == "bundle"
+
+
+def test_add_tile_taint_carries_forward_across_own_repaints(tmp_path, monkeypatch):
+    """Once painted over a third-party base, our own override stays tainted: a second add_tile
+    that resolves OUR OWN prior reskin as the source must keep third_party=True."""
+    g = _mk_game(tmp_path, folders=("FF9CustomMap", "MoguriMain"))
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: g)
+    _put_loose(g, "MoguriMain", part="object", lower=True)
+    monkeypatch.setattr(A, "load_atlas", lambda part="object", game=None: _free_atlas())
+    info1 = A.add_tile(A.make_test_tile(48), "object", mod_folder="FF9CustomMap", tile_px=48)
+    assert info1["third_party"] is True
+    # now OUR override exists and wins the FolderNames sweep -> the source is our own file
+    src = A.resolve_atlas_source("object")
+    assert src[0] == "loose" and "FF9CustomMap" in str(src[1])
+    info2 = A.add_tile(A.make_test_tile(48), "object", mod_folder="FF9CustomMap", tile_px=48)
+    assert info2["third_party"] is True                       # inherited from the sidecar

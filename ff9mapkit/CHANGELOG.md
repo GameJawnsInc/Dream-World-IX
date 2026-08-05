@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the provenance gate's world chapter + THE ATLAS-LAUNDERING GUARD
+- `docs/PROVENANCE.md` now covers the one pillar whose deliverable IS derived bytes: deployed
+  `.ff9mesh` worlds are Square-Enix-derived, never committed or wheeled, and **the shareable
+  artifact is the recipe** — the `world-fuse` compose toml + `world_manifest.json` + the deploy
+  ledger reproduce a world byte-for-byte on the recipient's own install (measured: zero diffs
+  on re-compose). And the third-party vector is closed: `world-atlas-add-tile` paints into the
+  atlas the ENGINE resolves — Moguri's HD artwork on a Moguri install — and used to deploy the
+  painted whole silently. `atlas.add_tile` now warns when the base is a loose third-party
+  override, records the lineage in a `<atlas>.png.provenance.json` sidecar, and carries the
+  taint forward across repaints of our own override; the CLI prints the third-party notice and
+  the clean-room path (`extract_atlas(source="bundle")` → repaint → `deploy_atlas`).
+  Audit rec 17 (CRITIC #5).
+
 ### Added — THE COMPOSED WORLD: one toml, fixed tiers, a manifest that refuses foreign bytes
 - `world-fuse` now runs full compositions: beside `[[placement]]`, the layout toml takes
   `[[island]]`, `[[mountain]]`/`[[forest]]`/`[[hill]]`, and `[[coastnav]]`/`[[rim_retile]]`

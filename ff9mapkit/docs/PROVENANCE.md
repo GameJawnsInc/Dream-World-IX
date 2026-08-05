@@ -95,6 +95,34 @@ point behaves indistinguishably from a stock one. The same brief-identifying-quo
 FLAG_LORE's excerpts, granted explicitly by the project owner for the savepoint menu wording
 ("the wiki-with-dialog case"). These two are the repository's only committed game-text exceptions.
 
+## What about the overworld (world) pillar?
+
+The world lane is the one pillar whose *deliverable* is derived bytes. A field ships as a
+`field.toml` recipe; a custom overworld exists solely as deployed `.ff9mesh` overrides, and the
+flagship verbs derive them straight from your install: `world-transplant` carries a **real donor
+block verbatim** (verts, UVs, tangents copied out of your `p0data`), `world-terrain` reshapes stock
+geometry, and even the synthetic `world-island` mint is gated against stock statistics read from
+your copy. The same rules as everything above apply, plus two world-specific points:
+
+- **None of those bytes are committed or wheeled.** Deployed worlds live only in *your* mod
+  folders. Sharing a deployed world folder is sharing Square‑Enix‑derived bytes — fine on your own
+  install, never in this repository or its packages.
+- **The shareable artifact is the recipe, not the bytes.** A composed world is reproducible from
+  its `world-fuse` layout toml: the compose runs the verbs in a fixed order and records
+  `world_manifest.json` (per‑file md5 + the spec table that produced each file) beside the deploy,
+  and every write lands in the `.ff9world.jsonl` ledger. Measured: re‑composing the same toml
+  writes **zero** changed files — so a recipient with their own install re-runs your toml and gets
+  your world, byte for byte, without you ever distributing game-derived data.
+- **The atlas lane can launder *third-party* art — the kit now warns and records.**
+  `world-atlas-add-tile` paints into the atlas the *engine* resolves, which on a Moguri install is
+  Moguri's HD artwork (a third party's work, under its own permissions), and deploys the painted
+  whole into your mod folder. When the resolved base is a loose third‑party override, the kit
+  warns and writes a `<atlas>.png.provenance.json` sidecar recording the source and a
+  `third_party` flag (the taint carries forward across repaints of your own override).
+  Distributing a mod folder whose atlas derives from third-party art needs that party's
+  permission. The clean-room path: `extract_atlas(source="bundle")` → repaint → `deploy_atlas` —
+  that base is your own game's vanilla atlas, same category as every derived asset above.
+
 ## For maintainers
 
 `python -m ff9mapkit.data._regen_provenance` (run against a **vanilla** install) re‑authors the

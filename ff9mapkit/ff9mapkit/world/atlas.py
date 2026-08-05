@@ -404,19 +404,56 @@ def paint_tile(img, tile, box, *, inset: int = 1):
 
 def add_tile(tile, part: str = "terrain", *, mod_folder: str, game=None, tile_px: int = 48):
     """Paint a NEW ``tile`` (PIL image) into a free atlas region + deploy the reskinned atlas (T3). Returns
-    ``{uv_rect, box, dest}`` -- stamp ``uv_rect`` onto custom geometry (``world-mesh-build --tile-uv``). Raises if the
-    atlas has no free gap of ``tile_px``. RELAUNCH to apply."""
+    ``{uv_rect, box, dest, source, third_party}`` -- stamp ``uv_rect`` onto custom geometry
+    (``world-mesh-build --tile-uv``). Raises if the atlas has no free gap of ``tile_px``. RELAUNCH to apply.
+
+    THE ATLAS-LAUNDERING GUARD (audit rec 17): the base image is the atlas the ENGINE resolves -- on a
+    Moguri install that is Moguri's HD artwork, a THIRD PARTY's work, not your game's bundle -- and the
+    deploy copies the whole painted image into ``mod_folder``. When the resolved source is a loose
+    override that is not this mod folder's own prior reskin, this WARNS and records the lineage in a
+    ``<atlas>.png.provenance.json`` sidecar (taint carries forward across repaints of our own override).
+    Distributing a mod folder whose atlas derives from third-party art needs that party's permission;
+    the shareable artifact is the TILE + the command, never the painted atlas. Clean-room path:
+    ``extract_atlas(source="bundle")`` -> repaint -> :func:`deploy_atlas`."""
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+    src_kind, src_path = resolve_atlas_source(part, game=game)
+    own = atlas_override_path(part, mod_folder=mod_folder, game=game)
+    prov_path = Path(str(own) + ".provenance.json")
+    third_party = bool(src_kind == "loose"
+                       and Path(src_path).resolve() != Path(own).resolve())
+    if not third_party and src_kind == "loose" and prov_path.is_file():
+        try:                                   # repainting OUR OWN override: taint carries forward
+            third_party = bool(json.loads(prov_path.read_text(encoding="utf-8"))
+                               .get("third_party"))
+        except ValueError:
+            pass
+    if third_party:
+        import warnings
+        warnings.warn(
+            f"THE ATLAS-LAUNDERING GUARD: the engine-resolved {part} atlas is a loose THIRD-PARTY "
+            f"override ({src_path if src_kind == 'loose' else 'inherited taint'}) -- e.g. Moguri's HD "
+            f"art -- and add_tile paints into that image, so the deployed reskin bakes third-party "
+            f"artwork into '{mod_folder}'. Distributing that folder needs the third party's "
+            f"permission. Clean-room: extract_atlas(source='bundle') -> repaint -> deploy_atlas.")
     img = load_atlas(part, game=game)
     box = find_free_region(img, tile_px)
     if box is None:
         raise ValueError(f"no free {tile_px}px region in the {part} atlas to add a tile")
     painted, uv_rect = paint_tile(img, tile, box)
     import tempfile
-    from pathlib import Path
     tmp = Path(tempfile.gettempdir()) / f"ff9_atlas_{part}_reskin.png"
     painted.save(tmp)
     dest = deploy_atlas(tmp, part, mod_folder=mod_folder, game=game)
-    return {"uv_rect": uv_rect, "box": box, "dest": str(dest)}
+    Path(str(dest) + ".provenance.json").write_text(json.dumps({
+        "painted_over": src_kind,
+        "source_path": str(src_path) if src_path else None,
+        "third_party": third_party,
+        "utc": datetime.now(timezone.utc).isoformat(timespec="seconds")}, indent=1),
+        encoding="utf-8")
+    return {"uv_rect": uv_rect, "box": box, "dest": str(dest), "source": src_kind,
+            "source_path": str(src_path) if src_path else None, "third_party": third_party}
 
 
 def deploy_atlas(png_path, part: str = "terrain", *, mod_folder: str, game=None):

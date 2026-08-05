@@ -4975,6 +4975,12 @@ def _cmd_world_atlas_add_tile(args: argparse.Namespace) -> int:
         return 2
     u0, v0, u1, v1 = info["uv_rect"]
     print(f"painted a new {args.part} tile at atlas px {info['box']} -> reskinned atlas {info['dest']}")
+    if info.get("third_party"):
+        print(f"  ⚠ THIRD-PARTY BASE: the painted atlas derives from a loose override "
+              f"({info.get('source_path') or 'inherited taint'}) -- e.g. Moguri's HD art, not your "
+              f"game's bundle. Recorded in {info['dest']}.provenance.json. Distributing this mod "
+              f"folder needs that party's permission; clean-room = extract_atlas(source='bundle') "
+              f"-> repaint -> deploy_atlas (docs/PROVENANCE.md, the world chapter).")
     print(f"  UV rect: {u0:.4f},{v0:.4f},{u1:.4f},{v1:.4f}")
     print(f"  now stamp it on geometry:  world-mesh-build <obj> --into-block X Y --part {args.part} "
           f"--tile-uv {u0:.4f},{v0:.4f},{u1:.4f},{v1:.4f} --mod-folder {args.mod_folder}")
