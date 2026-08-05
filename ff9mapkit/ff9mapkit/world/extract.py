@@ -58,7 +58,10 @@ def footprint_nearest_dist(x: int, y: int, cx: float, cz: float) -> float:
 
 def blocks_touched(cx: float, cz: float, radius: float, blocks) -> list:
     """The subset of existing ``blocks`` (``(x, y)`` pairs, e.g. from :func:`list_blocks`) whose world footprint comes
-    within ``radius`` of ``(cx, cz)`` -- the exact, crack-free set to redeploy for a radius-``radius`` reshape."""
+    within ``radius`` of ``(cx, cz)`` -- the exact, crack-free set to redeploy for a radius-``radius`` reshape,
+    IN THE GRID INTERIOR ONLY. THE SEAM EXCEPTION (audit rec 12): footprints are unwrapped, so within ``radius``
+    of the world seam (x=0/1536 or z=0/-1280) the toroidal neighbour across the seam is NOT in this set -- a
+    cross-seam edit must handle the far side itself (``terrain.reshape`` reports the drop as ``off_grid``)."""
     return sorted((x, y) for (x, y) in blocks if footprint_nearest_dist(x, y, cx, cz) <= radius)
 
 

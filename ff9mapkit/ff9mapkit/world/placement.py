@@ -257,7 +257,8 @@ def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True, ind
     return 0.0, "MISS", 0, None
 
 
-def census(meshlist, *, span=(2.0, 62.0, -62.0, -2.0), samples: int = 24, y: float = 0.0):
+def census(meshlist, *, span=(2.0, 62.0, -62.0, -2.0), samples: int = 24, y: float = 0.0,
+           frame: str | None = None):
     """Sky-cast a grid over the block and report where the player would ground. Returns
     ``{"counts": {(mesh, topo): n}, "miss": [(x, z), ...], "points": [(x, z, ground_y, mesh, topo)],
     "stacked": [...], "inversions": [...]}``. Gates: ``len(miss) == 0`` -- a miss ANYWHERE is a
@@ -270,8 +271,26 @@ def census(meshlist, *, span=(2.0, 62.0, -62.0, -2.0), samples: int = 24, y: flo
     -- the player walks UNDER the surface (the lawn-under-hill class, pinned at 0.00u by the
     bench walk instrument on a real playtest defect). ``inversions`` is the shadowed subset.
     NOTE: a one-tri-hole MISS is still missed ~25% of the time at the default 24-sample pitch
-    (the measured detection floor) -- this census gates what it samples, not what it doesn't."""
+    (the measured detection floor) -- this census gates what it samples, not what it doesn't.
+
+    ``frame="block_local"`` (audit rec 12) asserts what every gate call site already assumes:
+    the meshlist is ONE block's stack in its LOCAL frame -- all meshes share one
+    ``(bm.x, bm.y)`` and the span lies within [0, 64] x [-64, 0]. A world-frame mesh slipped
+    into a local census samples empty air and passes VACUOUSLY green; this turns that into a
+    refusal. Checked once per census, never in the hot :func:`place` loop."""
     x0, x1, z0, z1 = span
+    if frame == "block_local":
+        blks = {(bm.x, bm.y) for _, bm in meshlist
+                if getattr(bm, "x", None) is not None and getattr(bm, "y", None) is not None}
+        if len(blks) > 1:
+            raise ValueError(f"block_local census: meshes span blocks {sorted(blks)} -- "
+                             "one block-local stack per census")
+        if not (0.0 <= min(x0, x1) and max(x0, x1) <= 64.0
+                and -64.0 <= min(z0, z1) and max(z0, z1) <= 0.0):
+            raise ValueError(f"block_local census: span {span} outside the block frame "
+                             "[0,64] x [-64,0]")
+    elif frame not in (None, "world"):
+        raise ValueError(f"unknown census frame {frame!r} (block_local or world)")
     counts = collections.Counter()
     miss = []
     points = []

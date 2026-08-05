@@ -2474,7 +2474,7 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
                    "Sea5": hid("Sea5")}
         by_name.update((parts or {}).get(blk) or {})
         meshlist = P.build_meshlist(by_name)
-        cen = P.census(meshlist)
+        cen = P.census(meshlist, frame="block_local")
         if cen["miss"]:
             raise ValueError(f"placement MISS in {blk}: {cen['miss'][:4]}")
         if cen["stacked"]:

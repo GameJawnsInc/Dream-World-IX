@@ -172,8 +172,11 @@ def _query_top(loader, wx, wz, parts=None):
     what the boat's cache-favoured ``w_cellHit`` effectively reads under land); None = the full
     stack."""
     from . import extract as W
+    from .frames import wrap_world_xz
     from .placement import IDALL_SKIP
-    wx %= WORLD_W
+    # the one toroidal fold (audit rec 12) -- this site used to wrap X only, so an
+    # off-window z silently addressed a nonexistent row instead of the wrapped block
+    wx, wz = wrap_world_xz(wx, wz)
     bx, by = math.floor(wx / BLOCK), math.floor(-wz / BLOCK)
     ox, oz = W.block_world_origin(bx, by)
     for nm, bm, grid in loader.parts(bx, by):

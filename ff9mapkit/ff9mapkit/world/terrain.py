@@ -119,11 +119,15 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
         ("ridge+" if amount >= 0 else "ridge-")
     rtarget = disc if target_disc is None else int(target_disc)
     summary = {"op": op, "radius": radius, "dry_run": dry_run, "disc": disc, "target_disc": rtarget,
-               "blocks": [], "skipped_sea": []}
+               "blocks": [], "skipped_sea": [], "off_grid": []}
     written = []
     for bx in range(bx0, bx1 + 1):
         for by in range(by0, by1 + 1):
             if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
+                # THE SEAM NOTE (audit rec 12): this used to be a bare continue -- a reshape
+                # within radius of the world seam silently did not touch the toroidal far
+                # side, leaving a cross-seam crack with no report anywhere.
+                summary["off_grid"].append([bx, by])
                 continue
             if rtarget != disc:
                 # a synthetic namespace has no pristine tree -- its land IS the deployed override
@@ -155,6 +159,13 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                 written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain",
                                                  disc=rtarget))
             summary["blocks"].append({"block": [bx, by], "moved": moved})
+    if summary["off_grid"]:
+        import warnings
+        warnings.warn(
+            f"SEAM NOTE: reshape radius reaches {len(summary['off_grid'])} block index(es) "
+            f"outside the {GRID_X}x{GRID_Y} grid ({summary['off_grid']}) -- the world is "
+            "TOROIDAL there, and this verb does not wrap: the far side of the seam was NOT "
+            "reshaped, so a cross-seam edit leaves a step at x=0/1536 or z=0/-1280.")
     if not dry_run and summary["blocks"]:
         from . import discmirror as DM
         DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)

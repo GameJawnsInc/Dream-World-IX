@@ -266,10 +266,7 @@ def _ocean_probes():
             (140.0, -1220.0), (200.0, -970.0), (256.0, -1100.0)]
 
 
-def _wrap_world(wx, wz):
-    """Fold ABSOLUTE world coords into the engine's mapped 1536x1280 window (the
-    navipos tx/ty use absolute/unwrapped units; the overworld wraps)."""
-    return wx % WORLD_MAP_EXTENT[0], -((-wz) % WORLD_MAP_EXTENT[1])
+from .frames import wrap_world_xz as _wrap_world     # the ONE fold (audit rec 12); was local
 
 
 def _load_active_world_map(mod_folder=None, *, game=None):

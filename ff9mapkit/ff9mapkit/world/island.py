@@ -805,7 +805,7 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
         for blk, bm in built["blocks"].items():
             bx, by = blk
             meshlist = _meshlist(blk, bm)
-            cen = P.census(meshlist)
+            cen = P.census(meshlist, frame="block_local")
             entry = {"counts": cen["counts"], "miss": len(cen["miss"]),
                      "stacked": len(cen["stacked"])}
             lx, lz = cx - BLOCK * bx, cz + BLOCK * (by + 1) - BLOCK

@@ -2932,7 +2932,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     # deep border seam was invisible to every probe grid but plain in this ledger).
     gates.append({"gate": "clip-drop", "area2": dropped_area2, "ok": dropped_area2 < 1e-3})
     from . import placement as P
-    cen = P.census(meshes, samples=census_samples)
+    cen = P.census(meshes, samples=census_samples, frame="block_local")
     # a real donor may MISS in situ (e.g. under a cliff headland's wall shadow -- no up-facing
     # ground there in the real game either). The transplant law: no INTRODUCED misses -- every
     # miss must map back (inverse shift+rot) to a point where the DONOR ITSELF misses.
