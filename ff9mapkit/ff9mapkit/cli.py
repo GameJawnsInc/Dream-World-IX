@@ -3967,18 +3967,30 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
 
 
 def _cmd_world_mesh_export(args: argparse.Namespace) -> int:
-    """Export block sub-mesh(es) to an OBJ for Blender mesh-surgery (splice a multi-block building / reshape / model)."""
+    """Export block sub-mesh(es) to an OBJ for Blender mesh-surgery (splice a multi-block building / reshape / model)
+    -- or, with --mod-folder / --part all, a read-only DEPLOYED-stack inspection with per-part materials."""
     from .world import blendio as BIO
     blocks = [tuple(b) for b in args.block]
     try:
-        info = BIO.export_obj(blocks, disc=args.disc, part=args.part, lod=args.lod, out=args.out, game=args.game)
+        info = BIO.export_obj(blocks, disc=args.disc, part=args.part, lod=args.lod, out=args.out, game=args.game,
+                              mod_folder=args.mod_folder)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"exported {len(info['blocks'])} block(s) {args.part} mesh -> {info['path']}  "
-          f"({info['verts']} verts, {info['tris']} tris; WORLD coords, Y-up)")
-    print(f"  edit in Blender (default OBJ axes), then: world-mesh-build <obj> --into-block X Y --part {args.part} "
-          "--mod-folder <mod>")
+          f"({info['verts']} verts, {info['tris']} tris; WORLD coords, Y-up; source: {info['source']})")
+    if len(info.get("written", [])) > 1:
+        print(f"  materials: {', '.join(info['parts'])} -> " + ", ".join(
+              str(w) for w in info["written"][1:]))
+    if args.part == "all" or args.mod_folder:
+        print("  READ-ONLY inspection (the human-eye instrument; the offline raster is `world-render`). "
+              "Rebuild lanes: object edits -> world-mesh-build; terrain -> world-terrain/world-transplant.")
+    elif args.part == "terrain":
+        print("  for LOOKING only -- the terrain rebuild lane is CLOSED (uniform-IDALL trap); reshape with "
+              "world-terrain, carry with world-transplant.")
+    else:
+        print(f"  edit in Blender (default OBJ axes), then: world-mesh-build <obj> --into-block X Y "
+              f"--part {args.part} --mod-folder <mod>")
     return 0
 
 
@@ -4026,6 +4038,9 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
              else f"topograph {args.topograph}")
     print(f"built {args.part} override for block[{bx}][{by}] "
           f"({info['verts']} verts, {info['tris']} tris, {stamp}) -> {info['dest']}")
+    if info.get("degenerate_tris"):
+        print(f"  ⚠ {info['degenerate_tris']} DEGENERATE (zero-area) triangle(s) in the build -- harmless to "
+              f"the renderer but dead weight; clean them in Blender (Mesh > Clean Up > Degenerate Dissolve).")
     if info["idall"] in (4078, 4088, 2040):
         print("  ⓘ RENDER-ONLY stamp: WMPhysics.Raycast skips this id, so the mesh is walk-through and cannot "
               "shadow an entrance trigger. Sky-cast placement (spawn/arrive) still hits it -- keep it clear of those.")
@@ -8421,11 +8436,18 @@ def build_parser() -> argparse.ArgumentParser:
                               "multi-block building, reshape, or model new) -- UVs+normals preserved, world coords")
     wme.add_argument("--block", type=int, nargs=2, metavar=("X", "Y"), action="append", required=True,
                      help="a block to export; repeatable -- e.g. --block 20 10 --block 19 10 to splice a multi-block structure")
-    wme.add_argument("--part", choices=["object", "terrain"], default="object",
-                     help="object = buildings/structures (default); terrain = ground/walkmesh")
+    wme.add_argument("--part", choices=["object", "terrain", "all"], default="object",
+                     help="object = buildings/structures (default); terrain = ground/walkmesh; all = every carried "
+                          "part (terrain + beach/sea ring + object) with per-part materials")
     wme.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wme.add_argument("--lod", default="0_1", help="LOD dir (default 0_1)")
     wme.add_argument("--out", required=True, help="output .obj path")
+    wme.add_argument("--mod-folder", default=None, dest="mod_folder",
+                     help="DEPLOYED-INSPECTION mode: read each block through the deployed stack (this mod folder's "
+                          "loose .ff9mesh overrides, pristine p0data as fallback) so the export shows what the "
+                          "engine will actually LOAD -- kit output included. Read-only. Writes a sidecar .mtl: the "
+                          "real extracted atlas for terrain/object, colour-coded flat materials for the beach/sea "
+                          "ring parts (the ring ladder reads at a glance)")
     wme.set_defaults(func=_cmd_world_mesh_export)
 
     wmb = sub.add_parser("world-mesh-build",
@@ -8434,7 +8456,12 @@ def build_parser() -> argparse.ArgumentParser:
     wmb.add_argument("obj", help="the edited .obj exported from Blender")
     wmb.add_argument("--into-block", type=int, nargs=2, metavar=("X", "Y"), required=True,
                      help="the TARGET block whose local frame + override path the mesh is written into")
-    wmb.add_argument("--part", choices=["object", "terrain"], default="object")
+    wmb.add_argument("--part", choices=["object"], default="object",
+                     help="object = buildings/structures. The TERRAIN rebuild lane is CLOSED (audit rec 15): the "
+                          "OBJ round-trip cannot carry per-triangle IDALL, so a rebuilt terrain would wear one "
+                          "uniform walk/event id -- reshape with `world-terrain`, carry with `world-transplant`, "
+                          "or sculpt with `world-mountain`/`world-forest`/`world-hill` instead (exporting terrain "
+                          "to LOOK at it is still fine)")
     wmb.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wmb.add_argument("--lod", default="0_1", help="LOD dir (default 0_1)")
     wmb.add_argument("--topograph", type=int, default=59,

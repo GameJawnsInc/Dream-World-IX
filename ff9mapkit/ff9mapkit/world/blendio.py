@@ -6,8 +6,11 @@ rebuild the edited OBJ into a loose ``.ff9mesh`` override and deploy it via the 
 (:func:`ff9mapkit.world.mesh.deploy_override`, ``part="Object"``).
 
 The engine's per-triangle **IDALL** (in ``tangent.x``) does NOT ride OBJ. For **buildings it is uniform**
-(``topograph 59`` = impassable), so :func:`build_from_obj` STAMPS it on build. (Per-triangle terrain IDALL is a
-separate follow-up -- it needs a spatial re-derive or a face sidecar.)
+(``topograph 59`` = impassable), so :func:`build_from_obj` STAMPS it on build. The TERRAIN rebuild lane is
+therefore CLOSED (audit rec 15): a rebuilt terrain would wear one uniform walk/event id -- a walkability bug no
+gate can see -- and a face-index IDALL sidecar was REJECTED because Blender does not guarantee face count/order
+across an edit. Reshape terrain with ``world-terrain``/``world-transplant``/the interior-relief verbs instead;
+exporting terrain to LOOK at it stays legitimate (and ``export_obj(mod_folder=...)`` reads the DEPLOYED stack).
 
 Frame: block-LOCAL verts -> WORLD is ``worldX = x*64 + localX``, ``worldZ = -y*64 + localZ`` (Y up;
 :func:`ff9mapkit.world.extract.block_world_origin`). The OBJ is written in WORLD coords so several blocks line up in
@@ -23,41 +26,110 @@ from . import extract as W, mesh as M
 _TOPO_IMPASSABLE = 59          # the stock "structure/wall" topograph (Alexandria's castle uses it): blocks on-foot
 
 
-def export_obj(blocks, *, disc: int = 1, part: str = "object", lod: str = "0_1", out, game=None) -> dict:
+#: Flat inspection colours (``Kd``) for the parts that have NO atlas name (``atlas._part_name``
+#: raises for them) -- colour-coded so the beach->shallow->deep RING LADDER reads at a glance.
+_PART_KD = {"beach1": (0.87, 0.78, 0.55), "sea1": (0.55, 0.85, 0.85), "sea2": (0.35, 0.70, 0.85),
+            "sea3": (0.20, 0.50, 0.80), "sea5": (0.15, 0.35, 0.70), "sea4": (0.08, 0.20, 0.50)}
+
+
+def export_obj(blocks, *, disc: int = 1, part: str = "object", lod: str = "0_1", out, game=None,
+               mod_folder: str | None = None, materials: bool | None = None) -> dict:
     """Write each block in ``blocks`` (a list of ``(x, y)``) ``part`` sub-mesh to one OBJ at ``out``, in WORLD coords
-    (per-block ``o`` groups; ``v``/``vt``/``vn``/``f``). ``part`` = ``"object"`` (buildings) or ``"terrain"``. Returns
-    a summary. Open it in Blender, splice/reshape, export back to OBJ, then :func:`build_from_obj`."""
+    (per-block ``o`` groups; ``v``/``vt``/``vn``/``f``). ``part`` = ``"object"`` (buildings), ``"terrain"``, or
+    ``"all"`` (every carried part). Returns a summary. Open it in Blender, splice/reshape, export back to OBJ, then
+    :func:`build_from_obj`.
+
+    THE DEPLOYED-INSPECTION MODE (audit rec 15): ``mod_folder=`` routes every block read through
+    :func:`ff9mapkit.world.entrance.read_block_stacked` -- the already-deployed loose ``.ff9mesh`` override when one
+    exists, pristine p0data otherwise -- so the export shows what the engine will actually LOAD, kit output included.
+    Read-only and PERMISSIVE by design (a missing part in ``"all"`` mode is skipped, a failed atlas extract degrades
+    to untextured): this is the human-eye instrument; the offline raster (``world-render``) stays the agent's eye.
+    ``materials`` (default: auto -- on for ``"all"``/deployed mode) writes a sidecar ``.mtl``: ``map_Kd`` = the real
+    extracted atlas for terrain/object, flat :data:`_PART_KD` colours for the beach/sea ring parts."""
     out = Path(out)
-    lines = [f"# ff9mapkit world-mesh export -- disc{disc} {part} lod {lod}  (WORLD coords, Y up)",
+    if part == "all":
+        from .transplant import PARTS as _TP
+        parts = list(_TP) + ["object"]
+    else:
+        parts = [part]
+    if materials is None:
+        materials = part == "all" or mod_folder is not None
+
+    def _read(x, y, p):
+        if mod_folder is not None:
+            from . import entrance as EN
+            return EN.read_block_stacked(mod_folder, x, y, disc=disc, lod=lod, part=p,
+                                         game=game, missing_ok=(part == "all"))
+        try:
+            return W.read_block(x, y, disc=disc, lod=lod, part=p, game=game)
+        except (ValueError, FileNotFoundError):
+            if part == "all":
+                return None                    # a block simply doesn't carry this part
+            raise
+
+    src = f"deployed stack '{mod_folder}'" if mod_folder is not None else "pristine p0data"
+    lines = [f"# ff9mapkit world-mesh export -- disc{disc} {part} lod {lod}  (WORLD coords, Y up; {src})",
              "# edit in Blender (default OBJ axes), then: ff9mapkit world-mesh-build"]
+    mtl_path = out.with_suffix(".mtl")
+    if materials:
+        lines.append(f"mtllib {mtl_path.name}")
     vbase, total_v, total_t = 0, 0, 0
+    parts_seen: list = []
     for (x, y) in blocks:
-        bm = W.read_block(x, y, disc=disc, lod=lod, part=part, game=game)
-        ox, oz = W.block_world_origin(x, y)
-        verts, normals, uvs = bm.verts, bm.normals, bm.uvs
-        lines.append(f"o Block_{x}_{y}_{part}")
-        for v in verts:
-            lines.append(f"v {v[0] + ox:.6f} {v[1]:.6f} {v[2] + oz:.6f}")
-        for u in (uvs or []):
-            lines.append(f"vt {u[0]:.6f} {u[1]:.6f}")
-        for n in (normals or []):
-            lines.append(f"vn {n[0]:.6f} {n[1]:.6f} {n[2]:.6f}")
-        for (a, b, c) in bm.tris:
-            A, B, C = a + vbase + 1, b + vbase + 1, c + vbase + 1   # OBJ 1-based, global; v==vt==vn per vertex
-            if uvs and normals:
-                lines.append(f"f {A}/{A}/{A} {B}/{B}/{B} {C}/{C}/{C}")
-            elif uvs:
-                lines.append(f"f {A}/{A} {B}/{B} {C}/{C}")
-            elif normals:
-                lines.append(f"f {A}//{A} {B}//{B} {C}//{C}")
-            else:
-                lines.append(f"f {A} {B} {C}")
-        vbase += bm.vcount
-        total_v += bm.vcount
-        total_t += len(bm.tris)
+        for p in parts:
+            bm = _read(x, y, p)
+            if bm is None:
+                continue
+            if p not in parts_seen:
+                parts_seen.append(p)
+            ox, oz = W.block_world_origin(x, y)
+            verts, normals, uvs = bm.verts, bm.normals, bm.uvs
+            lines.append(f"o Block_{x}_{y}_{p}")
+            if materials:
+                lines.append(f"usemtl {p}")
+            for v in verts:
+                lines.append(f"v {v[0] + ox:.6f} {v[1]:.6f} {v[2] + oz:.6f}")
+            for u in (uvs or []):
+                lines.append(f"vt {u[0]:.6f} {u[1]:.6f}")
+            for n in (normals or []):
+                lines.append(f"vn {n[0]:.6f} {n[1]:.6f} {n[2]:.6f}")
+            for (a, b, c) in bm.tris:
+                A, B, C = a + vbase + 1, b + vbase + 1, c + vbase + 1   # OBJ 1-based, global; v==vt==vn per vertex
+                if uvs and normals:
+                    lines.append(f"f {A}/{A}/{A} {B}/{B}/{B} {C}/{C}/{C}")
+                elif uvs:
+                    lines.append(f"f {A}/{A} {B}/{B} {C}/{C}")
+                elif normals:
+                    lines.append(f"f {A}//{A} {B}//{B} {C}//{C}")
+                else:
+                    lines.append(f"f {A} {B} {C}")
+            vbase += bm.vcount
+            total_v += bm.vcount
+            total_t += len(bm.tris)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return {"path": str(out), "blocks": list(blocks), "verts": total_v, "tris": total_t}
+    written = [str(out)]
+    if materials:
+        mtl = ["# ff9mapkit world-mesh export materials"]
+        for p in parts_seen:
+            mtl.append(f"newmtl {p}")
+            if p in ("terrain", "object"):
+                mtl.append("Kd 1.000 1.000 1.000")
+                png = out.with_name(f"{out.stem}_{p}_atlas.png")
+                try:
+                    from . import atlas as A
+                    A.extract_atlas(p, out=png, game=game)
+                    mtl.append(f"map_Kd {png.name}")
+                    written.append(str(png))
+                except Exception:
+                    pass                       # permissive read path: no atlas -> untextured, never a refusal
+            else:
+                kd = _PART_KD.get(p, (0.80, 0.20, 0.80))
+                mtl.append(f"Kd {kd[0]:.3f} {kd[1]:.3f} {kd[2]:.3f}")
+        mtl_path.write_text("\n".join(mtl) + "\n", encoding="utf-8")
+        written.append(str(mtl_path))
+    return {"path": str(out), "blocks": list(blocks), "verts": total_v, "tris": total_t,
+            "parts": parts_seen, "source": src, "written": written}
 
 
 def read_obj(path) -> dict:
@@ -184,7 +256,8 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
                    topograph: int = _TOPO_IMPASSABLE, idall: int | None = None, at=None, seat: bool = False,
                    keep_block: bool = False, solid_base: bool = False, texture: bool = False, tile=None, tile_uv=None,
-                   stock_bm=None, terrain_bm=None, game=None, skip_mirror: bool = False) -> dict:
+                   stock_bm=None, terrain_bm=None, game=None, skip_mirror: bool = False,
+                   allow_uniform_terrain_idall: bool = False) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
     ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
 
@@ -202,7 +275,21 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
     rather than re-reading pristine p0data). Both default to a fresh pristine read of ``into_block``. Returns a
     summary. Auto-mirrors the written override to Disc4 (THE DISC-4 GAP; ``skip_mirror=True`` opts out --
     :func:`~ff9mapkit.world.entrance.author_entrance` passes ``skip_mirror=True`` here and does its own single
-    mirror pass after its terrain + building writes both land)."""
+    mirror pass after its terrain + building writes both land).
+
+    THE WRITE PATH IS FAIL-CLOSED (audit rec 15): the TERRAIN rebuild lane is refused (the OBJ round-trip destroys
+    per-triangle IDALL, so a rebuilt terrain stamps ONE walk/event id across the block -- a walkability bug no gate
+    can see; ``allow_uniform_terrain_idall=True`` is the explicit opt-out for a bench prop), and geometry escaping
+    the target block's local frame is refused before the deploy (an out-of-frame vertex is culled or garbage
+    in-game). A degenerate-triangle count rides the summary as a warning -- not a refusal."""
+    if part.lower() == "terrain" and not allow_uniform_terrain_idall:
+        raise ValueError(
+            "world-mesh-build cannot rebuild TERRAIN: the OBJ round-trip cannot carry the per-triangle "
+            "IDALL (walk/event/area ids), so the rebuilt block would wear ONE uniform id -- a walkability "
+            "edit no gate can see. Use the real terrain paths: `world-terrain` (reshape stock verts), "
+            "`world-transplant` (carry a real donor), `world-mountain`/`world-forest`/`world-hill` "
+            "(interior relief). Pass allow_uniform_terrain_idall=True only for a bench prop where a "
+            "uniform-IDALL sheet is genuinely intended.")
     obj = read_obj(obj_path)
     V = obj["V"]
     if not V:
@@ -255,11 +342,40 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
         variant = tile[1] if tile is not None else 0
         bm = PAL.apply_palette_uvs(bm, disc=disc, part=part, topograph=topo, variant=variant, game=game)
         textured = 1 if bm is not before else 0
+    # THE BLOCK-FRAME GATE (audit rec 15, fail-closed): an out-of-frame vertex is culled or
+    # garbage geometry in-game -- the engine renders each block in its own local frame. This
+    # is the one structural class the gates-are-not-oracles law does not cover; a refusal is
+    # free where a mis-deploy costs a playtest. (NO weld_audit here: it is calibrated on
+    # carried stock geometry and would false-refuse legitimate hand-modeled buildings.)
+    from .transplant import FRAME_EPS
+    pos = bm.chan_arrays[W.CH_POS]
+    xs2 = [v[0] for v in pos]
+    zs2 = [v[2] for v in pos]
+    bbox = (min(xs2), max(xs2), min(zs2), max(zs2))
+    if not (-FRAME_EPS <= bbox[0] and bbox[1] <= 64.0 + FRAME_EPS
+            and -64.0 - FRAME_EPS <= bbox[2] and bbox[3] <= FRAME_EPS):
+        tx2, ty2 = into_block
+        raise ValueError(
+            f"OBJ geometry escapes block ({tx2},{ty2})'s frame: local bbox "
+            f"x[{bbox[0]:.3f},{bbox[1]:.3f}] z[{bbox[2]:.3f},{bbox[3]:.3f}] vs the legal "
+            f"x[0,64] z[-64,0] (tol {FRAME_EPS}). An out-of-frame vertex renders culled or as "
+            f"garbage. Split the model per block (one world-mesh-build each), or re-position "
+            f"with --at WX WZ (the block spans world x[{tx2 * 64},{tx2 * 64 + 64}] "
+            f"z[{-ty2 * 64 - 64},{-ty2 * 64}]).")
+    degenerate = 0
+    for t in bm.tris:
+        p0, p1, p2 = (pos[t[0]], pos[t[1]], pos[t[2]])
+        ux, uy, uz = p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]
+        wx, wy, wz = p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]
+        cx, cy, cz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+        if cx * cx + cy * cy + cz * cz < 1e-12:
+            degenerate += 1
     dest = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part.capitalize())
     from . import discmirror as DM
     DM.auto_mirror([dest], mod_folder=mod_folder, skip_mirror=skip_mirror)
     from .extract import encode_id
     return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris),
             "kept_stock": merged_with_stock, "replaced_stock_tris": replaced_stock_tris, "textured": bool(textured),
+            "degenerate_tris": degenerate,
             "idall": (int(idall) & 0xFFFF) if idall is not None else encode_id(topograph=topograph),
             "written": [str(dest)]}

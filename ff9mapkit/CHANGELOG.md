@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the DCC bridge split: fail-closed write path, permissive read path
+- **The TERRAIN rebuild lane is CLOSED.** `world-mesh-build --part` now offers `object`
+  only, and `blendio.build_from_obj(part="terrain")` refuses with a message naming the
+  real terrain paths (`world-terrain` reshape, `world-transplant` carry, the interior
+  relief verbs): the OBJ round-trip cannot carry per-triangle IDALL, so a rebuilt terrain
+  would wear ONE uniform walk/event id — a walkability bug no gate can see. A face-index
+  IDALL sidecar was rejected (Blender does not guarantee face count/order across an
+  edit); `allow_uniform_terrain_idall=True` remains as the explicit bench-prop escape.
+  Exporting terrain to LOOK at it is untouched.
+- **THE BLOCK-FRAME GATE**: `build_from_obj` now refuses, before the deploy, any build
+  whose local bbox escapes the block frame (x∉[0,64] / z∉[−64,0] beyond `FRAME_EPS`) —
+  an out-of-frame vertex is culled or garbage in-game, and the two shipped test fixtures
+  that had quietly modelled north of their block prove the class is real. A
+  degenerate-triangle count rides the summary as a printed warning, never a refusal.
+  (No `weld_audit` here — it is calibrated on carried stock and would false-refuse
+  hand-modeled buildings.)
+- **THE DEPLOYED-INSPECTION EXPORT**: `world-mesh-export --mod-folder` routes every
+  block read through `entrance.read_block_stacked` (override-first), so the OBJ shows
+  what the engine will actually LOAD — kit output included; `--part all` exports every
+  carried part with a sidecar `.mtl`: the real extracted atlas (`map_Kd`) for
+  terrain/object and colour-coded flat materials for the beach/sea ring, so the ring
+  ladder reads at a glance in Blender. Read-only and permissive (a missing part skips, a
+  failed atlas extract degrades to untextured). Audit rec 15.
+
 ### Added — THE T-JUNCTION DIFFERENTIAL gate on every transplant build
 - Both carry builders (`transplant` / `transplant_region`, i.e. every `world-transplant`)
   now gate on MINTED T-junctions — a vertex resting in the interior of another face's
