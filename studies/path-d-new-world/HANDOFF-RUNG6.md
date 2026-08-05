@@ -5,6 +5,19 @@
 > before writing anything. Where this file and PLAN.md disagree, PLAN.md wins, except where
 > a "NEW SINCE PLAN" note below records a capability that postdates it.
 
+> ⚠ **CORRECTED 2026-08-05 (Rung 6 session, byte-verified against the live install):** point 2
+> below is WRONG — 9013's `.eb` is NOT blank. It is a byte-exact per-locale clone of pristine
+> stock WORLD11 (sha-matched, all 7 langs), so it already carries the full base-2 AREA switch
+> (41 live / 18 dead arms), func-0xB, 41 inherited cell-tag triggers, and the entry-14 arrival
+> mechanism (`mapIndex==0` → stamp WORLD11's stock default; nonzero → the persisted world-position
+> record, i.e. `worldexit.arrive_writes()`'s exact vars). No switch-from-zero, no
+> `cmdasm.assemble_block`, no eb-src authoring is needed for the exit. Point 3's sub-spike is
+> CONFIRMED and stronger than hoped: `entrance_func_body_direct(dest, world_state=9013,
+> prompt=True, dispatchers=load_world_dispatchers(game))` + `eb.edit.add_function` splice
+> cleanly onto WORLD13's raw bytes (proven offline on the live bytes; only `author_entrance`
+> itself is p0data-locked). eb-src round-trips the file but object-0 is a `raw=` entry —
+> verifier only. See `rung6/` in this study dir for the build.
+
 ## Mission
 
 A real field can `WMAPJUMP` (field opcode `0xB6`) into world id **9013**, and 9013 can
