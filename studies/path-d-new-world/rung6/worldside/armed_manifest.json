@@ -38,5 +38,25 @@
    "walkable_only": true,
    "armed_tris": 103
   }
+ ],
+ "6,11": [
+  {
+   "armed_md5": "d852632ab7d9fb9bc498ee82b4bd43ac",
+   "from_md5": "1161abc70191544551a30a32b2fcea61",
+   "from_accepted_bench": false,
+   "utc": "2026-08-05T18:25:07+00:00",
+   "cell": [
+    13,
+    22
+   ],
+   "event": 1,
+   "center": [
+    428.0,
+    -721.0
+   ],
+   "radius": 9.0,
+   "walkable_only": true,
+   "armed_tris": 31
+  }
  ]
 }
