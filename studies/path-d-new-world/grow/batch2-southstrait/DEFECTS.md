@@ -48,10 +48,14 @@ fragment → rim → wangs.
 
 ## Flagged, NOT fixed (owner's call, each its own round)
 
-- **c4 — the green twin wedge** in `Block[6][10]` (18 tris, cut at x 386.9–397.6, z=−640,
-  ~78u² hole). Same cut class, but its hole is flanked by sea4 west / sea3-sea5 east — no
-  single band is lawful; needs a 3-band mini-ladder. Reads as part of the horseshoe from
-  a distance (green), which is why it wasn't reported.
+- **c4 — FIXED (2026-08-05, `fix_c4.py`):** the twin toe dropped (18 tris) + a 3-band
+  lattice ladder (sea4 | sea5 separator at x=392 | sea3 at x=396; the forced cell (2,1)
+  was the whole reason one band could not work; the free cell (1,0) decided by the stock
+  bigram oracle, min support 24). Three c2-machinery corrections shipped inside it:
+  the coastnav orphan proxy replaced by the classifier itself (13 stale classes the
+  radius test exonerated), zero repaints of spanning tiles, and THE UV WELD at lattice
+  crossings. All gates green incl. the wang census + bigram oracle (nothing introduced);
+  Block[6][10] only; armed file untouched.
 - **The north frame is structurally off-language**: `Block[6][10]` runs 7 `N|N` tips in a
   row (stock: 0) — a straight crop line cannot be tiled in a language whose transition band
   never runs straight more than one cell. A rim-retile redesign class, not a per-tile fix.
