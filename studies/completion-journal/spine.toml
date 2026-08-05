@@ -1,0 +1,362 @@
+# The walkthrough spine -- SCHEMA.md's [[section]] layer, draft 1.
+#
+# Main-path sections come 1:1 from the kit's curated 52-anchor table
+# (ff9mapkit/flags.py SCENARIO_MILESTONES -- in-game-validated at SC 7200), with
+# same-place consecutive anchors merged. `sc.leave` = the NEXT section's enter
+# (SC is the game's own linear clock; Q2b proved every write is an absolute
+# literal, so these windows cannot be invalidated by a delta).
+# Side sections (side = true) are re-visitable content: `sc.enter` = first
+# availability, `sc.leave = 0` = never closes (0 is the open sentinel).
+# `areas` (manifest area ids) are filled by the generator pass, not by hand.
+#
+# DISC BOUNDARIES are walkthrough structure only -- nothing in the save encodes
+# the disc; they anchor section grouping in the UI.
+
+# ---------------------------------------------------------------- disc 1
+[[section]]
+id = "d1.prima-vista"
+disc = 1
+title = "The Prima Vista"
+sc = { enter = 1000, leave = 2020 }
+
+[[section]]
+id = "d1.evil-forest"
+disc = 1
+title = "Evil Forest"
+sc = { enter = 2020, leave = 2500 }   # merges anchors 2020 + 2300
+
+[[section]]
+id = "d1.ice-cavern"
+disc = 1
+title = "Ice Cavern"
+sc = { enter = 2500, leave = 2600 }
+
+[[section]]
+id = "d1.dali"
+disc = 1
+title = "Dali"
+sc = { enter = 2600, leave = 2800 }   # merges 2600 + 2700 (underground)
+
+[[section]]
+id = "d1.observatory-mountain"
+disc = 1
+title = "Observatory Mountain"
+sc = { enter = 2800, leave = 2910 }
+
+[[section]]
+id = "d1.cargo-ship"
+disc = 1
+title = "The Cargo Ship"
+sc = { enter = 2910, leave = 3000 }
+
+[[section]]
+id = "d1.lindblum"
+disc = 1
+title = "Lindblum & the Festival of the Hunt"
+sc = { enter = 3000, leave = 3710 }   # merges 3000 (castle) + 3100 (town)
+
+[[section]]
+id = "d1.gizamaluke"
+disc = 1
+title = "Gizamaluke's Grotto"
+sc = { enter = 3710, leave = 3750 }
+
+[[section]]
+id = "d1.south-gate"
+disc = 1
+title = "South Gate"
+sc = { enter = 3750, leave = 3800 }
+
+[[section]]
+id = "d1.burmecia"
+disc = 1
+title = "Burmecia"
+sc = { enter = 3800, leave = 4445 }
+
+# ---------------------------------------------------------------- disc 2
+[[section]]
+id = "d2.treno"
+disc = 2
+title = "Treno"
+sc = { enter = 4445, leave = 4500 }
+
+[[section]]
+id = "d2.gargan-roo"
+disc = 2
+title = "Gargan Roo"
+sc = { enter = 4500, leave = 4600 }
+
+[[section]]
+id = "d2.alexandria-castle"
+disc = 2
+title = "Alexandria Castle (Garnet's return)"
+sc = { enter = 4600, leave = 4650 }
+
+[[section]]
+id = "d2.cleyra"
+disc = 2
+title = "Cleyra"
+sc = { enter = 4650, leave = 4990 }
+
+[[section]]
+id = "d2.red-rose"
+disc = 2
+title = "The Red Rose"
+sc = { enter = 4990, leave = 5030 }
+
+[[section]]
+id = "d2.alexandria-rescue"
+disc = 2
+title = "Alexandria Castle (the rescue)"
+sc = { enter = 5030, leave = 5510 }
+
+[[section]]
+id = "d2.pinnacle-rocks"
+disc = 2
+title = "Pinnacle Rocks"
+sc = { enter = 5510, leave = 5660 }
+
+[[section]]
+id = "d2.lindblum-occupied"
+disc = 2
+title = "Lindblum under occupation"
+sc = { enter = 5660, leave = 5900 }
+
+[[section]]
+id = "d2.fossil-roo"
+disc = 2
+title = "Fossil Roo"
+sc = { enter = 5900, leave = 6100 }
+
+[[section]]
+id = "d2.conde-petie"
+disc = 2
+title = "Conde Petie"
+sc = { enter = 6100, leave = 6300 }
+
+[[section]]
+id = "d2.mountain-path"
+disc = 2
+title = "Conde Petie Mountain Path"
+sc = { enter = 6300, leave = 6600 }
+
+[[section]]
+id = "d2.madain-sari"
+disc = 2
+title = "Madain Sari"
+sc = { enter = 6600, leave = 6700 }
+
+[[section]]
+id = "d2.iifa-tree"
+disc = 2
+title = "The Iifa Tree"
+sc = { enter = 6700, leave = 6800 }
+
+[[section]]
+id = "d2.madain-sari-return"
+disc = 2
+title = "Madain Sari (Amarant)"
+sc = { enter = 6800, leave = 6900 }
+
+[[section]]
+id = "d2.iifa-finale"
+disc = 2
+title = "The Iifa Tree (the fleet)"
+sc = { enter = 6900, leave = 7010 }
+
+# ---------------------------------------------------------------- disc 3
+[[section]]
+id = "d3.alexandria"
+disc = 3
+title = "Alexandria (the coronation)"
+sc = { enter = 7010, leave = 7550 }   # merges 7010 + 7200 (castle)
+
+[[section]]
+id = "d3.treno-tournament"
+disc = 3
+title = "Treno -- the Card Tournament"
+sc = { enter = 7550, leave = 8000 }
+
+[[section]]
+id = "d3.alexandria-attack"
+disc = 3
+title = "Alexandria under attack"
+sc = { enter = 8000, leave = 9000 }   # merges 8000 + 8400 (castle)
+
+[[section]]
+id = "d3.lindblum-regroup"
+disc = 3
+title = "Lindblum (the regroup)"
+sc = { enter = 9000, leave = 9400 }
+
+[[section]]
+id = "d3.blue-narciss"
+disc = 3
+title = "The Blue Narciss"
+sc = { enter = 9400, leave = 9510 }
+
+[[section]]
+id = "d3.desert-palace"
+disc = 3
+title = "The Desert Palace"
+sc = { enter = 9510, leave = 9605 }
+
+[[section]]
+id = "d3.oeilvert"
+disc = 3
+title = "Oeilvert"
+sc = { enter = 9605, leave = 9800 }
+
+[[section]]
+id = "d3.desert-palace-return"
+disc = 3
+title = "The Desert Palace (the rescue)"
+sc = { enter = 9800, leave = 9990 }   # IsEikoAbducted: 9860 <= SC < 9990 (EventState.cs:36)
+
+[[section]]
+id = "d3.mount-gulug"
+disc = 3
+title = "Mount Gulug"
+sc = { enter = 9990, leave = 10000 }
+
+[[section]]
+id = "d3.lindblum-hilda"
+disc = 3
+title = "Lindblum Castle (Hilda's return)"
+sc = { enter = 10000, leave = 10400 }
+
+[[section]]
+id = "d3.alexandria-respite"
+disc = 3
+title = "Alexandria Castle (the respite)"
+sc = { enter = 10400, leave = 10500 }
+
+[[section]]
+id = "d3.ipsens-castle"
+disc = 3
+title = "Ipsen's Castle"
+sc = { enter = 10500, leave = 10600 }
+
+[[section]]
+id = "d3.four-shrines"
+disc = 3
+title = "The Four Shrines"
+sc = { enter = 10600, leave = 10830 }   # merges 10600 HG3 + 10620 Water + 10670 Earth
+
+[[section]]
+id = "d3.terra"
+disc = 3
+title = "Terra"
+sc = { enter = 10830, leave = 10900 }
+
+[[section]]
+id = "d3.bran-bal"
+disc = 3
+title = "Bran Bal"
+sc = { enter = 10900, leave = 10930 }
+
+[[section]]
+id = "d3.pandemonium"
+disc = 3
+title = "Pandemonium"
+sc = { enter = 10930, leave = 11100 }
+
+# ---------------------------------------------------------------- disc 4
+[[section]]
+id = "d4.invincible"
+disc = 4
+title = "The Invincible"
+sc = { enter = 11100, leave = 11610 }
+
+[[section]]
+id = "d4.memoria"
+disc = 4
+title = "Memoria"
+sc = { enter = 11610, leave = 11765 }
+
+[[section]]
+id = "d4.crystal-world"
+disc = 4
+title = "The Crystal World"
+sc = { enter = 11765, leave = 65535 }   # covers the 12000 ending anchor; nothing follows
+
+# ------------------------------------------------- side content (side = true)
+# sc.enter = first availability (main-path anchor it unlocks behind);
+# sc.leave = 0 (open) unless the content itself closes.
+
+[[section]]
+id = "side.chocobo-hot-cold"
+disc = 0
+side = true
+title = "Chocobo Hot & Cold"
+sc = { enter = 5900, leave = 0 }      # Chocobo's Forest opens on the way to Fossil Roo
+
+[[section]]
+id = "side.stellazzio"
+disc = 0
+side = true
+title = "The Stellazzio Coins"
+sc = { enter = 4445, leave = 0 }      # Queen Stella, Treno (coins collectible from disc 1)
+
+[[section]]
+id = "side.mognet"
+disc = 0
+side = true
+title = "Mognet & Mognet Central"
+sc = { enter = 1000, leave = 0 }
+
+[[section]]
+id = "side.quans-dwelling"
+disc = 0
+side = true
+title = "Quan's Dwelling"
+sc = { enter = 3000, leave = 0 }
+
+[[section]]
+id = "side.daguerreo"
+disc = 0
+side = true
+title = "Daguerreo"
+sc = { enter = 9400, leave = 0 }
+
+[[section]]
+id = "side.treno-auction"
+disc = 0
+side = true
+title = "The Treno Auction House"
+sc = { enter = 4445, leave = 0 }
+
+[[section]]
+id = "side.frog-catching"
+disc = 0
+side = true
+title = "Frog Catching (Qu's Marshes)"
+sc = { enter = 3100, leave = 0 }
+
+[[section]]
+id = "side.ragtime-mouse"
+disc = 0
+side = true
+title = "Ragtime Mouse"
+sc = { enter = 2020, leave = 0 }
+
+[[section]]
+id = "side.friendly-monsters"
+disc = 0
+side = true
+title = "The Friendly Monsters"
+sc = { enter = 2500, leave = 0 }
+
+[[section]]
+id = "side.chocographs"
+disc = 0
+side = true
+title = "Chocographs"
+sc = { enter = 5900, leave = 0 }
+
+[[section]]
+id = "side.excalibur2"
+disc = 0
+side = true
+title = "Excalibur II"
+sc = { enter = 11610, leave = 0 }     # Memoria, sub-12h -- run_mode content
