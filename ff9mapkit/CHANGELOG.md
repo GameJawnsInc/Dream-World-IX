@@ -6,7 +6,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 ## [Unreleased]
 
 ### Added — `polled` / `no_focus`: a window a turbo session cannot eat
-- **`[[choice.options]] polled = true`** swaps a reply from the ordinary blocking window to the shape
+- **`polled = true`** on a `[[choice.options]]` — or an `[ate]` option, the second lane into the same
+  emitter — swaps a reply from the ordinary blocking window to the shape
   a page the player must *read* actually needs: **open async → hold → poll for a real button edge →
   close from the script** (32 bytes, values published before the open so the width bakes over the real
   numbers). A blocking window cannot be turbo-proofed at all — every tag that survives a latched **F9**
@@ -19,13 +20,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   exact configuration it serves: same symptom, new mechanism. A polled window therefore ships **three
   independent guards** — a poll-safe `style` (structural, refused at the emitter), `[NFOC]`, `[NTUR]`.
 - **New `no_focus` key** on every dialogue-bearing block emits `[NFOC]` (button-inhibit + no choice
-  reset). On a **blocking** reply it is an unconditional softlock, and `lint` now refuses that pairing
-  — including `hold = true`, which shipped as a legal-looking key and had no check at all.
+  reset). On any **blocking** window it is an unconditional softlock, and `lint` refuses it on *every*
+  such block — `[[npc]]`, `[[prop]]`, `[[event]]`, `[[on_entry]]`, `[[coop]]`, a cutscene `say`, and a
+  `[[choice]]`/`[ate]` option reply — together with `hold = true` and a literal `[NFOC]`/`[TIME=-1]`,
+  none of which had any check at all before. A cutscene `open` step is the async exception: the hold
+  is load-bearing there and the window ledger already enforces its `close`.
+- **`polled` is refused where it is not wired.** The key is *read* on every dialogue block (it
+  defaults `no_focus` on), so `[[npc]] polled = true` used to mint that same softlock while the
+  schema lint claimed the build never read it. `lint` now refuses the key outside its two emitting
+  lanes and the schema message says what really happens.
 - **`no_turbo` no longer discards an explicit `true` on a held window.** The rule opened with “an
   already-inhibited window needs nothing”, which made *inhibited **and** turbo-proof* unrepresentable
   — precisely the polled page's shape. `lint` also checks the emitted `.mes` entry of a polled row for
-  both tags and refuses `[IMME]` / `[PAGE]` / `[WDTH]` / any `duration`, each a different in-game-only
-  failure.
+  both tags and refuses `[IMME]` / `[PAGE]` / `[WDTH=…]` / any `duration`, each a different
+  in-game-only failure. (The width arm was keyed on a valueless `[WDTH]` the engine never writes, so
+  it could not fire; it matches the real `[WDTH=…]` form now, and `[WDTH]` is refused because the
+  engine *dummies* it, not because it changes a width.)
 - The shape is one of stock's most common idioms (2,034 `WindowAsync`+poll sites across 115 shipping
   fields), not an invention; Chocobo's Forest counts your catches exactly this way.
 

@@ -502,8 +502,10 @@ def page_body_async(exprs, page_txid: int, *, window: int = PAGE_WINDOW,
 
     Identical publish half to :func:`page_body` -- same expressions, same slots, same clamps, same
     publish-BEFORE-open ordering (``Dialog.AutomaticSize`` bakes the width once, at open). The only
-    difference is the window: :func:`content.event.polled_window` instead of ``WindowSync``, +27
-    bytes per page.
+    difference is the window: :func:`content.event.polled_window` instead of ``WindowSync``, **+26
+    bytes per page** -- the 32-byte poll block replaces a 6-byte ``WindowSync``. (The design costed
+    the delta at +27 because it costed ``WindowSync`` at 5 bytes; every opcode >= 0x10 with operands
+    also carries an argFlag byte, ``eb/opcodes.encode:57-58``.)
 
     WHY THIS EXISTS AT ALL. `TurboDialog` defaults to ON and F9 latches it for the whole session with
     no on-screen indicator, and a turbo session closes a finished window with no input. A dashboard
@@ -603,7 +605,7 @@ def measure_pages(*, pages=PAGES) -> list:
     out = []
     for p in pages:
         text, exprs = render_page(p)
-        # measured on the shape this page ACTUALLY emits (+27 bytes for a polled one), so the
+        # measured on the shape this page ACTUALLY emits (+26 bytes for a polled one), so the
         # reported eb_bytes is the page's real cost rather than the shape it used to have
         body = (page_body_async if p.polled else page_body)(
             exprs, 700, flags=(POLLED_PAGE_FLAGS if p.polled else PAGE_FLAGS),

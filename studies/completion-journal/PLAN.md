@@ -1271,9 +1271,14 @@ proven shape (assembled + disassembled offline, 32 bytes/page): **`WindowAsync`
 with flags 0** (Plain style — structurally outside arm B's predicate) **+
 `[NTUR][NFOC]` + a `B_KEYON(0xB0000)` poll + `Wait(8)` debounce + `CloseWindow`
 + `Wait(4)`**, values published before the open so AutomaticSize bakes real
-widths. The shape is STOCK-COMMON — 2,034 poll-adjacent-async sites across 115
-fields — so this is not a shape stock never builds. Kit gaps to close while
-building it: `want_no_turbo` (content/text.py:399-408) is **backwards** for
+widths. **CORRECTED COST: +26 bytes per page, not the +27 this design costed**
+— the 32-byte block replaces a **6**-byte `WindowSync`, not a 5-byte one (every
+opcode ≥ 0x10 with operands carries an argFlag byte, `eb/opcodes.encode:57-58`);
+measured on the built 30801 artifact, 4693 → 4719. The shape is STOCK-COMMON —
+2,034 poll-adjacent-async sites across 115 fields — so this is not a shape stock
+never builds. Kit gaps to close while building it (**all now CLOSED** — see
+`ff9mapkit/CHANGELOG.md` and SURVEY.md §7a-bis-2):
+`want_no_turbo` (content/text.py:494 post-fix; was :399-408) is **backwards** for
 inhibited windows (suppresses `[NTUR]` exactly where arm B needs it);
 `hold = true` on a SYNC reply emits `[TIME=-1]` on a `WindowSync` — an
 unconditional softlock nothing lints; no `[NFOC]` authoring key; no polled-page
@@ -1281,6 +1286,41 @@ concept; three private button-mask tables and no style↔turbo law. Cross-lane
 exposure (recorded, out of this arc's scope): `[[qte]]`, `[[behavior.hud]]`,
 and numinput all open Auto/Transparent inhibited windows while polling — inside
 arm B's predicate — so a latched F9 can resolve a QTE with no press.
+
+### ★ THE BUILD ROUND — v2.2 atlas + the turbo-proof story page (unplaytested)
+
+Two build lanes, each adversarially verified twice; every verifier defect closed
+and re-proven. **The defect followed the authorship all four times** — every
+fresh defect landed on the round's newest surface (the weak-class promotion, the
+tag policy), never on the mechanism.
+
+- **`treasure_join` v2.2 — 410 reward events over 410 latch bits, 15/15 gates,
+  each gate broken once on purpose.** The v2.1→v2.2 delta, all from the
+  re-verify: `post_dom` now tells the truth about exit-less functions (14.1% of
+  the corpus; the label is `indeterminate-no-exit`, never a phantom "sibling
+  arm"); the shared-writer rule is a JOIN rule for every class (a synthetic
+  in-process gate breaks it each run) — and it mirrors the corpus gate EXACTLY:
+  the weak-row census's `written-by-N-rooms` heuristic briefly applied to
+  strong rows collapsed the atlas 410→333 by killing legitimate multi-room
+  chests (Cleyra Sandpit/Inn). Weak-class rows promote only through the
+  writer/clearer census (23 rows → 11 promote / 11 refuse, every clause born
+  from a proven row). The clear-side census exists (94 bits cleared live, 29 by
+  a Main_Init; f706 zeroes three of its own chest bits and the events say so).
+- **The turbo-proof story page — SHIP verdict, byte-exact, pages 1-6 the
+  in-field control.** `content/event.polled_window()` (refuses arm-B styles and
+  bad masks at the emitter), `want_no_turbo` repaired with proof the reorder
+  only ADDS `[NTUR]`, the sync-hold/no-focus softlock refused on EVERY
+  dialogue-bearing lane (not just `[[choice]]`), `polled` refused outside its
+  two wired lanes, the `[WDTH]` forbidden-tag arm made fireable, and a
+  non-verbatim `[[prop]] dialogue` now refuses as NOT-WIRED (it silently
+  dropped before — the sweep's softlock refusal there was false). 401 tests in
+  the domain+adjacent set, zero skips (this worktree currently HAS templates).
+- **Cost:** +26 bytes/page (measured; the design's +27 forgot WindowSync's
+  argFlag byte).
+
+**NEXT = the 30801 playtest**: rank letter + hunt winner (round 6) AND the
+polled story page (A/B vs the six sync pages). Every observation must state the
+F9 state.
 
 ### 7.2 The other open questions, in the order they gate work
 

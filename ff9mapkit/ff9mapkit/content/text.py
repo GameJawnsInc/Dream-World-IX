@@ -358,10 +358,20 @@ NO_TURBO_TAG = "[NTUR]"
 NO_FOCUS_TAG = "[NFOC]"       # FlagButtonInh = true AND FlagResetChoice = false (DialogBoxSymbols.cs:593-598)
 
 #: The author key that declares a window SCRIPT-POLLED: opened async, held, watched for a real
-#: button edge by the script, and closed by the script. Only ``[[choice.options]]`` wires it today
-#: (content/choice.py -> content/event.polled_window); :func:`window_polled` reads it through a
+#: button edge by the script, and closed by the script. :func:`window_polled` reads it through a
 #: plain copy so this module's universal call sites do not harvest it into every block's vocabulary.
 POLLED_KEY = "polled"
+
+#: The authoring lanes that WIRE :data:`POLLED_KEY`. Both reach ``content.choice.option_body``,
+#: which is the ONLY call site in the kit that emits ``content.event.polled_window``.
+#:
+#: ⚠ THE KEY IS READ EVERYWHERE AND WIRED ONLY HERE, and that gap was a live softlock mint:
+#: :func:`window_polled` runs from :func:`dress_window`, which every dialogue-bearing block routes
+#: through, so ``[[npc]] polled = true`` defaulted ``[NFOC]`` ON -- onto a BLOCKING ``WindowSync``
+#: with no script close -- while the schema lint told the author the build never read the key.
+#: The plain-copy read keeps ``polled`` out of those blocks' harvested VOCAB; it does NOT make the
+#: key inert. ``build.validate`` REFUSES it outside these lanes (:func:`polled_lane_problem`).
+POLLED_LANES = ("[[choice.options]]", "[ate] options")
 
 #: The two ``Dialog.WindowStyle`` values arm B's predicate names (Dialog.cs:1921-1927).
 TURBO_INJECTABLE_STYLES = ("WindowStyleAuto", "WindowStyleTransparent")
@@ -399,8 +409,14 @@ def window_polled(src: dict) -> bool:
     :func:`dress_window`, which every dialogue-bearing block routes through at ``collect_text``, and
     ``src.get`` on a live tree is a schema PROBE (``fieldschema._Spy.get``). Probing here would
     harvest ``polled`` into the vocabulary of ``[[npc]]``, ``[[prop]]``, ``[cutscene]`` and every
-    other block that does NOT wire it, blessing ``[[npc]] polled = true`` as a legal no-op key.
-    ``dict(src)`` records nothing (``fieldschema._Spy`` docstring) and the values are unchanged."""
+    other block that does NOT wire it. ``dict(src)`` records nothing (``fieldschema._Spy``
+    docstring) and the values are unchanged.
+
+    ⚠ WHAT THE PLAIN COPY DOES **NOT** DO. It hides the key from the harvested VOCAB; it does not
+    make it inert. This function still returns True for ``[[npc]] polled = true``, and
+    :func:`want_no_focus` still defaults ``[NFOC]`` on from it -- onto a BLOCKING ``WindowSync``
+    with no script close, i.e. the ``wait == 254`` softlock. Only :data:`POLLED_LANES` WIRE the
+    key; ``build.validate`` refuses it everywhere else (:func:`polled_lane_problem`)."""
     if isinstance(src, dict):
         return bool(dict(src).get(POLLED_KEY))
     return False
@@ -517,19 +533,106 @@ def want_no_focus(src: dict, line: str) -> bool:
     return window_polled(src)
 
 
+#: Every way an author can put ``Dialog.FlagButtonInh`` on a window, as ``(key, the tag it emits)``
+#: and the literal spellings of those tags. ONE table, read by :func:`hold_sources`, so a new
+#: inhibitor key cannot be added to :func:`dress_window` without landing in the softlock rule too.
+#: ``duration`` is deliberately absent: ``[TIME=n>0]`` auto-closes, so the window ends on its own
+#: and the blocked script is released (``duration = 0`` clears the flag outright).
+HOLD_KEYS = (("hold", HOLD_TAG), ("no_focus", NO_FOCUS_TAG))
+HOLD_LITERALS = (HOLD_TAG, NO_FOCUS_TAG)
+
+
+def hold_sources(src: dict, body: str) -> list:
+    """Every reason this window would ship dismiss-INHIBITED, named the way the author spelled it
+    (a key, or the literal tag written straight into the body). Empty list = the player's own
+    Confirm can still close it."""
+    out = [f"`{key} = true` ({tag})" for key, tag in HOLD_KEYS if src.get(key)]
+    out += [f"a literal {tag} in the text" for tag in HOLD_LITERALS if tag in str(body or "")]
+    return out
+
+
+def sync_hold_problems(src: dict, body: str) -> list:
+    """★ THE SYNC-HOLD SOFTLOCK RULE -- returns message tails (the caller prefixes the block's
+    identity), empty when the window is safe.
+
+    Score this on any block whose window is a BLOCKING ``WindowSync`` (0x1F) that no script close
+    follows -- which is every ordinary dialogue block in the kit: ``[[npc]]``, ``[[prop]]``,
+    ``[[event]]``, ``[[on_entry]]``, ``[[coop]]``, a ``[[choice]]`` prompt, a cutscene ``say`` step,
+    and any option ``reply`` that is not :data:`POLLED_KEY`. ``WindowSync`` parks the script on
+    ``gCur.wait = 254`` and the engine's ONLY escape is ``!ETb.MesWinActive(winnum)``, i.e. the
+    window closing (EBin.cs:137-148) -- while every :data:`HOLD_KEYS` tag makes
+    ``Dialog.OnKeyConfirm``'s ``!this.ignoreInputFlag`` guard false (Dialog.cs:789), so NO press can
+    ever close it. The field hangs with a window up and control locked.
+
+    ⚠ UNCONDITIONAL. It does not depend on turbo, on ``instant``, or on what the player does -- and
+    it is the reason the rule cannot live in the ``[[choice]]`` option loop where it was born: the
+    keys are universal (``no_focus`` was added to the VOCAB of npc/prop/event/cutscene steps in the
+    same change that linted only choice replies), so an ``[[npc]] no_focus = true`` validated clean
+    and shipped the hang. The legitimate homes are the two shapes that close their own window: a
+    cutscene ``open`` step (async + an explicit ``close``) and a :data:`POLLED_KEY` reply."""
+    srcs = hold_sources(src, body)
+    if not srcs:
+        return []
+    return [f": {' and '.join(srcs)} on a BLOCKING window is an unconditional SOFTLOCK. The window "
+            f"is a WindowSync (0x1F), which parks the script on gCur.wait == 254 until the window "
+            f"closes (EBin.cs:137-148), and FlagButtonInh means Dialog.OnKeyConfirm never closes it "
+            f"(Dialog.cs:789) -- no press, ever. Drop the hold and let the player dismiss it, or "
+            f"move the line to a shape that closes its own window: a cutscene `open` step (with a "
+            f"matching `close`), or a reply with `polled = true` ({' / '.join(POLLED_LANES)})."]
+
+
+def polled_lane_problem(label: str) -> str:
+    """The refusal for :data:`POLLED_KEY` on a block that does not WIRE it (:data:`POLLED_LANES`).
+
+    Not a style nit: the key is READ on every block (:func:`window_polled` runs from
+    :func:`dress_window`) and defaults ``[NFOC]`` on, so an unwired ``polled = true`` ships the
+    exact :func:`sync_hold_problems` softlock with none of the async machinery that makes it safe."""
+    return (f"{label}: `{POLLED_KEY}` is not wired on this block -- it is read only by "
+            f"{' and '.join(POLLED_LANES)}, which route through content.choice.option_body and "
+            f"emit the async open + B_KEYON poll + script close. Here it is NOT ignored: "
+            f"content.text.window_polled runs from dress_window on every dialogue block, so it "
+            f"would default [NFOC] onto a BLOCKING WindowSync with no close -- the gCur.wait == 254 "
+            f"hang (EBin.cs:137-148). Drop the key, or move this line to an option reply.")
+
+
 #: Tags that break the polled-page primitive, each in a different in-game-only way. Checked by
 #: :func:`polled_window_problems`, never by the emitter -- the .eb shape and the .mes entry are
 #: produced by two lanes that only meet at build, so no single emitter can make these unrepresentable.
+#:
+#: ⚠ KEYED ON THE MATCH TOKEN, NOT THE PRETTY NAME. A PARAMETERISED tag must be keyed by its
+#: ``[NAME=`` prefix, because that is the only form that exists in the bytes: this table shipped
+#: with a valueless ``"[WDTH]"`` key, which the engine never writes and the kit never emits
+#: (:func:`width_hint` emits ``[WDTH=0,...]``), so that arm COULD NOT FIRE and a real
+#: ``[WDTH=0,69,14,0,-1]`` reached a shipped polled entry with ``validate`` silent -- a check that
+#: cannot fail. :func:`polled_window_problems` prints a ``[NAME=...]`` form for these keys.
 POLL_FORBIDDEN_TAGS = {
     "[IMME]": ("the reply pops fully drawn, so the very confirm that PICKED the row finds a "
                "finished window and dismisses it on arrival (THE BROADCAST-CONFIRM LAW)"),
     "[PAGE]": ("CloseWindow TURNS THE PAGE instead of closing on a paged entry "
                "(Dialog.Hide short-circuits while pages remain, Dialog.cs:616-624), so the poll's "
                "close leaves a live window behind"),
-    "[WDTH]": ("re-opens the OnWidths decoder path; a polled readout sizes itself from the values "
-               "published before the open (Dialog.AutomaticSize)"),
+    # NOT a width rule -- [WDTH] IS DUMMIED (studies/messages/SURVEY.md:144): ApplyFormatTag
+    # consumes it and does nothing ("Unused anymore... variable width is now automatically
+    # handled", DialogBoxSymbols.cs:650-653) and the OnWidths body :905-935 is dead. The refusal
+    # is about keeping a DEAD tag out of the one entry whose geometry has to be reasoned about
+    # exactly: a polled page bakes its size ONCE, at the async open, from the values published
+    # just before it (Dialog.AutomaticSize) -- an inert width hint in that entry reads like the
+    # thing that sized it and sends the next author debugging a tag the engine ignores.
+    "[WDTH=": ("that tag is DUMMIED. ApplyFormatTag consumes it and does nothing "
+               "(DialogBoxSymbols.cs:650-653, \"Unused anymore... variable width is now "
+               "automatically handled\"; the OnWidths body :905-935 is dead -- "
+               "studies/messages/SURVEY.md:144), so it sizes NOTHING. On a polled page that makes "
+               "it a dead tag standing exactly where the real mechanism is: the width bakes ONCE, "
+               "at the async open, from the values published just before it "
+               "(Dialog.AutomaticSize). Delete it"),
 }
 _TIME_TAG_RE = re.compile(r"\[TIME=(-?\d+)\]")
+
+
+def _forbidden_tag_label(tag: str) -> str:
+    """How a :data:`POLL_FORBIDDEN_TAGS` key is SHOWN to the author -- a match prefix like
+    ``"[WDTH="`` prints as ``[WDTH=...]``, a whole tag prints as itself."""
+    return f"{tag}...]" if tag.endswith("=") else tag
 
 
 def polled_window_problems(src: dict, entry: str) -> list:
@@ -562,7 +665,8 @@ def polled_window_problems(src: dict, entry: str) -> list:
                        f"The polled shape needs BOTH tags and a poll-safe style.")
     for tag, why in POLL_FORBIDDEN_TAGS.items():
         if tag in entry:
-            out.append(f"is script-polled and its .mes entry carries {tag} -- {why}.")
+            out.append(f"is script-polled and its .mes entry carries "
+                       f"{_forbidden_tag_label(tag)} -- {why}.")
     for m in _TIME_TAG_RE.finditer(entry):
         if int(m.group(1)) >= 0:
             out.append(f"is script-polled and its .mes entry carries {m.group(0)} -- "
@@ -631,12 +735,16 @@ def dress_window(src: dict, line: str):
       ``FlagResetChoice = false`` (DialogBoxSymbols.cs:593-598). The window can then be closed only
       by the script, so it belongs on an ASYNC open with an explicit close; on a blocking
       ``WindowSync`` it is an unconditional softlock (``wait == 254`` forever) and ``validate``
-      refuses that pairing. **Defaults to ON for a ``polled`` window.**
-    * ``polled`` (``[[choice.options]]`` only) -> the reply is opened ASYNC, held, watched for a
-      real button edge and closed by the script (``content.event.polled_window``). It defaults both
+      refuses it on EVERY such block (:func:`sync_hold_problems`, run from the one window sweep
+      each dialogue-bearing block passes -- not just on a choice reply, where the rule was born).
+      **Defaults to ON for a ``polled`` window.**
+    * ``polled`` (:data:`POLLED_LANES`) -> the reply is opened ASYNC, held, watched for a real
+      button edge and closed by the script (``content.event.polled_window``). It defaults both
       ``no_turbo`` and ``no_focus`` ON -- the two text-side halves of THE TURBO-INJECTION LAW -- and
       ``validate`` re-checks the emitted entry (:func:`polled_window_problems`), because the .eb
-      shape and the .mes entry are built by two lanes that meet only at build time.
+      shape and the .mes entry are built by two lanes that meet only at build time. The key is READ
+      here on every block but WIRED only in those lanes, so ``validate`` refuses it anywhere else
+      (:func:`polled_lane_problem`) rather than letting it default an [NFOC] hang.
 
     Every key absent -> ``(line, None, src.get("tail"))``, byte-identical to the pre-key layout, unless
     the line is a readout (then it gains ``[NTUR]`` -- see above)."""

@@ -896,13 +896,18 @@ def test_the_BUILT_mes_gives_the_polled_page_NTUR_and_NFOC_and_nothing_forbidden
     option's keys, so nothing in `journalfield` can be asked whether they landed -- only the file
     can. Each forbidden tag breaks the primitive a different way (content/text.POLL_FORBIDDEN_TAGS):
     [IMME] hands the selecting press a finished window, [PAGE] turns CloseWindow into a page turn
-    and leaves a live window behind, [WDTH] re-opens the dead OnWidths path, and any [TIME=n>=0]
-    either races the poll or clears the very FlagButtonInh the page depends on."""
+    and leaves a live window behind, [WDTH=...] is a DUMMIED tag standing where the real sizing
+    mechanism is (SURVEY.md:144), and any [TIME=n>=0] either races the poll or clears the very
+    FlagButtonInh the page depends on.
+
+    The forbidden list is READ FROM THE RULEBOOK, not retyped: this assertion used to spell a
+    valueless "[WDTH]" -- the same form that made the rulebook's own arm unfirable -- so it passed
+    vacuously against an entry that could never have contained one."""
     story = JF.render_page(JF.PAGES[0])[0]
     body = next(b for b in built_bench_mes.values() if story.split("\n", 1)[0] in b)
     assert body == "[NTUR][NFOC]" + re.sub(r"\[TEXT=[^,\]]+,", "[TEXT=%d," % _bank(built_bench_mes,
                                                                                   "th_rank"), story)
-    for tag in ("[IMME]", "[PAGE]", "[WDTH]", "[TIME="):
+    for tag in tuple(T.POLL_FORBIDDEN_TAGS) + ("[TIME=",):
         assert tag not in body, (tag, body[:120])
     # ...and the SIX CONTROL pages keep the owner-confirmed sync shape: auto-[NTUR], never [NFOC]
     for p in JF.PAGES[1:]:

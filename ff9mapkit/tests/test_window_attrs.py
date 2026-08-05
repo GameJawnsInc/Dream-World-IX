@@ -658,6 +658,198 @@ options = [ { text = "A", reply = "page", polled = true, style = "plain" }, { te
     assert problems == [], problems
 
 
+# ---- ...AND THE SAME RULE OUTSIDE THE CHOICE LANE, which is where it was missing ---------------
+# The keys are universal (_fieldschema: no_focus rides npc/prop/event/cutscene.steps/choice), but
+# the rule lived inside the [[choice]] option loop, so `[[npc]] no_focus = true` validated CLEAN
+# and shipped [NFOC] onto a blocking WindowSync -- the wait == 254 hang, with `ff9mapkit lint`
+# printing "OK -- no problems". One row per lane that reaches the sweep.
+_SYNC_LANES = [
+    ("npc dialogue", """
+[[npc]]
+name = "scribe"
+preset = "vivi"
+pos = [0, -500]
+dialogue = "SCRIBE CONTROL"
+no_focus = true
+"""),
+    ("event message", """
+[[event]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+message = "a held event window"
+no_focus = true
+"""),
+    ("on_entry message", """
+[[on_entry]]
+message = "welcome"
+no_focus = true
+"""),
+    # NOTE: no "prop dialogue" lane here ON PURPOSE. A non-verbatim [[prop]] dialogue never
+    # emits a window (the synthesize call site passes no dialogue_text_id), so a SOFTLOCK
+    # refusal there would be false -- validate refuses it with the NOT-WIRED rule instead;
+    # test_a_nonverbatim_prop_dialogue_is_refused_as_not_wired owns that lane.
+    ("cutscene say", """
+[cutscene]
+steps = [ { say = "held forever", hold = true } ]
+"""),
+    ("coop gate text", """
+[[coop]]
+name = "twin-seals"
+plate_a = [-305, -60, -185, 60]
+plate_b = [-55, -60, 65, 60]
+set_flag = 8712
+text = "The twin seals release!"
+no_focus = true
+"""),
+    ("ate option reply", """
+[ate]
+prompt = "ATE?"
+options = [ { text = "A", reply = "page", hold = true } ]
+"""),
+]
+
+
+@pytest.mark.parametrize("body", [b for _n, b in _SYNC_LANES], ids=[n for n, _b in _SYNC_LANES])
+def test_a_HELD_window_is_refused_on_EVERY_blocking_lane(tmp_path, body):
+    """BREAK IT TO PROVE IT, once per lane. Each of these emits `event.message` -> WindowSync, and
+    each shipped clean before the rule moved out of the [[choice]] option loop into the window
+    sweep every dialogue-bearing block passes."""
+    problems = _problems(tmp_path, BASE + body)
+    hits = [p for p in problems if "SOFTLOCK" in p]
+    assert len(hits) == 1, problems
+
+
+def test_a_nonverbatim_prop_dialogue_is_refused_as_not_wired(tmp_path):
+    """The lane the SOFTLOCK sweep must NOT own (the turbo-page re-verify's finding): on a
+    synthesized field a [[prop]] dialogue emits NO window at all -- the build's inject_prop
+    call passes no dialogue_text_id -- so the authored text silently vanishes. That silent
+    drop is the defect; validate refuses it with the not-wired rule, and the false SOFTLOCK
+    refusal (a hold on a window that will never exist) is gone with the lane."""
+    problems = _problems(tmp_path, BASE + """
+[[prop]]
+name = "sign"
+model = 0
+pos = [200, -500]
+dialogue = "read me"
+hold = true
+""")
+    wired = [p for p in problems if "only wired on a VERBATIM fork" in p]
+    assert len(wired) == 1, problems
+    assert not [p for p in problems if "SOFTLOCK" in p], problems
+
+
+def test_a_plain_nonverbatim_prop_without_dialogue_is_clean(tmp_path):
+    """The control: set-dressing with no dialogue passes the sweep untouched."""
+    problems = _problems(tmp_path, BASE + """
+[[prop]]
+name = "sign"
+model = 0
+pos = [200, -500]
+""")
+    assert not [p for p in problems if "[[prop]]" in p], problems
+
+
+def test_a_HELD_window_is_STILL_LEGAL_on_the_async_lanes(tmp_path):
+    """The scope, proved from the other side. A cutscene `open` step is the ASYNC lane with its own
+    `close`, and a hold there is LOAD-BEARING (THE BROADCAST-CONFIRM LAW: an un-held async hint is
+    taken down by the next window's dismissal, bench 30603 round 1). A blanket rule would have
+    refused studies/messages/bench/multiwindow.field.toml, which is the shape stock ships."""
+    problems = _problems(tmp_path, BASE + """
+[cutscene]
+steps = [ { open = "a hint that stays", window = 3, style = "transparent", hold = true },
+          { say = "talking below" },
+          { close = 3 } ]
+""")
+    assert [p for p in problems if "SOFTLOCK" in p] == [], problems
+
+
+def test_the_choice_PROMPT_is_assembled_raw_so_a_hold_key_there_never_ships(tmp_path):
+    """WHY THE [[choice]] BLOCK ITSELF IS NOT IN THE LIST ABOVE, pinned rather than assumed. The
+    prompt entry is composed by hand and added with `_add_raw` (build.collect_text: menu_pos_tag +
+    pre_choose + prompt + [CHOO] rows), so it NEVER routes through `dress_window` -- `hold` /
+    `no_focus` / `no_turbo` on the block emit no tag at all. Inert, therefore not a softlock; if
+    that assembly ever moves onto `dress_window`, this test fails and the lane must be added."""
+    pr = _project(tmp_path, BASE + """
+[[choice]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+prompt = "Pick"
+no_focus = true
+hold = true
+options = [ { text = "A" }, { text = "B" } ]
+""")
+    assert [p for p in validate(pr) if "SOFTLOCK" in p] == []
+    prompt = [ln for ln in collect_text(pr)[0].splitlines() if "[CHOO]" in ln]
+    assert len(prompt) == 1, prompt
+    assert "[NFOC]" not in prompt[0] and "[TIME=-1]" not in prompt[0], prompt[0]
+
+
+def test_a_hold_key_on_a_block_that_opens_NO_window_is_not_a_softlock(tmp_path):
+    """...and not a false refusal either. An [[event]] with no `message` emits no window at all, so
+    `no_focus` there is a dead key (the unknown-key lint's job), never a hang."""
+    problems = _problems(tmp_path, BASE + """
+[[event]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+gil = 10
+no_focus = true
+""")
+    assert [p for p in problems if "SOFTLOCK" in p] == [], problems
+
+
+# ---- `polled` OUTSIDE ITS TWO WIRED LANES -----------------------------------------------------
+_POLLED_UNWIRED = [
+    ("npc", """
+[[npc]]
+name = "scribe"
+preset = "vivi"
+pos = [0, -500]
+dialogue = "SCRIBE CONTROL"
+polled = true
+"""),
+    ("event", """
+[[event]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+message = "a page"
+polled = true
+"""),
+    ("cutscene say", """
+[cutscene]
+steps = [ { say = "a page", polled = true } ]
+"""),
+]
+
+
+@pytest.mark.parametrize("body", [b for _n, b in _POLLED_UNWIRED],
+                         ids=[n for n, _b in _POLLED_UNWIRED])
+def test_polled_is_REFUSED_where_it_is_not_wired(tmp_path, body):
+    """`window_polled` reads through a plain copy, which keeps `polled` out of these blocks'
+    harvested VOCAB -- and that is ALL it does. The VALUE is still live: `want_no_focus` defaulted
+    [NFOC] on from it, onto a blocking WindowSync with no close, while the schema lint told the
+    author "the build never reads 'polled' there, so it is silently ignored"."""
+    problems = _problems(tmp_path, BASE + body)
+    assert any("`polled` is not wired on this block" in p for p in problems), problems
+
+
+def test_the_schema_lint_no_longer_claims_polled_is_silently_ignored():
+    """The other half of the same defect: the message the author actually sees first. "The build
+    never reads it" was FALSE for this key and pointed away from the refusal."""
+    from ff9mapkit import fieldschema as _fs
+    vocab, enforced = _fs.load_schema()
+    found = _fs.check({"npc": [{"dialogue": "hi", "polled": True}]},
+                      vocab=vocab, enforced=enforced)
+    assert len(found) == 1, found
+    assert "silently ignored" not in found[0], found[0]
+    assert "the build DOES read it here" in found[0] and "REFUSES it" in found[0], found[0]
+
+
+def test_polled_is_LEGAL_on_BOTH_wired_lanes(tmp_path):
+    """Scope from the other side: [[choice.options]] AND [ate] options both reach
+    content.choice.option_body, so both really do emit the async poll shape."""
+    assert _problems(tmp_path, BASE + """
+[ate]
+prompt = "ATE?"
+options = [ { text = "A", reply = "page", polled = true, style = "plain" } ]
+""") == []
+
+
 # ---- THE POLLED-PAGE RULES: break each arm once -----------------------------------------------
 _POLL_BAD = [
     ('polled = true, style = "plain", no_turbo = false', "no [NTUR]"),
@@ -684,6 +876,30 @@ options = [ {{ text = "A", reply = "page", {keys} }}, {{ text = "B" }} ]
     assert any("script-polled" in p and want in p for p in problems), problems
 
 
+@pytest.mark.parametrize("keys,want", _POLL_BAD, ids=[k for k, _w in _POLL_BAD])
+def test_the_polled_page_rules_reach_the_ATE_OPTION_LANE_TOO(tmp_path, keys, want):
+    """THE SECOND CALL SITE. `_apply_ate` (build.py) hands its rows to the very same
+    `content.choice.option_body`, so an [ate] reply honours `polled` -- but validate walked only
+    [[choice]], so every one of these arms was silent there. The default-style row is the sharp
+    one: it used to raise a bare ValueError out of content/event.polled_window in the MIDDLE of
+    build_mod, i.e. a traceback instead of a lint line."""
+    problems = _problems(tmp_path, BASE + f"""
+[ate]
+prompt = "ATE?"
+options = [ {{ text = "A", reply = "page", {keys} }} ]
+""")
+    assert any("script-polled" in p and want in p for p in problems), problems
+
+
+def test_the_ate_lane_gets_the_broadcast_confirm_rule_too(tmp_path):
+    problems = _problems(tmp_path, BASE + """
+[ate]
+prompt = "ATE?"
+options = [ { text = "A", reply = "page", instant = true } ]
+""")
+    assert any("INSTANT reply" in p for p in problems), problems
+
+
 def test_a_polled_option_needs_a_reply(tmp_path):
     problems = _problems(tmp_path, BASE + """
 [[choice]]
@@ -692,6 +908,50 @@ prompt = "Pick"
 options = [ { text = "A", polled = true, style = "plain" }, { text = "B" } ]
 """)
     assert any("polled needs a `reply`" in p for p in problems), problems
+
+
+# ---- POLL_FORBIDDEN_TAGS: the arm that could not fire ------------------------------------------
+_REAL_WDTH = "[WDTH=0,69,14,0,-1]"      # what width_hint actually emits (a [TEXT=0,14] speaker)
+
+
+def test_a_REAL_WDTH_tag_is_refused_on_a_polled_entry():
+    """A CHECK THAT CANNOT FAIL. The table keyed the VALUELESS `"[WDTH]"`, a form the engine never
+    writes and the kit never emits (`width_hint` -> `[WDTH=0,...]`), so the arm was dead: a real
+    tag reached a shipped polled entry with validate silent, while CHANGELOG and FORMAT.md both
+    advertised it as refused. Keyed on the `[WDTH=` prefix now, like the [TIME= check beside it."""
+    assert _REAL_WDTH.startswith("[WDTH="), "the fixture must be the form the engine really writes"
+    out = _text.polled_window_problems({"style": "plain"}, f"[NTUR][NFOC]{_REAL_WDTH}body")
+    assert len(out) == 1 and "[WDTH=...]" in out[0], out
+    assert "DUMMIED" in out[0], out                       # ...and for the RIGHT reason
+    # ...and the rule is not a blanket "no bracket named WDTH": a clean entry still passes
+    assert _text.polled_window_problems({"style": "plain"}, "[NTUR][NFOC]body") == []
+
+
+def test_the_real_WDTH_tag_reaches_validate_through_the_choice_lane(tmp_path):
+    """END TO END, not just the rulebook -- the tag has to survive `dress_window` into the emitted
+    entry, which is exactly the trip the dead arm never scored."""
+    problems = _problems(tmp_path, BASE + f"""
+[[choice]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+prompt = "Pick"
+options = [ {{ text = "A", reply = "{_REAL_WDTH}page", polled = true, style = "plain" }},
+            {{ text = "B" }} ]
+""")
+    assert any("script-polled" in p and "[WDTH=...]" in p for p in problems), problems
+
+
+def test_every_forbidden_tag_key_is_a_form_the_kit_can_actually_emit():
+    """THE GENERAL SHAPE OF THE DEFECT, pinned so the next tag added cannot repeat it: a key that
+    matches no string any emitter produces is an unfirable arm. A parameterised tag must be keyed
+    by its `[NAME=` prefix; a valueless one by the whole bracket."""
+    for tag in _text.POLL_FORBIDDEN_TAGS:
+        assert tag.startswith("["), tag
+        assert tag.endswith("=") or tag.endswith("]"), (
+            f"{tag!r} is neither a `[NAME=` match prefix nor a whole `[NAME]` tag -- it can never "
+            f"match an emitted entry")
+        # and each one really does fire on a body carrying it
+        probe = f"[NTUR][NFOC]{tag}x]" if tag.endswith("=") else f"[NTUR][NFOC]{tag}x"
+        assert _text.polled_window_problems({"style": "plain"}, probe), tag
 
 
 def test_validate_rejects_a_non_boolean_no_focus(tmp_path):

@@ -444,7 +444,7 @@ is killed on sight. That looks exactly like a defect in the choice→reply trans
 not in the `.eb` at all: the field's whole 4617-byte script contains no `CloseWindow (0x21)`, no
 `CloseAllWindows (0xEB)`, no `[TIME]`, and no second window on a live id.
 
-**The one lever: `[NTUR]`** (`NGUIText.NoTurboDialog` → `FFIXTextTagCode.TurboOff` →
+**The lever for THIS arm: `[NTUR]`** (`NGUIText.NoTurboDialog` → `FFIXTextTagCode.TurboOff` →
 `DialogBoxSymbols.cs:327-329` → `UIKeyTrigger.preventTurboKey = true`). Upstream Memoria, not one of
 our patches, so it is stock-safe. Crucially it does **not** touch `FlagButtonInh` — unlike `[NFOC]`
 and `[TIME=n]`, the other two inhibitors, which stop the *player's* confirm too and therefore hang a
@@ -457,6 +457,55 @@ window (text containing `[NUMB=]`/`[TEXT=]`/`[ITEM=]` — a number the player op
 not "story to skip"), an explicit `no_turbo` key overrides either way, and `build.validate` refuses
 `no_turbo = false` on a readout. Narrative dialogue is deliberately left skippable, like the base
 game's. Pinned in `test_window_attrs.py`.
+
+### 7a-bis-2. ★★★ ARM B — the SECOND arm, the one `[NFOC]` walks into (2026-08-05)
+
+**`ShouldTurboDialog` has TWO arms, and the fix for the first is the trigger for the second.** The
+block quoted above is arm A only; here is the whole tail of `UIKeyTrigger.cs:974-991`:
+
+```csharp
+// ARM A (:981-982) — the broadcast above
+if (UIManager.Instance.Dialogs.IsDialogNeedControl()) return true;   // → OnKeyConfirm fan-out
+// ARM B (:984-988) — reached ONLY when arm A did NOT fire, i.e. when EVERY open window is
+//                    dismiss-inhibited (FlagButtonInh) and so "needs no control"
+if (VoicePlayer.scriptRequestedButtonPress
+    && ActiveDialogList.Any(d => d.Style == WindowStyleAuto || d.Style == WindowStyleTransparent))
+{ ETb.sKey &= ~Confirm; EventInput.ReceiveInput(Confirm); }
+```
+
+Arm B does not close a window. It **SYNTHESIZES a Confirm into the SCRIPT'S OWN input stream** — and
+`scriptRequestedButtonPress` is set by **`B_KEYON` itself** (`EBin.cs:1080`), re-armed every
+`ProcessEvents` tick (`EventEngine.ProcessEvents.cs:11-14`). So the "obvious" repair for arm A —
+inhibit the window with `[NFOC]`, then poll for a real press — is **arm B's exact precondition**: the
+poll reads a press nobody made, on frame 1. Same symptom, second mechanism, and it is why
+`[NFOC]` + poll is not a fix.
+
+**ARM B's PREDICATE, and the two locks.** `Dialog.WindowStyle` comes from `ETb.FlagsToStyles`
+(`ETb.cs:167-186`): bit 128 → Auto (else Plain), then bit 16 → Transparent overrides, else bit 4 →
+NoTail. So the exposed flag bytes are **128 / 16 / 144 / 160**, and **0 / 4 / 8 / 64 / 132 are safe**.
+Two independent locks, and the kit ships both:
+- **`[NTUR]`** — `preventTurboKey` bails at `:976`, *before either arm*. Necessary but not
+  sufficient on its own as a design: it is re-asserted only while a label RENDERS
+  (`DialogBoxSymbols.cs:327-329` via `UILabel.OnFill`) and is cleared by any delivered
+  confirm/cancel (`:838`/`:849`), so a fully-typed static page can lose it mid-life.
+- **a window STYLE outside the predicate** — structural, needs no tag and no render pass. **This is
+  the primary guard.**
+
+**The safe polled shape**, in full: `WindowAsync(win, flags=0)` → `Wait(debounce)` → poll
+`const4(0xB0000) B_KEYON` → `CloseWindow(win)`, with the `.mes` entry carrying **`[NTUR][NFOC]`**.
+Stock-common, not an invention: 2,034 `WindowAsync`+poll sites across 115 shipping fields (field
+2950, Chocobo's Forest, is the verbatim readout precedent).
+
+**In the kit:** `content/text.py` owns the law — `window_style_of(flags)` transcribes
+`FlagsToStyles` and **`turbo_injectable(flags)` IS arm B's predicate**, derived from it rather than
+hand-listed. `content/event.polled_window` REFUSES an injectable style at the emitter (that guard is
+structural, so it is made unrepresentable rather than linted); `polled_window_problems` scores the
+rest on the emitted `.mes` entry, and `build.validate` runs it on both lanes that can emit the shape
+(`[[choice.options]]` and `[ate]` options). ⚠ **Still unbenched, recorded here so it is not
+re-discovered:** `[[qte]]` (flags 160), `[[behavior.hud]]` and `content/numinput.py` (flags 16) all
+open inhibited windows *inside* arm B's predicate while polling `B_KEYON` — a latched F9 can resolve
+a QTE or a Treno bid with no press. The instrument to see it (`text.turbo_injectable`) now exists;
+nothing calls it on those three lanes.
 
 ## 7b. ★★ THE RAISE-SATURATION LAW — the raise is clamped, not uniform (2026-08-03)
 
