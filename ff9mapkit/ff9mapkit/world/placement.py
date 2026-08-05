@@ -58,6 +58,53 @@ WALK_OK = frozenset(list(range(0, 8)) + list(range(10, 14)) + list(range(16, 24)
 #: registration-order exception: 219 = Water Shrine (WMWorld.cs early-returns after
 #: Object/Terrain/Sea3/Sea4/Sea5 -- no Beach/Stream/River/Falls scan happens there)
 WATER_SHRINE_BLOCK = 219
+#: THE ONE ENGINE-CITED PART-REGISTRATION ORDER (audit rec 11) -- source-verified in Memoria
+#: ``Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs`` ``LoadBlock``: Object :588 / Terrain :590,
+#: then Beach1..Sea6 :748-:807, each appended via ``RegisterBlockComponent`` ->
+#: ``AddWalkMeshForm1`` (:850 -> WMBlock.cs) and scanned as ``ActiveWalkMeshes``. The s34
+#: bare-Object override (:595) is render-only (NO AddWalkMeshForm1), so it never joins this
+#: scan. The two orders this constant does NOT model -- the Water Shrine early return and the
+#: Volcano* splice before Beach1 -- are REFUSED by :func:`check_order_exceptions`.
+REGISTRATION_ORDER = ("Object", "Terrain", "Beach1", "Beach2", "Stream", "River",
+                      "RiverJoint", "Falls", "Sea1", "Sea2", "Sea3", "Sea4", "Sea5", "Sea6")
+_CANON = {p.lower(): p for p in REGISTRATION_ORDER}
+_ORDER_IDX = {p: i for i, p in enumerate(REGISTRATION_ORDER)}
+
+
+def canonical_part(name: str):
+    """The engine's exact part name for ``name`` in any case (``"riverjoint"`` ->
+    ``"RiverJoint"``), or ``None`` for a part the engine never registers. ``str.capitalize``
+    is NOT this function: it lowercases the tail, so it inverts ``RiverJoint``."""
+    return _CANON.get(str(name).lower())
+
+
+def build_meshlist(parts_by_name) -> list:
+    """``{part_name: BlockMesh}`` (any case) -> ``[(canonical_name, bm), ...]`` sorted into
+    :data:`REGISTRATION_ORDER` -- THE one constructor for a ``place``/``census`` meshlist,
+    so no call site hand-maintains the engine's scan order. Refuses a part name the engine
+    never registers: an unknown part would silently never be scanned in-game, and refusing
+    is cheaper than guessing where it sorts."""
+    unknown = sorted(str(k) for k in parts_by_name if canonical_part(k) is None)
+    if unknown:
+        raise ValueError(f"unknown walkmesh part(s) {unknown} -- the engine registers only "
+                         f"{', '.join(REGISTRATION_ORDER)}")
+    return sorted(((canonical_part(k), bm) for k, bm in parts_by_name.items()),
+                  key=lambda kv: _ORDER_IDX[kv[0]])
+
+
+def check_registration_order(meshlist):
+    """Refuse a meshlist whose ENGINE-KNOWN part names are out of :data:`REGISTRATION_ORDER`
+    (or duplicated) -- the scan order IS the verdict (first mesh with a passing hit wins), so
+    an out-of-order list asks placement questions of a stack the engine never builds. Names
+    the engine does not register (synthetic test fixtures) pass through unjudged. Called by
+    :func:`census` once per meshlist -- NOT by the hot :func:`place` loop."""
+    known = [canonical_part(n) for n, _ in meshlist if canonical_part(n) is not None]
+    for a, b in zip(known, known[1:]):
+        if _ORDER_IDX[b] <= _ORDER_IDX[a]:
+            raise ValueError(
+                f"meshlist order {known} is not the engine's registration order "
+                f"({', '.join(REGISTRATION_ORDER)}): {b!r} cannot follow {a!r} -- "
+                "build the list with placement.build_meshlist")
 
 
 def check_order_exceptions(meshlist):
@@ -230,6 +277,7 @@ def census(meshlist, *, span=(2.0, 62.0, -62.0, -2.0), samples: int = 24, y: flo
     points = []
     stacked = []
     inversions = []
+    check_registration_order(meshlist)                   # the scan order IS the verdict
     index = build_meshlist_index(meshlist)               # once per census -- pure accelerator
     for i in range(samples):
         for j in range(samples):

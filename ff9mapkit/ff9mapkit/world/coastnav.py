@@ -57,9 +57,8 @@ BLOCK = 64.0
 WORLD_W = 1536.0
 WATER = {53, 54, 55, 56, 57}
 SEA_PARTS = ("Sea1", "Sea2", "Sea3", "Sea4", "Sea5")
-#: engine registration order for a stacked ground query -- Object/Terrain precede the seas, so a
-#: hit on either means ground sits above any water at that (x, z).
-PARTS_ORDER = ("Object", "Terrain", "Beach1", "Sea1", "Sea2", "Sea3", "Sea5", "Sea4")
+# the loader scans placement.REGISTRATION_ORDER (audit rec 11) -- the local PARTS_ORDER copy it
+# replaced had drifted (Sea5 before Sea4, no Beach2/Stream/River/RiverJoint/Falls at all).
 
 KEEL, BEACH, BELT, CLIFF = 56, 53, 55, 54
 
@@ -116,6 +115,7 @@ def deployed_sea_cells(mod_folder: str, disc: int, game=None):
 # (the un-indexed pass was the ~hour-per-pass cost measured on 2026-07-30).
 from .placement import INDEX_GRID as _GRID               # noqa: E402
 from .placement import build_index as _build_grid        # noqa: E402
+from .placement import REGISTRATION_ORDER                # noqa: E402  (audit rec 11: one order)
 
 
 class _Loader:
@@ -132,7 +132,7 @@ class _Loader:
             out = []
             if self.disc in (1, 4):
                 from .entrance import read_block_stacked
-                for part in PARTS_ORDER:
+                for part in REGISTRATION_ORDER:
                     try:
                         bm = read_block_stacked(self.mod_folder, bx, by, disc=self.disc,
                                                 part=part.lower(), game=self.game, missing_ok=True)
@@ -147,7 +147,7 @@ class _Loader:
                 # ONE cell, 97% of a stamp's profiled runtime).
                 from . import mesh as M
                 root = _worldmap_root(self.mod_folder, self.game)
-                for part in PARTS_ORDER:
+                for part in REGISTRATION_ORDER:
                     p = _part_path(root, self.disc, bx, by, part)
                     if p.is_file():
                         bm = M.blockmesh_from_ff9mesh(p, disc=self.disc, x=bx, y=by,

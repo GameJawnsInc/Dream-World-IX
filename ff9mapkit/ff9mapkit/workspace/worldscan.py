@@ -39,6 +39,8 @@ from ..world.discmirror import _BLOCK_RE as BLOCK_RE          # THE authoritativ
 from ..world.mesh import GRID_COLS, GRID_ROWS, block_in_grid
 
 BLOCK_UNITS = 64.0                                 # one overworld block = 64 world units (engine-fixed)
+#: DISPLAY order for the scan table (Terrain first because it is the row a user reads) --
+#: NOT the engine's walkmesh scan order; that is ``world.placement.REGISTRATION_ORDER``.
 PART_ORDER = ("Terrain", "Object", "Sea1", "Sea2", "Sea3", "Sea4", "Sea5", "Beach1")
 _MAGIC = b"F9WM"                                   # world.mesh.write_ff9mesh's magic
 _BLANK_VCOUNT = 3                                  # hidden_block_mesh / stub_terrain_mesh both emit 3 verts

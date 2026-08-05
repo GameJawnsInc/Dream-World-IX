@@ -4787,7 +4787,10 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         res = IN.carve_mountain(soup, center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
                                 ground=args.ground, disc=args.disc, game=args.game)
-        IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks)
+        # parts= (audit rec 11): census the REAL carried ensemble overrides, not hidden
+        # blanks -- Object registers ahead of Terrain, so omitting it hid a defect class.
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks,
+                       parts=res.get("changed_parts"))
         if not args.dry_run:
             # both inner writers force-skip their own auto-mirror -- the CLI unions their
             # written paths and does ONE mirror pass for the whole carve, below.

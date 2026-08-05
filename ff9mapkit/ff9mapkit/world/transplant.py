@@ -38,9 +38,12 @@ import warnings
 from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN, decode_id, encode_id
 from .terrain import GRID_X, GRID_Y
 
-#: The block sub-mesh parts a coastal transplant carries, in the engine's registration order
-#: (Terrain first -- placement's first-hit-wins ground query depends on it).
-PARTS = ("terrain", "beach1", "sea1", "sea2", "sea3", "sea5", "sea4")
+#: The block sub-mesh parts a coastal transplant carries -- a CARRY SET (each part deploys to
+#: its own file, so no ground query ever reads this tuple's order). It is kept a subsequence
+#: of ``placement.REGISTRATION_ORDER`` anyway because the census meshlists below are built by
+#: iterating it, and ``census()`` refuses an out-of-order stack (audit rec 11 -- the old
+#: sea5-before-sea4 here had drifted from the engine).
+PARTS = ("terrain", "beach1", "sea1", "sea2", "sea3", "sea4", "sea5")
 #: Parts whose normals encode real slopes and must ROTATE with the block (sea normals are a
 #: uniform byte-constant shared by every tile regardless of tile rotation -- they stay).
 LAND_PARTS = frozenset({"terrain", "beach1"})

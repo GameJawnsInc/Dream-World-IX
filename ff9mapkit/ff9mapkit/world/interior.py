@@ -2440,7 +2440,8 @@ def _atlas_gate_mountain(new_parents, *, game=None, log=print):
 
 
 # ---- census + deploy ------------------------------------------------------------------------
-def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, baseline=None):
+def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, baseline=None,
+                parts=None):
     """Per changed block: the engine placement census (hidden aux parts + the CUT sea plane)
     must ground EVERYWHERE (MISS=0). ``probe = ((wx, wz), expected_topo)`` additionally
     grounds one world point.
@@ -2452,7 +2453,14 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
     terrain: the disk's Sea4 was cut against THAT footprint, so a hole the edit opens has
     nothing beneath it exactly when the gate cuts against the same baseline. Without
     ``baseline`` the cut falls back to the edited bm (the island-lane configuration --
-    still strictly closer to shipping bytes than the whole plane)."""
+    still strictly closer to shipping bytes than the whole plane).
+
+    THE REAL CARRIED PARTS (audit rec 11): ``parts`` maps blk -> {part: BlockMesh} of the
+    auxiliary overrides the deploy actually ships (``world-mountain``'s ensemble
+    Object/Falls/River/RiverJoint from ``res["changed_parts"]``). They REPLACE the hidden
+    blanks, so the census measures the deployed stack: Object registers AHEAD of Terrain,
+    so a carried massif Object over the probe point now FAILS the probe instead of passing
+    by omission."""
     from . import placement as P
     from .island import _sea_plane, _cut_plane
     plane = _sea_plane(disc, game=game)
@@ -2460,10 +2468,12 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
         bx, by = blk
         hid = lambda nm_: M.hidden_block_mesh(name=nm_, disc=disc, x=bx, y=by)  # noqa: E731
         under = baseline.get(blk, bm) if baseline is not None else bm
-        sea = _cut_plane(plane, bx, by, frozenset(), under)
-        meshlist = [("Object", hid("Object")), ("Terrain", bm), ("Sea1", hid("Sea1")),
-                    ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")), ("Sea4", sea),
-                    ("Sea5", hid("Sea5"))]
+        by_name = {"Object": hid("Object"), "Terrain": bm, "Sea1": hid("Sea1"),
+                   "Sea2": hid("Sea2"), "Sea3": hid("Sea3"),
+                   "Sea4": _cut_plane(plane, bx, by, frozenset(), under),
+                   "Sea5": hid("Sea5")}
+        by_name.update((parts or {}).get(blk) or {})
+        meshlist = P.build_meshlist(by_name)
         cen = P.census(meshlist)
         if cen["miss"]:
             raise ValueError(f"placement MISS in {blk}: {cen['miss'][:4]}")

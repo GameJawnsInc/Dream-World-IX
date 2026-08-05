@@ -609,7 +609,11 @@ def read_block_stacked(mod_folder: str, x: int, y: int, *, disc: int = 1, lod: s
     and reads pristine -- for re-iterating a block cleanly (GEOMETRY edits like a flatten pad / a kept building would
     otherwise COMPOUND on re-run). ``missing_ok`` returns ``None`` when neither exists (a block with no stock mesh)."""
     if not fresh:
-        dest = config.find_game_path(game) / mod_folder / M.override_relpath(disc, x, y, lod, part.capitalize())
+        # canonical_part, not str.capitalize: capitalize lowercases the tail, so it can NEVER
+        # name a deployed "... RiverJoint.ff9mesh" override (audit rec 11).
+        from .placement import canonical_part
+        dest = config.find_game_path(game) / mod_folder / M.override_relpath(
+            disc, x, y, lod, canonical_part(part) or part.capitalize())
         if dest.is_file():
             return M.blockmesh_from_ff9mesh(dest, disc=disc, x=x, y=y, lod=lod, part=part)
     try:

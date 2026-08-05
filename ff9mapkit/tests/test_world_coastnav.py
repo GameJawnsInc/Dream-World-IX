@@ -51,13 +51,16 @@ def test_synthetic_loader_never_touches_the_stock_fallback(monkeypatch, tmp_path
 
 
 def test_real_disc_loader_still_uses_the_stacked_read(monkeypatch):
-    """Disc 1/4 keep the override-over-stock stacked semantics."""
+    """Disc 1/4 keep the override-over-stock stacked semantics -- and scan exactly the
+    engine's one registration order (audit rec 11: the local PARTS_ORDER copy is gone)."""
     from ff9mapkit.world import entrance as EN
+    from ff9mapkit.world import placement as P
     calls = []
     monkeypatch.setattr(EN, "read_block_stacked",
                         lambda mod, x, y, **k: calls.append((x, y, k["part"], k["disc"])) or None)
     assert CN._Loader("MOD", 1).parts(5, 5) == []
-    assert len(calls) == len(CN.PARTS_ORDER) and all(c[3] == 1 for c in calls)
+    assert [c[2] for c in calls] == [p.lower() for p in P.REGISTRATION_ORDER]
+    assert all(c[3] == 1 for c in calls)
 
 
 def test_worldmap_env_memoizes_the_negative(monkeypatch, tmp_path):

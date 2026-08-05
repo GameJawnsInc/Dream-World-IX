@@ -765,23 +765,25 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
     report["shape"] = shape
 
     def _meshlist(blk, bm):
-        """The block's full deploy part list (Terrain + the sea/beach parts) -- ONE construction
-        shared by the placement census and THE TEXTURE + SEA GATES below. Requires ``sea_plane``."""
+        """The block's full deploy part list (Terrain + the sea/beach parts) in the engine's
+        scan order (``placement.build_meshlist`` owns the sort -- audit rec 11; the beach
+        branch used to hand-append Beach1 LAST, after every sea) -- ONE construction shared
+        by the placement census and THE TEXTURE + SEA GATES below. Requires ``sea_plane``."""
         from . import mesh as M
         bx, by = blk
         beach = built.get("beach")
         hid = lambda nm: M.hidden_block_mesh(name=nm, disc=bm.disc, x=bx, y=by)  # noqa: E731
+        parts = {"Object": hid("Object"), "Terrain": bm,
+                 "Sea1": hid("Sea1"), "Sea2": hid("Sea2"), "Sea3": hid("Sea3"),
+                 "Sea4": _cut_plane(sea_plane, bx, by, frozenset(), bm), "Sea5": hid("Sea5")}
         if beach is not None and tuple(beach["block"]) == blk:
-            return [("Object", hid("Object")), ("Terrain", bm),
-                    ("Sea1", _part_blockmesh("Sea1", blk, beach["sea1"], bm.disc)),
-                    ("Sea2", _part_blockmesh("Sea2", blk, beach["wash"], bm.disc)),
-                    ("Sea3", hid("Sea3")),
-                    ("Sea4", _cut_plane(sea_plane, bx, by, beach["sea4_cut"], bm)),
-                    ("Sea5", _part_blockmesh("Sea5", blk, beach["sea5"], bm.disc)),
-                    ("Beach1", _part_blockmesh("Beach1", blk, beach["foam"], bm.disc))]
-        return [("Object", hid("Object")), ("Terrain", bm),
-                ("Sea1", hid("Sea1")), ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")),
-                ("Sea4", _cut_plane(sea_plane, bx, by, frozenset(), bm)), ("Sea5", hid("Sea5"))]
+            parts.update(
+                Sea1=_part_blockmesh("Sea1", blk, beach["sea1"], bm.disc),
+                Sea2=_part_blockmesh("Sea2", blk, beach["wash"], bm.disc),
+                Sea4=_cut_plane(sea_plane, bx, by, beach["sea4_cut"], bm),
+                Sea5=_part_blockmesh("Sea5", blk, beach["sea5"], bm.disc),
+                Beach1=_part_blockmesh("Beach1", blk, beach["foam"], bm.disc))
+        return P.build_meshlist(parts)
 
     # THE TEXTURE + SEA GATES (read-only; WARN unless enforce_texgates). The sea half needs the
     # real part list, so it runs only when a sea_plane was supplied -- the texture half always does.
