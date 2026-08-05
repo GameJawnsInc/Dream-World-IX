@@ -246,3 +246,78 @@ def test_plan_rim_folds_the_pinch_so_uncovered_stops_refusing(monkeypatch):
     assert RR.uncovered(plan, have) == []
     # and the raw geometry still reads EW, so seam_report scores it honestly as an OVER
     assert RR.deepset(shade, water, [(5, 5)], 5, 5, 7, 7) == frozenset("EW")
+
+
+# --------------------------------------------------------------------------- the neighbour-facing gate
+def _grid(shallow: dict, *, wet=None):
+    """A one-block shade/water pair: ``shallow`` maps (i, j) -> 'sea3'/'sea5', rest is deep."""
+    sh = [["sea4"] * RR.G for _ in range(RR.G)]
+    for (i, j), v in shallow.items():
+        sh[i][j] = v
+    wa = [[True] * RR.G for _ in range(RR.G)]
+    for (i, j) in (wet or ()):
+        wa[i][j] = False
+    return {(0, 0): sh}, {(0, 0): wa}
+
+
+def _patch(monkeypatch, shade, water, painted):
+    monkeypatch.setattr(RR, "_grids", lambda cells: (shade, water))
+    monkeypatch.setattr(RR, "_sea5_deepsets",
+                        lambda parts: {c: frozenset(v) for c, v in painted.items()})
+
+
+def test_edge_disagreements_catches_what_seam_report_calls_CLEAN(monkeypatch):
+    """THE DEFECT the owner reported as a *mis-aligned edge* (world 513,-689 / 513,-760):
+    two transition tiles that each answer their own geometry and CONTRADICT each other at the
+    shared line. seam_report scores a tile against its own neighbourhood and stays green.
+    Stock ships 6 contradicting edges in 60,689 and ZERO of them is sea5|sea5."""
+    # the deployed east column verbatim: ENW over ESW over ESW, deep all around
+    shade, water = _grid({(7, 6): "sea5", (7, 7): "sea5", (7, 8): "sea5"})
+    _patch(monkeypatch, shade, water, {(7, 6): "ENW", (7, 7): "ESW", (7, 8): "ESW"})
+    bad = RR.edge_disagreements({(0, 0): {}})
+    assert bad == [((0, 0, 7, 7), "S", "ESW", "ESW")]        # I paint S deep, you paint N shallow
+    # ...and the same two tiles over a strip the deep closes one cell earlier are silent
+    shade2, water2 = _grid({(7, 6): "sea5", (7, 7): "sea5"})
+    _patch(monkeypatch, shade2, water2, {(7, 6): "ENW", (7, 7): "ESW"})
+    assert RR.edge_disagreements({(0, 0): {}}) == []
+
+
+def test_edge_disagreements_reads_the_MAINS_shades_too(monkeypatch):
+    """A sea3 tile paints no deep edge and a sea4 paints four, so abutting them IS a
+    contradiction -- the 'stock abuts sea3 to deep NOWHERE map-wide' law, now measured at the
+    edge rather than inferred per tile."""
+    shade, water = _grid({(7, 7): "sea3"})
+    _patch(monkeypatch, shade, water, {})
+    assert len(RR.edge_disagreements({(0, 0): {}})) == 4     # all four sides face sea4
+    shade, water = _grid({(i, 7): "sea3" for i in range(RR.G)})
+    _patch(monkeypatch, shade, water, {})
+    # a full sea3 ROW still contradicts the deep above and below, never its own neighbours
+    assert all(d == "S" for (_c, d, _a, _b) in RR.edge_disagreements({(0, 0): {}}))
+
+
+def test_edge_disagreements_ignores_an_UNREADABLE_coast_cut_tile(monkeypatch):
+    """A cut cell's tile fits no pure rotation, so there is nothing to compare -- scoring it
+    as 'shallow everywhere' would invent contradictions along every real coastline."""
+    shade, water = _grid({(7, 6): "sea5", (7, 7): "sea5", (7, 8): "sea5"})
+    _patch(monkeypatch, shade, water, {(7, 6): "ENW", (7, 7): "ESW"})    # (7,8) unreadable
+    assert RR.edge_disagreements({(0, 0): {}}) == []
+
+
+def test_unpaintable_sliver_when_NEITHER_neighbour_can_absorb(monkeypatch):
+    """A one-cell-wide shallow strip: its middle is an EW pinch and both ends are already
+    3-deep, so no MUTUAL fold exists and no wang tile serves it. Stock ships zero
+    deep-enclosed shallow components and zero one-wide runs longer than one cell."""
+    shade, water = _grid({(7, 6): "sea5", (7, 7): "sea5", (7, 8): "sea5"})
+    _patch(monkeypatch, shade, water, {})
+    assert RR.unpaintable_slivers({(0, 0): {}}) == [((0, 0, 7, 7), "EW")]
+
+
+def test_unpaintable_is_SILENT_on_the_neck_stock_itself_ships(monkeypatch):
+    """The other side of the same law: widen either lobe by one cell and the pinch's
+    neighbour is only 1-deep, so it CAN take the mutual over and stay a wang key -- exactly
+    stock's (4,15)@(12,5) (pinch ENW, its N neighbour painting ES off a bare E geometry)."""
+    shade, water = _grid({(7, 6): "sea5", (7, 7): "sea5", (7, 8): "sea5",
+                          (6, 6): "sea5", (6, 8): "sea5"})
+    _patch(monkeypatch, shade, water, {})
+    assert RR.deepset(shade, water, [(0, 0)], 0, 0, 7, 7) == frozenset("EW")   # still a pinch
+    assert RR.unpaintable_slivers({(0, 0): {}}) == []

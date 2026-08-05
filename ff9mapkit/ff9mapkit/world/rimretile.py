@@ -165,7 +165,27 @@ def deepset(shade, water, island, bx, by, i, j) -> frozenset:
 #: under) is contradicted here by stock's own complete population. The extra side is picked to
 #: avoid pointing a new deep-facing quarter at a ``sea3`` neighbour; the default order (S for an
 #: EW pinch, its 90-degree rotation W for NS) follows stock's 3:2 ESW-over-ENW majority.
+#:
+#: ⚠ **THE FOLD IS UNILATERAL AND THAT IS NOT WHAT STOCK DOES** (2026-08-05, the owner's
+#: *"missed wangs -- 2 single-edged touching each other then a third with a mis-aligned edge"* at
+#: world (513,-689)/(513,-760)). Re-reading the same 5 stock pinches WITH their neighbours: in
+#: 4/4 readable cases the neighbour on the added side paints that shared edge deep TOO -- an
+#: EW pinch at (4,15)@(12,5) paints ENW while (12,4) above it paints ES though its own geometry
+#: is only E; (5,13)@(6,12) paints ESW while (6,13) paints EN; (6,6)@(6,12) paints ENW while
+#: (6,11) paints SW; (4,15)@(3,0) paints ESW while (3,1) paints ENS off an EMPTY geometric set.
+#: The pinch resolution is MUTUAL: two tiles agree to close the channel across one edge. A
+#: unilateral fold declares deep against a neighbour still painting shallow -- a hard texture
+#: step, which is exactly what reached that playtest. And where NEITHER neighbour can absorb the
+#: extra side (both already 3-deep -- a shallow strip one cell wide), *no* painting exists:
+#: stock ships ZERO deep-enclosed shallow components and ZERO 1-wide shallow runs longer than one
+#: cell (93 EW + 92 NS runs map-wide, every one length 1). The lawful answer there is not a tile
+#: at all, it is to let the deep CLOSE over the strip. Both conditions are now MEASURED and
+#: reported -- :func:`edge_disagreements` and :func:`unpaintable_slivers`, surfaced by
+#: :func:`rim_retile` and printed by ``world-rim-retile`` -- so the class is loud at the call
+#: site instead of invisible until a playtest.
 _PINCH_PREFS = {frozenset("EW"): "SN", frozenset("NS"): "WE"}
+
+_OPP = {"N": "S", "S": "N", "E": "W", "W": "E"}
 
 
 def representable(ds, shade, water, island, bx, by, i, j) -> frozenset:
@@ -369,6 +389,117 @@ def seam_report(cells) -> dict:
     return dict(tiles=total, under=under, over=over)
 
 
+def _painted(shade, water, uvds, bx, by, i, j):
+    """What a cell's TEXTURE declares deep, which is the only question the renderer asks:
+    a ``sea4`` mains tile paints deep on all four sides, a ``sea3`` on none, a ``sea5`` on the
+    sides its wang tile encodes. ``None`` = nothing to compare (dry land, off-island, or a
+    coast-cut cell whose tile fits no pure rotation)."""
+    if (bx, by) not in shade:
+        return set("NESW")                            # off-island: the generic deep ocean ring
+    if not water[(bx, by)][i][j]:
+        return None
+    sh = shade[(bx, by)][i][j]
+    if sh == "sea4":
+        return set("NESW")
+    if sh == "sea3":
+        return set()
+    ds = uvds[(bx, by)].get((i, j))
+    return None if ds is None else set(ds)
+
+
+def edge_disagreements(cells) -> list:
+    """Shared edges whose two tiles CONTRADICT each other -- one paints deep right up to the
+    line, the other paints shallow. That is a hard texture step, and it is the defect class the
+    owner reads as a *"mis-aligned edge"*.
+
+    THE ORACLE (stock disc 1, 214 sea blocks, 60,689 shared edges): 60,683 agree, **6 disagree
+    = 0.010%**, and not one of the six is a ``sea5|sea5`` pair. So a transition tile contradicting
+    another transition tile is a shape the real game never ships, at any coordinate.
+
+    Distinct from :func:`seam_report`, which scores each tile against its own GEOMETRY. A pair of
+    tiles can each be a defensible answer to its own neighbourhood and still contradict each
+    other; only this census asks the neighbour. Returns
+    ``[((bx, by, i, j), dir, painted_here, painted_there), ...]``.
+    """
+    shade, water = _grids(cells)
+    uvds = {c: _sea5_deepsets(v) for c, v in cells.items()}
+    out = []
+    for (bx, by) in sorted(cells):
+        for i in range(G):
+            for j in range(G):
+                a = _painted(shade, water, uvds, bx, by, i, j)
+                if a is None:
+                    continue
+                for d in ("E", "S"):                   # each shared edge visited once
+                    di, dj = DIRV[d]
+                    ni, nj, nbx, nby = i + di, j + dj, bx, by
+                    if ni >= G:
+                        nbx, ni = bx + 1, 0
+                    if nj >= G:
+                        nby, nj = by + 1, 0
+                    if (nbx, nby) not in cells:
+                        continue                       # the ring is deep by definition, and the
+                        #                                frame's own facing is scored from inside
+                    b = _painted(shade, water, uvds, nbx, nby, ni, nj)
+                    if b is None:
+                        continue
+                    if (d in a) != (_OPP[d] in b):
+                        out.append(((bx, by, i, j), d,
+                                    "".join(sorted(a)) or "-", "".join(sorted(b)) or "-"))
+    return out
+
+
+def unpaintable_slivers(cells) -> list:
+    """Pinched shallow cells that NO wang tile can serve -- see :data:`_PINCH_PREFS`.
+
+    A cell whose geometric deep-set is an opposite pair is representable only as a MUTUAL fold:
+    the neighbour on the added side must paint that edge deep too, so its own deep-set gains the
+    opposite direction and must STILL be a wang key. When neither neighbour on the pinch's open
+    axis can absorb that (both are already 3-deep), the cell sits in a shallow strip one cell
+    wide -- a shape stock ships nowhere (0 deep-enclosed shallow components; 185 one-wide runs
+    map-wide, all of length 1). The lawful remedy is to let the deep close over the strip
+    (repartition it to ``Sea4``), not to fold a tile onto it. Returns
+    ``[((bx, by, i, j), geometric_deepset), ...]``.
+    """
+    island = list(cells)
+    shade, water = _grids(cells)
+    out = []
+    for (bx, by) in sorted(cells):
+        for i in range(G):
+            for j in range(G):
+                if not water[(bx, by)][i][j] or shade[(bx, by)][i][j] not in ("sea3", "sea5"):
+                    continue
+                ds = deepset(shade, water, island, bx, by, i, j)
+                if not ds or ds in W.DEEPSET2TILE:
+                    continue
+                prefs = _PINCH_PREFS.get(frozenset(ds))
+                if prefs is None:
+                    continue                           # a 4-deep set: not a pinch, see representable
+                absorbs = False
+                for d in prefs:
+                    di, dj = DIRV[d]
+                    ni, nj, nbx, nby = i + di, j + dj, bx, by
+                    if ni < 0:
+                        nbx, ni = bx - 1, G - 1
+                    elif ni >= G:
+                        nbx, ni = bx + 1, 0
+                    if nj < 0:
+                        nby, nj = by - 1, G - 1
+                    elif nj >= G:
+                        nby, nj = by + 1, 0
+                    if (nbx, nby) not in cells or not water[(nbx, nby)][ni][nj]:
+                        continue
+                    if shade[(nbx, nby)][ni][nj] not in ("sea3", "sea5"):
+                        continue
+                    nds = deepset(shade, water, island, nbx, nby, ni, nj)
+                    if frozenset(set(nds) | {_OPP[d]}) in W.DEEPSET2TILE:
+                        absorbs = True
+                        break
+                if not absorbs:
+                    out.append(((bx, by, i, j), "".join(sorted(ds))))
+    return out
+
+
 def _sea5_deepsets(parts) -> dict:
     """``{(i,j): deepset}`` read back from each sea5 tile's own uv."""
     bm = parts.get("sea5")
@@ -426,6 +557,7 @@ def rim_retile(mod_folder, cells_xy, donors, *, disc: int = 1, target_disc=None,
         return dict(refused="these cells carry no shallow ring -- nothing to re-tile")
 
     before = seam_report(cells)
+    edges_before = len(edge_disagreements(cells))
     passes, total = [], 0
     for _k in range(max_passes):
         plan = plan_rim(cells)
@@ -445,8 +577,14 @@ def rim_retile(mod_folder, cells_xy, donors, *, disc: int = 1, target_disc=None,
         cells = after
         if len(passes) >= 2 and passes[-1] == passes[-2]:
             break
+    # THE NEIGHBOUR-FACING GATE (2026-08-05, the east-frame mis-aligned edges). seam_report
+    # scores each tile against its OWN geometry and was green (under 0) while the column shipped
+    # three contradicting edges; only these two census the pair and the shape.
+    contradictions = edge_disagreements(cells)
     rep = dict(variants=len(variants), passes=passes, quads=total,
-               before=before, after=seam_report(cells))
+               before=before, after=seam_report(cells),
+               edges_disagreeing={"before": edges_before, "after": len(contradictions)},
+               contradictions=contradictions, unpaintable=unpaintable_slivers(cells))
     if not apply:
         rep["dry_run"] = True
         return rep
