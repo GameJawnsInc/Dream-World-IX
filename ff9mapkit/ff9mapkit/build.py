@@ -2655,13 +2655,17 @@ def validate(project: FieldProject) -> list[str]:
                 # reply is already finished when that press fans out and dismisses itself on arrival.
                 # Owner playtest, bench 30801: the page "immediately does the closing animation and
                 # exits the entire dialogue tree". A typewriter reply is safe (a mid-type press SKIPS
-                # to full text), and so is one that sets ignoreInputFlag via [TIME=-1]/[NFOC].
+                # to full text), and so is one that sets ignoreInputFlag via [TIME=-1]/[NFOC] --
+                # but ONLY on a `polled` reply, because on the blocking WindowSync those same tags
+                # are the softlock the next rule refuses.
                 # NOTE this is about the OPTION's reply, never the choice block's own `instant` --
                 # an instant SELECTOR is proven fine (studies/messages/bench/winstyle.field.toml:127).
                 _reply = str(o.get("reply") or "")
+                _polled = bool(o.get(_text.POLLED_KEY))
                 if _reply.strip():
                     _inst = bool(o.get("instant")) or "[IMME]" in _reply
-                    _held = "[NFOC]" in _reply or "[TIME=-1]" in _reply
+                    _held = ("[NFOC]" in _reply or "[TIME=-1]" in _reply
+                             or bool(o.get("no_focus")) or bool(o.get("hold")))
                     if _inst and not _held:
                         problems.append(
                             f"[[choice]] #{c} option {oi} has an INSTANT reply -- the confirm press "
@@ -2669,8 +2673,57 @@ def validate(project: FieldProject) -> list[str]:
                             f"and closes any that has finished typing (Dialog.cs:789), so an instant reply "
                             f"dismisses itself the moment it opens and the dialogue tree exits. Drop "
                             f"`instant`/[IMME] from the option (a typewriter reply survives -- a mid-type "
-                            f"press skips to full text), or hold it with [NFOC]/[TIME=-1] if it must not "
-                            f"be dismissable. The choice block's own `instant` is unaffected.")
+                            f"press skips to full text), or make it a `polled` page (async open + script "
+                            f"poll + script close) if it must not be dismissable -- holding a BLOCKING "
+                            f"reply is a softlock. The choice block's own `instant` is unaffected.")
+                    # ★ THE SYNC-HOLD SOFTLOCK RULE. A reply that is not `polled` is emitted as a
+                    # BLOCKING WindowSync (0x1F -> gCur.wait = 254), and the engine's only escape is
+                    # `!ETb.MesWinActive(winnum)` -- i.e. the window closing (EBin.cs:137-148). Every
+                    # FlagButtonInh tag ([TIME=-1] via `hold`, [NFOC] via `no_focus`, either spelled
+                    # literally) makes Dialog.OnKeyConfirm's `!this.ignoreInputFlag` guard false
+                    # (Dialog.cs:789), so NO press can ever close it: the field hangs with a window up
+                    # and control locked. This is unconditional -- it does not depend on turbo, on
+                    # `instant`, or on what the player does. Nothing linted it before; the only
+                    # legitimate home for those tags is a `polled` reply, which closes its own window.
+                    _hold_src = []
+                    if o.get("hold"):
+                        _hold_src.append("`hold = true` ([TIME=-1])")
+                    if o.get("no_focus"):
+                        _hold_src.append("`no_focus = true` ([NFOC])")
+                    if "[TIME=-1]" in _reply:
+                        _hold_src.append("a literal [TIME=-1] in the reply")
+                    if "[NFOC]" in _reply:
+                        _hold_src.append("a literal [NFOC] in the reply")
+                    if _hold_src and not _polled:
+                        problems.append(
+                            f"[[choice]] #{c} option {oi}: {' and '.join(_hold_src)} on a BLOCKING "
+                            f"reply is an unconditional SOFTLOCK. The reply is a WindowSync (0x1F), "
+                            f"which parks the script on gCur.wait == 254 until the window closes "
+                            f"(EBin.cs:137-148), and FlagButtonInh means Dialog.OnKeyConfirm never "
+                            f"closes it (Dialog.cs:789) -- no press, ever. Add `polled = true` (the "
+                            f"reply is then opened async, watched for a real button edge and closed "
+                            f"by the script), or drop the hold and let the player dismiss it.")
+                # ★ THE POLLED-PAGE RULES (content/text.polled_window_problems). Scored on the
+                # EMITTED .mes entry, not on the authored string: the [NTUR]/[NFOC] halves come from
+                # `dress_window` and the poll loop from `content/event.polled_window`, two lanes that
+                # meet only at build -- so no single emitter can make these unrepresentable, and a
+                # missing tag is invisible until a latched F9 eats the page in-game.
+                if _polled:
+                    if not _reply.strip():
+                        problems.append(
+                            f"[[choice]] #{c} option {oi}: polled needs a `reply` -- there is no "
+                            f"window to open, hold, poll and close without one")
+                    else:
+                        try:
+                            _dressed = _text.dress_window(o, _reply)[0]
+                        except (TypeError, ValueError):
+                            # a malformed speed/duration/box/style -- the type rules in the window
+                            # sweep below name it precisely; re-raising here would replace an
+                            # actionable message with a traceback from the emitter
+                            _dressed = None
+                        if _dressed is not None:
+                            for _tail in _text.polled_window_problems(o, _dressed):
+                                problems.append(f"[[choice]] #{c} option {oi} {_tail}")
                 # `values` -- the LIVE NUMBERS lane (content/choice.py:option_values_body). Same
                 # rulebook as [[behavior.hud]]'s `values`, reached through the SAME validator
                 # (behavior.hud_expr_tokens / hud_text_table_slots), because both publish into the
@@ -2860,6 +2913,11 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"{label}: hold and duration are the same engine tag with opposite "
                                 f"meanings ([TIME=-1] holds forever, [TIME=n] auto-closes after n "
                                 f"frames) -- keep one.")
+            nf = src.get("no_focus")
+            if nf is not None and not isinstance(nf, bool):
+                problems.append(f"{label} no_focus must be true/false (emit [NFOC]: FlagButtonInh "
+                                f"+ FlagResetChoice = false, so ONLY the script can close this "
+                                f"window; got {nf!r})")
             # ★ THE TURBO-CONFIRM LAW at the call site (content/text.py:NO_TURBO_TAG).
             # dress_window turbo-proofs a READOUT window automatically, so the only way to ship one
             # that a turbo session eats is to opt OUT on purpose -- and an opt-out of a law has to be
@@ -2881,9 +2939,10 @@ def validate(project: FieldProject) -> list[str]:
                         f"synthesizes a confirm EVERY FRAME with no input, DialogManager.cs:334-340 "
                         f"fans it to every open window and Dialog.cs:789-796 hides this one the "
                         f"instant it finishes typing -- the player never reads the number. Drop "
-                        f"no_turbo = false, or inhibit the window instead with hold/duration/[NFOC] "
-                        f"(NB those also block the PLAYER's confirm, so a blocking window then hangs "
-                        f"the script on wait == 254).")
+                        f"no_turbo = false, or hold the window with duration = n (auto-close). NB "
+                        f"hold/no_focus block the PLAYER's confirm too, so on a blocking window "
+                        f"they hang the script on wait == 254 -- a page that must survive a latched "
+                        f"F9 wants `polled = true`, not an inhibitor.")
         a = src.get("actor") if opcode_side else None
         if a is not None and actor != "cast":      # "cast": the step's actor IS the performer
             if actor == "no":

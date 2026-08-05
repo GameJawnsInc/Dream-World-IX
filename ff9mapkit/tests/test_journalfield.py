@@ -720,19 +720,224 @@ def test_the_BUILT_eb_has_EXACTLY_the_expected_number_of_value_writes(built_benc
 @pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
 def test_the_BUILT_eb_publishes_each_page_BEFORE_that_pages_window_opens(built_bench_eb):
     """Dialog bakes its width ONCE at open over the values present (Dialog.AutomaticSize,
-    Dialog.cs:1560-1591) and never re-sizes, so a publish after the WindowSync would render at a
-    width measured over the previous field's numbers. Checked on the built stream: every page's LAST
-    value write is followed by a WindowSync before the next page's FIRST value write."""
+    Dialog.cs:1560-1591) and never re-sizes, so a publish after the window would render at a width
+    measured over the previous field's numbers. Checked on the built stream: every page's LAST value
+    write is followed by that page's OPEN before the next page's FIRST value write.
+
+    ⚠ The open is per-page now: `WindowAsync` for a POLLED page, `WindowSync` for the rest. The
+    publish-then-open ordering is the invariant; the opcode is the page's shape."""
     from ff9mapkit.eb.model import EbScript
     eb = EbScript.from_bytes(built_bench_eb)
+    opens = ("WindowSync", "WindowAsync")
     stream = [i for e in eb.entries if not e.empty for f in e.funcs for i in eb.instrs(f)
-              if i.name in ("SetTextVariable", "WindowSync")]
-    # the talk handler's shape, in order: [prompt WindowSync] then per page N x 0x66 + 1 x WindowSync
+              if i.name in ("SetTextVariable",) + opens]
     kinds = [i.name for i in stream]
-    want = ["WindowSync"]
+    want = ["WindowSync"]                                 # the selector prompt
     for p in JF.PAGES:
-        want += ["SetTextVariable"] * len(JF.bench_page_values(p)) + ["WindowSync"]
+        want += ["SetTextVariable"] * len(JF.bench_page_values(p))
+        want += ["WindowAsync" if p.polled else "WindowSync"]
     assert kinds[:len(want)] == want, kinds[:len(want)]
+
+
+# ---- ★ THE POLLED PAGE: the turbo-proof primitive, and every gate it owes -----------------------
+# The design, its engine citations and its bench plan are in studies/completion-journal/PLAN.md
+# ("THE TURBO-PROOF PAGE"). One page converts this round -- the shortest one, menu row 0 -- and the
+# other six are the same-field control, which is the whole reason the in-game verdict will be
+# readable. Everything below is the OFFLINE half: the exact op sequence, the exact .mes tags, and
+# the flags split that makes the A/B real in the bytes.
+
+def test_exactly_ONE_page_is_polled_this_round():
+    """One change per in-game test. If a later round converts the rest, this number moves WITH the
+    playtest that justified it -- it is pinned so that cannot happen by drift."""
+    polled = [p.key for p in JF.PAGES if p.polled]
+    assert polled == ["story"], polled
+    assert JF.PAGES[0].key == "story" and len(JF.PAGES[0].lines) == 3   # row 0, the shortest page
+
+
+def test_the_polled_page_flags_are_OUTSIDE_the_turbo_injection_predicate():
+    """The STRUCTURAL guard. ShouldTurboDialog arm B (UIKeyTrigger.cs:984) tests
+    `Style == WindowStyleAuto || Style == WindowStyleTransparent`, and the styles are derived from
+    the flags byte by ETb.FlagsToStyles -- so this is a property of the number, not of a name."""
+    assert JF.POLLED_PAGE_FLAGS == 0
+    assert not T.turbo_injectable(JF.POLLED_PAGE_FLAGS)
+    assert T.turbo_injectable(JF.PAGE_FLAGS)              # ...and the SYNC pages are exposed, which
+    #                                                      is exactly why they still need [NTUR]
+    # the full exposure table, transcribed from ETb.cs:167-186 + Dialog.cs:1921-1927
+    assert {f for f in (0, 4, 8, 16, 64, 128, 132, 144, 160) if T.turbo_injectable(f)} == \
+        {16, 128, 144, 160}
+
+
+def test_a_polled_page_emits_the_EXACT_op_sequence():
+    """The 32-byte primitive, byte for byte, disassembled -- not a shape assertion.
+
+    WindowAsync(win, 0, txid) ; Wait(8) ; 05{const4(720896) B_KEYON} ; JMP_IF ; Wait(1) ; JMP ;
+    CloseWindow(win) ; Wait(4). The back-hop MUST be 0x01 (signed): JMP_IFNOT (0x02) reads its
+    operand UNSIGNED and can only go forward, so a loop built on it would jump into the weeds."""
+    import struct
+    p = JF.PAGES[0]
+    _t, exprs = JF.render_page(p)
+    body = JF.page_body_async(exprs, 700, window=2, table_slots=JF.table_slots_of(p))
+    pub = JF._publish(exprs, JF.table_slots_of(p))
+    assert body.startswith(pub)                           # values FIRST -- AutomaticSize bakes once
+    tail = body[len(pub):]
+    assert len(tail) == 32
+    assert tail == bytes.fromhex("20000200bc02"          # WindowAsync(2, 0, 700)
+                                 "220008"                # Wait(8)          -- the debounce
+                                 "057e00000b004f7f"      # 05{ const4(0xB0000) B_KEYON }
+                                 "030600"                # JMP_IF done
+                                 "220001"                # Wait(1)
+                                 "01efff"                # JMP poll         -- signed, -17
+                                 "210002"                # CloseWindow(2)
+                                 "220004")               # Wait(4)          -- the settle
+    ins = list(D.iter_code(tail, 0, len(tail)))
+    assert [i.op for i in ins] == [0x20, 0x22, 0x05, 0x03, 0x22, 0x01, 0x21, 0x22]
+    assert ins[0].args == [2, JF.POLLED_PAGE_FLAGS, 700]  # WindowAsync(win, plain, txid)
+    assert ins[1].args == [8] and ins[4].args == [1] and ins[7].args == [4]
+    assert ins[6].args == [2]                             # CloseWindow(win)
+    assert "B_KEYON" in JF.pretty_listing(tail)[2]
+    assert struct.unpack("<h", struct.pack("<H", ins[5].args[0]))[0] < 0   # the back-hop is SIGNED
+
+
+def test_the_poll_mask_is_stocks_own_dismissal_mask():
+    """720896 = Confirm|Cancel|Special -- the mask on 1,710 of the 2,034 stock poll-adjacent async
+    window sites. The bits come from EventInput.cs:537-562, not from a magic number."""
+    from ff9mapkit.content import event as EV
+    assert (EV.KEY_CONFIRM, EV.KEY_CANCEL, EV.KEY_SPECIAL) == (0x20000, 0x10000, 0x80000)
+    assert EV.KEY_DISMISS == 0xB0000 == 720896
+
+
+def test_the_polled_emitter_REFUSES_an_arm_B_style():
+    """BREAK IT TO PROVE IT. The poll's own B_KEYON sets VoicePlayer.scriptRequestedButtonPress
+    (EBin.cs:1080), so an Auto/Transparent polled window has the ENGINE press Confirm for it -- the
+    same symptom as the broadcast bug, through a different mechanism. This is the one guard that can
+    be structural, so it raises rather than lints."""
+    p = JF.PAGES[0]
+    _t, exprs = JF.render_page(p)
+    for bad_flags in (128, 16, 144, 160):
+        with pytest.raises(ValueError, match="arm B"):
+            JF.page_body_async(exprs, 700, flags=bad_flags, table_slots=JF.table_slots_of(p))
+    for ok_flags in (0, 4, 8, 64, 132):
+        JF.page_body_async(exprs, 700, flags=ok_flags, table_slots=JF.table_slots_of(p))
+
+
+def test_an_empty_poll_mask_is_REFUSED():
+    """A mask of 0 never exits the loop: the field hangs with a window nobody can close and control
+    locked -- offline it looks like a perfectly ordinary 32-byte block."""
+    from ff9mapkit.content import event as EV
+    for bad in (0, -1, 1 << 27):
+        with pytest.raises(ValueError, match="26-bit"):
+            EV.polled_window(700, window=2, flags=0, mask=bad)
+
+
+def test_the_talk_handler_uses_the_ASYNC_shape_for_the_POLLED_page_ONLY():
+    """The A/B in the .eb the shipped dashboard would emit: one WindowAsync, six WindowSyncs, and
+    the async one carries the plain flags while the sync ones carry the bubble flags."""
+    body = JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699)
+    ins = list(D.iter_code(body, 0, len(body)))
+    asyncs = [i for i in ins if i.op == 0x20]
+    syncs = [i for i in ins if i.op == 0x1F]
+    assert len(asyncs) == 1 and len(syncs) == 1 + len(JF.PAGES) - 1   # menu + the 6 sync pages
+    assert asyncs[0].args == [JF.PAGE_WINDOW, JF.POLLED_PAGE_FLAGS, 700]
+    assert all(i.args[1] == JF.PAGE_FLAGS for i in syncs)
+    assert sum(1 for i in ins if i.op == 0x21) == 1                   # exactly one CloseWindow
+    # ...and the byte cost of the conversion, MEASURED on the real stream rather than predicted:
+    # the 32-byte polled block replaces a 6-byte WindowSync, so +26 per page, not the +27 the design
+    # note carried (it costed WindowSync at 5 bytes and forgot the argFlag byte every opcode >= 0x10
+    # with operands carries -- eb/opcodes.encode:57-58).
+    sync_only = JF.talk_body({p.key: 700 + i for i, p in enumerate(JF.PAGES)}, 699,
+                             pages=tuple(JF.Page(p.key, p.title, p.menu, p.lines) for p in JF.PAGES))
+    assert len(OPC.window_sync(1, 0, 700)) == 6
+    assert len(body) - len(sync_only) == 32 - 6 == 26
+    used, budget = JF.eb_budget()
+    assert used == len(body) and used < budget // 4
+
+
+def test_retuning_POLLED_PAGE_FLAGS_to_a_BUBBLE_FAILS_the_gate(monkeypatch):
+    """BREAK IT TO PROVE IT -- the lint arm that guards the constant itself. 128 looks like the
+    right "field dialogue" number and it is WindowStyleAuto, i.e. arm B's predicate. The page would
+    build, open, and hold with turbo OFF; only a latched F9 would show it."""
+    assert JF.lint_pages(check_live_install=False) == []
+    monkeypatch.setattr(JF, "POLLED_PAGE_FLAGS", 128)
+    bad = JF.lint_pages(check_live_install=False)
+    assert any("arm B's predicate" in m for m in bad), bad
+    # ...and it does NOT fire when no page is polled (nothing arms the injector)
+    plain = tuple(JF.Page(p.key, p.title, p.menu, p.lines) for p in JF.PAGES)
+    assert JF.lint_pages(pages=plain, check_live_install=False) == []
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_bench_declares_the_polled_page_and_ONLY_it():
+    """The three keys are ONE decision (polled + a poll-safe style + the two hold/turbo tags), so
+    they are asserted together; and the control pages must carry NONE of them or the A/B is not an
+    A/B."""
+    import tomllib
+    d = tomllib.loads(io.open(_BENCH, encoding="utf-8").read())
+    opts = d["choice"][0]["options"]
+    for p, o in zip(JF.PAGES, opts):
+        if p.polled:
+            assert o["polled"] is True and o["style"] == "plain"
+            assert o["no_focus"] is True and o["no_turbo"] is True
+            assert T.resolve_style(o["style"]) == JF.POLLED_PAGE_FLAGS == 0
+        else:
+            assert not any(k in o for k in ("polled", "style", "no_focus", "no_turbo")), p.key
+
+
+def _bank(mes: dict, name: str) -> int:
+    """The txid the build allocated for ``[[text_table]] name`` -- read off the emitted entries, the
+    same way `test_the_BUILT_mes_TAG_BANK_IS_the_txid_the_build_assigned` does."""
+    from ff9mapkit.content import texttable as TT
+    return {b: t for t, b in mes.items()}[TT.entry_text(JF.TABLES[name])]
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_mes_gives_the_polled_page_NTUR_and_NFOC_and_nothing_forbidden(built_bench_mes):
+    """THE .mes HALF OF THE GATE, on the artifact. The tags are emitted by `dress_window` from the
+    option's keys, so nothing in `journalfield` can be asked whether they landed -- only the file
+    can. Each forbidden tag breaks the primitive a different way (content/text.POLL_FORBIDDEN_TAGS):
+    [IMME] hands the selecting press a finished window, [PAGE] turns CloseWindow into a page turn
+    and leaves a live window behind, [WDTH] re-opens the dead OnWidths path, and any [TIME=n>=0]
+    either races the poll or clears the very FlagButtonInh the page depends on."""
+    story = JF.render_page(JF.PAGES[0])[0]
+    body = next(b for b in built_bench_mes.values() if story.split("\n", 1)[0] in b)
+    assert body == "[NTUR][NFOC]" + re.sub(r"\[TEXT=[^,\]]+,", "[TEXT=%d," % _bank(built_bench_mes,
+                                                                                  "th_rank"), story)
+    for tag in ("[IMME]", "[PAGE]", "[WDTH]", "[TIME="):
+        assert tag not in body, (tag, body[:120])
+    # ...and the SIX CONTROL pages keep the owner-confirmed sync shape: auto-[NTUR], never [NFOC]
+    for p in JF.PAGES[1:]:
+        b = next(x for x in built_bench_mes.values() if JF.render_page(p)[0].split("\n", 1)[0] in x)
+        assert b.startswith("[NTUR]") and "[NFOC]" not in b, (p.key, b[:60])
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_eb_splits_the_window_FLAGS_0_vs_128(built_bench_eb):
+    """The A/B has to be real IN THE BYTES, not only in the toml. One WindowAsync at flags 0 (plain
+    -- outside arm B) and six WindowSyncs at flags 128 (bubble -- WindowStyleAuto, inside it), each
+    on window id 2, plus the selector's own prompt on id 1."""
+    from ff9mapkit.eb.model import EbScript
+    eb = EbScript.from_bytes(built_bench_eb)
+    ins = [i for e in eb.entries if not e.empty for f in e.funcs for i in eb.instrs(f)
+           if i.name in ("WindowSync", "WindowAsync")]
+    got = [(i.name, i.imm(0), i.imm(1)) for i in ins]
+    want = [("WindowSync", 1, 128)]                       # the selector prompt, window 1
+    for p in JF.PAGES:
+        want.append(("WindowAsync", 2, 0) if p.polled else ("WindowSync", 2, 128))
+    assert got[:len(want)] == want, got[:len(want)]
+    assert sum(1 for _n, _w, f in want if f == 0) == 1    # exactly one page left the exposed class
+
+
+@pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
+def test_the_BUILT_eb_closes_the_polled_window_exactly_once(built_bench_eb):
+    """An async window nobody closes outlives its arm and sits on top of the re-opened selector.
+    The emitter always pairs the open with a close, so this is the artifact proving the pairing
+    survived the choice lane -- and the count is exact, because a SECOND close on a dead id is how
+    a blind close-sweep would look."""
+    from ff9mapkit.eb.model import EbScript
+    eb = EbScript.from_bytes(built_bench_eb)
+    closes = [i for e in eb.entries if not e.empty for f in e.funcs for i in eb.instrs(f)
+              if i.name == "CloseWindow"]
+    assert len(closes) == 1 and closes[0].imm(0) == 2
 
 
 @pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")

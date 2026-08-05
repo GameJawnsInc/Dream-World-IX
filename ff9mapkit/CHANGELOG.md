@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `polled` / `no_focus`: a window a turbo session cannot eat
+- **`[[choice.options]] polled = true`** swaps a reply from the ordinary blocking window to the shape
+  a page the player must *read* actually needs: **open async → hold → poll for a real button edge →
+  close from the script** (32 bytes, values published before the open so the width bakes over the real
+  numbers). A blocking window cannot be turbo-proofed at all — every tag that survives a latched **F9**
+  also blocks the player's own Confirm, and then the blocking window hangs the script forever.
+- **The reason `[NTUR]` alone was not enough.** `ShouldTurboDialog` has **two** arms. The known one
+  fans a synthesized confirm out to every open window. The second fires *only* when every open window
+  is button-inhibited **and** one is in the bubble/transparent family **and** the script armed a button
+  poll — and it writes a confirm **into the script's own input stream**, so the poll reads a press
+  nobody made. Since the poll opcode is itself what arms that path, “hold the window and poll” was the
+  exact configuration it serves: same symptom, new mechanism. A polled window therefore ships **three
+  independent guards** — a poll-safe `style` (structural, refused at the emitter), `[NFOC]`, `[NTUR]`.
+- **New `no_focus` key** on every dialogue-bearing block emits `[NFOC]` (button-inhibit + no choice
+  reset). On a **blocking** reply it is an unconditional softlock, and `lint` now refuses that pairing
+  — including `hold = true`, which shipped as a legal-looking key and had no check at all.
+- **`no_turbo` no longer discards an explicit `true` on a held window.** The rule opened with “an
+  already-inhibited window needs nothing”, which made *inhibited **and** turbo-proof* unrepresentable
+  — precisely the polled page's shape. `lint` also checks the emitted `.mes` entry of a polled row for
+  both tags and refuses `[IMME]` / `[PAGE]` / `[WDTH]` / any `duration`, each a different in-game-only
+  failure.
+- The shape is one of stock's most common idioms (2,034 `WindowAsync`+poll sites across 115 shipping
+  fields), not an invention; Chocobo's Forest counts your catches exactly this way.
+
 ### Added — the completion Journal: one catalog, an offline report and an in-game dashboard
 - **`ff9mapkit journal report|diff|rows|lint`** reads a real save (`EncryptedSavedData`, AES-256-CBC)
   and prints a 100%-completion readout: story beat, Treasure-Hunter points and rank, chocographs found

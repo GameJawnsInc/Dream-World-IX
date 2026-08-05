@@ -332,10 +332,86 @@ HOLD_TAG = "[TIME=-1]"        # FlagButtonInh only -- undismissable, closes only
 # (UIKeyTrigger.cs:838/849), so one render pass of the tag protects the window for its whole life.
 NO_TURBO_TAG = "[NTUR]"
 
+# ★ THE TURBO-INJECTION LAW -- ``ShouldTurboDialog`` HAS TWO ARMS, and the second one is why
+# "[NFOC] + poll" is not a fix but a second spelling of the same bug (UIKeyTrigger.cs:974-991):
+#
+#   ARM A (:981-982)  `if (Dialogs.IsDialogNeedControl()) return true;`  -> the caller (:834-837)
+#     fans OnKeyConfirm to EVERY open window and each one Hides unless `ignoreInputFlag`. This is
+#     the broadcast arm the law above describes. Beaten by [NTUR], or by [NFOC]/[TIME] (which set
+#     FlagButtonInh, so IsDialogNeedControl() reports "needs no control" and the arm is skipped).
+#
+#   ARM B (:984-988)  reached ONLY when arm A did NOT fire -- i.e. exactly when every open window is
+#     dismiss-inhibited:
+#         if (VoicePlayer.scriptRequestedButtonPress
+#             && ActiveDialogList.Any(Style == WindowStyleAuto || Style == WindowStyleTransparent))
+#         { ETb.sKey &= ~Confirm; EventInput.ReceiveInput(Confirm); }
+#     It SYNTHESIZES a Confirm into the SCRIPT'S OWN input stream -- and `scriptRequestedButtonPress`
+#     is set by ``B_KEYON`` itself (EBin.cs:1080), re-armed every ProcessEvents tick
+#     (EventEngine.ProcessEvents.cs:11-14). So a script that inhibits its window and then POLLS for a
+#     press reads a press it never got, on frame 1.
+#
+# Arm B has two independent locks and this module owns both: [NTUR] (``preventTurboKey`` bails at
+# :976 BEFORE either arm) and a window STYLE outside the predicate. Style is the primary guard --
+# it is structural, needs no tag and no render pass -- because [NTUR] is only re-asserted while a
+# label RENDERS (DialogBoxSymbols.cs:327-329 via UILabel.OnFill) and is cleared by any delivered
+# confirm/cancel (UIKeyTrigger.cs:838/849), so a fully-typed static page can lose it mid-life.
+NO_FOCUS_TAG = "[NFOC]"       # FlagButtonInh = true AND FlagResetChoice = false (DialogBoxSymbols.cs:593-598)
+
+#: The author key that declares a window SCRIPT-POLLED: opened async, held, watched for a real
+#: button edge by the script, and closed by the script. Only ``[[choice.options]]`` wires it today
+#: (content/choice.py -> content/event.polled_window); :func:`window_polled` reads it through a
+#: plain copy so this module's universal call sites do not harvest it into every block's vocabulary.
+POLLED_KEY = "polled"
+
+#: The two ``Dialog.WindowStyle`` values arm B's predicate names (Dialog.cs:1921-1927).
+TURBO_INJECTABLE_STYLES = ("WindowStyleAuto", "WindowStyleTransparent")
+
+
+def window_style_of(flags: int) -> str:
+    """The ``Dialog.WindowStyle`` a flags byte resolves to -- ``ETb.FlagsToStyles`` (ETb.cs:167-186)
+    transcribed, not a lookup table, so a raw flags int an author spells for engine spelunking is
+    classified by the engine's own rule rather than by whichever named combinations we listed.
+
+    The engine picks Auto when bit 128 is set (else Plain, with the mognet/ate captions), and THEN
+    overrides: bit 16 -> Transparent, else bit 4 -> NoTail. That ordering is why 144
+    (``bubble_transparent``) is Transparent and 132 (``bubble_notail``) is NoTail."""
+    style = "WindowStyleAuto" if int(flags) & 128 else "WindowStylePlain"
+    if int(flags) & 16:
+        return "WindowStyleTransparent"
+    if int(flags) & 4:
+        return "WindowStyleNoTail"
+    return style
+
+
+def turbo_injectable(flags: int) -> bool:
+    """True when a window opened with these flags sits INSIDE arm B's predicate -- i.e. a script
+    that polls ``B_KEYON`` while this window is open and inhibited will read a synthesized Confirm.
+    Of the nine named styles the exposed set is exactly ``bubble`` 128, ``transparent`` 16,
+    ``bubble_transparent`` 144 and ``bubble_nopan`` 160; ``plain`` 0, ``notail`` 4, ``mognet`` 8,
+    ``ate`` 64 and ``bubble_notail`` 132 are safe."""
+    return window_style_of(flags) in TURBO_INJECTABLE_STYLES
+
+
+def window_polled(src: dict) -> bool:
+    """Whether this block declares its window SCRIPT-POLLED (:data:`POLLED_KEY`).
+
+    Read through a PLAIN COPY, for the same reason :func:`body_text` is: this runs from
+    :func:`dress_window`, which every dialogue-bearing block routes through at ``collect_text``, and
+    ``src.get`` on a live tree is a schema PROBE (``fieldschema._Spy.get``). Probing here would
+    harvest ``polled`` into the vocabulary of ``[[npc]]``, ``[[prop]]``, ``[cutscene]`` and every
+    other block that does NOT wire it, blessing ``[[npc]] polled = true`` as a legal no-op key.
+    ``dict(src)`` records nothing (``fieldschema._Spy`` docstring) and the values are unchanged."""
+    if isinstance(src, dict):
+        return bool(dict(src).get(POLLED_KEY))
+    return False
+
+
 # The tags that already make a window immune to the confirm fan-out because they set
 # Dialog.FlagButtonInh (DialogBoxSymbols.cs:593-598 NoFocus, :811-829 OnTime): such a window reports
 # "needs no control", so ShouldTurboDialog's IsDialogNeedControl() gate never opens for it.
-_TURBO_INHIBITORS = (NO_TURBO_TAG, "[NFOC]", "[TIME=")
+# ⚠ INHIBITED IS NOT SAFE, IT IS ARM A SAFE. Inhibiting every open window is the precondition arm B
+# waits for -- see THE TURBO-INJECTION LAW above.
+_TURBO_INHIBITORS = (NO_TURBO_TAG, NO_FOCUS_TAG, "[TIME=")
 
 # The tags that render a LIVE VALUE into the window -- gMesValue via [NUMB=n], a text-table string via
 # [TEXT=bank,slot], an item name via [ITEM=n]. A window carrying one of these is a READOUT: the player
@@ -358,13 +434,16 @@ def turbo_skippable(line: str) -> bool:
 
 
 def window_inhibited(src: dict, line: str) -> bool:
-    """True when this window is ALREADY immune to the confirm fan-out -- the author wrote an
-    inhibitor tag into the text, or ``hold`` / ``duration = n>=1`` will append a ``[TIME=...]`` that
-    sets ``Dialog.FlagButtonInh``. (``duration = 0`` is the engine's third mode -- it CLEARS
-    FlagButtonInh, so it inhibits nothing.)"""
+    """True when this window is immune to the confirm FAN-OUT (arm A) -- the author wrote an
+    inhibitor tag into the text, or ``no_focus`` / ``hold`` / ``duration = n>=1`` will append a tag
+    that sets ``Dialog.FlagButtonInh``. (``duration = 0`` is the engine's third mode -- it CLEARS
+    FlagButtonInh, so it inhibits nothing.)
+
+    ⚠ READ THE NAME NARROWLY. "Inhibited" means arm A cannot reach this window; it is precisely the
+    state arm B is written to act on (THE TURBO-INJECTION LAW above). It is not "turbo-proof"."""
     if not turbo_skippable(line):
         return True
-    if src.get("hold"):
+    if src.get("no_focus") or src.get("hold"):
         return True
     d = src.get("duration")
     return d is not None and not isinstance(d, bool) and int(d) != 0
@@ -397,15 +476,112 @@ def body_text(src: dict) -> str:
 
 
 def want_no_turbo(src: dict, line: str) -> bool:
-    """Whether :func:`dress_window` emits :data:`NO_TURBO_TAG` for this window. Default ON for a
-    readout, OFF otherwise; an explicit ``no_turbo`` wins either way; an already-inhibited window
-    never gets it (a second inhibitor buys nothing and costs bytes)."""
-    if window_inhibited(src, line):
-        return False
+    """Whether :func:`dress_window` emits :data:`NO_TURBO_TAG` for this window.
+
+    Default ON for a READOUT and for a SCRIPT-POLLED window, OFF otherwise; an explicit
+    ``no_turbo`` wins over every default; a tag already present in the authored text is never
+    duplicated.
+
+    ⚠ THE ORDER OF THE FIRST TWO TESTS IS THE FIX, and it used to be backwards. The rule opened
+    with ``if window_inhibited(...): return False`` -- "a second inhibitor buys nothing" -- which
+    silently discarded an EXPLICIT ``no_turbo = true`` and, worse, guaranteed that the one shape
+    that NEEDS [NTUR] could never get it. An inhibited window is arm-A-safe and is exactly what arm
+    B acts on (THE TURBO-INJECTION LAW), so `inhibited AND turbo-proof` was unrepresentable in the
+    kit: a page carrying ``no_focus``/``hold`` and a ``B_KEYON`` poll read a synthesized Confirm on
+    frame 1 and closed itself, with a NEW mechanism and the SAME symptom as the broadcast bug.
+
+    What did NOT change: an inhibited window with no explicit key and no poll still gets nothing
+    (a second arm-A inhibitor really does buy nothing), and a plain narrative window is still
+    turbo-skippable like the base game's."""
+    if NO_TURBO_TAG in str(line or ""):
+        return False                    # already carried in the authored text -- no second copy
     v = src.get("no_turbo")
     if v is not None:
-        return bool(v)
+        return bool(v)                  # an explicit key wins, inhibited or not
+    if window_polled(src):
+        return True                     # arm B fires ONLY at a polled+inhibited window
+    if window_inhibited(src, line):
+        return False
     return renders_live_value(body_text(src))
+
+
+def want_no_focus(src: dict, line: str) -> bool:
+    """Whether :func:`dress_window` emits :data:`NO_FOCUS_TAG`. Default ON for a SCRIPT-POLLED
+    window (it is the script, not a press, that closes it), OFF otherwise; an explicit ``no_focus``
+    wins; a tag already in the authored text is never duplicated."""
+    if NO_FOCUS_TAG in str(line or ""):
+        return False
+    v = src.get("no_focus")
+    if v is not None:
+        return bool(v)
+    return window_polled(src)
+
+
+#: Tags that break the polled-page primitive, each in a different in-game-only way. Checked by
+#: :func:`polled_window_problems`, never by the emitter -- the .eb shape and the .mes entry are
+#: produced by two lanes that only meet at build, so no single emitter can make these unrepresentable.
+POLL_FORBIDDEN_TAGS = {
+    "[IMME]": ("the reply pops fully drawn, so the very confirm that PICKED the row finds a "
+               "finished window and dismisses it on arrival (THE BROADCAST-CONFIRM LAW)"),
+    "[PAGE]": ("CloseWindow TURNS THE PAGE instead of closing on a paged entry "
+               "(Dialog.Hide short-circuits while pages remain, Dialog.cs:616-624), so the poll's "
+               "close leaves a live window behind"),
+    "[WDTH]": ("re-opens the OnWidths decoder path; a polled readout sizes itself from the values "
+               "published before the open (Dialog.AutomaticSize)"),
+}
+_TIME_TAG_RE = re.compile(r"\[TIME=(-?\d+)\]")
+
+
+def polled_window_problems(src: dict, entry: str) -> list:
+    """THE POLLED-PAGE RULEBOOK, in one place -- returns message tails (the caller prefixes the
+    row's identity). ``entry`` is the DRESSED ``.mes`` body (what :func:`dress_window` emits), so
+    the rules score the bytes that ship rather than the keys that produced them.
+
+    Four independent failure modes, and none of them is visible offline without this:
+
+      * no ``[NTUR]`` -> arm B injects a Confirm into the script's own input stream and the poll
+        exits on frame 1;
+      * no ``[NFOC]`` -> arm A's fan-out hides the window before the poll ever runs;
+      * a forbidden tag (:data:`POLL_FORBIDDEN_TAGS`);
+      * ``[TIME=n]`` with ``n >= 0`` -- ``n > 0`` auto-closes and races the poll, and ``n == 0`` is
+        the engine's THIRD mode: it CLEARS FlagButtonInh (DialogBoxSymbols.cs:811-829), undoing the
+        very hold this window depends on.
+
+    The STYLE rule is separate and lives at the emitter as well (``content.event.polled_window``
+    refuses an injectable style outright): a style inside arm B's predicate is the one guard that
+    can be made structurally unrepresentable."""
+    out = []
+    for tag, why in (("[NTUR]", "arm B (UIKeyTrigger.cs:984-988) SYNTHESIZES a Confirm into the "
+                                "script's own input stream at an inhibited window while a B_KEYON "
+                                "poll is armed, so the poll exits on frame 1 with no press"),
+                     ("[NFOC]", "arm A (UIKeyTrigger.cs:981-982 -> DialogManager.cs:335-341) fans "
+                                "a confirm to every open window and Dialog.cs:789 hides this one "
+                                "the moment it finishes typing, before the poll can see anything")):
+        if tag not in entry:
+            out.append(f"is script-polled but its .mes entry carries no {tag} -- {why}. "
+                       f"The polled shape needs BOTH tags and a poll-safe style.")
+    for tag, why in POLL_FORBIDDEN_TAGS.items():
+        if tag in entry:
+            out.append(f"is script-polled and its .mes entry carries {tag} -- {why}.")
+    for m in _TIME_TAG_RE.finditer(entry):
+        if int(m.group(1)) >= 0:
+            out.append(f"is script-polled and its .mes entry carries {m.group(0)} -- "
+                       f"[TIME=n>0] auto-closes and races the poll; [TIME=0] CLEARS FlagButtonInh "
+                       f"(DialogBoxSymbols.cs:811-829) and un-holds the window. A polled window is "
+                       f"closed by its own script, so it needs no timer at all.")
+    try:
+        flags = resolve_style(src.get("style"))
+    except ValueError:
+        return out                      # the bad style is reported by the style rule itself
+    if turbo_injectable(flags):
+        out.append(
+            f"is script-polled with window style {flags} ({window_style_of(flags)}) -- that is "
+            f"INSIDE arm B's predicate (UIKeyTrigger.cs:984 tests `Style == WindowStyleAuto || "
+            f"Style == WindowStyleTransparent`), so a latched F9 resolves the poll with no press. "
+            f"Use a poll-safe style: plain (0), notail (4), mognet (8), ate (64) or "
+            f"bubble_notail (132). Style is the STRUCTURAL guard -- [NTUR] is only re-asserted on "
+            f"a label render pass and is cleared by any delivered confirm.")
+    return out
 
 
 def signal_tag(value) -> str:
@@ -446,10 +622,21 @@ def dress_window(src: dict, line: str):
       it finishes typing, with no player input at all. Set ``no_turbo = false`` to opt a readout back
       out (validate then refuses it -- an opt-out of a law has to be loud, not silent); set
       ``no_turbo = true`` on a plain narrative window to protect that one too. Already dismiss-
-      inhibited ([NFOC] / a ``hold`` / a ``duration``) -> nothing is added, the window is already
-      immune. This is the ONLY inhibitor that does not also set FlagButtonInh, i.e. the only one that
-      keeps the player's own Confirm working -- and a blocking WindowSync page the player cannot
-      dismiss hangs the script on ``wait == 254`` (EBin.cs:137-148).
+      inhibited ([NFOC] / a ``hold`` / a ``duration``) and NOT polled -> nothing is added, arm A
+      cannot reach that window anyway. This is the ONLY inhibitor that does not also set
+      FlagButtonInh, i.e. the only one that keeps the player's own Confirm working -- and a blocking
+      WindowSync page the player cannot dismiss hangs the script on ``wait == 254``
+      (EBin.cs:137-148).
+    * ``no_focus`` -> ``[NFOC]`` (:data:`NO_FOCUS_TAG`) -- ``Dialog.FlagButtonInh = true`` AND
+      ``FlagResetChoice = false`` (DialogBoxSymbols.cs:593-598). The window can then be closed only
+      by the script, so it belongs on an ASYNC open with an explicit close; on a blocking
+      ``WindowSync`` it is an unconditional softlock (``wait == 254`` forever) and ``validate``
+      refuses that pairing. **Defaults to ON for a ``polled`` window.**
+    * ``polled`` (``[[choice.options]]`` only) -> the reply is opened ASYNC, held, watched for a
+      real button edge and closed by the script (``content.event.polled_window``). It defaults both
+      ``no_turbo`` and ``no_focus`` ON -- the two text-side halves of THE TURBO-INJECTION LAW -- and
+      ``validate`` re-checks the emitted entry (:func:`polled_window_problems`), because the .eb
+      shape and the .mes entry are built by two lanes that meet only at build time.
 
     Every key absent -> ``(line, None, src.get("tail"))``, byte-identical to the pre-key layout, unless
     the line is a readout (then it gains ``[NTUR]`` -- see above)."""
@@ -463,6 +650,11 @@ def dress_window(src: dict, line: str):
     # authors ship turbo-skippable readouts and never learn why their page vanished.
     if want_no_turbo(src, line):
         pre += NO_TURBO_TAG
+    # ...and its structural partner. [NFOC] holds the window against arm A's fan-out AND sets
+    # FlagResetChoice = false, so a page opened from a selector does not clobber the pending
+    # sysvar-9 answer. Emitted AFTER [NTUR] so a polled entry reads `[NTUR][NFOC]<body>`.
+    if want_no_focus(src, line):
+        pre += NO_FOCUS_TAG
     suf = signal_tag(src.get("signal"))
     if src.get("hold"):
         suf += HOLD_TAG

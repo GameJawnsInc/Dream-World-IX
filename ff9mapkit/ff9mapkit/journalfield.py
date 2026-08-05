@@ -9,11 +9,23 @@ the wrong one: ``compile()`` hard-assigns slot ``i`` = value index ``i`` startin
 (content/behavior.py:2814-2822) and each strip opens its window once behind a ``shown`` latch, so two
 strips both write ``gMesValue[0..n]`` every tick and overwrite each other. A two-page hud dashboard
 would render plausible-but-WRONG numbers on at least one page with no error anywhere. The right
-substrate is the SYNCHRONOUS PAGE: inside a ``[[choice]]`` arm, emit N x
-:func:`~ff9mapkit.eb.opcodes.set_text_variable_expr` and THEN a ``WindowSync``. The window is modal
-(MES 0x1F), so exactly one page is open at a time and all 8 slots are reusable per page -- the 8-slot
-ceiling stops being "8 numbers globally" and becomes "8 numbers per page", which is what makes 7 pages
-fit.
+substrate is the ONE-PAGE-AT-A-TIME MODAL: inside a ``[[choice]]`` arm, emit N x
+:func:`~ff9mapkit.eb.opcodes.set_text_variable_expr` and THEN open the page's window. Exactly one page
+is open at a time, so all 8 slots are reusable per page -- the 8-slot ceiling stops being "8 numbers
+globally" and becomes "8 numbers per page", which is what makes 7 pages fit.
+
+THE WINDOW COMES IN TWO SHAPES, and which one a page uses is the live experiment of this round:
+
+  * **sync** (:func:`page_body`) -- a blocking ``WindowSync`` (MES 0x1F). Owner-confirmed in-game for
+    all seven pages, and turbo-skippable: with the F9 TurboKey latched the engine synthesizes a
+    confirm every frame and closes the page the instant it finishes typing.
+  * **polled** (:func:`page_body_async`) -- ``WindowAsync`` + ``[NTUR][NFOC]`` + a ``B_KEYON`` poll +
+    an explicit ``CloseWindow``. A page that must survive a player's turbo setting cannot be a
+    blocking window at all: every tag that blocks the synthesized confirm also blocks the PLAYER's,
+    and a ``WindowSync`` nobody can dismiss hangs on ``wait == 254`` (EBin.cs:137-148).
+
+ONE page carries the polled shape this round (:data:`POLLED_PAGE_FLAGS`); the other six are the
+same-field control, so the in-game verdict lands on one mechanism.
 
 THE CEILINGS, all engine-cited, all enforced by :func:`lint_pages` rather than merely documented
 (CLAUDE.md s7: a law in a docstring is a wish):
@@ -79,6 +91,18 @@ LOOP_LATCH_BIT = 632
 
 PAGE_WINDOW = 1          # ordinary field-dialogue window id (0..7; 255 is the no-window sentinel)
 PAGE_FLAGS = 128         # the standard field dialogue flag, same as plain NPC dialogue
+
+# ★ THE POLLED PAGE -- the turbo-proof shape, and why it is not the default for all seven.
+# A blocking `WindowSync` page CANNOT be made turbo-proof from TOML: the tags that survive a latched
+# F9 ([NFOC]/[TIME]) also block the PLAYER's confirm, and a WindowSync the player cannot dismiss
+# hangs on `wait == 254` forever (EBin.cs:137-148). The shape that CAN is async + an explicit poll
+# (:func:`content.event.polled_window`), and its window flags must sit OUTSIDE ShouldTurboDialog arm
+# B's Auto/Transparent predicate -- so a polled page is PLAIN (0), not bubble (128).
+# ONE PAGE, NOT SEVEN, and that is the whole experimental design (one change per in-game test): the
+# story page converts, pages 1-6 keep the owner-confirmed `window_sync` + auto-[NTUR] shape and are
+# the SAME-FIELD control. If the polled page holds under turbo and a control page still dies, the
+# mechanism is isolated in one interaction. See studies/completion-journal/PLAN.md.
+POLLED_PAGE_FLAGS = 0    # "plain" -- structurally outside arm B (content/text.turbo_injectable)
 
 
 # ============================ the [TBLE] tables ============================
@@ -181,6 +205,11 @@ class Page:
     title: str                        # header text between the `==` rules
     menu: str                         # the menu row label
     lines: tuple = ()
+    polled: bool = False              # True -> the TURBO-PROOF shape: async open + B_KEYON poll +
+                                      # script close, window flags POLLED_PAGE_FLAGS, .mes entry
+                                      # dressed [NTUR][NFOC]. False -> the owner-confirmed blocking
+                                      # WindowSync page. See POLLED_PAGE_FLAGS for why exactly one
+                                      # page carries it in this round.
 
 
 #: THE LAYOUT. 7 pages; every RENDERABLE catalog row (:func:`renderable`) placed exactly once, every
@@ -196,11 +225,14 @@ class Page:
 #: unchanged: Party is now a two-line page and Combat & Meta a three-line one, which is honest, and
 #: re-shuffling categories would churn a surface that already playtested green.
 PAGES = (
+    # ★ THE ONE POLLED PAGE this round. Chosen because it is the SHORTEST (3 lines), so typing time
+    # is minimal and "did it hold?" is unambiguous, and because it is menu row 0 -- the first arm of
+    # the switch, reached before any other window has touched sysvar 9.
     Page("story", "STORY & TREASURE", "Story & treasure", (
         Line("story.scenario", "Scenario", "num"),
         Line("treasure.hunter_points", "T.Hunter pts", "num"),
         Line("treasure.hunter_rank", "T.Hunter rank", "table", table="th_rank"),
-    )),
+    ), polled=True),
     Page("chocobo", "CHOCOBO", "Chocobo", (
         Line("chocobo.chocographs_found", "Chocographs", "num"),
         Line("chocobo.chocographs_dug", "..dug up", "num"),
@@ -360,9 +392,23 @@ def render_page(page: "Page") -> tuple:
     # Owner playtest 30801 round 3: "it opens, and when it's finished with the opening animation and
     # the text shows, it immediately does the closing animation and exits the entire dialogue tree."
     # A typewriter page survives, because a press mid-type SKIPS to full text instead of closing.
-    # The law's other remedies ([TIME=-1] / [NFOC], which set ignoreInputFlag) are wrong here: the
-    # player must still be able to dismiss the page with a SECOND press.
-    # → studies/messages/SURVEY.md §7a.
+    #
+    # ⚠⚠ THE REMEDY CLAUSE IS SHAPE-SCOPED, AND IT USED TO BE STATED AS A FLAT LAW. It read: "the
+    # law's other remedies ([TIME=-1]/[NFOC], which set ignoreInputFlag) are wrong here -- the player
+    # must still be able to dismiss the page with a SECOND press". That is TRUE OF A SYNC PAGE and
+    # FALSE OF A POLLED ONE, and the distinction is not a nicety:
+    #   * on a BLOCKING WindowSync page (`polled=False`, pages 1-6) those tags are an unconditional
+    #     SOFTLOCK -- no press can close the Dialog, so the script sits on `wait == 254` forever
+    #     (EBin.cs:137-148). Deleting the warning re-opens that hang, which is why it is re-scoped
+    #     rather than removed, and why build.validate now refuses the pairing outright;
+    #   * on a POLLED page (`polled=True`) `[NFOC]` is REQUIRED, not merely allowed: the script owns
+    #     the close, and without the hold the fan-out dismisses the page before the poll can see a
+    #     press. Its partner `[NTUR]` is required for the SECOND arm (THE TURBO-INJECTION LAW,
+    #     content/text.py) -- the injector that fires precisely BECAUSE the window is held.
+    # Neither tag is spelled here: both ride the entry via `dress_window` off the option's
+    # `polled`/`no_focus`/`no_turbo` keys, so the .mes text this function returns stays measurable
+    # (a tag in the header line would be counted by `_text.measure` against LINE_BUDGET).
+    # → studies/messages/SURVEY.md §7a + studies/completion-journal/PLAN.md.
     return header + "\n" + "\n".join(body), tuple(exprs)
 
 
@@ -418,7 +464,10 @@ def text_table_blocks() -> list:
 # ============================ the .eb side ============================
 def page_body(exprs, page_txid: int, *, window: int = PAGE_WINDOW, flags: int = PAGE_FLAGS,
               table_slots=()) -> bytes:
-    """ONE page arm: publish every value, THEN open the modal window.
+    """ONE page arm, THE BLOCKING SHAPE: publish every value, THEN open the modal window.
+
+    This is the owner-confirmed page and the CONTROL for the polled experiment; its turbo-proof twin
+    is :func:`page_body_async`. Everything except the window opcode is shared (:func:`_publish`).
 
     Order is load-bearing. Values are written BEFORE the window opens, so ``Dialog.AutomaticSize``
     (Dialog.cs:1560-1591) bakes the width over the REAL numbers -- and since it never re-sizes on a
@@ -431,13 +480,47 @@ def page_body(exprs, page_txid: int, *, window: int = PAGE_WINDOW, flags: int = 
     than re-spelled here, so the "an unclamped publish is UNREPRESENTABLE" property transfers instead
     of being re-litigated (a three-token tail-match once certified a single-``E`` form as safe, which
     both defeats the clamp AND underflows the CalcStack)."""
+    return _publish(exprs, table_slots) + _opcodes.window_sync(window, flags, page_txid)
+
+
+def _publish(exprs, table_slots=()) -> bytes:
+    """Every value write, in slot order, with the ``[TEXT=]`` slots clamped -- the half both page
+    shapes share verbatim. Spelled once so the sync and polled emitters cannot drift in what they
+    publish or in what order."""
     from .content.behavior import hud_row_index_clamp
     out = []
     for slot, ex in enumerate(exprs):
         toks = hud_row_index_clamp(ex) if slot in set(table_slots) else ex
         out.append(_opcodes.set_text_variable_expr(slot, _exprasm.assemble(toks + " B_EXPR_END")))
-    out.append(_opcodes.window_sync(window, flags, page_txid))
     return b"".join(out)
+
+
+def page_body_async(exprs, page_txid: int, *, window: int = PAGE_WINDOW,
+                    flags: int = POLLED_PAGE_FLAGS, table_slots=()) -> bytes:
+    """ONE page arm, THE TURBO-PROOF SHAPE: publish every value, open the window ASYNC, hold it,
+    spin on a real button edge, close it.
+
+    Identical publish half to :func:`page_body` -- same expressions, same slots, same clamps, same
+    publish-BEFORE-open ordering (``Dialog.AutomaticSize`` bakes the width once, at open). The only
+    difference is the window: :func:`content.event.polled_window` instead of ``WindowSync``, +27
+    bytes per page.
+
+    WHY THIS EXISTS AT ALL. `TurboDialog` defaults to ON and F9 latches it for the whole session with
+    no on-screen indicator, and a turbo session closes a finished window with no input. A dashboard
+    page that flashes past is not a degraded feature, it is a deleted one. The blocking page cannot
+    be saved from TOML -- every tag that survives turbo also blocks the player's own confirm, and a
+    WindowSync nobody can dismiss hangs on ``wait == 254`` (EBin.cs:137-148) -- so the page has to
+    stop blocking. That is the whole reason this emitter is async rather than a tag on the old one.
+
+    ``flags`` is refused by ``polled_window`` if it lands inside ShouldTurboDialog arm B's
+    Auto/Transparent predicate: the poll's own ``B_KEYON`` sets ``scriptRequestedButtonPress``
+    (EBin.cs:1080), so an Auto-styled polled page would have the ENGINE press Confirm for it. That
+    refusal is at the emitter, not in a lint, because it is the one guard that can be made
+    structurally unrepresentable; the ``[NTUR]``/``[NFOC]`` halves live in the ``.mes`` entry and are
+    linted (``content.text.polled_window_problems``) because no single emitter owns both files."""
+    from .content import event as _event
+    return _publish(exprs, table_slots) + _event.polled_window(int(page_txid), window=window,
+                                                               flags=int(flags))
 
 
 def table_slots_of(page: "Page") -> tuple:
@@ -452,7 +535,7 @@ def table_slots_of(page: "Page") -> tuple:
 
 def talk_body(page_txids: dict, menu_txid: int, *,
               pages=PAGES, latch_bit: int = LOOP_LATCH_BIT, window: int = PAGE_WINDOW,
-              flags: int = PAGE_FLAGS) -> bytes:
+              flags: int = PAGE_FLAGS, polled_flags: int = POLLED_PAGE_FLAGS) -> bytes:
     """The COMPLETE talk handler: lock control, then loop { menu -> one page } until Close, unlock,
     return.
 
@@ -473,8 +556,14 @@ def talk_body(page_txids: dict, menu_txid: int, *,
     arms = []
     for p in pages:
         _txt, exprs = texts[p.key]
-        arms.append(page_body(exprs, int(page_txids[p.key]), window=window, flags=flags,
-                              table_slots=table_slots_of(p)))
+        # A POLLED page swaps BOTH halves together -- the async+poll+close body AND the plain flags
+        # that keep it out of arm B's predicate. They are one decision, so they are read off one
+        # field (`Page.polled`); a page that took the async body with bubble flags would reproduce
+        # the whole bug through the injector instead of the fan-out.
+        emit = page_body_async if p.polled else page_body
+        arms.append(emit(exprs, int(page_txids[p.key]), window=window,
+                         flags=(polled_flags if p.polled else flags),
+                         table_slots=table_slots_of(p)))
     # the Close row: clear the latch so while_block falls out. It is LAST -- the engine's cancel row.
     arms.append(_region.set_var(_region.MAP_BOOL, latch_bit, 0))
     loop = (_opcodes.window_sync(window, flags, int(menu_txid))
@@ -514,7 +603,11 @@ def measure_pages(*, pages=PAGES) -> list:
     out = []
     for p in pages:
         text, exprs = render_page(p)
-        body = page_body(exprs, 700, table_slots=table_slots_of(p))
+        # measured on the shape this page ACTUALLY emits (+27 bytes for a polled one), so the
+        # reported eb_bytes is the page's real cost rather than the shape it used to have
+        body = (page_body_async if p.polled else page_body)(
+            exprs, 700, flags=(POLLED_PAGE_FLAGS if p.polled else PAGE_FLAGS),
+            table_slots=table_slots_of(p))
         rendered = text.split("\n")
         rows = []
         for line, lit in zip(p.lines, rendered[1:]):
@@ -622,6 +715,22 @@ def lint_pages(*, pages=PAGES, check_live_install: bool = True) -> list:
                     if not (_opcodes.EXPR_VALUE_MIN <= lo and hi <= _opcodes.EXPR_VALUE_MAX):
                         bad.append(f"page {p.key}: {line.row} extra can produce {lo}..{hi}, outside "
                                    f"the 26-bit envelope")
+
+    # --- the polled page's style ------------------------------------------------------------------
+    # THE ONE THING ABOUT THE POLLED SHAPE THAT CAN GO WRONG SILENTLY IN THIS MODULE. The .eb
+    # emitter refuses an injectable style (content/event.polled_window raises) and the .mes tags are
+    # linted at the choice lane -- but POLLED_PAGE_FLAGS is a constant an editor can retune to a
+    # "nicer looking" bubble, and 128 resolves to WindowStyleAuto, which is arm B's predicate. The
+    # page would still build, still open, still hold with turbo OFF, and die under a latched F9.
+    # ⚠ It sits ABOVE the `if bad: return bad` guard on purpose: `measure_pages` emits every page's
+    # real body, so with a bad constant the polled emitter RAISES and the lint would report a
+    # traceback instead of the actionable line.
+    if any(p.polled for p in pages) and _text.turbo_injectable(POLLED_PAGE_FLAGS):
+        bad.append(f"POLLED_PAGE_FLAGS = {POLLED_PAGE_FLAGS} resolves to "
+                   f"{_text.window_style_of(POLLED_PAGE_FLAGS)}, which is INSIDE ShouldTurboDialog "
+                   f"arm B's predicate (UIKeyTrigger.cs:984). A polled page arms that injector with "
+                   f"its own B_KEYON (EBin.cs:1080), so the engine would press Confirm for it. Use "
+                   f"a poll-safe style: 0 plain, 4 notail, 8 mognet, 64 ate, 132 bubble_notail.")
 
     # --- the ceilings ----------------------------------------------------------------------------
     # Only reachable once the page is structurally sound: a line that renders a number for a row with
@@ -812,6 +921,55 @@ def bench_toml(*, pages=PAGES) -> str:
         "#   opened after it died. The kit now emits [NTUR] on readout windows automatically; the scribe",
         "#   asks for it explicitly, because it is not a readout and it is the control.",
         "#",
+        "# ★★ WHAT IS NEW THIS ROUND, AND IT IS EXACTLY ONE THING -- THE POLLED STORY PAGE.",
+        "#   [NTUR] alone is not the end of the turbo story. ShouldTurboDialog has TWO arms",
+        "#   (UIKeyTrigger.cs:974-991). Arm A is the fan-out above. Arm B (:984-988) fires when EVERY",
+        "#   open window is dismiss-inhibited AND one has Auto/Transparent style AND the script armed",
+        "#   B_KEYON -- and it SYNTHESIZES a Confirm into the SCRIPT'S OWN input stream. B_KEYON is what",
+        "#   sets that flag (EBin.cs:1080), so 'hold the window and poll for a press' is precisely the",
+        "#   configuration arm B serves: the poll would exit on frame 1, same symptom, new mechanism.",
+        "#   A blocking WindowSync page cannot be saved from TOML either -- the tags that stop the",
+        "#   synthesized confirm ([NFOC]/[TIME]) stop the PLAYER's too, and a WindowSync nobody can",
+        "#   dismiss parks the script on wait == 254 forever (EBin.cs:137-148).",
+        "#   SO THE STORY PAGE (menu row 0, the shortest) SWAPS SHAPE, and only it:",
+        "#     WindowAsync(2, 0, txid) ; Wait(8) ; while(!B_KEYON(0xB0000)) Wait(1) ; CloseWindow(2) ;",
+        "#     Wait(4)   -- 32 bytes, values published BEFORE the open, .mes entry [NTUR][NFOC].",
+        "#   Three independent guards, all required: style 0 (plain) keeps the window OUT of arm B's",
+        "#   predicate structurally, [NFOC] holds it against arm A, [NTUR] blocks arm B's injector.",
+        "#   The shape is STOCK-COMMON, not an invention -- 2,034 WindowAsync+IsButton-poll sites across",
+        "#   115 shipping fields; field 2950's Chocobo-forest readout is the verbatim precedent.",
+        "#   PAGES 1-6 ARE UNCHANGED (blocking WindowSync + auto-[NTUR], flags 128) AND THAT IS THE",
+        "#   POINT: they are the same-field control, so one interaction isolates one mechanism.",
+        "#",
+        "#   ⚠ THE STORY PAGE ALSO CHANGES SHAPE ON SCREEN, and that is expected, not a regression:",
+        "#   a non-bubble style ships tail-less and CENTERED (THE WINDOW-GEOMETRY LAW), so it draws as",
+        "#   a plain screen-fixed panel instead of a bubble over the keeper. Pages 1-6 stay bubbles.",
+        "#",
+        "# PLAYTEST -- 4 observations, and STATE THE F9 TURBO KEY EVERY TIME (it has no on-screen",
+        "# indicator and persists for the whole session, UIKeyTrigger.cs:393-399; without the state a",
+        "# verdict here means nothing):",
+        "#   ⚠ THIS BENCH IS ONE PAGE PER TALK -- it rides the flat [[choice]] lane, not talk_body's",
+        "#   re-open loop (see WHAT IS STILL DELIBERATELY UNLIKE THE SHIPPED DASHBOARD, above). So the",
+        "#   correct expectation after a page closes is CONTROL BACK IN THE FIELD, not the selector",
+        "#   re-opening. Re-talk to the keeper for the next page.",
+        "#   A. Turbo OFF. Talk to the keeper -> \"Story & treasure\". EXPECT: the page opens, HOLDS",
+        "#      indefinitely with hands off the pad, and closes on X, handing control back.",
+        "#   B. Same page, dismiss with O (or the Moogle button) instead. EXPECT: identical -- the poll",
+        "#      mask is Confirm|Cancel|Special, stock's own dismissal set.",
+        "#   C. Press F9 (turbo ON). Repeat A. EXPECT: the page STILL HOLDS. This is the experiment.",
+        "#   D. Controls, turbo still ON: open \"Chocobo\" (page 1, still the sync shape) -- must hold;",
+        "#      talk to the scribe (plain window, explicit no_turbo) -- must hold. If a CONTROL breaks,",
+        "#      the change is not what moved.",
+        "#",
+        "# READING THE RESULT -- one outcome per mechanism, which is why only ONE page converted:",
+        "#   * holds in A/B, closes instantly ONLY under turbo (C) -> arm B survived style 0 AND [NTUR].",
+        "#     The async+poll shape is dead on stock Memoria; escalate to the DLL path. THE FALSIFIER.",
+        "#   * closes instantly in BOTH A and C -> not turbo. Suspect the Wait(8) debounce swallowing",
+        "#     (or failing to swallow) the confirm that SELECTED the row -- check the emitted .mes, not",
+        "#     the source, for the [NFOC] tag.",
+        "#   * never closes on X or O -> the poll mask or the B_KEYON edge. Try Confirm only (131072).",
+        "#   * page fine, a CONTROL breaks -> the regeneration touched shared text/emitters; re-diff.",
+        "#",
         "# DEPLOY (the HUMAN does this -- the agent does not):",
         f"#   py tools/deploy_field.py studies/completion-journal/bench/journal_dash.field.toml --id {BENCH_FIELD_ID}",
         f"# FIRST deploy of {BENCH_FIELD_ID} needs a RELAUNCH (it registers a DictionaryPatch line); after",
@@ -950,7 +1108,24 @@ def bench_toml(*, pages=PAGES) -> str:
               # window's close animation over it, which is exactly the reported symptom. Depth is
               # 68 - 2*id (Dialog.cs:1949-1959), so id 2 sits behind id 1 -- harmless, the selector
               # is gone by then.
-              "  window = 2",
+              "  window = 2"]
+        if p.polled:
+            # ★★ THE ONE CHANGE UNDER TEST THIS ROUND -- read the three keys as ONE decision.
+            # `polled` swaps the reply from a blocking WindowSync to async + a B_KEYON poll + a
+            # script close (content/event.polled_window); `style = "plain"` keeps the window OUT of
+            # ShouldTurboDialog arm B's Auto/Transparent predicate (the STRUCTURAL guard, and the
+            # emitter refuses any style that isn't); `no_focus` holds it against arm A's fan-out;
+            # `no_turbo` blocks arm B's injector. All three are independent failure modes and the
+            # page needs all three -- "[NFOC] + poll" alone reproduces the bug through arm B.
+            # ⚠ `no_turbo = true` is NOT redundant next to `no_focus`, and the fact that it reads
+            # that way is the exact bug this round also fixes: content/text.want_no_turbo used to
+            # open with `if window_inhibited(...): return False`, so a held window could never get
+            # [NTUR] -- the one shape that needs it most.
+            L += ['  polled = true           # async open + B_KEYON poll + script close',
+                  '  style = "plain"         # flags 0 -- outside ShouldTurboDialog arm B',
+                  '  no_focus = true         # [NFOC] -- only the script closes this window',
+                  '  no_turbo = true         # [NTUR] -- and the engine cannot press Confirm for it']
+        L += [
               # slot i is values[i] -- the [NUMB=i] indices in the reply above are render_page's own,
               # so the two orders are the same order by construction. Long lines are the catalog's
               # summed expressions (100 B_HAVE_ITEM terms for the card count), not formatting.

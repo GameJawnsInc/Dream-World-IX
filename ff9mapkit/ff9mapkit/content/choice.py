@@ -246,8 +246,18 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
     if reply_txid is not None:
         # the option's own style/window keys dress its reply window (default = plain dialogue)
         from . import text as _text
-        parts.append(_event.message(reply_txid, window=int(opt.get("window", 1)),
-                                    flags=_text.resolve_style(opt.get("style"))))
+        _win, _flags = int(opt.get("window", 1)), _text.resolve_style(opt.get("style"))
+        if opt.get(_text.POLLED_KEY):
+            # ★ THE POLLED REPLY -- a page the player must READ, not a line to skip. The blocking
+            # WindowSync below cannot be made turbo-proof from TOML: the only tags that survive a
+            # latched F9 ([NFOC]/[TIME]) also block the PLAYER's confirm, and a WindowSync the
+            # player cannot dismiss hangs on `wait == 254` forever (EBin.cs:137-148). So a polled
+            # reply swaps the whole shape: async open, script poll, script close
+            # (content/event.polled_window). The [NTUR]/[NFOC] halves ride the .mes entry
+            # (content/text.dress_window) and build.validate checks the pair on the emitted bytes.
+            parts.append(_event.polled_window(reply_txid, window=_win, flags=_flags))
+        else:
+            parts.append(_event.message(reply_txid, window=_win, flags=_flags))
     if "give_item" in opt:
         gi = opt["give_item"]
         parts.append(_event.give_item(gi[0], int(gi[1]) if len(gi) > 1 else 1))   # gi[0] = id or name
