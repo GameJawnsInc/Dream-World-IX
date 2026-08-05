@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the coupling note: what a geometry edit silently invalidates
+- Six audit lenses reviewed the producer side; nobody asked what is a FUNCTION of the
+  geometry. The disc mirror was the only auto-run post-step — vehicle legality
+  (`world-coastnav`), the minimap, and the `(zone, topograph)` encounter join all go stale
+  without a word (the sail-through-cliff class). Eleven land-writing handlers now print
+  `COUPLED, not rebuilt:` naming exactly what to re-run, flag-scoped per verb (topograph
+  changers add the encounter line; interior relief skips coast/minimap). Auto-restamping is
+  deliberately NOT done — a coastnav stamp needs the coast's vehicle-class intent, and a
+  wrong stamp is authored surface. Audit rec 8 / critic finding #1, the "cheapest 80%".
+
 ### Fixed — ONE Sea5 tile classifier (three copies had three arity rules)
 - The same question — "which deepset/transition tile is this cell?" — had three answers:
   `water.read_sea5_tiles` required all 4 corners, transplant's carry-gate reader took ≥3 with
