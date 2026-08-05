@@ -2714,3 +2714,105 @@ def test_wang_carry_gate_shallow_fresh_region_carry_warns_at_carry_time():
     wc = next(g for g in s["gates"] if g["gate"] == "wang-carry")
     assert wc["incoherent_deep"] == 12 and wc["incoherent_shallow"] == 5 and wc["incoherent"] == 17
     assert wc["warn"] is True and wc["ok"] is True                           # report-only default
+
+
+# ---------------------------------------------------------------- tjunc gate (audit rec 14)
+#
+# THE T-JUNCTION DIFFERENTIAL: a vertex resting in the INTERIOR of another face's edge --
+# watertight in exact arithmetic, a float32 hairline crack in game, invisible to the weld
+# audit (near-MISS duplicates only). The law mirrors census/stacked: stock may T-junction,
+# the carry may not MINT one. The mutation standard (NEXT-STUDIES.md): the red test below
+# FAILS if the gates.append(_tjunc_gate(...)) line is deleted from transplant().
+
+def _tj(s):
+    return next(g for g in s["gates"] if g["gate"] == "tjunc")
+
+
+def test_tjunc_gate_green_on_plain_and_rotated_carries(monkeypatch):
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_island_donor()))
+    for kw in (dict(), dict(rot=90), dict(rot=270)):
+        s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8, **kw)
+        tj = _tj(s)
+        assert tj["ok"] is True and tj["new"] == 0, (kw, tj)
+
+
+def test_tjunc_gate_red_on_minted_tjunction_the_weld_audit_cannot_see(monkeypatch):
+    """An emitted tri parks a vertex at the exact midpoint of the donor terrain's diagonal:
+    zero near-miss vertex pairs (weld audit green), but a T-junction crack by construction."""
+    blocks = _island_donor()                      # terrain quad x 88..104, z -104..-88, y=0
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    mint = [[_v(96.0, 0.0, -96.0), _v(98.0, 0.0, -95.0), _v(96.5, 0.0, -97.5)]]
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8,
+                      tweaks=[TR.EmitTris("terrain", mint)])
+    tj = _tj(s)
+    assert tj["new"] == 1 and tj["ok"] is False and tj["new_at"], tj
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["ok"] is True
+    assert s["clean"] is False
+
+
+def test_tjunc_gate_inherits_the_donor_own_tjunction_under_rotation(monkeypatch):
+    """The donor ITSELF carries a T-junction (its small tri's vert rests mid-diagonal of the
+    big quad). A rotated carry with a nearby benign emission (which drags the neighbourhood
+    into the scan scope) must classify the donor's own hit as INHERITED, not new."""
+    blocks = _island_donor()
+    blocks[(1, 1, "terrain")] = blocks[(1, 1, "terrain")] + [
+        [_v(96.0, 0.0, -96.0), _v(100.0, 0.0, -90.0), _v(102.0, 0.0, -92.0)]]
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    benign = [[_v(97.0, 0.0, -94.0), _v(98.0, 0.0, -93.5), _v(97.0, 0.0, -94.8)]]
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), rot=90, dry_run=True, census_samples=8,
+                      tweaks=[TR.EmitTris("terrain", benign)])
+    tj = _tj(s)
+    assert tj["inherited"] >= 1 and tj["new"] == 0 and tj["ok"] is True, tj
+    assert s["clean"] is True, s["gates"]
+
+
+def test_tjunc_gate_layered_plan_overlap_is_not_a_crack(monkeypatch):
+    """A DOWN-facing tri 5u above the terrain plan-crosses the diagonal midpoint: a 2D hit,
+    3u+ apart in 3D -- ``layered``, not a crack (the bridge-deck class). Down-facing so the
+    stacked-sheet census (rec 3) correctly ignores it too."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_island_donor()))
+    over = [[_v(96.0, 5.0, -96.0), _v(96.5, 5.0, -97.5), _v(98.0, 5.0, -95.0)]]
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8,
+                      tweaks=[TR.EmitTris("terrain", over)])
+    tj = _tj(s)
+    assert tj["layered"] >= 1 and tj["new"] == 0 and tj["ok"] is True, tj
+    assert s["clean"] is True, s["gates"]
+
+
+def test_tjunc_gate_named_allowlist_waives_exactly_the_named_hit(monkeypatch, tmp_path):
+    """The study's tjunction_allowlist.json shape: a NAMED residual (built-frame coords, as
+    reported by new_at) passes as ``allowed``; nothing blanket."""
+    import json
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_island_donor()))
+    mint = [[_v(96.0, 0.0, -96.0), _v(98.0, 0.0, -95.0), _v(96.5, 0.0, -97.5)]]
+    kw = dict(cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8,
+              tweaks=[TR.EmitTris("terrain", mint)])
+    red = _tj(TR.transplant("MOD", **kw))
+    assert red["new"] == 1
+    (_part, w, a, b, _off) = red["new_at"][0]
+    af = tmp_path / "allow.json"
+    af.write_text(json.dumps([{"vert_edge": [w, a, b],
+                               "reason": "test residual, sub-visible"}]), encoding="utf-8")
+    kw["tweaks"] = [TR.EmitTris("terrain", mint)]           # fresh tweak (scope counters)
+    s = TR.transplant("MOD", allow_tjunc=TR.load_tjunc_allow(af), **kw)
+    tj = _tj(s)
+    assert tj["allowed"] == 1 and tj["new"] == 0 and tj["ok"] is True, tj
+
+
+def test_tjunc_gate_region_path_red_and_green(monkeypatch):
+    """The region builder wires the same differential: green on the verbatim 2x1 carry,
+    red when an emission mints a crack inside cell (1,1)'s terrain."""
+    blocks = {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (2, 1, "terrain"): _quad(150.0, 166.0, -104.0, -88.0, y=1.0),
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             dry_run=True, census_samples=8)
+    assert _tj(s)["ok"] is True and _tj(s)["new"] == 0
+    mint = [[_v(96.0, 1.0, -96.0), _v(98.0, 1.0, -95.0), _v(96.5, 1.0, -97.5)]]
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             dry_run=True, census_samples=8,
+                             tweaks=[TR.EmitTris("terrain", mint)])
+    tj = _tj(s)
+    assert tj["new"] == 1 and tj["ok"] is False and s["clean"] is False, tj

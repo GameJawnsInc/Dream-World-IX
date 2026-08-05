@@ -1535,6 +1535,210 @@ def _split_border_pairs(pairs, planes_x, planes_z, tol: float = 0.05, exact: flo
     return cracks, ts
 
 
+def load_tjunc_allow(path):
+    """Read a tjunc-gate named-exception list (the study's ``tjunction_allowlist.json``
+    shape: entries with a ``vert_edge`` triple ``[vert, edge_a, edge_b]``, or bare triples).
+    Coordinates are the BUILT frame the gate reports in (``new_at``); 3D verts are accepted
+    and reduced to (x, z). ``None``/missing file -> ``()`` (no exceptions)."""
+    if not path:
+        return ()
+    import json
+    from pathlib import Path
+    entries = json.loads(Path(path).read_text(encoding="utf-8"))
+    out = []
+    for e in entries:
+        trip = e["vert_edge"] if isinstance(e, dict) else e
+        out.append(tuple(tuple(v) for v in trip))
+    return tuple(out)
+
+
+def _tjunc_gate(post_by_part, pristine_by_part, back, planes_x, planes_z, *,
+                allow=(), eps=2e-3):
+    """THE T-JUNCTION DIFFERENTIAL (audit rec 14) -- a vertex resting in the INTERIOR of
+    another face's edge. Watertight in exact arithmetic, a hairline crack under float32:
+    invisible to the weld audit (near-MISS duplicates only) and to the render gate at most
+    cameras, but the player sees a sliver of whatever is behind the surface.
+
+    Differential, not absolute -- the same law as the census/stacked gates: stock geometry
+    may T-junction (a canopy edge, a subdivided cliff toe); the carry may not MINT one.
+    The baseline is the PRISTINE gather (donor tris + gather-clipped strip polys, pre-tweak,
+    donor-local 2D), and every post-build hit is back-mapped through ``back`` (the census's
+    own donor inverse: unshift, unrotate, tweak inverses). A hit is INHERITED only when its
+    witness vertex exists in the pristine vert set, its edge exists in the pristine edge set
+    (the build's own fan edges; a clip sub-segment of one pristine edge also counts), AND
+    the back-mapped witness still lies on the back-mapped edge -- the relation test, without
+    which a tweak that moves the witness but not the edge would launder a minted crack as
+    carried. EDITED scope is found by EDGE membership, not vertex membership, so a patch
+    that reuses pristine boundary vertices verbatim (the excise lattice law) is still judged
+    on its new connectivity.
+
+    :func:`ff9mapkit.world.meshedit.find_tjunctions` is a plan-projection (x, z) primitive
+    and O(verts x edges) pure Python, so the scan is scoped to the edited tris' 8u grid
+    neighbourhoods (never the whole block) and each 2D hit is CONFIRMED in 3D the way the
+    study probe measured it (point-to-segment distance < ``eps`` over the plausible endpoint
+    heights): a bridge-deck vertex crossing a gully edge in plan is ``layered``, not a
+    crack. A hit whose witness lies on a block-border plane is ``frame`` -- the weld gate's
+    ``border_t_pairs`` class, judged there, not here. ``allow`` is a NAMED-exception list
+    (:func:`load_tjunc_allow`); a blanket tolerance is exactly what trains people to ignore
+    a red gate."""
+    from . import meshedit as ME
+    K = 3                                       # key quantum: >> transform float noise, << vert spacing
+
+    def k2(x, z):
+        return (round(x, K), round(z, K))
+
+    allow_keys = {(k2(w[0], w[-1]), frozenset((k2(a[0], a[-1]), k2(b[0], b[-1]))))
+                  for (w, a, b) in (tuple(ent)[:3] for ent in allow or ())}
+
+    def _on_seg(px, pz, ax, az, bx, bz, tol):
+        dx, dz = bx - ax, bz - az
+        L2 = dx * dx + dz * dz
+        if L2 < 1e-12:
+            return False
+        s = ((px - ax) * dx + (pz - az) * dz) / L2
+        if s < -1e-9 or s > 1.0 + 1e-9:
+            return False
+        return abs((px - ax) * dz - (pz - az) * dx) / math.sqrt(L2) < tol
+
+    n_new = n_inh = n_frame = n_layer = n_allow = n_edited = 0
+    new_at = []
+    for p, post in post_by_part.items():
+        pris = pristine_by_part.get(p) or ()
+        pris2 = [[(v[0][0], v[0][2]) for v in poly] for poly in pris]     # donor WORLD 2D
+        dverts, dedges = set(), set()
+        for q in pris2:
+            ks = [k2(*c) for c in q]
+            dverts.update(ks)
+            for j in range(1, len(ks) - 1):     # the SAME fan step 4 cuts, boundary included
+                for a, b in ((ks[0], ks[j]), (ks[j], ks[j + 1]), (ks[j + 1], ks[0])):
+                    if a != b:
+                        dedges.add(frozenset((a, b)))
+        dsegs = None                            # lazy: clip sub-segment fallback only
+        bmap: dict = {}                         # built (x,z) -> donor-world 2D | None
+
+        def _back(c):
+            r = bmap.get(c)
+            if r is None and c not in bmap:
+                r = bmap[c] = back(*c)
+            return r
+
+        tris2, tribb, ys = [], [], {}
+        for t in post:
+            q = tuple((v[0][0], v[0][2]) for v in t)
+            tris2.append(q)
+            xs = [c[0] for c in q]
+            zs = [c[1] for c in q]
+            tribb.append((min(xs), max(xs), min(zs), max(zs)))
+            for v in t:
+                ys.setdefault(k2(v[0][0], v[0][2]), set()).add(v[0][1])
+        edited = []
+        for i, q in enumerate(tris2):
+            bks = [_back(c) for c in q]
+            ks = [None if b is None else k2(*b) for b in bks]
+            if any(ks[a] is None or ks[b] is None
+                   or (ks[a] != ks[b] and frozenset((ks[a], ks[b])) not in dedges)
+                   for a, b in ((0, 1), (1, 2), (2, 0))):
+                edited.append(i)
+        n_edited += len(edited)
+        if not edited:
+            continue
+        G = 8.0
+
+        def _cells(i):
+            x0, x1, z0, z1 = tribb[i]
+            return [(cx, cz)
+                    for cx in range(math.floor((x0 - eps) / G), math.floor((x1 + eps) / G) + 1)
+                    for cz in range(math.floor((z0 - eps) / G), math.floor((z1 + eps) / G) + 1)]
+
+        cell_tris: dict = {}                    # 8u grid over ALL tris (scope lookup)
+        for i in range(len(tris2)):
+            for c in _cells(i):
+                cell_tris.setdefault(c, []).append(i)
+        parent: dict = {}
+
+        def _find(c):
+            while parent.setdefault(c, c) != c:
+                parent[c] = parent[parent[c]]
+                c = parent[c]
+            return c
+
+        rep: dict = {}
+        for i in edited:
+            cs = _cells(i)
+            rep[i] = cs[0]
+            for c in cs[1:]:
+                parent[_find(cs[0])] = _find(c)
+        clusters: dict = {}
+        for i in edited:
+            clusters.setdefault(_find(rep[i]), set()).update(_cells(i))
+        seen = set()
+        for cells in clusters.values():
+            scope_ids = sorted({i for c in cells for i in cell_tris.get(c, ())})
+            hits = ME.find_tjunctions([tris2[i] for i in scope_ids], eps=eps)
+            for (w, pa, pb, off) in hits:
+                key = (k2(*w), frozenset((k2(*pa), k2(*pb))))
+                if key in seen:
+                    continue
+                seen.add(key)
+                if (any(abs(w[0] - v) < 1e-4 for v in planes_x)
+                        or any(abs(w[1] - v) < 1e-4 for v in planes_z)):
+                    n_frame += 1
+                    continue
+                real3d = False                  # the probe's 3D law through the 2D primitive
+                for wy in ys.get(k2(*w), ()):
+                    for ay in ys.get(k2(*pa), ()):
+                        for by_ in ys.get(k2(*pb), ()):
+                            ab = (pb[0] - pa[0], by_ - ay, pb[1] - pa[1])
+                            L2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]
+                            if L2 < 1e-12:
+                                continue
+                            aq = (w[0] - pa[0], wy - ay, w[1] - pa[1])
+                            s = (aq[0] * ab[0] + aq[1] * ab[1] + aq[2] * ab[2]) / L2
+                            if not (1e-5 < s < 1.0 - 1e-5):
+                                continue
+                            d2 = sum((aq[k] - s * ab[k]) ** 2 for k in range(3))
+                            if d2 < eps * eps:
+                                real3d = True
+                                break
+                        if real3d:
+                            break
+                    if real3d:
+                        break
+                if not real3d:
+                    n_layer += 1
+                    continue
+                bw, ba, bb_ = _back(w), _back(pa), _back(pb)
+                if bw is not None and ba is not None and bb_ is not None:
+                    ek = frozenset((k2(*ba), k2(*bb_)))
+                    known = k2(*ba) != k2(*bb_) and ek in dedges
+                    if not known:               # a frame-clip SUB-SEGMENT of one pristine edge
+                        if dsegs is None:
+                            dsegs = [(a2, b2)
+                                     for q in pris2 for j in range(1, len(q) - 1)
+                                     for (a2, b2) in ((q[0], q[j]), (q[j], q[j + 1]),
+                                                      (q[j + 1], q[0]))]
+                        known = any(_on_seg(ba[0], ba[1], a2[0], a2[1], b2[0], b2[1], 1e-4)
+                                    and _on_seg(bb_[0], bb_[1], a2[0], a2[1], b2[0], b2[1], 1e-4)
+                                    for (a2, b2) in dsegs)
+                    if (known and k2(*bw) in dverts
+                            and _on_seg(bw[0], bw[1], ba[0], ba[1], bb_[0], bb_[1], eps)):
+                        n_inh += 1
+                        continue
+                if key in allow_keys:
+                    n_allow += 1
+                    continue
+                n_new += 1
+                if len(new_at) < 8:
+                    new_at.append([p, [round(w[0], K), round(w[1], K)],
+                                   [round(pa[0], K), round(pa[1], K)],
+                                   [round(pb[0], K), round(pb[1], K)], round(off, 5)])
+    gate = {"gate": "tjunc", "new": n_new, "inherited": n_inh, "frame": n_frame,
+            "layered": n_layer, "allowed": n_allow, "edited": n_edited, "ok": n_new == 0}
+    if new_at:
+        gate["new_at"] = new_at
+    return gate
+
+
 def _tweak_inverse_x(tweaks):
     """The composed x-INVERSE of a tweak list's RowInsert cuts (east-to-west, undoing the
     west-to-east application), for the census miss-backmap: a miss at a post-cut x must be
@@ -2636,7 +2840,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                enforce_wang_carry: bool = False, allow_orphan_decals: bool = False,
                enforce_orphan_decals: bool = False, redress_orphans: bool = False,
                enforce_texture_gates: bool = False, allow_texture_gates: bool = False,
-               dry_run: bool = False, skip_mirror: bool = False,
+               allow_tjunc=(), dry_run: bool = False, skip_mirror: bool = False,
                target_disc: int | None = None, all_sea_target: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
@@ -2660,6 +2864,9 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     frame bounds; land fit within ``land_margin`` (an ISLAND default -- pass ``land_margin=0`` for
     a donor whose land legitimately reaches the block border); each tweak's exact edit-scope count;
     the :func:`ff9mapkit.world.mesh.weld_audit` (0 near-miss vertex pairs, like the verbatim donor);
+    THE T-JUNCTION DIFFERENTIAL (no MINTED vertex resting in the interior of another face's edge --
+    a float32 hairline the weld audit cannot see; the donor's own T-junctions are inherited and
+    pass, and ``allow_tjunc`` names accepted residuals, see :func:`load_tjunc_allow`);
     and the engine-placement census (``miss == 0`` -- full walk/sail coverage). Two more WARN-by-
     default (report-only) census gates ride alongside: :func:`wang_carry_gate` and
     :func:`~ff9mapkit.world.orphangate.orphan_decal_gate` (a STRIPS transition-vocabulary decal --
@@ -2737,6 +2944,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         if not gathered <= set(strip_specs):
             raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of E/W/N/S -- got {strips!r}")
     raw: dict = {}
+    pristine: dict = {}                     # p -> gathered polys, donor WORLD, PRE-tweak (tjunc baseline)
     donor_has_part: dict = {}
     strips_with_data: set = set()
     for p in parts:
@@ -2748,6 +2956,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                 srcs.append((dname, world_tris(nx2, ny2, p, disc=disc, lod=lod, game=game),
                              (axis, plane, below)))
         polys = []
+        pris_p = pristine.setdefault(p, [])
         for (dname, tris, clip) in srcs:
             for tri in tris:
                 poly = list(tri)
@@ -2756,6 +2965,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                     if len(poly) < 3:
                         continue
                     strips_with_data.add(dname)
+                pris_p.append(list(poly))
                 for tw in tweaks:
                     poly = tw.apply(p, poly)
                     if poly is None:
@@ -2926,6 +3136,25 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     weld_in, weld_fr = _split_frame_pairs(M.weld_audit(meshes), (0.0, 64.0), (0.0, -64.0))
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
                   "ok": not weld_in})
+    # THE T-JUNCTION DIFFERENTIAL (audit rec 14) -- same law as census/stacked: stock may
+    # T-junction, the carry may not MINT one. Back-map = the census inverse WITHOUT its
+    # donor-frame range check (strip geometry legally maps beyond the donor frame and is
+    # part of the pristine baseline).
+    tj_tinv = _tweak_inverse_x(tweaks)
+    tj_tinv_z = _tweak_inverse_z(tweaks)
+
+    def _tj_back(x, z):
+        dlx, dlz = _rot_xz(x - sh_x, z - sh_z, (4 - nrot) % 4)
+        wx = tj_tinv(dlx + 64.0 * dbx)
+        wz = tj_tinv_z(dlz - 64.0 * dby)
+        for tw_ in tweaks:
+            inv = getattr(tw_, "census_inverse", None)
+            if inv is not None:
+                wx, wz = inv(wx, wz)
+        return wx, wz
+
+    gates.append(_tjunc_gate(part_tris, pristine, _tj_back,
+                             (0.0, 64.0), (0.0, -64.0), allow=allow_tjunc))
     # THE CLIP-DROP gate (the hairline law's root accounting, 2026-07-09): the sliver
     # filter may only discard TRUE degenerates (collinear clip products, ~1e-9 each) --
     # any real dropped area is a coverage hole in the making (the (0,4) z-slide's 0.001u-
@@ -3120,7 +3349,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       allow_orphan_decals: bool = False, enforce_orphan_decals: bool = False,
                       redress_orphans: bool = False,
                       enforce_texture_gates: bool = False, allow_texture_gates: bool = False,
-                      dry_run: bool = False, skip_mirror: bool = False,
+                      allow_tjunc=(), dry_run: bool = False, skip_mirror: bool = False,
                       target_disc: int | None = None, all_sea_target: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
@@ -3254,6 +3483,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         if not gathered <= set(strip_specs):
             raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of E/W/N/S -- got {strips!r}")
     raw: dict = {}
+    pristine: dict = {}                     # p -> gathered polys, donor WORLD, PRE-tweak (tjunc baseline)
     strips_with_data: set = set()
     for p in parts:
         srcs = [(None, donor_cell_part[c][p], None) for c in dcells]
@@ -3265,6 +3495,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                     srcs.append((dname, world_tris(nx2, ny2, p, disc=disc, lod=lod, game=game),
                                  (axis, plane, below)))
         polys = []
+        pris_p = pristine.setdefault(p, [])
         for (dname, tris, clip) in srcs:
             for tri in tris:
                 poly = list(tri)
@@ -3273,6 +3504,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                     if len(poly) < 3:
                         continue
                     strips_with_data.add(dname)
+                pris_p.append(list(poly))
                 for tw_ in tweaks:
                     poly = tw_.apply(p, poly)
                     if poly is None:
@@ -3622,6 +3854,26 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                                            tuple(-64.0 * j for j in range(1, th)))
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
                   "border_t_pairs": len(weld_bt), "ok": not weld_in})
+    # THE T-JUNCTION DIFFERENTIAL (audit rec 14) -- see transplant()'s call site. The frame
+    # planes include the INTERIOR block borders: a re-partition clip vert mid-edge of the
+    # neighbour cell's coincident run is the weld gate's border_t_pairs class, judged there.
+    tj_tinv = _tweak_inverse_x(tweaks)
+    tj_tinv_z = _tweak_inverse_z(tweaks)
+
+    def _tj_back(x, z):
+        dlx, dlz = _rot_region_xz(x - sh_x, z - sh_z, inv_rot, ext_r, ext)
+        wx = tj_tinv(dlx + 64.0 * dbx)
+        wz = tj_tinv_z(dlz - 64.0 * dby)
+        for tw_ in tweaks:
+            inv = getattr(tw_, "census_inverse", None)
+            if inv is not None:
+                wx, wz = inv(wx, wz)
+        return wx, wz
+
+    gates.append(_tjunc_gate({p: [t for c in tcells for t in cell_tris[c][p]] for p in parts},
+                             pristine, _tj_back,
+                             tuple(64.0 * i for i in range(tw + 1)),
+                             tuple(-64.0 * j for j in range(th + 1)), allow=allow_tjunc))
     # THE CLIP-DROP gate (the hairline law's root accounting -- see transplant()): real
     # dropped area = a hole in the making, at ANY thinness a probe grid could step over.
     gates.append({"gate": "clip-drop", "area2": dropped_area2, "ok": dropped_area2 < 1e-3})

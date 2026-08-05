@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE T-JUNCTION DIFFERENTIAL gate on every transplant build
+- Both carry builders (`transplant` / `transplant_region`, i.e. every `world-transplant`)
+  now gate on MINTED T-junctions — a vertex resting in the interior of another face's
+  edge, watertight in exact arithmetic but a float32 hairline crack in game, invisible to
+  the weld audit (which only sees near-MISS duplicate vertices) and to the render gate at
+  most cameras. Differential like the census/stacked gates: the baseline is the pristine
+  gather (donor tris + clipped strip polys, pre-tweak), each hit back-maps through the
+  census's own donor inverse, and a hit is inherited only when its witness vertex, its
+  edge (or the pristine edge it is a clip sub-segment of), AND the witness-on-edge
+  relation all exist in the donor — so stock's own T-junctions carry green and only
+  authored connectivity is judged. Edited scope is found by EDGE membership (a patch that
+  reuses pristine boundary vertices verbatim is still judged on its new connectivity),
+  the scan is clustered to the edited tris' 8u neighbourhoods (a plain rigid carry scans
+  nothing: `edited=0`), and every 2D plan hit is confirmed in 3D the study-probe way, so
+  a bridge deck crossing a gully edge in plan reports `layered`, not a crack.
+  `--allow-tjunc FILE` takes a NAMED-exception list (the study `tjunction_allowlist.json`
+  shape — never a blanket waiver). Calibrated green on the in-game-proven (7,17) rot-90
+  carry, the accepted (8,17)+2x2 island, a (14,1)+4x2 crescent-shape region and the
+  `--ground desert` retile; the hermetic red test fails if the gate is unhooked. Promotes
+  `studies/path-d-new-world/probe_tjunction.py`'s law through the kit's own
+  `meshedit.find_tjunctions`. Audit rec 14.
+
 ### Added — `world-donors` + the falsified-lane banner: the CLI carries the verdicts
 - The project's falsified/proven verdicts lived in CLAUDE.md §8, a 1200-line study README
   and code comments — never in `--help`, never at runtime. Now `world-island --beach`

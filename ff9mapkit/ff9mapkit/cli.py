@@ -4438,7 +4438,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                       enforce_orphan_decals=args.enforce_orphan_decals,
                       redress_orphans=args.redress_orphans,
                       enforce_texture_gates=args.enforce_texture_gates,
-                      allow_texture_gates=args.allow_texture_gates, dry_run=args.dry_run,
+                      allow_texture_gates=args.allow_texture_gates,
+                      allow_tjunc=TR.load_tjunc_allow(args.allow_tjunc), dry_run=args.dry_run,
                       skip_mirror=args.skip_mirror, target_disc=args.target_disc,
                       all_sea_target=args.all_sea_target)
             if (snx, sny) == (1, 1):
@@ -8705,6 +8706,16 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--allow-texture-gates", action="store_true", dest="allow_texture_gates",
                      help="waive THE TEXTURE + SEA GATES even when enforced "
                           "(--enforce-texture-gates).")
+    wtp.add_argument("--allow-tjunc", metavar="JSON", default=None, dest="allow_tjunc",
+                     help="NAMED-exception list for THE T-JUNCTION DIFFERENTIAL gate (which "
+                          "FAILS the build when the carry MINTS a vertex resting in the "
+                          "interior of another face's edge -- a float32 hairline crack the "
+                          "weld audit cannot see; the donor's own carried T-junctions are "
+                          "inherited and pass). A JSON list in the study "
+                          "tjunction_allowlist.json shape: entries with a vert_edge triple "
+                          "[vert, edge_a, edge_b] in the coordinates the gate's new_at "
+                          "reports, each with a written reason. Deliberately NOT a boolean "
+                          "waiver -- a blanket tolerance trains people to ignore a red gate.")
     wtp.add_argument("--redress-orphans", action="store_true", dest="redress_orphans",
                      help="auto-fix every ORPHAN-DECAL GATE finding to the wearing side's plain "
                           "GROUNDS mains (assign_mains + ground_uv, the proven FIX-G shape: UV "
