@@ -54,9 +54,9 @@ def test_prompt_texts_are_stock_bytes_plus_turbo_guard():
 
 def test_turbo_guard_coverage():
     """THE TURBO-INJECTION LAW (arm B): every inhibited Auto-style prompt carries
-    [NTUR]; the score/payout READOUTS carry it (so a turbo latch cannot skip the
-    number the bout exists to show); plain narrative verdicts stay skippable; a
-    custom score text with no live value stays plain."""
+    [NTUR]; the WHOLE finale carries it -- score/payout as READOUTS, and the
+    verdicts since the first A/B (2026-08-05) lost the "clap rating" to a latched
+    F9. A custom score text with no live value stays plain (not a readout)."""
     spec = _spec()
     texts = {p: t for p, t, _ in Q.mes_texts(spec)}
     for b in spec.buttons:
@@ -64,11 +64,28 @@ def test_turbo_guard_coverage():
     assert texts["score"].startswith("[NTUR]") and "[NUMB=0]" in texts["score"]
     assert texts["payout"].startswith("[NTUR]") and "[NUMB=1]" in texts["payout"]
     for i in range(4):
-        assert "[NTUR]" not in texts[f"verdict{i}"]      # narrative: turbo-skippable
+        assert texts[f"verdict{i}"].startswith("[NTUR]")  # the outcome is press-gated
     plain = {p: t for p, t, _ in Q.mes_texts(_spec(score_text="Done!"))}
     assert "[NTUR]" not in plain["score"]                # no live value -> no guard
     dup = {p: t for p, t, _ in Q.mes_texts(_spec(score_text="[NTUR]Got [NUMB=0]."))}
     assert dup["score"].count("[NTUR]") == 1             # author's own tag: no second copy
+    dv = {p: t for p, t, _ in Q.mes_texts(_spec(verdicts=["[NTUR]a", "b", "c", "d"]))}
+    assert dv["verdict0"].count("[NTUR]") == 1           # same no-dup rule on a verdict
+
+
+def test_finale_render_race_gaps():
+    """THE FINALE RENDER-RACE (ENGARDE A/B): a Wait(FINALE_GAP) precedes the verdict
+    tier dispatch and the payout open, so each guarded window opens from an idle turbo
+    machine and its [NTUR] render pass wins. The score needs none (ROUND_GAP's quiet
+    frames precede it -- it survived the same A/B unmodified)."""
+    spec = _spec()
+    body = Q.game_body(spec, _tx(spec))
+    ins = list(D.iter_code(body, 0, len(body)))
+    WAIT = 0x22
+    sync_offs = [i for i, x in enumerate(ins) if x.name == "WindowSync"]
+    score_i, payout_i = sync_offs[0], sync_offs[-1]
+    assert ins[score_i + 1].op == WAIT                   # the gap right AFTER the score
+    assert ins[payout_i - 1].op == WAIT                  # and right BEFORE the payout
 
 
 def test_body_structure_and_census():

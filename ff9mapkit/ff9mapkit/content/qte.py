@@ -84,6 +84,14 @@ DISPATCH_LEVEL = 4                # the house remote-dispatch level
 PROMPT_FLAGS = 160                # stock's prompt-window style (WindowAsync 1,160,tx)
 RESULT_FLAGS = 0                  # stock's verdict style (WindowSync 5,0,tx)
 ROUND_GAP = 20                    # frames between rounds (stock's inter-beat breath)
+# THE FINALE RENDER-RACE (in-game, ENGARDE A/B 2026-08-05): [NTUR] asserts preventTurboKey
+# only on a label RENDER pass, and the turbo fan-out clears it on EVERY delivery -- so a
+# guarded window that opens on the very frame a turbo chain ate its predecessor is closed
+# BEFORE its first render. Evidence: the score (behind ROUND_GAP's ~20 quiet frames)
+# survived a latched F9; the verdict/payout (zero-gap after a turbo-eaten window) did not.
+# A few quiet frames idle the whole machinery (no dialog -> IsDialogNeedControl false; the
+# script is in Wait, not polling -> arm B unarmed), so the next window's render wins.
+FINALE_GAP = 4                    # quiet frames before each post-score finale window
 
 DEFAULT_VERDICTS = (
     "The crowd is booing...",                     # score < 25
@@ -254,7 +262,13 @@ def mes_texts(spec: QteSpec) -> list:
     sc = spec.score_text if "[IMME]" in spec.score_text else "[IMME]" + spec.score_text
     out.append(("score", _readout_guard(sc), (170, 1)))
     for i, v in enumerate(spec.verdicts):
-        out.append((f"verdict{i}", v if "[IMME]" in v else "[IMME]" + v, None))
+        vt = v if "[IMME]" in v else "[IMME]" + v
+        if _text.NO_TURBO_TAG not in vt:
+            # the verdict is the bout's OUTCOME -- a readout in spirit even with no live
+            # value tag; the first A/B lost it to a latched F9 (2026-08-05, "clap rating
+            # auto-skipped"), so the whole finale is press-gated, not just the numbers.
+            vt = _text.NO_TURBO_TAG + vt
+        out.append((f"verdict{i}", vt, None))
     if spec.gil:
         pt = (spec.payout_text if "[IMME]" in spec.payout_text
               else "[IMME]" + spec.payout_text)
@@ -360,6 +374,7 @@ def game_body(spec: QteSpec, txids: dict) -> bytes:
                             exprasm.assemble(f"Global.Int16[{spec.result}] B_EXPR_END"),
                             arg_flags=0b10))
     B.append(opcodes.window_sync(RW, RESULT_FLAGS, txids["score"]))
+    B.append(opcodes.wait(FINALE_GAP))                   # THE FINALE RENDER-RACE (top of file)
     for i, thr in enumerate((25, 50, 75)):
         B.append(_stmt(f"Global.Int16[{spec.result}] const({thr}) B_LT"))
         B.append((JMP_IFNOT, f"tier_{i}"))
@@ -378,6 +393,7 @@ def game_body(spec: QteSpec, txids: dict) -> bytes:
                                 arg_flags=0b10))
         B.append(opcodes.encode(0xCE, exprasm.assemble(purse + " B_EXPR_END"),
                                 arg_flags=0b1))          # AddGil, expression form
+        B.append(opcodes.wait(FINALE_GAP))               # THE FINALE RENDER-RACE (top of file)
         B.append(opcodes.window_sync(RW, RESULT_FLAGS, txids["payout"]))
     if spec.flag is not None:
         B.append(_stmt(f"Global.Bit[{spec.flag}] const(1) B_LET"))
