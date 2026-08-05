@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the stacked-sheet walkability census: the gate for walking UNDER the ground
+- `placement.all_sheets` (ported from the bench walk instrument that reproduced the
+  lawn-under-hill playtest pin at 0.00u): every filter-passing sheet on the vertical line in
+  engine scan order. `census()` gains `stacked`/`inversions` — samples where ≥2 WALKABLE
+  sheets (`WALK_OK`, the decoded on-foot topograph mask) stack with the top two ≥0.3u apart
+  (`STACK_GAP_MIN`, calibrated against the owner-accepted V-shore bench: without the floor,
+  5 relief-seam micro-overlaps judged the ACCEPTED island defective). `place()` is
+  first-hit-or-MISS and structurally blind to this class. Gated at all three lanes:
+  `interior.census_gate` raises, the island `clean` predicate refuses, and `world-transplant`
+  judges DIFFERENTIALLY (an inherited donor stack — a canopy, a bridge deck — is not an
+  introduced defect). Plus: the engine's 0x31EE flight-only VETO now abandons the whole mesh
+  in `place()` (walk_sim semantics), and `census`/`build_meshlist_index` REFUSE the two
+  registration-order exception blocks the simulator does not model (Water Shrine 219's short
+  scan list; prefab-driven Volcano splices). Audit rec 3 — the last Tier-1 item.
+
 ### Fixed — the interior census gate could not fire: it scored an UNCUT Sea4 no lane deploys
 - `interior.census_gate` censused the whole synthetic sea plane, so any terrain hole grounded
   on phantom sea at y=0 and the `MISS == 0` predicate was unreachable for the one stranding

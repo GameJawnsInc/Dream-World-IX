@@ -804,7 +804,8 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
             bx, by = blk
             meshlist = _meshlist(blk, bm)
             cen = P.census(meshlist)
-            entry = {"counts": cen["counts"], "miss": len(cen["miss"])}
+            entry = {"counts": cen["counts"], "miss": len(cen["miss"]),
+                     "stacked": len(cen["stacked"])}
             lx, lz = cx - BLOCK * bx, cz + BLOCK * (by + 1) - BLOCK
             if 0.0 <= lx <= BLOCK and -BLOCK <= lz <= 0.0:
                 gy, nm, _, topo = P.place(meshlist, lx, lz)
@@ -814,7 +815,8 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
         report["placement"] = place_reports
     report["clean"] = (cracks == 0 and down == 0 and steep == 0 and big == 0 and oob == 0 and holes == 0
                        and len(open_bad) == 0 and shape["ok"] and main_slope_p99 <= MAX_FLANK + 1e-6
-                       and all(e["miss"] == 0 and e.get("centre_ok", True) for e in place_reports.values())
+                       and all(e["miss"] == 0 and e.get("stacked", 0) == 0
+                               and e.get("centre_ok", True) for e in place_reports.values())
                        # WARN-default: every texgate's own ``ok`` is True unless enforce_texgates
                        and all(g["ok"] for g in texgate_list))
     return report

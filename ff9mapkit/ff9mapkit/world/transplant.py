@@ -2939,7 +2939,9 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     # miss must map back (inverse shift+rot) to a point where the DONOR ITSELF misses.
     introduced = []
     inherited = 0
-    if cen["miss"]:
+    stack_introduced = []
+    stack_inherited = 0
+    if cen["miss"] or cen["stacked"]:
         donor_meshes = []
         for p in parts:
             if not donor_by_part[p]:
@@ -2950,7 +2952,9 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                                                                 disc=disc, lod=lod)))
         tinv = _tweak_inverse_x(tweaks)
         tinv_z = _tweak_inverse_z(tweaks)
-        for (mx, mz) in cen["miss"]:
+
+        def _to_donor(mx, mz):
+            """Map a built-frame sample back to donor block-local, or None outside the frame."""
             ux, uz = mx - sh_x, mz - sh_z
             dlx, dlz = _rot_xz(ux, uz, (4 - nrot) % 4)
             dlx = tinv(dlx + 64.0 * dbx) - 64.0 * dbx      # undo RowInsert cuts (donor world x)
@@ -2962,14 +2966,32 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                     dlx, dlz = wx - 64.0 * dbx, wz + 64.0 * dby
             if not (-FRAME_EPS <= dlx <= 64.0 + FRAME_EPS
                     and -64.0 - FRAME_EPS <= dlz <= FRAME_EPS):
+                return None
+            return dlx, dlz
+
+        for (mx, mz) in cen["miss"]:
+            d = _to_donor(mx, mz)
+            if d is None:
                 introduced.append((mx, mz))            # maps outside the donor frame: a strip hole
-            elif P.place(donor_meshes, dlx, dlz)[1] == "MISS":
+            elif P.place(donor_meshes, d[0], d[1])[1] == "MISS":
                 inherited += 1
             else:
                 introduced.append((mx, mz))
+        # THE STACKED-SHEET DIFFERENTIAL (audit rec 3): same law as the misses -- a real donor
+        # may legitimately stack walkable sheets (a canopy, a bridge deck); the transplant may
+        # not MINT one. Inherited = the donor stacks at the mapped point too.
+        for rec in cen["stacked"]:
+            d = _to_donor(*rec["at"])
+            if d is not None and sum(1 for s in P.all_sheets(donor_meshes, d[0], d[1])
+                                     if s[3] in P.WALK_OK) >= 2:
+                stack_inherited += 1
+            else:
+                stack_introduced.append(rec["at"])
     gates.append({"gate": "census", "miss": len(cen["miss"]), "inherited": inherited,
                   "introduced": len(introduced), "samples": census_samples * census_samples,
                   "ok": not introduced})
+    gates.append({"gate": "stacked", "stacked": len(cen["stacked"]), "inherited": stack_inherited,
+                  "introduced": len(stack_introduced), "ok": not stack_introduced})
     gates.append(_mod_overwrite_gate(mod_folder, {(bx, by): (dbx, dby)}, disc=rtarget,
                                      lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)

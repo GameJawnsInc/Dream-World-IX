@@ -552,3 +552,77 @@ def test_relief_welds_across_a_block_border():
     rep = I.verify_landmass(built)
     assert rep["cracks"] == 0 and rep["open_edges"] == 0 and rep["clean"], \
         {k: v for k, v in rep.items() if k != "placement"}
+
+
+# ---- the stacked-sheet census + the VETO + the order-exception refusals (audit rec 3) -------------------------------
+
+def test_census_flags_a_walkable_sheet_under_a_walkable_sheet():
+    """THE LAWN-UNDER-HILL CLASS (BENCH-WALK-SIM's playtest pin): place() is first-hit-or-
+    MISS, so a walkable sheet under a walkable sheet is invisible to it -- the engine
+    grounds on the buffer-EARLIER lower sheet, and the player walks UNDER the surface.
+    census() must flag it: stacked non-empty, and shadowed (an inversion) because the
+    engine's pick sits below the top sheet."""
+    lower = [(0.0, 1.0, 0.0), (8.0, 1.0, 0.0), (0.0, 1.0, -8.0)]
+    upper = [(0.0, 5.0, 0.0), (8.0, 5.0, 0.0), (0.0, 5.0, -8.0)]
+    cen = P.census([("Terrain", _bm([(lower, GRASS), (upper, GRASS)]))],
+                   span=(1.0, 7.0, -7.0, -1.0), samples=4)
+    assert cen["stacked"] and cen["inversions"]
+    rec = cen["inversions"][0]
+    assert rec["shadowed"] and rec["gap"] == 4.0
+    # a single sheet is clean, and a walkable sheet over NON-walkable sea is NOT a stack
+    cen1 = P.census([("Terrain", _bm([(upper, GRASS)]))], span=(1.0, 7.0, -7.0, -1.0), samples=4)
+    assert cen1["stacked"] == [] and cen1["inversions"] == []
+    sea_below = [(0.0, 0.0, 0.0), (8.0, 0.0, 0.0), (0.0, 0.0, -8.0)]
+    cen2 = P.census([("Terrain", _bm([(upper, GRASS)])), ("Sea4", _bm([(sea_below, SEA)]))],
+                    span=(1.0, 7.0, -7.0, -1.0), samples=4)
+    assert cen2["stacked"] == []
+    # sheets 0.1u apart are a relief-seam micro-overlap, not a stack (STACK_GAP_MIN,
+    # calibrated against the owner-accepted bench -- without it the gate judges the
+    # ACCEPTED island defective)
+    near = [(0.0, 5.1, 0.0), (8.0, 5.1, 0.0), (0.0, 5.1, -8.0)]
+    cen3 = P.census([("Terrain", _bm([(upper, GRASS), (near, GRASS)]))],
+                    span=(1.0, 7.0, -7.0, -1.0), samples=4)
+    assert cen3["stacked"] == []
+
+
+def test_all_sheets_scan_order_dedup_and_strict_boundary():
+    """all_sheets: every passing intersection in SCAN order (mesh order, buffer order),
+    deduped by y at 0.02; strict=True rejects a hit ON a triangle edge (a shared boundary
+    LINE is not a stack)."""
+    lower = [(0.0, 1.0, 0.0), (8.0, 1.0, 0.0), (0.0, 1.0, -8.0)]
+    lower_dup = [(0.0, 1.01, 0.0), (8.0, 1.01, 0.0), (0.0, 1.01, -8.0)]
+    upper = [(0.0, 5.0, 0.0), (8.0, 5.0, 0.0), (0.0, 5.0, -8.0)]
+    ml = [("Terrain", _bm([(lower, GRASS), (lower_dup, GRASS), (upper, GRASS)]))]
+    sheets = P.all_sheets(ml, 2.0, -2.0)
+    assert [round(s[0], 2) for s in sheets] == [1.0, 5.0]        # dup deduped, scan order kept
+    assert all(s[3] == 0 for s in sheets)
+    # the probe on the hypotenuse x+z=8 of `upper`: strict rejects, lenient accepts
+    on_edge = P.all_sheets([("Terrain", _bm([(upper, GRASS)]))], 4.0, -4.0)
+    off_edge = P.all_sheets([("Terrain", _bm([(upper, GRASS)]))], 4.0, -4.0, strict=False)
+    assert on_edge == [] and len(off_edge) == 1
+    # index parity: indexed all_sheets returns the identical list
+    idx = P.build_meshlist_index(ml)
+    assert P.all_sheets(ml, 2.0, -2.0, index=idx) == sheets
+
+
+def test_place_veto_abandons_the_whole_mesh():
+    """A passing hit with idall 0x31EE (flight-only) makes the engine abandon the WHOLE
+    mesh -- the query falls through to the NEXT mesh, not the next triangle."""
+    veto_top = [(0.0, 5.0, 0.0), (8.0, 5.0, 0.0), (0.0, 5.0, -8.0)]
+    walk_below = [(0.0, 1.0, 0.0), (8.0, 1.0, 0.0), (0.0, 1.0, -8.0)]
+    ml = [("Terrain", _bm([(veto_top, P.VETO), (walk_below, GRASS)])),
+          ("Sea4", _bm([(walk_below, SEA)]))]
+    gy, name, idall, topo = P.place(ml, 2.0, -2.0)
+    assert (gy, name, topo) == (1.0, "Sea4", 57)         # fell through to the NEXT mesh
+    # and the veto tri is invisible to all_sheets
+    assert all(s[2] != P.VETO for s in P.all_sheets(ml, 2.0, -2.0))
+
+
+def test_census_refuses_the_registration_order_exception_blocks():
+    """The two engine exceptions the simulator does not model must REFUSE, not silently
+    mis-order: Water Shrine (Number 219 = block (3,9)) and prefab-driven Volcano parts."""
+    shrine = _bm([(_UP, GRASS)], name="Block[3][9] Terrain", x=3, y=9)
+    with pytest.raises(ValueError, match="Water Shrine"):
+        P.census([("Terrain", shrine)])
+    with pytest.raises(ValueError, match="[Vv]olcano"):
+        P.census([("VolcanoCrater1", _bm([(_UP, GRASS)]))])

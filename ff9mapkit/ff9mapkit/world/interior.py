@@ -2467,6 +2467,14 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
         cen = P.census(meshlist)
         if cen["miss"]:
             raise ValueError(f"placement MISS in {blk}: {cen['miss'][:4]}")
+        if cen["stacked"]:
+            # the lawn-under-hill class (BENCH-WALK-SIM's playtest pin): a walkable sheet
+            # UNDER a walkable sheet -- first-in-buffer wins, so the player grounds beneath
+            # the surface. A carve must REMOVE the ground it covers, not leave it stacked.
+            worst = max(cen["stacked"], key=lambda r: r["gap"])
+            raise ValueError(f"stacked walkable sheets in {blk}: {len(cen['stacked'])} sample(s), "
+                             f"worst at {worst['at']} gap {worst['gap']}u "
+                             f"({len(cen['inversions'])} shadowed)")
         if probe:
             (wx, wz), want_topo = probe
             lx, lz = wx - BLOCK * bx, wz + BLOCK * (by + 1) - BLOCK

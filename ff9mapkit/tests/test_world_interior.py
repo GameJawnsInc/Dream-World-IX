@@ -864,3 +864,18 @@ def test_census_gate_detects_holes_even_without_baseline(monkeypatch):
     for hole in ({(6, 6)}, {(6, 6), (7, 6), (6, 7), (7, 7)}):
         with pytest.raises(ValueError, match="placement MISS"):
             IN.census_gate({(0, 0): _grid_block_with_hole(0, 0, hole)})
+
+
+def test_census_gate_raises_on_stacked_walkable_sheets(monkeypatch):
+    """THE LAWN-UNDER-HILL GATE (audit rec 3): a carve that leaves walkable lawn under a
+    walkable carried surface must REFUSE -- first-in-buffer wins, so the player grounds
+    beneath the new ground (the bench walk instrument pinned this class on a real playtest
+    defect at 0.00u). Delete the stacked raise in census_gate and this goes red."""
+    from ff9mapkit.world import island as I
+    monkeypatch.setattr(I, "_sea_plane", lambda disc, game=None: _sea_grid_plane())
+    lawn = _grid_block(0, 0)                              # y=3.2 everywhere
+    hill = ((16.0, 9.0, -16.0), (24.0, 9.0, -16.0), (16.0, 9.0, -24.0))
+    stacked = _grid_block(0, 0, extra=[(hill, GRASS, _MAIN_U)])
+    IN.census_gate({(0, 0): lawn}, baseline={(0, 0): lawn})
+    with pytest.raises(ValueError, match="stacked walkable sheets"):
+        IN.census_gate({(0, 0): stacked}, baseline={(0, 0): lawn})
