@@ -309,6 +309,13 @@ gates (per-frame looping code entries), moving platforms (lockstep choreography)
   REWARDS (a `give_gil`/`give_item` on the win branch — the [[event]] lane may
   already cover it), and the 20-ally cap (pool sizes already are the cap).
 - Productization: ★★ DONE — the `[siege]` TOML lane (see above).
+- **FIT-BENCH RE-BASE (2026-08-05): `condor_fit_bench.py` gens clean again** — the
+  safe-band partition + THE BLACKBOARD CEILING (79c493b8) shrank the default byte band
+  to 114 campaign-safe bytes (1876-1989); the round-4 build needs ~565, so the bench now
+  opts into `byte_band = "wide"` — the byte-band twin of P1's REDOUBT flag regression,
+  same fix, same standalone-only contract (measured: top byte 1783 of 1989, 69/240
+  flags). Also stale-header fix: 30400 is NOT registered anymore (the 6000-band campaign
+  deploy wiped FF9CustomMap's registrations) — the next deploy needs one RELAUNCH.
 
 ## CONDOR P1 — ★ RATIFIED (2026-07-28): THE SIEGE ON BRAINS
 

@@ -37,7 +37,9 @@ THE GAME (round-2 TUNING clock — 1:00 runs, a wave every ~20s):
   long-jump pass — this build ships 14 allies under the ~32KB ticker ceiling.)
 
 Usage (repo root):  py studies/fort-condor/condor_fit_bench.py gen | probe | deploy
-30400 is long registered -> ~ -> Reload field is enough after deploy.
+30400 is NOT currently registered (a 6000-band campaign deploy wiped
+FF9CustomMap's registrations) -> the FIRST deploy needs a full game RELAUNCH to
+register the FieldScene line; after that ~ -> Reload field is enough.
 Revert: py tools/scroll_out/revert_deploy_30400.py
 """
 from __future__ import annotations
@@ -261,6 +263,12 @@ def behavior_toml(lay: dict) -> str:
     # unit instead of one branch + one body per PAIR), alive_only scans publish
     # the live headcounts, and the strip shows the economy.
     parts = [f"\n[behavior]\nwarmup = 45\ntimer = {SIEGE_SECONDS}\n"
+             # the safe-band partition shrank the DEFAULT byte band to 114 bytes
+             # (campaign-compatible, bytes 1876-1989) — 27 units of table state
+             # cannot fit it; the wide standalone band (bytes 1220-1989) is the
+             # same lane [siege] generates, under the same standalone-only
+             # contract: NEVER deploy this onto a save that also plays a campaign
+             f'byte_band = "wide"\n'
              f'counters = ["wave", "kills", "troops", "raiders_up"]\n'
              f'\n[[behavior.table]]\nname = "sched"\nvalues = {_t(SCHED)}\n'
              f'\n[[behavior.schedule]]\ncounter = "wave"\ntable = "sched"\n'
@@ -521,7 +529,12 @@ def deploy() -> None:
     if r.returncode != 0:
         raise SystemExit("deploy_field failed")
     print(f"""
-PLAYTEST — ROUND 4, THE GROUP RE-FIT (~ -> Reload field on {FIELD_ID}, or Warp -> {FIELD_ID}):
+PLAYTEST — ROUND 4, THE GROUP RE-FIT:
+  FIRST deploy since the registration wipe -> RELAUNCH the game (registers the
+  FieldScene {FIELD_ID} DictionaryPatch line), then Warp -> {FIELD_ID}.
+  Later deploys: ~ -> Reload field on {FIELD_ID} is enough.
+  NOTE this build sits on the WIDE blackboard band (same as [siege]/REDOUBT):
+  standalone benches only — never on a save that also plays a campaign.
   The whole siege now runs on the proven v2 substrate. Same game, three things
   the old build COULDN'T do — and the ratified design is finally whole:
   1 THE WAR-ROOM STRIP (top-left, always up): GIL / TROOPS / RAIDERS / DEPOT,
