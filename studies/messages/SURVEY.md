@@ -406,6 +406,58 @@ to flip a tail, nothing more. Two bubbles at the same screen height simply overl
 window id (higher depth) draws in front, clipping the other's leading glyphs. Stage simultaneous
 speakers with real horizontal separation **and** a depth stagger; do not rely on the engine.
 
+## 7a-bis. ★★★ THE TURBO-CONFIRM LAW — the press nobody made (2026-08-04, playtest 30801)
+
+**The environmental sibling of §7a: same fan-out, but the confirm is SYNTHESIZED BY THE ENGINE, every
+frame, with the player's hands off the pad.** §7a costs you one window per real press; this costs you
+*every* window, continuously, and no amount of script correctness survives it.
+
+```csharp
+// UIKeyTrigger.cs:198 — runs EVERY render frame, unconditionally
+HandleDialogControlKeyPressCustomInput();
+// UIKeyTrigger.cs:834
+if (dialogConfirmKeys.Any(c => IsInputDown(c) || keyCommand == c) || ShouldTurboDialog(dialogConfirmKeys))
+    UIManager.Instance.Dialogs.OnKeyConfirm(activeButton);        // ← §7a's fan-out, no key down
+// UIKeyTrigger.cs:974-991
+private Boolean ShouldTurboDialog(List<Control> confirmKeys) {
+    if (!Configuration.Control.TurboDialog || preventTurboKey) return false;
+    if (TurboKey || ((IsInput(Control.RightBumper) || ShiftKey) && confirmKeys.Any(IsInput)))
+        if (UIManager.Instance.Dialogs.IsDialogNeedControl()) return true;   // "some window has FlagButtonInh == false"
+    return false;
+}
+```
+
+`TurboDialog` defaults to **1** in `Memoria.ini` — it is on for everybody. `TurboKey` is a **latch**
+toggled by **F9** (`:393-399`) with **no on-screen indicator**, and it persists across field reloads
+and warps for the whole game session. `IsDialogNeedControl()` (`DialogManager.cs:422-427`) is
+satisfied by any window whose `FlagButtonInh` is false — i.e. every ordinary kit window.
+
+**Symptom, verbatim (owner, bench 30801):** a window *"opens, and when it's finished with the opening
+animation and the text shows, it immediately does the closing animation and exits the entire dialogue
+tree"* — with no input. Frame-accurate: `Dialog.OnKeyConfirm` is a no-op until `CompleteAnimation`, so
+a continuously-asserted confirm kills the window at exactly the moment the text finishes.
+
+**Why it reads as a script bug and burned four rounds.** A CHOICE window is immune by accident —
+`UILabel.cs:804-806` sets `preventTurboKey` while a choice/overlay renders — so the *selector*
+survives; the confirm that picks a row clears the latch (`:838`), and every reply page opened after it
+is killed on sight. That looks exactly like a defect in the choice→reply transition. It is not. It is
+not in the `.eb` at all: the field's whole 4617-byte script contains no `CloseWindow (0x21)`, no
+`CloseAllWindows (0xEB)`, no `[TIME]`, and no second window on a live id.
+
+**The one lever: `[NTUR]`** (`NGUIText.NoTurboDialog` → `FFIXTextTagCode.TurboOff` →
+`DialogBoxSymbols.cs:327-329` → `UIKeyTrigger.preventTurboKey = true`). Upstream Memoria, not one of
+our patches, so it is stock-safe. Crucially it does **not** touch `FlagButtonInh` — unlike `[NFOC]`
+and `[TIME=n]`, the other two inhibitors, which stop the *player's* confirm too and therefore hang a
+blocking `WindowSync` forever on `wait == 254` (`EBin.cs:137-148`). The flag is sticky: nothing clears
+`preventTurboKey` until a confirm/cancel is actually delivered (`:838`/`:849`), so one render pass of
+the tag covers the window's whole life.
+
+Enforced at the call site: `content/text.dress_window` emits `[NTUR]` automatically on any **readout**
+window (text containing `[NUMB=]`/`[TEXT=]`/`[ITEM=]` — a number the player opened a menu to read is
+not "story to skip"), an explicit `no_turbo` key overrides either way, and `build.validate` refuses
+`no_turbo = false` on a readout. Narrative dialogue is deliberately left skippable, like the base
+game's. Pinned in `test_window_attrs.py`.
+
 ## 7b. ★★ THE RAISE-SATURATION LAW — the raise is clamped, not uniform (2026-08-03)
 
 `DialogManager.RiseAll` (`:436-446`) bumps a window by `DialogAdditionalRaiseDepth` (22) **only while

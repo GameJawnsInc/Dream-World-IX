@@ -37,18 +37,182 @@ from . import event as _event, region as _region
 CHOICE_FLAG_BASE = _flags.AUTO_CHOICE_BASE
 
 
+# ------------------------------------------------------- per-option LIVE VALUES (gMesValue) ---
+#: ``ETb.SetMesValue`` clamps ``scriptID`` to 0..7 against ``gMesValue = new Int32[8]``
+#: (ETb.cs:230-234, EventEngine.Initialize.cs:30). A 9th value on one option would not error
+#: in-game -- it would land in slot 7 and silently overwrite the 8th, so the refusal is at the
+#: EMITTER (:func:`option_values_body`) as well as in ``build.validate``: over-8 must be
+#: unrepresentable, not merely reported.
+MES_VALUE_SLOTS = 8
+
+#: the key a ``[[choice]]`` option carries its value sources under, and the one spelling accepted
+#: in it (the hud lane's ``expr:`` prefix -- ``content.behavior.HUD_EXPR_PREFIX``).
+VALUES_KEY = "values"
+
+
+def option_values(opt: dict) -> list:
+    """One option's declared value sources, normalised to a list. Raises on a scalar -- ``values =
+    "expr:..."`` would otherwise iterate the STRING and publish one slot per character."""
+    v = opt.get(VALUES_KEY)
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    raise ValueError(f"choice option {VALUES_KEY} must be a LIST of 'expr:<RPN tokens>' sources "
+                     f"(got {type(v).__name__}) -- slot i is values[i]")
+
+
+#: the gMesValue slots a MODAL on the SAME option publishes FOR ITSELF, so a `reply` that renders
+#: them is covered without a `values` list. `input`'s submit and `recall` both load slot 0 with the
+#: stepper's echo (content/numinput.py:380, :413); a `qte` loads slot 0 with the score and slot 1 with
+#: the gil payout (content/qte.py:334, :352). The qte pair is listed whole because whether slot 1 is
+#: written depends on that [[qte]]'s `gil`, which is not visible from the option row -- and demanding
+#: a value for a slot the modal may already own would refuse a correct field, which is the worse of
+#: the two errors here (the stale render is caught for every OTHER slot).
+MODAL_PUBLISHED_SLOTS = {"input": (0,), "recall": (0,), "qte": (0, 1)}
+
+
+def option_published_slots(opt: dict) -> frozenset:
+    """Every gMesValue slot THIS option writes before its reply window opens: ``values`` slots 0..N-1
+    plus whatever a modal on the same row loads for itself (:data:`MODAL_PUBLISHED_SLOTS`)."""
+    slots = set(range(len(option_values(opt))))
+    for key, own in MODAL_PUBLISHED_SLOTS.items():
+        if key in opt:
+            slots.update(own)
+    return frozenset(slots)
+
+
+def reply_slot_problems(opt: dict) -> list:
+    """THE COVERAGE RULE, in ONE place: every gMesValue slot an option's ``reply`` RENDERS must be a
+    slot that same option PUBLISHES. Returns message tails (the caller prefixes the row's identity).
+
+    WHY IT IS KEYED ON THE REPLY, NOT ON ``values``. The defect that shipped had no ``values`` key at
+    all: a reply carrying ``[NUMB=0]``/``[NUMB=1]`` and nothing to fill them. ``ETb.gMesValue`` is
+    ``Int32[8]`` allocated once at engine init (EventEngine.Initialize.cs:30) and never cleared on a
+    field load, so those tags rendered the LAST field's leftovers -- plausible numbers, right columns,
+    entirely stale, and invisible in a screenshot. The first cut of the check lived inside the
+    ``values`` lane, which means it could only fire for rows that had already opted IN; the shape it
+    was written to catch validated clean. A rule about what a WINDOW renders belongs on the window.
+
+    Both tag families are decoded by the engine-faithful decoders in :mod:`content.behavior`
+    (``hud_numb_slots`` / ``hud_text_table_slots``), never by a local regex: a bare ``[NUMB]`` reads
+    slot 0, ``[NUMB=1,2]`` reads two, and ``{Variable n}`` is the same tag in Memoria's own export
+    spelling. A slot parameter the engine resolves through ``Single.TryParse`` is reported as
+    unknowable rather than assumed safe."""
+    from .behavior import BehaviorError, hud_numb_slots, hud_text_table_slots
+    reply = str(opt.get("reply") or "")
+    if not reply.strip():
+        return []
+    try:
+        n = len(option_values(opt))
+        published = option_published_slots(opt)
+    except ValueError:
+        return []       # a MALFORMED `values` (a scalar) -- reported once by that lane, and there is
+                        # no slot set to judge coverage against until it is fixed
+    out = []
+    for family, decode in (("NUMB", hud_numb_slots), ("TEXT", hud_text_table_slots)):
+        try:
+            slots = sorted(decode(reply))
+        except BehaviorError as e:
+            out.append(str(e))
+            continue
+        for slot in slots:
+            if slot in published:
+                continue
+            shown = f"[NUMB={slot}]" if family == "NUMB" else f"[TEXT=...,{slot}]"
+            out.append(
+                f"reply {shown} has no value (only {n} given) -- gMesValue is Int32[8] allocated once "
+                f"at engine init (EventEngine.Initialize.cs:30) and NEVER cleared on a field load, so "
+                f"a slot this option does not publish renders whatever the last field left there. Give "
+                f"the option a `{VALUES_KEY}` list whose slot {slot} is the number this line means.")
+    return out
+
+
+def option_values_body(opt: dict) -> bytes:
+    """Publish this option's ``values`` into ``gMesValue`` slots 0..N-1, IN ORDER.
+
+    THE BUG THIS LANE EXISTS TO CLOSE. ``ETb.gMesValue`` is ``Int32[8]`` allocated once at engine
+    init (EventEngine.Initialize.cs:30) and it is NOT cleared on a field load, so a window whose
+    ``[NUMB=n]`` / ``[TEXT=b,n]`` tag reads a slot NOTHING in this field wrote renders whatever the
+    LAST field to write it left there. That does not look like a bug in-game: it looks like a
+    plausible number. The completion dashboard shipped exactly that way once -- seven pages that all
+    rendered one previous bench's slot vector.
+
+    ORDER, and why it is here rather than after the reply. The values are emitted immediately BEFORE
+    the reply's ``WindowSync``: the engine bakes ``Dialog.Width`` ONCE at open from the rendered
+    strings (``Dialog.AutomaticSize``, Dialog.cs:1560-1591) and never re-sizes on a later value
+    change, so a publish after the window would render at a width measured over the stale numbers.
+    It also sits AFTER ``input``/``qte``/``recall`` in :func:`option_body` for a plain sequencing
+    reason -- those load slot 0 with the stepper's echo -- which is why ``build.validate`` refuses
+    the two on one row instead of letting this silently clobber that echo.
+
+    THE ``[TEXT=]`` CLAMP IS THE EMITTER'S JOB, NOT THE AUTHOR'S. A slot a ``[TEXT=bank,slot]`` tag
+    reads becomes a table ROW INDEX; ``ETb.GetStringFromTable`` (ETb.cs:270-284) bounds the slot and
+    the UPPER row but has NO lower bound, so a negative indexes ``tableText[-n]`` and throws once per
+    rendered frame. Which slots those are is read off this option's OWN reply text with
+    :func:`content.behavior.hud_text_table_slots` (it decodes every spelling the engine's tag parser
+    accepts), and the wrap is :func:`content.behavior.hud_row_index_clamp` -- imported, never
+    re-spelled, so the "an unclamped publish is UNREPRESENTABLE" property transfers rather than being
+    re-litigated. There is deliberately no syntactic CHECK that the clamp is present: a previous
+    round shipped four such gates and a three-token tail-match certified a single-``E`` spelling as
+    safe. The clamp is EMITTED, not graded.
+
+    Validation is :func:`content.behavior.hud_expr_tokens` -- the same encoder pass, write/impure
+    refusal and stack-balance walk the hud lane runs, reached through its ``label`` seam.
+    """
+    from .behavior import (HUD_EXPR_PREFIX, hud_expr_tokens, hud_row_index_clamp,
+                           hud_text_table_slots)
+    from ..eb import exprasm as _exprasm
+    vals = option_values(opt)
+    if not vals:
+        return b""
+    reply = str(opt.get("reply") or "")
+    if not reply.strip():
+        raise ValueError(
+            f"choice option {VALUES_KEY} needs a `reply` to render into: gMesValue is GLOBAL engine "
+            f"state that persists across field loads (ETb.cs:230-234), so publishing into it with no "
+            f"window of this option's own is a pure side effect on the NEXT field's numbers")
+    if len(vals) > MES_VALUE_SLOTS:
+        raise ValueError(
+            f"choice option has {len(vals)} {VALUES_KEY} > the engine's {MES_VALUE_SLOTS} gMesValue "
+            f"slots -- ETb.SetMesValue clamps scriptID to 0..7 against Int32[8] (ETb.cs:230-234), so "
+            f"value {MES_VALUE_SLOTS} would overwrite slot {MES_VALUE_SLOTS - 1} instead of erroring")
+    table_slots = hud_text_table_slots(reply)
+    out = []
+    for slot, src in enumerate(vals):
+        s = str(src)
+        if not s.startswith(HUD_EXPR_PREFIX):
+            raise ValueError(
+                f"choice option {VALUES_KEY}[{slot}] {src!r} must be an "
+                f"'{HUD_EXPR_PREFIX}<RPN tokens>' source (e.g. '{HUD_EXPR_PREFIX}Null.SBit[5]') -- "
+                f"the counter/hp: hud sources name a [[behavior.unit]] this lane has no access to")
+        toks = hud_expr_tokens(s, label=f"[[choice]] option {VALUES_KEY}[{slot}]")
+        if slot in table_slots:
+            toks = hud_row_index_clamp(toks)
+        out.append(opcodes.set_text_variable_expr(slot, _exprasm.assemble(toks + " B_EXPR_END")))
+    return b"".join(out)
+
+
 def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | None = None,
                 input_specs: dict | None = None, qte_slots: dict | None = None) -> bytes:
     """Compose ONE option's actions (the body run if the player picks it). Reuses the event action
     vocabulary so a choice option does exactly what an event does: an optional reply line, then
     give/take item, gil, set a story flag, optionally advance the ScenarioCounter, and (LAST) WARP to
-    another field. Order: input -> reply -> give_item -> remove_item -> gil -> set_flag -> set_scenario
-    -> warp. ``input`` (a ``[[numeric_input]]`` name -> its seated entry slot via ``input_slots``) runs
+    another field. Order: input -> values -> reply -> give_item -> remove_item -> gil -> set_flag ->
+    set_scenario -> warp. ``values`` (:func:`option_values_body`) publishes this row's LIVE numbers into
+    gMesValue 0..N-1 just before its reply window opens -- the seam the in-game completion dashboard
+    rides. ``input`` (a ``[[numeric_input]]`` name -> its seated entry slot via ``input_slots``) runs
     FIRST -- the modal stepper blocks until Confirm/Cancel, and a submit loads gMesValue slot 0, so a
     ``reply`` can echo the number with ``[NUMB=0]``. ``warp`` is last because a Field op transitions away
     (anything after it is unreachable) -- this is the World-Hub journey-pick primitive: a menu row that
     seeds the beat then warps into the chosen field. NOTE: a choice with any ``input`` row must dispatch
     via :func:`switch_body` (the stepper opens windows -- the nested-window sysvar-9 law)."""
+    # THE COVERAGE REFUSAL IS HERE, at the emitter, and not only in `build.validate`: a reply that
+    # renders an unpublished gMesValue slot is a STALE NUMBER in-game, never an error, so the bad
+    # state has to be unrepresentable rather than reported. Every choice row in the kit reaches this
+    # function (build.py:5165, :5762, :6154, :6365), so there is no lane that skips it.
+    for problem in reply_slot_problems(opt):
+        raise ValueError(f"choice option {problem}")
     parts = []
     if "input" in opt:
         from . import numinput as _numinput
@@ -74,6 +238,11 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
             raise ValueError(f"choice option recall {opt['recall']!r} names no "
                              f"[[numeric_input]] (validate should have caught this)")
         parts.append(_numinput.recall_bytes(sp))
+    if VALUES_KEY in opt:
+        # LIVE NUMBERS IN THIS ROW'S REPLY -- publish gMesValue 0..N-1 immediately before the window
+        # opens. See option_values_body: an unwritten slot renders the LAST field's leftovers, and
+        # Dialog bakes its width once at open.
+        parts.append(option_values_body(opt))
     if reply_txid is not None:
         # the option's own style/window keys dress its reply window (default = plain dialogue)
         from . import text as _text

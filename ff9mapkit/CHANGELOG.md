@@ -66,6 +66,91 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   site's own median ground). Read-only; a report, never a gate — the blind-spot ledger
   prints with every run. Needs numpy (`ff9mapkit[image]`).
 
+### Added — THE PATCH-WHOLE LAW + THE WOBBLE-ESCAPE LADDER (the unseamable patch)
+- Round 6's verdict ("you're trying to seam the unseamable") is now law. The map-wide
+  census (90 topo-4 rects, 40-90% soft neighbour context, 20 patch components) proves
+  grass-on-desert patches are artist-authored FORM, not a decodable coding — so the
+  tiled fill's drop consumes any touched patch-family component (topo 4/38/42) WHOLE
+  (refusing when it reaches the morph's rect frame) and the fill NEVER emits patch
+  tiles: the vacancy refills modal ground, and stock's own patch edges are never cut.
+  The whole-component extension can land the hole boundary on wobbly stock rows; the
+  wobbly refusal now carries its offending edge and THE WOBBLE-ESCAPE LADDER consumes
+  the owner tile and retries (measured convergence on the crescent: 5 hops). THE SEAM
+  INVARIANT is a test: no kept patch tri shares an edge with the fill. 3 mutations
+  killed; redeployed — the crescent's cut 6-cell grass component is honestly gone,
+  the big southern patch untouched stock.
+
+### Added — the completion Journal: one catalog, an offline report and an in-game dashboard
+- **`ff9mapkit journal report|diff|rows|lint`** reads a real save (`EncryptedSavedData`, AES-256-CBC)
+  and prints a 100%-completion readout: story beat, Treasure-Hunter points and rank, chocographs found
+  and dug, beaches, Stellazzio, ragtime, cards and collector level, Mognet delivery and lock state,
+  gil, key items, play time — **48 rows, each carrying the engine `file:line` its read was derived
+  from**, and `diff` reports what one session completed.
+- **The rows are a CATALOG, not a report.** The same 48 `RowSpec`s carry both a Python reader and an
+  `.eb` expression for the same quantity, so the offline tool and the in-game screen cannot drift:
+  31 rows declare an expression, 17 declare a reason for having none, and a row with **neither or
+  both** fails `journal lint` and a test. Denominators come from the engine's own `AchievementInfo`
+  targets (re-verified identical across `DataWorld` and `DataJapanese`), never from a wiki.
+- **The in-game dashboard (`journalfield`)** renders those rows as seven paged screens on **stock
+  Memoria, no engine patch**: talk to a lectern, pick a category, read live counters published into
+  `gMesValue` by `.eb` expressions immediately before a modal window opens. Because the window is
+  modal, the engine's 8-slot `gMesValue` ceiling becomes *8 per page* rather than 8 globally, which
+  is what makes 48 rows fit in 4.8% of the `.eb` offset budget.
+- **`[[choice]]` options gained `values`** — a list of expressions published to `gMesValue` slots just
+  before that option's reply window. Any reply that echoes a live number can use it; it reuses the
+  hud lane's validator rather than forking it, and the `[TEXT=]` row-index clamp is *emitted* rather
+  than checked.
+- **`eb/exprsem.py`** classifies **all 122 expression operators** by arity and read/write/impure
+  against the C#, with a completeness test that fails in both directions — added because a
+  name-pattern gate had been letting `B_PARTYADD` (which recruits a party member) into a value
+  re-evaluated every frame. It also brings real RPN stack-balance validation; `exprasm.assemble` was
+  never an arity checker despite a docstring saying so.
+- Not shipped, deliberately: **a chest count**. FF9 has no per-chest registry at any price, so the
+  row is declared `untracked` rather than fabricating `N/446` from a figure that does not
+  self-reconcile. Treasure-Hunter points and rank are exact and first-party; those ship instead.
+
+### Added — `[[text_table]]`, a field's own string banks
+- **`[[text_table]]`** declares a `[TBLE]` string bank (`name` + `rows`) and any authored line can read
+  a row from it with `[TEXT=<name>,slot]`, where the slot holds the row index the `.eb` publishes. The
+  bank operand is a **txid in the field's own `.mes`**, and the build assigns txids **by position** —
+  so a hand-written `[TEXT=612,2]` bakes an id that moves the moment a line is added above it, and
+  every way that goes wrong is silent in-game (a wrong bank renders another table's row; a bank with
+  no entry renders `String.Empty`, i.e. a blank line, with no log). The lane therefore takes a name,
+  allocates the entry **last** — so a field without one is byte-identical to before — and substitutes
+  the real txid, from the same function `build_mes` derives its own mapping from. An unknown name is
+  refused at the substitution site, not merely reported. This is what a prose row like a Treasure-
+  Hunter *rank letter* or a Festival-of-the-Hunt *winner name* needs; before it, the kit's only
+  `[TBLE]` emitter was hardwired to the Mognet roster.
+
+### Fixed — THE WEDGE GROUND LAW + THE MIXED-CELL PAIR (the grass-edge mismatch)
+- Round 5 on the bent crescent: stock's grass-on-desert patches are an EDGE-CODED tile
+  system (~8 distinct rects — interior/edge/corner, a Wang-like land vocabulary) that a
+  nearest-source clone cannot compose; the fill had extended the patch into new territory
+  with interior tiles and Voronoi-chunk borders. Now NEW territory clones only the MODAL
+  ground family; a patch family reproduces only in its own offset-zero cells, whose stock
+  edge tiles already carry the transition (the beach-mint lesson, on land). Mixed cells
+  (two topos on the tile diagonal) keep their PAIR — pieces split at the exact diagonal,
+  each side carrying its own rect + idall. 3 mutations killed; redeployed — the fill's
+  grass is the faithful 7-tri stock fragment, the wedge pure desert.
+
+### Fixed — THE TILE-RECT CONTAINMENT LAW (the promontory shards)
+- The tiled-mains fill assigned each Delaunay tri ONE source tile's affine map by centroid
+  cell; a tri spanning cells (or sitting on stock's WOBBLY lattice — 4u spacing, per-vert
+  jitter to ~2u) mapped uvs outside the source tile's atlas rect and rendered gutter/foreign
+  sub-tiles in-game (white/water/rock shards on the bent crescent's promontory, 22 of 51
+  authored tris measured escaped). The land atlas is not the self-tiling water sheet: the sea
+  zip's documented escape tolerance is a WATER-texture property, and capability 1 carried the
+  vocabulary without that hidden precondition. Now: the new outline refines at every 4u
+  cell-line crossing (stock coast outlines carry exactly these verts; tiled lane only — grass
+  stays byte-identical), fill tris clip per cell with chord verts snapped onto boundary/
+  triangulation verts (no T-junctions; `_BOUNDARY_SNAP` 0.4u, pinned by the playtest's
+  visibility line), uvs evaluate by THE CUT-VERT LAW's shape — the fill cell's EXACT square
+  onto the source tile's EXACT uv rect — and a hard per-tri rect-containment gate plus a fill
+  weld pass (near-miss chord canonicalization) close the class. Redeployed clean: 98 authored
+  tris, 0 escaped. HONEST SHRINKAGE: the comma's hole boundaries wobble to 1.24u past the
+  lattice and now refuse (their earlier CLEAN scores came from the containment-blind gate
+  set); the wobbly-cell fill is the registered follow-up. 5 mutations killed.
+
 ### Added — fuse off-lattice water tolerance (study 3) — and the honest strait verdict
 - `fuse_layout` refused any off-lattice vert at a shared border. New: an off-lattice vert on
   a PURE open-water row classifies `water-offlat` and fuses against another placement's
@@ -308,6 +393,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   byte-identical to before.
 
 ### Fixed
+- **The completion dashboard's two STRING rows never resolved, and its pages drew rows that can never
+  hold a value.** T.Hunter rank and Hunt winner render a `[TBLE]` row, and with no general `[TBLE]`
+  emitter the shipped bench substituted each tag with that table's *widest literal row* — so the rank
+  was frozen at `H` and the winner at a fixed name on every save, while the `.eb` dutifully published
+  the correct index into a slot nothing read (the computation was never wrong: 215 pts → index 1 →
+  `G`, matching the in-game debug menu). Both now carry a real `[TEXT=<bank>,slot]` tag through the new
+  `[[text_table]]` lane. Separately, a page used to carry a line for **all 48** catalog rows and print
+  `--` (offline only) or `n/a` (not tracked anywhere) where no value could exist — a distinction that
+  is invisible to a player, so Party read as 9 broken rows out of 11 and Combat & Meta as 8 of 11. A
+  page now renders only the 30 rows with a live read; the other 18 keep their declared reason and stay
+  in the catalog, `journal rows` and `journal report`. The placement audit grew a second arm to match
+  ("on exactly one page **or** declared unrenderable", no third state), so a working row still cannot
+  vanish silently — and a row whose `.eb` read exists but whose counter the game never moves
+  (`meta.step_count`) is refused from a page rather than printing a permanent `0`.
+- **A turbo-dialog session silently ate every readout window** — FF9's dialogue skip
+  (`Memoria.ini [Control] TurboDialog`, on by default; latched with **F9**, or held as
+  RightBumper/Shift + Confirm) synthesizes a confirm *every frame with no player input*, and the
+  engine delivers it to every open window, closing each one the instant its text finishes showing.
+  The window opens, the text appears, and it immediately plays its closing animation and unwinds the
+  whole handler — indistinguishable from a script bug, and invisible in the emitted bytes (it cost
+  four rounds on a dashboard bench). A choice menu is immune already, so the *selector* survives and
+  only the pages die, which points the blame in exactly the wrong direction. Windows that render a
+  live value (`[NUMB=]`/`[TEXT=]`/`[ITEM=]`) now emit `[NTUR]` automatically — the one inhibitor that
+  blocks the synthesized press while leaving the player's own Confirm working. New **`no_turbo`** key
+  overrides it either way on any dialogue-bearing block; `lint` refuses `no_turbo = false` on a
+  readout. Narrative dialogue stays skippable, like the base game's.
 - **A confirm press dismisses every open window, not the topmost one** — so an async window that must
   survive a line of dialogue needs `hold = true`, or the press that advances the dialogue closes it
   too. Now refused at build time (this cost a playtest), along with the mirror deadlock of holding a

@@ -378,30 +378,33 @@ def test_structural_refuses_a_uv_unique_top():
         CM.cliff_headland((7, 6), ISTH_START, ISTH_END, 6.0)
 
 
-def test_tiled_headland_builds_on_the_comma():
+#: the crescent's (17,1) steered window at region scope -- THE deployed tiled-mains
+#: specimen (the bent-crescent playtest); its hole boundary is near-grid (<= 0.17u
+#: wobble), so the exact-lattice fill is lawful here
+CRES_START, CRES_END = (1123.8984375, -81.03515625), (1088.0, -84.0)
+
+
+def test_tiled_headland_builds_on_the_crescent_with_rect_containment():
     from ff9mapkit.world import coastmorph as CM
     from ff9mapkit.world.extract import decode_id
-    from ff9mapkit.world.transplant import _tri_area2_3d
-    # the morph-envelope flip: a desert top (93% uv-rect reuse) is a TILE VOCABULARY,
-    # not a mural -- the tiled lane repeats the window's own dropped tiles
-    drop_t, drop_s, disp, emit_t, emit_s = CM.cliff_headland((9, 6), COMMA_START,
-                                                             COMMA_END, 6.0)
+    # the morph-envelope flip: a desert top is a TILE VOCABULARY, not a mural -- the
+    # tiled lane repeats the window's own dropped tiles
+    drop_t, drop_s, disp, emit_t, emit_s = CM.cliff_headland(
+        (14, 1), CRES_START, CRES_END, 8.0, size=(4, 2))
     assert disp.expected == 0                       # the DROP-DON'T-DRAG law holds
     assert len(emit_t.tris) > 0 and len(emit_s.tris) > 0
-    assert all(_tri_area2_3d(t3) > 1e-6 for t3 in emit_t.tris + emit_s.tris)
     # D-4 CARRIED VOCABULARY: every emitted terrain idall already exists in the window's
-    # own terrain (wall 58 + the dropped tiles' families travel with the clones; nothing
-    # is minted), and the desert family itself is present in the fill
-    win = CM.CliffWindow((9, 6), COMMA_START, COMMA_END)
+    # own terrain (wall 58 + the dropped tiles' families travel with the clones)
+    win = CM.CliffWindow((14, 1), CRES_START, CRES_END, size=(4, 2))
     real_idalls = {tuple(t3[0][3]) for t3 in win.terr}
     emitted = {tuple(t3[0][3]) for t3 in emit_t.tris}
     assert emitted <= real_idalls
     topos = {decode_id(int(round(i[0])))["topograph"] for i in emitted}
     assert 17 in topos and 58 in topos
-    # ...and the clone is a TRANSLATE-clone: every non-wall fill uv sits inside some
-    # dropped tile's uv-rect expanded by its own span (a raw extrapolation walks whole
-    # rect-widths out of the atlas; the translate offset keeps the eval point in the
-    # source tile's own cell)
+    # THE TILE-RECT CONTAINMENT LAW (the promontory-shard fix): every non-wall fill
+    # tri's uv triangle sits inside ONE dropped source tile's EXACT uv rect (plus the
+    # boundary-snap bleed) -- the land atlas is not the self-tiling water sheet, and
+    # any deeper escape samples gutter/foreign sub-tiles (the in-game shard class)
     wall_idall = {tuple(t3[0][3]) for t3 in win.cliff}
     dropped_srcs = [t3 for t3 in win.mains if drop_t._key_set(t3) in drop_t.keys]
     assert dropped_srcs, "no dropped mains reconstructed from the window"
@@ -409,15 +412,155 @@ def test_tiled_headland_builds_on_the_comma():
     for t3 in dropped_srcs:
         us = [v[2][0] for v in t3]
         vs = [v[2][1] for v in t3]
-        du, dv = max(us) - min(us), max(vs) - min(vs)
-        rects.append((min(us) - du, max(us) + du, min(vs) - dv, max(vs) + dv))
+        rects.append((min(us), max(us), min(vs), max(vs)))
+    eps = 6.5e-3
     for t3 in emit_t.tris:
         if tuple(t3[0][3]) in wall_idall:
             continue
-        for v in t3:
-            u, vv = v[2]
-            assert any(r[0] <= u <= r[1] and r[2] <= vv <= r[3] for r in rects), \
-                f"fill uv ({u:.3f},{vv:.3f}) escapes every expanded source rect"
+        us = [v[2][0] for v in t3]
+        vs = [v[2][1] for v in t3]
+        assert any(r[0] - eps <= min(us) and max(us) <= r[1] + eps
+                   and r[2] - eps <= min(vs) and max(vs) <= r[3] + eps
+                   for r in rects), \
+            f"fill uv rect ({min(us):.3f},{min(vs):.3f})-({max(us):.3f},{max(vs):.3f}) " \
+            f"escapes every source tile rect"
+
+
+def test_patch_whole_law_on_the_crescent():
+    import math as _m
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world.extract import decode_id
+    from ff9mapkit.world import transplant as TR
+    # THE PATCH-WHOLE LAW (PATCH-WHOLE-PREDICTION.md): grass patches are artist form,
+    # not a coding (census: 90 rects, soft context) -- a cut patch cannot be seamed.
+    # The drop consumes a touched component WHOLE (wobble-escape ladder included) and
+    # the fill NEVER emits a patch family; the vacancy refills modal ground.
+    tw = CM.cliff_headland((14, 1), CRES_START, CRES_END, 8.0, size=(4, 2))
+    drop_t = [t for t in tw if isinstance(t, TR.DropTris) and t.part == "terrain"][0]
+    emit_t = [t for t in tw if isinstance(t, TR.EmitTris) and t.part == "terrain"][0]
+    win = CM.CliffWindow((14, 1), CRES_START, CRES_END, size=(4, 2))
+    dropped = [t3 for t3 in win.mains if drop_t._key_set(t3) in drop_t.keys]
+
+    def topo(t3):
+        return decode_id(int(round(t3[0][3][0])))["topograph"]
+    # 1. the drop DID touch grass, and every touched component is consumed WHOLE:
+    #    no kept patch tri may be cell-adjacent to a dropped patch tri of its family
+    d4 = [t3 for t3 in dropped if topo(t3) in CM.PATCH_FAMILIES]
+    assert d4, "specimen lost its grass component"
+    dropk = {drop_t._key_set(t3) for t3 in dropped}
+
+    def cell_of(t3):
+        return (_m.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),
+                _m.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0))
+    dcells4 = {(cell_of(t3), topo(t3)) for t3 in d4}
+    for t3 in win.mains:
+        tp = topo(t3)
+        if tp not in CM.PATCH_FAMILIES or drop_t._key_set(t3) in dropk:
+            continue
+        c = cell_of(t3)
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1), (0, 0)):
+            assert ((c[0] + dx, c[1] + dz), tp) not in dcells4, \
+                f"kept patch tri at cell {c} borders a dropped same-family cell -- " \
+                f"the component was cut, not consumed whole"
+    # 2. the fill never emits a patch family
+    for t3 in emit_t.tris:
+        assert topo(t3) not in CM.PATCH_FAMILIES, "the fill emitted a patch tile"
+    # 3. THE SEAM INVARIANT: no kept patch tri shares an edge with the fill
+    fillverts = {(round(v[0][0], 3), round(v[0][2], 3))
+                 for t3 in emit_t.tris for v in t3}
+    for t3 in win.mains:
+        if topo(t3) not in CM.PATCH_FAMILIES or drop_t._key_set(t3) in dropk:
+            continue
+        shared = sum(1 for v in t3
+                     if (round(v[0][0], 3), round(v[0][2], 3)) in fillverts)
+        assert shared < 2, "a kept patch tri shares an edge with the fill -- the " \
+                           "unseamable seam is back"
+
+
+def test_mixed_cell_pair_splits_at_the_diagonal():
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world.extract import encode_id
+    # a synthetic 2x2-cell region whose cell (0,0) is MIXED (grass tri + desert tri
+    # split on the anti diagonal): the fill must reproduce BOTH idalls in that cell,
+    # each on its own side, and only the modal family elsewhere
+    id_a = float(encode_id(event=0, area=0, topograph=4))
+    id_b = float(encode_id(event=0, area=0, topograph=17))
+    nrm = (0.0, 1.0, 0.0)
+
+    def vert(x, z, u0, v0, idall):
+        return ((float(x), 0.0, float(z)), nrm,
+                (u0 + 0.015 * (x % 4 if x % 4 or x == 0 else 4.0),
+                 v0 + 0.015 * (z % 4 if z % 4 or z == 0 else 4.0)), (idall, 0, 0, 1))
+
+    def tile_pair(cx, cz, u0, v0, idall):
+        x0, z0 = 4 * cx, 4 * cz
+
+        def vv(dx, dz):
+            return ((x0 + dx, 0.0, z0 + dz), nrm,
+                    (u0 + 0.015 * dx, v0 + 0.015 * dz), (idall, 0, 0, 1))
+        return [[vv(0, 0), vv(4, 0), vv(0, 4)], [vv(4, 0), vv(4, 4), vv(0, 4)]]
+
+    sources = []
+    # cell (0,0): mixed -- grass on the lower-left of the ANTI diagonal, desert upper
+    ga = tile_pair(0, 0, 0.10, 0.10, id_a)[0]
+    gb = tile_pair(0, 0, 0.50, 0.50, id_b)[1]
+    sources += [ga, gb]
+    for cx, cz in ((1, 0), (0, 1), (1, 1)):
+        sources += tile_pair(cx, cz, 0.50, 0.50, id_b)
+    bpts3 = [(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (8.0, 0.0, 0.0), (8.0, 0.0, 4.0),
+             (8.0, 0.0, 8.0), (4.0, 0.0, 8.0), (0.0, 0.0, 8.0), (0.0, 0.0, 4.0)]
+    out = CM._tiled_fill_region(bpts3, {}, sources)
+    got = {}
+    for t3 in out:
+        cx = sum(v[0][0] for v in t3) / 3.0
+        cz = sum(v[0][2] for v in t3) / 3.0
+        cell = (int(cx // 4), int(cz // 4))
+        got.setdefault(cell, set()).add(int(round(t3[0][3][0])))
+        if cell == (0, 0):
+            side = (cx + cz) / 4.0 - 1.0            # anti-diagonal side
+            want = id_a if side < 0 else id_b
+            assert int(round(t3[0][3][0])) == int(want), \
+                f"piece at ({cx:.2f},{cz:.2f}) on the wrong diagonal side"
+    assert got[(0, 0)] == {int(id_a), int(id_b)}, "the mixed cell lost a side"
+    for cell in ((1, 0), (0, 1), (1, 1)):
+        assert got[cell] == {int(id_b)}
+
+
+def test_tiled_fill_refuses_the_comma_honestly():
+    from ff9mapkit.world import coastmorph as CM
+    # the comma refuses rather than minting shards/seams: its drop touches a brush
+    # (topo-38) patch component that reaches the single-block rect frame, so THE
+    # PATCH-WHOLE LAW cannot verify wholeness (and behind it, its stock tiling
+    # jitters up to 1.24u past the 4u lines -- the wobbly class). Its earlier CLEAN
+    # scores came from the containment-blind gate set.
+    with pytest.raises(ValueError, match="PATCH-WHOLE|WOBBLY"):
+        CM.cliff_headland((9, 6), COMMA_START, COMMA_END, 6.0)
+
+
+def test_tile_rect_containment_gate_is_live(monkeypatch):
+    from ff9mapkit.world import coastmorph as CM
+    # disable the per-cell clip: multi-cell fill tris keep a single cell's map, their
+    # fractional coords leave [0,1] and the uv image leaves the source rect -- the
+    # hard gate must catch it (this is exactly the deployed promontory-shard defect)
+    monkeypatch.setattr(CM, "_clip_tri_to_cells", lambda pts: [list(pts)])
+    with pytest.raises(ValueError, match="TILE-RECT CONTAINMENT"):
+        CM.cliff_headland((14, 1), CRES_START, CRES_END, 8.0, size=(4, 2))
+
+
+def test_tiled_fill_mints_no_near_miss_verts():
+    from ff9mapkit.world import coastmorph as CM
+    # THE FILL WELD PASS: clip chords from different parents may land within the
+    # weld-audit near-miss class (0.05u) of each other or of a lattice vert; the
+    # canonicalization must leave ZERO such pairs (each one is a hairline crack)
+    _dt, _ds, _disp, emit_t, _es = CM.cliff_headland(
+        (14, 1), CRES_START, CRES_END, 8.0, size=(4, 2))
+    verts = sorted({v[0] for t3 in emit_t.tris for v in t3})
+    for i, p in enumerate(verts):
+        for q in verts[i + 1:]:
+            if q[0] - p[0] > 0.05:
+                break
+            d2 = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2
+            assert not (0.0 < d2 < 0.05 ** 2), f"near-miss vert pair {p} / {q}"
 
 
 def test_mural_gate_reads_the_measured_threshold(monkeypatch):

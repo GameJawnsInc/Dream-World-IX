@@ -325,7 +325,7 @@ Multi-line dialogue keeps **one** quote pair — the auto-wrap opens `“` on th
 closes `”` on the last, exactly as stock does. (Avoid `[PAGE]` inside a *spoken* line with a speaker:
 stock never quotes across a page break — give each conversation line its own entry/`say` step.)
 
-### Window styling (style · window · actor · instant · speed · duration · window_pos · box)
+### Window styling (style · window · actor · instant · speed · duration · window_pos · box · no_turbo)
 
 Every dialogue-bearing block — `[[npc]]`, `[[event]]`, `[[on_entry]]`, `[[choice]]` (+ its options),
 and cutscene `say` steps — takes the same optional presentation keys. All default to exactly what the
@@ -368,6 +368,25 @@ kit always emitted (an ordinary speech bubble), so omitting them changes nothing
   pinned window draws **no tail** (don't combine with `tail`).
 - **`box`** — `[width, lines]` sets the `[STRT]` geometry. The engine auto-measures width whenever it
   can, so `width` mostly matters for centering system boxes; `lines` acts as a minimum height.
+- **`no_turbo`** — emit `[NTUR]`, so a **turbo-dialog session cannot auto-close this window**. FF9's
+  turbo skip (`Memoria.ini [Control] TurboDialog`, **on by default**; latched with **F9**, or held as
+  RightBumper/Shift + Confirm) synthesizes a confirm **every frame with no player input**, and the
+  engine fans that confirm out to *every* open window, closing each the instant its text finishes
+  showing. The symptom is unmistakable and looks like a script bug: the window opens, the text
+  appears, and it immediately plays its closing animation and unwinds the whole handler. A choice
+  menu is immune already (the engine suppresses turbo while a selector renders), which is why a
+  selector survives and every page opened after it dies.
+
+  **Defaults to `true` on a READOUT window** — one whose text renders a live value (`[NUMB=]`,
+  `[TEXT=]`, `[ITEM=]`) — because auto-skipping a number the player opened a menu to read doesn't
+  speed anything up, it deletes the feature. Narrative dialogue keeps stock behaviour (turbo skips
+  it, as it does the base game's); set `no_turbo = true` to protect one line. Setting
+  `no_turbo = false` on a readout is refused by `lint` — opting out of this has to be deliberate.
+
+  `[NTUR]` is the **only** inhibitor that leaves the player's own Confirm working. `hold`,
+  `duration` and `[NFOC]` also stop turbo, but they do it by setting the engine's *button-inhibit*
+  flag — which means the player can't dismiss the window either, and a **blocking** window nobody can
+  dismiss hangs the script forever. Nothing is added when one of those is already present.
 - **`dim`** — wrap the window in one of **stock's reading fade brackets** (censused across all 817
   field scripts; 241 bracket sites). On `[[npc]]`, `[[event]]`, `[[on_entry]]` and cutscene `say`
   steps; pairs naturally with `style = "transparent"`:
@@ -1825,6 +1844,49 @@ The door it opens would then use `[[gateway]] requires_flag = 8001`. Once spent,
 disappears** — the consuming option removes the region (no leftover interaction prompt), and the Init
 won't re-create it on later visits while the flag is set. (Want an "it won't budge" message instead?
 Add a second interactable on the same spot gated `requires_flag = 8001`.)
+
+---
+
+## `[[text_table]]` (optional)
+
+A **string bank** this field owns: a list of rows a dialogue line can pick from at runtime with
+`[TEXT=<name>,slot]`, where `slot` is a `gMesValue` slot (0-7) holding the **row index**. Use it for
+any value that is a *word* rather than a number — a rank letter, a winner's name, a state label.
+
+```toml
+[[text_table]]
+name = "th_rank"
+rows = ["H", "G", "F", "E", "D", "C", "B", "A", "S"]
+```
+
+```toml
+# ...and anywhere a line is authored (npc dialogue, an event message, a choice reply, a hud strip):
+reply = """Treasure Hunter rank  [TEXT=th_rank,2]"""
+values = ["expr:...", "expr:...", "expr:<the row index 0..8>"]   # slot 2 = the index
+```
+
+| key | meaning |
+|---|---|
+| `name` | how `[TEXT=<name>,slot]` refers to this bank. Letters/digits/`._-`, starting with a letter or underscore. **Not** a bare number — that is the raw txid form. |
+| `rows` | the strings, in index order. Row *i* is what renders when the published slot value is *i*. A row may not contain a newline (rows are newline-separated inside the entry). |
+
+**Why a name and not a number.** The bank operand the engine wants is a **TXID in this field's own
+`.mes`**, and the build assigns txids **by position** — so a hand-written `[TEXT=612,2]` bakes an id
+that moves the moment a line is added above it. Worse, every failure is silent in-game: a wrong bank
+renders another table's row, and a bank with no entry renders an empty string (a **blank line**, no
+error, no log). So you name it, and the build substitutes the id it actually allocated. A reference to
+a bank you did not declare is a build error.
+
+A numeric bank still works and is left alone (`[TEXT=0,0]` is the Mognet roster idiom), so nothing
+that already emitted a raw tag changes.
+
+**Publishing the index.** The slot is an ordinary `gMesValue` slot — fill it from a `[[choice]]`
+option's `values` list or a `[[behavior.hud]]` strip, exactly like a `[NUMB=]` slot. The kit wraps a
+non-negative clamp around any slot a `[TEXT=]` tag reads: the engine bounds the *upper* row but not
+the lower one, and a negative index throws once per rendered frame.
+
+⚠ Do **not** put `[WDTH=]` on an entry that carries a `[TEXT=]` — the engine's width pass has a
+second, divergent decode of the tag behind that path.
 
 ---
 

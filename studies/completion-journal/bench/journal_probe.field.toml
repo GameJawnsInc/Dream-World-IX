@@ -1,0 +1,177 @@
+# =====================================================================================
+# COMPLETION-JOURNAL RUNG-0b PROBE  --  field 30800
+# =====================================================================================
+# ONE window, SEVEN live reads, ONE playtest round.
+#
+# RUNG 0 (this same field, earlier strip) ALREADY PASSED and is not re-tested here:
+#   * `Null.SBit[5]` -> real per-save Treasure-Hunter points (0 / 178 / 215). The
+#     memoria_variable lane WORKS. That was the ladder's largest unknown; it is closed.
+#   * `Global.UInt16[0]`, `const(256) B_HAVE_ITEM`, and the B_DIV/B_GE/B_MULT clamp all
+#     confirmed. The in-game reads cross-validated EXACTLY against the offline decoder
+#     (`ff9mapkit journal report`) on the same save container -- two implementations,
+#     two access paths, same three numbers.
+#   * The Int24 sign-extension row could not fire and does not need a playtest: it is
+#     provable that it bites ONLY at the 24th chocograph (23 -> 8388607, 24 -> -1).
+#
+# WHAT RUNG 0b EXISTS FOR: flex(16,3) PLAYER_ABILITY_LEARNT read 0 on every save, and a
+# 0 there is NOT interpretable -- see the matrix on the values block below. This strip
+# brackets the same engine line with a known-good and a known-bad input so that a 0
+# becomes evidence instead of an open question.
+#
+# REDEPLOY (the HUMAN does this -- the agent does not):
+#   py tools/deploy_field.py studies/completion-journal/bench/journal_probe.field.toml --id 30800
+# 30800 is ALREADY REGISTERED (FieldScene 30800 + MessageFile 30800), so a rung-0b
+# redeploy is a `~` -> Reload field, NOT a relaunch. Only the .eb content changed.
+#
+# READ IT WITH A REAL SAVE, NOT A FRESH ONE. A fresh save shows 0/0/0 and proves nothing:
+# a stuck 0 is indistinguishable from a correct 0. Every row needs BOTH polarities --
+# which is exactly what rows 1 and 6 now provide structurally rather than by luck.
+
+[field]
+id = 30800               # dev-scratch band (30000-32767; fldMapNo is Int16, max 32767)
+name = "JOURNALPROBE"    # -> FBG_N11_JOURNALPROBE (background) + EVT_JOURNALPROBE.eb
+area = 11                # must be >= 10 (BG area 0-9 black-screens)
+title = "JOURNAL PROBE"
+# text_block deliberately UNSET: the kit derives it from the field id (30800) and
+# auto-registers it. Pinning a real block would overwrite that location's dialogue --
+# the mesID namespace is ONE FLAT GLOBAL space shared with the base game.
+
+# --- scene: the proven flat coop-band room (silent-bench / coopgate geometry) ---------
+# A NOVEL field, not a fork. [behavior] is REFUSED on a verbatim fork (the donor's real
+# .eb runs; behavior needs the kit's injected NPC entries), and [[logic_add]] is refused
+# on anything that is not verbatim -- the two lanes are mutually exclusive, so the fork
+# mode has to be chosen before authoring. Novel also means this probe runs on STOCK
+# Memoria: no fork-gate suite, nothing to confound a null result with.
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"   # PLACEHOLDER (solid slate) -- a bench needs no real art
+z = 4000
+[[layers]]
+image = "art/floor.png"  # PLACEHOLDER (perspective checkerboard)
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# --- the NPC that exists ONLY to make the [behavior] block compile -------------------
+# content/behaviortoml.py table() is
+#     return b if isinstance(b, dict) and b.get("unit") else None
+# so a [behavior] block carrying ONLY a hud compiles to NOTHING, SILENTLY, and
+# validate() returns []. Ship the probe without this NPC + unit row and the playtest
+# reports "no window appeared" -- which is indistinguishable from "every read returned
+# 0". That is the project's recurring defect class (a check that cannot fail), so the
+# dummy unit is load-bearing, not decoration. 400u from the spawn: actors jam under
+# ~192u.
+[[npc]]
+name = "keeper"
+model = "GEO_NPC_F0_CSO"
+pos = [400, -837]
+
+[behavior]
+warmup = 30              # frames before the ticker starts (the strip opens after this)
+
+  [[behavior.unit]]
+  npc = "keeper"
+    [[behavior.unit.branch]]
+    do = { hold = [400, -837] }        # stand still; the unit row is a compile gate
+
+  # --- THE STRIP: seven live reads, one window, no paging --------------------------
+  # ETb.SetMesValue (ETb.cs:230-234) clamps scriptID to 0..7 against
+  # gMesValue = new Int32[8] (EventEngine.Initialize.cs:30) -- seven values fit, and 8
+  # rendered lines is inside the ~13-line page ceiling. The binding constraint is WIDTH.
+  [[behavior.hud]]
+  window = 6
+  # digits = the OPEN-PASS width sentinel per slot. It rides SetTextVariable's u16
+  # IMMEDIATE operand, so it saturates at 65535 = five glyphs: anything above 5 means 5
+  # (behaviortoml.HUD_DIGITS_REACHABLE). The raw chocograph row can render nine glyphs
+  # ("-8388608"), which no sentinel can reserve -- that is why the header line is the
+  # width pin (see `text` below), not `digits`.
+  digits = [5, 2, 2, 3, 1, 1, 1]
+  values = [
+    # ===== RUNG 0b: DECOMPOSE THE flex() QUESTION =====================================
+    # Rung 0 left ONE row unresolved: flex(16,3) PLAYER_ABILITY_LEARNT read 0 on every
+    # save. That 0 is NOT interpretable on its own, and the reason is in the engine:
+    # expr_customSubCommand sets `_v0 = 0;` BEFORE the switch (EBin.cs:360), then the
+    # PLAYER_ABILITY_LEARNT arm `break`s WITHOUT assigning whenever the player is null,
+    # has no AP, or the ability id is not in that character's list (EBin.cs:421-435).
+    # So a fallthrough is a DETERMINISTIC 0, byte-identical to a true "not mastered".
+    # (Rung 0 initially guessed `_v0` was left stale, which would have let a sentinel
+    # distinguish them. It does not -- the zeroing is explicit. No value-inspection
+    # trick can separate these two cases, so the probe must separate them STRUCTURALLY.)
+    #
+    # THE MATRIX. Rows 1 and 6 bracket the same code path with a known-good and a
+    # known-bad input; row 3 tests flex() with no player dependency at all:
+    #   row 1 > 0                -> the whole flex lane works (emit -> dispatch -> args
+    #                               -> GetPlayer), because PLAYER_LEVEL takes the SAME
+    #                               GetPlayer(CharacterOldIndexToID(args[0])) path
+    #   row 6 == 0 AND row 1 > 0 -> the null-player fallthrough is real and observable
+    #   => rows 4/5 == 0 is then a SEMANTIC answer about Zidane, not a broken read
+    #   row 1 == 0 too           -> mechanism suspect; row 3 says whether it is flex-wide
+    #                               or specific to the GetPlayer arms
+    # =================================================================================
+    # 0  SCENARIO COUNTER -- the control. Proves the ticker runs and the strip renders
+    #    at all. Confirmed live in rung 0 (6000 / 7200 / 0 on New Game).
+    "expr:Global.UInt16[0]",
+    # 1  *** THE MECHANISM TEST *** flex(13,1) = PLAYER_LEVEL.
+    #    _v0 = GetPlayer(CharacterOldIndexToID((CharacterOldIndex)args[0]))?.level ?? 0
+    #    (EBin.cs:396). This is the SAME GetPlayer lookup PLAYER_ABILITY_LEARNT uses,
+    #    with a payload that cannot be legitimately 0 for a live party member. Non-zero
+    #    here proves the entire flex lane end to end: 0xD3 emission, commandId, argCount,
+    #    left-to-right arg push, and the character resolve.
+    "expr:const(0) flex(13,1)",
+    # 2  flex(10,1) = PARTY_MEMBER -- slot 0's CharacterOldIndex. A second mechanism
+    #    witness that never touches GetPlayer's null arm (EBin.cs:388-394). Zidane in
+    #    slot 0 reads 0, so treat this row as corroboration for a NON-zero party, not as
+    #    a standalone pass/fail -- it is here to disambiguate row 1 if row 1 surprises.
+    "expr:const(0) flex(10,1)",
+    # 3  flex(6,1) = ABILITY_ACTIVE_TO_ID(6) -- a PURE TABLE CONVERSION
+    #    (ff9abil.GetAbilityIdFromActiveAbility, EBin.cs:373). Zero player state, zero
+    #    save state. If rows 1/2 read 0 but this one does not, the fault is in the
+    #    GetPlayer arms; if this reads 0 too, the fault is the flex lane itself.
+    "expr:const(6) flex(6,1)",
+    # 4  THE ORIGINAL UNRESOLVED ROW, unchanged: PLAYER_ABILITY_LEARNT(Zidane, 6, noEquip).
+    #    args[2]=0 means "learnt only" -- do not count an ability granted by equipment.
+    "expr:const(0) const(6) const(0) flex(16,3)",
+    # 5  ...AND THE OTHER POLARITY: args[2]=1 also scans the 5 equip slots for an item
+    #    granting ability 6 (EBin.cs:430-433). A 1 here with a 0 in row 4 is a clean,
+    #    fully-explained result: the read works, and Zidane has it equipped-not-mastered.
+    "expr:const(0) const(6) const(1) flex(16,3)",
+    # 6  *** THE NEGATIVE CONTROL *** PLAYER_LEVEL(99). CharacterOldIndex 99 resolves to
+    #    no player, so `?? 0` fires and this MUST read 0. Paired with row 1 it brackets
+    #    the same line of engine code with a known-good and a known-bad input -- which is
+    #    what makes a 0 anywhere else in this strip interpretable instead of ambiguous.
+    "expr:const(99) flex(13,1)",
+  ]
+  # THE WIDTH PIN. Dialog.AutomaticSize bakes Width ONCE at open from parser.MaxWidth --
+  # the WIDEST RENDERED LINE -- and a later value change only re-parses, never re-sizes.
+  # So the header line must stay wider than any value row, or the strip clips mid-round
+  # and the tester reads a truncated number as a wrong number.
+  # NO [STRT=] TAG: it flips CanAutoResize() false and hands sizing to WidthHint.
+  # NO [WDTH=] TAG EITHER: NGUIText.GetDialogWidthFromSpecialOpcode decodes [TEXT=] in
+  # the LEGACY PACKED form (one operand, bank=(t>>4)&3, slot=t&7) while the render path
+  # reads two independent params -- the divergence is currently inert because its only
+  # call site is "// Dummied", and adding [WDTH] is exactly what activates it.
+  # WIDTH, MEASURED NOT GUESSED: rung 0's header "=== COMPLETION PROBE / RUNG 0 ====" (33
+  # chars) WRAPPED in-game after "RUNG", so the live window fits ~27. The header must stay
+  # the widest RENDERED line (Dialog.AutomaticSize bakes Width once at open from
+  # parser.MaxWidth and a later value change re-parses without re-sizing), so it is now 21
+  # chars against a widest value row of ~17.
+  text = """[MPOS=8,8]== FLEX PROBE / 0B ==
+SCENARIO       [NUMB=0]
+ZIDANE LV      [NUMB=1]
+PARTY SLOT0    [NUMB=2]
+ACT6 TO ID     [NUMB=3]
+AA6 NOEQ       [NUMB=4]
+AA6 EQ         [NUMB=5]
+BADCHR LV      [NUMB=6]"""

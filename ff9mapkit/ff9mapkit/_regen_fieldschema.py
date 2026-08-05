@@ -165,6 +165,30 @@ id = 5001
 template = "fire"
 pos = [0, -1200]
 """),
+    # [[text_table]] -- a field's own [TBLE] string bank plus a [TEXT=<name>,slot] reference to it.
+    # Grafted rather than left to a real example because the ONLY shipping consumer is the completion
+    # dashboard bench (studies/), which is not in the harvest corpus: without this stub the section
+    # would be recorded nowhere and `lint` would warn "unknown section [[text_table]]" on a correct
+    # field. The reference rides a [[choice]] reply with its own `values`, which is the real shape --
+    # the reply's [TEXT=] slot is the one content/choice.py auto-clamps.
+    ("text-table", """
+[[text_table]]
+name = "stub_ranks"
+rows = ["H", "G", "F"]
+
+[[npc]]
+name = "Ranker"
+preset = "vivi"
+pos = [900, -1200]
+
+[[choice]]
+npc = "Ranker"
+prompt = "Read the ladder?"
+options = [
+  { text = "Yes", reply = "Rank  [TEXT=stub_ranks,0]", values = ["expr:const(1)"] },
+  { text = "No" },
+]
+"""),
     # The CONDUCTOR (a CAST cutscene, actors = [...]): the bundled examples only author narration
     # cutscenes, so without this stub group_parallel/_validate_conductor never run and the whole
     # conductor step vocabulary (with_prev, speed, follow, ...) is invisible to the harvest -- lint

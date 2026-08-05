@@ -44,6 +44,7 @@ from .content import gauge as _gauge
 from .content import numinput as _numinput
 from .content import qte as _qte
 from .content import siege as _siege
+from .content import texttable as _texttable
 from .content import object as _object
 from .content import onentry as _onentry
 from .content import pathfind as _pathfind
@@ -2385,6 +2386,11 @@ def validate(project: FieldProject) -> list[str]:
         if "name" not in m or ("pos" not in m and "path" not in m):
             problems.append("[[marker]] needs a 'name' and pos = [x, z] (a point) or "
                             "path = [[x, z], ...] (a route)")
+    # [[text_table]] banks + every [TEXT=<name>,slot] reference to one. Reported here as well as
+    # enforced in collect_text because the in-game symptom of a bad bank is String.Empty -- a blank
+    # line, no error, no log (ETb.cs:270-283) -- so it must surface in `lint`/Check with the authored
+    # key that carries it, not only as a build traceback.
+    problems.extend(_texttable.validate(project.raw))
     # [[numeric_input]] steppers (the Treno-bid substrate, content.numinput): validate each block and
     # collect the names the option-level `input =` key may reference.
     ni_names = set()
@@ -2633,6 +2639,89 @@ def validate(project: FieldProject) -> list[str]:
                 if "qte" in o and "input" in o:
                     problems.append(f"[[choice]] #{c} option {oi}: one modal game per row -- "
                                     f"qte and input can't share an option")
+                # THE COVERAGE RULE runs on EVERY option, OUTSIDE the `values` guard below, because
+                # the shape it exists to catch has no `values` key at all: a reply carrying [NUMB=n]
+                # and nothing to fill it renders the last field's leftover slot vector. Nested under
+                # `if VALUES_KEY in o` it could only fire for rows that had already opted in, so the
+                # original defect validated clean. One rulebook, shared with the emitter that refuses
+                # it: content/choice.py:reply_slot_problems.
+                for _tail in _choice.reply_slot_problems(o):
+                    problems.append(f"[[choice]] #{c} option {oi} {_tail}")
+                # ★ THE BROADCAST-CONFIRM LAW, at the call site (studies/messages/SURVEY.md §7a).
+                # DialogManager.OnKeyConfirm (DialogManager.cs:335-341) fans a confirm press out to
+                # EVERY active window with no filter, and Dialog.OnKeyConfirm (Dialog.cs:789) closes
+                # a window that has FINISHED TYPING and is not `ignoreInputFlag`. An option reply is
+                # opened BY a confirm press -- the one that picked the row -- so an instant-popped
+                # reply is already finished when that press fans out and dismisses itself on arrival.
+                # Owner playtest, bench 30801: the page "immediately does the closing animation and
+                # exits the entire dialogue tree". A typewriter reply is safe (a mid-type press SKIPS
+                # to full text), and so is one that sets ignoreInputFlag via [TIME=-1]/[NFOC].
+                # NOTE this is about the OPTION's reply, never the choice block's own `instant` --
+                # an instant SELECTOR is proven fine (studies/messages/bench/winstyle.field.toml:127).
+                _reply = str(o.get("reply") or "")
+                if _reply.strip():
+                    _inst = bool(o.get("instant")) or "[IMME]" in _reply
+                    _held = "[NFOC]" in _reply or "[TIME=-1]" in _reply
+                    if _inst and not _held:
+                        problems.append(
+                            f"[[choice]] #{c} option {oi} has an INSTANT reply -- the confirm press "
+                            f"that selects this row fans out to every open window (DialogManager.cs:335-341) "
+                            f"and closes any that has finished typing (Dialog.cs:789), so an instant reply "
+                            f"dismisses itself the moment it opens and the dialogue tree exits. Drop "
+                            f"`instant`/[IMME] from the option (a typewriter reply survives -- a mid-type "
+                            f"press skips to full text), or hold it with [NFOC]/[TIME=-1] if it must not "
+                            f"be dismissable. The choice block's own `instant` is unaffected.")
+                # `values` -- the LIVE NUMBERS lane (content/choice.py:option_values_body). Same
+                # rulebook as [[behavior.hud]]'s `values`, reached through the SAME validator
+                # (behavior.hud_expr_tokens / hud_text_table_slots), because both publish into the
+                # one Int32[8] gMesValue array through the same 0x66 emitter.
+                if _choice.VALUES_KEY in o:
+                    from .content import behavior as _behavior
+                    try:
+                        vals = _choice.option_values(o)
+                    except ValueError as e:
+                        problems.append(f"[[choice]] #{c} option {oi}: {e}")
+                        vals = []
+                    if not vals:
+                        problems.append(f"[[choice]] #{c} option {oi} values must name at least one "
+                                        f"'expr:<RPN tokens>' source (slot i is values[i])")
+                    elif len(vals) > _choice.MES_VALUE_SLOTS:
+                        # ETb.SetMesValue clamps scriptID to 0..7 against Int32[8] (ETb.cs:230-234):
+                        # a 9th value overwrites slot 7 in-game instead of failing.
+                        problems.append(
+                            f"[[choice]] #{c} option {oi} has {len(vals)} values > the engine's "
+                            f"{_choice.MES_VALUE_SLOTS} gMesValue slots (ETb.SetMesValue clamps "
+                            f"scriptID 0..7 against Int32[8], ETb.cs:230-234)")
+                    for vi, v in enumerate(vals):
+                        s = str(v)
+                        if not s.startswith(_behavior.HUD_EXPR_PREFIX):
+                            problems.append(
+                                f"[[choice]] #{c} option {oi} values[{vi}] {v!r} must be an "
+                                f"'{_behavior.HUD_EXPR_PREFIX}<RPN tokens>' source")
+                            continue
+                        try:
+                            _behavior.hud_expr_tokens(s, label=f"[[choice]] #{c} option {oi} "
+                                                               f"values[{vi}]")
+                        except Exception as e:                # BehaviorError (a ValueError)
+                            problems.append(str(e))
+                    reply = str(o.get("reply") or "")
+                    if not reply.strip():
+                        problems.append(
+                            f"[[choice]] #{c} option {oi}: values needs a `reply` to render into -- "
+                            f"gMesValue persists across field loads, so publishing with no window of "
+                            f"this row's own only changes the NEXT field's numbers")
+                    for mk in ("input", "recall", "qte"):
+                        if mk in o:
+                            # the stepper's submit/recall loads gMesValue slot 0 for its echo
+                            # (content/numinput.py:413); `values` is emitted after it and starts at
+                            # slot 0, so the echo would be silently overwritten.
+                            problems.append(
+                                f"[[choice]] #{c} option {oi}: values can't share a row with "
+                                f"{mk!r} -- that modal loads gMesValue slot 0 with its own echo and "
+                                f"values[0] would overwrite it")
+                    # (the [NUMB=]/[TEXT=] coverage scan that used to live here is the hoisted
+                    # `reply_slot_problems` call above -- nested here it could not see a reply whose
+                    # tags had NO `values` key behind them at all, which was the shipped defect)
         if isinstance(opts, list) and opts:
             n = len(opts)
             d = ch.get("default")
@@ -2771,6 +2860,30 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"{label}: hold and duration are the same engine tag with opposite "
                                 f"meanings ([TIME=-1] holds forever, [TIME=n] auto-closes after n "
                                 f"frames) -- keep one.")
+            # ★ THE TURBO-CONFIRM LAW at the call site (content/text.py:NO_TURBO_TAG).
+            # dress_window turbo-proofs a READOUT window automatically, so the only way to ship one
+            # that a turbo session eats is to opt OUT on purpose -- and an opt-out of a law has to be
+            # LOUD. Owner playtest, bench 30801: a page "opens, and when it's finished with the
+            # opening animation and the text shows, it immediately does the closing animation and
+            # exits the entire dialogue tree", with no input.
+            nt = src.get("no_turbo")
+            if nt is not None and not isinstance(nt, bool):
+                problems.append(f"{label} no_turbo must be true/false (emit [NTUR] so a turbo "
+                                f"session's synthesized confirm cannot close this window; "
+                                f"got {nt!r})")
+            elif nt is False:
+                _body = _text.body_text(src)
+                if _text.renders_live_value(_body) and not _text.window_inhibited(src, _body):
+                    problems.append(
+                        f"{label}: no_turbo = false on a READOUT window (it renders [NUMB=]/"
+                        f"[TEXT=]/[ITEM=]). With TurboDialog on -- Memoria.ini's default -- and the "
+                        f"F9 TurboKey latched (or RightBumper/Shift held), UIKeyTrigger.cs:834 "
+                        f"synthesizes a confirm EVERY FRAME with no input, DialogManager.cs:334-340 "
+                        f"fans it to every open window and Dialog.cs:789-796 hides this one the "
+                        f"instant it finishes typing -- the player never reads the number. Drop "
+                        f"no_turbo = false, or inhibit the window instead with hold/duration/[NFOC] "
+                        f"(NB those also block the PLAYER's confirm, so a blocking window then hangs "
+                        f"the script on wait == 254).")
         a = src.get("actor") if opcode_side else None
         if a is not None and actor != "cast":      # "cast": the step's actor IS the performer
             if actor == "no":
@@ -8175,8 +8288,26 @@ def collect_text(project: FieldProject):
             continue
         for _part, _txt, _strt in _qte.mes_texts(_qs):
             ni_pos[("qte", _qi, _part)] = _add_raw(_txt, "", strt=_strt)
+    # [[text_table]] banks: this field's own [TBLE] string tables, one .mes entry each (rows are
+    # \n-separated after the tag -- DialogBoxSymbols.cs:35-38). Added LAST, after every window entry,
+    # so a field with no [[text_table]] keeps the previous text layout byte-identical. Tail-less,
+    # default (10,1) geometry: a bank is DATA, never opened as a window -- the same shape the Mognet
+    # roster entry already ships.
+    tt_pos = {}
+    for _tt in _texttable.blocks(project.raw):
+        tt_pos[_tt.name] = _add_raw(_texttable.entry_text(_tt.rows), "")
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}, {}, {}
+    # ⚠ THE BACK-SUBSTITUTION, and why it happens HERE and not in the authored TOML. A `[TEXT=bank,slot]`
+    # bank is a TXID (FF9TextTool.GetTableText, FF9TextTool.cs:650-659) and txids are assigned BY
+    # POSITION, so the id is not knowable until every line is allocated -- which is now. The banks come
+    # from `text.txid_map`, the SAME function `build_mes` derives its mapping from, so the substituted id
+    # cannot be off by one from the id the entry actually lands on. Run unconditionally: a named bank with
+    # no [[text_table]] must fail LOUDLY here (`texttable.resolve` raises), because the in-game symptom is
+    # `String.Empty` -- a blank line, no error, which reads as a bug. A line with no named reference is
+    # returned byte-identical, so this pass is a no-op for every field that does not use the lane.
+    _banks = {_n: _text.txid_map(len(lines))[_p] for _n, _p in tt_pos.items()}
+    lines = [_texttable.resolve(_ln, _banks) for _ln in lines]
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     # a network moogle's field also ships text entry 0 = the ROSTER (install names + the new identity),
     # at its donor-fixed LOW txid -- legal only in this field's own minted block (validate enforces it)

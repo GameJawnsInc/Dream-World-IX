@@ -406,3 +406,121 @@ prompt = "Pick"
 options = [ { text = "A", reply = "ok", tail = "UPPR" }, { text = "B" } ]
 """)
     assert any("UPPR" in p and "TAIL" in p for p in problems), problems
+
+
+# ------------------------------------------------------ ★ THE TURBO-CONFIRM LAW (no_turbo) ---
+# Owner playtest, bench 30801: every dialogue window on the field "opens, and when it's finished
+# with the opening animation and the text shows, it immediately does the closing animation and
+# exits the entire dialogue tree" -- with no input. Nothing in the emitted 4617 bytes explains it:
+# no CloseWindow, no CloseAllWindows, no [TIME], no second window on a live id. The closer is the
+# TURBO gate: UIKeyTrigger.Update calls HandleDialogControlKeyPressCustomInput every render frame
+# (UIKeyTrigger.cs:198) and ShouldTurboDialog (:974-991) returns true WITH NO KEY DOWN whenever
+# Configuration.Control.TurboDialog is on (Memoria.ini default 1) and the F9 TurboKey is latched
+# (or RightBumper/Shift is held), so :837 fans a synthesized confirm to EVERY open dialog
+# (DialogManager.cs:334-340) and Dialog.cs:789-796 hides each one at CompleteAnimation.
+# [NTUR] (NGUIText.NoTurboDialog -> DialogBoxSymbols.cs:327-329 -> UIKeyTrigger.preventTurboKey) is
+# the ONLY inhibitor that does not also set FlagButtonInh, i.e. the only one that leaves the
+# player's own Confirm working -- which a BLOCKING WindowSync page needs or it hangs on wait==254.
+
+def test_readout_window_is_turbo_proofed_by_default():
+    # a window that renders a live value is a READOUT: auto-skipping it deletes the feature
+    line, _, _ = _text.dress_window({"dialogue": "Gil [NUMB=0]"}, "Gil [NUMB=0]")
+    assert line == "[NTUR]Gil [NUMB=0]"
+    for body in ("kind [TEXT=0,3]", "got [ITEM=2]"):
+        assert _text.dress_window({"message": body}, body)[0].startswith(_text.NO_TURBO_TAG), body
+
+
+def test_plain_narrative_window_is_unchanged():
+    # no readout, no key -> byte-identical to the pre-law layout (turbo still skips story text)
+    assert _text.dress_window({"dialogue": "Hello."}, "Hello.") == ("Hello.", None, None)
+
+
+def test_no_turbo_key_overrides_the_default_both_ways():
+    assert _text.dress_window({"dialogue": "Hi.", "no_turbo": True}, "Hi.")[0] == "[NTUR]Hi."
+    assert _text.dress_window({"dialogue": "n [NUMB=0]", "no_turbo": False},
+                              "n [NUMB=0]")[0] == "n [NUMB=0]"
+
+
+def test_an_already_inhibited_readout_gets_no_second_tag():
+    # hold/duration/[NFOC] set Dialog.FlagButtonInh, so IsDialogNeedControl() never opens the turbo
+    # gate for that window -- a second inhibitor buys nothing and costs .mes bytes
+    body = "n [NUMB=0]"
+    assert _text.dress_window({"dialogue": body, "hold": True}, body)[0] == body + "[TIME=-1]"
+    assert _text.dress_window({"dialogue": body, "duration": 90}, body)[0] == body + "[TIME=90]"
+    assert _text.NO_TURBO_TAG not in _text.dress_window({"dialogue": "[NFOC]" + body},
+                                                        "[NFOC]" + body)[0]
+    # duration = 0 is the engine's THIRD mode -- it CLEARS FlagButtonInh, so it inhibits nothing
+    assert _text.dress_window({"dialogue": body, "duration": 0}, body)[0].startswith(_text.NO_TURBO_TAG)
+
+
+def test_a_variable_speaker_is_not_a_readout():
+    # with_speaker turns `speaker = "[TEXT=0,5]"` into a leading [TEXT=] tag: scoring the DRESSED
+    # line would turbo-proof every named-speaker window in the kit. The rule reads the BODY.
+    dressed = _text.with_speaker("[TEXT=0,5]", "Hello.")
+    assert "[TEXT=" in dressed
+    assert _text.NO_TURBO_TAG not in _text.dress_window({"dialogue": "Hello."}, dressed)[0]
+
+
+def test_body_text_probes_no_keys_the_block_does_not_own():
+    # the readout test asks a block about six body keys; on a LIVE tree src.get is a schema PROBE
+    # (fieldschema._Spy.get), so probing them would harvest `reply`/`say` into [[npc]]'s vocabulary
+    from ff9mapkit import fieldschema as _fs
+    rec = _fs.Recorder()
+    spy = _fs.wrap({"npc": [{"dialogue": "hi [NUMB=0]"}]}, rec)
+    assert _text.body_text(spy["npc"][0]) == "hi [NUMB=0]"
+    assert rec.probes.get("npc", set()) <= {"npc"}, rec.probes
+
+
+def test_readout_reaches_the_built_mes(tmp_path):
+    pr = _project(tmp_path, BASE + """
+[[npc]]
+name = "ledger"
+preset = "vivi"
+pos = [0, -500]
+dialogue = "Gil [NUMB=0]"
+
+[[npc]]
+name = "gossip"
+preset = "vivi"
+pos = [200, -500]
+dialogue = "Nice weather."
+""")
+    assert validate(pr) == []
+    out = tmp_path / "mod"
+    build_mod([pr], out, mod_name="FF9CustomMap")
+    mes = ModLayout(out).mes_path("us", 30601).read_text(encoding="utf-8")
+    assert "[TAIL=UPR][NTUR]Gil [NUMB=0]" in mes                 # the readout is turbo-proofed
+    assert "[TAIL=UPR]Nice weather." in mes                      # narrative text is untouched
+
+
+def test_validate_refuses_opting_a_readout_out_of_the_law(tmp_path):
+    # BREAK IT TO PROVE IT: the emitter turbo-proofs a readout automatically, so the only way to
+    # ship a turbo-skippable one is an explicit opt-out -- and that has to be LOUD, not silent.
+    problems = _problems(tmp_path, BASE + """
+[[choice]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+prompt = "Pick"
+options = [ { text = "A", reply = "Gil [NUMB=0]", no_turbo = false }, { text = "B" } ]
+""")
+    assert any("READOUT window" in p and "no_turbo = false" in p for p in problems), problems
+    # ... and it does NOT fire on a narrative window, nor on a readout that is inhibited anyway
+    quiet = _problems(tmp_path, BASE + """
+[[choice]]
+zone = [[-100,-700],[100,-700],[100,-600],[-100,-600]]
+prompt = "Pick"
+options = [ { text = "A", reply = "no numbers here", no_turbo = false },
+            { text = "B", reply = "Gil [NUMB=0]", no_turbo = false, hold = true, values = ["expr:B_SYSVAR[6]"] } ]
+""")
+    assert quiet == [], quiet
+
+
+def test_validate_rejects_a_non_boolean_no_turbo(tmp_path):
+    problems = _problems(tmp_path, BASE + """
+[[npc]]
+name = "x"
+preset = "vivi"
+pos = [0, -500]
+dialogue = "hi"
+no_turbo = "yes"
+""")
+    assert any("no_turbo must be true/false" in p for p in problems), problems
