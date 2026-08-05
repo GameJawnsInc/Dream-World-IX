@@ -1,0 +1,323 @@
+{
+ "island": {
+  "name": "Path D V-shore bench island (world 9013, sentinel disc 9)",
+  "blocks": [
+   [
+    5,
+    7
+   ],
+   [
+    6,
+    7
+   ],
+   [
+    7,
+    7
+   ],
+   [
+    5,
+    8
+   ],
+   [
+    6,
+    8
+   ],
+   [
+    7,
+    8
+   ]
+  ],
+  "world_bbox": {
+   "x": [
+    372,
+    458
+   ],
+   "z": [
+    -560,
+    -466
+   ]
+  },
+  "shape": "a ring island: a central non-walkable massif (peak y~28) inside a continuous grass lawn at y~3.2; one connected clean-lawn component of 3694 1u samples, 0 stacked-walkable points",
+  "designation": "HANDOFF-RUNG6.md:19-20 + NEXT-STUDIES.md:232; bench_manifest.json hashes verified byte-identical live",
+  "other_disc9_clusters": {
+   "centre_rung5a": {
+    "blocks": [
+     [
+      11,
+      10
+     ],
+     [
+      12,
+      9
+     ],
+     [
+      12,
+      10
+     ],
+     [
+      12,
+      11
+     ],
+     [
+      13,
+      10
+     ]
+    ],
+    "note": "Rung 5a first-land island, cliffs-refuse / BEACH 0, flat y=3.2 topo-0 only -- separate bench"
+   },
+   "junction_compose": {
+    "blocks": [
+     [
+      0,
+      16
+     ],
+     [
+      1,
+      16
+     ],
+     [
+      2,
+      16
+     ],
+     [
+      3,
+      16
+     ],
+     [
+      4,
+      16
+     ],
+     [
+      0,
+      17
+     ],
+     [
+      1,
+      17
+     ],
+     [
+      2,
+      17
+     ],
+     [
+      3,
+      17
+     ],
+     [
+      4,
+      17
+     ],
+     [
+      0,
+      18
+     ],
+     [
+      1,
+      18
+     ],
+     [
+      2,
+      18
+     ],
+     [
+      3,
+      18
+     ],
+     [
+      4,
+      18
+     ],
+     [
+      0,
+      19
+     ],
+     [
+      1,
+      19
+     ],
+     [
+      2,
+      19
+     ],
+     [
+      3,
+      19
+     ],
+     [
+      4,
+      19
+     ]
+    ],
+    "note": "synthesis Step 2 carry, 180 files, deployed 2026-07-30 16:24 -- separate bench"
+   },
+   "foreign_2026_08_04": "blocks (0-3,4-5),(18-21,17-18),(19-20,0),(10-15,12-15) carry Donor.txt pointers to real disc-1 blocks and mtimes of 2026-08-04 -- other sessions' work, not Path D rung 5"
+  }
+ },
+ "landing": {
+  "x": 425.0,
+  "z": -479.0,
+  "y": 3.2,
+  "face": 224,
+  "face_note": "224 = south-east, exactly down the east-band corridor ((dx,dz)=(-sin(f/256*2pi),-cos(f/256*2pi)) = (+0.707,-0.707)); face 0 (plain south) also lawful but aims at the massif 9u away",
+  "cell": [
+   13,
+   14
+  ],
+  "block": [
+   6,
+   7
+  ],
+  "topograph": 0,
+  "idall": 0,
+  "mesh": "Terrain",
+  "arrival_query": "sky cast origin y+400 -> walkable",
+  "walking_query_y": 3.2,
+  "local_relief_5u": 0.0,
+  "radial_clearance_u": 13,
+  "walkable_sheets": 1
+ },
+ "trigger": {
+  "cell": [
+   13,
+   17
+  ],
+  "cell_centre": [
+   432,
+   -560
+  ],
+  "block": [
+   6,
+   8
+  ],
+  "block_origin": [
+   384,
+   -512
+  ],
+  "override_relpath": "FF9_Data/WorldMap/Disc9/0_1/r8/Block[6][8] Terrain.ff9mesh",
+  "override_abspath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc9\\0_1\\r8\\Block[6][8] Terrain.ff9mesh",
+  "override_exists": true,
+  "cell_tag": "0x9135",
+  "retarget": {
+   "center": [
+    424.0,
+    -553.0
+   ],
+   "radius": 8.0,
+   "note": "largest disc that is all clean grass AND fully inside the 32u cell; radius at the geometric cell centre is only 0u"
+  },
+  "clean_grass_samples": 484,
+  "clean_grass_centroid": [
+   429.5,
+   -551.5
+  ],
+  "centre_y": 3.2,
+  "centre_topo": 0,
+  "openness_notes": [
+   "POOR SPOT: the entrance cell is 40% BLOCKED terrain (topo not on-foot-walkable -- river/cliff); the player may get trapped. Prefer an open, all-walkable cell."
+  ],
+  "openness_verdict": "FIRES (40.3% blocked). The note's window is the FULL 32u cell, which here overhangs the island's south shore, so the blocked tris are the shore WALL outside the lawn, not a pinch around the trigger patch. Every lawn cell on this ring island trips the 20% threshold (lowest non-trivial reading is (11,16) at 15.8%, on the west band that owns the V-corner trap history). The retarget disc itself is 16u across and 100% clean grass -- judge that, not the box.",
+  "tri_census": {
+   "walkable": 74,
+   "blocked": 50
+  }
+ },
+ "runner_up": {
+  "cell": [
+   14,
+   16
+  ],
+  "centre": [
+   464,
+   -528
+  ],
+  "block": [
+   7,
+   8
+  ],
+  "retarget": {
+   "center": [
+    452.0,
+    -525.0
+   ],
+   "radius": 4.0
+  },
+  "distance_u": 62.6,
+  "blocked_pct": 28.1,
+  "clean_grass_samples": 228,
+  "note": "east-band chokepoint; a heading-lock walker reaches it in 123 ticks with no waypoints. Smaller patch (4u) but a corridor the player cannot miss."
+ },
+ "distance_u": 81.3,
+ "clearances": {
+  "nearest_event_cell_chebyshev": {
+   "landing": 8,
+   "trigger": 8
+  },
+  "nearest_inherited_tag_cell_chebyshev": {
+   "landing": 14,
+   "trigger": 14
+  }
+ },
+ "route": {
+  "corridor_waypoints": [
+   [
+    425.0,
+    -479.0
+   ],
+   [
+    433.0,
+    -489.0
+   ],
+   [
+    443.0,
+    -499.0
+   ],
+   [
+    447.0,
+    -509.0
+   ],
+   [
+    444.0,
+    -519.0
+   ],
+   [
+    446.0,
+    -529.0
+   ],
+   [
+    440.0,
+    -539.0
+   ],
+   [
+    430.0,
+    -549.0
+   ],
+   [
+    424.0,
+    -553.0
+   ]
+  ],
+  "ok": true,
+  "engine_ticks": 211,
+  "legs": 8,
+  "ends_at": [
+   425.53,
+   -551.88
+  ],
+  "note": "waypointed walk with walk_sim's real deflection-fan stepper down the EAST band; the greedy heading-lock walker stalls at (438.2,-512.0) on the central massif, which is obstacle-avoidance, not terrain. The west band is passable too but owns the V-corner trap history (~(375..377,-509..-528), VSHORE-SEAL-PREDICTION.md) -- prefer east."
+ },
+ "provenance": {
+  "instrument": "studies/path-d-new-world/walk_sim.py (BENCH-WALK-SIM.md, calibrated 4/4)",
+  "read_only": true,
+  "deploys": 0,
+  "game_writes": 0,
+  "bench_manifest_verified": true,
+  "scripts": [
+   "studies/path-d-new-world/rung6/probe_cluster_survey.py",
+   "studies/path-d-new-world/rung6/probe_site.py",
+   "studies/path-d-new-world/rung6/probe_map.py",
+   "studies/path-d-new-world/rung6/probe_finalize.py",
+   "studies/path-d-new-world/rung6/probe_cellrank.py",
+   "studies/path-d-new-world/rung6/probe_spec.py"
+  ]
+ }
+}

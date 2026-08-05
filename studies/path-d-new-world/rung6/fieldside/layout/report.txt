@@ -1,0 +1,28 @@
+FIELD LAYOUT PROBE -- studies/path-d-new-world/rung6/fieldside/pathdgate.field.toml
+camera 0/1: pitch 48.0 deg, yaw -0.0 deg, H=498, canvas 384x448
+camera position C=(-0, 3344, -3011)  (the VIEWER stands here; the room edge nearest it is the FRONT)
+
+COMPASS (world direction -> where it points ON SCREEN):
+  north (+z, back)     -> up         (0 deg)
+  east (+x)            -> right      (90 deg)
+  south (-z, front)    -> down       (180 deg)
+  west (-x)            -> left       (270 deg)
+  screen-UP corresponds to world north (0 deg from +Z toward +X)
+
+CONTENT (world -> canvas):
+  teleport_pad         prop      world(     0, -1700) -> canvas( 192.0, 398.6)
+  balloon              prop      world(     0, -1700) -> canvas( 192.0, 398.6)
+  worldgate_zone       waypoint  world(     0, -1700) -> canvas( 192.0, 398.6)
+  spawn                spawn     world(     0,     0) -> canvas( 192.0, 224.0)  face=0 (south)
+  arrival 9999         arrival   world(     0, -1100) -> canvas( 192.0, 324.9)  face=128 (north)
+
+ROUTES (markers with `path` -- swept for straight-walk legality):
+  ~worldgate_zone     closed ring, 4 legs, 3200u total -- ALL LEGS ON-MESH (single-floor-clean)
+
+WARNINGS (4):
+  ! teleport_pad <-> balloon: 0u apart -- COLLIDING (object collision blocks at ~192u centre distance); they will jam/shove
+  ! route 'worldgate_zone' leg 1 (-600,-1900)->(600,-1900): passes 31u from a walkmesh edge -- collision radius (~80u) shoves walkers off this line
+  ! route 'worldgate_zone' leg 2 (600,-1900)->(600,-1500): passes 31u from a walkmesh edge -- collision radius (~80u) shoves walkers off this line
+  ! route 'worldgate_zone' leg 4 (-600,-1500)->(-600,-1900): passes 31u from a walkmesh edge -- collision radius (~80u) shoves walkers off this line
+
+Reminders: FRONT of a room = -z (toward camera) = down-screen at yaw 0. Facing byte: 0=south(front) 64=west 128=north(back) 192=east. Actors jam under ~192u centre distance; real fields keep standing NPCs 300u+ apart; the player centre stays 48u off walls. Multi-floor: a walker changes floors ONLY at a seam -- content on another floor is unreachable to it anywhere else, even where the floors touch in this top-down view.

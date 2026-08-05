@@ -1,0 +1,22 @@
+{
+ "6,8": [
+  {
+   "armed_md5": "809c2c1a22a48180089549328b9b3711",
+   "from_md5": "0a25f3e467cd83fde986bd44735b919e",
+   "from_accepted_bench": true,
+   "utc": "2026-08-05T06:12:04+00:00",
+   "cell": [
+    13,
+    17
+   ],
+   "event": 1,
+   "center": [
+    424.0,
+    -553.0
+   ],
+   "radius": 6.0,
+   "walkable_only": true,
+   "armed_tris": 14
+  }
+ ]
+}

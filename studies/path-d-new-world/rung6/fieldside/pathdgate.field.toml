@@ -1,0 +1,89 @@
+# PATHDGATE (30950) -- Path D rung 6, the FIELD-SIDE half of the 9013 round trip.
+#
+# A scratch bench whose only job is: stand on the marked pad -> fade -> land on world 9013
+# at the V-shore bench island's landing point; and, coming back, be somewhere legible.
+#
+# ⚠ There is deliberately NO [[gateway]] block. No declarative gateway target reaches a
+#   custom world id: `to = <field id>` emits Field() (0x2B) and `to = "worldmap"` emits the
+#   VERBATIM shared exit cascade, which routes only the 13 stock wldMapNos (9000-9012) --
+#   9013 is not in it. The world jump is spliced into the DEPLOYED .eb afterwards by
+#   `inject_worldjump.py` (WorldMap(9013), opcode 0xB6) -- see README.md.
+#
+# GEOMETRY is ARRTEST's, verbatim (studies/field-entry/ARRTEST/arrtest.field.toml): the same
+# camera + the same walkmesh quad the copied checkerboard art was generated for, so the
+# placeholder floor lands on the mesh with no re-derivation.
+#   FRONT = toward the camera = NEGATIVE z.  Floor spans z +257 (back) .. -1931 (front).
+#   Facing byte: 0 = south (at the camera), 64 = west, 128 = north (away), 192 = east.
+#
+# THE GATE ZONE (authored in inject_worldjump.py, NOT here -- kept in sync by hand):
+#   corners  (-600,-1900) (600,-1900) (600,-1500) (-600,-1500)
+#   q0->q1 is the FAR/front edge (z = -1900), the edge the player walks out across heading
+#   -z, per the gateway edge-order law (content/gateway.py:11-12).
+#   The player's centre can only reach z >= -1851 (walkmesh -1931 + the 80u controller
+#   radius), so the strip covers every reachable point at the room's front -- it cannot be
+#   skirted along z, only walked around at |x| > 600, which is what makes it a deliberate
+#   door rather than an invisible wall.
+
+[field]
+id = 30950
+name = "PATHDGATE"
+area = 11
+text_block = 30950       # the field's OWN id -- never a real block (the text-block shadow trap)
+title = "PATHDGATE -- Path D 9013 entrance bench"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, 0]           # back-centre: a debug ~ warp / unmatched entrance lands here,
+face = 0                 # facing SOUTH = down-screen, straight at the gate pad
+
+# The return leg: world 9013's exit switch sets D8:2 = 9999 right before Field(30950).
+# Land just INSIDE the room from the pad, facing NORTH (into the room, back to the gate) --
+# 400u clear of the zone's near edge (-1500) so the tread trigger does not instantly re-fire.
+[[player.arrival]]
+entrance = 9999
+pos = [0, -1100]
+face = 128
+
+# --- the LANDMARK (bench-visible-landmarks rule: never ship an unmarked invisible zone) ---
+# A floor teleport pad at the zone centre (says STAND HERE) + the floating balloon marker
+# above it (says LOOK HERE). Both are collision = false, so they are pure signage: the
+# player walks straight over them into the trigger instead of being shoved off it.
+# Co-located props are the documented composite idiom (docs/FORMAT.md:723 -- a save point is
+# moogle + save_book + feather + balloon at ONE position).
+# ⚠ EXPECTED probe warning, do not "fix" it: field_layout_probe reports
+#   "teleport_pad <-> balloon: 0u apart -- COLLIDING". The probe reads GEOMETRY only and
+#   cannot see `collision = false`; neither object has collision, so nothing can jam.
+[[prop]]
+prop = "teleport_pad"
+pos = [0, -1700]
+collision = false
+
+[[prop]]
+prop = "balloon"
+pos = [0, -1700]
+collision = false
+
+# --- authoring reference only (build-inert): draws the injected zone on the layout probe ---
+[[marker]]
+name = "worldgate_zone"
+pos = [0, -1700]
+path = [[-600, -1900], [600, -1900], [600, -1500], [-600, -1500]]
+closed = true
