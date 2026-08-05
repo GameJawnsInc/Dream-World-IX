@@ -1,0 +1,97 @@
+# THE OVERWORLD DONOR CATALOG (audit rec 13) -- READ-ONLY, hand-written.
+#
+# One [[donor]] per qualified/candidate real-block donor the world pillar carries from.
+# `blocks` uses the CLI rect spec ("BX,BY" or "BX0-BX1,BY0-BY1" -- world-mountain --donor).
+# `status`: qualified (shipped-verb proven) / candidate (scan output awaiting a human) /
+# disqualified. `aperture`: none / object / ensemble (a falls-river MOUTH covered by the
+# Object+Falls+River+RiverJoint carry). `alcove` (massifs only): the hand-measured flat
+# cave-floor box [x0, x1, z0, z1, y_min] in the donor block's world frame.
+#
+# The GEOMETRY modules keep their frozen literals (interior.MOUNTAIN_DONOR / UAHO_ALCOVE,
+# island.BEACH_PINS, transplant.PROVEN_DONOR, ...) -- the Uaho carry's bit-frozen acceptance
+# must NOT acquire a file-parse dependency. tests/test_world_donors.py's DRIFT test pins
+# every one of those literals to a row here, which is what keeps this table from becoming a
+# fifth stale copy. New scan output (donor_qualify_scan.py, studies/) enters as
+# status = "candidate" rows a human promotes; there is deliberately no --regen.
+
+[[donor]]
+name = "uaho"
+blocks = "0,0"
+class = "massif"
+aperture = "object"
+alcove = [31.0, 40.5, -38.5, -30.5, 4.5]
+status = "qualified"
+anatomy_study = "studies/overworld-topography/README.md (massif_carry.py + the aperture-plug anatomy)"
+note = "world-mountain's default --donor; the ONLY donor with a full anatomy study. The alcove floor is hand-measured (interior.UAHO_ALCOVE) -- a new donor needs its own box or none."
+
+[[donor]]
+name = "crag"
+blocks = "10,5-6"
+class = "massif"
+aperture = "none"
+status = "qualified"
+anatomy_study = "studies/overworld-topography/crag_anatomy.py -> out/crag_anatomy.json"
+note = "QUALIFIED AS A RECT: the massif straddles the block border, so the target sizes itself to a multi-block span. The study README's DISQUALIFIED verdict applied to SINGLE-BLOCK v1 only, and that restriction ended with the rect carry -- this row resolves the README:376-vs-:423 contradiction."
+
+[[donor]]
+name = "horseshoe"
+blocks = "5-6,15-16"
+class = "massif"
+aperture = "ensemble"
+status = "qualified"
+anatomy_study = "studies/overworld-topography/ensemble_inventory.py"
+note = "The aperture is a falls/river MOUTH whose ring is owned by Object+Falls+River+RiverJoint (22+12+15+4 of 43 ring pts); the ensemble carry ships those parts as blocked-topo-49 scenery, matching stock semantics."
+
+[[donor]]
+name = "comp20"
+blocks = "12,16-17"
+class = "massif"
+aperture = "none"
+status = "qualified"
+anatomy_study = "studies/overworld-topography/mural_partition_settle.py (the topo-49 narrowing, verified 0 non-rock tris)"
+note = ""
+
+[[donor]]
+name = "forest-blob"
+blocks = "15,15"
+class = "canopy"
+aperture = "none"
+status = "qualified"
+anatomy_study = "ff9mapkit/ff9mapkit/world/grassland.py (the stamp-block census)"
+note = "The clean grass-bounded topo-37 canopy blob -- world-forest's default donor (interior.FOREST_DONOR)."
+
+[[donor]]
+name = "beach-island"
+blocks = "7,17"
+class = "coast"
+aperture = "none"
+status = "qualified"
+anatomy_study = "studies/coast-shape-language/ (the (7,17) censuses; transplant.py module docstring)"
+note = "THE PROVEN DONOR (transplant.PROVEN_DONOR): the in-game-proven beach island (E tongue in (8,17)); grass BEACH_PINS; the (7,17) ground-retile carry that SUPERSEDED the ladder mint."
+
+[[donor]]
+name = "desert-beach"
+blocks = "20,5"
+class = "coast"
+aperture = "none"
+status = "qualified"
+anatomy_study = "studies/coast-shape-language/ (the (20,5) desert censuses)"
+note = "Desert BEACH_PINS (sand v pins, foam family, strip float dialect, divert donor)."
+
+[[donor]]
+name = "sandy-coast"
+blocks = "18,15"
+class = "coast"
+aperture = "none"
+status = "qualified"
+anatomy_study = "ff9mapkit/ff9mapkit/world/extract.py list_coastal_donors"
+note = "The proven proper-sandy-beach coastal donor (extract.py's list_coastal_donors example)."
+
+[[donor]]
+name = "sea-plane"
+blocks = "12,0"
+class = "sea-plane"
+aperture = "none"
+status = "qualified"
+anatomy_study = "ff9mapkit/ff9mapkit/world/island.py _sea_plane"
+note = "The game's ONLY full-cell deep Sea4 plane (island.SEA_PLANE_SOURCE) -- every island lane's sea sheet is cut from it."

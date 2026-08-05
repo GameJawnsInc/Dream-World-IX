@@ -4614,6 +4614,14 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
               f"(the 2026-07-15 ground-sampler playtest). Minting anyway.")
     beach = None
     if getattr(args, "beach", None):
+        # the FALSIFIED-lane banner (audit rec 13): the verdict must live at the call site,
+        # not only in CLAUDE.md section 8 -- modeled on the --ground off-language note above.
+        print("FALSIFIED LANE: --beach is THE LADDER MINT, falsified over 4 playtests "
+              "(2026-07-15) -- a statistical mint reproduces the beach's measured "
+              "properties, never its LOOK. The live beach path is the (7,17) ground-retile "
+              "carry: `world-transplant --ground` (NOT this flag; `world-transplant "
+              "--beach-mint` is a different, live lane). Kept for the measurement + its "
+              "water mechanics, which the proven carry consumes. Minting anyway.")
         parts_ = [s.strip() for s in args.beach.split(":")]
         b0, b1 = (float(v) for v in parts_[0].split(","))
         beach = {"bearing": (b0, b1)}
@@ -4770,6 +4778,28 @@ def _parse_block_rect(spec: str) -> list:
         return [int(s)]
     xs, ys = spec.split(",")
     return [(x, y) for x in rng(xs) for y in rng(ys)]
+
+
+def _cmd_world_donors(args: argparse.Namespace) -> int:
+    """Print the read-only qualified-donor catalog (audit rec 13: the verdicts reach the
+    invocable surface). The geometry modules keep their frozen literals; the drift test in
+    tests/test_world_donors.py pins each literal to a row of this table."""
+    from .world.donors import load_donors
+    rows = load_donors()
+    if getattr(args, "klass", None):
+        rows = [r for r in rows if r.get("class") == args.klass]
+    if not rows:
+        print("no donors in this class")
+        return 0
+    for r in rows:
+        alcove = r.get("alcove")
+        print(f"{r['name']:14s} {r['blocks']:10s} {r['class']:10s} {r['status']:12s} "
+              f"aperture={r.get('aperture', 'none')}"
+              + (f" alcove={alcove}" if alcove else ""))
+        if r.get("note"):
+            print(f"               {r['note']}")
+        print(f"               anatomy: {r.get('anatomy_study', '-')}")
+    return 0
 
 
 def _cmd_world_mountain(args: argparse.Namespace) -> int:
@@ -8921,7 +8951,9 @@ def build_parser() -> argparse.ArgumentParser:
                           "stock seam/slope/interior vocabularies (mintable, but a whole island of "
                           "them reads off-language); meadow patches are grass-only")
     wis.add_argument("--beach", default=None, metavar="B0,B1[:WIDTH[:SWASH]]",
-                     help="THE LADDER MINT: replace the cliff wall along the outline arc between "
+                     help="[FALSIFIED -- superseded by `world-transplant --ground`, the (7,17) "
+                          "ground-retile carry; see CLAUDE.md section 8] "
+                          "THE LADDER MINT: replace the cliff wall along the outline arc between "
                           "bearings B0..B1 (degrees CCW, east=0, south=270) with the measured beach "
                           "profile (berm -> sand band -> foam ribbon) and mint its water ladder "
                           "(wash collar -> sea1 ring -> sea5 ring, the sea4 plane cut back) -- "
@@ -9029,11 +9061,11 @@ def build_parser() -> argparse.ArgumentParser:
                       help="scan a ~20u window around this point for the best lawful plain-grass placement "
                            "(exact 90-deg rotations as fallbacks)")
     wmt.add_argument("--donor", default="0,0", metavar="BX[,-BX1],BY[-BY1]",
-                     help="real block(s) whose rock massif to carry: one block (default 0,0 = Uaho, alcove + "
-                          "aperture-plug anatomy studied) or a rect for a massif that straddles a border "
-                          "(10,5-6 = the crag; the target sizes itself to a multi-block span automatically). "
-                          "A new donor needs its own anatomy pass first -- see "
-                          "studies/overworld-topography/README.md.")
+                     help="real block(s) whose rock massif to carry: one block (default 0,0 = Uaho) or a "
+                          "rect for a massif that straddles a border (the target sizes itself to a "
+                          "multi-block span automatically). The qualified-donor catalog is "
+                          "`ff9mapkit world-donors --class massif`; a NEW donor needs its own anatomy "
+                          "pass first (studies/overworld-topography/README.md).")
     wmt.add_argument("--reach", type=float, default=96.0,
                      help="deployed-block load window around the point in units (default 96)")
     wmt.add_argument("--ground", choices=_ground_choices(), default="grass",
@@ -9049,6 +9081,16 @@ def build_parser() -> argparse.ArgumentParser:
     wmt.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wmt.set_defaults(func=_cmd_world_mountain)
+
+    wdn = sub.add_parser("world-donors",
+                         help="print the read-only qualified-donor catalog for the world carry verbs "
+                              "(world/data/donors.toml -- massif/canopy/coast/sea-plane donors, their "
+                              "aperture class + anatomy study + status). The table the --donor help "
+                              "used to hardcode; a drift test pins it to the frozen module literals.")
+    wdn.add_argument("--class", dest="klass", default=None,
+                     choices=("massif", "canopy", "coast", "sea-plane"),
+                     help="show only this donor class")
+    wdn.set_defaults(func=_cmd_world_donors)
 
     wmi = sub.add_parser("world-mirror",
                          help="mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree -- the "

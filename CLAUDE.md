@@ -240,8 +240,9 @@ Each cost real rounds. Full record in the linked study/memory; do not re-litigat
   carrier). → `studies/path-d-new-world/TERRACE-WALL-PREDICTION.md`.
 - **Real content through a synthetic frame is still synthesis** — killed both the v3 bend-carry and the
   dunes label-stamp. A verbatim stamp must carry the **MESH** (verts+uvs+tangents), not row labels.
-- **The beach-mint ladder** (`world-island --beach`) — falsified over 4 playtests. **SUPERSEDED, goal
-  achieved:** the `(7,17)` ground-retile carry (`world-transplant --ground desert`).
+- **THE LADDER MINT** (`world-island --beach` — NOT `world-transplant --beach-mint`, which is live) —
+  falsified over 4 playtests. **SUPERSEDED, goal achieved:** the `(7,17)` ground-retile carry
+  (`world-transplant --ground desert`). The CLI now banners this verdict at the call site.
 - **The dunes MINT at small scale** — the family has a **size class** (≥~130-cell footprint), so even
   genuine stock arrangement quilts on a ~31-cell blob. **SUPERSEDED at real scale** by the true mesh carry.
 - **A canyon ISLAND** — off-language by THE WALL-CONTEXT LAW (canyon's red band is never open-sea coastal).

@@ -1,5 +1,15 @@
 """THE LADDER MINT -- a beach arc on a `world-island` mint (built 2026-07-15).
 
+FALSIFIED IN GAME (4 playtests, 2026-07-15) -- THE LADDER MINT reproduces the beach's
+MEASURED PROPERTIES, never its LOOK (the form lesson: statistics mint marginals, not
+appearance). NOT the beach path: use `world-transplant --ground`, the (7,17)
+ground-retile carry that superseded it -- and note `world-transplant --beach-mint` is a
+DIFFERENT, live lane despite the name. This module is KEPT for the measurement: its
+FOAM_TOPO / sand-band / ring-zip water mechanics are sound and ARE consumed by the
+proven carry -- do not delete it, and do not re-polish the mint lane.
+
+The original design intent, kept for the record:
+
 The desert-beach arc's destination: on OUR islands we own the whole coast, so the
 beach and its water ladder lay out clean -- no border-blind frame rows, no stock
 inlets, no pre-existing contacts. `world-island --beach B0,B1` replaces the cliff

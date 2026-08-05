@@ -5,6 +5,40 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-donors` + the falsified-lane banner: the CLI carries the verdicts
+- The project's falsified/proven verdicts lived in CLAUDE.md §8, a 1200-line study README
+  and code comments — never in `--help`, never at runtime. Now `world-island --beach`
+  (THE LADDER MINT, falsified over 4 playtests; not `world-transplant --beach-mint`, which
+  is live) banners its verdict in `--help`, at runtime, and in the module docstring, each
+  pinned by a test that goes red if the banner is deleted. And the qualified-donor list —
+  which contradicted itself across sources — is now the read-only catalog
+  `world/data/donors.toml`, printed by `world-donors [--class massif]`; a DRIFT test pins
+  every frozen donor literal in interior/island/transplant to a catalog row, so the table
+  cannot become a fifth stale copy. The geometry modules keep their bit-frozen literals by
+  design. Audit rec 13.
+
+### Added — `frames.py`: the canonical coordinate frames, additive only
+- `world/frames.py` states the world/block/lattice conventions in NAMES: `lattice_ij`
+  (j≥0 from negated z) vs `lattice_raw_xz` (j≤0 raw floor) — the same input, different j,
+  now a name mismatch instead of a silent sign bug; `wrap_world_xz` is the ONE toroidal
+  fold (moved from navimap; coastnav's ground query now folds BOTH axes). The falsifier
+  test ran FIRST and proved the 14 scattered literals already agree, so nothing was
+  refactored — existing call sites keep their playtest-proven arithmetic (directional
+  rule: new code imports frames). Loudness: `terrain reshape` reports `off_grid` + a SEAM
+  NOTE instead of silently not touching the far side of the world seam, and the placement
+  census's `frame="block_local"` refuses a world-frame mesh that would have passed
+  vacuously green. Audit rec 12.
+
+### Added — ONE engine-cited registration order; the census measures the carried ensemble
+- `placement.REGISTRATION_ORDER` (cited to `WMWorld.cs LoadBlock`) replaces four
+  hardcoded copies in three mutually inconsistent orders; `build_meshlist()` is the one
+  constructor and `census()` refuses an out-of-order stack. `world-mountain`'s census now
+  measures the REAL carried Object/Falls/River/RiverJoint overrides instead of hidden
+  blanks — Object registers ahead of Terrain, so a carried massif Object over the probe
+  point fails the gate instead of passing by omission. Also fixes the stacked read's
+  `str.capitalize` wart that could never name a deployed `RiverJoint` override. Audit
+  rec 11.
+
 ### Added — `world-readback`: the zero-consumer instrument gets its first reader
 - The s22 debug menu's block dump (engine ACTUALS: every child mesh, the walkmeshes the
   Raycast reads, the bound material/shader/texture) shipped with zero consumers — every
