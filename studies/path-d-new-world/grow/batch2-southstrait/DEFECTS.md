@@ -3,6 +3,22 @@
 > **★ Both fixes owner-verified in-game same day: "looks good."** c4 approved as the next
 > round ("c4 next") — in progress below.
 
+> ⚠ **OPEN — the c4 water fill is visibly stretched (owner in-game, 2026-08-05):** "seems
+> weirdly stretched or something" at world ~(390-398, -644..-649), Block[6][10] Sea4.
+> Byte-confirmed: the c4 fix's CONTINUE-AFFINE cells (local (4,-7.2)..(8,-9.2) etc., tris
+> t236/t237/t230/t231) inherited their UV map from a parent Sea4 tile that is itself a
+> donor coast-cut remnant with a skewed affine — the weld made the seam invisible but
+> propagated the parent's distortion (measured uv span up to 0.694 over a 4u tri vs the
+> lawful ~0.504, u escaping negative to -0.2954). **THE WATER DENSITY GATE** (the permanent
+> coast-morph rule that every emitted water tri's density must sit inside the real donor
+> envelope) was not in the c4 gate suite, and the rim retile can't repair Sea4 (it plans
+> sea3/sea5 only). A fix workflow was launched (re-emit the violating cells through a
+> harvested mains map, census the c2 fill + east-wangs conversions for siblings) and
+> **STOPPED MID-RUN by the owner before any write** — diagnosis/design only, nothing
+> applied, install unchanged. Resume: re-run the density census + fix over Block[6][10]
+> Sea4 (and audit Block[7][10]'s c2 fill + the east-wangs Sea4/Sea5 conversions for the
+> same class) before the next 9013 session.
+
 ## 1. The clipped desert wedge at (473,−643) — FIXED
 
 **Diagnosis (bytes):** the donor's own content — a toe of stock (7,14)'s landmass poking
