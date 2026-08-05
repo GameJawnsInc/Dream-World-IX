@@ -4271,6 +4271,20 @@ def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
           f"   of {a['tiles']} rim tiles")
     if a["under"]:
         print("  !! WARNING: hard seams remain -- review in-game before shipping")
+    # THE NEIGHBOUR-FACING GATE: seam_report scores a tile against its own geometry; these two
+    # ask the NEIGHBOUR and the SHAPE. Stock disc 1 ships 6 contradicting edges in 60,689 (0.010%)
+    # and not one is sea5|sea5, so anything here is off-language -- it is what the owner reads as
+    # a "mis-aligned edge" (rimretile._PINCH_PREFS, the 2026-08-05 east-frame round).
+    ed = rep.get("edges_disagreeing") or {}
+    print(f"  CONTRADICTING EDGES (one side paints deep, the other shallow): "
+          f"{ed.get('before', '?')} -> {ed.get('after', '?')}")
+    for c in (rep.get("contradictions") or [])[:12]:
+        (bx, by, i, j), d, here, there = c
+        print(f"     !! ({bx},{by}) cell ({i},{j}) -{d}-> {here} | {there}"
+              f"   world x={bx * 64 + i * 4} z={-by * 64 - j * 4}")
+    for cell, ds in (rep.get("unpaintable") or [])[:12]:
+        print(f"     !! UNPAINTABLE {cell} geo={ds} -- a one-cell-wide shallow strip; no wang "
+              f"tile serves it. Let the deep CLOSE over it (repartition to Sea4).")
     if rep.get("dry_run"):
         print("  dry run -- nothing written")
     else:

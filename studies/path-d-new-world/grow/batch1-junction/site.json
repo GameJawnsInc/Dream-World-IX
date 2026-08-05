@@ -1,0 +1,450 @@
+{
+ "island": {
+  "name": "Path D junction-compose two-ground landmass (world 9013, sentinel disc 9)",
+  "blocks": [
+   [
+    0,
+    16
+   ],
+   [
+    1,
+    16
+   ],
+   [
+    2,
+    16
+   ],
+   [
+    3,
+    16
+   ],
+   [
+    4,
+    16
+   ],
+   [
+    0,
+    17
+   ],
+   [
+    1,
+    17
+   ],
+   [
+    2,
+    17
+   ],
+   [
+    3,
+    17
+   ],
+   [
+    4,
+    17
+   ],
+   [
+    0,
+    18
+   ],
+   [
+    1,
+    18
+   ],
+   [
+    2,
+    18
+   ],
+   [
+    3,
+    18
+   ],
+   [
+    4,
+    18
+   ],
+   [
+    0,
+    19
+   ],
+   [
+    1,
+    19
+   ],
+   [
+    2,
+    19
+   ],
+   [
+    3,
+    19
+   ],
+   [
+    4,
+    19
+   ]
+  ],
+  "world_bbox": {
+   "x": [
+    35.0,
+    283.0
+   ],
+   "z": [
+    -1275.0,
+    -1029.0
+   ]
+  },
+  "shape": "one oval two-ground island, 48301 clean 1u samples in a SINGLE 8-connected component, 0 stacked-walkable points; grass mains (topo 0/3) wrapping a desert(16)+dunes(41) interior mass at x 97..231 / z -1205..-1105, plus a small grass-sand (topo 31) patch on the west lobe; the rim is topo-58 coastal wall, everything outside is Sea4",
+  "topo_mix": {
+   "0": 42628,
+   "16": 3417,
+   "41": 1937,
+   "31": 190,
+   "3": 129
+  },
+  "y_range": [
+   0.92,
+   6.43
+  ],
+  "designation": "NEXT-STUDIES.md junction_compose carry; rung6/site.json other_disc9_clusters.junction_compose"
+ },
+ "landing": {
+  "x": 157.0,
+  "z": -1230.0,
+  "y": 3.0,
+  "face": 122,
+  "face_note": "face 122 = (dx,dz)=(-sin(f/256*2pi),-cos(f/256*2pi))=(-0.147,+0.989); it is the exact bearing to the trigger disc AND within 2 bytes of the measured peak second-ground view (face 120, 4123 samples in cone vs 4115 at face 122)",
+  "cell": [
+   4,
+   38
+  ],
+  "block": [
+   2,
+   19
+  ],
+  "topograph": 0,
+  "idall": 0,
+  "mesh": "Terrain",
+  "arrival_query": "sky cast origin y+400 -> walkable",
+  "walking_query_y": 3.0,
+  "local_relief_5u": 0.0,
+  "radial_clearance_u": 46,
+  "interior_margin_u": 38,
+  "walkable_sheets": 1,
+  "second_ground": {
+   "nearest": [
+    144.0,
+    -1205.0
+   ],
+   "nearest_dist": 28.2,
+   "nearest_bearing_byte": 108,
+   "centroid_within_90u": [
+    148.8,
+    -1171.0
+   ],
+   "centroid_bearing_byte": 122,
+   "best_cone_faces": [
+    [
+     120,
+     4123
+    ],
+    [
+     122,
+     4115
+    ],
+    [
+     124,
+     4059
+    ],
+    [
+     118,
+     3995
+    ],
+    [
+     126,
+     3927
+    ]
+   ],
+   "cone_at_chosen_face": 4115,
+   "ground_within_20u": {
+    "0": 1257
+   },
+   "grass_fraction_20u": 1.0,
+   "front_distance_along_face": 31,
+   "walkable_ends_along_face": null,
+   "cone_ground_mix": {
+    "0": 3242,
+    "16": 2178,
+    "41": 1937
+   },
+   "cone_second_ground_pct": 55.9
+  },
+  "sees": "Standing on the open southern grass plain, 100% grass mains within 20u, dead flat at y=3.00. Facing 122 the camera looks straight up the island's long axis: the grass runs 31u ahead and then turns into the desert(16)/dunes(41) interior mass, which fills 55.9% of the +-35deg / 110u forward cone -- the widest second-ground view measured anywhere on the island. The coast is 38-46u behind and to either side, so the frame is land, not sea. The trigger disc sits at the FAR seam of that same mass, dead ahead."
+ },
+ "trigger": {
+  "cell": [
+   4,
+   35
+  ],
+  "cell_centre": [
+   144,
+   -1136
+  ],
+  "block": [
+   2,
+   17
+  ],
+  "block_origin": [
+   128,
+   -1088
+  ],
+  "override_relpath": "FF9_Data/WorldMap/Disc9/0_1/r17/Block[2][17] Terrain.ff9mesh",
+  "override_abspath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc9\\0_1\\r17\\Block[2][17] Terrain.ff9mesh",
+  "override_exists": true,
+  "cell_tag": "0xa311",
+  "retarget": {
+   "center": [
+    144.0,
+    -1136.0
+   ],
+   "radius": 14.0,
+   "note": "largest disc that is 100% walkable census-clean AND stays >=2u inside the 32u cell; the same test anchored at the geometric cell centre also reaches 14u"
+  },
+  "clean_samples": 1024,
+  "topo_mix": {
+   "0": 597,
+   "41": 241,
+   "16": 186
+  },
+  "disc_topo_mix": {
+   "0": 349,
+   "16": 133,
+   "41": 131
+  },
+  "centre_y": 2.856771,
+  "centre_topo": 0,
+  "openness_notes": [],
+  "tri_census": {
+   "walkable": 173,
+   "blocked": 0,
+   "blocked_pct": 0.0
+  }
+ },
+ "runner_up": [
+  {
+   "cell": [
+    4,
+    36
+   ],
+   "centre": [
+    144,
+    -1168
+   ],
+   "block": [
+    2,
+    18
+   ],
+   "distance_u": 63.6,
+   "retarget": {
+    "center": [
+     144.0,
+     -1168.0
+    ],
+    "radius": 14.0
+   },
+   "blocked_pct": 0.0,
+   "clean_samples": 1024,
+   "topo_mix": {
+    "41": 777,
+    "0": 180,
+    "16": 67
+   },
+   "route": "greedy heading-lock ARRIVES in 142 ticks",
+   "note": "the HEART of the dune field (76% topo-41). More dramatic, less legible: the player stops mid-dunes with no seam to read as a landmark."
+  },
+  {
+   "cell": [
+    5,
+    35
+   ],
+   "centre": [
+    176,
+    -1136
+   ],
+   "block": [
+    2,
+    17
+   ],
+   "distance_u": 95.7,
+   "retarget": {
+    "center": [
+     176.0,
+     -1136.0
+    ],
+    "radius": 14.0
+   },
+   "blocked_pct": 0.0,
+   "clean_samples": 1024,
+   "topo_mix": {
+    "0": 703,
+    "16": 321
+   },
+   "route": "greedy heading-lock ARRIVES in 215 ticks",
+   "note": "same distance band, one cell east; 69% grass. Use if the exit should read as 'back on the grass' rather than 'on the seam'."
+  }
+ ],
+ "distance_u": 94.9,
+ "clearances": {
+  "landing": {
+   "nearest_event_cell": 21,
+   "nearest_inherited_tag_cell": 21
+  },
+  "trigger": {
+   "nearest_event_cell": 18,
+   "nearest_inherited_tag_cell": 18
+  }
+ },
+ "route": {
+  "mode": "greedy heading-lock, no waypoints",
+  "ok": true,
+  "engine_ticks": 215,
+  "ends_at": [
+   144.23,
+   -1137.64
+  ],
+  "waypoints": [],
+  "to_cell_centre": {
+   "ok": true,
+   "steps": 215,
+   "stalls": 0,
+   "end": [
+    144.23,
+    -1137.64,
+    3.06
+   ],
+   "maxdrop": 0.22999999999999954
+  },
+  "checkpoints": [
+   [
+    157,
+    -1230
+   ],
+   [
+    155,
+    -1219
+   ],
+   [
+    154,
+    -1208
+   ],
+   [
+    152,
+    -1197
+   ],
+   [
+    151,
+    -1186
+   ],
+   [
+    149,
+    -1176
+   ],
+   [
+    148,
+    -1165
+   ],
+   [
+    147,
+    -1154
+   ],
+   [
+    145,
+    -1144
+   ],
+   [
+    144,
+    -1138
+   ]
+  ],
+  "ground_crossings": [
+   "tick 0 (157,-1230) grass",
+   "tick 71 (152.7,-1198.8) -> SECOND GROUND (desert/dunes)",
+   "tick 162 (147.3,-1159.7) -> grass sliver",
+   "tick 167 (147.0,-1157.7) -> SECOND GROUND",
+   "tick 210 (144.5,-1139.4) -> grass, arrives on the far seam"
+  ],
+  "trail_note": "215 ticks, EVERY tick is a plain 'move' -- zero deflections, so the straight line landing->trigger is walkable end to end with no obstacle avoidance at all. y climbs 2.86 -> 5.05 -> 2.86 over the dune rise; max |dy| per tick 0.234u. ~139 of 215 ticks (65%) are spent ON the second ground: the route IS the junction crossing."
+ },
+ "confirmations": {
+  "event_armed_tiles_on_landmass": 0,
+  "event_armed_cells_on_landmass": [],
+  "idall_census": "every tri of every Terrain/Object/Beach1 file of the 20 junction blocks: 8 distinct raw IDALL values, all with event=0 and area=0; Terrain raws {0:topo0, 232:topo58, 64:topo16, 164:topo41, 124:topo31, 12:topo3}; the only non-zero non-topograph bit anywhere is flags=1 on the 1-tri Object/Beach1 placeholders (20+20 tris)",
+  "event_armed_cells_elsewhere_on_disc9": [
+   [
+    5,
+    9,
+    1,
+    2
+   ],
+   [
+    13,
+    17,
+    1,
+    14
+   ],
+   [
+    27,
+    31,
+    1,
+    5
+   ],
+   [
+    41,
+    35,
+    1,
+    2
+   ]
+  ],
+  "inherited_tag_span": {
+   "cell_x": [
+    13,
+    43
+   ],
+   "cell_z": [
+    17,
+    34
+   ],
+   "funcs": 42,
+   "entry0_funcs_total": null
+  },
+  "landing_cell_in_tag_span": false,
+  "trigger_cell_in_tag_span": false,
+  "tag_collision": {
+   "landing_event1": "0xa611",
+   "trigger_event1": "0xa311",
+   "trigger_event2": "0xa312",
+   "already_present_in_world13_entry0": false
+  },
+  "id_30951": {
+   "FF9CustomMap": "FREE",
+   "FF9CustomMap_world": "FREE",
+   "taken_309xx": [
+    "30900 (FieldScene TEST30900 + MessageFile)",
+    "30950 (FieldScene PATHDGATE + MessageFile, rung 6 bench)"
+   ],
+   "note": "both live DictionaryPatch.txt files read; 30951 appears in neither. Registering it needs a RELAUNCH."
+  }
+ },
+ "provenance": {
+  "instrument": "studies/path-d-new-world/walk_sim.py (BENCH-WALK-SIM.md, calibrated 4/4)",
+  "read_only": true,
+  "deploys": 0,
+  "game_writes": 0,
+  "scripts": [
+   "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX--claude-worktrees-path-d-rung-6-handoff-e2535a\\fdfd42b8-408f-4aab-b9bf-dfcca755c3b8\\scratchpad\\jcommon.py",
+   "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX--claude-worktrees-path-d-rung-6-handoff-e2535a\\fdfd42b8-408f-4aab-b9bf-dfcca755c3b8\\scratchpad\\probe_j_survey.py",
+   "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX--claude-worktrees-path-d-rung-6-handoff-e2535a\\fdfd42b8-408f-4aab-b9bf-dfcca755c3b8\\scratchpad\\probe_j_site.py",
+   "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX--claude-worktrees-path-d-rung-6-handoff-e2535a\\fdfd42b8-408f-4aab-b9bf-dfcca755c3b8\\scratchpad\\probe_j_cellrank.py",
+   "C:\\Users\\skaki\\AppData\\Local\\Temp\\claude\\C--gd-Dream-World-IX--claude-worktrees-path-d-rung-6-handoff-e2535a\\fdfd42b8-408f-4aab-b9bf-dfcca755c3b8\\scratchpad\\probe_j_spec.py"
+  ]
+ }
+}

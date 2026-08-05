@@ -188,3 +188,136 @@ def test_plan_rim_spares_the_shore_system(monkeypatch):
     got = set(plan.get((5, 5), {}))
     assert (6, 6) not in got and (6, 7) not in got   # shore-adjacent: spared
     assert (8, 6) in got and (8, 8) in got           # open-water crop edge: planned
+
+
+def _pinch_grids(sh_n, sh_e, sh_s, sh_w):
+    """One sea5 cell at (7, 7) with the four named neighbour shades; everything wet."""
+    shade_g = [["sea5"] * RR.G for _ in range(RR.G)]
+    shade_g[7][6], shade_g[8][7] = sh_n, sh_e
+    shade_g[7][8], shade_g[6][7] = sh_s, sh_w
+    return {(5, 5): shade_g}, {(5, 5): [[True] * RR.G for _ in range(RR.G)]}
+
+
+def test_representable_PASSES_THROUGH_every_wang_key():
+    """The fold must be inert on the 12 keys the alphabet already has -- an over-eager
+    normalizer would silently re-tile lawful quads."""
+    shade, water = _pinch_grids("sea5", "sea5", "sea5", "sea5")
+    for ds in W.DEEPSET2TILE:
+        assert RR.representable(ds, shade, water, [(5, 5)], 5, 5, 7, 7) == ds
+    assert RR.representable(frozenset(), shade, water, [(5, 5)], 5, 5, 7, 7) == frozenset()
+    four = frozenset("NESW")                     # not a pinch: plan targets sea4, still refused
+    assert RR.representable(four, shade, water, [(5, 5)], 5, 5, 7, 7) == four
+
+
+def test_representable_folds_an_OPPOSITE_PINCH_onto_the_containing_triple():
+    """THE OPPOSITE-PINCH RULE: EW/NS are not keys of DEEPSET2TILE at all, so NO harvest
+    can ever cover them; stock ships the shape and resolves it 5/5 with a 3-deep tile
+    CONTAINING the pair (never a 1-deep tip, which would be an UNDER -- the defect)."""
+    assert frozenset("EW") not in W.DEEPSET2TILE and frozenset("NS") not in W.DEEPSET2TILE
+    shade, water = _pinch_grids("sea5", "sea4", "sea5", "sea4")
+    got = RR.representable(frozenset("EW"), shade, water, [(5, 5)], 5, 5, 7, 7)
+    assert got in W.DEEPSET2TILE and frozenset("EW") < got      # representable AND a superset
+    assert got == frozenset("ESW")                              # stock's 3:2 majority side
+    shade, water = _pinch_grids("sea4", "sea5", "sea4", "sea5")
+    got = RR.representable(frozenset("NS"), shade, water, [(5, 5)], 5, 5, 7, 7)
+    assert got == frozenset("NSW") and frozenset("NS") < got
+
+
+def test_representable_never_points_a_new_deep_quarter_at_SEA3():
+    """The preferred side is skipped when it is sea3 -- adding a deep-facing quarter
+    toward shallow sea3 is the exact adjacency this operator exists to remove."""
+    shade, water = _pinch_grids("sea5", "sea4", "sea3", "sea4")   # S is sea3, N is sea5
+    assert RR.representable(frozenset("EW"), shade, water, [(5, 5)], 5, 5, 7, 7) \
+        == frozenset("ENW")
+    shade, water = _pinch_grids("sea4", "sea5", "sea4", "sea3")   # W is sea3, E is sea5
+    assert RR.representable(frozenset("NS"), shade, water, [(5, 5)], 5, 5, 7, 7) \
+        == frozenset("ENS")
+
+
+def test_plan_rim_folds_the_pinch_so_uncovered_stops_refusing(monkeypatch):
+    """End to end: an opposite-pinched frame quad used to make `uncovered` refuse the whole
+    retile (the horseshoe carry, 2026-08-05); it now plans a tile the vocabulary has."""
+    shade, water = _pinch_grids("sea5", "sea4", "sea5", "sea4")
+    monkeypatch.setattr(RR, "_grids", lambda cells: (shade, water))
+    monkeypatch.setattr(RR, "_sea5_deepsets", lambda parts: {})
+    plan = RR.plan_rim({(5, 5): {}})
+    assert plan[(5, 5)][(7, 7)][1] == frozenset("ESW")
+    have = {tuple(o): {} for ds in W.DEEPSET2TILE for o in W.DEEPSET2TILE[ds]}
+    assert RR.uncovered(plan, have) == []
+    # and the raw geometry still reads EW, so seam_report scores it honestly as an OVER
+    assert RR.deepset(shade, water, [(5, 5)], 5, 5, 7, 7) == frozenset("EW")
+
+
+# --------------------------------------------------------------------------- the neighbour-facing gate
+def _grid(shallow: dict, *, wet=None):
+    """A one-block shade/water pair: ``shallow`` maps (i, j) -> 'sea3'/'sea5', rest is deep."""
+    sh = [["sea4"] * RR.G for _ in range(RR.G)]
+    for (i, j), v in shallow.items():
+        sh[i][j] = v
+    wa = [[True] * RR.G for _ in range(RR.G)]
+    for (i, j) in (wet or ()):
+        wa[i][j] = False
+    return {(0, 0): sh}, {(0, 0): wa}
+
+
+def _patch(monkeypatch, shade, water, painted):
+    monkeypatch.setattr(RR, "_grids", lambda cells: (shade, water))
+    monkeypatch.setattr(RR, "_sea5_deepsets",
+                        lambda parts: {c: frozenset(v) for c, v in painted.items()})
+
+
+def test_edge_disagreements_catches_what_seam_report_calls_CLEAN(monkeypatch):
+    """THE DEFECT the owner reported as a *mis-aligned edge* (world 513,-689 / 513,-760):
+    two transition tiles that each answer their own geometry and CONTRADICT each other at the
+    shared line. seam_report scores a tile against its own neighbourhood and stays green.
+    Stock ships 6 contradicting edges in 60,689 and ZERO of them is sea5|sea5."""
+    # the deployed east column verbatim: ENW over ESW over ESW, deep all around
+    shade, water = _grid({(7, 6): "sea5", (7, 7): "sea5", (7, 8): "sea5"})
+    _patch(monkeypatch, shade, water, {(7, 6): "ENW", (7, 7): "ESW", (7, 8): "ESW"})
+    bad = RR.edge_disagreements({(0, 0): {}})
+    assert bad == [((0, 0, 7, 7), "S", "ESW", "ESW")]        # I paint S deep, you paint N shallow
+    # ...and the same two tiles over a strip the deep closes one cell earlier are silent
+    shade2, water2 = _grid({(7, 6): "sea5", (7, 7): "sea5"})
+    _patch(monkeypatch, shade2, water2, {(7, 6): "ENW", (7, 7): "ESW"})
+    assert RR.edge_disagreements({(0, 0): {}}) == []
+
+
+def test_edge_disagreements_reads_the_MAINS_shades_too(monkeypatch):
+    """A sea3 tile paints no deep edge and a sea4 paints four, so abutting them IS a
+    contradiction -- the 'stock abuts sea3 to deep NOWHERE map-wide' law, now measured at the
+    edge rather than inferred per tile."""
+    shade, water = _grid({(7, 7): "sea3"})
+    _patch(monkeypatch, shade, water, {})
+    assert len(RR.edge_disagreements({(0, 0): {}})) == 4     # all four sides face sea4
+    shade, water = _grid({(i, 7): "sea3" for i in range(RR.G)})
+    _patch(monkeypatch, shade, water, {})
+    # a full sea3 ROW still contradicts the deep above and below, never its own neighbours
+    assert all(d == "S" for (_c, d, _a, _b) in RR.edge_disagreements({(0, 0): {}}))
+
+
+def test_edge_disagreements_ignores_an_UNREADABLE_coast_cut_tile(monkeypatch):
+    """A cut cell's tile fits no pure rotation, so there is nothing to compare -- scoring it
+    as 'shallow everywhere' would invent contradictions along every real coastline."""
+    shade, water = _grid({(7, 6): "sea5", (7, 7): "sea5", (7, 8): "sea5"})
+    _patch(monkeypatch, shade, water, {(7, 6): "ENW", (7, 7): "ESW"})    # (7,8) unreadable
+    assert RR.edge_disagreements({(0, 0): {}}) == []
+
+
+def test_unpaintable_sliver_when_NEITHER_neighbour_can_absorb(monkeypatch):
+    """A one-cell-wide shallow strip: its middle is an EW pinch and both ends are already
+    3-deep, so no MUTUAL fold exists and no wang tile serves it. Stock ships zero
+    deep-enclosed shallow components and zero one-wide runs longer than one cell."""
+    shade, water = _grid({(7, 6): "sea5", (7, 7): "sea5", (7, 8): "sea5"})
+    _patch(monkeypatch, shade, water, {})
+    assert RR.unpaintable_slivers({(0, 0): {}}) == [((0, 0, 7, 7), "EW")]
+
+
+def test_unpaintable_is_SILENT_on_the_neck_stock_itself_ships(monkeypatch):
+    """The other side of the same law: widen either lobe by one cell and the pinch's
+    neighbour is only 1-deep, so it CAN take the mutual over and stay a wang key -- exactly
+    stock's (4,15)@(12,5) (pinch ENW, its N neighbour painting ES off a bare E geometry)."""
+    shade, water = _grid({(7, 6): "sea5", (7, 7): "sea5", (7, 8): "sea5",
+                          (6, 6): "sea5", (6, 8): "sea5"})
+    _patch(monkeypatch, shade, water, {})
+    assert RR.deepset(shade, water, [(0, 0)], 0, 0, 7, 7) == frozenset("EW")   # still a pinch
+    assert RR.unpaintable_slivers({(0, 0): {}}) == []

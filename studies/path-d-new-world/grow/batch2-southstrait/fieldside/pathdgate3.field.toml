@@ -1,0 +1,65 @@
+# PATHDGATE3 (30952) -- grow-9013 batch 2: the FIELD-SIDE gate to the HORSESHOE island.
+#
+# Second verse of rung 6's PATHDGATE (30950), byte-for-byte the same bench shape; only the
+# id/name/text block and the landmark labelling differ. The world jump is spliced into the
+# DEPLOYED .eb afterwards by rung6/fieldside/inject_worldjump.py with --field-name PATHDGATE3
+# and the HORSESHOE landing coords (see ../PLAN.md) -- landing coordinates live in the
+# injection, never in this file. Same reason as rung 6: no declarative [[gateway]] target
+# reaches a custom world id.
+#
+# GEOMETRY is ARRTEST's verbatim (see rung6/fieldside/pathdgate.field.toml for the full
+# commentary on the camera, the zone edge-order, and the reachability of the gate strip).
+
+[field]
+id = 30952
+name = "PATHDGATE3"
+area = 11
+text_block = 30952       # the field's OWN id -- never a real block (the text-block shadow trap)
+title = "PATHDGATE3 -- 9013 horseshoe-island entrance bench"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, 0]           # back-centre: a debug ~ warp / unmatched entrance lands here,
+face = 0                 # facing SOUTH = down-screen, straight at the gate pad
+
+# The return leg: the junction landmass's exit trigger sets D8:2 = 9999 before Field(30952).
+[[player.arrival]]
+entrance = 9999
+pos = [0, -1100]
+face = 128
+
+# --- the LANDMARK (bench-visible-landmarks rule) -- same composite pad as rung 6 ---
+[[prop]]
+prop = "teleport_pad"
+pos = [0, -1700]
+collision = false
+
+[[prop]]
+prop = "balloon"
+pos = [0, -1700]
+collision = false
+
+# --- authoring reference only (build-inert): draws the injected zone on the layout probe ---
+[[marker]]
+name = "worldgate_zone"
+pos = [0, -1700]
+path = [[-600, -1900], [600, -1900], [600, -1500], [-600, -1500]]
+closed = true

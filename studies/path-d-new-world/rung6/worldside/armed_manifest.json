@@ -18,5 +18,45 @@
    "walkable_only": true,
    "armed_tris": 14
   }
+ ],
+ "2,17": [
+  {
+   "armed_md5": "03ea2d4887e94b17e0ec9c0222f43f01",
+   "from_md5": "325137cb965d931eb8a56fc79707bf5c",
+   "from_accepted_bench": false,
+   "utc": "2026-08-05T15:12:14+00:00",
+   "cell": [
+    4,
+    35
+   ],
+   "event": 1,
+   "center": [
+    144.0,
+    -1136.0
+   ],
+   "radius": 14.0,
+   "walkable_only": true,
+   "armed_tris": 103
+  }
+ ],
+ "6,11": [
+  {
+   "armed_md5": "d852632ab7d9fb9bc498ee82b4bd43ac",
+   "from_md5": "1161abc70191544551a30a32b2fcea61",
+   "from_accepted_bench": false,
+   "utc": "2026-08-05T18:25:07+00:00",
+   "cell": [
+    13,
+    22
+   ],
+   "event": 1,
+   "center": [
+    428.0,
+    -721.0
+   ],
+   "radius": 9.0,
+   "walkable_only": true,
+   "armed_tris": 31
+  }
  ]
 }
