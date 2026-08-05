@@ -6,12 +6,24 @@
 > not against stock Memoria. No in-game behaviour was observed by anyone in this
 > pass — where a mechanism has never run, it says UNVERIFIED.
 
-**STATUS: ★ rungs 0 + 0b + T1 + T1b ALL OWNER-CONFIRMED in-game. Every DLL-free read path works, the offline `journal report` reads a real save, and the 7-page in-game dashboard opens, holds, and shows its own LIVE numbers on bench 30801 (Chocobo 9/24 found, beak 16/99; Mognet delivered 12; Party gil 27684, key items 21/80; Meta play time 31h31). ⚠ Windows self-closing during a playtest = TURBO-DIALOG (F9), not the mod -- check that FIRST (§7.1). ★ ROUND 6 closed the owner's two remaining verdicts, both UNPLAYTESTED: the `[[text_table]]` lane so the two STRING rows resolve live (T.Hunter rank, Hunt winner) instead of shipping a frozen literal, and pages that render ONLY rows with a live `.eb` read (the 18 that cannot keep their reason in the catalog, off the screen) -- Party is now 2 lines, Combat & Meta 3, and "S. purchases" is gone. NEXT = playtest 30801 for the rank letter + winner name, then the T2-vs-catalog scope call (§7.2 Q3).**
-paths work; `Null.SBit[5]` returns real Treasure-Hunter points, and the in-game
-`.eb` and the offline decoder cross-validate exactly (§7.1). ★ T1 BUILT — 48-row
-`journal report` over a real save container. NEXT = rung 0b, a 2-row re-probe to
-resolve `flex(16,3)`, then the T2-vs-catalog scope call (§7.2 Q3).**
+**STATUS: ★ rungs 0 + 0b + T1 + T1b ALL OWNER-CONFIRMED in-game. Every DLL-free read path works, the offline `journal report` reads a real save, and the 7-page in-game dashboard opens, holds, and shows its own LIVE numbers on bench 30801 (Chocobo 9/24 found, beak 16/99; Mognet delivered 12; Party gil 27684, key items 21/80; Meta play time 31h31). ⚠ Windows self-closing during a playtest = TURBO-DIALOG (F9), not the mod -- check that FIRST (§7.1). ★ ROUND 6 closed the owner's two remaining verdicts, both UNPLAYTESTED: the `[[text_table]]` lane so the two STRING rows resolve live (T.Hunter rank, Hunt winner) instead of shipping a frozen literal, and pages that render ONLY rows with a live `.eb` read (the 18 that cannot keep their reason in the catalog, off the screen) -- Party is now 2 lines, Combat & Meta 3, and "S. purchases" is gone. NEXT = playtest 30801 for the rank letter + winner name.**
 
+**★ §7.2 Q3 ANSWERED BY THE OWNER (the tier decision): FULL FIDELITY — the
+walkthrough-shaped journal, T4-high, "aware that it will take a massive amount of
+human authoring" (their words). Consequences now in force: (1) the Q2/Q2b censuses
+run FIRST and their numbers bound the generator claim before any row is authored;
+(2) the catalog schema freezes only after those numbers land, and it carries the
+set-then-clear window column, `exclusive_group`/`run_mode`, a provenance tag, and
+runtime name resolution (§7.4) from day one; (3) the turbo-proof page primitive
+(`WindowAsync` + `[NFOC]` + input poll) is built BEFORE mass authoring so rows are
+never authored against the wrong surface; (4) Q5 defaults to NON-localized
+(identical bodies in 7 language dirs, the kit's standing convention) unless the
+owner says otherwise; (5) Q4 posture per the owner's earlier ruling: the GameFAQs
+guide is a reference/cross-check, never reproduced — facts re-derived from engine
+bytes + our own censuses, prose original, missable verdicts OURS (from the census
+and the owner's playthrough), not a copy of any compilation's selection. The
+standing owner ask from §4c stays open: disc-3/4 checkpointed saves are worth more
+to this feature than any amount of engineering.**
 ---
 
 ## 1. Verdict
