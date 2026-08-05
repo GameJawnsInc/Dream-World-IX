@@ -20,7 +20,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   echo READOUTS gain it by the same rule the TOML lanes get from `want_no_turbo`.
   Window styles untouched — flags 160/16 are the lanes' stock look and overlay
   mechanism. Known cost, documented at `hud_mes_text`: while a hud strip's guard is
-  asserted, dialogue turbo-skip in that field is mostly off. In-game F9 A/B pending.
+  asserted, dialogue turbo-skip in that field is mostly off. In-game F9 A/B: all three
+  lanes owner-confirmed; the QTE finale needed a round 2 — THE FINALE RENDER-RACE
+  (`[NTUR]` asserts only on a label render pass; the turbo fan-out clears it on every
+  delivery, so a guarded window opening the frame after a turbo-eaten one dies unrendered).
+  The verdicts now carry the guard too (the outcome is a readout in spirit) and
+  `Wait(FINALE_GAP)` idles the machinery before each post-score finale window.
 
 ### Added — guard-rail hardening: skip ceiling, dual-topology check, meshedit properties
 - **THE SKIP CEILING** (`tools/nightly_gate.py --skip-ceiling`, default 32): the collect
