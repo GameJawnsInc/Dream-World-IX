@@ -5,6 +5,35 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the completion Journal: one catalog, an offline report and an in-game dashboard
+- **`ff9mapkit journal report|diff|rows|lint`** reads a real save (`EncryptedSavedData`, AES-256-CBC)
+  and prints a 100%-completion readout: story beat, Treasure-Hunter points and rank, chocographs found
+  and dug, beaches, Stellazzio, ragtime, cards and collector level, Mognet delivery and lock state,
+  gil, key items, play time — **48 rows, each carrying the engine `file:line` its read was derived
+  from**, and `diff` reports what one session completed.
+- **The rows are a CATALOG, not a report.** The same 48 `RowSpec`s carry both a Python reader and an
+  `.eb` expression for the same quantity, so the offline tool and the in-game screen cannot drift:
+  31 rows declare an expression, 17 declare a reason for having none, and a row with **neither or
+  both** fails `journal lint` and a test. Denominators come from the engine's own `AchievementInfo`
+  targets (re-verified identical across `DataWorld` and `DataJapanese`), never from a wiki.
+- **The in-game dashboard (`journalfield`)** renders those rows as seven paged screens on **stock
+  Memoria, no engine patch**: talk to a lectern, pick a category, read live counters published into
+  `gMesValue` by `.eb` expressions immediately before a modal window opens. Because the window is
+  modal, the engine's 8-slot `gMesValue` ceiling becomes *8 per page* rather than 8 globally, which
+  is what makes 48 rows fit in 4.8% of the `.eb` offset budget.
+- **`[[choice]]` options gained `values`** — a list of expressions published to `gMesValue` slots just
+  before that option's reply window. Any reply that echoes a live number can use it; it reuses the
+  hud lane's validator rather than forking it, and the `[TEXT=]` row-index clamp is *emitted* rather
+  than checked.
+- **`eb/exprsem.py`** classifies **all 122 expression operators** by arity and read/write/impure
+  against the C#, with a completeness test that fails in both directions — added because a
+  name-pattern gate had been letting `B_PARTYADD` (which recruits a party member) into a value
+  re-evaluated every frame. It also brings real RPN stack-balance validation; `exprasm.assemble` was
+  never an arity checker despite a docstring saying so.
+- Not shipped, deliberately: **a chest count**. FF9 has no per-chest registry at any price, so the
+  row is declared `untracked` rather than fabricating `N/446` from a figure that does not
+  self-reconcile. Treasure-Hunter points and rank are exact and first-party; those ship instead.
+
 ### Added — `[[text_table]]`, a field's own string banks
 - **`[[text_table]]`** declares a `[TBLE]` string bank (`name` + `rows`) and any authored line can read
   a row from it with `[TEXT=<name>,slot]`, where the slot holds the row index the `.eb` publishes. The
