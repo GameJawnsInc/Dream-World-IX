@@ -5363,6 +5363,41 @@ def _cmd_world_ledger(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_readback(args: argparse.Namespace) -> int:
+    """Reconcile an s22 debug-menu block dump (engine ACTUALS) against the deployed tree."""
+    from .world import readback as RB
+    try:
+        rep = RB.readback(args.dump_dir, mod_folder=args.mod_folder, disc=args.disc,
+                          game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    bx, by = rep["block"]
+    print(f"READBACK block ({bx},{by}) Disc{rep['disc']} vs {args.mod_folder} "
+          f"(engine actuals from the running game's dump):")
+    for c in rep["children"]:
+        if not c["deployed"]:
+            print(f"  {c['child']:10s} {c.get('note')}")
+        elif c["match"]:
+            idn = "" if c.get("idall_match", True) else \
+                f"  !! IDALL DIFFERS engine={c['idall_engine']} deployed={c['idall_deployed']}"
+            print(f"  {c['child']:10s} MATCH vert-for-vert ({c['engine_verts']} verts){idn}")
+        else:
+            mm = c.get("first_mismatch")
+            at = f" first at [{mm['index']}] engine={mm['engine']} deployed={mm['deployed']}" \
+                if mm else f" vert counts differ {c['engine_verts']} vs {c['deployed_verts']}"
+            print(f"  {c['child']:10s} MISMATCH --{at}")
+    for w in rep["walk"]:
+        tgt = w["matches_child"] or "NO deployed child (stock walkmesh, or a divergent build)"
+        print(f"  {w['walkmesh']:22s} form{w['form']} {w['verts']} verts -> {tgt}")
+    print("  bound materials (the EFFECTIVE-PREFAB empirical answer):")
+    for mt in rep["materials"]:
+        onoff = "" if mt["active"] else "  [INACTIVE]"
+        print(f"    {mt['name']:14s} mat={mt['material']} shader={mt['shader']} "
+              f"tex={mt['tex']}{onoff}")
+    return 0
+
+
 def _cmd_world_rename_markers(args: argparse.Namespace) -> int:
     """Rename overworld minimap markers: rewrite the world text block (68) txid-0 label at ``locId+1`` and shadow
     it per-language into the mod folder (``embeddedasset/text/<lang>/field/68.mes``). No DLL; RELAUNCH to apply."""
@@ -9305,6 +9340,22 @@ def build_parser() -> argparse.ArgumentParser:
                      help="hash every deployed Block*.ff9mesh and report unledgered bytes")
     wlg.add_argument("--game", default=None, help=argparse.SUPPRESS)
     wlg.set_defaults(func=_cmd_world_ledger)
+
+    wrb = sub.add_parser("world-readback",
+                         help="reconcile an s22 debug-menu block DUMP (engine ACTUALS: every child "
+                              "mesh, the walkmeshes the Raycast reads, the bound material/shader/"
+                              "texture) against the deployed override tree -- vert-for-vert at "
+                              "float32 width, plus the walk IDALL set. The one instrument that "
+                              "measures the ENGINE instead of our intent. Human-in-the-loop: with "
+                              "the game running and the block loaded, press ~ -> World -> Dump, "
+                              "then point this at ff9mk_dumps/block_<x>_<y>/. Read-only report.")
+    wrb.add_argument("dump_dir", help="the ff9mk_dumps/block_<x>_<y>/ directory the debug menu wrote")
+    wrb.add_argument("--mod-folder", required=True,
+                     help="the FolderNames mod folder whose deployed overrides to reconcile against")
+    wrb.add_argument("--disc", type=int, required=True,
+                     help="the write-disc namespace the dumped world runs on (9 for Path D)")
+    wrb.add_argument("--game", default=None, help=argparse.SUPPRESS)
+    wrb.set_defaults(func=_cmd_world_readback)
 
     wrm = sub.add_parser("world-rename-markers",
                          help="rename overworld minimap MARKER labels: rewrite the world text (block 68), shadowed "

@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-readback`: the zero-consumer instrument gets its first reader
+- The s22 debug menu's block dump (engine ACTUALS: every child mesh, the walkmeshes the
+  Raycast reads, the bound material/shader/texture) shipped with zero consumers — every
+  offline gate scored the kit's intent while the one ground-truth instrument went unread.
+  `world-readback <dump-dir> --mod-folder X --disc N` reconciles a dump against the
+  deployed tree: vert-for-vert at float32 width (the dump's `R`-format floats round-trip
+  float32; float64 `==` would flake), the walk IDALL set from the `# tan` trailers (catches
+  the same-geometry-wrong-identity divert class), which render child each Form1 walkmesh
+  actually is, and the empirically-bound materials the EFFECTIVE-PREFAB law was guessing
+  at. Human-in-the-loop by design: ~ → World → Dump, then run the verb. Audit rec 10
+  complete (step 4, the engine-side sea fallback fix, waits for the next DLL rebuild).
+
 ### Added — the engine's own loader predicates now guard the write seam
 - `validate_blockmesh` transcribes the s34 loader's ReadMesh checks verbatim (version 1;
   vcount 1..65535 — Unity 5.2.3 has 16-bit mesh indices only; icount ≤ vcount*3; every index
