@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — THE PATCH-AVOIDANCE LAW supersedes patch consumption (owner round 7)
+- The whole-component consumption below survived one deploy: it LEGALLY ate the
+  crescent's visible authored meadow (the wobble-escape ladder bit its rim, patch-whole
+  consumed the component) and the island degraded to scattered 1-edge singles. Patch
+  features (topo 4/38/42) are now inviolable: a structural drop touching one REFUSES
+  ("PATCH-AVOIDANCE"), and the ladder consumes MODAL-family tiles only. Consequence,
+  measured by a full scanner sweep: the bent crescent currently has ZERO lawful deep
+  windows — the wobbly-cell fill is the registered reopener. The deployed instance is
+  reverted to the pure excise carry (meadow restored byte-exact, 36/36 grass tris).
+  Build coverage moved to a synthetic fixture (mixed cell, wedge, containment, weld);
+  3 mutations killed.
+
 ### Added — the stacked-sheet walkability census: the gate for walking UNDER the ground
 - `placement.all_sheets` (ported from the bench walk instrument that reproduced the
   lawn-under-hill playtest pin at 0.00u): every filter-passing sheet on the vertical line in

@@ -7172,38 +7172,21 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
         return math.hypot(p[0] - (a[0] + tt * ex), p[2] - (a[2] + tt * ez))
     fill_emit = None
     last_err = None
-    def _patch_whole(dg):
-        # THE PATCH-WHOLE LAW: a drop touching a patch-family component consumes it
-        # WHOLE (a cut patch cannot be seamed -- the census: soft context, no coding);
-        # a component escaping the window's rect cannot be verified whole and refuses
-        cellmap = defaultdict(list)
-        for t3 in win.mains:
+    def _patch_guard(dg):
+        # THE PATCH-AVOIDANCE LAW (supersedes the one-session PATCH-WHOLE consumption,
+        # which legally ATE a visible authored meadow -- owner-refused): patch-family
+        # tiles are artist-authored FORM (the census: 90 rects, soft context, no
+        # coding) and a morph may neither cut NOR consume one. A drop touching any
+        # patch tri refuses; the window/depth must steer clear.
+        for t3 in dg:
             tp = _topo_of(t3)
-            if tp not in PATCH_FAMILIES:
-                continue
-            cx = math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0)
-            cz = math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0)
-            cellmap[(cx, cz, tp)].append(t3)
-        have = {_key_set(t) for t in dg}
-        seeds = {k for k, tris in cellmap.items()
-                 if any(_key_set(t) in have for t in tris)}
-        comp, stack = set(), list(seeds)
-        while stack:
-            c = stack.pop()
-            if c in comp or c not in cellmap:
-                continue
-            comp.add(c)
-            stack += [(c[0] + 1, c[1], c[2]), (c[0] - 1, c[1], c[2]),
-                      (c[0], c[1] + 1, c[2]), (c[0], c[1] - 1, c[2])]
-        x0, x1, zmin, zmax = CliffWindow.region_frame(win.donor, win.size)
-        for (cx, cz, tp) in comp:
-            if not (x0 < 4.0 * cx and 4.0 * cx + 4.0 < x1
-                    and zmin < 4.0 * cz and 4.0 * cz + 4.0 < zmax):
-                raise ValueError(f"PATCH-WHOLE: a topo-{tp} patch component reaches "
-                                 f"the morph's rect frame -- cannot be verified "
-                                 f"whole; widen the region or move the window")
-        return dg + [t3 for c in comp for t3 in cellmap[c]
-                     if _key_set(t3) not in have]
+            if tp in PATCH_FAMILIES:
+                cx = sum(v[0][0] for v in t3) / 3.0
+                cz = sum(v[0][2] for v in t3) / 3.0
+                raise ValueError(f"PATCH-AVOIDANCE: the morph's drop touches a "
+                                 f"topo-{tp} patch feature at ({cx:.1f},{cz:.1f}) "
+                                 f"-- an authored meadow/brush form is neither cut "
+                                 f"nor consumed; steer the window or reduce depth")
 
     for margin in (0.0, 3.2):
         dg = drop_mains
@@ -7219,9 +7202,9 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
             if tiled_lane:
                 # THE WOBBLE-ESCAPE LADDER: stock's lattice wobbles; when the hole
                 # boundary lands on a >snap wobbly edge, consume the KEPT tile that
-                # owns it (patch-whole re-runs -- a consumed patch tri pulls its
-                # component) and retry. Measured convergence on the crescent: 5 hops.
-                dg = _patch_whole(dg)
+                # owns it and retry -- MODAL-family tiles only: a patch owner
+                # re-raises (the ladder must never eat into an authored meadow).
+                _patch_guard(dg)
                 for _hop in range(16):
                     try:
                         fill_emit = _tiled_fill(win, dg, new_crease, ck)
@@ -7232,10 +7215,11 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
                         have = {_key_set(t) for t in dg}
                         own = [t3 for t3 in win.mains
                                if {eka, ekb} <= _key_set(t3)
-                               and _key_set(t3) not in have]
+                               and _key_set(t3) not in have
+                               and _topo_of(t3) not in PATCH_FAMILIES]
                         if not own:
                             raise
-                        dg = _patch_whole(dg + own)
+                        dg = dg + own
                 else:
                     raise ValueError("the wobble-escape ladder did not converge in "
                                      "16 hops -- the hole boundary keeps landing on "
