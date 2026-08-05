@@ -110,12 +110,10 @@ def harvest_variants(donors, *, disc: int = 1, lod: str = "0_1", game=None) -> d
             for k in tri:
                 corners[(i, j)][corner_of(bm.verts[k], i, j)] = tuple(bm.uvs[k])
         for d in corners.values():
-            if all(c in d for c in ((0, 0), (1, 0), (1, 1), (0, 1))):
-                fit = W._fit_tile(d)
-                if fit:
-                    _u0, _u1, v0, _v1, name = fit
-                    per[(W._strip_of(v0), name)].append(
-                        {c: d[c] for c in ((0, 0), (1, 0), (1, 1), (0, 1))})
+            cls = W.classify_sea5_cell(d, min_corners=4)
+            if cls is not None:
+                per[(cls[0], cls[1])].append(
+                    {c: d[c] for c in ((0, 0), (1, 0), (1, 1), (0, 1))})
     out = {}
     for key, maps in per.items():
         rep = maps[0]
@@ -346,13 +344,13 @@ def _sea5_deepsets(parts) -> dict:
         for k in tri:
             corners[(i, j)][corner_of(bm.verts[k], i, j)] = tuple(bm.uvs[k])
     for (i, j), d in corners.items():
-        fit = W._fit_tile(d)
-        if fit:
-            _u0, _u1, v0, _v1, name = fit
-            for ds, opts in W.DEEPSET2TILE.items():
-                if (W._strip_of(v0), name) in [tuple(o) for o in opts]:
-                    out[(i, j)] = ds
-                    break
+        # THE ARITY FIX (audit rec 7): this reader used to fit WHATEVER corners existed --
+        # a 2-corner sliver got the first rotation in ROTS order, an arbitrary answer the
+        # rim audit then iterated to a fixed point on. Now the shared classifier with the
+        # carry gate's explicit >=3 relaxation: the two deepset readers agree by construction.
+        ds = W.sea5_deepset_of(d, min_corners=3, min_uv_span=1e-6)
+        if ds is not None:
+            out[(i, j)] = ds
     return out
 
 

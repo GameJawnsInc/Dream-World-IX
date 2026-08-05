@@ -2467,11 +2467,11 @@ def _sea_shallow_grid(sea_by_name):
 
 def _sea5_deepsets(sea5_bm):
     """{(i,j): deepset} for a Sea5 BlockMesh, fitting cells with >=3 corner UVs (so a 1-triangle shore
-    sliver classifies too), via :func:`ff9mapkit.world.water._fit_tile` + the DEEPSET2TILE inverse."""
+    sliver classifies too), via :func:`ff9mapkit.world.water.sea5_deepset_of` -- THE one classifier
+    (audit rec 7), same spelling as rimretile's reader, so the two agree by construction."""
     from . import water as W
     if sea5_bm is None:
         return {}
-    inv = {sr: ds for ds, variants in W.DEEPSET2TILE.items() for sr in variants}
     corners = collections.defaultdict(dict)
     for tri in sea5_bm.tris:
         i = int((sum(sea5_bm.verts[q][0] for q in tri) / 3) // _CELL)
@@ -2481,15 +2481,9 @@ def _sea5_deepsets(sea5_bm):
             corners[(i, j)][(round((v[0] - i * _CELL) / _CELL), round((-v[2] - j * _CELL) / _CELL))] = sea5_bm.uvs[k]
     out = {}
     for (i, j), d in corners.items():
-        if len(d) >= 3:
-            us = [uv[0] for uv in d.values()]
-            vs = [uv[1] for uv in d.values()]
-            if max(us) - min(us) > 1e-6 and max(vs) - min(vs) > 1e-6:
-                fit = W._fit_tile(d)
-                if fit is not None:
-                    ds = inv.get((W._strip_of(fit[2]), fit[4]))
-                    if ds is not None:
-                        out[(i, j)] = ds
+        ds = W.sea5_deepset_of(d, min_corners=3, min_uv_span=1e-6)
+        if ds is not None:
+            out[(i, j)] = ds
     return out
 
 

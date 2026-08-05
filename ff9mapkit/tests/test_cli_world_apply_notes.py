@@ -35,3 +35,13 @@ def test_the_note_text_carries_both_halves():
     an honesty fix, not a new lie in the opposite direction."""
     assert 'Reload overworld on state' in CLI
     assert "RELAUNCH only for" in CLI
+
+
+def test_the_coupling_note_exists_and_is_widely_wired():
+    """Audit rec 8 (critic #1): the disc mirror was the ONLY auto-run post-step -- vehicle
+    legality, the minimap, and the encounter join go stale silently. Every land-writing
+    handler must print the coupling note; 11 sites were wired at the fix."""
+    assert "def _world_coupling_note(" in CLI
+    calls = re.findall(r"_world_coupling_note\(", CLI)
+    assert len(calls) - 1 >= 10, f"only {len(calls) - 1} call sites remain"
+    assert "world-coastnav" in CLI and "COUPLED, not rebuilt" in CLI

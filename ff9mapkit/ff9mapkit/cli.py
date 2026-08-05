@@ -3704,6 +3704,28 @@ def _world_apply_note(needs: str | None = None, extra: str | None = None) -> Non
         print("  " + extra)
 
 
+def _world_coupling_note(*, coastnav: bool = True, minimap: bool = True,
+                         encounters: bool = False) -> None:
+    """What a geometry edit silently invalidates (audit rec 8 / critic #1): the disc mirror
+    is the ONLY auto-run post-step -- vehicle legality, the minimap, and the encounter join
+    are all functions of the geometry and go stale without a word. This prints the word.
+    (Auto-restamping is deliberately NOT done here: a coastnav stamp needs the coast's
+    vehicle-class intent, and a wrong stamp is exactly the authored surface that mints
+    defects. The reminder is the cheapest 80%.)"""
+    lines = []
+    if coastnav:
+        lines.append("vehicle legality (world-coastnav) is STALE where land/water changed -- "
+                     "an unstamped synthetic coast lets hulls sail through cliffs, and a shore "
+                     "with no get-off tile cannot be landed on")
+    if minimap:
+        lines.append("the big map still draws the OLD land -- re-run world-minimap")
+    if encounters:
+        lines.append("new topographs resolve encounters by (zone, topograph) -- check "
+                     "world-encounters for this zone")
+    if lines:
+        print("  COUPLED, not rebuilt: " + "; ".join(lines) + ".")
+
+
 def _cmd_world_deploy(args: argparse.Namespace) -> int:
     """Deploy an (optionally reshaped) overworld block, or a whole reshaped region, as loose .ff9mesh override(s)
     (needs the WorldMeshOverride engine patch). Reshapes (--hill/--crater/--flatten) are seam-continuous: the edit
@@ -3822,6 +3844,8 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         print(f"  [{x}][{y}]: {op}")
     _world_apply_note(extra="reach the disc-%d overworld and walk to the edit; Memoria.log shows "
                             "\"[WorldMeshOverride] loaded ...\" per block when the hook fires." % args.disc)
+    if reshape:
+        _world_coupling_note()
     return 0
 
 
@@ -3928,6 +3952,7 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
           "the tile topograph). NOTE: --event/--area alone do NOT create a warp -- the destination comes from the "
           "world .eb object-0 trigger GetIP-keyed to the CELL position, and the tile's area bits are not read by "
           "dispatch at all (cosmetic regional tag).")
+    _world_coupling_note(minimap=False, encounters=True)
     return 0
 
 
@@ -4090,6 +4115,7 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
         return 2
     if not args.dry_run:
         _world_apply_note(extra="Reshaping keeps the stock texture + walkability (single surface = walkable).")
+        _world_coupling_note(encounters=False)
     return 0
 
 
@@ -4140,6 +4166,7 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts{edges}")
     if not args.dry_run:
         _world_apply_note(needs="the CUSTOM engine (s34 ocean->land divert)")
+        _world_coupling_note(encounters=True)
         print("  A lone cell is an ISLAND -- reach it via the debug menu (~)->World->Teleport, or bridge from the coast with more cells.")
     return 0
 
@@ -4187,6 +4214,7 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts + Donor.txt")
     if not args.dry_run:
         _world_apply_note(needs="the custom engine (per-cell coastal donor)")
+        _world_coupling_note(encounters=True)
     return 0
 
 
@@ -4215,6 +4243,7 @@ def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
     else:
         print(f"  wrote {len(rep['written'])} file(s); .prerim backups kept")
         _world_apply_note()
+        _world_coupling_note()
     return 0
 
 
@@ -4418,6 +4447,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         for q in summary["deployed"]:
             print("  " + q)
         _world_apply_note(needs="the CUSTOM engine (s34)", extra="revert = delete the deployed files.")
+        _world_coupling_note(encounters=True)
         return 0
     sx, sz = summary["shift"]
     if summary["op"] == "transplant-region":
@@ -4475,6 +4505,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     for q in summary["deployed"]:
         print("  " + q)
     _world_apply_note(needs="the CUSTOM engine (s34 + Donor.txt)")
+    _world_coupling_note(encounters=True)
     return 0
 
 
@@ -4665,6 +4696,7 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
           f"{r['dropped']} island tris carved, {r['zip_tris']} zip tris; wall rise {r['wall_rise']} / "
           f"zip rise {r['zip_rise']} (ceiling 2.34). All gates CLEAN incl. the perimeter walk-in "
           f"simulation + placement census. ~ -> World -> re-enter, then walk INTO and OVER the canopy.")
+    _world_coupling_note(coastnav=False, minimap=False, encounters=True)
     return 0
 
 
@@ -4763,6 +4795,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
           f"slope {r['apron_slope']} deg (<= {IN.MTN_APRON_SLOPE}). All gates CLEAN incl. the "
           f"placement probes + census. ~ -> World -> re-enter, then teleport ({tx}, {tz}) and "
           f"face the massif; walk the whole rim.")
+    _world_coupling_note(coastnav=False, minimap=False, encounters=True)
     return 0
 
 
@@ -4842,6 +4875,7 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
                   file=sys.stderr)
     if not args.dry_run:
         _world_apply_note(needs="the CUSTOM engine (s34 sea->land divert)")
+        _world_coupling_note()
         print("  A lone cell is reachable via the debug menu (~) -> World -> Teleport; a contiguous run of cells stays seamless.")
     return 0
 

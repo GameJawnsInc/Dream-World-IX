@@ -520,6 +520,58 @@ def _fit_tile(corners: dict):
     return None
 
 
+def classify_sea5_cell(corners: dict, *, min_corners: int = 4, min_uv_span: float = 0.0):
+    """THE one Sea5 tile classifier (audit rec 7). ``corners`` = ``{(fx, fz): (u, v)}`` for one 4u
+    cell. Returns ``(strip, rotation, u0, u1, v0, v1)`` or ``None``.
+
+    Three copies of this question ("which deepset/transition tile is this cell?") had diverged into
+    three arity rules -- all-4-corners (the reference reader), >=3 + a degeneracy guard (the carry
+    gate), and NO guard (the rim audit) -- so the same deployed cell could be unclassified to one
+    instrument, dropped by another, and confidently classified by the third, which then iterated to
+    a fixed point on it. The arity is now an EXPLICIT argument at every call site:
+
+    - ``min_corners=4``: the canonical four corners must be present (reference semantics).
+    - ``min_corners=3``: the shore-sliver relaxation (a 1-triangle sliver still classifies).
+    - below 3 is REFUSED outright: a 2-corner fit is under-constrained -- ``_fit_tile`` returns the
+      FIRST rotation in ``ROTS`` order, i.e. an essentially arbitrary answer.
+
+    ``min_uv_span`` rejects near-degenerate UV rects (the carry gate uses ``1e-6``; ``0.0`` keeps
+    ``_fit_tile``'s own exact-equality reject, the reference behaviour)."""
+    if min_corners < 3:
+        raise ValueError("classify_sea5_cell: min_corners < 3 is an under-constrained fit "
+                         "(_fit_tile would return the first rotation in ROTS order -- an "
+                         "arbitrary answer on a sliver); 3 is the floor")
+    if min_corners >= 4:
+        if not all(c in corners for c in ((0, 0), (1, 0), (1, 1), (0, 1))):
+            return None
+    elif len(corners) < min_corners:
+        return None
+    if min_uv_span > 0.0:
+        us = [uv[0] for uv in corners.values()]
+        vs = [uv[1] for uv in corners.values()]
+        if max(us) - min(us) <= min_uv_span or max(vs) - min(vs) <= min_uv_span:
+            return None
+    fit = _fit_tile(corners)                             # its own exact-degeneracy reject stands
+    if fit is None:
+        return None
+    u0, u1, v0, v1, name = fit
+    return (_strip_of(v0), name, u0, u1, v0, v1)
+
+
+def sea5_deepset_of(corners: dict, *, min_corners: int = 3, min_uv_span: float = 1e-6):
+    """The cell's DEEPSET (frozenset of deep sides) via :func:`classify_sea5_cell` + the
+    ``DEEPSET2TILE`` inverse -- the shared spelling both deepset readers (transplant's carry
+    gate, rimretile's rim audit) now use, so they agree BY CONSTRUCTION."""
+    cls = classify_sea5_cell(corners, min_corners=min_corners, min_uv_span=min_uv_span)
+    if cls is None:
+        return None
+    key = (cls[0], cls[1])
+    for ds, variants in DEEPSET2TILE.items():
+        if key in [tuple(o) for o in variants]:
+            return ds
+    return None
+
+
 def read_sea5_tiles(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1", game=None) -> dict:
     """Read the ACTUAL transition tile of every real ``Sea5`` cell from its UVs (bin the sub-mesh's triangles to cells,
     fit the 4 corner UVs). Returns ``{(i, j): (strip, rotation, u0, u1, v0, v1)}`` for cells whose tile fits a pure
@@ -541,11 +593,9 @@ def read_sea5_tiles(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1", game=N
             corners[(i, j)][(round((v[0] - i * CELL) / CELL), round((-v[2] - j * CELL) / CELL))] = bm.uvs[k]
     out = {}
     for (i, j), d in corners.items():
-        if all(c in d for c in ((0, 0), (1, 0), (1, 1), (0, 1))):
-            fit = _fit_tile(d)
-            if fit is not None:
-                u0, u1, v0, v1, name = fit
-                out[(i, j)] = (_strip_of(v0), name, u0, u1, v0, v1)
+        cls = classify_sea5_cell(d, min_corners=4)
+        if cls is not None:
+            out[(i, j)] = cls
     return out
 
 

@@ -485,3 +485,88 @@ def test_water_meshes_serialize_roundtrip(tmp_path):
     d = M.read_ff9mesh(p)
     assert d["vcount"] == bm.vcount and len(d["indices"]) == bm.vcount
     assert all(abs(a - b) < 1e-6 for a, b in zip(d["normals"][0], W.NORMAL))   # normal survives (float32)
+
+
+# ---- THE ONE Sea5 classifier (audit rec 7 / critic #3) --------------------------------------------------------------
+# Three copies of "which tile is this cell?" had three arity rules -- the same deployed
+# cell could be unclassified to the reference reader, dropped by the carry gate, and
+# CONFIDENTLY classified by the rim audit (a 2-corner sliver got the first rotation in
+# ROTS order, and the audit iterated to a fixed point on it). One classifier now; the
+# arity is an explicit argument. Calibrated 2026-08-04 on all 52 deployed Disc9 Sea5
+# parts: 276 cells, old-vs-new identical (0 dropped / 0 flipped).
+
+def _tile_uv(strip, rot, fx, fz, u0=0.25, u1=0.5):
+    v0, v1 = W.VSTRIP[strip]
+    a, b = W.OMAPS[rot](fx, fz)
+    return (u0 + a * (u1 - u0), v0 + b * (v1 - v0))
+
+
+def _corners(strip, rot, keys=((0, 0), (1, 0), (1, 1), (0, 1))):
+    return {k: _tile_uv(strip, rot, *k) for k in keys}
+
+
+def test_classify_full_cell_and_the_deepset_inverse():
+    cls = W.classify_sea5_cell(_corners(2, "r90"))
+    assert cls is not None and (cls[0], cls[1]) == (2, "r90")
+    assert W.sea5_deepset_of(_corners(2, "r90")) == frozenset("ESW")
+
+
+def test_classify_arity_is_explicit_and_two_corners_refuse():
+    """The defect: a 2-corner sliver is an UNDER-CONSTRAINED fit (r0 matches its own map
+    values trivially -- the old rim reader classified it arbitrarily). Now: None at the
+    >=3 floor, and below 3 the KNOB itself refuses."""
+    three = _corners(1, "r0", keys=((0, 0), (1, 0), (0, 1)))
+    assert W.classify_sea5_cell(three, min_corners=3) is not None    # the sliver relaxation
+    assert W.classify_sea5_cell(three, min_corners=4) is None        # reference semantics
+    two = _corners(1, "r0", keys=((0, 0), (1, 1)))
+    assert W._fit_tile(two) is not None                              # the trap: fit WOULD answer
+    assert W.classify_sea5_cell(two, min_corners=3) is None          # the classifier refuses
+    assert W.sea5_deepset_of(two) is None
+    with pytest.raises(ValueError, match="under-constrained"):
+        W.classify_sea5_cell(two, min_corners=2)
+
+
+def test_classify_rejects_degenerate_uv_spans():
+    flat = {(0, 0): (0.25, 0.6), (1, 0): (0.5, 0.6), (1, 1): (0.5, 0.6), (0, 1): (0.25, 0.6)}
+    assert W.classify_sea5_cell(flat) is None                        # zero v span
+    near = _corners(0, "r0")
+    near = {k: (uv[0], 0.001 + uv[1] * 1e-9) for k, uv in near.items()}
+    assert W.classify_sea5_cell(near, min_corners=4, min_uv_span=1e-6) is None
+
+
+def test_the_two_deepset_readers_agree_by_construction():
+    """transplant's carry-gate reader and rimretile's rim-audit reader on the SAME synthetic
+    Sea5 mesh (a full cell + a 3-corner sliver + a 2-corner diagonal sliver): identical
+    verdicts, the sliver classified by both, the 2-corner cell by NEITHER -- the old rim
+    reader classified it, so reverting the arity fix turns this red."""
+    from ff9mapkit.world import rimretile as RR, transplant as TR
+    from ff9mapkit.world.extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    tris_spec = [
+        # cell (0,0): full quad, strip 2 r90
+        ([(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 0.0, -4.0)], [(0, 0), (1, 0), (0, 1)], (2, "r90")),
+        ([(4.0, 0.0, 0.0), (4.0, 0.0, -4.0), (0.0, 0.0, -4.0)], [(1, 0), (1, 1), (0, 1)], (2, "r90")),
+        # cell (1,0): 3-corner sliver, strip 0 r0
+        ([(4.0, 0.0, 0.0), (8.0, 0.0, 0.0), (4.0, 0.0, -4.0)], [(0, 0), (1, 0), (0, 1)], (0, "r0")),
+        # cell (2,0): 2-corner diagonal sliver -- keys {(0,0),(1,1)} only
+        ([(8.2, 0.0, -0.2), (11.8, 0.0, -3.8), (8.6, 0.0, -1.0)], [(0, 0), (1, 1), (0, 0)], (1, "r0")),
+    ]
+    pos, uv, flat, t_out = [], [], [], []
+    for verts, keys, (strip, rot) in tris_spec:
+        base = len(pos)
+        for v, k in zip(verts, keys):
+            pos.append(list(v))
+            uv.append(list(_tile_uv(strip, rot, *k)))
+            flat.append(len(pos) - 1)
+        t_out.append([base, base + 1, base + 2])
+    bm = BlockMesh(name="Block[0][0] Sea5", disc=1, x=0, y=0, lod="0_1", vcount=len(pos),
+                   stride=48, channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2),
+                                        CH_TAN: (32, 4)},
+                   chan_arrays={CH_POS: pos, CH_NRM: [[0.0, 1.0, 0.0]] * len(pos), CH_UV: uv,
+                                CH_TAN: [[0.0, 0.0, 0.0, 1.0]] * len(pos)},
+                   flat_index=flat, tris=t_out, raw_vbuf=b"", raw_ibuf=b"", use32=True,
+                   submeshes=[])
+    tr = TR._sea5_deepsets(bm)
+    rr = RR._sea5_deepsets({"sea5": bm})
+    assert tr == rr
+    assert tr.get((0, 0)) == frozenset("ESW") and tr.get((1, 0)) is not None
+    assert (2, 0) not in tr and (2, 0) not in rr
