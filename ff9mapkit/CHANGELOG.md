@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE ONE-WAY WALL GATE: world-terrain finally checks what it sculpts
+- `world-terrain` displaced stock land with no check of any kind (the audit's one named
+  coverage hole). The gate the audit prescribed (per-edge `GATE_CLIMB`) was RE-derived from
+  the engine's actual mechanics and corrected: a displaced continuous mesh never makes a
+  step discontinuity — the true ceiling is per-tick (ground may rise 2.34375 per 0.4375u
+  step, `placement.WALK_SPEED`), so faces above ~79.4° are ONE-WAY WALLS (descendable,
+  unclimbable — the soft-lock pit class) and REFUSE without `--allow-steep`, while slopes
+  above 28.6° (the grass-look p99) warn about texture stretch. The per-edge letter would
+  have refused a 43° hill the engine walks happily. Per-block `walkability` in the summary
+  + CLI notes. Audit rec 9 step 4, closed.
+
 ### Fixed — the gate headline stops lying, and a REFUTATION worth recording
 - `world-transplant`/`world-morphs`/`world-island` printed "gates CLEAN" in the same breath
   as warn rows (`clean = all(g["ok"])` is the DEPLOY verdict; under WARN-default a dirty

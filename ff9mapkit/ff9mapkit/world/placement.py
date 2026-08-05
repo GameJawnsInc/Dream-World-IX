@@ -35,6 +35,11 @@ IDALL_SKIP = {4078, 4088, 2040}
 VETO = 0x31EE
 WALK_RAY_START = 2.34375
 WALK_RAY_DIST = 2.8                                      # ff9.rayDistance -- DEAD in WMBlock.Raycast
+#: on-foot XZ speed per tick (ff9 XZSpeed; walk_sim.py:42). With WALK_RAY_START it fixes the
+#: steepest WALKABLE continuous slope: ground may rise at most 2.34375 per 0.4375u step, so
+#: rise/run > WALK_RAY_START/WALK_SPEED (~79.4 deg) is a ONE-WAY WALL -- descendable (any
+#: drop is legal), unclimbable: the soft-lock class on a crater floor.
+WALK_SPEED = 0.4375
 SKY_RAY_START = 400.0
 INDEX_GRID = 8.0  #: spatial-index bucket size (same frame/units as the meshes)
 #: sheets closer than this in y are ONE surface (walk_sim's DEDUP_EPS)

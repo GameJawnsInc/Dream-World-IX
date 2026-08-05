@@ -4110,14 +4110,22 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
         summary = T.reshape(args.mod_folder, at=at, seg=seg, radius=args.radius, amount=amount,
                             flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
                             game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror,
-                            target_disc=args.target_disc)
+                            target_disc=args.target_disc, allow_steep=args.allow_steep)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     verb = "would reshape" if args.dry_run else "reshaped"
     print(f"{verb} terrain ({summary['op']}, radius {summary['radius']}) across {len(summary['blocks'])} block(s):")
     for b in summary["blocks"]:
-        print(f"  block {tuple(b['block'])}: moved {b['moved']} verts")
+        walk = summary.get("walkability", {}).get(str(b["block"]))
+        note = ""
+        if walk:
+            note = f"; steepest edge {walk['max_slope_deg']} deg"
+            if walk["one_way_wall"]:
+                note += " -- ONE-WAY WALL allowed (--allow-steep): descendable, unclimbable"
+            elif walk["flank_warn"]:
+                note += " (above the 28.6-deg grass-look p99: the ground texture will stretch)"
+        print(f"  block {tuple(b['block'])}: moved {b['moved']} verts{note}")
     if summary["skipped_sea"]:
         print(f"  (skipped {len(summary['skipped_sea'])} sea/no-terrain block(s): {summary['skipped_sea']})")
     if not summary["blocks"]:
@@ -8444,6 +8452,12 @@ def build_parser() -> argparse.ArgumentParser:
     wtr.add_argument("--falloff", default="smooth", help="edge falloff (default smooth)")
     wtr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wtr.add_argument("--dry-run", action="store_true", help="report the blocks it would reshape, write nothing")
+    wtr.add_argument("--allow-steep", action="store_true", dest="allow_steep",
+                     help="permit ONE-WAY WALL slopes (edge rise/run above ~79.4 deg, the engine's "
+                          "per-tick climb ceiling: ground may rise 2.34375 per 0.4375u step). Such "
+                          "faces are walkable DOWN but not up -- a pit with them soft-locks the "
+                          "player -- so the reshape refuses without this flag. Slopes above 28.6 deg "
+                          "(the grass-look p99) always print a stretch warning.")
     wtr.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wtr.set_defaults(func=_cmd_world_terrain)

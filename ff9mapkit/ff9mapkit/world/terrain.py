@@ -31,10 +31,64 @@ def _block_index_range(minx: float, maxx: float, minz: float, maxz: float):
     return bx0, bx1, by0, by1
 
 
+def _walk_gate(ter, pre_y, blk, summary, *, allow_steep: bool):
+    """THE ONE-WAY WALL GATE + THE FLANK WARNING (audit rec 9 step 4 -- reshape wrote
+    displaced stock land with no check of any kind). Two DIFFERENT ceilings, measured on
+    the post-deform mesh's moved-vert edges:
+
+    * REFUSE (unless ``allow_steep``): rise/run above ``WALK_RAY_START/WALK_SPEED``
+      (~79.4 deg). A displaced continuous mesh never makes a step DISCONTINUITY, so the
+      engine's real limit is per-tick -- ground may rise 2.34375 per 0.4375u step. Beyond
+      it the face is a ONE-WAY WALL: walkable down (any drop is legal), unclimbable up --
+      a crater with such walls is a soft-lock pit. NOTE the deliberate divergence from the
+      audit's letter (interior.GATE_CLIMB per edge): that ceiling guards step
+      discontinuities between SEPARATE surfaces; applied to a smooth reshape it would have
+      refused a 43-deg hill the engine walks happily.
+    * WARN: edge slope above ``interior.MAX_FLANK`` (28.6 deg, the measured lowland-grass
+      p99) -- the LOOK ceiling; the ground texture stretches. Look is the owner's call, so
+      it reports, never refuses.
+
+    Skips meshes without position channels (the hermetic orchestration tests stub them)."""
+    from .interior import MAX_FLANK
+    from .placement import WALK_RAY_START, WALK_SPEED
+    from .extract import CH_POS
+    ca = getattr(ter, "chan_arrays", None)
+    tris = getattr(ter, "tris", None)
+    if not isinstance(ca, dict) or CH_POS not in ca or not tris:
+        return
+    pos = ca[CH_POS]
+    moved = {i for i, v in enumerate(pos) if v[1] != pre_y[i]}
+    if not moved:
+        return
+    wall_tan = WALK_RAY_START / WALK_SPEED
+    worst_t, worst_at = 0.0, None
+    for tri in tris:
+        if not (moved & {tri[0], tri[1], tri[2]}):
+            continue
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+            va, vb = pos[a], pos[b]
+            rise = abs(vb[1] - va[1])
+            run = math.hypot(vb[0] - va[0], vb[2] - va[2])
+            t = rise / run if run > 1e-9 else (float("inf") if rise > 1e-9 else 0.0)
+            if t > worst_t:
+                worst_t, worst_at = t, (round(va[0], 1), round(va[2], 1))
+    deg = math.degrees(math.atan(worst_t)) if worst_t != float("inf") else 90.0
+    entry = {"max_slope_deg": round(deg, 1), "at": worst_at,
+             "flank_warn": deg > MAX_FLANK, "one_way_wall": worst_t > wall_tan}
+    summary.setdefault("walkability", {})[str(list(blk))] = entry
+    if entry["one_way_wall"] and not allow_steep:
+        raise ValueError(
+            f"ONE-WAY WALL in block {blk}: slope {deg:.1f} deg at ~{worst_at} exceeds the "
+            f"walkable ceiling (~{math.degrees(math.atan(wall_tan)):.1f} deg -- ground may "
+            f"rise {WALK_RAY_START} per {WALK_SPEED}u tick). Descendable, UNCLIMBABLE: a "
+            "pit with such walls soft-locks the player. Pass allow_steep/--allow-steep if "
+            "the sculpt is deliberately impassable terrain.")
+
+
 def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float | None = None,
             flatten: bool = False, height: float | None = None, disc: int = 1, falloff: str = "smooth",
             game=None, dry_run: bool = False, skip_mirror: bool = False,
-            target_disc: int | None = None) -> dict:
+            target_disc: int | None = None, allow_steep: bool = False) -> dict:
     """Reshape overworld terrain within ``radius`` world units, across every block it touches. Exactly one SHAPE:
     ``at=(x, z)`` (a radial hill/crater/plateau) or ``seg=((x0,z0),(x1,z1))`` (a ridge/valley). Exactly one OP:
     ``amount`` (signed: ``+`` raise, ``-`` lower) or ``flatten=True`` (level toward ``height``, default the local mean).
@@ -84,6 +138,9 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                 except (ValueError, FileNotFoundError):
                     summary["skipped_sea"].append([bx, by]); continue     # sea / no terrain mesh
             wo = X.block_world_origin(bx, by)
+            _ca = getattr(ter, "chan_arrays", None)
+            from .extract import CH_POS as _CP
+            pre_y = [v[1] for v in _ca[_CP]] if isinstance(_ca, dict) and _CP in _ca else []
             if flatten:
                 moved = M.flatten_region(ter, radius=radius, center=at, height=height, falloff=falloff, world_origin=wo)
             elif seg is not None:
@@ -93,6 +150,7 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                 moved = M.deform_radial(ter, amount=amount, radius=radius, center=at, falloff=falloff, world_origin=wo)
             if not moved:
                 continue
+            _walk_gate(ter, pre_y, (bx, by), summary, allow_steep=allow_steep)
             if not dry_run:
                 written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain",
                                                  disc=rtarget))
