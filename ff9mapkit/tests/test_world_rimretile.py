@@ -188,3 +188,61 @@ def test_plan_rim_spares_the_shore_system(monkeypatch):
     got = set(plan.get((5, 5), {}))
     assert (6, 6) not in got and (6, 7) not in got   # shore-adjacent: spared
     assert (8, 6) in got and (8, 8) in got           # open-water crop edge: planned
+
+
+def _pinch_grids(sh_n, sh_e, sh_s, sh_w):
+    """One sea5 cell at (7, 7) with the four named neighbour shades; everything wet."""
+    shade_g = [["sea5"] * RR.G for _ in range(RR.G)]
+    shade_g[7][6], shade_g[8][7] = sh_n, sh_e
+    shade_g[7][8], shade_g[6][7] = sh_s, sh_w
+    return {(5, 5): shade_g}, {(5, 5): [[True] * RR.G for _ in range(RR.G)]}
+
+
+def test_representable_PASSES_THROUGH_every_wang_key():
+    """The fold must be inert on the 12 keys the alphabet already has -- an over-eager
+    normalizer would silently re-tile lawful quads."""
+    shade, water = _pinch_grids("sea5", "sea5", "sea5", "sea5")
+    for ds in W.DEEPSET2TILE:
+        assert RR.representable(ds, shade, water, [(5, 5)], 5, 5, 7, 7) == ds
+    assert RR.representable(frozenset(), shade, water, [(5, 5)], 5, 5, 7, 7) == frozenset()
+    four = frozenset("NESW")                     # not a pinch: plan targets sea4, still refused
+    assert RR.representable(four, shade, water, [(5, 5)], 5, 5, 7, 7) == four
+
+
+def test_representable_folds_an_OPPOSITE_PINCH_onto_the_containing_triple():
+    """THE OPPOSITE-PINCH RULE: EW/NS are not keys of DEEPSET2TILE at all, so NO harvest
+    can ever cover them; stock ships the shape and resolves it 5/5 with a 3-deep tile
+    CONTAINING the pair (never a 1-deep tip, which would be an UNDER -- the defect)."""
+    assert frozenset("EW") not in W.DEEPSET2TILE and frozenset("NS") not in W.DEEPSET2TILE
+    shade, water = _pinch_grids("sea5", "sea4", "sea5", "sea4")
+    got = RR.representable(frozenset("EW"), shade, water, [(5, 5)], 5, 5, 7, 7)
+    assert got in W.DEEPSET2TILE and frozenset("EW") < got      # representable AND a superset
+    assert got == frozenset("ESW")                              # stock's 3:2 majority side
+    shade, water = _pinch_grids("sea4", "sea5", "sea4", "sea5")
+    got = RR.representable(frozenset("NS"), shade, water, [(5, 5)], 5, 5, 7, 7)
+    assert got == frozenset("NSW") and frozenset("NS") < got
+
+
+def test_representable_never_points_a_new_deep_quarter_at_SEA3():
+    """The preferred side is skipped when it is sea3 -- adding a deep-facing quarter
+    toward shallow sea3 is the exact adjacency this operator exists to remove."""
+    shade, water = _pinch_grids("sea5", "sea4", "sea3", "sea4")   # S is sea3, N is sea5
+    assert RR.representable(frozenset("EW"), shade, water, [(5, 5)], 5, 5, 7, 7) \
+        == frozenset("ENW")
+    shade, water = _pinch_grids("sea4", "sea5", "sea4", "sea3")   # W is sea3, E is sea5
+    assert RR.representable(frozenset("NS"), shade, water, [(5, 5)], 5, 5, 7, 7) \
+        == frozenset("ENS")
+
+
+def test_plan_rim_folds_the_pinch_so_uncovered_stops_refusing(monkeypatch):
+    """End to end: an opposite-pinched frame quad used to make `uncovered` refuse the whole
+    retile (the horseshoe carry, 2026-08-05); it now plans a tile the vocabulary has."""
+    shade, water = _pinch_grids("sea5", "sea4", "sea5", "sea4")
+    monkeypatch.setattr(RR, "_grids", lambda cells: (shade, water))
+    monkeypatch.setattr(RR, "_sea5_deepsets", lambda parts: {})
+    plan = RR.plan_rim({(5, 5): {}})
+    assert plan[(5, 5)][(7, 7)][1] == frozenset("ESW")
+    have = {tuple(o): {} for ds in W.DEEPSET2TILE for o in W.DEEPSET2TILE[ds]}
+    assert RR.uncovered(plan, have) == []
+    # and the raw geometry still reads EW, so seam_report scores it honestly as an OVER
+    assert RR.deepset(shade, water, [(5, 5)], 5, 5, 7, 7) == frozenset("EW")

@@ -151,6 +151,39 @@ def deepset(shade, water, island, bx, by, i, j) -> frozenset:
                      if _is_deep(*_neighbour(shade, water, island, bx, by, i, j, d)))
 
 
+#: THE OPPOSITE-PINCH RULE (2026-08-05, the horseshoe carry). A crop line can leave a shallow
+#: quad pinched between deep on OPPOSITE sides, and ``DEEPSET2TILE`` has no such key: the wang
+#: alphabet is closed at 12 (4 tips, 4 corners, 4 triples) -- an opposite pair is unrepresentable
+#: BY CONSTRUCTION, so no harvest, however wide, can ever cover it. Stock SHIPS the shape
+#: (censused disc-1 map-wide: 5 EW-pinched sea5 cells, 0 NS, 0 4-deep) and resolves it 5/5 with a
+#: 3-deep tile CONTAINING the pair -- (2,10)@(12,9)=ESW, (4,15)@(3,0)=ESW, (4,15)@(12,5)=ENW,
+#: (5,13)@(6,12)=ESW, (6,6)@(6,12)=ENW -- never a 1-deep tip. That direction is also the only safe
+#: one under this module's own taxonomy: a superset scores as ``over`` (the owner-accepted
+#: gradient, :func:`seam_report`), a subset as ``under`` (the hard-seam DEFECT). The degradation
+#: mechanism itself is not new -- :func:`water._repro_deepset` has always folded an invalid set
+#: onto the nearest representable tile; only its opposite-channel CHOICE (a single tip, i.e. an
+#: under) is contradicted here by stock's own complete population. The extra side is picked to
+#: avoid pointing a new deep-facing quarter at a ``sea3`` neighbour; the default order (S for an
+#: EW pinch, its 90-degree rotation W for NS) follows stock's 3:2 ESW-over-ENW majority.
+_PINCH_PREFS = {frozenset("EW"): "SN", frozenset("NS"): "WE"}
+
+
+def representable(ds, shade, water, island, bx, by, i, j) -> frozenset:
+    """Fold an unrepresentable deep-set onto the wang alphabet -- see :data:`_PINCH_PREFS`.
+
+    Representable sets pass through untouched. A 4-deep set is left alone (it is not a pinch;
+    :func:`plan_rim` targets it at ``sea4`` and :func:`uncovered` still refuses it, unchanged).
+    """
+    if not ds or ds in W.DEEPSET2TILE:
+        return ds
+    prefs = _PINCH_PREFS.get(frozenset(ds))
+    if prefs is None:
+        return ds
+    add = next((d for d in prefs
+                if _neighbour(shade, water, island, bx, by, i, j, d)[0] != "sea3"), prefs[0])
+    return frozenset(set(ds) | {add})
+
+
 def _grids(cells):
     from .transplant import _sea_shade_grid, _sea_water_grid
     shade = {c: _sea_shade_grid(v) for c, v in cells.items()}
@@ -228,6 +261,11 @@ def plan_rim(cells) -> dict:
                 ds = deepset(shade, water, island, bx, by, i, j)
                 if not ds:
                     continue
+                # an opposite pinch has no wang key at all -- fold it onto the containing
+                # triple stock itself uses (THE OPPOSITE-PINCH RULE). Planning only: the
+                # seam census below keeps reading the RAW geometry, so the fold shows up
+                # honestly as under -> over, never as a masked defect.
+                ds = representable(ds, shade, water, island, bx, by, i, j)
                 on_frame = ((bx == xs[0] and i == 0) or (bx == xs[-1] and i == G - 1)
                             or (by == ys[0] and j == 0) or (by == ys[-1] and j == G - 1))
                 # UNDER only -- the defect class (a tile facing deep with no transition
