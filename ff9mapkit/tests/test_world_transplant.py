@@ -753,6 +753,107 @@ def test_region_2x1_verbatim_carry(monkeypatch):
     assert ("sidecar", 4, 2) in kinds and ("sidecar", 5, 2) in kinds
 
 
+def test_region_tongue_ignores_land_dropped_by_the_tweaks(monkeypatch):
+    """THE TONGUE IS JUDGED ON THE LAND THAT SURVIVES THE TWEAKS. An excised mass whose
+    land touches a border must not open that border's window -- the strip would gather the
+    mass's own continuation from beyond the frame (the ghost of the thing just dropped).
+    Measured on the crescent (14,1)+4x2: the pre-tweak tongue turned a clean carry into
+    land-fit FAIL + 26 introduced misses + object-anchor moved=True.
+    """
+    blocks = {(1, 1, "terrain"): (_quad(80.0, 96.0, -104.0, -88.0, y=1.0)          # the subject
+                                  + _quad(120.0, 128.0, -104.0, -88.0, y=1.0)),    # a border crumb
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (2, 1, "terrain"): _quad(128.0, 136.0, -104.0, -88.0, y=1.0),        # its continuation
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    crumb = _quad(120.0, 128.0, -104.0, -88.0, y=1.0)
+
+    # WITHOUT the drop the crumb's land reaches the E border: the window opens
+    s0 = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1), shift=(0.0, 0.0),
+                              census_samples=8, land_margin=0.0, dry_run=True)
+    assert s0["strips"] == ["E"]
+
+    # WITH the drop the surviving land stops at 96: the window must close, and the
+    # (2,1) continuation must not be carried
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1), shift=(0.0, 0.0),
+                             census_samples=8, land_margin=0.0, dry_run=True,
+                             tweaks=[TR.DropTris("terrain", crumb)])
+    assert s["strips"] == []
+    assert s["window"] == {"x": [0.0, 0.0], "z": [0.0, 0.0]}, (
+        "a window opened by dropped land would let a shift pull the ghost inside")
+    assert s["cells"]["4,2"]["carried"]["terrain"] == 2      # the subject alone
+
+
+def _lattice_sea(x0, x1, z0, z1, *, idall=232.0):
+    """A full 4u-lattice sea4 sheet (stock-shaped) -- the cluster-shift fixtures need a
+    real lattice so the minted vacancy band welds on shared 4u frame verts, exactly as it
+    does against the real donors."""
+    tris = []
+    xi = x0
+    while xi < x1 - 1e-9:
+        zi = z0
+        while zi < z1 - 1e-9:
+            tris += _quad(xi, xi + 4.0, zi, zi + 4.0, idall=idall)
+            zi += 4.0
+        xi += 4.0
+    return tris
+
+
+def _dot_donor():
+    """Donor (1,1): a centred land dot (24u clearance all sides) on a full-cell lattice
+    sea4; every neighbour block empty (prefab ocean) -- the cluster-shift specimen."""
+    return {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0, y=1.0),
+            (1, 1, "sea4"): _lattice_sea(64.0, 128.0, -128.0, -64.0)}
+
+
+def test_region_cluster_shift_mints_the_vacancy(monkeypatch):
+    """THE CLUSTER SHIFT (study 2): an explicit shift beyond the strip window is lawful on
+    a tongue-less, strip-less (prefab-backed) trailing side; the vacated band is minted as
+    stock-shaped sea4 lattice welded to the sheet's own frame verts -- census introduced 0,
+    weld pairs 0. The AUTO shift never widens (composition spacing is an explicit choice)."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_dot_donor()))
+    base = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                                shift=(0.0, 0.0), dry_run=True, census_samples=8)
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-16.0, 0.0), dry_run=True, census_samples=8)
+    assert s["clean"] is True, s["gates"]
+    assert s["shift"] == [-16.0, 0.0]
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] == 0
+    # the minted band adds sea4 beyond the shifted carry (the vacancy is filled, not bare)
+    assert s["cells"]["4,2"]["carried"]["sea4"] > base["cells"]["4,2"]["carried"]["sea4"] - 32
+    # the auto path never cluster-widens: with no tongue and no strips the window is 0
+    s_auto = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                                  shift="auto", dry_run=True, census_samples=8)
+    assert s_auto["shift"] == [0.0, 0.0]
+
+
+def test_region_cluster_shift_fail_closed(monkeypatch):
+    """The cluster shift's named refusals: land within the margin, a data-backed trailing
+    side (the strip window governs there), a tongued trailing side (shifting would tear
+    the coast continuation), and a diagonal (one axis at a time)."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_dot_donor()))
+    with pytest.raises(ValueError, match="pushes the land within"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-24.0, 0.0), dry_run=True, census_samples=8)
+    with pytest.raises(ValueError, match="ONE axis at a time"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-16.0, -16.0), dry_run=True, census_samples=8)
+    blocks = _dot_donor()
+    blocks[(2, 1, "sea4")] = _lattice_sea(128.0, 192.0, -128.0, -64.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    with pytest.raises(ValueError, match="real neighbour strip data"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-16.0, 0.0), dry_run=True, census_samples=8)
+    blocks = _dot_donor()
+    blocks[(1, 1, "terrain")] = _quad(88.0, 127.9, -104.0, -88.0, y=1.0)   # land at E frame
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    with pytest.raises(ValueError, match="land tongue"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                             shift=(-16.0, 0.0), dry_run=True, census_samples=8)
+
+
 def test_region_shift_splits_straddlers_watertight(monkeypatch):
     """An in-region shift carries tris ACROSS the interior border; the re-partition splits them
     with bit-identical cut points on both sides (the _split_at_borders law) -- weld audit 0."""
@@ -855,9 +956,14 @@ def test_region_object_cell_never_hosts_foreign_target(monkeypatch):
     s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
                              census_samples=8, dry_run=True)
     # cell (5,2) needs terrain (the straddle): natural (2,1) lacks it; the only superset donor
-    # is (1,1) but it bears an Object -> excluded -> prefab-parts FAILS (no silent ghost)
+    # is (1,1) but it bears an Object -> excluded as a FOREIGN host -> prefab-parts FAILS
+    # (no silent ghost). Cell (4,2) is the object's OWN natural cell on a pose-lawful
+    # carry (rot 0, shift 0, object untweaked) -- THE OBJECT POSE LAW keeps it, and the
+    # prefab renders the object on its own carried ground.
     g = next(g for g in s["gates"] if g["gate"] == "prefab-parts")
-    assert g["ok"] is False and g["bad"][0]["cell"] == [5, 2]
+    assert g["ok"] is False
+    assert sorted(b["cell"] for b in g["bad"]) == [[5, 2]]
+    assert s["cells"]["4,2"]["donor"] == [1, 1]
     # identity transform keeps the object cell's own target legitimate: object-anchor ok
     oa = next(g for g in s["gates"] if g["gate"].startswith("object-anchor"))
     assert oa["ok"] is True and oa["moved"] is False
@@ -869,6 +975,44 @@ def test_region_object_cell_never_hosts_foreign_target(monkeypatch):
                               rot=90, census_samples=8, dry_run=True)
     oa2 = next(g for g in s2["gates"] if g["gate"].startswith("object-anchor"))
     assert oa2["ok"] is False and oa2["moved"] is True
+
+
+def test_region_object_sidecar_obeys_THE_OBJECT_POSE_LAW(monkeypatch):
+    """THE OBJECT POSE LAW (the bent crescent's cave door, 2026-08-04): an object rides
+    its NATURAL sidecar iff its pose stays lawful -- the carry UNROTATED and UNSHIFTED
+    and the object's verts untouched by the tweaks. The prefab then renders the object
+    where its carried ground expects it (the stock look; the authored rock plug was
+    playtest-refused as a non-stock cliff face). A ROTATED carry, a SHIFTED carry, or an
+    object whose ground the tweaks dropped (the excised-harbor ghost class) still gets a
+    SUBSTITUTE sidecar."""
+    blocks = {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (1, 1, "object"): _quad(104.0, 112.0, -100.0, -92.0, y=2.0),
+              (2, 1, "terrain"): _quad(150.0, 170.0, -104.0, -88.0, y=1.0),
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    # pose-lawful (rot 0, shift 0, object untouched): the natural donor KEEPS the cell
+    # and the prefab renders its own object on its own carried ground
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             census_samples=8, dry_run=True, land_margin=0.0, strips="none")
+    assert s["cells"]["4,2"]["donor"] == [1, 1], s["cells"]["4,2"]
+    # a ROTATED carry cannot pose the prefab object: substitute (under rot 180 the
+    # object cell (1,1) maps to target (5,2))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), rot=180,
+                             shift=(0.0, 0.0), census_samples=8, dry_run=True,
+                             land_margin=0.0, strips="none")
+    assert s["cells"]["5,2"]["donor"] == [2, 1], s["cells"]["5,2"]
+    # an object whose verts the tweaks DROP (the excised-harbor ghost class -- its base
+    # welded to the dropped geometry): substitute. The object here shares the terrain
+    # quad's verts exactly, like the harbor's sheet-welded base.
+    blocks2 = dict(blocks)
+    blocks2[(1, 1, "object")] = _quad(88.0, 104.0, -104.0, -88.0, y=1.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    drop = TR.DropTris("terrain", blocks2[(1, 1, "terrain")])
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             tweaks=[drop], census_samples=8, dry_run=True,
+                             land_margin=0.0, strips="none")
+    assert s["cells"]["4,2"]["donor"] == [2, 1], s["cells"]["4,2"]
 
 
 def test_region_census_backmaps_through_the_region_transform(monkeypatch):
@@ -1927,6 +2071,158 @@ def test_ground_retile_recover_cell_and_refusal():
 def test_ground_retile_unknown_family_refuses():
     with pytest.raises(ValueError, match="unknown ground family"):
         TR.GroundRetile(dst="lava")
+
+
+# ---------------------------------------- the SOURCE-FAMILY generalisation (desert->grass)
+
+#: the desert mains rect's interior, and a desert gameplay variant that is NOT the family topo
+_DESERT_UV = (0.70, 0.70)
+_GRASS_UV = (0.05, 0.80)
+
+
+def test_family_topos_grass_row_is_the_frozen_historic_set():
+    """THE GRASS ROW MUST NOT MOVE. grass->desert is in-game proven on (7,17)/(8,17)/
+    (10,17) and every carried triangle is frozen by the byte-identity oracles, so the
+    generalisation is only allowed to ADD rows. (The interior census's grass LOOK family
+    also lists 59; it is deliberately not here -- adding it would shift a proven path.)"""
+    assert TR.FAMILY_TOPOS["grass"] == frozenset({0, 1, 2, 3, 10, 11, 12, 13, 42})
+    assert TR.GroundRetile.GRASS_TOPOS is TR.FAMILY_TOPOS["grass"]
+    assert 59 not in TR.FAMILY_TOPOS["grass"]
+    # dunes (41) is kept OUT of desert on purpose: the census calls it a family-model
+    # EXCEPTION with its own mains rect, so folding it in would let a topo-41 tri miss
+    # desert's rect and then be SYNTHESIZED by the path-strip recover instead of refusing.
+    assert 41 not in TR.FAMILY_TOPOS["desert"] and TR.FAMILY_TOPOS["dunes"] == frozenset({41})
+
+
+def test_ground_retile_mains_gate_is_source_family_keyed():
+    """THE CALL SITE: apply()'s mains branch must key on the SOURCE family's topographs,
+    not a hardcoded grass set. A desert-topo tri in desert's mains rect classifies for a
+    desert source and REFUSES for a grass source -- both directions, so a gate that always
+    fires is caught as surely as one that never fires."""
+    from ff9mapkit.world.extract import decode_id, encode_id
+    idall = float(encode_id(event=1, area=5, topograph=17, flags=2))
+    d2g = TR.GroundRetile(dst="grass", src="desert")
+    out = d2g.apply("terrain", _tri(_DESERT_UV, idall))
+    assert d2g.n["mains"] == 1 and not d2g.unclassified
+    for (_, _, uv, tan) in out:
+        assert uv == pytest.approx((_DESERT_UV[0] - 0.65332, _DESERT_UV[1] + 0.09863))
+        d = decode_id(int(round(tan[0])))
+        assert (d["event"], d["area"], d["topograph"], d["flags"]) == (1, 5, 0, 2)
+    # the NEGATIVE direction: the same tri under the historic grass source stays refused
+    g2d = TR.GroundRetile(dst="desert", src="grass")
+    g2d.apply("terrain", _tri(_DESERT_UV, idall))
+    assert g2d.n["mains"] == 0 and [u["topo"] for u in g2d.unclassified] == [17]
+
+
+def test_ground_retile_source_family_variants_and_foreign_topos():
+    """In-family GAMEPLAY variants (19/20 -- 'dirt 19/20 = DESERT exactly' in the
+    translation table) classify; a topo from another look family at the very same uv does
+    NOT. The rect is the discriminator, the topo set is the family gate -- and it must
+    still be able to say no."""
+    from ff9mapkit.world.extract import encode_id
+    for topo in (16, 17, 19, 20, 23):
+        gt = TR.GroundRetile(dst="grass", src="desert")
+        gt.apply("terrain", _tri(_DESERT_UV, float(encode_id(topograph=topo))))
+        assert gt.n["mains"] == 1, topo
+    for topo in (38, 41, 49, 45):        # brush / dunes / mountain rock / canyon
+        gt = TR.GroundRetile(dst="grass", src="desert")
+        gt.apply("terrain", _tri(_DESERT_UV, float(encode_id(topograph=topo))))
+        assert gt.n["mains"] == 0 and [u["topo"] for u in gt.unclassified] == [topo]
+
+
+def test_ground_retile_gate_reports_the_full_refusal_count():
+    """The gate's ``unclassified`` detail only ever samples 4 tris. It must lead with the
+    TOTAL and a topo histogram: the (9,5) comma island refuses 395 tris (294 mountain rock
+    + 101 brush) and the old line showed four topo-49 entries, which reads as a small hole
+    in a working retile rather than two whole unmeasured classes."""
+    from ff9mapkit.world.extract import encode_id
+    gt = TR.GroundRetile(dst="grass", src="desert")
+    for i in range(7):
+        gt.apply("terrain", _tri(_DESERT_UV, float(encode_id(topograph=49)), cell=(i, 0)))
+    for i in range(3):
+        gt.apply("terrain", _tri(_DESERT_UV, float(encode_id(topograph=38)), cell=(i, 1)))
+    det = gt.gate()["unclassified"]
+    assert det.startswith("10 tris, topo 38x3,49x7 -- first 4: "), det
+    assert det.count("uv[") == 4                      # still only a 4-item sample
+    assert gt.gate()["ok"] is False
+
+
+def test_ground_retile_unknown_source_family_refuses():
+    """__init__ is the only place this can be reached, and it is the only place it is
+    checked -- for_donor's ``src`` always comes from a GROUNDS key. That is only safe
+    while the two registries stay one-for-one, so pin that here rather than carry a
+    second, unreachable runtime branch for it."""
+    from ff9mapkit.world import grassland as G
+    assert set(TR.FAMILY_TOPOS) == set(G.GROUNDS)
+    with pytest.raises(ValueError, match="no measured topograph set"):
+        TR.GroundRetile(dst="grass", src="lava")
+
+
+def _stub_donor(monkeypatch, terrain, beach1=()):
+    """Hermetic for_donor: the donor block yields exactly these tris, nothing else."""
+    by_part = {"terrain": list(terrain), "beach1": list(beach1)}
+
+    def fake(bx, by, part, **kw):
+        return [list(t) for t in by_part.get(part, ())]
+    monkeypatch.setattr(TR, "world_tris", fake)
+
+
+def _desert_block(n=20):
+    from ff9mapkit.world.extract import encode_id
+    idall = float(encode_id(topograph=17))
+    return [_tri(_DESERT_UV, idall, cell=(i, 0)) for i in range(n)]
+
+
+def test_for_donor_desert_source_now_classifies_its_own_mains(monkeypatch):
+    """THE FIX, AT ITS CALL SITE. Before the generalisation a desert donor reclassified
+    NOTHING (mains=0) because the mains branch was gated on GRASS_TOPOS."""
+    _stub_donor(monkeypatch, _desert_block(20))
+    gt = TR.GroundRetile.for_donor((3, 3), "grass", strips="none")
+    assert gt.src == "desert" and gt.dst == "grass"
+    assert gt.expected["mains"] == 20 and gt.recover_budget == 0
+    assert gt.gate()["gate"] == "retile[desert->grass]"
+
+
+def test_for_donor_gates_new_directions_on_layout_support(monkeypatch):
+    """A newly-reachable direction must CLEAR the support bar, not merely warn past it:
+    grass sources keep the historic WARNING (grass->desert is in-game proven, so the
+    mechanism is exercised in that direction), but from a source nothing has ever shipped
+    from, a weak pair REFUSES. desert->grass (0.762) is the one that clears."""
+    _stub_donor(monkeypatch, _desert_block(20))
+    TR.GroundRetile.for_donor((3, 3), "grass", strips="none")           # 0.762 -> allowed
+    for weak in ("snow", "scrub", "canyon", "brush", "dunes"):
+        with pytest.raises(ValueError, match="layout support"):
+            TR.GroundRetile.for_donor((3, 3), weak, strips="none")
+    # ...and the bar is real, not a blanket refusal of every non-grass source
+    assert TR.LAYOUT_SUPPORT["desert"]["grass"] >= TR.LAYOUT_SUPPORT_WARN
+    assert all(s < TR.LAYOUT_SUPPORT_WARN
+               for src, row in TR.LAYOUT_SUPPORT.items() if src != "grass"
+               for dst, s in row.items() if (src, dst) != ("desert", "grass"))
+
+
+def test_for_donor_grass_source_still_only_WARNS_below_the_bar(monkeypatch):
+    """The negative direction on the new refusal: it must NOT fire for grass sources --
+    grass->snow (0.299) is below the bar and has always been a warning, not a refusal."""
+    from ff9mapkit.world.extract import encode_id
+    idall = float(encode_id(topograph=0))
+    _stub_donor(monkeypatch, [_tri(_GRASS_UV, idall, cell=(i, 0)) for i in range(20)])
+    with pytest.warns(UserWarning, match="OFF THE MEASURED PATH"):
+        gt = TR.GroundRetile.for_donor((3, 3), "snow", strips="none")
+    assert gt.src == "grass" and gt.expected["mains"] == 20
+
+
+def test_for_donor_recover_cells_key_on_the_source_family(monkeypatch):
+    """The path-strip recover budget picked its cells with `topo in GRASS_TOPOS` too --
+    generalised alongside the mains branch, or a desert donor's off-rect mains tri would
+    refuse with no budget to recover it."""
+    from ff9mapkit.world.extract import encode_id
+    idall = float(encode_id(topograph=17))
+    off_rect = (_DESERT_UV[0], _DESERT_UV[1] + 0.05)     # desert topo, outside desert's rect
+    _stub_donor(monkeypatch, _desert_block(20) + [_tri(off_rect, idall, cell=(99, 0))])
+    gt = TR.GroundRetile.for_donor((3, 3), "grass", strips="none")
+    assert gt.recover_budget == 1 and list(gt.recover_cells) == [(99, 0)]
+    assert gt.expected == {"mains": 20, "wall": 0, "sand": 0, "foam": 0,
+                           "recovered": 1, "sand_degenerate_recovered": 0}
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

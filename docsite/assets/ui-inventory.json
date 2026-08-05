@@ -145,7 +145,7 @@
    },
    "build_deploy.newgame_status": {
     "kind": "QLabel",
-    "text": "New Game currently points at field 6000."
+    "text": "New Game currently points at field 4000."
    },
    "build_deploy.chk": {
     "kind": "QPushButton",
@@ -173,7 +173,7 @@
    },
    "build_deploy.dep_hint": {
     "kind": "QLabel",
-    "text": "410 deployed here · 0 with an undo script — select one and Revert selected to undo it."
+    "text": "3 deployed here · 2 with an undo script — select one and Revert selected to undo it."
    }
   },
   "tab:import": {
@@ -795,17 +795,13 @@
     "kind": "QLabel",
     "text": "PySide6"
    },
-   "6.11.1": {
-    "kind": "QLabel",
-    "text": "6.11.1"
-   },
    "ffmpeg": {
     "kind": "QLabel",
     "text": "ffmpeg"
    },
-   "…ce_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.EXE": {
+   "C:\\ffmpeg\\bin\\ffmpeg.exe": {
     "kind": "QLabel",
-    "text": "…ce_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.EXE"
+    "text": "C:\\ffmpeg\\bin\\ffmpeg.exe"
    },
    "FF9 install": {
     "kind": "QLabel",

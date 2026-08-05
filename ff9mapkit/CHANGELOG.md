@@ -18,6 +18,259 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   Hunter *rank letter* or a Festival-of-the-Hunt *winner name* needs; before it, the kit's only
   `[TBLE]` emitter was hardwired to the Mognet roster.
 
+### Fixed — THE WEDGE GROUND LAW + THE MIXED-CELL PAIR (the grass-edge mismatch)
+- Round 5 on the bent crescent: stock's grass-on-desert patches are an EDGE-CODED tile
+  system (~8 distinct rects — interior/edge/corner, a Wang-like land vocabulary) that a
+  nearest-source clone cannot compose; the fill had extended the patch into new territory
+  with interior tiles and Voronoi-chunk borders. Now NEW territory clones only the MODAL
+  ground family; a patch family reproduces only in its own offset-zero cells, whose stock
+  edge tiles already carry the transition (the beach-mint lesson, on land). Mixed cells
+  (two topos on the tile diagonal) keep their PAIR — pieces split at the exact diagonal,
+  each side carrying its own rect + idall. 3 mutations killed; redeployed — the fill's
+  grass is the faithful 7-tri stock fragment, the wedge pure desert.
+
+### Fixed — THE TILE-RECT CONTAINMENT LAW (the promontory shards)
+- The tiled-mains fill assigned each Delaunay tri ONE source tile's affine map by centroid
+  cell; a tri spanning cells (or sitting on stock's WOBBLY lattice — 4u spacing, per-vert
+  jitter to ~2u) mapped uvs outside the source tile's atlas rect and rendered gutter/foreign
+  sub-tiles in-game (white/water/rock shards on the bent crescent's promontory, 22 of 51
+  authored tris measured escaped). The land atlas is not the self-tiling water sheet: the sea
+  zip's documented escape tolerance is a WATER-texture property, and capability 1 carried the
+  vocabulary without that hidden precondition. Now: the new outline refines at every 4u
+  cell-line crossing (stock coast outlines carry exactly these verts; tiled lane only — grass
+  stays byte-identical), fill tris clip per cell with chord verts snapped onto boundary/
+  triangulation verts (no T-junctions; `_BOUNDARY_SNAP` 0.4u, pinned by the playtest's
+  visibility line), uvs evaluate by THE CUT-VERT LAW's shape — the fill cell's EXACT square
+  onto the source tile's EXACT uv rect — and a hard per-tri rect-containment gate plus a fill
+  weld pass (near-miss chord canonicalization) close the class. Redeployed clean: 98 authored
+  tris, 0 escaped. HONEST SHRINKAGE: the comma's hole boundaries wobble to 1.24u past the
+  lattice and now refuse (their earlier CLEAN scores came from the containment-blind gate
+  set); the wobbly-cell fill is the registered follow-up. 5 mutations killed.
+
+### Added — fuse off-lattice water tolerance (study 3) — and the honest strait verdict
+- `fuse_layout` refused any off-lattice vert at a shared border. New: an off-lattice vert on
+  a PURE open-water row classifies `water-offlat` and fuses against another placement's
+  water/prefab — a conforming vert of the donor's own sheet cannot tear land. Off-lattice
+  rows carrying land/beach/shallows keep the hard refusal (mutation-verified both ways).
+  The registered target — the Iron Gate strait (comma + reef at 36.2u) — is measured NOT
+  unlocked: the predicate clears its off-lattice sea3 rows, but the reef brings its live
+  sea1 shore wash to the channel frame (4 rows), which the fuse law rightly refuses. The
+  strait class at stock width needs a shore-ladder termination on that frame (the rim-retile
+  family lane), registered as the follow-up.
+
+### Fixed — the rim retile's two shifted-carry laws (found by the cluster-shift playtest)
+- **THE CROP-SEAM WIDENING**: `plan_rim` audited only outer-frame shallow quads — correct for
+  unshifted carries (crop lines land on the frame), blind for a cluster-shifted carry whose
+  crop lines land mid-cell. A quad is now planned on MEASURED seam truth anywhere: sea3
+  touching deep (stock abuts sea3 to deep nowhere map-wide), or a sea5 whose encoded deep-set
+  mismatches its geometric one. **THE CUT-VERT LAW**: `apply_rim` corner-snapped every vert's
+  uv — invisible on full frame tiles, a stretched-face smear on the coast-cut partial tiles
+  the widening newly plans; the variant's 4-corner map is now evaluated AT the vert (bilinear;
+  bit-identical on lattice corners). Both mutation-killed. The composed dot pair is
+  playtest-confirmed with both fixes live.
+
+### Added — THE CLUSTER SHIFT: compose carried masses at stock archipelago spacing (study 2)
+- `transplant_region` pinned every shift to the ±8u neighbour-strip window, so two carried
+  masses could never sit closer than their rects allow (measured floor ~49.8u against stock's
+  4–20u cluster regime). An EXPLICIT shift may now exceed the window when the trailing side is
+  tongue-less AND strip-less (prefab-ocean-backed): the vacated band is minted as stock-shaped
+  sea4 (`lattice_patch`, THE LATTICE LAW) welded to the sheet's own frame verts, generated in
+  pre-shift coordinates so the standard shift+partition welds it like any carried tri. Proven
+  offline: two chain dots composed at a 5.4u land gap, both dry-runs fully CLEAN. The AUTO
+  shift never widens (spacing is an explicit design choice); fail-closed refusals name land
+  within the leading margin, a data-backed trailing side, a tongued trailing side, and
+  diagonal shifts (one axis at a time). Four mutations killed.
+
+### Added — THE PINCH WALL: single-triangle wall gaps decode (capability 3)
+- Byte-level decode of the "window gap N is neither a clean one-quad wall nor a refined fan"
+  refusals: 5 of 6 specimens are THE PINCH — the crease contracts to a point
+  (`crease[i] == crease[i+1]` byte-exact) and the wall gap is ONE triangle, a real stock
+  vocabulary (crescent ×4, chain, comma) that hard-failed `CliffWindow` construction, killing
+  even the bump. The decode now accepts a pinch gap (exactly one tri on its 3 roles, else the
+  old refusal); `cliff_bump` displaces it like any tile; the structural morphs refuse it
+  POSITIONALLY ("window gap K is a crease-pinch"), which the scanner's refusal-steered
+  sub-window search turns into viable sub-runs. Results: 4 of 5 pinch-blocked windows bump at
+  their geometric ceilings (one carries sea1+sea2+sea3+sea5 — capabilities 2+3 compounding),
+  and SIX new structural sub-windows open on the crescent's (17,1)/(14,2)/(15,2) runs. With
+  all three capabilities: deep morphs on 3 of 8 palette masses (was 1), the shallow bump on
+  every mass with a window. Two mutations killed.
+
+### Added — THE SHALLOW BOW: the conforming bump on shallow-fronted shores (capability 2)
+- The cliff verbs refused any window whose waterline touches sea3/sea5 ("pure sea4" law) —
+  correct for the structural morphs (part-scoped tweaks would leave coincident verts behind),
+  over-broad for the bump, which never drops or refills a sheet. `cliff_bump` now CARRIES the
+  coincidence: one part-scoped `SeaBump` per shallow sheet (the proven affine re-eval — the
+  caustic stays pinned, the waterline cuts it at a new place), exact per-part expected counts,
+  and the fold precheck extended over the shallow tiles. beach1 coincidence still refuses (the
+  beach verbs' domain); headland/bay on shallow shores keep the unchanged refusal (the ladder
+  rebuild is a registered future rung). 9 of the 10 shallow-refused palette windows flip at the
+  full 2.5u envelope; the tenth folds a tile at 1.0u (a genuine geometric ceiling). Also fixes
+  THE ANCHOR-ONLY READ GAP: the purity and reach gates read only the anchor cell's water parts,
+  so a region window in a non-anchor cell dodged them — all readers now span the rect
+  (`CliffWindow.part_tris`), with a region-aware test. Three mutations killed.
+
+### Added — THE TILED-MAINS FILL: deep coast morphs on desert/brush tops (capability 1)
+- The cliff morphs' "no grass mains — painted-mural" refusal fired on *not grass*, not on
+  *mural*: the morph-envelope study measured 5 of 6 refused coast tops at 81–98% uv-rect reuse —
+  heavily tiled families with a real fill language. `cliff_headland`/`cliff_bay` now admit them:
+  **THE MEASURED MURAL GATE** (uv-rect reuse ≥ 40%, censused over the window's own rect; topo
+  number never decides — topo-49 is 90% tiled on one island and 5% unique on another) and a
+  **translate-clone fill lane** that repeats the window's own dropped tiles (the proven water
+  vocabulary applied to land; per-tri source idall, MAINS DENSITY GATE, grain-aware clearance
+  ladder with a denser 0.9 rung). The wall rebuild's U-cycle is now **harvested from the window's
+  own clean gaps** when the grass CYC constants don't cover it (ramp-consistency + ambiguity
+  refusals); the grass path stays byte-identical (content-dump-verified) and all golden hashes
+  hold. **THE ONE-LANE LAW**: a drop mixing grass with a tiled family refuses — no single fill
+  language spans it — and ring extensions admit only already-gated families. Result: deep shape
+  control went from 1 to 3 of the 8 palette masses (chain + comma + crescent, all verified
+  through the real region transplant gates); the isthmus honestly refuses (its windows consume a
+  genuine 5%-reuse mural). Six mutations killed; the coast scanner also stops treating
+  "outline vert escapes" as depth-independent, so probe ladders report honest ceilings.
+
+### Fixed — THE GHOST SIDECAR: the object exclusion now applies to the NATURAL donor
+- A region carry's per-cell sidecar law ("an Object-bearing donor cell never hosts a foreign
+  target cell") was enforced only in the *substitute* search; the natural-donor branch skipped the
+  check, so the first object-bearing carry (the crescent) ghost-rendered its donor's baked harbor
+  in open ocean at the prefab's block-local pose. The natural donor now requires no Object or the
+  identity transform (in-place morphs legitimately render their own). The test named for the law
+  only exercised the substitute path — both directions are now covered and mutation-verified.
+- Operational corollary, learned the same session: **a redeploy regenerates the sea meshes and
+  silently discards a prior `world-rim-retile` — always re-run the retile after redeploying.**
+
+### Fixed — THE LATTICE LAW: the excise fill is now stock-SHAPED water, not just stock-vocabulary water
+- `flat_patch` ear-clipped the whole footprint: lawful geometry, synthetic water shape. Stock sea4 is
+  a strict 4u lattice (tri area max 10.5u², edge max 7u); the crescent's fill minted **615u² /
+  71.5u-edge** triangles, and the wave-animated sheet rendered them in-game as a faceted "iceberg"
+  with one tile quadrant smeared across ~18 tiles. New `meshedit.lattice_patch`: full 4u tiles as
+  stock builds them (per-tile quadrant, mixed diagonals), margins clipped per cell so no triangle
+  spans a tile. Final fill: 308 tris, max 8.02u² / 5.66u, uv statistics inside the tiling gate's
+  stock bands.
+- Three latent defects fixed on the way, each with a both-sides test: the modulo-wrap UV
+  (`(x/4)%1` collapses a lattice-aligned tile onto one texel — inherited from `flat_patch`'s
+  formula), a zero-width clip spur jamming the ear-clipper, and **excise being FAIL-OPEN on a
+  skipped ring** (tweaks handed back with the assembly dropped and nothing filled — now refuses).
+  Boundary crossings snap onto the sheet's own exact-float vertices (DENSIFY FIRST; round to key,
+  emit the float).
+
+### Added — excise v3: THE STRUCTURE NOTCH — a dropped mass's baked-structure footprint closes over
+- The world sheet is CUT under baked structures the way sea4 is cut under land, and it welds to the
+  structure's y=0 base verts. `TR.PARTS` never collects `object`, so an excised mass owning a
+  structure (measured: the crescent's harbor at block `(14,2)` — its 5 "interior" waterline verts
+  are the structure's entire base, byte-exact) refused as an unweldable sheet hole. Since THE
+  OBJECT ANCHOR means no carry ever ships the structure, `excise_plan` now deletes the ring's whole
+  off-frame detour around a structure base and fills straight across — sea4 where the harbor stood.
+- **Fail-closed three ways**: a run with no waterline vert is never touched (an ordinary crop
+  profile corner), a waterline vert not byte-exact in the rect's own object base still refuses with
+  the v1 reason, and a structure-free rect skips the pass. Swept every 2x2/3x2/4x3 rect on disc 1:
+  exactly one rect ever reaches the exactness gate and fails it, and it is this one.
+- Unlocks the crescent — `(14,1)+4x2`, 8624u², 78% walkable, terrain 1386: the largest carry in the
+  palette, `gates CLEAN`.
+
+### Fixed — THE GHOST TONGUE: the island-tongue rule is judged on land that survives the tweaks
+- `transplant_region` judged the tongue on **pre-tweak** land, so an excised mass touching a border
+  opened that border's window and the strips carried the mass's own continuation — the ghost of the
+  thing just dropped — back into the carry, steering the auto-shift with it (measured on the
+  crescent: land-fit FAIL + 26 introduced census misses + `object-anchor moved=True`, all cleared).
+  The probe is read-only over `DropTris` keys (`apply()` mutates its scope-gate counter). The
+  isthmus's own redeploy was failing the same way and now carries exactly its published 578.
+
+### Added — `world-rim-retile`: terminate a carried island's cropped shallow ring
+- Carrying a coastal island standalone crops the neighbour blocks that hosted its sea5 transition
+  rings, so its shallow band ends against open ocean with no transition — a hard `sea3|deep` seam
+  along a straight block-frame line. The wang-carry gate has always flagged this and named the
+  remedy, while pointing at a study script hardcoded to one island. **That remedy is now a verb.**
+- **The replacement tiles are HARVESTED byte-exact from the donor's own sea5 terminations.** A
+  deep-set with no verbatim donor tile **refuses** rather than being synthesized — two authored-uv
+  attempts reached playtests first (a checkerboard, then stretched coast tiles) and both passed
+  every geometry gate, because geometry was never what was wrong.
+- **The edit is a pure repartition, gated**: each quad keeps its exact verts, normals and topo, so
+  the `(verts, topo)` multiset is identical before and after and walk/boat legality is preserved by
+  construction. It also **iterates to a fixed point** — retiling changes the shade map the next pass
+  reads, so one pass does not converge.
+- Reports the two classes separately, because only one is the defect: `under` (a tile facing deep
+  with no transition there — the hard seam) and `over` (a transition facing shallow — a gradient
+  where none is needed). In-game proven on the Path D isthmus: **under 3 → 0**.
+
+### Fixed — three fail-closed gaps in `--ground`
+- **A `beach1` triangle that was neither foam nor water shipped silently.** The branch returned
+  any non-foam triangle verbatim with no counter and no refusal, so water and a class nobody has
+  measured were indistinguishable — while the *same* class in `terrain` refused. Water now passes
+  verbatim and is counted (`beach1_water`); anything else refuses. Census of every `beach1`
+  topograph in disc 1 is `{30: 443, 34: 280, 53: 4, 55: 10}` — foam and water only — so the new
+  refusal cannot fire on stock data and costs no shipped donor.
+- **Snow's shore sand (topo 33) made a block read as BEACHLESS.** `SAND_BANDS` covers grass(31)
+  and desert(32) only, so the third member of the family fell through: the source family was then
+  guessed from the mains and the sand triangles refused later as anonymous "unclassified". It now
+  refuses **by name**, saying which class is missing and how to measure it. Attested on disc 1 as
+  42 triangles across 5 blocks, all snow-mains.
+- **The recover budget counted refusals that could never recover.** Recover *cells* are chosen by
+  source-family refusals, but the budget summed **every** refusal in those cells, including foreign
+  classes the recover path never takes — making `expected["recovered"]` unreachable, so the gate
+  could only fail. Donor `(4,12)` budgeted 8 against 5 reachable triangles; now 5.
+
+### Fixed — `--excise` no longer cracks a fill at a block border
+- **The two large laddered rects now build clean.** The sinuous island `(3,11)+2x4` and
+  Daguerreo `(5,15)+3x2` were being refused by the weld audit with one and four near-miss
+  vertex pairs; both now pass every gate, with the placement census unchanged at
+  `miss=0 inherited=0 introduced=0`.
+- **The cause was the fill's own triangulation, not a divergence from the sheet.** Every
+  offending vertex was minted by a *fill-internal* diagonal where it crossed a block border —
+  the fill's ring and the deep sheet's hole boundary agreed bit-for-bit. Ear-clipping took the
+  first valid ear, and since a collinear vertex can never *be* an ear, a run of them survived
+  until it could only be triangulated against a distant vertex, fanning into slivers whose
+  border crossings landed 0.02–0.04u apart.
+- **`meshedit.earclip` takes a `quality=` selection** (best-shaped ear rather than first valid);
+  `flat_patch` opts in. Same ring, same triangle count, bit-identical covered area — only the
+  diagonals move. Default stays off, so every other caller's triangulation is untouched.
+
+### Fixed — a donor without a beach was assumed to be grass
+- **`--ground` mis-read the source family of any beachless landmass.** The family was detected
+  from the sand band alone, falling back to `"grass"` when there was none — so a desert island
+  with no beach was retiled *from grass*, matched nothing, and refused with a bare `mains=0`
+  and a handful of cryptic "unclassified" triangles. The family is now read from the ground
+  **mains** when there is no sand band; where a sand band exists it stays authoritative, so no
+  beach donor's behaviour changes.
+- **`--ground <the donor's own family>` now correctly reports "already <family>"** instead of
+  claiming the donor was grass.
+- **The refusal now names the real limit.** Retiling only supports a **grass source**: the
+  translation census measured `grass -> X` and nothing else, so a desert or snow source
+  reclassifies nothing whatever the target. `--ground` says exactly that, and points at
+  carrying the donor verbatim or choosing a grass-family donor, rather than leaving you to
+  infer it from a zero count.
+
+### Changed — the cliff morphs work on a MULTI-BLOCK carry
+- **`--cliff-bump`, `--cliff-headland`, `--cliff-bay` and `--cliff-lobes` now accept `--size`.**
+  Previously any `--size` refused every morph outright ("single-cell v1"), so a multi-block
+  landmass was frozen verbatim the moment it landed — and on a synthetic world there is no
+  second chance, because in-place morphing reads the stock install and only discs 1 and 4
+  exist. You can now reshape a coast that runs across a block line.
+- **A window may cross an interior border.** The morph window reads every cell of the rect and
+  frames against the *region's* outer boundary, so an interior block line is no longer treated
+  as the edge of the world. Adjacent stock blocks weld exactly there, so the outline chains
+  across with no tolerance.
+- **Single-cell behaviour is byte-identical** — verified by signature-hashing all four verbs
+  against the previous implementation.
+- **The beach verbs are still single-cell** and are now refused *by name* under `--size`
+  (`--beach-bump`, `--beach-slide`, `--beach-mint`, …) rather than silently truncated.
+- A sea-zip crash (`list.index(x): x not in list`) is now a diagnosis: it means that stretch
+  of waterline fronts the shallow ladder rather than deep sea, which the zip does not rebuild.
+
+### Added — `world-transplant --excise`: carry an island whose NEIGHBOUR sits in the way
+- **A multi-block carry is normally refused because of a mass you did not want anyway.** The
+  `land-fit` gate rejects any donor rect where land runs to the frame, since carrying it ships a
+  landmass cropped to a ruler-straight 64u slice ending in mid-air. Measured over disc 1, the
+  disqualifier is almost never the island you are after — it is a *neighbouring* mass clipping one
+  corner. `--excise` drops that neighbour and re-zips deep ocean over its footprint.
+- **The waisted island at donor `(6,6)+2x2`** — the one object in FF9 that reads as an isthmus —
+  goes from `land-fit FAIL` to all gates clean this way.
+- **The fill is exact by construction, not by tolerance.** The dropped assembly's own boundary IS
+  the hole, and every waterline vertex on it is already a vertex of the deep sheet, so the patch
+  reuses them verbatim and introduces no new boundary vertex.
+- **It refuses, with the reason, when it cannot be exact.** If the crossing mass owns a
+  shallow-water ladder of its own, the vacated region does not abut deep sea all the way round;
+  excise says so up front rather than handing back a patch that fails a later gate.
+- New pure-geometry primitives in `world/meshedit.py`: `vertex_components`, `boundary_cycles`,
+  `flat_patch`.
 ### Added — several windows at once, text-synchronized beats, and coloured text
 - **Multi-window cutscene steps** `open` / `close` / `wait_window` / `raise` on both scene flavors
   (narration and a cast). `say` opens one window and blocks; splitting that is how stock builds unison

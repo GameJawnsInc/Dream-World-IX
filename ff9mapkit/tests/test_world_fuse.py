@@ -111,6 +111,55 @@ def test_fuse_layout_grade_jump_reported_not_failed(monkeypatch):
     assert fg["ok"] and fg["grade_jumps"] == 16
 
 
+def _offlat_donor(border_part="sea3"):
+    """The mini donor with ONE border tile's frame edge split by a mid-edge vert (2u off
+    the 4u lattice) -- the conforming-vert class the Iron Gate's reef carries on its
+    channel frame."""
+    blocks = _mini_donor(border_part=border_part)
+    tiles = blocks[(1, 1, border_part)]
+    # the border column tile at zi == 5: x 124..128, z -108..-104
+    x0, x1, z0, z1 = 124.0, 128.0, -108.0, -104.0
+    idall = 228.0
+    def kx(t3):
+        xs = [v[0][0] for v in t3]
+        zs = [v[0][2] for v in t3]
+        return min(xs) == x0 and min(zs) == z0
+    kept = [t for t in tiles if not kx(t)]
+    assert len(kept) == len(tiles) - 2, "fixture tile not found"
+    a, b = _v(x0, 0, z1, idall=idall), _v(x1, 0, z1, idall=idall)
+    c, d = _v(x1, 0, z0, idall=idall), _v(x0, 0, z0, idall=idall)
+    m = _v(x1, 0, z0 + 2.0, idall=idall)          # mid-edge vert ON the frame, off-lattice
+    blocks[(1, 1, border_part)] = kept + [[a, b, m], [a, m, c], [a, c, d]]
+    return blocks
+
+
+def test_fuse_offlattice_water_row_certifies(monkeypatch):
+    """THE STRAIT UNLOCK (study 3): an off-lattice vert on a PURE open-water row is a
+    conforming vert of the donor's own sheet -- it cannot tear land, so the row fuses
+    against another placement's water."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_offlat_donor("sea3")))
+    out = FU.fuse_layout("UNUSED", [
+        {"cell": (5, 5), "donor": (1, 1), "size": (1, 1)},
+        {"cell": (6, 5), "donor": (1, 1), "size": (1, 1)},
+    ], dry_run=True)
+    fg = next(g for g in out["fuse_gates"] if g["gate"].startswith("fuse["))
+    assert fg["ok"] and fg["n_bad"] == 0, fg["bad"]
+
+
+def test_fuse_offlattice_shallow_row_still_refuses(monkeypatch):
+    """FAIL-CLOSED (F-3): the same off-lattice vert on a SHALLOW (sea1) row keeps the hard
+    refusal -- the wash is shore-bound copy-only; only pure open water earns the tolerance."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_offlat_donor("sea1")))
+    out = FU.fuse_layout("UNUSED", [
+        {"cell": (5, 5), "donor": (1, 1), "size": (1, 1)},
+        {"cell": (6, 5), "donor": (1, 1), "size": (1, 1)},
+    ], dry_run=True)
+    fg = next(g for g in out["fuse_gates"] if g["gate"].startswith("fuse["))
+    assert not fg["ok"]
+    states = {b["a"] for b in fg["bad"]}
+    assert "off-lattice" in states, states
+
+
 def test_fuse_layout_rect_overlap_refuses(monkeypatch):
     monkeypatch.setattr(TR, "world_tris", _fake_world(_mini_donor()))
     out = FU.fuse_layout("UNUSED", [

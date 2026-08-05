@@ -54,6 +54,37 @@ def test_inventory_is_committed_and_sane():
     assert forms["form:choice-option"]["text"]["text"] == "Option text"   # <THING>_SPEC -> dashes
 
 
+def test_committed_inventory_records_no_machine_state():
+    """The inventory must describe the UI, never the box that harvested it. `build_deploy.dep_hint`
+    once carried the SHARED mod folder's live deploy count ("410 deployed here · ..."), so the
+    committed file drifted 410 -> 422 during unrelated work and `uiharvest --check` alarmed on
+    another session's deploy. uiharvest._pin_live_state pins the known live reads; machine_leaks is
+    the path-shaped backstop, and this is its always-runs (Qt-free) half -- the twin-harvest fence
+    in test_uiharvest_pins.py covers the counts."""
+    import uiharvest as U
+
+    inv = json.loads((B.HERE / "assets" / "ui-inventory.json").read_text(encoding="utf-8"))
+    assert U.machine_leaks(inv) == []
+    # TEETH: an auditor only ever seen green is an auditor never seen working.
+    planted = json.loads(json.dumps(inv))
+    planted["surfaces"]["tab:build"]["build_deploy.dep_hint"]["text"] = str(Path.home() / "x.toml")
+    assert U.machine_leaks(planted), "machine_leaks ignored a planted home-directory path"
+
+
+def test_ledger_dependent_labels_are_pinned_in_the_committed_inventory():
+    """Name the specific labels the pin owns, so removing a pin fails HERE (Qt-free, every run) and
+    not only in the Qt fence -- which a machine without PySide6 skips."""
+    import uiharvest as U
+
+    build = json.loads((B.HERE / "assets" / "ui-inventory.json").read_text(
+        encoding="utf-8"))["surfaces"]["tab:build"]
+    n_rows, n_undo = len(U.PINNED_LEDGER), sum(1 for r in U.PINNED_LEDGER if r["script"])
+    assert build["build_deploy.dep_hint"]["text"].startswith(
+        f"{n_rows} deployed here · {n_undo} with an undo")
+    assert str(U.PINNED_NEWGAME) in build["build_deploy.newgame_status"]["text"]
+    assert str(U.PINNED_DEPLOY_TARGET[1] or 4003) in build["build_deploy.rb_test"]["text"]
+
+
 def test_form_inventory_is_fresh_against_the_live_specs():
     """The ui_gate proves tutorial -> inventory. This proves inventory -> the LIVE forms.py.
 

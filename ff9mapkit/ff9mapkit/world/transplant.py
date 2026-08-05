@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import collections
 import math
+import warnings
 
 from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN, decode_id, encode_id
 from .terrain import GRID_X, GRID_Y
@@ -236,6 +237,70 @@ class TileRetexture:
                 "expected": self.expected, "ok": self.applied == self.expected}
 
 
+#: MEASURED layout support per retile pair -- the share of the SOURCE family's mains tris
+#: whose position WITHIN its own rect also occurs in the destination family. Every family's
+#: mains rect is the same size (0.1230 x 0.0615), so the retile is a pure rigid shift; what
+#: this table measures is whether the two families actually TILE that rect the same way.
+#:
+#: THE HEADLINE: grass<->desert (0.708/0.762) is the only strong pair, and it is exactly the
+#: pair that was measured and proven in-game (the desert bench). The retile's in-game success
+#: is therefore evidence about ONE PAIR, not about the operator. A low-support target still
+#: samples the right family's texture -- the uv lands inside its rect -- but uses sub-tile
+#: arrangements stock essentially never uses for that family.
+#:
+#: Regenerate: py studies/coast-shape-language/ground_translation_census.py --disc 1
+#: Full table + reading guide: studies/coast-shape-language/GROUND-TRANSLATION-CENSUS.md
+LAYOUT_SUPPORT = {
+    'brush': {'canyon': 0.0089, 'desert': 0.0095, 'dunes': 0.2979, 'grass': 0.0116,
+              'scrub': 0.0, 'snow': 0.0},
+    'canyon': {'brush': 0.0215, 'desert': 0.0039, 'dunes': 0.0, 'grass': 0.0033,
+               'scrub': 0.0072, 'snow': 0.0},
+    'desert': {'brush': 0.0045, 'canyon': 0.0009, 'dunes': 0.0016, 'grass': 0.7621,
+               'scrub': 0.0015, 'snow': 0.2441},
+    'dunes': {'brush': 0.3319, 'canyon': 0.0, 'desert': 0.0043, 'grass': 0.0087,
+              'scrub': 0.0, 'snow': 0.0},
+    'grass': {'brush': 0.011, 'canyon': 0.0012, 'desert': 0.7083, 'dunes': 0.004,
+              'scrub': 0.007, 'snow': 0.2995},
+    'scrub': {'brush': 0.0, 'canyon': 0.0033, 'desert': 0.0028, 'dunes': 0.0,
+              'grass': 0.0028, 'snow': 0.0},
+    'snow': {'brush': 0.0, 'canyon': 0.0, 'desert': 0.2024, 'dunes': 0.0,
+             'grass': 0.2186, 'scrub': 0.0},
+}
+#: below this, the pair is off the measured path -- WARN, do not refuse. No rendering
+#: evidence was gathered, so a refusal would be stronger than the measurement supports.
+LAYOUT_SUPPORT_WARN = 0.50
+
+#: THE LOOK-FAMILY TOPOGRAPH SETS (the interior census, ``studies/overworld-topography/
+#: README.md``: "~37 in-use topograph ids collapse into ~9 tile families"). Ids inside a
+#: family are GAMEPLAY variants -- encounter regions and event triggers -- not looks, so
+#: they all wear the family's mains tiles.
+#:
+#: This is the FAMILY GATE for :class:`GroundRetile`'s mains branch, not its classifier:
+#: a tri is mains only when its topo is in its source family's set AND its uv sits inside
+#: that family's (source-derived) mains rect. The rect does the discriminating; the set
+#: only says "this id belongs to the family whose rect we are about to test".
+#:
+#: ⚠ ``grass`` is EXACTLY the historic ``GRASS_TOPOS`` and must stay so -- the grass->desert
+#: retile is in-game proven on (7,17)/(8,17)/(10,17) and every carried triangle of it is
+#: frozen by the byte-identity oracles. The census's grass LOOK family also lists 59;
+#: 59 is NOT added here, because adding it would move a proven path.
+#:
+#: ⚠ ``dunes`` (41) is kept OUT of ``desert`` even though the census groups the dirt-desert
+#: LOOK family as 16-23/41: the translation table calls 41 a "family-model EXCEPTION -- its
+#: own pale-sand set, NOT desert's", i.e. it has a different mains rect. Folding it into
+#: desert would let a topo-41 tri fail desert's rect and then get SYNTHESIZED by the
+#: path-strip recover. Left out, it refuses loudly instead. Fail closed.
+FAMILY_TOPOS = {
+    "grass": frozenset({0, 1, 2, 3, 10, 11, 12, 13, 42}),
+    "desert": frozenset({16, 17, 18, 19, 20, 21, 22, 23}),
+    "scrub": frozenset({4, 5, 6}),
+    "brush": frozenset({38}),
+    "snow": frozenset({27, 28}),
+    "canyon": frozenset({45, 46}),
+    "dunes": frozenset({41}),
+}
+
+
 class GroundRetile:
     """Tweak class -- THE GROUND-FAMILY RETILE (the translation law over a whole carried
     block; built for the (7,17)->desert beach island, 2026-07-15).
@@ -245,9 +310,9 @@ class GroundRetile:
     topograph change, each class by its own byte-measured translation law (nothing is
     synthesized; ``studies/overworld-topography/island717_retile_census.py``):
 
-    * ground MAINS (uv in the family mains rect, any grass-family gameplay topo) ->
-      the ``grassland.GROUNDS`` mains delta, topo -> the family topo  [in-game proven:
-      the full desert bench]
+    * ground MAINS (uv in the SOURCE family's mains rect, and a topo in that family's
+      :data:`FAMILY_TOPOS` row) -> the ``grassland.GROUNDS`` mains delta, topo -> the
+      target family topo  [in-game proven: the full desert bench, grass->desert]
     * the coastal ROCK band (uv in the wall strip, any topo) -> the ``GROUNDS`` wall
       delta, topo unchanged  [in-game proven: the desert bench walls]
     * the SAND band (the source family's sand topo) -> ``coastmorph.SAND_BANDS``:
@@ -279,8 +344,10 @@ class GroundRetile:
     class the translation census has not measured must be studied, not guessed.
     Build instances with :meth:`for_donor` (byte-reads the donor)."""
 
-    #: the grass gameplay-variant topographs (the families census: same look, gameplay ids)
-    GRASS_TOPOS = frozenset({0, 1, 2, 3, 10, 11, 12, 13, 42})
+    #: the grass gameplay-variant topographs (the families census: same look, gameplay ids).
+    #: Kept as the historic name -- ``island717_retile_acceptance.py`` reads it -- but it is
+    #: now just the grass row of the module-level :data:`FAMILY_TOPOS`.
+    GRASS_TOPOS = FAMILY_TOPOS["grass"]
     _WATER = frozenset({53, 54, 55, 56, 57})
     _EPS = 0.006                                             # uv region-membership slack
 
@@ -292,8 +359,14 @@ class GroundRetile:
         from . import islandbeach as IB
         if dst not in G.GROUNDS:
             raise ValueError(f"unknown ground family {dst!r} (families: {sorted(G.GROUNDS)})")
+        if src not in FAMILY_TOPOS:
+            raise ValueError(f"no measured topograph set for source family {src!r} "
+                             f"(FAMILY_TOPOS: {sorted(FAMILY_TOPOS)}) -- the mains branch "
+                             f"cannot tell which of this donor's ids wear its mains tiles")
         self.part = "terrain"                                # emission host (nothing emitted)
         self.src, self.dst = src, dst
+        #: the SOURCE family's gameplay-variant ids -- the mains branch's family gate
+        self.src_topos = FAMILY_TOPOS[src]
         gs, gd = G.GROUNDS[src], G.GROUNDS[dst]
         self.mains_d = (gd["mains_du"] - gs["mains_du"], gd["mains_dv"] - gs["mains_dv"])
         self.wall_d = (gd["wall_du"] - gs["wall_du"], gd["wall_dv"] - gs["wall_dv"])
@@ -362,6 +435,18 @@ class GroundRetile:
                 self.n["foam"] += 1
                 return [(p, nr, uvv, self._retag(tan, self.foam_dst))
                         for (p, nr, uvv, tan) in poly]
+            # THE SILENT BRANCH, CLOSED. This used to `return poly` for ANY non-foam
+            # beach1 tri -- correct for water by the verbatim policy, but it could not
+            # tell water from a class nobody has measured, so an unmeasured one shipped
+            # silently while the identical class in `terrain` refused. Census of every
+            # beach1 topograph in disc 1: {30: 443, 34: 280, 53: 4, 55: 10} -- foam and
+            # water only, nothing else, so refusing the remainder cannot fire on stock
+            # data and costs no shipped donor.
+            btopo = decode_id(int(round(poly[0][3][0])))["topograph"]
+            if btopo in self._WATER:
+                self.n["beach1_water"] += 1
+                return poly
+            self._refuse(part, btopo, poly, None)
             return poly
         if part != "terrain":
             return poly
@@ -409,7 +494,7 @@ class GroundRetile:
         cx = sum(v[0][0] for v in poly) / len(poly)
         cz = sum(v[0][2] for v in poly) / len(poly)
         cell = (math.floor(cx / 4.0), math.floor(cz / 4.0))
-        if topo in self.GRASS_TOPOS:
+        if topo in self.src_topos:
             if all(self._in(uvv, self.mains_rect) for (_, _, uvv, _) in poly):
                 self.n["mains"] += 1
                 return [(p, nr, (uvv[0] + self.mains_d[0], uvv[1] + self.mains_d[1]),
@@ -430,8 +515,16 @@ class GroundRetile:
         return []
 
     def gate(self) -> dict:
+        # the detail is a 4-item SAMPLE; lead with the total and a topo histogram, or a
+        # 395-tri refusal reads as a 4-tri one and the reader goes looking for a small
+        # hole instead of the whole unmeasured class that is actually there.
         det = "; ".join(f"{u['part']}:t{u['topo']}@{u['cell']} uv{u['uv']}"
                         for u in self.unclassified[:4])
+        if det:
+            h = collections.Counter(u["topo"] for u in self.unclassified)
+            det = (f"{len(self.unclassified)} tris, topo "
+                   + ",".join(f"{t}x{n}" for t, n in sorted(h.items()))
+                   + f" -- first 4: {det}")
         ok = (not self.unclassified
               and self.n["recovered"] <= self.recover_budget
               and all(self.n[k] == v for k, v in self.expected.items()))
@@ -440,6 +533,44 @@ class GroundRetile:
                                           "sand_degenerate_recovered")},
                 "budget": self.recover_budget,
                 "unclassified": det if det else 0, "ok": ok}
+
+    @staticmethod
+    def _mains_family(tris, donor=None, *, margin: float = 2.0, floor: int = 12):
+        """The donor's ground family, read from its MAINS uv region by dominance.
+
+        Used when the donor has no sand band to name the family. Regions are not fully
+        disjoint (a desert donor also lands 63 tris in brush's rect), so this takes the
+        plurality and requires the winner to lead by ``margin`` -- a genuinely mixed
+        landmass must REFUSE and be told to pass ``src`` explicitly, never be guessed at.
+        """
+        from . import grassland as G
+        regions = {f: G.ground_main_region(f) for f in G.GROUNDS}
+        counts: dict = {}
+        for t3 in tris:
+            us = [v[2][0] for v in t3]
+            vs = [v[2][1] for v in t3]
+            u_lo, u_hi, v_lo, v_hi = min(us), max(us), min(vs), max(vs)
+            for f, (r_u0, r_v0, r_u1, r_v1) in regions.items():
+                if (u_lo >= r_u0 - 1e-4 and u_hi <= r_u1 + 1e-4
+                        and v_lo >= r_v0 - 1e-4 and v_hi <= r_v1 + 1e-4):
+                    counts[f] = counts.get(f, 0) + 1
+        if not counts:
+            return "grass"                       # no mains at all: the historic default
+        rank = sorted(counts.items(), key=lambda kv: -kv[1])
+        top, n = rank[0]
+        runner = rank[1][1] if len(rank) > 1 else 0
+        # A UNANIMOUS READ IS NOT AMBIGUOUS. The floor exists to stop a handful of stray
+        # tris naming a family when another family is also present; with no competitor at
+        # all there is nothing to be ambiguous BETWEEN. Donor (12,10) -- a real carryable
+        # 1x1 island -- reads {'grass': 11} and was refused purely for being small, which
+        # blocks a legitimate donor for no measurement reason.
+        unanimous = runner == 0 and n >= 4
+        dominant = runner > 0 and n >= margin * runner and n >= floor
+        if not (unanimous or dominant):
+            raise ValueError(
+                f"donor {donor or ''} has no dominant ground family in its mains "
+                f"({dict(rank)}) -- pass src= explicitly rather than let it be guessed")
+        return top
 
     @classmethod
     def for_donor(cls, donor, dst, *, size=(1, 1), src=None, strips="auto",
@@ -486,10 +617,47 @@ class GroundRetile:
                         polys[p].append(cp)
         sand_fam = CM._sand_band_family(polys["terrain"], what=f"donor {donor}")
         if src is None:
-            src = sand_fam["name"] if sand_fam else "grass"
+            # THE SAND BAND IS AUTHORITATIVE WHEN PRESENT (it is pure per block -- the
+            # census law), but it is not the only evidence. This used to fall back to
+            # `"grass"` for ANY donor without a beach, which silently mislabelled every
+            # beachless non-grass landmass: the comma island (9,5) has 355 desert mains,
+            # zero grass mains, and topo 17 x355, yet detected as grass -- so the grass
+            # mains rect matched nothing, the retile classified 0 tris of 917, and the
+            # only tris it flagged were desert mains falling outside every *grass* class.
+            # The mains carry the family; read them.
+            src = sand_fam["name"] if sand_fam else cls._mains_family(polys["terrain"],
+                                                                     donor)
         if src == dst:
             raise ValueError(f"--ground {dst}: donor ({dbx},{dby}) is already {src} -- "
                              f"nothing to retile")
+        # THE SOURCE GATE. The mains branch now keys on the SOURCE family's topograph set
+        # (FAMILY_TOPOS), so any family whose ids are censused can classify its own mains.
+        # What is NOT free is the DIRECTION: grass->X has an in-game-proven instance
+        # (grass->desert) and keeps the historic WARN below, but a source we have never
+        # shipped is only as good as the translation census says it is, so a
+        # newly-reachable pair must CLEAR the support bar, not merely warn about it.
+        # desert->grass is 0.762 -- the strongest pair in the table, above the proven
+        # grass->desert 0.708 -- and is the only non-grass direction that clears it.
+        # (an unknown ``src`` needs no check here: it can only come from a GROUNDS key or
+        # the caller, FAMILY_TOPOS covers GROUNDS one-for-one -- asserted in the tests --
+        # and __init__ raises on the caller's typo. A second copy would be unreachable.)
+        if src != "grass":
+            sup = LAYOUT_SUPPORT.get(src, {}).get(dst)
+            if sup is None or sup < LAYOUT_SUPPORT_WARN:
+                ok = sorted(d for d, s in LAYOUT_SUPPORT.get(src, {}).items()
+                            if s >= LAYOUT_SUPPORT_WARN)
+                raise ValueError(
+                    f"--ground {dst}: donor ({dbx},{dby}) is {src}, and {src}->{dst} has "
+                    f"layout support "
+                    + (f"{sup:.3f}" if sup is not None else "no census entry")
+                    + f" (bar {LAYOUT_SUPPORT_WARN:.2f}). Only grass sources may retile "
+                      f"below the bar on a WARNING -- grass->desert is in-game proven, so "
+                      f"the mechanism is exercised in that direction; from {src} nothing "
+                      f"has ever been shipped, so a weak pair must be measured before it "
+                      f"is offered. Supported targets from {src}: "
+                    + (", ".join(ok) if ok else "none")
+                    + ". Table: LAYOUT_SUPPORT / "
+                      "studies/coast-shape-language/GROUND-TRANSLATION-CENSUS.md")
         if sand_fam and dst not in CM.SAND_BANDS:
             raise ValueError(f"donor ({dbx},{dby}) carries a sand band and {dst!r} has no "
                              f"measured sand family (SAND_BANDS: {sorted(CM.SAND_BANDS)}) "
@@ -498,6 +666,26 @@ class GroundRetile:
         if polys["beach1"] and dst not in IB.FOAM_TOPO:
             raise ValueError(f"donor ({dbx},{dby}) carries a beach1 foam part and {dst!r} "
                              f"has no measured foam topo (FOAM_TOPO: {sorted(IB.FOAM_TOPO)})")
+        # THE LAYOUT-SUPPORT WARNING. grass->desert is the only currently-reachable target
+        # whose tiling was measured to match; grass->snow/canyon/scrub are permitted but sit
+        # at 0.30/0.001/0.007, i.e. they use sub-tile arrangements stock never uses for that
+        # family. Warn rather than refuse: the census measures ARRANGEMENT, not rendering,
+        # so a refusal would claim more than the evidence supports.
+        support = LAYOUT_SUPPORT.get(src, {}).get(dst)
+        if support is not None and support < LAYOUT_SUPPORT_WARN:
+            best = max(LAYOUT_SUPPORT.get(src, {}).items(), key=lambda kv: kv[1],
+                       default=(None, 0.0))
+            warnings.warn(
+                f"--ground {src}->{dst}: layout support {support:.3f} -- this pair is OFF "
+                f"THE MEASURED PATH. Both families' mains rects are the same size so the "
+                f"retile lands on {dst}'s texture, but {1 - support:.0%} of the translated "
+                f"tris use sub-tile arrangements stock does not use for {dst}. The proven "
+                f"pair is grass->desert (0.708)"
+                + (f"; from {src} the best-supported target is {best[0]} ({best[1]:.3f})"
+                   if best[0] else "")
+                + ". Review in-game. Table: LAYOUT_SUPPORT / "
+                "studies/coast-shape-language/GROUND-TRANSLATION-CENSUS.md",
+                stacklevel=2)
         anchors = []
         if sand_fam:
             sfam, dfam = CM.SAND_BANDS[src], CM.SAND_BANDS[dst]
@@ -540,9 +728,16 @@ class GroundRetile:
                              f"off-language. Coastal-wall targets: "
                              f"{sorted(n for n, g in G.GROUNDS.items() if g.get('wall_coastal'))}")
         rec = sorted({u["cell"] for u in pre.unclassified
-                      if u["part"] == "terrain" and u["topo"] in cls.GRASS_TOPOS})
+                      if u["part"] == "terrain" and u["topo"] in FAMILY_TOPOS[src]})
         cq, co = G.assign_mains(set(rec), seed=0xF93)
-        budget = sum(1 for u in pre.unclassified if u["cell"] in set(rec))
+        # COUNT ONLY WHAT CAN ACTUALLY RECOVER. `rec` is the set of CELLS holding at least
+        # one source-family refusal, but budgeting every refusal in those cells counts
+        # foreign classes that the recover path will never take -- so expected["recovered"]
+        # became unreachable and the gate could only fail. The predicate here is the same
+        # one that selects `rec`, counted per TRI instead of per cell.
+        budget = sum(1 for u in pre.unclassified
+                     if u["cell"] in set(rec) and u["part"] == "terrain"
+                     and u["topo"] in FAMILY_TOPOS[src])
         expected = {k: pre.n[k] for k in ("mains", "wall", "sand", "foam",
                                           "sand_degenerate_recovered")}
         expected["recovered"] = budget
@@ -3005,10 +3200,28 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         "S": [((dbx + i, dby + ny), 2, -64.0 * (dby + ny) - extra, False) for i in range(nx)]}
     borders = {"E": (0, 64.0 * (dbx + nx), -1.0), "W": (0, 64.0 * dbx, 1.0),
                "N": (2, -64.0 * dby, -1.0), "S": (2, -64.0 * (dby + ny), 1.0)}
+    # THE TONGUE IS JUDGED ON THE LAND THAT SURVIVES THE TWEAKS. An excised mass whose
+    # land touches a border must not open that border's window: the strip would gather
+    # the mass's own continuation from beyond the frame -- the ghost of the thing just
+    # dropped -- steer the auto-shift with it, and put foreign land on the frame.
+    # Measured on the crescent (14,1)+4x2: pre-tweak tongues S,W turned a fully-clean
+    # carry into land-fit FAIL + 26 introduced census misses + object-anchor moved=True.
+    # Read-only key probe (DropTris.apply mutates its scope-gate counter, so it must not
+    # be called here); EmitTris refills are not counted, which can only close a window a
+    # drop opened -- never open one.
+    _dropped_land = {k for tw_ in tweaks if isinstance(tw_, DropTris)
+                     and tw_.part in LAND_PARTS for k in tw_.keys}
+
+    def _land_dropped(tri):
+        return _dropped_land and frozenset(
+            (round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+            for v in tri) in _dropped_land
+
     tongue = {d for d, (axis, plane, sgn) in borders.items()
               if any(sgn * (v[0][axis] - plane) <= 1.0
                      for c in dcells for p in parts if p in LAND_PARTS
-                     for tri in donor_cell_part[c][p] for v in tri)}
+                     for tri in donor_cell_part[c][p]
+                     if not _land_dropped(tri) for v in tri)}
     if strips == "auto":
         gathered, windowed = set(strip_specs), tongue
     elif strips == "all":
@@ -3081,6 +3294,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                                 for d in (strips_with_data & windowed))}
     win_x = ((-extra if "E" in avail else 0.0), (extra if "W" in avail else 0.0))
     win_z = ((-extra if "N" in avail else 0.0), (extra if "S" in avail else 0.0))
+    cluster_bands: list = []
     if shift in (None, "auto"):
         if math.isinf(lb[0]):
             sh_x = sh_z = 0.0
@@ -3094,12 +3308,91 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         if sh_x % 4.0 or sh_z % 4.0:
             raise ValueError(f"shift ({sh_x:+g},{sh_z:+g}) must be multiples of 4 -- 0-mod-4 keeps "
                              f"every 4u lattice tile (the Wang ocean included) fully verbatim")
-        if not (win_x[0] - 1e-9 <= sh_x <= win_x[1] + 1e-9
-                and win_z[0] - 1e-9 <= sh_z <= win_z[1] + 1e-9):
-            raise ValueError(f"shift ({sh_x:+g},{sh_z:+g}) outside the coverage-feasible window "
-                             f"x[{win_x[0]:g},{win_x[1]:g}] z[{win_z[0]:g},{win_z[1]:g}] -- the "
-                             f"only refill data beyond the region frame is its neighbours' "
-                             f"{extra:g}u edge strips (with data: {sorted(avail) or 'none'})")
+        ax_x_out = not (win_x[0] - 1e-9 <= sh_x <= win_x[1] + 1e-9)
+        ax_z_out = not (win_z[0] - 1e-9 <= sh_z <= win_z[1] + 1e-9)
+        if ax_x_out or ax_z_out:
+            # THE CLUSTER SHIFT (study 2): an EXPLICIT shift beyond the strip window is
+            # lawful when the vacated (trailing) band is open water on both sides -- the
+            # trailing border tongue-less AND stripless (nothing to tear, nothing real
+            # to gather) -- one axis at a time, the leading side still governed by
+            # land-fit. The vacancy is minted as stock-shaped sea4 (THE LATTICE LAW)
+            # welded to the sheet's own frame verts, generated in PRE-shift coordinates
+            # so the standard shift + partition welds it like any carried tri. The AUTO
+            # shift never widens: composition spacing is an explicit design choice.
+            if ax_x_out and ax_z_out:
+                raise ValueError("the cluster shift widens ONE axis at a time -- the "
+                                 "diagonal corner band has no fill lane; shift in two "
+                                 "deploys")
+            if (ax_x_out and sh_z != 0.0) or (ax_z_out and sh_x != 0.0):
+                raise ValueError("a cluster shift must be single-axis (the other "
+                                 "component 0) -- a combined shift slides the minted "
+                                 "band off the trailing frame")
+
+            def _rot_sides(ds):
+                return {_DIR_OF[(round(rx), round(rz))]
+                        for (rx, rz) in (_rot_dir(*_DIRS[d], nrot) for d in ds)}
+            r_tongue = _rot_sides(tongue)
+            r_data = _rot_sides({d for d in strips_with_data if d})
+            if ax_x_out:
+                trailing = "E" if sh_x < 0 else "W"
+                mag = abs(sh_x)
+                span = ext_r[0]
+                lead_clear = math.inf if math.isinf(lb[0]) else \
+                    (lb[0] if sh_x < 0 else ext_r[0] - lb[1])
+            else:
+                trailing = "N" if sh_z < 0 else "S"
+                mag = abs(sh_z)
+                span = ext_r[1]
+                lead_clear = math.inf if math.isinf(lb[0]) else \
+                    (lb[2] + ext_r[1] if sh_z < 0 else -lb[3])
+            if mag >= span:
+                raise ValueError(f"cluster shift refused: {mag:g}u would move the whole "
+                                 f"{span:g}u region off its rect")
+            if trailing in r_tongue:
+                raise ValueError(f"cluster shift refused: the trailing side {trailing} "
+                                 f"carries the mass's own land tongue -- shifting would "
+                                 f"tear its coast continuation")
+            if trailing in r_data:
+                raise ValueError(f"cluster shift refused: the trailing side {trailing} "
+                                 f"has real neighbour strip data -- the strip window "
+                                 f"(x[{win_x[0]:g},{win_x[1]:g}] z[{win_z[0]:g},"
+                                 f"{win_z[1]:g}]) governs a data-backed side")
+            if lead_clear - mag < land_margin:
+                raise ValueError(f"cluster shift refused: {mag:g}u pushes the land "
+                                 f"within {land_margin:g}u of the leading frame "
+                                 f"(clearance {lead_clear:g}u) -- land-fit cannot hold")
+            cluster_bands.append((trailing, mag))
+
+    # the cluster vacancy mint (pre-shift frame; shifts and partitions with the carry)
+    if cluster_bands:
+        from . import meshedit as ME
+        sheet = rot_polys.get("sea4") or []
+        if not sheet:
+            raise ValueError("cluster shift refused: the donor carries no sea4 sheet to "
+                             "weld the minted vacancy band to")
+        nrm4 = sheet[0][0][1]
+        a3, b3, c3 = (sheet[0][k][0] for k in range(3))
+        wind4 = -1.0 if ((b3[0] - a3[0]) * (c3[2] - a3[2])
+                         - (c3[0] - a3[0]) * (b3[2] - a3[2])) < 0 else 1.0
+        for (trailing, mag) in cluster_bands:
+            if trailing == "E":
+                x0b, x1b, z0b, z1b = ext_r[0], ext_r[0] + mag, -ext_r[1], 0.0
+                plane_ax, plane_v = 0, ext_r[0]
+            elif trailing == "W":
+                x0b, x1b, z0b, z1b = -mag, 0.0, -ext_r[1], 0.0
+                plane_ax, plane_v = 0, 0.0
+            elif trailing == "N":
+                x0b, x1b, z0b, z1b = 0.0, ext_r[0], 0.0, mag
+                plane_ax, plane_v = 2, 0.0
+            else:
+                x0b, x1b, z0b, z1b = 0.0, ext_r[0], -ext_r[1] - mag, -ext_r[1]
+                plane_ax, plane_v = 2, -ext_r[1]
+            snap = [(v[0][0], v[0][2]) for poly in sheet for v in poly
+                    if abs(v[0][plane_ax] - plane_v) < 0.05 and abs(v[0][1]) < 1e-6]
+            ring = [(x0b, 0.0, z0b), (x1b, 0.0, z0b), (x1b, 0.0, z1b), (x0b, 0.0, z1b)]
+            rot_polys["sea4"].extend(
+                ME.lattice_patch(ring, y=0.0, uv_quads=SEA4_QUADS, idall=SEA4_IDALL,
+                                 normal=tuple(nrm4), winding=wind4, snap_verts=snap))
 
     # 4) SHIFT + RE-PARTITION at the target rect's block borders. Both halves of a border-
     #    straddling tri share bit-identical cut points (the clip `t` is the same expression on
@@ -3176,7 +3469,34 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         nat = (min(nx - 1, max(0, math.floor(dlx / 64.0))),
                min(ny - 1, max(0, math.floor(-dlz / 64.0))))
         pick = pick_parts = None
-        if set(need) <= donor_cell_has[nat]:
+        # THE SIDECAR OBJECT EXCLUSION applies to the NATURAL donor too. This branch
+        # used to skip the object check entirely -- the law lived in the docstring and
+        # the substitute loop below, and the one test named for it only exercised the
+        # substitute path. First live object-bearing carry (the crescent): cell (18,18)'s
+        # natural donor (14,2) hosted it and its baked harbor ghost-rendered in open
+        # ocean at the prefab's block-local pose. At the IDENTITY transform the natural
+        # cell legitimately renders its own object (in-place morphs).
+        identity = (rtarget == disc and nrot == 0 and sh_x == 0.0 and sh_z == 0.0
+                    and (bx + i, by + j) == (dbx + nat[0], dby + nat[1]))
+        # THE OBJECT POSE LAW (the bent crescent's cave door, 2026-08-04): an object may
+        # ride its NATURAL sidecar iff its pose stays lawful -- the carry UNROTATED and
+        # UNSHIFTED and the object's verts untouched by the tweaks (not dropped, not
+        # displaced). The prefab then renders the object exactly where its carried
+        # ground expects it (the stock look; a flat authored plug read as a non-stock
+        # cliff face). The ghost class -- the excised harbor whose ground was dropped --
+        # fails the untouched test; a rotated or shifted carry fails the pose test.
+        obj_ok = not obj_by_cell[nat]
+        if not obj_ok and nrot == 0 and sh_x == 0.0 and sh_z == 0.0:
+            okeys = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+                     for t in obj_by_cell[nat] for v in t}
+            # touched by ANY part's drops or displaces -- the ghost harbor's base verts
+            # were welded to the SHEET (sea4), not to land
+            touched = {k for tw in tweaks if isinstance(tw, DropTris)
+                       for ks in tw.keys for k in ks}
+            touched |= {k for tw in tweaks if isinstance(tw, (VertexDisplace, SeaBump))
+                        for k in tw.moves}
+            obj_ok = not (okeys & touched)
+        if set(need) <= donor_cell_has[nat] and (identity or obj_ok):
             pick = (dbx + nat[0], dby + nat[1])
             pick_parts = donor_cell_has[nat]
         else:
@@ -3463,3 +3783,435 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     from . import discmirror as DM
     DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary
+
+
+# --------------------------------------------------------------------------- excise
+#: sea4's measured UV quadrant vocabulary -- u breaks 0/0.5039/0.9921, v breaks
+#: 0/0.5079/1.0. The quadrant is distributed UNIFORMLY across world-cell parities, i.e.
+#: the anti-tiling choice is free: a patch cannot pick a "wrong" tile.
+SEA4_QUADS = ((0.0, 0.0, 0.5039, 0.5079), (0.5039, 0.0, 0.9921, 0.5079),
+              (0.0, 0.5079, 0.5039, 1.0), (0.5039, 0.5079, 0.9921, 1.0))
+SEA4_IDALL = 228
+
+
+def _plan_centroid(tri):
+    return (sum(v[0][0] for v in tri) / 3.0, sum(v[0][2] for v in tri) / 3.0)
+
+
+def _point_in_poly(p, poly) -> bool:
+    x, z = p
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        ax, az = poly[i]
+        bx, bz = poly[(i + 1) % n]
+        if (az > z) != (bz > z):
+            t = (z - az) / (bz - az)
+            if x < ax + t * (bx - ax):
+                inside = not inside
+    return inside
+
+
+def excise_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1", game=None,
+                land_margin: float = 2.0, parts=PARTS, keep_largest: bool = True):
+    """Plan the EXCISE of every landmass ASSEMBLY that crosses the donor rect frame.
+
+    A multi-block carry is refused by the ``land-fit`` gate whenever a neighbouring mass
+    crosses the rect frame: carrying it ships a mass cropped to a ruler-straight 64u
+    slice of land ending in mid-air. Of 57 disc-1 landmasses only 7 are carryable, and
+    the disqualifier is almost never the island we want -- it is the neighbour. This
+    drops the neighbour and re-zips deep ocean over its footprint.
+
+    Returns ``(tweaks, report)``; the tweaks go straight into
+    :func:`transplant_region`'s ``tweaks=`` in donor WORLD coords.
+
+    THE UNIT IS THE ASSEMBLY, NOT THE LANDMASS. An island owns a shallow water ladder
+    (sea3/sea5, and beach1/sea1/sea2 where present) welded to its coast; dropping the
+    terrain alone would strand that ladder as a ring of shallows around nothing. So the
+    components are taken over every part EXCEPT sea4, which is exactly the deep sheet the
+    fill lands in.
+
+    THE FILL IS EXACT BY CONSTRUCTION, not by tolerance. The dropped assembly's own
+    outer boundary IS the hole, and it was measured to consist entirely of waterline
+    vertices (every one of which is already a sea4 vertex -- 11/11 and 8/8 on the two
+    real cases) plus vertices lying on the rect frame. So the patch reuses those
+    vertices verbatim and introduces no new boundary vertex. *A repair that is not exact
+    is a hole* -- relaxing that last time cost 26 px of visible background.
+
+    The patch lands on sea4 and nowhere else: no land, no land/sea junction, no wall, no
+    walk surface, no height field. It is the one authoring job in this arc that cannot
+    mint a walk trap, and it needs no tone gate because sea4's quadrant choice is free.
+    """
+    from . import meshedit as ME
+
+    dx, dy = int(donor[0]), int(donor[1])
+    nx, ny = int(size[0]), int(size[1])
+    x0, x1 = 64.0 * dx, 64.0 * (dx + nx)
+    z0, z1 = -64.0 * (dy + ny), -64.0 * dy            # z0 < z1
+
+    tagged, sea4 = [], []
+    for by in range(dy, dy + ny):
+        for bx in range(dx, dx + nx):
+            for p in parts:
+                got = world_tris(bx, by, p, disc=disc, lod=lod, game=game)
+                if p == "sea4":
+                    sea4 += got
+                else:
+                    tagged += [(p, t) for t in got]
+
+    comps = ME.vertex_components([t for _, t in tagged])
+    owner = {}
+    for ci, c in enumerate(comps):
+        for t in c:
+            owner[id(t)] = ci
+
+    # CROSSING IS JUDGED ON LAND ONLY, because ``land-fit`` is judged on land only. An
+    # island's shallow ladder (sea3/sea5) legitimately runs out to the rect frame while
+    # its coast sits well inside; testing the whole assembly condemned the very island
+    # being carried and refused a rect that is in fact clean.
+    part_of = {}
+    for p, t in tagged:
+        part_of[id(t)] = p
+    foreign = []
+    for ci, c in enumerate(comps):
+        land_tris = [t for t in c if part_of.get(id(t)) in LAND_PARTS]
+        if not land_tris:
+            continue                                  # a pure water body crosses nothing
+        xs = [v[0][0] for t in land_tris for v in t]
+        zs = [v[0][2] for t in land_tris for v in t]
+        if (min(xs) <= x0 + land_margin or max(xs) >= x1 - land_margin
+                or min(zs) <= z0 + land_margin or max(zs) >= z1 - land_margin):
+            foreign.append(ci)
+    # NO "keep the biggest assembly" exception. The first cut spared component 0 on the
+    # assumption it is the island being carried -- but on a rect that clips a CONTINENT
+    # (Daguerreo's (5,15)+3x2, the Forgotten margin at (4,13)+4x4) the biggest assembly
+    # IS the frame-crosser, so the exception kept the continent and excised the island:
+    # exactly backwards, and it left land-fit still failing on all three verified rects.
+    # Whether a mass crosses the frame is the only criterion; what SURVIVES is then
+    # checked below.
+    # THE CARRIED-SUBJECT GUARD. Whether a mass crosses the frame decides what is DROPPED;
+    # nothing until now asked whether the thing you wanted is still in what SURVIVES -- and
+    # the gates cannot tell, because they score the carry that happened. Measured over the
+    # whole verified palette, SIX of ten "gates CLEAN" rects carried a crumb or nothing at
+    # all: the sinuous island (3,11)+2x4 shipped `terrain:0` (pure ocean), Daguerreo
+    # (5,15)+3x2 shipped 25 tris of a 9264u2 island, (7,16)+2x2 shipped 23. Every one of
+    # them passed wang-carry, weld-audit, census and land-fit.
+    #
+    # The rule is calibrated, not guessed: A CARRY MUST KEEP MORE LAND THAN IT DROPS.
+    #   isthmus (6,6)+2x2   578 kept / 109 dropped   PASS  (the one real excise carry)
+    #   comma, reef, chain  all dropped 0            PASS
+    #   sinuous               0 / 975                REFUSE
+    #   Daguerreo            25 / 1670               REFUSE
+    #   the ring-cut traps   34 / 1003, 34 / 1590    REFUSE
+    # A ratio threshold was tried first and FALSIFIED: kept-fraction does not separate the
+    # good rects from the bad (a legitimate carry that excises a continent keeps a small
+    # share of the rect's land, while a crumb-carry can keep a large one).
+    land_of = lambda c: sum(1 for t in c if part_of.get(id(t)) in LAND_PARTS)
+    kept_land = sum(land_of(c) for ci, c in enumerate(comps) if ci not in foreign)
+    drop_land = sum(land_of(c) for ci, c in enumerate(comps) if ci in foreign)
+    if keep_largest and drop_land and kept_land <= drop_land:
+        return [], dict(assemblies=[len(c) for c in comps], foreign=list(foreign),
+                        dropped={}, fill_tris=0, rings=0, weld_exact=True,
+                        weld_checked=0, weld_missing=[],
+                        kept_land=kept_land, dropped_land=drop_land,
+                        refused=(f"the carry would KEEP {kept_land} land tris and DROP "
+                                 f"{drop_land} -- this rect excises its own subject. An "
+                                 f"assembly is the island PLUS its welded water ring, so a "
+                                 f"rect whose frame the ring reaches classifies the island "
+                                 f"itself as foreign. Shrink the rect, or the mass cannot "
+                                 f"be carried at this size (pass keep_largest=False to "
+                                 f"override deliberately)."))
+
+    kept_ids = [ci for ci in range(len(comps)) if ci not in foreign]
+    if not kept_ids:
+        report = dict(assemblies=[len(c) for c in comps], foreign=list(foreign),
+                      dropped={}, fill_tris=0, rings=0, weld_exact=True,
+                      weld_checked=0, weld_missing=[],
+                      refused="every assembly crosses the frame -- nothing to carry")
+        return [], report
+
+    report = dict(assemblies=[len(c) for c in comps], foreign=list(foreign),
+                  dropped={}, fill_tris=0, rings=0,
+                  weld_exact=True, weld_checked=0, weld_missing=[])
+    if not foreign:
+        return [], report
+
+    sea4_keys = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+                 for t in sea4 for v in t}
+    # THE STRUCTURE NOTCH (excise v3). The world sheet is CUT under baked structures the
+    # way sea4 is cut under land, and it welds to the structure's y=0 base verts. THE
+    # OBJECT ANCHOR (above) means no carry ever ships the structure, so a dropped mass's
+    # structure footprint must be CLOSED OVER by the fill, not left as a void notch.
+    # Measured on the one live case map-wide ((14,0)+4x3, the crescent): block (14,2)'s
+    # harbor base is exactly the 5 "interior" waterline verts the gate was refusing,
+    # byte-exact, and its entire waterline base is those 5 verts.
+    obj_base = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+                for by in range(dy, dy + ny) for bx in range(dx, dx + nx)
+                for t in world_tris(bx, by, "object", disc=disc, lod=lod, game=game)
+                for v in t if abs(v[0][1]) < 1e-6}
+    _fx0, _fx1 = 64.0 * dx, 64.0 * (dx + nx)
+    _fz1, _fz0 = -64.0 * dy, -64.0 * (dy + ny)
+
+    def _on_frame(v, eps: float = 1e-3):
+        """Is this vertex on the donor RECT's outer frame? (see THE EXACTNESS GATE)"""
+        return (abs(v[0] - _fx0) < eps or abs(v[0] - _fx1) < eps
+                or abs(v[2] - _fz0) < eps or abs(v[2] - _fz1) < eps)
+    # Take the sheet's OWN normal and winding rather than inventing them. Sea normals are
+    # a shared byte constant that is not (0,1,0), and stock sea4 winds negative -- a fill
+    # wound the other way renders but is back-facing to the ground raycast (73 introduced
+    # census misses, measured).
+    sea4_normal = tuple(sea4[0][0][1]) if sea4 else (0.0, 1.0, 0.0)
+    sea4_wind = -1.0
+    if sea4:
+        a, b, c = [v[0] for v in sea4[0]]
+        sea4_wind = -1.0 if ((b[0] - a[0]) * (c[2] - a[2])
+                             - (c[0] - a[0]) * (b[2] - a[2])) < 0 else 1.0
+
+    by_part: dict = {}
+    for p, t in tagged:
+        if owner.get(id(t)) in foreign:
+            by_part.setdefault(p, []).append(t)
+    tweaks = []
+    for p, tris in by_part.items():
+        tweaks.append(DropTris(p, tris))
+        report["dropped"][p] = len(tris)
+
+    emitted = []
+    for ci in foreign:
+        rings = ME.boundary_cycles(comps[ci])
+        if not rings:
+            continue
+        # ONLY the outer ring: an interior ring is a hole in the assembly, and filling it
+        # would double-cover. And the ring must be reduced to its PLAN outline first --
+        # a cropped coastal mass's 3D boundary climbs the cliff at the frame slice, so
+        # several boundary verts share one plan position. Projecting all of them
+        # produced a self-overlapping polygon whose ear-clip left 73 introduced census
+        # misses and 13 weld pairs. Collapsing consecutive plan-duplicates turns the
+        # slice back into the straight frame chord it actually is.
+        ring = rings[0]
+        plan, last = [], None
+        for v in ring:
+            key = (round(v[0], 4), round(v[2], 4))
+            if key == last:
+                continue
+            last = key
+            plan.append(v)
+
+        # COLLAPSE THE CROP PROFILE. Where the mass is sliced by the rect frame its
+        # boundary climbs the cliff, and those verts carry cliff-profile x positions at
+        # land height. Flattening them to the waterline drops them a few tenths of a unit
+        # from real sea verts -- near-miss pairs, which IS the hairline-crack gate's whole
+        # subject (13 of them, measured). They are collinear along the frame, so collapse
+        # every run of them to its endpoints. A vertex the sea sheet actually shares is
+        # NEVER collapsed: that one is load-bearing for the exact weld.
+        def _shared(v):
+            return (round(v[0], 4), round(v[1], 4), round(v[2], 4)) in sea4_keys
+
+        keep, n = [], len(plan)
+        for i, v in enumerate(plan):
+            if _shared(v) or abs(v[1]) < 1e-6:
+                keep.append(v)
+                continue
+            a, b = plan[(i - 1) % n], plan[(i + 1) % n]
+            cross = ((v[0] - a[0]) * (b[2] - a[2]) - (v[2] - a[2]) * (b[0] - a[0]))
+            if abs(cross) > 1e-3:                     # a real corner, not a profile step
+                keep.append(v)
+        plan = keep
+        # THE STRUCTURE-NOTCH DELETION. The ring detours off the frame around a baked
+        # structure's base (leave the frame, cross the base verts, return to the frame);
+        # deleting the WHOLE detour -- base verts and the off-frame profile verts between
+        # the frame departures -- closes the fill straight across the notch. Deleting
+        # only the y=0 base verts is not enough: the surviving off-frame profile corner
+        # re-routes the boundary and leaves a void sliver along the frame. Fail-closed
+        # three ways: a run with NO waterline vert is kept verbatim (the vacuous case --
+        # an ordinary off-frame coast corner must never be touched), a waterline vert
+        # that is not byte-exact in the rect's own object base keeps its run and refuses
+        # below, and a rect with no object mesh skips the pass entirely.
+        if obj_base and len(plan) >= 3:
+            n = len(plan)
+            off = [not (_shared(v) or _on_frame(v)) for v in plan]
+            if any(off) and not all(off):
+                start = off.index(False)              # rotate so runs never wrap
+                runs, cur = [], []
+                for k in range(n):
+                    idx = (start + k) % n
+                    if off[idx]:
+                        cur.append(idx)
+                    elif cur:
+                        runs.append(cur)
+                        cur = []
+                if cur:
+                    runs.append(cur)
+                drop = set()
+                for run in runs:
+                    wl = [plan[k] for k in run if abs(plan[k][1]) < 1e-6]
+                    if not wl:
+                        continue
+                    if all((round(v[0], 4), round(v[1], 4), round(v[2], 4)) in obj_base
+                           for v in wl):
+                        drop |= set(run)
+                        report["structure_base"] = (report.get("structure_base", 0)
+                                                    + len(wl))
+                if drop:
+                    plan = [v for k, v in enumerate(plan) if k not in drop]
+        if len(plan) < 3:
+            continue
+        for v in plan:                                # THE EXACTNESS GATE
+            if abs(v[1]) < 1e-6:
+                report["weld_checked"] += 1
+                if (round(v[0], 4), round(v[1], 4), round(v[2], 4)) in sea4_keys:
+                    continue
+                # A WATERLINE VERTEX ON THE RECT FRAME NEEDS NO SEA4 PARTNER INSIDE THE
+                # RECT. v1 counted these as weld failures and refused with "the mass owns
+                # a shallow-water ladder, which excise v1 does not re-zip" -- but that
+                # diagnosis was wrong. Measured on the two rects it was blocking
+                # (Daguerreo (5,15)+3x2 and the sinuous island (3,11)+2x4): 39/39 and
+                # 41/41 of the weld-missing vertices lie EXACTLY on the rect frame, none
+                # is an interior hole in the sheet, and none is welded to a kept assembly.
+                # The excised mass's ladder simply runs out to the frame, so sea4 has no
+                # vertex there to weld to -- and it should not: beyond the frame is the
+                # neighbouring cell's ocean, which the region's own border re-partition
+                # and the prefab handle. Filling out to the frame is the correct result.
+                if _on_frame(v):
+                    report["frame_waterline"] = report.get("frame_waterline", 0) + 1
+                    continue
+                report["weld_exact"] = False
+                report["weld_missing"].append(v)
+        try:
+            # THE LATTICE LAW: the fill must be stock-SHAPED water, not just stock-
+            # vocabulary water. flat_patch's whole-footprint ear-clip minted 615u2 /
+            # 71.5u-edge triangles on the crescent (stock sea4 ceiling: 10.5u2 / 7u),
+            # and the wave-animated sheet rendered them as a faceted 'iceberg' with
+            # stretched tiles (playtest 2026-08-04). lattice_patch emits full 4u tiles
+            # plus per-cell margins, so no triangle spans a tile.
+            # snap targets carry the EXACT floats (round to key, emit the float -- the
+            # E-2 law): snapping onto a 4dp-rounded key mints the very near-miss pair
+            # the snap exists to remove, 0.00002u wide.
+            sea4_wl = {}
+            for t in sea4:
+                for v in t:
+                    if abs(v[0][1]) < 1e-6:
+                        sea4_wl.setdefault((round(v[0][0], 4), round(v[0][2], 4)),
+                                           (v[0][0], v[0][2]))
+            emitted += ME.lattice_patch(plan, y=0.0, uv_quads=SEA4_QUADS,
+                                        idall=SEA4_IDALL, normal=sea4_normal,
+                                        winding=sea4_wind,
+                                        snap_verts=list(sea4_wl.values()))
+            report["rings"] += 1
+        except ValueError as e:
+            report.setdefault("skipped_rings", []).append(str(e))
+    report["fill_tris"] = len(emitted)
+    # FAIL CLOSED ON A SKIPPED RING. A ring that raised out of the fill was previously
+    # recorded in ``skipped_rings`` and the plan handed back anyway -- tweaks that DROP
+    # the assembly and fill nothing, i.e. a silent void the size of its footprint
+    # (surfaced when the first lattice_patch cut jammed the ear-clipper: weld_exact=True,
+    # fill=0, no refusal). A caller holding tweaks is entitled to assume they are sound.
+    if report.get("skipped_rings"):
+        report["refused"] = (
+            f"{len(report['skipped_rings'])} ring(s) could not be filled "
+            f"({report['skipped_rings'][0]}) -- refusing rather than dropping the "
+            f"assembly and leaving its footprint as a void")
+        return [], report
+
+    # THE CAPABILITY BOUNDARY, ENFORCED RATHER THAN DOCUMENTED. Measured over a
+    # gate-verified sample: excise is clean when the excised mass is a bare land crumb
+    # (terrain only, no ladder of its own) and fails when the mass owns a shallow-water
+    # ladder -- then the vacated region does not abut sea4 all the way round, the fill
+    # cannot weld exactly, and the hairline-crack gate refuses downstream. Refuse HERE
+    # with the reason instead of handing back a fill that will fail later: a caller that
+    # gets tweaks is entitled to assume they are sound.
+    if not report["weld_exact"]:
+        report["refused"] = (
+            f"{len(report['weld_missing'])} waterline vertex/vertices of the excised "
+            "assembly do not lie on the deep sheet -- the mass owns a shallow-water "
+            "ladder, which excise v1 does not re-zip. Choose a rect whose frame-crossing "
+            "mass is a bare land crumb, or extend the fill to rebuild the ladder.")
+        return [], report
+    if emitted:
+        tweaks.append(EmitTris("sea4", emitted))
+
+    # THE APERTURE CENSUS (playtest 2026-08-04): an object tri whose verts are ALL
+    # welded into the KEPT terrain is a hole-filling FACE -- a cave-door aperture in a
+    # massif, filled by the prefab's Object in situ. The carry ships no objects, so on a
+    # ROTATED or SHIFTED carry the hole shows SKY. An authored rock plug was playtested
+    # and refused (a flat non-stock cliff face -- THE FORM LESSON), so the lawful fill
+    # is THE OBJECT POSE LAW in transplant_region: an unrotated, unshifted carry keeps
+    # the object-bearing natural sidecar and the prefab renders the real door. Here the
+    # apertures are only COUNTED (report key ``apertures``) so a rotated deploy can be
+    # warned that its massif will show sky.
+    def _vk(v):
+        return (round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4))
+    terr_keys = set()
+    for by_ in range(dy, dy + ny):
+        for bx_ in range(dx, dx + nx):
+            for t in world_tris(bx_, by_, "terrain", disc=disc, lod=lod, game=game):
+                for v in t:
+                    terr_keys.add(_vk(v))
+    dropped_land_keys = {k for tw in tweaks if isinstance(tw, DropTris)
+                         and tw.part in LAND_PARTS for ks in tw.keys for k in ks}
+    n_apertures = 0
+    for by_ in range(dy, dy + ny):
+        for bx_ in range(dx, dx + nx):
+            for t in world_tris(bx_, by_, "object", disc=disc, lod=lod, game=game):
+                keys = [_vk(v) for v in t]
+                if all(k in terr_keys for k in keys) \
+                        and not any(k in dropped_land_keys for k in keys):
+                    n_apertures += 1
+    if n_apertures:
+        report["apertures"] = n_apertures
+    return tweaks, report
+
+
+#: the shore-bound shallow bands -- COPY-ONLY, never synthesizable in open water
+SHALLOW_PARTS = ("sea1", "sea2", "sea3", "sea5")
+
+
+def deepen_shallow_plan(donor, size=(1, 1), *, disc: int = 1, lod: str = "0_1",
+                        game=None, parts=SHALLOW_PARTS):
+    """DEAD END, SUPERSEDED -- kept for the measurement, NOT exposed on the CLI.
+
+    Re-shades a carried island's shallow ring as deep ocean. It works, and it is the wrong
+    thing: deleting a feature to avoid re-tiling its edge. Playtested and rejected --
+    "now it's just all deep sea water instead of what I was asking for". The right fix is
+    to RE-TILE the cropped rim with the donor's own Wang termination tiles
+    (studies/coast-shape-language/isthmus_rim_retile.py), which passed.
+
+    Re-shade a carried island's SHALLOW RING as deep ocean. Returns ``(tweaks, report)``.
+
+    THE RING-CUT problem: an island's shallow ladder is welded to its coast but extends
+    past any rect that contains the island, so a carry crops it and the ring terminates
+    along straight block-frame lines in open ocean -- a hard sea3->sea4 edge with no
+    ladder. Measured on donor (6,6): stock continues 294 shallow tris north past the frame.
+    Enlarging the rect does not help; it triggers THE RING-CUT TRAP and excises the island.
+
+    Owner-confirmed in game across three deploys: the two islands carrying NO ring (the
+    comma, the corner isle) show no artifact; the one carrying a cropped ring does.
+
+    So drop the ring's SHADE, not its geometry: every shallow tri is re-emitted into sea4
+    verbatim in position, normal and winding, with only uv and IDALL changed
+    (:func:`meshedit.retag_flat`). Nothing is triangulated, no vertex moves, the tri count
+    is conserved, and the island ends up in uniform deep water like every other clean
+    carry. This is a LOOK edit; the water was never geometrically wrong.
+    """
+    from . import meshedit as ME
+    dx, dy = int(donor[0]), int(donor[1])
+    nx, ny = int(size[0]), int(size[1])
+    tweaks, converted, per_part = [], [], {}
+    for p in parts:
+        got = []
+        for j in range(ny):
+            for i in range(nx):
+                got += world_tris(dx + i, dy + j, p, disc=disc, lod=lod, game=game)
+        if not got:
+            continue
+        per_part[p] = len(got)
+        tweaks.append(DropTris(p, got))
+        converted += ME.retag_flat(got, uv_quads=SEA4_QUADS, idall=SEA4_IDALL)
+    if converted:
+        tweaks.append(EmitTris("sea4", converted))
+    report = dict(dropped=per_part, converted=len(converted),
+                  conserved=(sum(per_part.values()) == len(converted)))
+    if not converted:
+        report["refused"] = ("this donor carries no shallow ring -- nothing to deepen "
+                             "(the comma and the corner isle are already deep-water)")
+    return tweaks, report

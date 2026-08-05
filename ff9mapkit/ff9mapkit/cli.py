@@ -4175,6 +4175,34 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
+    """world-rim-retile -- terminate a carried island's cropped shallow ring."""
+    from .world import rimretile as RR
+    cells = _parse_cells(args.cells)
+    dx, dy = (int(v) for v in args.donor.split(","))
+    nx, ny = (int(v) for v in args.size.lower().split("x"))
+    donors = [(dx + i, dy + j) for j in range(ny) for i in range(nx)]
+    rep = RR.rim_retile(args.mod_folder, cells, donors, disc=args.disc,
+                        target_disc=args.target_disc, game=args.game,
+                        apply=not args.dry_run)
+    if rep.get("refused"):
+        raise ConfigError(f"rim-retile refused: {rep['refused']}")
+    b, a = rep["before"], rep["after"]
+    print(f"rim-retile: {rep['variants']} verbatim donor variants, "
+          f"passes={rep['passes']} ({rep['quads']} quad re-tiles)")
+    print(f"  HARD SEAMS (uv under-covers the deep it faces): {b['under']} -> {a['under']}")
+    print(f"  soft over-cover (a transition facing shallow):  {b['over']} -> {a['over']}"
+          f"   of {a['tiles']} rim tiles")
+    if a["under"]:
+        print("  !! WARNING: hard seams remain -- review in-game before shipping")
+    if rep.get("dry_run"):
+        print("  dry run -- nothing written")
+    else:
+        print(f"  wrote {len(rep['written'])} file(s); .prerim backups kept")
+        print("  RELAUNCH (or exit+re-enter the overworld) to apply.")
+    return 0
+
+
 def _cmd_world_transplant(args: argparse.Namespace) -> int:
     """VERBATIM island transplant: carry a complete real coastal block -- land + beach + the full Wang'd
     ocean, every sub-mesh -- to a custom ocean cell, with a 0-mod-4 in-cell shift + 90-degree rotation,
@@ -4206,6 +4234,18 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             disc=args.disc, game=args.game)
         for n in notes:
             print(n)
+        if getattr(args, "excise", False):
+            ex_tweaks, ex_rep = TR.excise_plan(
+                (dx, dy), (snx, sny), disc=args.disc, game=args.game,
+                land_margin=args.land_margin)
+            print(f"excise: assemblies={ex_rep['assemblies'][:6]} "
+                  f"foreign={ex_rep['foreign']} dropped={ex_rep.get('dropped', {})} "
+                  f"fill={ex_rep['fill_tris']} tris, weld_exact={ex_rep['weld_exact']}")
+            if ex_rep.get("refused"):
+                raise ConfigError(f"--excise refused: {ex_rep['refused']}")
+            if not ex_tweaks:
+                print("   (nothing crosses the frame -- the rect is already clean)")
+            tweaks = list(tweaks) + list(ex_tweaks)
         # the cliff-coast morphs build their tweak sets from the donor bytes, every law
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
@@ -4213,21 +4253,43 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 or args.beach_slide or args.strips_rebuild or args.sand_rebuild
                 or args.cap_rebuild or args.beach_mint or args.band_convert):
             from .world import coastmorph as CM
+            # The CLIFF verbs are REGION-CAPABLE: their window reads the whole rect and
+            # frames against the REGION's outer boundary, so a coast crossing an interior
+            # border is one window (adjacent stock blocks weld exactly there). The BEACH
+            # verbs still use a single-cell window -- refuse those by name rather than
+            # silently truncating them to the anchor cell, which is the failure mode the
+            # old blanket guard existed to prevent.
             if (snx, sny) != (1, 1):
-                raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
-            for spec, fn in ((args.cliff_bump, CM.cliff_bump),
-                             (args.cliff_headland, CM.cliff_headland),
-                             (args.cliff_bay, CM.cliff_bay),
-                             (args.beach_bump, CM.beach_bump),
-                             (args.beach_reshape, CM.beach_reshape),
-                             (args.beach_slide, CM.beach_slide)):
+                singles = [n for n, v in (("--beach-bump", args.beach_bump),
+                                          ("--beach-rebuild", args.beach_rebuild),
+                                          ("--beach-reshape", args.beach_reshape),
+                                          ("--beach-slide", args.beach_slide),
+                                          ("--strips-rebuild", args.strips_rebuild),
+                                          ("--sand-rebuild", args.sand_rebuild),
+                                          ("--cap-rebuild", args.cap_rebuild),
+                                          ("--beach-mint", args.beach_mint),
+                                          ("--band-convert", args.band_convert)) if v]
+                if singles:
+                    raise ConfigError(
+                        f"{', '.join(singles)} is single-cell v1 and would truncate to "
+                        f"the anchor cell under --size. The CLIFF verbs "
+                        f"(--cliff-bump/--cliff-headland/--cliff-bay/--cliff-lobes) are "
+                        f"region-capable; drop --size for the beach verbs.")
+            for spec, fn, region in ((args.cliff_bump, CM.cliff_bump, True),
+                                     (args.cliff_headland, CM.cliff_headland, True),
+                                     (args.cliff_bay, CM.cliff_bay, True),
+                                     (args.beach_bump, CM.beach_bump, False),
+                                     (args.beach_reshape, CM.beach_reshape, False),
+                                     (args.beach_slide, CM.beach_slide, False)):
                 if not spec:
                     continue
                 s0, s1, sd = spec.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
                 p1 = tuple(float(v) for v in s1.split(","))
-                tweaks = list(tweaks) + fn((dx, dy), p0, p1, float(sd),
-                                           disc=args.disc, game=args.game)
+                kw = dict(disc=args.disc, game=args.game)
+                if region:
+                    kw["size"] = (snx, sny)
+                tweaks = list(tweaks) + fn((dx, dy), p0, p1, float(sd), **kw)
             if args.beach_rebuild:
                 s0, s1 = args.beach_rebuild.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
@@ -4262,7 +4324,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 p1 = tuple(float(v) for v in s1.split(","))
                 tweaks = list(tweaks) + CM.cliff_lobes(
                     (dx, dy), p0, p1, [float(v) for v in sd.split(",")],
-                    disc=args.disc, game=args.game)
+                    size=(snx, sny), disc=args.disc, game=args.game)
         # the SHORE tweaks (the productized island-B pattern): bank_lower +
         # virgin_mint ride any placement, single-cell or region -- each verb's
         # tweak block derives from its own spec coords (build_shore_tweaks)
@@ -4370,7 +4432,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             print(f"  !! WARNING {g['gate']}: {g.get('incoherent', '?')} cropped-Wang frame seam(s) on "
                   f"the carried rim ({dn} deep sea3/sea5, {sn} shallow sea1/sea2) -- shipping FF9 abuts "
                   f"neither mid nor shallow water to the deep ring, so review these in-game and re-tile "
-                  f"the rim (wang_rim_retile for sea3/sea5, the {{sea1,sea5}} ladder for sea1/sea2), or "
+                  f"the rim (`world-rim-retile` for sea3/sea5, the {{sea1,sea5}} ladder for sea1/sea2), or "
                   f"pass --enforce-wang-carry to refuse (--allow-wang-seams to silence).")
         if g.get("warn") and g["gate"] == "orphan-decals":
             print(f"  !! WARNING {g['gate']}: {g.get('n_orphans', '?')} orphaned transition-vocabulary "
@@ -8252,6 +8314,21 @@ def build_parser() -> argparse.ArgumentParser:
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wct.set_defaults(func=_cmd_world_coast)
 
+    wrr = sub.add_parser("world-rim-retile", help=(
+        "terminate a carried island's cropped shallow ring: re-tile its rim with the "
+        "DONOR'S OWN Wang transition tiles (harvested verbatim, never synthesized)"))
+    wrr.add_argument("--mod-folder", required=True)
+    wrr.add_argument("--cells", required=True,
+                     help="the DEPLOYED target cells: 'x,y;x,y' or a range 'x0-x1,y0-y1'")
+    wrr.add_argument("--donor", required=True,
+                     help="the carry's donor anchor 'dx,dy' -- the verbatim tile vocabulary")
+    wrr.add_argument("--size", default="1x1", help="the donor rect NXxNY (default 1x1)")
+    wrr.add_argument("--disc", type=int, default=1, help="the READ disc for the donors")
+    wrr.add_argument("--target-disc", type=int, default=None,
+                     help="the disc the island is DEPLOYED in (e.g. 9 for Path D)")
+    wrr.add_argument("--dry-run", action="store_true")
+    wrr.set_defaults(func=_cmd_world_rim_retile)
+
     wtp = sub.add_parser("world-transplant",
                          help="VERBATIM island transplant: carry a complete real coastal block (land + beach + "
                               "the full Wang'd ocean, every sub-mesh) to a custom ocean cell, with a 0-mod-4 "
@@ -8318,6 +8395,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
                           "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
                           "reaches a land component is refused offline.")
+    wtp.add_argument("--excise", action="store_true",
+                     help="drop every landmass whose LAND crosses the donor rect frame "
+                          "and re-zip deep ocean over its footprint. Unlocks rects that "
+                          "land-fit refuses solely because of a NEIGHBOURING mass -- the "
+                          "usual disqualifier. v1 handles a bare land crumb; it refuses "
+                          "(with the reason) when the crossing mass owns a shallow-water "
+                          "ladder of its own")
     wtp.add_argument("--allow-mod-overwrite", action="store_true",
                      help="waive THE MOD-OVERWRITE GATE: by default a target data cell that "
                           "already holds override files in the mod folder REFUSES unless its "

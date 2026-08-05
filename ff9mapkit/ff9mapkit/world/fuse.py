@@ -63,6 +63,13 @@ def _side_row(summary, edge: str, w: int) -> tuple:
     if row is None:
         return ("gap", ())
     if not row["lattice"]:
+        # THE STRAIT UNLOCK (study 3): an off-lattice vert on a PURE open-water row
+        # cannot tear land -- it is a conforming water vert of the donor's own sheet,
+        # lawful against another placement's water or prefab (the pair rule still
+        # refuses it against anything else). Land/beach/shallow off-lattice stays a
+        # hard refusal.
+        if set(row["parts"]) <= OPEN_WATER_PARTS:
+            return ("water-offlat", tuple(row["parts"]))
         return ("off-lattice", tuple(row["parts"]))
     if set(row["parts"]) <= OPEN_WATER_PARTS:
         return ("water", tuple(row["parts"]))
@@ -184,7 +191,8 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
         for w in rows:
             (sa, pa) = _side_row(summaries[ia], edge, w)
             (sb, pb) = _side_row(summaries[ib], _OPPOSITE[edge], w)
-            if sa not in ("prefab", "water") or sb not in ("prefab", "water"):
+            if sa not in ("prefab", "water", "water-offlat") \
+                    or sb not in ("prefab", "water", "water-offlat"):
                 bad.append({"row": w, "a": sa, "b": sb})
                 continue
             ra = {2} if sa == "prefab" else {_GRADE[p] for p in pa}
