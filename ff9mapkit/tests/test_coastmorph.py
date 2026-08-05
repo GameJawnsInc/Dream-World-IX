@@ -426,41 +426,55 @@ def test_tiled_headland_builds_on_the_crescent_with_rect_containment():
             f"escapes every source tile rect"
 
 
-def test_wedge_ground_law_and_hole_fidelity():
+def test_patch_whole_law_on_the_crescent():
     import math as _m
     from ff9mapkit.world import coastmorph as CM
     from ff9mapkit.world.extract import decode_id
     from ff9mapkit.world import transplant as TR
-    from collections import defaultdict
-    # THE WEDGE GROUND LAW (round 5): stock's grass patches are an EDGE-CODED tile
-    # system the clone fill cannot compose -- NEW territory clones only the modal
-    # ground family; a patch family reproduces ONLY in its own offset-zero cells
+    # THE PATCH-WHOLE LAW (PATCH-WHOLE-PREDICTION.md): grass patches are artist form,
+    # not a coding (census: 90 rects, soft context) -- a cut patch cannot be seamed.
+    # The drop consumes a touched component WHOLE (wobble-escape ladder included) and
+    # the fill NEVER emits a patch family; the vacancy refills modal ground.
     tw = CM.cliff_headland((14, 1), CRES_START, CRES_END, 8.0, size=(4, 2))
     drop_t = [t for t in tw if isinstance(t, TR.DropTris) and t.part == "terrain"][0]
     emit_t = [t for t in tw if isinstance(t, TR.EmitTris) and t.part == "terrain"][0]
     win = CM.CliffWindow((14, 1), CRES_START, CRES_END, size=(4, 2))
     dropped = [t3 for t3 in win.mains if drop_t._key_set(t3) in drop_t.keys]
 
+    def topo(t3):
+        return decode_id(int(round(t3[0][3][0])))["topograph"]
+    # 1. the drop DID touch grass, and every touched component is consumed WHOLE:
+    #    no kept patch tri may be cell-adjacent to a dropped patch tri of its family
+    d4 = [t3 for t3 in dropped if topo(t3) in CM.PATCH_FAMILIES]
+    assert d4, "specimen lost its grass component"
+    dropk = {drop_t._key_set(t3) for t3 in dropped}
+
     def cell_of(t3):
         return (_m.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),
                 _m.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0))
-
-    def topo(t3):
-        return decode_id(int(round(t3[0][3][0])))["topograph"]
-    dcells = defaultdict(set)
-    for t3 in dropped:
-        dcells[cell_of(t3)].add(topo(t3))
-    ecells = defaultdict(set)
+    dcells4 = {(cell_of(t3), topo(t3)) for t3 in d4}
+    for t3 in win.mains:
+        tp = topo(t3)
+        if tp not in CM.PATCH_FAMILIES or drop_t._key_set(t3) in dropk:
+            continue
+        c = cell_of(t3)
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1), (0, 0)):
+            assert ((c[0] + dx, c[1] + dz), tp) not in dcells4, \
+                f"kept patch tri at cell {c} borders a dropped same-family cell -- " \
+                f"the component was cut, not consumed whole"
+    # 2. the fill never emits a patch family
     for t3 in emit_t.tris:
-        if topo(t3) != 58:
-            ecells[cell_of(t3)].add(topo(t3))
-    assert any(4 in s for s in dcells.values()), "specimen lost its grass cells"
-    for c, s in ecells.items():
-        if c in dcells:
-            assert s == dcells[c], f"hole cell {c}: dropped {dcells[c]} emitted {s}"
-        else:
-            assert s == {17}, f"wedge cell {c} carries {s} -- patch tiles cloned " \
-                              f"into new territory"
+        assert topo(t3) not in CM.PATCH_FAMILIES, "the fill emitted a patch tile"
+    # 3. THE SEAM INVARIANT: no kept patch tri shares an edge with the fill
+    fillverts = {(round(v[0][0], 3), round(v[0][2], 3))
+                 for t3 in emit_t.tris for v in t3}
+    for t3 in win.mains:
+        if topo(t3) not in CM.PATCH_FAMILIES or drop_t._key_set(t3) in dropk:
+            continue
+        shared = sum(1 for v in t3
+                     if (round(v[0][0], 3), round(v[0][2], 3)) in fillverts)
+        assert shared < 2, "a kept patch tri shares an edge with the fill -- the " \
+                           "unseamable seam is back"
 
 
 def test_mixed_cell_pair_splits_at_the_diagonal():
@@ -512,13 +526,14 @@ def test_mixed_cell_pair_splits_at_the_diagonal():
         assert got[cell] == {int(id_b)}
 
 
-def test_tiled_fill_refuses_a_wobbly_hole_boundary():
+def test_tiled_fill_refuses_the_comma_honestly():
     from ff9mapkit.world import coastmorph as CM
-    # the comma's stock tiling jitters up to 1.24u past the 4u lines (measured) --
-    # an exact-lattice fill there would bleed visible foreign-atlas content (the
-    # crescent-shard class); the fill refuses honestly until the wobbly-cell fill
-    # exists. Its earlier CLEAN scores came from the containment-blind gate set.
-    with pytest.raises(ValueError, match="WOBBLY"):
+    # the comma refuses rather than minting shards/seams: its drop touches a brush
+    # (topo-38) patch component that reaches the single-block rect frame, so THE
+    # PATCH-WHOLE LAW cannot verify wholeness (and behind it, its stock tiling
+    # jitters up to 1.24u past the 4u lines -- the wobbly class). Its earlier CLEAN
+    # scores came from the containment-blind gate set.
+    with pytest.raises(ValueError, match="PATCH-WHOLE|WOBBLY"):
         CM.cliff_headland((9, 6), COMMA_START, COMMA_END, 6.0)
 
 
