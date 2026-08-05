@@ -1,4 +1,14 @@
-# Grow-9013 Batch 2 — the HORSESHOE island (deployed 2026-08-05, awaiting owner)
+# Grow-9013 Batch 2 — the HORSESHOE island
+
+> **★ PASS-WITH-DEFECTS (owner, 2026-08-05, three screenshots): "pretty good."**
+> **THE MILESTONE: "the falls/bridge/river is there"** — the free-ride ensemble renders on
+> the SYNTHETIC disc (first in-game proof of s74's donor-path resolution for prefab
+> objects; the screenshot shows both falls, the bridge, the cave mouth, and the pond).
+> **TWO DEFECTS FILED:** (1) *"this desert block got pulled in and clipped which looks
+> weird"* — a clipped desert wedge islet at ~(473,−643), blk (7,10) NE corner, with a raw
+> untextured cut face; (2) *"513,−689 and 513,−760 have missed wangs — 2 single-edged
+> touching each other then a third with a mis-aligned edge"* — the east crop-line water
+> column. Forensics + fixes → DEFECTS.md beside this file.
 
 **What's live:** the river-terrace horseshoe (Daguerreo's falls/river/bridge ensemble, donor
 (5,15)+3×2) carried verbatim into the South Strait — blocks (5-7, 10-11), one sea row south
