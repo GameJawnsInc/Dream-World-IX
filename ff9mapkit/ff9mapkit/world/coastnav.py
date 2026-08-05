@@ -388,8 +388,15 @@ def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-any
                     old = int(round(struct.unpack_from("<f", data, o)[0]))
                     struct.pack_into("<f", data, o, float((old & ~0xFC) | (cls << 2)))
                 p.write_bytes(bytes(data))
+                # the stamp is a legitimate in-place rewrite of a DEPLOYED override -- ledger
+                # it, or the next deploy_override at this cell+part refuses our own bytes as
+                # foreign (the rec-16 compose smoke's live find)
+                from . import mesh as M
+                M.record_ledger_write(p, cell=(bx, by), part=part, write_disc=disc)
                 if pm is not None and pm.is_file():
                     pm.write_bytes(bytes(data))
+                    M.record_ledger_write(pm, cell=(bx, by), part=part,
+                                          write_disc=mirror_disc)
             by_cls = {}
             for cls in changed.values():
                 by_cls[cls] = by_cls.get(cls, 0) + 1

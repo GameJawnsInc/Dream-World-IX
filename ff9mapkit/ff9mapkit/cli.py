@@ -5155,8 +5155,11 @@ def _cmd_world_fuse(args: argparse.Namespace) -> int:
         print(f"cannot read {args.layout}: {e}", file=sys.stderr)
         return 2
     rows = doc.get("placement", [])
-    if not rows:
-        print("the layout has no [[placement]] tables", file=sys.stderr)
+    compose_tables = [t for t in FU.COMPOSE_TABLES if t != "placement" and doc.get(t)]
+    if not rows and not compose_tables:
+        print("the layout has no [[placement]] tables (nor any compose table: "
+              + ", ".join(f"[[{t}]]" for t in FU.COMPOSE_TABLES if t != "placement") + ")",
+              file=sys.stderr)
         return 2
     try:
         placements = []
@@ -5206,6 +5209,38 @@ def _cmd_world_fuse(args: argparse.Namespace) -> int:
             if tweaks:
                 pl["tweaks_factory"] = _build_tweaks
             placements.append(pl)
+        if compose_tables:
+            # THE COMPOSED WORLD (audit rec 16): base mint -> relief -> nav-stamp, one toml.
+            out = FU.compose_layout(args.mod_folder, doc, placements=placements,
+                                    disc=args.disc, game=args.game,
+                                    allow_overwrite=args.allow_overwrite,
+                                    dry_run=args.dry_run, skip_mirror=args.skip_mirror,
+                                    target_disc=args.target_disc,
+                                    all_sea_target=args.all_sea_target)
+            head = "COMPOSE PLAN (dry run -- nothing written)" if out["dry_run"] else \
+                ("composed layout deployed" if out["clean"] else "compose STOPPED")
+            print(f"{head}: tiers base-mint -> relief -> nav-stamp")
+            for g in out["gates"]:
+                mark = "ok" if g["ok"] else "FAIL"
+                extra = ""
+                if g["gate"] == "manifest-drift":
+                    if g["n_diverged"]:
+                        extra = (f"  {g['n_diverged']} manifest-recorded file(s) diverged "
+                                 f"on disk (e.g. {g['diverged'][0]})"
+                                 + ("" if g["ok"] else " -- a hand edit or a foreign "
+                                    "session; pass --allow-overwrite to build over them"))
+                elif g.get("skipped"):
+                    mark, extra = "SKIP", f"  {g['skipped']}"
+                elif not g["ok"]:
+                    extra = f"  {g.get('error', '')}"
+                elif "files" in g:
+                    extra = f"  wrote {g['files']} file(s)"
+                print(f"  GATE {g['gate']}: {mark}{extra}")
+            if not out["dry_run"] and out["clean"]:
+                print(f"manifest -> {out['manifest']}")
+                print("  re-enter the world map (or ~ -> World -> Reload overworld on "
+                      "state) to apply. Needs the CUSTOM engine (s34 + Donor.txt).")
+            return 0 if out["clean"] else 2
         out = FU.fuse_layout(args.mod_folder, placements, disc=args.disc, game=args.game,
                              allow_overwrite=args.allow_overwrite, dry_run=args.dry_run,
                              skip_mirror=args.skip_mirror, target_disc=args.target_disc,
@@ -9319,11 +9354,19 @@ def build_parser() -> argparse.ArgumentParser:
     wen.set_defaults(func=_cmd_world_entrance)
 
     wfu = sub.add_parser("world-fuse",
-                         help="validate + deploy a multi-placement transplant LAYOUT (the cross-donor FUSE): "
-                              "several verbatim landmasses in adjacent target rects, every shared border "
-                              "certified open water row-by-row. Needs the WorldMeshOverride engine patch.")
+                         help="validate + deploy a multi-placement transplant LAYOUT (the cross-donor FUSE) "
+                              "-- or a full COMPOSED WORLD from one toml (base mint -> relief -> nav-stamp "
+                              "tiers, with a world_manifest.json md5 record + foreign-overwrite refusal). "
+                              "Needs the WorldMeshOverride engine patch.")
     wfu.add_argument("layout", help="a .toml of [[placement]] tables: cell=[X,Y] donor=[DX,DY] size=[NX,NY] "
-                                    "(optional rot / shift / land_margin / strips / grow_cut / grow_cut_z)")
+                                    "(optional rot / shift / land_margin / strips / grow_cut / grow_cut_z). "
+                                    "COMPOSE tables (audit rec 16, run in fixed tier order regardless of "
+                                    "document position): [[island]] (the world-island mint), [[mountain]]/"
+                                    "[[forest]]/[[hill]] (interior relief on the DEPLOYED base), [[coastnav]]/"
+                                    "[[rim_retile]] (nav stamps). Each table takes its verb's own argument "
+                                    "names; unknown keys refuse. The compose writes world_manifest.json "
+                                    "beside the deploys and REFUSES over manifest-diverged files without "
+                                    "--allow-overwrite")
     wfu.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
     wfu.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wfu.add_argument("--target-disc", type=int, default=None,

@@ -421,6 +421,9 @@ def rim_retile(mod_folder, cells_xy, donors, *, disc: int = 1, target_disc=None,
                 import shutil
                 shutil.copy2(p, bak)
             M.write_ff9mesh(bm, p)
+            # ledger the in-place retile (same law as coastnav's stamp): without a row, the
+            # next deploy_override at this cell+part refuses our own bytes as foreign
+            M.record_ledger_write(p, cell=(bx, by), part=part.capitalize(), write_disc=td)
             written.append(p)
     rep["written"] = [str(p) for p in written]
     return rep

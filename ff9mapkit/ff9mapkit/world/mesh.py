@@ -286,6 +286,36 @@ def _append_ledger(mod_root: Path, dest: Path, bm, part: str, write_disc: int) -
         fh.write(json.dumps(entry) + "\n")
 
 
+def record_ledger_write(dest, *, cell, part: str, write_disc: int, read_disc=None,
+                        mod_root=None) -> None:
+    """Ledger a legitimate byte-level rewrite that happens OUTSIDE :func:`deploy_override`
+    -- the coastnav topograph stamp and the rim retile patch deployed ``.ff9mesh`` files in
+    place, so the on-disk bytes matched no ledger sha and the NEXT ``deploy_override`` at
+    that cell+part refused OUR OWN bytes as foreign (found live by the rec-16 compose
+    smoke: island mint -> its coastnav stamp -> island re-mint refused). Same row shape as
+    the deploy ledger, hashing the post-write bytes; ``mod_root`` is derived from ``dest``
+    (the parent of ``FF9_Data``) when not given. A missing ``dest`` is a no-op."""
+    import hashlib
+    import json
+    from datetime import datetime, timezone
+    from .. import __version__
+    dest = Path(dest)
+    if not dest.exists():
+        return
+    if mod_root is None:
+        q = dest.parent
+        while q.name and q.name != "FF9_Data":
+            q = q.parent
+        mod_root = q.parent
+    entry = {"cell": [int(cell[0]), int(cell[1])], "part": part, "write_disc": int(write_disc),
+             "read_disc": int(write_disc if read_disc is None else read_disc),
+             "sha256": hashlib.sha256(dest.read_bytes()).hexdigest(),
+             "kit": __version__, "utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             "argv": _DEPLOY_ARGV, "via": "record_ledger_write"}
+    with open(_ledger_path(Path(mod_root)), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+
+
 def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: str = "Terrain",
                     disc: int | None = None, backup: bool = True,
                     force_overwrite: bool = False) -> Path:

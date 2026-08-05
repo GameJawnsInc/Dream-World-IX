@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE COMPOSED WORLD: one toml, fixed tiers, a manifest that refuses foreign bytes
+- `world-fuse` now runs full compositions: beside `[[placement]]`, the layout toml takes
+  `[[island]]`, `[[mountain]]`/`[[forest]]`/`[[hill]]`, and `[[coastnav]]`/`[[rim_retile]]`
+  tables — each calling its verb's existing entry point unchanged (no new geometry code,
+  unknown keys refuse) — executed in the fixed tier order base-mint → relief → nav-stamp
+  regardless of document position (a literal ordered list, not a solver). A real run stops
+  at the first failing step and reports the rest `skipped` (later tiers read the deploys of
+  earlier ones). `world_manifest.json` lands beside the deploys recording per-file md5 plus
+  the spec table that produced it (the bench_pipeline pattern); a later compose REFUSES
+  over manifest-diverged files without `--allow-overwrite`. Measured live: the same toml
+  re-composed writes ZERO changed files — reproducibility the Southern Ring never had.
+  Deliberate layering: `--allow-overwrite` waives the manifest gate only; the rec-6 seam
+  ownership refusal keeps its own lever. Audit rec 16.
+- **THE OUT-OF-SEAM LEDGER GAP, found live by the compose smoke and fixed**: the coastnav
+  stamp and the rim retile rewrote deployed `.ff9mesh` files in place WITHOUT a ledger row,
+  so the very next `deploy_override` at that cell+part refused our own bytes as foreign
+  (island mint → its default coastnav stamp → island re-mint refused). New
+  `mesh.record_ledger_write` ledgers legitimate byte-level rewrites; both writers call it.
+- **The Tweak protocol** (`transplant.Tweak` + `_check_tweak`): the contract every tweak
+  class already satisfies (part / apply / emit / gate), now enforced at the top of
+  `transplant`, `transplant_region` and `morph_in_place` — a malformed tweak fails at the
+  call site by class name instead of as a mid-build AttributeError. Constructor args stay
+  bulk geometry by design; the declarative boundary is the builder functions.
+
 ### Changed — the DCC bridge split: fail-closed write path, permissive read path
 - **The TERRAIN rebuild lane is CLOSED.** `world-mesh-build --part` now offers `object`
   only, and `blendio.build_from_obj(part="terrain")` refuses with a message naming the

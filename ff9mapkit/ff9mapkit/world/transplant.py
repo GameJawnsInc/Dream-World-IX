@@ -2399,6 +2399,32 @@ def _tweak_inverse_z(tweaks):
     return inv
 
 
+class Tweak:
+    """THE TWEAK PROTOCOL (audit rec 16) -- the contract every tweak class already satisfies,
+    stated once so a new class fails AT THE CALL SITE instead of deep in a build. A tweak is
+    any object with: ``part`` (the sub-mesh it targets, or ``None`` for all-parts classes
+    like :class:`VertexDisplace`), ``apply(part, poly) -> poly | None`` (transform or drop a
+    gathered poly; return it unchanged when out of scope), ``emit() -> list`` (new polys to
+    add after the part's gather; usually empty), and ``gate() -> dict`` (the scope-count gate
+    row, ``{"gate": ..., "ok": ...}``). :func:`_check_tweak` enforces this at the top of
+    :func:`transplant`, :func:`transplant_region` and :func:`morph_in_place` -- the three
+    call sites used to access tweaks three different ways (a hard ``.part`` attribute here, a
+    ``getattr`` default there), so a malformed tweak surfaced as a mid-build AttributeError.
+    Constructor args stay bulk geometry BY DESIGN -- the declarative boundary is the builder
+    functions (``build_grow_tweaks``/``build_shore_tweaks``), not a serialized tweak spec."""
+
+
+def _check_tweak(tweaks) -> None:
+    """Refuse a tweak that does not satisfy :class:`Tweak` -- at the call site, by name."""
+    for i, tw in enumerate(tweaks):
+        missing = [a for a in ("part", "apply", "emit", "gate") if not hasattr(tw, a)]
+        if missing:
+            raise TypeError(
+                f"tweak #{i} ({type(tw).__name__}) does not satisfy the Tweak protocol -- "
+                f"missing {missing}. Every tweak needs part / apply(part, poly) / emit() / "
+                f"gate() (see transplant.Tweak).")
+
+
 class DropTris:
     """Tweak class 6 -- drop an EXACT set of donor tris (matched by their rounded vertex-key
     sets, read from the mesh, never hand-typed). The scope gate requires every listed tri to
@@ -2910,6 +2936,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                          "lattice (and the Wang ocean) fully verbatim; free angles do not")
     nrot = rot // 90
     tweaks = list(tweaks)
+    _check_tweak(tweaks)               # the Tweak protocol, at the call site (rec 16)
     parts = tuple(parts)
     # THE OBJECT ANCHOR (proven the hard way 2026-07-09): a donor's Object sub-mesh (cave /
     # town / trees) renders from the donor PREFAB at its original block-local pose -- the kit
@@ -3261,6 +3288,8 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     coastmorph fields pin block-frame verts). Reversible: delete the deployed files. A real
     deploy auto-mirrors the written overrides to Disc4 (``skip_mirror=True`` opts out)."""
     from . import mesh as M
+    tweaks = list(tweaks)
+    _check_tweak(tweaks)               # the Tweak protocol, at the call site (rec 16)
     bx, by = cell
     raw, originals = {}, {}
     for p in parts:
@@ -3410,6 +3439,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         raise ValueError(f"target rect ({bx},{by})+{tw}x{th} (rot {rot}) out of the "
                          f"{GRID_X}x{GRID_Y} overworld grid")
     tweaks = list(tweaks)
+    _check_tweak(tweaks)               # the Tweak protocol, at the call site (rec 16)
     parts = tuple(parts)
     ext = (64.0 * nx, 64.0 * ny)                     # donor-region extent
     ext_r = (64.0 * tw, 64.0 * th)                   # rotated/target-region extent

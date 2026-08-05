@@ -25,6 +25,7 @@ that edge can only face prefab, never another placement.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from .. import config
 from . import transplant as TR
@@ -225,3 +226,264 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
     from . import discmirror as DM
     DM.auto_mirror(out["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return out
+
+
+# ------------------------------------------------------------- composition (audit rec 16)
+#
+# THE COMPOSED WORLD, one toml: the Southern Ring was built base-mint -> relief -> nav-stamp
+# across many sessions of hand-ordered verbs; nothing recorded the order or refused a foreign
+# overwrite. `compose_layout` extends the world-fuse toml with one table per EXISTING verb --
+# each handler calls that verb's shipped Python entry point unchanged (the productized-builder
+# pattern; NO new geometry code) -- runs them in the fixed three-tier order below (a literal
+# ordered list, not a topological solver), and writes `world_manifest.json` beside the deploys
+# (per-file md5 + the spec table that produced it, the bench_pipeline manifest pattern). A
+# later compose REFUSES when a manifest-recorded file's on-disk md5 has diverged (a hand edit,
+# a foreign session) unless allow_overwrite -- the per-write ownership refusal at the seam
+# (audit rec 6) guards single writes; this guards the COMPOSITION.
+
+#: The fixed execution order: base mint (placement layouts + synthetic islands) -> interior
+#: relief (reads the DEPLOYED bytes the base tier wrote) -> navigation stamps (reclassify the
+#: deployed water). Within a tier, rows run in document order.
+COMPOSE_TIERS = (("placement", "island"), ("mountain", "forest", "hill"),
+                 ("coastnav", "rim_retile"))
+COMPOSE_TABLES = tuple(t for tier in COMPOSE_TIERS for t in tier)
+
+_MANIFEST_NAME = "world_manifest.json"
+_SKIP_MARKERS = (".bak-", ".prerim")         # write-seam backups, never composition output
+
+
+def _world_tree_md5(mod_root: Path) -> dict:
+    """``relpath -> md5`` over the mod folder's WorldMap tree (backups + the manifest and
+    ledger excluded) -- the before/after snapshot that attributes files to compose steps."""
+    import hashlib
+    root = mod_root / "FF9_Data" / "WorldMap"
+    out = {}
+    if not root.is_dir():
+        return out
+    from .mesh import LEDGER_NAME
+    for p in sorted(root.rglob("*")):
+        if not p.is_file() or p.name in (_MANIFEST_NAME, LEDGER_NAME) \
+                or any(m in p.name for m in _SKIP_MARKERS):
+            continue
+        out[p.relative_to(mod_root).as_posix()] = hashlib.md5(p.read_bytes()).hexdigest()
+    return out
+
+
+def _parse_block_rect(spec) -> list:
+    """``"BX,BY"`` / ``"BX0-BX1,BY0-BY1"`` (either axis a range) or an explicit list of
+    ``[x, y]`` pairs -> block tuples (the world-mountain --donor grammar)."""
+    if not isinstance(spec, str):
+        return [tuple(int(v) for v in c) for c in spec]
+
+    def rng(s):
+        if "-" in s:
+            a, b = s.split("-")
+            return list(range(int(a), int(b) + 1))
+        return [int(s)]
+    xs, ys = spec.split(",")
+    return [(x, y) for x in rng(xs) for y in rng(ys)]
+
+
+def _row_point(table: str, row: dict) -> tuple:
+    """``(wx, wz), exact`` from a row's ``center`` (exact) or ``near`` (snap) key."""
+    if "center" in row:
+        wx, wz = (float(v) for v in row["center"])
+        return (wx, wz), True
+    if "near" in row:
+        wx, wz = (float(v) for v in row["near"])
+        return (wx, wz), False
+    raise ValueError(f"[[{table}]] needs center=[wx,wz] or near=[wx,wz]")
+
+
+def _strict_keys(table: str, row: dict, allowed: set) -> None:
+    bad = sorted(set(row) - allowed)
+    if bad:
+        raise ValueError(f"[[{table}]]: unknown key(s) {bad} -- allowed: {sorted(allowed)}")
+
+
+def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
+                   lod: str = "0_1", game=None, allow_overwrite: bool = False,
+                   dry_run: bool = False, skip_mirror: bool = False,
+                   target_disc: int | None = None, all_sea_target: bool = False) -> dict:
+    """Run a composed layout ``doc`` (parsed toml) through the fixed tier order. Each table
+    row calls its verb's existing entry point with the kwargs it already accepts; unknown
+    keys refuse (typo protection). ``placements`` is the CLI-parsed ``[[placement]]`` list
+    (tweak factories attached) and runs through :func:`fuse_layout` as tier 0's first step.
+
+    A REAL run stops at the first failing step (later tiers read the deployed bytes the
+    earlier tiers wrote; there is nothing sound to continue onto) -- already-deployed
+    earlier steps stay, and every remaining step is reported ``skipped``. A DRY run reports
+    every step against the CURRENT on-disk state: a relief row aimed at an island the same
+    doc has not deployed yet will honestly fail its read (a stack that does not exist
+    cannot be dry-run).
+
+    LAYERED OVERWRITE DEFENSE (deliberate, measured live): ``allow_overwrite`` waives THIS
+    function's manifest-drift gate only. The per-write ownership refusal at the seam
+    (:func:`ff9mapkit.world.mesh.deploy_override`, audit rec 6) still fires on a file whose
+    bytes match no ledger sha -- that law guards OTHER SESSIONS' work and has its own lever
+    (``FF9_WORLD_FORCE_OVERWRITE``). A compose flag that silently forced the seam would let
+    one reflexive ``--allow-overwrite`` steamroll a concurrent session's deploys.
+
+    Returns ``{op, gates, clean, dry_run, manifest}`` -- ``gates`` carries the drift gate
+    plus one gate per step (with the files each real step wrote)."""
+    import json
+    rtarget = disc if target_disc is None else int(target_disc)
+    game_path = config.find_game_path(game)
+    mod_root = game_path / mod_folder
+    man_path = mod_root / "FF9_Data" / "WorldMap" / _MANIFEST_NAME
+
+    # ---- THE MANIFEST DRIFT GATE: refuse to build over diverged bytes -------------------
+    old_manifest = json.loads(man_path.read_text(encoding="utf-8")) if man_path.is_file() \
+        else None
+    pre = _world_tree_md5(mod_root)
+    recorded: dict = {}
+    for e in (old_manifest or {}).get("entries", ()):        # later entries win
+        recorded.update(e.get("files", {}))
+    drift = sorted(p for p, h in recorded.items() if p in pre and pre[p] != h)
+    gates = [{"gate": "manifest-drift", "diverged": drift[:8], "n_diverged": len(drift),
+              "recorded": len(recorded), "ok": allow_overwrite or not drift}]
+    if drift and not allow_overwrite and not dry_run:
+        return {"op": "compose", "gates": gates, "clean": False, "dry_run": dry_run,
+                "manifest": str(man_path)}
+
+    # ---- the per-table runners (each calls the verb's shipped entry point) --------------
+    def _island_runner(row):
+        from . import island as I
+        _strict_keys("island", row, {"center", "cell", "radius", "height", "patches",
+                                     "seed", "lobes", "rim_run", "flat", "ground",
+                                     "relief_amp", "relief_seed", "coastnav",
+                                     "coastnav_policy"})
+        ren = {"radius": "base_radius", "height": "land_height", "patches": "n_patches"}
+        kw = {ren.get(k, k): v for k, v in row.items() if k not in ("center", "cell")}
+        if "center" in row:
+            kw["center"] = tuple(float(v) for v in row["center"])
+        elif "cell" in row:
+            kw["cell"] = tuple(int(v) for v in row["cell"])
+        else:
+            raise ValueError("[[island]] needs center=[wx,wz] or cell=[bx,by]")
+        return I.landmass(mod_folder, disc=disc, lod=lod, game=game, dry_run=dry_run,
+                          skip_mirror=skip_mirror, target_disc=target_disc,
+                          all_sea_target=all_sea_target, **kw)
+
+    def _relief_runner(table, row):
+        from . import interior as IN
+        pt, exact = _row_point(table, row)
+        loc = dict(center=pt if exact else None, near=None if exact else pt)
+        if table == "hill":
+            _strict_keys(table, row, {"center", "near", "height", "radius"})
+            radius = float(row.get("radius", 18.0))
+            reach = max(96.0, radius + 10.0)
+        else:
+            _strict_keys(table, row, {"center", "near", "donor", "reach", "ground"}
+                         if table == "mountain" else {"center", "near", "donor", "reach"})
+            reach = float(row.get("reach", 96.0))
+        blocks = IN.read_deployed_blocks(mod_folder, near=pt, reach=reach, disc=disc,
+                                         game=game, target_disc=target_disc)
+        soup = IN.soup_from_blocks(blocks)
+        if table == "forest":
+            res = IN.carve_forest(soup, donor=tuple(int(v) for v in row["donor"]),
+                                  disc=disc, game=game, **loc)
+            IN.census_gate(res["changed"], disc=disc, game=game,
+                           probe=(res["center"], 37), baseline=blocks)
+        elif table == "hill":
+            res = IN.build_hill(soup, height=float(row.get("height", 4.2)),
+                                radius=radius, **loc)
+            IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks)
+        else:                                                # mountain
+            extra = {"ground": row["ground"]} if "ground" in row else {}
+            res = IN.carve_mountain(soup, donor=_parse_block_rect(row["donor"]),
+                                    disc=disc, game=game, **loc, **extra)
+            IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,
+                           parts=res.get("changed_parts"))
+        if not dry_run:
+            written = list(IN.deploy_changed(res["changed"], mod_folder=mod_folder,
+                                             disc=disc, game=game, skip_mirror=True,
+                                             target_disc=target_disc))
+            if table == "mountain":
+                written += list(IN.deploy_mountain_parts(res, mod_folder=mod_folder,
+                                                         disc=disc, game=game,
+                                                         skip_mirror=True,
+                                                         target_disc=target_disc))
+            from . import discmirror as DM
+            DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
+        return res
+
+    def _coastnav_runner(row):
+        from . import coastnav as CN
+        _strict_keys("coastnav", row, {"cells", "policy", "disc"})
+        cells = [tuple(int(v) for v in c) for c in row["cells"]] if "cells" in row else None
+        return CN.stamp(mod_folder, disc=int(row.get("disc", rtarget)), cells=cells,
+                        policy=row.get("policy", "land-anywhere"),
+                        deploy=not dry_run, game=game)
+
+    def _rim_runner(row):
+        from . import rimretile as RR
+        _strict_keys("rim_retile", row, {"cells", "donor", "size"})
+        cells = [tuple(int(v) for v in c) for c in row["cells"]]
+        dx, dy = (int(v) for v in row["donor"])
+        size = row.get("size", "1x1")
+        nx, ny = (tuple(int(v) for v in size.lower().split("x")) if isinstance(size, str)
+                  else (int(size[0]), int(size[1])))
+        donors = [(dx + i, dy + j) for j in range(ny) for i in range(nx)]
+        rep = RR.rim_retile(mod_folder, cells, donors, disc=disc, target_disc=target_disc,
+                            game=game, apply=not dry_run)
+        if rep.get("refused"):
+            raise ValueError(f"rim-retile refused: {rep['refused']}")
+        return rep
+
+    def _placement_runner(_row):
+        out = fuse_layout(mod_folder, list(placements), disc=disc, lod=lod, game=game,
+                          allow_overwrite=allow_overwrite, dry_run=dry_run,
+                          skip_mirror=skip_mirror, target_disc=target_disc,
+                          all_sea_target=all_sea_target)
+        if not out["clean"]:
+            bad = [g["gate"] for g in out["fuse_gates"] if not g["ok"]]
+            raise ValueError(f"fuse layout refused: {', '.join(bad)}")
+        return out
+
+    runners = {"island": _island_runner, "coastnav": _coastnav_runner,
+               "rim_retile": _rim_runner}
+
+    steps = []                                               # (label, table, spec, runner)
+    for tier in COMPOSE_TIERS:
+        for table in tier:
+            if table == "placement":
+                if placements:
+                    steps.append(("placement[]", table, {"count": len(placements)},
+                                  _placement_runner))
+                continue
+            for i, row in enumerate(doc.get(table, ())):
+                run = (runners[table] if table in runners
+                       else (lambda row, table=table: _relief_runner(table, row)))
+                steps.append((f"{table} #{i}", table, dict(row), run))
+
+    # ---- run in order, attributing written files per step -------------------------------
+    entries = []
+    aborted = False
+    for (label, table, spec, run) in steps:
+        if aborted:
+            gates.append({"gate": label, "ok": False,
+                          "skipped": "an earlier step failed (later tiers read its deploys)"})
+            continue
+        try:
+            run(spec)
+            post = _world_tree_md5(mod_root) if not dry_run else pre
+            changed = {p: h for p, h in post.items() if pre.get(p) != h}
+            pre = post
+            gates.append({"gate": label, "files": len(changed), "ok": True})
+            entries.append({"table": label, "spec": spec, "files": changed})
+        except (ValueError, FileNotFoundError) as e:
+            gates.append({"gate": label, "ok": False, "error": str(e)})
+            if not dry_run:
+                aborted = True
+    clean = all(g["ok"] for g in gates)
+    if not dry_run and entries:
+        from datetime import datetime, timezone
+        doc_out = {"op": "compose",
+                   "entries": list((old_manifest or {}).get("entries", ())) + [
+                       {**e, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+                       for e in entries]}
+        man_path.parent.mkdir(parents=True, exist_ok=True)
+        man_path.write_text(json.dumps(doc_out, indent=1), encoding="utf-8")
+    return {"op": "compose", "gates": gates, "clean": clean, "dry_run": dry_run,
+            "manifest": str(man_path)}
