@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — ONE Sea5 tile classifier (three copies had three arity rules)
+- The same question — "which deepset/transition tile is this cell?" — had three answers:
+  `water.read_sea5_tiles` required all 4 corners, transplant's carry-gate reader took ≥3 with
+  a degeneracy guard, and rimretile's rim-audit reader fitted WHATEVER corners existed — a
+  2-corner sliver got the first rotation in `ROTS` order (an arbitrary answer) and the audit
+  iterated to a fixed point on it. Now `water.classify_sea5_cell` (+ `sea5_deepset_of`) is
+  the one owner; the arity is an EXPLICIT argument at all four call sites (4 = reference,
+  3 = the sliver relaxation, <3 refused outright), and the two deepset readers agree by
+  construction. Calibrated on all 52 deployed Disc9 Sea5 parts: 276 cells, old-vs-new
+  identical (0 dropped / 0 flipped) — behavior-preserving on accepted content, the sliver
+  hazard closed for future crop/shift edits. Audit rec 7 / critic finding #3.
+
 ### Added — the world deploy LEDGER + the ownership refusal (the shared-install seam)
 - Every `deploy_override` write appends one JSON line (cell/part/discs/sha256/kit/utc/argv)
   to `<mod_folder>/.ff9world.jsonl` — append-only JSONL because 18+ concurrent sessions
