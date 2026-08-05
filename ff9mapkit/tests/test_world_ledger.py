@@ -160,13 +160,19 @@ def test_validate_blockmesh_engine_predicates_each_refuse(tmp_path):
     M.validate_blockmesh(ok)                              # the control
     with pytest.raises(ValueError, match="UNINDEXED"):
         M.validate_blockmesh(dataclasses.replace(ok, flat_index=[0, 1]))
+    # each fixture keeps tris coherent with flat_index -- the rec-18 dual-topology check
+    # runs first and would otherwise mask the predicate under test
     with pytest.raises(ValueError, match="out of range"):
-        M.validate_blockmesh(dataclasses.replace(ok, vcount=0, flat_index=[]))
+        M.validate_blockmesh(dataclasses.replace(ok, vcount=0, flat_index=[], tris=[]))
     with pytest.raises(ValueError, match="16-bit"):
-        big = dataclasses.replace(ok, vcount=70000, flat_index=list(range(70000)))
+        big = dataclasses.replace(ok, vcount=70002, flat_index=list(range(70002)),
+                                  tris=[[i, i + 1, i + 2] for i in range(0, 70002, 3)])
         M.validate_blockmesh(big)
     with pytest.raises(ValueError, match="triangle index"):
-        M.validate_blockmesh(dataclasses.replace(ok, flat_index=[0, 1, 7]))
+        M.validate_blockmesh(dataclasses.replace(ok, flat_index=[0, 1, 7], tris=[[0, 1, 7]]))
+    with pytest.raises(ValueError, match="divergence"):
+        # the rec-18 check itself: tris says one topology, flat_index another
+        M.validate_blockmesh(dataclasses.replace(ok, tris=[[0, 2, 1]]))
     with pytest.raises(ValueError, match="non-finite"):
         bad_pos = [list(v) for v in ok.chan_arrays[CH_POS] if True]
         bad_pos[1][1] = float("nan")

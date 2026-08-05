@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — guard-rail hardening: skip ceiling, dual-topology check, meshedit properties
+- **THE SKIP CEILING** (`tools/nightly_gate.py --skip-ceiling`, default 32): the collect
+  floor is structurally blind to a module-level `skipif` — a silenced family still
+  *collects* — so 56 tests skipping en masse read as a green ledger. A green run whose
+  skipped count exceeds the ceiling now gets its own `skip-long` verdict (rc 1), tripping
+  the standing red-ledger triage rule. Proven fired live (narrowed `--pytest-args` run,
+  state restored); rationale + re-seeding rule in `tools/nightly_gate.md`.
+- **THE DUAL-TOPOLOGY CHECK**: `BlockMesh` carries its topology twice (`tris` +
+  `flat_index`); a builder editing one and not the other shipped a mesh whose census read
+  one representation while the engine read the other. `validate_blockmesh` now refuses the
+  divergence at the write seam. Converting `.tris` to a derived property is REJECTED (the
+  winding fix legitimately mutates tris in place) — recorded at the check.
+- **Four Hypothesis properties on `meshedit`** (and only meshedit — the 100% offline
+  layer, so they run in public CI and in a fresh worktree): every ring edge appears in the
+  triangulation (the RING-CONFORMITY law — the class that shipped one missing face past a
+  sampled gate), plan area conserved, no off-ring vertex, `flat_patch` winding matches the
+  requested sign. `hypothesis` joins the `dev` extra. Guard-rail loudness, not coverage —
+  gates are not oracles. Audit rec 18: the audit's 18 ranked recommendations are now ALL
+  either shipped or explicitly refused-with-reasons.
+
 ### Added — the provenance gate's world chapter + THE ATLAS-LAUNDERING GUARD
 - `docs/PROVENANCE.md` now covers the one pillar whose deliverable IS derived bytes: deployed
   `.ff9mesh` worlds are Square-Enix-derived, never committed or wheeled, and **the shareable

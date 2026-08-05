@@ -274,6 +274,14 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=6, help="xdist workers (default 6; 0 = serial)")
     ap.add_argument("--collect-floor", type=int, default=6500,
                     help="abort if fewer tests collect (the worktree skip-trap guard)")
+    ap.add_argument("--skip-ceiling", type=int, default=32,
+                    help="POST-run verdict (audit rec 18): a green run that SKIPPED more than this "
+                         "is flagged skip-long (rc 1) -- the collect floor cannot see a module-level "
+                         "skipif, which still COLLECTS the family it silences. Seeded at ~2x the "
+                         "last green run's skipped count (16); rationale in nightly_gate.md")
+    ap.add_argument("--pytest-args", default=None,
+                    help="extra tokens appended to the suite pytest command -- for narrowed "
+                         "verification runs of the gate itself, never the nightly schedule")
     ap.add_argument("--timeout-min", type=int, default=180, help="suite hard timeout (default 180)")
     ap.add_argument("--register-task", action="store_true", help="create/refresh the scheduled task")
     ap.add_argument("--unregister-task", action="store_true", help="remove the scheduled task")
@@ -319,6 +327,9 @@ def main() -> int:
             return 0
 
         cmd = [py_exe(), "-m", "pytest", "-q", "--durations=25"]
+        if args.pytest_args:
+            import shlex
+            cmd += shlex.split(args.pytest_args)
         workers = args.workers if args.workers and xdist_available(kit) else 0
         if workers:
             cmd += ["-n", str(workers)]
@@ -334,6 +345,17 @@ def main() -> int:
         entry.update(parse_summary(suite_log))
         entry["result"] = "green" if rc == 0 else "red" if rc == 1 else "error"
         entry["exit_code"] = rc
+        # THE SKIP CEILING (audit rec 18): the collect floor is structurally blind to a
+        # module-level skipif -- a silenced family still COLLECTS, so 56 coastmorph tests
+        # skipping en masse would read as a green ledger. A green run that skipped more
+        # than the ceiling gets its own verdict, and a non-green ledger trips the standing
+        # RED LEDGER -> TRIAGE FIRST rule.
+        if entry["result"] == "green" and entry.get("skipped", 0) > args.skip_ceiling:
+            entry["result"] = "skip-long"
+            log(f"SKIP CEILING: {entry['skipped']} skipped > ceiling {args.skip_ceiling} -- a "
+                f"module-level skipif may be silencing a whole family; treat as NOT green "
+                f"(see nightly_gate.md).")
+            return 1
         log(f"suite done: {entry['result']} ({ {k: v for k, v in entry.items() if k in ('passed', 'failed', 'skipped', 'error')} })")
         return rc
     finally:

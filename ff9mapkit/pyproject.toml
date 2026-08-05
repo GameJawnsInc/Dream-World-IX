@@ -35,7 +35,7 @@ dependencies = ["Pillow>=9.0"]
 # runs serially without it -- but recommended: it cuts wall-clock ~2.6x AND stops a single pytest
 # process from being starved 1-vs-N when other work hammers the box. ~6 workers beats `-n auto` here
 # (the install-gated tests are disk-bound on the shared p0data bundles, so too many workers re-contend).
-dev = ["pytest>=7", "pytest-xdist>=3"]
+dev = ["pytest>=7", "pytest-xdist>=3", "hypothesis>=6"]
 # `ff9mapkit save-edit` (the RECREATE verb) reads/writes FF9's AES-encrypted save; pycryptodome is
 # imported lazily, so it's only needed for that command (and the save tests skip without it).
 save = ["pycryptodome>=3.10"]

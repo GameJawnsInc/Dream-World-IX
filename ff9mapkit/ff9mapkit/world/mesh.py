@@ -94,6 +94,15 @@ def validate_blockmesh(bm) -> None:
             f"UNINDEXED CONTRACT violated: vcount {vcount} != index count {icount} "
             f"-- the engine (WMBlock.AddWalkMesh) iterates vertices.Length/3 over triangles[i*3]; "
             f"expand to 3 fresh verts per triangle before writing")
+    # THE DUAL-TOPOLOGY COHERENCE CHECK (audit rec 18): BlockMesh carries the same topology
+    # twice (tris + flat_index); a builder that edits one and forgets the other ships a mesh
+    # whose census reads tris while the engine reads the flattened indices. Checked HERE at
+    # the seam; converting .tris into a derived property is REJECTED -- the winding fix below
+    # (~:870) legitimately mutates tris in place and re-flattens, so a property would either
+    # break it or hide the very divergence this check makes loud.
+    if [i for t in bm.tris for i in t] != list(idx):
+        raise ValueError("tris/flat_index topology divergence: the flattened tris do not equal "
+                         "flat_index -- a builder edited one representation and not the other")
     if vcount <= 0 or vcount > 65535:
         raise ValueError(f"vertex count out of range for the engine loader: {vcount} "
                          "(Unity 5.2.3 has 16-bit mesh indices only; 1..65535)")

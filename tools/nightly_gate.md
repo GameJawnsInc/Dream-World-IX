@@ -166,6 +166,16 @@ Everything is idempotent; re-running any step is safe.
   merge; the gate picks it up the next night. Falls back to serial automatically if xdist is missing.
 - **Collect floor:** the suite grows; if `collected` in the ledger rises well above 6500, raise the
   default in the script so the guard stays meaningful (floor ≈ 90% of current collection).
+- **Skip ceiling** (`--skip-ceiling`, default 32 — audit rec 18): the floor is structurally BLIND
+  to a module-level `skipif`, which still *collects* the family it silences — 56 coastmorph tests
+  skipping en masse would read as a green ledger. A green run whose `skipped` exceeds the ceiling
+  gets the verdict `skip-long` (rc 1), which trips the standing RED-LEDGER-TRIAGE rule. Seeded at
+  ~2× the last green run's `skipped` (16 on 2026-08-04) so fixture-gated churn has headroom while
+  a silenced family (tens of skips) cannot hide. If `skipped` legitimately grows past ~half the
+  ceiling, re-seed the same way — do **not** raise it to make a `skip-long` pass without reading
+  WHICH tests skipped in the pytest log first. Proven live 2026-08-05: a narrowed run
+  (`--pytest-args`, verification only) with `--skip-ceiling 0` flipped the ledger to `skip-long`
+  (state restored after).
 - **Paths:** env overrides `FF9_MAIN_REPO` and `FF9_GATE_WORKTREE` (set them in the task's action
   if you move things). State always lives at `<main repo>\.test-gate\`.
 - **Remove:** `py ...\nightly_gate.py --unregister-task`, then optionally
