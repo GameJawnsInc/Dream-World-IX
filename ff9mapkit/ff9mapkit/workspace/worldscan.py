@@ -175,9 +175,14 @@ def _read_header(path: Path) -> tuple[int, int | None, int | None]:
         size = path.stat().st_size
         with path.open("rb") as fh:
             head = fh.read(20)
-        if len(head) < 20 or head[:4] != _MAGIC:
+        if len(head) < 20:
             return size, None, None
-        _ver, vcount, icount, _flags = struct.unpack_from("<iiii", head, 4)
+        try:
+            # THE one header parser (world.mesh, audit rec 10 step 2) -- this was a private copy
+            from ..world.mesh import read_ff9mesh_header
+            _ver, vcount, icount, _flags = read_ff9mesh_header(head)
+        except ValueError:
+            return size, None, None
         return size, vcount, icount
     except OSError:
         return 0, None, None

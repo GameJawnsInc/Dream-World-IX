@@ -139,3 +139,70 @@ def test_backup_lands_in_the_target_namespace(tmp_path):
     assert "Disc9" in baks[0].parts
     d1 = tmp_path / "TestMod" / "FF9_Data" / "WorldMap" / "Disc1"
     assert not d1.exists()                                # nothing leaked into Disc1
+
+
+# ---- the engine-boundary seam validation (audit rec 10 steps 1-2) ---------------------------------------------------
+
+def _bad(**mut):
+    bm = _bm()
+    for k, v in mut.items():
+        object.__setattr__(bm, k, v) if hasattr(type(bm), "__dataclass_fields__") else setattr(bm, k, v)
+    return bm
+
+
+def test_validate_blockmesh_engine_predicates_each_refuse(tmp_path):
+    """One test per s34 ReadMesh predicate (transcribed verbatim; the drift test pins the
+    patch's literals): a runtime-rejected override does NOT fall back to ocean on a
+    reclaimed cell -- it becomes a DIFFERENT block's walkable geometry -- so nothing
+    rejectable may reach a file. ValueError, not assert (the -O trapdoor)."""
+    import dataclasses
+    ok = _bm()
+    M.validate_blockmesh(ok)                              # the control
+    with pytest.raises(ValueError, match="UNINDEXED"):
+        M.validate_blockmesh(dataclasses.replace(ok, flat_index=[0, 1]))
+    with pytest.raises(ValueError, match="out of range"):
+        M.validate_blockmesh(dataclasses.replace(ok, vcount=0, flat_index=[]))
+    with pytest.raises(ValueError, match="16-bit"):
+        big = dataclasses.replace(ok, vcount=70000, flat_index=list(range(70000)))
+        M.validate_blockmesh(big)
+    with pytest.raises(ValueError, match="triangle index"):
+        M.validate_blockmesh(dataclasses.replace(ok, flat_index=[0, 1, 7]))
+    with pytest.raises(ValueError, match="non-finite"):
+        bad_pos = [list(v) for v in ok.chan_arrays[CH_POS] if True]
+        bad_pos[1][1] = float("nan")
+        ca = dict(ok.chan_arrays); ca[CH_POS] = bad_pos
+        M.validate_blockmesh(dataclasses.replace(ok, chan_arrays=ca))
+    # and the seam actually calls it: the write refuses too
+    with pytest.raises(ValueError, match="non-finite"):
+        ca2 = dict(ok.chan_arrays)
+        p2 = [list(v) for v in ok.chan_arrays[CH_POS]]
+        p2[0][0] = float("inf")
+        ca2[CH_POS] = p2
+        M.write_ff9mesh(dataclasses.replace(ok, chan_arrays=ca2), tmp_path / "x.ff9mesh")
+
+
+def test_engine_patch_literals_are_pinned():
+    """THE DRIFT PIN: validate_blockmesh transcribes s34 ReadMesh. If the engine side bumps
+    a literal, this fails the kit's suite instead of silently voiding every deploy."""
+    from pathlib import Path
+    patch = (Path(__file__).resolve().parents[2] / "memoria-patches" /
+             "s34-worldmap-mesh-override.patch").read_text(encoding="utf-8", errors="replace")
+    assert "SupportedVersion = 1" in patch
+    assert "vcount > 65535" in patch
+    assert "icount > vcount * 3" in patch
+    assert "idx < 0 || idx >= vcount" in patch
+
+
+def test_shared_header_parser_is_the_one_owner():
+    """worldscan and coastnav each carried a private header parse; both now route through
+    mesh.read_ff9mesh_header."""
+    p = M.write_ff9mesh(_bm(), __import__("tempfile").mkdtemp() + "/h.ff9mesh")
+    ver, vcount, icount, flags = M.read_ff9mesh_header(p.read_bytes())
+    assert (ver, vcount, icount) == (1, 3, 3) and flags & 4
+    with pytest.raises(ValueError, match="bad magic"):
+        M.read_ff9mesh_header(b"XXXX" + b"\x00" * 16)
+    import inspect
+    from ff9mapkit.world import coastnav as CN
+    from ff9mapkit.workspace import worldscan as WS
+    assert "read_ff9mesh_header" in inspect.getsource(CN._parse_header)
+    assert "read_ff9mesh_header" in inspect.getsource(WS)

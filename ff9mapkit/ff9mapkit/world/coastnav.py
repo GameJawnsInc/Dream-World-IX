@@ -266,8 +266,8 @@ def _locale_of(px, pz, lows, highs):
 
 
 def _parse_header(data):
-    assert data[:4] == b"F9WM", "bad magic"
-    version, vcount, icount, flags = struct.unpack_from("<iiii", data, 4)
+    from .mesh import read_ff9mesh_header             # THE one header parser (audit rec 10)
+    version, vcount, icount, flags = read_ff9mesh_header(data)
     off = 20 + vcount * 12
     if flags & 1:
         off += vcount * 12

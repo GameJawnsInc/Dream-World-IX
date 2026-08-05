@@ -74,13 +74,60 @@ def write_ff9mesh(bm, path) -> Path:
     return path
 
 
+def validate_blockmesh(bm) -> None:
+    """THE ENGINE'S OWN LOADER PREDICATES at the write seam (audit rec 10 step 1), transcribed
+    verbatim from the s34 patch's ``ReadMesh`` (``memoria-patches/s34-worldmap-mesh-override
+    .patch``: ``SupportedVersion = 1``; ``vcount <= 0 or vcount > 65535`` -- Unity 5.2.3 has
+    16-bit mesh indices only; ``icount < 0 or icount > vcount * 3``; every ``idx`` in
+    ``[0, vcount)``), plus the UNINDEXED CONTRACT and a NaN/inf scan the loader can NOT catch
+    (a NaN vert loads fine and renders/queries as garbage). Raises ``ValueError`` -- the
+    ``require_block_in_grid`` convention, not assert -- because a runtime-rejected override
+    does not fall back to ocean on a reclaimed cell: it silently becomes a DIFFERENT real
+    block's walkable geometry at the wrong coordinates (the nastiest boundary failure the
+    audit found), so nothing rejectable may ever reach the file. Deliberately NO
+    degenerate-triangle gate: THE WALL LAW records that filter misfiring (zero-plan-area
+    curtains are real content). A drift test pins the patch's literals against this copy."""
+    idx = bm.flat_index
+    vcount, icount = bm.vcount, len(idx)
+    if vcount != icount:
+        raise ValueError(
+            f"UNINDEXED CONTRACT violated: vcount {vcount} != index count {icount} "
+            f"-- the engine (WMBlock.AddWalkMesh) iterates vertices.Length/3 over triangles[i*3]; "
+            f"expand to 3 fresh verts per triangle before writing")
+    if vcount <= 0 or vcount > 65535:
+        raise ValueError(f"vertex count out of range for the engine loader: {vcount} "
+                         "(Unity 5.2.3 has 16-bit mesh indices only; 1..65535)")
+    if icount < 0 or icount > vcount * 3:
+        raise ValueError(f"index count out of range for the engine loader: {icount} > vcount*3")
+    for i in idx:
+        if i < 0 or i >= vcount:
+            raise ValueError(f"triangle index {i} out of range [0, {vcount}) -- the engine "
+                             "loader rejects the whole override")
+    for chan, arr in (("verts", bm.verts), ("normals", bm.normals), ("uvs", bm.uvs),
+                      ("tangents", bm.tangents)):
+        if not arr:
+            continue
+        for row in arr:
+            for f in row:
+                if not math.isfinite(f):
+                    raise ValueError(f"non-finite value in {chan}: {row} -- loads fine, "
+                                     "renders/queries as garbage; refuse at the seam")
+
+
+def read_ff9mesh_header(data: bytes):
+    """Parse just the 20-byte ``.ff9mesh`` header (+ channel offsets): returns
+    ``(version, vcount, icount, flags)``. THE one header parser -- ``worldscan`` and
+    ``coastnav`` each carried a private copy (audit rec 10 step 2)."""
+    if data[:4] != MAGIC:
+        raise ValueError("not a .ff9mesh (bad magic)")
+    return struct.unpack_from("<iiii", data, 4)
+
+
 def ff9mesh_bytes(bm) -> bytes:
     """The exact ``.ff9mesh`` serialization of ``bm`` as bytes -- :func:`write_ff9mesh`
-    without the file, so callers can byte-compare against a deployed file WITHOUT writing."""
-    assert bm.vcount == len(bm.flat_index), (
-        f"UNINDEXED CONTRACT violated: vcount {bm.vcount} != index count {len(bm.flat_index)} "
-        f"-- the engine (WMBlock.AddWalkMesh) iterates vertices.Length/3 over triangles[i*3]; "
-        f"expand to 3 fresh verts per triangle before writing")
+    without the file, so callers can byte-compare against a deployed file WITHOUT writing.
+    Runs :func:`validate_blockmesh` first: nothing engine-rejectable reaches any file."""
+    validate_blockmesh(bm)
     verts, normals, uvs, tangents = bm.verts, bm.normals, bm.uvs, bm.tangents
     flags = (1 if normals else 0) | (2 if uvs else 0) | (4 if tangents else 0)
     idx = bm.flat_index

@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the engine's own loader predicates now guard the write seam
+- `validate_blockmesh` transcribes the s34 loader's ReadMesh checks verbatim (version 1;
+  vcount 1..65535 — Unity 5.2.3 has 16-bit mesh indices only; icount ≤ vcount*3; every index
+  in range) plus the UNINDEXED CONTRACT (now ValueError, not assert — the `-O` trapdoor) and
+  a NaN/inf scan the loader cannot catch, running inside `ff9mesh_bytes` so nothing
+  engine-rejectable reaches any file — a runtime-rejected override does not fall back to
+  ocean on a reclaimed cell, it silently becomes a DIFFERENT block's walkable geometry. A
+  drift test pins the patch's literals so an engine-side bump fails the suite instead of
+  voiding deploys; `read_ff9mesh_header` is now THE one header parser (worldscan and
+  coastnav each carried a private copy). Audit rec 10 steps 1-2; the `world-readback`
+  ground-truth verb (step 3) follows.
+
 ### Added — THE ONE-WAY WALL GATE: world-terrain finally checks what it sculpts
 - `world-terrain` displaced stock land with no check of any kind (the audit's one named
   coverage hole). The gate the audit prescribed (per-edge `GATE_CLIMB`) was RE-derived from
