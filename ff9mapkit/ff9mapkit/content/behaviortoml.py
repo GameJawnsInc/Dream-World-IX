@@ -532,11 +532,26 @@ def hud_value(v) -> str:
 
 def hud_mes_text(row: dict) -> str:
     """The final ``.mes`` text for a hud row: the author's text with ``[IMME]``
-    (never type in) and ``[NFOC]`` (NoFocus -> ``Dialog.FlagButtonInh``, so the
+    (never type in), ``[NFOC]`` (NoFocus -> ``Dialog.FlagButtonInh``, so the
     player's confirm can NEVER close the strip — playtest 2: clicking through a
-    dialogue closed the HUD permanently) prepended when absent."""
+    dialogue closed the HUD permanently) and ``[NTUR]`` prepended when absent.
+
+    ⚠ ``[NTUR]`` is THE TURBO-INJECTION LAW (arm B) guard. A hud strip is the
+    predicate's window half standing for the WHOLE FIELD: flags-16 TRANSPARENT
+    (inside the style predicate, UIKeyTrigger.cs:984) and [NFOC]-inhibited (arm A
+    never fires on it) — so while a strip is up and no dismissible dialogue is
+    open, ANY ``B_KEYON`` poll anywhere in the field (a hire-button poller, an
+    ATE gate, a press-action region) arms ``scriptRequestedButtonPress``
+    (EBin.cs:1080) and a latched F9 injects a Confirm into the script input
+    stream every frame — menus pop themselves, action regions auto-fire.
+    ``[NTUR]`` (preventTurboKey) bails BEFORE either arm (UIKeyTrigger.cs:976)
+    and renders nothing. It is cleared by any delivered confirm and re-asserted
+    on every label render — a live hud re-renders on each value change, so the
+    guard is re-armed continuously. Honest cost: while asserted it also blocks
+    arm A, so DIALOGUE turbo-skip in a hud field is mostly off. Transparent is
+    the strip's whole look; a style-side guard is not available."""
     t = str(row.get("text", ""))
-    for tag in ("[NFOC]", "[IMME]"):
+    for tag in ("[NTUR]", "[NFOC]", "[IMME]"):
         if tag not in t:
             t = tag + t
     return t

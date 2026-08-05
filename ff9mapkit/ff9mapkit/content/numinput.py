@@ -52,6 +52,7 @@ from dataclasses import dataclass, field
 from .. import flags as _flags
 from ..eb import exprasm, opcodes
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, asm, label
+from . import text as _text
 
 # Field-event input masks (EventInput.cs) -- what a B_KEY/B_KEYON const tests. The
 # directional values are the ladder module's proven set; Confirm is the world-entrance
@@ -214,28 +215,43 @@ def _xy(v, ctx: str, key: str) -> tuple:
 def mes_texts(spec: InputSpec) -> list:
     """The block's minted ``.mes`` entries: ``(part, text, strt)`` tuples for the build's
     raw text channel (no speaker, no tail -- pinned windows draw none). Parts: ``value``,
-    ``cur0..curN``, optional ``help``, optional ``echo``."""
+    ``cur0..curN``, optional ``help``, optional ``echo``.
+
+    ⚠ EVERY WINDOW CARRIES ``[NTUR]`` -- THE TURBO-INJECTION LAW (arm B). The stepper is
+    exactly arm B's configuration: every open window is dismiss-inhibited ([NFOC]/[TIME=-1],
+    so arm A never fires) while the value/cursor windows are flags-16 TRANSPARENT (inside the
+    style predicate, UIKeyTrigger.cs:984) and the loop polls ``B_KEYON`` every frame (arming
+    ``scriptRequestedButtonPress``, EBin.cs:1080). Under a latched F9 the engine then
+    SYNTHESIZES a Confirm into the script's own input stream -- and the poll mask contains
+    KEY_CONFIRM, so an un-guarded stepper submits its start value on the first poll frame
+    with no player press (a Treno bid resolves itself). ``[NTUR]`` (preventTurboKey) bails
+    at UIKeyTrigger.cs:976 BEFORE either arm, renders nothing, and never blocks the player's
+    real keys; every digit step re-renders a window (re-asserting it), and the only Confirm
+    that clears it is the one that legitimately ends the loop. The frameless flags-16 style
+    is the overlay mechanism itself, so a style-side guard is not available here."""
     d = spec.digits
     vx, vy = spec.pos
     zeros = "0" * len(str(spec.multiplier)[1:])          # 100 -> "00", 1 -> ""
     # the digit run, left to right = highest place first = slots 8-d .. 7
     wdth = "".join(f"64,{spec.slot(d - 1 - j)}," for j in range(d))
     numbs = "".join(f"[NUMB={spec.slot(d - 1 - j)}]" for j in range(d))
-    out = [("value", f"[MPOS={vx},{vy}][WDTH=0,0,{wdth}-1][NFOC][IMME]"
+    out = [("value", f"[MPOS={vx},{vy}][WDTH=0,0,{wdth}-1][NTUR][NFOC][IMME]"
                      f"{numbs}{zeros}{spec.suffix}[TIME=-1]", (0, 1))]
     for sel in range(d):
         x = vx + DIGIT_PITCH * (d - 1 - sel)             # screen column of digit `sel`
         out.append((f"cur{sel}", f"[MPOS={x},{vy}][WDTH=0,0,64,{spec.slot(sel)},-1]"
-                                 f"[NFOC][B880E0][HSHD][IMME][NUMB={spec.slot(sel)}][TIME=-1]",
+                                 f"[NTUR][NFOC][B880E0][HSHD][IMME][NUMB={spec.slot(sel)}][TIME=-1]",
                     (0, 1)))
     if spec.help:
         hx, hy = spec.help_pos
         head = f"{spec.label}\n" if spec.label else ""
         lines = HELP_LINES.count("\n") + 1 + (1 if spec.label else 0)
-        out.append(("help", f"[MPOS={hx},{hy}][NANI][NFOC][IMME]{head}{HELP_LINES}[TIME=-1]",
+        out.append(("help", f"[MPOS={hx},{hy}][NANI][NTUR][NFOC][IMME]{head}{HELP_LINES}[TIME=-1]",
                     (HELP_STRT_WIDTH, lines)))
     if spec.echo:
         txt = spec.echo if "[IMME]" in spec.echo else "[IMME]" + spec.echo
+        if _text.NO_TURBO_TAG not in txt and _text.renders_live_value(txt):
+            txt = _text.NO_TURBO_TAG + txt               # a READOUT survives the player's own turbo
         out.append(("echo", txt, None))
     return out
 

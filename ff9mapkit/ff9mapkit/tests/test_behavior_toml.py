@@ -876,7 +876,12 @@ def test_scoreboard_toml_surface():
     _verify_all(cb)
     assert len(fb._scans) == 2 and all(s.alive_only for s in fb._scans)
     assert fb._huds[0].txid == 941
-    assert BT.hud_mes_text(SCOREBOARD_RAW["behavior"]["hud"][0]).startswith("[IMME]")
+    hud_text = BT.hud_mes_text(SCOREBOARD_RAW["behavior"]["hud"][0])
+    assert hud_text.startswith("[IMME]")
+    # THE TURBO-INJECTION LAW (arm B): a flags-16 [NFOC] strip is the predicate's window
+    # half for the WHOLE field, so every strip carries [NTUR] -- exactly once.
+    for tag in ("[NTUR]", "[NFOC]"):
+        assert hud_text.count(tag) == 1, tag
     fb2 = BT.build(SCOREBOARD_RAW, npc_slots=slots, behavior_txids=tx)
     assert fb2.compile().stable_hash() == cb.stable_hash()
 

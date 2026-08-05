@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — turbo-injection (arm B) guards on the three polled minted lanes
+- `[[qte]]`, `[[numeric_input]]` and `[[behavior.hud]]` all polled `B_KEYON` behind
+  dismiss-inhibited Auto/Transparent windows — exactly `ShouldTurboDialog`'s second arm
+  (UIKeyTrigger.cs:984-988), which synthesizes a Confirm into the script's own input
+  stream under a latched F9 (TurboDialog is ON by default, session-persistent, no
+  indicator). Un-guarded: a QTE round resolved itself hit-or-miss on frame 1 (the
+  injected mask carries the PHYSICAL face-button bit bound to Confirm, EventInput.cs:521-527,
+  so the lane's Cross/Circle polls read it), a bid stepper submitted its start value
+  (its poll mask contains KEY_CONFIRM), and a hud strip armed the predicate for every
+  other poll in its field (hire pollers, ATE gates, press-action regions). Every minted
+  window in the three lanes now carries `[NTUR]` (`preventTurboKey` bails before BOTH
+  arms, renders nothing, never blocks real presses); the QTE score/payout and stepper
+  echo READOUTS gain it by the same rule the TOML lanes get from `want_no_turbo`.
+  Window styles untouched — flags 160/16 are the lanes' stock look and overlay
+  mechanism. Known cost, documented at `hud_mes_text`: while a hud strip's guard is
+  asserted, dialogue turbo-skip in that field is mostly off. In-game F9 A/B pending.
+
 ### Added — guard-rail hardening: skip ceiling, dual-topology check, meshedit properties
 - **THE SKIP CEILING** (`tools/nightly_gate.py --skip-ceiling`, default 32): the collect
   floor is structurally blind to a module-level `skipif` — a silenced family still

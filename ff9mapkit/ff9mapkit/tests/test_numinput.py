@@ -39,40 +39,52 @@ def _verify_body(body: bytes) -> int:
 
 
 # ------------------------------------------------------------------------ the .mes texts
-def test_cursor_texts_are_stock_bytes():
+def test_cursor_texts_are_stock_bytes_plus_turbo_guard():
     """The kit's default-position cursor overlays reproduce field 909's entries 204-206
-    BYTE-FOR-BYTE (MPOS run 33/40/47, the Pink pair, the WDTH shape) -- the strongest
-    verbatim claim the emitter can make offline."""
+    (MPOS run 33/40/47, the Pink pair, the WDTH shape) with exactly ONE addition over
+    the golden: the [NTUR] turbo-injection guard (arm B -- see mes_texts' docstring)."""
     texts = dict((p, t) for p, t, _ in NI.mes_texts(_spec()))
-    assert texts["cur2"] == ("[MPOS=33,80][WDTH=0,0,64,5,-1][NFOC][B880E0][HSHD][IMME]"
+    assert texts["cur2"] == ("[MPOS=33,80][WDTH=0,0,64,5,-1][NTUR][NFOC][B880E0][HSHD][IMME]"
                             "[NUMB=5][TIME=-1]")                       # stock 204
-    assert texts["cur1"] == ("[MPOS=40,80][WDTH=0,0,64,6,-1][NFOC][B880E0][HSHD][IMME]"
+    assert texts["cur1"] == ("[MPOS=40,80][WDTH=0,0,64,6,-1][NTUR][NFOC][B880E0][HSHD][IMME]"
                             "[NUMB=6][TIME=-1]")                       # stock 205
-    assert texts["cur0"] == ("[MPOS=47,80][WDTH=0,0,64,7,-1][NFOC][B880E0][HSHD][IMME]"
+    assert texts["cur0"] == ("[MPOS=47,80][WDTH=0,0,64,7,-1][NTUR][NFOC][B880E0][HSHD][IMME]"
                             "[NUMB=7][TIME=-1]")                       # stock 206
 
 
 def test_value_text_shape():
     parts = {p: (t, s) for p, t, s in NI.mes_texts(_spec())}
     vt, strt = parts["value"]
-    assert vt == ("[MPOS=33,80][WDTH=0,0,64,5,64,6,64,7,-1][NFOC][IMME]"
+    assert vt == ("[MPOS=33,80][WDTH=0,0,64,5,64,6,64,7,-1][NTUR][NFOC][IMME]"
                   "[NUMB=5][NUMB=6][NUMB=7]00 Gil[TIME=-1]")
     assert strt == (0, 1)                                # stock's frameless [STRT=0,1]
     ht, hstrt = parts["help"]
-    assert ht.startswith("[MPOS=8,96][NANI][NFOC][IMME]Bid\n[DBTN=UP]")
+    assert ht.startswith("[MPOS=8,96][NANI][NTUR][NFOC][IMME]Bid\n[DBTN=UP]")
     assert hstrt == (NI.HELP_STRT_WIDTH, 5)              # label line + 4 button lines
     et, estrt = parts["echo"]
-    assert et == "[IMME]You bid [NUMB=0] Gil." and estrt is None
+    assert et == "[NTUR][IMME]You bid [NUMB=0] Gil." and estrt is None
 
 
 def test_mes_texts_no_multiplier_no_help():
     parts = {p: (t, s) for p, t, s in
              NI.mes_texts(_spec(multiplier=1, digits=2, suffix="", help=False,
                                 echo=None, label="", max=20))}
-    assert parts["value"][0] == ("[MPOS=33,80][WDTH=0,0,64,6,64,7,-1][NFOC][IMME]"
+    assert parts["value"][0] == ("[MPOS=33,80][WDTH=0,0,64,6,64,7,-1][NTUR][NFOC][IMME]"
                                  "[NUMB=6][NUMB=7][TIME=-1]")          # no zeros, no suffix
     assert "help" not in parts and "echo" not in parts
     assert set(parts) == {"value", "cur0", "cur1"}
+
+
+def test_turbo_guard_coverage():
+    """THE TURBO-INJECTION LAW (arm B): the stepper is arm B's exact configuration
+    (all windows inhibited + Transparent value/cursors + a KEY_CONFIRM poll), so every
+    minted window carries [NTUR]; a plain-text echo (no live value) stays skippable."""
+    for part, t, _ in NI.mes_texts(_spec()):
+        if part == "echo":
+            continue
+        assert "[NTUR]" in t, part
+    plain = dict((p, t) for p, t, _ in NI.mes_texts(_spec(echo="Sold!")))
+    assert "[NTUR]" not in plain["echo"]                 # no readout -> player-skippable
 
 
 # ------------------------------------------------------------------------ the .eb body

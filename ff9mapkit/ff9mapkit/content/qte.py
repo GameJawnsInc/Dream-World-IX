@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from .. import flags as _flags
 from ..eb import exprasm, opcodes
 from ..eb.labelasm import JMP, JMP_IF, JMP_IFNOT, asm, label
+from . import text as _text
 
 # The eight stock prompts (field 64 texts 112-119, verbatim glyph pairs), in
 # stock's own prompt-id order. name -> (EventInput mask, DBTN tag, MOBI icon).
@@ -218,22 +219,46 @@ def from_raw(block: dict, idx: int) -> QteSpec:
 
 
 # --------------------------------------------------------------------- the .mes texts
+def _readout_guard(line: str) -> str:
+    """``[NTUR]`` for a READOUT line lacking one (score/payout/echo class): under the
+    player's own turbo latch, arm A auto-advances a dismissible ``WindowSync`` the frame it
+    finishes -- the one window the player opened TO READ A NUMBER vanishes unread. Same
+    default the TOML dialogue lanes get from ``text.want_no_turbo``; minted here because
+    this lane writes its ``.mes`` directly. A custom text with no live value stays plain."""
+    if _text.NO_TURBO_TAG in line or not _text.renders_live_value(line):
+        return line
+    return _text.NO_TURBO_TAG + line
+
+
 def mes_texts(spec: QteSpec) -> list:
     """``(part, text, strt)`` tuples: one stock-verbatim prompt line per button
-    (field 64's own glyph pairs), the score line, four verdicts, the payout."""
+    (field 64's own glyph pairs), the score line, four verdicts, the payout.
+
+    ⚠ THE PROMPTS CARRY ``[NTUR]`` ON TOP OF STOCK'S SHAPE -- THE TURBO-INJECTION LAW
+    (arm B). A prompt is flags-160 (WindowStyleAuto, inside arm B's style predicate,
+    UIKeyTrigger.cs:984) and ``[TIME=-1]``-inhibited (arm A never fires), while the game
+    loop polls ``B_KEYON`` every frame (arming ``scriptRequestedButtonPress``,
+    EBin.cs:1080). Under a latched F9 the engine synthesizes a Confirm whose mask carries
+    the PHYSICAL face-button bit bound to Confirm (GetKeyMaskFromControl ORs it in,
+    EventInput.cs:521-527) -- Cross 0x4000 / Circle 0x2000 are in this lane's own poll
+    set, so an un-guarded bout resolves every round hit-or-miss with no player press.
+    ``[NTUR]`` (preventTurboKey) bails BEFORE either arm (UIKeyTrigger.cs:976), renders
+    nothing, and never blocks real presses; each round's fresh prompt render re-asserts
+    it. Flags stay 160: the actor-attached style IS stock's duel look, and arm A is
+    already off via stock's own ``[TIME=-1]``."""
     out = []
     for b in spec.buttons:
         _mask, dbtn, mobi = BUTTONS[b]
-        out.append((f"p_{b}", f"[IMME]Press [DBTN={dbtn}][MOBI={mobi}] ![TIME=-1]",
+        out.append((f"p_{b}", f"[NTUR][IMME]Press [DBTN={dbtn}][MOBI={mobi}] ![TIME=-1]",
                     (54, 1)))                            # stock 112-119's geometry
     sc = spec.score_text if "[IMME]" in spec.score_text else "[IMME]" + spec.score_text
-    out.append(("score", sc, (170, 1)))
+    out.append(("score", _readout_guard(sc), (170, 1)))
     for i, v in enumerate(spec.verdicts):
         out.append((f"verdict{i}", v if "[IMME]" in v else "[IMME]" + v, None))
     if spec.gil:
         pt = (spec.payout_text if "[IMME]" in spec.payout_text
               else "[IMME]" + spec.payout_text)
-        out.append(("payout", pt, (147, 1)))             # stock 128's geometry
+        out.append(("payout", _readout_guard(pt), (147, 1)))  # stock 128's geometry
     return out
 
 

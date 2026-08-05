@@ -39,16 +39,36 @@ def _verify_body(body: bytes) -> int:
     return count
 
 
-def test_prompt_texts_are_stock_bytes():
-    """The prompt lines reproduce field 64's entries 112-119 byte-for-byte
-    (the [DBTN]/[MOBI] glyph pairs are the golden's own)."""
+def test_prompt_texts_are_stock_bytes_plus_turbo_guard():
+    """The prompt lines reproduce field 64's entries 112-119 (the [DBTN]/[MOBI]
+    glyph pairs are the golden's own) with exactly ONE addition: the leading
+    [NTUR] turbo-injection guard (arm B -- see mes_texts' docstring)."""
     texts = {p: t for p, t, _ in Q.mes_texts(_spec())}
-    assert texts["p_left"] == "[IMME]Press [DBTN=LEFT][MOBI=267] ![TIME=-1]"
-    assert texts["p_circle"] == "[IMME]Press [DBTN=CIRCLE][MOBI=273] ![TIME=-1]"
-    assert texts["p_square"] == "[IMME]Press [DBTN=SQUARE][MOBI=271] ![TIME=-1]"
+    assert texts["p_left"] == "[NTUR][IMME]Press [DBTN=LEFT][MOBI=267] ![TIME=-1]"
+    assert texts["p_circle"] == "[NTUR][IMME]Press [DBTN=CIRCLE][MOBI=273] ![TIME=-1]"
+    assert texts["p_square"] == "[NTUR][IMME]Press [DBTN=SQUARE][MOBI=271] ![TIME=-1]"
     strts = {p: s for p, _t, s in Q.mes_texts(_spec())}
     assert strts["p_left"] == (54, 1)                    # stock's window geometry
     assert strts["payout"] == (147, 1)                   # stock 128's
+
+
+def test_turbo_guard_coverage():
+    """THE TURBO-INJECTION LAW (arm B): every inhibited Auto-style prompt carries
+    [NTUR]; the score/payout READOUTS carry it (so a turbo latch cannot skip the
+    number the bout exists to show); plain narrative verdicts stay skippable; a
+    custom score text with no live value stays plain."""
+    spec = _spec()
+    texts = {p: t for p, t, _ in Q.mes_texts(spec)}
+    for b in spec.buttons:
+        assert texts[f"p_{b}"].startswith("[NTUR]"), b
+    assert texts["score"].startswith("[NTUR]") and "[NUMB=0]" in texts["score"]
+    assert texts["payout"].startswith("[NTUR]") and "[NUMB=1]" in texts["payout"]
+    for i in range(4):
+        assert "[NTUR]" not in texts[f"verdict{i}"]      # narrative: turbo-skippable
+    plain = {p: t for p, t, _ in Q.mes_texts(_spec(score_text="Done!"))}
+    assert "[NTUR]" not in plain["score"]                # no live value -> no guard
+    dup = {p: t for p, t, _ in Q.mes_texts(_spec(score_text="[NTUR]Got [NUMB=0]."))}
+    assert dup["score"].count("[NTUR]") == 1             # author's own tag: no second copy
 
 
 def test_body_structure_and_census():
