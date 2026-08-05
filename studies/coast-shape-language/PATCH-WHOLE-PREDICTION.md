@@ -68,6 +68,25 @@ never by tile reproduction.
   registered residual). Mutations: 3/3 killed (families emptied / ladder disabled /
   extension removed), on top of rounds 4-5's 8.
 
+## ROUND 7 RESCORE — CONSUMPTION OWNER-REFUSED, THE LAW IS AVOIDANCE
+
+The whole-consumption build survived exactly one deploy: the wobble-escape ladder
+bit the rim of the crescent's VISIBLE authored meadow (the "6-cell component" WAS
+the green feature filling the owner's screenshots), patch-whole legally consumed
+it, and the island degraded to scattered 1-edge singles ("now it's just 1-edged
+grass Wang all around"). **THE PATCH-AVOIDANCE LAW** replaces it: a structural
+drop touching ANY patch-family tri refuses; the ladder consumes modal-family
+tiles only. Consumption of authored features is form damage — the same reason
+the plug was refused; eating is not seaming.
+
+Consequence, measured (full scanner sweep of the 4x2 region, every window x
+depths 8/6): **the bent crescent has ZERO lawful deep windows** under the full
+law stack — every run hits the meadow, its wobbly flank, wall-harvest scarcity,
+or deep wobble. The deployed instance is REVERTED to the pure excise carry
+(meadow restored byte-exact). The capability's honest state: deep tiled-mains
+morphs are open on masses whose coasts are patch-free and near-grid; the
+WOBBLY-CELL FILL is the registered reopener for the rest.
+
 ## Non-goals (recorded so they stay dead)
 
 * Decoding the patch edge tiles into a generative coding — killed by the census
