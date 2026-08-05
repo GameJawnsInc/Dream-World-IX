@@ -30,7 +30,10 @@ SCOPE: hooked at :func:`~ff9mapkit.world.transplant.transplant` /
 :func:`~ff9mapkit.world.transplant.transplant_region` (the only carry paths where STRIPS-vocabulary
 terrain content can appear -- ``world-island``/``world-mountain``/``world-forest`` never touch the
 STRIPS vocabulary at all, confirmed by grep, and neither existing carry-time gate
-(:func:`~ff9mapkit.world.transplant.wang_carry_gate`, ``_mod_overwrite_gate``) reaches them either).
+(:func:`~ff9mapkit.world.transplant.wang_carry_gate`, ``_mod_overwrite_gate``) reaches them either;
+for CLASS C below, the single-family mints pick their ground family ONCE, structurally immune to a
+per-tri selector slip, while the junction generator -- the class's one proving site -- reaches this
+gate through ``transplant_region`` and its own Stage-12 kit-orphangate advisory).
 :func:`~ff9mapkit.world.transplant.morph_in_place` has no donor mapping and is likewise outside both
 precedent gates' scope -- excluded here too, for the same reason. :func:`~ff9mapkit.world.fuse.fuse_layout`
 reaches :func:`~ff9mapkit.world.transplant.transplant_region` without a dedicated top-level
@@ -67,6 +70,38 @@ ported as its own verdict (``klass="AMBIGUOUS"``) rather than an assertion: it s
 ``n_orphans``/``warn``/``ok`` exactly like Class A/B (WARN loudly, fail under ``enforce=True``), but
 :func:`orphan_decal_gate`'s ``redress=True`` path REFUSES to touch it -- an unmodelled state is never
 auto-fixed blind. Surfaced on the gate result as ``n_ambiguous``/``ambiguous_cells``.
+
+THE MAINS-RECT ORPHAN (CLASS C -- the batch-1 grow-9013 forensics,
+``studies/path-d-new-world/grow/batch1-junction/TRIANGLE.md``): a tri whose uv bbox sits inside ONE
+ground family's MAINS rect (``grassland.FAM_REGION["main"]`` translated by ``GROUNDS[family]``'s
+delta -- :func:`~ff9mapkit.world.grassland.ground_main_region`) while its own IDALL topograph
+belongs to a DIFFERENT family (``grassland.TOPO_FAMILY``). The proving defect: tri 521 of
+Block[2][17] on the Path-D landmass -- a grass-topo wedge wearing a byte-LAWFUL desert mains
+evaluation (right cell, right quadrant, right rotation, wrong GROUND FAMILY: a one-tri
+family-selector slip in the junction generator, reproducing across tile seeds) -- invisible to the
+STRIPS-only census above, which never looks at a plain-mains uv at all. The census judges only tris
+whose topo family is KNOWN (an unfamilied topo -- walls, murals -- can never be said to "belong to
+a different family") and skips the degenerate sliver that fits more than one family rect at
+tolerance.
+
+⚠ A raw family mismatch is NOT the defect. Productizing the forensics' one-liner verbatim
+("family-A rect on family-B topo, landmass-wide, one hit") re-censused the SAME ratified landmass
+at 151 hits, because the tile language wears cross-family mains ON PURPOSE in two grammars the
+one-tri run never had to adjudicate: the ~100-tri dunes sand-patch dressing on grass topo (the
+meadow-patch grammar with a catalogued ``cls="interior"`` tile set) and stock's scrub
+(``cls="transition"``) texture-substitution idiom. The shipped predicate therefore carries THE
+SPARING LAWS (island-class worn rects only; THE ISOLATED-STRAY LAW -- size-1 same-worn-family
+visual component, the forensics' own discriminant; THE MIXED-CELL PAIR LAW), byte-validated on the
+live vs pre-fix trees: {} vs exactly the filed tri. Detail: :func:`mains_orphan_defects`.
+
+CLASS C's ``redress=True`` shape is THE TRANSLATION LAW in reverse (the applied fix,
+``fix_triangle.py`` beside the forensics -- :func:`compute_mains_translate`):
+``uv - GROUNDS[worn].delta + GROUNDS[own].delta``, recovering exactly the tile the generator would
+have emitted for the tri's own family; UV ONLY, the whole tangent/IDALL is NEVER touched (the
+incident's event arming survived precisely because of this). REFUSED -- the tri stays flagged --
+unless the worn uv is a genuine per-vert mains evaluation of the worn family (THE CUT-VERT LAW's
+witness, :func:`mains_evaluation_witness` -- a smear translated is still a smear) AND the
+translated uv stays inside the destination rect.
 """
 from __future__ import annotations
 
@@ -94,6 +129,20 @@ FRINGE_MODE_MIN_SHARE = 0.8
 #: path) -- kept identical so a redressed cell's mains assignment matches what an ADJACENT recovered
 #: cell in the SAME build would pick (the neighbour-avoid quadrant/rotation policy is seed-keyed).
 DEFAULT_REDRESS_SEED = 0xF93
+
+#: CLASS C (mains-rect orphan): uv-bbox containment slack against a family's mains rect --
+#: ``fix_triangle.py``'s own src-rect precondition bound. Real stock bytes are 5dp-rounded and a
+#: lawful evaluation bleeds only INWARD (never outside the 2x2), so this covers float noise without
+#: reaching a neighbouring family's rect: the closest rect pair (scrub|dunes) still leaves only a
+#: <0.0012-wide degenerate sliver that could fit BOTH at this tol, and a multi-rect fit is skipped,
+#: never judged (:func:`mains_rect_family`).
+MAINS_RECT_TOL = 4e-3
+#: CLASS C translate-redress: the per-corner tolerance for THE CUT-VERT LAW's witness
+#: (``fix_triangle.py``'s own ``realises`` bound) -- and for the post-translate destination-rect
+#: containment (the witness already grants +-3e-4 of float noise on the SOURCE side, so demanding
+#: tighter containment on the translated result would refuse legitimate fixes; 3e-4 uv = ~0.3 texel
+#: of the 1024 atlas, inside the measured 1-2px bleed gutter).
+MAINS_WITNESS_TOL = 3e-4
 
 #: below this Y, a tri is a below-world BLANKING STUB (``mesh.hidden_block_mesh`` ``y_depth=-80``,
 #: ``mesh.stub_terrain_mesh`` ``y=-100``), never real carried terrain (real overworld relief never
@@ -318,12 +367,144 @@ def topo_consistency_defects(records: list, *, report_blocks=None,
     return dict(defects), group_stats
 
 
+def mains_rect_family(uvs, *, eps: float = MAINS_RECT_TOL):
+    """Which ground family's MAINS rect (:data:`~ff9mapkit.world.grassland.FAM_REGION`'s ``"main"``
+    translated by ``GROUNDS[family]``'s delta -- :func:`~ff9mapkit.world.grassland.ground_main_region`)
+    contains this tri's WHOLE uv bbox? Returns the single matching family name, or ``None`` when no
+    catalogued rect contains it (a STRIPS decal, the meadow set, a wall band, a mural, the
+    uncatalogued desert SECONDARY rect -- all legitimately non-mains vocabularies) or when more than
+    one does (a degenerate sliver squeezed into the inter-rect gutter -- undecidable, never judged;
+    see :data:`MAINS_RECT_TOL`)."""
+    lo_u = min(u for u, _ in uvs)
+    hi_u = max(u for u, _ in uvs)
+    lo_v = min(v for _, v in uvs)
+    hi_v = max(v for _, v in uvs)
+    hits = [fam for fam in GL.GROUNDS
+            for r in (GL.ground_main_region(fam),)
+            if r[0] - eps <= lo_u and hi_u <= r[2] + eps
+            and r[1] - eps <= lo_v and hi_v <= r[3] + eps]
+    return hits[0] if len(hits) == 1 else None
+
+
+def mains_orphan_defects(records: list, *, report_blocks=None) -> tuple:
+    """CLASS C -- THE MAINS-RECT ORPHAN census (see the module docstring: the batch-1 grow-9013
+    family-selector slip, ``studies/path-d-new-world/grow/batch1-junction/TRIANGLE.md``): a tri
+    wearing family A's mains rect (:func:`mains_rect_family`) while its own topo family
+    (``record["fam"]``, the ``TOPO_FAMILY`` lookup) is a DIFFERENT known family. A tri whose topo
+    family is unknown (``fam is None`` -- walls, murals, families outside ``TOPO_FAMILY``) is
+    counted but never flagged: it cannot be said to "belong to a different family".
+
+    A raw family mismatch is NOT the defect -- re-censusing the ratified batch-1 landmass found 150
+    playtest-approved mismatch tris beside the one filed stray, all deliberate cross-family wear.
+    THE SPARING LAWS (each byte-validated on the live vs pre-fix trees, which census {} vs exactly
+    the filed tri 521 under all three):
+
+    * **island-worn only**: the family-selector composes ``cls="island"`` ground fills, so only an
+      island-class worn rect can indict a slip. A non-island rect on foreign topo is DRESSING/SEAM
+      grammar, measured live: the ~100-tri dunes (``cls="interior"``) sand-patch dressing on
+      grass topo -- the meadow-patch grammar with a catalogued tile set -- and stock's scrub
+      (``cls="transition"``) texture-substitution idiom.
+    * **THE ISOLATED-STRAY LAW**: the tri's same-worn-family VISUAL component (edge-connected via
+      position-welded edges, ring context included) must have size 1 -- the forensics' own
+      discriminant ("the ONLY size-1 desert-visual component on the entire landmass"). A multi-tri
+      same-family cluster is a deliberate arrangement (a patch, a whole-cell tile); a selector slip
+      is per-tri. Known recall bound: a hypothetical whole-cell slip reads as a patch and is spared
+      -- refuse-to-guess beats flagging every ratified patch.
+    * **THE MIXED-CELL PAIR LAW** (``fix_triangle.py``'s own runtime gate, coastmorph.py:826): a
+      same-cell tri sharing the uv bbox is the lawful diagonal-pair partner, not a stray -- spared
+      even when the pair's verts are not position-welded (the edge-component test then misses it).
+
+    Ring records feed the component/pair CONTEXT but are never judged or reported (a ring defect is
+    deployed/stock content -- not ours). Returns ``(defects: {cell: [hit, ...]}, stats:
+    dict(n_mains_tris, n_mains_tris_ring, mains_spared))`` -- ``n_mains_tris`` counts CORE tris
+    wearing ANY catalogued mains rect (the census denominator, matching ``n_strip_tris``'s own
+    core-only headline convention); ``mains_spared`` tallies core mismatch tris each law excused
+    (the re-adjudication trail: a spared count is DATA, not a verdict)."""
+    report_set = None if report_blocks is None else {tuple(b) for b in report_blocks}
+    island = {f for f, g in GL.GROUNDS.items() if g["cls"] == "island"}
+
+    worn = []                                     # (record index, worn family) for rect-wearing tris
+    n_mains = n_mains_ring = 0
+    for ti, t in enumerate(records):
+        uv_fam = mains_rect_family(t["uv"])
+        if uv_fam is None:
+            continue
+        worn.append((ti, uv_fam))
+        if report_set is not None and tuple(t["block"]) not in report_set:
+            n_mains_ring += 1
+        else:
+            n_mains += 1
+
+    # THE ISOLATED-STRAY LAW's components: union-find over same-worn-family tris sharing a
+    # position-welded edge (3dp world coords -- the codebase's weld precision, smooth_normals).
+    def _pk(p):
+        return (round(p[0], 3), round(p[1], 3), round(p[2], 3))
+    parent = {ti: ti for ti, _f in worn}
+
+    def _find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    edge_owner = collections.defaultdict(list)
+    for ti, fam in worn:
+        pts = [_pk(p) for p in records[ti]["world_pts"]]
+        for a in range(3):
+            edge_owner[(fam, tuple(sorted((pts[a], pts[(a + 1) % 3]))))].append(ti)
+    for owners in edge_owner.values():
+        for o in owners[1:]:
+            ra, rb = _find(owners[0]), _find(o)
+            if ra != rb:
+                parent[rb] = ra
+    comp_size = collections.Counter(_find(ti) for ti, _f in worn)
+
+    def _bbox(uvs):
+        return (min(u for u, _ in uvs), min(v for _, v in uvs),
+                max(u for u, _ in uvs), max(v for _, v in uvs))
+    by_cell = collections.defaultdict(list)
+    for ti, t in enumerate(records):
+        by_cell[t["cell"]].append(ti)
+
+    defects = collections.defaultdict(list)
+    spared = dict(non_island_worn=0, in_a_patch=0, mixed_cell_pair=0)
+    for ti, uv_fam in worn:
+        t = records[ti]
+        if report_set is not None and tuple(t["block"]) not in report_set:
+            continue                              # ring: context only, never judged
+        if t["fam"] is None or t["fam"] == uv_fam:
+            continue
+        if uv_fam not in island:
+            spared["non_island_worn"] += 1
+            continue
+        if comp_size[_find(ti)] != 1:
+            spared["in_a_patch"] += 1
+            continue
+        bb = _bbox(t["uv"])
+        if any(o != ti and all(abs(c - d) < 6e-3 for c, d in zip(_bbox(records[o]["uv"]), bb))
+               for o in by_cell[t["cell"]]):
+            spared["mixed_cell_pair"] += 1
+            continue
+        defects[t["cell"]].append(dict(
+            cell=t["cell"], block=t["block"], tri_idx=t["tri_idx"], topo=t["topo"], fam=t["fam"],
+            uv_family=uv_fam, uv=[list(u) for u in t["uv"]], klass="C",
+            missing_context=(f"mains-rect orphan: an ISOLATED stray wearing {uv_fam!r}'s mains "
+                            f"rect while its own topograph {t['topo']} belongs to family "
+                            f"{t['fam']!r} (the family-selector slip class)")))
+    return dict(defects), dict(n_mains_tris=n_mains, n_mains_tris_ring=n_mains_ring,
+                               mains_spared=spared)
+
+
 def orphan_decal_census(records: list, *, report_blocks=None) -> tuple:
     """THE FULL rule set over an already-flattened tri record list (see
     :func:`flatten_terrain_records`): CLASS A (:func:`row_lawfulness`, any row) union CLASS B
     (:func:`topo_consistency_defects`, fringe rows only) -- the same two-class reconciliation
     ``comp1_orphan_redress.round3_census`` proved over the live comp[1] region (7 cells: 6 Class A +
-    1 Class B).
+    1 Class B) -- union CLASS C (:func:`mains_orphan_defects`, the mains-rect orphan: the batch-1
+    grow-9013 family-selector slip the STRIPS-only classes structurally cannot see). Class C is
+    tri-disjoint from A/B by construction (every family's mains rect is disjoint from every
+    translated STRIPS column, so no tri classifies as both), and it does NOT participate in the
+    AMBIGUOUS overlap verdict below -- that verdict models the A/B fix-shape conflict on one decal
+    group; a Class-C hit sharing a CELL with an A/B hit is a different tri with an independent fix.
 
     AMBIGUOUS OVERLAP: if Class A and Class B independently claim the SAME CELL,
     ``comp1_orphan_redress.round3_build_and_gate`` hard-refuses (an assert -- "the two fix SHAPES
@@ -374,20 +555,23 @@ def orphan_decal_census(records: list, *, report_blocks=None) -> tuple:
             h["missing_context"] = (f"topo {h['topo']} breaks its own {h['pair']} row-{h['row']} "
                                     f"decal group's measured norm")
 
-    # AMBIGUOUS OVERLAP (see docstring): a cell claimed by BOTH classes is an unmodelled shape --
-    # never auto-fixed, always surfaced distinctly.
+    class_c, mains_stats = mains_orphan_defects(records, report_blocks=report_blocks)
+
+    # AMBIGUOUS OVERLAP (see docstring): a cell claimed by BOTH the A and B classes is an unmodelled
+    # shape -- never auto-fixed, always surfaced distinctly. Class C stays OUT of this verdict: its
+    # hits are tri-disjoint from A/B and its fix shape conflicts with neither.
     ambiguous_cells = sorted(set(class_a) & set(class_b))
     ambiguous_set = set(ambiguous_cells)
 
     defects: dict = {}
     seen_tri = set()
-    for cell, hits in list(class_a.items()) + list(class_b.items()):
+    for cell, hits in list(class_a.items()) + list(class_b.items()) + list(class_c.items()):
         for h in hits:
             key = (tuple(h["block"]), tuple(h["tri_idx"]))
             if key in seen_tri:
                 continue
             seen_tri.add(key)
-            if cell in ambiguous_set:
+            if cell in ambiguous_set and h["klass"] in ("A", "B"):
                 h = dict(h)
                 h["klass"] = "AMBIGUOUS"
                 h["missing_context"] = (
@@ -399,10 +583,11 @@ def orphan_decal_census(records: list, *, report_blocks=None) -> tuple:
 
     stats = dict(n_strip_tris=n_strip, n_strip_tris_ring=n_strip_ring,
                  n_class_a=sum(len(v) for v in class_a.values()),
-                n_class_b=sum(len(v) for v in class_b.values()), n_defect_cells=len(defects),
+                n_class_b=sum(len(v) for v in class_b.values()),
+                n_class_c=sum(len(v) for v in class_c.values()), n_defect_cells=len(defects),
                 n_ambiguous_cells=len(ambiguous_cells),
                 ambiguous_cells=[list(c) for c in ambiguous_cells],
-                class_b_group_stats=class_b_stats)
+                class_b_group_stats=class_b_stats, **mains_stats)
     return defects, stats
 
 
@@ -442,6 +627,61 @@ def compute_orphan_redress(bm, ox: float, oz: float, cell, tri_idx: list, dst_fa
     return dict(quad=quad, ori=ori, new_uv=new_uv, new_idall=new_idall, idall_changed=idall_changed)
 
 
+def mains_evaluation_witness(xz_pts, uvs, family: str, *, eps: float = MAINS_WITNESS_TOL) -> list:
+    """Every ``(cell, quad, ori)`` whose :func:`~ff9mapkit.world.grassland.ground_uv` under
+    ``family`` reproduces these uvs at these world ``(x, z)`` points -- a genuine per-vert linear
+    evaluation has >=1 hit; a corner-snap smear or a constant fill has none. THE CUT-VERT LAW's own
+    witness (``fix_triangle.py``'s ``realises``, ported verbatim: the tile map is EVALUATED AT THE
+    VERT, never corner-snapped, so only a real evaluation reproduces bit-for-bit)."""
+    out = []
+    ci = range(int(min(p[0] for p in xz_pts) // 4) - 1, int(max(p[0] for p in xz_pts) // 4) + 2)
+    cj = range(int(min(p[1] for p in xz_pts) // 4) - 1, int(max(p[1] for p in xz_pts) // 4) + 2)
+    for i in ci:
+        for j in cj:
+            for quad in ((0, 0), (0, 1), (1, 0), (1, 1)):
+                for ori in GL.ORIS:
+                    if all(abs(GL.ground_uv(p[0], p[1], (i, j), quad, ori, family)[k] - u[k]) < eps
+                           for p, u in zip(xz_pts, uvs) for k in (0, 1)):
+                        out.append(((i, j), quad, ori))
+    return out
+
+
+def compute_mains_translate(bm, ox: float, oz: float, tri_idx: list, src_family: str,
+                            dst_family: str):
+    """CLASS C's redress -- THE TRANSLATION LAW in reverse (the applied batch-1 fix,
+    ``fix_triangle.py`` mode "translate"): ``uv_new = uv_old - GROUNDS[src].delta +
+    GROUNDS[dst].delta``, recovering EXACTLY the ``dst_family`` tile the generator would have
+    emitted had the family selector been right -- same cell, same quadrant, same rotation, same
+    per-vert fractional positions; nothing re-rolled (contrast :func:`compute_orphan_redress`,
+    whose ``assign_mains`` re-roll is seed-keyed and unrelated to the generator's own choice).
+    UV ONLY: geometry, normals and the WHOLE tangent (IDALL event/area/topo/flags) are never
+    touched -- the incident's event arming survived precisely because of this.
+
+    REFUSES (returns ``None``, mutating nothing -- the tri stays flagged) unless BOTH hold:
+    the worn uv is a genuine per-vert ``src_family`` mains evaluation
+    (:func:`mains_evaluation_witness` -- a smear translated is still a smear, an unmodelled state
+    never auto-fixed blind), and the translated uv stays inside the destination rect at
+    :data:`MAINS_WITNESS_TOL` (outside the 2x2 lies the transparent gutter that renders WHITE).
+    MUTATES ``bm`` in place on success; returns the applied translation for reporting."""
+    xz = [(bm.verts[j][0] + ox, bm.verts[j][2] + oz) for j in tri_idx]
+    old_uv = [list(bm.uvs[j]) for j in tri_idx]
+    witness = mains_evaluation_witness(xz, old_uv, src_family)
+    if not witness:
+        return None
+    gs, gd = GL.GROUNDS[src_family], GL.GROUNDS[dst_family]
+    du = gd["mains_du"] - gs["mains_du"]
+    dv = gd["mains_dv"] - gs["mains_dv"]
+    new_uv = [[u + du, v + dv] for u, v in old_uv]
+    lo_u, lo_v, hi_u, hi_v = GL.ground_main_region(dst_family)
+    if not all(lo_u - MAINS_WITNESS_TOL <= u <= hi_u + MAINS_WITNESS_TOL
+               and lo_v - MAINS_WITNESS_TOL <= v <= hi_v + MAINS_WITNESS_TOL
+               for (u, v) in new_uv):
+        return None
+    for j, uv in zip(tri_idx, new_uv):
+        bm.uvs[j] = uv
+    return dict(du=du, dv=dv, new_uv=new_uv, witness=witness[0])
+
+
 def orphan_decal_gate(cell_meshes: dict, region_cells, *, enforce: bool = False, allow: bool = False,
                       redress: bool = False, seed: int = DEFAULT_REDRESS_SEED,
                       mod_folder: str | None = None, disc: int = 1, lod: str = "0_1", game=None,
@@ -470,11 +710,14 @@ def orphan_decal_gate(cell_meshes: dict, region_cells, *, enforce: bool = False,
     path changes zero output bytes. With ``redress=True``, every located orphan EXCEPT an
     ``AMBIGUOUS`` one (see the module docstring -- a cell Class A and Class B both claim is an
     unmodelled state, never auto-fixed) is fixed IN MEMORY (mutating the ``cell_meshes``
-    BlockMeshes directly, before any write the caller performs) via :func:`compute_orphan_redress`,
+    BlockMeshes directly, before any write the caller performs) -- Class A/B via
+    :func:`compute_orphan_redress` (the FIX-G shape), Class C (the mains-rect orphan) via
+    :func:`compute_mains_translate` (THE TRANSLATION LAW in reverse, uv-only, IDALL untouched;
+    it REFUSES a uv that is not a genuine worn-family evaluation, and a refused hit stays flagged) --
     then the census RE-RUNS over the mutated meshes + the SAME (unchanged, read-only) ring records
     (never trust a fix blind) -- ``ok``/``warn``/``n_orphans`` all reflect the POST-redress state,
     so a fully successful auto-fix makes the gate clean even when ``enforce=True`` UNLESS an
-    ambiguous cell remains, which keeps it dirty by design."""
+    ambiguous cell (or a refused Class-C hit) remains, which keeps it dirty by design."""
     region = sorted({tuple(c) for c in region_cells})
     region_set = set(region)
 
@@ -514,6 +757,17 @@ def orphan_decal_gate(cell_meshes: dict, region_cells, *, enforce: bool = False,
                 if bm is None or not dst_family or dst_family not in GL.GROUNDS:
                     continue                      # can't redress blind -- stays flagged
                 ox, oz = block_world_origin(*h["block"])
+                if h.get("klass") == "C":
+                    src_family = h.get("uv_family")
+                    if not src_family or src_family not in GL.GROUNDS:
+                        continue                  # can't translate blind -- stays flagged
+                    if compute_mains_translate(bm, ox, oz, h["tri_idx"], src_family,
+                                               dst_family) is None:
+                        continue                  # refused: worn uv is no lawful evaluation (a
+                                                  # smear) or the translation escapes the rect --
+                                                  # an unmodelled state stays flagged, never guessed
+                    n_redressed += 1
+                    continue
                 compute_orphan_redress(bm, ox, oz, h["cell"], h["tri_idx"], dst_family, seed=seed)
                 n_redressed += 1
         # POST-STATE reclassify (in-memory, pre-write): never trust the fix blind -- re-run the
@@ -526,12 +780,16 @@ def orphan_decal_gate(cell_meshes: dict, region_cells, *, enforce: bool = False,
     ctx_bits = []
     for cell in cells_sorted[:4]:
         h0 = defects[cell][0]
-        ctx_bits.append(f"{cell}[{h0['pair'][0]}|{h0['pair'][1]} row{h0['row']}]: "
-                        f"{h0.get('missing_context') or h0['klass']}")
+        if "pair" in h0:                          # a STRIPS-vocabulary hit (Class A/B/AMBIGUOUS)
+            label = f"{h0['pair'][0]}|{h0['pair'][1]} row{h0['row']}"
+        else:                                     # a Class-C mains-rect orphan carries no pair/row
+            label = f"{h0['uv_family']} mains on {h0['fam']} topo"
+        ctx_bits.append(f"{cell}[{label}]: {h0.get('missing_context') or h0['klass']}")
     ok = allow or (not enforce) or not incoherent
     warn = bool(incoherent) and not enforce and not allow
     return {
-        "gate": "orphan-decals", "checked": stats["n_strip_tris"], "n_orphans": incoherent,
+        "gate": "orphan-decals", "checked": stats["n_strip_tris"],
+        "checked_mains": stats.get("n_mains_tris", 0), "n_orphans": incoherent,
         "cells": [list(c) for c in cells_sorted], "redress": bool(redress),
         "n_redressed": n_redressed, "detail": "; ".join(ctx_bits) if ctx_bits else 0,
         "enforced": bool(enforce), "warn": warn, "ok": ok,

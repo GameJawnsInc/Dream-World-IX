@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — mains-rect orphan census (Class C) in the orphan-decal gate
+- The orphan-decal gate (`world/orphangate.py`, WARN-by-default in `world-transplant`/
+  `transplant_region` and the junction generator's advisory) now censuses **mains-rect
+  orphans**: a tri wearing one ground family's mains rect while its own IDALL topograph
+  belongs to a different family — the batch-1 grow-9013 **family-selector slip** (tri 521
+  of Block[2][17]: a grass-topo wedge wearing a byte-lawful desert mains evaluation,
+  invisible to the STRIPS-only census; forensics in
+  `studies/path-d-new-world/grow/batch1-junction/TRIANGLE.md`). A raw family mismatch is
+  NOT the defect — the ratified landmass wears 150 deliberate cross-family tris (the
+  dunes sand-patch dressing, stock's scrub substitution idiom) — so Class C carries THE
+  SPARING LAWS (island-class worn rects only; THE ISOLATED-STRAY LAW, the forensics'
+  size-1-component discriminant; THE MIXED-CELL PAIR LAW), byte-validated on the live vs
+  pre-fix trees: `{}` vs exactly the filed tri. `--redress-orphans` fixes a Class-C hit
+  via THE TRANSLATION LAW in reverse (`fix_triangle.py`'s applied shape): uv-only, IDALL
+  never touched, refused without a per-vert worn-family evaluation witness (a smear
+  translated is still a smear). Gate results gain `checked_mains`; census stats gain
+  `n_class_c` and the `mains_spared` re-adjudication trail.
+
 ### Fixed — turbo-injection (arm B) guards on the three polled minted lanes
 - `[[qte]]`, `[[numeric_input]]` and `[[behavior.hud]]` all polled `B_KEYON` behind
   dismiss-inhibited Auto/Transparent windows — exactly `ShouldTurboDialog`'s second arm

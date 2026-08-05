@@ -14,7 +14,14 @@ RULE-FIDELITY re-pass (2026-07-22): the RING-CONTEXT fix (an injectable ``contex
 1-block Moore ring of real deployed-or-stock terrain into BOTH the Class-A radius search and the Class-B
 group statistics, matching ``--census3``'s own ``round3_generalized_census`` exactly) and the AMBIGUOUS
 verdict (a cell Class A and Class B both claim -- ``--census3``'s own hard-refused/unmodelled shape --
-ported as its own klass, WARNed loudly, failed under enforce, never auto-fixed by redress)."""
+ported as its own klass, WARNed loudly, failed under enforce, never auto-fixed by redress).
+
+CLASS C -- THE MAINS-RECT ORPHAN (the batch-1 grow-9013 family-selector slip,
+``studies/path-d-new-world/grow/batch1-junction/TRIANGLE.md``): the regression fixture rebuilds the
+filed tri 521 of Block[2][17] synthetically (the real wedge's XZ, the measured wrong-family desert
+mains evaluation, grass topo, the area-14 idall payload) and proves the census flags it, the
+STRIPS-only classes cannot, the redress is fix_triangle.py's exact uv-only translate, and a smear
+is refused."""
 from __future__ import annotations
 
 import copy
@@ -72,13 +79,27 @@ def _strip_tri(pair, row, ori, cell, *, topo, part_y=0.0):
             for (x, z) in corners]
 
 
-def _mains_tri(cell, topo, *, uv=(0.05, 0.8), part_y=0.0):
-    """A plain (non-STRIPS) ground tri at ``cell`` wearing ``topo`` -- context-only content: its UV
-    never matters for classification (``fam`` is purely topo-keyed), only that it stays far from
-    every STRIPS band (0.05,0.8 sits in grass's own MAINS rect, nowhere near a STRIP_U column)."""
+def _fam_mains_uv(topo):
+    """The rect-CENTER uv of ``topo``'s own family mains rect -- FAMILY-CORRECT by construction, so
+    the Class-C mains-rect census never flags a context tri (its uv and topo agree). An unfamilied
+    topo gets (0.5,0.5), inside NO catalogued rect at all."""
+    fam = GL.TOPO_FAMILY.get(topo)
+    if fam is None:
+        return (0.5, 0.5)
+    lo_u, lo_v, hi_u, hi_v = GL.ground_main_region(fam)
+    return ((lo_u + hi_u) / 2.0, (lo_v + hi_v) / 2.0)
+
+
+def _mains_tri(cell, topo, *, uv=None, part_y=0.0):
+    """A plain (non-STRIPS) ground tri at ``cell`` wearing ``topo``. For Class A/B its UV never
+    matters (``fam`` is purely topo-keyed) -- but the Class-C mains-rect census DOES read it, so the
+    default is the topo's own family-correct rect center (:func:`_fam_mains_uv`): self-consistent,
+    never flagged, and still far from every STRIPS band. Pass ``uv`` explicitly to wear something
+    else (e.g. a deliberate mains orphan)."""
     (i, j) = cell
     x0, z0 = 4.0 * i, 4.0 * j
     idall = float(X.encode_id(0, 0, topo, 0))
+    uv = _fam_mains_uv(topo) if uv is None else uv
     return [_v(x0 + 0.5, part_y, z0 + 0.5, uv, idall), _v(x0 + 3.5, part_y, z0 + 0.5, uv, idall),
             _v(x0 + 0.5, part_y, z0 + 3.5, uv, idall)]
 
@@ -94,9 +115,10 @@ def _rec(cell, pair, row, ori, topo, *, block=(0, 0), tri_idx=None):
                world_pts=world_pts, uv=uv, cell=cell)
 
 
-def _mains_rec(cell, topo, *, block=(0, 0), tri_idx=None, uv=(0.05, 0.8)):
+def _mains_rec(cell, topo, *, block=(0, 0), tri_idx=None, uv=None):
     x0, z0 = 4.0 * cell[0], 4.0 * cell[1]
     world_pts = [(x0, 0.0, z0), (x0 + 4.0, 0.0, z0), (x0, 0.0, z0 + 4.0)]
+    uv = _fam_mains_uv(topo) if uv is None else uv
     return dict(block=block, tri_idx=tri_idx or [900, 901, 902], topo=topo,
                fam=GL.TOPO_FAMILY.get(topo), world_pts=world_pts, uv=[uv, uv, uv], cell=cell)
 
@@ -116,6 +138,34 @@ def _orphan_fixture():
     orphan = _strip_tri(pair, 2, 0, (10, 0), topo=16)
     partner = _mains_tri((10, 0), 17)
     return _cell_meshes(orphan, partner)
+
+
+#: the batch-1 grow-9013 stray triangle's REAL shape (studies/path-d-new-world/grow/batch1-junction/
+#: TRIANGLE.md + fix_triangle.py): tri 521 of Block[2][17], world XZ of the measured 4.70u^2 wedge,
+#: and the measured root cause -- a byte-lawful ground_uv(cell=(33,-283), quad=(1,1), ori=270,
+#: "desert") per-vert evaluation worn by a grass-topo tri.
+_INCIDENT_VERTS = [(132.0, -1127.847656), (136.0, -1127.34375), (136.0, -1129.695312)]
+_INCIDENT_CELL, _INCIDENT_QUAD, _INCIDENT_ORI = (33, -283), (1, 1), 270
+
+
+def _batch1_orphan_fixture(*, smear=False):
+    """THE BATCH-1 TRIANGLE IN MINIATURE, rebuilt synthetically from the kit's own constants (zero
+    SE bytes): the real wedge's world XZ inside Block[2][17], the measured wrong-family desert mains
+    evaluation, grass topo 0, and the real idall's area-14 payload (the event arming the applied
+    fix had to preserve). ``smear=True`` swaps the lawful evaluation for a constant
+    desert-rect-center fill -- still INSIDE the rect (so the census flags it) but no per-vert
+    evaluation witness exists (so the translate redress must refuse it). Returns
+    ``(cell_meshes, bm)``."""
+    ox, oz = X.block_world_origin(2, 17)
+    idall = float(X.encode_id(0, 14, 0, 0))
+    smear_uv = _fam_mains_uv(17)
+    tri = []
+    for (x, z) in _INCIDENT_VERTS:
+        uv = smear_uv if smear else tuple(GL.ground_uv(x, z, _INCIDENT_CELL, _INCIDENT_QUAD,
+                                                       _INCIDENT_ORI, "desert"))
+        tri.append(_v(x - ox, 0.0, z - oz, uv, idall))
+    bm = TR._soup_block_mesh("Block[2][17] Terrain", (2, 17), [tri], disc=1, lod="0_1")
+    return {(2, 17): [("Terrain", bm)]}, bm
 
 
 # ================================================================================================ classify_strip_tri
@@ -496,6 +546,184 @@ def test_default_context_provider_no_install_degrades_to_empty_ring(monkeypatch)
         raise config.ConfigError("no install for this test")
     monkeypatch.setattr(config, "find_game_path", _raise)
     assert OG.default_context_provider({(0, 0)}, mod_folder="MOD") == {}
+
+
+# ================================================================================================ mains_rect_family (the CLASS C uv decode)
+def test_mains_rect_family_decodes_every_ground_family():
+    for fam in GL.GROUNDS:
+        lo_u, lo_v, hi_u, hi_v = GL.ground_main_region(fam)
+        uvs = [(lo_u + 0.01, lo_v + 0.01), ((lo_u + hi_u) / 2, (lo_v + hi_v) / 2),
+               (hi_u - 0.01, hi_v - 0.01)]
+        assert OG.mains_rect_family(uvs) == fam
+
+
+def test_mains_rect_family_none_for_non_mains_vocabularies():
+    tri = _strip_tri(("grass", "desert"), 2, 0, (10, 0), topo=16)
+    assert OG.mains_rect_family([v[2] for v in tri]) is None             # a STRIPS decal
+    meadow_u = (GL.MEADOW_U_HALF[0][0] + GL.MEADOW_U_HALF[1][1]) / 2
+    meadow_v = (GL.GRASS_V_HALF[0][0] + GL.GRASS_V_HALF[1][1]) / 2
+    assert OG.mains_rect_family([(meadow_u, meadow_v)] * 3) is None      # the meadow (D) set
+    assert OG.mains_rect_family([(0.5, 0.5)] * 3) is None                # nowhere near any rect
+
+
+def test_mains_rect_family_rejects_a_bbox_spanning_two_rects():
+    grass = GL.ground_main_region("grass")
+    desert = GL.ground_main_region("desert")
+    span = [(grass[0] + 0.01, grass[1] + 0.01), (desert[0] + 0.01, desert[1] + 0.01)]
+    assert OG.mains_rect_family(span) is None
+
+
+# ================================================================================================ mains_orphan_defects (CLASS C -- the batch-1 grow-9013 family-selector slip)
+def test_mains_orphan_census_flags_the_batch1_family_selector_slip():
+    """The filed defect (grass topo wearing a byte-lawful desert mains evaluation) is a Class-C
+    hit; family-correct mains tris and an UNFAMILIED topo wearing a rect are NOT -- the
+    zero-false-positive contract from the landmass-wide forensics run."""
+    cell_meshes, _bm = _batch1_orphan_fixture()
+    recs = OG.flatten_terrain_records(cell_meshes)
+    recs.append(_mains_rec((10, 0), 17))                       # desert on desert: self-consistent
+    recs.append(_mains_rec((11, 0), 0))                        # grass on grass: self-consistent
+    recs.append(_mains_rec((12, 0), 58, uv=_fam_mains_uv(0)))  # wall topo (no family) wearing grass
+    defects, stats = OG.mains_orphan_defects(recs)
+    assert set(defects) == {_INCIDENT_CELL}
+    hit = defects[_INCIDENT_CELL][0]
+    assert hit["klass"] == "C" and hit["uv_family"] == "desert" and hit["fam"] == "grass"
+    assert "mains-rect orphan" in hit["missing_context"]
+    assert stats["n_mains_tris"] == 4                          # every rect-wearing tri is censused
+
+
+def test_mains_orphan_was_invisible_to_the_strips_only_classes():
+    """Why no gate saw the real tri: classify_strip_tri (the ONLY entry into Class A and Class B)
+    returns None on a mains-rect uv, so the pre-Class-C census structurally could not flag it."""
+    cell_meshes, _bm = _batch1_orphan_fixture()
+    rec = OG.flatten_terrain_records(cell_meshes)[0]
+    assert rec["cell"] == _INCIDENT_CELL and rec["fam"] == "grass"
+    assert OG.classify_strip_tri(rec["world_pts"], rec["uv"], rec["cell"]) is None
+    defects, stats = OG.orphan_decal_census([rec])
+    assert stats["n_class_a"] == 0 and stats["n_class_b"] == 0 and stats["n_class_c"] == 1
+    assert defects[_INCIDENT_CELL][0]["klass"] == "C"
+
+
+def test_mains_orphan_ring_records_are_context_only_never_reported():
+    cell_meshes, _bm = _batch1_orphan_fixture()
+    recs = OG.flatten_terrain_records(cell_meshes)
+    defects, stats = OG.mains_orphan_defects(recs, report_blocks=[(9, 9)])
+    assert defects == {} and stats["n_mains_tris"] == 0 and stats["n_mains_tris_ring"] == 1
+
+
+def test_mains_orphan_census_spares_the_dressing_grammar_non_island_worn():
+    """The batch-1 landmass's own ratified counter-shape: dunes (cls='interior') mains on grass
+    topo is the sand-patch DRESSING grammar (the meadow-patch idiom with a catalogued tile set) --
+    never a selector slip, however isolated, because the selector only composes island-class
+    ground fills."""
+    recs = [_mains_rec((5, 0), 0, uv=_fam_mains_uv(41))]     # dunes rect, grass topo, isolated
+    defects, stats = OG.mains_orphan_defects(recs)
+    assert defects == {}
+    assert stats["mains_spared"]["non_island_worn"] == 1
+
+
+def test_mains_orphan_census_spares_a_multi_tri_patch_isolated_stray_law():
+    """A whole-cell desert tile (two diagonal-sharing tris, lawful per-vert evaluations) on grass
+    topo reads as a deliberate ARRANGEMENT, not a per-tri selector slip -- THE ISOLATED-STRAY LAW
+    (the forensics' size-1-component discriminant) spares it; the lone wedge stays flagged."""
+    cell = (6, 0)
+    x0, z0 = 4.0 * cell[0], 4.0 * cell[1]
+    idall = float(X.encode_id(0, 0, 0, 0))                   # grass topo
+    corners = [(x0, z0), (x0 + 4.0, z0), (x0 + 4.0, z0 + 4.0), (x0, z0 + 4.0)]
+    quad_uv = [tuple(GL.ground_uv(x, z, cell, (0, 1), 90, "desert")) for (x, z) in corners]
+    a, b, c, d = [_v(x, 0.0, z, uv, idall) for (x, z), uv in zip(corners, quad_uv)]
+    cell_meshes, _bm = _cell_meshes([a, b, d], [b, c, d])     # share the b-d diagonal edge
+    recs = OG.flatten_terrain_records(cell_meshes)
+    defects, stats = OG.mains_orphan_defects(recs)
+    assert defects == {}
+    assert stats["mains_spared"]["in_a_patch"] == 2
+
+
+def test_mains_orphan_census_spares_a_mixed_cell_pair_even_edge_disjoint():
+    """THE MIXED-CELL PAIR LAW (fix_triangle.py's own runtime gate): a same-cell tri sharing the
+    uv bbox is the lawful diagonal-pair partner -- spared even when the two tris' verts are not
+    position-welded, where the edge-component test alone would read the candidate as isolated."""
+    cell = (7, 0)
+    x0, z0 = 4.0 * cell[0], 4.0 * cell[1]
+    uv = _fam_mains_uv(17)                                    # one shared bbox in the desert rect
+    grass_id = float(X.encode_id(0, 0, 0, 0))
+    desert_id = float(X.encode_id(0, 0, 17, 0))
+    cand = [_v(x0 + 0.2, 0.0, z0 + 0.2, uv, grass_id), _v(x0 + 1.4, 0.0, z0 + 0.2, uv, grass_id),
+            _v(x0 + 0.2, 0.0, z0 + 1.4, uv, grass_id)]        # grass topo wearing desert
+    partner = [_v(x0 + 2.6, 0.0, z0 + 2.6, uv, desert_id), _v(x0 + 3.8, 0.0, z0 + 2.6, uv, desert_id),
+               _v(x0 + 2.6, 0.0, z0 + 3.8, uv, desert_id)]    # edge-disjoint, same cell, same bbox
+    cell_meshes, _bm = _cell_meshes(cand, partner)
+    recs = OG.flatten_terrain_records(cell_meshes)
+    defects, stats = OG.mains_orphan_defects(recs)
+    assert defects == {}
+    assert stats["mains_spared"]["mixed_cell_pair"] == 1
+
+
+# ================================================================================================ orphan_decal_gate (CLASS C end to end)
+def test_orphan_decal_gate_mains_orphan_warns_by_default_read_only():
+    cell_meshes, bm = _batch1_orphan_fixture()
+    before_uv, before_tan = copy.deepcopy(bm.uvs), copy.deepcopy(bm.tangents)
+    g = OG.orphan_decal_gate(cell_meshes, {(2, 17)})
+    assert g["n_orphans"] == 1 and list(_INCIDENT_CELL) in g["cells"]
+    assert g["checked_mains"] == 1 and g["checked"] == 0        # a mains tri, zero strips anywhere
+    assert g["ok"] is True and g["warn"] is True
+    assert "desert mains on grass topo" in g["detail"]
+    assert bm.uvs == before_uv and bm.tangents == before_tan    # WARN mode stays purely read-only
+    g_enf = OG.orphan_decal_gate(cell_meshes, {(2, 17)}, enforce=True)
+    assert g_enf["ok"] is False
+
+
+def test_orphan_decal_gate_mains_redress_is_the_translation_law_uv_only():
+    """--redress-orphans on the batch-1 shape applies fix_triangle.py's exact translate: every
+    corner moves by (grass delta - desert delta), the WHOLE tangent (the idall's area-14 payload
+    included -- the incident's event arming) and geometry stay identical, the post-redress census
+    reads clean, and the new uv is a WITNESSED per-vert grass evaluation at the SAME
+    cell/quad/ori -- nothing re-rolled."""
+    cell_meshes, bm = _batch1_orphan_fixture()
+    before_uv = copy.deepcopy(bm.uvs)
+    before_tan = copy.deepcopy(bm.tangents)
+    before_verts = copy.deepcopy(bm.verts)
+    g = OG.orphan_decal_gate(cell_meshes, {(2, 17)}, enforce=True, redress=True)
+    assert g["n_redressed"] == 1 and g["n_orphans"] == 0 and g["ok"] is True
+    du = GL.GROUNDS["grass"]["mains_du"] - GL.GROUNDS["desert"]["mains_du"]
+    dv = GL.GROUNDS["grass"]["mains_dv"] - GL.GROUNDS["desert"]["mains_dv"]
+    for old, new in zip(before_uv, bm.uvs):
+        assert abs(new[0] - (old[0] + du)) < 1e-9 and abs(new[1] - (old[1] + dv)) < 1e-9
+    assert bm.tangents == before_tan and bm.verts == before_verts
+    ox, oz = X.block_world_origin(2, 17)
+    xz = [(v[0] + ox, v[2] + oz) for v in bm.verts]
+    assert (_INCIDENT_CELL, _INCIDENT_QUAD, _INCIDENT_ORI) in OG.mains_evaluation_witness(
+        xz, bm.uvs, "grass")
+
+
+def test_orphan_decal_gate_mains_redress_refuses_a_smear():
+    """A constant desert-center fill on grass topo is censused (its bbox sits inside the rect) but
+    carries no per-vert evaluation witness -- the translate REFUSES (a smear translated is still a
+    smear), the tri stays flagged and untouched, and the gate stays dirty under enforce even with
+    redress on."""
+    cell_meshes, bm = _batch1_orphan_fixture(smear=True)
+    before_uv = copy.deepcopy(bm.uvs)
+    g = OG.orphan_decal_gate(cell_meshes, {(2, 17)}, enforce=True, redress=True)
+    assert g["n_redressed"] == 0 and g["n_orphans"] == 1 and g["ok"] is False
+    assert bm.uvs == before_uv
+
+
+def test_orphan_decal_gate_strips_and_mains_orphans_coexist_without_ambiguity():
+    """A Class-A strips orphan and a Class-C mains orphan in one carry are two independent defects:
+    both flagged, NEITHER relabelled AMBIGUOUS (that verdict models the A/B fix-shape conflict
+    only), and one redress pass fixes both -- FIX-G for the decal, the translation law for the
+    mains orphan."""
+    strips_meshes, _sbm = _orphan_fixture()
+    mains_meshes, _mbm = _batch1_orphan_fixture()
+    cell_meshes = {**strips_meshes, **mains_meshes}
+    region = {(0, 0), (2, 17)}
+    g = OG.orphan_decal_gate(cell_meshes, region)
+    assert g["n_orphans"] == 2 and g["n_ambiguous"] == 0
+    klasses = sorted(h["klass"] for hits in
+                     (OG.orphan_decal_census(OG.flatten_terrain_records(cell_meshes))[0].values())
+                     for h in hits)
+    assert klasses == ["A", "C"]
+    g2 = OG.orphan_decal_gate(cell_meshes, region, enforce=True, redress=True)
+    assert g2["n_redressed"] == 2 and g2["n_orphans"] == 0 and g2["ok"] is True
 
 
 # ================================================================================================ transplant() wiring (offline)
