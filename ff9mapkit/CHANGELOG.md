@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE PATCH-WHOLE LAW + THE WOBBLE-ESCAPE LADDER (the unseamable patch)
+- Round 6's verdict ("you're trying to seam the unseamable") is now law. The map-wide
+  census (90 topo-4 rects, 40-90% soft neighbour context, 20 patch components) proves
+  grass-on-desert patches are artist-authored FORM, not a decodable coding — so the
+  tiled fill's drop consumes any touched patch-family component (topo 4/38/42) WHOLE
+  (refusing when it reaches the morph's rect frame) and the fill NEVER emits patch
+  tiles: the vacancy refills modal ground, and stock's own patch edges are never cut.
+  The whole-component extension can land the hole boundary on wobbly stock rows; the
+  wobbly refusal now carries its offending edge and THE WOBBLE-ESCAPE LADDER consumes
+  the owner tile and retries (measured convergence on the crescent: 5 hops). THE SEAM
+  INVARIANT is a test: no kept patch tri shares an edge with the fill. 3 mutations
+  killed; redeployed — the crescent's cut 6-cell grass component is honestly gone,
+  the big southern patch untouched stock.
+
 ### Added — the completion Journal: one catalog, an offline report and an in-game dashboard
 - **`ff9mapkit journal report|diff|rows|lint`** reads a real save (`EncryptedSavedData`, AES-256-CBC)
   and prints a 100%-completion readout: story beat, Treasure-Hunter points and rank, chocographs found

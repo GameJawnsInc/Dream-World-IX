@@ -527,6 +527,14 @@ def _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass):
 #: capability, a wrong fill costs a playtest)
 MURAL_REUSE_MIN = 0.40
 
+#: THE PATCH-WHOLE LAW's named families (PATCH-WHOLE-PREDICTION.md): grass-on-desert
+#: (4), brush mounds (38, whose base rings are structural), and scrub (42) are
+#: artist-authored PATCH SYSTEMS -- the map-wide census measures 90 rects with SOFT
+#: (40-90%) neighbour-context, NOT a decodable Wang coding -- so a cut patch cannot be
+#: seamed. A structural drop consumes a touched component WHOLE or refuses, and the
+#: fill NEVER emits these families (their vacancies refill with the modal ground).
+PATCH_FAMILIES = frozenset({4, 38, 42})
+
 
 def _uv_rect(t3):
     us = [v[2][0] for v in t3]
@@ -574,6 +582,15 @@ def _uv_sv(t3):
 #: measure up to 1.24u and refuse HONESTLY (its earlier CLEAN scores came from the
 #: containment-blind gate set) -- a wobbly-cell fill is the registered follow-up.
 _BOUNDARY_SNAP = 0.4
+
+
+class _WobblyBoundary(ValueError):
+    """A region-boundary edge crosses a 4u cell line deeper than the snap -- carries
+    the offending edge so THE WOBBLE-ESCAPE LADDER can consume its owner tile."""
+
+    def __init__(self, msg, edge):
+        super().__init__(msg)
+        self.edge = edge
 
 
 def _cell_line_crossings(a, b):
@@ -702,7 +719,15 @@ def _tiled_fill(win, drop_mains, new_crease, ck):
         raise ValueError("crease run not contiguous on the mains hole boundary")
     outer_cr = new_crease if crease_run[0] == ck[0] else list(reversed(new_crease))
     bpts3 = list(outer_cr) + [gpos[k] for k in gloop[nrun:]]
-    return _tiled_fill_region(bpts3, gnrm, drop_mains)
+    # THE PATCH-WHOLE LAW's fill half: patch families NEVER emit -- their consumed
+    # cells hold no cell-pair entry, so the wedge/modal machinery refills them with
+    # the modal ground (the patch honestly disappears rather than reproducing cut)
+    srcs = [t3 for t3 in drop_mains
+            if decode_id(int(round(t3[0][3][0])))["topograph"] not in PATCH_FAMILIES]
+    if not srcs:
+        raise ValueError("the drop consumes ONLY patch-family tiles (grass/brush) -- "
+                         "no ground vocabulary to refill from; widen the window")
+    return _tiled_fill_region(bpts3, gnrm, srcs)
 
 
 def _tiled_fill_region(bpts3, gnrm, sources):
@@ -770,13 +795,13 @@ def _tiled_fill_region(bpts3, gnrm, sources):
             ax = 0 if abs(p[0] / 4.0 - round(p[0] / 4.0)) < 1e-6 else 2
             over = min(abs(a[ax] - p[ax]), abs(b[ax] - p[ax]))
             if over > _BOUNDARY_SNAP:
-                raise ValueError(f"TILE-RECT CONTAINMENT: the hole boundary is too "
-                                 f"WOBBLY for the exact-lattice fill -- edge "
-                                 f"({a[0]:.2f},{a[2]:.2f})--({b[0]:.2f},{b[2]:.2f}) "
-                                 f"pokes {over:.2f}u past the 4u line at "
-                                 f"({p[0]:.2f},{p[2]:.2f}) (the clip absorbs <= "
-                                 f"{_BOUNDARY_SNAP}u; deeper needs the wobbly-cell "
-                                 f"fill)")
+                raise _WobblyBoundary(
+                    f"TILE-RECT CONTAINMENT: the hole boundary is too WOBBLY for "
+                    f"the exact-lattice fill -- edge "
+                    f"({a[0]:.2f},{a[2]:.2f})--({b[0]:.2f},{b[2]:.2f}) pokes "
+                    f"{over:.2f}u past the 4u line at ({p[0]:.2f},{p[2]:.2f}) "
+                    f"(the clip absorbs <= {_BOUNDARY_SNAP}u; the caller's "
+                    f"wobble-escape ladder consumes the owner tile)", (a, b))
 
     cents = [(sum(v[0][0] for v in t3) / 3.0, sum(v[0][2] for v in t3) / 3.0)
              for t3 in sources]
@@ -7147,6 +7172,39 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
         return math.hypot(p[0] - (a[0] + tt * ex), p[2] - (a[2] + tt * ez))
     fill_emit = None
     last_err = None
+    def _patch_whole(dg):
+        # THE PATCH-WHOLE LAW: a drop touching a patch-family component consumes it
+        # WHOLE (a cut patch cannot be seamed -- the census: soft context, no coding);
+        # a component escaping the window's rect cannot be verified whole and refuses
+        cellmap = defaultdict(list)
+        for t3 in win.mains:
+            tp = _topo_of(t3)
+            if tp not in PATCH_FAMILIES:
+                continue
+            cx = math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0)
+            cz = math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0)
+            cellmap[(cx, cz, tp)].append(t3)
+        have = {_key_set(t) for t in dg}
+        seeds = {k for k, tris in cellmap.items()
+                 if any(_key_set(t) in have for t in tris)}
+        comp, stack = set(), list(seeds)
+        while stack:
+            c = stack.pop()
+            if c in comp or c not in cellmap:
+                continue
+            comp.add(c)
+            stack += [(c[0] + 1, c[1], c[2]), (c[0] - 1, c[1], c[2]),
+                      (c[0], c[1] + 1, c[2]), (c[0], c[1] - 1, c[2])]
+        x0, x1, zmin, zmax = CliffWindow.region_frame(win.donor, win.size)
+        for (cx, cz, tp) in comp:
+            if not (x0 < 4.0 * cx and 4.0 * cx + 4.0 < x1
+                    and zmin < 4.0 * cz and 4.0 * cz + 4.0 < zmax):
+                raise ValueError(f"PATCH-WHOLE: a topo-{tp} patch component reaches "
+                                 f"the morph's rect frame -- cannot be verified "
+                                 f"whole; widen the region or move the window")
+        return dg + [t3 for c in comp for t3 in cellmap[c]
+                     if _key_set(t3) not in have]
+
     for margin in (0.0, 3.2):
         dg = drop_mains
         if margin > 0.0:
@@ -7159,7 +7217,29 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
                                for v in t3 for (a, b) in bay_segs)]
         try:
             if tiled_lane:
-                fill_emit = _tiled_fill(win, dg, new_crease, ck)
+                # THE WOBBLE-ESCAPE LADDER: stock's lattice wobbles; when the hole
+                # boundary lands on a >snap wobbly edge, consume the KEPT tile that
+                # owns it (patch-whole re-runs -- a consumed patch tri pulls its
+                # component) and retry. Measured convergence on the crescent: 5 hops.
+                dg = _patch_whole(dg)
+                for _hop in range(16):
+                    try:
+                        fill_emit = _tiled_fill(win, dg, new_crease, ck)
+                        break
+                    except _WobblyBoundary as wb:
+                        ea, eb = wb.edge
+                        eka, ekb = _pk(ea), _pk(eb)
+                        have = {_key_set(t) for t in dg}
+                        own = [t3 for t3 in win.mains
+                               if {eka, ekb} <= _key_set(t3)
+                               and _key_set(t3) not in have]
+                        if not own:
+                            raise
+                        dg = _patch_whole(dg + own)
+                else:
+                    raise ValueError("the wobble-escape ladder did not converge in "
+                                     "16 hops -- the hole boundary keeps landing on "
+                                     "wobbly stock; move the window")
             else:
                 fill_emit = _grass_fill(win, dg, new_crease, ck, cell_quad)
             drop_mains = dg
