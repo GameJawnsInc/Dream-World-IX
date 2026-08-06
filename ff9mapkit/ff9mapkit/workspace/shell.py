@@ -50,12 +50,14 @@ from ..editor import names
 from ..editor import tomldiff
 from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import THEME_CHOICES, derive, pick_palette
+from . import cutscenescan
 from .battledoc import BattleDoc
 from .behaviordoc import BehaviorDoc
+from .cutscenedoc import CutsceneDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .floorplandoc import FloorplanDoc
-from .forms_qt import build_form, pick_catalog, read
+from .forms_qt import _wrap_preview_panel, build_form, pick_catalog, read
 from .hero import ColophonMark, HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
@@ -408,6 +410,9 @@ def _coord_like(s) -> bool:
         return True
     except ValueError:
         return False
+
+
+_single_block = forms.single_block     # the ONE owner (editor/forms.py) -- shared with the Tk editor
 
 
 class BreadcrumbBar(QWidget):
@@ -948,6 +953,8 @@ class Workspace(QMainWindow):
             self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
         if getattr(self, "behavior_doc", None) is not None:
             self.behavior_doc.retheme(pal)                    # the stage canvas + guide glyph paint too
+        if getattr(self, "cutscene_doc", None) is not None:
+            self.cutscene_doc.retheme(pal)                    # its stage canvas + guide glyph too
         if getattr(self, "trace_doc", None) is not None:
             self.trace_doc.retheme(pal)                       # the backdrop canvas paints too
         if getattr(self, "place_doc", None) is not None:
@@ -1005,6 +1012,8 @@ class Workspace(QMainWindow):
             self.world_doc.set_scale(self._text_scale)  # the world atlas canvas paints too
         if getattr(self, "behavior_doc", None) is not None:
             self.behavior_doc.set_scale(self._text_scale)   # the behavior stage canvas too
+        if getattr(self, "cutscene_doc", None) is not None:
+            self.cutscene_doc.set_scale(self._text_scale)   # the cutscene stage canvas too
         if getattr(self, "trace_doc", None) is not None:
             self.trace_doc.set_scale(self._text_scale)      # the backdrop canvas too
         if getattr(self, "place_doc", None) is not None:
@@ -1789,6 +1798,17 @@ class Workspace(QMainWindow):
         self.behavior_doc = BehaviorDoc(self.pal, scale=self._text_scale,
                                         on_edit=self._on_behavior_edit)
         self.tabs.addTab(self.behavior_doc, "Behavior")
+        # the Cutscene doc tab (the redesign — studies/cutscene-authoring/REVIEW.md): the scene
+        # rail renders the WHOLE [[cutscene]] dispatch, the ladder its steps, the stage its
+        # staging, the strip a beat-indexed storyboard. Feed contract = Behavior's (the shell
+        # pushes the parsed open dict; the doc's one disk touch is the staging check's walkmesh).
+        self.cutscene_doc = CutsceneDoc(self.pal, scale=self._text_scale,
+                                        on_edit=self._on_cutscene_edit,
+                                        flag_names_fn=self._campaign_flag_names,
+                                        open_toml=self._open_member_toml,
+                                        pick_anim=self._pick_cutscene_anim,
+                                        pick=self._pick)
+        self.tabs.addTab(self.cutscene_doc, "Cutscene")
         # click-authoring Rung 3 (studies/click-authoring): place NPCs/props/spawn/arrival by
         # clicking a forked room's OWN art (every click raycasts the donor walkmesh). The shell
         # PUSHES the open doc (tab show / tree select, the Behavior contract); the doc's one
@@ -1817,8 +1837,8 @@ class Workspace(QMainWindow):
             ("Home", [self._welcome_tab]),
             # Floorplan authors the TOPOLOGY; the Map renders it. They are complements, so they
             # share the Author rail.
-            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.place_doc,
-                        self.floorplan_doc]),
+            ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.cutscene_doc,
+                        self.place_doc, self.floorplan_doc]),
             ("Assets", [self.import_field, self.trace_doc, self.models_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
             ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
@@ -4106,6 +4126,20 @@ class Workspace(QMainWindow):
         self.output.setPlainText(text)
         self._raise_console()
 
+    def _campaign_flag_names(self) -> dict:
+        """``{flag name: absolute bit}`` from the OPEN campaign's shared ``[[flag]]`` table -- what
+        ``FieldProject.load`` needs to resolve a MEMBER standalone. A member gates on names the campaign
+        owns, so without this every standalone load of one dies in flag resolution ("unknown flag name
+        'chapel_open'") and the staging check reports "no walkmesh" about a field whose mesh is fine.
+        Note the direction: name->index, the INVERSE of :meth:`_project_flag_names`, which maps
+        index->name to LABEL a save. Fail-safe: any error -> ``{}``."""
+        try:
+            if self.plan is None:
+                return {}
+            return C.collect_flag_defs({"flag": getattr(self.plan, "flags", []) or []}) or {}
+        except Exception:                          # noqa: BLE001 -- a staging check must never raise
+            return {}
+
     def _project_flag_names(self) -> dict:
         """``{absolute gEventGlobal bit: authored [[flag]] name}`` for the OPEN project (loose field / campaign /
         journey), to annotate the Story State save view (audit #7). A named ``[[flag]] index`` is ABSOLUTE --
@@ -4591,7 +4625,7 @@ class Workspace(QMainWindow):
             return False
         clean = self._clean.get(ctx["member"], {})
         if ctx["single"]:
-            base = clean.get(ctx["section"], {}) or {}
+            base = _single_block(clean, ctx["section"])      # a PLURAL section: compare against block 0
         else:
             lst = clean.get(ctx["section"], []) or []
             idx = ctx.get("idx")
@@ -4820,6 +4854,9 @@ class Workspace(QMainWindow):
         if (getattr(self, "behavior_doc", None) is not None
                 and self.tabs.currentWidget() is self.behavior_doc):
             self._feed_behavior()                  # a field switch while Behavior is showing follows live
+        if (getattr(self, "cutscene_doc", None) is not None
+                and self.tabs.currentWidget() is self.cutscene_doc):
+            self._feed_cutscene()                  # same live-follow for the Cutscene surface
         if (getattr(self, "place_doc", None) is not None
                 and self.tabs.currentWidget() is self.place_doc):
             self._feed_place()                     # same live-follow for the Place surface
@@ -4916,6 +4953,7 @@ class Workspace(QMainWindow):
             return
         w = self.tabs.currentWidget()
         self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
+        self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
         if w in (self.doc_scroll, self.map):
             self.crumb.set(self._content_crumbs)
             self._set_chip(self._content_chip)
@@ -4940,6 +4978,10 @@ class Workspace(QMainWindow):
         elif w is self.behavior_doc:               # read-only render of the open field -> no edit chip;
             self._feed_behavior()                  # re-fed on each show so it tracks the open doc
             self.crumb.set([bc.Crumb("behavior", w.crumb_label())])
+            self._set_chip(None)
+        elif w is getattr(self, "cutscene_doc", None):   # the cutscene doc: re-fed on each show
+            self._feed_cutscene()
+            self.crumb.set([bc.Crumb("cutscene", w.crumb_label())])
             self._set_chip(None)
         elif w is self.place_doc:                  # placement on the open field -> re-fed on each show
             self._feed_place()
@@ -4990,6 +5032,55 @@ class Workspace(QMainWindow):
             self._insp_lay.removeWidget(w)         # reparented to None flashes as its own OS
             w.setParent(None)                      # window (the ladder's phantom-window lesson);
             self.insp_body.show()                  # kept alive by the doc's own reference
+
+    def _on_cutscene_edit(self, member, label):
+        """A Cutscene-tab edit landed in the open doc (the doc mutated it in place through
+        cutscenescan's pure ops): dirty-dot the member, record ONE undo step whose focus lands
+        back on the Cutscene tab (NOT the ``"cutscene"`` token — that is the Editor TREE node's,
+        and _goto_focus would yank undo to the wrong surface), and re-feed."""
+        self._touch(member)
+        self._checkpoint(member, label, "cutscene_tab")
+        self._feed_cutscene()
+
+    def _mount_cutscene_instruments(self, on):
+        """Dock the Cutscene doc's Problems/Staging column into the INSPECTOR while that tab
+        shows — the Behavior contract exactly (the SAME widget moves, so a staging report
+        survives the tab round-trip). Mutually exclusive with the behavior column by
+        construction: only one of the two tabs can be current."""
+        doc = getattr(self, "cutscene_doc", None)
+        if doc is None or getattr(self, "_insp_lay", None) is None:
+            return
+        w = doc.instruments
+        mounted = w.parent() is not None
+        if on and not mounted:
+            self.insp_body.hide()
+            self._insp_lay.addWidget(w, 1)
+            w.show()
+        elif not on and mounted:
+            w.hide()                               # hide BEFORE the reparent: a visible widget
+            self._insp_lay.removeWidget(w)         # reparented to None flashes as its own OS
+            w.setParent(None)                      # window (the ladder's phantom-window lesson)
+            self.insp_body.show()
+
+    def _feed_cutscene(self):
+        """Push the OPEN field's parsed dict into the Cutscene doc — BY REFERENCE (the feed
+        contract), plus the live ``merged`` lane so staging/storyboard see the scene.toml split."""
+        doc = getattr(self, "cutscene_doc", None)
+        if doc is None:
+            return
+        member = self._behavior_target()
+        fd = self._safe_doc(member) if member else None
+        if fd is None:
+            doc.show_none()
+            return
+        doc.show_field(member, fd.data, self.member_paths.get(member),
+                       dirty=member in set(self._dirty_members()), merged_fn=fd.merged)
+
+    def _open_member_toml(self, member):
+        """The 'Open the .toml' door — every key a form doesn't reach is authorable there."""
+        p = self.member_paths.get(member)
+        if p is not None:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
     def _behavior_target(self):
         """The field member the Behavior tab renders: the tree selection's owning field, else the
@@ -5169,6 +5260,8 @@ class Workspace(QMainWindow):
             ("Go to World (overworld atlas)", "view", lambda: self.tabs.setCurrentWidget(self.world_doc)),
             ("Go to Behavior (NPC AI ladders)", "view",
              lambda: self.tabs.setCurrentWidget(self.behavior_doc)),
+            ("Go to Cutscene (scenes & storyboard)", "view",
+             lambda: self.tabs.setCurrentWidget(self.cutscene_doc)),
             ("Go to Place (click content onto the art)", "view",
              lambda: self.tabs.setCurrentWidget(self.place_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
@@ -5406,6 +5499,15 @@ class Workspace(QMainWindow):
             else:
                 self._feed_behavior()
             return
+        if key == "cutscene_tab":                    # a Cutscene-DOC edit -> land back on that tab
+            node = getattr(self, "_member_items", {}).get(member)    # (the bare "cutscene" token is
+            if getattr(self, "cutscene_doc", None) is not None:      # the Editor TREE node's, below)
+                self.tabs.setCurrentWidget(self.cutscene_doc)        # fires _feed_cutscene on show
+            if node is not None and self.tree.currentItem() is not node:
+                self.tree.setCurrentItem(node)       # _on_select re-feeds from the restored data
+            else:
+                self._feed_cutscene()
+            return
         if key == "place":                           # a Place-tab drop -> land back on the art
             node = getattr(self, "_member_items", {}).get(member)
             if getattr(self, "place_doc", None) is not None:
@@ -5569,8 +5671,8 @@ class Workspace(QMainWindow):
             spec = _SECTION_SPEC[key]
             self._mount_form(member, key, spec, doc.data.get(key, {}) or {}, single=True, section=key)
             return
-        if key == "cutscene":                      # a single table + an ordered step list (sub-editor)
-            self._mount_cutscene(member)
+        if key == "cutscene":                      # a summary + the door to the Cutscene tab
+            self._mount_cutscene_summary(member)
             return
         if ":" in key and key.split(":")[0] == "choice":        # a choice + its options (sub-editor)
             self._mount_choice(member, int(key.split(":")[1]))
@@ -7148,9 +7250,24 @@ class Workspace(QMainWindow):
 
     def _delete_object(self, member, section, *, single, idx=None, label="item"):
         """Remove a list entity (``single=False``, by ``idx``) or a whole single section (``single=True``)
-        from ``member``, write the file, refresh the tree, and land on the parent group/section."""
+        from ``member``, write the file, refresh the tree, and land on the parent group/section.
+
+        A SINGLE section the toml stores PLURALLY (the ``[[cutscene]]`` dispatch) deletes only the block
+        the form edits -- block 0 -- never the whole array. It used to pop the section: three authored
+        scenes gone to one click, behind a confirm that said "this cutscene", written to disk at once.
+        The form edits ONE scene, so the delete removes one scene."""
+        n_blocks = 0
+        if single:
+            _cur = self._doc(member).data.get(section)
+            n_blocks = len(_cur) if isinstance(_cur, list) else 0
+        if n_blocks > 1:                       # name what is really going, and what SURVIVES
+            label = f"{label} scene #0"
+            extra = f" The other {n_blocks - 1} scene{'' if n_blocks == 2 else 's'} stay."
+        else:
+            extra = ""
         if not self._confirm(f"Delete {label}",
-                             f"Delete this {label} from {member}? This writes {self.member_paths[member].name}."):
+                             f"Delete this {label} from {member}?{extra} "
+                             f"This writes {self.member_paths[member].name}."):
             return
         reason = protected_reason(self.member_paths[member])      # don't delete out of a bundled/golden file
         if reason:
@@ -7159,7 +7276,14 @@ class Workspace(QMainWindow):
             return
         doc = self._doc(member)
         if single:
-            doc.data.pop(section, None)
+            cur = doc.data.get(section)
+            if isinstance(cur, list):          # a PLURAL section: drop ONLY the block the form edits
+                if cur:
+                    cur.pop(0)
+                if not cur:
+                    doc.data.pop(section, None)        # an emptied dispatch leaves no bare [[cutscene]]
+            else:
+                doc.data.pop(section, None)
         else:
             lst = doc.data.get(section, [])
             if idx is None or idx >= len(lst):
@@ -7416,11 +7540,8 @@ class Workspace(QMainWindow):
             # to write; don't materialize an empty [section]. (Cutscene steps add via ensure_cs first.)
             self._show_problems(fb.Verdict(fb.OK, f"{member} · {key or section} — nothing to save (empty)"), [])
             return True
-        target = doc.data.setdefault(section, {}) if single else doc.data.get(section, [])[idx]
-        if single and isinstance(target, list):    # a PLURAL section (the [[cutscene]] dispatch): the single
-            if not target or not isinstance(target[0], dict):   # form edits BLOCK 0 (matches _mount_cutscene's
-                target.insert(0, {})                            # read path) -- never .pop() on the list itself
-            target = target[0]
+        target = (_single_block(doc.data, section, create=True) if single
+                  else doc.data.get(section, [])[idx])
         for f in spec:
             target.pop(f.key, None)
         target.update(entity)
@@ -7468,7 +7589,7 @@ class Workspace(QMainWindow):
         if ctx["single"]:
             if ctx["section"] not in doc.data and not entity:
                 return True                # untouched/empty new single section -> don't materialize it (dirty)
-            target = doc.data.setdefault(ctx["section"], {})
+            target = _single_block(doc.data, ctx["section"], create=True)   # a PLURAL section: block 0
         else:
             lst = doc.data.get(ctx["section"], []) or []
             if ctx["idx"] is None or ctx["idx"] >= len(lst):
@@ -7595,207 +7716,55 @@ class Workspace(QMainWindow):
         h.addStretch(1)
         return w
 
-    def _mount_cutscene(self, member):
+    def _pick_cutscene_anim(self, member, actor, cast, current):
+        """The Cutscene doc's animation-Browse seam: a gesture's legal values depend on WHICH
+        RIG the actor wears, so the picker is scoped through the same `_actor_model_hint`
+        resolution the old form used. Returns the picked value or None."""
+        hint_block = self._actor_model_hint(member, actor, cast)
+        return animpicker.pick_animation(self, self.pal, kinds=["anim"], current=current,
+                                         model_hint=hint_block, anim_frames=self.anim_frames,
+                                         label="actor")
+
+    def _mount_cutscene_summary(self, member):
+        """The Editor tree's Cutscene node: a READ-ONLY summary + the door to the Cutscene tab.
+
+        The tab is the ONE write surface (the redesign) — keeping a second full form here is
+        how two editors drift, and the [[cutscene]] deadlock family was exactly that disease.
+        Reads via forms.all_blocks only; browsing must never materialize a section (the
+        smoke's own law), so there is no _save_ctx and nothing here folds. Remove stays: the
+        tree's context action and this button share `_delete_object`'s scene-#0 semantics."""
         doc = self._doc(member)
-        # Don't materialize an empty [cutscene] just by BROWSING here -- that would mark the field dirty.
-        # Create it lazily: on the first added step (ensure_cs) or an explicit Save (_commit's guard).
-        def cs():
-            c = doc.data.get("cutscene")
-            if isinstance(c, list):                    # the [[cutscene]] dispatch: the form edits BLOCK 0
-                return (c[0] if c and isinstance(c[0], dict) else {})   # (later blocks: edit the toml directly)
-            return c or {}
-
-        def ensure_cs():
-            c = doc.data.get("cutscene")
-            if isinstance(c, list):                    # plural: materialize/edit the FIRST block
-                if not c or not isinstance(c[0], dict):
-                    c.insert(0, {})
-                c[0].setdefault("steps", [])
-                return c[0]
-            c = doc.data.setdefault("cutscene", {})    # materialize on a real edit (add a step)
-            c.setdefault("steps", [])
-            return c
-
-        def steps():
-            return cs().get("steps", [])
         self._clear_doc()
         self._header(f"{member}  ·  cutscene", forms.SECTION_HELP.get("cutscene"))
         self._set_editor_tab("Cutscene")
-        _raw_cs = doc.data.get("cutscene")
-        if isinstance(_raw_cs, list) and len(_raw_cs) > 1:   # the [[cutscene]] dispatch: the form edits block 0
-            note = widgets.caption(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes. "
-                          f"This form edits scene #1 — edit the rest in the TOML.")
-            self.doc_host_lay.addWidget(note)
-            openb = QPushButton("Open the .toml")
-            openb.clicked.connect(lambda _=False, m=member: QDesktopServices.openUrl(
-                QUrl.fromLocalFile(str(self.member_paths[m]))))
-            self.doc_host_lay.addWidget(openb, 0, Qt.AlignmentFlag.AlignLeft)
-        form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
-                                   self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
-                                   on_change=lambda m=member: self._on_form_change(m))
-        self.doc_host_lay.addWidget(form)
-        self.doc_host_lay.addWidget(QLabel("Steps (run in order; control is locked):"))
-
-        body = QWidget()
-        row = QHBoxLayout(body)
-        row.setContentsMargins(0, 0, 0, 0)
-        steps_list = QListWidget()
-        row.addWidget(steps_list, 1)
-        side = QWidget()
-        sv = QVBoxLayout(side)
-        sv.setContentsMargins(0, 0, 0, 0)
-        type_combo = QComboBox()
-        type_combo.setAccessibleName("Cutscene step type")
-        for k in forms.STEP_KIND:
-            type_combo.addItem(forms.STEP_LABEL[k], k)
-        # the 'say' step is dialogue -> a multi-line box (Enter / typed \n = an in-window line break);
-        # every other step is a short single value -> a line edit. Only one shows at a time.
-        value_line = QLineEdit()
-        value_line.setAccessibleName("Cutscene step value")
-        value_text = QPlainTextEdit()
-        value_text.setTabChangesFocus(True)
-        value_text.setFixedHeight(64)
-        value_text.setToolTip("Line break: press Enter, or type \\n.   New window: type [PAGE].")
-        value_text.setVisible(False)
-        hint = widgets.caption("")
-        actor_line = QLineEdit()                   # the per-step actor tag (a cast member drives this step)
-        actor_line.setAccessibleName("Cutscene step actor")
-        actor_line.setPlaceholderText("blank = sole cast member / narration voice")
-        actor_line.setToolTip("Which cast member (an `actors` name or \"player\") this step drives / speaks "
-                              "as. With a cast of one, leave blank (steps default to it).")
-        # ANIMATION steps get a Browse beside the value: a gesture is the one step kind whose legal
-        # values depend on WHICH RIG the actor wears, and nobody can be expected to know that a moogle
-        # can 'talk_3_1' but not 'glad'. It shows for that step type only (same show/hide seam the
-        # say-step's multi-line box uses) -- on a 'wait' step it would be a button that cannot answer.
-        anim_browse = QPushButton("Browse…")
-        anim_browse.setAccessibleName("Browse animations this actor's model can play")
-        anim_browse.setToolTip("Preview the clips this step's actor can play and pick one by name.")
-        anim_browse.setVisible(False)
-
-        def browse_anim():
-            cast = forms.parse_strlist(getters["actors"]() if "actors" in getters else "") or []
-            hint_block = self._actor_model_hint(member, actor_line.text(), cast)
-            val = animpicker.pick_animation(self, self.pal, kinds=["anim"], current=value_line.text(),
-                                            model_hint=hint_block, anim_frames=self.anim_frames,
-                                            label="actor")
-            if val:
-                value_line.setText(val)
-        anim_browse.clicked.connect(browse_anim)
-        vrow = QHBoxLayout()
-        vrow.setContentsMargins(0, 0, 0, 0)
-        vrow.addWidget(value_line, 1)
-        vrow.addWidget(anim_browse)
-        sv.addWidget(QLabel("Type:"))
-        sv.addWidget(type_combo)
-        sv.addWidget(QLabel("Value:"))
-        sv.addLayout(vrow)
-        sv.addWidget(value_text)
-        sv.addWidget(QLabel("Actor:"))
-        sv.addWidget(actor_line)
-        sv.addWidget(hint)
-
-        def is_say():
-            return type_combo.currentData() == "say"
-
-        def value_get():
-            return value_text.toPlainText().replace("\\n", "\n") if is_say() else value_line.text()
-
-        def value_set(s):
-            (value_text.setPlainText if is_say() else value_line.setText)(s)
-
-        def swap_value_widget():
-            """Show the multi-line box for 'say', the line edit otherwise; carry the typed text across."""
-            say = is_say()
-            if say and not value_text.isVisible():
-                value_text.setPlainText(value_line.text())
-            elif not say and value_text.isVisible():
-                value_line.setText(value_text.toPlainText().replace("\n", " "))
-            value_text.setVisible(say)
-            value_line.setVisible(not say)
-            anim_browse.setVisible(type_combo.currentData() == "animation")
-
-        def reload_steps(select=None):
-            steps_list.clear()
-            for st in steps():
-                steps_list.addItem(forms.step_summary(st))
-            if select is not None and 0 <= select < steps_list.count():
-                steps_list.setCurrentRow(select)
-
-        def on_type(_i=0):
-            hint.setText(forms.STEP_HELP.get(type_combo.currentData(), ""))
-            swap_value_widget()
-        type_combo.currentIndexChanged.connect(on_type)
-        on_type()                                  # initialise hint + the right value widget (default = say)
-
-        def on_select(r):
-            s = steps()
-            if 0 <= r < len(s):
-                st = s[r]
-                k = forms.step_key(st)
-                if k in forms.STEP_KIND:
-                    type_combo.setCurrentIndex(list(forms.STEP_KIND).index(k))   # fires on_type -> swaps widget
-                value_set(forms.step_value_text(st))
-                actor_line.setText(str(st.get("actor", "")))
-        steps_list.currentRowChanged.connect(on_select)
-
-        def add_update():
-            try:
-                step = forms.make_step(type_combo.currentData(), value_get())
-            except ValueError as e:
-                self._show_problems(fb.Verdict(fb.ERROR, "Bad step"), [fb.Problem(fb.ERROR, str(e))])
-                return
-            a = actor_line.text().strip()
-            if a:
-                step["actor"] = a                      # which cast member drives / speaks this step
-            st = ensure_cs()["steps"]                  # materialize [cutscene] now that there's real content
-            r = steps_list.currentRow()
-            if 0 <= r < len(st) and forms.step_key(st[r]) == forms.step_key(step):
-                # UPDATE in place: keep the step's extra keys the form doesn't edit (with_prev, speaker,
-                # tail, speed) so a re-save never strips a parallel beat / an attributed line. The actor
-                # tag follows the field exactly (blank clears it).
-                extras = {k: v for k, v in st[r].items()
-                          if k not in forms.STEP_KIND and k != "actor"}
-                st[r] = {**extras, **step}
-            else:
-                st.append(step)
-                r = len(st) - 1
-            reload_steps(r)
-            self._touch(member)
-            self._checkpoint(member, "edit cutscene step", "cutscene")
-
-        def remove():
-            s = steps()
-            r = steps_list.currentRow()
-            if 0 <= r < len(s):
-                s.pop(r)
-                reload_steps()
-                self._touch(member)
-                self._checkpoint(member, "remove cutscene step", "cutscene")
-
-        def move(d):
-            s = steps()
-            r = steps_list.currentRow()
-            j = r + d
-            if 0 <= r < len(s) and 0 <= j < len(s):
-                s[r], s[j] = s[j], s[r]
-                reload_steps(j)
-                self._touch(member)
-                self._checkpoint(member, "reorder cutscene steps", "cutscene")
-
-        sv.addWidget(self._list_buttons([("Add / Update", add_update), ("Remove", remove),
-                                         ("Up", lambda: move(-1)), ("Down", lambda: move(1))]))
-        sv.addStretch(1)
-        row.addWidget(side)
-        self.doc_host_lay.addWidget(body)
-        reload_steps()
-        on_type()
-        self._save_ctx = {"member": member, "key": "cutscene", "spec": forms.CUTSCENE_SPEC,
-                          "getters": getters, "single": True, "section": "cutscene", "idx": None}
-        delete = (("Remove cutscene", lambda: self._delete_object(member, "cutscene", single=True,
-                                                                  label="cutscene"))
-                  if "cutscene" in doc.data else None)         # only when it actually exists (lazy)
-        self._add_save(
-            lambda: self._commit(member, "cutscene", forms.CUTSCENE_SPEC, getters, single=True), delete)
+        rows = cutscenescan.scene_rows(doc.data)
+        if not rows:
+            self.doc_host_lay.addWidget(widgets.caption(
+                "No [[cutscene]] scene yet — author one in the Cutscene tab."))
+        for r in rows:
+            kind = "narration" if r["narration"] else "cast: " + ", ".join(r["cast"])
+            self.doc_host_lay.addWidget(widgets.caption(
+                f"{r['label']} — {r['gate']} · {kind} · {r['steps']} "
+                f"step{'s' if r['steps'] != 1 else ''}"))
+        open_btn = QPushButton("Open the Cutscene tab")
+        open_btn.setObjectName("accent")           # the one next action this page has
+        open_btn.setToolTip("Scenes, steps, staging, and the beat storyboard — the cutscene "
+                            "authoring surface.")
+        open_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.cutscene_doc))
+        row = QHBoxLayout()
+        row.addWidget(open_btn)
+        if "cutscene" in doc.data:
+            rm = QPushButton("Remove cutscene")
+            rm.setProperty("role", "quiet")
+            rm.setToolTip("Remove scene #0 (a dispatch keeps its other scenes; the Cutscene "
+                          "tab's − Scene removes any one of them).")
+            rm.clicked.connect(lambda: self._delete_object(member, "cutscene", single=True,
+                                                           label="cutscene"))
+            row.addWidget(rm)
+        row.addStretch(1)
+        host = QWidget()
+        host.setLayout(row)
+        self.doc_host_lay.addWidget(host)
 
     def _mount_choice(self, member, idx):
         doc = self._doc(member)
@@ -7805,7 +7774,7 @@ class Workspace(QMainWindow):
             return
         ch = lst[idx]
         # Don't materialize an empty `options` just by BROWSING -- that would dirty the field with no edit
-        # (mirrors _mount_cutscene's ensure_cs). Read via opts(); the closures that mutate call ensure_opts().
+        # (the lazy-materialize idiom). Read via opts(); the closures that mutate call ensure_opts().
         def opts():
             return ch.get("options") or []
 
@@ -8824,12 +8793,26 @@ class Workspace(QMainWindow):
         if not data:
             return [self._muted(f"{key}: not set — select it to author")]
         if key == "cutscene":
-            steps = (data or {}).get("steps", []) or []
-            out = [f"cutscene: {len(steps)} step{'' if len(steps) == 1 else 's'}",
-                   self._muted("actor: " + (_esc(data["actor"]) if data.get("actor") else "narration")),
-                   self._muted(f"once: {str(data.get('once', True)).lower()}")]
-            if steps:
-                out.append(self._muted(f"first: {_esc(forms.step_summary(steps[0]))}"))
+            # a [[cutscene]] DISPATCH summarizes EVERY scene -- this used to be handed the raw list, hit
+            # `.get` on it and degrade the whole card to "could not inspect this node". It also read the
+            # singular `actor`, which the #13 v3 redesign REPLACED with the `actors` cast list.
+            blocks = forms.all_blocks(data)
+            out = []
+            if len(blocks) > 1:
+                out.append(f"cutscene: {len(blocks)} scenes (this form edits #0)")
+            for k, b in enumerate(blocks):
+                steps = b.get("steps", []) or []
+                cast = b.get("actors") or []
+                who = ", ".join(str(a) for a in cast) if cast else "narration"
+                head = f"scene #{k}: " if len(blocks) > 1 else "cutscene: "   # 0-based, like validate()
+                out.append(f"{head}{len(steps)} step{'' if len(steps) == 1 else 's'}")
+                out.append(self._muted(f"cast: {_esc(who)}"))
+                gate = b.get("requires_scenario", b.get("requires_flag"))
+                if gate is not None:
+                    out.append(self._muted(f"plays at: {_esc(gate)}"))
+                out.append(self._muted(f"once: {str(b.get('once', True)).lower()}"))
+                if steps:
+                    out.append(self._muted(f"first: {_esc(forms.step_summary(steps[0]))}"))
             return out
         return [self._muted(f"{_esc(k)}: {_esc(_snip(v))}") for k, v in (data or {}).items()]
 
@@ -8955,7 +8938,9 @@ class Workspace(QMainWindow):
         and a choice/cutscene reference to an NPC/marker that exists in NEITHER the field.toml NOR the
         sibling scene.toml. The geometric/structural lint (off-walkmesh, seams, dialogue overflow) stays
         with Check. Never raises. Returns colored ⚠ lines."""
-        if not isinstance(obj, dict):
+        # a maybe-plural single (the [[cutscene]] dispatch) arrives as a LIST -- bailing here is how a
+        # whole dispatch went un-linted and the health badge scored 0.
+        if not isinstance(obj, dict) and not (kind == "cutscene" and isinstance(obj, list)):
             return []
         out = []
         warn = lambda msg: out.append(f'<span style="color:{self.pal["warn"]};">⚠ {_esc(msg)}</span>')  # noqa: E731
@@ -9060,9 +9045,6 @@ class Workspace(QMainWindow):
                     warn(f"no NPC named '{ref}' in this field")
             elif kind == "cutscene":
                 seen = self._field_entity_names(member)
-                actor = obj.get("actor")               # build: an actor must be a defined [[npc]] (build.py:1112)
-                if isinstance(actor, str) and actor.strip() and actor not in seen["npc"]:
-                    warn(f"no NPC named '{actor}' for the actor")
                 # a movement target resolves against markers + NPCs + player/spawn (build's _resolve_point
                 # registry; a leading @ is optional, a [x, z] list / "x, z" coords pass). Applies to a single
                 # walk/teleport target AND every string waypoint of a path route (build.py:1097-1111).
@@ -9074,16 +9056,36 @@ class Workspace(QMainWindow):
                     nm = tgt.strip()
                     return (nm[1:] if nm.startswith("@") else nm) not in targets
 
-                for st in (obj.get("steps", []) or []):
-                    if not isinstance(st, dict):
-                        continue
-                    for skey in ("walk", "teleport"):   # a single movement target
-                        if bad_target(st.get(skey)):
-                            warn(f"{skey} target '{st[skey]}' isn't a marker/NPC in this field")
-                    if isinstance(st.get("path"), list):    # a route: every string waypoint resolves too
-                        for elem in st["path"]:
-                            if bad_target(elem):
-                                warn(f"path waypoint '{elem}' isn't a marker/NPC in this field")
+                # EVERY scene of a [[cutscene]] dispatch, not just the one the form edits -- this used to
+                # return [] for a list, so a whole dispatch was un-linted and the health badge scored 0.
+                blocks = forms.all_blocks(obj)
+                for k, b in enumerate(blocks):
+                    tag = f"scene #{k} " if len(blocks) > 1 else ""      # 0-based, like validate()
+                    if "actor" in b:                   # the #13 v3 redesign replaced the singular key;
+                        warn(f"{tag}`actor` was replaced by `actors` (a list -- the cast). "   # validate()
+                             f"Write actors = [\"<npc name>\"].")            # reports this too (build.py)
+                    cast = b.get("actors")             # build: a cast name must be a defined [[npc]] or
+                    if isinstance(cast, list):         # "player" (build.py:6733) -- the #13 v3 `actors` list
+                        for a in cast:
+                            if isinstance(a, str) and a.strip() and a != "player" \
+                                    and a not in seen["npc"]:
+                                warn(f"{tag}cast member '{a}' isn't an NPC in this field")
+                    for j, st in enumerate(b.get("steps", []) or []):
+                        if not isinstance(st, dict):
+                            continue
+                        # the build addresses steps positionally and 0-based (build.py:6744)
+                        at = f"{tag}step {j} "
+                        for skey in ("walk", "teleport"):   # a single movement target
+                            if bad_target(st.get(skey)):
+                                warn(f"{at}{skey} target '{st[skey]}' isn't a marker/NPC in this field")
+                        if isinstance(st.get("path"), list):   # a route: every string waypoint resolves too
+                            for elem in st["path"]:
+                                if bad_target(elem):
+                                    warn(f"{at}path waypoint '{elem}' isn't a marker/NPC in this field")
+                        actor = st.get("actor")        # a step's actor must be in THIS scene's cast
+                        if isinstance(actor, str) and actor.strip() and actor != "player" \
+                                and isinstance(cast, list) and cast and actor not in cast:
+                            warn(f"{at}actor '{actor}' isn't in this scene's cast")
         except Exception:                              # noqa: BLE001 -- a predicate quirk must never break inspect
             return out
         return out
@@ -10111,8 +10113,16 @@ def _smoke(win):
     assert win._node_problems("choice", {"npc": "Ref"}, "IC_ENT") == [], "a field.toml NPC reference is clean"
     assert win._node_problems("choice", {"npc": "SceneGuy"}, "IC_ENT") == [], "a scene.toml NPC reference is clean"
     assert win._node_problems("choice", {"npc": "Nope"}, "IC_ENT"), "a missing NPC reference warns"
-    assert win._node_problems("cutscene", {"actor": "SceneGuy"}, "IC_ENT") == [], "a scene.toml actor is clean"
-    assert win._node_problems("cutscene", {"actor": "Ghost"}, "IC_ENT"), "a missing actor warns"
+    # the CAST is `actors = [...]` (the #13 v3 redesign); the singular `actor` is a migration ERROR that
+    # validate() reports, so the Inspector must say the same thing rather than resolve it as a name.
+    assert win._node_problems("cutscene", {"actors": ["SceneGuy"]}, "IC_ENT") == [], "a scene.toml cast is clean"
+    assert win._node_problems("cutscene", {"actors": ["Ghost"]}, "IC_ENT"), "a missing cast member warns"
+    assert any("replaced by `actors`" in p
+               for p in win._node_problems("cutscene", {"actor": "SceneGuy"}, "IC_ENT")), \
+        "the removed singular `actor` key is named as a migration, not resolved as a cast"
+    # a DISPATCH is linted per scene, and each warning says which one (a bare 'step 0' is ambiguous)
+    assert any("scene #1" in p for p in win._node_problems(
+        "cutscene", [{"actors": ["Ref"]}, {"actors": ["Ghost"]}], "IC_ENT")), "dispatch warnings are numbered"
     assert win._node_problems("cutscene", {"steps": [{"walk": "spot1"}]}, "IC_ENT") == [], "a scene marker walk is clean"
     # a walk/teleport target resolves against markers + NPCs + player/spawn (matching the build's _resolve_point)
     assert win._node_problems("cutscene", {"steps": [{"walk": "Ref"}]}, "IC_ENT") == [], "a walk to an NPC is clean"
@@ -10267,17 +10277,19 @@ def _smoke(win):
     edit_box[0].setPlainText("a\\nb")                                        # a typed LITERAL backslash-n...
     assert _pg["dialogue"]() == "a\nb"                                       # ...is normalized to a real newline
 
-    # Phase 4b: the cutscene + choice sub-editors mount over a doc with steps/options
+    # The redesign: the Cutscene TREE node mounts a SUMMARY + the door; the DOC TAB owns the steps
     edoc = win._doc("IC_ENT")
     edoc.data["cutscene"] = {"once": True, "steps": [{"say": "Hello"}, {"wait": 30}]}
     edoc.data["choice"] = [{"npc": "Guard", "prompt": "Well?", "options": [{"text": "Yes"}, {"text": "No"}]}]
-    win._mount_cutscene("IC_ENT")
-    # (any(...==2), not [0]: deleteLater'd widgets from earlier mounts linger without a running event loop)
-    step_lists = win.doc_host.findChildren(QListWidget)
-    assert any(lst.count() == 2 for lst in step_lists), "cutscene steps list shows both steps"
-    # the cutscene 'say' step is dialogue -> a multi-line value box (default type is 'say')
-    say_box = [p for p in win.doc_host.findChildren(QPlainTextEdit) if not p.isReadOnly()]
-    assert say_box, "cutscene 'say' step has a multi-line value box"
+    win._mount_cutscene_summary("IC_ENT")
+    from PySide6.QtWidgets import QPushButton as _QPBs
+    assert any(b.text() == "Open the Cutscene tab" for b in win.doc_host.findChildren(_QPBs)), \
+        "the summary must offer the door to the Cutscene tab"
+    assert win._save_ctx is None, "a summary has nothing to fold (ONE write surface)"
+    win.cutscene_doc.show_field("IC_ENT", edoc.data, win.member_paths.get("IC_ENT"),
+                                merged_fn=edoc.merged)
+    assert win.cutscene_doc.rail.count() == 1, "the doc renders the singleton as one scene"
+    assert len(win.cutscene_doc.ladder._idx_chips) == 2, "…with both steps on the ladder"
     win._mount_choice("IC_ENT", 0)
     opt_lists = win.doc_host.findChildren(QListWidget)
     assert any(lst.count() == 2 for lst in opt_lists), "choice options list shows both options"
@@ -10840,23 +10852,23 @@ def _smoke(win):
     assert win._redo_stack, "the undone delete is redoable"
     win._add_list_item("U1", "marker")                            # a NEW edit...
     assert win._redo_stack == [], "a new edit invalidates the redo branch"
-    # (5) a cutscene STEP add records an undo step (the live sub-editor closures are checkpointed too)
-    win._mount_cutscene("U1")
-    from PySide6.QtCore import QEvent
-    from PySide6.QtWidgets import QComboBox as _QCB, QPushButton as _QPB
-    QApplication.instance().sendPostedEvents(None, QEvent.Type.DeferredDelete)   # drop earlier mounts' stale widgets
-    combo = next(c for c in win.doc_host.findChildren(_QCB)
-                 if any(c.itemData(i) == "say" for i in range(c.count())))
-    combo.setCurrentIndex(next(i for i in range(combo.count()) if combo.itemData(i) == "say"))
-    vbox = next(p for p in win.doc_host.findChildren(QPlainTextEdit)
-                if not p.isReadOnly() and "Line break" in p.toolTip())
-    vbox.setPlainText("A cutscene line")
+    # (5) a cutscene edit through the DOC's op channel records undo steps (the redesign's write lane)
+    cdoc = win.cutscene_doc
+    cdoc.show_field("U1", win._doc("U1").data, win.member_paths.get("U1"))
     nU = len(win._undo_stack)
-    next(b for b in win.doc_host.findChildren(_QPB) if b.text() == "Add / Update").click()
-    assert win._doc("U1").data.get("cutscene", {}).get("steps"), "the cutscene step was added"
-    assert len(win._undo_stack) == nU + 1, "adding a cutscene step recorded an undo step"
+    cdoc._add_scene()
+    assert win._doc("U1").data.get("cutscene"), "the scene landed in the OPEN doc (by reference)"
+    assert len(win._undo_stack) == nU + 1, "adding a scene recorded one undo step"
+    cdoc.show_field("U1", win._doc("U1").data, win.member_paths.get("U1"))   # re-pin (the edit refeed
+    cdoc._add_step()                                                          # may retarget the doc)
+    cdoc.editor.value_text.setPlainText("A cutscene line")
+    cdoc._apply_step()
+    _steps5 = win._doc("U1").data["cutscene"][0]["steps"]
+    assert any(s.get("say") == "A cutscene line" for s in _steps5), "the cutscene step was added"
+    assert len(win._undo_stack) == nU + 2, "adding a cutscene step recorded an undo step"
     win._undo()
-    assert not win._doc("U1").data.get("cutscene", {}).get("steps", []), "undo removed the cutscene step"
+    win._undo()
+    assert not win._doc("U1").data.get("cutscene"), "undo unwound the step AND the scene"
     # (6) closed-member guard: applying history for a no-longer-open member is a graceful no-op (no crash)
     win._apply_history("GONE", {"field": {}}, "field", "Undo x")
     # (7) focus-aware shortcut: with no text widget focused, Ctrl-Z routes to app-level undo; and the

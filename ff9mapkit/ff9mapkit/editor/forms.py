@@ -264,11 +264,19 @@ CUTSCENE_SPEC = [
           "blank = always"),
     Field("requires_flag", "Requires flag set", FLAGREF,
           "only plays while this story flag (name/idx) is set", catalog="flag"),
+    Field("requires_flag_clear", "Requires flag clear", FLAGREF,
+          "only plays while this story flag (name/idx) is UNSET — the other half of a flag gate",
+          catalog="flag"),
     Field("set_scenario", "Then set beat", SCENARIOREF,
           "the DIRECTOR ADVANCE: at scene end, move the story to this beat (once, only when it played)"),
+    Field("set_flags", "Then set flags", FLAGDICTLIST,
+          'story bits raised at scene end (inside the once-gate): "name, 1; other, 0"'),
     Field("then_warp", "Then warp to field", OPTINT,
           "end the scene with a fade + warp to this field id (how a forced-ATE scene returns)"),
-    Field("warmup", "Warmup frames", OPTINT, "default 30 (let the field settle)"),
+    Field("flag", "Once-flag override", OPTINT,
+          "advanced: pin THIS gEventGlobal bit as the scene's once-flag (blank = auto-allocated; "
+          "a campaign member's 2nd+ scene needs one)", advanced=True),
+    Field("warmup", "Warmup frames", OPTINT, "default 30 (let the field settle)", advanced=True),
 ]
 MARKER_SPEC = [
     Field("name", "Name", STR, "a label; reference it in a cutscene as walk = \"<name>\""),
@@ -355,19 +363,31 @@ SECTION_HELP = {
 # cutscene steps: each is a dict with exactly one action key.
 STEP_KIND = {
     "say": STR, "wait": INT, "set_flag": PAIR,                    # any cutscene
+    "open": STR, "close": INT, "wait_window": INT,               # any cutscene (multi-window)
+    "raise": BOOL, "set_signal": INT, "wait_signal": INT,       # any cutscene (windows + text signals)
     "walk": POINT, "path": PATH, "teleport": POINT,              # actor only (movement)
     "animation": ANIM, "turn": INT, "face_player": BOOL,        # actor only (anim/facing)
 }
 STEP_LABEL = {
     "say": "Say (dialogue)", "wait": "Wait (frames)", "set_flag": "Set flag (idx, val)",
+    "open": "Open a window (async)", "close": "Close a window", "wait_window": "Wait for a window",
+    "raise": "Raise windows above a fade", "set_signal": "Set text signal",
+    "wait_signal": "Wait for text signal",
     "walk": "Walk to", "path": "Walk a route", "teleport": "Teleport to",
     "animation": "Play animation", "turn": "Turn (angle 0-255)", "face_player": "Face the player",
 }
 # live hint shown for the selected step type (what to type in the Value box).
 STEP_HELP = {
-    "say": "dialogue text shown in a window",
+    "say": "dialogue text shown in a window (blocks until dismissed)",
     "wait": "frames to pause (30 ≈ 1 second)",
     "set_flag": "story flag as \"index, value\" -- e.g. 8712, 1 (custom flags live in 8712+)",
+    "open": "dialogue text in a window that STAYS UP while the scene runs on -- close it later with "
+            "'Close a window'. Set Window to keep two on screen at once",
+    "close": "the window id to dispose (the number you opened it with)",
+    "wait_window": "block until that window id is gone -- dismissed, expired, or closed by a script",
+    "raise": "(no value) lift the open windows above a fade-filter panel",
+    "set_signal": "set the text-side signal to this number (a beat other steps can wait on)",
+    "wait_signal": "block until the text signal reaches this number (guarded by a timeout)",
     "walk": "a marker name, @player, or \"x, z\" (auto-routes around obstacles)",
     "path": "a route through waypoints: \"a; b; c\" (names or x z)",
     "teleport": "instantly move to a marker / @player / \"x, z\"",
@@ -375,8 +395,73 @@ STEP_HELP = {
     "turn": "face an angle 0-255 (0=south, 64=west, 128=north, 192=east)",
     "face_player": "(no value) turn to face the player",
 }
-GLOBAL_STEPS = ("say", "wait", "set_flag")
+GLOBAL_STEPS = ("say", "wait", "set_flag", "open", "close", "wait_window",
+                "raise", "set_signal", "wait_signal")
 ACTOR_STEPS = ("walk", "path", "teleport", "animation", "turn", "face_player")
+# The kinds that carry an authored LINE, so they consume a text id and deserve the dialogue box +
+# the on-screen wrap preview. Mirrors ``content.cutscene.TEXT_STEP_KINDS`` (which the build's txid
+# counter reads) and is fenced against it -- a text kind the GUI treats as a plain value would put
+# the author's line in a single-line box with no preview, and silently shift every later txid.
+TEXT_STEPS = ("say", "open")
+# Which kinds may run IN PARALLEL with the preceding beat (`with_prev`). Mirrors
+# ``build.PARALLEL_STEP_KINDS`` -- the compiler's own rule -- and is fenced against it in
+# test_workspace_cutscene, so the checkbox can never offer a beat the validator will reject.
+PARALLEL_STEPS = ("walk", "path", "animation", "turn")
+
+
+def single_block(container, section, *, create=False) -> dict:
+    """The ONE dict a *single*-section form edits, for a section the toml may store either way.
+
+    ``[cutscene]`` (one table) and ``[[cutscene]]`` (the story-event DISPATCH -- several scenes on one
+    field, each gated to its own beat) both reach a form as one editable block: **index 0**. Every path
+    that reads or folds a single form has to agree on that, or they disagree about the TYPE of the thing
+    they are handling.
+
+    They did disagree, in both editors:
+
+    * **Qt** -- ``Workspace._commit`` normalized the list; ``_commit_active`` and
+      ``_form_matches_baseline`` did not, so they ran ``list.pop(key, None)`` -> ``TypeError``. Because
+      ``_commit_active_ck`` sits on the nav / undo / redo / refresh / Check / save boundary, mounting
+      Cutscene on any ``[[cutscene]]`` field TRAPPED the editor -- silently, since there is no excepthook
+      and the entry point is a ``.pyw``.
+    * **Tk** -- ``app._show_cutscene`` did ``cs.get("steps", [])`` straight off the list ->
+      ``AttributeError``, after ``entity_to_values`` had already drawn an all-blank form (it reads misses
+      as defaults, so a list silently yields blanks rather than raising).
+
+    Both shipped stolen-ember examples tripped both editors. One owner now, per THE CALL-SITE LAW.
+
+    ``create=True`` materializes (the commit paths); the default reads without dirtying the doc (the
+    baseline / compare / render paths, which must never materialize an empty section).
+    """
+    cur = container.setdefault(section, {}) if create else (container.get(section) or {})
+    if not isinstance(cur, list):
+        return cur
+    if not cur or not isinstance(cur[0], dict):      # a plural section -> the form edits BLOCK 0
+        if not create:
+            return {}
+        cur.insert(0, {})
+    return cur[0]
+
+
+def all_blocks(raw) -> list:
+    """Every block of a maybe-plural section, in author order -- a singleton table comes out as the
+    one-block case. The editor-side twin of :func:`ff9mapkit.content.cutscene.blocks` (the build's owner);
+    kept here so the GUI does not drag in the ``content`` -> ``eb`` import chain, and FENCED against it in
+    ``test_workspace_cutscene`` so the two can never disagree about what a dispatch is."""
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return [raw]
+    return [b for b in raw if isinstance(b, dict)]
+
+
+def block_count(container, section) -> int:
+    """How many blocks a single-section key actually holds (1 for a singleton, N for an array-of-tables,
+    0 when absent) -- what a surface needs to TELL the author it is editing one of several."""
+    cur = container.get(section)
+    if cur is None:
+        return 0
+    return len(cur) if isinstance(cur, list) else 1
 
 
 # --- field rules shared by BOTH editors (Tk app.py + Qt forms_qt.py) ----------------------

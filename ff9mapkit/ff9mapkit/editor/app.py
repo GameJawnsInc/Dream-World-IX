@@ -146,7 +146,7 @@ class EditorApp:
             "  - NPCs / Gateways / Events: people, exits, and walk-in triggers.\n"
             "  - Markers: named floor points a cutscene can walk to by name.\n"
             "  - Choices: talk to an NPC -> a menu -> branch (each option: reply / item / gil / flag).\n"
-            "  - Cutscene: ordered steps (control locks). An 'actor' NPC can walk / emote.\n"
+            "  - Cutscene: ordered steps (control locks). A cast ('actors') can walk / emote.\n"
             "  - Dialogue: auto-wrap width for long lines. Encounter / Music: battles + BGM.\n\n"
             "CUTSCENE STEPS\n"
             "  - walk/teleport: a marker name, @player, or \"x, z\" (walk auto-routes around things).\n"
@@ -585,10 +585,18 @@ class EditorApp:
             self._show_optional_single("cutscene", forms.CUTSCENE_SPEC, "Cutscene")
             return
         self._header("Cutscene", "cutscene")
-        cs = self.doc.data["cutscene"]
+        # a [[cutscene]] DISPATCH (several beat-gated scenes on one field) reaches this form as BLOCK 0.
+        # Reading the raw list here used to draw an all-blank form (entity_to_values reads misses as
+        # defaults) and then die on `cs.get("steps")` -- AttributeError on both shipped examples.
+        cs = forms.single_block(self.doc.data, "cutscene")
+        n_scenes = forms.block_count(self.doc.data, "cutscene")
         pal = self.palette
         self.getters = self._render_spec(self._form_grid(), forms.CUTSCENE_SPEC,
                                          forms.entity_to_values(forms.CUTSCENE_SPEC, cs))
+        if n_scenes > 1:                              # say which one, like the Qt editor does
+            ttk.Label(self.form, foreground=pal["warn"], wraplength=520,
+                      text=(f"This field has {n_scenes} [[cutscene]] scenes. This form edits scene #1 "
+                            f"— edit the rest in the .toml.")).pack(anchor="w", padx=10, pady=(8, 0))
         # --- the step list ---
         ttk.Label(self.form, text="Steps (run in order; control is locked):",
                   font=("", 10, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
@@ -600,8 +608,9 @@ class EditorApp:
                         highlightthickness=1, highlightbackground=pal["border"],
                         highlightcolor=pal["accent"])
         lb.pack(side="left", fill="both", expand=True)
-        for st in cs.get("steps", []):
-            lb.insert("end", forms.step_summary(st))
+        for i, st in enumerate(cs.get("steps", [])):
+            # 0-BASED, matching how the build's own lint addresses steps (parity with the Qt editor)
+            lb.insert("end", f"{i}   {forms.step_summary(st)}")
         side = ttk.Frame(body)
         side.pack(side="left", fill="y", padx=(8, 0))
         kind = tk.StringVar(value="say")
@@ -618,7 +627,8 @@ class EditorApp:
         ttk.Label(side, text="(walk/path/teleport/animation/\nturn/face need an actor)",
                   foreground=pal["muted"], justify="left").pack(anchor="w", pady=(4, 0))
         self.step_widgets = {"listbox": lb, "kind": kind, "val": val}
-        ttk.Button(side, text="Add / Update", command=self._step_add).pack(fill="x", pady=(8, 2))
+        ttk.Button(side, text="Add step", command=self._step_add).pack(fill="x", pady=(8, 2))
+        ttk.Button(side, text="Update selected", command=self._step_update).pack(fill="x", pady=(0, 2))
         ttk.Button(side, text="Remove", command=self._step_remove).pack(fill="x", pady=2)
         ttk.Button(side, text="Up", command=lambda: self._step_move(-1)).pack(fill="x", pady=2)
         ttk.Button(side, text="Down", command=lambda: self._step_move(1)).pack(fill="x", pady=2)
@@ -628,7 +638,9 @@ class EditorApp:
         self.active = {"type": "cutscene", "section": "cutscene"}
 
     def _steps(self):
-        return self.doc.data.setdefault("cutscene", {}).setdefault("steps", [])
+        # a [[cutscene]] dispatch reaches this form as BLOCK 0 (forms.single_block) -- without the
+        # normalization this was `list.setdefault` -> AttributeError on every shipped example.
+        return forms.single_block(self.doc.data, "cutscene", create=True).setdefault("steps", [])
 
     def _step_selected(self, _evt):
         w = self.step_widgets
@@ -639,22 +651,42 @@ class EditorApp:
         w["kind"].set(forms.step_key(st))
         w["val"].set(forms.step_value_text(st))
 
-    def _step_add(self):
-        w = self.step_widgets
+    def _read_step(self):
+        """The step the sub-editor describes, or None (having told the user why)."""
         try:
-            step = forms.make_step(w["kind"].get(), w["val"].get())
+            return forms.make_step(self.step_widgets["kind"].get(), self.step_widgets["val"].get())
         except ValueError as e:
             messagebox.showerror("Bad step", str(e))
+            return None
+
+    # TWO VERBS, NOT ONE -- the Qt editor's split, mirrored. One button that guessed update-vs-append
+    # from the step KIND could not change a step's type (it left the original alone and appended a
+    # stray one), and could not write two steps of the same kind while a row stayed selected.
+    def _step_add(self):
+        """Append a NEW step after the selected row (so you can author into the middle)."""
+        step = self._read_step()
+        if step is None:
             return
         steps = self._steps()
-        sel = w["listbox"].curselection()
-        if sel and forms.step_key(steps[sel[0]]) == forms.step_key(step):
-            merged = dict(steps[sel[0]])
-            merged.update(step)                           # overwrite only the action key; keep actor/with_prev
-            steps[sel[0]] = merged
-        else:
-            steps.append(step)
-        self._reload_steps()
+        sel = self.step_widgets["listbox"].curselection()
+        at = sel[0] + 1 if sel else len(steps)
+        steps.insert(at, step)
+        self._reload_steps(select=at)
+
+    def _step_update(self):
+        """Overwrite the SELECTED step, whatever its kind, keeping the keys the form can't edit."""
+        sel = self.step_widgets["listbox"].curselection()
+        if not sel:
+            messagebox.showinfo("Select a step",
+                                "Pick a row in the step list first, or press “Add step”.")
+            return
+        step = self._read_step()
+        if step is None:
+            return
+        steps = self._steps()
+        keep = {k: v for k, v in steps[sel[0]].items() if k not in forms.STEP_KIND}
+        steps[sel[0]] = {**keep, **step}                  # keep actor / with_prev / speaker / tail
+        self._reload_steps(select=sel[0])
 
     def _step_remove(self):
         w = self.step_widgets
@@ -679,8 +711,9 @@ class EditorApp:
         w = self.step_widgets
         lb = w["listbox"]
         lb.delete(0, "end")
-        for st in self._steps():
-            lb.insert("end", forms.step_summary(st))
+        for i, st in enumerate(self._steps()):
+            # 0-BASED, matching how the build's own lint addresses steps (parity with the Qt editor)
+            lb.insert("end", f"{i}   {forms.step_summary(st)}")
         if select is not None and 0 <= select < lb.size():
             lb.selection_set(select)
 
@@ -823,7 +856,7 @@ class EditorApp:
             if a["index"] < len(lst):
                 _apply(lst[a["index"]], spec, entity)
         elif a["type"] == "cutscene":
-            cs = self.doc.data.setdefault("cutscene", {})
+            cs = forms.single_block(self.doc.data, "cutscene", create=True)   # the dispatch: block 0
             steps = cs.get("steps", [])
             _apply(cs, spec, entity)
             cs["steps"] = steps                           # keep the steps the list editor manages

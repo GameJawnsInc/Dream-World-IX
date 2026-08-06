@@ -48,9 +48,13 @@ surface = "form:chest"
 take = "form-chest"
 used_by = ["ff9mapkit/docs/tutorials/s4-story-flags.md"]
 
+# Post-redesign: the CUTSCENE TAB (scene rail + ladder + stage) with the step editor open --
+# the write surface s5 teaches. The Editor tree's cutscene node is now a summary + a door.
+# The -pane take (the doc widget, no window chrome): the status bar paints this run's random
+# scratch path, so a whole-window figure can never pixel-diff clean.
 [shot.editor-cutscene]
-surface = "form:cutscene"
-take = "form-cutscene"
+surface = "cutscene:editor"
+take = "cutscene-editor-pane"
 used_by = ["ff9mapkit/docs/tutorials/s5-cutscene-and-music.md"]
 
 [shot.editor-encounter]

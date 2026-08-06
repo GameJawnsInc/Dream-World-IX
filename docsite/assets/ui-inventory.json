@@ -145,7 +145,7 @@
    },
    "build_deploy.newgame_status": {
     "kind": "QLabel",
-    "text": "New Game currently points at field 4000."
+    "text": "New Game currently points at field 6000."
    },
    "build_deploy.chk": {
     "kind": "QPushButton",
@@ -173,7 +173,7 @@
    },
    "build_deploy.dep_hint": {
     "kind": "QLabel",
-    "text": "3 deployed here · 2 with an undo script — select one and Revert selected to undo it."
+    "text": "422 deployed here · 0 with an undo script — select one and Revert selected to undo it."
    }
   },
   "tab:import": {
@@ -795,13 +795,17 @@
     "kind": "QLabel",
     "text": "PySide6"
    },
+   "6.11.1": {
+    "kind": "QLabel",
+    "text": "6.11.1"
+   },
    "ffmpeg": {
     "kind": "QLabel",
     "text": "ffmpeg"
    },
-   "C:\\ffmpeg\\bin\\ffmpeg.exe": {
+   "…ce_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.EXE": {
     "kind": "QLabel",
-    "text": "C:\\ffmpeg\\bin\\ffmpeg.exe"
+    "text": "…ce_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.EXE"
    },
    "FF9 install": {
     "kind": "QLabel",
@@ -1325,13 +1329,25 @@
     "kind": "flagref",
     "text": "Requires flag set"
    },
+   "requires_flag_clear": {
+    "kind": "flagref",
+    "text": "Requires flag clear"
+   },
    "set_scenario": {
     "kind": "scenarioref",
     "text": "Then set beat"
    },
+   "set_flags": {
+    "kind": "flagdictlist",
+    "text": "Then set flags"
+   },
    "then_warp": {
     "kind": "optint",
     "text": "Then warp to field"
+   },
+   "flag": {
+    "kind": "optint",
+    "text": "Once-flag override"
    },
    "warmup": {
     "kind": "optint",

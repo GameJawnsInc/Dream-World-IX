@@ -40,20 +40,28 @@ player control locked while they do. This step adds a minimal one, plus the fiel
 
 ## 1. A scene on entry
 
-In the Editor, open the **Cutscene** section:
+Open the **Cutscene** tab (Author rail, next to Behavior). Its left rail lists every scene of
+the field — none yet, so press **Add a scene**:
 
-![The cutscene form — ordered steps with per-step type and value](../../../docsite/assets/shots/editor-cutscene_light.png)
+![The Cutscene tab — the scene rail, the step ladder, and the step editor open](../../../docsite/assets/shots/editor-cutscene_light.png)
 
-Build a three-step narration with the step editor on the right — pick a **Type**, fill
-**Value**, press **Add / Update**:
+Build a three-step narration: press **＋ Step**, pick a **Type**, fill **Value**, press
+**Apply** —
 
 1. **Say (dialogue)** — a line; the window blocks until dismissed,
 2. a wait — a pause in frames (30 ≈ one second),
 3. another **Say (dialogue)**.
 
-Leave **Play once** checked: the scene plays a single time ever, guarded by a save-persistent
-flag allocated automatically — the same mechanism as S4's chest. Control locks for the duration
-on its own.
+After each Apply the editor stays open and moves to the next row, so a conversation types
+straight through. **＋ Step** inserts after whichever row is selected — you can go back and
+write a line into the middle later; a row's **pencil** unfolds it for editing (click again to
+fold), **↑ ↓ ⧉ ✕** reorder, duplicate, and remove it. As you type a **Say**, the preview
+underneath shows where the line will break on the FF9 screen — the game never wraps text
+itself.
+
+Under **Settings**, leave **Play once** checked: the scene plays a single time ever, guarded
+by a save-persistent flag allocated automatically — the same mechanism as S4's chest. Control
+locks for the duration on its own.
 
 Deploy, **~ → Reload**, walk in. **What you should see:** the party stops, the lines play in
 order, control returns — and a second visit skips the scene (the once-flag at work; to watch it
@@ -61,8 +69,11 @@ again during authoring, deploy again and reload — a redeploy starts the field'
 the **Test slot**, [S1](s1-fork-and-deploy.md)'s name for this same scratch id).
 
 A scene can also drive NPCs — walk them, turn them, have them speak — by naming them under
-**Cast**; gated to story beats (**Requires beat** / **Then set beat**) it becomes FF9's own
-story-event dispatch. Both are in
+**Cast** in **Settings**: the stage below the ladder then shows every walk on the room's
+floor, **Check the staging** (right column) warns about any walk that would stall the scene,
+and **▶ Storyboard** scrubs the scene beat by beat. Gated to story beats (**Requires beat** /
+**Then set beat**) a set of scenes becomes FF9's own story-event dispatch — one `[[cutscene]]`
+block per beat, all visible in the rail. Everything is in
 [`[cutscene]` in the reference](../FORMAT.md#cutscene--cutscene-optional).
 
 ## 2. Field music

@@ -1069,13 +1069,21 @@ class SweepResult:
     lines: list = field(default_factory=list)     # [(kind, text)] kind: error|warn|info
 
 
-def load_walkmesh(toml_path):
+def load_walkmesh(toml_path, flag_names=None):
     """The sweep lane's one DISK read: the SAVED field's walkmesh (behavior edits never
     change the mesh, so the two-truths split is honest — mesh from disk, geometry from
-    the open document). Returns ``(wmesh, "")`` or ``(None, why)``. Worker material."""
+    the open document). Returns ``(wmesh, "")`` or ``(None, why)``. Worker material.
+
+    ``flag_names`` ({name: absolute bit}) is the OPEN CAMPAIGN's shared ``[[flag]]`` table.
+    A campaign MEMBER gates on flag NAMES its own toml never defines — the campaign supplies
+    them (``campaign.py``: ``FieldProject.load(..., flag_names=campaign_names)``) — so loading
+    a member standalone dies in flag resolution with "unknown flag name 'chapel_open'", long
+    before any mesh is read. Both shipped stolen-ember members do exactly this. Without the
+    names, a perfectly good field reports itself as having no walkmesh."""
     try:
         from .. import build as _build
-        return _build.behavior_walkmesh(_build.FieldProject.load(toml_path)), ""
+        proj = _build.FieldProject.load(toml_path, flag_names=flag_names or None)
+        return _build.behavior_walkmesh(proj), ""
     except Exception as e:                 # noqa: BLE001 -- the message is the teaching
         return None, str(e)
 

@@ -56,7 +56,18 @@ class StageCanvas(QGraphicsView):
     layout-probe guides (world compass, the ~192u jam-spacing ring, live coordinates while
     dragging), and painted sweep verdicts. The canvas never touches the raw dict — a drag
     ends in ONE callback (``on_move``/``on_radius``/``on_insert``/``on_delete``) and the
-    host doc owns the write + the undo step."""
+    host doc owns the write + the undo step.
+
+    SUBCLASS SEAM (the Cutscene stage rides this): everything except :meth:`_draw` is
+    model-agnostic — frame/zoom/fit, the anchor/child/label primitives (the GC laws live
+    there, inherit them, never copy), the drag machinery keyed on ``stage_handles``-schema
+    rows, and the de-collision pass. A subclass overrides ``_draw`` (call ``_reset_scene()``
+    first, ``_draw_handles()`` + ``_decollide_labels()`` last) and may widen
+    :attr:`SPACING_KINDS`."""
+
+    # handle kinds whose drag shows the ~192u jam-spacing guide (a class attr so a subclass
+    # can widen it -- e.g. a cutscene walk target is a "target")
+    SPACING_KINDS = ("post", "player")
 
     def __init__(self, palette, *, scale=100, on_move=None, on_radius=None,
                  on_insert=None, on_delete=None):
@@ -354,7 +365,7 @@ class StageCanvas(QGraphicsView):
             row = self._move_items[i]
             h = row["handle"]
             d = {"kind": "move", "row": row, "x": h["x"], "z": h["z"], "spacing": None}
-            if h["kind"] in ("post", "player"):    # the jam-spacing guide rides the drag
+            if h["kind"] in self.SPACING_KINDS:    # the jam-spacing guide rides the drag
                 pen = QPen(QColor(self.pal["muted"]), 1.0)
                 pen.setCosmetic(True)
                 pen.setDashPattern([2, 3])
@@ -518,13 +529,38 @@ class StageCanvas(QGraphicsView):
         dot.setBrush(QBrush(Qt.BrushStyle.NoBrush) if hollow else QBrush(QColor(color)))
         return anchor
 
-    def _draw(self):
-        sc, pal = self._scene, self.pal
-        self._drag = None                          # scene.clear() deletes any grabbed item
+    def _reset_scene(self):
+        """Every ``_draw``'s prologue (subclass draws call it FIRST): drop the live drag
+        (``scene.clear()`` deletes any grabbed item), the per-draw item registries, and the
+        scene itself."""
+        self._drag = None
         self._coords.hide()
         self._move_items, self._grip_items = [], []
-        self._labels = []                          # rebuilt below; the de-collision pass reads it
-        sc.clear()
+        self._labels = []                          # rebuilt by the draw; de-collision reads it
+        self._scene.clear()
+
+    def _draw_handles(self):
+        """The edit-handle layer, drawn LAST (topmost for ``itemAt``): a hollow grip square
+        per writable point; the geometry underneath keeps its kind colour — the grip is an
+        affordance, not a legend entry. No-op outside edit mode."""
+        if not self._edit:
+            return
+        pal = self.pal
+        for i, h in enumerate(self._handles):
+            anchor = self._anchor(h["x"], h["z"], "handle")
+            anchor.setData(1, i)
+            sq = self._child(self._scene.addRect(-4, -4, 8, 8), anchor)
+            sq.setPen(QPen(QColor(pal["text"]), 1.2))
+            sq.setBrush(QBrush(QColor(pal["surface"])))
+            widgets.mark_grabbable(sq)             # the hover cue over the pan hand
+            anchor.setToolTip(h["label"] + (
+                "\nDrag to move · right-click for point ops" if h.get("list_id")
+                else "\nDrag to move"))
+            self._move_items.append({"anchor": anchor, "handle": h})
+
+    def _draw(self):
+        sc, pal = self._scene, self.pal
+        self._reset_scene()
         m = self._model
         if not m or m.get("bounds") is None:
             t = self._fixed(sc.addSimpleText(
@@ -690,21 +726,7 @@ class StageCanvas(QGraphicsView):
                         pct = 100.0 * p["blocked"] / max(1, p["tested"])
                         self._label(f"{p['unit']} pursuit jams ({pct:.0f}% of pairs)",
                                     h["mid"][0], h["mid"][1], color=pal["warn"], dy=-36)
-        # the edit handles, LAST (topmost for itemAt): a hollow grip square per writable
-        # point; the geometry underneath keeps its kind colour — the grip is an affordance,
-        # not a legend entry
-        if self._edit:
-            for i, h in enumerate(self._handles):
-                anchor = self._anchor(h["x"], h["z"], "handle")
-                anchor.setData(1, i)
-                sq = self._child(self._scene.addRect(-4, -4, 8, 8), anchor)
-                sq.setPen(QPen(QColor(pal["text"]), 1.2))
-                sq.setBrush(QBrush(QColor(pal["surface"])))
-                widgets.mark_grabbable(sq)         # the hover cue over the pan hand
-                anchor.setToolTip(h["label"] + (
-                    "\nDrag to move · right-click for point ops" if h.get("list_id")
-                    else "\nDrag to move"))
-                self._move_items.append({"anchor": anchor, "handle": h})
+        self._draw_handles()                       # the edit layer, topmost for itemAt
         self._decollide_labels()                   # labels negotiate tiers at the current zoom
 
 

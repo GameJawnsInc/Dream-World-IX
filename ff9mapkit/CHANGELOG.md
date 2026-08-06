@@ -803,6 +803,39 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   keystone — the splice must agree byte-for-byte with the full reassembly of the same text, so two
   independent paths have to reach one answer. Composes with `--verify-against`.
 
+### Fixed — the Cutscene tab: a `[[cutscene]]` field no longer freezes the editor, and dialogue stops eating itself
+- **Opening the Cutscene tab on a field with `[[cutscene]]` scenes used to kill the session.** After
+  that, every tree click, undo, redo, refresh, Check and Save All did nothing — silently, because the
+  app launches from a `.pyw` and the traceback had nowhere to go, so it just looked frozen. Both
+  shipped `stolen-ember` examples did it, and so did `ff9mapkit edit`, which crashed outright on the
+  same files. One helper (`editor.forms.single_block`) now answers "which scene does this form edit?"
+  for every path in both editors instead of three of them disagreeing about it.
+- **Writing two lines of dialogue in a row kept only the last one.** *Add / Update* guessed which one
+  you meant from the step's TYPE, so a second `say` overwrote the first — three lines in, one out, no
+  warning, and no way to clear the selection with the mouse. It is now **Add step** (always inserts,
+  after the selected row, so you can author into the middle) and **Update selected** (always rewrites
+  the selected step). Changing a step's type in place works for the same reason: it used to leave the
+  original alone and drop a stray step at the end. **Duplicate** joins Remove/Up/Down.
+- **The Inspector was blind to a multi-scene field** — it bailed on the whole dispatch, so no step was
+  ever checked and the health badge read 0 problems on a broken scene. It also still looked for the
+  singular `actor` key that the cast redesign replaced with `actors`, so it called every cast scene
+  "narration". It now summarizes every scene, names the cast, and prefixes each warning with the scene
+  it came from. Walk-stall warnings from the build do the same (`[cutscene] #1 step 3: …`).
+
+### Added — the Cutscene tab tells you before the game does
+- **"Check the staging"** walks every actor's route against the saved walkmesh and reports the legs
+  that would **stall** — the in-game symptom is a scene that locks up with the actor pressed into a
+  wall. The kit could already predict this exactly; nothing in the GUI could reach it, so it only ever
+  fired from `ff9mapkit lint`. Runs off the UI thread. (Mesh from the *saved* file, steps from what is
+  open — editing steps never moves the mesh.)
+- **"Runs with the previous beat"** — a checkbox for parallel choreography (two actors moving at
+  once). The compiler has always supported it and the step list has always *displayed* `[with prev]`;
+  there was simply nothing anywhere that could write it. Enabled only where the compiler accepts one
+  (walk / route / animation / turn, never the first step), from the compiler's own rule.
+- **A live on-screen wrap preview under the dialogue box**, the same one the other dialogue fields
+  get, using the same wrapper the build uses. FF9 never wraps text itself.
+- **Step rows are numbered**, 0-based, matching how the build's own warnings address them.
+
 ### Changed — `ff9mapkit floorplan` recomposing MERGES; it no longer overwrites your room
 - **A recompose now keeps everything you put in a composed room** and regenerates only what the
   composer derives from the plan. `[[npc]]`, `[[prop]]`, `[[chest]]`, `[[event]]`, `[[choice]]`,
