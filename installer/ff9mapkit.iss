@@ -18,7 +18,7 @@
 ; Memoria is absent). If you DON'T copy it, the task is harmless -- no zip ships, no engine install runs.
 
 #define MyAppName "Dream World IX"
-#define MyAppVersion "1.0.0b17"
+#define MyAppVersion "1.0.0b18"
 #define MyAppPublisher "GameJawnsInc"
 #define MyAppURL "https://github.com/GameJawnsInc/Dream-World-IX"
 

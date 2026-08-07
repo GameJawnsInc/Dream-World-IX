@@ -5,6 +5,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+## [1.0.0b18] - 2026-08-06 — A third world map, dungeons drawn by hand, and summons of your own
+
 ### Added — mains-rect orphan census (Class C) in the orphan-decal gate
 - The orphan-decal gate (`world/orphangate.py`, WARN-by-default in `world-transplant`/
   `transplant_region` and the junction generator's advisory) now censuses **mains-rect
@@ -802,6 +804,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `eb-asm`. Three self-verifies guard it: the envelope match, no new `lint-eb` errors, and — the
   keystone — the splice must agree byte-for-byte with the full reassembly of the same text, so two
   independent paths have to reach one answer. Composes with `--verify-against`.
+
+### Added — the Cutscene DOC TAB: scene rail, step ladder, stage, beat storyboard
+- The Author rail gains a dedicated **Cutscene** tab — the doc-tab treatment the Behavior tab
+  proved, applied to `[[cutscene]]`: a scene rail (every scene in the field, its gates and cast at
+  a glance), THE ACCORDION step ladder (the one window — playtest feedback replaced the earlier
+  windowed ladder), a stage view drawing routes over the field's own art, and a beat storyboard
+  pairing text beats with the windows they open. The tab is the one WRITE surface (THE FLIP: the
+  tree node is now a summary that links here); editing is a toggle with an SVG pencil, and the
+  Qt-free model layer (`workspace/cutscenescan.py`) carries projections, paintable verdicts and
+  ops so the whole surface tests without a display. Seven pinned `cutscene:*` snapshot surfaces
+  joined the docsite harvest. ⚠ Shipped after real GUI playtest rounds, but no cutscene authored
+  end-to-end THROUGH the tab has been confirmed in-game yet — the compiler beneath it is proven;
+  check the written TOML when in doubt.
 
 ### Fixed — the Cutscene tab: a `[[cutscene]]` field no longer freezes the editor, and dialogue stops eating itself
 - **Opening the Cutscene tab on a field with `[[cutscene]]` scenes used to kill the session.** After
