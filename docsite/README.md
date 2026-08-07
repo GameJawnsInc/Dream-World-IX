@@ -68,3 +68,22 @@ in `tests/test_uiharvest_pins.py` (counts) — not by review.
 ```
 py -m pytest docsite/tests -q
 ```
+
+## Deploy (live site)
+
+The Manual is published at **https://jawnston.com/ff9docs/**:
+
+```
+.\docsite\deploy.ps1               # build + publish (a red build never deploys)
+.\docsite\deploy.ps1 -SkipBuild    # publish whatever _site already holds
+```
+
+The script (conventions mirror `C:\gd\JawnRPG\webpage\deploy-site.ps1`) builds fresh — so the
+link/anchor/command gates are the pre-deploy check — tars `_site/`, uploads one archive to the
+`mygame` host, and swaps it into `/var/www/jawnston/ff9docs` near-atomically, keeping the
+previous deploy at `ff9docs.old` for a one-command rollback. No Caddyfile change is involved:
+the site is document-relative throughout, so jawnston.com's root `file_server` serves the
+subdirectory as-is. Note the server sets `X-Robots-Tag: noindex` site-wide and its root
+`robots.txt` disallows crawling (the game is a private alpha) — the Manual inherits both, so it
+is reachable by link but not indexed; lifting that is a Caddyfile/robots decision, not a docsite
+one. Outward-facing: deploy on the owner's say-so, not automatically.

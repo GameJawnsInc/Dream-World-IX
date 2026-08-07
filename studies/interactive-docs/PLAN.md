@@ -47,8 +47,19 @@ its dead prose-containment check (raw included the declaration), and the corpus 
 hard-wrap class (a label split across a markdown line break).
 
 **Next:** the revamp itself (owner-authored on the rails; 07 first), rung 3 runnable fences,
-the dlg adapter (dialog shots + dialog inventory), rung 1b (block data layer), rung 5 deployment
-(owner, confirm-first). Design below is as-ratified.
+the dlg adapter (dialog shots + dialog inventory), rung 1b (block data layer). Design below is
+as-ratified.
+
+**★ Rung 5 DEPLOYED (owner-directed, 2026-08-07): https://jawnston.com/ff9docs/** —
+`docsite/deploy.ps1` (style-matched to the owner's `JawnRPG/webpage/deploy-site.ps1`): fresh
+build (gates = the pre-deploy check) → one tar upload to the `mygame` host → near-atomic swap
+into `/var/www/jawnston/ff9docs` with the prior deploy kept at `ff9docs.old` (rollback = swap
+back). ZERO Caddyfile changes — the document-relative platform law paid off: the root
+file_server serves the subdirectory unchanged, verified live (front door, deep tutorial page,
+`../../../`-reached shot asset, CLI reference all 200). The site inherits jawnston.com's
+site-wide noindex header + deny-all robots.txt (the game is a private alpha): linkable, not
+indexed — surfacing it to crawlers is an owner Caddyfile/robots decision, out of docsite scope.
+Versioning (per-release snapshots) remains open.
 
 **★ The "What can I do?" catalog (owner-requested, 2026-08-07):** `docsite/pages/what-can-i-do.md`
 — 26 feature cards, each `## card` = **You get** (the authoring payoff) + **Try it** (2-3 steps)
