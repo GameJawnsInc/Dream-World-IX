@@ -44,8 +44,10 @@ Which shape a block takes is in its reference heading — [`FORMAT.md`](../FORMA
 
 ## 3. The core track, as text
 
-Everything the core track built through forms (S2–S6) is these blocks. A compact field carrying
-all of it:
+Everything the core track built through forms (S2–S6) is these blocks. What follows is a
+reference specimen, not a walked exercise — Track C does not re-verify each feature in-game the
+way [S3](s3-gateways.md)–[S6](s6-encounters.md) do, and those steps remain the walkthrough for
+any block that misbehaves. A compact field carrying all of it:
 
 ```toml
 [[npc]]

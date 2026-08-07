@@ -62,11 +62,25 @@ Closed (`0c60c7c2`, `80bd8e8e`, `42b7b5f7`, `0ae21367`, `9aedf59f`, `845adc9a`):
   re-harvests and diffs. The Qt-harvested `tab:`/`dlg:` halves cannot be closed this way and remain
   a `uiharvest --check` chore.
 
-Still ungated: S7 and all of Track C declare zero labels.
+~~Still ungated: S7 and all of Track C declare zero labels.~~ CLOSED: S7 declares its four
+inventory-backed Build-tab controls (Point New Game here / Revert New Game / the campaign
+Build-only radio / Package (zip)…), C4 declares Import field + Point New Game here, and
+S4/S5/S6's recreate-recipes declare the Import-tab buttons they name. Not declarable (exact-match
+gate): the dynamic-suffix radios ("Test slot 4003"), menu items (New Campaign… — menus are not
+harvested; the dlg-adapter gap), and the editor's Check button (no attr path in the inventory).
+C1/C2/C3 name no harvestable controls — nothing to declare.
 
 ## Structural findings, ranked
 
-### 1. S4-S7 need real checkpoint recipes, and the continuing-build vs. cold-start tension needs one clarifying sentence
+### 1. S4-S7 need real checkpoint recipes, and the continuing-build vs. cold-start tension needs one clarifying sentence — DONE
+
+Applied: S4 states the real minimal dependency (one deployed room) with a full recreate recipe
+plus the side-build caution ("S7 packages the *connected pair*; a fresh room made just for one
+step is a side build"); S5 and S6 carry the one-room recipe and reference S4's caution; S7 spells
+out the true pair dependency ("fork two vetted rooms, each under its own id, wire a gateway
+pair"). Minimal deps were confirmed against the tutorials' own content: S4's chest/flag/NPC-gate
+and S5's cutscene/music and S6's encounter touch no gateway; S7's Map-tab connections and the
+campaign's reachability labeling genuinely need the pair.
 
 Triple-corroborated (two design-lens findings plus the user-story returning-user persona) on the same
 underlying defect: S2 and S3 give an explicit "To recreate it: <clicks>" sentence; S4, S5, S6, and S7
@@ -83,7 +97,15 @@ step's real minimal dependency against the toolkit, not just copying a template,
 how/where to state the continuing-build-vs-cold-start distinction — both are owner judgment calls, not
 mechanical edits.
 
-### 2. Track C's depth stops at S1-S2 parity with no disclosed boundary or in-game verification steps
+### 2. Track C's depth stops at S1-S2 parity with no disclosed boundary or in-game verification steps — DONE (disclosure option)
+
+Applied the disclose-the-boundary option, not new C5-C7 content: C1 states up front that S1-S2
+is where Track C's step-by-step depth deliberately stops and routes feature depth to C2 §3 +
+FORMAT.md + S3-S6; C2 §3 now frames its compact TOML as a reference specimen, not a walked
+exercise. C3 gained a Starting-from line and a concrete revert verification walk (deploy → edit →
+redeploy → revert → reload → the previous deploy returns); C4 gained a Starting-from line and the
+Check-vs-`ff9mapkit lint` round trip with a same-findings "what you should see". Authoring
+C5-C7-style walkthroughs remains open as a conscious content decision.
 
 C1 states its own scope as "the core-track competence... fork a room, add an NPC, deploy, reload" —
 S1-S2 parity only. C2's section 3 shows gateways/flags/cutscene/encounter/music as one static, unwalked
@@ -226,6 +248,10 @@ owner, not a text correction.
   stated only a lower bound (">= 4000; scratch band 30000+").
 
 ## Quick fixes NOT yet applied (deferred, logged not lost)
+
+**Both applied since this was written** — s2-add-an-npc.md carries the "Appears when flag set"
+bullet pointing at S4, and s5-cutscene-and-music.md ties "the scratch slot" back to S1's
+**Test slot** label. Kept below for the record.
 
 - `ff9mapkit/docs/tutorials/s2-add-an-npc.md` — the NPC-form screenshot caption lists "story-flag
   gates" as visible in the figure, but the four prose bullets below it (Name/Preset/Dialogue/Position)

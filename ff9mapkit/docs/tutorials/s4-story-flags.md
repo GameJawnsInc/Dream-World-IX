@@ -39,13 +39,26 @@ widget = "form:npc.requires_flag"
 [[tutorial.ui]]
 label = "Opens when flag set"
 widget = "form:gateway.requires_flag"
+
+[[tutorial.ui]]
+label = "Suggest a test room…"
+widget = "import_field.rooms_btn"
+
+[[tutorial.ui]]
+label = "Import field"
+widget = "import_field.import_btn"
 ```
 
 A **story flag** is one save-backed bit that something sets and other content reads. It is the
 mechanism persistent state runs on: loot a chest → an NPC appears; pull a lever → a door
 unlocks. This step builds the first pair.
 
-**Starting from:** the two connected rooms from S3 (any deployed fork works).
+**Starting from:** the S3 pair, continuing the build — though this step itself needs only one
+deployed room. To recreate that cold: fork any vetted room (**Assets ▸ Import** →
+**Suggest a test room…** → **Import field**) and deploy it to the Test slot
+([S1](s1-fork-and-deploy.md)). One caution about cold starts, for this and every later step:
+[S7](s7-package-a-campaign.md) packages the *connected pair* into the campaign, so a fresh room
+made just for one step is a side build — fine for practice, not part of the finished mod.
 
 ## 1. Add a chest
 

@@ -31,12 +31,18 @@ widget = "form:music.song"
 [[tutorial.ui]]
 label = "File (custom track)"
 widget = "form:music.file"
+
+[[tutorial.ui]]
+label = "Suggest a test room…"
+widget = "import_field.rooms_btn"
 ```
 
 A **cutscene** is the one thing the other forms can't express — steps that run *in order*, with
 player control locked while they do. This step adds a minimal one, plus the field's music.
 
-**Starting from:** any room of the S3/S4 pair.
+**Starting from:** any one deployed room of the build. To recreate it cold: fork a vetted room
+(**Suggest a test room…**) and deploy it ([S1](s1-fork-and-deploy.md)); S4's caution about side
+builds applies.
 
 ## 1. A scene on entry
 

@@ -7,12 +7,30 @@ step = 7
 builds_on = ["s6-encounters"]
 goal = "Bundle the rooms into a campaign, point New Game at it, and package a zip installable without the toolkit."
 requires = ["game", "gui", "assets"]
+
+[[tutorial.ui]]
+label = "Point New Game here"
+widget = "build_deploy.set_ng"
+
+[[tutorial.ui]]
+label = "Revert New Game"
+widget = "build_deploy.rev_ng"
+
+[[tutorial.ui]]
+label = "Build only — compile every member to the campaign's dist/"
+widget = "build_deploy.rb_camp_build"
+
+[[tutorial.ui]]
+label = "Package (zip)…"
+widget = "build_deploy.pack_btn"
 ```
 
 This step bundles the rooms into a campaign: deployable as a unit, entered from New Game, and
 packageable as a zip for players who don't have the toolkit.
 
-**Starting from:** the two connected, deployed rooms (S3 onward).
+**Starting from:** the two connected, deployed rooms — this step genuinely needs the pair, not
+a stand-in. To recreate it cold: fork two vetted rooms ([S1](s1-fork-and-deploy.md) twice, each
+deployed under its own id) and wire a gateway pair between them ([S3](s3-gateways.md)).
 
 ## 1. Create the campaign
 

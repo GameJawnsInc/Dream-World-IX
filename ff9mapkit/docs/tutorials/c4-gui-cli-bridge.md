@@ -7,11 +7,21 @@ step = 4
 builds_on = ["c1-cli-fork-edit-deploy"]
 goal = "Map every Workspace action to its CLI verb, using the Output console as the reference."
 requires = ["game", "gui", "assets"]
+
+[[tutorial.ui]]
+label = "Import field"
+widget = "import_field.import_btn"
+
+[[tutorial.ui]]
+label = "Point New Game here"
+widget = "build_deploy.set_ng"
 ```
 
 The Workspace and the CLI are one engine with two front doors. This step makes the mapping
 explicit, so either surface can be used where it is strongest — forms for browsing catalogs and
 positions, the terminal for repetition and scripting.
+
+**Starting from:** C1's fork open in the Workspace — any field project works.
 
 ## 1. The console is the reference
 
@@ -22,6 +32,17 @@ console shows what actually ran, on the current version, for the exact buttons p
 Working with it: **Ctrl+F** searches the log; the **Jobs** menu lists past jobs newest-first and
 jumps to one, selecting its span — so the Copy button copies just that job's output. A job's
 output pasted next to its CLI equivalent is the bridge in one screen.
+
+Do the round trip once, concretely: press **Check** on the open project and read the job the
+Output console just logged — it names the lint it ran and the file it ran on. Then run the CLI
+twin on the same file:
+
+```powershell
+ff9mapkit lint myroom\MYROOM.field.toml
+```
+
+**What you should see:** the same findings, line for line. That is the whole claim of this
+page — one engine, two front doors — verified rather than asserted.
 
 ## 2. The mapping
 

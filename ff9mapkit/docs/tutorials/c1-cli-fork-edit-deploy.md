@@ -12,6 +12,13 @@ Everything the Workspace does routes through the `ff9mapkit` command line; this 
 core track's S1–S2 directly in the terminal. If `ff9mapkit` is not on PATH, `py -m ff9mapkit
 <cmd>` is identical.
 
+One scope note up front: S1–S2 is where Track C's *step-by-step* depth deliberately stops. The
+track does not re-walk gateways, flags, cutscenes, and encounters one feature at a time — all of
+them work identically from the terminal, [C2 §3](c2-field-toml-by-hand.md) shows the whole set
+as text, and [`FORMAT.md`](../FORMAT.md) documents every key. For the walked, deploy-and-verify
+treatment of each feature, use the core track's [S3](s3-gateways.md)–[S6](s6-encounters.md) —
+the forms there are writing exactly the TOML you will write here.
+
 **Starting from:** a set-up toolkit ([Setup](../../../SETUP.md) §1–§2, with the `assets` extra).
 Verify:
 

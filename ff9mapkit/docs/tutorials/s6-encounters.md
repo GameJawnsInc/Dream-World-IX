@@ -19,12 +19,18 @@ widget = "form:encounter.freq"
 [[tutorial.ui]]
 label = "Battle music id"
 widget = "form:encounter.battle_music"
+
+[[tutorial.ui]]
+label = "Suggest a test room…"
+widget = "import_field.rooms_btn"
 ```
 
 This step arms random encounters, using the weakest battle pool in the game so a starter party
 can win.
 
-**Starting from:** any deployed room of the pair.
+**Starting from:** any one deployed room of the build. To recreate it cold: fork a vetted room
+(**Suggest a test room…**) and deploy it ([S1](s1-fork-and-deploy.md)); S4's caution about side
+builds applies.
 
 ## 1. Arm the field
 

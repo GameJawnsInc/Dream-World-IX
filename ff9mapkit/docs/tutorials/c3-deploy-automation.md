@@ -12,6 +12,7 @@ requires = ["game", "repo", "engine-bundle"]
 The fast iteration loop. After the first registration, a field change is testable in seconds with
 no game relaunch.
 
+**Starting from:** C1's fork (`myroom\MYROOM.field.toml`) — any field project works.
 **Prerequisites:** a repo checkout (the deploy scripts live in `tools/`), and the Dream World IX
 engine bundle for the in-game debug menu (~) ([ENGINE.md](../ENGINE.md)). Without either, use the
 standalone path at the bottom.
@@ -67,6 +68,12 @@ standalone path at the bottom.
 py tools\scroll_out\revert_deploy.py         # the latest deploy
 py tools\scroll_out\revert_deploy_4003.py    # a specific id (drops only that id's lines)
 ```
+
+Worth walking once deliberately, so the safety net is trusted before it is needed: deploy a
+field into a slot, change something visible (move C1's NPC), deploy again, and
+**~ → Go → Reload field** — the change is in-game. Now run the slot's `revert_deploy_<id>.py`
+and reload again. **What you should see:** the previous deploy back in-game, exactly as it was —
+the revert restored the slot's prior files, not merely deleted the new ones.
 
 ## Campaigns and journeys
 
