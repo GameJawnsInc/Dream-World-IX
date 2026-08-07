@@ -385,7 +385,9 @@ def main() -> int:
     print("\nbuilding the op dictionary (DLL + one corpus pass) ...")
     t0 = time.time()
     cen, images = A.census_corpus()
-    ops = A.build_hle_ops(dll, cen)
+    # THE SINGLE WRITER (tier_r_annot.rebuild_hle_ops): this board rewrites the dictionary it
+    # checks, so building it any other way here silently reverts whatever the CLI last wrote.
+    ops = A.rebuild_hle_ops(dll, cen)
     A.write_hle_ops(ops)
     print("   %d ops, %d images, %d HLE call sites, %.1fs"
           % (len(ops), len(images), sum(r["hle_calls"] for r in images), time.time() - t0))

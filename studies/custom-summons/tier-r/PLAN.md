@@ -127,3 +127,38 @@ every tick, and this rung says so rather than inventing a spine for them.
   * Next: **op 117** (1,709 calls, `(ptr,ptr)->ptr`, `fn 0x306f0`) is still the best naming target;
     and the 9 defeated images split 4 computed-dispatch / 4 stack-local inner switch / 1 degenerate
     chain.
+
+---
+
+## R4 (the VRAM cluster) — ★ DONE 2026-08-07: THE MANAGED-ABI EVIDENCE CLASS
+
+Full record: **[`CALLBACK-OPS.md`](CALLBACK-OPS.md)**. Gates `cb_gates.py` 6/6; 20 new tests
+(tier-r 162); R1 8/8 · R2 6/6 · R3 5/5 unchanged.
+
+**79 → 107 named ops (+28), 51.8% → 54.5% of call-site traffic.** R2 recorded the host callback slot
+`0x1C1DE8` as a *diffuse* global and kept it out of the evidence — right about the touch, wrong about
+what rides it. Every call through it passes a command code, and the managed side is open source, so
+the name comes from **Square's own `SFX.COMMAND` enumerator** rather than from our inference.
+
+* **★ THE COMMAND WORD HAS THREE ENCODINGS** — `mov ecx,imm` (144 sites) · `or ecx,imm` (53) ·
+  `bts ecx,25` (7). The `or`/`bts` forms are exact because the preceding `movzx` from a word
+  provably zeroes bits 16..31. **A mov-only scan resolves 70% and loses the `LoadImage` site
+  `A1-TEXTURES` published** — modelling one form is not conservative, it is wrong.
+* **★ THE BOUNDARY-CROSSING LAW** — a callback code names the crossing an op performs, a **lower
+  bound** on its semantics, not the whole of them. Op 174 both reads a bone matrix across the ABI and
+  transforms vertices inside the DLL; the existing R2 name stands and the command rides as evidence.
+  Same law: ops 32/33/174 all cross at `GET_MATRIX[0]` and this class does not separate them.
+* **★ THE TWO LANES ARE DISJOINT (the null that could have failed)** — 0 overlap with R2's 42
+  debug-string `high` names, 0 of the 12 calibration ops reach the callback. The `Hi_*` summon-model
+  family never crosses to managed. R2's 12/12 standard therefore **cannot** calibrate this class;
+  `A1-TEXTURES` §5.2's independently-derived issuer table is the control instead, reproduced site
+  for site after 5 of its 10 addresses reconcile as chained `.pdata` chunks.
+* **★ THE DICTIONARY HAD TWO WRITERS** — `r2_gates.py` rebuilds and rewrites `hle_ops.json`, so
+  running the R2 board silently reverted all 28 names to null. `tier_r_annot.rebuild_hle_ops` is now
+  the single writer, pinned by a tripwire test.
+* **REFUSED, by name: 19 ops / 832 call sites** cross at several commands. A `GET_SLAVE`-resolver
+  rule would have named ~8 of them and was **measured and rejected** — `0x148f0` issues `GET_ROTATE`
+  before `GET_SLAVE`, so the ordering does not hold.
+* **The bank half barely moved: 2 of 24.** `psxBankTable` is address translation, not a callback
+  path; this lever does not reach it. Ditto the high-volume unknowns — **op 117 (1,709 calls) does
+  not touch the callback at all and remains the best target for a handler-body rung.**

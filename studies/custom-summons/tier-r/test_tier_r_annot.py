@@ -576,7 +576,8 @@ def test_the_dictionary_is_valid_committable_json_with_no_byte_payload():
         raw = fh.read()
     rows = json.loads(raw)
     assert isinstance(rows, list) and len(rows) == T.HLE_OP_COUNT
-    allowed = {"op", "name", "confidence", "corpus_support", "arity", "arg_kinds", "returns",
+    allowed = {"op", "name", "confidence", "callback_command", "callback_code", "callback_submode",
+               "corpus_support", "arity", "arg_kinds", "returns",
                "native_fn", "native_fn_confirmed_by_stub", "touches", "touches_deep", "evidence",
                "call_sites", "effects", "creature_effects"}
     for row in rows:

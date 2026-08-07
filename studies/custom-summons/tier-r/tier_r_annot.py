@@ -763,17 +763,32 @@ SUBFILE_INDEX_MASK = 0x7F
 
 
 def build_hle_ops(dll: DllView, census: Dict[int, OpCensus],
-                  known_names: Optional[Dict[int, str]] = None) -> Dict[int, dict]:
+                  known_names: Optional[Dict[int, str]] = None,
+                  callback: Optional[Dict[int, dict]] = None) -> Dict[int, dict]:
     """The op dictionary: a name, a confidence and the evidence behind both, per op.
 
     CONFIDENCE CONTRACT (enforced, not merely documented -- see :func:`check_confidence_rule`):
       ``high``    the DLL itself supplies the name (a debug string owned by the op's function, a
-                  CRT import that pins the semantics, or a stub that IS the return tail) AND the
-                  handler stub decoded AND the corpus census is consistent with the signature.
+                  CRT import that pins the semantics, or a stub that IS the return tail), OR the
+                  MANAGED side of the ABI does (a resolved callback command code, see below) --
+                  AND the handler stub decoded AND the corpus census is consistent.
       ``medium``  no symbol, but a discriminating static signature (a named global touched directly
                   by the native function, or a documented native function) plus corpus support.
       ``low``     one weak signal only; the name is descriptive and carries a trailing ``?``.
       unnamed     arity and return kind only.
+
+    ``callback`` is the MANAGED-ABI evidence source (``callback_ops.callback_evidence``), injected
+    rather than imported so this module keeps no dependency on it and a build without Memoria's
+    source behaves exactly as it did before -- a stated skip, never a silent partial answer.
+    Injection is also what keeps the dictionary SINGLE-WRITER: the fields land here, inside the
+    builder, so ``--hle-ops`` regenerates them instead of a second tool bolting them on afterwards
+    (the two-writers trap this project has already paid for once).
+
+    THE TWO LANES ARE DISJOINT, MEASURED: no op named from a DLL debug string reaches the callback,
+    and none of the 12 independently-known calibration ops do either (``cb_gates`` D1).  The
+    ``Hi_*`` summon-model family is the DLL's own work and never crosses to managed; the ops that do
+    cross are the battle-unit and VRAM family.  That is why R2's sources ran dry exactly where this
+    one begins -- and it is why a callback name can never overwrite a debug-string name.
     """
     known_names = known_names if known_names is not None else T.load_hle_names()
     handlers = dll.handlers()
@@ -888,6 +903,23 @@ def build_hle_ops(dll: DllView, census: Dict[int, OpCensus],
         else:
             evidence.append("corpus: NEVER called by any of the 385 programs -- itself a checked "
                             "fact, and the expected one for a host-side registration entry point")
+        # The managed-ABI source is folded in BEFORE the corpus demotion, not after: a callback name
+        # is subject to exactly the same corpus consistency rule as every other high row.  Assigning
+        # it afterwards let ops 1 and 203 keep `high` while the census disagreed with their stub
+        # arity -- the confidence gate caught it, which is the whole reason that gate exists.
+        cb = (callback or {}).get(op)
+        if cb:
+            evidence.append(cb["evidence"])
+            if name is None:
+                name, conf = cb["command"], cb["confidence"]
+            elif name != cb["command"]:
+                # NOT a contradiction, and not resolved by overwriting.  A callback code names the
+                # BOUNDARY CROSSING an op performs, which is a lower bound on the op's semantics --
+                # op 174 both reads a bone matrix across the ABI (COMMAND_GET_MATRIX) and transforms
+                # vertices with it inside the DLL (R2's `gte_transform_vertices`).  Both are true;
+                # the existing name is the more specific one, so it stands.
+                evidence.append("the callback code is the op's boundary crossing, not its whole "
+                                "semantics -- the existing name is retained as the more specific")
         if conf == "high" and not (static_ok and corpus_ok):
             conf = "medium"
             evidence.append("demoted from high: the corpus census disagrees with the static arity")
@@ -897,6 +929,9 @@ def build_hle_ops(dll: DllView, census: Dict[int, OpCensus],
             "op": op,
             "name": name,
             "confidence": conf,
+            "callback_command": cb["command"] if cb else None,
+            "callback_code": cb["code"] if cb else None,
+            "callback_submode": cb["submode"] if cb else None,
             "corpus_support": corpus_kind,
             "arity": sig.arity,
             "arg_kinds": sig.kinds,
@@ -977,6 +1012,33 @@ def check_confidence_rule(ops: Dict[int, dict]) -> List[str]:
 
 def confidence_histogram(ops: Dict[int, dict]) -> collections.Counter:
     return collections.Counter(row["confidence"] or "unnamed" for row in ops.values())
+
+
+def rebuild_hle_ops(dll: "DllView", census: Dict[int, OpCensus],
+                    verbose: bool = True) -> Dict[int, dict]:
+    """THE canonical dictionary build -- every writer of ``hle_ops.json`` must come through here.
+
+    ``r2_gates.py`` rebuilds and rewrites the dictionary as part of its H-board.  When the
+    managed-ABI source was wired into the CLI alone, running that board silently reverted 28 names
+    to null -- the artifact had two writers that disagreed, which is the exact failure this project
+    has a law about.  One function, both call sites, no way to build a partial dictionary by
+    accident.
+
+    The managed-ABI source stays OPTIONAL and loud: Memoria's clone is gitignored and shared between
+    worktrees, so a machine without it must produce the pre-callback dictionary and SAY so.
+    """
+    cb_ev = None
+    try:
+        import callback_ops
+        cb_ev = callback_ops.callback_evidence(
+            callback_ops.OpNamer(callback_ops.CallbackMap(dll)))
+        if verbose:
+            print("managed-ABI evidence: %d ops named from callback command codes" % len(cb_ev))
+    except Exception as exc:                                       # noqa: BLE001 -- reported
+        if verbose:
+            print("managed-ABI evidence SKIPPED (%s: %s) -- rebuilding without it"
+                  % (type(exc).__name__, exc))
+    return build_hle_ops(dll, census, callback=cb_ev)
 
 
 def write_hle_ops(ops: Dict[int, dict], path: str = HLE_OPS_JSON) -> str:
@@ -1428,7 +1490,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.hle_ops:
         dll = DllView()
         cen, images = census_corpus()
-        ops = build_hle_ops(dll, cen)
+        ops = rebuild_hle_ops(dll, cen)
         path = write_hle_ops(ops, args.hle_ops)
         hist = confidence_histogram(ops)
         print("wrote %s -- %d ops" % (path, len(ops)))
