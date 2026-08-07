@@ -50,6 +50,17 @@ hard-wrap class (a label split across a markdown line break).
 the dlg adapter (dialog shots + dialog inventory), rung 1b (block data layer), rung 5 deployment
 (owner, confirm-first). Design below is as-ratified.
 
+**★ The "What can I do?" catalog (owner-requested, 2026-08-07):** `docsite/pages/what-can-i-do.md`
+— 26 feature cards, each `## card` = **You get** (the authoring payoff) + **Try it** (2-3 steps)
++ **Go deeper** (a link); a **Shuffle** button spotlights one at random (solo view, re-shuffle
+never repeats, Show-all restores, a shared `#anchor` deep-links into its spotlight). Progressive
+enhancement in `site.mjs` (active only where `#wcid-shuffle` exists; plain readable list without
+JS), card styling in `site.css` both themes, nav Start section + front-door row. Rides the
+existing gates (links, anchors, command fences) + two new ones in `test_docsite.py`: the
+three-label card contract and the three-leg wiring check (page ids / mjs hooks / css rules).
+Behavior verified headlessly (jsdom: fold clean, single-pick invariant, re-shuffle changes the
+pick, Show-all restores).
+
 **DEFERRED — retire the "Understand" shelf** (`UNDERSTAND-TRIAGE.md`, sibling file): the shelf's 22
 docs triaged per-file — 2 keep, 8 demote to Reference, 11 move out of the manual, 1 held. Decided,
 not scheduled. Two unblock conditions, both mechanical: a lull in feature work (the cut re-points

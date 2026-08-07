@@ -150,3 +150,19 @@ figure.shot .stamp { float: right; }
   .navbtn { display: block; }
   .page { padding: 1rem 1.1rem 3rem; }
 }
+
+/* -------- "What can I do?" shuffle cards -------- */
+.wcid-bar { display: flex; gap: .6rem; margin: 1.1rem 0 1.4rem; flex-wrap: wrap; }
+.wcid-bar button { padding: .5rem 1.05rem; border-radius: 8px; border: 1px solid var(--border);
+                   background: var(--accent); color: var(--accent-ink); font: inherit;
+                   font-weight: 600; cursor: pointer; }
+.wcid-bar button:hover { filter: brightness(1.08); }
+.wcid-bar #wcid-all { background: var(--surface); color: var(--ink); font-weight: 500; }
+.wcid-card { border: 1px solid var(--border); background: var(--surface); border-radius: 10px;
+             padding: .1rem 1.1rem .55rem; margin: .9rem 0; }
+.wcid-card h2 { border-top: 0; margin-top: .55rem; padding-top: 0; }
+article.wcid-solo .wcid-card { display: none; }
+article.wcid-solo .wcid-card.wcid-pick {
+  display: block; border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}

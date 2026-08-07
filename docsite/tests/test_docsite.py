@@ -126,3 +126,36 @@ def test_broken_link_is_a_build_error(site):
     rw = B.LinkRewriter(pages, B.HERE / "assets" / "shots")
     rw.rewrite(fake)
     assert any("broken link" in e for e in rw.errors)
+
+
+# --------------------------------------------------------------- the "What can I do?" catalog
+
+def test_wcid_cards_are_well_formed(site):
+    """Every catalog card keeps the three-part contract (what you get / how to try it / where to
+    go deeper) -- a half-authored card is a test failure, not a shipped stub."""
+    import re as _re
+    out, pages = site
+    page = pages.get("what-can-i-do.html")
+    assert page is not None, "docsite/pages/what-can-i-do.md vanished"
+    cards = [t for t in page.toc if t["level"] == 2]
+    assert len(cards) >= 20, f"the catalog shrank to {len(cards)} cards"
+    sections = _re.split(r"^## ", page.raw, flags=_re.M)[1:]
+    assert len(sections) == len(cards)
+    for sec in sections:
+        title = sec.splitlines()[0]
+        for label in ("**You get:**", "**Try it:**", "**Go deeper:**"):
+            assert label in sec, f"card {title!r} is missing its {label} line"
+
+
+def test_wcid_shuffle_is_wired(site):
+    """The shuffle enhancement's three legs -- page buttons, the site.mjs module, the card CSS --
+    must all be present; losing any one leaves a dead button or an unstyled list."""
+    out, pages = site
+    html = (out / "what-can-i-do.html").read_text(encoding="utf-8")
+    assert 'id="wcid-shuffle"' in html and 'id="wcid-all"' in html
+    mjs = (out / "static" / "site.mjs").read_text(encoding="utf-8")
+    for needle in ("wcid-shuffle", "wcid-all", "wcid-card", "wcid-solo", "wcid-pick"):
+        assert needle in mjs, f"site.mjs lost the shuffle hook {needle!r}"
+    css = (out / "static" / "site.css").read_text(encoding="utf-8")
+    for needle in (".wcid-card", "article.wcid-solo .wcid-card.wcid-pick"):
+        assert needle in css, f"site.css lost the card rule {needle!r}"

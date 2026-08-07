@@ -95,3 +95,55 @@ document.addEventListener("click", ev => {
 document.addEventListener("keydown", ev => {
   if (ev.key === "/" && document.activeElement !== input) { ev.preventDefault(); input.focus(); }
 });
+
+// ---- "What can I do?" shuffle ----------------------------------------------------------------
+// Active only where the page carries the #wcid-shuffle button. Each h2 section becomes a card;
+// Shuffle spotlights one at random (solo view), Show-all restores the full list. Pure
+// progressive enhancement: without this module the page is a plain readable list.
+const wcidBtn = document.getElementById("wcid-shuffle");
+if (wcidBtn) {
+  const article = document.querySelector("article.page");
+  const allBtn = document.getElementById("wcid-all");
+  const cards = [];
+  for (const h2 of [...article.querySelectorAll(":scope > h2")]) {
+    const sec = document.createElement("section");
+    sec.className = "wcid-card";
+    h2.before(sec);
+    sec.append(h2);
+    while (sec.nextElementSibling &&
+           !["H2", "FOOTER"].includes(sec.nextElementSibling.tagName) &&
+           !sec.nextElementSibling.classList.contains("wcid-card")) {
+      sec.append(sec.nextElementSibling);
+    }
+    cards.push(sec);
+  }
+  let last = -1;
+  wcidBtn.addEventListener("click", () => {
+    if (!cards.length) return;
+    let i;
+    do { i = Math.floor(Math.random() * cards.length); } while (cards.length > 1 && i === last);
+    last = i;
+    article.classList.add("wcid-solo");
+    cards.forEach((c, j) => c.classList.toggle("wcid-pick", j === i));
+    allBtn.hidden = false;
+    wcidBtn.textContent = "Shuffle again";
+    history.replaceState(null, "", "#" + cards[i].querySelector("h2").id);
+    scrollTo({ top: 0, behavior: "smooth" });
+  });
+  allBtn.addEventListener("click", () => {
+    article.classList.remove("wcid-solo");
+    cards.forEach(c => c.classList.remove("wcid-pick"));
+    allBtn.hidden = true;
+    wcidBtn.textContent = "Shuffle — show me one";
+    history.replaceState(null, "", location.pathname + location.search);
+  });
+  // A shared #anchor deep-links straight into that card's spotlight.
+  const target = location.hash && cards.find(c => c.querySelector("h2").id === location.hash.slice(1));
+  if (target) {
+    last = cards.indexOf(target);
+    article.classList.add("wcid-solo");
+    target.classList.add("wcid-pick");
+    allBtn.hidden = false;
+    wcidBtn.textContent = "Shuffle again";
+  }
+}

@@ -10,6 +10,7 @@ screenshots.
 | I want to… | Start here |
 |---|---|
 | Set the toolkit up | [Setup](SETUP.md) |
+| See what's possible — or get a random idea | [What can I do?](docsite/pages/what-can-i-do.md) |
 | Build my first mod (GUI, start here) | [S1 — Fork and deploy a field](ff9mapkit/docs/tutorials/s1-fork-and-deploy.md) · [the core track](ff9mapkit/docs/tutorials/README.md) |
 | Do the same from the terminal (CLI) | [C1 — The CLI: fork, edit, deploy](ff9mapkit/docs/tutorials/c1-cli-fork-edit-deploy.md) |
 | Learn the edit → deploy → reload loop | [C3 — Deploy automation](ff9mapkit/docs/tutorials/c3-deploy-automation.md) |
