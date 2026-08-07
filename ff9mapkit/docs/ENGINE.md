@@ -43,21 +43,41 @@ entry redirect, and similar. They cannot be restored from script bytecode alone.
 
 The bundled fidelity patch set restores them: **[`memoria-patches/`](../../memoria-patches/) `s23`–`s33`**
 wrap the hardcoded `fldMapNo` engine gates with an *effective field id* (and an *effective field name*)
-so they fire for a custom fork, and `s23` gives a forked narrow field the donor's exact tuned width.
+so they fire for a custom fork, `s23` gives a forked narrow field the donor's exact tuned width, and
+later fork-fidelity gates extend the same suite.
 These patches are applied to a local Memoria build; the showcase opening ships with that custom Memoria.
 The disc-1 gates, the s30/s31 walk+occlusion and s33 menu-LOCATION fixes, and `s32` (proven in-game
 through the fork-verification harness) are verified; some `s29` sites and `s33` sibling sweeps remain
 unverified until those zones are forked and playtested.
 
-The engine bundle carries more than the fidelity wraps: **`s34`** is a loose **overworld-mesh
-override** loader (a new capability, not a fork wrap) required by the custom-overworld mesh commands;
-**`s35`** is an overlay-texture decode cache (same pixels, smoother field loads and battle returns);
-**`s36`–`s41`** are the **netsync patches** behind the experimental two-player co-op (`coop`,
-[FEATURES §Multiplayer](FEATURES.md#multiplayer-experimental)); and the **`s22` debug menu (~)** is
-a user-facing in-game tool — context-adaptive tabs (**Go / Cheats / Flags**, with time control under
-Cheats, plus a **World** tab on the overworld) available in the field, in battle, and on the
-overworld. None of those four are fork-fidelity patches, and only the fidelity wraps are
-upstream candidates.
+The engine bundle carries more than the fidelity wraps. By theme:
+
+- **Overworld authoring & stability** — the **`s34`** loose **overworld-mesh override** loader (a new
+  capability, not a fork wrap) required by the custom-overworld mesh commands, plus overworld
+  stability fixes, corrected vehicle-physics data rows, and the **third-overworld substrate** (a
+  `WorldScene` DictionaryPatch directive, a sentinel disc namespace, and CLONE/BLANK modes on ids
+  9013–9099 — inert until a mod arms it).
+- **Two-player co-op** — the **netsync patch suite** behind the experimental `coop`
+  ([FEATURES §Multiplayer](FEATURES.md#multiplayer-experimental)), including field-follow and
+  link-reliability fixes. The wire protocol is versioned, so bundles from different releases refuse
+  to pair instead of silently desyncing.
+- **The debug menu (`~`)** — a user-facing in-game tool (**`s22`** plus later refinements: the `~`
+  key bind, a wider warp reach, corrected flag-band labels) — context-adaptive tabs (**Go / Cheats /
+  Flags**, with time control under Cheats, plus a **World** tab on the overworld) available in the
+  field, in battle, and on the overworld.
+- **The Folklore codex** — an optional in-game lore reader, **off by default**; enable it with
+  `[Folklore] Enabled = 1` in `Memoria.ini`.
+- **Dev probes** — an SFX probe suite and an inert SFX hybrid drive, every one **disabled by
+  default** behind its own `Memoria.ini` switch (`[SfxProbe]` / `[SfxHybrid]`); they never touch
+  normal play.
+
+An earlier bundle member, **`s35`** (an overlay-texture decode cache), has been **retired**: the
+cache served stale art decodes for the whole session, and removing it means background-art edits now
+hot-reload in-game (**~ → Reload field**). Current bundles do not carry it.
+
+None of the above are fork-fidelity patches, and only the fidelity wraps are upstream candidates.
+The authoritative per-patch inventory — which patches are live, in what order, and which are dead
+history — is [`memoria-patches/README.md`](../../memoria-patches/README.md).
 
 The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked — is in
 [`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md) (the per-site
@@ -72,7 +92,7 @@ emits loose mesh overrides (`world-terrain`, `world-reclaim`, `world-coast`, `wo
 `world-fuse`, `world-island`, `world-forest` / `world-hill` / `world-mountain`, `world-water`,
 `world-entrance`, `world-mirror`, `world-deploy`, `world-mesh-build`) relies on the `s34`
 mesh-override loader; the atlas/texture, encounter, environment, and marker commands run on stock
-Memoria. Two-player co-op (`coop`) needs it too (the `s36`–`s41` netsync patches). A **novel**
+Memoria. Two-player co-op (`coop`) needs it too (the netsync patch suite). A **novel**
 field does not need it, and neither do the custom-models, battle-background, or audio pillars. Three ways to
 get it:
 
@@ -94,7 +114,8 @@ get it:
    VS MSBuild; this matches whatever Memoria version you build against. The build replaces your
    install's `Assembly-CSharp.dll`.
 
-The clean long-term fix is **upstreaming** `s23`–`s33` into Memoria (they're small and
+The clean long-term fix is **upstreaming** the fidelity wraps (`s23`–`s33` and the later
+fork-fidelity gates) into Memoria (they're small and
 `EffectiveFieldId`-gated, so stock-game behavior is untouched) — then no custom engine is needed for
 forked fields. `s34` is a different case — a new capability rather than an identity-safe fidelity
 wrap — so whether it belongs upstream is a separate decision.
@@ -109,8 +130,8 @@ for a field to work, and the project isn't actively upstreaming it:
   pipeline doesn't use that editor, so the bug doesn't affect kit users — but fixing it
   makes the official in-engine editor usable as an alternative authoring path.)
 
-(An earlier item here — an overlay-texture decode cache — has since been built and ships in the
-engine bundle as `s35`.)
+(An earlier item here — an overlay-texture decode cache — was built, shipped for a while as `s35`,
+and then retired: see "Forked fields & the fidelity patch set" above.)
 
 ## Data provenance / redistribution
 

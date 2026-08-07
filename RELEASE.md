@@ -111,9 +111,15 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
 4. **Build + attach the custom-engine bundle.** Forked fields need it, and
    [`ENGINE.md`](ff9mapkit/docs/ENGINE.md) tells users to download it from Releases — so the asset MUST
    exist when the repo goes public, or every fork's install path dead-ends.
-   - Build the fork-fidelity engine: apply `memoria-patches/` `s23` + `s24` + `s29` + `s30` + `s31` +
-     `s32` + `s33` (plus `s22` for the debug-menu dev menu) to a Memoria source clone and compile `Assembly-CSharp`
-     (see ENGINE.md "Build from source"; the per-file map is `memoria-patches/README.md`).
+   - Build the engine from the live stack: **everything in `memoria-patches/` EXCEPT
+     `s12`/`s18`/`s21`/`s35`/`s59`/`s63`/`s67`** (dead or retired) — and `s71` IS included despite
+     its "throwaway" wording (`s73` depends on it). The authoritative apply order is the
+     **STACK HEALTH** table in `memoria-patches/README.md`. Apply with `patch -p1 -F0 --binary`
+     (plain text mode corrupts CRLF files); note TWO distinct patches are both numbered `s48` —
+     disambiguate by filename — and the stored `s48` patch is LF while the tree is CRLF, so
+     normalize it on replay. Build from a PROOF worktree of the pinned Memoria base `6b8bb2d5`,
+     never the live dev clone, with the auto-deploy gated off via the `DWIXNoDeploy` csproj
+     condition; then compile `Assembly-CSharp` (see ENGINE.md "Build from source").
    - Assemble `dwix-custom-memoria-1.0.0b2.zip` = the three managed DLLs (`Assembly-CSharp.dll` + the
      matched `Memoria.Prime.dll` / `UnityEngine.UI.dll`) + an `INSTALL.txt` + MIT/Albeoris attribution.
      (A pre-built bundle exists at `dwix-custom-memoria-1.0.0b2.zip` outside the repo — rebuild only if
@@ -134,9 +140,9 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
 
 - **Version form.** `pyproject.toml` carries the PEP 440 string `1.0.0b1`; the CHANGELOG header, git tag,
   and URLs all use the same. Bump it there + add a dated CHANGELOG section for each subsequent release.
-- **Engine honesty.** The shipped fork-fidelity engine is the bundled `s23`–`s33` patch set
-  (see `ff9mapkit/docs/ENGINE.md`). Disc-1 gates plus the s30/s31 walk+occlusion and s33 menu-LOCATION
-  fixes are in-game proven; the late-disc s29 softlock gates, s32, and the s33 sibling sweeps ship
-  unverified (identity-safe for real fields) — keep that caveat accurate as zones are verified.
+- **Engine honesty.** The shipped engine is the live `memoria-patches/` stack; the authoritative
+  per-patch status (live vs dead, verified vs unverified) is the STACK HEALTH table in
+  `memoria-patches/README.md`, with the user-facing summary in `ff9mapkit/docs/ENGINE.md` — keep
+  both accurate as zones are verified.
 - **Scratch hygiene.** `tworoom/treno_plat/` (SE-derived fork scratch) is gitignored; never `git add -A`
   it in before the scrub.

@@ -123,6 +123,24 @@ your copy. The same rules as everything above apply, plus two world-specific poi
   permission. The clean-room path: `extract_atlas(source="bundle")` → repaint → `deploy_atlas` —
   that base is your own game's vanilla atlas, same category as every derived asset above.
 
+## What about the engine bundle's SFX probes (runtime process-memory reads)?
+
+The custom‑Memoria engine bundle introduces a category nothing above covers: **reading the game's own
+live process memory at runtime.** Engine patches **s52, s53, and s58** (in
+[`memoria-patches/`](../../memoria-patches/README.md)), when explicitly armed via `Memoria.ini`
+(`[SfxProbe] Enabled=1` / `[SfxHybrid] Enabled=1` — **both default OFF, and both ship off**), read
+`FF9SpecialEffectPlugin.dll`'s in‑process state during a summon cast. The scope, documented per patch
+in that README, is **staging/choreography only**:
+
+- **What is read:** the summoned creature's root transform and its composed node matrices — the
+  pose of the running cast. **Never** the per‑bone skeletal array (which would reconstruct stock
+  animation data), no asset bytes are read out, no DLL is patched, and no export function is called.
+- **Where it goes:** diagnostic text/JSON logs on the user's own machine, produced from the user's
+  own running copy of the game — the same class as the camera‑track instrumentation the probes sit
+  beside.
+- **What is distributed:** nothing. Nothing read is ever redistributed, and the kit's shipped
+  artifacts contain none of it.
+
 ## For maintainers
 
 `python -m ff9mapkit.data._regen_provenance` (run against a **vanilla** install) re‑authors the
