@@ -104,8 +104,10 @@ def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
     are guarded INDEPENDENTLY, so a change that breaks one must not silently drop the other."""
     dll = A.DllView()
     monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_ABR}
+    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD}
     monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD}
+    monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
     assert B.body_evidence(dll) == {}
 
 
@@ -194,4 +196,38 @@ def test_the_dictionary_carries_op206_at_high():
     ops = A.load_hle_ops()
     row = ops[B.OP_ABR]
     assert row["confidence"] == "high" and "Hi_Register" in row["name"]
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 136, the actor-relative coord
+@needs_dll
+def test_op136_body_re_derives():
+    ok, notes = B.verify_coord()
+    assert ok, notes
+
+
+@needs_dll
+def test_op136_ships_medium_because_the_field_it_divides_is_unidentified():
+    """The arithmetic and the destination are pinned; actor[+0x38] itself is not -- every
+    BTL_DATA_INIT field maps to a different offset, so it is a DLL runtime field."""
+    ev = B.body_evidence()
+    assert ev[B.OP_COORD]["confidence"] == "medium"
+    assert B.NAME_COORD == "actor_relative_coord"
+    assert "coordinate component" in ev[B.OP_COORD]["evidence"]
+
+
+@needs_dll
+def test_the_three_body_ops_are_guarded_independently(monkeypatch):
+    dll = A.DllView()
+    monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_OPEN, B.OP_ABR}
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op136():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_COORD]
+    assert row["name"] == B.NAME_COORD and row["confidence"] == "medium"
+    assert row["callback_command"] is None
     assert A.check_confidence_rule(ops) == []

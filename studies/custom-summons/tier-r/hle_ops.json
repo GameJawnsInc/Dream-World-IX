@@ -3238,8 +3238,8 @@
  },
  {
   "op": 136,
-  "name": null,
-  "confidence": null,
+  "name": "actor_relative_coord",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3253,7 +3253,7 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x11167: arity 2 kinds=ii returns int; corpus: 510 call sites in 231 images / 231 effects (4 creature-bearing); modal arg-setup 510/510 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 510}; called next to ops 117(x436), 102(x200), 53(x22); $a0 constants: 0(x340), 16(x120); $a1 constants: 128(x237), 32(x153), 64(x46), 256(x18), 16(x14), 512(x13); position: {'middle-third': 219, 'last-third': 220, 'first-third': 71}",
+  "evidence": "stub 0x11167: arity 2 kinds=ii returns int; corpus: 510 call sites in 231 images / 231 effects (4 creature-bearing); modal arg-setup 510/510 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 510}; called next to ops 117(x436), 102(x200), 53(x22); $a0 constants: 0(x340), 16(x120); $a1 constants: 128(x237), 32(x153), 64(x46), 256(x18), 16(x14), 512(x13); position: {'middle-third': 219, 'last-third': 220, 'first-third': 71}; handler-body: a coordinate component placed relative to an actor: base + actor[+0x38] / 6; fn 0x45a80 looks the actor up via 0x44a60 (idx<8 party, 8..15 enemies, 0x10/0x11 singleton slots), divides actor[+0x38] by 6 (0xaaaaaaab magic + shr 2) and adds arg1; the corpus stores the result into an op-117 instance's +0x22, which the per-tick fn 0x34860 loads TOGETHER with +0x20 into GTE input slots and projects -- so +0x22 is a coordinate component, not a sort key; 510/510 sites pass arity 2, $a0 in {0,16} (party member 0 and the +0x50 singleton), $a1 all powers of two 16..512, and 436 of the 510 sites sit beside op 117. actor[+0x38] is NOT a BTL_DATA_INIT field: SFX_InitBattle copies all 17 of them, in order, to other offsets.",
   "call_sites": 510,
   "effects": 231,
   "creature_effects": 4

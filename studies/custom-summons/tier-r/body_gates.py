@@ -211,9 +211,16 @@ def main() -> int:
         print("  " + n)
     results.append(("B6", "op 206's body + BOTH tail-call names re-derive from the DLL", ok6))
 
+    ok9, notes9 = B.verify_coord(dll)
+    print()
+    for n in notes9:
+        print("  " + n)
+    results.append(("B9", "op 136's lookup + divide-by-6 + add re-derive from the DLL", ok9))
+
     ev = B.body_evidence(dll)
-    good = (set(ev) == {B.OP_OPEN, B.OP_ABR}
+    good = (set(ev) == {B.OP_OPEN, B.OP_ABR, B.OP_COORD}
             and ev[B.OP_OPEN]["confidence"] == "medium"      # no symbol names it
+            and ev[B.OP_COORD]["confidence"] == "medium"     # no symbol; +0x38 unresolved
             and ev[B.OP_ABR]["confidence"] == "high")        # the DLL names it, twice
     print("\nB2 body evidence: %s" % {o: (e["name"], e["confidence"]) for o, e in ev.items()})
     results.append(("B2", "each name ships at the confidence its evidence supports", good))

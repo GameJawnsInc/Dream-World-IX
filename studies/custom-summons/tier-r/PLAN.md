@@ -218,3 +218,29 @@ exclusivity rule refuses two names. The body resolves it — **it is a dispatche
   6 files (`sonoda\Geo\{geo,geoslice,geosfxrender,geomorph}.cpp`, `sonoda\PsxEmulator.cpp`,
   `psx\source\psx_compatibility.cpp`). **Reach measured and modest — 20 functions, 9 of them an op's
   own native fn — an attribution aid, NOT a naming lane.**
+
+## R7 (op 136) — ★ DONE 2026-08-07: NAMED BY ITS DESTINATION
+
+Record: `CALLBACK-OPS.md` §ADDENDUM 3. `body_gates.py` 9/9; 4 more tests (tier-r 187).
+**Named 109 → 110; traffic 69.0% → 72.5%. Across R4-R7: 79 → 110 named, 51.8% → 72.5%.**
+
+* **op 136 = `actor_relative_coord` (medium)** — `fn 0x45a80` is four instructions:
+  `base + actor[+0x38] / 6` (the `0xAAAAAAAB` + `shr 2` unsigned magic divide). **The body alone
+  does not name it; the DESTINATION does.**
+* **★ THE ACTOR TABLE, from its own asserts** (`fn 0x44a60`, reusable): **`0..7` party (count
+  `ctx+0x24`) · `8..15` enemies (`ctx+0x27`) · `0x10`/`0x11` two singleton slots**. op 136's `$a0` is
+  only ever **0 or 16**; `$a1` is **always a power of two** (128×237, 32×153, 64×46, 256×18, 16×14,
+  512×13).
+* **THE IDIOM:** 436 of 510 sites sit beside op 117 — `handle = op117(...)` then
+  `handle->[0x22] = op136(...)`, the field op 117's allocator zeroes and **ef227 sets to the literal
+  128** (one of op 136's own `$a1` values).
+* **★ A GUESS CORRECTED BY LOOKING:** a signed (`movsx`) read of `+0x22` next to the model
+  registrars reads like an **ordering-table bias**, and that was the working hypothesis. The
+  per-tick fn `0x34860` refutes it — **`+0x20` and `+0x22` are loaded TOGETHER into GTE input slots
+  and projected**, so `+0x22` is a **coordinate component, not a sort key**.
+* **NOT CLAIMED — and the trap is named:** `actor[+0x38]` is **not** a `BTL_DATA_INIT` field.
+  Tracing `SFX_InitBattle` shows **all 17 of them land, in order, on other offsets**
+  (`enemy_radius`→`+0x18`, `geo_radius`→`+0x28`, `geo_height`→`+0x2c`, `btl_id`→`+0x08`), so
+  reaching for the open-source struct here gives the WRONG field. Neither the axis nor the divisor's
+  meaning is pinned. **Sibling op 124 exposes the same pair** (`+0x28` normally, `+0x38` when bit 8
+  of its arg is set — `$a0` constants exactly `0` and `256`) = a second handle for a future rung.

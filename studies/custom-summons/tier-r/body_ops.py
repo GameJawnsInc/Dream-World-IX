@@ -1,4 +1,10 @@
-"""body_ops -- THE HANDLER-BODY EVIDENCE CLASS.  Two ops: 117 and 206.
+"""body_ops -- THE HANDLER-BODY EVIDENCE CLASS.  Three ops: 117, 206 and 136.
+
+**op 136** (510 sites) is four instructions -- look an actor up, divide one of its fields by 6, add
+the caller's base -- and the body alone would not name it.  WHERE THE RESULT GOES does: the corpus
+stores it into an op-117 instance's ``+0x22``, and the per-tick function loads ``+0x20``/``+0x22``
+TOGETHER into GTE input slots and projects them.  So it is a COORDINATE component placed relative to
+an actor, not the sort key it first looks like.  See :func:`verify_coord`.
 
 **op 206** is the cheap half and it ships at ``high``: ``fn 0x47290`` asserts the ``'so'`` magic,
 branches on ``u16[operand+2]``, ORs the PSX TPAGE **ABR** field into every binding on the non-zero
@@ -120,6 +126,24 @@ NAME_ABR = "Hi_RegisterTexListModel|Hi_RegisterGouEffModel"
 DESCRIPTION_ABR = ("OR the PSX TPAGE ABR (semi-transparency) field into every binding of an 'so' "
                    "table, then register the model -- tex-list variant when u16[+2] is non-zero, "
                    "gouraud variant when it is zero")
+
+
+# --- op 136: a coordinate placed relative to an actor -----------------------------------------
+#: ``fn 0x45a80`` is four instructions of work: look the actor up, divide one of its fields by 6
+#: (the classic ``0xAAAAAAAB`` / ``shr 2`` unsigned magic), add the caller's base.  What names it is
+#: not the body but WHERE THE RESULT GOES -- the corpus stores it into an op-117 instance's ``+0x22``,
+#: and the per-tick function loads ``+0x20``/``+0x22`` TOGETHER into GTE input slots and projects
+#: them.  So ``+0x22`` is a coordinate component, and op 136 places it relative to an actor.
+OP_COORD = 136
+COORD_FN = 0x45A80
+ACTOR_LOOKUP = 0x44A60         # idx<8 party (count ctx+0x24) / 8..15 enemies (ctx+0x27) / 0x10,0x11
+ACTOR_FIELD = 0x38             # the u32 this op divides
+COORD_DIVISOR = 6
+DIV_MAGIC = 0xAAAAAAAB         # unsigned /6: mul then shr edx, 2
+INSTANCE_COORD_OFF = 0x22      # where the corpus stores the result, on an op-117 record
+NAME_COORD = "actor_relative_coord"
+DESCRIPTION_COORD = ("a coordinate component placed relative to an actor: base + "
+                     "actor[+0x38] / 6")
 
 
 def _u16(b: bytes, o: int) -> int:
@@ -287,6 +311,42 @@ def verify_abr(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
     return ok, notes
 
 
+def verify_coord(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 136's body: lookup, divide-by-6, add."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_COORD]) or dll.native_fn[OP_COORD]
+    good = fn == COORD_FN
+    ok &= good
+    notes.append("op %d native fn = %#x (expect %#x) %s"
+                 % (OP_COORD, fn, COORD_FN, "OK" if good else "FAIL"))
+
+    text = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    calls = {int(o, 16) - dll.base for m, o in text if m == "call" and o.startswith("0x")}
+    good = ACTOR_LOOKUP in calls
+    ok &= good
+    notes.append("calls the actor lookup %#x %s" % (ACTOR_LOOKUP, "OK" if good else "FAIL"))
+    good = ("mov", "eax, 0x%x" % DIV_MAGIC) in text and ("shr", "edx, 2") in text
+    ok &= good
+    notes.append("divides by %d via the %#x magic %s"
+                 % (COORD_DIVISOR, DIV_MAGIC, "OK" if good else "FAIL"))
+    good = ("mul", "dword ptr [rcx + 0x%x]" % ACTOR_FIELD) in text
+    ok &= good
+    notes.append("the dividend is actor[+%#x] %s" % (ACTOR_FIELD, "OK" if good else "FAIL"))
+    good = any(m == "lea" and o.startswith("eax, [rbx +") for m, o in text)
+    ok &= good
+    notes.append("adds the caller's base to the quotient %s" % ("OK" if good else "FAIL"))
+
+    # +0x38 is NOT one of BTL_DATA_INIT's 17 fields: SFX_InitBattle copies every one of them, in
+    # order, to a DIFFERENT set of offsets.  Recorded so nobody re-derives it from the open-source
+    # struct and lands on the wrong field.
+    notes.append("NOTE actor[+%#x] is a DLL-computed runtime field, not a copied BTL_DATA_INIT one"
+                 % ACTOR_FIELD)
+    return ok, notes
+
+
 def wassert_sources(dll: Optional[A.DllView] = None) -> Dict[int, Set[str]]:
     """{function: {source file}} from every ``_wassert`` call site.
 
@@ -382,6 +442,28 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                             ABR_MASK, ABR_SHIFT, SO_TABLE_OFF, SO_LEN_OFF, SO_TABLE_OFF,
                             TEXLIST_FN, GOURAUD_FN,
                             " (%s)" % src[0] if src else "")),
+        }
+
+    ok_coord, _n2 = verify_coord(dll)
+    if ok_coord:
+        out[OP_COORD] = {
+            "name": NAME_COORD,
+            # MEDIUM: no symbol names it, and actor[+0x38]'s own identity is unresolved -- every
+            # BTL_DATA_INIT field maps elsewhere, so it is a DLL runtime field.  What IS pinned is
+            # the arithmetic and the destination.
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x looks the actor up via %#x (idx<8 party, 8..15 enemies, "
+                         "0x10/0x11 singleton slots), divides actor[+%#x] by %d (%#x magic + "
+                         "shr 2) and adds arg1; the corpus stores the result into an op-117 "
+                         "instance's +%#x, which the per-tick fn 0x34860 loads TOGETHER with +0x20 "
+                         "into GTE input slots and projects -- so +%#x is a coordinate component, "
+                         "not a sort key; 510/510 sites pass arity 2, $a0 in {0,16} (party member 0 "
+                         "and the +0x50 singleton), $a1 all powers of two 16..512, and 436 of the "
+                         "510 sites sit beside op 117. actor[+%#x] is NOT a BTL_DATA_INIT field: "
+                         "SFX_InitBattle copies all 17 of them, in order, to other offsets."
+                         % (BODY_MARKER, DESCRIPTION_COORD, COORD_FN, ACTOR_LOOKUP, ACTOR_FIELD,
+                            COORD_DIVISOR, DIV_MAGIC, INSTANCE_COORD_OFF, INSTANCE_COORD_OFF,
+                            ACTOR_FIELD)),
         }
 
     ok, _notes = verify(dll)

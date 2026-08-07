@@ -474,3 +474,104 @@ lane**, and it is reported as such rather than as a new rung.
 | call-site traffic named | 9,461 / 14,212 (66.6%) | **9,800 / 14,212 (69.0%)** |
 
 Across the three rounds: **79 → 109 named, 51.8% → 69.0% of traffic.**
+
+---
+
+# ADDENDUM 3 — op 136, and a guess corrected by looking
+
+**Status: ★ DONE. `body_gates.py` 9/9, 4 more tests (tier-r 187). Named 109 → 110; traffic
+69.0% → 72.5%.**
+
+op 136 (510 sites, `(int,int)->int`) is **four instructions of work**, and the body alone does not
+name it. What names it is **where the result goes**.
+
+## The body
+
+```
+mov  ebx, edx                  ; base  = arg1
+call 0x44a60                   ; actor = lookup(arg0)
+mov  eax, 0xaaaaaaab
+mul  dword [rcx + 0x38]        ; unsigned magic divide...
+shr  edx, 2                    ; ...by 6
+lea  eax, [rbx + rdx]          ; return base + actor[+0x38] / 6
+```
+
+**The actor lookup `0x44a60` is worth having on its own** — it is the DLL's actor table, and it
+states its own index space through two `_wassert`s:
+
+| index | meaning |
+|---|---|
+| `0 .. 7` | party members, count at `ctx+0x24` |
+| `8 .. 15` | enemies, count at `ctx+0x27` |
+| `0x10`, `0x11` | two singleton slots (`ctx+0x50`, `ctx+0xb8`) |
+
+op 136's `$a0` is only ever **0** (×340) or **16** (×120) — party member 0, and the `+0x50`
+singleton. Its `$a1` is **always a power of two**: 128 (×237), 32 (×153), 64 (×46), 256 (×18),
+16 (×14), 512 (×13).
+
+## What names it — the destination
+
+**436 of op 136's 510 sites sit beside op 117**, and the corpus idiom is exact:
+
+```
+jalr op117                      ; handle = op117(subfile, ...)
+sw   $v0, 4($s2)                ; save it
+jalr op136  ($a0=0, $a1=0x20)
+sh   $v0, 34($v1)               ; handle->[0x22] = op136(...)
+```
+
+`+0x22` is the field op 117's allocator explicitly zeroes, and the field **ef227 sets to the literal
+128** — itself one of op 136's own `$a1` values. So op 136 computes a per-instance property that is
+otherwise a constant.
+
+**And then I was wrong about which property, and looking is what fixed it.** A signed (`movsx`) read
+of `+0x22` in a model-registration neighbourhood reads like an ordering-table bias, and that was the
+working hypothesis. The per-tick function `0x34860` refutes it:
+
+```
+movsx ecx, word [rbx + 0x22]
+movsx eax, word [rbx + 0x20]      ; loaded TOGETHER, as a pair
+mov   [0x211fe4], eax             ; GTE input slots
+mov   [0x211f94], ecx
+call  0x4930                      ; project
+```
+
+`+0x20` and `+0x22` go into GTE input registers together and are projected; a parallel branch feeds
+the same two globals from another record's `+0x18`/`+0x1a`. **`+0x22` is a coordinate component, not
+a sort key.**
+
+## The name
+
+**`op 136 = actor_relative_coord`**, at **`medium`** — *a coordinate component placed relative to an
+actor: `base + actor[+0x38] / 6`.*
+
+## What is deliberately NOT claimed
+
+**`actor[+0x38]` is not identified**, and there is a specific reason to say so loudly: it is
+tempting to reach for Memoria's open-source `BTL_DATA_INIT`, which carries exactly the plausible
+fields (`enemy_radius`, `geo_radius`, `geo_height`). Tracing `SFX_InitBattle`'s copy shows **all 17
+of its fields land, in order, on other offsets**:
+
+| BTL_DATA_INIT | → runtime | | BTL_DATA_INIT | → runtime |
+|---|---|---|---|---|
+| `bi_player` | `+0x00` | | `enemy_radius` | `+0x18` |
+| `bi_slot_no` | `+0x01` | | `geo_radius` | `+0x28` |
+| `bi_line_no` | `+0x02` | | `geo_height` | `+0x2c` |
+| `tar_bone` | `+0x0a` | | `btl_id` | `+0x08` |
+| `player_serial_no` | `+0x10` | | `enemy_cam_bone0..2` | `+0x1d..+0x1f` |
+
+**`+0x38` is not among them** — it is a DLL-computed runtime field. Neither the axis (which of the
+GTE pair is X vs Y) nor the divisor's meaning is pinned, so the name says *coordinate component*
+and stops. Sibling **op 124** exposes the same pair as an HLE getter (`+0x28` normally, `+0x38` when
+bit 8 of its argument is set — its `$a0` constants are exactly `0` and `256`), so a future rung has a
+second handle on the same field.
+
+## Coverage
+
+| | after op 206 | after op 136 |
+|---|---|---|
+| named ops | 109 / 216 | **110 / 216** |
+| confidence | high 67 · med 32 · low 10 · unnamed 107 | **high 67 · med 33 · low 10 · unnamed 106** |
+| call-site traffic named | 9,800 / 14,212 (69.0%) | **10,310 / 14,212 (72.5%)** |
+
+Across R4–R7: **79 → 110 named, 51.8% → 72.5% of traffic.**
