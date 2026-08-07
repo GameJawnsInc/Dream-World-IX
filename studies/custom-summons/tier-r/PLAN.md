@@ -162,3 +162,29 @@ the name comes from **Square's own `SFX.COMMAND` enumerator** rather than from o
 * **The bank half barely moved: 2 of 24.** `psxBankTable` is address translation, not a callback
   path; this lever does not reach it. Ditto the high-volume unknowns — **op 117 (1,709 calls) does
   not touch the callback at all and remains the best target for a handler-body rung.**
+
+## R5 (op 117) — ★ DONE 2026-08-07: THE HANDLER-BODY LANE
+
+Record: `CALLBACK-OPS.md` §ADDENDUM. `body_gates.py` 5/5; 13 new tests (tier-r 175).
+**Named 107 → 108; call-site traffic 54.5% → 66.6% — +12.1 points from ONE op.**
+
+R4 named op 117 the best remaining target and it was: **1,709 call sites, 12% of all HLE traffic**,
+and it never touches the callback, so only a body read reaches it.
+
+* **op 117 = `subfile_instance_open`** (medium) — its native fn `0x306f0` is a thin forwarder that
+  TAIL-JUMPS to `0x34380`, which allocates a `0x6C`-byte record from the pool at `0x3210d0`
+  (**returning NULL when full**), binds a `0x1FE0` work buffer, and **relocates the blob's
+  `0x28`-stride entry table** (count u16 at +4, pointers +0x1c/+0x20 gated by kind bytes, offsets
+  ≤ `0x27ff`) to absolute PSX addresses via `psxBankTable`.
+* **THE FAMILY:** ops **116/117/118/119** are consecutive ops on consecutive functions sharing one
+  pool and context — reset / open / operate / close. Identified, **not named**: the A/B ran for 117.
+* **CORPUS, each test refutable:** 1,680/1,709 sites (**98.3%**) take a sub-file pointer from op 102 ·
+  the reading validates **62.2%** on fed sub-files vs **6.4%** on the control (~10×) · **0 of 759**
+  camera sub-files are ever fed, so this is not the camera lane.
+* **NOT CLAIMED:** 38% of fed sub-files fail the reading and relaxing the bound recovers none of them
+  (62.2% either way) — real unmodelled structure, so the name describes the MECHANISM not the content
+  domain, and ships `medium`: **no symbol in the chain supplies a name.**
+* **★ A SECOND R2 RESOLVER GAP:** names are resolved on an op's OWN function, so a tail-call
+  forwarder hides its callee's symbol. **op 206** (339 calls) tail-jumps to `Hi_RegisterTexListModel`
+  and `Hi_RegisterGouEffModel` — two names, so it stays unnamed, but it is now a bounded question and
+  the natural next target. `body_ops.tailjump_name_gap()` computes the gap; a test pins it.

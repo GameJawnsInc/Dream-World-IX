@@ -2799,8 +2799,8 @@
  },
  {
   "op": 117,
-  "name": null,
-  "confidence": null,
+  "name": "subfile_instance_open",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -2814,7 +2814,7 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x10edc: arity 2 kinds=pp returns ptr; corpus: 1709 call sites in 369 images / 357 effects (24 creature-bearing); modal arg-setup 1703/1709 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 1703, 0: 6}; called next to ops 102(x2513), 136(x436), 64(x58); $a1 constants: 2149513316(x4), 2149492192(x4), 2149496812(x4), 2149485868(x3), 2149483296(x3), 2149485232(x3); position: {'middle-third': 805, 'last-third': 577, 'first-third': 327}",
+  "evidence": "stub 0x10edc: arity 2 kinds=pp returns ptr; corpus: 1709 call sites in 369 images / 357 effects (24 creature-bearing); modal arg-setup 1703/1709 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 1703, 0: 6}; called next to ops 102(x2513), 136(x436), 64(x58); $a1 constants: 2149513316(x4), 2149492192(x4), 2149496812(x4), 2149485868(x3), 2149483296(x3), 2149485232(x3); position: {'middle-third': 805, 'last-third': 577, 'first-third': 327}; handler-body: open a pooled runtime instance of a sub-file, relocating the sub-file's internal offset table to absolute PSX addresses; returns the record, or NULL when the pool is full; native fn 0x306f0 tail-jumps to the pooled allocator 0x34380 (record stride 0x6c, work buffer 0x1fe0/slot, pool 0x3210d0 shared with ops [116, 117, 118, 119]); relocates the blob's 0x28-stride entry table (count u16 at +0x4, pointers +0x1c/+0x20 gated by kind bytes, offsets <= 0x27ff) to absolute PSX addresses via psxBankTable; corpus: 1680/1709 sites (98.3%) take a sub-file pointer from op 102, the reading validates 62.2% on fed sub-files vs 6.4% on the rest, and 0/759 camera sub-files are ever fed. NOT high: no symbol in the chain supplies a name, and 38% of fed sub-files carry structure this pass does not model.",
   "call_sites": 1709,
   "effects": 357,
   "creature_effects": 24

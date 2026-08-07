@@ -289,3 +289,99 @@ sit at `medium`.
   UNWIND_INFO. No patched `FF9SpecialEffectPlugin.dll` was produced and none ever will be.
 * The tests run green without the DLL and without Memoria's source (the managed-parser cases use an
   inline fixture), so the committed artifact stays verifiable from the repo alone.
+
+---
+
+# ADDENDUM — op 117, the handler-body lane
+
+**Status: ★ DONE. `body_gates.py` 5/5, 13 new tests (tier-r 175). Named ops 107 → 108; call-site
+traffic 54.5% → 66.6%.**
+
+§9 named op 117 as the best remaining target and said naming it needed a different rung: it does not
+touch the callback, so neither R2's sources nor the managed-ABI class reaches it. At **1,709 call
+sites it is the single most-called op in the corpus** — 12% of all HLE traffic in one op.
+
+## What the body says
+
+`op 117`'s native function `0x306f0` is a **thin forwarder**: it shuffles the two arguments into
+`r8`/`r9` and **tail-jumps** to `0x34380`, passing a pool descriptor and a context object.
+`0x34380` is an **allocator + relocator**:
+
+1. scans a pool of **`0x6C`-byte records** (descriptor `0x3210d0`: count `+0`, high-water `+8`,
+   array `+0x10`) for one whose `+0x30` is zero, and **returns 0 when the pool is full**;
+2. zeroes it, marks `+0x30 = 1`, binds a **`0x1FE0`-byte work buffer** carved by slot index from the
+   static array at `0x587520`;
+3. converts the caller's blob pointer to a PSX address (`fn 0x12940` against `psxBankTable`) → `+0x00`;
+4. **relocates the blob** — header `0x10` if `blob[0] == 0xff` else `0x28`; `u16` count at `+0x04`;
+   a **`0x28`-stride entry array at `+0x14`**; per entry, `byte+0x00 != 9` promotes `u32 +0x1c` and
+   `byte+0x01 != 0xff` promotes `u32 +0x20` from a blob-relative offset (`<= 0x27ff`) to an absolute
+   PSX address;
+5. stores the table's start/end at `+0x18`/`+0x24`, the second argument at **`+0x28` and `+0x2c`**
+   (a cursor and its base), and returns the record.
+
+**The family.** `0x3210d0` and the context object `0x211e68` are referenced by exactly the same six
+functions — four of which are **consecutive ops on consecutive addresses**: `116` (`()->void`, a pool
+reset), `117` (open), `118` (`(pp)->void`), `119` (`(p)->void`, which marks `+0x30 = -1` and walks a
+second table restoring a saved byte on every slot bound to the handle). Open / operate / close.
+
+**The real call idiom**, straight out of ef227's annotated listing:
+
+```
+jalr  get_subfile_ptr          ; op 102, $a1 = 0x83  (& 0x7F -> sub-file 3)
+addu  $a0, $v0, $zero          ; a0 = the sub-file pointer
+jalr  op 117                   ; op117(subfile, $s3+64)
+addu  $v1, $v0, $zero
+beq   $v1, $zero, skip         ; NULL-CHECKED -- exactly the pool-full return
+sh    $v0, 34($v1)             ; handle->[0x22] = 128
+```
+
+## The corpus tests — each could have refuted it
+
+| gate | result |
+|---|---|
+| **B3** op-117 sites immediately preceded by a constant-index `op 102` | **1,680 / 1,709 = 98.3%** |
+| **B4** the relocator's reading validates on the sub-files actually fed to op 117 | **986 / 1,584 = 62.2%** |
+| **B4** …versus every other sub-file in the same chunks (the control) | **383 / 5,978 = 6.4%** |
+| **B5** overlap with the **759** camera sub-files across 356 containers | **0** |
+
+A ~10× separation on B4 — the same shape of evidence that named op 102 (98.80% vs a 67.7% control).
+B5 rules out the camera lane by measurement rather than by argument.
+
+## What is deliberately NOT claimed
+
+**38% of the fed sub-files do not satisfy the reading, and relaxing the sub-file bound to the region
+end does not recover a single one (62.2% either way).** So this is not a bounds artifact — there is
+real structure here that this pass does not model, most likely more header variants than the one
+`blob[0] == 0xff` discriminator. Accordingly:
+
+* the name describes the **mechanism, not the content domain**:
+  **`op 117 = subfile_instance_open`** — *open a pooled runtime instance of a sub-file, relocating
+  its internal offset table to absolute PSX addresses; returns the record, or NULL when the pool is
+  full*;
+* it ships at **`medium`**, never `high` — **no symbol anywhere in the chain supplies a name**, and
+  R2's contract reserves `high` for a name a source actually states;
+* ops 116/118/119 are **identified as the family but not named**: the A/B test was run for 117, and
+  a family argument is not a measurement.
+
+## ★ A second gap in R2's name resolver
+
+R2 resolves a name from debug strings **owned by an op's own function**, so a tail-call forwarder
+hides its callee's symbol. Op 117's chain has no symbol either way, so it does not benefit — but the
+sweep found one op that does:
+
+> **op 206** (339 call sites) tail-jumps to functions owning **`Hi_RegisterTexListModel`** and
+> **`Hi_RegisterGouEffModel`**.
+
+Two names, so R2's exclusivity rule would refuse it, and it is **left unnamed here** rather than
+guessed — but it is now a *bounded* question rather than a blank, and it is the natural next target.
+`body_ops.tailjump_name_gap()` computes the whole gap (2 ops today), and a test pins it.
+
+## Coverage
+
+| | after the callback round | after op 117 |
+|---|---|---|
+| named ops | 107 / 216 | **108 / 216** |
+| confidence | high 66 · med 31 · low 10 · unnamed 109 | **high 66 · med 32 · low 10 · unnamed 108** |
+| call-site traffic named | 7,752 / 14,212 (54.5%) | **9,461 / 14,212 (66.6%)** |
+
+One op, **+12.1 points** of traffic — the whole point of ranking the remaining work by call sites.

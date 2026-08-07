@@ -764,7 +764,8 @@ SUBFILE_INDEX_MASK = 0x7F
 
 def build_hle_ops(dll: DllView, census: Dict[int, OpCensus],
                   known_names: Optional[Dict[int, str]] = None,
-                  callback: Optional[Dict[int, dict]] = None) -> Dict[int, dict]:
+                  callback: Optional[Dict[int, dict]] = None,
+                  body: Optional[Dict[int, dict]] = None) -> Dict[int, dict]:
     """The op dictionary: a name, a confidence and the evidence behind both, per op.
 
     CONFIDENCE CONTRACT (enforced, not merely documented -- see :func:`check_confidence_rule`):
@@ -920,6 +921,16 @@ def build_hle_ops(dll: DllView, census: Dict[int, OpCensus],
                 # the existing name is the more specific one, so it stands.
                 evidence.append("the callback code is the op's boundary crossing, not its whole "
                                 "semantics -- the existing name is retained as the more specific")
+        # The HANDLER-BODY source (``body_ops``) is the expensive lane: a read of the op's native
+        # function, corroborated by a corpus test with a control.  It ships at whatever confidence
+        # it declares -- never ``high``, because no source states the name -- and it never displaces
+        # an existing one, for the same reason the callback source does not (a body read describes
+        # the mechanism; a symbol names the thing).
+        bd = (body or {}).get(op)
+        if bd:
+            evidence.append(bd["evidence"])
+            if name is None:
+                name, conf = bd["name"], bd["confidence"]
         if conf == "high" and not (static_ok and corpus_ok):
             conf = "medium"
             evidence.append("demoted from high: the corpus census disagrees with the static arity")
@@ -1038,7 +1049,18 @@ def rebuild_hle_ops(dll: "DllView", census: Dict[int, OpCensus],
         if verbose:
             print("managed-ABI evidence SKIPPED (%s: %s) -- rebuilding without it"
                   % (type(exc).__name__, exc))
-    return build_hle_ops(dll, census, callback=cb_ev)
+    body_ev = None
+    try:
+        import body_ops
+        body_ev = body_ops.body_evidence(dll)
+        if verbose:
+            print("handler-body evidence: %d op(s) named from a read of the native function"
+                  % len(body_ev))
+    except Exception as exc:                                       # noqa: BLE001 -- reported
+        if verbose:
+            print("handler-body evidence SKIPPED (%s: %s) -- rebuilding without it"
+                  % (type(exc).__name__, exc))
+    return build_hle_ops(dll, census, callback=cb_ev, body=body_ev)
 
 
 def write_hle_ops(ops: Dict[int, dict], path: str = HLE_OPS_JSON) -> str:
