@@ -180,7 +180,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 64 | — | unnamed | 1 | tick 198 (`clock >= 20`) | $a1=0x1 $a2=0x5c $a3=0x5c |
 | op 100 | Hi_SetSummonMotFrame | high | 1 | tick 178 | $a1=0x0 |
 | op 102 | get_subfile_ptr | medium | 3 | tick 198 (`clock >= 20`) | $a1=0x5; $a1=0xa; $a1=0x83 |
-| op 117 | — | unnamed | 3 | tick 198 (`clock >= 20`) | — |
+| op 117 | subfile_instance_open | medium | 3 | tick 198 (`clock >= 20`) | — |
 | op 146 | gte_project_vertices | medium | 1 | tick 198 (`clock >= 20`) | $a0=0x3 $a1=0xa0 $a2=0x70 $a3=0x50 |
 | op 149 | Hi_GetSummonBonePos | high | 4 | tick 198 (`clock >= 20`) | $a1=0x0 |
 | op 155 | Hi_ModifyEffModelRGB | high | 1 | tick 198 (`clock >= 20`) | — |
@@ -220,7 +220,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 100 | Hi_SetSummonMotFrame | high | 1 | tick 36 | $a1=0x0 |
 | op 102 | get_subfile_ptr | medium | 9 | tick 36 | $a1=0x7; $a1=0x9; $a1=0xb |
 | op 115 | — | unnamed | 1 | tick 36 | — |
-| op 117 | — | unnamed | 4 | tick 36 | — |
+| op 117 | subfile_instance_open | medium | 4 | tick 36 | — |
 | op 164 | Hi_GetSummonBoneMatrix | high | 3 | tick 36 | $a1=0x3d |
 | op 172 | gte_transform_vertices | medium | 2 | tick 36 | $a1=0x40; $a1=0x5c |
 | op 173 | gte_transform_vertices | medium | 1 | tick 36 | — |
@@ -271,7 +271,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 64 | — | unnamed | 2 | tick 122 (`clock >= 5`) | $a1=0x1 $a2=0x0 $a3=0x80; $a1=0x1 $a2=0x20 $a3=0x80 |
 | op 74 | gte_transform_vertices | medium | 3 | tick 122 (`clock >= 5`) | $a3=0x4000; $a2=0x0 |
 | op 102 | get_subfile_ptr | medium | 9 | tick 122 (`clock >= 5`) | $a1=0x4; $a1=0x5; $a1=0x6 |
-| op 117 | — | unnamed | 6 | tick 122 (`clock >= 5`) | — |
+| op 117 | subfile_instance_open | medium | 6 | tick 122 (`clock >= 5`) | — |
 | op 119 | — | unnamed | 2 | tick 122 (`clock >= 5`) | — |
 | op 146 | gte_project_vertices | medium | 1 | tick 122 (`clock >= 5`) | $a0=0x3 $a1=0xa0 $a2=0x70 $a3=0x50 |
 | op 155 | Hi_ModifyEffModelRGB | high | 2 | tick 122 (`clock >= 5`) | — |
@@ -293,7 +293,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 74 | gte_transform_vertices | medium | 2 | tick 197 (`clock >= 65`) | $a2=0x0 |
 | op 77 | — | unnamed | 1 | tick 197 (`clock >= 65`) | — |
 | op 102 | get_subfile_ptr | medium | 4 | tick 197 (`clock >= 65`) | $a1=0x16; $a1=0x1b; $a1=0x1c |
-| op 117 | — | unnamed | 1 | tick 197 (`clock >= 65`) | — |
+| op 117 | subfile_instance_open | medium | 1 | tick 197 (`clock >= 65`) | — |
 | op 144 | — | unnamed | 1 | tick 197 (`clock >= 65`) | $a1=0x340 $a2=0x100 $a3=0x20 |
 | op 155 | Hi_ModifyEffModelRGB | high | 4 | tick 132 | — |
 
@@ -454,7 +454,7 @@ So **43 of 385** id-3 images have a switch-driven program entry at all. The mult
 | 100 | Hi_SetSummonMotFrame | high | `hle_ops.json` |
 | 102 | get_subfile_ptr | medium | `hle_ops.json` |
 | 115 | — | unnamed | `hle_ops.json` |
-| 117 | — | unnamed | `hle_ops.json` |
+| 117 | subfile_instance_open | medium | `hle_ops.json` |
 | 119 | — | unnamed | `hle_ops.json` |
 | 144 | — | unnamed | `hle_ops.json` |
 | 146 | gte_project_vertices | medium | `hle_ops.json` |
@@ -466,7 +466,7 @@ So **43 of 385** id-3 images have a switch-driven program entry at all. The mult
 | 182 | — | unnamed | `hle_ops.json` |
 | 206 | — | unnamed | `hle_ops.json` |
 
-A `medium` or `low` name is a *description*, not a fact; the prose above never promotes one. 14 of the 32 ops cited here are unnamed and appear as bare numbers.
+A `medium` or `low` name is a *description*, not a fact; the prose above never promotes one. 13 of the 32 ops cited here are unnamed and appear as bare numbers.
 
 ## 8. What this report still cannot tell you
 
@@ -475,4 +475,4 @@ A `medium` or `low` name is a *description*, not a fact; the prose above never p
 - **The capture cannot say which program drew the creature on a given frame.** The summon slot is one shared slot (R1 finding 1), and the probe logs the slot, not the caller. Where two programs both draw, the attribution here is the model's, not the capture's. A probe row carrying the calling chunk's slot would settle it.
 - **A motion-counter restart is not proof of a `SetMotion` call.** A looping clip wraps on its own; that is why only boundaries whose transition tail actually issues a motion call are scored, and why the value written is checked as well as the frame.
 - **Within a phase, only *gated* calls carry a tick.** A call with no dominating clock condition is placed at the phase's first tick, which is a lower bound, not a schedule.
-- **`medium` and `low` names are descriptions.** 14 of the 32 ops cited are unnamed entirely; a phase's label inherits every bit of that uncertainty.
+- **`medium` and `low` names are descriptions.** 13 of the 32 ops cited are unnamed entirely; a phase's label inherits every bit of that uncertainty.
