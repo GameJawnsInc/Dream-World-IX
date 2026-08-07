@@ -1,5 +1,11 @@
 # Engine requirements & notes
 
+This page answers one question: does your mod need the bundled custom engine? The one-line rule —
+a **novel** field runs on stock Memoria; **forked** fields, overworld mesh authoring, and
+two-player co-op need the bundle. [Installing the custom engine](#installing-the-custom-engine)
+below gives the three install routes, and [`FORK_FIDELITY.md`](FORK_FIDELITY.md) has the
+per-behavior breakdown.
+
 ## Novel fields run on stock Memoria
 
 A **novel** field — built from scratch, or borrowing a real field's background art — needs **no

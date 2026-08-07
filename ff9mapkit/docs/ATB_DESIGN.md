@@ -1,4 +1,4 @@
-# ATB_DESIGN.md — FF9 ATB & combat-timing control surface (research + build plan)
+# FF9 ATB & combat-timing control surface
 
 > Research synthesis (2026-07-14). Scope: **how the ATB gauge and battle-turn cadence work in the Memoria
 > engine, every lever that already reaches them, and the design space for pushing them further** — the
@@ -14,8 +14,6 @@
 > hooks *first* would be the wrong order. Read §8 before starting any engine work here.
 >
 > Related: [`BATTLE_DESIGN.md`](BATTLE_DESIGN.md) · [`SCRIPTS_DLL.md`](SCRIPTS_DLL.md) · [`ENGINE.md`](ENGINE.md).
-> Project memory: `project-ff9-overload-hooks`, `project-ff9-scripts-dll`, `project-ff9-battle-tuning`,
-> `project-ff9-multiplayer-injector` (the co-op pivot), `project-ff9-memoria-build`.
 
 ---
 

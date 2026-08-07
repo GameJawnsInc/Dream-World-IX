@@ -1,4 +1,4 @@
-# SCRIPTS_DLL.md — custom battle FORMULAS with no engine rebuild (the Scripts-DLL channel)
+# Custom battle formulas with no engine rebuild — the Scripts-DLL channel
 
 > **Status: SHIPPED + in-game proven (2026-07-07).** A `[[playable]]` custom ability can carry
 > `script = { template = "drain_hp" }` (or `{ body = "<C#>" }`) and the kit mints a genuinely new

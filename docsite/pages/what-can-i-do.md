@@ -2,7 +2,7 @@
 
 Every card below is one thing the toolkit can put in your mod: what it gives you, the couple of
 steps that try it, and where to go deeper. All of it is in-game proven. Browse the whole list, or
-press **Shuffle** and let the page hand you one to explore — press it again for another.
+press **Shuffle** for a random card — again for another.
 
 <p class="wcid-bar">
 <button id="wcid-shuffle" type="button">Shuffle — show me one</button>
@@ -11,7 +11,8 @@ press **Shuffle** and let the page hand you one to explore — press it again fo
 
 The exhaustive capability inventory, subsystem by subsystem, is
 [FEATURES.md](ff9mapkit/docs/FEATURES.md); the guided path is
-[the core track](ff9mapkit/docs/tutorials/README.md).
+[the core track](ff9mapkit/docs/tutorials/README.md) (terminal-native:
+[Track C](ff9mapkit/docs/tutorials/c1-cli-fork-edit-deploy.md)).
 
 ## Fork a real FF9 room
 
@@ -70,7 +71,7 @@ minted into the mod as a new looping song.
 **Try it:** Editor → **Music** → pick a song id (Browse… lists them by name), or point
 **File (custom track)** at a wav/mp3/ogg.
 
-**Go deeper:** [S5 §2](ff9mapkit/docs/tutorials/s5-cutscene-and-music.md) ·
+**Go deeper:** [S5 §2](ff9mapkit/docs/tutorials/s5-cutscene-and-music.md#2-field-music) ·
 [custom music & SFX](ff9mapkit/docs/FEATURES.md#audio--video).
 
 ## Random battles, your pick
@@ -164,7 +165,7 @@ Edit in Blender, then `model-import` it back.
 **You get:** an original mesh, rig, and animation set on a freshly minted model id, placed in a
 field as an NPC — built from procedural Python or Blender, no donor model.
 
-**Try it:** the worked script builds one end to end.
+**Try it:** run tutorial 12's worked script — it builds one end to end.
 
 **Go deeper:** [Tutorial 12 — Create a creature from scratch](ff9mapkit/docs/tutorials/12-creature-from-scratch.md).
 
@@ -200,14 +201,14 @@ into an archipelago, walkable, drawn on the in-game map, iterated with a one-sec
 **You get:** a real 3D battle background forked to an editable FBX — retexture or reshape it in
 Blender and fight in the result, on the stock engine.
 
-**Try it:** `battle-import` a scene, edit, `battle build`, fight.
+**Try it:** `battle-import` a scene, edit, `battle-build`, fight.
 
 **Go deeper:** [Tutorial 09 — Custom battle background](ff9mapkit/docs/tutorials/09-battle-background.md).
 
 ## Rebalance the game in four lines
 
 **You get:** declarative difficulty — enemy scaling, damage multipliers by side, second-wind
-death rules, the low-HP threshold — each one small TOML table, flag-gateable for an in-game
+death rules, the low-HP threshold — each a small TOML table, flag-gateable for an in-game
 "hard mode" switch.
 
 **Try it:** add `[difficulty]` or `[rebalance]` to a field and fight.
@@ -268,7 +269,7 @@ of your own, with prizes you choose.
 
 **Try it:** fork a chocobo forest verbatim, add a `[chocobo]` block with your prize table.
 
-**Go deeper:** [`FORMAT.md`](ff9mapkit/docs/FORMAT.md) ·
+**Go deeper:** [the `[chocobo]` reference](ff9mapkit/docs/FORMAT.md#chocobo-optional--chocobo-hot--cold-prize-pool--timer) ·
 [FEATURES.md §Fields](ff9mapkit/docs/FEATURES.md#fields).
 
 ## Your own shops
@@ -278,5 +279,5 @@ plus custom weapons, armor, and item text to sell in them.
 
 **Try it:** add a `[[shop]]` block and point an NPC's `opens_shop` at it.
 
-**Go deeper:** [`FORMAT.md`](ff9mapkit/docs/FORMAT.md) ·
-[editing items & equipment](ff9mapkit/docs/FEATURES.md#save--story-state-tooling).
+**Go deeper:** [the `[[shop]]` reference](ff9mapkit/docs/FORMAT.md#shop--a-custom-shop-inventory--opener) ·
+[tune weapons, armor & items](ff9mapkit/docs/FORMAT.md#weapon--armor--item--equip_bonus--tune-existing-item-stats-optional-repeatable).

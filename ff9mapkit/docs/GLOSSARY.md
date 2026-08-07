@@ -163,7 +163,7 @@ A quick reference to the terms used across the Dream World IX / `ff9mapkit` docs
   **stock, unmodified Memoria**. A **forked** field needs a small bundled patch set
   ([`memoria-patches/`](../../memoria-patches/), `s23`–`s33`) to restore the `fldMapNo`-keyed behaviors
   noted above; the bundle also carries `s22` (the in-game debug menu (~), below), `s34` (the
-  overworld-mesh override), and the `s36`–`s41` netsync patches (experimental co-op). See
+  overworld-mesh override), and the netsync patch suite (experimental co-op). See
   [`ENGINE.md`](ENGINE.md) for exactly what's stock vs. patched.
 
 **p0data**
@@ -186,8 +186,9 @@ A quick reference to the terms used across the Dream World IX / `ff9mapkit` docs
   and [`ANIMATION_EDITING.md`](ANIMATION_EDITING.md).
 
 **The in-game debug menu (~)**
-: An in-game menu (toggled with the debug menu (~)) that ships in the engine bundle as a user-facing tool. Four
-  context-adaptive tabs — **Go / Cheats / Flags / Time** — work on a field, in battle, and on the
-  overworld: reload the current field, warp to any registered field id, teleport, set story flags,
+: An in-game menu, opened with the tilde/backquote (~) key, that ships in the engine bundle as a
+  user-facing tool. Three context-adaptive tabs — **Go / Cheats / Flags** (time control sits under
+  Cheats), plus a **World** tab on the overworld — work on a field, in battle, and on the world
+  map: reload the current field, warp to any registered field id, teleport, set story flags,
   give items, toggle cheats, change the time scale; on the overworld, also swap vehicles, teleport
   across the world map, and switch discs.

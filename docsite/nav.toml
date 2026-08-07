@@ -37,6 +37,7 @@ pages = [
   "ff9mapkit/docs/CAMPAIGN_IMPORT.md",
   "ff9mapkit/docs/JOURNEYS.md",
   "ff9mapkit/docs/OVERWORLD_ENGINE.md",
+  "ff9mapkit/docs/OVERWORLD_RECIPES.md",
   "ff9mapkit/docs/DIALOGUE.md",
   "ff9mapkit/docs/ATE_SYSTEM.md",
   "ff9mapkit/docs/BEHAVIOR.md",

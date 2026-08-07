@@ -1,4 +1,4 @@
-# Tutorial
+# Tutorial (moved)
 
 This walkthrough was split into the tutorial set: **[tutorials/](tutorials/README.md)**.
 

@@ -7,21 +7,34 @@ const html = document.documentElement;
 
 // ---- theme -----------------------------------------------------------------------------------
 const themeBtn = document.querySelector(".theme");
+function syncThemeLabel() {
+  const dark = html.dataset.theme
+    ? html.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  themeBtn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+}
+syncThemeLabel();
 themeBtn.addEventListener("click", () => {
   const dark = html.dataset.theme
     ? html.dataset.theme === "dark"
     : matchMedia("(prefers-color-scheme: dark)").matches;
   html.dataset.theme = dark ? "light" : "dark";
   localStorage.setItem("dwix-theme", html.dataset.theme);
+  syncThemeLabel();
 });
 
 // ---- sidebar (small screens) -----------------------------------------------------------------
 const side = document.querySelector(".side");
-document.querySelector(".navbtn").addEventListener("click", () => side.classList.toggle("open"));
+const navBtn = document.querySelector(".navbtn");
+navBtn.addEventListener("click", () => {
+  const open = side.classList.toggle("open");
+  navBtn.setAttribute("aria-expanded", String(open));
+});
 
 // ---- search ----------------------------------------------------------------------------------
 const input = document.querySelector(".search");
 const panel = document.querySelector(".results");
+const status = document.querySelector(".vh[role=status]");
 let index = null;
 let sel = -1;
 
@@ -59,7 +72,13 @@ function snippet(body, at, q) {
 async function run(q) {
   q = q.trim().toLowerCase();
   sel = -1;
-  if (q.length < 2) { panel.hidden = true; panel.innerHTML = ""; return; }
+  if (q.length < 2) {
+    panel.hidden = true; panel.innerHTML = "";
+    input.setAttribute("aria-expanded", String(!panel.hidden));
+    input.removeAttribute("aria-activedescendant");
+    status.textContent = "";
+    return;
+  }
   const idx = await ensureIndex();
   const hits = idx
     .map(e => { const { s, first } = score(e, q); return { e, s, first }; })
@@ -67,33 +86,57 @@ async function run(q) {
     .sort((a, b) => b.s - a.s)
     .slice(0, 20);
   panel.innerHTML = hits.length
-    ? hits.map(r =>
-        `<a href="${new URL(r.e.u, ROOT).href}"><span class="rt">${r.e.t}</span>` +
+    ? hits.map((r, i) =>
+        `<a role="option" id="sr-${i}" href="${new URL(r.e.u, ROOT).href}"><span class="rt">${r.e.t}</span>` +
         `<div class="rs">${snippet(r.e.b, r.first, q)}</div></a>`).join("")
     : `<div class="none">No matches for “${q.replace(/[&<>]/g, "")}”.</div>`;
   panel.hidden = false;
+  input.setAttribute("aria-expanded", String(!panel.hidden));
+  input.removeAttribute("aria-activedescendant");
+  status.textContent = hits.length ? `${hits.length} results` : "No matches";
 }
 
 let deb = 0;
 input.addEventListener("input", () => { clearTimeout(deb); deb = setTimeout(() => run(input.value), 120); });
-input.addEventListener("focus", () => { if (panel.innerHTML) panel.hidden = false; ensureIndex(); });
+input.addEventListener("focus", () => {
+  if (panel.innerHTML) { panel.hidden = false; input.setAttribute("aria-expanded", "true"); }
+  ensureIndex();
+});
 input.addEventListener("keydown", ev => {
   const rows = [...panel.querySelectorAll("a")];
-  if (ev.key === "Escape") { panel.hidden = true; input.blur(); }
-  else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+  if (ev.key === "Escape") {
+    panel.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+    input.blur();
+  } else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
     ev.preventDefault();
     sel = Math.max(0, Math.min(rows.length - 1, sel + (ev.key === "ArrowDown" ? 1 : -1)));
-    rows.forEach((r, i) => r.classList.toggle("sel", i === sel));
+    rows.forEach((r, i) => {
+      r.classList.toggle("sel", i === sel);
+      r.setAttribute("aria-selected", String(i === sel));
+    });
+    if (rows[sel]) input.setAttribute("aria-activedescendant", rows[sel].id);
     rows[sel]?.scrollIntoView({ block: "nearest" });
   } else if (ev.key === "Enter" && rows.length) {
     (rows[Math.max(sel, 0)]).click();
   }
 });
 document.addEventListener("click", ev => {
-  if (!panel.contains(ev.target) && ev.target !== input) panel.hidden = true;
+  if (!panel.contains(ev.target) && ev.target !== input) {
+    panel.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
 });
 document.addEventListener("keydown", ev => {
-  if (ev.key === "/" && document.activeElement !== input) { ev.preventDefault(); input.focus(); }
+  if (ev.key === "/" && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    const t = ev.target;
+    if (t !== input && !(t instanceof Element && t.closest("input, textarea, select, [contenteditable]"))) {
+      ev.preventDefault();
+      input.focus();
+    }
+  }
 });
 
 // ---- "What can I do?" shuffle ----------------------------------------------------------------
@@ -128,7 +171,7 @@ if (wcidBtn) {
     allBtn.hidden = false;
     wcidBtn.textContent = "Shuffle again";
     history.replaceState(null, "", "#" + cards[i].querySelector("h2").id);
-    scrollTo({ top: 0, behavior: "smooth" });
+    scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   });
   allBtn.addEventListener("click", () => {
     article.classList.remove("wcid-solo");

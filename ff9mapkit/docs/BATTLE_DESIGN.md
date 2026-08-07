@@ -1,24 +1,19 @@
-# BATTLE_DESIGN.md — FF9 battle tuning & encounter authoring (the honest gap map)
+# FF9 battle tuning & encounter authoring
 
-> Recon synthesis (2026-06-12). Scope: tune existing battles + author new
-> encounters with **stock monster models**, on **stock Memoria (no engine-DLL rebuild)**. Every claim cites
-> Memoria source `file:line` / a CSV column / a raw16 byte offset. This is the battle analog of
-> `FORK_FIDELITY.md`: what the kit can already do, what it can't yet, and the prioritized path.
->
-> **For the ATB gauge & turn-cadence side — timing, Haste/Slow, battle-speed, the four combat-hook control
-> tiers, and the engine-hook opportunity map — see [`ATB_DESIGN.md`](ATB_DESIGN.md).**
->
-> Provenance: this doc is analysis + citations only — **zero Square-Enix bytes**. All enemy stat bytes and
-> all CSV stat values are SE game DATA → read live from the user's install, never committed (the
-> `itemstats.py` read-live vs `_itemdb.py` committed-names split).
->
-> **Status: the battle-tuning pillar has SHIPPED + is largely in-game proven.** This began as a recon/gap
-> map; the roadmap below (§8) is now mostly DONE — the full raw16 per-enemy table (`scene_data.py`), the CSV
-> deltas (`actiondelta.py`/`characterdelta.py`/`abilityfeatures.py`), enemy-AI authoring (`aiauthor.py`/
-> `ailint.py`/`aipatch.py`), BODY re-skin (`reskin.py`), and raw17 sequence authoring (`seqasm.py`/
-> `seqauthor.py`). A brand-new battle-calc **formula** (a `Memoria.Scripts.<Mod>.dll`) now SHIPS too — see
-> **[SCRIPTS_DLL.md](SCRIPTS_DLL.md)** — so the only deferred item is a wholly-new attack SLOT. §1/§2/§6 below are kept for the engineering rationale — read the per-row
-> **Kit** columns + §8 phase stamps for current ship-state.
+This page covers the four battle data channels and every no-DLL tuning lever: tuning existing battles and
+authoring new encounters with **stock monster models**, on **stock Memoria (no engine-DLL rebuild)**. The
+battle-tuning pillar has shipped and is largely in-game proven — the full raw16 per-enemy table
+(`scene_data.py`), the CSV deltas (`actiondelta.py`/`characterdelta.py`/`abilityfeatures.py`), enemy-AI
+authoring (`aiauthor.py`/`ailint.py`/`aipatch.py`), BODY re-skin (`reskin.py`), raw17 sequence authoring
+(`seqasm.py`/`seqauthor.py`), and a brand-new battle-calc **formula** (a `Memoria.Scripts.<Mod>.dll` — see
+**[SCRIPTS_DLL.md](SCRIPTS_DLL.md)**); the only deferred item is a wholly-new attack SLOT. §2's per-row
+**Kit** columns and §8's phase stamps carry the current ship-state; §1/§2/§6 are kept for the engineering
+rationale. For the ATB gauge & turn-cadence side — timing, Haste/Slow, battle-speed, the four combat-hook
+control tiers, and the engine-hook opportunity map — see [`ATB_DESIGN.md`](ATB_DESIGN.md).
+
+Every claim cites Memoria source `file:line` / a CSV column / a raw16 byte offset, and the page is
+analysis + citations only — **zero Square-Enix bytes** (all enemy stat bytes and CSV stat values are SE
+game DATA, read live from the user's install and never committed).
 
 ---
 
@@ -459,7 +454,7 @@ forked engine reached — now ship as the kit's per-mod Scripts-DLL channel, [SC
 
 ## 8. Prioritized roadmap (each engine-independent unless flagged)
 
-### ⭐ Phase 0 — FIRST MOVE: read-only catalogs + a raw16 golden round-trip test
+### Phase 0 — read-only catalogs + a raw16 golden round-trip test
 - A **read-live `battlecsv.py`** (mirror `itemstats.py`): parse `Actions.csv` (192), `StatusData.csv` (33),
   `StatusSets.csv` by their `#`-legend; resolve names/ids/elements/scriptIds; **commit name/id tables only,
   never stats**. A designer-facing **scriptId catalog** flagging "re-point = no DLL / new formula = DLL."
@@ -474,7 +469,7 @@ Add to `scene_data._MON_FIELDS` the verified scalar offsets: element affinities 
 AP `@4` + type AP `@50`, WinCard `@105` (drop/steal rates + MaxDamageLimit via BattlePatch arrays). Each = the
 identical `struct.pack_into` surgical pattern. Add element/status/category **name↔bit tables** (committable).
 
-### Phase 2 — the validation/lint suite ✅ DONE (kit 0.9.46)
+### Phase 2 — the validation/lint suite (done)
 `battle/scenelint.py` — `lint_scene(scene) -> [Finding]` over the Phase-0 parsed scene, surfaced in
 `battle-scene` (inspector footer) and `battle-build` (lints the **tuned** raw16 → `BattleResult.lint`). The bar
 is TRUST (quiet on vanilla, loud only on real problems), so every check was **validated against a 562-scene
@@ -491,7 +486,7 @@ standalone `no_weakness` note (~29%, a normal design choice). DEFERRED (needs a 
 turns-to-kill / time-to-kill-a-PC estimator + the economy-curve-vs-zone check. 9 lint tests (incl. a
 normal-late-game-enemy-is-clean regression) + the real-donor sweep.
 
-### Phase 3 — CSV-delta ability + status authoring (the natural WIN vs HW) ✅ DONE (kit 0.9.47)
+### Phase 3 — CSV-delta ability + status authoring (done)
 `battle/actiondelta.py` — `[[battle_action]]` (rebalance a shared ability: `power`/`element(s)`/`rate`/`mp`/
 `script`/`category`/`type`) and `[[status]]` (`tick`/`duration`) on a `field.toml`, emitted at the mod-write
 stage (`build._emit_battle_data` → `ModLayout.actions_csv`/`status_data_csv`). The engine merges these by
@@ -512,7 +507,7 @@ UInt16) were unguarded so an out-of-range value would **crash the game at boot**
 `ConfirmQuit`) → range-checked OFFLINE; a name that maps to several ids now raises "ambiguous — use the id". 14
 tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is a manual verification step.*
 
-### Phase 4 — `BattlePatch.txt` emitter for enemy/attack/scene tuning ✅ DONE (kit 0.9.51)
+### Phase 4 — `BattlePatch.txt` emitter for enemy/attack/scene tuning (done)
 `battle/battlepatch.py` — three `field.toml` blocks map 1:1 to the engine's selector model
 (`DataPatchers.PatchBattles`/`TryParseBattleSelector`, `DataPatchers.cs:538-682`):
 - **`[[battle_patch]]`** — scene-scoped (`scene = <id|BSC_ name>` → `Battle:`): scene flags (→ `BTL_SCENE_INFO`
@@ -554,7 +549,7 @@ tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is a
   the `back_attack` **scene flag** (party started reversed), and a guaranteed `drop_rates` **Elixir**. So all
   selectors + the BP-only rate arrays + scene flags are in-game proven.
 
-### Phase 5 — character/growth CSV deltas ✅ DONE (kit 0.9.58)
+### Phase 5 — character/growth CSV deltas (done)
 `battle/characterdelta.py` — the PLAYER side of balance (the `actiondelta` twin), read-live `Data/Characters`
 deltas: **`[[character]]` → BaseStats.csv** (`dexterity`/`strength`/`magic`/`will`/`gems` by name/0-11 id; per-id
 PARTIAL delta, `EnumerateCsvFromLowToHigh`) + **`[[leveling]]` → Leveling.csv** (`exp`/`bonus_hp`/`bonus_mp` by
@@ -568,7 +563,7 @@ disagreement (normalized). 15 tests + real-install smoke. ★ **IN-GAME PROVEN (
 boost of Vivi (40/80/90/45) + `[party] add=["vivi"]` on a New-Game field → at a fresh New Game her status menu
 read Speed 40 / Str 80 / Mag 90 / Spr 45 (vanilla 16/12/24/19) — `[[character]]`→BaseStats.csv lands at the
 New-Game party build (Leveling shares the machinery; its in-game proof is a follow-up).
-**Phase 5b ✅ DONE (kit 0.9.61):** `[[ability_gem]]` → `AbilityGems.csv` (re-cost a support ability's gem
+**Phase 5b (done, kit 0.9.61):** `[[ability_gem]]` → `AbilityGems.csv` (re-cost a support ability's gem
 requirement; per-SupportAbility partial delta, the build-economy lever). `ability` by enum/display name or 0-63
 id (committed SupportAbility name table); `#! IncludeBoosted` + the Boosted column preserved; CLI `ability-gems`.
 A review pass verified the 64-name table + the Boosted handling + provenance, and aliased the one display name
@@ -576,7 +571,7 @@ A review pass verified the 64-name table + the Boosted handling + provenance, an
 (mostly menu/row), `Commands`/`CommandSets`. **Explicitly NOT `BattleParameters.csv`** (cosmetic only — model/anims).
 
 ### Phase 6 — enemy-AI authoring (highest ceiling, hardest). Staged: disassembler → same-length patch → new branch.
-**Phase 6a ✅ DONE (kit 0.9.62)** — the **disassembler VIEW** (read-only `battle-ai <scene>`, the import→SEE
+**Phase 6a (done, kit 0.9.62)** — the **disassembler VIEW** (read-only `battle-ai <scene>`, the import→SEE
 step). The battle `.eb` IS the field `.eb` container/interpreter, so the kit already round-trips + decodes it; 6a
 added the missing VOCABULARY: `eb/_exprtable.py` (the `op_binary` operator table, all 128, from `EBin.cs`) + the
 `0xC0+` variable-token decode (`Global.Bit[8512]` story-flags, `B_CURHP` enemy-HP); `eb/disasm.pretty_expr`
@@ -586,7 +581,7 @@ incl. a control-opcode overlay + annotated expressions). ★ The load-bearing pr
 test asserts `_decode_func_pretty`'s instruction offsets == the proven `read_code`'s across every AI function of a
 real donor, so the view can never desync. Reads the real EF_R007 Goblin AI cleanly. 10 tests; a review pass
 (table vs `EBin.cs` / byte-walk / presenter+provenance) found only a low truncated-eb `IndexError` (guarded).
-**Phase 6b ✅ DONE (kit 0.9.64)** — **same-length AI constant patches** (`battle/aipatch.py`, the first authoring
+**Phase 6b (done, kit 0.9.64)** — **same-length AI constant patches** (`battle/aipatch.py`, the first authoring
 step). `constant_sites` locates every patchable numeric constant (command immediates + `B_CONST`/`B_CONST4` expr
 literals) with offset+width — a walk that mirrors `read_code`/`pretty_expr` byte-for-byte; `battle-ai --sites`
 prints them (224 on EF_R007). `[[scene.ai_patch]]` (in `battle.toml`) cites `at`/`old`/`new`: a same-length,
@@ -594,7 +589,7 @@ old-value-GUARDED in-place edit (no `fpos`/entry-table fixup), applied per-langu
 (bytecode is language-identical). ★ Review found + fixed: a 3-byte (Int24) immediate `KeyError`
 (→ generic width-N pack), a truncated-eb `IndexError` (→ clean `AiPatchError`), and the `B_CONST4` 26-bit engine
 mask (→ per-site cap); the `B_CONST` signedness path is benign (byte-faithful). 9 tests. *In-game proof is a manual step.*
-**Phase 6c-i ✅ DONE (kit 0.9.67)** — the enemy-AI **expression ASSEMBLER** (`eb/exprasm.py`), the keystone of
+**Phase 6c-i (done, kit 0.9.67)** — the enemy-AI **expression ASSEMBLER** (`eb/exprasm.py`), the keystone of
 new-branch authoring: the exact inverse of the 6a disassembler. `assemble("{ B_CURHP const(50) B_LT B_EXPR_END }")`
 → the RPN expression bytes the engine evaluates, round-trip-exact with `pretty_expr` (`assemble(pretty_expr(b))==b`
 byte-for-byte, proven against the real EF_R007 AI). Each token inverts a `pretty_expr` branch (op mnemonic / `const`
@@ -602,7 +597,7 @@ byte-for-byte, proven against the real EF_R007 AI). Each token inverts a `pretty
 confirmed the byte-layout matches `EBin.cs` and fixed: an `opXX` back-door that assembled a bare operand-byte
 (→ desync; now `opXX` accepts only unnamed pure operators `<0xC0`), an unguarded re-disasm crash (→ `assemble()`
 **self-verifies** its own round trip as a library invariant), and silent const masking (→ range-checked). 35 tests.
-**Phase 6c-ii ✅ DONE (kit 0.9.70)** — the enemy-AI **COMMAND assembler** (`eb/cmdasm.py`) + **branch insertion**
+**Phase 6c-ii (done, kit 0.9.70)** — the enemy-AI **COMMAND assembler** (`eb/cmdasm.py`) + **branch insertion**
 (`battle/aiauthor.py`), the first LENGTH-CHANGING AI edit. `assemble_instruction`/`assemble_block` mirror
 `read_code`'s byte-walk (argFlag, forced-`SET`, the variable-count ops, the `0xFF` page), so they reproduce its
 exact bytes; `assemble_block` resolves `label:`/symbolic jumps in two passes. `add_ai_function`/`replace_ai_function`
@@ -612,7 +607,7 @@ byte-for-byte; `add_ai_function` re-parses with everything else byte-intact). �
 flow-TERMINATOR check (no per-function length bound in-engine → a RET-less branch runs off the function; now
 `aiauthor` requires `RET`/`TerminateEntry`) and a backward `JMP_IFNOT` (the engine reads its offset UNSIGNED, unlike
 `JMP`/`JMP_IF` → now rejected). 35 tests.
-**Phase 6c-iii ✅ DONE (kit 0.9.72)** — the enemy-AI **LINTER** (`battle/ailint.py`) + the declarative
+**Phase 6c-iii (done, kit 0.9.72)** — the enemy-AI **LINTER** (`battle/ailint.py`) + the declarative
 `[[scene.ai_function]]` build surface — the CAPSTONE. `lint_ai(eb, atk_count=)` runs SOUND offline checks (decode /
 jump bounds / **reachable RET** via a forward reachability walk / Attack-index `< atk_count`); ★ **a 562-scene sweep
 lints ALL shipping scenes CLEAN (0 false positives)**. CLI `battle-ai --lint`. `[[scene.ai_function]]`
@@ -629,7 +624,7 @@ enemy's AI ENTRY is bound by Main_Init's `InitObject(<entry>,…)` (the Goblin b
 raw16 "type"); the `Attack` (0x38) command lives in **tag 5**. **Defer raw17 btlseq sequence authoring** (new codec
 + a coordinated raw16+eb+raw17 edit).
 
-### Phase 7 — a brand-new battle-calc FORMULA ✅ DONE (2026-07-07) → [SCRIPTS_DLL.md](SCRIPTS_DLL.md)
+### Phase 7 — a brand-new battle-calc formula (done) → [SCRIPTS_DLL.md](SCRIPTS_DLL.md)
 The last DLL-gated battle item. A `[[playable]]` custom ability's `script = {template/body}` mints a genuinely new
 `scriptId` formula — a `[BattleScript(id≥256)]` in a mod-owned `Memoria.Scripts.<Mod>.dll`, compiled at deploy
 against the INSTALLED engine and loaded IN ADDITION to the base by `ScriptsLoader` (NOT the engine
@@ -645,24 +640,27 @@ attack SLOT (§2(h)).
 
 ## 9. Open questions & risks
 
-- ~~**`Configuration.Mod.MergeScripts` default**~~ — **RESOLVED**: default **false** (`ModSection.cs:20`; live
-  `Memoria.ini [Mod]` = 0), so a battle `.eb` whole-file-clobbers (highest folder wins) — mod-folder priority is
-  the operative rule; no per-`.eb` binary merge to reason about.
 - **In-game smoke test a sparse partial `Actions.csv`/`StatusData.csv`** — the merge accepts it in theory (base
   supplies the rest), but the coverage gates + per-file `#!` reset make an in-game check mandatory before
   shipping a delta emitter.
-- ~~**raw16 tail provenance**~~ — **RESOLVED**: `scene_codec` captures + re-appends the post-`AtkCount` tail
-  verbatim (`scene_codec.py:289/306`); the golden round-trip `serialize_scene(parse_scene(EF_R007)) == raw16`
-  asserts byte-identity INCLUDING the tail (`test_battle_scene_codec.py`).
-- ~~**Camera codec on a real donor raw17**~~ — **RESOLVED 2026-06-13**: `splice_block(raw17, parse_block(raw17)[1])
-  == raw17` is asserted on `EF_R007` (`test_battle_scene_codec.py::test_camera_codec_golden_roundtrip_real_donor`,
-  install-gated). The opening-camera codec is lossless on real bytes; the SEQUENCE BODY is now codec-parsed + authorable too (`seqcodec.py`/`seqasm.py`/`seqauthor.py`, §2(h)).
 - **Enemies do NOT pull from `Actions.csv`** — a tool editing `Actions.csv` to retune enemy moves mis-targets
   every enemy edit (enemy attacks = raw16 AA_DATA / BattlePatch only). (`btl_util.cs:353-354`)
 - **Category default bits / the vanilla `type` byte** — only the `CustomBattleFlagsMeaning=1` meanings are
   documented; trace `CalcResult` before a designer-facing picker labels them.
 - **Provenance discipline** — all raw16 stat bytes + all CSV stat values are SE game DATA: read live, never
   commit. Only name↔id/element/status/category tables (from open-source Memoria enums) are committable.
+
+Resolved:
+
+- **`Configuration.Mod.MergeScripts` default** — default **false** (`ModSection.cs:20`; live
+  `Memoria.ini [Mod]` = 0), so a battle `.eb` whole-file-clobbers (highest folder wins) — mod-folder priority is
+  the operative rule; no per-`.eb` binary merge to reason about.
+- **raw16 tail provenance** — `scene_codec` captures + re-appends the post-`AtkCount` tail
+  verbatim (`scene_codec.py:289/306`); the golden round-trip `serialize_scene(parse_scene(EF_R007)) == raw16`
+  asserts byte-identity INCLUDING the tail (`test_battle_scene_codec.py`).
+- **Camera codec on a real donor raw17** — `splice_block(raw17, parse_block(raw17)[1])
+  == raw17` is asserted on `EF_R007` (`test_battle_scene_codec.py::test_camera_codec_golden_roundtrip_real_donor`,
+  install-gated). The opening-camera codec is lossless on real bytes; the SEQUENCE BODY is now codec-parsed + authorable too (`seqcodec.py`/`seqasm.py`/`seqauthor.py`, §2(h)).
 
 **Key refs:** `BTL_SCENE.cs:50-153`, `SB2_MON_PARM.cs:20-179`, `FF9BattleDB.cs:35-117`,
 `AssetManager.cs:849-862`, `DataPatchers.cs:60-137,413-682`, `EventEngine.DoEventCode.cs:956-1234,2938`,

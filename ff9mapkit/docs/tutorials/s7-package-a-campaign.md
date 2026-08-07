@@ -58,7 +58,10 @@ menu, no debug key.
 
 Switch the Build tab to **Build only — compile every member to the campaign's dist/**, then
 **Package (zip)…**. The result is a plain mod folder in a zip: a player unzips it into their FF9
-install, adds its name to `Memoria.ini`'s `FolderNames`, and plays — no toolkit on their machine.
+install, adds its name to `Memoria.ini`'s `FolderNames` **and** `Priorities` (same order — a
+`FolderNames`-only edit is silently reverted by the launcher; see
+[Troubleshooting](../TROUBLESHOOTING.md#a-memoriaini-foldernames-edit-keeps-reverting)), and
+plays — no toolkit on their machine.
 If either room is a verbatim fork, its full in-game fidelity (letterbox, some after-battle fixes)
 needs the Dream World IX engine bundle too — point your friend at [ENGINE.md](../ENGINE.md).
 

@@ -120,8 +120,8 @@ fixes, the overworld→field entry redirect. Those are lost when the fork runs u
 **cannot be restored from script bytecode alone.** The bundled fidelity patch set
 ([`memoria-patches/`](../../memoria-patches/), `s23`–`s33`) restores them for fork fidelity;
 the bundle also carries `s22` (the in-game debug menu (~)), `s34` (the worldmap mesh-override
-lever behind the `world-*` mesh commands), and the `s36`–`s41` netsync patches (experimental
-co-op). The showcase opening ships with that custom
+lever behind the `world-*` mesh commands), and the netsync patch suite (experimental co-op).
+The showcase opening ships with that custom
 Memoria build. Exactly what's stock vs. patch-restored is in [`ENGINE.md`](ENGINE.md).
 
 ### A few behaviors are engine-blocked even with the patches

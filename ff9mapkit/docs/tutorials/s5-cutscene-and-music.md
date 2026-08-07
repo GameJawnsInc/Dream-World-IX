@@ -79,8 +79,7 @@ A scene can also drive NPCs — walk them, turn them, have them speak — by nam
 floor, **Check the staging** (right column) warns about any walk that would stall the scene,
 and **▶ Storyboard** scrubs the scene beat by beat. Gated to story beats (**Requires beat** /
 **Then set beat**) a set of scenes becomes FF9's own story-event dispatch — one `[[cutscene]]`
-block per beat, all visible in the rail. Everything is in
-[`[cutscene]` in the reference](../FORMAT.md#cutscene--cutscene-optional).
+block per beat, all visible in the rail.
 
 ## 2. Field music
 

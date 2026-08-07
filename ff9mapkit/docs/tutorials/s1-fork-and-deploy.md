@@ -5,7 +5,7 @@
 track = "S"
 step = 1
 goal = "Fork a real FF9 room, deploy it under your own id, and walk it in the game."
-requires = ["game", "gui", "assets"]
+requires = ["game", "gui", "assets", "engine-bundle"]
 
 [[tutorial.ui]]
 label = "Suggest a test room…"
@@ -24,13 +24,18 @@ By the end of this step, FINAL FANTASY IX loads a field that belongs to your mod
 id, and your party walks it. Every later tutorial in the core track builds on the room made here.
 
 The whole track works inside the **Workspace** — the desktop GUI. One thing to know up front: the
-Workspace is a front-end over the same engine as the `ff9mapkit` command line. Every action it
-runs streams into the Output console at the bottom, and everything here has a terminal
-equivalent — the [CLI track](../../../SETUP.md#7-cli-command-reference) picks that thread up
-later.
+Workspace is a front-end over the same engine as the `ff9mapkit` command line — every action it
+runs streams into the Output console at the bottom, and the
+[CLI track](c1-cli-fork-edit-deploy.md) picks that thread up later.
 
 **Starting from:** a set-up toolkit ([Setup](../../../SETUP.md) §1–§3). Launch the Workspace:
-`ff9mapkit-workspace` (installed copy) or `py apps\ff9_workspace.pyw` (repo checkout).
+`ff9mapkit-workspace` (installed copy) or `py apps\ff9_workspace.pyw` (repo checkout) (the
+Workspace needs the `gui` extra — if the launcher is missing, see
+[Troubleshooting](../TROUBLESHOOTING.md#the-gui-wont-launch)). The in-game debug menu (`~`) used
+from step 4 onward ships in the Dream World IX engine bundle — install it with
+`ff9mapkit setup --install-engine <dwix-custom-memoria-*.zip>`
+([ENGINE.md](../ENGINE.md#installing-the-custom-engine)). On stock Memoria, use the In-place
+route in step 3 and enter the room normally.
 
 ## 1. Check setup on Home
 

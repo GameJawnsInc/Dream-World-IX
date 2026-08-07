@@ -19,9 +19,9 @@ both verbs read the stock container out of your install's `resources.assets` via
 install; nothing else. **Stock Memoria is enough** — neither verb touches the engine DLL, only mod-
 folder data.
 
-This tutorial works one effect end to end: **Phoenix, `ef211`**. It was chosen deliberately, not for
-being the easiest case — its creature happens to hit a real refusal partway through, which is the
-best way to see the tools' guard rails do their job instead of just reading about them.
+This tutorial works one effect end to end: **Phoenix, `ef211`** — chosen deliberately, not for
+being the easiest case: its creature hits a real refusal partway through, so the guard rails are
+seen doing their job rather than just read about.
 
 ## Part A — recolour it: `summon-reskin`
 
@@ -139,8 +139,8 @@ Runs the ledger's own revert script where **the plan recorded its writes** — w
 the folder it resolved, so the ordinary flow is unchanged. An explicit `--root` or `--mod-folder`
 RE-TARGETS it; `$FF9_MOD_FOLDER` and `.ff9deploy.toml` do not, because a revert's destination is a
 historical fact, not a preference — rebasing a plan onto a folder it never wrote to would delete an
-override it never created. The script restores or deletes as recorded — restoring the pre-existing file if one existed, or deleting the
-override if it did not, and dropping the `ModFileList.txt` line if one was added. Add `--dry-run` to
+override it never created. The script restores the pre-existing file if one existed, deletes the override if it did not, and
+drops the `ModFileList.txt` line if one was added. Add `--dry-run` to
 preview it without writing anything. This undoes a `deploy`, not a mere `build`: a `build`-only stage
 never touched a mod folder, so there's nothing there to restore — delete the local staging root
 instead if you want to clear it out.

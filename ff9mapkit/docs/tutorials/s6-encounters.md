@@ -45,8 +45,8 @@ In the Editor, open the **Encounter** section:
 - **Battle music id** — blank keeps the normal battle theme.
 
 One thing the form does silently but is worth knowing: adding an encounter also adds the
-**after-battle re-entry handler** the field needs. Without one, a field freezes when the battle
-returns — the kit wires it automatically.
+**after-battle re-entry handler** the field needs — without one, a field freezes when the battle
+returns.
 
 ## 2. Verify in-game
 

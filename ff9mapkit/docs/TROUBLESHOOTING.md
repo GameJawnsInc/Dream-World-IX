@@ -261,18 +261,20 @@ journey so every campaign gets a window.
 
 ---
 
-## My Memoria.ini `FolderNames` edit keeps reverting
+### A `Memoria.ini` `FolderNames` edit keeps reverting
 
-The Memoria **Launcher** treats `[Mod] Priorities` as the **master** mod order: it builds its mod
-list in `Priorities` order and **rewrites `FolderNames` from that list at every Play click**
-(`Memoria.Launcher/MainWindow_ModManager.cs`, `LoadModSettings`/`UpdateModSettings`). The stock ini
-comment calling `Priorities` "only a hint" is wrong.
+**Symptom.** A hand edit to `FolderNames` looks fine, then silently reverts at the next Play
+click.
 
-**Rule: any hand edit that adds to or reorders `FolderNames` must edit BOTH keys — same entries,
-same order — with the game *and* the launcher closed.** `Priorities` may additionally list mods you
-have disabled in the launcher; leave those entries where they are. A `FolderNames`-only edit looks
-fine until the next launch, then silently reverts. (Kit tools that write `Memoria.ini` follow this
-rule via `ff9mapkit.coop.mod_order_updates`.)
+**Cause.** The Memoria **Launcher** treats `[Mod] Priorities` as the **master** mod order: it
+builds its mod list in `Priorities` order and **rewrites `FolderNames` from that list at every
+Play click** (`Memoria.Launcher/MainWindow_ModManager.cs`, `LoadModSettings`/`UpdateModSettings`).
+The stock ini comment calling `Priorities` "only a hint" is wrong.
+
+**Fix.** **Any hand edit that adds to or reorders `FolderNames` must edit BOTH keys — same
+entries, same order — with the game *and* the launcher closed.** `Priorities` may additionally
+list mods you have disabled in the launcher; leave those entries where they are. (Kit tools that
+write `Memoria.ini` follow this rule via `ff9mapkit.coop.mod_order_updates`.)
 
 ---
 

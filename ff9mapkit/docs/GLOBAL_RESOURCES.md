@@ -1,17 +1,59 @@
 # Global Resources — the campaign-wide state layer (quick reference)
 
-> **Status: SHIPPED.** This began as the design doc for the campaign-wide **Resources** layer (P5);
-> that layer is built. The flag scanners live in `eventscan.py` (`scan_flags_set` / `scan_required_flags`
-> / `scan_edge_flag_gates`), the campaign lint in `campaign.py` (`lint_campaign`, CLI `ff9mapkit
-> lint-campaign`), and the per-member flag allocation in `build._FlagAlloc`. The conceptual A/B/C model
-> below is unchanged; STATUS notes flag what landed.
+## C. The kit's allocation bands (governed by the campaign registry)
+
+| Namespace | Band | Defined at | Alloc scope TODAY | Persistence |
+|---|---|---|---|---|
+| Event once-flags | 9100+ (single-field; `flags.AUTO_EVENT_BASE`) | `content/event.py` | single-field default (skips the project's authored flags); campaign → per-member block via `build._FlagAlloc` | GLOB / save |
+| Cutscene once-flags | 9200+ (single-field; `flags.AUTO_CUTSCENE_BASE`) | `content/cutscene.py` | single-field default (authored-flag skip); campaign → member `base+0` | GLOB / save |
+| Choice gate flags | 9300+ (single-field; `flags.AUTO_CHOICE_BASE`) | `content/choice.py` | single-field default (authored-flag skip); campaign → member `base+32..` | GLOB / save |
+| on_entry once-flags | 9400+ (single-field; `flags.AUTO_ONENTRY_BASE`) | `content/onentry.py` | single-field default (authored-flag skip); campaign → explicit `flag` required | GLOB / save |
+| [ate] availability flag | 9500+ (single-field; `flags.AUTO_ATE_BASE`) | `content/ate.py` | single-field default (authored-flag skip); campaign → explicit `flag` required | GLOB / save |
+| Campaign flags | **8712+** (`FIRST_SAFE_FLAG`), 64/field | `campaign.py` | per-member `flag_base+i*K`, lint-bounded | GLOB / save |
+| Choice mask scratch | byte 2040 (bits 16320+) | `content/region.py:57` | campaign-global | GLOB / save |
+| Field ids | 10–3100 real (locked) · 4000–9899 content · 30000–32767 scratch | `pack.py` | per-mod hash block; `id_base+i` in campaign | static reg |
+| Battle scenes | 1–177 real · 200+ mint | `battle/build.py:41` (`_REAL_BBG_MAX`) | manual | static reg |
+| Text block (mesId) | default 1073 | `pack.py:73`, `campaign.py:112` | per-field | static reg |
+| TXID (per line) | 500+ | `content/text.py:23` | per-field, `base+i` | static reg |
+| Worldmap locations | 9000–9012 (engine-reserved) | `eventscan.py:27` | not allocatable | engine |
+| Models / anims / items | fixed engine tables | `_modeldb.py`/`_animdb.py`/`_itemdb.py` | read-only | engine |
+
+Band notes:
+
+- **Why `FIRST_SAFE_FLAG` = 8712:** everything below it is written by ordinary play — bits
+  8192–8367 are stock Mognet mailbox slot bytes, 8376–8511 the Mognet GIVE/READ lock tables, and
+  8512–8711 the read-mail payload bytes (whole-byte-written at any real moogle) — so a kit flag
+  there corrupts real letter state; 8712 (byte 1089) is the first clear bit.
+- **Campaign flags:** each member gets its own `flag_base + i*K` block (packed cutscene `+0`,
+  events `+1..+31`, choices `+32..+63`), so two members' auto-allocated once-flags can never
+  share a bit; `lint_campaign` errors on any member block or explicit flag inside the Mognet
+  band 8376–8711 or at/above the choice scratch (bit 16320).
+- **Named cross-field flags:** a gate one field sets and another reads goes through the campaign
+  `[[flag]]` table (`{name, index}`), which resolves the name to one campaign-wide index — the
+  only safe cross-field gate; shared/named flags live in a band above the per-member blocks
+  (lint asserts it).
+- **Single-field auto bands (9100+–9500+):** placed above the behavior compiler's flag band
+  (8860–9080) and below its blackboard byte band, and the allocator skips any index the project
+  references explicitly (`flags.collect_safe_flag_indices`), so a defaulted once-flag never
+  aliases an authored story flag in the same build.
+- **Field ids:** must be globally distinct across *every installed mod folder*, not just within
+  one campaign — the launch registries (§B below) are one merged dict; `ff9mapkit lint-campaign`
+  validates the band and distinctness, flags dangling `[[edge]]`/`[[seam]]` rows and duplicate
+  member names, and checks that every cross-field `requires_flag` has a producer (else the gate
+  is permanently locked).
+
+### Var-class token bytes (for raw-byte scanning) — `content/region.py:40-49`
+`GLOB_BOOL=0xC4` (persistent) · `MAP_BOOL=0xC5` (transient) · `GLOB_UINT8=0xD5` (transient) ·
+`GLOB_INT16=0xD8` (arrival-entrance var, idx 2) · `MAP_INT16=0xD9` · `GLOB_UINT16=0xDC` (choice mask).
+Long-index form: `class|0x20` (e.g. `0xE4`) + 2-byte LE — why the high safe-band indices work.
+
+---
 
 > **Why this exists:** field authoring has two layers — **Scenes** (`field.toml`: camera/walkmesh/art)
 > and **Scripts** (`.eb` logic). The third is **Resources** — the shared id/flag namespaces
 > that fields reference *by number* and that must be allocated coherently across a whole campaign.
 > This file is the map of that layer. Grounded against the live Memoria source + the kit code
-> (citations inline). Companion to `CAMPAIGN_IMPORT.md` (the import-chain/build-all design; this file
-> motivated P5, which is DONE).
+> (citations inline). Companion to `CAMPAIGN_IMPORT.md` (the import-chain/build-all design).
 
 ---
 
@@ -21,10 +63,10 @@ FF9 global state splits three ways. **(A)** Two save-persistent blobs: `gEventGl
 story-flag heap) and `FF9StateGlobal` (player roster/items/gil/party/map-position). **(B)** Static
 registries merged from every mod folder at launch (`EventDB`/`SceneData`/`MapModel`) — never saved,
 which is *why ids must be globally distinct across folders*. **(C)** The kit's own allocation bands
-(flag/id/text namespaces) — single-field builds keep the historical per-field constants, while a
+(flag/id/text namespaces) — single-field builds use the fixed per-field default bands, while a
 **campaign-wide allocation registry** owns (C): per-member flag blocks (`build._FlagAlloc`), shared
 named flags (the `[[flag]]` table), and id/flag-collision lint (`campaign.lint_campaign`). That's the
-"Resource" layer — built.
+"Resource" layer.
 
 ---
 
@@ -65,103 +107,3 @@ Process-global `static` dicts, rebuilt from every mod folder's DictionaryPatch a
 - `FF9DBAll.EventDB` — field id → `EVT_*` script (`FF9DBAll.Events.cs:7`); `FieldScene` line writes it (`DataPatchers.cs:380`).
 - `FF9BattleDB.SceneData` — `BSC_*` ↔ battle scene id; `MapModel` — scene → `BBG_*` (`DataPatchers.cs:413`).
 - Text/MES blocks — the `text_block` (default 1073) + per-line TXID namespace.
-
----
-
-## C. The kit's allocation bands (governed by the campaign registry)
-
-| Namespace | Band | Defined at | Alloc scope TODAY | Persistence |
-|---|---|---|---|---|
-| Event once-flags | 9100+ (single-field; `flags.AUTO_EVENT_BASE`) | `content/event.py` | single-field default (skips the project's authored flags); campaign → per-member block via `build._FlagAlloc` | GLOB / save |
-| Cutscene once-flags | 9200+ (single-field; `flags.AUTO_CUTSCENE_BASE`) | `content/cutscene.py` | single-field default (authored-flag skip); campaign → member `base+0` | GLOB / save |
-| Choice gate flags | 9300+ (single-field; `flags.AUTO_CHOICE_BASE`) | `content/choice.py` | single-field default (authored-flag skip); campaign → member `base+32..` | GLOB / save |
-| on_entry once-flags | 9400+ (single-field; `flags.AUTO_ONENTRY_BASE`) | `content/onentry.py` | single-field default (authored-flag skip); campaign → explicit `flag` required | GLOB / save |
-| [ate] availability flag | 9500+ (single-field; `flags.AUTO_ATE_BASE`) | `content/ate.py` | single-field default (authored-flag skip); campaign → explicit `flag` required | GLOB / save |
-| Campaign flags | **8712+** (`FIRST_SAFE_FLAG`), 64/field | `campaign.py` | per-member `flag_base+i*K`, lint-bounded (**was 8300 → lock-band collision, then 8512 → sat on stock read-mail's payload bytes 1064–1088; both FIXED**) | GLOB / save |
-| Choice mask scratch | byte 2040 (bits 16320+) | `content/region.py:57` | campaign-global | GLOB / save |
-| Field ids | 10–3100 real (locked) · 4000–9899 content · 30000–32767 scratch | `pack.py` | per-mod hash block; `id_base+i` in campaign | static reg |
-| Battle scenes | 1–177 real · 200+ mint | `battle/build.py:41` (`_REAL_BBG_MAX`) | manual | static reg |
-| Text block (mesId) | default 1073 | `pack.py:73`, `campaign.py:112` | per-field | static reg |
-| TXID (per line) | 500+ | `content/text.py:23` | per-field, `base+i` | static reg |
-| Worldmap locations | 9000–9012 (FIXED) | `eventscan.py:27` | not allocatable | engine |
-| Models / anims / items | fixed engine tables | `_modeldb.py`/`_animdb.py`/`_itemdb.py` | read-only | engine |
-
-### Var-class token bytes (for raw-byte scanning) — `content/region.py:40-49`
-`GLOB_BOOL=0xC4` (persistent) · `MAP_BOOL=0xC5` (transient) · `GLOB_UINT8=0xD5` (transient) ·
-`GLOB_INT16=0xD8` (arrival-entrance var, idx 2) · `MAP_INT16=0xD9` · `GLOB_UINT16=0xDC` (choice mask).
-Long-index form: `class|0x20` (e.g. `0xE4`) + 2-byte LE — why the high safe-band indices work.
-
----
-
-## The root-cause bug this layer fixes — FIXED 2026-06-10
-
-`build_script`'s once-flag counter **reset to 0 per build**, flag = `BASE + counter` computed *per-field*.
-So field B's first chest and field A's first chest BOTH picked 8000 → looting A marked B looted
-campaign-wide. Harmless for one field; a **latent save-corrupter for N fields**. **Plus** `campaign.py`'s
-reserved `flag_base=8300` + 64/member **collided with real-FF9's usage at bits 8376–8511** — long called
-"the treasure-chest bitfield", actually the **Mognet GIVE/READ lock band** (the moogle fields' twin
-switch-64 lock tables; re-attributed 2026-07-19 by the read-mail decode) → corrupting real letter state.
-
-**Fix (landed):** `build._FlagAlloc` parameterizes the three allocators by an optional per-member
-`flag_base` threaded through `build_script` + `lint_logic` (default `None` = the historical 8000/8100/8200
-constants, so single-field builds stay **byte-identical**; campaign members get `flag_base + i*K`, packed
-cutscene `+0` / events `+1..+31` / choices `+32..+63`). The default `flag_base` moved **8300 → 8512**,
-then **8512 → 8712** (2026-07-19: the first census was BOOL-only and missed stock's byte-addressed vars —
-bits 8512–8711 are the read-mail payload Byte[1064–1073]/[1079–1088], whole-byte-written by ordinary play;
-`FIRST_SAFE_FLAG` = 8712 = byte 1089 is the true first-clear bit). `lint_campaign` errors on any member
-block / explicit flag inside the Mognet band 8376–8711 or at/above the choice scratch (bit 16320).
-(CAMPAIGN_IMPORT.md §4.1; tests in `test_campaign.py` / `test_build.py` / `test_flags.py`.)
-
-**Second fix (1.0.0b18): the SINGLE-FIELD defaults moved into the safe band too.** The historical
-8000/8100/8200/8300 constants sat below `FIRST_SAFE_FLAG`, and the 2026-07-26 re-audit showed the
-on_entry/[ate] band (8300+) landed **inside the stock Mognet MAILBOX slot bytes** (Byte[1024–1045] =
-bits 8192–8367 — whole-byte-written by ordinary play at any real moogle; now a reserved region in
-`flags.py`), with `[ate]` and `[[on_entry]]` also sharing index 8300. The single-field bands are now
-`flags.AUTO_*_BASE` (event 9100+ / cutscene 9200+ / choice 9300+ / on_entry 9400+ / ate 9500+, width
-100 each — placed above the behavior compiler's flag band 8860–9080 and below its blackboard byte
-band, bytes 1220–2005 = bits 9760–16047, itself capped flush below the reserved heap top), and
-`_FlagAlloc` **skips any index the project references explicitly**
-(`flags.collect_safe_flag_indices`), so a defaulted block can never alias an authored story flag in
-the same build. Old saves that had legacy auto flags set will re-fire those once-events one time.
-
----
-
-## What the "Resource layer" (P5) is — SHIPPED
-
-> **Status: P5 DONE.** All three pieces below landed (mirrors `CAMPAIGN_IMPORT.md` "P5 DONE").
-
-1. **Flag registry** — named flags → one campaign-wide index, so cross-field gates (A sets
-   `ice_path_unlocked`, B reads it) resolve to the *same* bit. The only safe cross-field gate. SHIPPED:
-   the campaign `[[flag]]` table (`campaign.py:64`, `{name, index}`) + name resolution in `build.py`
-   (`build.py:150-151`, `_story_names :289`); `build_script` is parameterized by a per-field
-   `flag_base` (default = current constants so single-field builds are byte-identical) via
-   `build._FlagAlloc`. Shared/named flags live in a band ABOVE the per-member blocks (lint asserts it).
-2. **Id registry** — assert ids ≥4000 AND **globally distinct across stacked folders** (not just within
-   the campaign), because EventDB/SceneData are one merged dict. SHIPPED: `validate_ids` (lint check
-   (a), ids non-empty/distinct/[4000,32767]) in `lint_campaign`.
-3. **Cross-field lint** — `lint_campaign` checks dangling `[[edge]]`/`[[seam]]`; duplicate ids + member
-   names; every cross-field `requires_flag` has a producer (else "permanently locked"); no unintended
-   same-index writes across members. SHIPPED (`campaign.lint_campaign`, CLI `ff9mapkit lint-campaign`).
-
-The one genuinely-open refinement is a campaign-wide **named-flag auto-allocation** sweep (today shared
-`[[flag]]` rows carry explicit indices the lint validates, rather than the registry auto-assigning them);
-not required for safety — the lint surfaces any explicit collision.
-
-### The raw-byte scanners P5 added (match around opcode `0x05`, NOT `instr.args`) — SHIPPED in `eventscan.py`
-- `scan_flags_set(eb)` — flag WRITES: `05 C4 <idx> 7D <i16> 2C|3F 7F` + long-index `0xE4` form
-  (`eventscan.py:1356`). Returns the `(glob_idx, op)` pairs a field writes.
-- `scan_edge_flag_gates(eb)` — flag READS gating an exit: `05 C4 <idx> 7F 03|02 01 00 <RETURN>`
-  (`eventscan.py:1399`). Filter to GLOB (`0xC4`/`0xE4`) — MAP/UINT8 are transient = false links.
-- `scan_required_flags(eb)` — the general flag-READ form (any guarded-block length, not just the strict
-  kit prologue) for real-field gates (`eventscan.py:1377`).
-
----
-
-## TL;DR for a session picking this up
-- The save has exactly **two** mutable global blobs: `gEventGlobal` (flags + ScenarioCounter) and
-  `FF9StateGlobal` (player data). Per-field `mapvar` is transient — never use it for cross-field state.
-- Ids are **global keys** across mod folders; flags are a **shared 2048-byte namespace**. Both get
-  campaign-wide allocation (not per-field counters) — the registry below.
-- **P5 is SHIPPED**: the flag registry (`[[flag]]` table + `build._FlagAlloc` per-member `flag_base`)
-  and cross-field lint (`campaign.lint_campaign`, CLI `lint-campaign`). The design notes are in
-  `CAMPAIGN_IMPORT.md` §4 + §8 (P5 marked DONE there).

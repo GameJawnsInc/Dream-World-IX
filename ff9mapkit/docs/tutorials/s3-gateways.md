@@ -51,7 +51,7 @@ Open the first room in the Editor and add an entry under **Gateways**:
 - **To field id** — the destination (`30002`).
 - **Zone (x z; x z; ...)** — four `x z` corner pairs of the region the player walks into, placed at the doorway
   on the walkable floor. Order matters one way: the **first edge is the walk-out direction** —
-  put the zone's front edge (the one the player crosses) first.
+  the edge the player crosses.
 - **Entrance** — which arrival spot in the destination to appear at; `0` (the default) is the
   field's own default arrival. Per-door arrival spots are
   [`[[player.arrival]]`](../FORMAT.md#playerarrival-optional-repeatable--per-door-arrival-spots)
@@ -67,7 +67,7 @@ Same form in the second room, pointing back at the first (`to = 30001`). Deploy,
 walk the loop both ways.
 
 A gateway can also be drawn directly on the field art with the **Author ▸ Place** tab's Regions
-tool — the visual route, covered in the click-authoring track. The same form's
+tool — the visual route (no separate tutorial yet; the form above is the canonical path). The same form's
 **Opens when flag set** field locks a door behind a story flag — covered next.
 
 ## Next

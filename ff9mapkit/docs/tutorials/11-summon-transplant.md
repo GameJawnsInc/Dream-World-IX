@@ -54,8 +54,7 @@ breaking any of them is a hard error at import time, not a subtle bug later:
   care how many bones influence a vertex.
 - **Bind-pose-is-the-fit-pose.** Whichever pose the armature is in *when you skin* becomes the pose
   your mesh renders **whole** at — the hybrid drive writes each bone's *absolute* world matrix
-  every frame, and Unity's skin math cancels out exactly at the bind pose, so your mesh deforms
-  smoothly away from wherever you bound it and shows its truest silhouette right there. `summon-rig-ref`
+  every frame, and Unity's skin math cancels out exactly at the bind pose. `summon-rig-ref`
   ships the rig at the **identity rest** by default (`--rest identity`) — for most donors this
   already *is* their neutral pose (verify against `bahamut_full.glb`'s own clip-0/frame-0
   silhouette before assuming otherwise). Bind at rest unless you deliberately want your model to

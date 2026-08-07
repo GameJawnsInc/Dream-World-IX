@@ -1,4 +1,4 @@
-# `import-chain` + `build-all`/`deploy-all`: the field-chain byte round-trip
+# Campaign import — `import-chain` and the field-chain byte round-trip
 
 > **Status: SHIPPED + in-game proven.** This began as a design doc; P1–P5 are implemented (P4 deploy in-game-verified). The implementation lives in `chain.py`, `campaign.py`, `eventscan.py`, `extract.py`, and `tools/deploy_campaign.py` (CLI `import-chain` / `build-all` / `lint-campaign`; deploy via `tools/deploy_campaign.py`). Status detail per the block below.
 

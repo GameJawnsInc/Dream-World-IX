@@ -28,6 +28,15 @@ html[data-theme="dark"] {
 
 * { box-sizing: border-box; }
 html { scroll-padding-top: 4.5rem; }
+.skip { position: fixed; left: -9999px; top: .6rem; z-index: 30; padding: .5rem .9rem;
+        background: var(--accent); color: var(--accent-ink); border-radius: 8px;
+        text-decoration: none; }
+.skip:focus { left: .6rem; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+      white-space: nowrap; }
+a:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
+}
 body {
   margin: 0; display: grid; grid-template-columns: 288px minmax(0, 1fr);
   background: var(--bg); color: var(--ink);
@@ -69,7 +78,9 @@ body {
 .results a { display: block; padding: .55rem .9rem; text-decoration: none; color: var(--ink);
              border-bottom: 1px solid var(--border); }
 .results a:last-child { border-bottom: 0; }
-.results a:hover, .results a.sel { background: var(--code-bg); }
+.results a:hover { background: var(--code-bg); }
+.results a.sel { background: var(--code-bg); outline: 2px solid var(--accent);
+                 outline-offset: -2px; }
 .results .rt { font-weight: 600; }
 .results .rs { font-size: .85rem; color: var(--muted); }
 .results .rs mark { background: var(--mark); color: inherit; border-radius: 3px; }
@@ -83,6 +94,7 @@ body {
 .page h3 { font-size: 1.1rem; margin: 1.6rem 0 .4rem; }
 .page a { color: var(--accent); }
 .hlink { opacity: 0; margin-left: .35rem; font-size: .8em; text-decoration: none; }
+.hlink:focus-visible { opacity: 1; }
 h1:hover .hlink, h2:hover .hlink, h3:hover .hlink, h4:hover .hlink { opacity: .7; }
 code { font-family: var(--mono); font-size: .88em; background: var(--code-bg);
        padding: .1em .35em; border-radius: 5px; }
@@ -92,7 +104,8 @@ pre code { background: none; padding: 0; font-size: .85rem; }
 .codehilite { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
               overflow-x: auto; }
 .codehilite pre { background: none; border: 0; margin: 0; }
-table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; }
+.tablewrap { overflow-x: auto; max-width: 100%; }
 th, td { border: 1px solid var(--border); padding: .35rem .7rem; text-align: left;
          vertical-align: top; }
 th { background: var(--code-bg); }
@@ -137,7 +150,7 @@ html[data-theme="light"] .shot-dark { display: none; }
 .shot-notes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .shot-notes rect { fill: none; stroke: var(--ring); stroke-width: 2.5; }
 .shot-notes circle { fill: var(--ring); }
-.shot-notes text { fill: #fff; font: 700 15px var(--sans); text-anchor: middle; }
+.shot-notes text { fill: var(--accent-ink); font: 700 15px var(--sans); text-anchor: middle; }
 figure.shot figcaption { margin-top: .45rem; font-size: .9rem; color: var(--muted); }
 figure.shot .stamp { float: right; }
 
@@ -145,10 +158,16 @@ figure.shot .stamp { float: right; }
 @media (max-width: 900px) {
   body { grid-template-columns: 1fr; }
   .side { position: fixed; inset: 0 30% 0 0; z-index: 10; transform: translateX(-102%);
-          transition: transform .18s ease; box-shadow: 8px 0 30px rgb(0 0 0 / .25); }
-  .side.open { transform: none; }
+          visibility: hidden; transition: transform .18s ease, visibility 0s .18s;
+          box-shadow: 8px 0 30px rgb(0 0 0 / .25); }
+  .side.open { transform: none; visibility: visible; transition: transform .18s ease; }
   .navbtn { display: block; }
+  .side li a { padding: .5rem .6rem; }
+  .side summary { padding: .4rem 0; }
   .page { padding: 1rem 1.1rem 3rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .side { transition: none; }
 }
 
 /* -------- "What can I do?" shuffle cards -------- */

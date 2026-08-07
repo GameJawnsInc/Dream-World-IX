@@ -41,8 +41,8 @@ twin on the same file:
 ff9mapkit lint myroom\MYROOM.field.toml
 ```
 
-**What you should see:** the same findings, line for line. That is the whole claim of this
-page — one engine, two front doors — verified rather than asserted.
+**What you should see:** the same findings, line for line — the page's claim verified rather
+than asserted.
 
 ## 2. The mapping
 
@@ -84,7 +84,7 @@ interchangeable.
 
 ## Where to next
 
-- Deeper feature tracks: the tutorials index lists the how-tos and what each needs.
+- Deeper feature tracks: [the tutorials index](README.md) lists the how-tos and what each needs.
 - The complete verb list, generated from the parser: the CLI reference (SETUP §7 in the repo,
   `reference/cli/` on the site).
 - Automation depth — slots, reverts, relaunch rules: [C3](c3-deploy-automation.md).

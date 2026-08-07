@@ -374,8 +374,8 @@ def upgrade_shot_figures(page_html: str, page_rel: str, shots_dir: Path,
         used.append(shot)
         stamp = f'auto-generated · ff9mapkit {_html.escape(str(meta.get("kit_version", "?")))}'
         return (f'<figure class="shot"><div class="shot-frame" style="aspect-ratio:{w}/{h}">'
-                f'<img class="shot-light" src="{light_rel}" alt="{_html.escape(alt)}" width="{w}" height="{h}">'
-                f'<img class="shot-dark" src="{dark_rel}" alt="{_html.escape(alt)}" width="{w}" height="{h}" loading="lazy">'
+                f'<img class="shot-light" src="{light_rel}" alt="" width="{w}" height="{h}">'
+                f'<img class="shot-dark" src="{dark_rel}" alt="" width="{w}" height="{h}" loading="lazy">'
                 f'{svg}</div><figcaption>{_html.escape(alt)} <span class="stamp">{stamp}</span></figcaption></figure>')
 
     return _SHOT_IMG_RE.sub(_sub, page_html), used
@@ -665,8 +665,10 @@ def nav_html(sections: list[dict], pages: dict[str, Page], current: str) -> str:
         rows = []
         open_ = any(r == current for r in sec["pages"])
         for r in sec["pages"]:
-            cls = ' class="here"' if r == current else ""
-            rows.append(f'<li{cls}><a href="{_relpath(r, current)}">'
+            here = (r == current)
+            cls = ' class="here"' if here else ""
+            cur = ' aria-current="page"' if here else ""
+            rows.append(f'<li{cls}><a{cur} href="{_relpath(r, current)}">'
                         f'{_html.escape(pages[r].title)}</a></li>')
         # A verb page keeps the Reference section open + its index row lit.
         if any(r == "reference/cli/index.html" for r in sec["pages"]) \
@@ -688,15 +690,17 @@ PAGE_TMPL = """<!DOCTYPE html>
 <link rel="stylesheet" href="{root}static/pyg.css">
 <script>const t=localStorage.getItem('dwix-theme');if(t)document.documentElement.dataset.theme=t;</script>
 </head><body>
-<nav class="side">{nav}</nav>
+<a class="skip" href="#content">Skip to content</a>
+<nav class="side" id="sidenav" aria-label="Site">{nav}</nav>
 <div class="main">
 <header class="top">
-  <button class="navbtn" aria-label="Menu">☰</button>
-  <input class="search" type="search" placeholder="Search the manual…" aria-label="Search the manual">
+  <button class="navbtn" aria-label="Menu" aria-expanded="false" aria-controls="sidenav">☰</button>
+  <input class="search" type="search" placeholder="Search the manual…" aria-label="Search the manual" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list">
   <button class="theme" aria-label="Toggle theme">◐</button>
 </header>
-<div class="results" hidden></div>
-<article class="page">
+<div class="results" id="search-results" role="listbox" aria-label="Search results" hidden></div>
+<div class="vh" role="status"></div>
+<article class="page" id="content" role="main" tabindex="-1">
 {toc}
 {body}
 <footer>ff9mapkit {version} · built from the repo's own docs — <a href="{root}index.html">Manual home</a></footer>
@@ -735,6 +739,10 @@ def build(out_dir: Path) -> dict[str, Page]:
     for rel, page in pages.items():
         html = rw.rewrite(page)
         html, used = upgrade_shot_figures(html, rel, shots_dir, rw.errors, rw.assets)
+        # Tables scroll inside a focusable wrapper; the <table> keeps display:table semantics.
+        html = re.sub(r"<table(\s[^>]*)?>",
+                      lambda m: '<div class="tablewrap" tabindex="0">' + m.group(0),
+                      html).replace("</table>", "</table></div>")
         rendered[rel] = html
         if used:
             shot_refs[rel] = used

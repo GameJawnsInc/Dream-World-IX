@@ -232,7 +232,7 @@ stops being a target the moment it starts falling; then the clip runs to complet
 (`RunAnimation` + `WaitAnimation`) and the corpse holds `linger` frames before
 `TerminateEntry`.
 
-#### THE FIELD-ANIMATION LAWS
+#### The field-animation laws
 
 Playing a clip on a field object is the least self-evident surface in the kit — five
 separate in-game rounds, each a different mechanism. All five are compiler invariants now;
@@ -655,7 +655,7 @@ reads the kill tally with `counter_ge = ["kills", N]`. Bench: field 30415
 (`studies/behavior-trees/bttable_bench.py`) — the first in-game consumer of computed
 array indexing anywhere.
 
-## Scans — the vector loop (v2 rung 0 — in-game proven)
+## Scans — the vector loop
 
 ```toml
 [[behavior.scan]]
@@ -691,7 +691,7 @@ use the group form with `alive_only`). This is the first stone of the v2 vector 
 (`studies/behavior-trees/PLAN.md`, THE THREE WALLS); the group loop below
 builds on it.
 
-## Groups + `engage` — THE GROUP LOOP (v2 rung 1)
+## Groups and `engage` — the group loop
 
 ```toml
 [[behavior.group]]
@@ -781,15 +781,14 @@ screen. The window auto-sizes to its text, so keep labels short — a long strip
 wraps to a second line (`[WDTH]` is a no-op in this engine). Combine with
 `alive_only` scans for live team headcounts.
 
-Win-condition note (a Condor playtest bought this one): two *separate* award
-branches each carry their own once-latch, so "pay on rout" plus "pay at the
-final whistle" pays TWICE. Model endings as **detect-then-pay** — each ending
+Win-condition note: two separate award branches each carry their own
+once-latch, so "pay on rout" plus "pay at the final whistle" pays TWICE. Model endings as **detect-then-pay** — each ending
 branch only announces and raises a shared `won` flag (gated on
 `not_flag = "won"`, so whichever lands first closes the other out), with ONE
 award branch gated on `flag = "won"`. ~180B of ticker + one window slot per strip; static values cost
 nothing.
 
-## Limits (v1)
+## Limits
 
 - **Size**: assembled bodies have NO practical jump ceiling (the label assembler relaxes
   long jumps through fall-through-safe islands automatically, and same-target long jumps
