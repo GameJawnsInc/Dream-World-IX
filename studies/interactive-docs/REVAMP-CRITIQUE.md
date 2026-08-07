@@ -134,7 +134,16 @@ the coast-mosaic "mint a beach" path) ahead of the full B-World ladder, and sequ
 Track B so B-World drafts first rather than leaving it equally weighted with undrafted ladders like
 B-Faithful or B-Coop.
 
-### 4. Playable characters — a headline pillar — have no real tutorial while a narrow cosmetic feature is the longest one in the set
+### 4. Playable characters — a headline pillar — have no real tutorial while a narrow cosmetic feature is the longest one in the set — DONE
+
+Applied: `15-playable-character.md` (Track D) — a walkthrough anchored on the in-game-proven
+`examples/thirteenth-character/` proof field: the one-block define+recruit, the
+deploy→relaunch→New-Game order, the three proofs (appears/fights/saves), both standing caveats
+(rename screen, leader-only field render), and going-further pointers (custom battle
+model/anims via `playable-anims`, portrait, `[playable.abilities]`). Wired into the tutorials
+README (row 15, pillar-gap entry removed), S7's "Going deeper", and the front-door task table.
+All prose grounded in the example's README/toml + FORMAT.md's `[[playable]]` section — no new
+claims beyond what is recorded as in-game proven.
 
 Custom playable characters ("a 13th/14th CharacterId, zero DLL," rated ★★★ in project memory) is named
 second in CLAUDE.md §1's pillar list. It has no tutorial — only a plain-text example README that

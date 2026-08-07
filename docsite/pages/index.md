@@ -17,7 +17,7 @@ screenshots.
 | Chain fields into a campaign or journey | [Tutorial 04](ff9mapkit/docs/tutorials/04-campaign.md) · [Tutorial 05](ff9mapkit/docs/tutorials/05-journey.md) |
 | Write dialogue and cutscenes | [Tutorial 08](ff9mapkit/docs/tutorials/08-dialogue-cutscene.md) |
 | Add custom 3D models, or a from-scratch creature | [Tutorial 10](ff9mapkit/docs/tutorials/10-custom-model.md) · [Tutorial 12](ff9mapkit/docs/tutorials/12-creature-from-scratch.md) |
-| Add a new playable character | [`examples/thirteenth-character/README.txt`](ff9mapkit/examples/thirteenth-character/README.txt) (worked example; no numbered tutorial yet) |
+| Add a new playable character | [Tutorial 15 — a new playable character](ff9mapkit/docs/tutorials/15-playable-character.md) |
 | Fork or retexture a 3D battle background | [Tutorial 09](ff9mapkit/docs/tutorials/09-battle-background.md) |
 | Transplant or reskin/rescore a summon | [Tutorial 11](ff9mapkit/docs/tutorials/11-summon-transplant.md) · [Tutorial 14](ff9mapkit/docs/tutorials/14-summon-reskin-rescore.md) |
 | Build a custom overworld or island | [OVERWORLD_ENGINE.md](ff9mapkit/docs/OVERWORLD_ENGINE.md) (no numbered tutorial yet) |

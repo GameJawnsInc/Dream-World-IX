@@ -51,11 +51,11 @@ Workspace GUI tutorial (07) covers the journey flow visually.
 | 12 | [Create a creature from scratch](12-creature-from-scratch.md) | An original mesh + rig + animset on a minted id, placed as an NPC | UnityPy |
 | 13 | [Edit an animation](../ANIMATION_EDITING.md) | Keyframe-edit a real animation clip in Blender | Blender 4.2+ |
 | 14 | [Recolour and reframe a stock summon](14-summon-reskin-rescore.md) | Edit a stock summon's palette and camera in place, no new model (`summon-reskin` / `summon-rescore`) | none — stock Memoria, offline scaffold + a live install |
+| 15 | [A new playable character](15-playable-character.md) | Recruit a genuinely new party member (`[[playable]]`) — own name, stats, model, command menu; zero DLL | a repo checkout for the deploy scripts |
 
 Pillars without a tutorial yet (reference docs instead):
 
 - **Overworld authoring** (`world-*` commands, islands/terrain/coasts/entrances) — [OVERWORLD_ENGINE.md](../OVERWORLD_ENGINE.md)
-- **Custom playable characters** (`[[playable]]`) — [`examples/thirteenth-character/README.txt`](../../examples/thirteenth-character/README.txt) (worked example + README)
 - **Custom music / SFX** (`audio-import`, `music-list`, `sfx-list`) — `ff9mapkit audio-import -h`
 - **Two-player co-op** (experimental; `coop host` / `coop join`) — [FEATURES.md §Multiplayer](../FEATURES.md#multiplayer-experimental), `ff9mapkit coop -h`
 - **Items / equipment / saves** (`items-*`, `save-edit`, `[[item_text]]`) — [SETUP.md §7](../../../SETUP.md#7-cli-command-reference)

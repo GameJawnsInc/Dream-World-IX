@@ -73,9 +73,9 @@ through most of the toolkit's core mechanisms. Two recognizable ones are still u
 - **Going deeper** — pick a track: [worlds](../OVERWORLD_ENGINE.md) (no numbered tutorial yet),
   click-authoring from a picture ([tutorial 03](03-original-art-field.md)'s painted-BG path), NPC
   behavior and minigames ([BEHAVIOR.md](../BEHAVIOR.md), no numbered tutorial yet),
-  [models and characters](10-custom-model.md) (plus
-  [`examples/thirteenth-character/`](../../examples/thirteenth-character/README.txt) for a playable
-  character, no numbered tutorial yet), [battle design](09-battle-background.md), or forking FF9
+  [models and characters](10-custom-model.md) (including
+  [a new playable character, tutorial 15](15-playable-character.md)),
+  [battle design](09-battle-background.md), or forking FF9
   itself ([tutorial 07](07-gui-journey.md) territory).
 - **The CLI track** — everything the core track did, terminal-native: start at
   [C1 — The CLI: fork, edit, deploy](c1-cli-fork-edit-deploy.md).

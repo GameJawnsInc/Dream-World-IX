@@ -116,3 +116,9 @@ choice/cast-scene content into its track home · then the generated track-ladder
 ★ **Multi-lens critique pass run** (design/user-stories/kit-context): found S4-S7 silently dropped
 the checkpoint recipe and S7's closing claims don't survive a grep — twelve quick fixes applied,
 structural items ranked → `studies/interactive-docs/REVAMP-CRITIQUE.md`.
+★ **Critique items 1, 2, 4 CLOSED**: S4-S7 carry real checkpoint recipes + the side-build
+caution; Track C discloses its S1-S2 depth boundary and C3/C4 gained verification walks;
+**tutorial 15 (a new playable character, Track D)** shipped off the thirteenth-character proof
+field. S7 + C4 + the recipe steps now declare their inventory-backed labels. Open from the
+critique: #3 overworld tutorial (biggest remaining gap), #5 S5 split-or-justify, #6 legacy
+retirement plan, #7 GUI model path, #8 Track-D slot audit.
