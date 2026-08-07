@@ -168,7 +168,7 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
 - **Provenance gate is CLEAR and must stay so** — zero Square-Enix binary bytes; templates regenerate from
   the user's own install (`ff9mapkit extract-templates`). The one documented game-text exception is
   `research/FLAG_LORE.md`'s ≤110-char excerpts (`ff9mapkit/docs/PROVENANCE.md`).
-- **Versions:** kit `1.0.0b17`, Blender add-on `0.9.29`.
+- **Versions:** kit `1.0.0b19`, Blender add-on `0.9.29`. (b18 was tagged but never published — its CI caught 3 portability bugs; b19 is the fixed re-cut.)
 
 ---
 
@@ -303,7 +303,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Interactive docs (docsite/) — site+CLI-ref+shots+tutorial system BUILT, gates green; core track S1-S7 drafted (playtest pending), CLI track C1-C4 shipped; UI gate now covers editor FORM labels (`form:<spec>.<key>`, Qt-free, freshness-tested) → `studies/interactive-docs/` (critique + ranked structural items: `REVAMP-CRITIQUE.md`)
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
-**Latest release:** kit **1.0.0b17** (tag pushed, CI green, PyPI live).
+**Latest release:** kit **1.0.0b19** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s79, first full-stack replay).
 
 ---
 
