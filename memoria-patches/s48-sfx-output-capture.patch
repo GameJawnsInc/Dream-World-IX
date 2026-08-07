@@ -48,7 +48,7 @@ index e033a7a..cfaeb5c 100644
 @@ -50,6 +57,16 @@
          // Memoria.ini is the same rule every other engine-side toggle already follows.
          public static readonly Boolean Enabled = LoadEnabled();
-
+ 
 +        // s48 -- independent sub-flags: a user can capture the raw primitive stream without
 +        // paying for (or wading through) the MESH/CAM rows, and vice versa.
 +        public static readonly Boolean CapturePrims = LoadCapturePrims();
@@ -61,11 +61,11 @@ index e033a7a..cfaeb5c 100644
 +
          private static StreamWriter _writer;
          private static Boolean _writerInitTried;
-
+ 
 @@ -65,6 +82,46 @@
              }
          }
-
+ 
 +        private static Boolean LoadCapturePrims()
 +        {
 +            try
@@ -126,7 +126,7 @@ index e033a7a..cfaeb5c 100644
 @@ -127,18 +187,31 @@
              }
          }
-
+ 
 -        // Called from SFXDataCamera.cs, UpdateCamera() -- only while the SFX_PLUGIN camera
 -        // engine is actually driving Camera.main (the caller already gates on that).
 -        public static void LogCamera()
@@ -390,7 +390,7 @@ index bd567ac..d7c0c57 100644
  using System;
  using System.Collections.Generic;
 @@ -207,6 +208,12 @@
-
+ 
      public unsafe static void Add(PSX_LIBGPU.P_TAG* tag)
      {
 +        // s48 -- the SFX_GetPrim output-capture probe: every decoded native primitive funnels

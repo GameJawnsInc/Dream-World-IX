@@ -1,16 +1,8 @@
 diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
-index f5a53fed..81200478 100644
+index 4a05c25..8120047 100644
 --- a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
 +++ b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
-@@ -26,6 +26,7 @@ public class HonoluluFieldMain : HonoBehavior
-         this.scString = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR).ToString();
-         this.mapIDString = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.MAP_INDEX_SVR).ToString();
-         this.ff9InitStateFieldLocation(this.FF9.fldLocNo);
-+        Memoria.Netsync.NetSyncClient.Ensure();   // [ff9mapkit] co-op ghost-sync client (idempotent; inert outside the co-op field)
-     }
- 
-     public override void HonoStart()
-@@ -89,8 +90,21 @@ public class HonoluluFieldMain : HonoBehavior
+@@ -90,8 +90,21 @@ public class HonoluluFieldMain : HonoBehavior
          }
          String text = FF9DBAll.EventDB[MapNo];
          map.evtPtr = EventEngineUtils.loadEventData(text, EventEngineUtils.ebSubFolderField);
@@ -34,23 +26,6 @@ index f5a53fed..81200478 100644
          map.mcfPtr = MapConfiguration.LoadMapConfigData(text);
          GameObject mapRootGo = GameObject.Find("FieldMap Root");
          GameObject mapGo = new GameObject("FieldMap");
-@@ -131,6 +145,7 @@ public class HonoluluFieldMain : HonoBehavior
-         Int32 sndEffectResSoundID2 = allSoundDispatchPlayer.GetSndEffectResSoundID(1);
-         FF9Snd.BGMFieldSongCounter = 0;
-         SFXData.Reinit();
-+        Memoria.Netsync.NetSyncClient.ApplyStoryBeforeEvents();   // [ff9mapkit] co-op: a following guest mirrors the HOST's gEventGlobal before Main_Init reads it
-         this.ee.StartEvents(map.evtPtr);
-         FF9StateSystem.Field.SetTwistAD(this.ee.GetTwistA(), this.ee.GetTwistD());
-         ETb.InitMessage();
-@@ -311,7 +326,7 @@ public class HonoluluFieldMain : HonoBehavior
-                         }
-                     }
-                     // Suspend field music/sounds as soon as the battle swirl starts, not when the battle music starts
--                    Int32 btlMusicid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, FF9StateSystem.Common.FF9.fldMapNo, FF9StateSystem.Field.FF9Field.loc.map.nextMapNo);
-+                    Int32 btlMusicid = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap, Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo), FF9StateSystem.Field.FF9Field.loc.map.nextMapNo); // [ff9mapkit] fork falls back to the donor's field battle BGM
-                     Int32 currentMusicId = FF9Snd.GetCurrentMusicId();
-                     if (btlMusicid != -1 && btlMusicid != currentMusicId)
-                         FF9Snd.ff9fldsnd_song_suspend(currentMusicId);
 diff --git a/Assembly-CSharp/Global/vib.cs b/Assembly-CSharp/Global/vib.cs
 index f9a6e7cf..0054a0c7 100644
 --- a/Assembly-CSharp/Global/vib.cs

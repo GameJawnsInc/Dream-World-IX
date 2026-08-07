@@ -1,0 +1,24 @@
+diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.cs
+index 8f1e173..5c97ea3 100644
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
+@@ -9986,11 +9986,14 @@ public static class ff9
+ 
+     public static WMActor w_moveDummyCharacter;
+ 
+-    // [ff9mapkit] Known-safe overworld fallback spawn (Unity units, well inside the 24x20 / 1536x1280 grid). Used by
+-    // w_worldSelfHealControl ONLY when a save's spawn pos is degenerate/off-grid. TODO: confirm this cell is walkable
+-    // LAND on the shipped world before release (currently the map centre; may be sea).
+-    public const Single kWorldSafeFallbackX = 768f;
+-    public const Single kWorldSafeFallbackZ = -640f;
++    // [ff9mapkit s79] Known-safe overworld fallback spawn (Unity units). Used by w_worldSelfHealControl ONLY when a
++    // save's spawn pos is degenerate/off-grid. The old map-centre pick (768, -640) was VERIFIED OPEN SEA (it sits on
++    // the corner of blocks [11][9]/[12][9]/[11][10]/[12][10]; three do not exist, the fourth grounds on Sea4).
++    // (1092, -788) is the Dali plain, Block[17][12] -- the first ground a new game walks: a single walkable sheet,
++    // ground_y 11.4, dominant plains topograph 49, ~30u clear of the village entrance trigger. Verified 2026-08-06
++    // with the kit's engine-faithful ground query (ff9mapkit world/placement.py) against the stock disc-1 blocks.
++    public const Single kWorldSafeFallbackX = 1092f;
++    public const Single kWorldSafeFallbackZ = -788f;
+ 
+     public static WMActor w_moveActorPtr;
+ 

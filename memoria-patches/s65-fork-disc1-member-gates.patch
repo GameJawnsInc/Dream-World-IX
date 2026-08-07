@@ -1,5 +1,5 @@
---- s65_pre\EMinigame.cs	2026-07-28 09:34:47.798299300 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/EMinigame.cs	2026-07-28 09:34:47.781200900 -0400
+--- a/Assembly-CSharp/Global/EMinigame.cs
++++ b/Assembly-CSharp/Global/EMinigame.cs
 @@ -55,7 +55,7 @@
  
      public static void EidolonMuralAchievement(String langSymbol, Int32 messageId)
@@ -247,8 +247,8 @@
          {
              Int32 varOp = EBin.getVarOperation(EBin.VariableSource.Map, EBin.VariableType.Byte, 36);
              if (s1.ip == 1445 || s1.ip == 1497)
---- s65_pre\EventCollision.cs	2026-07-28 09:34:47.799809000 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Event/EventCollision.cs	2026-07-28 09:34:47.782202000 -0400
+--- a/Assembly-CSharp/Global/Event/EventCollision.cs
++++ b/Assembly-CSharp/Global/Event/EventCollision.cs
 @@ -307,7 +307,7 @@
                  }
                  else
@@ -303,8 +303,8 @@
              Int32 num = fldMapNo;
              switch (num)
              {
---- s65_pre\EventInput.cs	2026-07-28 09:34:47.799809000 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Event/EventInput.cs	2026-07-28 09:34:47.782202000 -0400
+--- a/Assembly-CSharp/Global/Event/EventInput.cs
++++ b/Assembly-CSharp/Global/Event/EventInput.cs
 @@ -85,7 +85,7 @@
              EventInput.ResetWorldTriggerButton();
              return inputs;
@@ -314,8 +314,8 @@
          Int32 gMode = PersistenSingleton<EventEngine>.Instance.gMode;
          Boolean isKeyboardOrJoystickInput = EventInput.IsKeyboardOrJoystickInput;
          if (Singleton<BubbleUI>.Instance.IsActive)
---- s65_pre\FieldMap.cs	2026-07-28 09:34:47.801814100 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Field/Map/FieldMap.cs	2026-07-28 09:34:47.783707100 -0400
+--- a/Assembly-CSharp/Global/Field/Map/FieldMap.cs
++++ b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
 @@ -103,7 +103,7 @@
          {
              base.StartCoroutine(this.DelayedActiveTri());
@@ -379,8 +379,8 @@
          //Log.Message("fldMapNo:" + FF9StateSystem.Common.FF9.fldMapNo + " MapWidth:" + NarrowMapList.MapWidth(FF9StateSystem.Common.FF9.fldMapNo) + " PsxFieldWidth:" + PsxFieldWidth + " PsxScreenWidth:" + PsxScreenWidth + " InitializeWidescreenSupport():" + Configuration.Graphics.InitializeWidescreenSupport() + " WidescreenSupport:" + Configuration.Graphics.WidescreenSupport);
          if (Configuration.Graphics.InitializeWidescreenSupport())
          {
---- s65_pre\FF9Snd.cs	2026-07-28 09:34:47.801814100 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/Snd/FF9Snd.cs	2026-07-28 09:34:47.785715000 -0400
+--- a/Assembly-CSharp/Global/ff9/Snd/FF9Snd.cs
++++ b/Assembly-CSharp/Global/ff9/Snd/FF9Snd.cs
 @@ -336,7 +336,7 @@
      {
          Int32 result = -1;
@@ -390,8 +390,8 @@
          if (gMode == 1 && (fldMapNo == 613 || fldMapNo == 615) && ObjNo == 113 && _phrase == 14)
          {
              result = 48000;
---- s65_pre\AllSoundDispatchPlayer.cs	2026-07-28 09:34:47.803839800 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/AllSoundDispatchPlayer.cs	2026-07-28 09:34:47.785715000 -0400
+--- a/Assembly-CSharp/Global/AllSoundDispatchPlayer.cs
++++ b/Assembly-CSharp/Global/AllSoundDispatchPlayer.cs
 @@ -131,7 +131,7 @@
                      this.CreateSound(soundProfile);
                      soundProfile.SoundVolume = 1f;
@@ -401,8 +401,8 @@
                      if (fldMapNo == 503 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 2970 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.MAP_INDEX_SVR) == 11 && ObjNo == 35)
                      {
                          // What is this for ? - SamsamTS
---- s65_pre\BGSCENE_DEF.cs	2026-07-28 09:34:47.803839800 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/BGSCENE_DEF.cs	2026-07-28 09:34:47.786714400 -0400
+--- a/Assembly-CSharp/Global/BGSCENE_DEF.cs
++++ b/Assembly-CSharp/Global/BGSCENE_DEF.cs
 @@ -1732,7 +1732,7 @@
                  {
                      bgOverlay.canCombine = false;
@@ -421,8 +421,8 @@
                      separateSprites = new List<Int32> { 202, 203, 214, 215 };
                  for (Int32 j = 0; j < bgOverlay.spriteList.Count; j++)
                  {
---- s65_pre\EBin.cs	2026-07-28 09:34:47.806364700 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/EBin.cs	2026-07-28 09:34:47.788745000 -0400
+--- a/Assembly-CSharp/Global/EBin.cs
++++ b/Assembly-CSharp/Global/EBin.cs
 @@ -320,7 +320,7 @@
                          setVarManually(EBin.getVarOperation(EBin.VariableSource.Map, EBin.VariableType.Byte, 26), 8);
                  }
@@ -450,8 +450,8 @@
          {
              String lang = Localization.CurrentSymbol;
              if (lang != "US" && lang != "JP" && s1.uid == 17 && _v0 == 15)
---- s65_pre\CommonSPSSystem.cs	2026-07-28 09:34:47.806870300 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/SPS/CommonSPSSystem.cs	2026-07-28 09:34:47.788745000 -0400
+--- a/Assembly-CSharp/Global/SPS/CommonSPSSystem.cs
++++ b/Assembly-CSharp/Global/SPS/CommonSPSSystem.cs
 @@ -197,7 +197,7 @@
              {
                  sps.meshRenderer.enabled = false;
@@ -470,8 +470,8 @@
                  sps.scale = (Int32)(Arg0 * 1.30);
              else
                  sps.scale = Arg0;
---- s65_pre\SceneDirector.cs	2026-07-28 09:34:47.806870300 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs	2026-07-28 09:34:47.790269200 -0400
+--- a/Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs
++++ b/Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs
 @@ -590,7 +590,7 @@
          {
              SceneDirector.fadeMode = mode;
@@ -481,8 +481,8 @@
                          && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.getVarOperation(EBin.VariableSource.Map, EBin.VariableType.Byte, 24)) == 5
                          && mode == FadeMode.Add
                          && FF9StateSystem.Settings.IsFastForward;
---- s65_pre\ETb.cs	2026-07-28 09:34:47.806870300 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/ETb/ETb.cs	2026-07-28 09:34:47.790269200 -0400
+--- a/Assembly-CSharp/Global/ETb/ETb.cs
++++ b/Assembly-CSharp/Global/ETb/ETb.cs
 @@ -421,7 +421,7 @@
                  }
              }
@@ -492,8 +492,8 @@
              {
                  if (DialogManager.SelectChoice == 1) // Prima Vista/Crash Site, trying to avoid the ATE
                      ETb.LastATEDialogID = -1;
---- s65_pre\FieldMapActor.cs	2026-07-28 09:34:47.808374500 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActor.cs	2026-07-28 09:34:47.791779200 -0400
+--- a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActor.cs
++++ b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActor.cs
 @@ -178,7 +178,7 @@
              return;
          FF9Shadow ff9Shadow = FF9StateSystem.Field.FF9Field.loc.map.shadowArray[this.actor.uid];
@@ -521,8 +521,8 @@
          {
              HonoBehaviorSystem.ExtraLoopCount = 1;
          }
---- s65_pre\FieldMapActorController.cs	2026-07-28 09:34:47.809380900 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs	2026-07-28 09:34:47.792784300 -0400
+--- a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
++++ b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
 @@ -210,7 +210,7 @@
          if (this.isPlayer && PersistenSingleton<EventEngine>.Instance.GetUserControl())
              this.originalActor.speed = (Byte)(this.isRunning ? 60 : 30);
@@ -590,8 +590,8 @@
              {
                  // Pand./Elevator (tallest room), Zidane
                  // or I. Castle/Small Room, Zidane
---- s65_pre\EventEngine.ProcessEvents.cs	2026-07-28 09:34:47.810886800 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs	2026-07-28 09:34:47.794292800 -0400
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs
 @@ -109,7 +109,7 @@
          Int32 result = 0;
          bool canProcessCode = true;
@@ -610,8 +610,8 @@
                              componentsInChild.enabled = false;
                      }
                  }
---- s65_pre\EventEngine.cs	2026-07-28 09:34:47.811893700 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/Event/Engine/EventEngine.cs	2026-07-28 09:34:47.795300100 -0400
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 @@ -685,7 +685,7 @@
                  noSave |= this._ff9.fldMapNo == 1757 && scCounterSvr == 6740; // Iifa Tree/Outer Seal (return after defeating Soulcage)
                  noSave |= this._ff9.fldMapNo == 2752 && scCounterSvr == 11100 && mapIndexSvr == 9999; // Invincible/Bridge (Assault of the Silver Dragons)
@@ -621,8 +621,8 @@
                  noSave |= this.gMode == 1 && Configuration.SaveFile.AutoSaveOnlyAtMoogle && !EventEngine.IsMoogleField(this._ff9.fldMapNo, scCounterSvr, mapIndexSvr);
                  noSave |= Memoria.Netsync.NetSyncVisitor.SuppressEncounters || Memoria.Netsync.NetSyncClient.IsMirroringStory; // a FOLLOWING co-op guest never autosaves -- neither the host's mirrored story nor the followed-to field may reach the guest's Continue slot [ff9mapkit netsync spectator-save]
                  noSave |= Memoria.Netsync.NetSyncDiorama.Booted; // while a diorama is up the party dict holds SCRATCH PLAYERs (the host's mirrored party), so a save would persist someone else's characters as yours. This is its OWN gate on purpose: every other save guard keys on IsMirroringStory, which needs a live socket -- so Role=selftest, the mode the diorama is BENCHED in, has NO save guard at all. [ff9mapkit netsync diorama]
---- s65_pre\TileSystem.cs	2026-07-28 09:34:47.812893700 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/TileSystem/TileSystem.cs	2026-07-28 09:34:47.796299300 -0400
+--- a/Assembly-CSharp/Global/TileSystem/TileSystem.cs
++++ b/Assembly-CSharp/Global/TileSystem/TileSystem.cs
 @@ -667,7 +667,7 @@
  
          private int _getOverlayToRemove(int overlayNumber, PaddingType paddingType, int x, int y)
@@ -632,8 +632,8 @@
                  && overlayNumber == 2 && x < 17 && y == 12)
              {
                  return 5;
---- s65_pre\SPSEffect.cs	2026-07-28 09:34:47.812893700 -0400
-+++ C:/gd/FFIX/Memoria/Assembly-CSharp/Global/SPS/SPSEffect.cs	2026-07-28 09:34:47.797301000 -0400
+--- a/Assembly-CSharp/Global/SPS/SPSEffect.cs
++++ b/Assembly-CSharp/Global/SPS/SPSEffect.cs
 @@ -241,7 +241,7 @@
  
              // TODO Check Native: #147

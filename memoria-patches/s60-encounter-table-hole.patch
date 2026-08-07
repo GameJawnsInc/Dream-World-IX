@@ -32,14 +32,14 @@ into a table-hole area (area 14, the SAFE-ROAD stamp, REVERT.md s26); s60 makes 
 +        // (zone, topograph, fog) triple has a real record. SelectScene treats null as scene 0.
 +        return null;
      }
-
+ 
      public static void w_worldPos2Cell(Single x, Single z, out Int32 cell)
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 @@ -191,6 +191,9 @@
      {
          EncountData encountData = this.gMode != 1 ? ff9.w_worldGetBattleScenePtr() : this._enCountData;
-
+ 
 +        if (encountData == null)
 +            return 0;   // s60: a world-table (zone, topograph, fog) hole = no encounter
 +

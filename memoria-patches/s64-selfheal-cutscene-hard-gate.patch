@@ -1,5 +1,5 @@
---- C:/gd/Dream-World-IX/.claude/worktrees/r3-lamplight-island-overworld-44317f/backups/dll-pre-s63probe.20260727-175241/ff9.cs.pre-s63	2026-07-27 17:52:42.290094000 -0400
-+++ /c/gd/FFIX/Memoria/Assembly-CSharp/Global/ff9/ff9.cs	2026-07-27 18:23:19.272474900 -0400
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
 @@ -4632,14 +4632,34 @@
              if (ee == null)
                  return false;
