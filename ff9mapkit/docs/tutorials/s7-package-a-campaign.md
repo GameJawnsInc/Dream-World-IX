@@ -70,7 +70,7 @@ through most of the toolkit's core mechanisms. Two recognizable ones are still u
 
 ## Where to next
 
-- **Going deeper** — pick a track: [worlds](../OVERWORLD_ENGINE.md) (no numbered tutorial yet),
+- **Going deeper** — pick a track: [worlds — a custom continent, tutorial 16](16-custom-continent.md),
   click-authoring from a picture ([tutorial 03](03-original-art-field.md)'s painted-BG path), NPC
   behavior and minigames ([BEHAVIOR.md](../BEHAVIOR.md), no numbered tutorial yet),
   [models and characters](10-custom-model.md) (including

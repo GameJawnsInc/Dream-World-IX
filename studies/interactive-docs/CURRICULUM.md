@@ -119,6 +119,9 @@ structural items ranked → `studies/interactive-docs/REVAMP-CRITIQUE.md`.
 ★ **Critique items 1, 2, 4 CLOSED**: S4-S7 carry real checkpoint recipes + the side-build
 caution; Track C discloses its S1-S2 depth boundary and C3/C4 gained verification walks;
 **tutorial 15 (a new playable character, Track D)** shipped off the thirteenth-character proof
-field. S7 + C4 + the recipe steps now declare their inventory-backed labels. Open from the
-critique: #3 overworld tutorial (biggest remaining gap), #5 S5 split-or-justify, #6 legacy
-retirement plan, #7 GUI model path, #8 Track-D slot audit.
+field. S7 + C4 + the recipe steps now declare their inventory-backed labels.
+★ **Critique item 3 CLOSED (minimal form)**: **tutorial 16 (a custom continent, Track D)**
+shipped off the continent-v1 proof layout — deploy/walk/iterate + the save-brick safety rule;
+deep coast morphing stays reference-only, disclosed in the pillar-gap list. Open from the
+critique: #5 S5 split-or-justify, #6 legacy retirement plan, #7 GUI model path, #8 Track-D
+slot audit; the full B-World ladder remains future work.

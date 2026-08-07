@@ -20,7 +20,7 @@ screenshots.
 | Add a new playable character | [Tutorial 15 — a new playable character](ff9mapkit/docs/tutorials/15-playable-character.md) |
 | Fork or retexture a 3D battle background | [Tutorial 09](ff9mapkit/docs/tutorials/09-battle-background.md) |
 | Transplant or reskin/rescore a summon | [Tutorial 11](ff9mapkit/docs/tutorials/11-summon-transplant.md) · [Tutorial 14](ff9mapkit/docs/tutorials/14-summon-reskin-rescore.md) |
-| Build a custom overworld or island | [OVERWORLD_ENGINE.md](ff9mapkit/docs/OVERWORLD_ENGINE.md) (no numbered tutorial yet) |
+| Build a custom overworld or island | [Tutorial 16 — a custom continent](ff9mapkit/docs/tutorials/16-custom-continent.md) |
 | Tune battle difficulty or enemy AI | [BATTLE_DESIGN.md](ff9mapkit/docs/BATTLE_DESIGN.md) |
 | Try two-player co-op (experimental) | [FEATURES.md §Multiplayer](ff9mapkit/docs/FEATURES.md#multiplayer-experimental) |
 | Look up a `field.toml` block | [`field.toml` reference](ff9mapkit/docs/FORMAT.md) |

@@ -120,7 +120,18 @@ FORMAT.md for the rest — and separately add a concrete verification step to C3
 confirm the prior field returns) and C4 (run one GUI action, find it in Output, run the printed CLI
 equivalent, confirm the same result).
 
-### 3. Overworld authoring has zero tutorial despite being the largest area of recorded project investment
+### 3. Overworld authoring has zero tutorial despite being the largest area of recorded project investment — DONE (minimal walkthrough)
+
+Applied: `16-custom-continent.md` (Track D) — deploys the in-game-proven
+`examples/continent-v1` archipelago (dry-run → deploy → world-island E → world-minimap), walks
+it via the debug World teleport with per-island what-you-should-see, teaches the ~1s reload
+loop, and tours the deployed-land iteration verbs (interior relief, ground retile,
+world-terrain reshape-never-overlay, world-render). Carries the save-brick safety rule up
+front (safe save in a field, never save on edited land, recovery path) per the
+authoring-ff9-overworld read-first gate, which was loaded before writing. Every command is
+lifted verbatim from OVERWORLD_RECIPES.md / the example README — both already command-gated.
+Deep coast/beach/cliff morphing and entrances stay a disclosed reference-only area (the
+pillar-gap list now says exactly that); the full B-World ladder remains open.
 
 CLAUDE.md §10 records the Southern Ring as board-closed (R1-R5 playtest-confirmed), the
 two-ground-landmass generator as done, and Path D at rungs 0-5a in-game proven — the single biggest
