@@ -192,6 +192,8 @@ STACK_ARG_MIN = 0x10                  # O32: the first stacked argument is arg 4
 _MEM_CTX = re.compile(r"\[(?=[^\]]*r13)[^\]]*\+ (0x[0-9a-f]+)\]")
 _DST = re.compile(r"^(\w+),")
 _RIP = re.compile(r"\[rip ([+-]) 0x([0-9a-f]+)\]")
+#: Any ``mov r12d, <something>`` -- see the note at the use site.
+_R12_SET = re.compile(r"^r12d, \S+$")
 _FN_NAME_STRING = re.compile(r"^([A-Za-z_][A-Za-z0-9_]{3,})\s*\(")
 
 
@@ -389,7 +391,12 @@ class DllView:
                         sp_live = True
                 elif tgt is not None:
                     calls.append(tgt)
-            elif mn == "mov" and ops == "r12d, eax":
+            elif mn == "mov" and _R12_SET.match(ops):
+                # ANY write to r12d before the tail return means the op delivers a value.  Matching
+                # only ``r12d, eax`` reported VOID for three ops that plainly return one -- op 50
+                # (378 call sites) ends ``mov r12d, edx``, op 43 ``mov r12d, ecx``, and op 16
+                # ``mov r12d, 0x400`` (a constant).  The register the value happens to arrive in is
+                # a codegen detail, not part of the ABI.
                 r12_set = True
             elif mn == "jmp":
                 tgt = int(ops, 16) - self.base if ops.startswith("0x") else None

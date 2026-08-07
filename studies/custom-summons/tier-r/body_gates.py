@@ -1,4 +1,4 @@
-"""body_gates -- the gate board for the HANDLER-BODY evidence class (ops 117 and 206).
+"""body_gates -- the gate board for the HANDLER-BODY evidence class (117, 206, 136, 48/49/50).
 
 B1/B2/B6 are DLL-side and always run.  B3-B5 (op 117) and B7-B8 (op 206) score the claims against
 the corpus.  Two of them could have killed their claim outright:
@@ -217,10 +217,18 @@ def main() -> int:
         print("  " + n)
     results.append(("B9", "op 136's lookup + divide-by-6 + add re-derive from the DLL", ok9))
 
+    ok10, notes10 = B.verify_rng(dll)
+    print()
+    for n in notes10:
+        print("  " + n)
+    results.append(("B10", "the RNG family's shared ANSI-C LCG re-derives from the DLL", ok10))
+
     ev = B.body_evidence(dll)
-    good = (set(ev) == {B.OP_OPEN, B.OP_ABR, B.OP_COORD}
+    good = (set(ev) == {B.OP_OPEN, B.OP_ABR, B.OP_COORD,
+                        B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
             and ev[B.OP_OPEN]["confidence"] == "medium"      # no symbol names it
             and ev[B.OP_COORD]["confidence"] == "medium"     # no symbol; +0x38 unresolved
+            and ev[B.OP_RAND]["confidence"] == "medium"      # algorithm known, name not stated
             and ev[B.OP_ABR]["confidence"] == "high")        # the DLL names it, twice
     print("\nB2 body evidence: %s" % {o: (e["name"], e["confidence"]) for o, e in ev.items()})
     results.append(("B2", "each name ships at the confidence its evidence supports", good))

@@ -244,3 +244,30 @@ Record: `CALLBACK-OPS.md` §ADDENDUM 3. `body_gates.py` 9/9; 4 more tests (tier-
   reaching for the open-source struct here gives the WRONG field. Neither the axis nor the divisor's
   meaning is pinned. **Sibling op 124 exposes the same pair** (`+0x28` normally, `+0x38` when bit 8
   of its arg is set — `$a0` constants exactly `0` and `256`) = a second handle for a future rung.
+
+## R8 (ops 48/49/50) — ★ DONE 2026-08-07: THE RNG FAMILY, AND A DECODER BUG
+
+Record: `CALLBACK-OPS.md` §ADDENDUM 4. `body_gates.py` 10/10; 5 more tests (tier-r 191).
+**Named 110 → 113; traffic 72.5% → 78.9%. Across R4-R8: 79 → 113 named, 51.8% → 78.9%.**
+
+The brief was 48 and 50; they are two thirds of ONE algorithm, so 49 came with them.
+
+* **★ ALL THREE DRIVE THE SAME LCG** on the shared state `0x3231dc`:
+  `seed = seed*0x41C64E6D + 0x3039 ; value = seed >> 16`. **`0x41C64E6D` = 1103515245 and
+  `0x3039` = 12345 are the ANSI C `rand()` constants** — a published external prior; the numbers
+  identify the algorithm the way an import name would.
+  - **op 48 = `rand`** (451 sites) — the raw draw; top co-call is op 15 `rsin_fixed_point` (×52).
+  - **op 49 = `rand_range`** (78) — `lo + rand() % (hi-lo)`; returns `lo` when `lo == hi` **without
+    advancing the seed**. Corpus: `$a0` NEGATIVE (−256/−32/−64/−96/−128), `$a1` the positive twin.
+  - **op 50 = `rand_centered`** (378) — `rand() % n - n/2`; `n == 0` guarded to 1. Corpus `$a0` =
+    256/128/512/32/1024/384 ⇒ jitters of ±128/±64/±256/±16/±512/±192.
+* **MEDIUM not high, and the asymmetry is recorded:** R2 rates a thin CRT wrapper `high` (that is how
+  `rsin`/`rcos` got named, because the DLL IMPORTS `sin`/`cos`). These are the same library function
+  **INLINED**, and inlining is a codegen choice — but no source in the binary states a name, so they
+  stay `medium` rather than inflating.
+* **★ A DECODER BUG IN R2'S STUB READER — 3 ops were wrongly VOID.** The reader matched only the
+  literal `mov r12d, eax`; op 50's stub ends `mov r12d, edx`, so **378 call sites** read as returning
+  nothing. Swept over all 216 stubs the r12d source is `eax` 55× and something else **3**× — **op 50
+  (`edx`), op 43 (`ecx`), op 16 (a constant `0x400`)** — all three mis-typed, all three now `int`.
+  Fixed by matching ANY write to `r12d` before the tail return: the register a value arrives in is a
+  codegen detail, not part of the ABI. Confidence board unaffected (0 violations); R1/R2/R3/CB green.

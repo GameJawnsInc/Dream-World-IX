@@ -1,4 +1,8 @@
-"""body_ops -- THE HANDLER-BODY EVIDENCE CLASS.  Three ops: 117, 206 and 136.
+"""body_ops -- THE HANDLER-BODY EVIDENCE CLASS.  Six ops: 117, 206, 136 and the RNG family 48/49/50.
+
+**ops 48 / 49 / 50** are one algorithm wearing three hats, and the algorithm names itself: each
+drives ``seed = seed*0x41C64E6D + 0x3039 ; value = seed >> 16`` on the shared state ``0x3231dc``, and
+that multiplier/increment pair is the **ANSI C ``rand()`` LCG**.  See :func:`verify_rng`.
 
 **op 136** (510 sites) is four instructions -- look an actor up, divide one of its fields by 6, add
 the caller's base -- and the body alone would not name it.  WHERE THE RESULT GOES does: the corpus
@@ -144,6 +148,71 @@ INSTANCE_COORD_OFF = 0x22      # where the corpus stores the result, on an op-11
 NAME_COORD = "actor_relative_coord"
 DESCRIPTION_COORD = ("a coordinate component placed relative to an actor: base + "
                      "actor[+0x38] / 6")
+
+
+# --- ops 48 / 49 / 50: the RNG family -----------------------------------------------------------
+#: Three ops, one algorithm, and the algorithm names itself.  Each computes
+#:     seed = seed * 0x41C64E6D + 0x3039 ; value = seed >> 16
+#: on the shared state at ``0x3231dc``.  ``0x41C64E6D`` = 1103515245 and ``0x3039`` = 12345 are the
+#: **ANSI C ``rand()`` LCG constants** -- the multiplier/increment pair from the C standard's own
+#: example implementation.  That is an external, published prior, not an inference about purpose:
+#: the numbers identify the algorithm the way an import name would.
+#:
+#: Note the asymmetry this exposes in R2's contract.  R2 rates a *thin CRT wrapper* ``high`` -- it is
+#: how ``rsin``/``rcos`` got their names, because the DLL imports ``sin``/``cos``.  These ops are the
+#: C library's ``rand()`` too, just INLINED rather than imported, and inlining is a compiler choice.
+#: They still ship ``medium``, because no source in the binary states a name, and inflating that
+#: would be exactly the confident-wrong-name defect the contract exists to prevent.
+RNG_STATE = 0x3231DC
+LCG_MUL = 0x41C64E6D           # 1103515245
+LCG_ADD = 0x3039               # 12345
+LCG_SHIFT = 16
+OP_RAND, OP_RAND_RANGE, OP_RAND_CENTERED = 48, 49, 50
+RNG_FNS = {OP_RAND: 0x20930, OP_RAND_RANGE: 0x20950, OP_RAND_CENTERED: 0x20980}
+RNG_NAMES = {
+    OP_RAND: ("rand", "the raw LCG draw: seed = seed*0x41C64E6D + 0x3039; return seed >> 16"),
+    OP_RAND_RANGE: ("rand_range",
+                    "lo + rand() % (hi - lo); returns lo unchanged when lo == hi, without "
+                    "advancing the seed"),
+    OP_RAND_CENTERED: ("rand_centered",
+                       "rand() % n - n/2, a jitter centred on zero; n == 0 is guarded to 1"),
+}
+
+
+def verify_rng(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive the shared LCG in all three RNG ops."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+    mul_op = "eax, dword ptr [rip + 0x%x], 0x%x"          # matched by target, not by text
+    for op in (OP_RAND, OP_RAND_RANGE, OP_RAND_CENTERED):
+        fn = dll.function_of(dll.native_fn[op]) or dll.native_fn[op]
+        good = fn == RNG_FNS[op]
+        ok &= good
+        body = list(dll.body(fn))
+        text = [(i.mnemonic, i.op_str) for i in body]
+        # the imul against the shared state, resolved by rip target rather than by displacement text
+        hit = any(i.mnemonic == "imul" and dll.rip_target(i) == RNG_STATE
+                  and hex(LCG_MUL) in i.op_str for i in body)
+        add = ("add", "eax, 0x%x" % LCG_ADD) in text
+        shr = ("shr", "eax, 0x%x" % LCG_SHIFT) in text
+        store = any(i.mnemonic == "mov" and dll.rip_target(i) == RNG_STATE
+                    and i.op_str.startswith("dword ptr [rip") for i in body)
+        good2 = hit and add and shr and store
+        ok &= good2
+        notes.append("op %d fn %#x: imul*%#x %s, add %#x %s, shr %d %s, stores seed %s"
+                     % (op, fn, LCG_MUL, "OK" if hit else "FAIL", LCG_ADD, "OK" if add else "FAIL",
+                        LCG_SHIFT, "OK" if shr else "FAIL", "OK" if store else "FAIL"))
+    # the shape that separates the three
+    r49 = [(i.mnemonic, i.op_str) for i in dll.body(RNG_FNS[OP_RAND_RANGE])]
+    good = ("idiv", "r8d") in r49 and ("lea", "eax, [rdx + rcx]") in r49
+    ok &= good
+    notes.append("op %d: %% (hi-lo) then + lo %s" % (OP_RAND_RANGE, "OK" if good else "FAIL"))
+    r50 = [(i.mnemonic, i.op_str) for i in dll.body(RNG_FNS[OP_RAND_CENTERED])]
+    good = ("sar", "ecx, 1") in r50 and ("sub", "edx, ecx") in r50
+    ok &= good
+    notes.append("op %d: %% n then - n/2 %s" % (OP_RAND_CENTERED, "OK" if good else "FAIL"))
+    return ok, notes
 
 
 def _u16(b: bytes, o: int) -> int:
@@ -444,6 +513,23 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                             " (%s)" % src[0] if src else "")),
         }
 
+    ok_rng, _n3 = verify_rng(dll)
+    if ok_rng:
+        for op, (nm, how) in RNG_NAMES.items():
+            out[op] = {
+                "name": nm,
+                "confidence": "medium",
+                "evidence": ("%s %s; fn %#x drives the shared LCG at %#x -- "
+                             "seed = seed*%#x + %#x, value = seed >> %d -- whose multiplier/"
+                             "increment pair (%d, %d) is the ANSI C rand() LCG, a published "
+                             "external prior. MEDIUM not high: no source in the binary states a "
+                             "name; R2 rates a thin CRT wrapper high (rsin/rcos) and these are the "
+                             "same library function INLINED rather than imported, but inlining is "
+                             "a codegen choice and the contract asks for a stated name."
+                             % (BODY_MARKER, how, RNG_FNS[op], RNG_STATE, LCG_MUL, LCG_ADD,
+                                LCG_SHIFT, LCG_MUL, LCG_ADD)),
+            }
+
     ok_coord, _n2 = verify_coord(dll)
     if ok_coord:
         out[OP_COORD] = {
@@ -504,7 +590,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for n in notes2:
         print("  " + n)
     print("  =>", "PASS" if ok2 else "FAIL")
-    ok = ok and ok2
+
+    ok3, notes3 = verify_coord(dll)
+    print("\nVERIFY op %d against the installed DLL" % OP_COORD)
+    for n in notes3:
+        print("  " + n)
+    print("  =>", "PASS" if ok3 else "FAIL")
+
+    ok4, notes4 = verify_rng(dll)
+    print("\nVERIFY the RNG family (ops %d / %d / %d)"
+          % (OP_RAND, OP_RAND_RANGE, OP_RAND_CENTERED))
+    for n in notes4:
+        print("  " + n)
+    print("  =>", "PASS" if ok4 else "FAIL")
+    ok = ok and ok2 and ok3 and ok4
 
     src = wassert_sources(dll)
     files = sorted({f for v in src.values() for f in v})

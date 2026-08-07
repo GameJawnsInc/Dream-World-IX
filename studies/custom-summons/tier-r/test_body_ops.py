@@ -100,12 +100,15 @@ def test_every_structural_claim_re_derives_from_the_dll():
 
 @needs_dll
 def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
-    """A different DLL build must yield no name rather than a stale constant -- and the two ops
-    are guarded INDEPENDENTLY, so a change that breaks one must not silently drop the other."""
+    """A different DLL build must yield no name rather than a stale constant -- and each claim is
+    guarded INDEPENDENTLY, so a change that breaks one must not silently drop the others."""
     dll = A.DllView()
+    rng = {B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
     monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD}
+    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD} | rng
     monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD} | rng
+    monkeypatch.setattr(B, "verify_rng", lambda d=None: (False, ["forced"]))
     assert set(B.body_evidence(dll)) == {B.OP_COORD}
     monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
     assert B.body_evidence(dll) == {}
@@ -217,17 +220,55 @@ def test_op136_ships_medium_because_the_field_it_divides_is_unidentified():
 
 
 @needs_dll
-def test_the_three_body_ops_are_guarded_independently(monkeypatch):
-    dll = A.DllView()
-    monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_OPEN, B.OP_ABR}
-
-
-@needs_dll
 @needs_ops
 def test_the_dictionary_carries_op136():
     ops = A.load_hle_ops()
     row = ops[B.OP_COORD]
     assert row["name"] == B.NAME_COORD and row["confidence"] == "medium"
     assert row["callback_command"] is None
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- ops 48/49/50, the RNG family
+@needs_dll
+def test_the_rng_family_shares_one_lcg():
+    ok, notes = B.verify_rng()
+    assert ok, notes
+
+
+@needs_dll
+def test_the_lcg_constants_are_the_ansi_c_ones():
+    """1103515245 / 12345 -- the multiplier/increment pair from the C standard's rand()."""
+    assert B.LCG_MUL == 1103515245
+    assert B.LCG_ADD == 12345
+
+
+@needs_dll
+def test_the_rng_ops_ship_medium_not_high():
+    """R2 rates a thin CRT wrapper high (rsin/rcos). These are the same library function INLINED,
+    but no source in the binary states a name, so they stay medium rather than inflating."""
+    ev = B.body_evidence()
+    for op in (B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED):
+        assert ev[op]["confidence"] == "medium"
+    assert ev[B.OP_RAND]["name"] == "rand"
+    assert ev[B.OP_RAND_RANGE]["name"] == "rand_range"
+    assert ev[B.OP_RAND_CENTERED]["name"] == "rand_centered"
+
+
+@needs_dll
+def test_r12d_is_recognised_from_any_source_register():
+    """R2 matched only `mov r12d, eax`, so three ops that plainly return a value read as VOID --
+    op 50 (378 sites) ends `mov r12d, edx`, op 43 `ecx`, op 16 a constant."""
+    dll = A.DllView()
+    for op in (50, 43, 16):
+        assert dll.handler(op).ret == "int", op
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_the_rng_family():
+    ops = A.load_hle_ops()
+    assert ops[B.OP_RAND]["name"] == "rand"
+    assert ops[B.OP_RAND_CENTERED]["name"] == "rand_centered"
+    assert ops[B.OP_RAND_CENTERED]["returns"] == "int"     # was VOID before the decoder fix
     assert A.check_confidence_rule(ops) == []

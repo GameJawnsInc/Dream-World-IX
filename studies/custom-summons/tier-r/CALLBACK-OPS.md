@@ -575,3 +575,84 @@ second handle on the same field.
 | call-site traffic named | 9,800 / 14,212 (69.0%) | **10,310 / 14,212 (72.5%)** |
 
 Across R4–R7: **79 → 110 named, 51.8% → 72.5% of traffic.**
+
+---
+
+# ADDENDUM 4 — ops 48 / 49 / 50: one algorithm, and a decoder bug
+
+**Status: ★ DONE. `body_gates.py` 10/10, 5 more tests (tier-r 191). Named 110 → 113; traffic
+72.5% → 78.9%.**
+
+The brief was ops 48 and 50. They turned out to be **two thirds of one algorithm**, so op 49 came
+with them — leaving it unnamed would have been arbitrary, since it is named by identical evidence.
+
+## The algorithm names itself
+
+All three drive the same LCG on the shared state at `0x3231dc`:
+
+```
+seed = seed * 0x41C64E6D + 0x3039 ;  value = seed >> 16
+```
+
+`0x41C64E6D` = **1103515245** and `0x3039` = **12345** — the multiplier/increment pair of the
+**ANSI C `rand()` LCG**, the one from the C standard's own example implementation. That is a
+published external prior, not an inference about purpose: the constants identify the algorithm the
+way an import name would.
+
+| op | name | what it computes | sites |
+|---|---|---|---|
+| 48 | **`rand`** | the raw draw, `seed >> 16` | 451 |
+| 49 | **`rand_range`** | `lo + rand() % (hi - lo)`; returns `lo` when `lo == hi`, **without advancing the seed** | 78 |
+| 50 | **`rand_centered`** | `rand() % n - n/2`, a jitter centred on zero; `n == 0` guarded to 1 | 378 |
+
+**The corpus argument distributions confirm each shape independently:**
+
+* op 49's `$a0` constants are **negative** — `-256`, `-32`, `-64`, `-96`, `-128` — and its `$a1` the
+  positive counterparts (`256`, `32`, `64`, `96`, `128`). A `(lo, hi)` range, symmetric.
+* op 50's `$a0` is **always a power of two or a multiple**: 256 (×78), 128 (×35), 512 (×30), 32
+  (×17), 1024 (×15), 384 (×14) — i.e. jitters of ±128, ±64, ±256, ±16, ±512, ±192.
+* op 48 takes no argument at all, and its top co-call is **op 15 `rsin_fixed_point`** (×52) — random
+  values feeding trig, exactly what scatter/jitter work looks like.
+
+## Why `medium` and not `high`
+
+R2's contract rates **a thin CRT wrapper `high`** — that is precisely how `rsin`/`rcos` got their
+names, because the DLL *imports* `sin`/`cos`. These ops are the C library's `rand()` too, just
+**inlined rather than imported**, and inlining is a codegen choice rather than a semantic one. The
+asymmetry is real and worth recording — but they still ship `medium`, because **no source in the
+binary states a name**, and inflating that is exactly the confident-wrong-name defect the contract
+exists to prevent.
+
+## ★ A decoder bug in R2's stub reader — three ops were wrongly VOID
+
+op 50's stub inlines the LCG and ends:
+
+```
+mov r12d, edx          ; <- the return value IS delivered
+jmp 0x122f1            ; the int tail-return
+```
+
+R2's stub decoder matched only the literal `mov r12d, eax`, so it read op 50 — **378 call sites** —
+as returning `void` when it plainly returns a value. Swept across all 216 stubs, the r12d source
+register is `eax` 55 times and something else **3** times, and all three were mis-typed:
+
+| op | stub sets r12d from | was | now | sites |
+|---|---|---|---|---|
+| **50** | `edx` | `void` | `int` | **378** |
+| 43 | `ecx` | `void` | `int` | 0 |
+| 16 | `0x400` (a constant) | `void` | `int` | 3 |
+
+Fixed by matching **any** write to `r12d` before the tail return — the register a value happens to
+arrive in is a codegen detail, not part of the ABI. Bounded, measured, and pinned by a test. The
+confidence board is unaffected (`check_confidence_rule` still returns 0 violations) and R1/R2/R3/CB
+all still pass.
+
+## Coverage
+
+| | after op 136 | after 48/49/50 |
+|---|---|---|
+| named ops | 110 / 216 | **113 / 216** |
+| confidence | high 67 · med 33 · low 10 · unnamed 106 | **high 67 · med 36 · low 10 · unnamed 103** |
+| call-site traffic named | 10,310 / 14,212 (72.5%) | **11,217 / 14,212 (78.9%)** |
+
+Across R4–R8: **79 → 113 named, 51.8% → 78.9% of traffic.**
