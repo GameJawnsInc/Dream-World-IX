@@ -58,6 +58,15 @@ WORDS = {92: 0xAAAA, 94: 0x5555, 96: 0xF0F0, 98: 0x0F0F,
          2006: 0x1234, 2008: 0x4321, 2010: 0x9999, 2012: 0x6666, 2014: 0xCCCC, 2016: 0x3333}
 
 
+def _game_ready() -> bool:
+    from ff9mapkit import config
+    try:
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install (live dispatcher bytes)")
 def test_stock_arm_section_is_the_oracle():
     """The composed stock section must equal the LIVE dispatcher bytes -- both var forms."""
     from ff9mapkit.eb.model import EbScript

@@ -2276,6 +2276,10 @@ def stage_import(user_model, block: dict, *, game=None, mod_root=None, dry_run=F
     src = Path(user_model)
     if not src.is_file():
         raise SummonDeployError(f"summon-import model not found: {src}")
+    if src.suffix.lower() not in (".glb", ".gltf", ".fbx"):
+        # refuse the wrong file BEFORE resolving the install -- a user with a bad extension should get
+        # this message even when their game path is unset/broken (and the check needs nothing else).
+        raise SummonDeployError(f"summon-import takes a .glb/.gltf (Blender) or a .fbx, got {src.suffix!r}")
     spec = normalize_spec(block)
     game = config.find_game_path(game)
     if mod_root is None:

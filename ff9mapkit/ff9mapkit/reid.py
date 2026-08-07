@@ -233,10 +233,11 @@ def _edit_for(path: Path, rules: dict, remap: dict, *, key_remaps=None,
               index_filter=None) -> "tuple[Edit, list]":
     """Rewrite one file and PROVE the rewrite: the new text must re-parse to the semantically-expected
     document. A mismatch raises rather than writes."""
-    # newline="" -> NO universal-newline translation. The default would fold a CRLF file (which is what a
-    # git checkout hands you under autocrlf) to LF in memory, and writing it back would rewrite every line
-    # ending in the file -- a three-number edit showing up as a whole-file diff.
-    before = path.read_text(encoding="utf-8", newline="")
+    # read_bytes + decode -> NO universal-newline translation (read_text would fold a CRLF file -- which
+    # is what a git checkout hands you under autocrlf -- to LF in memory, and writing it back would rewrite
+    # every line ending in the file: a three-number edit showing up as a whole-file diff). NOT
+    # read_text(newline="") -- that kwarg only exists on Python 3.13+, and our floor is 3.11.
+    before = path.read_bytes().decode("utf-8")
     doc = tomllib.loads(before)
     after, changes, skipped = rewrite_text(before, rules, remap, key_remaps=key_remaps,
                                            index_filter=index_filter)
@@ -429,7 +430,7 @@ def _floorplan_edit(root: Path, remap: dict) -> "Edit | None":
     p = root / "floorplan.json"
     if not p.is_file():
         return None
-    before = p.read_text(encoding="utf-8", newline="")     # newline="" -> keep CRLF/LF exactly as found
+    before = p.read_bytes().decode("utf-8")   # bytes+decode -> keep CRLF/LF exactly as found (3.11-safe)
     try:
         doc = json.loads(before)
     except ValueError:

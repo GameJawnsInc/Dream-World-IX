@@ -214,6 +214,9 @@ def test_cooldown_announce_is_an_event_and_the_greet_pair_unlatches():
 # and the honesty caption is ON THE FACE. The interpreter itself is pinned above, Qt-free.
 def _qt_doc():
     import os
+
+    import pytest
+    pytest.importorskip("PySide6")
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

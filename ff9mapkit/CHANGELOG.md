@@ -5,7 +5,29 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-## [1.0.0b18] - 2026-08-06 — A third world map, dungeons drawn by hand, and summons of your own
+## [1.0.0b19] - 2026-08-06 — A third world map, dungeons drawn by hand, and summons of your own
+
+> Re-cut of the never-published 1.0.0b18: its tag's CI run failed on the bare Ubuntu box (the first
+> non-Windows, no-install, no-Qt machine this release's tests ever met) and nothing shipped under it.
+> Same content plus the portability fixes below.
+
+### Fixed — bare-box portability (the b18 CI catch): three real bugs, seven test gates
+- **`reid` crashed on every Python below 3.13** — both its EOL-preserving reads used
+  `Path.read_text(newline="")`, a 3.13-only keyword; the floor is 3.11. Now `read_bytes().decode()`,
+  which preserves CRLF/LF exactly the same way on every version.
+- **The summon staging default broke POSIX** — `DEFAULT_OUT_DIR` was a Windows drive path, which on
+  Linux/macOS is *relative*: it landed inside the caller's cwd (the repo, on CI) and the local-only
+  provenance guard rightly refused it. Non-Windows now gets a home-anchored default with the same
+  outside-everything properties.
+- **`summon-import` validated the file extension AFTER resolving the game path** — a user with a bad
+  file and an unset game path got the config error instead of the real one. The extension refusal now
+  comes first and needs nothing else.
+- Seven test-side gates for machines without PySide6 or an FF9 install, each the established pattern:
+  module-level `importorskip` on four Workspace GUI files, scoped skips on the behavior-sim Qt half and
+  the two placedoc region tests, the proven `_game_ready()` install gate on the eight ferry
+  worldmap-cascade tests and the nameplate dispatcher oracle, and platform gates on the two tests that
+  asserted Windows path semantics (case-insensitive snapshot keys, backslash spelling-fold) which are
+  correct per-platform behavior, not portability bugs.
 
 ### Added — mains-rect orphan census (Class C) in the orphan-decal gate
 - The orphan-decal gate (`world/orphangate.py`, WARN-by-default in `world-transplant`/

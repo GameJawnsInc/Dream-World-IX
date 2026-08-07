@@ -104,11 +104,26 @@ def test_lint_accepts_the_good_ferry(tmp_path):
 
 
 # --- the byte contract of a worldmap option row -------------------------------------------------
+# These read the REAL worldmap exit cascade (load_world_dispatchers -> the install's own bytes),
+# so they are install-gated with the proven test_world_reclaim.py pattern.
+
+
+def _game_ready() -> bool:
+    from ff9mapkit import config
+    try:
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
+needs_game = pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install (worldmap exit cascade)")
+
 
 def _key(v):
     return R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, v)
 
 
+@needs_game
 def test_worldmap_option_emits_the_full_exit_body():
     body = C.option_body({"worldmap": {"arrive": [60.0, -1168.0], "face": 192}})
     assert WX.arrive_writes(60.0, -1168.0, face=192) in body, "the arrive block must be written verbatim"
@@ -116,6 +131,7 @@ def test_worldmap_option_emits_the_full_exit_body():
     assert _key(62) not in body, "key 62 is the band-invariant D8:2=0 trap -- never emit it"
 
 
+@needs_game
 def test_worldmap_option_is_last_in_the_body():
     """The exit transitions away, so anything after it is unreachable -- a reply must precede it."""
     body = C.option_body({"worldmap": {"arrive": [1.0, -2.0], "face": 0}, "gil": 50}, reply_txid=7)
@@ -123,6 +139,7 @@ def test_worldmap_option_is_last_in_the_body():
     assert body.endswith(C.option_body({"worldmap": {"arrive": [1.0, -2.0], "face": 0}})[-16:])
 
 
+@needs_game
 def test_each_destination_gets_its_own_coords_and_face():
     a = C.option_body({"worldmap": {"arrive": [60.0, -1168.0], "face": 192}})
     b = C.option_body({"worldmap": {"arrive": [688.0, -616.0], "face": 64}})
@@ -147,6 +164,7 @@ def test_warp_and_worldmap_are_mutually_exclusive():
 
 # --- THE SOFTLOCK REGRESSION (the whole reason this lane has tests) ----------------------------
 
+@needs_game
 def test_worldmap_option_does_NOT_emit_the_movement_gate():
     """THE SOFTLOCK. `worldmap_exit_body` defaults to the walk-on region prologue
     `ifnot (IsMovementEnabled) { return }`. A talk handler opens with DisableMove, so that gate is
@@ -158,6 +176,7 @@ def test_worldmap_option_does_NOT_emit_the_movement_gate():
     assert R.MOVEMENT_GATE in WX.worldmap_exit_body(arrive=(60.0, -1168.0), arrive_face=192)
 
 
+@needs_game
 def test_gate_false_is_the_only_difference():
     """Belt and braces: gate=False removes the prologue and changes nothing else."""
     gated = WX.worldmap_exit_body(arrive=(1.0, -2.0), arrive_face=64, gate=True)
@@ -165,6 +184,7 @@ def test_gate_false_is_the_only_difference():
     assert gated == R.MOVEMENT_GATE + plain
 
 
+@needs_game
 def test_fade_still_precedes_the_arrive_writes_in_a_ferry_arm():
     """The exit must still DIM before transitioning (a field->world hop with no fade shows the
     destination's camera-init frames)."""
@@ -226,6 +246,7 @@ def test_depart_arm_swaps_to_the_stage_and_carries_the_code(tmp_path):
     assert wm["depart"] == (F.FERRY_DEPART_BYTE, 4)
 
 
+@needs_game
 def test_depart_arm_emits_the_byte_write_before_the_exit(tmp_path):
     from ff9mapkit import flags as F
     from ff9mapkit.eb.cmdasm import assemble_block
@@ -245,6 +266,7 @@ def test_lint_rejects_depart_code_without_a_stage(tmp_path):
     assert any("stage_arrive" in p for p in problems)
 
 
+@needs_game
 def test_depart_arm_caches_the_origin_x_before_the_stage_preset(tmp_path):
     """THE ORIGIN CACHE (rung 3c). The stage preset (arrive_writes) overwrites the on-foot
     saved-position block, so the depart arm must first copy Global.Int24[64] -- where the player

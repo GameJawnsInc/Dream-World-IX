@@ -1,4 +1,4 @@
-# Dream World IX 1.0.0b18 — a third world map, dungeons drawn by hand, and summons of your own
+# Dream World IX 1.0.0b19 — a third world map, dungeons drawn by hand, and summons of your own
 
 **Dream World IX** is a toolkit for building brand-new playable *Final Fantasy IX* content — and faithfully forking the real game — for the [Memoria engine](https://github.com/Albeoris/Memoria) (Steam/GOG FF9). This is the largest release the project has shipped: nearly 1,600 commits over 18 days, with an 8,200-test suite running green nightly. The headlines: the engine can now host a **genuinely new third world map** that is neither of FF9's two overworlds; you can **draw a multi-room dungeon by hand** — floors traced on artwork, rooms sketched on a grid — and walk it in-game minutes later; a **custom summon** pipeline went from research to cast-proven (recolour a real eidolon, or build your own from scratch); a **Fort Condor-style siege minigame** became one declarable TOML block; forks can finally **boot mid-story** instead of at scenario zero; and every one of FF9's ~9,700 event scripts now **round-trips through editable source code**.
 
@@ -143,10 +143,11 @@ An unusually broad fix load beyond what's called out above, condensed:
 - **The nightly test gate grew a skip ceiling** — a green run silently skipping a whole test family now fails the ledger instead of reading as healthy; the world-mesh writers refuse a topology divergence at the write seam; four Hypothesis property suites joined the mesh editor.
 - **Machine-state leaks scrubbed from committed artifacts** — harvested GUI inventories now pin their environment-dependent labels so another machine's deploy count can't masquerade as a UI change.
 - **Provenance hardening** — the gate that keeps Square-Enix bytes out of the repo grew a world chapter and an atlas-laundering guard; templates still regenerate only from your own install.
+- **Linux/macOS and older-Python portability** — the release gate's first bare-box run caught three real bugs, all fixed: the re-id tool crashed on any Python below 3.13, the summon staging default resolved into the current directory on POSIX, and `summon-import` reported a config error instead of the actual bad-file error when the game path was unset. (This release is `1.0.0b19`; `b18` was tagged but its CI failed on exactly these, so nothing was ever published under it.)
 
 ## Engine bundle
 
-**The engine bundle is REBUILT this release** — `dwix-custom-memoria-1.0.0b18.zip`, a from-source build of the full patch stack on the same pinned Memoria base. What's new since b17's bundle:
+**The engine bundle is REBUILT this release** — `dwix-custom-memoria-1.0.0b19.zip`, a from-source build of the full patch stack on the same pinned Memoria base. What's new since b17's bundle:
 
 - **The Folklore codex** (menu + live portrait rig) and **the third-world substrate** (the `WorldScene` directive, the sentinel disc, clone/blank modes).
 - **The debug menu on `~`** with wider warp reach, vehicle physics rows, and corrected flag-band labels.

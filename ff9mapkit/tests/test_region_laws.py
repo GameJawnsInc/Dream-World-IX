@@ -170,6 +170,7 @@ def test_validate_refuses_a_targetless_door(tmp_path):
 
 
 def test_region_rows_flag_a_targetless_door():
+    pytest.importorskip("PySide6")            # placedoc imports Qt at module level
     from ff9mapkit.workspace import placedoc as P
     data = {"gateway": [{"name": "door0", "to": 0,
                          "zone": [[0, 0], [100, 0], [100, 100], [0, 100]]}]}
@@ -181,6 +182,7 @@ def test_region_rows_flag_a_targetless_door():
 
 
 def test_set_gateway_target_op():
+    pytest.importorskip("PySide6")            # placedoc imports Qt at module level
     from ff9mapkit.workspace import placedoc as P
     data = {"gateway": [{"name": "door0", "to": 0,
                          "zone": [[0, 0], [100, 0], [100, 100], [0, 100]]}]}

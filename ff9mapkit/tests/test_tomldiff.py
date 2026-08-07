@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import datetime
 import json
+import os
 import tomllib
 from pathlib import Path
 
@@ -198,6 +199,8 @@ def test_write_never_raises_on_an_unwritable_cache(snapdir, monkeypatch):
     assert deploysnap.read(snapdir / "p.toml") is None, "and reading it back is absent, not an exception"
 
 
+@pytest.mark.skipif(os.name != "nt",
+                    reason="normcase is identity on POSIX -- two spellings ARE two files there")
 def test_the_key_is_case_insensitive_on_one_path(snapdir):
     """Windows paths are case-insensitive; two spellings of one project must not mint two snapshots."""
     a = deploysnap.key_for(Path("C:/Some/Proj/field.toml"))

@@ -16,6 +16,8 @@ import os
 
 import pytest
 
+pytest.importorskip("PySide6")
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QPointF, Qt          # noqa: E402

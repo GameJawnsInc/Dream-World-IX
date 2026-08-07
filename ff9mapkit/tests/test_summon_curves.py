@@ -745,12 +745,14 @@ def test_short_sequence_equal_to_sequence_is_refused():
 def test_short_sequence_same_as_sequence_after_normalization_is_refused():
     """FOLD-B: raw string equality let a trivially different SPELLING of the same path evade the
     refusal -- normalize both sides before comparing."""
+    import os
     with pytest.raises(D.SummonDeployError, match="pointless pair"):
         D.normalize_spec({"donor": 227, "sequence": "b.seq", "short_sequence": "./b.seq",
                           "roll_mp": 1, "roll_command": 1})
-    with pytest.raises(D.SummonDeployError, match="pointless pair"):
-        D.normalize_spec({"donor": 227, "sequence": "dir/b.seq", "short_sequence": "dir\\b.seq",
-                          "roll_mp": 1, "roll_command": 1})
+    if os.name == "nt":  # backslash is a separator only on Windows; on POSIX dir\b.seq is a real, distinct name
+        with pytest.raises(D.SummonDeployError, match="pointless pair"):
+            D.normalize_spec({"donor": 227, "sequence": "dir/b.seq", "short_sequence": "dir\\b.seq",
+                              "roll_mp": 1, "roll_command": 1})
 
 
 @pytest.mark.parametrize("missing", ["roll_mp", "roll_command", "roll_ability"])

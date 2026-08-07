@@ -22,6 +22,7 @@ stock-creature export must never land somewhere it could be committed or shipped
 """
 from __future__ import annotations
 
+import os
 import struct
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -38,8 +39,11 @@ __all__ = [
 ]
 
 # The local, gitignored home for every stock-derived summon export (TRANSPLANT.md section 5). Not inside any
-# repo, mod folder, or the FF9 install -- so the guard below never refuses the default.
-DEFAULT_OUT_DIR = Path(r"C:/gd/SCRATCH/summon-transplant")
+# repo, mod folder, or the FF9 install -- so the guard below never refuses the default. On POSIX the Windows
+# drive path would be RELATIVE (landing inside the caller's cwd -- possibly a repo, which the guard refuses),
+# so non-Windows gets a home-anchored default with the same properties.
+DEFAULT_OUT_DIR = (Path(r"C:/gd/SCRATCH/summon-transplant") if os.name == "nt"
+                   else Path.home() / "SCRATCH" / "summon-transplant")
 DEFAULT_SCALE = _gltf.DEFAULT_SCALE           # 0.01 -- FF9's hundreds-of-units models -> a few Blender metres
 DEFAULT_FPS = build.DEFAULT_FPS               # 15.0 -- a preview playback default, not a measured tick rate
 
