@@ -1,4 +1,14 @@
-"""body_ops -- THE HANDLER-BODY EVIDENCE CLASS.  Currently: op 117, the corpus's busiest HLE op.
+"""body_ops -- THE HANDLER-BODY EVIDENCE CLASS.  Two ops: 117 and 206.
+
+**op 206** is the cheap half and it ships at ``high``: ``fn 0x47290`` asserts the ``'so'`` magic,
+branches on ``u16[operand+2]``, ORs the PSX TPAGE **ABR** field into every binding on the non-zero
+arm, and TAIL-CALLS one of two functions the DLL names itself -- ``Hi_RegisterTexListModel`` or
+``Hi_RegisterGouEffModel``.  R2 missed it only because it resolves names on an op's OWN function and
+a tail call hides the callee.  The name is their disjunction because that is what the op IS, and the
+ABR half independently reproduces ``A1-TEXTURES.md`` §3.5 -- a claim derived months earlier by a
+different method.  See :func:`verify_abr`, :func:`so_reading` and §ADDENDUM 2 of the report.
+
+**op 117** is the expensive half, below.
 
 R2's four static sources and R4's managed-ABI source between them name 107 of 216 ops.  Neither
 reaches **op 117**, which at **1,709 call sites is the single most-called op in the corpus** (12% of
@@ -91,6 +101,25 @@ NAME = "subfile_instance_open"
 DESCRIPTION = ("open a pooled runtime instance of a sub-file, relocating the sub-file's internal "
                "offset table to absolute PSX addresses; returns the record, or NULL when the pool "
                "is full")
+
+# --- op 206: the ABR setter + model registrar (a VARIANT DISPATCHER) ---------------------------
+#: Unlike op 117, this one's identity is stated by the DLL -- twice.  ``fn 0x47290`` asserts the
+#: ``'so'`` magic, optionally ORs the PSX TPAGE **ABR** (semi-transparency) field into every binding,
+#: and then TAIL-CALLS one of two functions that each own a debug-string name.  R2 never saw either,
+#: because it resolves names on an op's OWN function and a tail call hides the callee.
+OP_ABR = 206
+ABR_FN = 0x47290
+SO_MAGIC = 0x6F73                 # 'so', asserted at u16[arg0+0]
+SO_VARIANT_OFF = 0x02             # u16: non-zero -> tex-list, zero -> gouraud
+SO_LEN_OFF = 0x04                 # u16: record length; entries = (len - 8) / 8
+SO_TABLE_OFF = 0x08               # {u16 tpage, u16 clut} pairs; the ABR ORs into the tpage
+ABR_MASK, ABR_SHIFT = 0x3, 5      # (arg1 & 3) << 5 -- the PSX TPAGE ABR field
+TEXLIST_FN = 0x15D30              # owns Hi_RegisterTexListModel
+GOURAUD_FN = 0x15B70              # owns Hi_RegisterGouEffModel
+NAME_ABR = "Hi_RegisterTexListModel|Hi_RegisterGouEffModel"
+DESCRIPTION_ABR = ("OR the PSX TPAGE ABR (semi-transparency) field into every binding of an 'so' "
+                   "table, then register the model -- tex-list variant when u16[+2] is non-zero, "
+                   "gouraud variant when it is zero")
 
 
 def _u16(b: bytes, o: int) -> int:
@@ -203,6 +232,94 @@ def verify(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
     return ok, notes
 
 
+def so_reading(blob: bytes, base: int, limit: int) -> Optional[Tuple[int, int]]:
+    """``(variant, entry_count)`` if an ``'so'`` binding table starts at ``base``, else None.
+
+    This is the op's OWN assert (``u16[base] == 0x6f73``) plus the two fields its ABR loop reads,
+    so a sub-file that fails it cannot be a real operand -- the DLL would have tripped ``_wassert``.
+    """
+    try:
+        if base + SO_TABLE_OFF > limit or _u16(blob, base) != SO_MAGIC:
+            return None
+        rec_len = _u16(blob, base + SO_LEN_OFF)
+        if rec_len < SO_TABLE_OFF or base + rec_len > limit:
+            return None
+        return _u16(blob, base + SO_VARIANT_OFF), (rec_len - SO_TABLE_OFF) // 8
+    except Exception:
+        return None
+
+
+def verify_abr(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 206's body from the installed DLL, including BOTH tail-call names."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_ABR]) or dll.native_fn[OP_ABR]
+    good = fn == ABR_FN
+    ok &= good
+    notes.append("op %d native fn = %#x (expect %#x) %s"
+                 % (OP_ABR, fn, ABR_FN, "OK" if good else "FAIL"))
+
+    body = list(dll.body(fn))
+    text = [(i.mnemonic, i.op_str) for i in body]
+    good = ("mov", "eax, 0x6f73") in text
+    ok &= good
+    notes.append("asserts the 'so' magic %#x %s" % (SO_MAGIC, "OK" if good else "FAIL"))
+    good = ("and", "di, 3") in text and ("shl", "di, 5") in text
+    ok &= good
+    notes.append("builds the ABR field as (arg1 & %#x) << %d %s"
+                 % (ABR_MASK, ABR_SHIFT, "OK" if good else "FAIL"))
+    good = any(m == "or" and o.startswith("word ptr [rdx +") for m, o in text)
+    ok &= good
+    notes.append("ORs it into the binding table (never assigns) %s" % ("OK" if good else "FAIL"))
+
+    jmps = {int(o, 16) - dll.base for m, o in text if m == "jmp" and o.startswith("0x")}
+    good = {TEXLIST_FN, GOURAUD_FN} <= jmps
+    ok &= good
+    notes.append("tail-calls %#x and %#x %s" % (TEXLIST_FN, GOURAUD_FN, "OK" if good else "FAIL"))
+    for f2, want in ((TEXLIST_FN, "Hi_RegisterTexListModel"), (GOURAUD_FN, "Hi_RegisterGouEffModel")):
+        owns = sorted(dll._name_of_fn.get(f2, ()))
+        good = dll.function_of(f2) == f2 and owns == [want]
+        ok &= good
+        notes.append("  %#x is a .pdata primary owning exactly %r %s"
+                     % (f2, want, "OK" if good else "FAIL got %s" % owns))
+    return ok, notes
+
+
+def wassert_sources(dll: Optional[A.DllView] = None) -> Dict[int, Set[str]]:
+    """{function: {source file}} from every ``_wassert`` call site.
+
+    A string class R2 never saw: ``_wassert`` takes WIDE (UTF-16) strings, and R2's name resolver
+    scans ASCII runs only.  Reach is modest -- 6 files over 20 functions, 9 of them an op's own
+    native function -- so this is an attribution aid, not a naming lane; op 206's is
+    ``psx_compatibility.cpp`` line 786.
+    """
+    dll = dll or A.DllView()
+    wassert = next((rva for rva, nm in dll.imports.items() if nm == "_wassert"), None)
+    out: Dict[int, Set[str]] = {}
+    if wassert is None:
+        return out
+    for fn in sorted({dll.function_of(b) or b for b, _e, _u in dll._raw}):
+        rdx = None
+        try:
+            body = list(dll.body(fn))
+        except Exception:
+            continue
+        for ins in body:
+            t = dll.rip_target(ins)
+            if ins.mnemonic == "lea" and ins.op_str.startswith("rdx,") and t:
+                rdx = t
+            elif ins.mnemonic == "call" and "rip" in ins.op_str and t == wassert and rdx:
+                try:
+                    s = dll.pe.get_data(rdx, 400).decode("utf-16le", "replace").split("\x00")[0]
+                except Exception:
+                    continue
+                if ".cpp" in s:
+                    out.setdefault(fn, set()).add(s)
+    return out
+
+
 def _tail_targets(dll: A.DllView, fn: int) -> List[int]:
     out = []
     for ins in dll.body(fn):
@@ -239,10 +356,38 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
     Emits nothing at all unless :func:`verify` passes against the installed DLL.
     """
     dll = dll or A.DllView()
+    out: Dict[int, dict] = {}
+
+    ok_abr, _n = verify_abr(dll)
+    if ok_abr:
+        src = sorted(wassert_sources(dll).get(ABR_FN, ()))
+        out[OP_ABR] = {
+            "name": NAME_ABR,
+            # HIGH: the DLL supplies the name -- twice, from two .pdata primaries each owning
+            # exactly one debug string -- and the op is precisely their disjunction, with the
+            # selector decoded.  R2 missed it only because a tail call hides the callee's symbol.
+            "confidence": "high",
+            "evidence": ("%s %s; fn %#x asserts u16[arg0] == %#x ('so'), branches on u16[+%#x], "
+                         "ORs (arg1 & %#x) << %d into u16[+%#x + 4*i] for i < (u16[+%#x] - %d)/8, "
+                         "then TAIL-CALLS %#x Hi_RegisterTexListModel (variant != 0) or %#x "
+                         "Hi_RegisterGouEffModel (variant == 0), both .pdata primaries owning "
+                         "exactly that one name%s; corpus: 339/339 $a1 values lie in {0,1,2,3,255} "
+                         "-- every one a valid ABR selector under &3, mode 1 (additive) dominant "
+                         "at 222/339; the 'so' magic holds on 67.2%% of heuristically-paired "
+                         "operands vs 3.7%% control (18x), and the shortfall is PAIRING, not "
+                         "operands: the magic is absent at every offset in the misses and the DLL "
+                         "would have tripped _wassert on a real one. Independently reproduces "
+                         "A1-TEXTURES.md 3.5, derived months earlier by a different method."
+                         % (BODY_MARKER, DESCRIPTION_ABR, ABR_FN, SO_MAGIC, SO_VARIANT_OFF,
+                            ABR_MASK, ABR_SHIFT, SO_TABLE_OFF, SO_LEN_OFF, SO_TABLE_OFF,
+                            TEXLIST_FN, GOURAUD_FN,
+                            " (%s)" % src[0] if src else "")),
+        }
+
     ok, _notes = verify(dll)
     if not ok:
-        return {}
-    return {OP_OPEN: {
+        return out
+    out[OP_OPEN] = {
         "name": NAME,
         "confidence": "medium",
         "evidence": ("%s %s; native fn %#x tail-jumps to the pooled allocator %#x (record stride "
@@ -256,7 +401,8 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                      % (BODY_MARKER, DESCRIPTION, FORWARDER, RELOCATOR, RECORD_STRIDE, WORK_SIZE,
                         POOL_DESC, list(FAMILY_OPS), ENTRY_STRIDE, COUNT_OFF,
                         PTR_FIELDS[0][2], PTR_FIELDS[1][2], OFFSET_MAX)),
-    }}
+    }
+    return out
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -270,6 +416,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for n in notes:
         print("  " + n)
     print("  =>", "PASS" if ok else "FAIL")
+
+    ok2, notes2 = verify_abr(dll)
+    print("\nVERIFY op %d against the installed DLL" % OP_ABR)
+    for n in notes2:
+        print("  " + n)
+    print("  =>", "PASS" if ok2 else "FAIL")
+    ok = ok and ok2
+
+    src = wassert_sources(dll)
+    files = sorted({f for v in src.values() for f in v})
+    print("\n_wassert SOURCE FILES (UTF-16 -- invisible to an ASCII string scan): %d files over "
+          "%d functions" % (len(files), len(src)))
+    for f in files:
+        print("   " + f)
 
     gap = tailjump_name_gap(dll)
     print("\nTAIL-JUMP NAME GAP (R2 resolves names on the op's own function only): %d op(s)"

@@ -99,10 +99,14 @@ def test_every_structural_claim_re_derives_from_the_dll():
 
 
 @needs_dll
-def test_the_name_is_emitted_only_behind_verify(monkeypatch):
-    """A different DLL build must yield no name at all rather than a stale constant."""
-    monkeypatch.setattr(B, "verify", lambda dll=None: (False, ["forced"]))
-    assert B.body_evidence(A.DllView()) == {}
+def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
+    """A different DLL build must yield no name rather than a stale constant -- and the two ops
+    are guarded INDEPENDENTLY, so a change that breaks one must not silently drop the other."""
+    dll = A.DllView()
+    monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_ABR}
+    monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
+    assert B.body_evidence(dll) == {}
 
 
 @needs_dll
@@ -128,4 +132,66 @@ def test_the_dictionary_carries_the_body_name_and_it_displaced_nothing():
     row = ops[B.OP_OPEN]
     assert row["name"] == B.NAME and row["confidence"] == "medium"
     assert row["callback_command"] is None      # the two lanes do not both claim it
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 206, the ABR/registrar
+def so_blob(variant, entries, magic=B.SO_MAGIC, pad=0x200):
+    buf = bytearray(pad)
+    struct.pack_into("<H", buf, 0, magic)
+    struct.pack_into("<H", buf, B.SO_VARIANT_OFF, variant)
+    struct.pack_into("<H", buf, B.SO_LEN_OFF, B.SO_TABLE_OFF + 8 * entries)
+    return bytes(buf)
+
+
+def test_the_so_reading_accepts_a_well_formed_table():
+    assert B.so_reading(so_blob(1, 3), 0, 0x200) == (1, 3)
+    assert B.so_reading(so_blob(0, 1), 0, 0x200) == (0, 1)
+
+
+def test_a_wrong_magic_rejects():
+    """This is the op's OWN assert -- a blob failing it cannot be a real operand."""
+    assert B.so_reading(so_blob(1, 2, magic=0x1234), 0, 0x200) is None
+
+
+def test_a_record_length_past_the_bound_rejects():
+    assert B.so_reading(so_blob(1, 60), 0, 0x40) is None
+
+
+def test_the_so_reading_never_raises_on_garbage():
+    for n in (0, 1, 5, 9):
+        assert B.so_reading(b"so" + b"\x00" * n, 0, n + 2) is None
+
+
+@needs_dll
+def test_op206_body_and_both_tail_call_names_re_derive():
+    ok, notes = B.verify_abr()
+    assert ok, notes
+
+
+@needs_dll
+def test_op206_ships_high_because_the_dll_supplies_the_name():
+    """Contrast with op 117, which has no symbol anywhere in its chain and ships medium."""
+    ev = B.body_evidence()
+    assert ev[B.OP_ABR]["confidence"] == "high"
+    assert ev[B.OP_OPEN]["confidence"] == "medium"
+    assert "Hi_RegisterTexListModel" in ev[B.OP_ABR]["name"]
+    assert "Hi_RegisterGouEffModel" in ev[B.OP_ABR]["name"]
+
+
+@needs_dll
+def test_the_wassert_sources_are_utf16_and_reachable():
+    """A string class R2's ASCII scan could not see; op 206's is psx_compatibility.cpp."""
+    src = B.wassert_sources()
+    assert B.ABR_FN in src
+    assert any("psx_compatibility.cpp" in s for s in src[B.ABR_FN])
+    assert all(".cpp" in s for v in src.values() for s in v)
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op206_at_high():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_ABR]
+    assert row["confidence"] == "high" and "Hi_Register" in row["name"]
     assert A.check_confidence_rule(ops) == []

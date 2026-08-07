@@ -188,3 +188,33 @@ and it never touches the callback, so only a body read reaches it.
   forwarder hides its callee's symbol. **op 206** (339 calls) tail-jumps to `Hi_RegisterTexListModel`
   and `Hi_RegisterGouEffModel` — two names, so it stays unnamed, but it is now a bounded question and
   the natural next target. `body_ops.tailjump_name_gap()` computes the gap; a test pins it.
+
+## R6 (op 206) — ★ DONE 2026-08-07: THE VARIANT DISPATCHER
+
+Record: `CALLBACK-OPS.md` §ADDENDUM 2. `body_gates.py` 8/8; 11 more tests (tier-r 183).
+**Named 108 → 109; traffic 66.6% → 69.0%. Across R4-R6: 79 → 109 named, 51.8% → 69.0%.**
+
+R5 left op 206 (339 sites) as a bounded question: its fn tail-jumps to TWO named functions and R2's
+exclusivity rule refuses two names. The body resolves it — **it is a dispatcher, not an ambiguity.**
+
+* **op 206 = `Hi_RegisterTexListModel|Hi_RegisterGouEffModel` (high)** — `fn 0x47290` asserts the
+  `'so'` magic, **branches on `u16[operand+2]`**, and on the non-zero arm ORs `(arg1 & 3) << 5` (the
+  PSX TPAGE **ABR** field) into `u16[+8 + 4*i]` for `i < (u16[+4]-8)/8` before tail-calling
+  `Hi_RegisterTexListModel`; the zero arm tail-calls `Hi_RegisterGouEffModel` untouched. Both
+  targets are `.pdata` primaries owning exactly one debug string. **HIGH is earned: the disjunction
+  is what the op IS**, both halves DLL-supplied, selector decoded.
+* **★ A1-TEXTURES §3.5 REPRODUCED EXACTLY** — the `(arg&3)<<5`, the `+8+4*i` stride, the
+  `(u16[+4]-8)/8` count, derived months earlier by a different method (the `so_record` pillar rests
+  on it). A1 was right and complete about the ABR half; **what it lacked was the tail** — the branch
+  and the two registrars.
+* **CORPUS:** `'so'` magic **67.2% on paired operands vs 3.7% control** (18×); split **168 tex-list /
+  16 gouraud**; **339/339 `$a1` values ∈ {0,1,2,3,255}**, every one a valid ABR mode under `&3`,
+  with **1 (additive) dominant at 222/339**.
+* **★ THE ASSERT INVERTS THE SHORTFALL:** the DLL *asserts* the magic, so a real operand cannot lack
+  it — and the 90 misses carry `'so'` at **no offset at all**, while only 2/339 sites pass a constant
+  `$a0`. So the 33% gap measures **the pairing heuristic's error rate, not the claim**.
+* **★ A NEW STRING CLASS — `_wassert` SOURCE FILES:** `_wassert` takes **UTF-16** strings and R2's
+  resolver scans **ASCII**, so every `file:line` was invisible. `body_ops.wassert_sources()` recovers
+  6 files (`sonoda\Geo\{geo,geoslice,geosfxrender,geomorph}.cpp`, `sonoda\PsxEmulator.cpp`,
+  `psx\source\psx_compatibility.cpp`). **Reach measured and modest — 20 functions, 9 of them an op's
+  own native fn — an attribution aid, NOT a naming lane.**

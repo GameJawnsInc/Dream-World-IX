@@ -121,7 +121,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 65 | Hi_ModifySummonModelRGB | high | 1 | tick 70 | — |
 | op 96 | — | unnamed | 1 | tick 70 | — |
 | op 102 | get_subfile_ptr | medium | 3 | tick 70 | $a1=0x82; $a1=0x85; $a1=0x86 |
-| op 206 | — | unnamed | 3 | tick 70 | $a1=0x0; $a1=0x1 |
+| op 206 | Hi_RegisterTexListModel|Hi_RegisterGouEffModel | high | 3 | tick 70 | $a1=0x0; $a1=0x1 |
 
 The *earliest* column is the first tick the call can run: the phase's own start plus every `clock >=` condition that **dominates** the call site inside the case. A call with no gate runs on the phase's first tick.
 
@@ -464,9 +464,9 @@ So **43 of 385** id-3 images have a switch-driven program entry at all. The mult
 | 172 | gte_transform_vertices | medium | `hle_ops.json` |
 | 173 | gte_transform_vertices | medium | `hle_ops.json` |
 | 182 | — | unnamed | `hle_ops.json` |
-| 206 | — | unnamed | `hle_ops.json` |
+| 206 | Hi_RegisterTexListModel|Hi_RegisterGouEffModel | high | `hle_ops.json` |
 
-A `medium` or `low` name is a *description*, not a fact; the prose above never promotes one. 13 of the 32 ops cited here are unnamed and appear as bare numbers.
+A `medium` or `low` name is a *description*, not a fact; the prose above never promotes one. 12 of the 32 ops cited here are unnamed and appear as bare numbers.
 
 ## 8. What this report still cannot tell you
 
@@ -475,4 +475,4 @@ A `medium` or `low` name is a *description*, not a fact; the prose above never p
 - **The capture cannot say which program drew the creature on a given frame.** The summon slot is one shared slot (R1 finding 1), and the probe logs the slot, not the caller. Where two programs both draw, the attribution here is the model's, not the capture's. A probe row carrying the calling chunk's slot would settle it.
 - **A motion-counter restart is not proof of a `SetMotion` call.** A looping clip wraps on its own; that is why only boundaries whose transition tail actually issues a motion call are scored, and why the value written is checked as well as the frame.
 - **Within a phase, only *gated* calls carry a tick.** A call with no dominating clock condition is placed at the phase's first tick, which is a lower bound, not a schedule.
-- **`medium` and `low` names are descriptions.** 13 of the 32 ops cited are unnamed entirely; a phase's label inherits every bit of that uncertainty.
+- **`medium` and `low` names are descriptions.** 12 of the 32 ops cited are unnamed entirely; a phase's label inherits every bit of that uncertainty.

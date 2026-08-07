@@ -4928,8 +4928,8 @@
  },
  {
   "op": 206,
-  "name": null,
-  "confidence": null,
+  "name": "Hi_RegisterTexListModel|Hi_RegisterGouEffModel",
+  "confidence": "high",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -4945,7 +4945,7 @@
    "screenXYArray",
    "psxBankTable"
   ],
-  "evidence": "stub 0x1219e: arity 2 kinds=pi returns int; corpus: 339 call sites in 89 images / 79 effects (18 creature-bearing); modal arg-setup 339/339 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 339}; called next to ops 102(x621), 26(x9), 24(x8); $a0 constants: 2149495096(x1), 2149489060(x1); $a1 constants: 1(x222), 0(x65), 255(x44), 2(x7), 3(x1); position: {'first-third': 243, 'middle-third': 79, 'last-third': 17}",
+  "evidence": "stub 0x1219e: arity 2 kinds=pi returns int; corpus: 339 call sites in 89 images / 79 effects (18 creature-bearing); modal arg-setup 339/339 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 339}; called next to ops 102(x621), 26(x9), 24(x8); $a0 constants: 2149495096(x1), 2149489060(x1); $a1 constants: 1(x222), 0(x65), 255(x44), 2(x7), 3(x1); position: {'first-third': 243, 'middle-third': 79, 'last-third': 17}; handler-body: OR the PSX TPAGE ABR (semi-transparency) field into every binding of an 'so' table, then register the model -- tex-list variant when u16[+2] is non-zero, gouraud variant when it is zero; fn 0x47290 asserts u16[arg0] == 0x6f73 ('so'), branches on u16[+0x2], ORs (arg1 & 0x3) << 5 into u16[+0x8 + 4*i] for i < (u16[+0x4] - 8)/8, then TAIL-CALLS 0x15d30 Hi_RegisterTexListModel (variant != 0) or 0x15b70 Hi_RegisterGouEffModel (variant == 0), both .pdata primaries owning exactly that one name (..\\..\\SpecialEffectCode\\psx\\source\\psx_compatibility.cpp); corpus: 339/339 $a1 values lie in {0,1,2,3,255} -- every one a valid ABR selector under &3, mode 1 (additive) dominant at 222/339; the 'so' magic holds on 67.2% of heuristically-paired operands vs 3.7% control (18x), and the shortfall is PAIRING, not operands: the magic is absent at every offset in the misses and the DLL would have tripped _wassert on a real one. Independently reproduces A1-TEXTURES.md 3.5, derived months earlier by a different method.",
   "call_sites": 339,
   "effects": 79,
   "creature_effects": 18

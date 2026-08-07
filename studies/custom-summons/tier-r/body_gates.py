@@ -1,8 +1,14 @@
-"""body_gates -- the gate board for the HANDLER-BODY evidence class (op 117).
+"""body_gates -- the gate board for the HANDLER-BODY evidence class (ops 117 and 206).
 
-B1/B2 are DLL-side and always run.  B3-B5 score the claim against the corpus, and B4 is the one
-that could have killed it: if the relocator's reading validated equally on sub-files op 117 never
-touches, the structure would be a coincidence and the name would not ship.
+B1/B2/B6 are DLL-side and always run.  B3-B5 (op 117) and B7-B8 (op 206) score the claims against
+the corpus.  Two of them could have killed their claim outright:
+
+* **B4** -- if the relocator's reading validated equally on sub-files op 117 never touches, the
+  structure would be a coincidence and the name would not ship.
+* **B8** -- op 206's operand must carry the ``'so'`` magic BECAUSE THE DLL ASSERTS IT.  If the
+  unpaired misses carried the magic at some nonzero offset, the operand would be ``base + k`` and
+  the reading would be wrong.  They carry it at none, so the shortfall measures the pairing
+  heuristic instead of the claim -- the assert is what makes that inference available.
 
     py studies/custom-summons/tier-r/body_gates.py
 """
@@ -38,8 +44,8 @@ def _kit():
     return K, CAM
 
 
-def feeders() -> Dict[Tuple[int, int], Set[int]]:
-    """{(ef, chunk): {sub-file index}} that the corpus feeds to op 117 via op 102."""
+def feeders(target_op: int = B.OP_OPEN) -> Dict[Tuple[int, int], Set[int]]:
+    """{(ef, chunk): {sub-file index}} that the corpus feeds to ``target_op`` via op 102."""
     out: Dict[Tuple[int, int], Set[int]] = collections.defaultdict(set)
     for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
         m = re.match(r"ef(\d+)_c(\d)\.asm", os.path.basename(f))
@@ -55,7 +61,7 @@ def feeders() -> Dict[Tuple[int, int], Set[int]]:
             if op == A.SUBFILE_OP:
                 a1 = re.search(r"\$a1=0x([0-9a-f]+)", ln)
                 last = (int(a1.group(1), 16) & A.SUBFILE_INDEX_MASK) if a1 else None
-            elif op == B.OP_OPEN:
+            elif op == target_op:
                 if last is not None:
                     out[key].add(last)
                 last = None
@@ -138,6 +144,58 @@ def ab_test() -> Tuple[int, int, int, int, int, int]:
     return a, aok, b, bok, ncam, overlap
 
 
+def so_ab() -> Tuple[int, int, int, int, int, int, int]:
+    """(A, Aok, B, Bok, texlist, gouraud, misses-with-the-magic-at-a-nonzero-offset).
+
+    ``off`` is the load-bearing one: the DLL ASSERTS the magic, so a real operand cannot lack it.
+    If the misses carried it at some offset, the operand would be ``base + k`` and the reading would
+    be wrong; they do not, so the shortfall measures the pairing heuristic instead.
+    """
+    K, CAM = _kit()
+    feed = feeders(B.OP_ABR)
+    a = aok = b = bok = tex = gou = off = 0
+    for (ef, ck), idxs in sorted(feed.items()):
+        path = os.path.join(A.SCRATCH_CORPUS, "ef%03d.bytes" % ef)
+        if not os.path.isfile(path):
+            continue
+        blob = open(path, "rb").read()
+        try:
+            cont = K.parse_header(blob, strict=False)
+        except Exception:
+            continue
+        slots = [c.slot for c in cont.chunks]
+        if ck >= len(slots):
+            continue
+        arc = CAM.id2_directory(blob, cont, slots[ck])
+        if not arc:
+            continue
+        for i in range(len(arc.entries)):
+            try:
+                lo, hi = arc.bounds(i)
+            except Exception:
+                continue
+            if hi <= lo:
+                continue
+            r = B.so_reading(blob, lo, hi)
+            if i in idxs:
+                a += 1
+                if r:
+                    aok += 1
+                    if r[0]:
+                        tex += 1
+                    else:
+                        gou += 1
+                else:
+                    for k in range(2, min(hi - lo - 8, 0x400), 2):
+                        if B.so_reading(blob, lo + k, hi):
+                            off += 1
+                            break
+            else:
+                b += 1
+                bok += bool(r)
+    return a, aok, b, bok, tex, gou, off
+
+
 def main() -> int:
     results: List[Tuple[str, str, bool]] = []
     dll = A.DllView()
@@ -147,17 +205,26 @@ def main() -> int:
         print("  " + n)
     results.append(("B1", "every structural claim re-derives from the installed DLL", ok))
 
+    ok6, notes6 = B.verify_abr(dll)
+    print()
+    for n in notes6:
+        print("  " + n)
+    results.append(("B6", "op 206's body + BOTH tail-call names re-derive from the DLL", ok6))
+
     ev = B.body_evidence(dll)
-    good = set(ev) == {B.OP_OPEN} and ev[B.OP_OPEN]["confidence"] == "medium"
+    good = (set(ev) == {B.OP_OPEN, B.OP_ABR}
+            and ev[B.OP_OPEN]["confidence"] == "medium"      # no symbol names it
+            and ev[B.OP_ABR]["confidence"] == "high")        # the DLL names it, twice
     print("\nB2 body evidence: %s" % {o: (e["name"], e["confidence"]) for o, e in ev.items()})
-    results.append(("B2", "the name ships at medium -- no symbol supplies it", good))
+    results.append(("B2", "each name ships at the confidence its evidence supports", good))
 
     have_corpus = os.path.isdir(ANNOT) and os.path.isdir(A.SCRATCH_CORPUS)
     if not have_corpus:
         print("\nB3-B5 SKIPPED -- no annotated corpus at %s" % ANNOT)
         # A skip is not a pass: report it as such rather than counting it green.
         for k, d in (("B3", "the sub-file idiom"), ("B4", "the A/B separation"),
-                     ("B5", "camera disjointness")):
+                     ("B5", "camera disjointness"), ("B7", "the 'so' magic"),
+                     ("B8", "the pairing attribution")):
             print("  %s %s -- SKIP" % (k, d))
     else:
         hit, tot = site_idiom()
@@ -176,6 +243,16 @@ def main() -> int:
                         and ra > 5 * rb))
         print("B5 camera sub-files %d, overlap with op-117 sub-files %d" % (ncam, overlap))
         results.append(("B5", "op 117 is not the camera lane", ncam > 500 and overlap == 0))
+
+        a, aok, b, bok, tex, gou, off = so_ab()
+        ra, rb = aok / max(a, 1), bok / max(b, 1)
+        print("B7 'so' magic: fed %d/%d (%.1f%%) vs control %d/%d (%.1f%%); variants tex=%d gou=%d"
+              % (aok, a, 100 * ra, bok, b, 100 * rb, tex, gou))
+        results.append(("B7", "op 206's operand carries the magic the DLL asserts",
+                        ra > 0.6 and rb < 0.10 and ra > 10 * rb and tex > gou > 0))
+        print("B8 misses carrying 'so' at ANY nonzero offset: %d" % off)
+        results.append(("B8", "the shortfall is pairing, not an operand the assert would reject",
+                        off == 0))
 
     print("=" * 72)
     print("BODY GATES")

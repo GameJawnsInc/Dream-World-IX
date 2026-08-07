@@ -385,3 +385,92 @@ guessed — but it is now a *bounded* question rather than a blank, and it is th
 | call-site traffic named | 7,752 / 14,212 (54.5%) | **9,461 / 14,212 (66.6%)** |
 
 One op, **+12.1 points** of traffic — the whole point of ranking the remaining work by call sites.
+
+---
+
+# ADDENDUM 2 — op 206, the variant dispatcher
+
+**Status: ★ DONE. `body_gates.py` 8/8, 11 more tests (tier-r 183). Named 108 → 109; traffic
+66.6% → 69.0%. Ships at `high` — the DLL supplies the name, twice.**
+
+The op-117 round left op 206 (339 sites) as "a bounded question rather than a blank": its function
+tail-jumps to two functions owning **`Hi_RegisterTexListModel`** and **`Hi_RegisterGouEffModel`**, and
+R2's exclusivity rule refuses two names. Reading the body resolves it — **it is not ambiguous, it is
+a dispatcher, and the selector is a field in the operand.**
+
+## The body — and prior art reproduced exactly
+
+`fn 0x47290` (source `..\..\SpecialEffectCode\psx\source\psx_compatibility.cpp`, line 786):
+
+```
+eax = 0x6f73 ; cmp word[rcx], ax ; je ok        ; assert the 'so' magic  -> else _wassert
+ok: cmp word[rbx+2], 0                          ; THE VARIANT SELECTOR
+    eax = word[rbx+4]                           ; record length
+    je  gouraud                                 ; variant == 0 -> no bindings to touch
+    r10 = (eax - 8) >> 3                        ; entries = (len - 8) / 8
+    di  = (arg1 & 3) << 5                       ; the PSX TPAGE ABR field
+    loop: or word[rbx + 8 + 4*i], di            ; OR -- never assign
+    jmp 0x15d30                                 ; -> Hi_RegisterTexListModel
+gouraud:
+    jmp 0x15b70                                 ; -> Hi_RegisterGouEffModel
+```
+
+**This reproduces `A1-TEXTURES.md` §3.5 exactly** — the `(arg & 3) << 5`, the `+8 + 4*i` stride, the
+`(u16[+4] - 8)/8` count — a claim derived months earlier by a different method, on which the whole
+`so_record` / scenery-attribution pillar rests. **A1 was right and complete about the ABR half; what
+it did not have is the tail — the branch and the two registrars.** Both targets are `.pdata`
+primaries owning exactly one debug string each, so this is a real tail call, not a jump into a body.
+
+## The corpus tests
+
+| gate | result |
+|---|---|
+| **B6** op 206's body + both tail-call names re-derive from the installed DLL | **PASS** |
+| **B7** the `'so'` magic on heuristically-paired operands vs the control | **184/274 = 67.2%** vs **71/1,905 = 3.7%** (18×) |
+| **B7** variant split among validated operands | **168 tex-list / 16 gouraud** |
+| **B8** misses carrying the magic at *any* nonzero offset | **0** |
+| corpus `$a1` values | **339/339** ∈ {0,1,2,3,255} — every one a valid ABR selector under `&3` |
+
+**B8 is the one that matters, and it inverts the usual reading of a shortfall.** The DLL *asserts*
+the magic, so a real operand cannot lack it — and the 90 misses contain `'so'` at no offset at all.
+Combined with only **2 of 339** sites passing a constant `$a0`, the 33% gap measures **my pairing
+heuristic's error rate, not the claim**. The op's own assert is what proves that.
+
+The `$a1` distribution is its own corroboration: **1 (additive) dominates at 222/339**, exactly what
+a VFX system reaches for, and `255 & 3 == 3` so even the odd value is a legal mode.
+
+## The name
+
+**`op 206 = Hi_RegisterTexListModel|Hi_RegisterGouEffModel`**, at **`high`** — the disjunction is not
+hedging, it is what the op *is*: a dispatcher whose two arms the DLL names itself, with the selector
+(`u16[operand+2]`) decoded and the split measured. Contrast op 117, which ships `medium` because no
+symbol anywhere in its chain supplies a name.
+
+## ★ A new string class: `_wassert` source files
+
+The assert that pinned op 206 also opened a resource R2 could not see. `_wassert` takes **UTF-16**
+strings and R2's name resolver scans **ASCII** runs, so every `file:line` in the DLL was invisible.
+`body_ops.wassert_sources()` now recovers them:
+
+```
+..\..\SpecialEffectCode\psx\source\psx_compatibility.cpp
+..\..\SpecialEffectCode\sonoda\Geo\geo.cpp
+..\..\SpecialEffectCode\sonoda\Geo\geomorph.cpp
+..\..\SpecialEffectCode\sonoda\Geo\geosfxrender.cpp
+..\..\SpecialEffectCode\sonoda\Geo\geoslice.cpp
+..\..\SpecialEffectCode\sonoda\PsxEmulator.cpp
+```
+
+**Reach measured, and modest: 6 files over 20 functions, 9 of which are an op's own native
+function.** So this is an attribution aid — it tells you which module an op lives in — **not a naming
+lane**, and it is reported as such rather than as a new rung.
+
+## Coverage
+
+| | after op 117 | after op 206 |
+|---|---|---|
+| named ops | 108 / 216 | **109 / 216** |
+| confidence | high 66 · med 32 · low 10 · unnamed 108 | **high 67 · med 32 · low 10 · unnamed 107** |
+| call-site traffic named | 9,461 / 14,212 (66.6%) | **9,800 / 14,212 (69.0%)** |
+
+Across the three rounds: **79 → 109 named, 51.8% → 69.0% of traffic.**
