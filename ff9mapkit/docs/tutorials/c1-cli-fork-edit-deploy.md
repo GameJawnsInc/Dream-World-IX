@@ -49,7 +49,7 @@ ff9mapkit import glgv_map792_gv_rm1_0 --out myroom --name MYROOM --verbatim
 
 This writes `myroom\MYROOM.field.toml` plus the scene sidecars — and, with `--verbatim` (the
 truest mode), the donor's real event script and text. The command prints the **walkmesh
-bounds**; content you add must sit inside them.
+bounds** — added content must sit inside them.
 
 ## 3. Add the NPC — in the file
 
@@ -100,15 +100,17 @@ Verify in-game: the field renders, the NPC is present, talking to it shows the l
 py tools\scroll_out\revert_deploy_30001.py
 ```
 
-On an installed copy without a repo checkout, deploy by building a mod folder instead —
-[tutorial 01 §4–5](01-first-fork.md) covers the build + `Memoria.ini` registration route and the
-New Game override.
+On an installed copy without a repo checkout, install with
+`ff9mapkit deploy myroom\MYROOM.field.toml --apply` (dry-run without `--apply`; the
+[GUI ↔ CLI mapping](c4-gui-cli-bridge.md#2-the-mapping) lists it), or build and register the
+folder by hand — [tutorial 01 §4–5](01-first-fork.md) covers that route and the New Game
+override.
 
 ## The bridge back to the GUI
 
-Every Workspace action streams the verbs it runs into the Output console — watching it while
-clicking is the fastest way to map the GUI onto the CLI. The reverse holds too: anything built
-here opens in the Workspace (**Open Save** → the `field.toml`).
+Every Workspace action streams the verbs it runs into the Output console —
+[C4](c4-gui-cli-bridge.md) maps the two surfaces action by action. The reverse holds too:
+anything built here opens in the Workspace (**Open Save** → the `field.toml`).
 
 ## Next
 

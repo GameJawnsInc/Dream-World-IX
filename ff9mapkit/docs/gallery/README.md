@@ -1,4 +1,4 @@
-# Gallery
+# Gallery — planned in-game captures
 
 Planned visual proof of each headline capability — in-game captures, not UI screenshots. Drop a
 ~800px-wide PNG or a short (3–6s) GIF next to this file using the exact filename below and link it

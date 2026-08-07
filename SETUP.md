@@ -4,8 +4,7 @@
 > only in how environment variables are set.
 
 `ff9mapkit` is a Python toolkit (plus a Blender add-on) that compiles declarative TOML projects
-into complete drop-in [Memoria](https://github.com/Albeoris/Memoria) mods: custom **fields**
-(camera, walkmesh, painted art, NPCs, dialogue, gateways, encounters, events, cutscenes), forks of
+into complete drop-in [Memoria](https://github.com/Albeoris/Memoria) mods: custom **fields**, forks of
 any of FF9's ~674 **real fields**, custom **battle backgrounds**, multi-field **campaigns** and
 **journeys**, custom **3D models**, **overworld** edits, and custom **music/SFX**.
 
@@ -95,9 +94,9 @@ game_path = "C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 
 ### 2.3 Regenerate base assets from the install
 
-The repo ships **no Square-Enix bytes**. The base assets builds start from (the blank field, the
-exit-region template, test fixtures) are *derived* from FF9's own data via copy/insert patches +
-a SHA-256 manifest. `extract-templates` reads the install, applies the patches, and verifies
+The repo ships **no Square-Enix bytes**. The base assets a build starts from — the blank field,
+the exit-region template, test fixtures — are *derived* from FF9's own data via copy/insert
+patches + a SHA-256 manifest. `extract-templates` reads the install, applies the patches, and verifies
 every output:
 
 ```powershell
@@ -211,7 +210,8 @@ checkout) are dry-run by default (`--apply` to write); `ff9mapkit newgame` write
 (`--dry-run` to preview).
 
 The **shipped path** needs none of this: `ff9mapkit build … --mod-name MyMod`, copy the folder
-into the game install, register it in `Memoria.ini [Mod] FolderNames` **and** `Priorities` (same
+into the game install (or let `ff9mapkit deploy <field.toml> --apply` install it for you),
+register it in `Memoria.ini [Mod] FolderNames` **and** `Priorities` (same
 order — the Memoria Launcher rewrites `FolderNames` from `Priorities` at every Play click, so a
 `FolderNames`-only edit silently reverts; launching once also auto-detects the folder, the hand
 edit just controls the order), launch.
@@ -220,9 +220,13 @@ edit just controls the order), launch.
 
 ## 5. First field
 
-Walkthroughs live in **[`ff9mapkit/docs/tutorials/`](ff9mapkit/docs/tutorials/README.md)**:
+The guided start is the core track — [S1 — Fork and deploy a field](ff9mapkit/docs/tutorials/s1-fork-and-deploy.md)
+(Workspace) or [C1 — The CLI: fork, edit, deploy](ff9mapkit/docs/tutorials/c1-cli-fork-edit-deploy.md)
+(terminal). Walkthroughs live in
+**[`ff9mapkit/docs/tutorials/`](ff9mapkit/docs/tutorials/README.md)**:
 
-- **[01 — First fork](ff9mapkit/docs/tutorials/01-first-fork.md)** (fastest; no painting):
+- **[01 — First fork](ff9mapkit/docs/tutorials/01-first-fork.md)** (the standalone variant, kept
+  for its install-folder-registration detail):
 
   ```powershell
   py -m ff9mapkit list-fields glgv
@@ -240,8 +244,7 @@ Walkthroughs live in **[`ff9mapkit/docs/tutorials/`](ff9mapkit/docs/tutorials/RE
 
 ## 6. The GUI Workspace (optional)
 
-One PySide6 window folding every authoring tool together. **Optional — the CLI does everything
-without it.**
+One PySide6 window folding every authoring tool together. **The CLI does everything without it.**
 
 ```powershell
 pip install "ff9mapkit[gui]"
@@ -311,6 +314,7 @@ extra (UnityPy).
 | `build <field…>` | Compile project(s) into a Memoria mod (`--out`, `--mod-name`, `--author`). |
 | `lint <field>` | Every offline validator in one pass (schema, flags, geometry, layers, camera). |
 | `pack <mod>` | Zip a built mod for distribution (`--out`, `--name`). |
+| `deploy <field>` | Install one built field into a mod folder, with name/id-collision checks (dry-run by default; `--apply`, `--mod-folder`). |
 | `export-art [target]` | Assemble a field's background PNGs offline (`--all`, `--composite`). |
 | `repaint-native <fork>` | Unpack a native fork's atlas into repaintable layers; `--pack` re-packs seamlessly. |
 
@@ -382,21 +386,11 @@ extra (UnityPy).
 | `summon-reskin <sub-verb> [<spec.toml>]` | CLUT-recolour a STOCK summon's creature and/or its own scenery, and/or REPAINT its own creature texture pages, IN PLACE — no donor swap, no new model, stock bytes never edited. Sub-verbs: `scaffold --ef <id>` (read the install, emit a fully guarded `[[reskin.target]]` spec toml), `export-art --ef <id> [--out DIR] [--art-lane indexed] [--no-coverage]` (decode every creature texture page to a paintable INDEXED PNG + a UV-coverage overlay + a guarded `[[reskin.texel]]` scaffold, local-only), `plan <spec>` (resolve every target/texel row, print the delta, no write), `build <spec>` (splice + self-check + stage locally; a spec may declare `[[reskin.target]]`, `[[reskin.texel]]`, or both in ONE container), `verify <spec>` (re-derive and byte-compare what's staged), `deploy <spec>` (write the override into a mod folder — **refuses** a folder with a `ModFileList.txt`, never creates one), `revert <spec>` (undo exactly what `deploy` wrote). Refuses a creature recolour OR a creature texel repaint on a TEXANIM-armed effect outright, a DUAL-DEPTH or unnamed MULTI-WRITER CLUT cell, a DERIVED-shared palette or a zero-headroom `value` lift without their `acknowledge_*` key, a texel edit crossing the transparent-index (cutout) boundary without `acknowledge_cutout_reshape`, any scenery texel target (co-transform / same-bytes-two-bindings / u-spill / 15bpp — a later rung), and (build/deploy) any destination inside a checkout, a mod-asset tree, or the install without an explicit allow. |
 | `summon-rescore <sub-verb> [<spec.toml>]` | Reframe a STOCK summon's camera pose/focal distance IN PLACE, durations and byte length untouched (the camera and the effect program are two clocks kept aligned by construction — a content rescore moves neither). Same six sub-verbs as `summon-reskin`, plus `read --ef <id>` (print the full shot READ-OUT — every keyframe in human terms, the table a rescore author picks a target from; writes nothing). Refuses any `duration` key outright, a re-serialised block of a different length, an unacknowledged runtime-chosen `PLAY_CAMERA arg2=3` op (`acknowledge_dynamic_ops`), a single-track edit on a block whose alternate takes genuinely differ (`all_sequences`), and the same local-only/`ModFileList.txt` refusals as `summon-reskin`. |
 
-> **`[[summon]]` build status (2026-07-24):** schema + validation (`content/summon.py`, wired into `ff9mapkit build`/`lint`), the deploy engine (`summons/deploy.py`), and both CLI verbs above are landed and test-covered. See [`docs/SUMMONS.md`](ff9mapkit/docs/SUMMONS.md) for the full picture, including the hybrid-vs-overlay lane split and the engine-independence gate.
-
-
-> **`summon-reskin`/`summon-rescore` build status (2026-07-26):** promoted from the TIER W study (`studies/custom-summons/tier-w/`), cast-proven in-game on Bahamut ef227 (reframed, retimed, whole-set recoloured) and, after the tools were generalised to any stock summon, on Phoenix ef211 and Madeen ef251. See [`docs/SUMMONS.md`](ff9mapkit/docs/SUMMONS.md) for the full spec-toml schema, every refusal, and the laws behind them; [tutorial 14](ff9mapkit/docs/tutorials/14-summon-reskin-rescore.md) for the step-by-step workflow.
-
-> **`summon-reskin` TEXEL REPAINT build status (2026-07-27, rung W6a):** `summon-reskin` gains a
-> second lever, `export-art` + `[[reskin.texel]]`, that rewrites a stock summon's own texture
-> INDICES (shape/edge/silhouette) rather than its palette — landed for CREATURE TEXTURE PAGES only,
-> the one texel class measured hazard-free across the corpus. Offline-proven: the indexed-PNG round
-> trip is byte-identical on all 93 stock creature pages, and a composed proof artifact (a cast-proven
-> CLUT recolour plus a hard-edged brand stamped on its own wing, one container) gates clean; an
-> in-game cast is the next step. Scenery texture pages are explicitly deferred (named W6b — mixed
-> bit depths, multi-writer VRAM columns, UV column-spill). See
-> [`docs/SUMMONS.md`](ff9mapkit/docs/SUMMONS.md#repaint-a-stock-summons-texture-in-place--the-texel-lane-reskintexel)
-> and [tutorial 14, Part C](ff9mapkit/docs/tutorials/14-summon-reskin-rescore.md#part-c--repaint-its-texture-the-texel-lane-reskintexel).
+> **Summons:** [`docs/SUMMONS.md`](ff9mapkit/docs/SUMMONS.md) documents the `[[summon]]` schema,
+> the hybrid-vs-overlay lane split, the `summon-reskin`/`summon-rescore` spec-toml format and
+> every refusal, and the texel lane (`[[reskin.texel]]` — creature texture pages only; scenery
+> pages deferred). [Tutorial 14](ff9mapkit/docs/tutorials/14-summon-reskin-rescore.md) is the
+> step-by-step workflow.
 
 **Overworld** *(the mesh-writing commands — `world-terrain`, `world-reclaim`, `world-coast`,
 `world-transplant`, `world-fuse`, `world-island`, `world-forest`, `world-hill`,

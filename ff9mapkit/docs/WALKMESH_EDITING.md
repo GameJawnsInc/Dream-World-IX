@@ -1,4 +1,4 @@
-# Spec — editing an imported multi-floor walkmesh without losing connectivity
+# Walkmesh editing — imported multi-floor fields without losing connectivity
 
 Status: **v1 + v2 shipped** (verbatim ship + build guard; obj+links seam reconcile) + **v3 partial**
 (`walkmesh verify` CLI + Blender `FF9_Seams` overlay). Remaining v3 (anim carry, re-anchor) below.

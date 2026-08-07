@@ -5,8 +5,8 @@ the real game — on the [Memoria engine](https://github.com/Albeoris/Memoria) (
 
 The core: author a complete custom **field** — camera, walkmesh, painted background, NPCs,
 dialogue, gateways, encounters, events, story branching, cutscenes — from a single declarative
-`field.toml`, compiled into a drop-in Memoria mod; or **fork any of FF9's ~674 real fields** with
-their content carried faithfully. Around it: custom **3D battle backgrounds** and battle tuning,
+`field.toml`, compiled into a drop-in Memoria mod; or **fork any of FF9's ~674 real fields**.
+Around it: custom **3D battle backgrounds** and battle tuning,
 multi-field **campaigns** and **journeys** (New Game → a selectable arc of forked game slices),
 **items/equipment/shops**, custom **3D character models** (Blender round-trip), **custom playable
 characters**, **overworld** authoring (custom islands and terrain, coastlines, entrances),
@@ -66,7 +66,7 @@ music/SFX. No engine patching required.
 A **forked** field also runs on stock Memoria for its *physical* layer (scene, walkmesh, camera,
 objects), but FF9 hardcodes some behaviors against the original field's id — narrow-map
 letterboxing, after-battle and off-mesh fixes — and those need the bundled fidelity patch set
-(`memoria-patches/`, `s23`–`s33`) for fork fidelity. Overworld mesh authoring (terrain, land
+(`memoria-patches/`, `s23`–`s33`). Overworld mesh authoring (terrain, land
 reclaim, coasts, islands, water, entrances) requires the `s34` mesh-override patch, and the
 experimental **co-op** requires the `s36`–`s41` netsync patches. The shipped engine bundle
 (`dwix-custom-memoria-*.zip`, installable via `ff9mapkit setup --install-engine`) contains all of

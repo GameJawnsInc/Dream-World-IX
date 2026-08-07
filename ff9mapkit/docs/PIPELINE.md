@@ -45,6 +45,9 @@ order, the optional extras) are in **[../../SETUP.md](../../SETUP.md)**.
 A **novel** field built this way runs on a **stock, unmodified Memoria install**; a **forked**
 field needs the bundled fidelity patch set (custom Memoria) — see [ENGINE.md](ENGINE.md).
 
+Setup problems (templates not extracted, install not found) are covered in
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
 ## 1. Scaffold
 
 ```bash
@@ -143,15 +146,26 @@ ff9mapkit build MY_ROOM/my_room.field.toml --out dist --mod-name MyMod
 Produces a complete mod folder: the background scene, the walkmesh, the 7-language event
 script, dialogue text, and the DictionaryPatch / BattlePatch / ModDescription.
 
-**The build checks your work** (since you can't see the game until you launch it). It **errors** on
-broken geometry (a `.obj` with no triangles, or a face referencing a missing vertex), and **warns**
-when something will look wrong in-game — content placed **off the walkmesh** (an NPC that would float,
-a spawn off the floor, a gateway zone the player can't reach), an **NPC or spawn within the player's
-collision radius (~48u) of a wall** (the player's centre can't reach that close to an edge — advisory),
-a **multi-floor walkmesh whose floors got disconnected** (a `.obj` reshape without the seam sidecar),
-**zero-area triangles** (dead zones), a **broken seam** (you moved a connecting edge), a **repainted
-layer whose aspect ratio no longer matches** its size (it would stretch), or a **camera pitch** outside
-FF9's real range. Read the warnings before you playtest — they catch the mistakes that otherwise only
+**The build checks your work** (since you can't see the game until you launch it).
+
+**Errors** (broken geometry):
+
+- a `.obj` with no triangles;
+- a face referencing a missing vertex.
+
+**Warnings** (something will look wrong in-game):
+
+- content placed **off the walkmesh** (an NPC that would float, a spawn off the floor, a gateway
+  zone the player can't reach);
+- an **NPC or spawn within the player's collision radius (~48u) of a wall** (the player's centre
+  can't reach that close to an edge — advisory);
+- a **multi-floor walkmesh whose floors got disconnected** (a `.obj` reshape without the seam sidecar);
+- **zero-area triangles** (dead zones);
+- a **broken seam** (you moved a connecting edge);
+- a **repainted layer whose aspect ratio no longer matches** its size (it would stretch);
+- a **camera pitch** outside FF9's real range.
+
+Read the warnings before you playtest — they catch the mistakes that otherwise only
 show up in-game.
 
 The same checks run standalone, without building: `ff9mapkit lint <field.toml>` runs every offline
@@ -170,6 +184,10 @@ in the `dwix-custom-memoria-*.zip` engine bundle, installable via the Windows in
 ```bash
 ff9mapkit pack dist/MyMod --out MyMod.zip      # to share it
 ```
+
+If the field black-screens, or a change doesn't show after a redeploy, see
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md) — the in-game failures there cover the common causes
+(area < 10, an id collision, a stale text block).
 
 ## Camera movement & bigger environments
 

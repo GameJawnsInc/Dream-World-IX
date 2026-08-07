@@ -45,9 +45,8 @@ Which shape a block takes is in its reference heading — [`FORMAT.md`](../FORMA
 ## 3. The core track, as text
 
 Everything the core track built through forms (S2–S6) is these blocks. What follows is a
-reference specimen, not a walked exercise — Track C does not re-verify each feature in-game the
-way [S3](s3-gateways.md)–[S6](s6-encounters.md) do, and those steps remain the walkthrough for
-any block that misbehaves. A compact field carrying all of it:
+reference specimen, not a walked exercise — [S3](s3-gateways.md)–[S6](s6-encounters.md) remain
+the walkthrough for any block that misbehaves. A compact field carrying all of it:
 
 ```toml
 [[npc]]
@@ -101,8 +100,8 @@ py tools\deploy_field.py myroom\MYROOM.field.toml --id 30001
 
 `lint` catches the mistakes hand editing invites — off-walkmesh positions, a flag index in a
 reserved band, a `requires_flag` nothing sets, a malformed zone — before the game runs. And the
-round trip holds in both directions: open the file in the Workspace and the forms show your
-hand edits; save a form and the TOML changes under you.
+round trip holds: open the file in the Workspace and the forms show your hand edits; save a
+form and the TOML changes under you.
 
 ## 5. The optional scene split
 

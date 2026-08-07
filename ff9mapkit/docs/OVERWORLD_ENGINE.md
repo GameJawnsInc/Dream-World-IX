@@ -1,10 +1,12 @@
 # Overworld (WorldMap / "WM") engine mechanics — Memoria/FF9
 
-Reverse-engineered while building the **overworld debug-menu tools** (2026-07-01). It is all C# in the Memoria
-engine (built from FF9's own game bytes), so every mechanic here is ultimately traceable — including the teleport
-reverter at the bottom, which is exactly that: plain C# (Memoria's frame smoother), **not** a
-native driver. Companion: the debug menu lives in `Ff9mkDebugMenu.cs`; `ff9mapkit world-locate`
-decodes the entrance dispatch.
+The engine-level reference for FF9's world map: the update tick, the actor/position model, the 13 world
+states, the minimap/place-name subsystems, and the encounter machinery — plus the `world-*` authoring
+commands those mechanics enable. It is for anyone doing overworld authoring or debugging world-map
+behavior. The page has two halves: the mechanics reference comes first; per-command recipes run from
+"Authoring a new overworld entrance" down. Everything here is C# in the Memoria engine (built from FF9's
+own game bytes), so every mechanic is ultimately traceable to source. Companion: the debug menu lives in
+`Ff9mkDebugMenu.cs`; `ff9mapkit world-locate` decodes the entrance dispatch.
 
 ## Update / tick architecture
 - **Driver:** `WMScriptDirector` (a HonoBehavior). `HonoUpdate()` → `kPadPush.CollectInput()` →
@@ -90,7 +92,7 @@ decodes the entrance dispatch.
   `SetPosition(fixedPt) + w_movementChrInitSlice()`; disc = 501/502; change char = `WMScriptDirector.SetToNextChracter`.
   It is the ground-truth reference the debug-menu tools copy.
 
-## The 13 world states (dispatchers) + the exit cascade (RE 2026-07-02)
+## The 13 world states (dispatchers) + the exit cascade
 
 The overworld is not one script — it is **13 event-script dispatchers `EVT_WORLD_WORLD00..12` = `EventDB[9000..9012]`**
 (`FF9DBAll.Events.cs:1834-1846`). Exactly one is loaded as the world's per-frame brain, keyed by `ff.wldMapNo`.
@@ -151,7 +153,7 @@ compare + animation ids) → **vestigial dev leftovers** (TS = title-screen, SV 
 ids have **no `.eb` asset at all** → dead name registrations. So custom overworld authoring targets exactly the 13
 (9000–9012); nothing else is reachable.
 
-## Minimap / place-names — FOUR distinct subsystems (RE 2026-07-02)
+## Minimap / place-names — four distinct subsystems
 
 "Place name" conflates four independent layers. Keeping them apart is the point:
 
@@ -252,7 +254,7 @@ Oeilvert … Ipsen's Castle … Memoria (54) … Chocobo's Air Garden. **Slot co
 Kit's `worldmap_unlocks` band is 736-**823** (lumps in adjacent discovery bits e.g. `mognet_central` 815); the
 **marker** bits are exactly 736-**799** (64).
 
-## Overworld weather / environment — `Environment.txt` (★ built 2026-07-02, no DLL)
+## Overworld weather / environment — `Environment.txt` (no DLL)
 
 `WorldConfiguration.PatchWorldEnvironment` (`WorldConfiguration.cs:93`) reads a per-mod-folder
 `StreamingAssets/Data/World/Environment.txt` (FolderNames-stacked) that overrides the overworld's **mist / rain /
@@ -287,7 +289,7 @@ Valid enum names: `environment.WORLD_PLACES` / `WORLD_EFFECTS` (baked from `Memo
 `WorldEffect.cs`). RELAUNCH to apply (parsed at overworld init). The `Title` token (banner rect/timing) is not yet
 exposed. **★ in-game proven 2026-07-02** (`mist = false` forced the disc-1 Mist-Continent mist off).
 
-## SOLVED — debug-menu overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
+## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own
 60fps world frame-interpolation smoother (active when render fps > the 20fps logical tick; `SmoothFrameUpdater_World.cs:45`),
@@ -319,10 +321,11 @@ the wmActor transform) → `w_movementChrInitSlice` (re-ground Y) → `w_movemen
 (the game uses 1; 2 gives margin because the debug-menu write lands from OnGUI at an arbitrary phase vs the tick). The movement
 tick itself is NOT a reverter — `w_movementUpdate`/`w_movementControl` read the *current* transform (`lastx/y/z` are
 re-derived from `pos0/1/2` each tick) and `w_movementSetheight` rewrites only Y, so the teleported XZ survives.
-Engine patch: `memoria-patches/s22-debug-menu-f6.patch`.
+Engine patch: `memoria-patches/s22-debug-menu-f6.patch`. Proven in-game.
 
-## Authoring a NEW overworld entrance (★ in-game proven 2026-07-01)
-First authored overworld connectivity: a plain road cell (35,25, east of Dali) → custom `!` prompt → Confirm →
+## Authoring a new overworld entrance
+
+Proven in-game. First authored overworld connectivity: a plain road cell (35,25, east of Dali) → custom `!` prompt → Confirm →
 entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingField` redirect of the dispatcher's
 `Field(300)`). Recipe:
 
@@ -439,7 +442,7 @@ What it does, generalizing + hardening the manual recipe:
 **★ IN-GAME PROVEN 2026-07-01:** a Blender-modelled castle spawned assembled + grounded at the command's cell, the `!`
 prompt fired, warped to the forked Ice Cavern.
 
-### The building layer (the town/dungeon model) — ★ s34-overridable, proven 2026-07-01
+### The building layer (the town/dungeon model) — s34-overridable
 Each block loads TWO baked meshes (WMWorldPrefabMaker.cs:37,102): **"Terrain"** (ground + walkmesh + IDALL) and
 **"Object"** (the buildings/towns/trees). `WMWorld.RegisterBlockComponent` (WMWorld.cs:728) runs the `s34` override
 for BOTH, interpolating `transform.name` — so a `.ff9mesh` at `…Block[X][Y] Object.ff9mesh` overrides the building mesh
@@ -465,7 +468,7 @@ flat mesh and STAMPING a uniform IDALL (topo 59 = impassable — the right model
 the s34 Object override. Buildings are clean because their IDALL is uniform; per-triangle TERRAIN IDALL (walkmesh) is
 the follow-up (needs a spatial re-derive or a Blender face-attribute sidecar).
 
-## Walkable new land — RESHAPE, don't overlay (`world-terrain`, ★ in-game proven 2026-07-02)
+## `world-terrain` — author walkable new land by reshaping stock terrain
 
 `ff9mapkit world-terrain --mod-folder <mod> --radius R (--at X,Z | --ridge X0,Z0,X1,Z1) (--raise H | --lower H |
 --flatten)` authors walkable terrain — a hill/crater/plateau or a ridge/valley (`world/terrain.py` → `deform_radial` /
@@ -485,7 +488,7 @@ faces). And **multi-block**: a deform wider than one 64u block is applied to EVE
 at the grid boundary). Reshape keeps the stock texture + walkability topograph. ★ Proven: a seamless walkable grassy
 hill across blocks (16,14)+(16,15).
 
-## New continent — RECLAIM ocean cells as walkable land (`world-reclaim`, Path D · s34 extension · ★ in-game proven 2026-07-02)
+## `world-reclaim` — reclaim ocean cells as walkable land
 
 The overworld is a **fixed 24×20 = 480-block grid where every ocean cell already exists as a real `WMBlock`** — it
 just short-circuits to one shared `SeaBlockPrefab` (`WMWorld.cs:495` initial load + `:1250` streaming reload in the
@@ -533,7 +536,7 @@ above 0** to clear the wave plane. ⚠ Raising height under a STANDING player em
 misses the higher surface) — teleport away + back (the menu teleport re-grounds) after a height change, or set height before first
 arrival. A coast-flush BRIDGE wants `--height 0` at the shore (matches the coast, which bottoms at Y=0).
 
-### FAITHFUL coast — `world-coast` (place a REAL FF9 coastline, ★ in-game proven 2026-07-02, per-cell donor + debug-menu fix)
+### `world-coast` — place a real FF9 coastline
 
 The synthetic `island` profile is a STYLIZED grass/sand slab; a real FF9 coast is layered **animated sub-meshes**
 (`terrain` land + `sea3/4/5` water + a dedicated `beach1` sand/foam mesh driven by `WMRenderTextureBank` — NOT the
@@ -554,7 +557,7 @@ ray (`w_movementChrInitSlice` already sky-casts infinitely from +400u), but `w_n
 on a destination block not yet `IsReady` at warp time. Fix: `WMWorld.ForceLoadBlockReadyAt(pos)` force-loads the target
 block (synchronous `LoadBlock` sets `IsReady`) before grounding. Observable only on a FAR/unstreamed warp.
 
-### VERBATIM island TRANSPLANT — `world-transplant` (carry a complete real island anywhere, ★ in-game proven 2026-07-08)
+### `world-transplant` — carry a complete real island anywhere
 
 Where `world-coast` re-tags a donor's terrain in place (block-relative, no repositioning), `world-transplant` carries
 the COMPLETE real block — terrain + `beach1` + every Sea sub-mesh, the full Wang'd ocean with its real peninsulas and
@@ -597,7 +600,7 @@ finding to the wearing side's plain `GROUNDS` mains IN MEMORY at build time (the
 worn) — opt-in, since it changes output bytes. In WARN mode the gate never mutates anything, so it never
 perturbs an existing clean carry.
 
-### Continent LAYOUTS — `world-fuse` + the shore tweaks (mint a beach on a kit-made shore, ★ in-game proven 2026-07-11)
+### `world-fuse` — compose transplants into a continent layout, plus the shore tweaks
 
 `ff9mapkit world-fuse <layout.toml> [--dry-run] [--allow-overwrite]` composes several `world-transplant` placements
 into ONE archipelago/continent: every placement gates clean on its own, target rects must not overlap, and every
@@ -642,7 +645,7 @@ pass and the deploy pass (tweak objects are stateful — the CLI wires this auto
 `tweaks_factory`). Deterministic builders make a re-deploy byte-identical — re-running the shipped layout over the
 live folder changes ZERO bytes. **Requires the custom engine (s34 + `Donor.txt`); RELAUNCH.**
 
-### Custom graded OCEAN water — `world-water` (synthesize open water from scratch, validated 17/17 tile-shape, ★ in-game "looks good" 2026-07-05)
+### `world-water` — synthesize open-ocean water from a depth field
 
 Where `world-coast` MOSAICS real coastline pieces, `world-water` **synthesizes** faithful open-ocean water from a depth
 field — the "author water from scratch" frontier the coast section flagged. `ff9mapkit world-water --cells X,Y
@@ -650,7 +653,7 @@ field — the "author water from scratch" frontier the coast section flagged. `f
 cell's WALKMESH — see below), the three `Sea3`/`Sea5`/`Sea4` water sub-meshes at `Y=0`, blanked `Sea1`/`Sea2`, and a
 `Donor.txt` naming a real deep-ocean block (same per-cell donor mechanism as `world-coast`). Code: `world/water.py`
 (algorithm + orchestration) + `mesh.tri_soup_block_mesh`/`hidden_block_mesh` (the render-sub-mesh + blanking primitives).
-**Requires the custom engine (s34); RELAUNCH.**
+**Requires the custom engine (s34); RELAUNCH.** Proven in-game.
 
 **Walkmesh / boat traversal (RE 2026-07-06, source-confirmed).** On a reclaimed cell the `Terrain` override is registered
 BEFORE the Sea meshes (`WMWorld.LoadBlock` order) so it WINS the walkmesh raycast (`WMBlock.Raycast` iterates
@@ -719,7 +722,7 @@ Sea1/Sea2 + donor sidecar — so only the water differs):
 (3,17) → `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of
 the 50/50 coin-flip (cosmetic — the game itself coin-flips it).
 
-### Custom cliff ISLANDS — `world-island` (synthesize a landmass on open ocean, ★ in-game proven 2026-07-12)
+### `world-island` — synthesize a landmass on open ocean
 
 `ff9mapkit world-island --mod-folder M --center WX,WZ --radius R [--seed S --lobes N --patches P]` synthesizes a
 fully-custom walkable landmass: organic multi-lobe coastline (gated against the measured FF9 coastline language),
@@ -729,7 +732,7 @@ with the first release but never applied due to a coordinate-frame bug, and flat
 approved — up to an r52 pure-plain desert island — so it was retired, 2026-07-15). Every footprint block must be TRUE
 open ocean (the open-ocean target law — a real sea-skirt block loads its own prefab and the fragment silently never
 renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
-The proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
+Proven in-game; the proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
 
 **Ground families — `--ground` (★ 2026-07-15).** THE TRANSLATION LAW IS UNIVERSAL: every stock walkable
 ground family is the grass language translated in the atlas — same mains 2×2 rects (widths, gutters,
@@ -764,7 +767,7 @@ field shows raw tiling mismatches; **brush** is a *slope* set — stock paints i
 hillsides, so a flat fill reads as brush canopy and its rim lip doesn't line up; **dunes** is an
 *interior* fill — the ground reads fine but the family has no native coast band.
 
-### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)
+### `world-mirror` — mirror custom land onto the disc-4 tree
 
 The overworld ships exactly **two** asset trees: `worldmap/disc1` (used by discs 1–3 — there is no
 disc2/disc3 tree) and `worldmap/disc4` (distinct art; only `WorldDisc1`/`WorldDisc4` prefabs exist).
@@ -779,7 +782,7 @@ free-ride parts (falls/rivers/objects) as explicit source-disc-byte overrides �
 worldmap-override deploy verb, scoped to exactly the cell(s) that verb just wrote (`--skip-mirror` opts
 out); the standalone `world-mirror` command above remains for a manual whole-tree re-sync. Relaunch to apply.
 
-### Interior topography on a deployed island — `world-forest` + `world-hill` (★ productized 2026-07-13)
+### `world-forest` + `world-hill` — interior topography on a deployed island
 
 Both verbs reshape the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job)
 and are the productized island-E studies, proven by a zero-byte-diff identity run against the in-game-proven deploy:
@@ -796,7 +799,7 @@ and are the productized island-E studies, proven by a zero-byte-diff identity ru
   census. The `--near` scan only offers footprints inside the ROLLING-RELIEF envelope (pure mains, y-span ≤ 2.4u,
   clear of forest/stamps/rim) — it will refuse rather than stack a hill on prior displacement.
 
-### A real mountain on a deployed island — `world-mountain` (★ productized 2026-07-15)
+### `world-mountain` — carry a real mountain onto a deployed island
 
 `world-mountain --mod-folder M --near WX,WZ` (or `--center` exact, rotation 0) carries a REAL rock massif whole —
 the productized Uaho carry (in-game approved 2026-07-13: *"the cliff is great — walkable, seams against the grass
@@ -848,7 +851,7 @@ Terrain override — mint a big enough island first). New tris split at the 64u 
 cross-block mountains ship (identity welds via the shared clip plane); the apron lift welds internal span borders
 per POSITION and tapers only at the span's outer borders; the crack gate, probes, and census run span-wide.
 
-## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
+## Overworld texturing — the model + the learned UV palette
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas
 (`WMConstants.cs:83-85`) bound to the single static `WMWorldPrefabMaker.TerrainMaterial`; `LoadMesh` gives *every*
@@ -903,7 +906,7 @@ Open: the atlas tile-grid pitch is inferred (~5-6%/tri), not read from a constan
 (per-disc rebuild if the mapping differs). (Resolved: object atlas = 1024² like terrain; atlas lives in p0data3 as
 `res(1_24)_*`; the extract/catalog/reskin tools are built.)
 
-## Overworld encounters + the world-pack binary (RE 2026-07-02)
+## Overworld encounters + the world-pack binary
 
 The last un-RE'd overworld data system. Fully traced through the Memoria C# (with a direct
 cross-check of every load-bearing line). Two halves: a **baked binary table** (which monsters, keyed by
@@ -1028,7 +1031,7 @@ nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battle
 through the mod-override path, so a whole-file repack works; only a *targeted patch* needs the engine seam. And the
 encounter *rate* is already free via the world `.eb`.
 
-### `world-encounter-rate` — retune the rate (★ in-game proven 2026-07-02, no DLL)
+### `world-encounter-rate` — retune the encounter rate (no DLL)
 
 `ff9mapkit world-encounter-rate --mod-folder <mod> [--multiplier F | --set PROB | --peaceful]` (`world/encounter.py`).
 It rewrites every immediate `RunWorldCode(26, value)` write in the world dispatchers' `.eb` — probed empirically as
@@ -1040,8 +1043,9 @@ preserving the game's relative danger and staying idempotent by always deriving 
 `--set` forces an absolute `w_frameEventBattleProb`; `--peaceful` sets `0xFFFF` (≈no encounters). Deploy is a
 per-language `.eb` shadow (the writes are language-identical in count, JP at different offsets) that STACKS on any
 `world-entrance` edit (reads the mod-folder override if present). RELAUNCH / re-enter the overworld to apply.
+Proven in-game.
 
-### `world-encounters` — re-table the monsters (★ IN-GAME PROVEN 2026-07-02, no DLL)
+### `world-encounters` — re-table which monsters spawn where (no DLL)
 
 **★ Confirmed in-game 2026-07-02:** setting **all 355 records** to one scene (`[[set]] all = true`) made every
 overworld battle the identical fight (scene 359 = Mist-Continent Pythons/Goblins on the forest BG), everywhere on

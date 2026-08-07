@@ -74,7 +74,7 @@ The claim "a real party member" decomposes into three checks, each observable:
    character still loads on a stock engine (the extra member is dropped, nothing corrupts).
 
 The shipped proof field wires all three into one room (encounters + a save point); deploying it
-as-is is the fastest end-to-end check:
+as-is is a one-command end-to-end check:
 
 ```powershell
 py tools\deploy_field.py ff9mapkit\examples\thirteenth-character\iviv.field.toml --id 30001

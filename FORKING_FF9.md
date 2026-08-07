@@ -1,4 +1,4 @@
-# Forking FF9
+# Forking FF9 (moved)
 
 This walkthrough moved into the tutorial set:
 **[ff9mapkit/docs/tutorials/07-gui-journey.md](ff9mapkit/docs/tutorials/07-gui-journey.md)** —

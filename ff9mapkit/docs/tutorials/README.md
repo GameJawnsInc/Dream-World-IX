@@ -6,8 +6,7 @@ or the manual steps in [SETUP.md](../../../SETUP.md) §1–2).
 ## The core track — start here
 
 One continuing build in the Workspace GUI: each step extends the mod made in the previous one,
-and ends with a verifiable result in the game. (The Workspace fronts the same engine as the
-CLI — the CLI-side tutorials below cover the terminal equivalent of everything here.)
+and ends with a verifiable result in the game.
 
 | # | Step | Result |
 |---|---|---|
@@ -30,7 +29,7 @@ The same competence as the core track, terminal-native.
 | C3 | [Deploy automation](c3-deploy-automation.md) | Slots, reverts, mod-folder resolution, relaunch rules |
 | C4 | [The GUI ↔ CLI bridge](c4-gui-cli-bridge.md) | Every Workspace action mapped to its verb |
 
-## The rest (being reorganized into tracks)
+## Standalone tutorials
 
 Single-goal walkthroughs, each independently completable. The CLI is the canonical surface; the
 Workspace GUI tutorial (07) covers the journey flow visually.
@@ -57,7 +56,7 @@ Workspace GUI tutorial (07) covers the journey flow visually.
 Pillars without a tutorial yet (reference docs instead):
 
 - **Coast/beach/cliff morphing and overworld entrances** (the deep half of the `world-*` surface; tutorial 16 covers deploying and iterating on a continent) — [OVERWORLD_RECIPES.md](../OVERWORLD_RECIPES.md) · [OVERWORLD_ENGINE.md](../OVERWORLD_ENGINE.md)
-- **Custom music / SFX** (`audio-import`, `music-list`, `sfx-list`) — `ff9mapkit audio-import -h`
+- **Custom music / SFX** (`audio-import`, `music-list`, `sfx-list`) — [S5 §2 — Field music](s5-cutscene-and-music.md#2-field-music) · [FEATURES.md §Audio & video](../FEATURES.md#audio--video)
 - **Two-player co-op** (experimental; `coop host` / `coop join`) — [FEATURES.md §Multiplayer](../FEATURES.md#multiplayer-experimental), `ff9mapkit coop -h`
 - **Items / equipment / saves** (`items-*`, `save-edit`, `[[item_text]]`) — [SETUP.md §7](../../../SETUP.md#7-cli-command-reference)
 - **Custom overworld** (continents, islands, relief, offline renders, the ~1s reload loop) — [OVERWORLD_RECIPES.md](../OVERWORLD_RECIPES.md)

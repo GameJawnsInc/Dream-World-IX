@@ -30,7 +30,7 @@ widget = "form:npc.requires_flag"
 ```
 
 The room from S1 is empty. This step adds an NPC with a dialogue line, and teaches the loop
-every later step runs on: change one thing, deploy, reload in-game, look.
+every later step runs on.
 
 **Starting from:** the S1 fork open in the Workspace. To recreate it: **Assets ▸ Import** →
 **Suggest a test room…** → **Import field** ([S1](s1-fork-and-deploy.md)).
@@ -52,7 +52,7 @@ Select the field's node in the left-hand tree → the **Editor** tab shows its f
   [S4](s4-story-flags.md) uses this control.
 
 **Ctrl-S** saves. The **Problems** console (bottom) lints live — a clean save here is the
-offline half of the verification, no more: offline checks never replace looking at the game.
+offline half of the verification, never a replacement for looking at the game.
 
 ## 2. Deploy and look
 

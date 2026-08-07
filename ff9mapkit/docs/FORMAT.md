@@ -7,6 +7,58 @@ Memoria mod folder. Pass several to build a multi-field mod.
 ff9mapkit build my_room.field.toml --out dist --mod-name MyMod --author you
 ```
 
+## Section index
+
+**Field & scene** —
+[`[field]`](#field-required) ·
+[`[camera]`](#camera-required) ·
+[`[camera.scroll]`](#camerascroll-optional--larger-than-screen-rooms) ·
+[`[[camera]]` + `[[camera_zone]]`](#camera--camera_zone-optional--multiple-camera-angles) ·
+[`[[layers]]`](#layers-background-overlays-back-to-front) ·
+[`[walkmesh]`](#walkmesh)
+
+**Content** —
+[`[player]`](#player-optional) ·
+[`[[npc]]`](#npc-optional-repeatable) ·
+[`[[prop]]`](#prop-optional-repeatable) ·
+[`[[gateway]]`](#gateway-optional-repeatable) ·
+[`[[ladder]]`](#ladder-optional-repeatable) ·
+[`[[jump]]`](#jump-optional-repeatable) ·
+[`[[platform]]`](#platform-optional-repeatable) ·
+[`[[savepoint]]`](#savepoint-optional-repeatable) ·
+[`[[chest]]`](#chest-optional-repeatable) ·
+[`[[event]]`](#event-optional-repeatable)
+
+**Story** —
+[story flags & branching](#story-flags--branching) ·
+[`[startup]`](#startup--assert-the-story-beat-preset-state-at-field-entry) ·
+[`[[on_entry]]`](#on_entry--fire-a-beat-on-field-entry-gated-once) ·
+[`[party]`](#party--addremove-party-members-at-field-entry) ·
+[`[cutscene]`](#cutscene--cutscene-optional)
+
+**Items & shops** —
+[`[[playable]]`](#playable--a-brand-new-custom-playable-character) ·
+[`[start_inventory]` / `[[equipment]]`](#start_inventory--equipment--new-game-starting-bag--default-gear) ·
+[`[[shop]]`](#shop--a-custom-shop-inventory--opener) ·
+[`[[synthesis]]`](#synthesis--a-custom-synthesis-shop-recipes--opener) ·
+[`[[synthesis_edit]]`](#synthesis_edit--retune-or-remove-a-vanilla-synthesis-recipe) ·
+[`[[weapon]]` / `[[armor]]` / `[[item]]` / `[[equip_bonus]]`](#weapon--armor--item--equip_bonus--tune-existing-item-stats-optional-repeatable) ·
+[`[[item_text]]`](#item_text--an-items-menu-name--description-text-optional-repeatable)
+
+**Battle** —
+[`[encounter]`](#encounter-optional) ·
+[`[[battle_bgm]]`](#battle_bgm-optional-array-of-tables) ·
+[`[[summon]]`](#summon-optional-repeatable) ·
+[`[difficulty]`](#difficulty-optional--enemy-scaling--hard-mode) ·
+[`[rebalance]`](#rebalance-optional--a-global-hp-damage-multiplier) ·
+[`[deathrules]`](#deathrules-optional--game-over-rules) ·
+[`[lowhp]`](#lowhp-optional--the-lowhp-threshold)
+
+**Misc** —
+[`[music]`](#music-optional) ·
+[`[behavior]`](#behavior-optional--behavior-trees-compiled-to-field-bytecode) ·
+[`[chocobo]`](#chocobo-optional--chocobo-hot--cold-prize-pool--timer)
+
 ---
 
 ## Two files: scene (spatial) + field (logic)

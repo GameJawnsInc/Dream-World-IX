@@ -7,8 +7,8 @@ requires = ["game", "gui", "assets"]
 ```
 
 Fork a multi-arc slice of *Final Fantasy IX* into a journey, change one line of its real dialogue,
-deploy it, and play it back — entirely in the Workspace GUI. This is the full
-**fork → edit → deploy → play** loop at game scale.
+deploy it, and play it back — the full **fork → edit → deploy → play** loop at game scale,
+entirely in the Workspace GUI.
 
 **Prerequisites:** the kit set up with the `gui` and `assets` extras ([SETUP.md](../../../SETUP.md)),
 and the Dream World IX engine bundle installed for fork fidelity

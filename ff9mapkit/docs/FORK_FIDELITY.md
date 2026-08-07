@@ -1,9 +1,9 @@
-# Fork Fidelity — the honest gap map toward "recreate the functioning game from borrowed fields"
+# Fork fidelity — the gap map toward recreating the functioning game from forked fields
 
 > **North star (not a release).** The objective is to keep refining borrowed/forked fields until the kit can
 > recreate the *functioning game itself* from them. The measure of progress is **fidelity**: fork a real
-> field → does it play identically to the original? This doc is the honest, prioritized gap map — verified
-> against real FF9 bytes and the Memoria source (2026-06-11); grounded in the current code (citations inline
+> field → does it play identically to the original? This doc is the prioritized gap map — verified
+> against real FF9 bytes and the Memoria source; grounded in the current code (citations inline
 > in the audit) and the in-repo docs.
 
 ## Headline
@@ -22,7 +22,7 @@ Fork fidelity is **strong on the "physical" layer and partial-to-absent on the "
   cutscene** is NOT a separate problem — it runs from the field's own `.eb`, so a **verbatim** fork carries
   it; see the `NarrowMapList` correction below.)
 
-**Honest grade: a high-fidelity diorama of a field, not yet a faithful slice of the playthrough** — *via the
+**Current state: a high-fidelity diorama of a field, not yet a faithful slice of the playthrough** — *via the
 declarative carry.* You can fork a story room and walk around it faithfully; the declarative rebuild can't yet
 have it *behave* as that story beat.
 
@@ -87,52 +87,62 @@ caveats above are then governed by each donor's real story gating, presettable p
 ## Prioritized worklist (biggest leverage first)
 
 A **graft-code** tag = a fix would edit `content/object.py` / `content/player.py` / `eventscan.py` /
-`content/savepoint.py` / the `extract.py` graft code. The save-moogle carry **LANDED
-(2026-06-11)**, so the graft-tagged items (#9, #11, #12) are workable too (no longer
-deferred). Orthogonal items remain the lowest-risk picks.
+`content/savepoint.py` / the `extract.py` graft code. The save-moogle carry **LANDED**,
+so the graft-tagged items (#9, #11, #12) are workable too (no longer deferred). Orthogonal items remain the lowest-risk picks.
 
 | # | Gap | Sev | Diff | Graft code | Status |
 |---|-----|-----|------|:---:|-----------|
-| 1 | ~~**Story-flag / scenario presets** — a fork boots at scenario-zero~~ | **blocker** | medium | no | ✅ **LANDED** — the `[startup]` block (boot in the right beat). |
-| 2 | ~~Story-branch **doors** collapsed (`if(flag){Field(A)}else{Field(B)}`)~~ | major | medium | no | ✅ **LANDED + IN-GAME PROVEN** — gated co-zone doors flagged + carried verbatim (see below). |
-| 3 | ~~Scenario-counter doesn't advance on exit → chaining forks never progresses the story~~ | major | medium | no | ✅ **LANDED** — `[[gateway]]` `set_scenario` / `set_flags` on walk-out. |
-| 4 | ~~**BG-borrow black-screens area<10** (Alexandria area1, Cargo Ship area0)~~ | **blocker** | easy | no | ✅ **LANDED** — `import` auto-routes area<10 to `--native` (in-game proven). |
-| 5 | ~~Talkable-stub / dangling-player-tag **softlock / wrong-text on a plain (no-flag) import**~~ | major | medium | no | ✅ **LANDED** — build-blocking dangling-tag error + un-carried-text lint warn. |
+| 1 | ~~**Story-flag / scenario presets** — a fork boots at scenario-zero~~ | **blocker** | medium | no | **LANDED** — the `[startup]` block (boot in the right beat). |
+| 2 | ~~Story-branch **doors** collapsed (`if(flag){Field(A)}else{Field(B)}`)~~ | major | medium | no | **LANDED + IN-GAME PROVEN** — gated co-zone doors flagged + carried verbatim (see below). |
+| 3 | ~~Scenario-counter doesn't advance on exit → chaining forks never progresses the story~~ | major | medium | no | **LANDED** — `[[gateway]]` `set_scenario` / `set_flags` on walk-out. |
+| 4 | ~~**BG-borrow black-screens area<10** (Alexandria area1, Cargo Ship area0)~~ | **blocker** | easy | no | **LANDED** — `import` auto-routes area<10 to `--native` (in-game proven). |
+| 5 | ~~Talkable-stub / dangling-player-tag **softlock / wrong-text on a plain (no-flag) import**~~ | major | medium | no | **LANDED** — build-blocking dangling-tag error + un-carried-text lint warn. |
 | 6 | Battle-scene BGM metadata not wired (minted scene plays silent) | major | medium | no | OPEN — extract donor scene's battle song id → emit `BtlEncountBgmMetaData.txt` at build (battle/ + BattlePatch; no field graft). |
-| 7 | ~~Large scrolling field unverified in real gameplay (math implemented + unit-tested only)~~ | minor | easy | no | ✅ **VERIFIED IN-GAME** — wide Alexandria Main St (3000) scrolls 1:1. |
+| 7 | ~~Large scrolling field unverified in real gameplay (math implemented + unit-tested only)~~ | minor | easy | no | **VERIFIED IN-GAME** — wide Alexandria Main St (3000) scrolls 1:1. |
 | 8 | BG-borrow `.bgx` tile seams (bilinear path; edge-bleed exists only on the editable path) | major | medium | no | OPEN (mitigated) — steer faithful forks to `--native` (seam-free); optionally port edge-bleed into the `.bgx` writer. |
-| 9 | ~~Per-door spawn arrival — one spawn regardless of entrance~~ | major | hard | was yes | ✅ **LANDED + IN-GAME PROVEN** — Arrival diagnostic + real-arrival default spawn (see below). |
-| 10 | Field-entry cutscene on a fork | major | **mostly SOLVED** | no | ✅ **Premise corrected, covered both ways** — `--verbatim` carries the real cutscene; `[[on_entry]]` re-authors one (see below). |
+| 9 | ~~Per-door spawn arrival — one spawn regardless of entrance~~ | major | hard | was yes | **LANDED + IN-GAME PROVEN** — Arrival diagnostic + real-arrival default spawn (see below). |
+| 10 | Field-entry cutscene on a fork | major | **mostly SOLVED** | no | **Premise corrected, covered both ways** — `--verbatim` carries the real cutscene; `[[on_entry]]` re-authors one (see below). |
 | 11 | Non-tag-3 / choice/menu window carry — carried NPCs' choice prompts + event windows still point at donor TXIDs | major | medium | partly | OPEN (mostly covered + lint-warned) — residual = 2 niche fields' `[[gateway_carry]]` windows (352, 552); use `--verbatim`. |
 | 12 | Non-Zidane player donors (~8%, Garnet/Steiner rig clip-id mismatch) | major | hard | **yes** | OPEN — clip-id remap table per donor rig, or carry the donor party-member as the fork player. **Defer** (player.py). |
 | 13 | Per-fork battle-background override (scene_id maps to BBG globally) | major | hard | no | OPEN (low priority) — only when minting a scene that reuses vanilla gameplay but a custom BBG; battle-pillar enhancement. |
-| 14 | ~~Make a forked field's render-only NPCs interactive (talk-handler graft closure)~~ | major | — | **was yes** | ✗ **CLOSED — PROVEN INFEASIBLE** — `--verbatim` is the answer; `fork-report --explain` reads the quest (see below). |
+| 14 | ~~Make a forked field's render-only NPCs interactive (talk-handler graft closure)~~ | major | — | **was yes** | **CLOSED — PROVEN INFEASIBLE** — `--verbatim` is the answer; `fork-report --explain` reads the quest (see below). |
 
-**#2 — gated story-branch doors (LANDED + in-game proven).** The import flags stacked story-branch doors (>1 distinct
-dest at one zone; ~43 real fields) with a note + `requires_flag` stub per branch + a count/warning, and `lint_logic` warns
-on ungated co-zone gateways; gating is proven end-to-end (`requires_flag`→`gate_flag`). **#2b:** a real `if(flag)` door is a
-complex multi-flag state machine, not a simple gate, so it is carried **VERBATIM** — `scan_gateway_entries` classifies it, the
-import emits a `[[gateway_carry]]` block + `.gatewayN.bin` sidecar, and `graft_gateway_entry` grafts the whole entry +
-retargets its `Field()` ids (its GLOB conditions then read the `[startup]` story state). A forked Dali Inn gated door stays
-**closed at scenario-zero** (reads GLOB flags 2064/2073/2078). 40 fields have them; **35/~50 gated entries are self-contained
-(carried)**. The 17 ref-bearing entries (15 fields) were census-classified by ref TARGET (2026-07-12, closing worklist #3):
-**player-call doors** — the door `RunScript`s the PLAYER (walk-through choreography; a call by PC entry index aliases to
-uid 250 on multi-PC fields) — are **CARRIED with `--graft-player-funcs`**: the called funcs join the player-func graft
-plan (a new `"walk"` safety tier admits gesture+scripted-walk bodies in the door lane only; the NPC lane is unchanged),
-and the door's calls are remapped at build via the object-carry ref machinery (`[[gateway_carry]]` `player_calls` +
-`donor_entry` + `donor_player_entry`). Census-vetted carries — **all 3 ★ in-game proven**: **254** (Evil Forest — the
-first-crossing one-shot sequence walks the player through, the repeat crossing takes the plain warp), **553**
-(Lindblum Inn — the sprint-entry slow walk-out is faithful; needed the ARMING-ORDER fix: the carried door's
-`InitRegion` must come AFTER the player's `InitObject` in Main_Init, since creation order is engine tick order
-and a door armed first lets the controller re-stamp run speed over the script's `SetWalkSpeed(30)` mid-handshake
-— `edit.activate(after_player=True)`), and **1904** (Treno — the FULL door-open choreography: the turn+reach
-gesture, the door art swinging open via BG tile animation riding the native fork's verbatim scene data, and the
-slow push-through walk). The
-rest stay ungated seams **by proof, not by gap** — their refs ARE the field's own cutscene logic (sibling funcs hold the
-real `Field()` warps + Main_Init calls — 2504's warp-sequence even hides behind a leading `WindowSync` as safety
-`"text"`, which is exactly why the door lane accepts only `"clean"`/`"walk"`); shared-script (350), party-band (2222),
-and mixed/sibling refs (403, 507, 556, 1423, 1451 non-Zidane, 1602, 1606, 2173, 2221, 2504) are `--verbatim`-only —
-the same closure class as #14.
+**#2 — gated story-branch doors (LANDED + in-game proven).**
+
+*What the import flags.* Stacked story-branch doors (>1 distinct dest at one zone; ~43 real fields) get a
+note + a `requires_flag` stub per branch + a count/warning, and `lint_logic` warns on ungated co-zone
+gateways; gating is proven end-to-end (`requires_flag`→`gate_flag`).
+
+*What is carried verbatim (#2b).* A real `if(flag)` door is a complex multi-flag state machine, not a
+simple gate, so it is carried **VERBATIM** — `scan_gateway_entries` classifies it, the import emits a
+`[[gateway_carry]]` block + `.gatewayN.bin` sidecar, and `graft_gateway_entry` grafts the whole entry +
+retargets its `Field()` ids (its GLOB conditions then read the `[startup]` story state). A forked Dali Inn
+gated door stays **closed at scenario-zero** (reads GLOB flags 2064/2073/2078). 40 fields have them;
+**35/~50 gated entries are self-contained (carried)**.
+
+*Player-call doors.* The 17 ref-bearing entries (15 fields) were census-classified by ref TARGET (closing
+worklist #3): **player-call doors** — the door `RunScript`s the PLAYER (walk-through choreography; a call
+by PC entry index aliases to uid 250 on multi-PC fields) — are **CARRIED with `--graft-player-funcs`**:
+the called funcs join the player-func graft plan (a new `"walk"` safety tier admits gesture+scripted-walk
+bodies in the door lane only; the NPC lane is unchanged), and the door's calls are remapped at build via
+the object-carry ref machinery (`[[gateway_carry]]` `player_calls` + `donor_entry` + `donor_player_entry`).
+The census-vetted carries — all 3 in-game proven:
+
+- **254** (Evil Forest) — the first-crossing one-shot sequence walks the player through; the repeat
+  crossing takes the plain warp.
+- **553** (Lindblum Inn) — the sprint-entry slow walk-out is faithful; needed the ARMING-ORDER fix: the
+  carried door's `InitRegion` must come AFTER the player's `InitObject` in Main_Init, since creation order
+  is engine tick order and a door armed first lets the controller re-stamp run speed over the script's
+  `SetWalkSpeed(30)` mid-handshake — `edit.activate(after_player=True)`.
+- **1904** (Treno) — the FULL door-open choreography: the turn+reach gesture, the door art swinging open
+  via BG tile animation riding the native fork's verbatim scene data, and the slow push-through walk.
+
+*What stays verbatim-only, and why.* The rest stay ungated seams **by proof, not by gap** — their refs ARE
+the field's own cutscene logic (sibling funcs hold the real `Field()` warps + Main_Init calls — 2504's
+warp-sequence even hides behind a leading `WindowSync` as safety `"text"`, which is exactly why the door
+lane accepts only `"clean"`/`"walk"`); shared-script (350), party-band (2222), and mixed/sibling refs
+(403, 507, 556, 1423, 1451 non-Zidane, 1602, 1606, 2173, 2221, 2504) are `--verbatim`-only — the same
+closure class as #14.
 
 **#9 — per-door arrival (LANDED + in-game proven; the synth-side table CLOSED by the field-entry arc).**
 `eventscan.scan_player_arrivals` decodes the real per-entrance arrival table; `fork-report` gains an **Arrival** line
@@ -150,7 +160,7 @@ own `.eb`. So `--verbatim` carries the real cutscene (proven — Vivi/field 100'
 (`content/onentry.py`) re-authors a gated, once entry beat for a synth fork. The only residual is cosmetic + keyed on the
 donor's real id (widescreen `NarrowMapList.MapWidth` defaults to 500 for a custom id; a few per-actor anim tweaks; field-70 FMV).
 
-**#14 — render-only NPC talk-handler graft (closed, proven infeasible 2026-06-12).** A census of all 675 fields under maximal
+**#14 — render-only NPC talk-handler graft (closed, proven infeasible).** A census of all 675 fields under maximal
 grafting found **55 NPCs / 36 fields lose their tag-3 talk handler, and 0 are blocked only by a graftable gesture** — a dropped
 tag-3 is the field's quest logic, inseparable from its text/economy/geometry. `--verbatim` already carries it byte-for-byte
 (the standing answer); shipped instead: `fork-report --explain` decodes any field's NPC routines to readable English.
@@ -181,7 +191,7 @@ worldmap unlocks, noise-filtered + region-labeled) a downstream fork should seed
 
 ## The carry decision — bring-in vs drop vs impossible (fork-mode taxonomy)
 
-> A cross-dimension consolidation (2026-06-14), verified against real FF9 bytes and the Memoria source; every
+> A cross-dimension consolidation, verified against real FF9 bytes and the Memoria source; every
 > "impossible/should-not" call was adversarially challenged, and the corrections are folded in —
 > refuted claims are NOT carried forward; two were re-verified against live code before landing here.
 > It reframes the "Solved vs worklist" split above into the question an author actually faces per content type:
@@ -194,7 +204,7 @@ worldmap unlocks, noise-filtered + region-labeled) a downstream fork should seed
 > reuse / keep on `--verbatim`) and a **Lost on mint** section (the engine behaviors keyed on the real `fldMapNo`
 > a fork loses: walkmesh hotfix, narrow-map letterbox, Chocobo dig HUD, intro FMV, **ATE achievement** — each
 > noted auto-reproduced vs fork-in-place). Backed by `idgated.py` (+ the baked `_narrowmap_data.py` widths) and
-> `walkmesh_hotfixes.py`. ★ **v2 (kit 0.10.0):** the **ATE achievement** is now per-field — the *ATE80* trophy is
+> `walkmesh_hotfixes.py`. **v2 (kit 0.10.0):** the **ATE achievement** is now per-field — the *ATE80* trophy is
 > keyed on `fldLocNo`, and `fldLocNo == eventIDToMESID[fldMapNo]` (`HonoluluFieldMain.cs:19`), i.e. the field's
 > registered MES id, so `idgated` resolves it from the baked `EVENT_ID_TO_MES` and flags the loss when that
 > location is in `EMinigame.MappingATEID` (the ATE still plays; only the trophy bookkeeping is id-bound). And the
@@ -221,7 +231,7 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
   **engine tables keyed on the real `fldMapNo`/FBG-name** that a minted id (≥4000) is simply absent from, with **no
   `.eb` opcode reach**. For each, a DLL patch *would* solve it (the `s23` narrow-map
   patch is the template) — and the shipped **`s23`–`s33` patch suite** (see below) now does exactly that for most of them.
-- **Perspective movement arcs are NOT a genuine residual** (corrected 2026-06-15 — an earlier draft called ladder
+- **Perspective movement arcs are NOT a genuine residual** (corrected — an earlier draft called ladder
   climb-arcs / jump parabolas / the save-Moogle pop-out "copy-only, never generated from scratch"; that was wrong).
   These arcs are authored in **world coordinates**, and the engine projects world→screen through the fixed camera
   automatically (the solved scale-1 camera math) — so the "perspective" is **free**, there is nothing to hand-tune in
@@ -232,17 +242,17 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
       mount/dismount) from just the **two world endpoints** — *"any new painted vine just supplies its own two
       points (read off the paint guide, same as walkmesh placement)."* Decoded byte-for-byte from field 706
       (Gizamaluke vine) and reproduces 706's loop verbatim for 706's endpoints. NOT copy-only.
-    - **Jumps — generated from scratch TODAY (★ IN-GAME PROVEN 2026-07-22).** `jump_arc_body(to, via=, steps=)`
+    - **Jumps — generated from scratch TODAY (IN-GAME PROVEN).** `jump_arc_body(to, via=, steps=)`
       (`content/jump.py`) generates the census-modal Ice Cavern hop template from just the landing
       point(s) — grounded byte-for-byte (all 6 of field 301's real arcs regenerate identically from
       their coords; a 15-field/51-hop full-game census pinned the template + the leap/land sfx pair +
       the modal 11-frame duration). `[[jump]] to = [x, z, y]` is the authoring surface; `jump = "file"`
-      stays the faithful verbatim lane. NOT copy-only anymore. ★ In-game proven same day (slot-4003
+      stays the faithful verbatim lane. NOT copy-only anymore. In-game proven (slot-4003
       demo: single-hop both directions at 16/6 frames + a two-hop `via=` crossing — "good").
-    - **Save-Moogle pop-out — ALSO generated from scratch** (`reveal_style = "barrel_pop"`, 2026-07-19:
+    - **Save-Moogle pop-out — ALSO generated from scratch** (`reveal_style = "barrel_pop"`:
       the pop is a VERTICAL hop derived from the container's own spot + `reveal_height`, nothing
-      hand-copied; the census-invariant airborne spine from the 4 canonical donors). The 2026-07-22
-      full-protocol decode closed its last live bug ★ in-game proven (the perch-side walkmesh snap —
+      hand-copied; the census-invariant airborne spine from the 4 canonical donors). The
+      full-protocol decode closed its last live bug, in-game proven (the perch-side walkmesh snap —
       pathing now per-spot: floor attaches, off-floor detaches; the user identified the same snap as a
       LATENT STOCK-GAME bug — the real 407 moogle can get stuck in its barrel, saved in situ only by
       its off-mesh cask corner). Nothing in this arc-generator class is copy-only anymore.
@@ -309,15 +319,15 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
 
 - **Area-title card** ("Mognet Central"/"Ice Cavern") — donor-identity name overlays. HANDLED: `[field]
   hide_area_title=true` → `content/areatitle.hide` prepends `ShowTile(i,0)`; hub auto-emits. In-game proven (hub 4600).
-  ✅ **Now also auto-suppressed on a `--native`/`--editable` synth fork** (kit 0.9.97): the leak isn't BG-borrow-only
+  **Now also auto-suppressed on a `--native`/`--editable` synth fork** (kit 0.9.97): the leak isn't BG-borrow-only
   — the title is keyed on the scene `mapName` (`FieldMapLocalizeAreaTitle.GetInfo`) and active-by-default, so a synth
   fork ships the donor scene's overlays with no donor `.eb` to fade them (static card). `import --native`/`--editable`
   of an area-title field auto-emits `hide_area_title` + `area_title_overlays` (via `areatitle.title_range`);
   **`--verbatim` is left untouched** (it carries the donor `.eb`'s real scenario-gated show+fade — title wanted there).
-  ★ **IN-GAME PROVEN by A/B (2026-06-14):** two native Mognet Central (3100) forks — id 30006 *without* the hide shows
+  **IN-GAME PROVEN by A/B:** two native Mognet Central (3100) forks — id 30006 *without* the hide shows
   the static "Mognet Central" card (the leak is real for native forks), id 30005 *with* the auto-emitted hide shows
   no card (the suppression works).
-  ✅ **Engine name-keyed gates — investigated + closed (2026-06-23, no fix needed for English).** The s32 census
+  **Engine name-keyed gates — investigated + closed (no fix needed for English).** The s32 census
   flagged two name-keyed engine gates for the area title; a follow-up engine read RESOLVED them as a non-issue:
   `FieldMap.SetFieldMapAtlasName` (the `atlas_<lang>` rename) has **zero runtime callers** (dead code — the runtime
   atlas load is a flat `Load("atlas")`, `BGSCENE_DEF.cs:839`), so the feared "fork loads a localized atlas it doesn't
@@ -331,7 +341,7 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
 - **Scenario cutscene roster / warp-directors carried as standing NPCs** — HANDLED on synth (`_loop_warps` drops any
   LOOP firing `Field()`; 2-shopkeeper→1 proven) and BG-borrow (carries no `.eb`). The destructive synth-drop keys
   on `Field()` (0x2B) ONLY — **deliberately narrow** (spares animated props + the save-Moogle puppet, per worklist
-  #13b). ★ **CENSUS-SETTLED (2026-07-07): the "pure phase-switch rotation director" is a PHANTOM — do not widen the
+  #13b). **CENSUS-SETTLED: the "pure phase-switch rotation director" is a PHANTOM — do not widen the
   drop to 0x06.** Sweeping all 818 fields for a pure phase-switch LOOP (op 0x06, no 0x2B): **527** exist, but the
   ONLY roster-ish op any of them contains is `CreateObject` (41 LOOPs) — and `CreateObject` is a SELF op (engine
   0x1D = *"place/replace the 3D model on the field"* for the object itself; `build_npc_init` uses it as
@@ -362,60 +372,73 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   Carrying it would be *more* faithful; synth collapses to one spawn only because multi-branch player-Init authoring
   (decode + entrance-write + SWITCHEX-emit — all primitives the kit already has) isn't wired. `--verbatim` carries it.
 
-### Audit corrections & doc-refresh items (verified against live code 2026-06-14)
+### Audit corrections & doc-refresh items
 
-- **`[startup]`/`[party]`/`[[on_entry]]` on a 0x06-jump-table donor WORKS** — a prepend (`rel_off==0`) is exempt from
-  the jump-table refusal (`eb/edit.py:227`, the check only fires on a *mid-function* insert; docstring cites field
-  206). **✅ FIXED (kit 0.9.99):** the `_field_load_inject` docstring + BuildError message + `content/party.py`'s
-  `inject_party` docstring no longer claim prepending fails on a jump-table donor or cite "field 100" — they now say
-  a prepend is always safe (the levers all prepend / append-activate) and the guard is a *defensive* net for a
-  hypothetical future mid-function field-load insert.
-- **Battle BGM (#6) — auto-detection LANDED for random encounters; the real residual is SCRIPTED battles.**
-  `import` now auto-detects the donor's battle song (`battle_bgm.py` reads the install's `BtlEncountBgmMetaData.txt`
-  `(field, scene) -> song` map LIVE, provenance-clean) and prefills `[encounter] battle_music`; the build reproduces
-  it via the scene-keyed `Music:` BattlePatch line (`FF9SndMetaData.BtlBgmPatcherMapper`, which wins over the lost
-  `(fldMapNo, scene)` lookup a mint can't satisfy). ★ **EMPIRICAL FINDING (kit 0.9.99):** every one of the game's
-  ~101 *random*-encounter fields maps to song `0` (the standard Battle Theme), so the prefill is correctness /
-  future-proofing, not a behavior change for existing forks. The SPECIAL battle themes (e.g. song `35`) belong to
-  ~30 *scripted*-battle fields (a `Battle(0x2A)` op, scene at `imm(1)`, NO `SetRandomBattles`) — a `--verbatim` fork
-  carries the `Battle` op but the kit emits no `Music:` line, so the boss theme is lost on the custom `fldMapNo`.
-  ★ **✅ CLOSED (kit 0.9.101): the scripted-battle carry.** `eventscan.scan_battle_scenes` decodes the donor's
-  `Battle(0x2A)`/`BattleEx(0x8C)` scenes (scene = `btlId & 0x7FFF`, engine `DoEventCode.cs:962`); `import --verbatim`
-  looks each up in the BGM map and auto-emits `[[battle_bgm]] scene=N song=M` for the NON-zero (boss/special)
-  songs; the build emits a scene-keyed `Music:` line per pair (deduped — `BtlBgmPatcherMapper` is scene-keyed +
-  mod-global). Song 0 is skipped (= the build default + would override the scene globally for nothing), so random
-  encounters (all song 0) add no lines. ★ **IN-GAME PROVEN (2026-06-17):** a `--verbatim` fork of `EVT_GIZ_BOSS`
-  (field 707, Gizamaluke / Sacred Room) → `[[battle_bgm]] scene=326 song=35` → `Battle: 326 / Music: 35`; deployed
-  to slot 30050 (`FF9CustomMap-bt`), the Gizamaluke fight plays the **boss battle theme** (song 35), not the normal
-  battle theme — confirmed by ear in-game. (Offline-proven first on `import 656 --verbatim` = KUINA_KM_SWP/Marsh,
-  scene 330 → 35.) **#6 fully closed (random prefill + scripted carry), in-game proven.**
-- **✅ LANDED — engine walkmesh hotfixes lost on a mint (`walkmesh_hotfixes.py` + `content/walkmesh_hotfix.py`,
-  kit 0.9.97).** A handful of fields rely on a hardcoded `BGI_triSetActive` keyed on the real `fldMapNo` (toggles a
-  walkmesh triangle's walkable bit); a fork runs at a custom id, so the `mapNo==<real id>` guard is false and the
-  hotfix never fires. The catalog classifies all ~11 fields (from `FieldMap.cs` / `DoEventCode.cs` /
-  `turnOffTriManually.cs`) into two classes: **LOAD-TIME unconditional** (Gulug 2356, L.Castle 2161, I.Castle 2507) →
-  **AUTO-reproduced** — `import` emits `[field] walkmesh_tri_toggles` and the build prepends `EnablePathTriangle(tri,
-  state)` (opcode 0x9A == the engine's `BGI_triSetActive`) to Main_Init (the `.bgi` stays byte-verbatim); and
-  **EVENT-CODE / DYNAMIC** (Daguerreo 2803 — tracks `gEventGlobal` var 761060 — Treno 900, Dali 450, Fossil Roo 1421,
-  1753/1606/1900/1455) which key on runtime position/sid/story-var state, so they're **flagged** by `fork-report`
-  ("Walkmesh fix: lost on a mint → fork in-place") rather than auto-applied. Refines #14's "verbatim is the answer":
-  even a verbatim fork at a remapped id loses these; the load-time subset is now reproduced, the dynamic ones steer
-  to fork-in-place. ★ **IN-GAME PROVEN by A/B (2026-06-14, Gulug 2356):** two identical native forks — id 30003
-  *with* the toggle, id 30004 *without* — teleporting to the deactivated-patch EDGE (−543,1667), ~120u from the
-  chest (beyond its collision reach), is **STUCK with the toggle and FREE without it**. So the prepended
-  `EnablePathTriangle` is what blocks that floor, not the co-located treasure-chest prop (entry 5,
-  `GEO_ACC_F0_TBX` @ (−426,1664)); the patch extends ~120u around the chest, so it blocks *more* than the chest's
-  collision — the hotfix is not redundant. (Notes: the engine's "Red Dragon bursting
-  through wall" comment names the *room*, not the tris' job; a co-located created object's `CreateObject` registers
-  walkmesh collision (`BGI_charSetActive`) and can mask the toggle at the patch *center* — isolate it at the edge;
-  the A/B isolation is what proves it.)
-- **Mognet/Chocobo-Paradise world-map alternate-form STATE (bits 815/814) is BROUGHT-IN** — `WorldConfiguration.cs`
-  `UsePlaceAlternateForm` is a pure `gEventGlobal` byte read (NOT id-gated), so `[startup] flags=[{flag=815}]`
-  reproduces it; only the achievement-WRITE paths (`DigUpKupo fldMapNo==1421`, ATE80) are id-blocked.
+**`[startup]`/`[party]`/`[[on_entry]]` on a 0x06-jump-table donor WORKS.**
 
-## Docs to refresh (flagged by the audit)
+A prepend (`rel_off==0`) is exempt from the jump-table refusal (`eb/edit.py:227`, the check only fires on
+a *mid-function* insert; docstring cites field 206).
 
-- `docs/OBJECT_CARRY.md` §7 / `content/prop.py` "save-moogle (field 300, entry 5)" — **FIXED 2026-07-17**
-  (this flag itself had it backwards): entry 5 is a type-2 moogle accessory prop (`GEO_ACC_F0_MGP`) whose Init
-  IS the cited prop recipe — only the noun was stale; the shown talkable moogle is entry 3 (`GEO_NPC_F0_MOG`);
-  entry 9 is the player (Zidane). Hidden-in-cask is field 122 (map122; real field id 407) entries 5–10.
+FIXED (kit 0.9.99): the `_field_load_inject` docstring + BuildError message + `content/party.py`'s
+`inject_party` docstring no longer claim prepending fails on a jump-table donor or cite "field 100" —
+they now say a prepend is always safe (the levers all prepend / append-activate) and the guard is a
+*defensive* net for a hypothetical future mid-function field-load insert.
+
+**Battle BGM (#6) — fully closed (random prefill + scripted carry), in-game proven.**
+
+Auto-detection LANDED for random encounters: `import` auto-detects the donor's battle song
+(`battle_bgm.py` reads the install's `BtlEncountBgmMetaData.txt` `(field, scene) -> song` map LIVE,
+provenance-clean) and prefills `[encounter] battle_music`; the build reproduces it via the scene-keyed
+`Music:` BattlePatch line (`FF9SndMetaData.BtlBgmPatcherMapper`, which wins over the lost
+`(fldMapNo, scene)` lookup a mint can't satisfy). EMPIRICAL FINDING (kit 0.9.99): every one of the game's
+~101 *random*-encounter fields maps to song `0` (the standard Battle Theme), so the prefill is
+correctness / future-proofing, not a behavior change for existing forks.
+
+The scripted-battle carry, CLOSED (kit 0.9.101): the SPECIAL battle themes (e.g. song `35`) belong to
+~30 *scripted*-battle fields (a `Battle(0x2A)` op, scene at `imm(1)`, NO `SetRandomBattles`) — a
+`--verbatim` fork carries the `Battle` op, and without the carry the boss theme was lost on the custom
+`fldMapNo`. `eventscan.scan_battle_scenes` decodes the donor's `Battle(0x2A)`/`BattleEx(0x8C)` scenes
+(scene = `btlId & 0x7FFF`, engine `DoEventCode.cs:962`); `import --verbatim` looks each up in the BGM map
+and auto-emits `[[battle_bgm]] scene=N song=M` for the NON-zero (boss/special) songs; the build emits a
+scene-keyed `Music:` line per pair (deduped — `BtlBgmPatcherMapper` is scene-keyed + mod-global). Song 0
+is skipped (= the build default + would override the scene globally for nothing), so random encounters
+(all song 0) add no lines.
+
+IN-GAME PROVEN: a `--verbatim` fork of `EVT_GIZ_BOSS` (field 707, Gizamaluke / Sacred Room) →
+`[[battle_bgm]] scene=326 song=35` → `Battle: 326 / Music: 35`; deployed to slot 30050
+(`FF9CustomMap-bt`), the Gizamaluke fight plays the **boss battle theme** (song 35), not the normal
+battle theme — confirmed by ear in-game. (Offline-proven first on `import 656 --verbatim` =
+KUINA_KM_SWP/Marsh, scene 330 → 35.)
+
+**LANDED — engine walkmesh hotfixes lost on a mint (`walkmesh_hotfixes.py` + `content/walkmesh_hotfix.py`,
+kit 0.9.97).**
+
+A handful of fields rely on a hardcoded `BGI_triSetActive` keyed on the real `fldMapNo` (toggles a
+walkmesh triangle's walkable bit); a fork runs at a custom id, so the `mapNo==<real id>` guard is false
+and the hotfix never fires. The catalog classifies all ~11 fields (from `FieldMap.cs` / `DoEventCode.cs` /
+`turnOffTriManually.cs`) into two classes: **LOAD-TIME unconditional** (Gulug 2356, L.Castle 2161,
+I.Castle 2507) → **AUTO-reproduced** — `import` emits `[field] walkmesh_tri_toggles` and the build
+prepends `EnablePathTriangle(tri, state)` (opcode 0x9A == the engine's `BGI_triSetActive`) to Main_Init
+(the `.bgi` stays byte-verbatim); and **EVENT-CODE / DYNAMIC** (Daguerreo 2803 — tracks `gEventGlobal`
+var 761060 — Treno 900, Dali 450, Fossil Roo 1421, 1753/1606/1900/1455) which key on runtime
+position/sid/story-var state, so they're **flagged** by `fork-report` ("Walkmesh fix: lost on a mint →
+fork in-place") rather than auto-applied.
+
+Refines #14's "verbatim is the answer": even a verbatim fork at a remapped id loses these; the load-time
+subset is now reproduced, the dynamic ones steer to fork-in-place.
+
+IN-GAME PROVEN by A/B (Gulug 2356): two identical native forks — id 30003 *with* the toggle, id 30004
+*without* — teleporting to the deactivated-patch EDGE (−543,1667), ~120u from the chest (beyond its
+collision reach), is **STUCK with the toggle and FREE without it**. So the prepended `EnablePathTriangle`
+is what blocks that floor, not the co-located treasure-chest prop (entry 5, `GEO_ACC_F0_TBX` @
+(−426,1664)); the patch extends ~120u around the chest, so it blocks *more* than the chest's collision —
+the hotfix is not redundant. (Notes: the engine's "Red Dragon bursting through wall" comment names the
+*room*, not the tris' job; a co-located created object's `CreateObject` registers walkmesh collision
+(`BGI_charSetActive`) and can mask the toggle at the patch *center* — isolate it at the edge; the A/B
+isolation is what proves it.)
+
+**Mognet/Chocobo-Paradise world-map alternate-form STATE (bits 815/814) is BROUGHT-IN.**
+
+`WorldConfiguration.cs` `UsePlaceAlternateForm` is a pure `gEventGlobal` byte read (NOT id-gated), so
+`[startup] flags=[{flag=815}]` reproduces it; only the achievement-WRITE paths
+(`DigUpKupo fldMapNo==1421`, ATE80) are id-blocked.

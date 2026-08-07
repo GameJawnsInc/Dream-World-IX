@@ -1,4 +1,4 @@
-# What `ff9mapkit` can do
+# Capability inventory — what `ff9mapkit` can do
 
 The complete capability list. **✓** = verified **in real gameplay** (not just compiled);
 **◐** = offline-validated (builds + passes the codec/golden tests) with the full in-game pass
@@ -157,7 +157,7 @@ and marker commands are stock-engine.
 Two-player co-op ("ghost sync"): each player sees the other walk a shared field in real time, and
 the host can grant the guest party slots to command in battle plus a "visitor mode" that dresses the
 ghost as a real party member and follows the host between screens. Requires the Dream World IX
-custom engine's `s36`–`s41` netsync patches ([ENGINE.md](ENGINE.md)), shipped in the pre-built
+custom engine's netsync patch suite ([ENGINE.md](ENGINE.md)), shipped in the pre-built
 engine bundle. Every save stays each player's own. The wire protocol still changes from release to
 release — both machines must run the same bundle version.
 
