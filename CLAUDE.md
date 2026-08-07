@@ -300,7 +300,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Click authoring — ★★ Rungs 0-4 + 6a-6d owner-confirmed; recompose now MERGES (keeps npc/doors/layers/art); 7b+7d playtests deployed 30700-30702 → `studies/click-authoring/PLAN.md`
 - Path D, the genuinely new 3rd overworld — ★★★ rungs 0-6 ALL DONE, ladder complete: the 9013 round trip owner-confirmed, bench 30950 entry + "!"-Confirm exit; next = §8 polish at owner's call → `studies/path-d-new-world/rung6/`; laws → [[project-ff9-overhang-context-law]]
 - In-game 100%-completion Journal — ★ rungs 0+0b owner-confirmed on bench 30800 (every DLL-free read path works, incl. memoria-vars and flex) and T1 `journal report` BUILT; catalog prose is the dominant cost → `studies/completion-journal/PLAN.md`
-- Interactive docs (docsite/) — site+CLI-ref+shots+tutorial system BUILT, gates green; core track S1-S7 drafted (playtest pending), CLI track C1-C4 shipped; UI gate now covers editor FORM labels (`form:<spec>.<key>`, Qt-free, freshness-tested) → `studies/interactive-docs/` (critique + ranked structural items: `REVAMP-CRITIQUE.md`)
+- Interactive docs (docsite/) — site+CLI-ref+shots+tutorials BUILT, gates green; S1-S7 drafted (playtest pending), C1-C4 shipped; critique #1-4 CLOSED (recipes, Track-C boundary, tutorials 15+16) → `studies/interactive-docs/REVAMP-CRITIQUE.md`
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
 **Latest release:** kit **1.0.0b19** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s79, first full-stack replay).
