@@ -3531,6 +3531,33 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
     raw = project.raw
     out: list[str] = []
 
+    # THE PUBLIC-FLAG EXCEPTION: a [behavior] public_flag is DESIGNED to be written from
+    # outside the compiled system (its docstring names a [[choice]] row's set_flag as the
+    # intended writer -- the BTWAR/BTPOOL lever idiom), and it allocates inside the
+    # blackboard band. Recompute this field's own public-flag indices through the same
+    # deterministic allocation the bench generators rely on (slot numbers don't feed the
+    # blackboard order) and sanction exactly those; any OTHER raw index in a reserved
+    # band keeps the full warning. Best-effort: a raw that can't build falls back to
+    # warning on everything, never crashing the lint.
+    sanctioned: set[int] = set()
+    _b = raw.get("behavior") or {}
+    if _b.get("public_flags"):
+        try:
+            from .content import behaviortoml as _bt
+            slots: dict[str, int] = {}
+            for u in _b.get("unit", []) or []:
+                for m in _bt.row_members(u):
+                    slots.setdefault(m, len(slots) + 2)
+            _fb = _bt.build(raw, npc_slots=slots,
+                            npc_txids_by_name={n.get("name"): 0
+                                               for n in raw.get("npc", []) or []},
+                            behavior_txids={})
+            if _fb is not None:
+                sanctioned = {_fb.bb.flag(str(n)) for n in _b["public_flags"]}
+                sanctioned.update(getattr(_fb, "pool_flags", {}).values())
+        except Exception:                     # noqa: BLE001 -- validate owns refusals
+            pass
+
     def _flag_index(v):
         """The flag index from a ``set_flag`` value -- ``[idx, val]`` (the documented shape) or a bare
         ``idx`` -- or None for an empty/odd value. Defensive so a malformed toml never crashes the lint."""
@@ -3543,6 +3570,8 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
             idx = int(idx)
         except (TypeError, ValueError):
             return
+        if idx in sanctioned:
+            return                            # this field's own declared lever flag
         if _flags.is_reserved(idx):
             r = _flags.bit_region(idx)
             out.append(f"{who} writes story flag {idx}, inside FF9's reserved '{r.name}' region "

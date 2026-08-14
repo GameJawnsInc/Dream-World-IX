@@ -1,0 +1,3 @@
+# generated bench output (sims_bench.py gen) -- the generator is the source;
+# the art/ pngs are byte-copies of the bundled siege placeholders
+bench/
