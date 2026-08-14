@@ -87,7 +87,7 @@ FORCED_ATE_TAG = 38      # player-entry func tag for the forced-ATE warp sequenc
 
 
 def forced_ate_warp_body(target: int, *, mode: int = ATE_DEFAULT_MODE, frames: int = ATE_WARN_FRAMES,
-                         title_txid: int | None = None) -> bytes:
+                         title_txid: int | None = None, pre_warp: bytes = b"") -> bytes:
     """The forced-ATE player func body -- ``RunScript``'d from the trigger region (NOT run inline in the
     region). It MUST run in the player's delegated context because a region's own tag-2 body is stepped only
     while ``usercontrol == 1`` (``region.py``), so a ``DisableMove`` + ``Wait`` *inline in the region* FREEZES
@@ -105,10 +105,14 @@ def forced_ate_warp_body(target: int, *, mode: int = ATE_DEFAULT_MODE, frames: i
     the centered async title DURING the banner WARNING (before the fade), where it's actually on-screen -- same
     visible result (centered title + grey banner as the ATE triggers), still async + centered. The banner clears
     before the warp, so the destination scene has NO banner. Pair the trigger with a plain ``[cutscene]`` +
-    ``exit_warp`` on ``target`` (it warps the player back)."""
+    ``exit_warp`` on ``target`` (it warps the player back).
+
+    ``pre_warp`` (raw op bytes, e.g. ``behavior.TIMER_DISARM``) runs on the already-black screen just
+    before the warp -- the build's countdown-HUD disarm slot on a ``[behavior] timer`` field."""
     title = (opcodes.window_async(0, ATE_CAPTION_FLAG, int(title_txid)) if title_txid is not None else b"")
     return (opcodes.ate(int(mode)) + title + opcodes.wait(int(frames))          # grey banner + centered title, the WARNING
             + opcodes.fade_filter(*_event.WARP_FADE) + opcodes.wait(25)         # fade to black (the proven warp fade)
+            + pre_warp                                                          # e.g. the countdown disarm, under black
             + opcodes.ate(0) + opcodes.field(int(target)) + opcodes.RETURN)     # clear banner, warp to the scene
 
 
@@ -133,7 +137,7 @@ def forced_ate_region(zone, ate_tag: int = FORCED_ATE_TAG, *, player_uid: int = 
 
 def inject_forced_ate(data, zone, target: int, *, mode: int = ATE_DEFAULT_MODE,
                       title_txid: int | None = None, ate_tag: int = FORCED_ATE_TAG,
-                      reserve_party_band: bool = False) -> bytes:
+                      reserve_party_band: bool = False, pre_warp: bytes = b"") -> bytes:
     """Inject a forced-ATE warp-in (the faithful grey-ATE TRIGGER): graft the warp func onto the player entry
     as ``ate_tag``, append a tread region that fires it, and arm it. The banner WARNS, then warps to ``target``
     -- pair ``target`` with a plain ``[cutscene]`` + ``exit_warp`` to play the scene and return the player.
@@ -146,7 +150,8 @@ def inject_forced_ate(data, zone, target: int, *, mode: int = ATE_DEFAULT_MODE,
         z = z + [z[-1]]
     pe = find_player_entry(EbScript.from_bytes(data))
     data = edit.add_function(data, pe, ate_tag,
-                             forced_ate_warp_body(int(target), mode=mode, title_txid=title_txid))
+                             forced_ate_warp_body(int(target), mode=mode, title_txid=title_txid,
+                                                  pre_warp=pre_warp))
     data, slot = _object.seat_entry(data, forced_ate_region(z, ate_tag),
                                     reserve_party_band=reserve_party_band)
     return edit.activate(data, opcodes.init_region(slot, 0))

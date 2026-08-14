@@ -194,7 +194,8 @@ def option_values_body(opt: dict) -> bytes:
 
 
 def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | None = None,
-                input_specs: dict | None = None, qte_slots: dict | None = None) -> bytes:
+                input_specs: dict | None = None, qte_slots: dict | None = None,
+                pre_warp: bytes = b"") -> bytes:
     """Compose ONE option's actions (the body run if the player picks it). Reuses the event action
     vocabulary so a choice option does exactly what an event does: an optional reply line, then
     give/take item, gil, set a story flag, optionally advance the ScenarioCounter, and (LAST) WARP to
@@ -206,7 +207,11 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
     ``reply`` can echo the number with ``[NUMB=0]``. ``warp`` is last because a Field op transitions away
     (anything after it is unreachable) -- this is the World-Hub journey-pick primitive: a menu row that
     seeds the beat then warps into the chosen field. NOTE: a choice with any ``input`` row must dispatch
-    via :func:`switch_body` (the stepper opens windows -- the nested-window sysvar-9 law)."""
+    via :func:`switch_body` (the stepper opens windows -- the nested-window sysvar-9 law).
+
+    ``pre_warp`` (raw op bytes, e.g. ``behavior.TIMER_DISARM``) runs immediately before a ``warp``/
+    ``worldmap`` transition and ONLY then -- an option with neither arm ignores it. The build passes the
+    countdown-HUD disarm here on a ``[behavior] timer`` field so a menu exit can't carry the clock out."""
     # THE COVERAGE REFUSAL IS HERE, at the emitter, and not only in `build.validate`: a reply that
     # renders an unpublished gMesValue slot is a STALE NUMBER in-game, never an error, so the bad
     # state has to be unrepresentable rather than reported. Every choice row in the kit reaches this
@@ -291,7 +296,7 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
         # like a gateway/ladder. Without the fade the destination loads in the clear and you see its
         # camera-init frames (the World-Hub static-screen bug). entrance (optional) sets the arrival
         # entrance var; it is not the camera fix (the fade is) -- see event.warp.
-        parts.append(_event.warp(int(opt["warp"]), entrance=opt.get("entrance"), fade=True))  # LAST: away
+        parts.append(pre_warp + _event.warp(int(opt["warp"]), entrance=opt.get("entrance"), fade=True))  # LAST: away
     elif "worldmap" in opt:
         # THE FERRY ARM -- this row sails to the OVERWORLD at a named landing, instead of warping to a
         # field. It is the same primitive a walk-out worldmap gateway uses (`worldexit.worldmap_exit_body`
@@ -331,9 +336,10 @@ def option_body(opt: dict, reply_txid: int | None = None, input_slots: dict | No
             on_exit = _asm(
                 f"SET({{Global.Byte[{int(b_idx)}] const({int(b_code)}) B_LET B_EXPR_END}})\n"
                 f"SET({{Global.Int24[{_fl.FERRY_ORIGIN_X_INT24}] Global.Int24[64] B_LET B_EXPR_END}})\n")
-        parts.append(_wx.worldmap_exit_body(arrive=(float(wm["arrive"][0]), float(wm["arrive"][1])),
-                                            arrive_face=int(wm.get("face", 0)), on_exit_body=on_exit,
-                                            fade=True, gate=False, game=opt.get("_game")))  # LAST: away
+        parts.append(pre_warp
+                     + _wx.worldmap_exit_body(arrive=(float(wm["arrive"][0]), float(wm["arrive"][1])),
+                                              arrive_face=int(wm.get("face", 0)), on_exit_body=on_exit,
+                                              fade=True, gate=False, game=opt.get("_game")))  # LAST: away
     return b"".join(parts)
 
 

@@ -209,6 +209,60 @@ def test_cooldown_announce_is_an_event_and_the_greet_pair_unlatches():
         assert moved[n] > 200, f"{n} statued after the greet ({moved[n]:.0f}u)"
 
 
+def test_drift_decays_and_branch_adjust_refills():
+    """The sims lane: a drift row decays a counter on its own cadence (independent
+    of what the tree selects), and a branch adjust refills WHILE selected, both
+    clamped. The unit holds still, so selection is stable throughout."""
+    sim = SIM.Sim(_field(
+        [{"npc": "a", "branch": [
+            {"when": [{"counter_le": ["hunger", 40]}],
+             "do": {"hold_post": True},
+             "adjust": {"counter": "hunger", "by": 5, "clamp": [0, 100]}},
+            {"do": {"hold_post": True}},
+        ]}],
+        counters=["hunger"],
+        drift=[{"counter": "hunger", "by": -30, "clamp": [0, 100], "every": 9}],
+    ))
+    # drift only: hunger starts 0 -> clamped at 0? No: clamp floors at 0, and the
+    # refill branch is selected from tick 1 (hunger 0 <= 40) adding +5/tick while
+    # drift subtracts 30 every 10th pass. The refill outruns the drift to 41+,
+    # deselects, then drift drags it back under 40 and the loop breathes.
+    seen = [sim.at(t)["counters"].get("hunger", 0) for t in range(0, 120)]
+    assert max(seen) <= 100 and min(seen) >= 0, "clamp must hold both ends"
+    assert max(seen) > 40, "the refill branch must outrun the drift"
+    late = seen[60:]
+    assert min(late) < max(late), "the loop must keep breathing (decay + refill)"
+
+
+def test_branch_adjust_every_divides_the_rate():
+    sim = SIM.Sim(_field(
+        [{"npc": "a", "branch": [
+            {"do": {"hold_post": True},
+             "adjust": {"counter": "n", "by": 1, "clamp": [0, 1000],
+                        "every": 9}},
+        ]}],
+        counters=["n"],
+    ))
+    v60 = sim.at(60)["counters"].get("n", 0)
+    # every=9 -> one write per 10 passes; 60 ticks ~ 6 writes (±1 on phase)
+    assert 4 <= v60 <= 8, f"rate divider off: {v60} writes in 60 ticks"
+
+
+def test_computed_index_adjust_moves_the_indexed_cell_only():
+    sim = SIM.Sim(_field(
+        [{"npc": "a", "branch": [
+            {"do": {"hold_post": True},
+             "adjust": {"table": "need", "index": "cur", "by": -1,
+                        "clamp": [0, 100]}},
+        ]}],
+        counters=["cur"],                          # seeds 0 -> cell 0
+        table=[{"name": "need", "values": [50, 50, 50]}],
+    ))
+    t = sim.at(30)["tables"]["need"]
+    assert t[0] < 50, "the indexed cell must move"
+    assert t[1] == 50 and t[2] == 50, "the others must not"
+
+
 # --------------------------------------------------------------------------- the tab's sim mode
 # Qt half: the strip appears, stepping paints ghosts + sweeps the ladder, an edit exits sim,
 # and the honesty caption is ON THE FACE. The interpreter itself is pinned above, Qt-free.

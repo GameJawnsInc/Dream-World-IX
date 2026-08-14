@@ -238,7 +238,7 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
                          two_way_mount: bool = False, top_mount_anim=None, top_mount_steps=None,
                          face_angle: int | None = None, top_action: str = "floor",
                          top_field: int | None = None, top_entrance: int = 0,
-                         top_worldmap: int | None = None) -> bytes:
+                         top_worldmap: int | None = None, pre_warp: bytes = b"") -> bytes:
     """Recreate FF9's NAVIGABLE ladder climb for a vine between two world endpoints.
 
     ``bottom`` / ``top`` = ``(x, z, y)`` world points (``y`` = up-positive height; they MUST differ in
@@ -412,11 +412,12 @@ def navigable_climb_body(bottom, top, *, floor_landing=None, top_landing=None, s
         # the non-PSX versions" (a no-op on Steam); and crucially it must NOT be confused with 0x2A =
         # Battle (emitting 0x2A here literally fired a battle using the field id as the scene). Move/menu
         # are already disabled by the region that RunScriptSync'd this climb.
-        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
+        # `pre_warp` (e.g. behavior.TIMER_DISARM on a countdown field) runs under black, pre-warp.
+        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25) + pre_warp
               + _region.set_field_entrance(int(top_entrance))
               + opcodes.field(int(top_field)) + opcodes.terminate_entry(255))
     elif top_action == "worldmap":                                     # top -> the world map
-        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
+        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25) + pre_warp
               + _region.set_field_entrance(int(top_entrance))
               + opcodes.world_map(int(top_worldmap)) + opcodes.terminate_entry(255))
     else:                                                              # "floor": dismount onto a top floor

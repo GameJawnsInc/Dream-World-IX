@@ -132,10 +132,25 @@ dialogue = "Grr."
 [behavior]
 warmup = 30
 public_flags = ["go"]
+counters = ["stub_ct"]
 
 [[behavior.alternators]]
 name = "shift"
 frames = 300
+
+[[behavior.table]]
+name = "stub_need"
+values = [80]
+
+# the numeric-write lane: a drift row + a branch `adjust` + walk_to (all three were
+# invisible to the harvest until used here -- do-verb vocabulary is usage-derived)
+[[behavior.drift]]
+table = "stub_need"
+index = 0
+by = -1
+clamp = [0, 100]
+every = 90
+flag = "shift"
 
 [[behavior.unit]]
 npc = "guard"
@@ -146,6 +161,8 @@ branch = [
   { when = [ { flag = "alarm" }, { active = "beast" }, { near = ["beast", 300] } ], do = { swing_at = "beast", damage = 2 } },
   { when = [ { any_near = [["beast"], 700] } ], do = { chase = "beast", standoff = 180, speed = 65 }, raise_flags = ["alarm"] },
   { when = [ { flag = "shift" } ], do = { patrol = "ring" } },
+  { when = [ { table_le = ["stub_need", 0, 40] } ], do = { walk_to = "post", speed = 45 }, adjust = { table = "stub_need", index = 0, by = 2, clamp = [0, 100], every = 8 } },
+  { when = [ { table_ge = ["stub_need", 0, 95] }, { table_eq = ["stub_need", 0, 100] } ], do = { hold = "post" } },
   { do = { hold = "post" } },
 ]
 
@@ -156,6 +173,7 @@ branch = [
   { when = [ { hp_le = 0 } ], do = { die = true } },
   { when = [ { flag = "go" }, { near_point = ["post", 250] } ], do = { announce_npc = "beast" }, once = "gloat" },
   { when = [ { flag = "go" } ], do = { march = "lane", arrive_r = 200 } },
+  { when = [ { counter_le = ["stub_ct", 3] } ], do = { wander = [500, -1900], radius = 300, every = 90, speed = 30 }, adjust = { counter = "stub_ct", by = 1, clamp = [0, 10] } },
   { do = { wander = [500, -1900], radius = 300, every = 90, speed = 30 } },
 ]
 """),

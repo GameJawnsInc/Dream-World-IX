@@ -136,7 +136,8 @@ def _scratch_z() -> bytes:
 
 
 def _carry_land_body(land, *, speed: int, animation: int | None,
-                     warp_to: int | None, warp_entrance: int, ride_bit: int | None = None) -> bytes:
+                     warp_to: int | None, warp_entrance: int, ride_bit: int | None = None,
+                     pre_warp: bytes = b"") -> bytes:
     """Ride the player from WHEREVER he boards to the absolute landing point ``land`` = ``(x, z, y)``, at
     ``speed`` world-units/frame, then re-attach to the walkmesh -- landing cleanly on the floor AT
     ``land`` (no end-of-ride floor-snap warp). RELATIVE start (captures the boarding position, no
@@ -186,7 +187,8 @@ def _carry_land_body(land, *, speed: int, animation: int | None,
     if ride_bit is not None:                            # one frame for the platform's loop to settle at
         a.raw(opcodes.wait(1) + _ride_bit(ride_bit, 0))  # the landing spot, then it stops tracking
     if warp_to is not None:
-        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
+        # `pre_warp` (e.g. behavior.TIMER_DISARM on a countdown field) runs under black, pre-warp.
+        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25) + pre_warp
               + _region.set_field_entrance(int(warp_entrance))
               + opcodes.field(int(warp_to)) + opcodes.terminate_entry(255))
     else:
@@ -209,7 +211,7 @@ def _assemble_entry(funcs) -> bytes:
 def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED,
                duration: int = DEFAULT_DURATION, animation: int | None = None,
                warp_to: int | None = None, warp_entrance: int = 0,
-               ride_bit: int | None = None) -> bytes:
+               ride_bit: int | None = None, pre_warp: bytes = b"") -> bytes:
     """The player's ride function, run in the player's context (the region RunScriptSync's it) so the
     moves move the PLAYER. Two modes:
 
@@ -228,7 +230,8 @@ def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED
     fade + ``Field()`` re-entry (an inter-floor elevator)."""
     if land is not None:
         return _carry_land_body(land, speed=speed, animation=animation,
-                                warp_to=warp_to, warp_entrance=warp_entrance, ride_bit=ride_bit)
+                                warp_to=warp_to, warp_entrance=warp_entrance, ride_bit=ride_bit,
+                                pre_warp=pre_warp)
     if rise is None:
         raise ValueError("carry_body needs land=[x,z,y] (ride to a floor) or rise=<units> (vertical lift)")
     rise = int(rise)
@@ -264,7 +267,7 @@ def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED
     if ride_bit is not None:                          # settle frame, then the platform stops tracking
         a.raw(opcodes.wait(1) + _ride_bit(ride_bit, 0))
     if warp_to is not None:                           # ELEVATOR: ride then re-enter the destination floor
-        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)
+        a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25) + pre_warp
               + _region.set_field_entrance(int(warp_entrance))
               + opcodes.field(int(warp_to)) + opcodes.terminate_entry(255))
     else:                                             # in-screen ride: land + hand control back
@@ -316,7 +319,7 @@ def inject_platform(data, zone, *, rise: int | None = None, land=None, speed: in
                     duration: int = DEFAULT_DURATION, animation: int | None = None,
                     trigger: str = "action", bubble: bool = True, warp_to: int | None = None,
                     warp_entrance: int = 0, player_uid: int = PLAYER_UID, activate: bool = True,
-                    ride_bit: int | None = None):
+                    ride_bit: int | None = None, pre_warp: bytes = b""):
     """Inject one carry platform: graft the ride function (``ride_tag``) onto the player entry, append a
     boarding region that fires it, and arm the region. Pass ``land=[x,z,y]`` (ride from the boarding spot
     to that landing floor) or ``rise=<units>`` (vertical lift). ``ride_bit`` (from
@@ -325,7 +328,8 @@ def inject_platform(data, zone, *, rise: int | None = None, land=None, speed: in
     ``(new_bytes, region_slot)``. For multiple platforms pass a distinct ``ride_tag`` each (start at
     :data:`FIRST_PLATFORM_TAG`)."""
     body = carry_body(rise=rise, land=land, speed=speed, duration=duration, animation=animation,
-                      warp_to=warp_to, warp_entrance=warp_entrance, ride_bit=ride_bit)
+                      warp_to=warp_to, warp_entrance=warp_entrance, ride_bit=ride_bit,
+                      pre_warp=pre_warp)
     eb = EbScript.from_bytes(data)
     pe = find_player_entry(eb)
     data = edit.add_function(data, pe, ride_tag, body)

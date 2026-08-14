@@ -3531,6 +3531,33 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
     raw = project.raw
     out: list[str] = []
 
+    # THE PUBLIC-FLAG EXCEPTION: a [behavior] public_flag is DESIGNED to be written from
+    # outside the compiled system (its docstring names a [[choice]] row's set_flag as the
+    # intended writer -- the BTWAR/BTPOOL lever idiom), and it allocates inside the
+    # blackboard band. Recompute this field's own public-flag indices through the same
+    # deterministic allocation the bench generators rely on (slot numbers don't feed the
+    # blackboard order) and sanction exactly those; any OTHER raw index in a reserved
+    # band keeps the full warning. Best-effort: a raw that can't build falls back to
+    # warning on everything, never crashing the lint.
+    sanctioned: set[int] = set()
+    _b = raw.get("behavior") or {}
+    if _b.get("public_flags"):
+        try:
+            from .content import behaviortoml as _bt
+            slots: dict[str, int] = {}
+            for u in _b.get("unit", []) or []:
+                for m in _bt.row_members(u):
+                    slots.setdefault(m, len(slots) + 2)
+            _fb = _bt.build(raw, npc_slots=slots,
+                            npc_txids_by_name={n.get("name"): 0
+                                               for n in raw.get("npc", []) or []},
+                            behavior_txids={})
+            if _fb is not None:
+                sanctioned = {_fb.bb.flag(str(n)) for n in _b["public_flags"]}
+                sanctioned.update(getattr(_fb, "pool_flags", {}).values())
+        except Exception:                     # noqa: BLE001 -- validate owns refusals
+            pass
+
     def _flag_index(v):
         """The flag index from a ``set_flag`` value -- ``[idx, val]`` (the documented shape) or a bare
         ``idx`` -- or None for an empty/odd value. Defensive so a malformed toml never crashes the lint."""
@@ -3543,6 +3570,8 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
             idx = int(idx)
         except (TypeError, ValueError):
             return
+        if idx in sanctioned:
+            return                            # this field's own declared lever flag
         if _flags.is_reserved(idx):
             r = _flags.bit_region(idx)
             out.append(f"{who} writes story flag {idx}, inside FF9's reserved '{r.name}' region "
@@ -5213,7 +5242,13 @@ def _apply_ate(project: FieldProject, eb: bytes, ate_txids: dict, auto: "_FlagAl
     if not isinstance(a, dict) or not a.get("options") or not ate_txids:
         return eb
     replies = ate_txids.get("replies", {})
-    opt_bodies = [_choice.option_body(o, replies.get(oi)) for oi, o in enumerate(a["options"])]
+    # an [ate] row's `warp` is a field exit too -- on a [behavior] timer field it must disarm the
+    # countdown HUD first (THE COUNTDOWN EXIT LAW, see build_script) or the clock rides along.
+    from .content import behavior as _behavior
+    _timer_disarm = (_behavior.TIMER_DISARM
+                     if (_behaviortoml.table(project.raw) or {}).get("timer") is not None else b"")
+    opt_bodies = [_choice.option_body(o, replies.get(oi), pre_warp=_timer_disarm)
+                  for oi, o in enumerate(a["options"])]
     setup, _ = _choice.pre_choose(a)
     avail_idx = int(a["flag"]) if "flag" in a else auto.ate()
     mode = int(a.get("mode", _ate.MODE_BLUE))
@@ -6072,6 +6107,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     (optional, the ``compose_verbatim_eb`` convention) collects non-fatal build findings -- e.g. a
     requested ``entry_settle`` that could not be inserted."""
     _auto = _FlagAlloc.for_project(project)
+    # THE COUNTDOWN EXIT LAW: a field whose [behavior] arms `timer =` (every [siege]) must DISARM
+    # the countdown HUD on every transition this build compiles. ShowTimer/RunTimer write the
+    # SAVE-PERSISTED `_ff9.timerDisplay/timerControl` mirrors and the engine re-stamps TimerUI from
+    # them on EVERY map load (EventEngine.StartEvents) -- an exit without the disarm carries the
+    # clock onto the overworld and every later field (the fort-condor bench leak). Battle is exempt
+    # BY DESIGN: real battle AI reads the clock (B_SYSVAR[17], the clock-coupled battle law) and
+    # Main_Reinit returns to this same field. b"" on a no-timer field = byte-identical builds.
+    from .content import behavior as _behavior
+    _timer_disarm = (_behavior.TIMER_DISARM
+                     if (_behaviortoml.table(project.raw) or {}).get("timer") is not None else b"")
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
     choice_txids = choice_txids or {}
@@ -6203,7 +6248,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             ct = choice_txids.get(c, {})
             replies = ct.get("replies", {})
             opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots,
-                                              input_specs=input_specs, qte_slots=qte_slots)
+                                              input_specs=input_specs, qte_slots=qte_slots,
+                                              pre_warp=_timer_disarm)
                           for oi, o in enumerate(ch.get("options", []))]
             setup, _ = _choice.pre_choose(ch)
             _cw, _cf, _ = _window_attrs(ch, None, label=f"[[choice]] npc={n.get('name')!r}")
@@ -6278,7 +6324,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if gw.get("ate"):                               # a forced-ATE warp-in: grey banner WARNING + title, then warp
             eb = _cutscene.inject_forced_ate(eb, [tuple(p) for p in zone], int(gw["to"]),
                                              mode=int(gw.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)),
-                                             title_txid=gateway_txids.get(gi))
+                                             title_txid=gateway_txids.get(gi),
+                                             pre_warp=_timer_disarm)
             continue
         if str(gw.get("to")).strip().lower() == "worldmap":
             # the WORLDMAP exit: [D8:2 = region key] + the verbatim shared exit
@@ -6291,13 +6338,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 region_key=int(gw.get("region_key", _wx.REGION_KEY_RETURN)),
                 arrive=(tuple(float(v) for v in arr) if arr else None),
                 arrive_face=int(gw.get("arrive_face", 0)),
-                on_exit_body=_gateway_on_exit_body(gw, gw_names))
+                on_exit_body=_gateway_on_exit_body(gw, gw_names) + _timer_disarm)
             eb, _slot = _region.inject_region(eb, [tuple(p) for p in zone], body)
             continue
         gf, gs = _gate_of(gw)
         eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),
                                 zone=[tuple(p) for p in zone], gate_flag=gf, gate_require_set=gs,
-                                on_exit_body=_gateway_on_exit_body(gw, gw_names))
+                                on_exit_body=_gateway_on_exit_body(gw, gw_names) + _timer_disarm)
 
     # multi-camera switch zones (area model): each zone owns the floor area where its camera is
     # active; crossing into it cuts the active background camera + re-tunes movement for that camera's
@@ -6414,7 +6461,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         ct = choice_txids.get(c, {})
         replies = ct.get("replies", {})
         opt_bodies = [_choice.option_body(o, replies.get(oi), input_slots=input_slots,
-                                          input_specs=input_specs, qte_slots=qte_slots)
+                                          input_specs=input_specs, qte_slots=qte_slots,
+                                          pre_warp=_timer_disarm)
                       for oi, o in enumerate(ch.get("options", []))]
         setup, _ = _choice.pre_choose(ch)
         # an `input`/`qte` row opens its own windows -> the nested-window sysvar-9 law:
@@ -6631,6 +6679,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 bot, topp = list(rungs_pts[0]), list(rungs_pts[-1])
             else:
                 bot, topp = lad["bottom"], lad["top"]
+            if kw.get("top_action") in ("field", "worldmap"):
+                kw["pre_warp"] = _timer_disarm            # a cross-field ladder top is an exit too
             eb, _ = _ladder.inject_navigable_ladder(
                 eb, bottom=bot, top=topp,
                 floor_landing=lad.get("floor_landing"), top_landing=lad.get("top_landing"),
@@ -6743,7 +6793,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 ride_tag=ptag, duration=int(pf.get("duration", _platform.DEFAULT_DURATION)),
                 animation=pf.get("animation"), trigger=pf.get("trigger", "action"),
                 bubble=pf.get("bubble", True), warp_to=pf.get("warp_to"),
-                warp_entrance=int(pf.get("warp_entrance", 0)), ride_bit=rbit)
+                warp_entrance=int(pf.get("warp_entrance", 0)), ride_bit=rbit,
+                pre_warp=_timer_disarm)                   # an elevator warp_to is an exit too
             ptag += 1
 
     # save points: a press-to-interact region that opens the SAVE menu (Menu(4,0) -> OpenSaveMenu), the

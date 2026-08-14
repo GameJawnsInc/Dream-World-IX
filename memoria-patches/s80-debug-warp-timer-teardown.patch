@@ -1,0 +1,47 @@
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -1743,6 +1743,7 @@
+                 FF9StateSystem.EventState.FieldEntrance = entr;  // arrive as if through a chosen door (blank = leave as-is)
+             if (Int32.TryParse(_scenarioText, out Int32 scn) && scn >= 0)
+                 FF9StateSystem.EventState.ScenarioCounter = scn; // seed a story beat for a story-gated fork
++            KillCountdown();                                     // [ff9mapkit s69] don't carry a (leaked) countdown into the field
+             PersistenSingleton<EventEngine>.Instance.SetNextMap(mapNo);
+             FF9StateSystem.World.FF9World.map.nextMode = 1;
+             sys.attr |= 4096u;                                   // 0x1000 -> shutdown+Replace on the next world tick (with fade)
+@@ -1961,6 +1962,9 @@
+             // entry logic sees it. (A fork that bakes its own [startup] scenario would re-overwrite this on entry.)
+             if (_pendingWarpScenario >= 0)
+                 FF9StateSystem.EventState.ScenarioCounter = _pendingWarpScenario;
++            // [ff9mapkit s69] a debug warp abandons the field's script context, so a field-armed countdown
++            // must not follow it out (on Reload the same field's Main_Init re-arms a fresh clock).
++            KillCountdown();
+             // [ff9mapkit netsync F2] the debug-menu FIELD warp is a host transition too -- announce the
+             // intent so a following guest warps in parallel (no-op unless role==host + socket). The debug
+             // overworld warp (WorldWarp, mode 3) is deliberately NOT hooked -- world-map is frontier.
+@@ -1975,6 +1979,26 @@
+         }
+     }
+ 
++    // [ff9mapkit s69] Fully disarm the countdown HUD (the field-timer leak fix). ShowTimer/RunTimer write the
++    // SAVE-PERSISTED mirrors `_ff9.timerDisplay/timerControl`, and EventEngine.StartEvents re-stamps TimerUI
++    // from them on EVERY map load -- deliberately cross-field in stock (the Festival of the Hunt spans
++    // Lindblum), so nothing but an explicit ShowTimer(0)/RunTimer(0) ever clears it. A debug warp bypasses
++    // the field's own scripted exits (which the kit teaches to disarm), so a bench countdown otherwise rides
++    // onto the overworld and every later field, and even through save/load (the fort-condor siege leak,
++    // 2026-07-28). Mirrors the .eb pair RunTimer(0) + ShowTimer(0), exactly as DoEventCode applies them.
++    private static void KillCountdown()
++    {
++        try
++        {
++            FF9StateSystem.Common.FF9.timerControl = false;
++            TimerUI.SetPlay(false);
++            FF9StateSystem.Common.FF9.timerDisplay = false;
++            TimerUI.SetEnable(false);
++            TimerUI.SetDisplay(false);
++        }
++        catch (Exception) { }   // a half-initialized TimerUI must never break the warp itself
++    }
++
+     // [ff9mapkit] Set the ScenarioCounter on the CURRENT field without warping (then Reload field to let
+     // the field's Main_Init re-derive its state from the new beat). Handy to nudge a story-gated fork in place.
+     private void SetScenarioNow()

@@ -5,6 +5,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `adjust` + `[[behavior.drift]]`: the behavior vocabulary's first numeric write
+- Until now a compiled tree could read tables and counters but never assign one
+  (`die = "<counter>"` and the schedule clock were the whole write surface). A branch
+  may now carry `adjust = { counter =|table = + index =, by =, clamp = [lo, hi],
+  every = }` — a CLAMPED write applied while the branch is selected (the use-loop:
+  holding at the stove fills hunger), with `index` accepting a counter name for a
+  genuinely runtime-computed write (the scan loop's in-game-proven composition).
+  `[[behavior.drift]]` is the field-level twin: a periodic clamped write in the
+  ticker's clock segment, independent of tree selection (need decay must tick while
+  the unit walks, cooks, or sleeps — and the selector only fires one branch per unit
+  per tick, so decay could never live on branches). Clamps are mandatory and every
+  operand is fenced to ±10^6: the 26-bit CalcStack re-reads an overflow as a
+  different variable class, so an unclamped meter is unrepresentable, not merely
+  discouraged. A field using neither compiles byte-identical to before, on both
+  backends; a drift gate flag nothing ever raises refuses at build.
+- FF9's countdown HUD is engine-global and save-persisted by design (the Festival of the
+  Hunt's clock spans Lindblum), so a minigame clock armed by `timer =` used to keep
+  rendering on the world map and in unrelated fields after any walk-out — and even
+  survive save/load. Every exit the build compiles for a timer field (gateways incl.
+  worldmap and forced-ATE, choice/ferry rows, `[ate]` warps, cross-field ladder tops,
+  elevator `warp_to`) now disarms the clock right before the transition; battles keep it
+  on purpose (battle AI reads the countdown). A no-timer field builds byte-identically.
+  The bundled engine's ~ debug menu warp does the same teardown (s80), since it bypasses
+  the field's scripted exits.
+
 ## [1.0.0b19] - 2026-08-06 — A third world map, dungeons drawn by hand, and summons of your own
 
 > Re-cut of the never-published 1.0.0b18: its tag's CI run failed on the bare Ubuntu box (the first
