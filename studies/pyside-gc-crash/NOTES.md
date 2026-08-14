@@ -137,14 +137,43 @@ instances are alive.** Patch instance seams, subclass before construction, or ob
 an event filter. A patch/undo pair around live C++ dispatch corrupts state that detonates in
 whatever module runs next; no green run of the patching module ever vouches for it.
 
-**Census of the remaining Qt-class patches in tests/ (audited with the fix, left in place):**
-`QSplitter.setSizes` (test_workspace_prefs ×2 — NON-virtual, C++ never dispatches it, so no
-cache entry can form), `QDesktopServices.openUrl` (static, same), `QDialog.exec`
-(test_import_pickfill, test_gui_wave2_wiring — virtual, but only Python ever calls it and the
-fake exists precisely so the dialog never runs, so nothing dispatches it from C++ during the
-patched window). None can detonate the way the setVisible patch did — the poison needs C++
-to RESOLVE the virtual while the patch is live — but migrate them to instance seams when
-touched: the distinction is load-bearing and easy to lose.
+**Census of the remaining Qt-class patches in tests/ (audited with the fix) — the four below now
+MIGRATED off the anti-pattern:** `QSplitter.setSizes` (test_workspace_prefs ×2 — NON-virtual, C++
+never dispatches it, so no cache entry can form), `QDesktopServices.openUrl` (static, same),
+`QDialog.exec` (test_import_pickfill, test_gui_wave2_wiring — virtual, but only Python ever calls
+it and the fake exists precisely so the dialog never runs, so nothing dispatches it from C++
+during the patched window). None could detonate the way the setVisible patch did — the poison
+needs C++ to RESOLVE the virtual while the patch is live — but the distinction is load-bearing
+and easy to lose, so each was moved to a lawful seam. All four migrations are ONE shape — **swap
+the NAME the production module resolves at construction/call time for a subclass or stub built
+before any instance exists** (the law's "subclass before construction" seam; no Qt type dict is
+ever written):
+
+- `QSplitter.setSizes` ×2 → a `SpySplitter(QSplitter)` subclass swapped in for **shell's
+  `QSplitter` name** before `_win()` builds the window (both spied rails — `_central_split`,
+  `_vsplit` — are constructed from shell's module global). Same records, same asserts.
+- `QDesktopServices.openUrl` → a `SimpleNamespace(openUrl=…)` swapped in for **shell's
+  `QDesktopServices` name** (the door is `shell._open_member_toml`).
+- `QDialog.exec` (pickfill) → an `_AutoAccept(CatalogPicker)` subclass swapped in for
+  **`forms_qt.CatalogPicker`** — the name `_pick_realfield` imports at call time — whose
+  plain-Python `exec` picks row 0 and accepts.
+- `QDialog.exec` (wave2) → a `_CaptureReject(QDialog)` subclass swapped in for the two
+  constructing modules' **`QDialog` name** (`importdoc`, `shell`), capturing + rejecting.
+
+Every migrated test still proves its seam is live through a positive assert (`captured[0]`,
+`opened["path"]`, default-split membership) — none can pass vacuously with a dead spy. Verified:
+the 4 touched files green in ONE process (96 passed), and the historical detonation pair still at
+its 143-passed baseline. A sixth site outside the census scope — shell.py's own `_smoke` swapped
+`QDialog.exec` around `on_find`, citing the pickfill helper as its model — got the same
+`forms_qt.CatalogPicker` name-swap (test_workspace_smoke.py 3/3 green).
+
+**The census UNDERCOUNTED — the migration sweep found more Qt-class patches still standing,
+via module-qualified references (`setattr(shell.QDialog, "exec", …)`) the original grep missed:**
+`QDialog.exec` ×8 (test_gui_mode_lever ×4, test_workspace_prefs ×4 — the Preferences dialog),
+`QMessageBox.question/information/warning` statics ×7 (test_workspace_cutscene ×3,
+test_workspace_prefs ×2, test_workspace_update, test_workspace_encounters), and
+`QApplication.exec` ×1 (test_workspace_prefs). All the same non-detonating classes (statics /
+Python-only-called virtuals), and the recipes above drop in directly — migrate when touched.
 
 **Fix (both halves shipped, pair 3/3 green — 143 passed per run):**
 

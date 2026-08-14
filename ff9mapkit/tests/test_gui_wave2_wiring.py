@@ -193,14 +193,21 @@ def _fake_catalog(monkeypatch):
 
 
 def _capture_dialog(monkeypatch):
-    """Intercept the modal: capture the built QDialog and reject it instead of blocking on .exec()."""
+    """Intercept the modal: capture the built QDialog and reject it instead of blocking on .exec().
+    The intercept is a QDialog SUBCLASS swapped in for the two constructing modules' `QDialog` name
+    (importdoc.open_region_catalog and shell._pick_regions both build `QDialog(self)` from their own
+    module globals) -- built before any instance exists, never a patch of the live QDialog class (the
+    shiboken override-cache poison, studies/pyside-gc-crash)."""
+    from ff9mapkit.workspace import importdoc as importdoc_module
     captured = []
 
-    def _fake_exec(self):
-        captured.append(self)
-        return QDialog.DialogCode.Rejected
+    class _CaptureReject(QDialog):
+        def exec(self):
+            captured.append(self)
+            return QDialog.DialogCode.Rejected
 
-    monkeypatch.setattr(QDialog, "exec", _fake_exec)
+    monkeypatch.setattr(importdoc_module, "QDialog", _CaptureReject)
+    monkeypatch.setattr(shell, "QDialog", _CaptureReject)
     return captured
 
 

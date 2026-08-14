@@ -100,18 +100,21 @@ def test_walk_as_drawer_comes_back_when_a_swap_is_set(app):
 
 # ---------------------------------------------------------------- item 2: pick-and-fill ---
 def _accept_first_row(monkeypatch):
-    """Patch QDialog.exec to pick the first row of the CatalogPicker and accept -- the headless analogue of
-    a user double-clicking a row."""
+    """Swap forms_qt.CatalogPicker (the name _pick_realfield imports at call time) for a subclass whose
+    exec() picks the first row and accepts -- the headless analogue of a user double-clicking a row.
+    A subclass built before any instance exists, never a patch of the live QDialog class (the shiboken
+    override-cache poison, studies/pyside-gc-crash)."""
     captured = []
 
-    def _fake_exec(self):
-        captured.append(self)
-        if getattr(self, "lst", None) is not None and self.lst.count():
-            self.lst.setCurrentRow(0)
-            self._ok()                                     # sets self.result (want_id -> the id string)
-        return QDialog.DialogCode.Accepted
+    class _AutoAccept(forms_qt.CatalogPicker):
+        def exec(self):
+            captured.append(self)
+            if getattr(self, "lst", None) is not None and self.lst.count():
+                self.lst.setCurrentRow(0)
+                self._ok()                                 # sets self.result (want_id -> the id string)
+            return QDialog.DialogCode.Accepted
 
-    monkeypatch.setattr(QDialog, "exec", _fake_exec)
+    monkeypatch.setattr(forms_qt, "CatalogPicker", _AutoAccept)
     return captured
 
 

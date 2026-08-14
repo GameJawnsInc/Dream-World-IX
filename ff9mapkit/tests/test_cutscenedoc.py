@@ -364,9 +364,11 @@ def test_the_open_toml_door_reaches_the_member_file(win, tmp_path, monkeypatch):
     win.open_field(p)
     win.tabs.setCurrentWidget(win.cutscene_doc)
     opened = {}
-    from PySide6.QtGui import QDesktopServices
-    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.setdefault(
-        "path", url.toLocalFile()) or True)
+    # Swap the NAME shell resolves openUrl through (_open_member_toml), never the Qt class itself
+    # (the shiboken override-cache poison, studies/pyside-gc-crash).
+    from types import SimpleNamespace
+    monkeypatch.setattr(shell, "QDesktopServices", SimpleNamespace(
+        openUrl=lambda url: opened.setdefault("path", url.toLocalFile()) or True))
     win.cutscene_doc.toml_btn.click()
     assert opened["path"].endswith("GLEN.field.toml")
 

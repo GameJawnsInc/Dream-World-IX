@@ -364,13 +364,15 @@ def test_the_restore_path_spends_the_repair(app, monkeypatch):
     """
     from PySide6.QtWidgets import QSplitter
     seen = []
-    orig = QSplitter.setSizes
 
-    def spy(self, sizes):
-        seen.append(list(sizes))
-        return orig(self, sizes)
+    class SpySplitter(QSplitter):
+        # A subclass swapped in for shell's QSplitter NAME before any instance exists -- never a patch
+        # of the live Qt class (the shiboken override-cache poison, studies/pyside-gc-crash).
+        def setSizes(self, sizes):
+            seen.append(list(sizes))
+            return QSplitter.setSizes(self, sizes)
 
-    monkeypatch.setattr(QSplitter, "setSizes", spy)
+    monkeypatch.setattr(shell, "QSplitter", SpySplitter)
     monkeypatch.setattr(shell.prefs, "layout", lambda: {"central_split": [76, 1138, 64]})
     w = _win(app)                                        # __init__ runs _restore_layout
     assert [76, 1138, 64] not in seen, "the squeeze was replayed -- the repair is not wired into restore"
@@ -508,13 +510,15 @@ def test_a_collapsed_exit_does_not_restore_a_fake_maximized_console(app, monkeyp
     expanded split to a collapsed splitter)."""
     from PySide6.QtWidgets import QSplitter
     seen = []
-    orig = QSplitter.setSizes
 
-    def spy(self, sizes):
-        seen.append((self, list(sizes)))
-        return orig(self, sizes)
+    class SpySplitter(QSplitter):
+        # Subclass-before-construction via shell's QSplitter NAME -- never a live-Qt-class patch
+        # (the shiboken override-cache poison, studies/pyside-gc-crash).
+        def setSizes(self, sizes):
+            seen.append((self, list(sizes)))
+            return QSplitter.setSizes(self, sizes)
 
-    monkeypatch.setattr(QSplitter, "setSizes", spy)
+    monkeypatch.setattr(shell, "QSplitter", SpySplitter)
     monkeypatch.setattr(shell.prefs, "layout",
                         lambda: {"console_split": [544, 152], "console_collapsed": True})
     w = _win(app)                                  # __init__ runs _restore_layout onto a collapsed console

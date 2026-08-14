@@ -10782,22 +10782,27 @@ def _smoke(win):
         imp.on_region_dryrun()
         assert "--whole-zone" in icap[-1] and "--ids" not in icap[-1], icap[-1]
     # Find… no longer dumps `list-fields` -- it opens the realfield CatalogPicker and fills the source id.
-    # Offscreen there is no user to dismiss a modal, so fake QDialog.exec to accept the first row (the
+    # Offscreen there is no user to dismiss a modal, so swap forms_qt.CatalogPicker (the name on_find's
+    # _pick_realfield imports at call time) for a subclass whose exec() accepts the first row (the
     # headless analogue of a double-click, exactly as test_import_pickfill._accept_first_row does) around
-    # the ONE on_find call, then restore it -- a bare `imp.on_find()` here HANGS to the subprocess timeout.
-    _real_exec = QDialog.exec
+    # the ONE on_find call, then restore the name -- a bare `imp.on_find()` here HANGS to the subprocess
+    # timeout. Never patch the live QDialog class itself: the shiboken override-cache poison
+    # (studies/pyside-gc-crash, THE CLASS-PATCH FLAVOR).
+    from . import forms_qt as _fq
 
-    def _pick_first_row(self):
-        if getattr(self, "lst", None) is not None and self.lst.count():
-            self.lst.setCurrentRow(0)
-            self._ok()                               # want_id -> the id string lands in self.result
-        return QDialog.DialogCode.Accepted
-    QDialog.exec = _pick_first_row
+    class _PickFirstRow(_fq.CatalogPicker):
+        def exec(self):
+            if getattr(self, "lst", None) is not None and self.lst.count():
+                self.lst.setCurrentRow(0)
+                self._ok()                           # want_id -> the id string lands in self.result
+            return QDialog.DialogCode.Accepted
+    _real_picker = _fq.CatalogPicker
+    _fq.CatalogPicker = _PickFirstRow
     try:
         imp.field.setText("")                        # so the assertion below proves the PICK filled it
         imp.on_find()
     finally:
-        QDialog.exec = _real_exec
+        _fq.CatalogPicker = _real_picker
     assert imp.field.text().isdigit(), imp.field.text()   # the picked real-field id filled the source box
 
     # UNDO / REDO -- a fresh loose field gives a clean history to exercise the stacks
