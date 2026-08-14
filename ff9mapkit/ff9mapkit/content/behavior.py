@@ -602,6 +602,16 @@ class Sfx(Action):
 
 OP_RUN_TIMER = 0x7D                 # RunTimer(0|1) — the countdown's own pause switch
 
+# THE EXIT DISARM — RunTimer(0) + ShowTimer(0), the full teardown of the countdown HUD.
+# ShowTimer/RunTimer write the SAVE-PERSISTED mirrors `_ff9.timerDisplay/timerControl`, and the
+# engine re-stamps TimerUI from them on EVERY map load (EventEngine.StartEvents) — the countdown
+# is deliberately cross-field in stock (the Festival of the Hunt spans Lindblum). So a field that
+# arms `timer =` and is left through ANY exit that skips this pair carries its clock onto the
+# overworld and every later field, and even through save/load (the fort-condor bench leak,
+# 2026-07-28). build_script appends this to every transition it compiles for a timer field.
+# RunTimer first: SetPlay is a no-op once ShowTimer(0) has cleared the enable latch.
+TIMER_DISARM = opcodes.encode(OP_RUN_TIMER, 0) + opcodes.encode(0x8D, 0)
+
 
 @dataclass
 class StopTimer(Action):

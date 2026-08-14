@@ -605,6 +605,17 @@ timer = 180
   do = { march = [[x1, z1], [gx, gz]], route = "auto" }
 ```
 
+**The clock never leaves the field.** FF9's countdown is deliberately cross-field (the
+Hunt's clock follows you around Lindblum): arming it sets save-persisted engine state
+that every later map re-displays until something explicitly turns it off. So on a
+`timer` field the build compiles the turn-off (`RunTimer(0)` + `ShowTimer(0)`) into
+**every exit it emits** — gateways (including `to = "worldmap"` and `ate = true`
+warp-ins), `[[choice]]` `warp`/`worldmap` rows, `[ate]` menu warps, a navigable
+ladder's `top_action = "field"`/`"worldmap"`, and a platform's `warp_to` — so walking
+out mid-game can't carry the clock onto the world map or into other fields (or into a
+save made there). Battles are exempt on purpose: real battle AI reads the clock
+(`B_SYSVAR[17]`), and an after-battle return re-enters this same field.
+
 **`battle = <scene id>`** fires a REAL battle (the engine's swirl, the actual fight, the
 return to the field). It is **one-shot per field load by construction** — a compiled latch
 gates the dispatch, so the reactive tree re-selecting the branch after you return can't
