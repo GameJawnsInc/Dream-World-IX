@@ -2703,6 +2703,11 @@ through one engagement then latches forever; `cooldown` re-arms N ticks after th
 releases the branch immediately (edge-latched request lane), because announce conditions are
 usually monotonic and a sticky hold would starve every branch below forever.
 `raise_flags` / `clear_flags` (flag writes ride the selection — the alarm mechanism).
+`adjust = { counter =|table = + index =, by =, clamp = [lo, hi], every = }` — a CLAMPED
+numeric write applied while the branch is selected (one row or a list; `clamp` is
+mandatory; `index` is an int or a counter name — the computed-index write; `every` = a
+byte rate divider, 0 = every selected tick; refused on `engage` branches). See
+[BEHAVIOR.md § Adjust and drift](BEHAVIOR.md#adjust-and-drift--the-numeric-write-lane).
 A `point` anywhere is `[x, z]` or a marker/NPC name. Everything resets on field reload.
 
 **Brains + classes:** `brains = true` in `[behavior]` moves each unit's branch logic into its
@@ -2768,6 +2773,17 @@ arrays in the save's `gScriptVector` (the engine's 0xD3 computed-array-indexing 
 HUD sits below `table[counter]`; when the counter walks off the table's end the read fails
 soft to 0 and the clock stops itself. Wave bands become data instead of unrolled
 `time_below` branches. See [BEHAVIOR.md § Data tables](BEHAVIOR.md#data-tables-counters-and-the-schedule-clock).
+
+**Drift (`[[behavior.drift]]`):** a field-level periodic clamped write — the metabolism
+lane (need decay, regeneration, upkeep). Keys: one target (`counter =` | `table =` +
+`index =`), `by =` (signed delta), `clamp = [lo, hi]` (mandatory), `every =` (REQUIRED,
+1..30000 frames — the Int16 timer seeds to `every` at entry, so the first write lands one
+full period in), optional `flag =` (gates the WRITE, not the cadence; must name a flag an
+alternator/public flag/`raise_flags` raises — a never-raised gate refuses at build).
+Drift runs with the ticker's clocks, independent of any tree's selection — the selector
+fires ONE branch per unit per tick, so decay as branches would compete; as drift rows it
+just ticks. All operands (and every seed of an adjusted table) are fenced to ±10^6: the
+26-bit CalcStack re-reads an overflow as a different variable class, so the fence is hard.
 
 ## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
 

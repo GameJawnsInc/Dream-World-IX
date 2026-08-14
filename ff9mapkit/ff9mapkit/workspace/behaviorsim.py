@@ -132,6 +132,8 @@ class Sim:
                             for a in (b.get("alternators") or []) if a.get("frames")]
         self.schedules = [(str(s.get("counter")), str(s.get("table")))
                           for s in (b.get("schedule") or [])]
+        self.drifts = [d for d in (b.get("drift") or []) if isinstance(d, dict)
+                       and d.get("every")]
         self.scans = list(b.get("scan") or [])
         self.groups = {str(g.get("name")): [str(u) for u in (g.get("units") or [])]
                        for g in (b.get("group") or [])}
@@ -167,6 +169,7 @@ class Sim:
         self._cool: dict = {}
         self._sel_prev: dict = {}      # member -> selected branch index last tick
         self._swing_phase: dict = {}   # (member, row, branch) -> next strike tick
+        self._adjt: dict = {}          # (row, branch, member, k) -> next adjust-fire tick
         self._history: list[dict] = []
         self._live: dict = {}          # scratch mutable state while stepping
 
@@ -227,6 +230,7 @@ class Sim:
         self._cool.clear()
         self._sel_prev.clear()
         self._swing_phase.clear()
+        self._adjt.clear()
         self._live.clear()
         self.events = []
         for u in self._units:
@@ -261,6 +265,18 @@ class Sim:
             v = t[idx] if 0 <= idx < len(t) else 0   # off-end reads 0: the terminator
             if remaining is not None and v and remaining < v:
                 counters[cname] = idx + 1
+
+        # 2b. drift lanes (the metabolism): a clamped write every `every`+1 passes,
+        # first fire one full period in (the compiled timer seeds to `every` at
+        # Main_Init and fires at 0). The flag gate skips the WRITE, not the cadence.
+        for d in self.drifts:
+            period = int(d["every"]) + 1
+            if tick % period:
+                continue
+            gate = d.get("flag")
+            if gate is not None and not flags.get(str(gate)):
+                continue
+            self._apply_adjust(d, counters, tables)
 
         # 3. scans (Chebyshev box headcounts; mirrors freeze on deactivate)
         for s in self.scans:
@@ -329,6 +345,19 @@ class Sim:
                     flags[str(fname)] = 1
                 for fname in (br.get("clear_flags") or []):
                     flags[str(fname)] = 0
+                adj_rows = br.get("adjust")
+                if adj_rows is not None:
+                    rows_ = adj_rows if isinstance(adj_rows, list) else [adj_rows]
+                    for k, d in enumerate(rows_):
+                        if not isinstance(d, dict):
+                            continue
+                        every = int(d.get("every", 0))
+                        if every:
+                            akey = (u.row, sel, u.name, k)
+                            if self._adjt.get(akey, 0) > tick:
+                                continue
+                            self._adjt[akey] = tick + every + 1
+                        self._apply_adjust(d, counters, tables)
                 self._act(u, sel, br, ctx, tick, counters, flags)
             self._sel_prev[u.name] = sel
 
@@ -347,6 +376,26 @@ class Sim:
                 u.z += dz / eu * spd
             u.mirror = (u.x, u.z)
         self._snapshot(tick, flags, counters, tables, remaining, frozen)
+
+    # ------------------------------------------------------------------ adjust
+    @staticmethod
+    def _apply_adjust(d: dict, counters: dict, tables: dict) -> None:
+        """One clamped write, mirroring the compiled shape (write then clamp).
+        An out-of-range table index writes NOTHING (the engine lane's soft-fail
+        family — keep the index in range by counter discipline)."""
+        clamp = d.get("clamp") or [0, 0]
+        lo, hi = int(clamp[0]), int(clamp[1])
+        by = int(d.get("by", 0))
+        if d.get("counter") is not None:
+            c = str(d["counter"])
+            counters[c] = min(hi, max(lo, counters.get(c, 0) + by))
+            return
+        t = tables.get(str(d.get("table")))
+        idx = d.get("index")
+        if isinstance(idx, str):
+            idx = counters.get(idx, 0)
+        if t is not None and idx is not None and 0 <= int(idx) < len(t):
+            t[int(idx)] = min(hi, max(lo, t[int(idx)] + by))
 
     # ------------------------------------------------------------------ conditions
     def _by_name(self, name: str):

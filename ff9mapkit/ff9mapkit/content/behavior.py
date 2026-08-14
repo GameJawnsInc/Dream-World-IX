@@ -205,16 +205,32 @@ class Do(Node):
     """An action leaf. ``raise_flags``/``clear_flags`` name blackboard flags written
     every tick this action is selected (idempotent) — the alarm mechanism: the watcher
     who Announces the raid also raises "alarm", and every other tree gates on it.
-    Raised/cleared flags join the Main_Init reset (~ Reload clears them)."""
+    Raised/cleared flags join the Main_Init reset (~ Reload clears them).
+
+    ``adjust`` carries :class:`AdjustSpec` rows — clamped numeric writes to a
+    counter/table cell applied WHILE this action is selected (each row's ``every``
+    is its own rate divider; 0 = every selected tick). They ride the Do the way
+    raise_flags does: the unit still DOES its action (the feed/dispatch), and the
+    number moves alongside — "holding at the stove fills hunger"."""
     action: "Action"
     raise_flags: tuple = ()
     clear_flags: tuple = ()
+    adjust: tuple = ()
 
     def __post_init__(self):
         self.raise_flags = ((self.raise_flags,) if isinstance(self.raise_flags, str)
                             else tuple(self.raise_flags))
         self.clear_flags = ((self.clear_flags,) if isinstance(self.clear_flags, str)
                             else tuple(self.clear_flags))
+        self.adjust = ((self.adjust,) if isinstance(self.adjust, AdjustSpec)
+                       else tuple(self.adjust))
+        for a in self.adjust:
+            if not isinstance(a, AdjustSpec):
+                raise BehaviorError(f"Do adjust rows must be AdjustSpec, got "
+                                    f"{type(a).__name__}")
+            if not 0 <= int(a.every) <= 255:
+                raise BehaviorError("a branch adjust `every` is a byte timer — "
+                                    "0 (every selected tick) .. 255 frames")
 
 
 @dataclass
@@ -997,6 +1013,61 @@ class TableSpec:
     id: int | None = None
 
 
+# --------------------------------------------------------------- adjust (writes)
+#: THE MAGNITUDE FENCE for every adjust/drift operand — |by|, clamp bounds, and the
+#: seed values of any adjusted table. The CalcStack is 26-bit signed and OVERFLOW
+#: DOES NOT TRUNCATE (the high bits collide with the variable-class tag and the
+#: entry is re-read as a DIFFERENT variable — EBin.cs:1270-1274/1682-1684), so the
+#: worst intermediate ``cell + by`` must sit far inside ±2^25. A life-sim meter,
+#: a relationship, a wallet all fit in ±10^6 with room for the sum; anything
+#: bigger is almost certainly a units error.
+ADJUST_MAG_MAX = 1_000_000
+
+
+@dataclass
+class AdjustSpec:
+    """A CLAMPED numeric write — the vocabulary's first assignment. Exactly one
+    target: ``counter`` (a scalar cell) or ``table`` + ``index`` (an int, bounds-
+    checked at compile time, or a COUNTER NAME — the computed-index write, the
+    in-game-proven scan-loop composition with a different operand). ``by`` is a
+    signed delta; ``lo``/``hi`` are the MANDATORY clamp (an unclamped meter walks
+    off its range and every gate downstream reads garbage). ``every``: a rate
+    divider in frames — on a branch 0 = every selected tick (byte timer, ≤255);
+    on a field drift row it is required, 1..30000 (an Int16 timer).
+
+    Emission is the house jump-clamp (write, then two test+rewrite pairs — the
+    alternator/cooldown pattern), NOT a branchless min/max: B_LMAX/B_LMIN are
+    party-member selectors, not clamps (the documented trap), and the three
+    statements are atomic within one ticker pass."""
+    counter: str | None = None
+    table: str | None = None
+    index: object = None             # int | counter name (required with table)
+    by: int = 0
+    lo: int = 0
+    hi: int = 0
+    every: int = 0
+
+    def __post_init__(self):
+        if (self.counter is None) == (self.table is None):
+            raise BehaviorError("adjust needs exactly one target: counter= OR table=")
+        if self.table is not None and self.index is None:
+            raise BehaviorError("adjust table= needs index= (an int or a counter name)")
+        if self.counter is not None and self.index is not None:
+            raise BehaviorError("adjust counter= takes no index")
+        self.by = int(self.by)
+        if self.by == 0:
+            raise BehaviorError("adjust by=0 writes nothing — drop the row")
+        self.lo, self.hi = int(self.lo), int(self.hi)
+        if self.lo >= self.hi:
+            raise BehaviorError(f"adjust clamp lo ({self.lo}) must be < hi ({self.hi})")
+        for label_, v in (("by", self.by), ("clamp lo", self.lo), ("clamp hi", self.hi)):
+            if abs(v) > ADJUST_MAG_MAX:
+                raise BehaviorError(
+                    f"adjust {label_} {v} exceeds ±{ADJUST_MAG_MAX} — the 26-bit "
+                    f"CalcStack overflows by RE-READING the value as a different "
+                    f"variable class, so the fence is hard")
+
+
 # ------------------------------------------------------------------ unit spec
 @dataclass
 class UnitSpec:
@@ -1297,6 +1368,8 @@ class FieldBehavior:
         self._reset_flags: list[int] = []                # extra flags Main_Init clears
         self._preset16: dict[int, int] = {}              # int16 idx -> Main_Init preset
         self._alternators: list[tuple[str, int, int, int]] = []  # (name, flag, timer, frames)
+        self._drifts: list[tuple["AdjustSpec", str | None, int]] = []  # (spec, gate flag name, timer idx)
+        self._public_flags: set[str] = set()             # names, for the drift-gate check
         self._label_ctr = 0                              # unique labels for feed effects
         # per-unit allocations (the player pseudo-unit gets mirrors + the staged latch)
         self._staged = self.bb.flag("player.staged")
@@ -1566,6 +1639,7 @@ class FieldBehavior:
         idx = self.bb.flag(name)
         if idx not in self._reset_flags:
             self._reset_flags.append(idx)
+        self._public_flags.add(name)                     # the drift-gate existence set
         return idx
 
     def any_of(self, *conds: Cond) -> Cond:
@@ -2061,7 +2135,84 @@ class FieldBehavior:
     def raw(self, text: str, *, unsafe_ok: bool = False) -> Cond:
         return Cond(text, _trusted=unsafe_ok)
 
+    # ---------------- adjust / drift (the numeric-write lane)
+    def _adjust_ref(self, a: "AdjustSpec") -> str:
+        """The RPN cell fragment for an adjust target — read operand AND B_LET
+        lvalue (the VECTOR token is both). Validates existence, and fences every
+        seed value of an adjusted TABLE to ±ADJUST_MAG_MAX: the clamp bounds the
+        cell only AFTER the first write, so a huge seed plus ``by`` would be the
+        one intermediate that can overflow the 26-bit stack."""
+        if a.counter is not None:
+            return self._counter_ref(a.counter)
+        ref = self._table_ref(a.table, a.index)
+        _tid, values = self.tables[a.table]
+        bad = [v for v in values if abs(int(v)) > ADJUST_MAG_MAX]
+        if bad:
+            raise BehaviorError(
+                f"table {a.table!r} is adjusted but seeds {bad[:3]}… exceed "
+                f"±{ADJUST_MAG_MAX} — the first `cell + by` on such a seed can "
+                f"overflow the 26-bit CalcStack (which re-reads, not truncates)")
+        return ref
+
+    def _adjust_write(self, a: "AdjustSpec", tag: str) -> list:
+        """The clamped write: ``cell += by`` then the two jump-clamps (the
+        alternator/cooldown house pattern — three adjacent statements in one
+        ticker pass, atomic w.r.t. every other script). ``tag`` uniquifies the
+        labels per emission site."""
+        ref = self._adjust_ref(a)
+        return [
+            _stmt(f"{ref} {ref} {_cnum(a.by)} B_PLUS B_LET"),
+            _stmt(f"{ref} {_cnum(a.lo)} B_LT"),
+            (JMP_IFNOT, f"{tag}_lo"),
+            _stmt(f"{ref} {_cnum(a.lo)} B_LET"),
+            label(f"{tag}_lo"),
+            _stmt(f"{ref} {_cnum(a.hi)} B_GT"),
+            (JMP_IFNOT, f"{tag}_hi"),
+            _stmt(f"{ref} {_cnum(a.hi)} B_LET"),
+            label(f"{tag}_hi"),
+        ]
+
+    def drift(self, *, counter: str | None = None, table: str | None = None,
+              index=None, by: int, clamp, every: int, flag: str | None = None):
+        """A FIELD-LEVEL periodic clamped write — the metabolism lane. Runs in the
+        shared ticker's clock segment (after warm-up, like every clock), so it is
+        independent of what any unit's tree selects: need decay must tick while
+        the Sim walks, cooks, or sleeps, and a BRANCH adjust only fires while its
+        branch is selected (one branch per unit per tick — the draining-condition
+        law is exactly why this lane exists at field level). ``every`` is
+        REQUIRED, 1..30000 frames (an Int16 timer seeded to ``every`` at
+        Main_Init — the first write lands one full period in, never at boot).
+        ``flag`` optionally gates the write (the timer keeps its cadence either
+        way); it must name a flag something else raises — an alternator, a
+        public flag, or a branch's raise_flags — checked at compile()."""
+        lo, hi = (int(clamp[0]), int(clamp[1])) if clamp else (0, 0)
+        a = AdjustSpec(counter=counter, table=table, index=index, by=by,
+                       lo=lo, hi=hi, every=0)
+        if not 1 <= int(every) <= 30000:
+            raise BehaviorError("drift every must be 1..30000 frames (an Int16 timer)")
+        a.every = int(every)
+        self._adjust_ref(a)                              # existence + seed fences now
+        t = self.bb.int16(f"drift{len(self._drifts)}.clock")
+        self._drifts.append((a, (str(flag) if flag is not None else None), t))
+
     # ---------------- compilation
+    def _collect_tree_dos(self, tree: Node | None) -> list[Do]:
+        """Every Do leaf of a tree — the drift-gate check reads their
+        raise/clear flag names (the same walk shape as the action collector)."""
+        out: list[Do] = []
+
+        def walk(n: Node):
+            if isinstance(n, (Selector, Sequence)):
+                for c in n.children:
+                    walk(c)
+            elif isinstance(n, (Once, Cooldown)):
+                walk(n.child)
+            elif isinstance(n, Do):
+                out.append(n)
+        if tree is not None:
+            walk(tree)
+        return out
+
     def _collect_tree_actions(self, tree: Node | None) -> list[Action]:
         out: list[Action] = []
 
@@ -2696,6 +2847,41 @@ class FieldBehavior:
                 _stmt(f"{cell} {cell} const(1) B_PLUS B_LET"),
                 label(f"sch_{si}"),
             ]
+        # DRIFT lanes (the metabolism): a field-level clamped write every N frames,
+        # independent of any tree's selection — the alternator timer pattern with
+        # the write at the reload edge. The optional flag gate skips the WRITE,
+        # never the cadence (a gated-off decay resumes on the period, not with a
+        # burst). Holds during warm-up like every clock.
+        if self._drifts:
+            known = {n for n, *_ in self._alternators}
+            known.update(self._public_flags)
+            for u in self.units.values():
+                for d in self._collect_tree_dos(u.tree):
+                    known.update(d.raise_flags)
+                    known.update(d.clear_flags)
+            for cs in self.classes.values():
+                for d in self._collect_tree_dos(cs.tree):
+                    known.update(d.raise_flags)
+                    known.update(d.clear_flags)
+            for di, (a, gate, t) in enumerate(self._drifts):
+                if gate is not None and gate not in known:
+                    raise BehaviorError(
+                        f"drift #{di}: gate flag {gate!r} is never raised anywhere "
+                        f"(no alternator, public flag, or raise_flags names it) — "
+                        f"a typo here is a drift that silently never fires, so it refuses")
+                cd_blocks += [
+                    _stmt(f"Global.Int16[{t}] const(0) B_GT"),
+                    (JMP_IFNOT, f"drf_{di}_fire"),
+                    _stmt(f"Global.Int16[{t}] Global.Int16[{t}] const(1) B_MINUS B_LET"),
+                    (JMP, f"drf_{di}_end"),
+                    label(f"drf_{di}_fire"),
+                    _set_int16(t, a.every),
+                ]
+                if gate is not None:
+                    cd_blocks += [_stmt(f"Global.Bit[{self.bb.flag(gate)}]"),
+                                  (JMP_IFNOT, f"drf_{di}_end")]
+                cd_blocks += self._adjust_write(a, f"drf_{di}")
+                cd_blocks.append(label(f"drf_{di}_end"))
         # GROUP MIRRORS first (scans in group form read them same-pass): px/pz/
         # act into the roster tables once per group per pass — the same
         # constant-index write shape as the scan copies. hp needs no mirror:
@@ -2907,6 +3093,8 @@ class FieldBehavior:
             main_init += _set_byte(self.bb.byte(name), 0)
         for _name, f, t, frames in self._alternators:
             main_init += _set_int16(t, frames) + _set_flag(f, 0)
+        for a, _gate, t in self._drifts:                 # first write one period in
+            main_init += _set_int16(t, a.every)
         for idx in self._reset_bytes:
             main_init += _set_byte(idx, 0)
         for idx in self._reset_flags:
@@ -3220,6 +3408,30 @@ class FieldBehavior:
                 if fi not in self._reset_flags:
                     self._reset_flags.append(fi)
                 out.append(_set_flag(fi, 0))
+            for k, adj in enumerate(node.adjust):
+                # a clamped write WHILE SELECTED (the use-loop: holding at the
+                # stove fills hunger). every>0 rides a cooldown-class timer —
+                # central clock (v1) / brain-decremented Instance var (brains) —
+                # so the write lands at most once per `every` frames.
+                tag = f"adj_{owner}_{_ctr[0]}_{k}"
+                if adj.every:
+                    if self.brains:
+                        t_r = self._inst_ref(owner, f"adj{_ctr[0]}_{k}")
+                        bc = self._brain_cooldowns.setdefault(owner, [])
+                        if t_r not in bc:                # compile() may re-run
+                            bc.append(t_r)
+                    else:
+                        tname = f"{owner}.adj{_ctr[0]}_{k}"
+                        t_r = f"Global.Byte[{self.bb.byte(tname)}]"
+                        if tname not in [n for n, _f in self._cooldowns]:
+                            self._cooldowns.append((tname, 0))
+                    out += [_stmt(f"{t_r} const(0) B_EQ"),
+                            (JMP_IFNOT, f"{tag}_wait")]
+                    out += self._adjust_write(adj, tag)
+                    out += [_stmt(f"{t_r} const({int(adj.every)}) B_LET"),
+                            label(f"{tag}_wait")]
+                else:
+                    out += self._adjust_write(adj, tag)
             if node.action.feed:
                 if node.action.speed is not None:
                     spd_v = int(node.action.speed)

@@ -655,10 +655,58 @@ table = "sched"                      # engine instead of N unrolled bands
   table cell — and `index` may be a **counter name**, which is a genuine
   runtime-computed lookup (`sched[wave]`), the thing plain `.eb` variables can never do.
 - **Writing**: `die = "kills"` bumps that counter exactly once (the death body runs
-  once). The schedule clock advances its own counter. That's the v1 write surface —
-  deliberately small.
+  once); the schedule clock advances its own counter; and the **adjust/drift lane**
+  below is the general clamped write.
 - **The clock stops itself**: when `wave` walks off the table's end, the read fails
   soft to 0 and `timer < 0` never holds — no latch flag, the data is the terminator.
+
+## Adjust and drift — the numeric-write lane
+
+A life-sim meter, a relationship score, a resource pool: state that decays, refills,
+and is read back by the same trees. Two surfaces, one write shape:
+
+```toml
+[behavior]
+counters = ["hunger", "cur_obj"]
+
+[[behavior.table]]
+name = "need"
+values = [100, 100, 100, 100, 100]
+
+[[behavior.drift]]                   # THE METABOLISM: a field-level clamped write
+counter = "hunger"                   # every N frames, in the ticker's clock segment —
+by = -1                              # independent of what any tree selects (decay must
+clamp = [0, 100]                     # tick while the Sim walks, cooks, or sleeps)
+every = 90                           # REQUIRED here, 1..30000 (an Int16 timer; the
+                                     # first write lands one full period in)
+# flag = "daytime"                   # optional gate: skips the WRITE, not the cadence.
+                                     # Must name a flag something else raises (an
+                                     # alternator, a public flag, a raise_flags) —
+                                     # a never-raised gate REFUSES at build.
+
+  [[behavior.unit.branch]]           # THE USE-LOOP: adjust rides a branch like
+  when = [{ counter_le = ["hunger", 40] }]         # raise_flags — a clamped write
+  do = { walk_to = "stove" }                       # WHILE this branch is selected
+  adjust = { counter = "hunger", by = 3, clamp = [0, 100], every = 15 }
+```
+
+- **`clamp = [lo, hi]` is mandatory.** An unclamped meter walks off its range and
+  every gate downstream reads garbage — and the 26-bit CalcStack does not truncate
+  on overflow, it **re-reads the value as a different variable class**. All of
+  `by`/`lo`/`hi` (and every seed value of an adjusted table) are fenced to ±10^6.
+- **Targets**: `counter = "name"`, or `table = "name"` + `index =` an int
+  (compile-time bounds-checked) or a **counter name** — the computed-index WRITE,
+  the same in-game-proven composition the scan loop rides. Keep a runtime index in
+  range; an off-end write is silently lost (the engine lane's soft-fail family).
+- **Rates**: a branch `adjust` fires every selected tick by default; `every = 1..255`
+  rides a byte timer (central clock under v1, a Seq-private Instance var under
+  brains — per member for free on a class row). A drift's `every` is 1..30000.
+- **Why decay is field-level**: the selector fires ONE branch per unit per tick
+  (the draining-condition law), so five needs decaying as branches would compete
+  for selection. Drift rows live with the clocks — all of them fire on their own
+  cadence, whatever the trees are doing.
+- `adjust` may be one row or a list; `engage` branches refuse it (the two-phase
+  subtree owns its selection blocks — use a plain branch or a drift row).
 
 The wave shape becomes: units gate their march branches on `counter_ge = ["wave", 1]`
 (wave 2 on `["wave", 2]`, …), the herald announces on `counter_eq`, and a win condition
@@ -807,10 +855,12 @@ nothing.
   engine-fixed — and the entry table caps at **255 slots**. On a donor fork that leaves
   ~50-55KB for all compiled behavior (ticker + every dispatch body); each unit×target
   pair branch costs ~135B of ticker plus ~90B of body, so pair-target scope is the knob.
-  A third budget binds at swarm scale: the blackboard scratch band is **786 bytes** of
-  `gEventGlobal` (bytes 1220–2005, capped flush below the reserved heap top — the nameplate
-  explored words / qte scratch / co-op cells / choice mask; ~40 units with ~5 swing pairs
-  each; ~14B per unit + ~1B per swing).
+  A third budget binds at swarm scale: the blackboard scratch band is **114 bytes** of
+  `gEventGlobal` by default (bytes 1876–1989, the campaign-compatible `"safe"` band) —
+  `byte_band = "wide"` opens the historical **770 bytes** (1220–1989, capped flush below
+  the reserved heap top: the nameplate explored words / qte scratch / co-op cells /
+  choice mask), which overlaps campaign per-member flag windows and is standalone-only.
+  Cost intuition: ~14B per unit + ~1B per swing timer (`flags.py` is the authority).
   Every over-budget build fails loudly at build time (never a wrapped offset), and
   `CompiledBehavior.size_report()` prints the per-unit **byte histogram** — where the
   bytes actually went — so the trim is a decision, not a hunt.

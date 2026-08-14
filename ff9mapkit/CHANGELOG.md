@@ -5,7 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Fixed — a `[behavior]` timer field's countdown no longer follows you out
+### Added — `adjust` + `[[behavior.drift]]`: the behavior vocabulary's first numeric write
+- Until now a compiled tree could read tables and counters but never assign one
+  (`die = "<counter>"` and the schedule clock were the whole write surface). A branch
+  may now carry `adjust = { counter =|table = + index =, by =, clamp = [lo, hi],
+  every = }` — a CLAMPED write applied while the branch is selected (the use-loop:
+  holding at the stove fills hunger), with `index` accepting a counter name for a
+  genuinely runtime-computed write (the scan loop's in-game-proven composition).
+  `[[behavior.drift]]` is the field-level twin: a periodic clamped write in the
+  ticker's clock segment, independent of tree selection (need decay must tick while
+  the unit walks, cooks, or sleeps — and the selector only fires one branch per unit
+  per tick, so decay could never live on branches). Clamps are mandatory and every
+  operand is fenced to ±10^6: the 26-bit CalcStack re-reads an overflow as a
+  different variable class, so an unclamped meter is unrepresentable, not merely
+  discouraged. A field using neither compiles byte-identical to before, on both
+  backends; a drift gate flag nothing ever raises refuses at build.
 - FF9's countdown HUD is engine-global and save-persisted by design (the Festival of the
   Hunt's clock spans Lindblum), so a minigame clock armed by `timer =` used to keep
   rendering on the world map and in unrelated fields after any walk-out — and even

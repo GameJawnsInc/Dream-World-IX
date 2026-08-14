@@ -120,7 +120,10 @@ ACTION_VERBS = {
     "announce": ("window", "delay", "sustain"),
     "announce_npc": ("window", "delay", "sustain"),
 }
-BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags"}
+BRANCH_KEYS = {"when", "do", "once", "cooldown", "raise_flags", "clear_flags",
+               "adjust"}
+ADJUST_KEYS = {"counter", "table", "index", "by", "clamp", "every"}
+DRIFT_KEYS = ADJUST_KEYS | {"flag"}
 UNIT_KEYS = {"npc", "npcs", "class", "hp", "speed", "speeds", "branch", "pooled",
              "pool"}
 # the PAYOUT verbs a CLASS row refuses (rung 2 lifted the rest of the one-shot
@@ -130,7 +133,7 @@ CLASS_FORBIDDEN_VERBS = {"award", "add_shop_item", "remove_shop_item",
                          "add_shop_synth", "remove_shop_synth"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
               "counters", "table", "schedule", "scan", "group", "hud", "byte_band",
-              "brains"}
+              "brains", "drift"}
 POOL_KEYS = {"name", "price", "button", "request_flag", "item"}
 TABLE_KEYS = {"name", "values", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
@@ -890,6 +893,60 @@ def _build_cond(fb: B.FieldBehavior, me: str, d: dict, positions: dict, ctx: str
     return B.Invert(c) if verb == "not_active" else c
 
 
+def _build_adjust(d: dict, ctx: str, *, drift: bool = False) -> dict:
+    """Validate one adjust/drift row's SHAPE and return its kwargs. Unknown keys
+    are errors (the laws-as-invariants posture); target existence and the
+    magnitude fences live in the compiler (AdjustSpec / _adjust_ref), which
+    raises at build() time either way."""
+    if not isinstance(d, dict):
+        raise BehaviorTomlError(f"{ctx}: an adjust row is a dict "
+                                f"{{counter=|table=+index=, by=, clamp=[lo,hi]}}")
+    allowed = DRIFT_KEYS if drift else ADJUST_KEYS
+    extra = set(d) - allowed
+    if extra:
+        raise BehaviorTomlError(f"{ctx}: unknown adjust key(s) {sorted(extra)}")
+    if "by" not in d:
+        raise BehaviorTomlError(f"{ctx}: adjust needs by= (a signed delta)")
+    clamp = d.get("clamp")
+    if (not isinstance(clamp, list) or len(clamp) != 2
+            or not all(isinstance(v, int) and not isinstance(v, bool) for v in clamp)):
+        raise BehaviorTomlError(f"{ctx}: adjust needs clamp = [lo, hi] (two ints — "
+                                f"an unclamped meter walks off its range and every "
+                                f"gate downstream reads garbage)")
+    idx = d.get("index")
+    if idx is not None and not isinstance(idx, (int, str)):
+        raise BehaviorTomlError(f"{ctx}: adjust index= is an int or a counter name")
+    return dict(counter=(str(d["counter"]) if d.get("counter") is not None else None),
+                table=(str(d["table"]) if d.get("table") is not None else None),
+                index=idx, by=int(d["by"]), clamp=clamp,
+                every=int(d.get("every", 0)))
+
+
+def _branch_adjusts(fb: B.FieldBehavior, br: dict, ctx: str) -> tuple:
+    """The branch's ``adjust`` key — one row (a dict) or a list of rows — as
+    AdjustSpec tuples for the Do node."""
+    raw_adj = br.get("adjust")
+    if raw_adj is None:
+        return ()
+    rows = raw_adj if isinstance(raw_adj, list) else [raw_adj]
+    out = []
+    for k, d in enumerate(rows):
+        kw = _build_adjust(d, f"{ctx} adjust #{k}")
+        try:
+            spec = B.AdjustSpec(counter=kw["counter"], table=kw["table"],
+                                index=kw["index"], by=kw["by"],
+                                lo=kw["clamp"][0], hi=kw["clamp"][1],
+                                every=kw["every"])
+            fb._adjust_ref(spec)                          # target exists, seeds fenced
+        except B.BehaviorError as e:
+            raise BehaviorTomlError(f"{ctx} adjust #{k}: {e}")
+        if not 0 <= kw["every"] <= 255:
+            raise BehaviorTomlError(f"{ctx} adjust #{k}: every is a byte timer on a "
+                                    f"branch — 0 (every selected tick) .. 255 frames")
+        out.append(spec)
+    return tuple(out)
+
+
 def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_txid,
                   ctx: str, routed_points=None, model=None):
     verb = _one_verb(d, ACTION_VERBS, ctx)
@@ -1078,6 +1135,19 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
         fb.alternator(str(alt["name"]), int(alt["frames"]))
     for s in schedule_rows(raw):
         fb.schedule(str(s.get("counter", "")), str(s.get("table", "")))
+    for di, d in enumerate(b.get("drift", []) or []):
+        dctx = f"[[behavior.drift]] #{di}"
+        kw = _build_adjust(d, dctx, drift=True)
+        if d.get("every") is None:
+            raise BehaviorTomlError(f"{dctx}: drift needs every= (frames between "
+                                    f"writes, 1..30000 — a drift with no rate "
+                                    f"would fire 30 times a second)")
+        try:
+            fb.drift(counter=kw["counter"], table=kw["table"], index=kw["index"],
+                     by=kw["by"], clamp=kw["clamp"], every=kw["every"],
+                     flag=(str(d["flag"]) if d.get("flag") is not None else None))
+        except B.BehaviorError as e:
+            raise BehaviorTomlError(f"{dctx}: {e}")
     for gr in b.get("group", []) or []:
         fb.group(str(gr.get("name", "")),
                  [str(u) for u in gr.get("units", []) or []])
@@ -1142,6 +1212,11 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                 if br.get("raise_flags") or br.get("clear_flags"):
                     raise BehaviorTomlError(
                         f"{ctx}: engage takes no raise_flags/clear_flags")
+                if br.get("adjust") is not None:
+                    raise BehaviorTomlError(
+                        f"{ctx}: engage takes no adjust (the two-phase subtree "
+                        f"owns its selection blocks — put the write on a plain "
+                        f"branch, or in a [[behavior.drift]] row)")
                 sub = fb.engage_node(name, B.Engage(
                     group=str(do["engage"]),
                     radius=int(do.get("radius", 900)),
@@ -1174,7 +1249,8 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                    routed_points=(rp["points"] if rp else None),
                                    model=umodel)
             do_node = B.Do(action, raise_flags=tuple(br.get("raise_flags", []) or []),
-                           clear_flags=tuple(br.get("clear_flags", []) or []))
+                           clear_flags=tuple(br.get("clear_flags", []) or []),
+                           adjust=_branch_adjusts(fb, br, ctx))
             conds = [_build_cond(fb, name, c, positions, ctx)
                      for c in (br.get("when") or [])]
             node = B.Sequence(*conds, do_node) if conds else do_node
