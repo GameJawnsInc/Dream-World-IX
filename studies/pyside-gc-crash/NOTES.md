@@ -60,6 +60,8 @@ touch (cursor()/hasCursor() alone) is harmless.
   present). **This is the gate for any future PySide6 upgrade**: run it on the new version;
   exit 0 before relaxing the retained-wrapper rule.
 - **`run_matrix.py`** — the crash-matrix driver.
+- **`bisect_pair_classpatch.py`** — the pytest-subset bisect driver that isolated THE
+  CLASS-PATCH FLAVOR (below) to one test; post-fix it doubles as the all-clear check.
 
 ## Version A/B (uv venvs; probe + 10-round mirror × 4)
 
@@ -108,7 +110,7 @@ suite with `-n 6` the same disease surfaced instead as **9 setup ERRORs** in
 `setVisible(self, visible)` virtual override on an unrelated widget.
 
 **Bisect record (prefix search over test_cutscenedoc.py's 43 tests + a 5-test floorplan
-detector; driver preserved the session it ran in):**
+detector; driver: `bisect_pair_classpatch.py` in this directory):**
 
 | Subset | Verdict |
 |---|---|
