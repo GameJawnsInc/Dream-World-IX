@@ -20,6 +20,7 @@ from __future__ import annotations
 import time
 
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,7 +28,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication, QComboBox, QPushButton   # noqa: E402
+from PySide6.QtWidgets import QApplication, QComboBox, QMessageBox, QPushButton   # noqa: E402
 
 from ff9mapkit.editor import forms                                       # noqa: E402
 from ff9mapkit.editor.theme import pick_palette                          # noqa: E402
@@ -69,6 +70,15 @@ _SINGLETON = (_HEAD + '[cutscene]\nactors = ["Cid"]\nrequires_scenario = 100\n'
 @pytest.fixture(scope="module")
 def app():
     return QApplication.instance() or QApplication([])
+
+
+def _confirm_yes(monkeypatch):
+    """Swap shell's QMessageBox NAME for a stub whose question answers Yes -- never a patch of the
+    live Qt class (the shiboken override-cache poison, studies/pyside-gc-crash). shell._confirm
+    resolves `QMessageBox.question` through its module global at call time, so the swap is the seam."""
+    monkeypatch.setattr(shell, "QMessageBox", SimpleNamespace(
+        question=lambda *a, **k: QMessageBox.StandardButton.Yes,
+        StandardButton=QMessageBox.StandardButton))
 
 
 @pytest.fixture
@@ -407,8 +417,7 @@ def test_removing_a_cutscene_from_a_dispatch_removes_ONE_SCENE(win, tmp_path, mo
     """A4. It used to pop the whole array: three authored scenes destroyed by one click, behind a
     confirm saying "this cutscene", written to disk at once, and Undo restored NOTHING (measured)."""
     import tomllib
-    monkeypatch.setattr(shell.QMessageBox, "question",
-                        staticmethod(lambda *a, **k: shell.QMessageBox.StandardButton.Yes))
+    _confirm_yes(monkeypatch)
     p = _mounted(win, tmp_path, _PLURAL)
     assert len(tomllib.loads(p.read_text(encoding="utf-8"))["cutscene"]) == 2
     win._delete_object(_MEMBER, "cutscene", single=True, label="cutscene")
@@ -419,8 +428,7 @@ def test_removing_a_cutscene_from_a_dispatch_removes_ONE_SCENE(win, tmp_path, mo
 
 def test_removing_the_last_scene_leaves_no_bare_section(win, tmp_path, monkeypatch):
     import tomllib
-    monkeypatch.setattr(shell.QMessageBox, "question",
-                        staticmethod(lambda *a, **k: shell.QMessageBox.StandardButton.Yes))
+    _confirm_yes(monkeypatch)
     p = _mounted(win, tmp_path, _HEAD + '[[cutscene]]\nactors = ["Cid"]\n'
                  'steps = [ { say = "only" } ]\n')
     win._delete_object(_MEMBER, "cutscene", single=True, label="cutscene")
@@ -430,8 +438,7 @@ def test_removing_the_last_scene_leaves_no_bare_section(win, tmp_path, monkeypat
 def test_a_singleton_cutscene_delete_still_removes_the_section(win, tmp_path, monkeypatch):
     """CONTROL: the plural fix must not change the singleton's behaviour."""
     import tomllib
-    monkeypatch.setattr(shell.QMessageBox, "question",
-                        staticmethod(lambda *a, **k: shell.QMessageBox.StandardButton.Yes))
+    _confirm_yes(monkeypatch)
     p = _mounted(win, tmp_path, _SINGLETON)
     win._delete_object(_MEMBER, "cutscene", single=True, label="cutscene")
     assert "cutscene" not in tomllib.loads(p.read_text(encoding="utf-8"))

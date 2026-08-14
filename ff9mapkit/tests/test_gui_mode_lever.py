@@ -6,8 +6,9 @@
   * ASK #10 — a quiet status-bar MODE CHIP (Guided / Full) that opens Preferences.
   * ASK #1's Preferences row — 'Ask before reversible deploys', live-applied on OK, dropped on Cancel.
 
-Headless (offscreen). No modal is exec()'d -- QDialog.exec is faked and the handlers driven directly,
-the same way test_workspace_prefs does. prefs._path is pinned at a throwaway file (THE DISEASE)."""
+Headless (offscreen). No modal is exec()'d -- shell's QDialog NAME is swapped for a subclass whose
+exec runs the test's script (never a patch of the live Qt class), the same way test_workspace_prefs
+does. prefs._path is pinned at a throwaway file (THE DISEASE)."""
 import os
 
 import pytest
@@ -16,8 +17,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt                                     # noqa: E402
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialogButtonBox,   # noqa: E402
-                               QToolButton)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog,   # noqa: E402
+                               QDialogButtonBox, QToolButton)
 
 from ff9mapkit.workspace import forms_qt, shell                   # noqa: E402
 from ff9mapkit.workspace.shell import pick_palette                # noqa: E402
@@ -41,6 +42,18 @@ def _pin_prefs(tmp_path, monkeypatch):
 
 def _win():
     return shell.Workspace(pick_palette("dark"))
+
+
+def _scripted_dialog(monkeypatch, script):
+    """Swap shell's QDialog NAME for a subclass whose exec runs the test's script against the live
+    dialog -- built before any instance exists, never a patch of the live Qt class (the shiboken
+    override-cache poison, studies/pyside-gc-crash). _open_preferences builds `QDialog(self)` from
+    shell's module global, so the name swap is the seam."""
+    class _ScriptedExec(QDialog):
+        def exec(self):
+            return script(self)
+
+    monkeypatch.setattr(shell, "QDialog", _ScriptedExec)
 
 
 def _neutralize_coop(cd):
@@ -143,7 +156,7 @@ def test_cancel_reverts_a_previewed_mode_flip(app, monkeypatch):
         dlg.reject()                                 # Cancel -> _finish reverts
         return 0
 
-    monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+    _scripted_dialog(monkeypatch, fake_exec)
     w._open_preferences()
     assert forms_qt._GUIDED is True, "Cancel restores the mode"
     assert not drawer.toggle_button.isChecked(), "Cancel re-collapses the previewed-open drawer"
@@ -185,7 +198,7 @@ def test_the_mode_chip_opens_preferences(app, monkeypatch):
         dlg.reject()
         return 0
 
-    monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+    _scripted_dialog(monkeypatch, fake_exec)
     w.mode_chip.click()
     assert seen == ["Preferences"], "activating the chip opens the Preferences dialog"
     w.close()
@@ -206,7 +219,7 @@ def test_confirm_reversible_row_persists_on_ok(app, monkeypatch):
         dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok).click()
         return 1
 
-    monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+    _scripted_dialog(monkeypatch, fake_exec)
     w._open_preferences()
     assert saved == [True], "OK persists the opt-in"
     w.close()
@@ -222,7 +235,7 @@ def test_confirm_reversible_row_does_not_persist_on_cancel(app, monkeypatch):
         dlg.reject()
         return 0
 
-    monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+    _scripted_dialog(monkeypatch, fake_exec)
     w._open_preferences()
     assert saved == [], "Cancel writes nothing"
     w.close()

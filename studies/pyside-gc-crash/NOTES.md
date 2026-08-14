@@ -175,6 +175,46 @@ test_workspace_prefs ×2, test_workspace_update, test_workspace_encounters), and
 `QApplication.exec` ×1 (test_workspace_prefs). All the same non-detonating classes (statics /
 Python-only-called virtuals), and the recipes above drop in directly — migrate when touched.
 
+**The undercounted sixteen are now MIGRATED too — the census is CLOSED: zero Qt-class patches remain
+in `tests/`** (grep fence: `setattr\([a-zA-Z_.]*\bQ[A-Z][a-zA-Z]+, *"` — no matches). Same one
+shape, same seams:
+
+- `QDialog.exec` ×8 (test_gui_mode_lever ×4, test_workspace_prefs ×4 — the Preferences dialog) → a
+  per-file `_scripted_dialog` helper: a `_ScriptedExec(QDialog)` subclass whose plain-Python `exec`
+  runs the test's script against the live dialog, swapped in for **shell's `QDialog` name**
+  (`_open_preferences` builds `QDialog(self)` from the module global).
+- The `QMessageBox` statics ×7 → a `SimpleNamespace` swapped in for the constructing module's
+  **`QMessageBox` name**, carrying the spy plus the REAL `StandardButton` enum (and, in prefs, real
+  pass-throughs for the untargeted statics) so the swap is behaviour-identical to the old
+  single-attr patch: `question` (test_workspace_cutscene ×3 via `_confirm_yes`,
+  test_workspace_update), `information` (test_workspace_prefs ×2 via `_spy_information`), `warning`
+  (test_workspace_encounters — forms_qt's name).
+- `QApplication.exec` ×1 (test_workspace_prefs) → an instance attribute on
+  `QApplication.instance()` (`raising=False`) — `main()` calls `app.exec()` on the INSTANCE, so the
+  instance dict shadows the class method and no Qt type dict is written.
+
+No assert was weakened. Verified: each file green solo (11/29/33/5/16 = 94); the four
+shell-name-swapping files green in ONE process (78 passed); all five in one process green with
+encounters ordered FIRST (94 passed); the historical detonation pair still at its 143-passed
+baseline. Three findings from the verification, none a class-patch symptom:
+
+1. The five files in one process with test_workspace_encounters LAST stall for many minutes (killed
+   at 600s twice) — py-spy shows the main thread inside that module's app-sheet fences'
+   `QApplication.setStyleSheet` (test_workspace_encounters.py:133/:144), repolishing the four
+   earlier Workspace-heavy modules' accumulated parked widgets. A pre-existing scaling cost of the
+   ORDERING, not a hang and not a poison: encounters-FIRST runs the same 94 in ~56s.
+2. One unreproduced native crash on this worktree's very first (cold-cache) run of
+   test_workspace_prefs, concurrent with a test_gui_mode_lever process; 10+ subsequent runs (solo,
+   concurrent-pair, one-process) all green. Indistinguishable from the known layer-2 heap-layout
+   flake; flagged, not diagnosed.
+3. Pre-existing, out of scope, spawned as its own task: test_run_upgrade_non_windows_shows_manual_command
+   patches the GLOBAL `os.name` ("posix"); under Python 3.14 pytest's VERBOSE reporter builds a
+   `Path()` while logging the call-phase report, `Path.__new__` picks the flavour from `os.name` AT
+   CALL TIME, and `relative_to` then dies on two identical-looking strings → INTERNALERROR aborts
+   any `-v` session at that test. `-q` never touches that reporter path, which is why the suite's
+   normal runs pass. Fix = swap shell's `os` NAME for a stub, the same discipline as everything
+   above.
+
 **Fix (both halves shipped, pair 3/3 green — 143 passed per run):**
 
 1. The phantom-window fence now observes through a **QObject event filter** on the two

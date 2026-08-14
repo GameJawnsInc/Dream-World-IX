@@ -10,7 +10,9 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication            # noqa: E402
+from types import SimpleNamespace                     # noqa: E402
+
+from PySide6.QtWidgets import QApplication, QMessageBox   # noqa: E402
 
 from ff9mapkit import __version__                     # noqa: E402
 from ff9mapkit import update_check as uc              # noqa: E402
@@ -57,7 +59,12 @@ def test_startup_flow_skips_on_source_checkout(app, monkeypatch):
     # a checkout must NOT prompt or auto-check (it's not uv/pip-managed) -- assert no modal is raised
     monkeypatch.setattr(uc, "auto_check_allowed", lambda: False)
     raised = []
-    monkeypatch.setattr(shell.QMessageBox, "question", lambda *a, **k: raised.append(1))
+    # Swap shell's QMessageBox NAME for a stub -- never a patch of the live Qt class (the shiboken
+    # override-cache poison, studies/pyside-gc-crash). StandardButton stays the real enum so a
+    # WRONGLY-prompting flow still builds its buttons, reaches the spy, and fails the assert below.
+    monkeypatch.setattr(shell, "QMessageBox", SimpleNamespace(
+        question=lambda *a, **k: raised.append(1),
+        StandardButton=QMessageBox.StandardButton))
     w = _win(app)
     w.startup_update_flow()
     assert raised == []

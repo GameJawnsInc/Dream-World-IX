@@ -10,9 +10,10 @@ pytest.importorskip("PySide6")
 
 import shutil                                         # noqa: E402
 import subprocess                                      # noqa: E402
+from types import SimpleNamespace                      # noqa: E402
 
 from PySide6.QtWidgets import (                         # noqa: E402
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget)
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QMessageBox)
 
 from ff9mapkit.editor import theme                    # noqa: E402
 from ff9mapkit.editor.theme import pick_palette       # noqa: E402
@@ -38,6 +39,28 @@ def _no_motion_leak():
 
 def _win(app):
     return shell.Workspace(pick_palette("dark"))
+
+
+def _scripted_dialog(monkeypatch, script):
+    """Swap shell's QDialog NAME for a subclass whose exec runs the test's script against the live
+    dialog -- built before any instance exists, never a patch of the live Qt class (the shiboken
+    override-cache poison, studies/pyside-gc-crash). _open_preferences builds `QDialog(self)` from
+    shell's module global, so the name swap is the seam."""
+    class _ScriptedExec(QDialog):
+        def exec(self):
+            return script(self)
+
+    monkeypatch.setattr(shell, "QDialog", _ScriptedExec)
+
+
+def _spy_information(monkeypatch, info):
+    """Swap shell's QMessageBox NAME for a stub whose `information` records -- never a patch of the
+    live Qt class (same poison). The untargeted statics stay the real ones, so the swap is
+    behaviour-identical to the old single-attr patch."""
+    monkeypatch.setattr(shell, "QMessageBox", SimpleNamespace(
+        information=lambda *a, **k: info.append(a),
+        question=QMessageBox.question, warning=QMessageBox.warning,
+        StandardButton=QMessageBox.StandardButton))
 
 
 def test_retheme_swaps_palette_for_every_theme(app):
@@ -89,7 +112,7 @@ def test_run_upgrade_without_uv_shows_manual_command(app, monkeypatch):
     w = _win(app)
     monkeypatch.setattr(shutil, "which", lambda _n: None)
     info, popen = [], []
-    monkeypatch.setattr(shell.QMessageBox, "information", lambda *a, **k: info.append(a))
+    _spy_information(monkeypatch, info)
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: popen.append(a))
     w._run_upgrade()
     assert info and not popen
@@ -101,7 +124,7 @@ def test_run_upgrade_non_windows_shows_manual_command(app, monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda _n: "/usr/bin/uv")      # uv present...
     monkeypatch.setattr(shell.os, "name", "posix")                      # ...but not Windows
     info, popen = [], []
-    monkeypatch.setattr(shell.QMessageBox, "information", lambda *a, **k: info.append(a))
+    _spy_information(monkeypatch, info)
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: popen.append(a))
     w._run_upgrade()
     assert info and not popen
@@ -120,7 +143,7 @@ def test_preferences_cancel_reverts_live_preview(app, monkeypatch):
         dlg.reject()                                                   # Cancel -> finished -> revert
         return 0
 
-    monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+    _scripted_dialog(monkeypatch, fake_exec)
     w._open_preferences()
     assert w.pal is theme.DARK                                         # reverted to the pre-dialog palette
 
@@ -139,7 +162,7 @@ def test_preferences_ok_keeps_preview_and_persists(app, monkeypatch):
         dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok).click()
         return 1
 
-    monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+    _scripted_dialog(monkeypatch, fake_exec)
     w._open_preferences()
     assert w.pal is theme.GRUVBOX_DARK                                 # kept (not reverted)
     assert saved == ["gruvbox-dark"]                                   # persisted
@@ -163,7 +186,7 @@ def test_preferences_writes_update_optin_only_when_installed(app, monkeypatch):
             dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok).click()
             return 1
 
-        monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+        _scripted_dialog(monkeypatch, fake_exec)
         w._open_preferences()
         return calls
 
@@ -181,7 +204,7 @@ def test_preferences_update_toggle_only_on_installed(app, monkeypatch):
         dlg.reject()
         return 0
 
-    monkeypatch.setattr(shell.QDialog, "exec", fake_exec, raising=False)
+    _scripted_dialog(monkeypatch, fake_exec)
     monkeypatch.setattr(shell.update_check, "is_installed", lambda: True)
     _win(app)._open_preferences()
     assert seen["chk"] is not None
@@ -221,7 +244,9 @@ def test_startup_uses_the_saved_theme(app, monkeypatch):
     monkeypatch.setattr(shell.prefs, "theme", lambda: "nord")
     monkeypatch.setattr(shell.update_check, "auto_check_allowed", lambda: False)   # no network/prompt
     monkeypatch.setattr(shell.sys, "exit", lambda *_a, **_k: None)                 # don't kill the test run
-    monkeypatch.setattr(shell.QApplication, "exec", lambda *_a, **_k: 0)
+    # main() calls exec on the INSTANCE (app.exec()), so an instance attribute is the seam -- never a
+    # patch of the live Qt class (the shiboken override-cache poison, studies/pyside-gc-crash).
+    monkeypatch.setattr(QApplication.instance(), "exec", lambda *_a, **_k: 0, raising=False)
     created = {}
     real_init = shell.Workspace.__init__
 

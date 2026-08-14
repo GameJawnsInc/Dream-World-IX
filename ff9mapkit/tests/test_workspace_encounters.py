@@ -14,6 +14,8 @@ actual cold build) -- ``build_map`` on a memo hit must never reach it, exactly a
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip("PySide6")
@@ -293,8 +295,11 @@ def test_build_index_runs_off_thread_then_refreshes(app, monkeypatch):
 
 def test_on_index_ready_error_warns_without_crashing(app, monkeypatch):
     seen = []
-    monkeypatch.setattr(forms_qt.QMessageBox, "warning",
-                        lambda *a, **k: seen.append(a) or None)
+    # Swap forms_qt's QMessageBox NAME for a stub -- never a patch of the live Qt class (the
+    # shiboken override-cache poison, studies/pyside-gc-crash); _on_index_ready resolves
+    # `QMessageBox.warning` through the module global at call time.
+    monkeypatch.setattr(forms_qt, "QMessageBox", SimpleNamespace(
+        warning=lambda *a, **k: seen.append(a) or None))
     lib = CatalogLibrary(None, None, pick_palette("dark"))
     lib._index_busy = True
     lib.build_btn.setEnabled(False)
