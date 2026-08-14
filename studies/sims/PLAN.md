@@ -74,7 +74,7 @@ One mechanism per playtest. Verdicts are the owner's; the gate suite is not an o
 | Rung | Delivers | New surface | Verdict question |
 |---|---|---|---|
 | 0 | probes + `adjust`/`drift` | `adjust`, `[[behavior.drift]]` | ★ DONE offline |
-| 1 | THE FIRST MEAL — one Sim (VIV), one need, one stove, one directive menu, HUD | none (wiring) | does the number move and does the Sim go? |
+| 1 | THE FIRST MEAL — one Sim (VIV), one need, one stove, one directive menu, HUD | none (wiring) | **BUILT + DEPLOYED (30430), ⚠ playtest pending** — does the number move and does the Sim go? |
 | 2 | five needs, ~6 objects, priority-branch autonomy, the day clock, speed control | none | alive when you stop directing it? |
 | 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | visibly smarter? if not, DROP it |
 | 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `[TBLE]` lane, gauge `source` | is failing funny? |
@@ -99,6 +99,30 @@ Standing rung-1 notes:
   spacing; `route = "auto"` on marches; run `behavior lint` on the bench.
 - Furniture placement position is OUT OF SCOPE (needs a cursor + live walkmesh
   rebuild); bought objects appear at designated slots.
+
+## Rung 1 — BUILT + DEPLOYED (2026-08-14), ⚠ playtest pending
+
+`sims_bench.py` (`gen`/`sim`/`deploy`) → **30430 "MANOR1"**: Bilba (VIV) wanders a
+home corner; the soup pot (`GEO_ACC_F0_SUP`) sits east inside a press-action zone
+choice (`bubble`, `instant`; the cook row hides while an order pends via
+`requires_flag_clear` on the SAME public flag 14867); hunger = `need[0]` seeded 80
+(table id pinned 1000 so the HUD `expr:` source names it stably); drift −1/45f;
+cook branch holds at the pot with `adjust` +2/8f to 95+, then walks home and
+`clear_flags` retires the order. Offline gates all green: kit lint 1 advisory ·
+behavior lint clean · compile report saved (`bench/rung1.report.txt`) · layout
+probe PNGs read · the `sim` command asserts both phases (decay 80→74 by t300,
+full at t427, home + order cleared t545). En-route toolkit fixes: the harvested
+schema's latent `walk_to` hole + the new vocabulary (the regen had been silently
+refusing to emit on a cold cache — field 2800 + world_hub cameras), and
+`lint_flag_bands` now sanctions a field's own public-flag lever indices.
+**RELAUNCH** (first deploy of the id) → `~ → Warp → 30430`. Checklist: (1) hunger
+ticks down ~1/1.5s on the strip; (2) pot + "!" + Confirm → "Bilba, cook
+something." → Bilba walks over; (3) number climbs to 95+, Bilba ambles home;
+(4) while cooking the row is hidden ("Never mind" only), afterwards it returns;
+(5) `~ Reload` reseeds 80 / home / order clear. Pacing note for the verdict: a
+full meal is ~5s — tune `COOK_BY`/`COOK_EVERY`/`DECAY_EVERY` to taste at rung 2.
+⚠ B_SYSVAR[20] probe deferred out of rung 1 (kept the bench one-mechanism).
+Revert: `tools/scroll_out/revert_deploy_30430.py`.
 
 ## Bench
 
