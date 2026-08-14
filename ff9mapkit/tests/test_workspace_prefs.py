@@ -120,9 +120,17 @@ def test_run_upgrade_without_uv_shows_manual_command(app, monkeypatch):
 
 
 def test_run_upgrade_non_windows_shows_manual_command(app, monkeypatch):
+    # Swap shell's `os` NAME for a stub, never `shell.os.name` -- shell.os IS the global stdlib module, so
+    # setting .name on it flips os.name PROCESS-WIDE. That is not inert: pathlib.Path.__new__ picks
+    # WindowsPath vs PosixPath from os.name at call time, and pytest's -v reporter builds Paths while
+    # logging this test's call-phase report (terminal._locationline -> bestrelpath -> Path.relative_to).
+    # Inside the patched window it builds a PosixPath from a Windows path, relative_to raises on two
+    # IDENTICAL strings, and pytest turns that into an INTERNALERROR that aborts the whole session. -q
+    # never walks that reporter path, which is why only -v runs died. The exercised path reads nothing
+    # from os but `.name` (_run_upgrade's `os.name != "nt"` gate returns before os.getpid()).
     w = _win(app)
     monkeypatch.setattr(shutil, "which", lambda _n: "/usr/bin/uv")      # uv present...
-    monkeypatch.setattr(shell.os, "name", "posix")                      # ...but not Windows
+    monkeypatch.setattr(shell, "os", SimpleNamespace(name="posix"))     # ...but not Windows
     info, popen = [], []
     _spy_information(monkeypatch, info)
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: popen.append(a))
