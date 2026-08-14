@@ -135,6 +135,15 @@ instances are alive.** Patch instance seams, subclass before construction, or ob
 an event filter. A patch/undo pair around live C++ dispatch corrupts state that detonates in
 whatever module runs next; no green run of the patching module ever vouches for it.
 
+**Census of the remaining Qt-class patches in tests/ (audited with the fix, left in place):**
+`QSplitter.setSizes` (test_workspace_prefs ×2 — NON-virtual, C++ never dispatches it, so no
+cache entry can form), `QDesktopServices.openUrl` (static, same), `QDialog.exec`
+(test_import_pickfill, test_gui_wave2_wiring — virtual, but only Python ever calls it and the
+fake exists precisely so the dialog never runs, so nothing dispatches it from C++ during the
+patched window). None can detonate the way the setVisible patch did — the poison needs C++
+to RESOLVE the virtual while the patch is live — but migrate them to instance seams when
+touched: the distinction is load-bearing and easy to lose.
+
 **Fix (both halves shipped, pair 3/3 green — 143 passed per run):**
 
 1. The phantom-window fence now observes through a **QObject event filter** on the two
