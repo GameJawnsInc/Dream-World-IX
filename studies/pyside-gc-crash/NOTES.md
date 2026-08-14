@@ -13,6 +13,11 @@ The shipped retained-wrapper test discipline is the correct mitigation and must 
 
 Environment of record: Windows 11 · Python 3.14.4 · PySide6 6.11.1 · `QT_QPA_PLATFORM=offscreen`.
 
+**A SECOND, independent poison was root-caused 2026-08 — monkeypatching a Qt class's virtual
+(`QFrame.setVisible`) while instances dispatch through it leaves a dangling pointer in
+shiboken's per-type override cache; the undo does not clear it. Deterministic reproducer,
+bisect, and fix: see THE CLASS-PATCH FLAVOR below.**
+
 ## The mechanism, precisely (all deterministic — `probe_item_destroyed.py`)
 
 | Probe | Result |
@@ -81,6 +86,70 @@ is the latest release as of 2026-07-29).
 - **No issue exists for the `QGraphicsItem.parentItem()` flavor** — apparently unreported.
   Worth filing upstream with `minimal_core.py` + `probe_item_destroyed.py` (outward-facing:
   owner sign-off first).
+
+## THE CLASS-PATCH FLAVOR — a second, distinct poison (2026-08, deterministic, FIXED)
+
+A deterministic pair reproducer surfaced on master:
+
+```
+cd ff9mapkit
+py -m pytest tests/test_cutscenedoc.py tests/test_workspace_floorplan.py -q
+```
+
+~44 dots, then **0xC0000005** with the faulthandler banner pointing at `tests/conftest.py:47`
+— the `qt_drain` parking pass's `w.hide()` over surviving top-level widgets. Under the full
+suite with `-n 6` the same disease surfaced instead as **9 setup ERRORs** in
+`test_workspace_floorplan.py` on the poisoned xdist worker, each reading:
+
+> TypeError: Error calling Python override of QFrame::2:setVisible():
+> CutsceneDoc._build_instruments.<locals>.<lambda>() takes 0 positional arguments but 2 were given
+
+— a zero-arg `clicked` lambda (cutscenedoc.py's stage button) being INVOKED as a
+`setVisible(self, visible)` virtual override on an unrelated widget.
+
+**Bisect record (prefix search over test_cutscenedoc.py's 43 tests + a 5-test floorplan
+detector; driver preserved the session it ran in):**
+
+| Subset | Verdict |
+|---|---|
+| detector alone | PASS |
+| full file + detector | CRASH |
+| any single early test + detector | PASS |
+| minimal crashing prefix | = 36, whose LAST test is the trigger |
+| `test_nothing_shows_the_accordion_panels_while_parentless` ALONE + detector | **CRASH, deterministic, ~1s, every run** |
+| all 42 OTHER tests + detector | PASS |
+
+That test monkeypatched **`QFrame.show` and `QFrame.setVisible` at the CLASS level** around a
+gesture that shows QFrames (`set_inset` → `widget.show()` → C++ `QWidget::show` → virtual
+`setVisible` dispatch), then `monkeypatch.undo()`. The error string `QFrame::2:setVisible`
+names shiboken's per-type virtual-override slot: the dispatch machinery resolved and CACHED
+the patched Python callable during the patched window, and the undo restores the type dict
+but not that cache — the cached pointer dangles. The NEXT `setVisible` dispatch anywhere in
+the QFrame family (here: the neighbour module's drain calling `w.hide()`) calls freed memory:
+segfault when the slot is garbage, the lambda-misdispatch TypeError when the allocation was
+reused by another callable. Same family as PYSIDE-2711/-3380 (a borrowed callable outliving
+its slot), different entry point — and entirely avoidable from our side.
+
+**Sharpened law: NEVER monkeypatch a method on a Qt CLASS — virtuals above all — while
+instances are alive.** Patch instance seams, subclass before construction, or observe through
+an event filter. A patch/undo pair around live C++ dispatch corrupts state that detonates in
+whatever module runs next; no green run of the patching module ever vouches for it.
+
+**Fix (both halves shipped, pair 3/3 green — 143 passed per run):**
+
+1. The phantom-window fence now observes through a **QObject event filter** on the two
+   panels: `QEvent.Show` while `parent() is None` IS the phantom window (delivered
+   synchronously inside both `show()` and `setVisible(True)`, including C++-side shows the
+   original class patch existed to catch and a `QWidget.setVisible`-only patch missed). The
+   fence stayed sharp — a break-it probe (`doc.editor.show()` while parentless) records
+   `['StepEditor.Show']` and fails the assert. No Qt dispatch table is touched.
+2. `test_cutscenedoc.py` was the last per-test-widget GUI module WITHOUT the
+   `_deterministic_qt_teardown`/`qt_drain` autouse; its unparked doc/Workspace graphs died
+   under GC mid-way through the next module — with the class patch deselected, the pair
+   still crashed intermittently (2/2 under the full 100-test neighbour, 0/1 under a 5-test
+   detector: heap-layout manifestation, the known layer-2 flake). The module now parks, with
+   the restage debounce disarmed first (the floorplan judge-debounce lesson: a parked doc's
+   armed 500ms timer must not start a staging worker in somebody else's teardown).
 
 ## What this means for the repo
 

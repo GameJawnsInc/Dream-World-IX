@@ -137,6 +137,29 @@ def win(app, tmp_path, monkeypatch):
     w.hide()
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_qt_teardown(qt_drain):
+    """Widgets die parked, not under a forced GC pass (THE GC-CHILD LAW's teardown half).
+
+    This module was the LAST per-test-widget GUI module without the drain: its unparked
+    doc/win graphs died under GC mid-way through whichever module ran NEXT, and the pair
+    `test_cutscenedoc.py test_workspace_floorplan.py` carried an intermittent 0xC0000005 in
+    the neighbour's drain (studies/pyside-gc-crash/NOTES.md — the unparked-module flavor).
+    The restage debounce is disarmed first: a test may end with the 500ms timer armed
+    (`test_the_stage_drop_rewrites_the_selected_target` asserts exactly that), and a PARKED doc
+    firing it inside somebody else's teardown starts a staging worker thread — the floorplan
+    module's judge-debounce lesson, same disease."""
+    yield
+    for w in QApplication.topLevelWidgets():
+        try:
+            t = getattr(w, "_restage_timer", None)
+            if t is not None:
+                t.stop()
+        except RuntimeError:                           # a wrapper whose C++ side already went
+            pass
+    qt_drain()
+
+
 def _fed(doc, tmp_path, toml_text=FIELD_TOML):
     p = tmp_path / "GLEN.field.toml"
     p.write_text(toml_text, encoding="utf-8")
@@ -588,34 +611,41 @@ def test_set_rows_lifts_the_accordion_panel_instead_of_deleting_it(doc, tmp_path
     assert doc._steps()[2]["say"] == "still editable after a refill"
 
 
-def test_nothing_shows_the_accordion_panels_while_parentless(doc, tmp_path, monkeypatch):
+def test_nothing_shows_the_accordion_panels_while_parentless(doc, tmp_path):
     """(M) THE PHANTOM-WINDOW FENCE, entry side: showing a PARENTLESS widget makes it a
     top-level OS window for an instant (playtest-caught: the editor flickered as its own
-    window on the first ✎ of a scene). Only set_inset may show — AFTER seating."""
-    from PySide6.QtWidgets import QFrame
+    window on the first ✎ of a scene). Only set_inset may show — AFTER seating.
+
+    Observed through an EVENT FILTER, never by patching a Qt class: this fence's second cut
+    monkeypatched QFrame.show/setVisible while live widgets dispatched through them, and
+    shiboken's per-type override cache kept a dangling pointer to the undone patch — the
+    NEXT module's teardown hide() then segfaulted (0xC0000005) or misdispatched a stale
+    lambda as a "Python override of QFrame::2:setVisible" (deterministic, bisected:
+    studies/pyside-gc-crash/NOTES.md, the class-patch flavor). QEvent.Show is delivered
+    synchronously inside BOTH show() and setVisible(True) — including C++-side shows the
+    first (vacuous) QWidget.setVisible-only cut could never see — and only on the
+    hidden→visible transition, which is exactly the instant the phantom window exists.
+    A parentless widget can only BE visible by crossing that transition parentless
+    (setParent(None) hides), so the filter misses nothing the patch spy caught."""
+    from PySide6.QtCore import QEvent, QObject
+
     _fed(doc, tmp_path)
     assert doc.editor.parent() is None                       # the exact first-edit state
     flashes = []
-    # Patch the PYTHON-callable seams on QFrame (both panels are QFrames). Patching
-    # QWidget.setVisible alone is a spy that cannot see: C++-side show() never routes
-    # through a Python override -- the first cut of this fence was vacuous exactly so.
-    real_show, real_sv = QFrame.show, QFrame.setVisible
 
-    def spy_show(self):
-        if self in (doc.editor, doc.settings_card) and self.parent() is None:
-            flashes.append(f"{type(self).__name__}.show")
-        real_show(self)
+    class ParentlessShowSpy(QObject):
+        def eventFilter(self, obj, ev):
+            if ev.type() == QEvent.Type.Show and obj.parent() is None:
+                flashes.append(f"{type(obj).__name__}.Show")
+            return False                                     # observe, never swallow
 
-    def spy_sv(self, on):
-        if on and self in (doc.editor, doc.settings_card) and self.parent() is None:
-            flashes.append(f"{type(self).__name__}.setVisible")
-        real_sv(self, on)
-
-    monkeypatch.setattr(QFrame, "show", spy_show)
-    monkeypatch.setattr(QFrame, "setVisible", spy_sv)
+    spy = ParentlessShowSpy(doc)                             # doc-owned: no GC-orphaned QObject
+    doc.editor.installEventFilter(spy)
+    doc.settings_card.installEventFilter(spy)
     doc._edit_step(2)                                        # the flicker's exact gesture
     doc.settings_btn.setChecked(True)                        # ...and the latent settings half
-    monkeypatch.undo()
+    doc.editor.removeEventFilter(spy)
+    doc.settings_card.removeEventFilter(spy)
     assert not flashes, f"shown while parentless (a top-level flash): {flashes}"
     assert doc.settings_card.parent() is doc.ladder          # still seated + shown the right way
 
