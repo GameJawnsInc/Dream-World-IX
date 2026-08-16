@@ -42,12 +42,15 @@ _HISTORY_CAP = 100
 class TraceDoc(QWidget):
     """Trace a photo into a walkable field, entirely on the art. ``run`` = ``shell.run_job``."""
 
-    def __init__(self, pal, kit_root, *, run, problems=None, scale=100):
+    def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None):
         super().__init__()
         self.pal = pal
         self.kit = Path(kit_root)                     # `-m ff9mapkit` cwd (this checkout's package)
         self._run = run
         self._problems = problems
+        self.on_generated = on_generated              # a clean FIRST Generate hands the project
+        #                                               to the shell (the Floorplan compose →
+        #                                               open_campaign contract, on this lane)
         # Default output base: the repo parent for a checkout; an installed copy writes to a
         # discoverable user folder instead (ImportDoc's own rule, same reason).
         self.proj_base = (self.kit.parent if (self.kit / "pyproject.toml").is_file()
@@ -808,6 +811,9 @@ class TraceDoc(QWidget):
             self._refresh(str(e), "error")
             return
         name = self.name_box.text().strip() or "PICTURE"
+        first = self._project is None                  # only the FIRST Generate opens the
+        #                                                result in the Editor; a regenerate
+        #                                                never yanks the author off this canvas
         if self._project is not None:                  # set up once -> every later Generate is
             out = Path(self._project["out"])           # IN PLACE (owner-asked; no dialog)
         else:
@@ -843,12 +849,23 @@ class TraceDoc(QWidget):
             ok_next=f"Deploy it: py tools/deploy_field.py {out / (name + '.field.toml')} "
                     f"--id {fid} — then ~ → Warp to field → {fid}.",
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
-                      "or a floor larger than the Int16 world bound.")
+                      "or a floor larger than the Int16 world bound.",
+            on_finished=lambda code: self._after_generate(code, first))
         if started:
             self._project = {"out": str(out), "name": name, "fid": int(fid)}
             self._stamped = True                       # the project now matches the session
             self._write_trace_sidecar(out)             # the re-editable session record
             self._refresh(f"Generating {name} → {out} …")
+
+    def _after_generate(self, code, first):
+        """A clean FIRST Generate opens the project in the Editor (through the shell's own
+        ``open_field`` — which is what feeds the Place tab, rung 7d, so 'trace it → place
+        content on it' is one flow). Regenerates never yank; failures never open anything."""
+        if code != 0 or not first or self.on_generated is None or self._project is None:
+            return
+        toml = Path(self._project["out"]) / f"{self._project['name']}.field.toml"
+        if toml.is_file():
+            self.on_generated(str(toml))
 
     def _write_trace_sidecar(self, out):
         """The tab's session as ``<out>/<image-stem>.trace.json`` — floor, pitch, cut-outs

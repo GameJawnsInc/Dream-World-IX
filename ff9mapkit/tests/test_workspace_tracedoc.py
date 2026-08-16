@@ -844,3 +844,30 @@ def test_load_project_absorbs_only_the_generators_own_regions(app, tmp_path):
     doc.load_project(toml)
     assert len(doc._regions) == 1                      # the traced door alone
     assert doc._regions[0]["to"] == 4005
+
+
+def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monkeypatch):
+    """The Floorplan compose→open_campaign contract on the trace lane: a clean FIRST Generate
+    opens the project in the Editor (which is what feeds Place, 7d); a REGENERATE never yanks
+    the author off the canvas; a failed job opens nothing."""
+    pytest.importorskip("PIL")
+    opened = []
+    run = _Run()
+    doc = TraceDoc(pick_palette("dark"), KIT, run=run, on_generated=opened.append)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30785")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    _argv, kw = run.calls[0]
+    toml = tmp_path / "photo-field" / "PICTURE.field.toml"   # the session's name (the box default)
+    toml.parent.mkdir(parents=True, exist_ok=True)
+    toml.write_text('[field]\nid = 30785\nname = "PICTURE"\narea = 11\n', encoding="utf-8")
+    kw["on_finished"](1)                               # a FAILED first job opens nothing
+    assert opened == []
+    kw["on_finished"](0)
+    assert opened == [str(toml)]
+    doc.on_generate()                                  # in place now
+    _argv2, kw2 = run.calls[1]
+    kw2["on_finished"](0)                              # a clean REGENERATE stays put
+    assert opened == [str(toml)]

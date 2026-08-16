@@ -2281,3 +2281,32 @@ def test_room_camera_reset_and_the_zero_belt(app):
     doc._on_room_camera(0)
     assert "pitch" not in room and "fov" not in room
     assert "reset" in _status(doc)
+
+
+# ---------------------------------------------------------------------------- Open resolves
+def test_open_resolves_the_sidecar_from_campaign_or_room_toml(app, tmp_path):
+    """Open accepts what a composed dungeon LOOKS like on disk — its campaign.toml, or one
+    room's field.toml — and resolves the editable sidecar beside/above it; a toml with no
+    sidecar refuses naming the reason (a hand-built campaign has no plan)."""
+    out = tmp_path / "sunken"
+    (out / "ROOM1").mkdir(parents=True)
+    FP.save_plan({"name": "SUNKEN", "rooms": [{"name": "ROOM1",
+                                               "poly": [[-1200, -800], [0, -800],
+                                                        [0, 800], [-1200, 800]]}],
+                  "doors": []}, out / FP.SIDECAR)
+    camp = out / "campaign.toml"
+    camp.write_text('name = "SUNKEN"\n', encoding="utf-8")
+    member = out / "ROOM1" / "room1.field.toml"
+    member.write_text('[field]\nid = 30500\nname = "ROOM1"\narea = 11\n', encoding="utf-8")
+    assert FloorplanDoc._resolve_plan(camp) == out / FP.SIDECAR
+    assert FloorplanDoc._resolve_plan(member) == out / FP.SIDECAR
+    assert FloorplanDoc._resolve_plan(out / FP.SIDECAR) == out / FP.SIDECAR
+    doc, _run = _doc(app)
+    doc._ask_open = lambda: str(camp)
+    doc.on_open()
+    assert [r["name"] for r in doc._session["rooms"]] == ["ROOM1"]
+    lone = tmp_path / "plain.field.toml"
+    lone.write_text('[field]\nid = 30501\nname = "X"\narea = 11\n', encoding="utf-8")
+    doc._ask_open = lambda: str(lone)
+    doc.on_open()
+    assert "not a composed dungeon" in _status(doc)

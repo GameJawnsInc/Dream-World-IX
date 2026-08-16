@@ -1030,10 +1030,13 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
         from ff9mapkit.scene import guide as _guide
         quad = [((-900.0, 0.0, 500.0), (900.0, 0.0, 500.0), (900.0, 0.0, 2600.0)),
                 ((-900.0, 0.0, 500.0), (900.0, 0.0, 2600.0), (-900.0, 0.0, 2600.0))]
-        pd._bundles[(351, 0)] = {"donor": 351, "cam_index": 0, "n_cams": 1,
-                                 "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
-                                 "png": str(photo), "tris": quad, "floors": [0, 0]}
-        pd._apply_bundle(pd._bundles[(351, 0)], refit=True)
+        # the rung-7d bundle key shape: (source tuple, cam) — the doc's _bundle() lookups miss
+        # an old-style bare-donor key silently (markers/regions would never paint here)
+        key = (("real", 351), 0)
+        pd._bundles[key] = {"donor": 351, "source": ("real", 351), "cam_index": 0, "n_cams": 1,
+                            "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
+                            "png": str(photo), "tris": quad, "floors": [0, 0]}
+        pd._apply_bundle(pd._bundles[key], refit=True)
         if state == "regions":
             pd.tools.set_current("regions")            # the rung-4 tool, through its own strip
             pd.gw_to.setValue(4005)

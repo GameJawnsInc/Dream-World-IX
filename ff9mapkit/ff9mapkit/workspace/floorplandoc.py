@@ -2320,9 +2320,24 @@ class FloorplanDoc(QWidget):
         if not path:
             return
         try:
-            self.load_plan(path)
+            self.load_plan(self._resolve_plan(Path(path)))
         except Exception as e:                     # noqa: BLE001 -- a bad file must not kill the tab
             self._refresh(f"Could not open {Path(path).name}: {e}", "error", judge=False)
+
+    @staticmethod
+    def _resolve_plan(path):
+        """Open accepts the composed dungeon's own campaign.toml — or one room's field.toml —
+        and resolves the ``floorplan.json`` sidecar beside/above it. The sidecar is the
+        editable session; the tomls are the buildable truth (the same division the Trace lane's
+        ``.trace.json`` draws)."""
+        if path.suffix == ".json":
+            return path
+        for parent in (path.parent, path.parent.parent):
+            side = parent / FP.SIDECAR
+            if side.is_file():
+                return side
+        raise ValueError(f"no {FP.SIDECAR} beside it — not a composed dungeon (Compose writes "
+                         f"the sidecar; a hand-built campaign has no plan to edit)")
 
     def load_plan(self, path):
         """Read a ``floorplan.json`` back into an EDITABLE session (the round trip).
@@ -2519,9 +2534,11 @@ class FloorplanDoc(QWidget):
     def _ask_open(self):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
         start = self._project["out"] if self._project else str(Path.home())
-        dlg = QFileDialog(self, "Open a floorplan.json", start)
+        dlg = QFileDialog(self, "Open a composed dungeon (its floorplan.json, campaign.toml, "
+                          "or one room's field.toml)", start)
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
-        dlg.setNameFilter("Floorplans (floorplan.json *.json)")
+        dlg.setNameFilter("Composed dungeons (floorplan.json campaign.toml *.field.toml "
+                          "*.json)")
         if dlg.exec() != QFileDialog.DialogCode.Accepted:
             return None
         files = dlg.selectedFiles()

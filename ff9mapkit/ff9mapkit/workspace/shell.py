@@ -1780,7 +1780,7 @@ class Workspace(QMainWindow):
         # generate a walkable field — the image→field on-ramp as a first-class surface. Streams
         # the same `image-field` CLI through run_job; touches no disk until Open/Generate.
         self.trace_doc = TraceDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
-                                  scale=self._text_scale)
+                                  scale=self._text_scale, on_generated=self.open_field)
         self.tabs.addTab(self.trace_doc, "Trace")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
@@ -5264,6 +5264,10 @@ class Workspace(QMainWindow):
              lambda: self.tabs.setCurrentWidget(self.cutscene_doc)),
             ("Go to Place (click content onto the art)", "view",
              lambda: self.tabs.setCurrentWidget(self.place_doc)),
+            ("Go to Trace (turn a photo into a field)", "view",
+             lambda: self.tabs.setCurrentWidget(self.trace_doc)),
+            ("Go to Floorplan (draw a multi-room dungeon)", "view",
+             lambda: self.tabs.setCurrentWidget(self.floorplan_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
             ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
