@@ -72,6 +72,21 @@ three-label card contract and the three-leg wiring check (page ids / mjs hooks /
 Behavior verified headlessly (jsdom: fold clean, single-pick invariant, re-shuffle changes the
 pick, Show-all restores).
 
+**★ DOCS STUDIO (owner-requested, 2026-08-16): the standalone manager app** — `docsite/studio.py`
+(+ `apps/ff9_docs_studio.pyw` launcher): PySide6, independent of the Workspace. Three panes: the
+nav as an editable tree (reorder/move/pin/section ops over `nav.toml`, header comment preserved on
+save; the More bucket and glob rows rendered honestly as `(auto)`), a markdown editor, and a live
+preview through `build.py`'s REAL pipeline (`render_markdown` + `assign_heading_ids` + the
+frontmatter chip strip — one renderer, never a fork). Tools dock drives the genuine jobs by
+subprocess: gated build → parsed into a click-to-open Problems list, the docsite suite, shots
+`--check`/`--all`, uiharvest, an ephemeral-port preview server over `_site/`, and `deploy.ps1`
+behind a confirm dialog (outward-facing stays confirm-first). Qt-free half = `studio_core.py`
+(nav model round-trip, resolution mirroring `build.load_nav`, page create/rename/delete, the
+build-error parser), fenced by `tests/test_docs_studio.py` (12). Two laws paid immediately: the
+first native render caught light-calibrated chip/code fills riding a dark palette (the
+ninth-ground class — both CSS sets now state every color pair) and QTextBrowser rendering span
+padding as nothing (chips spaced by hand).
+
 **DEFERRED — retire the "Understand" shelf** (`UNDERSTAND-TRIAGE.md`, sibling file): the shelf's 22
 docs triaged per-file — 2 keep, 8 demote to Reference, 11 move out of the manual, 1 held. Decided,
 not scheduled. Two unblock conditions, both mechanical: a lull in feature work (the cut re-points
