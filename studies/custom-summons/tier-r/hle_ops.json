@@ -3045,8 +3045,8 @@
  },
  {
   "op": 128,
-  "name": null,
-  "confidence": null,
+  "name": "get_actor_anchor",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3061,7 +3061,7 @@
    "vramUploadCallback",
    "psxBankTable"
   ],
-  "evidence": "stub 0x1100c: arity 3 kinds=iip returns void; corpus: 305 call sites in 223 images / 223 effects (9 creature-bearing); modal arg-setup 301/305 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 301, 4: 4}; called next to ops 102(x126), 127(x67), 28(x27); $a0 constants: 0(x209), 16(x74); $a1 constants: 0(x289), 1(x15); $a2 constants: 2149486428(x3), 2149492500(x1), 2149484900(x1), 2149484948(x1), 2149484932(x1), 2149492552(x1); $a3 (BEYOND the arity -- leftovers, not arguments): 2149515264(x2); position: {'first-third': 183, 'last-third': 48, 'middle-third': 74}",
+  "evidence": "stub 0x1100c: arity 3 kinds=iip returns void; corpus: 305 call sites in 223 images / 223 effects (9 creature-bearing); modal arg-setup 301/305 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 301, 4: 4}; called next to ops 102(x126), 127(x67), 28(x27); $a0 constants: 0(x209), 16(x74); $a1 constants: 0(x289), 1(x15); $a2 constants: 2149486428(x3), 2149492500(x1), 2149484900(x1), 2149484948(x1), 2149484932(x1), 2149492552(x1); $a3 (BEYOND the arity -- leftovers, not arguments): 2149515264(x2); position: {'first-third': 183, 'last-third': 48, 'middle-third': 74}; handler-body: write an actor's anchor point (i16 x/y/z) into out -- its position, or its bone's when the unit is a slave, with Y raised by half its height at mode 0 or a second bone at mode 1, less 0x80 when the actor is Floating; fn 0x450c0 resolves the actor through 0x44a60 (the index space op 136 shares) and TAIL-JUMPS to 0x44f80, which is what hid it from R2. THE CALLBACK LANE REFUSED THIS OP for reaching four commands -- but they are four routes to ONE answer: GET_SLAVE(22) asks whether the unit is attached, a slave takes GET_MATRIX(14) on bone byte[actor+0x1a] while an ordinary unit takes GET_POSITION(1), the height comes from actor+0x3c halved at mode 0, and CHECK_STATUS(20) sub-mode 1 with mask 0x200000 -- BattleStatus.Float -- takes 0x80 back off it because a floating unit's reported position is already raised. Then word[out+2] -= height, so out is an i16 x/y/z triple and +2 is Y. Corpus: $a0 is only {0,16} (op 136's actor indices), $a1 only {0 x289, 1 x15}, and every $a2 constant is a PSX RAM pointer -- an out-parameter. 305 sites across 223 of 385 images.",
   "call_sites": 305,
   "effects": 223,
   "creature_effects": 9

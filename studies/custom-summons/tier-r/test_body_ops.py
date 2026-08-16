@@ -105,14 +105,16 @@ def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
     dll = A.DllView()
     rng = {B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
     monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR} | rng
     monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR} | rng
     monkeypatch.setattr(B, "verify_rng", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR}
     monkeypatch.setattr(B, "verify_screen", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ADDPRIM}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ADDPRIM, B.OP_ANCHOR}
     monkeypatch.setattr(B, "verify_addprim", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ANCHOR}
+    monkeypatch.setattr(B, "verify_anchor", lambda d=None: (False, ["forced"]))
     assert set(B.body_evidence(dll)) == {B.OP_COORD}
     monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
     assert B.body_evidence(dll) == {}
@@ -367,4 +369,40 @@ def test_the_dictionary_carries_op143():
     row = ops[B.OP_ADDPRIM]
     assert row["name"] == "add_prim_blended" and row["confidence"] == "medium"
     assert row["arg_kinds"] == "ippi"
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 128, the actor anchor point
+@needs_dll
+def test_op128_all_four_commands_and_the_float_fix_re_derive():
+    ok, notes = B.verify_anchor()
+    assert ok, notes
+
+
+def test_the_four_commands_are_one_question_not_four():
+    """The refusal this rung lifted: multi-command is not the same as ambiguous.  All four are
+    routes to 'where is this actor's anchor point'."""
+    assert set(B.ANCHOR_COMMANDS) == {1, 14, 20, 22}
+    assert B.ANCHOR_COMMANDS[1] == "GET_POSITION"
+    assert B.ANCHOR_COMMANDS[22] == "GET_SLAVE"
+
+
+def test_the_float_mask_is_the_float_status_bit():
+    """0x200000 == 1 << 21 == BattleStatus.Float in Memoria's open-source enum."""
+    assert B.FLOAT_STATUS == 1 << 21
+
+
+def test_op128_shares_op136s_actor_lookup():
+    """Both anchor content to an actor, through the same index space."""
+    assert B.ACTOR_LOOKUP == 0x44A60
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op128_and_the_refusal_is_lifted():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_ANCHOR]
+    assert row["name"] == "get_actor_anchor" and row["confidence"] == "medium"
+    assert row["arg_kinds"] == "iip"
+    assert row["callback_command"] is None      # named by the BODY lane, not the callback lane
     assert A.check_confidence_rule(ops) == []

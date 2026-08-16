@@ -325,3 +325,28 @@ it shares a function with.
   int-arg0 op, a ~29x separation.
 * MEDIUM: `fn 0x3edb0` owns no debug string -- same posture as the RNG family (a documented external
   shape, no name stated in the binary).
+
+## R11 (op 128) -- * DONE 2026-08-07: THE ACTOR ANCHOR, AND A REFUSAL RULE CORRECTED
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 7. `body_gates.py` 16/16; 5 more tests (tier-r 207).
+**Named 115 -> 116; traffic 81.6% -> 83.7%. Across R4-R11: 79 -> 116 named, 51.8% -> 83.7%.**
+Unnamed is now under 100.
+
+* ** THE REUSABLE CORRECTION: multi-command != ambiguous.** The callback lane refused op 128 for
+  reaching FOUR commands. The body shows they are **four routes to ONE answer** -- *where is this
+  actor's anchor point?* A multi-command op is only ambiguous when the commands are **unrelated**;
+  that is what makes the remaining callback-lane refusals worth revisiting.
+* **op 128 = `get_actor_anchor`** (305 sites, medium). `fn 0x450c0` resolves the actor through
+  `fn 0x44a60` -- **op 136's index space** -- and TAIL-JUMPS to `fn 0x44f80` (the op-206 gap again).
+  `GET_SLAVE(22)` asks whether the unit is attached; a slave takes `GET_MATRIX(14)` on bone
+  `byte[actor+0x1a]`, an ordinary unit `GET_POSITION(1)` (`bts ecx, 0x18`); height comes from
+  `actor+0x3c` **halved at mode 0**; and `CHECK_STATUS(20)` sub-mode 1, mask `0x200000` =
+  **`BattleStatus.Float`**, takes `0x80` back off it. Then `word[out+2] -= height` -> **out is an
+  i16 x/y/z triple, +2 is Y**.
+* ** THE FLOAT FIX IS WHAT PROVES THE READING**: a floating unit's reported position is ALREADY
+  raised, so the anchor correction must subtract that lift back out or double-count it. Nothing but
+  a body-anchor calculation needs that.
+* **CORPUS: `arg2` is an OUT-POINTER -- 11/11 (100%)** are PSX RAM pointers vs **0/928 (0.0%)** for
+  every other op whose arg2 is typed int. A clean separation. `$a0` only `{0,16}` (op 136's actor
+  indices); `$a1` only `{0 x289, 1 x15}`, the two height modes.
+* Natural sibling of op 136 `actor_relative_coord` -- same lookup, same anchoring job.

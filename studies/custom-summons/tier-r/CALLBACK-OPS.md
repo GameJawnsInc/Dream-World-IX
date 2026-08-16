@@ -805,3 +805,69 @@ universally documented external shape (libgpu `addPrim`, GP0(E1h)) but no name s
 | traffic named | 11,583 / 14,212 (81.5%) | **11,592 / 14,212 (81.6%)** |
 
 Across R4-R10: **79 -> 115 named, 51.8% -> 81.6% of traffic.**
+
+---
+
+# ADDENDUM 7 -- op 128: the actor anchor point, and why "multi-command" was never ambiguity
+
+**Status: * DONE. `body_gates.py` 16/16, 5 more tests (tier-r 207). Named 115 -> 116;
+traffic 81.6% -> 83.7%.**
+
+## The refusal this rung lifted
+
+The callback lane **refused** op 128 for reaching **four** commands -- `GET_POSITION(1)`,
+`GET_MATRIX(14)`, `CHECK_STATUS(20)`, `GET_SLAVE(22)` -- on the rule that a multi-command op cannot
+be named by its command. Reading the body shows the rule, not the op, was the problem:
+
+> **The four commands are four routes to ONE answer: *where is this actor's anchor point?***
+
+**A multi-command op is only ambiguous when the commands are unrelated.** That correction is the
+reusable part of this rung, and it is what makes the remaining refusals worth revisiting.
+
+## What it does
+
+`fn 0x450c0` is a thin forwarder: it resolves the actor through `fn 0x44a60` -- **the same index
+space op 136 uses** (`<8` party, `8..15` enemy, `0x10`/`0x11` the two special slots) -- and
+**tail-jumps** to `fn 0x44f80`, hiding the work from R2's name resolver exactly as op 206's did.
+There:
+
+| step | command | what it settles |
+|---|---|---|
+| 1 | `GET_SLAVE(22)` | is this unit attached to another? |
+| 2a | `GET_MATRIX(14)` | a slave takes its bone `byte[actor+0x1a]` |
+| 2b | `GET_POSITION(1)` (`bts ecx, 0x18`) | an ordinary unit takes its own position |
+| 3 | -- | height from `actor+0x3c`, **halved when the mode argument is 0** |
+| 4 | `CHECK_STATUS(20)` sub-mode 1, mask `0x200000` | **`BattleStatus.Float`** -> take `0x80` back off |
+
+then `word[out+2] -= height` -- so **`out` is an i16 `x/y/z` triple and `+2` is Y**.
+
+**The Float correction is the detail that proves the reading.** `0x200000` is `1 << 21` =
+`BattleStatus.Float` in Memoria's open-source enum, and a floating unit's *reported position is
+already raised* -- so the anchor correction has to subtract that lift back out or it would
+double-count it. Nothing but a body-anchor calculation needs that fix.
+
+So: **`op 128 = get_actor_anchor`** -- body centre at mode 0, a second bone (`byte[actor+0x2f]`) at
+mode 1. 305 sites across **223 of 385 images**: nearly every effect needs to know where its target
+is. It is the natural sibling of op 136 `actor_relative_coord`, and they share a lookup.
+
+## The corpus test
+
+`arg2` is an **out-pointer**, so every constant should land in the PSX address space:
+
+* **op 128: 11 / 11 (100%)** are PSX RAM pointers.
+* control (every other op whose own `arg2` the decoder typed as an int): **0 / 928 (0.0%)**.
+
+A clean separation. Supporting: `$a0` is only ever `{0, 16}` -- op 136's actor indices -- and `$a1`
+only `{0 x289, 1 x15}`, the two height modes.
+
+Ships **`medium`**: nothing on the chain owns a debug string.
+
+## Coverage
+
+| | after op 143 | after op 128 |
+|---|---|---|
+| named ops | 115 / 216 | **116 / 216** |
+| confidence | high 67 . med 38 . low 10 . unnamed 101 | **high 67 . med 39 . low 10 . unnamed 100** |
+| traffic named | 11,592 / 14,212 (81.6%) | **11,897 / 14,212 (83.7%)** |
+
+Across R4-R11: **79 -> 116 named, 51.8% -> 83.7% of traffic.** The unnamed count is now under 100.

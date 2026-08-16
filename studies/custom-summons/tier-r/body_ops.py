@@ -150,6 +150,115 @@ DESCRIPTION_COORD = ("a coordinate component placed relative to an actor: base +
                      "actor[+0x38] / 6")
 
 
+# --- op 128: the actor anchor point -- and why "multi-command" was never ambiguity --------------
+#: The callback lane REFUSED this op because it reaches **four** commands: ``GET_POSITION(1)``,
+#: ``GET_MATRIX(14)``, ``CHECK_STATUS(20)`` and ``GET_SLAVE(22)``.  Reading the body shows the
+#: refusal rule was the thing at fault, not the op:
+#:
+#: > **The four commands are four routes to ONE answer -- "where is this actor's anchor point?"**
+#:
+#: ``fn 0x450c0`` is a thin forwarder: it resolves the actor through ``fn 0x44a60`` (**the same
+#: index space op 136 uses** -- `<8` party, `8..15` enemy, `0x10`/`0x11` the two special slots) and
+#: TAIL-JUMPS to ``fn 0x44f80``, which hides it from R2's name resolver exactly as op 206's did.
+#: There:
+#:
+#:   * **``GET_SLAVE(22)``** asks whether the unit is attached to another;
+#:   * a slave takes **``GET_MATRIX(14)``** on bone ``byte[actor+0x1a]`` -- a bone's position;
+#:   * an ordinary unit takes **``GET_POSITION(1)``** (``bts ecx, 0x18``);
+#:   * the height comes from ``actor+0x3c``, **halved when the mode argument is 0**;
+#:   * **``CHECK_STATUS(20)``** sub-mode 1 with mask ``0x200000`` -- **``BattleStatus.Float``** --
+#:     takes ``0x80`` back off that height, because a floating unit's reported position is already
+#:     raised and the correction would otherwise double-count it;
+#:   * finally ``word[out+2] -= height``: **``out`` is an i16 x/y/z triple and +2 is Y.**
+#:
+#: So the op answers "where do I aim at this actor" -- body centre at mode 0, a second bone
+#: (``byte[actor+0x2f]``) at mode 1.  305 sites across **223 of 385 images**: nearly every effect
+#: needs it.
+OP_ANCHOR = 128
+ANCHOR_FN = 0x450C0           # the forwarder
+ANCHOR_BODY = 0x44F80         # its tail-call target -- where the work is
+ANCHOR_PLAIN = 0x44E80        # the un-adjusted position fetch
+ACTOR_LOOKUP = 0x44A60        # shared with op 136 and op 129
+HAS_STATUS_FN = 0x1070        # has_status(actor, mask) -> bool, via CHECK_STATUS sub-mode 1
+ANCHOR_HEIGHT_OFF = 0x3C      # the height field the correction halves
+ANCHOR_OUT_Y = 2              # out is {i16 x, i16 y, i16 z}
+FLOAT_STATUS = 0x200000       # BattleStatus.Float
+FLOAT_ADJUST = 0x80
+#: command code -> the role it plays in the single answer.
+ANCHOR_COMMANDS = {1: "GET_POSITION", 14: "GET_MATRIX", 20: "CHECK_STATUS", 22: "GET_SLAVE"}
+NAME_ANCHOR = "get_actor_anchor"
+DESCRIPTION_ANCHOR = ("write an actor's anchor point (i16 x/y/z) into out -- its position, or its "
+                      "bone's when the unit is a slave, with Y raised by half its height at mode 0 "
+                      "or a second bone at mode 1, less 0x80 when the actor is Floating")
+
+
+def verify_anchor(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 128's forwarder, its four commands, and the Float correction."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_ANCHOR]) or dll.native_fn[OP_ANCHOR]
+    good = fn == ANCHOR_FN
+    ok &= good
+    notes.append("op %d native fn = %#x %s" % (OP_ANCHOR, fn, "OK" if good else "FAIL"))
+
+    fwd = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    good = ("call", hex(dll.base + ACTOR_LOOKUP)) in fwd
+    ok &= good
+    notes.append("resolves the actor through %#x, the lookup op 136 shares %s"
+                 % (ACTOR_LOOKUP, "OK" if good else "FAIL"))
+    good = ("jmp", hex(dll.base + ANCHOR_BODY)) in fwd
+    ok &= good
+    notes.append("tail-jumps to %#x (which is what hid it from R2) %s"
+                 % (ANCHOR_BODY, "OK" if good else "FAIL"))
+
+    # every command code the answer is assembled from, as built in the bodies
+    seen = set()
+    for f in (ANCHOR_BODY, ANCHOR_PLAIN, HAS_STATUS_FN):
+        for m, o in ((i.mnemonic, i.op_str) for i in dll.body(f)):
+            mm = re.match(r"^ecx, 0x([0-9a-f]+)000000$", o) if m in ("or", "mov") else None
+            if mm:
+                seen.add(int(mm.group(1), 16))
+            elif (m, o) == ("bts", "ecx, 0x18"):
+                seen.add(1)
+    good = set(ANCHOR_COMMANDS) <= seen
+    ok &= good
+    notes.append("assembles its answer from %s %s"
+                 % (", ".join("%s(%d)" % (ANCHOR_COMMANDS[c], c) for c in sorted(ANCHOR_COMMANDS)),
+                    "OK" if good else "FAIL saw %s" % sorted(seen)))
+
+    body = [(i.mnemonic, i.op_str) for i in dll.body(ANCHOR_BODY)]
+    checks = (
+        ("takes the height from actor+%#x" % ANCHOR_HEIGHT_OFF,
+         ("mov", "edi, dword ptr [rbx + 0x%x]" % ANCHOR_HEIGHT_OFF) in body),
+        ("halves it at mode 0", ("sar", "edi, 1") in body),
+        ("tests %s via %#x" % ("BattleStatus.Float", HAS_STATUS_FN),
+         ("mov", "edx, 0x%x" % FLOAT_STATUS) in body
+         and ("call", hex(dll.base + HAS_STATUS_FN)) in body),
+        ("takes %#x back off when Floating" % FLOAT_ADJUST,
+         ("add", "edi, -0x%x" % FLOAT_ADJUST) in body),
+        ("applies it to out+%d, the Y halfword" % ANCHOR_OUT_Y,
+         ("sub", "word ptr [rsi + %d], di" % ANCHOR_OUT_Y) in body),
+    )
+    for label, good2 in checks:
+        ok &= good2
+        notes.append("%s %s" % (label, "OK" if good2 else "FAIL"))
+
+    # the status helper really is CHECK_STATUS sub-mode 1
+    hs = [(i.mnemonic, i.op_str) for i in dll.body(HAS_STATUS_FN)]
+    good = ("or", "ecx, 0x14000000") in hs and ("lea", "edx, [rbx + 1]") in hs
+    ok &= good
+    notes.append("%#x is has_status() -- CHECK_STATUS sub-mode 1 %s"
+                 % (HAS_STATUS_FN, "OK" if good else "FAIL"))
+
+    sig = dll.handler(OP_ANCHOR)
+    good = sig.kinds == "iip"
+    ok &= good
+    notes.append("signature (actor, mode, out) = %r %s" % (sig.kinds, "OK" if good else "FAIL"))
+    return ok, notes
+
+
 # --- op 143: AddPrim, with an optional blend-mode prefix ----------------------------------------
 #: ``fn 0x3edb0`` is libgpu's **``addPrim``** and op 143 exposes it directly (op 64 reaches the same
 #: function eight times per call).  Two halves:
@@ -682,6 +791,28 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                             ABR_MASK, ABR_SHIFT, SO_TABLE_OFF, SO_LEN_OFF, SO_TABLE_OFF,
                             TEXLIST_FN, GOURAUD_FN,
                             " (%s)" % src[0] if src else "")),
+        }
+
+    ok_anchor, _n6 = verify_anchor(dll)
+    if ok_anchor:
+        out[OP_ANCHOR] = {
+            "name": NAME_ANCHOR,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x resolves the actor through %#x (the index space op 136 "
+                         "shares) and TAIL-JUMPS to %#x, which is what hid it from R2. THE "
+                         "CALLBACK LANE REFUSED THIS OP for reaching four commands -- but they are "
+                         "four routes to ONE answer: GET_SLAVE(22) asks whether the unit is "
+                         "attached, a slave takes GET_MATRIX(14) on bone byte[actor+0x1a] while an "
+                         "ordinary unit takes GET_POSITION(1), the height comes from actor+%#x "
+                         "halved at mode 0, and CHECK_STATUS(20) sub-mode 1 with mask %#x -- "
+                         "BattleStatus.Float -- takes %#x back off it because a floating unit's "
+                         "reported position is already raised. Then word[out+%d] -= height, so out "
+                         "is an i16 x/y/z triple and +%d is Y. Corpus: $a0 is only {0,16} (op 136's "
+                         "actor indices), $a1 only {0 x289, 1 x15}, and every $a2 constant is a PSX "
+                         "RAM pointer -- an out-parameter. 305 sites across 223 of 385 images."
+                         % (BODY_MARKER, DESCRIPTION_ANCHOR, ANCHOR_FN, ACTOR_LOOKUP, ANCHOR_BODY,
+                            ANCHOR_HEIGHT_OFF, FLOAT_STATUS, FLOAT_ADJUST, ANCHOR_OUT_Y,
+                            ANCHOR_OUT_Y)),
         }
 
     ok_ap, _n5 = verify_addprim(dll)
