@@ -998,3 +998,65 @@ Ships **`medium`**: the managed side names the **primitive**, not the op.
 | traffic named | 12,108 / 14,212 (85.2%) | **12,275 / 14,212 (86.4%)** |
 
 Across R4-R13: **79 -> 118 named, 51.8% -> 86.4% of traffic.**
+
+---
+
+# ADDENDUM 10 -- the DR_MOVE x edit-surface check (the rung that paid for the arc)
+
+**Tool: `drmove_cells.py` (committable parser, zero stock bytes).**
+
+Naming op 144 made a question askable that the existing census structurally could not ask. The W6b
+program-VRAM census records its own ceiling:
+
+> *"0 of 18 `RECT*` arguments const-fold, so the only PER-CELL verdict in the corpus is
+> `MOVEIMAGE_HARD_CELLS`"* -- three hard-coded cells.
+
+`LoadImage`/`StoreImage`/`MoveImage` take the rectangle as a **pointer**, and pointers do not fold.
+**op 144 takes it as seven loose integers.** `arg1/arg2/arg3` fold in the ordinary census and `arg4`
+(the period) folds off the MIPS stack -- so op 144 yields per-cell destination verdicts. **And op 144
+was never in the census's writer union at all.**
+
+## The corpus result
+
+**59 containers, 167 sites, 0 excluded** (every period folded -- a complete static picture),
+against **198 editable scenery cells**:
+
+| | |
+|---|---|
+| containers with a **DESTINATION** hit | **20** |
+| distinct editable cells **overwritten at runtime** | **88** |
+| containers with only source hits | 0 |
+
+A destination hit means op 144 rewrites that band every frame it runs: a repaint there is
+**overwritten silently** -- byte-correct on disk, deploy verifies, picture never appears. A source
+hit is much milder and is reported separately: the repaint is read and *propagated* into the
+destination, so it still shows.
+
+## ef407 -- the pending cast
+
+`ef407` was the named vehicle for the cast that closes W6b-3(iv)'s silent half, recorded as *"no
+program-VRAM block"*. Its whole edit surface is three cells, and op 144 touches **all three**:
+
+```
+blit 1   dst (704,384) <- src (704,256)
+blit 2   dst (640,256) <- src (640,384)     [640,384 is not editable]
+```
+
+* `cell.s0.x704_y384` -- **the named cast cell -- is a DESTINATION.** A repaint there is overwritten.
+* `cell.s0.x640_y256` -- also a destination.
+* `cell.s0.x704_y256` -- a **SOURCE**, and it is editable.
+
+**So the cast should paint `x704_y256`, not `x704_y384`**, and the prediction is that the mark then
+appears *in the scrolling band* at (704,384). Had the original cast run on `x704_y384` and shown
+nothing, the null would very likely have been charged to `linear-add-v1` -- **a second, independent
+mechanism producing the exact symptom W6b-3(iv) named as the arc's open risk.**
+
+Other cast-relevant containers: **ef211 4 dst** (the pool wheel rests live on it), **ef227 4**,
+**ef424 3**, **ef446 2**; **ef251 and ef429 are clean**.
+
+## What this does NOT establish
+
+* **Reachability.** These are static destinations. Whether a given blit *executes* in a given cast is
+  a phase question -- `summon-inspect` could answer it per container; this pass did not.
+* Whether the W6b lane already covers the hazard by some route not found here.
+* Nothing in the kit was changed. This is a finding and an instrument, not a new refusal.
