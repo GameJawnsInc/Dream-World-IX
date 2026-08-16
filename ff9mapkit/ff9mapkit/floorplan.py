@@ -1863,6 +1863,71 @@ def save_plan(plan, path):
     return p
 
 
+def simplify_room_poly(pts, *, min_edge=8.0, collinear_u=2.0):
+    """A densely-sampled polygon reduced to what :func:`polygon_problem` accepts (rung 7f).
+
+    A hand trace arrives with sub-``min_edge`` segments (refused as "a duplicated corner") and
+    collinear runs that fragment a wall into many edges — and a fragmented wall cannot carry a
+    door (``interior_normal`` needs ONE edge's span to bracket the segment). Drops any vertex
+    within ``collinear_u`` of the line through its neighbours, then any vertex closer than
+    ``min_edge`` to the previous kept one. Returns int-rounded ``[(x, z), …]`` — the plan
+    frame's de-facto contract (abutment exemptions compare exact endpoints)."""
+    out = [(float(x), float(z)) for x, z in pts]
+    changed = True
+    while changed and len(out) > 3:
+        changed = False
+        for i in range(len(out)):
+            a, b, c = out[i - 1], out[i], out[(i + 1) % len(out)]
+            ex, ez = c[0] - a[0], c[1] - a[1]
+            span = math.hypot(ex, ez)
+            if span < 1e-9:
+                dist = math.hypot(b[0] - a[0], b[1] - a[1])
+            else:
+                dist = abs((b[0] - a[0]) * ez - (b[1] - a[1]) * ex) / span
+            if dist <= collinear_u:
+                del out[i]
+                changed = True
+                break
+    kept = []
+    for p in out:
+        if not kept or math.hypot(p[0] - kept[-1][0], p[1] - kept[-1][1]) >= min_edge:
+            kept.append(p)
+    if len(kept) > 1 and math.hypot(kept[0][0] - kept[-1][0],
+                                    kept[0][1] - kept[-1][1]) < min_edge:
+        kept.pop()                                 # the closing edge obeys min_edge too
+    return [(int(round(x)), int(round(z))) for x, z in kept]
+
+
+def room_from_trace(trace, *, name):
+    """A Trace-tab session (``.trace.json`` dict) as a floorplan room — GEOMETRY ONLY (rung 7f).
+
+    The traced floor polygon (canvas px, UN-outset — the outset is a build step, not authored
+    shape) un-projects through the session's OWN rig into plan-frame world units. The composer
+    re-solves the camera and repaints placeholder art, so nothing else travels — a photo's
+    pitch means nothing to a composed room. Raises ``ValueError`` naming the defect (a vertex
+    above the horizon, too few vertices, a shape :func:`polygon_problem` refuses)."""
+    floor = trace.get("floor") or []
+    if len(floor) < 3:
+        raise ValueError("the trace has no floor polygon (fewer than 3 vertices)")
+    cam = _guide.make_camera(float(trace.get("pitch", _if.DEFAULT_PITCH)),
+                             float(trace.get("distance", _if.DEFAULT_DISTANCE)),
+                             fov_x_deg=float(trace.get("fov", _if.DEFAULT_FOV)))
+    world = []
+    for i, p in enumerate(floor):
+        try:
+            world.append(_if.click_to_world(cam, (float(p[0]), float(p[1]))))
+        except _if.ImageFieldError as e:
+            raise ValueError(f"floor vertex {i} at ({p[0]:g},{p[1]:g}): {e}") from e
+    poly = simplify_room_poly(world)
+    if len(poly) < 3:
+        raise ValueError("the traced floor collapses under simplification — too small to be "
+                         "a room (walls need to be at least ~8u apart)")
+    problem = polygon_problem(poly)
+    if problem:
+        raise ValueError(problem)
+    return {"name": str(name), "poly": [[x, z] for x, z in poly]}
+
+
 def carry_plan_records(plan, path):
     """``plan`` with the per-room records a previous :func:`emit` wrote into the sidecar at ``path``
     carried forward -- matched by room NAME, and only onto rooms the new plan still has.

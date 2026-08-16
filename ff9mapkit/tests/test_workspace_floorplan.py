@@ -2179,3 +2179,69 @@ def test_the_band_reach_is_the_players_own_diameter(app):
     assert FP.BAND_REACH == 2 * FP.R_WALK, (
         f"BAND_REACH is {FP.BAND_REACH}, not 2*R_WALK={2 * FP.R_WALK}. The old 4*R_WALK warned "
         f"about every room under ~1140u across; widen it again and the gate goes back to noise.")
+
+
+# ---------------------------------------------------------------------------- rung 7f: import
+def _trace_sidecar(tmp_path, *, pitch=26.0):
+    """A Trace-tab session record whose floor un-projects to a clean rectangle-ish room."""
+    import json
+    from ff9mapkit import imagefield as IF
+    from ff9mapkit.scene import guide
+    cam = guide.make_camera(pitch, IF.DEFAULT_DISTANCE, fov_x_deg=IF.DEFAULT_FOV)
+    world = [(-800, 600), (800, 600), (800, 1800), (-800, 1800)]
+    floor = [list(IF.world_to_click(cam, p)) for p in world]
+    side = tmp_path / "photo.trace.json"
+    side.write_text(json.dumps({"pitch": pitch, "floor": floor}), encoding="utf-8")
+    return side
+
+
+def test_import_a_traced_room_lands_clear_and_is_an_ordinary_room(app, tmp_path):
+    """The 7f affordance: the traced floor arrives as a room placed clear of the drawing (the
+    G11 overlap gate cannot fire on arrival), named by the ordinary minter, entry-defaulted,
+    and one Undo removes it."""
+    doc, _run = _doc(app)
+    _draw(doc.canvas, [(-1200, -800), (0, -800), (0, 800), (-1200, 800)])
+    side = _trace_sidecar(tmp_path)
+    doc._ask_import = lambda: str(side)
+    doc.on_import_room()
+    rooms = doc._session["rooms"]
+    assert len(rooms) == 2 and rooms[1]["name"] == "ROOM2"
+    assert min(x for x, _z in rooms[1]["poly"]) >= 200      # east of the drawing's 0 edge
+    doc.judge_now(sync=True)
+    composed, errors, _warn = doc._verdict
+    assert not [e for e in errors if "overlap" in e.lower()], errors
+    assert "imported" in _status(doc)
+    doc.on_undo()
+    assert len(doc._session["rooms"]) == 1
+
+
+def test_import_into_an_empty_plan_becomes_the_entry(app, tmp_path):
+    doc, _run = _doc(app)
+    side = _trace_sidecar(tmp_path)
+    doc._ask_import = lambda: str(side)
+    doc.on_import_room()
+    assert doc._session["entry"] == "ROOM1"
+
+
+def test_import_from_a_project_toml_requires_the_sidecar(app, tmp_path):
+    """The field.toml route resolves the session record BESIDE it; a compiled project without
+    one refuses with the teach (Generate writes the record), never a crash."""
+    doc, _run = _doc(app)
+    toml = tmp_path / "HALL.field.toml"
+    toml.write_text('[field]\nid = 30784\nname = "HALL"\narea = 11\n', encoding="utf-8")
+    doc._ask_import = lambda: str(toml)
+    doc.on_import_room()
+    assert not doc._session["rooms"]
+    assert "Generate" in _status(doc)
+    _trace_sidecar(tmp_path)                       # now the record exists beside it
+    doc.on_import_room()
+    assert len(doc._session["rooms"]) == 1
+
+
+def test_import_a_bad_trace_does_not_kill_the_tab(app, tmp_path):
+    doc, _run = _doc(app)
+    bad = tmp_path / "broken.trace.json"
+    bad.write_text("{not json", encoding="utf-8")
+    doc._ask_import = lambda: str(bad)
+    doc.on_import_room()
+    assert not doc._session["rooms"] and "Could not import" in _status(doc)

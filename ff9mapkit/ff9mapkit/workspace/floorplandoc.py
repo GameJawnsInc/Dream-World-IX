@@ -1601,6 +1601,15 @@ class FloorplanDoc(QWidget):
                                  "session (the sidecar round-trip).")
         self.open_btn.clicked.connect(self.on_open)
         row.addWidget(self.open_btn)
+        self.import_btn = QPushButton("Import a room…")
+        self.import_btn.setAccessibleName("Import a traced room")
+        self.import_btn.setToolTip("A Trace-tab session (.trace.json — or a generated project's "
+                                   "field.toml with one beside it) becomes a room: the traced "
+                                   "floor arrives as plan geometry, placed clear of the drawing. "
+                                   "Geometry only — the composer re-solves the camera and "
+                                   "repaints placeholder art.")
+        self.import_btn.clicked.connect(self.on_import_room)
+        row.addWidget(self.import_btn)
         nl = QLabel("Dungeon")
         row.addWidget(nl)
         self.name_box = QLineEdit("DUNGEON")
@@ -2321,6 +2330,55 @@ class FloorplanDoc(QWidget):
         self.canvas.set_plan(rooms, doors, entry=self._session["entry"], refit=True)
         self._refresh(f"Reopened {Path(path).name} — Compose updates the project in place.")
 
+    def on_import_room(self):
+        """Rung 7f: a Trace-tab session becomes a room. The traced floor un-projects through
+        its OWN rig (floorplan.room_from_trace — the one owner of the conversion + the health
+        gates), lands clear of the drawing, and is an ordinary undoable room from then on."""
+        path = self._ask_import()
+        if not path:
+            return
+        try:
+            room = self._traced_room(Path(path))
+        except Exception as e:                     # noqa: BLE001 -- a bad file must not kill the tab
+            self._refresh(f"Could not import {Path(path).name}: {e}", "error", judge=False)
+            return
+        self._push_history()
+        poly = self._clear_of_plan([tuple(p) for p in room["poly"]])
+        self._session["rooms"].append({"name": room["name"], "poly": poly})
+        if not self._session.get("entry"):
+            self._session["entry"] = room["name"]
+        self._refresh(f"{room['name']} imported from {Path(path).name} — {len(poly)} corners; "
+                      f"drag it against a wall to declare doors")
+        self.canvas.fit()                          # the room lands OUTSIDE the old view on purpose
+
+    def _traced_room(self, path):
+        """Resolve a .trace.json (directly, or the one beside a generated field.toml) into a
+        room dict. The sidecar is REQUIRED — a compiled project without one predates the
+        session record, and the Trace tab writes one on its next Generate."""
+        import json
+        if path.suffix == ".toml":
+            side = sorted(path.parent.glob("*.trace.json"))
+            if not side:
+                raise ValueError("no .trace.json session beside it — open the project in the "
+                                 "Trace tab and Generate once to write the record")
+            path = side[0]
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return FP.room_from_trace(data, name=self._fresh_room_name())
+
+    def _clear_of_plan(self, poly):
+        """Translate an imported polygon to open ground: its west edge lands 200u east of the
+        drawing's east edge (beyond snap radius and TOUCH_EPS, so the G11 overlap gate cannot
+        fire on arrival), rows aligned to the plan's north edge. Shape is untouched — ``off_r``
+        is translation-invariant, so WHERE a room sits on the chart is free."""
+        rooms = self._session["rooms"]
+        if not rooms:
+            return [(int(x), int(z)) for x, z in poly]
+        east = max(x for r in rooms for x, _z in r["poly"])
+        north = min(z for r in rooms for _x, z in r["poly"])
+        dx = (east + 200) - min(x for x, _z in poly)
+        dz = north - min(z for _x, z in poly)
+        return [(int(round(x + dx)), int(round(z + dz))) for x, z in poly]
+
     def on_compose(self):
         rooms = self._session["rooms"]
         if not rooms:
@@ -2431,6 +2489,19 @@ class FloorplanDoc(QWidget):
         dlg = QFileDialog(self, "Open a floorplan.json", start)
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
         dlg.setNameFilter("Floorplans (floorplan.json *.json)")
+        if dlg.exec() != QFileDialog.DialogCode.Accepted:
+            return None
+        files = dlg.selectedFiles()
+        return files[0] if files else None
+
+    def _ask_import(self):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
+        from PySide6.QtWidgets import QFileDialog
+        start = str(Path(self._project["out"]).parent) if self._project else str(Path.home())
+        dlg = QFileDialog(self, "Import a traced room (.trace.json, or its project's "
+                          "field.toml)", start)
+        dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
+        dlg.setNameFilter("Traced rooms (*.trace.json *.field.toml)")
         if dlg.exec() != QFileDialog.DialogCode.Accepted:
             return None
         files = dlg.selectedFiles()

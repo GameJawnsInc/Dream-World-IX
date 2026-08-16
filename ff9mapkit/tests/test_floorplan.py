@@ -1990,3 +1990,65 @@ def test_the_ids_are_pinned_so_a_recompose_cannot_renumber_deployed_rooms(tmp_pa
     with pytest.raises(F.ComposeError):              # a REAL collision must still be refused
         F.compose(side, taken_ids=tuple(live))
     assert F.own_pinned_ids(tmp_path / "nope") == set(), "no sidecar must claim nothing"
+
+
+# ---------------------------------------------------------------------------- rung 7f: trace import
+# A traced photo's floor becomes a room -- GEOMETRY ONLY, through the session's OWN rig. The
+# fence's teeth: reconstructing through the DEFAULT rig is hundreds of units wrong, and a raw
+# hand trace carries sub-8u segments and collinear runs polygon_problem refuses.
+
+def _rig_trace(world_poly, *, pitch=30.0, distance=5200.0, fov=39.0):
+    cam = guide.make_camera(pitch, distance, fov_x_deg=fov)
+    floor = [list(IF.world_to_click(cam, p)) for p in world_poly]
+    return {"pitch": pitch, "distance": distance, "fov": fov, "floor": floor}
+
+
+def test_room_from_trace_unprojects_through_the_sessions_own_rig():
+    world = [(-800, 600), (800, 600), (800, 1800), (-800, 1800)]
+    trace = _rig_trace(world)
+    room = F.room_from_trace(trace, name="ROOM9")
+    assert room["name"] == "ROOM9" and len(room["poly"]) == 4
+    for ex, ez in world:
+        assert min(abs(gx - ex) + abs(gz - ez) for gx, gz in room["poly"]) <= 1, room["poly"]
+    # anti-vacuity: the DEFAULT-rig reconstruction of the same canvas floor is far away, so a
+    # regression back to the hardcoded camera cannot pass this file silently
+    bad_cam = guide.make_camera(IF.DEFAULT_PITCH, IF.DEFAULT_DISTANCE, fov_x_deg=IF.DEFAULT_FOV)
+    bad = [IF.click_to_world(bad_cam, p) for p in trace["floor"]]
+    worst = max(min(abs(gx - ex) + abs(gz - ez) for gx, gz in bad) for ex, ez in world)
+    assert worst > 100, "the fixture rig is too close to the default to prove anything"
+
+
+def test_room_from_trace_simplifies_a_dense_hand_trace():
+    """1u-spaced samples along straight walls (what a click-happy trace produces) collapse to
+    the 4 true corners -- polygon_problem would refuse the raw ring as duplicated corners."""
+    world = [(-800, 600), (800, 600), (800, 1800), (-800, 1800)]
+    dense = []
+    for i, a in enumerate(world):
+        b = world[(i + 1) % 4]
+        for t in range(0, 100):
+            dense.append((a[0] + (b[0] - a[0]) * t / 100, a[1] + (b[1] - a[1]) * t / 100))
+    assert F.polygon_problem(F.simplify_room_poly(dense)) is None
+    room = F.room_from_trace(_rig_trace(dense), name="R")
+    assert len(room["poly"]) <= 8                    # the corners, not the samples
+    assert F.polygon_problem([tuple(p) for p in room["poly"]]) is None
+
+
+def test_room_from_trace_refuses_what_it_cannot_serve():
+    trace = _rig_trace([(-800, 600), (800, 600), (800, 1800), (-800, 1800)])
+    cam = guide.make_camera(30.0, 5200.0, fov_x_deg=39.0)
+    hy = CAM.horizon_canvas_y(cam)
+    trace["floor"][0] = [192, hy - 5]                # squarely above THIS rig's horizon
+    with pytest.raises(ValueError, match="vertex 0"):
+        F.room_from_trace(trace, name="R")
+    with pytest.raises(ValueError, match="fewer than 3"):
+        F.room_from_trace({"floor": [[1, 2], [3, 4]]}, name="R")
+    tiny = _rig_trace([(0, 600), (6, 600), (6, 606), (0, 606)])   # collapses under min-edge
+    with pytest.raises(ValueError):
+        F.room_from_trace(tiny, name="R")
+
+
+def test_simplify_room_poly_enforces_the_min_edge():
+    poly = [(0, 0), (4, 2), (2400, 0), (2400, 1600), (0, 1600)]   # (4,2) hugs the first corner
+    out = F.simplify_room_poly(poly)
+    assert (4, 2) not in out and len(out) == 4
+    assert F.polygon_problem(out) is None
