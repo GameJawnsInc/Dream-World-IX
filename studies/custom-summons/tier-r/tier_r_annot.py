@@ -361,6 +361,7 @@ class DllView:
         edx_src = None                       # an arg index, or "SP", or None
         r12_set = False
         sp_live = False
+        sp_reg = "rax"
         for ins in self.refkit.disasm(self.pe, stub, end):
             mn, ops = ins.mnemonic, ins.op_str
             mm = _MEM_CTX.search(ops)
@@ -389,6 +390,7 @@ class DllView:
                         sig.args[edx_src] = "ptr"
                     elif edx_src == "SP":
                         sp_live = True
+                        sp_reg = "rax"                 # the translated $sp lands here
                 elif tgt is not None:
                     calls.append(tgt)
             elif mn == "mov" and _R12_SET.match(ops):
@@ -412,8 +414,16 @@ class DllView:
             elif mn == "ret":
                 sig.ret = "ret"
                 break
-            if sp_live and mn in ("mov", "movsxd") and "[rax" in ops:
-                m2 = re.search(r"\[rax(?: \+ (0x[0-9a-f]+))?\]", ops)
+            # A stub that has to make another call first STASHES the translated $sp out of rax,
+            # because rax is caller-clobbered.  Tracking it only in rax undercounted op 64's arity
+            # (4 vs the real 5) -- its stub does `mov rbx, rax` before calling getArgPtr, then reads
+            # arg 4 as `[rbx + 0x10]`.  Follow the value; the register holding it is codegen.
+            if sp_live and mn == "mov" and ops.endswith(", %s" % sp_reg):
+                m3 = re.match(r"^(r[a-z0-9]+),", ops)
+                if m3:
+                    sp_reg = m3.group(1)
+            if sp_live and mn in ("mov", "movsxd") and ("[%s" % sp_reg) in ops:
+                m2 = re.search(r"\[%s(?: \+ (0x[0-9a-f]+))?\]" % sp_reg, ops)
                 if m2:
                     d = int(m2.group(1), 16) if m2.group(1) else 0
                     if d % 4 == 0 and STACK_ARG_MIN <= d < 0x100:

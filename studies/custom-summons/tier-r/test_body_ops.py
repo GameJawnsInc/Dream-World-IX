@@ -105,10 +105,12 @@ def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
     dll = A.DllView()
     rng = {B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
     monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN} | rng
     monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN} | rng
     monkeypatch.setattr(B, "verify_rng", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN}
+    monkeypatch.setattr(B, "verify_screen", lambda d=None: (False, ["forced"]))
     assert set(B.body_evidence(dll)) == {B.OP_COORD}
     monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
     assert B.body_evidence(dll) == {}
@@ -271,4 +273,56 @@ def test_the_dictionary_carries_the_rng_family():
     assert ops[B.OP_RAND]["name"] == "rand"
     assert ops[B.OP_RAND_CENTERED]["name"] == "rand_centered"
     assert ops[B.OP_RAND_CENTERED]["returns"] == "int"     # was VOID before the decoder fix
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 64, the full-screen fill
+@needs_dll
+def test_op64_body_re_derives():
+    ok, notes = B.verify_screen()
+    assert ok, notes
+
+
+def test_the_tile_grid_is_exactly_the_ps1_screen():
+    """4*80 = 320 and 2*110 = 220 -- the constant that turns eight rectangles into a screen fill."""
+    assert B.TILE_COLS * B.TILE_W == 320
+    assert B.TILE_ROWS * B.TILE_H == 220
+    assert B.TILE_COLS * B.TILE_ROWS == B.TILE_COUNT
+    assert B.TILE_WH_WORD == (B.TILE_H << 16) | B.TILE_W
+
+
+def test_the_blend_codes_are_the_ps1_rectangle_pair():
+    """0x60 opaque / 0x62 semi-transparent -- bit 1 is the rectangle ABE flag."""
+    assert B.CODE_RECT == 0x60
+    assert B.CODE_RECT | B.CODE_ABE == 0x62
+
+
+@needs_dll
+def test_op64_takes_five_arguments_not_four():
+    """R2 tracked the translated MIPS $sp only while it lived in rax; op 64's stub stashes it in
+    rbx before another call, so arg 4 at $sp+0x10 was invisible.  M3's x86-frame table says 5."""
+    sig = A.DllView().handler(B.OP_SCREEN)
+    assert sig.arity == 5
+    assert sig.stack_args == (4,)
+    assert sig.kinds == "piiii"
+
+
+@needs_dll
+def test_the_stacked_arg_fix_moves_only_the_two_ops_it_should():
+    """A decoder change must be bounded and measured, not trusted.  Only 64 and 70 gain an
+    argument, and R2's 12-op calibration still re-derives on name AND arity."""
+    dll = A.DllView()
+    assert dll.handler(64).arity == 5
+    assert dll.handler(70).arity == 5
+    rows = A.calibration(dll)
+    assert all(r.get("name_ok") and r.get("arity_ok") for r in rows), rows
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op64():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_SCREEN]
+    assert row["name"] == "draw_fullscreen_fill" and row["confidence"] == "medium"
+    assert row["arity"] == 5 and row["arg_kinds"] == "piiii"
     assert A.check_confidence_rule(ops) == []

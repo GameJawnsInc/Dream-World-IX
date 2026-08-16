@@ -196,6 +196,38 @@ def so_ab() -> Tuple[int, int, int, int, int, int, int]:
     return a, aok, b, bok, tex, gou, off
 
 
+def screen_args() -> Tuple[int, int, int, int, set]:
+    """(op-64 colour constants, how many are <= 255, control constants, control <= 255, $a1 set).
+
+    If arg2/arg3 were coordinates or ids they would routinely exceed a colour byte.  The control is
+    every OTHER op with at least three integer arguments, scored by the same rule.
+    """
+    ops = A.load_hle_ops()
+    hit = tot = chit = ctot = 0
+    a1: set = set()
+    pat = re.compile(r"\$a(\d)=0x([0-9a-f]+)")
+    for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            mm = re.search(r"HLE op (\d+) ", ln)
+            if not mm:
+                continue
+            op = int(mm.group(1))
+            row = ops.get(op)
+            if not row:
+                continue
+            for idx, val in ((int(a), int(v, 16)) for a, v in pat.findall(ln)):
+                if op == B.OP_SCREEN:
+                    if idx == 1:
+                        a1.add(val)
+                    elif idx in (2, 3):
+                        tot += 1
+                        hit += val <= 0xFF
+                elif (row.get("arg_kinds") or "").count("i") >= 3 and idx in (2, 3):
+                    ctot += 1
+                    chit += val <= 0xFF
+    return hit, tot, chit, ctot, a1
+
+
 def main() -> int:
     results: List[Tuple[str, str, bool]] = []
     dll = A.DllView()
@@ -217,6 +249,12 @@ def main() -> int:
         print("  " + n)
     results.append(("B9", "op 136's lookup + divide-by-6 + add re-derive from the DLL", ok9))
 
+    ok11, notes11 = B.verify_screen(dll)
+    print()
+    for n in notes11:
+        print("  " + n)
+    results.append(("B11", "op 64's tile grid, blend code and AddPrim hand-off re-derive", ok11))
+
     ok10, notes10 = B.verify_rng(dll)
     print()
     for n in notes10:
@@ -225,10 +263,11 @@ def main() -> int:
 
     ev = B.body_evidence(dll)
     good = (set(ev) == {B.OP_OPEN, B.OP_ABR, B.OP_COORD,
-                        B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
+                        B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED, B.OP_SCREEN}
             and ev[B.OP_OPEN]["confidence"] == "medium"      # no symbol names it
             and ev[B.OP_COORD]["confidence"] == "medium"     # no symbol; +0x38 unresolved
             and ev[B.OP_RAND]["confidence"] == "medium"      # algorithm known, name not stated
+            and ev[B.OP_SCREEN]["confidence"] == "medium"    # no symbol on the chain
             and ev[B.OP_ABR]["confidence"] == "high")        # the DLL names it, twice
     print("\nB2 body evidence: %s" % {o: (e["name"], e["confidence"]) for o, e in ev.items()})
     results.append(("B2", "each name ships at the confidence its evidence supports", good))
@@ -239,7 +278,7 @@ def main() -> int:
         # A skip is not a pass: report it as such rather than counting it green.
         for k, d in (("B3", "the sub-file idiom"), ("B4", "the A/B separation"),
                      ("B5", "camera disjointness"), ("B7", "the 'so' magic"),
-                     ("B8", "the pairing attribution")):
+                     ("B8", "the pairing attribution"), ("B12", "op 64's colour args")):
             print("  %s %s -- SKIP" % (k, d))
     else:
         hit, tot = site_idiom()
@@ -265,6 +304,13 @@ def main() -> int:
               % (aok, a, 100 * ra, bok, b, 100 * rb, tex, gou))
         results.append(("B7", "op 206's operand carries the magic the DLL asserts",
                         ra > 0.6 and rb < 0.10 and ra > 10 * rb and tex > gou > 0))
+        chit, ctot, cc, cct, a1 = screen_args()
+        r, cr = chit / max(ctot, 1), cc / max(cct, 1)
+        print("B12 op-64 colour args <= 255: %d/%d (%.1f%%) vs control %d/%d (%.1f%%); $a1 seen = %s"
+              % (chit, ctot, 100 * r, cc, cct, 100 * cr, sorted(a1)))
+        results.append(("B12", "op 64's arg2/arg3 are colour bytes and arg1 is a tiny depth set",
+                        ctot > 50 and r == 1.0 and r > cr and a1 <= {0, 1, 2, 255}))
+
         print("B8 misses carrying 'so' at ANY nonzero offset: %d" % off)
         results.append(("B8", "the shortfall is pairing, not an operand the assert would reject",
                         off == 0))

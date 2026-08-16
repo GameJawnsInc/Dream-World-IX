@@ -271,3 +271,30 @@ The brief was 48 and 50; they are two thirds of ONE algorithm, so 49 came with t
   (`edx`), op 43 (`ecx`), op 16 (a constant `0x400`)** — all three mis-typed, all three now `int`.
   Fixed by matching ANY write to `r12d` before the tail return: the register a value arrives in is a
   codegen detail, not part of the ABI. Confidence board unaffected (0 violations); R1/R2/R3/CB green.
+
+## R9 (op 64) -- * DONE 2026-08-07: THE FULL-SCREEN FILL, AND AN UNDERCOUNTED ARITY
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 5. `body_gates.py` 12/12; 6 more tests (tier-r 197).
+**Named 113 -> 114; traffic 78.9% -> 81.5%. Across R4-R9: 79 -> 114 named, 51.8% -> 81.5%.**
+
+* **op 64 = `draw_fullscreen_fill`** (366 sites, medium). `fn 0x3f180` carves `0x80` bytes off the
+  arena cursor and builds **8 PS1 `TILE` primitives** `{u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h}`
+  at `x=(i&3)*80`, `y=(i>>2)*110`, each `80x110` -- a 4x2 grid, and **4*80 = 320, 2*110 = 220 = THE
+  PS1 SCREEN**. Colour is `(arg2,arg3,arg4)`; code `0x60` opaque when `arg1 == 0xff` else `0x62`
+  (the rectangle ABE bit). Each tile goes to **`fn 0x3edb0` = libgpu `AddPrim`** (length into the
+  tag's top byte, 24-bit OT XOR-splice) at depth `arg1`, which `AddPrim` itself special-cases at
+  `0xff` -- so `0xff` is a sentinel, not a depth.
+* **LEAD: `op 143`'s own native fn IS `0x3edb0`** -- the corpus exposes `AddPrim` directly, unclaimed.
+* **CORPUS (the refutable part): 412/412 (100%)** of `$a2`/`$a3` constants are colour bytes `<=255`
+  vs **987/1609 (61.3%)** control (every other op with >=3 int args); `$a1` corpus-wide is exactly
+  `{0,1,2,255}`; and a real site builds the channels as **three shifts of ONE animated scalar**
+  (`r=v>>4, g=v>>3, b=v>>2`) -- coordinates could not look like that.
+* ** A SECOND DECODER BLIND SPOT -- op 64 takes FIVE arguments, not four.** R2 tracks the
+  translated MIPS `$sp` only while it lives in `rax`; op 64's stub does `mov rbx, rax` before
+  another call, then reads arg 4 as `[rbx+0x10]`. Fixed by following the value through the register
+  move. **Bounded: exactly 2 ops gain an argument (64 and 70, both 4 -> 5); calibration still
+  12/12 on name AND arity.**
+* **INDEPENDENT CORROBORATION: `M3-opcode-table.json` (from the x86 build's `[ebp+N]` frame) says
+  arity 5 for BOTH.** Both are in R2 finding 4's disagreement list, so that finding's blanket
+  *"prefer `hle_ops.json`"* was too broad -- **on stacked-argument arity M3 was right**. The
+  disagreement set shrinks 19 -> 17.

@@ -1494,14 +1494,14 @@
  },
  {
   "op": 64,
-  "name": null,
-  "confidence": null,
+  "name": "draw_fullscreen_fill",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
   "corpus_support": "arity-mode",
-  "arity": 4,
-  "arg_kinds": "piii",
+  "arity": 5,
+  "arg_kinds": "piiii",
   "returns": "void",
   "native_fn": "0x3f180",
   "native_fn_confirmed_by_stub": true,
@@ -1511,7 +1511,7 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x1007f: arity 4 kinds=piii returns void; corpus: 366 call sites in 103 images / 93 effects (24 creature-bearing); modal arg-setup 349/366 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 349, 0: 8, 1: 9}; called next to ops 102(x73), 117(x58), 14(x50); $a1 constants: 1(x254), 2(x72), 255(x13), 0(x4); $a2 constants: 255(x56), 0(x43), 128(x33), 64(x18), 32(x12), 16(x7); $a3 constants: 255(x60), 128(x41), 0(x37), 64(x28), 100(x9), 32(x7); position: {'last-third': 171, 'middle-third': 143, 'first-third': 52}",
+  "evidence": "stub 0x1007f: arity 5 kinds=piiii returns void; corpus: 366 call sites in 103 images / 93 effects (24 creature-bearing); modal arg-setup 349/366 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 349, 0: 8, 1: 9}; called next to ops 102(x73), 117(x58), 14(x50); $a1 constants: 1(x254), 2(x72), 255(x13), 0(x4); $a2 constants: 255(x56), 0(x43), 128(x33), 64(x18), 32(x12), 16(x7); $a3 constants: 255(x60), 128(x41), 0(x37), 64(x28), 100(x9), 32(x7); position: {'last-third': 171, 'middle-third': 143, 'first-third': 52}; handler-body: fill the whole 320x220 screen with a flat RGB colour -- eight TILE primitives in a 4x2 grid of 80x110, added to the ordering table at depth arg1; opaque when arg1 == 0xff, semi-transparent otherwise; fn 0x3f180 carves 0x80 bytes off the arena cursor and builds 8 PS1 TILE primitives {u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h} in a 4x2 grid of 80x110 -- 320 x 220, the PS1 screen -- colouring each (arg2,arg3,arg4) and coding it 0x60 opaque when arg1 == 0xff else 0x62 (the rectangle ABE bit), then handing it to 0x3edb0, libgpu AddPrim (24-bit OT XOR-splice, length in the tag's top byte; op 143's own native fn). THE STUB READS FIVE ARGUMENTS -- the fifth off the MIPS stack at $sp+0x10 -- which R2 undercounted at 4; M3-opcode-table.json, derived independently from the x86 build's [ebp+N] frame, says 5. Corpus: $a1 is only ever {0,1,2,255} (an OT depth plus the 0xff sentinel AddPrim itself special-cases) and every $a2/$a3 constant is a colour byte <= 255; a real call site builds the three channels as three SHIFTS of one animated scalar (r=v>>4, g=v>>3, b=v>>2), which coordinates could not be.",
   "call_sites": 366,
   "effects": 93,
   "creature_effects": 24
@@ -1670,8 +1670,8 @@
   "callback_code": null,
   "callback_submode": null,
   "corpus_support": "arity-mode",
-  "arity": 4,
-  "arg_kinds": "ppii",
+  "arity": 5,
+  "arg_kinds": "ppiii",
   "returns": "void",
   "native_fn": "0x40f90",
   "native_fn_confirmed_by_stub": true,
@@ -1690,7 +1690,7 @@
    "gteVertexBank",
    "psxBankTable"
   ],
-  "evidence": "stub 0x105a1: arity 4 kinds=ppii returns void; fn 0x40f90 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 4 call sites in 4 images / 4 effects (0 creature-bearing); modal arg-setup 4/4 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 4}; called next to ops 102(x7), 146(x1); $a2 constants: 0(x1); $a3 constants: 1(x3), 255(x1); position: {'middle-third': 3, 'last-third': 1}",
+  "evidence": "stub 0x105a1: arity 5 kinds=ppiii returns void; fn 0x40f90 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 4 call sites in 4 images / 4 effects (0 creature-bearing); modal arg-setup 4/4 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 4}; called next to ops 102(x7), 146(x1); $a2 constants: 0(x1); $a3 constants: 1(x3), 255(x1); position: {'middle-third': 3, 'last-third': 1}",
   "call_sites": 4,
   "effects": 4,
   "creature_effects": 0

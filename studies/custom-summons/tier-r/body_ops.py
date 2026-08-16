@@ -150,6 +150,95 @@ DESCRIPTION_COORD = ("a coordinate component placed relative to an actor: base +
                      "actor[+0x38] / 6")
 
 
+# --- op 64: the full-screen colour fill ---------------------------------------------------------
+#: ``fn 0x3f180`` carves a 0x80-byte block off the arena cursor at ``sysCtx+0x24`` and fills it with
+#: **eight 0x10-byte PS1 ``TILE`` primitives** -- ``{u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h}`` --
+#: then hands each to ``fn 0x3edb0``, which is libgpu's **``AddPrim``**: it puts the length in the
+#: tag's top byte and XOR-splices the primitive into the ordering table through a 24-bit link
+#: (``and 0xffffff``), the standard PS1 OT insert.  ``op 143`` exposes that function directly.
+#:
+#: The eight tiles are a **4x2 grid of 80x110** -- and ``4*80 = 320``, ``2*110 = 220``, the PS1
+#: screen (this project already pins ``FieldMap.PsxScreenHeightNative = 220``).  So the op paints
+#: the WHOLE SCREEN one flat colour.
+#:
+#: ``arg1`` does double duty: it is the OT depth passed to ``AddPrim``, and ``== 0xFF`` selects the
+#: opaque rectangle code ``0x60`` while anything else selects ``0x62``, the semi-transparent twin
+#: (bit 1 is the PS1 rectangle ABE flag).  ``AddPrim`` special-cases ``0xFF`` again internally, so
+#: it is a sentinel depth rather than a real one.  The corpus agrees: ``$a1`` is only ever
+#: ``1(x254) 2(x72) 255(x13) 0(x4)``.
+OP_SCREEN = 64
+SCREEN_FN = 0x3F180
+ADDPRIM_FN = 0x3EDB0          # libgpu AddPrim; op 143's own native function
+ADDPRIM_TAG = 0x3000000       # tag length 3 -> a 4-word TILE
+TILE_COUNT = 8
+TILE_W, TILE_H = 0x50, 0x6E   # 80 x 110
+TILE_COLS, TILE_ROWS = 4, 2   # 4*80 = 320, 2*110 = 220 -- the PS1 screen
+TILE_WH_WORD = 0x6E0050       # the single dword store that sets both
+CODE_RECT = 0x60              # PS1 monochrome variable-size rectangle
+CODE_ABE = 0x02               # + semi-transparency
+OPAQUE_SENTINEL = 0xFF        # arg1 == 0xff -> opaque, and AddPrim special-cases it too
+ARENA_BUMP = 0x80             # bytes carved off sysCtx+0x24 per call
+NAME_SCREEN = "draw_fullscreen_fill"
+DESCRIPTION_SCREEN = ("fill the whole 320x220 screen with a flat RGB colour -- eight TILE "
+                      "primitives in a 4x2 grid of 80x110, added to the ordering table at depth "
+                      "arg1; opaque when arg1 == 0xff, semi-transparent otherwise")
+
+
+def verify_screen(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 64's tile geometry, blend discriminator and AddPrim hand-off."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_SCREEN]) or dll.native_fn[OP_SCREEN]
+    good = fn == SCREEN_FN
+    ok &= good
+    notes.append("op %d native fn = %#x %s" % (OP_SCREEN, fn, "OK" if good else "FAIL"))
+
+    text = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    checks = (
+        ("carves %#x bytes off the arena cursor" % ARENA_BUMP,
+         ("lea", "eax, [r10 + 0x%x]" % ARENA_BUMP) in text),
+        ("writes w/h as one dword %#x (%d x %d)" % (TILE_WH_WORD, TILE_W, TILE_H),
+         ("mov", "dword ptr [rbx + 8], 0x%x" % TILE_WH_WORD) in text),
+        ("x stride %d: (i & 3) * 5 << 4" % TILE_W,
+         ("and", "cx, 3") in text and ("shl", "cx, 4") in text),
+        ("y stride %d: (i >> 2) * 0x%x" % (TILE_H, TILE_H),
+         ("imul", "ax, ax, 0x%x" % TILE_H) in text),
+        ("builds the rectangle code %#x | %#x" % (CODE_RECT, CODE_ABE),
+         ("or", "r14b, 0x%x" % CODE_RECT) in text and ("mov", "r14d, %d" % CODE_ABE) in text),
+        ("blend discriminator arg1 == %#x" % OPAQUE_SENTINEL,
+         ("cmp", "esi, 0x%x" % OPAQUE_SENTINEL) in text),
+        ("loops exactly %d times" % TILE_COUNT, ("cmp", "edi, %d" % TILE_COUNT) in text),
+        ("hands each tile to AddPrim %#x with tag %#x" % (ADDPRIM_FN, ADDPRIM_TAG),
+         ("call", hex(dll.base + ADDPRIM_FN)) in text
+         and ("mov", "ecx, 0x%x" % ADDPRIM_TAG) in text),
+    )
+    for label, good2 in checks:
+        ok &= good2
+        notes.append("%s %s" % (label, "OK" if good2 else "FAIL"))
+
+    good = TILE_COLS * TILE_W == 320 and TILE_ROWS * TILE_H == 220
+    ok &= good
+    notes.append("the grid tiles the PS1 screen: %d*%d = %d wide, %d*%d = %d high %s"
+                 % (TILE_COLS, TILE_W, TILE_COLS * TILE_W, TILE_ROWS, TILE_H,
+                    TILE_ROWS * TILE_H, "OK" if good else "FAIL"))
+
+    # AddPrim really is one: the 24-bit XOR splice into the ordering table.
+    ap = [(i.mnemonic, i.op_str) for i in dll.body(ADDPRIM_FN)]
+    good = ("and", "eax, 0xffffff") in ap and ("shr", "ecx, 0x18") in ap
+    ok &= good
+    notes.append("%#x splices a 24-bit OT link and puts the length in the tag %s"
+                 % (ADDPRIM_FN, "OK" if good else "FAIL"))
+
+    sig = dll.handler(OP_SCREEN)
+    good = sig.arity == 5 and sig.stack_args == (4,)
+    ok &= good
+    notes.append("the stub reads FIVE arguments, the last off the MIPS stack (arity=%d stacked=%s) %s"
+                 % (sig.arity, sig.stack_args, "OK" if good else "FAIL"))
+    return ok, notes
+
+
 # --- ops 48 / 49 / 50: the RNG family -----------------------------------------------------------
 #: Three ops, one algorithm, and the algorithm names itself.  Each computes
 #:     seed = seed * 0x41C64E6D + 0x3039 ; value = seed >> 16
@@ -511,6 +600,30 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                             ABR_MASK, ABR_SHIFT, SO_TABLE_OFF, SO_LEN_OFF, SO_TABLE_OFF,
                             TEXLIST_FN, GOURAUD_FN,
                             " (%s)" % src[0] if src else "")),
+        }
+
+    ok_screen, _n4 = verify_screen(dll)
+    if ok_screen:
+        out[OP_SCREEN] = {
+            "name": NAME_SCREEN,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x carves %#x bytes off the arena cursor and builds %d PS1 "
+                         "TILE primitives {u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h} in a %dx%d "
+                         "grid of %dx%d -- %d x %d, the PS1 screen -- colouring each (arg2,arg3,"
+                         "arg4) and coding it %#x opaque when arg1 == %#x else %#x (the rectangle "
+                         "ABE bit), then handing it to %#x, libgpu AddPrim (24-bit OT XOR-splice, "
+                         "length in the tag's top byte; op 143's own native fn). THE STUB READS "
+                         "FIVE ARGUMENTS -- the fifth off the MIPS stack at $sp+0x10 -- which R2 "
+                         "undercounted at 4; M3-opcode-table.json, derived independently from the "
+                         "x86 build's [ebp+N] frame, says 5. Corpus: $a1 is only ever "
+                         "{0,1,2,255} (an OT depth plus the 0xff sentinel AddPrim itself "
+                         "special-cases) and every $a2/$a3 constant is a colour byte <= 255; a "
+                         "real call site builds the three channels as three SHIFTS of one animated "
+                         "scalar (r=v>>4, g=v>>3, b=v>>2), which coordinates could not be."
+                         % (BODY_MARKER, DESCRIPTION_SCREEN, SCREEN_FN, ARENA_BUMP, TILE_COUNT,
+                            TILE_COLS, TILE_ROWS, TILE_W, TILE_H, TILE_COLS * TILE_W,
+                            TILE_ROWS * TILE_H, CODE_RECT, OPAQUE_SENTINEL, CODE_RECT | CODE_ABE,
+                            ADDPRIM_FN)),
         }
 
     ok_rng, _n3 = verify_rng(dll)

@@ -656,3 +656,81 @@ all still pass.
 | call-site traffic named | 10,310 / 14,212 (72.5%) | **11,217 / 14,212 (78.9%)** |
 
 Across R4–R8: **79 → 113 named, 51.8% → 78.9% of traffic.**
+
+---
+
+# ADDENDUM 5 -- op 64: the full-screen colour fill (and a second decoder blind spot)
+
+**Status: * DONE. `body_gates.py` 12/12, 6 more tests (tier-r 197). Named 113 -> 114;
+traffic 78.9% -> 81.5%.**
+
+## What it does
+
+`fn 0x3f180` carves `0x80` bytes off the arena cursor at `sysCtx+0x24` and fills the block with
+**eight 0x10-byte PS1 `TILE` primitives** -- `{u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h}` -- then
+hands each to `fn 0x3edb0`.
+
+The eight tiles are laid out `x = (i & 3) * 80`, `y = (i >> 2) * 110`, each `80 x 110`. That is a
+**4x2 grid**, and:
+
+> **4 x 80 = 320 . 2 x 110 = 220** -- the PS1 screen. (This project already pins
+> `FieldMap.PsxScreenHeightNative = 220`.)
+
+So the op paints the **whole screen** one flat colour: `op 64 = draw_fullscreen_fill`.
+
+`fn 0x3edb0` is libgpu **`AddPrim`**: it moves the length into the tag's top byte (`shr ecx, 0x18`)
+and XOR-splices the primitive into the ordering table through a **24-bit** link (`and 0xffffff`) --
+the standard PS1 OT insert. **`op 143`'s own native function IS `0x3edb0`**, so the corpus has a
+directly-exposed `AddPrim` too (an unclaimed lead).
+
+`arg1` does double duty: it is the OT depth handed to `AddPrim`, **and** `== 0xFF` selects the
+opaque rectangle code `0x60` while anything else selects `0x62`, its semi-transparent twin (bit 1 is
+the PS1 rectangle ABE flag). `AddPrim` special-cases `0xFF` again internally, so it is a sentinel
+depth rather than a real one.
+
+## The corpus tests, including the one that could have refuted it
+
+* **412 / 412 (100%)** of op 64's `$a2`/`$a3` constants are colour bytes `<= 255`, against
+  **987 / 1609 (61.3%)** for the control (every other op with at least three integer arguments).
+* `$a1` corpus-wide is **exactly `{0, 1, 2, 255}`** -- a tiny depth set plus the sentinel.
+* A real call site (`ef004_c0` @ `0d5c`) builds the three colour channels as **three shifts of one
+  animated scalar**: `sra $a2, $v0, 4` / `sra $a3, $v0, 3` / `sra $v0, $v0, 2` -> `sw $v0, 16($sp)`
+  -- i.e. `r = v/16, g = v/8, b = v/4`, a blue-dominant tinted wash driven by one fade level.
+  **Coordinates or ids could not look like that.**
+
+Ships **`medium`**: no symbol anywhere on the chain states a name.
+
+## * A SECOND DECODER BLIND SPOT -- an undercounted arity
+
+That same call site ends `sw $v0, 16($sp)` immediately before the `jalr`: **O32's first stacked
+argument slot, arg index 4.** op 64 takes **five** arguments, not four.
+
+R2 detects stacked arguments, but only while the translated MIPS `$sp` still lives in `rax`:
+
+```
+mov  edx, [rdi+r13+0xd0c]   ; the MIPS $sp
+call 0x10e0                 ; -> rax = host($sp)
+mov  rbx, rax               ; <-- stashed, because the next call clobbers rax
+call 0x12740                ; getArgPtr(0)
+mov  eax, [rbx + 0x10]      ; arg 4 -- invisible to a decoder watching rax
+```
+
+Fixed by following the value through the register move. **Bounded and measured: exactly two ops
+gain an argument** -- `op 64` (4 -> 5) and `op 70` (4 -> 5) -- and R2's 12-op calibration still
+re-derives on name **and** arity, 12/12.
+
+**Independent corroboration:** `M3-opcode-table.json`, derived from the **x86** build's `[ebp+N]`
+stack frame -- a different binary, a different method -- says **arity 5 for both**. Both ops are in
+R2 finding 4's own disagreement list, so that finding's blanket *"prefer `hle_ops.json`"* was too
+broad: **on stacked-argument arity, M3 was right and the x64 stub decoder had the blind spot.**
+The disagreement set shrinks from 19 ops to 17.
+
+## Coverage
+
+| | after 48/49/50 | after op 64 |
+|---|---|---|
+| named ops | 113 / 216 | **114 / 216** |
+| confidence | high 67 . med 36 . low 10 . unnamed 103 | **high 67 . med 37 . low 10 . unnamed 102** |
+| traffic named | 11,217 / 14,212 (78.9%) | **11,583 / 14,212 (81.5%)** |
+
+Across R4-R9: **79 -> 114 named, 51.8% -> 81.5% of traffic.**
