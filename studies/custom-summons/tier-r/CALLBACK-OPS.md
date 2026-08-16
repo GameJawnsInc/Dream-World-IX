@@ -734,3 +734,74 @@ The disagreement set shrinks from 19 ops to 17.
 | traffic named | 11,217 / 14,212 (78.9%) | **11,583 / 14,212 (81.5%)** |
 
 Across R4-R9: **79 -> 114 named, 51.8% -> 81.5% of traffic.**
+
+---
+
+# ADDENDUM 6 -- op 143: AddPrim with a blend prefix (and it CORRECTS op 64)
+
+**Status: * DONE. `body_gates.py` 14/14, 5 more tests (tier-r 202). Named 114 -> 115;
+traffic 81.5% -> 81.6%.** The traffic gain is trivial -- 9 call sites -- but this rung was worth
+running for what it says about the op it shares a function with.
+
+## Two halves
+
+`fn 0x3edb0` is libgpu's **`addPrim`**, and op 143 exposes it directly (op 64 reaches the same
+function eight times per call).
+
+**1. The splice.** Length out of the tag's top byte (`shr ecx, 0x18`; `mov [r8+3], cl`), then the
+standard PS1 ordering-table insert -- XOR-swapping only the low **24 bits** of `*ot` and
+`prim->tag`, so each word keeps its own top byte. The `and 0xffffff` pair is the giveaway.
+
+**2. The blend prefix.** Unless `arg3 == 0xFF`, it carves **8 more bytes** off the same arena cursor
+op 64 uses, builds a 2-word primitive (length 1) whose single payload word is:
+
+```
+0xE1000200 | ((arg3 & 3) << 5)
+```
+
+`0xE1` is the PS1 GPU **GP0 Draw Mode** command: **bits 5-6 are the ABR semi-transparency mode**,
+bit 9 is dither. That is a **`DR_TPAGE`** -- the state primitive the s76 probe already logs, and the
+same ABR field `op 206` ORs into `so` bindings by a different route. Because `addPrim` inserts at
+the **head**, the prefix is drawn **first**: set the blend, then draw.
+
+## ** It corrects op 64
+
+op 64 hands its `arg1` straight into this parameter (`mov r9d, esi`). So:
+
+> **op 64's `arg1` is a BLEND MODE, not an OT depth.** ADDENDUM 5 read it as a depth; that was wrong.
+
+The corpus fits a blend mode far better. `$a1` is `1(x254) 2(x72) 255(x13) 0(x4)`:
+
+| value | as an ABR mode | sites |
+|---|---|---|
+| **1** | **B+F -- additive** | **254** |
+| 2 | B-F, subtractive | 72 |
+| 255 | opaque; emit no draw-mode primitive at all | 13 |
+| 0 | B/2 + F/2, 50/50 | 4 |
+
+Additive dominating at 254/366 is exactly what a full-screen VFX flash wants; "OT depth 1" explained
+nothing. And **there is no depth argument anywhere in either op** -- the OT *pointer* is the depth,
+the way PS1 code always does it (`&ot[z]`).
+
+The evidence string, the module docstring and the B12 gate label are all corrected; a test pins the
+corrected reading so a silent revert fails loud.
+
+## The corpus test
+
+`arg0` should be a primitive **tag**: length in the top byte, 24-bit link field zeroed.
+
+* **op 143: 9 / 9 (100%)** -- `0x04000000` x4 and `0x08000000` x5, i.e. 5-word and 9-word primitives.
+* control (every other op whose `arg0` is an int): **73 / 2086 (3.5%)** -- a ~29x separation.
+
+Ships **`medium`**: `fn 0x3edb0` owns no debug string. Same posture as the RNG family -- a
+universally documented external shape (libgpu `addPrim`, GP0(E1h)) but no name stated in the binary.
+
+## Coverage
+
+| | after op 64 | after op 143 |
+|---|---|---|
+| named ops | 114 / 216 | **115 / 216** |
+| confidence | high 67 . med 37 . low 10 . unnamed 102 | **high 67 . med 38 . low 10 . unnamed 101** |
+| traffic named | 11,583 / 14,212 (81.5%) | **11,592 / 14,212 (81.6%)** |
+
+Across R4-R10: **79 -> 115 named, 51.8% -> 81.6% of traffic.**

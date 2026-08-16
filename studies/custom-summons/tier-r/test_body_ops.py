@@ -105,12 +105,14 @@ def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
     dll = A.DllView()
     rng = {B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
     monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM} | rng
     monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM} | rng
     monkeypatch.setattr(B, "verify_rng", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM}
     monkeypatch.setattr(B, "verify_screen", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ADDPRIM}
+    monkeypatch.setattr(B, "verify_addprim", lambda d=None: (False, ["forced"]))
     assert set(B.body_evidence(dll)) == {B.OP_COORD}
     monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
     assert B.body_evidence(dll) == {}
@@ -325,4 +327,44 @@ def test_the_dictionary_carries_op64():
     row = ops[B.OP_SCREEN]
     assert row["name"] == "draw_fullscreen_fill" and row["confidence"] == "medium"
     assert row["arity"] == 5 and row["arg_kinds"] == "piiii"
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 143, AddPrim + blend prefix
+@needs_dll
+def test_op143_both_halves_re_derive():
+    ok, notes = B.verify_addprim()
+    assert ok, notes
+
+
+def test_the_dr_tpage_word_is_a_gp0_draw_mode_command():
+    """0xE1 is GP0 Draw Mode; bits 5-6 are the ABR semi-transparency mode, bit 9 is dither."""
+    assert B.DR_TPAGE_BASE >> 24 == 0xE1
+    assert B.DR_TPAGE_BASE & (1 << 9)                      # dither
+    assert B.DR_TPAGE_ABR_SHIFT == 5
+    for mode in range(4):                                  # the ABR field never escapes bits 5-6
+        assert (B.DR_TPAGE_BASE | (mode << B.DR_TPAGE_ABR_SHIFT)) >> 7 == B.DR_TPAGE_BASE >> 7
+
+
+def test_op143_and_op64_share_the_same_native_function():
+    """op 143 exposes AddPrim directly; op 64 reaches it eight times per call."""
+    assert B.ADDPRIM_FN == 0x3EDB0
+
+
+@needs_dll
+def test_op64s_arg1_is_a_blend_mode_not_an_ot_depth():
+    """The correction this rung made: op 64 hands arg1 to AddPrim's blend parameter, which masks
+    it to 2 bits for a DR_TPAGE ABR mode -- an OT depth would not be masked to 0..3."""
+    ev = B.body_evidence()
+    assert "BLEND MODE" in ev[B.OP_SCREEN]["evidence"]
+    assert "blend mode, NOT an OT depth" in ev[B.OP_ADDPRIM]["evidence"]
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op143():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_ADDPRIM]
+    assert row["name"] == "add_prim_blended" and row["confidence"] == "medium"
+    assert row["arg_kinds"] == "ippi"
     assert A.check_confidence_rule(ops) == []

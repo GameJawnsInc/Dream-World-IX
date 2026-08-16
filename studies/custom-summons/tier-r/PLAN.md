@@ -298,3 +298,30 @@ Record: `CALLBACK-OPS.md` SS ADDENDUM 5. `body_gates.py` 12/12; 6 more tests (ti
   arity 5 for BOTH.** Both are in R2 finding 4's disagreement list, so that finding's blanket
   *"prefer `hle_ops.json`"* was too broad -- **on stacked-argument arity M3 was right**. The
   disagreement set shrinks 19 -> 17.
+
+## R10 (op 143) -- * DONE 2026-08-07: AddPrim + A CORRECTION TO OP 64
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 6. `body_gates.py` 14/14; 5 more tests (tier-r 202).
+**Named 114 -> 115; traffic 81.5% -> 81.6%. Across R4-R10: 79 -> 115 named, 51.8% -> 81.6%.**
+
+Only 9 call sites, so the traffic gain is trivial -- the rung earned its place by correcting the op
+it shares a function with.
+
+* **op 143 = `add_prim_blended`** (9 sites, medium). `fn 0x3edb0` is libgpu **`addPrim`**: length
+  out of the tag's top byte, then the PS1 OT insert XOR-swapping only the low **24 bits** so each
+  word keeps its top byte. **Then, unless `arg3 == 0xff`, it carves 8 more bytes off the arena
+  cursor for a 2-word primitive whose payload is `0xE1000200 | ((arg3 & 3) << 5)`** -- GP0(E1h)
+  Draw Mode, bits 5-6 the **ABR** semi-transparency mode, bit 9 dither: a **`DR_TPAGE`** (the same
+  state primitive the s76 probe logs, and the same ABR field op 206 ORs into `so` bindings).
+  `addPrim` inserts at the HEAD, so the prefix draws FIRST -- set the blend, then draw.
+* ** THE CORRECTION: op 64's `arg1` is a BLEND MODE, not an OT depth.** op 64 passes it straight
+  into this parameter (`mov r9d, esi`), which masks it to 2 bits. R9/ADDENDUM 5 called it a depth;
+  wrong. The corpus fits the corrected reading far better -- `1(x254)` is **ABR 1, additive**,
+  what a full-screen VFX flash wants; `2` subtractive, `0` 50/50, `255` opaque-and-emit-nothing.
+  **Neither op has a depth argument at all: the OT POINTER is the depth (`&ot[z]`).** Evidence
+  string, docstring and the B12 gate label all corrected; a test pins it so a revert fails loud.
+* **CORPUS: `arg0` is a primitive TAG** (length in the top byte, 24-bit link zeroed) -- **9/9
+  (100%)**, values `0x04000000` x4 / `0x08000000` x5, vs **73/2086 (3.5%)** for every other
+  int-arg0 op, a ~29x separation.
+* MEDIUM: `fn 0x3edb0` owns no debug string -- same posture as the RNG family (a documented external
+  shape, no name stated in the binary).

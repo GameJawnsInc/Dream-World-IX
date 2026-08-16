@@ -228,6 +228,35 @@ def screen_args() -> Tuple[int, int, int, int, set]:
     return hit, tot, chit, ctot, a1
 
 
+def addprim_args():
+    """(op-143 $a0 count, how many are primitive TAGS, control count, control tags).
+
+    A tag has its length in the top byte and a zeroed 24-bit link field.  If arg0 were an id, a
+    count or a pointer it would not look like that -- which is what the control measures.
+    """
+    ops = A.load_hle_ops()
+    pat = re.compile(r"\$a0=0x([0-9a-f]+)")
+    is_tag = lambda v: (v & B.ADDPRIM_LINK_MASK) == 0 and 1 <= (v >> B.ADDPRIM_TAG_SHIFT) <= 16
+    hit = tot = chit = ctot = 0
+    for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            mm = re.search(r"HLE op (\d+) ", ln)
+            if not mm:
+                continue
+            op = int(mm.group(1))
+            row = ops.get(op)
+            if not row:
+                continue
+            for v in (int(x, 16) for x in pat.findall(ln)):
+                if op == B.OP_ADDPRIM:
+                    tot += 1
+                    hit += is_tag(v)
+                elif (row.get("arg_kinds") or "").startswith("i"):
+                    ctot += 1
+                    chit += is_tag(v)
+    return hit, tot, chit, ctot
+
+
 def main() -> int:
     results: List[Tuple[str, str, bool]] = []
     dll = A.DllView()
@@ -249,6 +278,12 @@ def main() -> int:
         print("  " + n)
     results.append(("B9", "op 136's lookup + divide-by-6 + add re-derive from the DLL", ok9))
 
+    ok13, notes13 = B.verify_addprim(dll)
+    print()
+    for n in notes13:
+        print("  " + n)
+    results.append(("B13", "op 143's OT splice and DR_TPAGE blend prefix re-derive", ok13))
+
     ok11, notes11 = B.verify_screen(dll)
     print()
     for n in notes11:
@@ -263,11 +298,13 @@ def main() -> int:
 
     ev = B.body_evidence(dll)
     good = (set(ev) == {B.OP_OPEN, B.OP_ABR, B.OP_COORD,
-                        B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED, B.OP_SCREEN}
+                        B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED, B.OP_SCREEN,
+                        B.OP_ADDPRIM}
             and ev[B.OP_OPEN]["confidence"] == "medium"      # no symbol names it
             and ev[B.OP_COORD]["confidence"] == "medium"     # no symbol; +0x38 unresolved
             and ev[B.OP_RAND]["confidence"] == "medium"      # algorithm known, name not stated
             and ev[B.OP_SCREEN]["confidence"] == "medium"    # no symbol on the chain
+            and ev[B.OP_ADDPRIM]["confidence"] == "medium"   # libgpu shape, no stated name
             and ev[B.OP_ABR]["confidence"] == "high")        # the DLL names it, twice
     print("\nB2 body evidence: %s" % {o: (e["name"], e["confidence"]) for o, e in ev.items()})
     results.append(("B2", "each name ships at the confidence its evidence supports", good))
@@ -278,7 +315,8 @@ def main() -> int:
         # A skip is not a pass: report it as such rather than counting it green.
         for k, d in (("B3", "the sub-file idiom"), ("B4", "the A/B separation"),
                      ("B5", "camera disjointness"), ("B7", "the 'so' magic"),
-                     ("B8", "the pairing attribution"), ("B12", "op 64's colour args")):
+                     ("B8", "the pairing attribution"), ("B12", "op 64's colour args"),
+                     ("B14", "op 143's tag argument")):
             print("  %s %s -- SKIP" % (k, d))
     else:
         hit, tot = site_idiom()
@@ -306,10 +344,17 @@ def main() -> int:
                         ra > 0.6 and rb < 0.10 and ra > 10 * rb and tex > gou > 0))
         chit, ctot, cc, cct, a1 = screen_args()
         r, cr = chit / max(ctot, 1), cc / max(cct, 1)
-        print("B12 op-64 colour args <= 255: %d/%d (%.1f%%) vs control %d/%d (%.1f%%); $a1 seen = %s"
+        print("B12 op-64 colour args <= 255: %d/%d (%.1f%%) vs control %d/%d (%.1f%%); blend modes seen = %s"
               % (chit, ctot, 100 * r, cc, cct, 100 * cr, sorted(a1)))
-        results.append(("B12", "op 64's arg2/arg3 are colour bytes and arg1 is a tiny depth set",
+        results.append(("B12", "op 64's arg2/arg3 are colour bytes and arg1 is a small blend-mode set",
                         ctot > 50 and r == 1.0 and r > cr and a1 <= {0, 1, 2, 255}))
+
+        ah, at, ach, act = addprim_args()
+        ar, acr = ah / max(at, 1), ach / max(act, 1)
+        print("B14 op-143 $a0 that are primitive TAGS: %d/%d (%.1f%%) vs control %d/%d (%.1f%%)"
+              % (ah, at, 100 * ar, ach, act, 100 * acr))
+        results.append(("B14", "op 143's arg0 is a primitive tag, not an id or a pointer",
+                        at >= 9 and ar == 1.0 and acr < 0.05))
 
         print("B8 misses carrying 'so' at ANY nonzero offset: %d" % off)
         results.append(("B8", "the shortfall is pairing, not an operand the assert would reject",

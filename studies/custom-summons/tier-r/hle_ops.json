@@ -1511,7 +1511,7 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x1007f: arity 5 kinds=piiii returns void; corpus: 366 call sites in 103 images / 93 effects (24 creature-bearing); modal arg-setup 349/366 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 349, 0: 8, 1: 9}; called next to ops 102(x73), 117(x58), 14(x50); $a1 constants: 1(x254), 2(x72), 255(x13), 0(x4); $a2 constants: 255(x56), 0(x43), 128(x33), 64(x18), 32(x12), 16(x7); $a3 constants: 255(x60), 128(x41), 0(x37), 64(x28), 100(x9), 32(x7); position: {'last-third': 171, 'middle-third': 143, 'first-third': 52}; handler-body: fill the whole 320x220 screen with a flat RGB colour -- eight TILE primitives in a 4x2 grid of 80x110, added to the ordering table at depth arg1; opaque when arg1 == 0xff, semi-transparent otherwise; fn 0x3f180 carves 0x80 bytes off the arena cursor and builds 8 PS1 TILE primitives {u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h} in a 4x2 grid of 80x110 -- 320 x 220, the PS1 screen -- colouring each (arg2,arg3,arg4) and coding it 0x60 opaque when arg1 == 0xff else 0x62 (the rectangle ABE bit), then handing it to 0x3edb0, libgpu AddPrim (24-bit OT XOR-splice, length in the tag's top byte; op 143's own native fn). THE STUB READS FIVE ARGUMENTS -- the fifth off the MIPS stack at $sp+0x10 -- which R2 undercounted at 4; M3-opcode-table.json, derived independently from the x86 build's [ebp+N] frame, says 5. Corpus: $a1 is only ever {0,1,2,255} (an OT depth plus the 0xff sentinel AddPrim itself special-cases) and every $a2/$a3 constant is a colour byte <= 255; a real call site builds the three channels as three SHIFTS of one animated scalar (r=v>>4, g=v>>3, b=v>>2), which coordinates could not be.",
+  "evidence": "stub 0x1007f: arity 5 kinds=piiii returns void; corpus: 366 call sites in 103 images / 93 effects (24 creature-bearing); modal arg-setup 349/366 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 349, 0: 8, 1: 9}; called next to ops 102(x73), 117(x58), 14(x50); $a1 constants: 1(x254), 2(x72), 255(x13), 0(x4); $a2 constants: 255(x56), 0(x43), 128(x33), 64(x18), 32(x12), 16(x7); $a3 constants: 255(x60), 128(x41), 0(x37), 64(x28), 100(x9), 32(x7); position: {'last-third': 171, 'middle-third': 143, 'first-third': 52}; handler-body: fill the whole 320x220 screen with a flat RGB colour -- eight TILE primitives in a 4x2 grid of 80x110, added to the ordering table arg0; opaque when the blend mode arg1 == 0xff, else semi-transparent at ABR arg1 & 3; fn 0x3f180 carves 0x80 bytes off the arena cursor and builds 8 PS1 TILE primitives {u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h} in a 4x2 grid of 80x110 -- 320 x 220, the PS1 screen -- colouring each (arg2,arg3,arg4) and coding it 0x60 opaque when arg1 == 0xff else 0x62 (the rectangle ABE bit), then handing it to 0x3edb0, libgpu AddPrim (24-bit OT XOR-splice, length in the tag's top byte; op 143's own native fn). THE STUB READS FIVE ARGUMENTS -- the fifth off the MIPS stack at $sp+0x10 -- which R2 undercounted at 4; M3-opcode-table.json, derived independently from the x86 build's [ebp+N] frame, says 5. Corpus: $a1 is only ever {0,1,2,255} (a BLEND MODE -- ABR 1, additive, dominates at 254/366 -- plus the 0xff opaque case AddPrim itself special-cases as 'no draw-mode primitive') and every $a2/$a3 constant is a colour byte <= 255; a real call site builds the three channels as three SHIFTS of one animated scalar (r=v>>4, g=v>>3, b=v>>2), which coordinates could not be.",
   "call_sites": 366,
   "effects": 93,
   "creature_effects": 24
@@ -3403,8 +3403,8 @@
  },
  {
   "op": 143,
-  "name": null,
-  "confidence": null,
+  "name": "add_prim_blended",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3420,7 +3420,7 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x112a9: arity 4 kinds=ippi returns void; corpus: 9 call sites in 7 images / 6 effects (2 creature-bearing); modal arg-setup 9/9 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 9}; called next to ops 28(x4), 5(x3), 15(x1); $a0 constants: 134217728(x5), 67108864(x4); $a3 constants: 2(x2); position: {'first-third': 7, 'last-third': 2}",
+  "evidence": "stub 0x112a9: arity 4 kinds=ippi returns void; corpus: 9 call sites in 7 images / 6 effects (2 creature-bearing); modal arg-setup 9/9 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 9}; called next to ops 28(x4), 5(x3), 15(x1); $a0 constants: 134217728(x5), 67108864(x4); $a3 constants: 2(x2); position: {'first-third': 7, 'last-third': 2}; handler-body: link a primitive into the ordering table (libgpu addPrim: length into the tag's top byte, 24-bit XOR splice) and, unless arg3 == 0xff, prepend an 8-byte DR_TPAGE draw-mode primitive setting the PS1 semi-transparency mode to arg3 & 3; fn 0x3edb0 is libgpu addPrim -- length from the tag's top byte into prim->tag[3], then the standard PS1 ordering-table insert XOR-swapping only the low 24 bits so each word keeps its own top byte -- and unless arg3 == 0xff it carves 8 more bytes off the arena cursor for a 2-word primitive whose payload is 0xe1000200 | ((arg3 & 3) << 5): GP0(E1h) Draw Mode, bits 5-6 the ABR semi-transparency mode, bit 9 dither, i.e. a DR_TPAGE. addPrim inserts at the HEAD, so the prefix draws FIRST -- set the blend, then draw. Corpus: all 9 $a0 constants are primitive TAGS (low 24 bits zero, length 4 or 8) against 0.9% of every other int-arg0 op -- a ~90x separation. THIS RUNG CORRECTED OP 64: it passes its arg1 into this blend parameter, so that argument is a blend mode, NOT an OT depth.",
   "call_sites": 9,
   "effects": 6,
   "creature_effects": 2

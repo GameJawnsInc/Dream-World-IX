@@ -150,6 +150,84 @@ DESCRIPTION_COORD = ("a coordinate component placed relative to an actor: base +
                      "actor[+0x38] / 6")
 
 
+# --- op 143: AddPrim, with an optional blend-mode prefix ----------------------------------------
+#: ``fn 0x3edb0`` is libgpu's **``addPrim``** and op 143 exposes it directly (op 64 reaches the same
+#: function eight times per call).  Two halves:
+#:
+#:   1. **the splice** -- length into the tag's top byte (``shr ecx, 0x18`` ; ``mov [r8+3], cl``),
+#:      then the standard PS1 ordering-table insert, XOR-swapping only the low **24 bits** of
+#:      ``*ot`` and ``prim->tag`` so each word keeps its own top byte;
+#:   2. **the blend prefix** -- unless ``arg3 == 0xFF``, it carves **8 more bytes** off the arena
+#:      cursor, builds a 2-word primitive (length 1) whose payload is
+#:      ``0xE1000200 | ((arg3 & 3) << 5)``, and splices THAT in too.
+#:
+#: ``0xE1`` is the PS1 GPU **GP0 Draw Mode** command: bits 5-6 are the semi-transparency (**ABR**)
+#: mode and bit 9 is dither -- i.e. a ``DR_TPAGE``, the state primitive the s76 probe already logs.
+#: Because ``addPrim`` inserts at the HEAD, the prefix is drawn FIRST: set the blend, then draw.
+#:
+#: ** THIS CORRECTS THE OP 64 READING.**  op 64 passes its ``arg1`` straight into this parameter, so
+#: ``arg1`` is a **BLEND MODE, not an OT depth** -- and its corpus profile fits that far better:
+#: ``1(x254)`` is ABR 1, PS1 **additive** blending, exactly what a VFX flash wants; ``0`` is 50/50,
+#: ``2`` subtractive, and ``255`` means "opaque, emit no draw-mode primitive at all".  There is no
+#: depth argument anywhere: the OT POINTER is the depth, as PS1 code always does it (``&ot[z]``).
+OP_ADDPRIM = 143
+ADDPRIM_LINK_MASK = 0xFFFFFF      # the OT link is 24 bits; the top byte is the length
+ADDPRIM_TAG_SHIFT = 0x18
+DR_TPAGE_BASE = 0xE1000200        # GP0(E1h) Draw Mode + dither (bit 9)
+DR_TPAGE_ABR_SHIFT = 5            # bits 5-6 = semi-transparency mode
+DR_TPAGE_BYTES = 8                # a 2-word primitive: tag + one payload word
+BLEND_NONE = 0xFF                 # arg3 == 0xff -> opaque, no draw-mode primitive
+NAME_ADDPRIM = "add_prim_blended"
+DESCRIPTION_ADDPRIM = ("link a primitive into the ordering table (libgpu addPrim: length into the "
+                       "tag's top byte, 24-bit XOR splice) and, unless arg3 == 0xff, prepend an "
+                       "8-byte DR_TPAGE draw-mode primitive setting the PS1 semi-transparency mode "
+                       "to arg3 & 3")
+
+
+def verify_addprim(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive both halves of op 143 -- the OT splice and the DR_TPAGE blend prefix."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_ADDPRIM]) or dll.native_fn[OP_ADDPRIM]
+    good = fn == ADDPRIM_FN
+    ok &= good
+    notes.append("op %d native fn = %#x (the same function op 64 calls) %s"
+                 % (OP_ADDPRIM, fn, "OK" if good else "FAIL"))
+
+    text = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    checks = (
+        ("takes the length from the tag's top byte",
+         ("shr", "ecx, 0x%x" % ADDPRIM_TAG_SHIFT) in text and ("mov", "byte ptr [r8 + 3], cl") in text),
+        ("splices through a %d-bit OT link" % ADDPRIM_LINK_MASK.bit_length(),
+         ("and", "eax, 0x%x" % ADDPRIM_LINK_MASK) in text),
+        ("skips the blend prefix when arg3 == %#x" % BLEND_NONE,
+         ("cmp", "ebx, 0x%x" % BLEND_NONE) in text),
+        ("carves %d more bytes off the arena cursor" % DR_TPAGE_BYTES,
+         ("lea", "eax, [rcx + %d]" % DR_TPAGE_BYTES) in text),
+        ("builds a DR_TPAGE %#x | ((arg3 & 3) << %d)" % (DR_TPAGE_BASE, DR_TPAGE_ABR_SHIFT),
+         ("or", "ebx, 0x%x" % DR_TPAGE_BASE) in text and ("and", "ebx, 3") in text
+         and ("shl", "ebx, %d" % DR_TPAGE_ABR_SHIFT) in text),
+        ("gives the prefix length 1", ("mov", "byte ptr [rdx + 3], 1") in text),
+    )
+    for label, good2 in checks:
+        ok &= good2
+        notes.append("%s %s" % (label, "OK" if good2 else "FAIL"))
+
+    sig = dll.handler(OP_ADDPRIM)
+    good = sig.kinds == "ippi"
+    ok &= good
+    notes.append("signature (tag, ot, prim, blend) = %r %s" % (sig.kinds, "OK" if good else "FAIL"))
+
+    # op 64 hands its arg1 to THIS parameter -- which is what makes it a blend mode, not a depth.
+    s64 = [(i.mnemonic, i.op_str) for i in dll.body(SCREEN_FN)]
+    good = ("mov", "r9d, esi") in s64
+    ok &= good
+    notes.append("op 64 passes its arg1 into this blend parameter %s" % ("OK" if good else "FAIL"))
+    return ok, notes
+
+
 # --- op 64: the full-screen colour fill ---------------------------------------------------------
 #: ``fn 0x3f180`` carves a 0x80-byte block off the arena cursor at ``sysCtx+0x24`` and fills it with
 #: **eight 0x10-byte PS1 ``TILE`` primitives** -- ``{u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h}`` --
@@ -161,11 +239,14 @@ DESCRIPTION_COORD = ("a coordinate component placed relative to an actor: base +
 #: screen (this project already pins ``FieldMap.PsxScreenHeightNative = 220``).  So the op paints
 #: the WHOLE SCREEN one flat colour.
 #:
-#: ``arg1`` does double duty: it is the OT depth passed to ``AddPrim``, and ``== 0xFF`` selects the
-#: opaque rectangle code ``0x60`` while anything else selects ``0x62``, the semi-transparent twin
-#: (bit 1 is the PS1 rectangle ABE flag).  ``AddPrim`` special-cases ``0xFF`` again internally, so
-#: it is a sentinel depth rather than a real one.  The corpus agrees: ``$a1`` is only ever
-#: ``1(x254) 2(x72) 255(x13) 0(x4)``.
+#: ``arg1`` is the **BLEND MODE** (corrected in the op 143 rung -- it was first read here as an OT
+#: depth).  It does double duty: ``== 0xFF`` selects the opaque rectangle code ``0x60`` while
+#: anything else selects ``0x62``, the semi-transparent twin (bit 1 is the PS1 rectangle ABE flag);
+#: and it is handed to :data:`ADDPRIM_FN`'s fourth parameter, which turns ``arg1 & 3`` into a
+#: ``DR_TPAGE`` semi-transparency mode (or emits nothing at ``0xFF``).  The corpus fits a blend mode
+#: far better than a depth: ``1(x254)`` is ABR 1, PS1 **additive** blending -- what a VFX flash
+#: wants -- with ``0`` 50/50, ``2`` subtractive and ``255`` opaque.  There is no depth argument at
+#: all; the OT POINTER is the depth, as PS1 code always does it (``&ot[z]``).
 OP_SCREEN = 64
 SCREEN_FN = 0x3F180
 ADDPRIM_FN = 0x3EDB0          # libgpu AddPrim; op 143's own native function
@@ -180,8 +261,9 @@ OPAQUE_SENTINEL = 0xFF        # arg1 == 0xff -> opaque, and AddPrim special-case
 ARENA_BUMP = 0x80             # bytes carved off sysCtx+0x24 per call
 NAME_SCREEN = "draw_fullscreen_fill"
 DESCRIPTION_SCREEN = ("fill the whole 320x220 screen with a flat RGB colour -- eight TILE "
-                      "primitives in a 4x2 grid of 80x110, added to the ordering table at depth "
-                      "arg1; opaque when arg1 == 0xff, semi-transparent otherwise")
+                      "primitives in a 4x2 grid of 80x110, added to the ordering table arg0; "
+                      "opaque when the blend mode arg1 == 0xff, else semi-transparent at ABR "
+                      "arg1 & 3")
 
 
 def verify_screen(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
@@ -602,6 +684,26 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                             " (%s)" % src[0] if src else "")),
         }
 
+    ok_ap, _n5 = verify_addprim(dll)
+    if ok_ap:
+        out[OP_ADDPRIM] = {
+            "name": NAME_ADDPRIM,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x is libgpu addPrim -- length from the tag's top byte into "
+                         "prim->tag[3], then the standard PS1 ordering-table insert XOR-swapping "
+                         "only the low 24 bits so each word keeps its own top byte -- and unless "
+                         "arg3 == %#x it carves %d more bytes off the arena cursor for a 2-word "
+                         "primitive whose payload is %#x | ((arg3 & 3) << %d): GP0(E1h) Draw Mode, "
+                         "bits 5-6 the ABR semi-transparency mode, bit 9 dither, i.e. a DR_TPAGE. "
+                         "addPrim inserts at the HEAD, so the prefix draws FIRST -- set the blend, "
+                         "then draw. Corpus: all 9 $a0 constants are primitive TAGS (low 24 bits "
+                         "zero, length 4 or 8) against 0.9%% of every other int-arg0 op -- a ~90x "
+                         "separation. THIS RUNG CORRECTED OP 64: it passes its arg1 into this "
+                         "blend parameter, so that argument is a blend mode, NOT an OT depth."
+                         % (BODY_MARKER, DESCRIPTION_ADDPRIM, ADDPRIM_FN, BLEND_NONE,
+                            DR_TPAGE_BYTES, DR_TPAGE_BASE, DR_TPAGE_ABR_SHIFT)),
+        }
+
     ok_screen, _n4 = verify_screen(dll)
     if ok_screen:
         out[OP_SCREEN] = {
@@ -616,8 +718,10 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                          "FIVE ARGUMENTS -- the fifth off the MIPS stack at $sp+0x10 -- which R2 "
                          "undercounted at 4; M3-opcode-table.json, derived independently from the "
                          "x86 build's [ebp+N] frame, says 5. Corpus: $a1 is only ever "
-                         "{0,1,2,255} (an OT depth plus the 0xff sentinel AddPrim itself "
-                         "special-cases) and every $a2/$a3 constant is a colour byte <= 255; a "
+                         "{0,1,2,255} (a BLEND MODE -- ABR 1, additive, dominates at 254/366 -- "
+                         "plus the 0xff opaque case AddPrim itself "
+                         "special-cases as 'no draw-mode primitive') and every $a2/$a3 constant is "
+                         "a colour byte <= 255; a "
                          "real call site builds the three channels as three SHIFTS of one animated "
                          "scalar (r=v>>4, g=v>>3, b=v>>2), which coordinates could not be."
                          % (BODY_MARKER, DESCRIPTION_SCREEN, SCREEN_FN, ARENA_BUMP, TILE_COUNT,
