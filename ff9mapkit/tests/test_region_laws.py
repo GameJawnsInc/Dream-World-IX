@@ -126,7 +126,9 @@ def test_build_image_field_emits_drawn_regions(tmp_path):
                  [(200, 340), (300, 340), (300, 380), (200, 380)]}])
     data = tomllib.loads((tmp_path / "proj" / "PICTURE.field.toml").read_text(encoding="utf-8"))
     (gw,) = data["gateway"]
-    assert gw["to"] == 4005 and gw["entrance"] == 2 and gw["name"] == "door0"
+    # the generator's rows carry the traced_ prefix so the regenerate merge can tell them from
+    # a Place-drawn "door0" (ownership must be decidable -- see merge_project_toml)
+    assert gw["to"] == 4005 and gw["entrance"] == 2 and gw["name"] == "traced_door0"
     assert len(gw["zone"]) == 4 and all(len(p) == 2 for p in gw["zone"])
     (ev,) = data["event"]
     assert ev["message"] == 'say "hi" @ the door'     # escaped through the writer, verbatim back

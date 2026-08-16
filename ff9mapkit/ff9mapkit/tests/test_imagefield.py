@@ -523,3 +523,152 @@ def test_write_trace_html_preseeded(tmp_path):
                         floor0=[(130, 140), (254, 140), (364, 440), (20, 440)])
     html = (tmp_path / "t.html").read_text(encoding="utf-8")
     assert '{"x": 130.0, "y": 140.0}' in html                       # the seed polygon is pre-loaded
+
+
+# ---------------------------------------------------------------------------- regenerate merge
+# A re-run used to be one unconditional write_text: every hand-authored table in the project was
+# silently destroyed (imagefield's copy of the floorplan bulldozer, closed there as rung 7c').
+# The merge bands are floorplan.merge_room's grammar; these fences mirror its test shapes.
+
+def _merge_project(tmp_path, gateways=("4005@60,300;140,300;140,330;60,330",)):
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               gateways=list(gateways),
+                               events=["It creaks.@200,340;300,340;300,380;200,380"])
+    return tmp_path / "out" / "MERGE.field.toml", floor, man
+
+
+def _hand_author(toml_path):
+    """What a Place-tab session (or a hand editor) adds to a generated project."""
+    text = toml_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    lines.insert(1, "text_block = 30058")             # a bare key must precede [field]
+    text = "\n".join(lines) + "\n" + (
+        '\n[[npc]]\nname = "mist_porter"\npreset = "vivi"\npos = [0, 1500]\n'
+        '\n[[gateway]]\nname = "west_gate"\nto = 301\nzone = [[-500, 900], [-400, 900], '
+        '[-400, 1000], [-500, 1000]]\n'
+        '\n[[layers]]\nimage = "art/painted_arch.png"\nz = 700\n'
+        '\n[music]\nsong = 39\n')
+    toml_path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def test_regenerate_preserves_hand_authored_content(tmp_path):
+    """The whole point: npc/music/text_block/hand door/painted layer survive a re-run verbatim;
+    the generator's own tables regenerate; kept names every preserved thing."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path)
+    _hand_author(toml)
+    man2 = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert data["text_block"] == 30058
+    assert data["npc"][0]["name"] == "mist_porter" and data["npc"][0]["pos"] == [0, 1500]
+    assert data["music"]["song"] == 39
+    names = [g["name"] for g in data["gateway"]]
+    assert names == ["traced_door0", "west_gate"]     # generated first, hand rows appended
+    assert [la["image"] for la in data["layers"]] == ["art/base.png", "art/painted_arch.png"]
+    assert data["event"][0]["name"] == "traced_zone0"
+    kept = "\n".join(man2["kept"])
+    assert "west_gate" in kept and "[[npc]]" in kept and "[music]" in kept
+    assert "painted_arch" in kept and "text_block" in kept
+
+
+def test_regenerate_deletes_its_own_stale_doors_and_keeps_yours(tmp_path):
+    """Ownership by prefix, not by name-merge, because a name merge cannot express DELETION:
+    a door dropped from the session must go, while the hand door stays."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(
+        tmp_path, gateways=("4005@60,300;140,300;140,330;60,330",
+                            "4007@250,300;330,300;330,330;250,330"))
+    _hand_author(toml)
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                         gateways=["4005@60,300;140,300;140,330;60,330"])   # one door dropped
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert [g["name"] for g in data["gateway"]] == ["traced_door0", "west_gate"]
+    assert all(g["to"] != 4007 for g in data["gateway"])
+
+
+def test_a_place_drawn_door0_on_a_current_project_is_preserved(tmp_path):
+    """Once a project carries traced_ rows, door0-style names are HAND rows (the Place tab
+    mints them) -- the legacy claim must not eat them."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path)
+    text = toml.read_text(encoding="utf-8") + (
+        '\n[[gateway]]\nname = "door0"\nto = 301\nzone = [[-500, 900], [-400, 900], '
+        '[-400, 1000], [-500, 1000]]\n')
+    toml.write_text(text, encoding="utf-8", newline="\n")
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                         gateways=["4005@60,300;140,300;140,330;60,330"])
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert [g["name"] for g in data["gateway"]] == ["traced_door0", "door0"]
+    assert IF.is_generated_region(data, "gateway", "traced_door0")
+    assert not IF.is_generated_region(data, "gateway", "door0")
+
+
+def test_legacy_door_rows_are_claimed_once_not_duplicated(tmp_path):
+    """A pre-prefix project's own door0/zone0 rows (no traced_ row anywhere) are the
+    generator's -- the first merged regenerate replaces them instead of doubling them."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path)
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    # rewrite as the LEGACY shape: the generator's rows under their old names, plus a hand npc
+    for i, g in enumerate(data["gateway"]):
+        g["name"] = f"door{i}"
+    for i, e in enumerate(data["event"]):
+        e["name"] = f"zone{i}"
+    assert IF.is_generated_region(data, "gateway", "door0")      # the legacy claim
+    from ff9mapkit.editor import model as _model
+    toml.write_text(_model.dumps(dict(data, npc=[{"name": "keeper", "preset": "vivi",
+                                                  "pos": [0, 1500]}])),
+                    encoding="utf-8", newline="\n")
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                         gateways=["4005@60,300;140,300;140,330;60,330"])
+    data2 = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]   # claimed, not doubled
+    assert [e["name"] for e in data2.get("event", [])] == []
+    assert data2["npc"][0]["name"] == "keeper"
+
+
+def test_regenerate_refuses_an_unparseable_project_before_writing_anything(tmp_path):
+    """The refusal fires BEFORE walkmesh/art are overwritten -- a refusal must never leave a
+    half-rewritten project (the floorplan emit's byte-compare fence, restated here)."""
+    pytest.importorskip("PIL")
+    import hashlib
+    toml, floor, _man = _merge_project(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8") + "\n[broken\n", encoding="utf-8")
+
+    def _tree(root):
+        return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in sorted(root.rglob("*")) if p.is_file()}
+
+    before = _tree(tmp_path / "out")
+    with pytest.raises(IF.ImageFieldError, match="--force"):
+        IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE")
+    assert _tree(tmp_path / "out") == before          # byte-identical across the refusal
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               force=True)            # the escape hatch discards
+    assert man["kept"] == [] and (tmp_path / "out" / "MERGE.field.toml").is_file()
+
+
+def test_player_is_generator_owned_and_the_retake_is_said_out_loud(tmp_path):
+    """[player] regenerates wholesale (the session's centroid wins) -- but a hand-moved spawn
+    is REPORTED via retaken, never silently reverted."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path)
+    text = toml.read_text(encoding="utf-8").replace("spawn = [", "spawn = [9, ")
+    toml.write_text(text, encoding="utf-8", newline="\n")
+    moved = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    man2 = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert data["player"]["spawn"] != moved            # the centroid is re-derived
+    assert "player" in man2["retaken"]

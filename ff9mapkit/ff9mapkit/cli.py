@@ -3293,7 +3293,8 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
         man = imagefield.build_image_field(
             args.image, floor, args.out, foreground=fg, name=args.name, field_id=args.id,
             pitch=args.pitch, fov=args.fov, distance=args.distance,
-            gateways=list(args.gateway or []), events=list(args.event_zone or []))
+            gateways=list(args.gateway or []), events=list(args.event_zone or []),
+            force=bool(getattr(args, "force", False)))
     except (imagefield.ImageFieldError, ValueError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3305,11 +3306,15 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
             print(f"  occluder {Path(f['image']).name}: contact ({f['contact'][0]:g},{f['contact'][1]:g}) "
                   f"-> z {f['z']} (walk in front = actor on top; walk behind = occluded)")
     for gi, gw in enumerate(man.get("gateways", [])):
-        print(f"  gateway door{gi} -> field {gw['to']}"
+        print(f"  gateway {imagefield.TRACED_GATEWAY_PREFIX}{gi} -> field {gw['to']}"
               + (f" entrance {gw['entrance']}" if gw['entrance'] else "")
               + " (corners 0->1 = the walk-out edge)")
     for ei, ev in enumerate(man.get("events", [])):
-        print(f"  event zone{ei}: {ev['message']!r}")
+        print(f"  event {imagefield.TRACED_EVENT_PREFIX}{ei}: {ev['message']!r}")
+    for k in man.get("kept", []):
+        print(f"  preserved (hand-authored, untouched): {k}")
+    if man.get("retaken"):
+        print(f"  retook (generator-owned, the session wins): {', '.join(man['retaken'])}")
     print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then ~ -> Warp 30058)")
     print("HAND-TRACED FLOOR: the polygon must outline the floor in the FINAL 384x448 canvas (top-left, "
           "Y-down), below the horizon. Only the human can confirm it lands on the art in-game (CLAUDE.md).")
@@ -8293,6 +8298,9 @@ def build_parser() -> argparse.ArgumentParser:
     imf.add_argument("--event-zone", dest="event_zone", action="append", default=None,
                      help="a walk-in message zone 'message@cx,cy;cx,cy;cx,cy;cx,cy' (repeatable), same "
                           "canvas-pixel frame as --floor")
+    imf.add_argument("--force", action="store_true",
+                     help="discard hand-authored content in an existing project instead of merging "
+                          "it (a re-run normally preserves every table the generator does not own)")
     imf.set_defaults(func=_cmd_image_field)
 
     mp = sub.add_parser("model-preview",

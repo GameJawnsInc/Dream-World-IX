@@ -34,6 +34,15 @@ Z_BASE = 4000                                  # far overlay Z for the opaque ba
 Z_FOREGROUND = 500                             # a near occluder (smaller Z = drawn in front of the actor)
 CONTACT_Z_BIAS = 2                             # anchored occluder: keep the actor on top AT the contact line
 
+# Regenerate-merge ownership (the floorplan merge's grammar on the trace lane). The generator's
+# OWN region rows carry a prefix no hand/Place row mints, because ownership must be DECIDABLE:
+# a regenerate has to both DELETE its own stale doors and KEEP yours, and a name like "door0"
+# is minted by the Place tab too (floorplan.py's door_to_ lesson, restated here).
+TRACED_GATEWAY_PREFIX = "traced_door"
+TRACED_EVENT_PREFIX = "traced_zone"
+GENERATED_TABLES = frozenset({"field", "camera", "walkmesh", "player", "layers",
+                              "gateway", "event"})
+
 
 class ImageFieldError(ValueError):
     pass
@@ -844,11 +853,121 @@ def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov:
     return {"html": str(out), "horizon": horizons[int(round(pitch))]}
 
 
+# ----------------------------------------------------------------- the regenerate merge
+def _has_traced_rows(data: dict) -> bool:
+    for kind, prefix in (("gateway", TRACED_GATEWAY_PREFIX), ("event", TRACED_EVENT_PREFIX)):
+        for row in data.get(kind) or []:
+            if isinstance(row, dict) and str(row.get("name", "")).startswith(prefix):
+                return True
+    return False
+
+
+def is_generated_region(data: dict, kind: str, name) -> bool:
+    """True when a ``[[gateway]]``/``[[event]]`` row is the GENERATOR'S OWN: the traced_ prefix,
+    or — on a LEGACY project that predates the prefix, i.e. one with no traced_ row anywhere —
+    the old enumeration names door0/zone0/…  Pre-merge, every such row in an image-field project
+    was generator-emitted (a regenerate destroyed the whole file, so no hand row ever survived
+    in one); the one-time claim is reported by the merge, never silent. Once a project has been
+    regenerated under the prefix, door0-style names are a HAND row (the Place tab mints them)
+    and are preserved. ONE owner for both the merge and the Trace tab's session absorb."""
+    import re
+    n = str(name or "")
+    if n.startswith(TRACED_GATEWAY_PREFIX if kind == "gateway" else TRACED_EVENT_PREFIX):
+        return True
+    pat = r"^door\d+$" if kind == "gateway" else r"^zone\d+$"
+    return not _has_traced_rows(data) and bool(re.match(pat, n))
+
+
+def _is_generated_layer(image) -> bool:
+    import re
+    return bool(re.match(r"^art/(?:base|fg\d+)\.png$", str(image or "").replace("\\", "/")))
+
+
+def load_project_tables(toml_path) -> dict | None:
+    """The existing project toml parsed for the merge, or None when absent. Unparseable →
+    :class:`ImageFieldError` — and callers gate on this BEFORE writing any artifact, so a
+    refusal never leaves a half-rewritten project (the floorplan emit's own rule)."""
+    import tomllib
+    p = Path(toml_path)
+    if not p.is_file():
+        return None
+    try:
+        return tomllib.loads(p.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as e:
+        raise ImageFieldError(
+            f"{p.name} exists but does not parse ({e}) — nothing can be merged; fix it, or "
+            f"pass --force to discard it") from e
+
+
+def merge_project_toml(generated_text: str, existing: dict | None):
+    """Regenerate WITHOUT destroying hand-authored content — ``(text, kept, retaken)``.
+
+    Three bands, floorplan.merge_room's grammar:
+    - a top-level table outside :data:`GENERATED_TABLES` (``[[npc]]``, ``[[chest]]``,
+      ``[music]``, …) is the human's and rides through verbatim (re-serialized; comments in
+      hand tables do not survive, same as every dumps lane);
+    - ``[[layers]]`` / ``[[gateway]]`` / ``[[event]]`` are generator-owned LISTS whose hand
+      rows are appended after the generated ones — identified by :func:`is_generated_region`
+      / the generated art paths, NOT merged by name, because a name merge cannot express
+      DELETION (drop a door from the session and its stale row must go);
+    - ``[field]``/``[camera]``/``[walkmesh]``/``[player]`` regenerate wholesale; each whose
+      on-disk value differed is named in ``retaken`` so a hand edit there is said out loud
+      (``[player]`` includes the spawn: the session's centroid wins — move it in Place AFTER
+      settling the trace, or it will be re-derived)."""
+    import tomllib
+    if not existing:
+        return generated_text, [], []
+    gen = tomllib.loads(generated_text)
+    kept_tables, scalars = {}, {}
+    for key, val in existing.items():
+        if key in GENERATED_TABLES:
+            continue
+        if isinstance(val, dict) or (isinstance(val, list) and val
+                                     and all(isinstance(e, dict) for e in val)):
+            kept_tables[key] = val
+        else:
+            scalars[key] = val                     # a bare key must precede the first [header]
+    kept_rows = {"gateway": [], "event": []}
+    for kind in ("gateway", "event"):
+        for row in existing.get(kind) or []:
+            if isinstance(row, dict) and not is_generated_region(existing, kind, row.get("name")):
+                kept_rows[kind].append(row)
+    kept_layers = [row for row in existing.get("layers") or []
+                   if isinstance(row, dict) and not _is_generated_layer(row.get("image"))]
+    retaken = [k for k in ("field", "camera", "walkmesh", "player")
+               if k in existing and existing.get(k) != gen.get(k)]
+    kept = ([f"[[{k}]] ×{len(v)}" if isinstance(v, list) else f"[{k}]"
+             for k, v in kept_tables.items()] + [f"{k} = …" for k in scalars]
+            + [f"[[gateway]] {r.get('name') or '?'}" for r in kept_rows["gateway"]]
+            + [f"[[event]] {r.get('name') or '?'}" for r in kept_rows["event"]]
+            + [f"[[layers]] {r.get('image') or '?'}" for r in kept_layers])
+    if not kept:
+        return generated_text, [], retaken
+    from .editor import model as _model
+    text = generated_text.rstrip("\n")
+    if scalars:
+        head, sep, rest = text.partition("\n[")    # the generated text opens with comments,
+        text = (head + "\n" + _model.dumps(scalars).rstrip("\n")   # then [field]
+                + "\n" + sep.lstrip("\n") + rest)
+    extra = {}
+    if kept_layers:
+        extra["layers"] = kept_layers
+    if kept_rows["gateway"]:
+        extra["gateway"] = kept_rows["gateway"]
+    if kept_rows["event"]:
+        extra["event"] = kept_rows["event"]
+    extra.update(kept_tables)
+    if extra:
+        text += ("\n\n# ---- hand-authored content preserved by the regenerate ----\n"
+                 + _model.dumps(extra).rstrip("\n"))
+    return text + "\n", kept, retaken
+
+
 # ----------------------------------------------------------------- orchestrator
 def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="PICTURE",
                       field_id: int = 4003, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
                       distance: float = DEFAULT_DISTANCE, area: int = 11,
-                      gateways=None, events=None) -> dict:
+                      gateways=None, events=None, force: bool = False) -> dict:
     """Synthesize a deployable field project from an image + a hand-traced floor polygon.
 
     ``floor_px`` = [(cx, cy), ...] the floor outline in logical canvas pixels (384x448, top-left,
@@ -857,9 +976,15 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     ``events`` = optional trigger-region specs (:func:`parse_gateway_spec` /
     :func:`parse_event_spec` forms) whose quads are CANVAS pixels un-projected through the same
     camera as the floor — a ``--pitch`` re-run moves the zones WITH it. Writes ``out_dir`` with
-    ``<name>.field.toml`` + ``walkmesh.obj`` + ``art/*.png``. Returns a manifest dict."""
+    ``<name>.field.toml`` + ``walkmesh.obj`` + ``art/*.png``. A re-run over an existing project
+    MERGES (:func:`merge_project_toml`) — hand-authored tables survive; ``force`` discards them.
+    Returns a manifest dict (incl. ``kept``/``retaken`` from the merge)."""
     from PIL import Image
     out = Path(out_dir)
+    toml_path = out / f"{name}.field.toml"
+    # The unparseable-refusal fires HERE, before walkmesh/art are overwritten — a refusal must
+    # never leave a half-rewritten project (the floorplan emit's rule).
+    existing = None if force else load_project_tables(toml_path)
     (out / "art").mkdir(parents=True, exist_ok=True)
 
     cam = _guide.make_camera(pitch, distance, fov_x_deg=fov, range_wh=(CANVAS_W, CANVAS_H))
@@ -921,22 +1046,24 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     gw_manifest, ev_manifest = [], []
     for gi, spec in enumerate(gateways or []):
         gw = parse_gateway_spec(spec)
-        lines += [f"[[gateway]]", f'name = "door{gi}"', f"to = {gw['to']}"]
+        nm = f"{TRACED_GATEWAY_PREFIX}{gi}"
+        lines += [f"[[gateway]]", f'name = "{nm}"', f"to = {gw['to']}"]
         if gw["entrance"]:
             lines.append(f"entrance = {gw['entrance']}")
-        lines += [f"zone = {_zone_world(gw['zone_px'], f'gateway door{gi}')}", ""]
+        lines += [f"zone = {_zone_world(gw['zone_px'], f'gateway {nm}')}", ""]
         gw_manifest.append(gw)
     for ei, spec in enumerate(events or []):
         ev = parse_event_spec(spec)
+        nm = f"{TRACED_EVENT_PREFIX}{ei}"
         msg = ev["message"].replace("\\", "\\\\").replace('"', '\\"')
-        lines += [f"[[event]]", f'name = "zone{ei}"', f'message = "{msg}"',
-                  f"zone = {_zone_world(ev['zone_px'], f'event zone{ei}')}", ""]
+        lines += [f"[[event]]", f'name = "{nm}"', f'message = "{msg}"',
+                  f"zone = {_zone_world(ev['zone_px'], f'event {nm}')}", ""]
         ev_manifest.append(ev)
 
-    toml_path = out / f"{name}.field.toml"
-    toml_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    text, kept, retaken = merge_project_toml("\n".join(lines) + "\n", existing)
+    toml_path.write_text(text, encoding="utf-8", newline="\n")
 
     return {"toml": str(toml_path), "walkmesh": str(out / "walkmesh.obj"),
             "world_floor": world, "spawn": spawn, "verts": len(verts), "faces": len(faces),
             "layers": layers, "foreground": fg_manifest,
-            "gateways": gw_manifest, "events": ev_manifest}
+            "gateways": gw_manifest, "events": ev_manifest, "kept": kept, "retaken": retaken}
