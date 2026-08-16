@@ -2245,3 +2245,39 @@ def test_import_a_bad_trace_does_not_kill_the_tab(app, tmp_path):
     doc._ask_import = lambda: str(bad)
     doc.on_import_room()
     assert not doc._session["rooms"] and "Could not import" in _status(doc)
+
+
+# ---------------------------------------------------------------------------- rung 7e: camera
+def test_room_camera_menu_writes_the_override_and_the_judge_refits(app):
+    """The room menu's Camera action: the override lands on the SESSION room dict (the plan is
+    its only durable home), the ordinary judge re-fits with it, plan() carries it, one Undo
+    removes it. Driven through the canvas SIGNAL — the menu itself is not a seam."""
+    doc, _run = _doc(app)
+    _draw(doc.canvas, [(-1200, -800), (0, -800), (0, 800), (-1200, 800)])
+    seen = {}
+    doc._ask_room_camera = lambda p, f, o: (seen.update(p=p, f=f, o=o), (40.0, 42.2))[1]
+    doc.canvas.room_camera.emit(0)
+    room = doc._session["rooms"][0]
+    assert room["pitch"] == 40.0 and room["fov"] == 42.2
+    assert seen == {"p": FP.DEFAULT_PITCH, "f": FP.DEFAULT_FOV, "o": False}
+    doc.judge_now(sync=True)
+    assert "pitch 40" in doc.status.toolTip()          # the fit line speaks the override
+    assert doc.plan()["rooms"][0]["pitch"] == 40.0
+    doc.on_undo()
+    assert "pitch" not in doc._session["rooms"][0]
+
+
+def test_room_camera_reset_and_the_zero_belt(app):
+    """Reset removes the keys outright (absent = the composer's defaults), and a falsy value
+    can never be STORED — floorplan._room_defaults silently swallows 0 as 'default', which is
+    exactly the shape THE DEFAULT-VALUE LAW forbids minting."""
+    doc, _run = _doc(app)
+    _draw(doc.canvas, [(-1200, -800), (0, -800), (0, 800), (-1200, 800)])
+    doc._ask_room_camera = lambda p, f, o: (0.0, 0.0)
+    doc._on_room_camera(0)
+    room = doc._session["rooms"][0]
+    assert room["pitch"] == FP.DEFAULT_PITCH and room["fov"] == FP.DEFAULT_FOV
+    doc._ask_room_camera = lambda p, f, o: "reset"
+    doc._on_room_camera(0)
+    assert "pitch" not in room and "fov" not in room
+    assert "reset" in _status(doc)

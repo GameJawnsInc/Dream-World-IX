@@ -363,6 +363,7 @@ class PlanCanvas(QGraphicsView):
     #                                        other -- half an abutment, which is a shared wall that
     #                                        no longer exists. Same reason a door pair is atomic.
     room_rename = Signal(int)              # the room menu's Rename… — the host asks + writes
+    room_camera = Signal(int)              # …Camera (per-room pitch/fov, rung 7e) — host asks + writes
     room_entry = Signal(int)               # …Make this the entry
     room_deleted = Signal(int)             # …Delete
     door_declared = Signal(object)         # a candidate the author accepted: {"a", "b", "seg"}
@@ -1045,12 +1046,15 @@ class PlanCanvas(QGraphicsView):
         name = self._rooms[ri]["name"] if 0 <= ri < len(self._rooms) else f"room {ri}"
         menu = QMenu(self)
         ren = menu.addAction("Rename…")
+        cam = menu.addAction("Camera (pitch & fov)…")
         ent = menu.addAction(f"Make {name} the entry room")
         ent.setEnabled(name != self._entry)
         rm = menu.addAction(f"Delete {name}")
         act = menu.exec(global_pos)
         if act is ren:
             self.room_rename.emit(ri)
+        elif act is cam:
+            self.room_camera.emit(ri)
         elif act is ent:
             self.room_entry.emit(ri)
         elif act is rm:
@@ -1553,6 +1557,7 @@ class FloorplanDoc(QWidget):
         self.canvas.room_reshaped.connect(self._on_room_reshaped)
         self.canvas.rooms_reshaped.connect(self._on_rooms_reshaped)
         self.canvas.room_rename.connect(self._on_room_rename)
+        self.canvas.room_camera.connect(self._on_room_camera)
         self.canvas.room_entry.connect(self._on_room_entry)
         self.canvas.room_deleted.connect(self._on_room_deleted)
         self.canvas.door_declared.connect(self._on_door_declared)
@@ -2005,6 +2010,34 @@ class FloorplanDoc(QWidget):
         if self._session.get("entry") == old:
             self._session["entry"] = new
         self._refresh(f"renamed {old} → {new}")
+
+    def _on_room_camera(self, ri):
+        """Rung 7e: per-room pitch/fov. The values live on the SESSION ROOM DICT — the plan is
+        their only durable home ([camera] regenerates wholesale on every compose, so an edit in
+        the field.toml is reverted with a retaken warning) — and the ordinary judge re-fits the
+        camera live (fit_room_camera is never cached). The or-default trap is fenced at the
+        write path: floorplan._room_defaults treats a falsy pitch/fov as unset, so 0 must be
+        unmintable here."""
+        rooms = self._session["rooms"]
+        if not 0 <= ri < len(rooms):
+            return
+        room = rooms[ri]
+        overridden = ("pitch" in room) or ("fov" in room)
+        got = self._ask_room_camera(float(room.get("pitch") or FP.DEFAULT_PITCH),
+                                    float(room.get("fov") or FP.DEFAULT_FOV), overridden)
+        if got is None:
+            return
+        self._push_history()
+        if got == "reset":
+            room.pop("pitch", None)
+            room.pop("fov", None)
+            self._refresh(f"{room['name']} camera reset to the defaults "
+                          f"(pitch {FP.DEFAULT_PITCH:g} · fov {FP.DEFAULT_FOV:g})")
+            return
+        pitch, fov = got
+        room["pitch"] = float(pitch) or FP.DEFAULT_PITCH
+        room["fov"] = float(fov) or FP.DEFAULT_FOV
+        self._refresh(f"{room['name']} camera: pitch {room['pitch']:g} · fov {room['fov']:g}")
 
     def _on_room_entry(self, ri):
         if not 0 <= ri < len(self._session["rooms"]):
@@ -2517,6 +2550,57 @@ class FloorplanDoc(QWidget):
             return None
         files = dlg.selectedFiles()
         return files[0] if files else None
+
+    def _ask_room_camera(self, pitch, fov, overridden):
+        """Instance dialog behind a seam. Returns None (cancel), the string ``"reset"``, or
+        ``(pitch, fov)`` floats. The spin floors are the belt against the composer's
+        or-defaulting (a stored 0 would silently mean 'default' — THE DEFAULT-VALUE LAW)."""
+        from PySide6.QtWidgets import (
+            QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QLabel, QPushButton,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Room camera")
+        form = QFormLayout(dlg)
+        note = QLabel("The composer re-fits this room's camera with these values and the "
+                      "chart re-judges live. Pitch must clear the fov's own floor (~26° at "
+                      "fov 42.2) or the room refuses with the reason.")
+        note.setWordWrap(True)
+        form.addRow(note)
+        pbox = QDoubleSpinBox()
+        pbox.setRange(26.0, 85.0)
+        pbox.setDecimals(1)
+        pbox.setSingleStep(1.0)
+        pbox.setSuffix("°")
+        pbox.setValue(float(pitch))
+        pbox.setAccessibleName("Camera pitch")
+        form.addRow("Pitch", pbox)
+        fbox = QDoubleSpinBox()
+        fbox.setRange(20.0, 90.0)
+        fbox.setDecimals(1)
+        fbox.setSingleStep(0.5)
+        fbox.setSuffix("°")
+        fbox.setValue(float(fov))
+        fbox.setAccessibleName("Camera fov")
+        form.addRow("FOV", fbox)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        reset = QPushButton("Reset to the defaults")
+        reset.setEnabled(bool(overridden))
+        bb.addButton(reset, QDialogButtonBox.ButtonRole.ResetRole)
+        out = {"v": None}
+
+        def _reset():
+            out["v"] = "reset"
+            dlg.accept()
+
+        reset.clicked.connect(_reset)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        widgets.fit_dialog(dlg, ch=52, lines=9)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return out["v"] or (float(pbox.value()), float(fbox.value()))
 
     def _ask_room_name(self, current):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
