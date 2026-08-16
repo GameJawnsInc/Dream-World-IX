@@ -63,6 +63,23 @@ concurrent session deploys into the shared mod folder, and `--check` reports the
 the UI. A new live-state label is caught by `machine_leaks()` (paths) or by the twin-harvest fence
 in `tests/test_uiharvest_pins.py` (counts) — not by review.
 
+## Docs Studio (the manager app)
+
+```
+py docsite/studio.py            # or double-click apps/ff9_docs_studio.pyw
+```
+
+A standalone PySide6 app for working on the Manual (needs the build deps plus PySide6). One
+window: the sidebar as an editable tree (reorder `nav.toml` entries, move pages between
+sections, pin glob-matched or More-bucket pages as literal entries, add sections — curation
+still only orders, never gates), a markdown editor (Ctrl+S / Ctrl+F), and a live preview
+rendered by `build.py`'s own pipeline (GitHub-parity heading ids, tutorial-frontmatter chips).
+The Tools dock runs the real jobs — the gated build, this test suite, `shots.py --check`/`--all`,
+the UI-inventory harvest, a local preview server over `_site/`, and the deploy script behind a
+confirmation. Build errors land in a Problems list; double-click one to open the offending
+source. The Qt-free half lives in `studio_core.py` and is covered by
+`tests/test_docs_studio.py`.
+
 ## Tests
 
 ```
