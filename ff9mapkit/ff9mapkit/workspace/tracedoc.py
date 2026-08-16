@@ -69,6 +69,12 @@ class TraceDoc(QWidget):
         self._stamped = True                          # False = gestures since the last Generate
         self._offer_path = None                       # the OPEN field's toml (the shell's feed)
         self._offer_rejected = None                   # a non-project offer, remembered (no re-parse)
+        # The session camera's pose BEYOND pitch. A reopened project restores its own values (a
+        # project generated at another distance/fov re-projects through the wrong camera with no
+        # exception otherwise -- the exact PLAN.md rung-7 bug); a new photo resets to the default
+        # rig. Generate passes them back through the CLI's own --distance/--fov.
+        self._distance = imagefield.DEFAULT_DISTANCE
+        self._fov = imagefield.DEFAULT_FOV
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 10)
@@ -261,8 +267,8 @@ class TraceDoc(QWidget):
 
     # ------------------------------------------------------------------ camera + status
     def _camera(self):
-        return guide.make_camera(float(self.pitch.value()), imagefield.DEFAULT_DISTANCE,
-                                 fov_x_deg=imagefield.DEFAULT_FOV)
+        return guide.make_camera(float(self.pitch.value()), self._distance,
+                                 fov_x_deg=self._fov)
 
     def _valid_count(self):
         """(valid, bad): vertices below/above the current camera's horizon."""
@@ -325,9 +331,12 @@ class TraceDoc(QWidget):
 
     def _refresh(self, note="", state=""):
         hy = _cam.horizon_canvas_y(self.canvas.camera())
+        pose = ("" if (self._distance, self._fov) ==
+                (imagefield.DEFAULT_DISTANCE, imagefield.DEFAULT_FOV)
+                else f" · distance {self._distance:g} · fov {self._fov:g}")
         self.pitch_label.setText(
-            f"{self.pitch.value()}° · horizon y {hy:.0f}" if 0 <= hy < imagefield.CANVAS_H
-            else f"{self.pitch.value()}° · horizon above the frame")
+            (f"{self.pitch.value()}° · horizon y {hy:.0f}" if 0 <= hy < imagefield.CANVAS_H
+             else f"{self.pitch.value()}° · horizon above the frame") + pose)
         good, bad = self._valid_count()
         fg_invalid, fg_unattached = self._fg_problems()
         _shim, _back, rg_bad = self._region_shim()
@@ -497,6 +506,8 @@ class TraceDoc(QWidget):
         self._regions = []                             # nor do old zones
         self._history = []
         self._project = None                           # a new photo is a NEW project
+        self._distance = imagefield.DEFAULT_DISTANCE   # a new photo shoots on the default rig
+        self._fov = imagefield.DEFAULT_FOV
         self.tools.set_current("floor")
         self.canvas.set_floor([])
         self.canvas.set_cutouts([])
@@ -822,6 +833,10 @@ class TraceDoc(QWidget):
                 argv += ["--event-zone", f"{r.get('message') or '...'}@{pts}"]
         if float(self.pitch.value()) != imagefield.DEFAULT_PITCH:
             argv += ["--pitch", f"{self.pitch.value():g}"]
+        if float(self._fov) != imagefield.DEFAULT_FOV:        # a reopened project regenerates
+            argv += ["--fov", f"{self._fov:g}"]               # through its OWN rig, not the
+        if float(self._distance) != imagefield.DEFAULT_DISTANCE:   # default one
+            argv += ["--distance", f"{self._distance:g}"]
         started = self._run(
             argv, cwd=str(self.kit), subject="Image → field",
             ok_headline=f"{name} generated → {out}",
@@ -848,6 +863,7 @@ class TraceDoc(QWidget):
                   for f in self._fg]
             (Path(out) / f"{self._image.stem}.trace.json").write_text(json.dumps({
                 "image": str(self._image), "pitch": self.pitch.value(),
+                "distance": self._distance, "fov": self._fov,
                 "floor": [list(p) for p in self._floor], "fg": fg,
                 "regions": [{"kind": r["kind"], "to": r.get("to", 0),
                              "entrance": r.get("entrance", 0),
@@ -865,7 +881,11 @@ class TraceDoc(QWidget):
         import json
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         self.load_image(data["image"])                 # clears floor/fg/history/project
+        self._distance = float(data.get("distance", imagefield.DEFAULT_DISTANCE))
+        self._fov = float(data.get("fov", imagefield.DEFAULT_FOV))
         self.pitch.setValue(int(data.get("pitch", imagefield.DEFAULT_PITCH)))
+        # setValue only re-feeds the canvas when the pitch CHANGED -- the pose must land either way
+        self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)
         self._floor = [tuple(p) for p in data.get("floor", [])]
         self.canvas.set_floor(self._floor)
         for e in data.get("fg", []):
@@ -904,6 +924,15 @@ class TraceDoc(QWidget):
             return
         text = path.read_text(encoding="utf-8")
         data = tomllib.loads(text)
+        # Honest refusals FIRST, before any session state is touched -- the shell auto-loads the
+        # open field into a pristine tab, so without these a wrong-camera project re-projects
+        # into off-canvas garbage with no exception. Each message names where the file IS
+        # editable instead.
+        if (path.parent / "floorplan.json").is_file() or \
+           (path.parent.parent / "floorplan.json").is_file():
+            raise ValueError("a floorplan-composed room — its shape is owned by the plan "
+                             "(Floorplan tab → Open… the dungeon's floorplan.json); place "
+                             "content on it in the Place tab")
         layers = data.get("layers", []) or []
         base_rel = next((la["image"] for la in layers if la.get("z") == imagefield.Z_BASE),
                         layers[0]["image"] if layers else None)
@@ -911,10 +940,23 @@ class TraceDoc(QWidget):
         if base_rel is None or obj_rel is None:
             raise ValueError("not an image-field project (no [[layers]] art / [walkmesh] obj) "
                              "— open the photo instead and trace fresh")
+        cam_tbl = data.get("camera") or {}
+        if cam_tbl.get("pitch") is None:
+            raise ValueError("no [camera] pose in this project — a fork's camera lives in its "
+                             "donor's .bgx; Trace serves generated image-field projects")
+        rng = cam_tbl.get("range")
+        if (cam_tbl.get("scroll") or cam_tbl.get("window_width") or
+                (isinstance(rng, (list, tuple)) and len(rng) == 2
+                 and (int(rng[0]), int(rng[1])) != (imagefield.CANVAS_W, imagefield.CANVAS_H))):
+            raise ValueError("a scrolling room — the Trace canvas serves the fixed "
+                             f"{imagefield.CANVAS_W}×{imagefield.CANVAS_H} frame; reshape it in "
+                             "the Floorplan tab, or place content on it in the Place tab")
         self.load_image(path.parent / base_rel)        # the flattened base IS the photo, 1:1
-        self.pitch.setValue(int(round(float((data.get("camera") or {})
-                                            .get("pitch", imagefield.DEFAULT_PITCH)))))
-        cam = self.canvas.camera()
+        self._distance = float(cam_tbl.get("distance", imagefield.DEFAULT_DISTANCE))
+        self._fov = float(cam_tbl.get("fov", imagefield.DEFAULT_FOV))
+        self.pitch.setValue(int(round(float(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH)))))
+        self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)  # the pose lands
+        cam = self.canvas.camera()                     # even when the pitch did not change
         ring = []
         for line in (path.parent / obj_rel).read_text(encoding="utf-8").splitlines():
             if line.startswith("v "):
@@ -935,9 +977,14 @@ class TraceDoc(QWidget):
             fg_path = path.parent / m.group(3)
             if fg_path.is_file():
                 self._attach_cutout(len(self._fg) - 1, str(fg_path))
-        # regions: the compiled toml's WORLD zones invert to canvas px through the same camera
+        # regions: the compiled toml's WORLD zones invert to canvas px through the same camera.
+        # Only the GENERATOR'S OWN rows join the session (one owner: is_generated_region —
+        # the same claim the regenerate merge makes); a hand/Place row stays file-side, where
+        # the merge preserves it verbatim.
         for kind in ("gateway", "event"):
             for e in data.get(kind, []) or []:
+                if not imagefield.is_generated_region(data, kind, e.get("name")):
+                    continue
                 z = e.get("zone")
                 if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):
                     continue

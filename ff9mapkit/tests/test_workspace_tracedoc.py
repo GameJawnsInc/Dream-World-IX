@@ -455,8 +455,9 @@ def _deterministic_qt_teardown(qt_drain):
     qt_drain()
 
 
-def _built_project(tmp_path, with_fg=True):
-    """A REAL compiled image-field project (the offline builder itself), pre-sidecar."""
+def _built_project(tmp_path, with_fg=True, **cam):
+    """A REAL compiled image-field project (the offline builder itself), pre-sidecar.
+    ``cam`` forwards pitch/fov/distance overrides to the builder (default pitch 21)."""
     from PIL import Image
     from ff9mapkit import imagefield as IF
     photo = tmp_path / "room.png"
@@ -468,7 +469,7 @@ def _built_project(tmp_path, with_fg=True):
         fg = [f"{fgp}@159.2,202.9"]
     floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
     man = IF.build_image_field(photo, floor, tmp_path / "proj", foreground=fg,
-                               name="HALL3", field_id=30779, pitch=21)
+                               name="HALL3", field_id=30779, **{"pitch": 21, **cam})
     return Path(man["toml"]), floor
 
 
@@ -703,3 +704,143 @@ def test_a_drawn_event_rewords_in_place(app, tmp_path, monkeypatch):
     assert doc.canvas._regions[0]["warn"] is None          # the warn clears with the words
     doc.on_undo()                                          # a normal, undoable gesture
     assert doc._regions[0]["message"] == "..."
+
+
+# ---------------------------------------------------------------------------- the session rig
+# A project generated at a non-default distance/fov used to reopen through the DEFAULT rig --
+# tracedoc._camera hardcoded DEFAULT_DISTANCE/DEFAULT_FOV -- so every inverted coordinate was
+# wrong with no exception (PLAN.md rung 7's standing bug). The session now carries the pose.
+
+def test_load_project_restores_the_projects_own_rig(app, tmp_path, monkeypatch):
+    """A project shot at distance 6000 / fov 39 reopens through ITS camera: the floor inversion
+    still lands on the original trace, and a Regenerate passes the rig back to the CLI."""
+    pytest.importorskip("PIL")
+    toml, floor = _built_project(tmp_path, with_fg=False, distance=6000.0, fov=39.0)
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    assert doc._distance == 6000.0 and doc._fov == 39.0
+    for ex, ey in floor:                             # wrong-rig inversion misses by tens of px
+        assert min(abs(gx - ex) + abs(gy - ey) for gx, gy in doc._floor) < 1.5
+    assert "distance 6000" in doc.pitch_label.text() and "fov 39" in doc.pitch_label.text()
+    monkeypatch.setattr(doc, "_ask_out",
+                        lambda: (_ for _ in ()).throw(AssertionError("asked on a reopen")))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    assert argv[argv.index("--fov") + 1] == "39"
+    assert argv[argv.index("--distance") + 1] == "6000"
+
+
+def test_a_fresh_photo_resets_to_the_default_rig(app, tmp_path, monkeypatch):
+    """Opening a NEW image after a custom-rig project must not leak the old pose into the new
+    project -- and a default-rig session emits no --fov/--distance at all (argv parity with
+    the retired HTML tracer)."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    toml, _floor = _built_project(tmp_path, with_fg=False, distance=6000.0, fov=39.0)
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    doc.load_image(_photo(tmp_path))
+    assert doc._distance == IF.DEFAULT_DISTANCE and doc._fov == IF.DEFAULT_FOV
+    doc.canvas._commit_floor([(100, 300), (200, 300), (150, 400)])
+    doc.id_box.setText("30781")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv, _kw = run.calls[-1]
+    assert "--fov" not in argv and "--distance" not in argv
+
+
+def test_trace_sidecar_round_trips_the_rig(app, tmp_path, monkeypatch):
+    """The .trace.json records distance/fov and a reopen restores them; a LEGACY sidecar
+    without the keys falls back to the defaults instead of crashing."""
+    pytest.importorskip("PIL")
+    import json
+    from ff9mapkit import imagefield as IF
+    doc, run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc._distance, doc._fov = 5200.0, 40.0             # as a custom-rig reopen would set
+    doc.canvas._commit_floor([(100, 300), (200, 300), (150, 400)])
+    doc.id_box.setText("30782")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    side = tmp_path / "photo-field" / "photo.trace.json"
+    data = json.loads(side.read_text(encoding="utf-8"))
+    assert data["distance"] == 5200.0 and data["fov"] == 40.0
+    doc2, _run2 = _doc(app)
+    doc2.load_trace(side)
+    assert doc2._distance == 5200.0 and doc2._fov == 40.0
+    del data["distance"], data["fov"]                  # a pre-rig sidecar
+    side.write_text(json.dumps(data), encoding="utf-8")
+    doc3, _run3 = _doc(app)
+    doc3.load_trace(side)
+    assert doc3._distance == IF.DEFAULT_DISTANCE and doc3._fov == IF.DEFAULT_FOV
+
+
+def test_load_project_refuses_a_composed_floorplan_room(app, tmp_path):
+    """A floorplan-composed room's shape is owned by its plan -- re-tracing it would fork the
+    truth, so the load refuses NAMING the owning tab, and the shell's auto-load offer stays a
+    quiet rejection (the pristine-tab path swallows the message by design)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import floorplan as FP
+    room = tmp_path / "dungeon" / "ROOM1"
+    (room / "art").mkdir(parents=True)
+    Image.new("RGB", (8, 8)).save(room / "art" / "back.png")
+    (room / "room1.field.toml").write_text(
+        '[field]\nid = 30500\nname = "ROOM1"\narea = 11\n'
+        '[camera]\npitch = 48.0\ndistance = 2200\nfov = 42.2\nrange = [384, 448]\n'
+        '[walkmesh]\nobj = "walkmesh.obj"\nframe = "world"\n'
+        '[[layers]]\nimage = "art/back.png"\nz = 4000\n', encoding="utf-8")
+    (tmp_path / "dungeon" / FP.SIDECAR).write_text("{}", encoding="utf-8")
+    doc, _run = _doc(app)
+    with pytest.raises(ValueError, match="Floorplan"):
+        doc.load_project(room / "room1.field.toml")
+    assert doc._image is None                          # refused BEFORE any state landed
+    doc.offer_project(room / "room1.field.toml")       # the shell feed: quiet, remembered
+    assert doc._image is None
+    assert doc._offer_rejected == str(room / "room1.field.toml")
+
+
+def test_load_project_refuses_scrolling_rooms_and_poseless_forks(app, tmp_path):
+    """A scrolling room's frame is wider than the Trace canvas's fixed 384x448; a fork with no
+    [camera] pose would re-project through a camera it never had. Both refuse with the teach."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    proj = tmp_path / "wide"
+    (proj / "art").mkdir(parents=True)
+    Image.new("RGB", (8, 8)).save(proj / "art" / "back.png")
+    head = ('[walkmesh]\nobj = "walkmesh.obj"\nframe = "world"\n'
+            '[[layers]]\nimage = "art/back.png"\nz = 4000\n')
+    wide = proj / "wide.field.toml"
+    wide.write_text('[field]\nid = 30501\nname = "WIDE"\narea = 11\n'
+                    '[camera]\npitch = 48.0\ndistance = 2200\nfov = 42.2\n'
+                    'range = [960, 448]\nwindow_width = 384\n'
+                    '[camera.scroll]\nenabled = true\n' + head, encoding="utf-8")
+    doc, _run = _doc(app)
+    with pytest.raises(ValueError, match="scrolling"):
+        doc.load_project(wide)
+    fork = proj / "fork.field.toml"
+    fork.write_text('[field]\nid = 30502\nname = "FORK"\narea = 11\n' + head, encoding="utf-8")
+    with pytest.raises(ValueError, match="pose"):
+        doc.load_project(fork)
+
+
+def test_load_project_absorbs_only_the_generators_own_regions(app, tmp_path):
+    """A Place-drawn door on a generated project stays FILE-side (the regenerate merge
+    preserves it verbatim); only traced_ rows join the editable session -- one claim rule,
+    owned by imagefield.is_generated_region, spent by both the merge and this absorb."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL4", field_id=30783,
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
+    toml = Path(man["toml"])
+    toml.write_text(toml.read_text(encoding="utf-8") + (
+        '\n[[gateway]]\nname = "door0"\nto = 301\nzone = [[-500, 900], [-400, 900], '
+        '[-400, 1000], [-500, 1000]]\n'), encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert len(doc._regions) == 1                      # the traced door alone
+    assert doc._regions[0]["to"] == 4005
