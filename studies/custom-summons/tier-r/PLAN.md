@@ -350,3 +350,26 @@ Unnamed is now under 100.
   every other op whose arg2 is typed int. A clean separation. `$a0` only `{0,16}` (op 136's actor
   indices); `$a1` only `{0 x289, 1 x15}`, the two height modes.
 * Natural sibling of op 136 `actor_relative_coord` -- same lookup, same anchoring job.
+
+## R12 (op 127) -- * DONE 2026-08-07: THE OTHER HALF OF THE PAIR
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 8. `body_gates.py` 18/18; 4 more tests (tier-r 211).
+**Named 116 -> 117; traffic 83.7% -> 85.2%. Across R4-R12: 79 -> 117 named, 51.8% -> 85.2%.**
+
+R11's corrected rule said the remaining callback-lane refusals were worth revisiting. op 127 was the
+immediate test and it paid out at once.
+
+* **op 127 = `get_actor_position`** (211 sites, medium). `fn 0x44f60` has op 128's exact shape --
+  resolve the actor via the shared `fn 0x44a60`, then TAIL-JUMP -- but to `fn 0x44e80`, the PLAIN
+  fetch. It gates on `GET_SLAVE(22)` then discriminates on `byte[actor+0x10]`: zero takes
+  `GET_MATRIX(14)` on bone `byte[actor+0x1a]` **and zeroes out.y**, non-zero takes
+  `GET_POSITION(1)`. Three commands, refused on the old rule -- three routes to one answer.
+* ** THE PAIR IS SELF-CONFIRMING: `fn 0x44e80` is exactly what op 128's body CALLS** before
+  adjusting. `op 127 = position`, `op 128 = that position + height/2 + the Float fix`. A gate
+  asserts the call edge AND the **negative** -- op 127's chain must NOT carry the Float correction;
+  if it did, the pair reading collapses and both names are wrong.
+* **CORPUS + ITS HONEST LIMIT:** op 127's `arg0` domain is `{0,16}`, **byte-identical to op 128's**;
+  controls span up to 40 distinct values. **But the control MEDIAN is 2**, so "small domain" alone
+  does not discriminate -- what carries is the IDENTITY of the two domains, and the gate requires
+  that, not smallness. `arg1` is never a constant in 211 sites (an out-parameter on the stack),
+  which is why op 128's pointer test could not be reused.

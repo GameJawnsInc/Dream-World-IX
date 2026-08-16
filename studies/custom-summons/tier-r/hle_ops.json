@@ -3022,8 +3022,8 @@
  },
  {
   "op": 127,
-  "name": null,
-  "confidence": null,
+  "name": "get_actor_position",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3038,7 +3038,7 @@
    "vramUploadCallback",
    "psxBankTable"
   ],
-  "evidence": "stub 0x10fe3: arity 2 kinds=ip returns void; corpus: 211 call sites in 162 images / 162 effects (8 creature-bearing); modal arg-setup 208/211 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 208, 3: 1, 0: 1, 1: 1}; called next to ops 102(x91), 128(x67), 131(x32); $a0 constants: 0(x118), 16(x58); $a2 (BEYOND the arity -- leftovers, not arguments): 1(x1); position: {'first-third': 106, 'last-third': 43, 'middle-third': 62}",
+  "evidence": "stub 0x10fe3: arity 2 kinds=ip returns void; corpus: 211 call sites in 162 images / 162 effects (8 creature-bearing); modal arg-setup 208/211 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 208, 3: 1, 0: 1, 1: 1}; called next to ops 102(x91), 128(x67), 131(x32); $a0 constants: 0(x118), 16(x58); $a2 (BEYOND the arity -- leftovers, not arguments): 1(x1); position: {'first-third': 106, 'last-third': 43, 'middle-third': 62}; handler-body: write an actor's position (i16 x/y/z) into out -- its own position, or its bone's when the unit is attached, in which case Y is zeroed; fn 0x44f60 resolves the actor through 0x44a60 and TAIL-JUMPS to 0x44e80, the plain fetch -- which OP 128'S OWN BODY CALLS before adjusting, so the two are one pair: op 127 is the position, op 128 is that position plus the height/Float anchor correction. Each confirms the other. The fetch gates on GET_SLAVE(22) and discriminates on byte[actor+0x10]: zero takes GET_MATRIX(14) on bone byte[actor+0x1a] and then ZEROES out.y, non-zero takes GET_POSITION(1). Refused by the callback lane for reaching three commands -- again three routes to one answer. Corpus: $a0 is only ever {0,16}, the actor indices ops 128/136 use; arg1 is never a constant, as an out-parameter written on the stack should not be.",
   "call_sites": 211,
   "effects": 162,
   "creature_effects": 8

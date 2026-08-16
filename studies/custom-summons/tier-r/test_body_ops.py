@@ -105,16 +105,18 @@ def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
     dll = A.DllView()
     rng = {B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
     monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS} | rng
     monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS} | rng
     monkeypatch.setattr(B, "verify_rng", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS}
     monkeypatch.setattr(B, "verify_screen", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ADDPRIM, B.OP_ANCHOR}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS}
     monkeypatch.setattr(B, "verify_addprim", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ANCHOR}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ANCHOR, B.OP_POS}
     monkeypatch.setattr(B, "verify_anchor", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_POS}
+    monkeypatch.setattr(B, "verify_position", lambda d=None: (False, ["forced"]))
     assert set(B.body_evidence(dll)) == {B.OP_COORD}
     monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
     assert B.body_evidence(dll) == {}
@@ -405,4 +407,43 @@ def test_the_dictionary_carries_op128_and_the_refusal_is_lifted():
     assert row["name"] == "get_actor_anchor" and row["confidence"] == "medium"
     assert row["arg_kinds"] == "iip"
     assert row["callback_command"] is None      # named by the BODY lane, not the callback lane
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 127, the other half
+@needs_dll
+def test_op127_re_derives_including_the_negative_check():
+    """The negative matters: op 127 must NOT carry the Float/height correction.  If it did, the
+    pair reading would collapse and both names would be wrong."""
+    ok, notes = B.verify_position()
+    assert ok, notes
+
+
+@needs_dll
+def test_op128_is_op127_plus_the_correction():
+    """The structural fact that makes the pair self-confirming: op 128's body CALLS the very
+    function op 127 tail-jumps to."""
+    dll = A.DllView()
+    body = [(i.mnemonic, i.op_str) for i in dll.body(B.ANCHOR_BODY)]
+    assert ("call", hex(dll.base + B.ANCHOR_PLAIN)) in body
+    fwd = [(i.mnemonic, i.op_str) for i in dll.body(B.POS_FN)]
+    assert ("jmp", hex(dll.base + B.ANCHOR_PLAIN)) in fwd
+
+
+@needs_dll
+def test_both_halves_of_the_pair_are_guarded_independently(monkeypatch):
+    dll = A.DllView()
+    monkeypatch.setattr(B, "verify_position", lambda d=None: (False, ["forced"]))
+    ev = B.body_evidence(dll)
+    assert B.OP_POS not in ev and B.OP_ANCHOR in ev
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op127():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_POS]
+    assert row["name"] == "get_actor_position" and row["confidence"] == "medium"
+    assert row["arg_kinds"] == "ip"
+    assert row["callback_command"] is None
     assert A.check_confidence_rule(ops) == []

@@ -174,6 +174,20 @@ DESCRIPTION_COORD = ("a coordinate component placed relative to an actor: base +
 #: So the op answers "where do I aim at this actor" -- body centre at mode 0, a second bone
 #: (``byte[actor+0x2f]``) at mode 1.  305 sites across **223 of 385 images**: nearly every effect
 #: needs it.
+#: **op 127 is the same query WITHOUT the correction**, and the bytes say so: it forwards through
+#: the same actor lookup and tail-jumps to ``fn 0x44e80`` -- the plain fetch that **op 128's own body
+#: calls** before adjusting.  So the two ops are one pair, (position, anchor), and each confirms the
+#: other's reading.  op 127 reaches three commands, op 128 those three plus ``CHECK_STATUS``; both
+#: were refused by the callback lane for exactly that, and both are one question.
+#:
+#: The plain fetch discriminates on ``byte[actor+0x10]``: zero takes ``GET_MATRIX(14)`` on bone
+#: ``byte[actor+0x1a]`` **and then zeroes out.y**, non-zero takes ``GET_POSITION(1)``.
+OP_POS = 127
+POS_FN = 0x44F60              # op 127's forwarder
+NAME_POS = "get_actor_position"
+DESCRIPTION_POS = ("write an actor's position (i16 x/y/z) into out -- its own position, or its "
+                   "bone's when the unit is attached, in which case Y is zeroed")
+
 OP_ANCHOR = 128
 ANCHOR_FN = 0x450C0           # the forwarder
 ANCHOR_BODY = 0x44F80         # its tail-call target -- where the work is
@@ -190,6 +204,62 @@ NAME_ANCHOR = "get_actor_anchor"
 DESCRIPTION_ANCHOR = ("write an actor's anchor point (i16 x/y/z) into out -- its position, or its "
                       "bone's when the unit is a slave, with Y raised by half its height at mode 0 "
                       "or a second bone at mode 1, less 0x80 when the actor is Floating")
+
+
+def verify_position(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 127 -- and the structural relation that makes it op 128's other half."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_POS]) or dll.native_fn[OP_POS]
+    good = fn == POS_FN
+    ok &= good
+    notes.append("op %d native fn = %#x %s" % (OP_POS, fn, "OK" if good else "FAIL"))
+
+    fwd = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    good = ("call", hex(dll.base + ACTOR_LOOKUP)) in fwd
+    ok &= good
+    notes.append("resolves the actor through %#x, the lookup ops 128/136 share %s"
+                 % (ACTOR_LOOKUP, "OK" if good else "FAIL"))
+    good = ("jmp", hex(dll.base + ANCHOR_PLAIN)) in fwd
+    ok &= good
+    notes.append("tail-jumps to the plain fetch %#x %s"
+                 % (ANCHOR_PLAIN, "OK" if good else "FAIL"))
+
+    # THE PAIR: op 128's body calls the very function op 127 tail-jumps to.
+    body128 = [(i.mnemonic, i.op_str) for i in dll.body(ANCHOR_BODY)]
+    good = ("call", hex(dll.base + ANCHOR_PLAIN)) in body128
+    ok &= good
+    notes.append("op %d's body CALLS %#x, so op %d is op %d plus the anchor correction %s"
+                 % (OP_ANCHOR, ANCHOR_PLAIN, OP_ANCHOR, OP_POS, "OK" if good else "FAIL"))
+
+    # the plain fetch's own two routes
+    plain = [(i.mnemonic, i.op_str) for i in dll.body(ANCHOR_PLAIN)]
+    good = ("bts", "ecx, 0x18") in plain and ("or", "ecx, 0xe000000") in plain
+    ok &= good
+    notes.append("offers GET_POSITION(1) and GET_MATRIX(14) %s" % ("OK" if good else "FAIL"))
+    good = ("or", "ecx, 0x16000000") in plain
+    ok &= good
+    notes.append("gates on GET_SLAVE(22) %s" % ("OK" if good else "FAIL"))
+    good = ("cmp", "byte ptr [rbx + 0x10], sil") in plain
+    ok &= good
+    notes.append("discriminates on byte[actor+0x10] %s" % ("OK" if good else "FAIL"))
+    good = ("mov", "word ptr [rdi + %d], si" % ANCHOR_OUT_Y) in plain
+    ok &= good
+    notes.append("zeroes out.y on the bone route %s" % ("OK" if good else "FAIL"))
+
+    # and it does NOT do the anchor correction -- that is the whole difference
+    good = not any(m == "mov" and o == "edx, 0x%x" % FLOAT_STATUS for m, o in plain)
+    ok &= good
+    notes.append("does NOT apply the Float/height correction (that is op %d's job) %s"
+                 % (OP_ANCHOR, "OK" if good else "FAIL"))
+
+    sig = dll.handler(OP_POS)
+    good = sig.kinds == "ip"
+    ok &= good
+    notes.append("signature (actor, out) = %r %s" % (sig.kinds, "OK" if good else "FAIL"))
+    return ok, notes
 
 
 def verify_anchor(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
@@ -791,6 +861,25 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                             ABR_MASK, ABR_SHIFT, SO_TABLE_OFF, SO_LEN_OFF, SO_TABLE_OFF,
                             TEXLIST_FN, GOURAUD_FN,
                             " (%s)" % src[0] if src else "")),
+        }
+
+    ok_pos, _n7 = verify_position(dll)
+    if ok_pos:
+        out[OP_POS] = {
+            "name": NAME_POS,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x resolves the actor through %#x and TAIL-JUMPS to %#x, the "
+                         "plain fetch -- which OP %d'S OWN BODY CALLS before adjusting, so the two "
+                         "are one pair: op %d is the position, op %d is that position plus the "
+                         "height/Float anchor correction. Each confirms the other. The fetch gates "
+                         "on GET_SLAVE(22) and discriminates on byte[actor+0x10]: zero takes "
+                         "GET_MATRIX(14) on bone byte[actor+0x1a] and then ZEROES out.y, non-zero "
+                         "takes GET_POSITION(1). Refused by the callback lane for reaching three "
+                         "commands -- again three routes to one answer. Corpus: $a0 is only ever "
+                         "{0,16}, the actor indices ops 128/136 use; arg1 is never a constant, as "
+                         "an out-parameter written on the stack should not be."
+                         % (BODY_MARKER, DESCRIPTION_POS, POS_FN, ACTOR_LOOKUP, ANCHOR_PLAIN,
+                            OP_ANCHOR, OP_POS, OP_ANCHOR)),
         }
 
     ok_anchor, _n6 = verify_anchor(dll)

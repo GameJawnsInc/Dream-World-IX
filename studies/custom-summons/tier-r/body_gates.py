@@ -286,6 +286,31 @@ def anchor_args():
     return hit, tot, chit, ctot
 
 
+def actor_index_domains():
+    """(domain of op 127's $a0, domain of op 128's, control op domain sizes).
+
+    An actor INDEX is a selector over a tiny fixed set.  An id, a count or an offset is not.  The
+    control is every other op with >=100 sites whose arg0 the decoder typed as an int.
+    """
+    ops = A.load_hle_ops()
+    pat = re.compile(r"\$a0=0x([0-9a-f]+)")
+    doms = collections.defaultdict(set)
+    for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            mm = re.search(r"HLE op (\d+) ", ln)
+            if not mm:
+                continue
+            op = int(mm.group(1))
+            row = ops.get(op)
+            if not row or not (row.get("arg_kinds") or "").startswith("i"):
+                continue
+            for v in (int(x, 16) for x in pat.findall(ln)):
+                doms[op].add(v)
+    ctrl = [len(v) for op, v in doms.items()
+            if op not in (B.OP_POS, B.OP_ANCHOR) and (ops[op]["call_sites"] or 0) >= 100]
+    return doms.get(B.OP_POS, set()), doms.get(B.OP_ANCHOR, set()), ctrl
+
+
 def main() -> int:
     results: List[Tuple[str, str, bool]] = []
     dll = A.DllView()
@@ -306,6 +331,12 @@ def main() -> int:
     for n in notes9:
         print("  " + n)
     results.append(("B9", "op 136's lookup + divide-by-6 + add re-derive from the DLL", ok9))
+
+    ok17, notes17 = B.verify_position(dll)
+    print()
+    for n in notes17:
+        print("  " + n)
+    results.append(("B17", "op 127 is the plain fetch op 128's body calls", ok17))
 
     ok15, notes15 = B.verify_anchor(dll)
     print()
@@ -334,13 +365,14 @@ def main() -> int:
     ev = B.body_evidence(dll)
     good = (set(ev) == {B.OP_OPEN, B.OP_ABR, B.OP_COORD,
                         B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED, B.OP_SCREEN,
-                        B.OP_ADDPRIM, B.OP_ANCHOR}
+                        B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS}
             and ev[B.OP_OPEN]["confidence"] == "medium"      # no symbol names it
             and ev[B.OP_COORD]["confidence"] == "medium"     # no symbol; +0x38 unresolved
             and ev[B.OP_RAND]["confidence"] == "medium"      # algorithm known, name not stated
             and ev[B.OP_SCREEN]["confidence"] == "medium"    # no symbol on the chain
             and ev[B.OP_ADDPRIM]["confidence"] == "medium"   # libgpu shape, no stated name
             and ev[B.OP_ANCHOR]["confidence"] == "medium"    # no symbol on the chain
+            and ev[B.OP_POS]["confidence"] == "medium"       # its pair, same posture
             and ev[B.OP_ABR]["confidence"] == "high")        # the DLL names it, twice
     print("\nB2 body evidence: %s" % {o: (e["name"], e["confidence"]) for o, e in ev.items()})
     results.append(("B2", "each name ships at the confidence its evidence supports", good))
@@ -352,7 +384,8 @@ def main() -> int:
         for k, d in (("B3", "the sub-file idiom"), ("B4", "the A/B separation"),
                      ("B5", "camera disjointness"), ("B7", "the 'so' magic"),
                      ("B8", "the pairing attribution"), ("B12", "op 64's colour args"),
-                     ("B14", "op 143's tag argument"), ("B16", "op 128's out-pointer")):
+                     ("B14", "op 143's tag argument"), ("B16", "op 128's out-pointer"),
+                     ("B18", "the actor-index domain")):
             print("  %s %s -- SKIP" % (k, d))
     else:
         hit, tot = site_idiom()
@@ -397,6 +430,15 @@ def main() -> int:
         print("B16 op-128 $a2 that are PSX pointers: %d/%d (%.1f%%) vs control %d/%d (%.1f%%)"
               % (nh, nt, 100 * nr, nch, nct, 100 * ncr))
         results.append(("B16", "op 128's arg2 is an out-pointer", nt >= 5 and nr == 1.0 and nr > ncr))
+
+        d127, d128, ctrl = actor_index_domains()
+        worst = max(ctrl) if ctrl else 0
+        print("B18 arg0 domain: op 127 %s, op 128 %s; control ops (>=100 sites) span up to %d "
+              "distinct values (median %d)"
+              % (sorted(d127), sorted(d128), worst,
+                 sorted(ctrl)[len(ctrl) // 2] if ctrl else 0))
+        results.append(("B18", "arg0 is an actor selector over a tiny fixed set, not an id",
+                        d127 and d127 == d128 and len(d127) <= 2 and worst > 4))
 
         print("B8 misses carrying 'so' at ANY nonzero offset: %d" % off)
         results.append(("B8", "the shortfall is pairing, not an operand the assert would reject",

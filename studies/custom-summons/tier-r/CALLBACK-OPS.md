@@ -871,3 +871,64 @@ Ships **`medium`**: nothing on the chain owns a debug string.
 | traffic named | 11,592 / 14,212 (81.6%) | **11,897 / 14,212 (83.7%)** |
 
 Across R4-R11: **79 -> 116 named, 51.8% -> 83.7% of traffic.** The unnamed count is now under 100.
+
+---
+
+# ADDENDUM 8 -- op 127: the other half of the pair
+
+**Status: * DONE. `body_gates.py` 18/18, 4 more tests (tier-r 211). Named 116 -> 117;
+traffic 83.7% -> 85.2%.**
+
+The corrected refusal rule from ADDENDUM 7 said the remaining callback-lane refusals were worth
+revisiting. op 127 was the immediate test of that, and it paid out at once.
+
+## op 127 = `get_actor_position`
+
+`fn 0x44f60` has the identical shape to op 128's forwarder: resolve the actor through the shared
+lookup `fn 0x44a60`, then **tail-jump** -- but to `fn 0x44e80`, the **plain** fetch.
+
+**The structural fact that makes the pair self-confirming:** `fn 0x44e80` is precisely the function
+**op 128's own body calls** before applying its correction.
+
+```
+op 127  ->  fn 0x44e80                                  the position
+op 128  ->  fn 0x44f80  --calls-->  fn 0x44e80,         then height/2 and the Float fix
+```
+
+So the two ops are one pair, `(position, anchor)`, and **each confirms the other's reading**. A
+`verify` check asserts the call edge, and a second asserts the NEGATIVE -- that op 127's chain does
+**not** carry the Float/height correction. If it did, the pair reading would collapse and both names
+would be wrong.
+
+The plain fetch gates on `GET_SLAVE(22)` and then discriminates on `byte[actor+0x10]`: zero takes
+`GET_MATRIX(14)` on bone `byte[actor+0x1a]` **and zeroes `out.y`**, non-zero takes
+`GET_POSITION(1)`. Three commands, refused on the old rule -- and again three routes to one answer.
+
+## The corpus test, and its honest limit
+
+`arg0` should be an actor **selector** over a tiny fixed set:
+
+* **op 127: `{0, 16}`** -- and **op 128: `{0, 16}`**, byte-identical domains.
+* control ops (>=100 sites, int `arg0`) span up to **40** distinct values.
+
+**The limit, stated:** the control **median is 2**, so "small domain" is not by itself
+discriminating -- plenty of ops take a small enum. What actually carries here is that the two ops
+have the *identical* domain, which is what a matched pair over one actor space predicts and an
+unrelated pair does not. The gate is written to require that identity, not merely smallness.
+
+`arg1` never appears as a constant anywhere in 211 sites -- exactly right for an out-parameter
+written to a stack address, and the reason op 128's pointer test could not simply be reused here.
+
+Ships **`medium`**: nothing on the chain owns a debug string.
+
+## Coverage
+
+| | after op 128 | after op 127 |
+|---|---|---|
+| named ops | 116 / 216 | **117 / 216** |
+| confidence | high 67 . med 39 . low 10 . unnamed 100 | **high 67 . med 40 . low 10 . unnamed 99** |
+| traffic named | 11,897 / 14,212 (83.7%) | **12,108 / 14,212 (85.2%)** |
+
+Across R4-R12: **79 -> 117 named, 51.8% -> 85.2% of traffic.**
+
+**Both ops the corrected rule pointed at are now named, and they turned out to be one mechanism.**
