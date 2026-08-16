@@ -297,7 +297,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   lives on an unmerged branch)
 - Summons TIER W ★: W2-W7+W6q cast-proven; U1-U2 ★★★ CLOSED + ADOPTED — 2nd array = per-slot texel displacement (linear ADD), the kit joins on the effective cover at EDIT scope → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
-- Click authoring — ★★ Rungs 0-4 + 6a-6d owner-confirmed; recompose now MERGES (keeps npc/doors/layers/art); 7b+7d playtests deployed 30700-30702 → `studies/click-authoring/PLAN.md`
+- Click authoring — ★★ Rungs 0-4 + 6a-6d owner-confirmed; BOTH lanes merge on regenerate; 7e+7f built, Trace carries its own rig; 7b+7d playtests deployed 30700-30702 → `studies/click-authoring/PLAN.md`
 - Path D, the genuinely new 3rd overworld — ★★★ rungs 0-6 ALL DONE, ladder complete: the 9013 round trip owner-confirmed, bench 30950 entry + "!"-Confirm exit; next = §8 polish at owner's call → `studies/path-d-new-world/rung6/`; laws → [[project-ff9-overhang-context-law]]
 - In-game 100%-completion Journal — ★ rungs 0+0b owner-confirmed on bench 30800 (every DLL-free read path works, incl. memoria-vars and flex) and T1 `journal report` BUILT; catalog prose is the dominant cost → `studies/completion-journal/PLAN.md`
 - Interactive docs (docsite/) — ★ LIVE at jawnston.com/ff9docs via `docsite/deploy.ps1`, noindex inherited; gates green, S1-S7 playtest pending, critique #1-4 CLOSED, What-can-I-do catalog shipped → `studies/interactive-docs/PLAN.md`

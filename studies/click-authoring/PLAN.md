@@ -453,9 +453,14 @@ Prompted by a deliberate stress test: a 9762u-wide room composed into a camera a
 > ★ **CLOSED 2026-08-02.** 7c made it a refusal; **7c′** made it a merge. A recompose now keeps
 > every table the composer does not own, the human's rows inside the two owned tables that are
 > lists (`[[layers]]`, `[[gateway]]`), and the painted PNGs — and names any preserved object the
-> reshape stranded. ⚠ `imagefield.py:937` still has the unconditional shape on the TRACE lane; the
-> Trace tab regenerates from its own `.trace.json` session, so it is not the same bug, but nothing
-> stops a hand edit to a generated image-field project being eaten. Not surveyed here.
+> reshape stranded.
+> ★ **AND THE TRACE LANE GOT THE SAME MERGE 2026-08-16 (the menus-reconciliation round):**
+> `imagefield.merge_project_toml` ports the three bands — generator region rows now carry the
+> `traced_door`/`traced_zone` prefix so ownership is decidable against Place-minted `door0`
+> names (a LEGACY project's `door0`/`zone0` rows are claimed once, reported, never doubled; the
+> claim rule `is_generated_region` is ONE owner spent by both the merge and the Trace tab's
+> session absorb). The unparseable refusal fires before any artifact is written; `--force`
+> discards; `[player]` retakes are said out loud. Fenced in the package `test_imagefield.py`.
 
 **Three measured facts that set the shape:**
 - **Width, not length, is the expensive axis.** `fit_play_camera` fits the AABB, so the SAME
@@ -655,20 +660,35 @@ works until you open it in the tab.
   (`imagefield.click_to_surface` over `placedoc.build_surface_from_project`) — so the in-game verdict
   is "is it standing on that corner", not "does it look about right". Round-trip 0.0 px (worst
   1.1e-13); the click lands on the intended corner to 8e-13u. → [`RUNG7-TESTPLAN.md`](RUNG7-TESTPLAN.md).
-- **7e** — per-room pitch/fov on the existing room right-click menu (UI only, once 7a lands).
-- **7f** — traced polygon → floorplan room. ⚠ Hand the UN-outset polygon (`outset_polygon` is a
-  miter and blows up on the acute corners a hand trace produces), and accept that it is a
-  GEOMETRY-ONLY import: the composer re-solves the camera, so the art cannot travel.
+- **7e ★ BUILT 2026-08-16** — per-room pitch/fov on the room right-click menu ("Camera
+  (pitch & fov)…" → an instance-dialog seam `_ask_room_camera`). The override lives on the
+  SESSION room dict (the plan is its only durable home — `[camera]` regenerates wholesale) and
+  the ordinary judge re-fits live (`fit_room_camera` is never cached). Reset removes the keys;
+  the spin floors + a write-path belt make the composer's or-default `0` unmintable.
+- **7f ★ BUILT 2026-08-16** — traced polygon → floorplan room. `floorplan.room_from_trace`
+  un-projects the `.trace.json` floor (UN-outset, as planned) through the session's OWN rig —
+  the default-rig reconstruction is hundreds of units wrong, fenced with an anti-vacuity bound —
+  and `simplify_room_poly` collapses the dense hand trace (sub-8u segments, collinear runs) to
+  corners `polygon_problem` accepts. The tab's "Import a room…" button lands it 200u clear of
+  the drawing (the G11 overlap gate cannot fire on arrival), entry-defaulted, ordinarily
+  undoable. GEOMETRY-ONLY as designed: the composer re-solves the camera; art does not travel.
 - **later** — `[[camera_zone]]` multicam. Built and lint-covered but `FORMAT.md:148` says
   *"in-game proof pending"*. Prove ONE hand-authored multicam field in-game first, and never put it
   in the composer (THE DRAWN-MESH LAW: the author declares the partition).
 
-⚠ **A bug to fix regardless of any of this:** `tracedoc._camera` (:263) hard-codes
-`imagefield.DEFAULT_DISTANCE`/`DEFAULT_FOV`, and `shell._on_tab_changed` (:4947) auto-loads the open
-field into a pristine Trace tab — so any field whose distance differs is re-projected through the
-wrong camera and returns off-canvas garbage **with no exception**. Reachable by clicking a tab.
-(For "give me art guidance for this room", the answer already exists and is simply unexposed:
-`ff9mapkit paint-template <field.toml>`, zero hits under `workspace/`.)
+★ **FIXED 2026-08-16 (the menus-reconciliation round):** `tracedoc._camera` no longer hard-codes
+the rig — the session owns `distance`/`fov` (restored from the project toml or `.trace.json`,
+reset per new photo, passed back through the CLI's own `--fov`/`--distance`, recorded in the
+sidecar), and `load_project` REFUSES what the canvas cannot serve, naming the tab that does:
+a floorplan-composed room (→ Floorplan), a scrolling room (→ Floorplan/Place), a poseless fork
+(→ Place). The shell's pristine auto-load swallows these as quiet rejections by design.
+**Same round:** Floorplan Open resolves the sidecar from `campaign.toml` or a room's
+`field.toml`; a clean FIRST Trace Generate hands the project to `shell.open_field` (the
+compose→open_campaign contract on the trace lane — regenerates never yank); Ctrl-K gained
+Go-to entries for Trace and Floorplan; gui_snap's Place fixture caught up to the 7d bundle-key
+shape (the stale bare-donor key meant markers never painted in the snap — pixel-verified fixed).
+(Still true: `ff9mapkit paint-template <field.toml>` has zero hits under `workspace/` — the
+"art guidance for this room" affordance remains unexposed.)
 
 ### Rung 5 (bounded) — discrete multi-plane ⚠ SCOPE SHRUNK 2026-07-28
 Add `plane_y` to the un-projection (`s = (h - C.y)/ray.y`) so a **traced photo** with several flat

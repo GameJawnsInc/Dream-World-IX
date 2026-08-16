@@ -5,6 +5,34 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `image-field` re-runs MERGE instead of overwriting
+- Regenerating an image-field project used to rewrite `<name>.field.toml` wholesale,
+  destroying every hand-authored table (`[[npc]]`, `[[chest]]`, `[music]`, doors drawn in
+  the Place tab, extra painted `[[layers]]`, …). A re-run now merges: the generator owns
+  `[field]`/`[camera]`/`[walkmesh]`/`[player]` plus its OWN rows of
+  `[[layers]]`/`[[gateway]]`/`[[event]]`; everything else rides through verbatim and is
+  named in the output. Generated region rows now carry the `traced_door`/`traced_zone`
+  prefix so ownership stays decidable against hand rows (a pre-prefix project's
+  `door0`/`zone0` rows are claimed once and reported, never doubled). An existing project
+  toml that does not parse refuses BEFORE anything is written; the new `--force` discards
+  hand content deliberately. `[player]` (the spawn) stays generator-owned — a hand-moved
+  spawn is re-derived and the retake is reported.
+- The Workspace Trace tab carries the project's own camera rig: a project generated at a
+  non-default `--distance`/`--fov` reopens and regenerates through ITS camera (the rig
+  rides the `.trace.json`), and the tab refuses floorplan-composed rooms, scrolling rooms
+  and poseless forks with a message naming the tab that serves them, instead of silently
+  re-projecting through the wrong camera.
+
+### Added — the Floorplan tab imports a traced room, per-room cameras, cross-tab opens
+- "Import a room…": a Trace-tab `.trace.json` (or the project `field.toml` beside one)
+  becomes a floorplan room — geometry only, un-projected through the trace's own rig and
+  simplified to corners the composer accepts; the composer re-solves the camera.
+- The room right-click menu gains "Camera (pitch & fov)…" — per-room overrides the live
+  judge re-fits immediately; Reset returns the room to the composer's defaults.
+- Floorplan Open accepts the composed dungeon's `campaign.toml` or one room's
+  `field.toml` (the sidecar resolves from either); a first Trace Generate opens the new
+  project in the Editor so placing content on it is one flow.
+
 ### Added — `adjust` + `[[behavior.drift]]`: the behavior vocabulary's first numeric write
 - Until now a compiled tree could read tables and counters but never assign one
   (`die = "<counter>"` and the schedule clock were the whole write surface). A branch
