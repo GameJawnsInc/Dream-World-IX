@@ -112,6 +112,93 @@ DESCRIPTION = ("open a pooled runtime instance of a sub-file, relocating the sub
                "offset table to absolute PSX addresses; returns the record, or NULL when the pool "
                "is full")
 
+# --- op 144: the wrapping VRAM scroll blit ------------------------------------------------------
+#: ``fn 0x47b40`` carves ``0x30`` bytes off the arena cursor and builds **two 6-word primitives**
+#: (tag length 5) whose code word is ``0xE7000000``.  The managed renderer names that code itself:
+#: ``SFXRender.cs:316`` dispatches **``case 231``** -> ``DR_MOVE`` -- libgpu's **VRAM-to-VRAM block
+#: move**, the very primitive the **s76** probe logs (U1 counted 641 ``DR_MOVE`` rows on ef038).
+#:
+#: ``SFXRender.DR_MOVE`` reads the payload as ``code[1]`` = source ``(rx, ry)``, ``code[2]`` = size
+#: ``(rw, rh)``, ``code[3]`` = destination ``(x, y)``.  Matching that against what the DLL writes,
+#: with ``rem = arg0 % arg4``:
+#:
+#:   * **part A** -- src ``(arg5, arg6)``, size ``(arg3, rem)``, dst ``(arg1, arg2 + arg4 - rem)``
+#:   * **part B** -- src ``(arg5, arg6 + rem)``, size ``(arg3, arg4 - rem)``, dst ``(arg1, arg2)``
+#:
+#: A source band split at ``rem`` and written back with the halves swapped vertically: **a vertical
+#: scroll with wraparound, done as a VRAM blit** -- the PS1 way to animate a scrolling texture
+#: without touching UVs.  Each half is skipped when its height would be zero.
+#:
+#: So the arguments are ``(scroll, dstX, dstY, width, period, srcX, srcY)``, and the corpus agrees:
+#: ``arg0`` is almost never constant (it is the animated phase), while ``$a1`` is
+#: ``640/448/576/704/512/832`` -- **the VRAM page columns the W6b texel map is built on** -- and
+#: ``$a2`` is ``256/384/368/288/320/480``, all inside VRAM's 512 rows.
+#:
+#: Only **two** ops emit this code word: op 7 (one, unsplit) and op 144 (two, the split pair).
+OP_BLIT = 144
+BLIT_FN = 0x47B40
+DR_MOVE_CODE = 0xE7000000     # SFXRender.cs case 231 -> DR_MOVE
+DR_MOVE_LEN = 5               # tag + 5 words = the 0x18-byte primitive
+BLIT_ALLOC = 0x30             # two of them per call
+BLIT_OT_TAIL = 0x3FFC         # spliced into the LAST entry of the OT at sysCtx+0x20
+VRAM_W, VRAM_H, VRAM_PAGE_W = 1024, 512, 64
+NAME_BLIT = "vram_scroll_blit"
+DESCRIPTION_BLIT = ("scroll a VRAM band vertically with wraparound -- two DR_MOVE blits that split "
+                    "the source at (scroll %% period) and write the halves back swapped, so a "
+                    "texture animates without any UV change")
+
+
+def verify_blit(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 144's two DR_MOVE primitives and the wrap split."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_BLIT]) or dll.native_fn[OP_BLIT]
+    good = fn == BLIT_FN
+    ok &= good
+    notes.append("op %d native fn = %#x %s" % (OP_BLIT, fn, "OK" if good else "FAIL"))
+
+    text = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    checks = (
+        ("carves %#x bytes -- two primitives" % BLIT_ALLOC,
+         ("lea", "eax, [r10 + 0x%x]" % BLIT_ALLOC) in text),
+        ("writes the DR_MOVE code word twice",
+         sum(1 for m, o in text if m == "mov" and "0x%x" % DR_MOVE_CODE in o) == 2),
+        ("gives both primitives length %d" % DR_MOVE_LEN,
+         ("mov", "byte ptr [rdi + 3], %d" % DR_MOVE_LEN) in text
+         and ("mov", "byte ptr [rdi + 0x1b], %d" % DR_MOVE_LEN) in text),
+        ("splits the band at scroll %% period (idiv)", ("idiv", "ebp") in text),
+        ("takes the complement period - remainder", ("sub", "ebp, edx") in text),
+        ("skips each half when its height is zero",
+         ("test", "edx, edx") in text and ("test", "ebp, ebp") in text),
+        ("splices into the OT tail %#x" % BLIT_OT_TAIL,
+         any("0x%x" % BLIT_OT_TAIL in o for _m, o in text)),
+    )
+    for label, good2 in checks:
+        ok &= good2
+        notes.append("%s %s" % (label, "OK" if good2 else "FAIL"))
+
+    sig = dll.handler(OP_BLIT)
+    good = sig.arity == 7 and sig.kinds == "iiiiiii"
+    ok &= good
+    notes.append("signature (scroll,dstX,dstY,w,period,srcX,srcY) arity=%d %s"
+                 % (sig.arity, "OK" if good else "FAIL"))
+
+    emitters = []
+    for f in sorted({dll.function_of(b) or b for b, _e, _u in dll._raw}):
+        try:
+            if any(i.mnemonic == "mov" and "0x%x" % DR_MOVE_CODE in i.op_str for i in dll.body(f)):
+                emitters.append(f)
+        except Exception:
+            continue
+    good = BLIT_FN in emitters and len(emitters) <= 3
+    ok &= good
+    notes.append("DR_MOVE is emitted from %d sites, this being one %s"
+                 % (len(emitters), "OK" if good else "FAIL"))
+    return ok, notes
+
+
 # --- op 206: the ABR setter + model registrar (a VARIANT DISPATCHER) ---------------------------
 #: Unlike op 117, this one's identity is stated by the DLL -- twice.  ``fn 0x47290`` asserts the
 #: ``'so'`` magic, optionally ORs the PSX TPAGE **ABR** (semi-transparency) field into every binding,
@@ -861,6 +948,30 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                             ABR_MASK, ABR_SHIFT, SO_TABLE_OFF, SO_LEN_OFF, SO_TABLE_OFF,
                             TEXLIST_FN, GOURAUD_FN,
                             " (%s)" % src[0] if src else "")),
+        }
+
+    ok_blit, _n8 = verify_blit(dll)
+    if ok_blit:
+        out[OP_BLIT] = {
+            "name": NAME_BLIT,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x carves %#x bytes and builds TWO 6-word primitives (tag "
+                         "length %d) whose code word is %#x -- and the managed renderer names that "
+                         "code itself: SFXRender.cs case 231 -> DR_MOVE, libgpu's VRAM-to-VRAM "
+                         "block move, the primitive the s76 probe logs (U1 counted 641 rows on "
+                         "ef038). SFXRender.DR_MOVE reads code[1]=src(rx,ry), code[2]=size(rw,rh), "
+                         "code[3]=dst(x,y); matching the DLL's writes with rem = arg0 %% arg4 gives "
+                         "part A src(arg5,arg6) size(arg3,rem) dst(arg1,arg2+arg4-rem) and part B "
+                         "src(arg5,arg6+rem) size(arg3,arg4-rem) dst(arg1,arg2) -- one band split "
+                         "at the scroll phase and written back with the halves swapped, each "
+                         "skipped when its height is zero. So the arguments are (scroll, dstX, "
+                         "dstY, width, period, srcX, srcY). Corpus: arg0 is almost never constant "
+                         "(it is the animated phase) while $a1 is 640/448/576/704/512/832, the "
+                         "VRAM page columns the W6b texel map is built on, and $a2 is "
+                         "256/384/368/288/320/480, all inside VRAM's %d rows. Only two ops emit "
+                         "this code word: op 7 (one, unsplit) and this (two, the split pair)."
+                         % (BODY_MARKER, DESCRIPTION_BLIT, BLIT_FN, BLIT_ALLOC, DR_MOVE_LEN,
+                            DR_MOVE_CODE, VRAM_H)),
         }
 
     ok_pos, _n7 = verify_position(dll)

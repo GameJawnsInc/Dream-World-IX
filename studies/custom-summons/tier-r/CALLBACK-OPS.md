@@ -932,3 +932,69 @@ Ships **`medium`**: nothing on the chain owns a debug string.
 Across R4-R12: **79 -> 117 named, 51.8% -> 85.2% of traffic.**
 
 **Both ops the corrected rule pointed at are now named, and they turned out to be one mechanism.**
+
+---
+
+# ADDENDUM 9 -- op 144: the wrapping VRAM scroll blit
+
+**Status: * DONE. `body_gates.py` 20/20, 5 more tests (tier-r 216). Named 117 -> 118;
+traffic 85.2% -> 86.4%.**
+
+## The managed renderer names the code word
+
+`fn 0x47b40` carves `0x30` bytes off the arena cursor and builds **two 6-word primitives** (tag
+length 5) whose code word is `0xE7000000`. That code is not a guess -- **`SFXRender.cs:316`
+dispatches `case 231` -> `DR_MOVE`**, libgpu's VRAM-to-VRAM block move, and 231 == 0xE7. It is the
+same primitive the **s76** probe logs; U1 counted **641 `DR_MOVE` rows on ef038**, and this is the
+op that queues them.
+
+## The wrap split, field by field
+
+`SFXRender.DR_MOVE` reads `code[1]` = source `(rx, ry)`, `code[2]` = size `(rw, rh)`, `code[3]` =
+destination `(x, y)`. Against what the DLL writes, with `rem = arg0 % arg4`:
+
+| | source | size | destination |
+|---|---|---|---|
+| **part A** | `(arg5, arg6)` | `(arg3, rem)` | `(arg1, arg2 + arg4 - rem)` |
+| **part B** | `(arg5, arg6 + rem)` | `(arg3, arg4 - rem)` | `(arg1, arg2)` |
+
+One source band split at `rem` and written back with the halves **swapped vertically** -- a
+**vertical scroll with wraparound, done as a VRAM blit**, which is how PS1 code animates a scrolling
+texture without touching a single UV. Each half is skipped when its height would be zero, so the
+phase can sit at either extreme.
+
+So the seven arguments are **`(scroll, dstX, dstY, width, period, srcX, srcY)`**, and the corpus
+agrees: `arg0` is almost never a constant (it is the animated phase), while `$a1` is
+`640/448/576/704/512/832` -- **the VRAM page columns the W6b texel map is built on** -- and `$a2` is
+`256/384/368/288/320/480`.
+
+Only **two** ops emit this code word: **op 7** (one, unsplit) and **op 144** (two, the split pair).
+
+## The corpus test, and the guess it refuted
+
+A first predicate -- "the destination is a page origin, `x % 64 == 0`" -- **was refuted by 19 real
+sites** (x = 480, 608, 672, 752, 800, 864). A `DR_MOVE` destination is an arbitrary VRAM rectangle,
+not a page origin, and the census's top-six values had made the tighter rule look plausible.
+
+The predicate actually required by the hardware is that the rectangle **fit**: `x + w <= 1024`,
+`y < 512`, `w > 0` -- which links three of the seven arguments.
+
+* **op 144: 167 / 167 (100%)**
+* control (every other op with three consecutive int args): **268 / 583 (46.0%)**
+
+Four candidate predicates all scored 100% on op 144; the one shipped is the one the **mechanism
+requires**, not the one with the widest ratio -- picking that would have been fishing. **This test is
+supporting evidence only.** The decisive evidence is that the managed renderer names the code word
+and every field lines up.
+
+Ships **`medium`**: the managed side names the **primitive**, not the op.
+
+## Coverage
+
+| | after op 127 | after op 144 |
+|---|---|---|
+| named ops | 117 / 216 | **118 / 216** |
+| confidence | high 67 . med 40 . low 10 . unnamed 99 | **high 67 . med 41 . low 10 . unnamed 98** |
+| traffic named | 12,108 / 14,212 (85.2%) | **12,275 / 14,212 (86.4%)** |
+
+Across R4-R13: **79 -> 118 named, 51.8% -> 86.4% of traffic.**

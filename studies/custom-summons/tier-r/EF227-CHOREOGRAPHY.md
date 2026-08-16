@@ -294,7 +294,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 77 | — | unnamed | 1 | tick 197 (`clock >= 65`) | — |
 | op 102 | get_subfile_ptr | medium | 4 | tick 197 (`clock >= 65`) | $a1=0x16; $a1=0x1b; $a1=0x1c |
 | op 117 | subfile_instance_open | medium | 1 | tick 197 (`clock >= 65`) | — |
-| op 144 | — | unnamed | 1 | tick 197 (`clock >= 65`) | $a1=0x340 $a2=0x100 $a3=0x20 |
+| op 144 | vram_scroll_blit | medium | 1 | tick 197 (`clock >= 65`) | $a1=0x340 $a2=0x100 $a3=0x20 |
 | op 155 | Hi_ModifyEffModelRGB | high | 4 | tick 132 | — |
 
 The *earliest* column is the first tick the call can run: the phase's own start plus every `clock >=` condition that **dominates** the call site inside the case. A call with no gate runs on the phase's first tick.
@@ -456,7 +456,7 @@ So **43 of 385** id-3 images have a switch-driven program entry at all. The mult
 | 115 | — | unnamed | `hle_ops.json` |
 | 117 | subfile_instance_open | medium | `hle_ops.json` |
 | 119 | — | unnamed | `hle_ops.json` |
-| 144 | — | unnamed | `hle_ops.json` |
+| 144 | vram_scroll_blit | medium | `hle_ops.json` |
 | 146 | gte_project_vertices | medium | `hle_ops.json` |
 | 149 | Hi_GetSummonBonePos | high | `hle_ops.json` |
 | 155 | Hi_ModifyEffModelRGB | high | `hle_ops.json` |
@@ -466,7 +466,7 @@ So **43 of 385** id-3 images have a switch-driven program entry at all. The mult
 | 182 | — | unnamed | `hle_ops.json` |
 | 206 | Hi_RegisterTexListModel|Hi_RegisterGouEffModel | high | `hle_ops.json` |
 
-A `medium` or `low` name is a *description*, not a fact; the prose above never promotes one. 9 of the 32 ops cited here are unnamed and appear as bare numbers.
+A `medium` or `low` name is a *description*, not a fact; the prose above never promotes one. 8 of the 32 ops cited here are unnamed and appear as bare numbers.
 
 ## 8. What this report still cannot tell you
 
@@ -475,4 +475,4 @@ A `medium` or `low` name is a *description*, not a fact; the prose above never p
 - **The capture cannot say which program drew the creature on a given frame.** The summon slot is one shared slot (R1 finding 1), and the probe logs the slot, not the caller. Where two programs both draw, the attribution here is the model's, not the capture's. A probe row carrying the calling chunk's slot would settle it.
 - **A motion-counter restart is not proof of a `SetMotion` call.** A looping clip wraps on its own; that is why only boundaries whose transition tail actually issues a motion call are scored, and why the value written is checked as well as the frame.
 - **Within a phase, only *gated* calls carry a tick.** A call with no dominating clock condition is placed at the phase's first tick, which is a lower bound, not a schedule.
-- **`medium` and `low` names are descriptions.** 9 of the 32 ops cited are unnamed entirely; a phase's label inherits every bit of that uncertainty.
+- **`medium` and `low` names are descriptions.** 8 of the 32 ops cited are unnamed entirely; a phase's label inherits every bit of that uncertainty.

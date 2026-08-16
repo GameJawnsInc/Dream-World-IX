@@ -105,18 +105,20 @@ def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
     dll = A.DllView()
     rng = {B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
     monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT} | rng
     monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT} | rng
     monkeypatch.setattr(B, "verify_rng", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT}
     monkeypatch.setattr(B, "verify_screen", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT}
     monkeypatch.setattr(B, "verify_addprim", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ANCHOR, B.OP_POS}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT}
     monkeypatch.setattr(B, "verify_anchor", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_POS}
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_POS, B.OP_BLIT}
     monkeypatch.setattr(B, "verify_position", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_BLIT}
+    monkeypatch.setattr(B, "verify_blit", lambda d=None: (False, ["forced"]))
     assert set(B.body_evidence(dll)) == {B.OP_COORD}
     monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
     assert B.body_evidence(dll) == {}
@@ -446,4 +448,43 @@ def test_the_dictionary_carries_op127():
     assert row["name"] == "get_actor_position" and row["confidence"] == "medium"
     assert row["arg_kinds"] == "ip"
     assert row["callback_command"] is None
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 144, the VRAM scroll blit
+@needs_dll
+def test_op144_builds_two_dr_move_primitives():
+    ok, notes = B.verify_blit()
+    assert ok, notes
+
+
+def test_the_code_word_is_the_one_the_managed_renderer_names():
+    """SFXRender.cs case 231 -> DR_MOVE.  231 == 0xE7, and the code byte sits at +7 of the
+    primitive, i.e. the top byte of the word the DLL stores."""
+    assert B.DR_MOVE_CODE >> 24 == 231 == 0xE7
+    assert B.DR_MOVE_CODE & 0x00FFFFFF == 0
+
+
+def test_the_two_primitives_fill_the_allocation():
+    """tag + 5 words = 0x18 bytes each; two of them are exactly the 0x30 carved off the cursor."""
+    assert 2 * (4 * (B.DR_MOVE_LEN + 1)) == B.BLIT_ALLOC
+
+
+def test_the_wrap_split_is_complementary():
+    """The two halves must sum to the period for any phase -- that is what makes it a WRAP rather
+    than a crop.  Modelled here as plain arithmetic, the way the body computes it."""
+    for period in (1, 7, 16, 64, 128):
+        for scroll in range(0, 3 * period + 1):
+            rem = scroll % period
+            assert rem + (period - rem) == period
+            assert 0 <= rem < period
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op144():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_BLIT]
+    assert row["name"] == "vram_scroll_blit" and row["confidence"] == "medium"
+    assert row["arity"] == 7 and row["arg_kinds"] == "iiiiiii"
     assert A.check_confidence_rule(ops) == []

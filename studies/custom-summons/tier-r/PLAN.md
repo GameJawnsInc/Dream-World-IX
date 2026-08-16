@@ -373,3 +373,29 @@ immediate test and it paid out at once.
   does not discriminate -- what carries is the IDENTITY of the two domains, and the gate requires
   that, not smallness. `arg1` is never a constant in 211 sites (an out-parameter on the stack),
   which is why op 128's pointer test could not be reused.
+
+## R13 (op 144) -- * DONE 2026-08-07: THE WRAPPING VRAM SCROLL BLIT
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 9. `body_gates.py` 20/20; 5 more tests (tier-r 216).
+**Named 117 -> 118; traffic 85.2% -> 86.4%. Across R4-R13: 79 -> 118 named, 51.8% -> 86.4%.**
+
+* **op 144 = `vram_scroll_blit`** (167 sites, medium). `fn 0x47b40` carves `0x30` bytes and builds
+  **TWO 6-word primitives** (tag length 5) with code word `0xE7000000` -- and the code is not a
+  guess: **`SFXRender.cs:316` dispatches `case 231` -> `DR_MOVE`** (231 == 0xE7), libgpu's
+  VRAM-to-VRAM block move, **the primitive the s76 probe logs** (U1 counted 641 rows on ef038).
+  **This is the op that queues them.**
+* **THE WRAP SPLIT** (`rem = arg0 % arg4`), matched field-for-field against `SFXRender.DR_MOVE`'s
+  own reader (`code[1]`=src, `code[2]`=size, `code[3]`=dst): part A = src `(arg5,arg6)` size
+  `(arg3,rem)` dst `(arg1, arg2+arg4-rem)`; part B = src `(arg5,arg6+rem)` size `(arg3,arg4-rem)`
+  dst `(arg1,arg2)`. **One band split at the phase and written back with the halves swapped = a
+  VERTICAL SCROLL WITH WRAPAROUND**, the PS1 way to animate a texture with no UV change. Each half
+  is skipped at zero height. Args = **`(scroll, dstX, dstY, width, period, srcX, srcY)`**.
+* Corpus: `arg0` is almost never constant (the animated phase); `$a1` = `640/448/576/704/512/832`
+  = **the VRAM page columns the W6b texel map is built on**; `$a2` = `256/384/368/288/320/480`.
+  Only **two** ops emit the code word: op 7 (one, unsplit) and op 144 (two, the split pair).
+* ** A GUESS REFUTED EN ROUTE:** "the destination is a page origin (`x % 64 == 0`)" was killed by
+  **19 real sites** (x = 480/608/672/752/800/864) -- a `DR_MOVE` destination is an ARBITRARY VRAM
+  rect. The shipped predicate is the one the HARDWARE requires (`x+w <= 1024`, `y < 512`, `w > 0`):
+  **167/167 (100%) vs 268/583 (46.0%)** control. Four candidates all scored 100% on op 144; the one
+  shipped is mechanism-required, not widest-ratio -- **the corpus test is SUPPORTING evidence, the
+  decisive evidence is the managed renderer naming the code word.**

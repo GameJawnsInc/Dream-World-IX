@@ -3427,8 +3427,8 @@
  },
  {
   "op": 144,
-  "name": null,
-  "confidence": null,
+  "name": "vram_scroll_blit",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3444,7 +3444,7 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x11307: arity 7 kinds=iiiiiii returns void; corpus: 167 call sites in 67 images / 59 effects (13 creature-bearing); modal arg-setup 166/167 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 166, 0: 1}; called next to ops 24(x54), 155(x32), 102(x23); $a0 constants: 0(x6); $a1 constants: 640(x32), 448(x27), 576(x24), 704(x24), 512(x14), 832(x14); $a2 constants: 256(x100), 384(x47), 368(x10), 288(x4), 320(x4), 480(x1); $a3 constants: 32(x68), 64(x58), 16(x18), 56(x12), 28(x6), 24(x3); position: {'last-third': 81, 'middle-third': 68, 'first-third': 18}",
+  "evidence": "stub 0x11307: arity 7 kinds=iiiiiii returns void; corpus: 167 call sites in 67 images / 59 effects (13 creature-bearing); modal arg-setup 166/167 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 166, 0: 1}; called next to ops 24(x54), 155(x32), 102(x23); $a0 constants: 0(x6); $a1 constants: 640(x32), 448(x27), 576(x24), 704(x24), 512(x14), 832(x14); $a2 constants: 256(x100), 384(x47), 368(x10), 288(x4), 320(x4), 480(x1); $a3 constants: 32(x68), 64(x58), 16(x18), 56(x12), 28(x6), 24(x3); position: {'last-third': 81, 'middle-third': 68, 'first-third': 18}; handler-body: scroll a VRAM band vertically with wraparound -- two DR_MOVE blits that split the source at (scroll %% period) and write the halves back swapped, so a texture animates without any UV change; fn 0x47b40 carves 0x30 bytes and builds TWO 6-word primitives (tag length 5) whose code word is 0xe7000000 -- and the managed renderer names that code itself: SFXRender.cs case 231 -> DR_MOVE, libgpu's VRAM-to-VRAM block move, the primitive the s76 probe logs (U1 counted 641 rows on ef038). SFXRender.DR_MOVE reads code[1]=src(rx,ry), code[2]=size(rw,rh), code[3]=dst(x,y); matching the DLL's writes with rem = arg0 % arg4 gives part A src(arg5,arg6) size(arg3,rem) dst(arg1,arg2+arg4-rem) and part B src(arg5,arg6+rem) size(arg3,arg4-rem) dst(arg1,arg2) -- one band split at the scroll phase and written back with the halves swapped, each skipped when its height is zero. So the arguments are (scroll, dstX, dstY, width, period, srcX, srcY). Corpus: arg0 is almost never constant (it is the animated phase) while $a1 is 640/448/576/704/512/832, the VRAM page columns the W6b texel map is built on, and $a2 is 256/384/368/288/320/480, all inside VRAM's 512 rows. Only two ops emit this code word: op 7 (one, unsplit) and this (two, the split pair).",
   "call_sites": 167,
   "effects": 59,
   "creature_effects": 13
