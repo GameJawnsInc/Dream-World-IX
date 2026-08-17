@@ -112,6 +112,93 @@ DESCRIPTION = ("open a pooled runtime instance of a sub-file, relocating the sub
                "offset table to absolute PSX addresses; returns the record, or NULL when the pool "
                "is full")
 
+# --- op 144: the wrapping VRAM scroll blit ------------------------------------------------------
+#: ``fn 0x47b40`` carves ``0x30`` bytes off the arena cursor and builds **two 6-word primitives**
+#: (tag length 5) whose code word is ``0xE7000000``.  The managed renderer names that code itself:
+#: ``SFXRender.cs:316`` dispatches **``case 231``** -> ``DR_MOVE`` -- libgpu's **VRAM-to-VRAM block
+#: move**, the very primitive the **s76** probe logs (U1 counted 641 ``DR_MOVE`` rows on ef038).
+#:
+#: ``SFXRender.DR_MOVE`` reads the payload as ``code[1]`` = source ``(rx, ry)``, ``code[2]`` = size
+#: ``(rw, rh)``, ``code[3]`` = destination ``(x, y)``.  Matching that against what the DLL writes,
+#: with ``rem = arg0 % arg4``:
+#:
+#:   * **part A** -- src ``(arg5, arg6)``, size ``(arg3, rem)``, dst ``(arg1, arg2 + arg4 - rem)``
+#:   * **part B** -- src ``(arg5, arg6 + rem)``, size ``(arg3, arg4 - rem)``, dst ``(arg1, arg2)``
+#:
+#: A source band split at ``rem`` and written back with the halves swapped vertically: **a vertical
+#: scroll with wraparound, done as a VRAM blit** -- the PS1 way to animate a scrolling texture
+#: without touching UVs.  Each half is skipped when its height would be zero.
+#:
+#: So the arguments are ``(scroll, dstX, dstY, width, period, srcX, srcY)``, and the corpus agrees:
+#: ``arg0`` is almost never constant (it is the animated phase), while ``$a1`` is
+#: ``640/448/576/704/512/832`` -- **the VRAM page columns the W6b texel map is built on** -- and
+#: ``$a2`` is ``256/384/368/288/320/480``, all inside VRAM's 512 rows.
+#:
+#: Only **two** ops emit this code word: op 7 (one, unsplit) and op 144 (two, the split pair).
+OP_BLIT = 144
+BLIT_FN = 0x47B40
+DR_MOVE_CODE = 0xE7000000     # SFXRender.cs case 231 -> DR_MOVE
+DR_MOVE_LEN = 5               # tag + 5 words = the 0x18-byte primitive
+BLIT_ALLOC = 0x30             # two of them per call
+BLIT_OT_TAIL = 0x3FFC         # spliced into the LAST entry of the OT at sysCtx+0x20
+VRAM_W, VRAM_H, VRAM_PAGE_W = 1024, 512, 64
+NAME_BLIT = "vram_scroll_blit"
+DESCRIPTION_BLIT = ("scroll a VRAM band vertically with wraparound -- two DR_MOVE blits that split "
+                    "the source at (scroll %% period) and write the halves back swapped, so a "
+                    "texture animates without any UV change")
+
+
+def verify_blit(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 144's two DR_MOVE primitives and the wrap split."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_BLIT]) or dll.native_fn[OP_BLIT]
+    good = fn == BLIT_FN
+    ok &= good
+    notes.append("op %d native fn = %#x %s" % (OP_BLIT, fn, "OK" if good else "FAIL"))
+
+    text = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    checks = (
+        ("carves %#x bytes -- two primitives" % BLIT_ALLOC,
+         ("lea", "eax, [r10 + 0x%x]" % BLIT_ALLOC) in text),
+        ("writes the DR_MOVE code word twice",
+         sum(1 for m, o in text if m == "mov" and "0x%x" % DR_MOVE_CODE in o) == 2),
+        ("gives both primitives length %d" % DR_MOVE_LEN,
+         ("mov", "byte ptr [rdi + 3], %d" % DR_MOVE_LEN) in text
+         and ("mov", "byte ptr [rdi + 0x1b], %d" % DR_MOVE_LEN) in text),
+        ("splits the band at scroll %% period (idiv)", ("idiv", "ebp") in text),
+        ("takes the complement period - remainder", ("sub", "ebp, edx") in text),
+        ("skips each half when its height is zero",
+         ("test", "edx, edx") in text and ("test", "ebp, ebp") in text),
+        ("splices into the OT tail %#x" % BLIT_OT_TAIL,
+         any("0x%x" % BLIT_OT_TAIL in o for _m, o in text)),
+    )
+    for label, good2 in checks:
+        ok &= good2
+        notes.append("%s %s" % (label, "OK" if good2 else "FAIL"))
+
+    sig = dll.handler(OP_BLIT)
+    good = sig.arity == 7 and sig.kinds == "iiiiiii"
+    ok &= good
+    notes.append("signature (scroll,dstX,dstY,w,period,srcX,srcY) arity=%d %s"
+                 % (sig.arity, "OK" if good else "FAIL"))
+
+    emitters = []
+    for f in sorted({dll.function_of(b) or b for b, _e, _u in dll._raw}):
+        try:
+            if any(i.mnemonic == "mov" and "0x%x" % DR_MOVE_CODE in i.op_str for i in dll.body(f)):
+                emitters.append(f)
+        except Exception:
+            continue
+    good = BLIT_FN in emitters and len(emitters) <= 3
+    ok &= good
+    notes.append("DR_MOVE is emitted from %d sites, this being one %s"
+                 % (len(emitters), "OK" if good else "FAIL"))
+    return ok, notes
+
+
 # --- op 206: the ABR setter + model registrar (a VARIANT DISPATCHER) ---------------------------
 #: Unlike op 117, this one's identity is stated by the DLL -- twice.  ``fn 0x47290`` asserts the
 #: ``'so'`` magic, optionally ORs the PSX TPAGE **ABR** (semi-transparency) field into every binding,
@@ -148,6 +235,356 @@ INSTANCE_COORD_OFF = 0x22      # where the corpus stores the result, on an op-11
 NAME_COORD = "actor_relative_coord"
 DESCRIPTION_COORD = ("a coordinate component placed relative to an actor: base + "
                      "actor[+0x38] / 6")
+
+
+# --- op 128: the actor anchor point -- and why "multi-command" was never ambiguity --------------
+#: The callback lane REFUSED this op because it reaches **four** commands: ``GET_POSITION(1)``,
+#: ``GET_MATRIX(14)``, ``CHECK_STATUS(20)`` and ``GET_SLAVE(22)``.  Reading the body shows the
+#: refusal rule was the thing at fault, not the op:
+#:
+#: > **The four commands are four routes to ONE answer -- "where is this actor's anchor point?"**
+#:
+#: ``fn 0x450c0`` is a thin forwarder: it resolves the actor through ``fn 0x44a60`` (**the same
+#: index space op 136 uses** -- `<8` party, `8..15` enemy, `0x10`/`0x11` the two special slots) and
+#: TAIL-JUMPS to ``fn 0x44f80``, which hides it from R2's name resolver exactly as op 206's did.
+#: There:
+#:
+#:   * **``GET_SLAVE(22)``** asks whether the unit is attached to another;
+#:   * a slave takes **``GET_MATRIX(14)``** on bone ``byte[actor+0x1a]`` -- a bone's position;
+#:   * an ordinary unit takes **``GET_POSITION(1)``** (``bts ecx, 0x18``);
+#:   * the height comes from ``actor+0x3c``, **halved when the mode argument is 0**;
+#:   * **``CHECK_STATUS(20)``** sub-mode 1 with mask ``0x200000`` -- **``BattleStatus.Float``** --
+#:     takes ``0x80`` back off that height, because a floating unit's reported position is already
+#:     raised and the correction would otherwise double-count it;
+#:   * finally ``word[out+2] -= height``: **``out`` is an i16 x/y/z triple and +2 is Y.**
+#:
+#: So the op answers "where do I aim at this actor" -- body centre at mode 0, a second bone
+#: (``byte[actor+0x2f]``) at mode 1.  305 sites across **223 of 385 images**: nearly every effect
+#: needs it.
+#: **op 127 is the same query WITHOUT the correction**, and the bytes say so: it forwards through
+#: the same actor lookup and tail-jumps to ``fn 0x44e80`` -- the plain fetch that **op 128's own body
+#: calls** before adjusting.  So the two ops are one pair, (position, anchor), and each confirms the
+#: other's reading.  op 127 reaches three commands, op 128 those three plus ``CHECK_STATUS``; both
+#: were refused by the callback lane for exactly that, and both are one question.
+#:
+#: The plain fetch discriminates on ``byte[actor+0x10]``: zero takes ``GET_MATRIX(14)`` on bone
+#: ``byte[actor+0x1a]`` **and then zeroes out.y**, non-zero takes ``GET_POSITION(1)``.
+OP_POS = 127
+POS_FN = 0x44F60              # op 127's forwarder
+NAME_POS = "get_actor_position"
+DESCRIPTION_POS = ("write an actor's position (i16 x/y/z) into out -- its own position, or its "
+                   "bone's when the unit is attached, in which case Y is zeroed")
+
+OP_ANCHOR = 128
+ANCHOR_FN = 0x450C0           # the forwarder
+ANCHOR_BODY = 0x44F80         # its tail-call target -- where the work is
+ANCHOR_PLAIN = 0x44E80        # the un-adjusted position fetch
+ACTOR_LOOKUP = 0x44A60        # shared with op 136 and op 129
+HAS_STATUS_FN = 0x1070        # has_status(actor, mask) -> bool, via CHECK_STATUS sub-mode 1
+ANCHOR_HEIGHT_OFF = 0x3C      # the height field the correction halves
+ANCHOR_OUT_Y = 2              # out is {i16 x, i16 y, i16 z}
+FLOAT_STATUS = 0x200000       # BattleStatus.Float
+FLOAT_ADJUST = 0x80
+#: command code -> the role it plays in the single answer.
+ANCHOR_COMMANDS = {1: "GET_POSITION", 14: "GET_MATRIX", 20: "CHECK_STATUS", 22: "GET_SLAVE"}
+NAME_ANCHOR = "get_actor_anchor"
+DESCRIPTION_ANCHOR = ("write an actor's anchor point (i16 x/y/z) into out -- its position, or its "
+                      "bone's when the unit is a slave, with Y raised by half its height at mode 0 "
+                      "or a second bone at mode 1, less 0x80 when the actor is Floating")
+
+
+def verify_position(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 127 -- and the structural relation that makes it op 128's other half."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_POS]) or dll.native_fn[OP_POS]
+    good = fn == POS_FN
+    ok &= good
+    notes.append("op %d native fn = %#x %s" % (OP_POS, fn, "OK" if good else "FAIL"))
+
+    fwd = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    good = ("call", hex(dll.base + ACTOR_LOOKUP)) in fwd
+    ok &= good
+    notes.append("resolves the actor through %#x, the lookup ops 128/136 share %s"
+                 % (ACTOR_LOOKUP, "OK" if good else "FAIL"))
+    good = ("jmp", hex(dll.base + ANCHOR_PLAIN)) in fwd
+    ok &= good
+    notes.append("tail-jumps to the plain fetch %#x %s"
+                 % (ANCHOR_PLAIN, "OK" if good else "FAIL"))
+
+    # THE PAIR: op 128's body calls the very function op 127 tail-jumps to.
+    body128 = [(i.mnemonic, i.op_str) for i in dll.body(ANCHOR_BODY)]
+    good = ("call", hex(dll.base + ANCHOR_PLAIN)) in body128
+    ok &= good
+    notes.append("op %d's body CALLS %#x, so op %d is op %d plus the anchor correction %s"
+                 % (OP_ANCHOR, ANCHOR_PLAIN, OP_ANCHOR, OP_POS, "OK" if good else "FAIL"))
+
+    # the plain fetch's own two routes
+    plain = [(i.mnemonic, i.op_str) for i in dll.body(ANCHOR_PLAIN)]
+    good = ("bts", "ecx, 0x18") in plain and ("or", "ecx, 0xe000000") in plain
+    ok &= good
+    notes.append("offers GET_POSITION(1) and GET_MATRIX(14) %s" % ("OK" if good else "FAIL"))
+    good = ("or", "ecx, 0x16000000") in plain
+    ok &= good
+    notes.append("gates on GET_SLAVE(22) %s" % ("OK" if good else "FAIL"))
+    good = ("cmp", "byte ptr [rbx + 0x10], sil") in plain
+    ok &= good
+    notes.append("discriminates on byte[actor+0x10] %s" % ("OK" if good else "FAIL"))
+    good = ("mov", "word ptr [rdi + %d], si" % ANCHOR_OUT_Y) in plain
+    ok &= good
+    notes.append("zeroes out.y on the bone route %s" % ("OK" if good else "FAIL"))
+
+    # and it does NOT do the anchor correction -- that is the whole difference
+    good = not any(m == "mov" and o == "edx, 0x%x" % FLOAT_STATUS for m, o in plain)
+    ok &= good
+    notes.append("does NOT apply the Float/height correction (that is op %d's job) %s"
+                 % (OP_ANCHOR, "OK" if good else "FAIL"))
+
+    sig = dll.handler(OP_POS)
+    good = sig.kinds == "ip"
+    ok &= good
+    notes.append("signature (actor, out) = %r %s" % (sig.kinds, "OK" if good else "FAIL"))
+    return ok, notes
+
+
+def verify_anchor(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 128's forwarder, its four commands, and the Float correction."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_ANCHOR]) or dll.native_fn[OP_ANCHOR]
+    good = fn == ANCHOR_FN
+    ok &= good
+    notes.append("op %d native fn = %#x %s" % (OP_ANCHOR, fn, "OK" if good else "FAIL"))
+
+    fwd = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    good = ("call", hex(dll.base + ACTOR_LOOKUP)) in fwd
+    ok &= good
+    notes.append("resolves the actor through %#x, the lookup op 136 shares %s"
+                 % (ACTOR_LOOKUP, "OK" if good else "FAIL"))
+    good = ("jmp", hex(dll.base + ANCHOR_BODY)) in fwd
+    ok &= good
+    notes.append("tail-jumps to %#x (which is what hid it from R2) %s"
+                 % (ANCHOR_BODY, "OK" if good else "FAIL"))
+
+    # every command code the answer is assembled from, as built in the bodies
+    seen = set()
+    for f in (ANCHOR_BODY, ANCHOR_PLAIN, HAS_STATUS_FN):
+        for m, o in ((i.mnemonic, i.op_str) for i in dll.body(f)):
+            mm = re.match(r"^ecx, 0x([0-9a-f]+)000000$", o) if m in ("or", "mov") else None
+            if mm:
+                seen.add(int(mm.group(1), 16))
+            elif (m, o) == ("bts", "ecx, 0x18"):
+                seen.add(1)
+    good = set(ANCHOR_COMMANDS) <= seen
+    ok &= good
+    notes.append("assembles its answer from %s %s"
+                 % (", ".join("%s(%d)" % (ANCHOR_COMMANDS[c], c) for c in sorted(ANCHOR_COMMANDS)),
+                    "OK" if good else "FAIL saw %s" % sorted(seen)))
+
+    body = [(i.mnemonic, i.op_str) for i in dll.body(ANCHOR_BODY)]
+    checks = (
+        ("takes the height from actor+%#x" % ANCHOR_HEIGHT_OFF,
+         ("mov", "edi, dword ptr [rbx + 0x%x]" % ANCHOR_HEIGHT_OFF) in body),
+        ("halves it at mode 0", ("sar", "edi, 1") in body),
+        ("tests %s via %#x" % ("BattleStatus.Float", HAS_STATUS_FN),
+         ("mov", "edx, 0x%x" % FLOAT_STATUS) in body
+         and ("call", hex(dll.base + HAS_STATUS_FN)) in body),
+        ("takes %#x back off when Floating" % FLOAT_ADJUST,
+         ("add", "edi, -0x%x" % FLOAT_ADJUST) in body),
+        ("applies it to out+%d, the Y halfword" % ANCHOR_OUT_Y,
+         ("sub", "word ptr [rsi + %d], di" % ANCHOR_OUT_Y) in body),
+    )
+    for label, good2 in checks:
+        ok &= good2
+        notes.append("%s %s" % (label, "OK" if good2 else "FAIL"))
+
+    # the status helper really is CHECK_STATUS sub-mode 1
+    hs = [(i.mnemonic, i.op_str) for i in dll.body(HAS_STATUS_FN)]
+    good = ("or", "ecx, 0x14000000") in hs and ("lea", "edx, [rbx + 1]") in hs
+    ok &= good
+    notes.append("%#x is has_status() -- CHECK_STATUS sub-mode 1 %s"
+                 % (HAS_STATUS_FN, "OK" if good else "FAIL"))
+
+    sig = dll.handler(OP_ANCHOR)
+    good = sig.kinds == "iip"
+    ok &= good
+    notes.append("signature (actor, mode, out) = %r %s" % (sig.kinds, "OK" if good else "FAIL"))
+    return ok, notes
+
+
+# --- op 143: AddPrim, with an optional blend-mode prefix ----------------------------------------
+#: ``fn 0x3edb0`` is libgpu's **``addPrim``** and op 143 exposes it directly (op 64 reaches the same
+#: function eight times per call).  Two halves:
+#:
+#:   1. **the splice** -- length into the tag's top byte (``shr ecx, 0x18`` ; ``mov [r8+3], cl``),
+#:      then the standard PS1 ordering-table insert, XOR-swapping only the low **24 bits** of
+#:      ``*ot`` and ``prim->tag`` so each word keeps its own top byte;
+#:   2. **the blend prefix** -- unless ``arg3 == 0xFF``, it carves **8 more bytes** off the arena
+#:      cursor, builds a 2-word primitive (length 1) whose payload is
+#:      ``0xE1000200 | ((arg3 & 3) << 5)``, and splices THAT in too.
+#:
+#: ``0xE1`` is the PS1 GPU **GP0 Draw Mode** command: bits 5-6 are the semi-transparency (**ABR**)
+#: mode and bit 9 is dither -- i.e. a ``DR_TPAGE``, the state primitive the s76 probe already logs.
+#: Because ``addPrim`` inserts at the HEAD, the prefix is drawn FIRST: set the blend, then draw.
+#:
+#: ** THIS CORRECTS THE OP 64 READING.**  op 64 passes its ``arg1`` straight into this parameter, so
+#: ``arg1`` is a **BLEND MODE, not an OT depth** -- and its corpus profile fits that far better:
+#: ``1(x254)`` is ABR 1, PS1 **additive** blending, exactly what a VFX flash wants; ``0`` is 50/50,
+#: ``2`` subtractive, and ``255`` means "opaque, emit no draw-mode primitive at all".  There is no
+#: depth argument anywhere: the OT POINTER is the depth, as PS1 code always does it (``&ot[z]``).
+OP_ADDPRIM = 143
+ADDPRIM_LINK_MASK = 0xFFFFFF      # the OT link is 24 bits; the top byte is the length
+ADDPRIM_TAG_SHIFT = 0x18
+DR_TPAGE_BASE = 0xE1000200        # GP0(E1h) Draw Mode + dither (bit 9)
+DR_TPAGE_ABR_SHIFT = 5            # bits 5-6 = semi-transparency mode
+DR_TPAGE_BYTES = 8                # a 2-word primitive: tag + one payload word
+BLEND_NONE = 0xFF                 # arg3 == 0xff -> opaque, no draw-mode primitive
+NAME_ADDPRIM = "add_prim_blended"
+DESCRIPTION_ADDPRIM = ("link a primitive into the ordering table (libgpu addPrim: length into the "
+                       "tag's top byte, 24-bit XOR splice) and, unless arg3 == 0xff, prepend an "
+                       "8-byte DR_TPAGE draw-mode primitive setting the PS1 semi-transparency mode "
+                       "to arg3 & 3")
+
+
+def verify_addprim(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive both halves of op 143 -- the OT splice and the DR_TPAGE blend prefix."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_ADDPRIM]) or dll.native_fn[OP_ADDPRIM]
+    good = fn == ADDPRIM_FN
+    ok &= good
+    notes.append("op %d native fn = %#x (the same function op 64 calls) %s"
+                 % (OP_ADDPRIM, fn, "OK" if good else "FAIL"))
+
+    text = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    checks = (
+        ("takes the length from the tag's top byte",
+         ("shr", "ecx, 0x%x" % ADDPRIM_TAG_SHIFT) in text and ("mov", "byte ptr [r8 + 3], cl") in text),
+        ("splices through a %d-bit OT link" % ADDPRIM_LINK_MASK.bit_length(),
+         ("and", "eax, 0x%x" % ADDPRIM_LINK_MASK) in text),
+        ("skips the blend prefix when arg3 == %#x" % BLEND_NONE,
+         ("cmp", "ebx, 0x%x" % BLEND_NONE) in text),
+        ("carves %d more bytes off the arena cursor" % DR_TPAGE_BYTES,
+         ("lea", "eax, [rcx + %d]" % DR_TPAGE_BYTES) in text),
+        ("builds a DR_TPAGE %#x | ((arg3 & 3) << %d)" % (DR_TPAGE_BASE, DR_TPAGE_ABR_SHIFT),
+         ("or", "ebx, 0x%x" % DR_TPAGE_BASE) in text and ("and", "ebx, 3") in text
+         and ("shl", "ebx, %d" % DR_TPAGE_ABR_SHIFT) in text),
+        ("gives the prefix length 1", ("mov", "byte ptr [rdx + 3], 1") in text),
+    )
+    for label, good2 in checks:
+        ok &= good2
+        notes.append("%s %s" % (label, "OK" if good2 else "FAIL"))
+
+    sig = dll.handler(OP_ADDPRIM)
+    good = sig.kinds == "ippi"
+    ok &= good
+    notes.append("signature (tag, ot, prim, blend) = %r %s" % (sig.kinds, "OK" if good else "FAIL"))
+
+    # op 64 hands its arg1 to THIS parameter -- which is what makes it a blend mode, not a depth.
+    s64 = [(i.mnemonic, i.op_str) for i in dll.body(SCREEN_FN)]
+    good = ("mov", "r9d, esi") in s64
+    ok &= good
+    notes.append("op 64 passes its arg1 into this blend parameter %s" % ("OK" if good else "FAIL"))
+    return ok, notes
+
+
+# --- op 64: the full-screen colour fill ---------------------------------------------------------
+#: ``fn 0x3f180`` carves a 0x80-byte block off the arena cursor at ``sysCtx+0x24`` and fills it with
+#: **eight 0x10-byte PS1 ``TILE`` primitives** -- ``{u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h}`` --
+#: then hands each to ``fn 0x3edb0``, which is libgpu's **``AddPrim``**: it puts the length in the
+#: tag's top byte and XOR-splices the primitive into the ordering table through a 24-bit link
+#: (``and 0xffffff``), the standard PS1 OT insert.  ``op 143`` exposes that function directly.
+#:
+#: The eight tiles are a **4x2 grid of 80x110** -- and ``4*80 = 320``, ``2*110 = 220``, the PS1
+#: screen (this project already pins ``FieldMap.PsxScreenHeightNative = 220``).  So the op paints
+#: the WHOLE SCREEN one flat colour.
+#:
+#: ``arg1`` is the **BLEND MODE** (corrected in the op 143 rung -- it was first read here as an OT
+#: depth).  It does double duty: ``== 0xFF`` selects the opaque rectangle code ``0x60`` while
+#: anything else selects ``0x62``, the semi-transparent twin (bit 1 is the PS1 rectangle ABE flag);
+#: and it is handed to :data:`ADDPRIM_FN`'s fourth parameter, which turns ``arg1 & 3`` into a
+#: ``DR_TPAGE`` semi-transparency mode (or emits nothing at ``0xFF``).  The corpus fits a blend mode
+#: far better than a depth: ``1(x254)`` is ABR 1, PS1 **additive** blending -- what a VFX flash
+#: wants -- with ``0`` 50/50, ``2`` subtractive and ``255`` opaque.  There is no depth argument at
+#: all; the OT POINTER is the depth, as PS1 code always does it (``&ot[z]``).
+OP_SCREEN = 64
+SCREEN_FN = 0x3F180
+ADDPRIM_FN = 0x3EDB0          # libgpu AddPrim; op 143's own native function
+ADDPRIM_TAG = 0x3000000       # tag length 3 -> a 4-word TILE
+TILE_COUNT = 8
+TILE_W, TILE_H = 0x50, 0x6E   # 80 x 110
+TILE_COLS, TILE_ROWS = 4, 2   # 4*80 = 320, 2*110 = 220 -- the PS1 screen
+TILE_WH_WORD = 0x6E0050       # the single dword store that sets both
+CODE_RECT = 0x60              # PS1 monochrome variable-size rectangle
+CODE_ABE = 0x02               # + semi-transparency
+OPAQUE_SENTINEL = 0xFF        # arg1 == 0xff -> opaque, and AddPrim special-cases it too
+ARENA_BUMP = 0x80             # bytes carved off sysCtx+0x24 per call
+NAME_SCREEN = "draw_fullscreen_fill"
+DESCRIPTION_SCREEN = ("fill the whole 320x220 screen with a flat RGB colour -- eight TILE "
+                      "primitives in a 4x2 grid of 80x110, added to the ordering table arg0; "
+                      "opaque when the blend mode arg1 == 0xff, else semi-transparent at ABR "
+                      "arg1 & 3")
+
+
+def verify_screen(dll: Optional[A.DllView] = None) -> Tuple[bool, List[str]]:
+    """Re-derive op 64's tile geometry, blend discriminator and AddPrim hand-off."""
+    dll = dll or A.DllView()
+    notes: List[str] = []
+    ok = True
+
+    fn = dll.function_of(dll.native_fn[OP_SCREEN]) or dll.native_fn[OP_SCREEN]
+    good = fn == SCREEN_FN
+    ok &= good
+    notes.append("op %d native fn = %#x %s" % (OP_SCREEN, fn, "OK" if good else "FAIL"))
+
+    text = [(i.mnemonic, i.op_str) for i in dll.body(fn)]
+    checks = (
+        ("carves %#x bytes off the arena cursor" % ARENA_BUMP,
+         ("lea", "eax, [r10 + 0x%x]" % ARENA_BUMP) in text),
+        ("writes w/h as one dword %#x (%d x %d)" % (TILE_WH_WORD, TILE_W, TILE_H),
+         ("mov", "dword ptr [rbx + 8], 0x%x" % TILE_WH_WORD) in text),
+        ("x stride %d: (i & 3) * 5 << 4" % TILE_W,
+         ("and", "cx, 3") in text and ("shl", "cx, 4") in text),
+        ("y stride %d: (i >> 2) * 0x%x" % (TILE_H, TILE_H),
+         ("imul", "ax, ax, 0x%x" % TILE_H) in text),
+        ("builds the rectangle code %#x | %#x" % (CODE_RECT, CODE_ABE),
+         ("or", "r14b, 0x%x" % CODE_RECT) in text and ("mov", "r14d, %d" % CODE_ABE) in text),
+        ("blend discriminator arg1 == %#x" % OPAQUE_SENTINEL,
+         ("cmp", "esi, 0x%x" % OPAQUE_SENTINEL) in text),
+        ("loops exactly %d times" % TILE_COUNT, ("cmp", "edi, %d" % TILE_COUNT) in text),
+        ("hands each tile to AddPrim %#x with tag %#x" % (ADDPRIM_FN, ADDPRIM_TAG),
+         ("call", hex(dll.base + ADDPRIM_FN)) in text
+         and ("mov", "ecx, 0x%x" % ADDPRIM_TAG) in text),
+    )
+    for label, good2 in checks:
+        ok &= good2
+        notes.append("%s %s" % (label, "OK" if good2 else "FAIL"))
+
+    good = TILE_COLS * TILE_W == 320 and TILE_ROWS * TILE_H == 220
+    ok &= good
+    notes.append("the grid tiles the PS1 screen: %d*%d = %d wide, %d*%d = %d high %s"
+                 % (TILE_COLS, TILE_W, TILE_COLS * TILE_W, TILE_ROWS, TILE_H,
+                    TILE_ROWS * TILE_H, "OK" if good else "FAIL"))
+
+    # AddPrim really is one: the 24-bit XOR splice into the ordering table.
+    ap = [(i.mnemonic, i.op_str) for i in dll.body(ADDPRIM_FN)]
+    good = ("and", "eax, 0xffffff") in ap and ("shr", "ecx, 0x18") in ap
+    ok &= good
+    notes.append("%#x splices a 24-bit OT link and puts the length in the tag %s"
+                 % (ADDPRIM_FN, "OK" if good else "FAIL"))
+
+    sig = dll.handler(OP_SCREEN)
+    good = sig.arity == 5 and sig.stack_args == (4,)
+    ok &= good
+    notes.append("the stub reads FIVE arguments, the last off the MIPS stack (arity=%d stacked=%s) %s"
+                 % (sig.arity, sig.stack_args, "OK" if good else "FAIL"))
+    return ok, notes
 
 
 # --- ops 48 / 49 / 50: the RNG family -----------------------------------------------------------
@@ -511,6 +948,117 @@ def body_evidence(dll: Optional[A.DllView] = None) -> Dict[int, dict]:
                             ABR_MASK, ABR_SHIFT, SO_TABLE_OFF, SO_LEN_OFF, SO_TABLE_OFF,
                             TEXLIST_FN, GOURAUD_FN,
                             " (%s)" % src[0] if src else "")),
+        }
+
+    ok_blit, _n8 = verify_blit(dll)
+    if ok_blit:
+        out[OP_BLIT] = {
+            "name": NAME_BLIT,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x carves %#x bytes and builds TWO 6-word primitives (tag "
+                         "length %d) whose code word is %#x -- and the managed renderer names that "
+                         "code itself: SFXRender.cs case 231 -> DR_MOVE, libgpu's VRAM-to-VRAM "
+                         "block move, the primitive the s76 probe logs (U1 counted 641 rows on "
+                         "ef038). SFXRender.DR_MOVE reads code[1]=src(rx,ry), code[2]=size(rw,rh), "
+                         "code[3]=dst(x,y); matching the DLL's writes with rem = arg0 %% arg4 gives "
+                         "part A src(arg5,arg6) size(arg3,rem) dst(arg1,arg2+arg4-rem) and part B "
+                         "src(arg5,arg6+rem) size(arg3,arg4-rem) dst(arg1,arg2) -- one band split "
+                         "at the scroll phase and written back with the halves swapped, each "
+                         "skipped when its height is zero. So the arguments are (scroll, dstX, "
+                         "dstY, width, period, srcX, srcY). Corpus: arg0 is almost never constant "
+                         "(it is the animated phase) while $a1 is 640/448/576/704/512/832, the "
+                         "VRAM page columns the W6b texel map is built on, and $a2 is "
+                         "256/384/368/288/320/480, all inside VRAM's %d rows. Only two ops emit "
+                         "this code word: op 7 (one, unsplit) and this (two, the split pair)."
+                         % (BODY_MARKER, DESCRIPTION_BLIT, BLIT_FN, BLIT_ALLOC, DR_MOVE_LEN,
+                            DR_MOVE_CODE, VRAM_H)),
+        }
+
+    ok_pos, _n7 = verify_position(dll)
+    if ok_pos:
+        out[OP_POS] = {
+            "name": NAME_POS,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x resolves the actor through %#x and TAIL-JUMPS to %#x, the "
+                         "plain fetch -- which OP %d'S OWN BODY CALLS before adjusting, so the two "
+                         "are one pair: op %d is the position, op %d is that position plus the "
+                         "height/Float anchor correction. Each confirms the other. The fetch gates "
+                         "on GET_SLAVE(22) and discriminates on byte[actor+0x10]: zero takes "
+                         "GET_MATRIX(14) on bone byte[actor+0x1a] and then ZEROES out.y, non-zero "
+                         "takes GET_POSITION(1). Refused by the callback lane for reaching three "
+                         "commands -- again three routes to one answer. Corpus: $a0 is only ever "
+                         "{0,16}, the actor indices ops 128/136 use; arg1 is never a constant, as "
+                         "an out-parameter written on the stack should not be."
+                         % (BODY_MARKER, DESCRIPTION_POS, POS_FN, ACTOR_LOOKUP, ANCHOR_PLAIN,
+                            OP_ANCHOR, OP_POS, OP_ANCHOR)),
+        }
+
+    ok_anchor, _n6 = verify_anchor(dll)
+    if ok_anchor:
+        out[OP_ANCHOR] = {
+            "name": NAME_ANCHOR,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x resolves the actor through %#x (the index space op 136 "
+                         "shares) and TAIL-JUMPS to %#x, which is what hid it from R2. THE "
+                         "CALLBACK LANE REFUSED THIS OP for reaching four commands -- but they are "
+                         "four routes to ONE answer: GET_SLAVE(22) asks whether the unit is "
+                         "attached, a slave takes GET_MATRIX(14) on bone byte[actor+0x1a] while an "
+                         "ordinary unit takes GET_POSITION(1), the height comes from actor+%#x "
+                         "halved at mode 0, and CHECK_STATUS(20) sub-mode 1 with mask %#x -- "
+                         "BattleStatus.Float -- takes %#x back off it because a floating unit's "
+                         "reported position is already raised. Then word[out+%d] -= height, so out "
+                         "is an i16 x/y/z triple and +%d is Y. Corpus: $a0 is only {0,16} (op 136's "
+                         "actor indices), $a1 only {0 x289, 1 x15}, and every $a2 constant is a PSX "
+                         "RAM pointer -- an out-parameter. 305 sites across 223 of 385 images."
+                         % (BODY_MARKER, DESCRIPTION_ANCHOR, ANCHOR_FN, ACTOR_LOOKUP, ANCHOR_BODY,
+                            ANCHOR_HEIGHT_OFF, FLOAT_STATUS, FLOAT_ADJUST, ANCHOR_OUT_Y,
+                            ANCHOR_OUT_Y)),
+        }
+
+    ok_ap, _n5 = verify_addprim(dll)
+    if ok_ap:
+        out[OP_ADDPRIM] = {
+            "name": NAME_ADDPRIM,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x is libgpu addPrim -- length from the tag's top byte into "
+                         "prim->tag[3], then the standard PS1 ordering-table insert XOR-swapping "
+                         "only the low 24 bits so each word keeps its own top byte -- and unless "
+                         "arg3 == %#x it carves %d more bytes off the arena cursor for a 2-word "
+                         "primitive whose payload is %#x | ((arg3 & 3) << %d): GP0(E1h) Draw Mode, "
+                         "bits 5-6 the ABR semi-transparency mode, bit 9 dither, i.e. a DR_TPAGE. "
+                         "addPrim inserts at the HEAD, so the prefix draws FIRST -- set the blend, "
+                         "then draw. Corpus: all 9 $a0 constants are primitive TAGS (low 24 bits "
+                         "zero, length 4 or 8) against 0.9%% of every other int-arg0 op -- a ~90x "
+                         "separation. THIS RUNG CORRECTED OP 64: it passes its arg1 into this "
+                         "blend parameter, so that argument is a blend mode, NOT an OT depth."
+                         % (BODY_MARKER, DESCRIPTION_ADDPRIM, ADDPRIM_FN, BLEND_NONE,
+                            DR_TPAGE_BYTES, DR_TPAGE_BASE, DR_TPAGE_ABR_SHIFT)),
+        }
+
+    ok_screen, _n4 = verify_screen(dll)
+    if ok_screen:
+        out[OP_SCREEN] = {
+            "name": NAME_SCREEN,
+            "confidence": "medium",
+            "evidence": ("%s %s; fn %#x carves %#x bytes off the arena cursor and builds %d PS1 "
+                         "TILE primitives {u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h} in a %dx%d "
+                         "grid of %dx%d -- %d x %d, the PS1 screen -- colouring each (arg2,arg3,"
+                         "arg4) and coding it %#x opaque when arg1 == %#x else %#x (the rectangle "
+                         "ABE bit), then handing it to %#x, libgpu AddPrim (24-bit OT XOR-splice, "
+                         "length in the tag's top byte; op 143's own native fn). THE STUB READS "
+                         "FIVE ARGUMENTS -- the fifth off the MIPS stack at $sp+0x10 -- which R2 "
+                         "undercounted at 4; M3-opcode-table.json, derived independently from the "
+                         "x86 build's [ebp+N] frame, says 5. Corpus: $a1 is only ever "
+                         "{0,1,2,255} (a BLEND MODE -- ABR 1, additive, dominates at 254/366 -- "
+                         "plus the 0xff opaque case AddPrim itself "
+                         "special-cases as 'no draw-mode primitive') and every $a2/$a3 constant is "
+                         "a colour byte <= 255; a "
+                         "real call site builds the three channels as three SHIFTS of one animated "
+                         "scalar (r=v>>4, g=v>>3, b=v>>2), which coordinates could not be."
+                         % (BODY_MARKER, DESCRIPTION_SCREEN, SCREEN_FN, ARENA_BUMP, TILE_COUNT,
+                            TILE_COLS, TILE_ROWS, TILE_W, TILE_H, TILE_COLS * TILE_W,
+                            TILE_ROWS * TILE_H, CODE_RECT, OPAQUE_SENTINEL, CODE_RECT | CODE_ABE,
+                            ADDPRIM_FN)),
         }
 
     ok_rng, _n3 = verify_rng(dll)

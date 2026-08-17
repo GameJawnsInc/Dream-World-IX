@@ -1494,14 +1494,14 @@
  },
  {
   "op": 64,
-  "name": null,
-  "confidence": null,
+  "name": "draw_fullscreen_fill",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
   "corpus_support": "arity-mode",
-  "arity": 4,
-  "arg_kinds": "piii",
+  "arity": 5,
+  "arg_kinds": "piiii",
   "returns": "void",
   "native_fn": "0x3f180",
   "native_fn_confirmed_by_stub": true,
@@ -1511,7 +1511,7 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x1007f: arity 4 kinds=piii returns void; corpus: 366 call sites in 103 images / 93 effects (24 creature-bearing); modal arg-setup 349/366 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 349, 0: 8, 1: 9}; called next to ops 102(x73), 117(x58), 14(x50); $a1 constants: 1(x254), 2(x72), 255(x13), 0(x4); $a2 constants: 255(x56), 0(x43), 128(x33), 64(x18), 32(x12), 16(x7); $a3 constants: 255(x60), 128(x41), 0(x37), 64(x28), 100(x9), 32(x7); position: {'last-third': 171, 'middle-third': 143, 'first-third': 52}",
+  "evidence": "stub 0x1007f: arity 5 kinds=piiii returns void; corpus: 366 call sites in 103 images / 93 effects (24 creature-bearing); modal arg-setup 349/366 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 349, 0: 8, 1: 9}; called next to ops 102(x73), 117(x58), 14(x50); $a1 constants: 1(x254), 2(x72), 255(x13), 0(x4); $a2 constants: 255(x56), 0(x43), 128(x33), 64(x18), 32(x12), 16(x7); $a3 constants: 255(x60), 128(x41), 0(x37), 64(x28), 100(x9), 32(x7); position: {'last-third': 171, 'middle-third': 143, 'first-third': 52}; handler-body: fill the whole 320x220 screen with a flat RGB colour -- eight TILE primitives in a 4x2 grid of 80x110, added to the ordering table arg0; opaque when the blend mode arg1 == 0xff, else semi-transparent at ABR arg1 & 3; fn 0x3f180 carves 0x80 bytes off the arena cursor and builds 8 PS1 TILE primitives {u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h} in a 4x2 grid of 80x110 -- 320 x 220, the PS1 screen -- colouring each (arg2,arg3,arg4) and coding it 0x60 opaque when arg1 == 0xff else 0x62 (the rectangle ABE bit), then handing it to 0x3edb0, libgpu AddPrim (24-bit OT XOR-splice, length in the tag's top byte; op 143's own native fn). THE STUB READS FIVE ARGUMENTS -- the fifth off the MIPS stack at $sp+0x10 -- which R2 undercounted at 4; M3-opcode-table.json, derived independently from the x86 build's [ebp+N] frame, says 5. Corpus: $a1 is only ever {0,1,2,255} (a BLEND MODE -- ABR 1, additive, dominates at 254/366 -- plus the 0xff opaque case AddPrim itself special-cases as 'no draw-mode primitive') and every $a2/$a3 constant is a colour byte <= 255; a real call site builds the three channels as three SHIFTS of one animated scalar (r=v>>4, g=v>>3, b=v>>2), which coordinates could not be.",
   "call_sites": 366,
   "effects": 93,
   "creature_effects": 24
@@ -1670,8 +1670,8 @@
   "callback_code": null,
   "callback_submode": null,
   "corpus_support": "arity-mode",
-  "arity": 4,
-  "arg_kinds": "ppii",
+  "arity": 5,
+  "arg_kinds": "ppiii",
   "returns": "void",
   "native_fn": "0x40f90",
   "native_fn_confirmed_by_stub": true,
@@ -1690,7 +1690,7 @@
    "gteVertexBank",
    "psxBankTable"
   ],
-  "evidence": "stub 0x105a1: arity 4 kinds=ppii returns void; fn 0x40f90 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 4 call sites in 4 images / 4 effects (0 creature-bearing); modal arg-setup 4/4 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 4}; called next to ops 102(x7), 146(x1); $a2 constants: 0(x1); $a3 constants: 1(x3), 255(x1); position: {'middle-third': 3, 'last-third': 1}",
+  "evidence": "stub 0x105a1: arity 5 kinds=ppiii returns void; fn 0x40f90 directly references gteRotationMatrix, gteTranslation, gteVertexBank; corpus: 4 call sites in 4 images / 4 effects (0 creature-bearing); modal arg-setup 4/4 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 4}; called next to ops 102(x7), 146(x1); $a2 constants: 0(x1); $a3 constants: 1(x3), 255(x1); position: {'middle-third': 3, 'last-third': 1}",
   "call_sites": 4,
   "effects": 4,
   "creature_effects": 0
@@ -3022,8 +3022,8 @@
  },
  {
   "op": 127,
-  "name": null,
-  "confidence": null,
+  "name": "get_actor_position",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3038,15 +3038,15 @@
    "vramUploadCallback",
    "psxBankTable"
   ],
-  "evidence": "stub 0x10fe3: arity 2 kinds=ip returns void; corpus: 211 call sites in 162 images / 162 effects (8 creature-bearing); modal arg-setup 208/211 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 208, 3: 1, 0: 1, 1: 1}; called next to ops 102(x91), 128(x67), 131(x32); $a0 constants: 0(x118), 16(x58); $a2 (BEYOND the arity -- leftovers, not arguments): 1(x1); position: {'first-third': 106, 'last-third': 43, 'middle-third': 62}",
+  "evidence": "stub 0x10fe3: arity 2 kinds=ip returns void; corpus: 211 call sites in 162 images / 162 effects (8 creature-bearing); modal arg-setup 208/211 sites = 2 vs the stub's 2 register args AGREES; full histogram {2: 208, 3: 1, 0: 1, 1: 1}; called next to ops 102(x91), 128(x67), 131(x32); $a0 constants: 0(x118), 16(x58); $a2 (BEYOND the arity -- leftovers, not arguments): 1(x1); position: {'first-third': 106, 'last-third': 43, 'middle-third': 62}; handler-body: write an actor's position (i16 x/y/z) into out -- its own position, or its bone's when the unit is attached, in which case Y is zeroed; fn 0x44f60 resolves the actor through 0x44a60 and TAIL-JUMPS to 0x44e80, the plain fetch -- which OP 128'S OWN BODY CALLS before adjusting, so the two are one pair: op 127 is the position, op 128 is that position plus the height/Float anchor correction. Each confirms the other. The fetch gates on GET_SLAVE(22) and discriminates on byte[actor+0x10]: zero takes GET_MATRIX(14) on bone byte[actor+0x1a] and then ZEROES out.y, non-zero takes GET_POSITION(1). Refused by the callback lane for reaching three commands -- again three routes to one answer. Corpus: $a0 is only ever {0,16}, the actor indices ops 128/136 use; arg1 is never a constant, as an out-parameter written on the stack should not be.",
   "call_sites": 211,
   "effects": 162,
   "creature_effects": 8
  },
  {
   "op": 128,
-  "name": null,
-  "confidence": null,
+  "name": "get_actor_anchor",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3061,7 +3061,7 @@
    "vramUploadCallback",
    "psxBankTable"
   ],
-  "evidence": "stub 0x1100c: arity 3 kinds=iip returns void; corpus: 305 call sites in 223 images / 223 effects (9 creature-bearing); modal arg-setup 301/305 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 301, 4: 4}; called next to ops 102(x126), 127(x67), 28(x27); $a0 constants: 0(x209), 16(x74); $a1 constants: 0(x289), 1(x15); $a2 constants: 2149486428(x3), 2149492500(x1), 2149484900(x1), 2149484948(x1), 2149484932(x1), 2149492552(x1); $a3 (BEYOND the arity -- leftovers, not arguments): 2149515264(x2); position: {'first-third': 183, 'last-third': 48, 'middle-third': 74}",
+  "evidence": "stub 0x1100c: arity 3 kinds=iip returns void; corpus: 305 call sites in 223 images / 223 effects (9 creature-bearing); modal arg-setup 301/305 sites = 3 vs the stub's 3 register args AGREES; full histogram {3: 301, 4: 4}; called next to ops 102(x126), 127(x67), 28(x27); $a0 constants: 0(x209), 16(x74); $a1 constants: 0(x289), 1(x15); $a2 constants: 2149486428(x3), 2149492500(x1), 2149484900(x1), 2149484948(x1), 2149484932(x1), 2149492552(x1); $a3 (BEYOND the arity -- leftovers, not arguments): 2149515264(x2); position: {'first-third': 183, 'last-third': 48, 'middle-third': 74}; handler-body: write an actor's anchor point (i16 x/y/z) into out -- its position, or its bone's when the unit is a slave, with Y raised by half its height at mode 0 or a second bone at mode 1, less 0x80 when the actor is Floating; fn 0x450c0 resolves the actor through 0x44a60 (the index space op 136 shares) and TAIL-JUMPS to 0x44f80, which is what hid it from R2. THE CALLBACK LANE REFUSED THIS OP for reaching four commands -- but they are four routes to ONE answer: GET_SLAVE(22) asks whether the unit is attached, a slave takes GET_MATRIX(14) on bone byte[actor+0x1a] while an ordinary unit takes GET_POSITION(1), the height comes from actor+0x3c halved at mode 0, and CHECK_STATUS(20) sub-mode 1 with mask 0x200000 -- BattleStatus.Float -- takes 0x80 back off it because a floating unit's reported position is already raised. Then word[out+2] -= height, so out is an i16 x/y/z triple and +2 is Y. Corpus: $a0 is only {0,16} (op 136's actor indices), $a1 only {0 x289, 1 x15}, and every $a2 constant is a PSX RAM pointer -- an out-parameter. 305 sites across 223 of 385 images.",
   "call_sites": 305,
   "effects": 223,
   "creature_effects": 9
@@ -3403,8 +3403,8 @@
  },
  {
   "op": 143,
-  "name": null,
-  "confidence": null,
+  "name": "add_prim_blended",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3420,15 +3420,15 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x112a9: arity 4 kinds=ippi returns void; corpus: 9 call sites in 7 images / 6 effects (2 creature-bearing); modal arg-setup 9/9 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 9}; called next to ops 28(x4), 5(x3), 15(x1); $a0 constants: 134217728(x5), 67108864(x4); $a3 constants: 2(x2); position: {'first-third': 7, 'last-third': 2}",
+  "evidence": "stub 0x112a9: arity 4 kinds=ippi returns void; corpus: 9 call sites in 7 images / 6 effects (2 creature-bearing); modal arg-setup 9/9 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 9}; called next to ops 28(x4), 5(x3), 15(x1); $a0 constants: 134217728(x5), 67108864(x4); $a3 constants: 2(x2); position: {'first-third': 7, 'last-third': 2}; handler-body: link a primitive into the ordering table (libgpu addPrim: length into the tag's top byte, 24-bit XOR splice) and, unless arg3 == 0xff, prepend an 8-byte DR_TPAGE draw-mode primitive setting the PS1 semi-transparency mode to arg3 & 3; fn 0x3edb0 is libgpu addPrim -- length from the tag's top byte into prim->tag[3], then the standard PS1 ordering-table insert XOR-swapping only the low 24 bits so each word keeps its own top byte -- and unless arg3 == 0xff it carves 8 more bytes off the arena cursor for a 2-word primitive whose payload is 0xe1000200 | ((arg3 & 3) << 5): GP0(E1h) Draw Mode, bits 5-6 the ABR semi-transparency mode, bit 9 dither, i.e. a DR_TPAGE. addPrim inserts at the HEAD, so the prefix draws FIRST -- set the blend, then draw. Corpus: all 9 $a0 constants are primitive TAGS (low 24 bits zero, length 4 or 8) against 0.9% of every other int-arg0 op -- a ~90x separation. THIS RUNG CORRECTED OP 64: it passes its arg1 into this blend parameter, so that argument is a blend mode, NOT an OT depth.",
   "call_sites": 9,
   "effects": 6,
   "creature_effects": 2
  },
  {
   "op": 144,
-  "name": null,
-  "confidence": null,
+  "name": "vram_scroll_blit",
+  "confidence": "medium",
   "callback_command": null,
   "callback_code": null,
   "callback_submode": null,
@@ -3444,7 +3444,7 @@
   "touches_deep": [
    "psxBankTable"
   ],
-  "evidence": "stub 0x11307: arity 7 kinds=iiiiiii returns void; corpus: 167 call sites in 67 images / 59 effects (13 creature-bearing); modal arg-setup 166/167 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 166, 0: 1}; called next to ops 24(x54), 155(x32), 102(x23); $a0 constants: 0(x6); $a1 constants: 640(x32), 448(x27), 576(x24), 704(x24), 512(x14), 832(x14); $a2 constants: 256(x100), 384(x47), 368(x10), 288(x4), 320(x4), 480(x1); $a3 constants: 32(x68), 64(x58), 16(x18), 56(x12), 28(x6), 24(x3); position: {'last-third': 81, 'middle-third': 68, 'first-third': 18}",
+  "evidence": "stub 0x11307: arity 7 kinds=iiiiiii returns void; corpus: 167 call sites in 67 images / 59 effects (13 creature-bearing); modal arg-setup 166/167 sites = 4 vs the stub's 4 register args AGREES; full histogram {4: 166, 0: 1}; called next to ops 24(x54), 155(x32), 102(x23); $a0 constants: 0(x6); $a1 constants: 640(x32), 448(x27), 576(x24), 704(x24), 512(x14), 832(x14); $a2 constants: 256(x100), 384(x47), 368(x10), 288(x4), 320(x4), 480(x1); $a3 constants: 32(x68), 64(x58), 16(x18), 56(x12), 28(x6), 24(x3); position: {'last-third': 81, 'middle-third': 68, 'first-third': 18}; handler-body: scroll a VRAM band vertically with wraparound -- two DR_MOVE blits that split the source at (scroll %% period) and write the halves back swapped, so a texture animates without any UV change; fn 0x47b40 carves 0x30 bytes and builds TWO 6-word primitives (tag length 5) whose code word is 0xe7000000 -- and the managed renderer names that code itself: SFXRender.cs case 231 -> DR_MOVE, libgpu's VRAM-to-VRAM block move, the primitive the s76 probe logs (U1 counted 641 rows on ef038). SFXRender.DR_MOVE reads code[1]=src(rx,ry), code[2]=size(rw,rh), code[3]=dst(x,y); matching the DLL's writes with rem = arg0 % arg4 gives part A src(arg5,arg6) size(arg3,rem) dst(arg1,arg2+arg4-rem) and part B src(arg5,arg6+rem) size(arg3,arg4-rem) dst(arg1,arg2) -- one band split at the scroll phase and written back with the halves swapped, each skipped when its height is zero. So the arguments are (scroll, dstX, dstY, width, period, srcX, srcY). Corpus: arg0 is almost never constant (it is the animated phase) while $a1 is 640/448/576/704/512/832, the VRAM page columns the W6b texel map is built on, and $a2 is 256/384/368/288/320/480, all inside VRAM's 512 rows. Only two ops emit this code word: op 7 (one, unsplit) and this (two, the split pair).",
   "call_sites": 167,
   "effects": 59,
   "creature_effects": 13

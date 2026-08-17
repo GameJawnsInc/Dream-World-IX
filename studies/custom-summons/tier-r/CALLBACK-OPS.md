@@ -656,3 +656,407 @@ all still pass.
 | call-site traffic named | 10,310 / 14,212 (72.5%) | **11,217 / 14,212 (78.9%)** |
 
 Across R4–R8: **79 → 113 named, 51.8% → 78.9% of traffic.**
+
+---
+
+# ADDENDUM 5 -- op 64: the full-screen colour fill (and a second decoder blind spot)
+
+**Status: * DONE. `body_gates.py` 12/12, 6 more tests (tier-r 197). Named 113 -> 114;
+traffic 78.9% -> 81.5%.**
+
+## What it does
+
+`fn 0x3f180` carves `0x80` bytes off the arena cursor at `sysCtx+0x24` and fills the block with
+**eight 0x10-byte PS1 `TILE` primitives** -- `{u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h}` -- then
+hands each to `fn 0x3edb0`.
+
+The eight tiles are laid out `x = (i & 3) * 80`, `y = (i >> 2) * 110`, each `80 x 110`. That is a
+**4x2 grid**, and:
+
+> **4 x 80 = 320 . 2 x 110 = 220** -- the PS1 screen. (This project already pins
+> `FieldMap.PsxScreenHeightNative = 220`.)
+
+So the op paints the **whole screen** one flat colour: `op 64 = draw_fullscreen_fill`.
+
+`fn 0x3edb0` is libgpu **`AddPrim`**: it moves the length into the tag's top byte (`shr ecx, 0x18`)
+and XOR-splices the primitive into the ordering table through a **24-bit** link (`and 0xffffff`) --
+the standard PS1 OT insert. **`op 143`'s own native function IS `0x3edb0`**, so the corpus has a
+directly-exposed `AddPrim` too (an unclaimed lead).
+
+`arg1` does double duty: it is the OT depth handed to `AddPrim`, **and** `== 0xFF` selects the
+opaque rectangle code `0x60` while anything else selects `0x62`, its semi-transparent twin (bit 1 is
+the PS1 rectangle ABE flag). `AddPrim` special-cases `0xFF` again internally, so it is a sentinel
+depth rather than a real one.
+
+## The corpus tests, including the one that could have refuted it
+
+* **412 / 412 (100%)** of op 64's `$a2`/`$a3` constants are colour bytes `<= 255`, against
+  **987 / 1609 (61.3%)** for the control (every other op with at least three integer arguments).
+* `$a1` corpus-wide is **exactly `{0, 1, 2, 255}`** -- a tiny depth set plus the sentinel.
+* A real call site (`ef004_c0` @ `0d5c`) builds the three colour channels as **three shifts of one
+  animated scalar**: `sra $a2, $v0, 4` / `sra $a3, $v0, 3` / `sra $v0, $v0, 2` -> `sw $v0, 16($sp)`
+  -- i.e. `r = v/16, g = v/8, b = v/4`, a blue-dominant tinted wash driven by one fade level.
+  **Coordinates or ids could not look like that.**
+
+Ships **`medium`**: no symbol anywhere on the chain states a name.
+
+## * A SECOND DECODER BLIND SPOT -- an undercounted arity
+
+That same call site ends `sw $v0, 16($sp)` immediately before the `jalr`: **O32's first stacked
+argument slot, arg index 4.** op 64 takes **five** arguments, not four.
+
+R2 detects stacked arguments, but only while the translated MIPS `$sp` still lives in `rax`:
+
+```
+mov  edx, [rdi+r13+0xd0c]   ; the MIPS $sp
+call 0x10e0                 ; -> rax = host($sp)
+mov  rbx, rax               ; <-- stashed, because the next call clobbers rax
+call 0x12740                ; getArgPtr(0)
+mov  eax, [rbx + 0x10]      ; arg 4 -- invisible to a decoder watching rax
+```
+
+Fixed by following the value through the register move. **Bounded and measured: exactly two ops
+gain an argument** -- `op 64` (4 -> 5) and `op 70` (4 -> 5) -- and R2's 12-op calibration still
+re-derives on name **and** arity, 12/12.
+
+**Independent corroboration:** `M3-opcode-table.json`, derived from the **x86** build's `[ebp+N]`
+stack frame -- a different binary, a different method -- says **arity 5 for both**. Both ops are in
+R2 finding 4's own disagreement list, so that finding's blanket *"prefer `hle_ops.json`"* was too
+broad: **on stacked-argument arity, M3 was right and the x64 stub decoder had the blind spot.**
+The disagreement set shrinks from 19 ops to 17.
+
+## Coverage
+
+| | after 48/49/50 | after op 64 |
+|---|---|---|
+| named ops | 113 / 216 | **114 / 216** |
+| confidence | high 67 . med 36 . low 10 . unnamed 103 | **high 67 . med 37 . low 10 . unnamed 102** |
+| traffic named | 11,217 / 14,212 (78.9%) | **11,583 / 14,212 (81.5%)** |
+
+Across R4-R9: **79 -> 114 named, 51.8% -> 81.5% of traffic.**
+
+---
+
+# ADDENDUM 6 -- op 143: AddPrim with a blend prefix (and it CORRECTS op 64)
+
+**Status: * DONE. `body_gates.py` 14/14, 5 more tests (tier-r 202). Named 114 -> 115;
+traffic 81.5% -> 81.6%.** The traffic gain is trivial -- 9 call sites -- but this rung was worth
+running for what it says about the op it shares a function with.
+
+## Two halves
+
+`fn 0x3edb0` is libgpu's **`addPrim`**, and op 143 exposes it directly (op 64 reaches the same
+function eight times per call).
+
+**1. The splice.** Length out of the tag's top byte (`shr ecx, 0x18`; `mov [r8+3], cl`), then the
+standard PS1 ordering-table insert -- XOR-swapping only the low **24 bits** of `*ot` and
+`prim->tag`, so each word keeps its own top byte. The `and 0xffffff` pair is the giveaway.
+
+**2. The blend prefix.** Unless `arg3 == 0xFF`, it carves **8 more bytes** off the same arena cursor
+op 64 uses, builds a 2-word primitive (length 1) whose single payload word is:
+
+```
+0xE1000200 | ((arg3 & 3) << 5)
+```
+
+`0xE1` is the PS1 GPU **GP0 Draw Mode** command: **bits 5-6 are the ABR semi-transparency mode**,
+bit 9 is dither. That is a **`DR_TPAGE`** -- the state primitive the s76 probe already logs, and the
+same ABR field `op 206` ORs into `so` bindings by a different route. Because `addPrim` inserts at
+the **head**, the prefix is drawn **first**: set the blend, then draw.
+
+## ** It corrects op 64
+
+op 64 hands its `arg1` straight into this parameter (`mov r9d, esi`). So:
+
+> **op 64's `arg1` is a BLEND MODE, not an OT depth.** ADDENDUM 5 read it as a depth; that was wrong.
+
+The corpus fits a blend mode far better. `$a1` is `1(x254) 2(x72) 255(x13) 0(x4)`:
+
+| value | as an ABR mode | sites |
+|---|---|---|
+| **1** | **B+F -- additive** | **254** |
+| 2 | B-F, subtractive | 72 |
+| 255 | opaque; emit no draw-mode primitive at all | 13 |
+| 0 | B/2 + F/2, 50/50 | 4 |
+
+Additive dominating at 254/366 is exactly what a full-screen VFX flash wants; "OT depth 1" explained
+nothing. And **there is no depth argument anywhere in either op** -- the OT *pointer* is the depth,
+the way PS1 code always does it (`&ot[z]`).
+
+The evidence string, the module docstring and the B12 gate label are all corrected; a test pins the
+corrected reading so a silent revert fails loud.
+
+## The corpus test
+
+`arg0` should be a primitive **tag**: length in the top byte, 24-bit link field zeroed.
+
+* **op 143: 9 / 9 (100%)** -- `0x04000000` x4 and `0x08000000` x5, i.e. 5-word and 9-word primitives.
+* control (every other op whose `arg0` is an int): **73 / 2086 (3.5%)** -- a ~29x separation.
+
+Ships **`medium`**: `fn 0x3edb0` owns no debug string. Same posture as the RNG family -- a
+universally documented external shape (libgpu `addPrim`, GP0(E1h)) but no name stated in the binary.
+
+## Coverage
+
+| | after op 64 | after op 143 |
+|---|---|---|
+| named ops | 114 / 216 | **115 / 216** |
+| confidence | high 67 . med 37 . low 10 . unnamed 102 | **high 67 . med 38 . low 10 . unnamed 101** |
+| traffic named | 11,583 / 14,212 (81.5%) | **11,592 / 14,212 (81.6%)** |
+
+Across R4-R10: **79 -> 115 named, 51.8% -> 81.6% of traffic.**
+
+---
+
+# ADDENDUM 7 -- op 128: the actor anchor point, and why "multi-command" was never ambiguity
+
+**Status: * DONE. `body_gates.py` 16/16, 5 more tests (tier-r 207). Named 115 -> 116;
+traffic 81.6% -> 83.7%.**
+
+## The refusal this rung lifted
+
+The callback lane **refused** op 128 for reaching **four** commands -- `GET_POSITION(1)`,
+`GET_MATRIX(14)`, `CHECK_STATUS(20)`, `GET_SLAVE(22)` -- on the rule that a multi-command op cannot
+be named by its command. Reading the body shows the rule, not the op, was the problem:
+
+> **The four commands are four routes to ONE answer: *where is this actor's anchor point?***
+
+**A multi-command op is only ambiguous when the commands are unrelated.** That correction is the
+reusable part of this rung, and it is what makes the remaining refusals worth revisiting.
+
+## What it does
+
+`fn 0x450c0` is a thin forwarder: it resolves the actor through `fn 0x44a60` -- **the same index
+space op 136 uses** (`<8` party, `8..15` enemy, `0x10`/`0x11` the two special slots) -- and
+**tail-jumps** to `fn 0x44f80`, hiding the work from R2's name resolver exactly as op 206's did.
+There:
+
+| step | command | what it settles |
+|---|---|---|
+| 1 | `GET_SLAVE(22)` | is this unit attached to another? |
+| 2a | `GET_MATRIX(14)` | a slave takes its bone `byte[actor+0x1a]` |
+| 2b | `GET_POSITION(1)` (`bts ecx, 0x18`) | an ordinary unit takes its own position |
+| 3 | -- | height from `actor+0x3c`, **halved when the mode argument is 0** |
+| 4 | `CHECK_STATUS(20)` sub-mode 1, mask `0x200000` | **`BattleStatus.Float`** -> take `0x80` back off |
+
+then `word[out+2] -= height` -- so **`out` is an i16 `x/y/z` triple and `+2` is Y**.
+
+**The Float correction is the detail that proves the reading.** `0x200000` is `1 << 21` =
+`BattleStatus.Float` in Memoria's open-source enum, and a floating unit's *reported position is
+already raised* -- so the anchor correction has to subtract that lift back out or it would
+double-count it. Nothing but a body-anchor calculation needs that fix.
+
+So: **`op 128 = get_actor_anchor`** -- body centre at mode 0, a second bone (`byte[actor+0x2f]`) at
+mode 1. 305 sites across **223 of 385 images**: nearly every effect needs to know where its target
+is. It is the natural sibling of op 136 `actor_relative_coord`, and they share a lookup.
+
+## The corpus test
+
+`arg2` is an **out-pointer**, so every constant should land in the PSX address space:
+
+* **op 128: 11 / 11 (100%)** are PSX RAM pointers.
+* control (every other op whose own `arg2` the decoder typed as an int): **0 / 928 (0.0%)**.
+
+A clean separation. Supporting: `$a0` is only ever `{0, 16}` -- op 136's actor indices -- and `$a1`
+only `{0 x289, 1 x15}`, the two height modes.
+
+Ships **`medium`**: nothing on the chain owns a debug string.
+
+## Coverage
+
+| | after op 143 | after op 128 |
+|---|---|---|
+| named ops | 115 / 216 | **116 / 216** |
+| confidence | high 67 . med 38 . low 10 . unnamed 101 | **high 67 . med 39 . low 10 . unnamed 100** |
+| traffic named | 11,592 / 14,212 (81.6%) | **11,897 / 14,212 (83.7%)** |
+
+Across R4-R11: **79 -> 116 named, 51.8% -> 83.7% of traffic.** The unnamed count is now under 100.
+
+---
+
+# ADDENDUM 8 -- op 127: the other half of the pair
+
+**Status: * DONE. `body_gates.py` 18/18, 4 more tests (tier-r 211). Named 116 -> 117;
+traffic 83.7% -> 85.2%.**
+
+The corrected refusal rule from ADDENDUM 7 said the remaining callback-lane refusals were worth
+revisiting. op 127 was the immediate test of that, and it paid out at once.
+
+## op 127 = `get_actor_position`
+
+`fn 0x44f60` has the identical shape to op 128's forwarder: resolve the actor through the shared
+lookup `fn 0x44a60`, then **tail-jump** -- but to `fn 0x44e80`, the **plain** fetch.
+
+**The structural fact that makes the pair self-confirming:** `fn 0x44e80` is precisely the function
+**op 128's own body calls** before applying its correction.
+
+```
+op 127  ->  fn 0x44e80                                  the position
+op 128  ->  fn 0x44f80  --calls-->  fn 0x44e80,         then height/2 and the Float fix
+```
+
+So the two ops are one pair, `(position, anchor)`, and **each confirms the other's reading**. A
+`verify` check asserts the call edge, and a second asserts the NEGATIVE -- that op 127's chain does
+**not** carry the Float/height correction. If it did, the pair reading would collapse and both names
+would be wrong.
+
+The plain fetch gates on `GET_SLAVE(22)` and then discriminates on `byte[actor+0x10]`: zero takes
+`GET_MATRIX(14)` on bone `byte[actor+0x1a]` **and zeroes `out.y`**, non-zero takes
+`GET_POSITION(1)`. Three commands, refused on the old rule -- and again three routes to one answer.
+
+## The corpus test, and its honest limit
+
+`arg0` should be an actor **selector** over a tiny fixed set:
+
+* **op 127: `{0, 16}`** -- and **op 128: `{0, 16}`**, byte-identical domains.
+* control ops (>=100 sites, int `arg0`) span up to **40** distinct values.
+
+**The limit, stated:** the control **median is 2**, so "small domain" is not by itself
+discriminating -- plenty of ops take a small enum. What actually carries here is that the two ops
+have the *identical* domain, which is what a matched pair over one actor space predicts and an
+unrelated pair does not. The gate is written to require that identity, not merely smallness.
+
+`arg1` never appears as a constant anywhere in 211 sites -- exactly right for an out-parameter
+written to a stack address, and the reason op 128's pointer test could not simply be reused here.
+
+Ships **`medium`**: nothing on the chain owns a debug string.
+
+## Coverage
+
+| | after op 128 | after op 127 |
+|---|---|---|
+| named ops | 116 / 216 | **117 / 216** |
+| confidence | high 67 . med 39 . low 10 . unnamed 100 | **high 67 . med 40 . low 10 . unnamed 99** |
+| traffic named | 11,897 / 14,212 (83.7%) | **12,108 / 14,212 (85.2%)** |
+
+Across R4-R12: **79 -> 117 named, 51.8% -> 85.2% of traffic.**
+
+**Both ops the corrected rule pointed at are now named, and they turned out to be one mechanism.**
+
+---
+
+# ADDENDUM 9 -- op 144: the wrapping VRAM scroll blit
+
+**Status: * DONE. `body_gates.py` 20/20, 5 more tests (tier-r 216). Named 117 -> 118;
+traffic 85.2% -> 86.4%.**
+
+## The managed renderer names the code word
+
+`fn 0x47b40` carves `0x30` bytes off the arena cursor and builds **two 6-word primitives** (tag
+length 5) whose code word is `0xE7000000`. That code is not a guess -- **`SFXRender.cs:316`
+dispatches `case 231` -> `DR_MOVE`**, libgpu's VRAM-to-VRAM block move, and 231 == 0xE7. It is the
+same primitive the **s76** probe logs; U1 counted **641 `DR_MOVE` rows on ef038**, and this is the
+op that queues them.
+
+## The wrap split, field by field
+
+`SFXRender.DR_MOVE` reads `code[1]` = source `(rx, ry)`, `code[2]` = size `(rw, rh)`, `code[3]` =
+destination `(x, y)`. Against what the DLL writes, with `rem = arg0 % arg4`:
+
+| | source | size | destination |
+|---|---|---|---|
+| **part A** | `(arg5, arg6)` | `(arg3, rem)` | `(arg1, arg2 + arg4 - rem)` |
+| **part B** | `(arg5, arg6 + rem)` | `(arg3, arg4 - rem)` | `(arg1, arg2)` |
+
+One source band split at `rem` and written back with the halves **swapped vertically** -- a
+**vertical scroll with wraparound, done as a VRAM blit**, which is how PS1 code animates a scrolling
+texture without touching a single UV. Each half is skipped when its height would be zero, so the
+phase can sit at either extreme.
+
+So the seven arguments are **`(scroll, dstX, dstY, width, period, srcX, srcY)`**, and the corpus
+agrees: `arg0` is almost never a constant (it is the animated phase), while `$a1` is
+`640/448/576/704/512/832` -- **the VRAM page columns the W6b texel map is built on** -- and `$a2` is
+`256/384/368/288/320/480`.
+
+Only **two** ops emit this code word: **op 7** (one, unsplit) and **op 144** (two, the split pair).
+
+## The corpus test, and the guess it refuted
+
+A first predicate -- "the destination is a page origin, `x % 64 == 0`" -- **was refuted by 19 real
+sites** (x = 480, 608, 672, 752, 800, 864). A `DR_MOVE` destination is an arbitrary VRAM rectangle,
+not a page origin, and the census's top-six values had made the tighter rule look plausible.
+
+The predicate actually required by the hardware is that the rectangle **fit**: `x + w <= 1024`,
+`y < 512`, `w > 0` -- which links three of the seven arguments.
+
+* **op 144: 167 / 167 (100%)**
+* control (every other op with three consecutive int args): **268 / 583 (46.0%)**
+
+Four candidate predicates all scored 100% on op 144; the one shipped is the one the **mechanism
+requires**, not the one with the widest ratio -- picking that would have been fishing. **This test is
+supporting evidence only.** The decisive evidence is that the managed renderer names the code word
+and every field lines up.
+
+Ships **`medium`**: the managed side names the **primitive**, not the op.
+
+## Coverage
+
+| | after op 127 | after op 144 |
+|---|---|---|
+| named ops | 117 / 216 | **118 / 216** |
+| confidence | high 67 . med 40 . low 10 . unnamed 99 | **high 67 . med 41 . low 10 . unnamed 98** |
+| traffic named | 12,108 / 14,212 (85.2%) | **12,275 / 14,212 (86.4%)** |
+
+Across R4-R13: **79 -> 118 named, 51.8% -> 86.4% of traffic.**
+
+---
+
+# ADDENDUM 10 -- the DR_MOVE x edit-surface check (the rung that paid for the arc)
+
+**Tool: `drmove_cells.py` (committable parser, zero stock bytes).**
+
+Naming op 144 made a question askable that the existing census structurally could not ask. The W6b
+program-VRAM census records its own ceiling:
+
+> *"0 of 18 `RECT*` arguments const-fold, so the only PER-CELL verdict in the corpus is
+> `MOVEIMAGE_HARD_CELLS`"* -- three hard-coded cells.
+
+`LoadImage`/`StoreImage`/`MoveImage` take the rectangle as a **pointer**, and pointers do not fold.
+**op 144 takes it as seven loose integers.** `arg1/arg2/arg3` fold in the ordinary census and `arg4`
+(the period) folds off the MIPS stack -- so op 144 yields per-cell destination verdicts. **And op 144
+was never in the census's writer union at all.**
+
+## The corpus result
+
+**59 containers, 167 sites, 0 excluded** (every period folded -- a complete static picture),
+against **198 editable scenery cells**:
+
+| | |
+|---|---|
+| containers with a **DESTINATION** hit | **20** |
+| distinct editable cells **overwritten at runtime** | **88** |
+| containers with only source hits | 0 |
+
+A destination hit means op 144 rewrites that band every frame it runs: a repaint there is
+**overwritten silently** -- byte-correct on disk, deploy verifies, picture never appears. A source
+hit is much milder and is reported separately: the repaint is read and *propagated* into the
+destination, so it still shows.
+
+## ef407 -- the pending cast
+
+`ef407` was the named vehicle for the cast that closes W6b-3(iv)'s silent half, recorded as *"no
+program-VRAM block"*. Its whole edit surface is three cells, and op 144 touches **all three**:
+
+```
+blit 1   dst (704,384) <- src (704,256)
+blit 2   dst (640,256) <- src (640,384)     [640,384 is not editable]
+```
+
+* `cell.s0.x704_y384` -- **the named cast cell -- is a DESTINATION.** A repaint there is overwritten.
+* `cell.s0.x640_y256` -- also a destination.
+* `cell.s0.x704_y256` -- a **SOURCE**, and it is editable.
+
+**So the cast should paint `x704_y256`, not `x704_y384`**, and the prediction is that the mark then
+appears *in the scrolling band* at (704,384). Had the original cast run on `x704_y384` and shown
+nothing, the null would very likely have been charged to `linear-add-v1` -- **a second, independent
+mechanism producing the exact symptom W6b-3(iv) named as the arc's open risk.**
+
+Other cast-relevant containers: **ef211 4 dst** (the pool wheel rests live on it), **ef227 4**,
+**ef424 3**, **ef446 2**; **ef251 and ef429 are clean**.
+
+## What this does NOT establish
+
+* **Reachability.** These are static destinations. Whether a given blit *executes* in a given cast is
+  a phase question -- `summon-inspect` could answer it per container; this pass did not.
+* Whether the W6b lane already covers the hazard by some route not found here.
+* Nothing in the kit was changed. This is a finding and an instrument, not a new refusal.

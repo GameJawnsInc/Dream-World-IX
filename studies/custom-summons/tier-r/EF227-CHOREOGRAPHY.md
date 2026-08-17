@@ -100,7 +100,7 @@ Every transition target is a real case, and every case is reachable from the dis
 | op 25 | Hi_DrawSummonModel | high | 1 | tick 24 (`clock >= 24`) | — |
 | op 26 | Hi_SetSummonMotion | high | 2 | tick 24 (`clock >= 24`) | — |
 | op 50 | rand_centered | medium | 4 | tick 12 (`clock >= 12`) | $a0=0xa0; $a0=0x800 |
-| op 64 | — | unnamed | 2 | tick 0 | $a1=0x1 |
+| op 64 | draw_fullscreen_fill | medium | 2 | tick 0 | $a1=0x1 |
 | op 65 | Hi_ModifySummonModelRGB | high | 1 | tick 24 (`clock >= 24`) | — |
 | op 74 | gte_transform_vertices | medium | 1 | tick 12 (`clock >= 12`) | $a2=0x0 $a3=0x1800 |
 | op 97 | — | unnamed | 1 | tick 12 (`clock >= 12`) | — |
@@ -117,7 +117,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 15 | rsin_fixed_point | high | 5 | tick 70 | — |
 | op 25 | Hi_DrawSummonModel | high | 1 | tick 70 | — |
 | op 26 | Hi_SetSummonMotion | high | 1 | tick 70 | — |
-| op 64 | — | unnamed | 1 | tick 70 | $a1=0x1 $a2=0xff $a3=0xff |
+| op 64 | draw_fullscreen_fill | medium | 1 | tick 70 | $a1=0x1 $a2=0xff $a3=0xff |
 | op 65 | Hi_ModifySummonModelRGB | high | 1 | tick 70 | — |
 | op 96 | — | unnamed | 1 | tick 70 | — |
 | op 102 | get_subfile_ptr | medium | 3 | tick 70 | $a1=0x82; $a1=0x85; $a1=0x86 |
@@ -177,7 +177,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 25 | Hi_DrawSummonModel | high | 1 | tick 198 (`clock >= 20`) | — |
 | op 48 | rand | medium | 2 | tick 198 (`clock >= 20`) | — |
 | op 50 | rand_centered | medium | 3 | tick 198 (`clock >= 20`) | $a0=0x400 |
-| op 64 | — | unnamed | 1 | tick 198 (`clock >= 20`) | $a1=0x1 $a2=0x5c $a3=0x5c |
+| op 64 | draw_fullscreen_fill | medium | 1 | tick 198 (`clock >= 20`) | $a1=0x1 $a2=0x5c $a3=0x5c |
 | op 100 | Hi_SetSummonMotFrame | high | 1 | tick 178 | $a1=0x0 |
 | op 102 | get_subfile_ptr | medium | 3 | tick 198 (`clock >= 20`) | $a1=0x5; $a1=0xa; $a1=0x83 |
 | op 117 | subfile_instance_open | medium | 3 | tick 198 (`clock >= 20`) | — |
@@ -214,7 +214,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 25 | Hi_DrawSummonModel | high | 1 | tick 36 | — |
 | op 26 | Hi_SetSummonMotion | high | 1 | tick 36 | — |
 | op 48 | rand | medium | 1 | tick 52 (`clock >= 16`) | — |
-| op 64 | — | unnamed | 2 | tick 36 | $a1=0x2 $a2=0x0 $a3=0xff; $a1=0xff $a2=0x80 $a3=0x0 |
+| op 64 | draw_fullscreen_fill | medium | 2 | tick 36 | $a1=0x2 $a2=0x0 $a3=0xff; $a1=0xff $a2=0x80 $a3=0x0 |
 | op 74 | gte_transform_vertices | medium | 4 | tick 36 | $a2=0x0 |
 | op 78 | gte_transform_vertices | medium | 1 | tick 52 (`clock >= 16`) | $a2=0xb |
 | op 100 | Hi_SetSummonMotFrame | high | 1 | tick 36 | $a1=0x0 |
@@ -268,7 +268,7 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 24 | Hi_DrawEffModel | high | 3 | tick 122 (`clock >= 5`) | — |
 | op 50 | rand_centered | medium | 3 | tick 122 (`clock >= 5`) | $a1=0x1; $a0=0x400 |
 | op 55 | gte_transform_vertices | medium | 1 | tick 122 (`clock >= 5`) | — |
-| op 64 | — | unnamed | 2 | tick 122 (`clock >= 5`) | $a1=0x1 $a2=0x0 $a3=0x80; $a1=0x1 $a2=0x20 $a3=0x80 |
+| op 64 | draw_fullscreen_fill | medium | 2 | tick 122 (`clock >= 5`) | $a1=0x1 $a2=0x0 $a3=0x80; $a1=0x1 $a2=0x20 $a3=0x80 |
 | op 74 | gte_transform_vertices | medium | 3 | tick 122 (`clock >= 5`) | $a3=0x4000; $a2=0x0 |
 | op 102 | get_subfile_ptr | medium | 9 | tick 122 (`clock >= 5`) | $a1=0x4; $a1=0x5; $a1=0x6 |
 | op 117 | subfile_instance_open | medium | 6 | tick 122 (`clock >= 5`) | — |
@@ -289,12 +289,12 @@ The *earliest* column is the first tick the call can run: the phase's own start 
 | op 30 | — | unnamed | 1 | tick 197 (`clock >= 65`) | — |
 | op 48 | rand | medium | 1 | tick 197 (`clock >= 65`) | $a1=0x1000 |
 | op 50 | rand_centered | medium | 1 | tick 197 (`clock >= 65`) | $a0=0x20 |
-| op 64 | — | unnamed | 5 | tick 132 | $a1=0x1 $a2=0x0; $a1=0x1 $a2=0x80 $a3=0x40 |
+| op 64 | draw_fullscreen_fill | medium | 5 | tick 132 | $a1=0x1 $a2=0x0; $a1=0x1 $a2=0x80 $a3=0x40 |
 | op 74 | gte_transform_vertices | medium | 2 | tick 197 (`clock >= 65`) | $a2=0x0 |
 | op 77 | — | unnamed | 1 | tick 197 (`clock >= 65`) | — |
 | op 102 | get_subfile_ptr | medium | 4 | tick 197 (`clock >= 65`) | $a1=0x16; $a1=0x1b; $a1=0x1c |
 | op 117 | subfile_instance_open | medium | 1 | tick 197 (`clock >= 65`) | — |
-| op 144 | — | unnamed | 1 | tick 197 (`clock >= 65`) | $a1=0x340 $a2=0x100 $a3=0x20 |
+| op 144 | vram_scroll_blit | medium | 1 | tick 197 (`clock >= 65`) | $a1=0x340 $a2=0x100 $a3=0x20 |
 | op 155 | Hi_ModifyEffModelRGB | high | 4 | tick 132 | — |
 
 The *earliest* column is the first tick the call can run: the phase's own start plus every `clock >=` condition that **dominates** the call site inside the case. A call with no gate runs on the phase's first tick.
@@ -442,7 +442,7 @@ So **43 of 385** id-3 images have a switch-driven program entry at all. The mult
 | 48 | rand | medium | `hle_ops.json` |
 | 50 | rand_centered | medium | `hle_ops.json` |
 | 55 | gte_transform_vertices | medium | `hle_ops.json` |
-| 64 | — | unnamed | `hle_ops.json` |
+| 64 | draw_fullscreen_fill | medium | `hle_ops.json` |
 | 65 | Hi_ModifySummonModelRGB | high | `hle_ops.json` |
 | 68 | — | unnamed | `hle_ops.json` |
 | 73 | gte_transform_vertices | medium | `hle_ops.json` |
@@ -456,7 +456,7 @@ So **43 of 385** id-3 images have a switch-driven program entry at all. The mult
 | 115 | — | unnamed | `hle_ops.json` |
 | 117 | subfile_instance_open | medium | `hle_ops.json` |
 | 119 | — | unnamed | `hle_ops.json` |
-| 144 | — | unnamed | `hle_ops.json` |
+| 144 | vram_scroll_blit | medium | `hle_ops.json` |
 | 146 | gte_project_vertices | medium | `hle_ops.json` |
 | 149 | Hi_GetSummonBonePos | high | `hle_ops.json` |
 | 155 | Hi_ModifyEffModelRGB | high | `hle_ops.json` |
@@ -466,7 +466,7 @@ So **43 of 385** id-3 images have a switch-driven program entry at all. The mult
 | 182 | — | unnamed | `hle_ops.json` |
 | 206 | Hi_RegisterTexListModel|Hi_RegisterGouEffModel | high | `hle_ops.json` |
 
-A `medium` or `low` name is a *description*, not a fact; the prose above never promotes one. 10 of the 32 ops cited here are unnamed and appear as bare numbers.
+A `medium` or `low` name is a *description*, not a fact; the prose above never promotes one. 8 of the 32 ops cited here are unnamed and appear as bare numbers.
 
 ## 8. What this report still cannot tell you
 
@@ -475,4 +475,4 @@ A `medium` or `low` name is a *description*, not a fact; the prose above never p
 - **The capture cannot say which program drew the creature on a given frame.** The summon slot is one shared slot (R1 finding 1), and the probe logs the slot, not the caller. Where two programs both draw, the attribution here is the model's, not the capture's. A probe row carrying the calling chunk's slot would settle it.
 - **A motion-counter restart is not proof of a `SetMotion` call.** A looping clip wraps on its own; that is why only boundaries whose transition tail actually issues a motion call are scored, and why the value written is checked as well as the frame.
 - **Within a phase, only *gated* calls carry a tick.** A call with no dominating clock condition is placed at the phase's first tick, which is a lower bound, not a schedule.
-- **`medium` and `low` names are descriptions.** 10 of the 32 ops cited are unnamed entirely; a phase's label inherits every bit of that uncertainty.
+- **`medium` and `low` names are descriptions.** 8 of the 32 ops cited are unnamed entirely; a phase's label inherits every bit of that uncertainty.

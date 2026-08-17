@@ -420,13 +420,17 @@ class PlanCanvas(QGraphicsView):
             "A plan view of the dungeon's rooms in shared world units, +z up the screen: click "
             "to draw a room's corners, drag a corner or a room to move it, and in Doors mode "
             "click a highlighted shared wall to declare a door")
-        self._hint = QLabel("Ctrl+scroll zooms · Ctrl+0 fits", self.viewport())
+        # Each chip keeps its FULL text beside the label: _place_hint may print an ELIDED cut on a
+        # narrow viewport, and the full line must come back when the width does.
+        self._hint_full = "Ctrl+scroll zooms · Ctrl+0 fits"
+        self._hint = QLabel(self._hint_full, self.viewport())
         self._hint.setObjectName("floorplanHint")      # selector-scoped (the round-9 census law)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._compass = QLabel("+z north ▲ · −z south (the camera side) ▼ · +x east ▶",
-                               self.viewport())
+        self._compass_full = "+z north ▲ · −z south (the camera side) ▼ · +x east ▶"
+        self._compass = QLabel(self._compass_full, self.viewport())
         self._compass.setObjectName("floorplanHint")
         self._compass.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._coords_full = ""
         self._coords = QLabel("", self.viewport())
         self._coords.setObjectName("floorplanHint")
         self._coords.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -465,14 +469,30 @@ class PlanCanvas(QGraphicsView):
         self._coords.setStyleSheet(sheet.replace(self.pal["muted"], self.pal["text"], 1))
         self._place_hint()
 
+    def _fit_chip(self, lab, full):
+        """One chip's text against the live viewport: the full line when it fits, an ELIDED cut
+        when the viewport is narrower — so a chip pinned at its ``max(8, …)`` inset can never
+        overflow the far edge and clip mid-word. Chrome (the QSS padding) is read off the label's
+        OWN sizeHint against its own advance, in whatever the live stylesheet says; the elide is
+        re-derived from the stored full text every pass, so a recovered width restores the line."""
+        fm = lab.fontMetrics()
+        avail = self.viewport().width() - 18           # the 10px pin inset + 8px far-side margin
+        chrome = lab.sizeHint().width() - fm.horizontalAdvance(lab.text())
+        text = full
+        if 0 < avail < fm.horizontalAdvance(full) + chrome:
+            text = fm.elidedText(full, Qt.TextElideMode.ElideRight, max(0, avail - chrome))
+        if lab.text() != text:
+            lab.setText(text)
+        lab.adjustSize()                   # measure AFTER polish -- construction adjustSize lies
+
     def _place_hint(self):
-        self._hint.adjustSize()            # measure AFTER polish -- construction adjustSize lies
         vp = self.viewport()
+        self._fit_chip(self._hint, self._hint_full)
         self._hint.move(max(8, vp.width() - self._hint.width() - 10),
                         max(4, vp.height() - self._hint.height() - 8))
-        self._compass.adjustSize()
+        self._fit_chip(self._compass, self._compass_full)
         self._compass.move(10, 8)          # top-left: clear of the zoom hint's corner
-        self._coords.adjustSize()
+        self._fit_chip(self._coords, self._coords_full)
         self._coords.move(10, max(4, vp.height() - self._coords.height() - 8))
         self.setMinimumHeight(self.chart_floor())
 
@@ -911,13 +931,13 @@ class PlanCanvas(QGraphicsView):
             x, z = d["poly"][d["vi"]]
             n_weld = len(d.get("also") or ())
             weld = (f" · welded to {n_weld} more" if n_weld else "")
-            self._coords.setText(f"{name} corner {d['vi']} · x {x} · z {z}{weld}")
+            self._coords_full = f"{name} corner {d['vi']} · x {x} · z {z}{weld}"
         else:
             x0, z0, x1, z1 = FP.bbox(d["poly"])
-            self._coords.setText(f"{name} · centre x {int(round((x0 + x1) / 2))} · "
+            self._coords_full = (f"{name} · centre x {int(round((x0 + x1) / 2))} · "
                                  f"z {int(round((z0 + z1) / 2))}")
         self._coords.show()
-        self._place_hint()
+        self._place_hint()                 # prints _coords_full (elided if the chart is narrow)
 
     # ------------------------------------------------------------------ Qt events
     def paintEvent(self, ev):                      # noqa: N802 (Qt override)
@@ -925,6 +945,19 @@ class PlanCanvas(QGraphicsView):
             self._fit_pending = False              # time the tab may be hidden, the viewport stale
             self.fit()
         super().paintEvent(ev)
+
+    def scrollContentsBy(self, dx, dy):            # noqa: N802 (Qt override)
+        super().scrollContentsBy(dx, dy)
+        # ★ Qt scrolls a QGraphicsView by QWidget::scroll ON THE VIEWPORT, WHICH MOVES THE
+        # VIEWPORT'S CHILD WIDGETS — the chips are exactly that. Every fit/zoom/pan therefore
+        # dragged them by the scroll delta, and the move is C++-initiated: no Python override
+        # sees it, `_place_hint` never re-ran, and the first-paint fit() left the zoom hint
+        # half off the canvas's right edge and the compass at y=-17 in the DEFAULT window
+        # (native, 1280x850, CALIBRE 100). Screen-fixed is a per-scroll obligation, and this
+        # seam is the only one every scroll source passes through. Re-pinning here feeds no
+        # view output back into the scene rect or transform, so the drift-ratchet law holds.
+        if hasattr(self, "_hint"):                 # setScene() can scroll before the chips exist
+            self._place_hint()
 
     def resizeEvent(self, ev):                     # noqa: N802 (Qt override)
         super().resizeEvent(ev)
