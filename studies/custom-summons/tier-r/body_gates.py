@@ -196,6 +196,158 @@ def so_ab() -> Tuple[int, int, int, int, int, int, int]:
     return a, aok, b, bok, tex, gou, off
 
 
+def screen_args() -> Tuple[int, int, int, int, set]:
+    """(op-64 colour constants, how many are <= 255, control constants, control <= 255, $a1 set).
+
+    If arg2/arg3 were coordinates or ids they would routinely exceed a colour byte.  The control is
+    every OTHER op with at least three integer arguments, scored by the same rule.
+    """
+    ops = A.load_hle_ops()
+    hit = tot = chit = ctot = 0
+    a1: set = set()
+    pat = re.compile(r"\$a(\d)=0x([0-9a-f]+)")
+    for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            mm = re.search(r"HLE op (\d+) ", ln)
+            if not mm:
+                continue
+            op = int(mm.group(1))
+            row = ops.get(op)
+            if not row:
+                continue
+            for idx, val in ((int(a), int(v, 16)) for a, v in pat.findall(ln)):
+                if op == B.OP_SCREEN:
+                    if idx == 1:
+                        a1.add(val)
+                    elif idx in (2, 3):
+                        tot += 1
+                        hit += val <= 0xFF
+                elif (row.get("arg_kinds") or "").count("i") >= 3 and idx in (2, 3):
+                    ctot += 1
+                    chit += val <= 0xFF
+    return hit, tot, chit, ctot, a1
+
+
+def addprim_args():
+    """(op-143 $a0 count, how many are primitive TAGS, control count, control tags).
+
+    A tag has its length in the top byte and a zeroed 24-bit link field.  If arg0 were an id, a
+    count or a pointer it would not look like that -- which is what the control measures.
+    """
+    ops = A.load_hle_ops()
+    pat = re.compile(r"\$a0=0x([0-9a-f]+)")
+    is_tag = lambda v: (v & B.ADDPRIM_LINK_MASK) == 0 and 1 <= (v >> B.ADDPRIM_TAG_SHIFT) <= 16
+    hit = tot = chit = ctot = 0
+    for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            mm = re.search(r"HLE op (\d+) ", ln)
+            if not mm:
+                continue
+            op = int(mm.group(1))
+            row = ops.get(op)
+            if not row:
+                continue
+            for v in (int(x, 16) for x in pat.findall(ln)):
+                if op == B.OP_ADDPRIM:
+                    tot += 1
+                    hit += is_tag(v)
+                elif (row.get("arg_kinds") or "").startswith("i"):
+                    ctot += 1
+                    chit += is_tag(v)
+    return hit, tot, chit, ctot
+
+
+def anchor_args():
+    """(op-128 $a2 count, how many are PSX pointers, control count, control pointers).
+
+    arg2 is an OUT pointer, so every constant should land in the PSX address space.  The control is
+    every other op whose own arg2 the decoder typed as an int.
+    """
+    ops = A.load_hle_ops()
+    pat = re.compile(r"\$a2=0x([0-9a-f]+)")
+    hit = tot = chit = ctot = 0
+    for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            mm = re.search(r"HLE op (\d+) ", ln)
+            if not mm:
+                continue
+            op = int(mm.group(1))
+            row = ops.get(op)
+            if not row:
+                continue
+            kinds = row.get("arg_kinds") or ""
+            for v in (int(x, 16) for x in pat.findall(ln)):
+                if op == B.OP_ANCHOR:
+                    tot += 1
+                    hit += A.looks_like_psx_pointer(v)
+                elif len(kinds) > 2 and kinds[2] == "i":
+                    ctot += 1
+                    chit += A.looks_like_psx_pointer(v)
+    return hit, tot, chit, ctot
+
+
+def actor_index_domains():
+    """(domain of op 127's $a0, domain of op 128's, control op domain sizes).
+
+    An actor INDEX is a selector over a tiny fixed set.  An id, a count or an offset is not.  The
+    control is every other op with >=100 sites whose arg0 the decoder typed as an int.
+    """
+    ops = A.load_hle_ops()
+    pat = re.compile(r"\$a0=0x([0-9a-f]+)")
+    doms = collections.defaultdict(set)
+    for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            mm = re.search(r"HLE op (\d+) ", ln)
+            if not mm:
+                continue
+            op = int(mm.group(1))
+            row = ops.get(op)
+            if not row or not (row.get("arg_kinds") or "").startswith("i"):
+                continue
+            for v in (int(x, 16) for x in pat.findall(ln)):
+                doms[op].add(v)
+    ctrl = [len(v) for op, v in doms.items()
+            if op not in (B.OP_POS, B.OP_ANCHOR) and (ops[op]["call_sites"] or 0) >= 100]
+    return doms.get(B.OP_POS, set()), doms.get(B.OP_ANCHOR, set()), ctrl
+
+
+def vram_coords():
+    """(op-144 dest rects, how many fit in VRAM, control rects, control fits).
+
+    THE PREDICATE IS THE HARDWARE'S, NOT A FITTED ONE.  A DR_MOVE destination is an arbitrary VRAM
+    rectangle -- NOT a page origin; an early guess of `x % 64 == 0` was wrong and 19 real sites
+    refuted it (x = 480, 608, 672, 752 ...).  What VRAM actually requires is that the rect FIT:
+    `x + w <= 1024`, `y < 512`, `w > 0`.  That links three of the seven arguments, and it is
+    supporting evidence only -- the decisive evidence is that the managed renderer names the code
+    word itself (`SFXRender.cs` case 231 -> DR_MOVE).
+    """
+    ops = A.load_hle_ops()
+    pats = {n: re.compile(r"\$a%d=0x([0-9a-f]+)" % n) for n in (1, 2, 3)}
+    fits = lambda x, y, w: 0 <= x and x + w <= B.VRAM_W and 0 <= y < B.VRAM_H and w > 0
+    hit = tot = chit = ctot = 0
+    for f in sorted(glob.glob(os.path.join(ANNOT, "ef*.asm"))):
+        for ln in open(f, encoding="utf-8", errors="replace"):
+            mm = re.search(r"HLE op (\d+) ", ln)
+            if not mm:
+                continue
+            op = int(mm.group(1))
+            row = ops.get(op)
+            if not row:
+                continue
+            found = [pats[n].findall(ln) for n in (1, 2, 3)]
+            if not all(found):
+                continue
+            x, y, w = (int(v[0], 16) for v in found)
+            kinds = row.get("arg_kinds") or ""
+            if op == B.OP_BLIT:
+                tot += 1
+                hit += fits(x, y, w)
+            elif len(kinds) > 3 and kinds[1:4] == "iii":
+                ctot += 1
+                chit += fits(x, y, w)
+    return hit, tot, chit, ctot
+
+
 def main() -> int:
     results: List[Tuple[str, str, bool]] = []
     dll = A.DllView()
@@ -217,6 +369,36 @@ def main() -> int:
         print("  " + n)
     results.append(("B9", "op 136's lookup + divide-by-6 + add re-derive from the DLL", ok9))
 
+    ok19, notes19 = B.verify_blit(dll)
+    print()
+    for n in notes19:
+        print("  " + n)
+    results.append(("B19", "op 144's two DR_MOVE primitives and the wrap split re-derive", ok19))
+
+    ok17, notes17 = B.verify_position(dll)
+    print()
+    for n in notes17:
+        print("  " + n)
+    results.append(("B17", "op 127 is the plain fetch op 128's body calls", ok17))
+
+    ok15, notes15 = B.verify_anchor(dll)
+    print()
+    for n in notes15:
+        print("  " + n)
+    results.append(("B15", "op 128's four commands, height rule and Float fix re-derive", ok15))
+
+    ok13, notes13 = B.verify_addprim(dll)
+    print()
+    for n in notes13:
+        print("  " + n)
+    results.append(("B13", "op 143's OT splice and DR_TPAGE blend prefix re-derive", ok13))
+
+    ok11, notes11 = B.verify_screen(dll)
+    print()
+    for n in notes11:
+        print("  " + n)
+    results.append(("B11", "op 64's tile grid, blend code and AddPrim hand-off re-derive", ok11))
+
     ok10, notes10 = B.verify_rng(dll)
     print()
     for n in notes10:
@@ -225,10 +407,16 @@ def main() -> int:
 
     ev = B.body_evidence(dll)
     good = (set(ev) == {B.OP_OPEN, B.OP_ABR, B.OP_COORD,
-                        B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
+                        B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED, B.OP_SCREEN,
+                        B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT}
             and ev[B.OP_OPEN]["confidence"] == "medium"      # no symbol names it
             and ev[B.OP_COORD]["confidence"] == "medium"     # no symbol; +0x38 unresolved
             and ev[B.OP_RAND]["confidence"] == "medium"      # algorithm known, name not stated
+            and ev[B.OP_SCREEN]["confidence"] == "medium"    # no symbol on the chain
+            and ev[B.OP_ADDPRIM]["confidence"] == "medium"   # libgpu shape, no stated name
+            and ev[B.OP_ANCHOR]["confidence"] == "medium"    # no symbol on the chain
+            and ev[B.OP_POS]["confidence"] == "medium"       # its pair, same posture
+            and ev[B.OP_BLIT]["confidence"] == "medium"      # managed names the CODE, not the op
             and ev[B.OP_ABR]["confidence"] == "high")        # the DLL names it, twice
     print("\nB2 body evidence: %s" % {o: (e["name"], e["confidence"]) for o, e in ev.items()})
     results.append(("B2", "each name ships at the confidence its evidence supports", good))
@@ -239,7 +427,9 @@ def main() -> int:
         # A skip is not a pass: report it as such rather than counting it green.
         for k, d in (("B3", "the sub-file idiom"), ("B4", "the A/B separation"),
                      ("B5", "camera disjointness"), ("B7", "the 'so' magic"),
-                     ("B8", "the pairing attribution")):
+                     ("B8", "the pairing attribution"), ("B12", "op 64's colour args"),
+                     ("B14", "op 143's tag argument"), ("B16", "op 128's out-pointer"),
+                     ("B18", "the actor-index domain"), ("B20", "op 144's VRAM destination")):
             print("  %s %s -- SKIP" % (k, d))
     else:
         hit, tot = site_idiom()
@@ -265,6 +455,42 @@ def main() -> int:
               % (aok, a, 100 * ra, bok, b, 100 * rb, tex, gou))
         results.append(("B7", "op 206's operand carries the magic the DLL asserts",
                         ra > 0.6 and rb < 0.10 and ra > 10 * rb and tex > gou > 0))
+        chit, ctot, cc, cct, a1 = screen_args()
+        r, cr = chit / max(ctot, 1), cc / max(cct, 1)
+        print("B12 op-64 colour args <= 255: %d/%d (%.1f%%) vs control %d/%d (%.1f%%); blend modes seen = %s"
+              % (chit, ctot, 100 * r, cc, cct, 100 * cr, sorted(a1)))
+        results.append(("B12", "op 64's arg2/arg3 are colour bytes and arg1 is a small blend-mode set",
+                        ctot > 50 and r == 1.0 and r > cr and a1 <= {0, 1, 2, 255}))
+
+        ah, at, ach, act = addprim_args()
+        ar, acr = ah / max(at, 1), ach / max(act, 1)
+        print("B14 op-143 $a0 that are primitive TAGS: %d/%d (%.1f%%) vs control %d/%d (%.1f%%)"
+              % (ah, at, 100 * ar, ach, act, 100 * acr))
+        results.append(("B14", "op 143's arg0 is a primitive tag, not an id or a pointer",
+                        at >= 9 and ar == 1.0 and acr < 0.05))
+
+        nh, nt, nch, nct = anchor_args()
+        nr, ncr = nh / max(nt, 1), nch / max(nct, 1)
+        print("B16 op-128 $a2 that are PSX pointers: %d/%d (%.1f%%) vs control %d/%d (%.1f%%)"
+              % (nh, nt, 100 * nr, nch, nct, 100 * ncr))
+        results.append(("B16", "op 128's arg2 is an out-pointer", nt >= 5 and nr == 1.0 and nr > ncr))
+
+        d127, d128, ctrl = actor_index_domains()
+        worst = max(ctrl) if ctrl else 0
+        print("B18 arg0 domain: op 127 %s, op 128 %s; control ops (>=100 sites) span up to %d "
+              "distinct values (median %d)"
+              % (sorted(d127), sorted(d128), worst,
+                 sorted(ctrl)[len(ctrl) // 2] if ctrl else 0))
+        results.append(("B18", "arg0 is an actor selector over a tiny fixed set, not an id",
+                        d127 and d127 == d128 and len(d127) <= 2 and worst > 4))
+
+        vh, vt, vch, vct = vram_coords()
+        vr, vcr = vh / max(vt, 1), vch / max(vct, 1)
+        print("B20 op-144 destination rects that FIT IN VRAM: %d/%d (%.1f%%) vs control %d/%d "
+              "(%.1f%%)" % (vh, vt, 100 * vr, vch, vct, 100 * vcr))
+        results.append(("B20", "op 144's arg1/arg2/arg3 are a VRAM destination rect",
+                        vt >= 20 and vr == 1.0 and vcr < 0.60))
+
         print("B8 misses carrying 'so' at ANY nonzero offset: %d" % off)
         results.append(("B8", "the shortfall is pairing, not an operand the assert would reject",
                         off == 0))

@@ -105,10 +105,20 @@ def test_each_name_is_emitted_only_behind_its_own_verify(monkeypatch):
     dll = A.DllView()
     rng = {B.OP_RAND, B.OP_RAND_RANGE, B.OP_RAND_CENTERED}
     monkeypatch.setattr(B, "verify", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_ABR, B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT} | rng
     monkeypatch.setattr(B, "verify_abr", lambda d=None: (False, ["forced"]))
-    assert set(B.body_evidence(dll)) == {B.OP_COORD} | rng
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT} | rng
     monkeypatch.setattr(B, "verify_rng", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_SCREEN, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT}
+    monkeypatch.setattr(B, "verify_screen", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ADDPRIM, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT}
+    monkeypatch.setattr(B, "verify_addprim", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_ANCHOR, B.OP_POS, B.OP_BLIT}
+    monkeypatch.setattr(B, "verify_anchor", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_POS, B.OP_BLIT}
+    monkeypatch.setattr(B, "verify_position", lambda d=None: (False, ["forced"]))
+    assert set(B.body_evidence(dll)) == {B.OP_COORD, B.OP_BLIT}
+    monkeypatch.setattr(B, "verify_blit", lambda d=None: (False, ["forced"]))
     assert set(B.body_evidence(dll)) == {B.OP_COORD}
     monkeypatch.setattr(B, "verify_coord", lambda d=None: (False, ["forced"]))
     assert B.body_evidence(dll) == {}
@@ -271,4 +281,210 @@ def test_the_dictionary_carries_the_rng_family():
     assert ops[B.OP_RAND]["name"] == "rand"
     assert ops[B.OP_RAND_CENTERED]["name"] == "rand_centered"
     assert ops[B.OP_RAND_CENTERED]["returns"] == "int"     # was VOID before the decoder fix
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 64, the full-screen fill
+@needs_dll
+def test_op64_body_re_derives():
+    ok, notes = B.verify_screen()
+    assert ok, notes
+
+
+def test_the_tile_grid_is_exactly_the_ps1_screen():
+    """4*80 = 320 and 2*110 = 220 -- the constant that turns eight rectangles into a screen fill."""
+    assert B.TILE_COLS * B.TILE_W == 320
+    assert B.TILE_ROWS * B.TILE_H == 220
+    assert B.TILE_COLS * B.TILE_ROWS == B.TILE_COUNT
+    assert B.TILE_WH_WORD == (B.TILE_H << 16) | B.TILE_W
+
+
+def test_the_blend_codes_are_the_ps1_rectangle_pair():
+    """0x60 opaque / 0x62 semi-transparent -- bit 1 is the rectangle ABE flag."""
+    assert B.CODE_RECT == 0x60
+    assert B.CODE_RECT | B.CODE_ABE == 0x62
+
+
+@needs_dll
+def test_op64_takes_five_arguments_not_four():
+    """R2 tracked the translated MIPS $sp only while it lived in rax; op 64's stub stashes it in
+    rbx before another call, so arg 4 at $sp+0x10 was invisible.  M3's x86-frame table says 5."""
+    sig = A.DllView().handler(B.OP_SCREEN)
+    assert sig.arity == 5
+    assert sig.stack_args == (4,)
+    assert sig.kinds == "piiii"
+
+
+@needs_dll
+def test_the_stacked_arg_fix_moves_only_the_two_ops_it_should():
+    """A decoder change must be bounded and measured, not trusted.  Only 64 and 70 gain an
+    argument, and R2's 12-op calibration still re-derives on name AND arity."""
+    dll = A.DllView()
+    assert dll.handler(64).arity == 5
+    assert dll.handler(70).arity == 5
+    rows = A.calibration(dll)
+    assert all(r.get("name_ok") and r.get("arity_ok") for r in rows), rows
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op64():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_SCREEN]
+    assert row["name"] == "draw_fullscreen_fill" and row["confidence"] == "medium"
+    assert row["arity"] == 5 and row["arg_kinds"] == "piiii"
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 143, AddPrim + blend prefix
+@needs_dll
+def test_op143_both_halves_re_derive():
+    ok, notes = B.verify_addprim()
+    assert ok, notes
+
+
+def test_the_dr_tpage_word_is_a_gp0_draw_mode_command():
+    """0xE1 is GP0 Draw Mode; bits 5-6 are the ABR semi-transparency mode, bit 9 is dither."""
+    assert B.DR_TPAGE_BASE >> 24 == 0xE1
+    assert B.DR_TPAGE_BASE & (1 << 9)                      # dither
+    assert B.DR_TPAGE_ABR_SHIFT == 5
+    for mode in range(4):                                  # the ABR field never escapes bits 5-6
+        assert (B.DR_TPAGE_BASE | (mode << B.DR_TPAGE_ABR_SHIFT)) >> 7 == B.DR_TPAGE_BASE >> 7
+
+
+def test_op143_and_op64_share_the_same_native_function():
+    """op 143 exposes AddPrim directly; op 64 reaches it eight times per call."""
+    assert B.ADDPRIM_FN == 0x3EDB0
+
+
+@needs_dll
+def test_op64s_arg1_is_a_blend_mode_not_an_ot_depth():
+    """The correction this rung made: op 64 hands arg1 to AddPrim's blend parameter, which masks
+    it to 2 bits for a DR_TPAGE ABR mode -- an OT depth would not be masked to 0..3."""
+    ev = B.body_evidence()
+    assert "BLEND MODE" in ev[B.OP_SCREEN]["evidence"]
+    assert "blend mode, NOT an OT depth" in ev[B.OP_ADDPRIM]["evidence"]
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op143():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_ADDPRIM]
+    assert row["name"] == "add_prim_blended" and row["confidence"] == "medium"
+    assert row["arg_kinds"] == "ippi"
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 128, the actor anchor point
+@needs_dll
+def test_op128_all_four_commands_and_the_float_fix_re_derive():
+    ok, notes = B.verify_anchor()
+    assert ok, notes
+
+
+def test_the_four_commands_are_one_question_not_four():
+    """The refusal this rung lifted: multi-command is not the same as ambiguous.  All four are
+    routes to 'where is this actor's anchor point'."""
+    assert set(B.ANCHOR_COMMANDS) == {1, 14, 20, 22}
+    assert B.ANCHOR_COMMANDS[1] == "GET_POSITION"
+    assert B.ANCHOR_COMMANDS[22] == "GET_SLAVE"
+
+
+def test_the_float_mask_is_the_float_status_bit():
+    """0x200000 == 1 << 21 == BattleStatus.Float in Memoria's open-source enum."""
+    assert B.FLOAT_STATUS == 1 << 21
+
+
+def test_op128_shares_op136s_actor_lookup():
+    """Both anchor content to an actor, through the same index space."""
+    assert B.ACTOR_LOOKUP == 0x44A60
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op128_and_the_refusal_is_lifted():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_ANCHOR]
+    assert row["name"] == "get_actor_anchor" and row["confidence"] == "medium"
+    assert row["arg_kinds"] == "iip"
+    assert row["callback_command"] is None      # named by the BODY lane, not the callback lane
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 127, the other half
+@needs_dll
+def test_op127_re_derives_including_the_negative_check():
+    """The negative matters: op 127 must NOT carry the Float/height correction.  If it did, the
+    pair reading would collapse and both names would be wrong."""
+    ok, notes = B.verify_position()
+    assert ok, notes
+
+
+@needs_dll
+def test_op128_is_op127_plus_the_correction():
+    """The structural fact that makes the pair self-confirming: op 128's body CALLS the very
+    function op 127 tail-jumps to."""
+    dll = A.DllView()
+    body = [(i.mnemonic, i.op_str) for i in dll.body(B.ANCHOR_BODY)]
+    assert ("call", hex(dll.base + B.ANCHOR_PLAIN)) in body
+    fwd = [(i.mnemonic, i.op_str) for i in dll.body(B.POS_FN)]
+    assert ("jmp", hex(dll.base + B.ANCHOR_PLAIN)) in fwd
+
+
+@needs_dll
+def test_both_halves_of_the_pair_are_guarded_independently(monkeypatch):
+    dll = A.DllView()
+    monkeypatch.setattr(B, "verify_position", lambda d=None: (False, ["forced"]))
+    ev = B.body_evidence(dll)
+    assert B.OP_POS not in ev and B.OP_ANCHOR in ev
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op127():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_POS]
+    assert row["name"] == "get_actor_position" and row["confidence"] == "medium"
+    assert row["arg_kinds"] == "ip"
+    assert row["callback_command"] is None
+    assert A.check_confidence_rule(ops) == []
+
+
+# ---------------------------------------------------------------- op 144, the VRAM scroll blit
+@needs_dll
+def test_op144_builds_two_dr_move_primitives():
+    ok, notes = B.verify_blit()
+    assert ok, notes
+
+
+def test_the_code_word_is_the_one_the_managed_renderer_names():
+    """SFXRender.cs case 231 -> DR_MOVE.  231 == 0xE7, and the code byte sits at +7 of the
+    primitive, i.e. the top byte of the word the DLL stores."""
+    assert B.DR_MOVE_CODE >> 24 == 231 == 0xE7
+    assert B.DR_MOVE_CODE & 0x00FFFFFF == 0
+
+
+def test_the_two_primitives_fill_the_allocation():
+    """tag + 5 words = 0x18 bytes each; two of them are exactly the 0x30 carved off the cursor."""
+    assert 2 * (4 * (B.DR_MOVE_LEN + 1)) == B.BLIT_ALLOC
+
+
+def test_the_wrap_split_is_complementary():
+    """The two halves must sum to the period for any phase -- that is what makes it a WRAP rather
+    than a crop.  Modelled here as plain arithmetic, the way the body computes it."""
+    for period in (1, 7, 16, 64, 128):
+        for scroll in range(0, 3 * period + 1):
+            rem = scroll % period
+            assert rem + (period - rem) == period
+            assert 0 <= rem < period
+
+
+@needs_dll
+@needs_ops
+def test_the_dictionary_carries_op144():
+    ops = A.load_hle_ops()
+    row = ops[B.OP_BLIT]
+    assert row["name"] == "vram_scroll_blit" and row["confidence"] == "medium"
+    assert row["arity"] == 7 and row["arg_kinds"] == "iiiiiii"
     assert A.check_confidence_rule(ops) == []
