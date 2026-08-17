@@ -862,18 +862,26 @@ def _has_traced_rows(data: dict) -> bool:
     return False
 
 
-def is_generated_region(data: dict, kind: str, name) -> bool:
+def is_generated_region(data: dict, kind: str, name, *, allow_legacy: bool = True) -> bool:
     """True when a ``[[gateway]]``/``[[event]]`` row is the GENERATOR'S OWN: the traced_ prefix,
     or — on a LEGACY project that predates the prefix, i.e. one with no traced_ row anywhere —
     the old enumeration names door0/zone0/…  Pre-merge, every such row in an image-field project
     was generator-emitted (a regenerate destroyed the whole file, so no hand row ever survived
-    in one); the one-time claim is reported by the merge, never silent. Once a project has been
-    regenerated under the prefix, door0-style names are a HAND row (the Place tab mints them)
-    and are preserved. ONE owner for both the merge and the Trace tab's session absorb."""
+    in one). Once a project has been regenerated under the prefix, door0-style names are a HAND
+    row (the Place tab mints them) and are preserved. ONE owner for both the merge and the
+    Trace tab's session absorb.
+
+    ``allow_legacy=False`` turns the legacy branch off. The MERGE passes that when the session
+    is regenerating with NO regions at all: such a run emits no traced_ row, so the file would
+    read as legacy on every future regenerate too, and a Place-drawn door0 would be re-claimed
+    and re-deleted forever — the adversarial-review catch. A no-regions session cannot have
+    stale generator doors to replace, so the claim buys nothing there and costs real content."""
     import re
     n = str(name or "")
     if n.startswith(TRACED_GATEWAY_PREFIX if kind == "gateway" else TRACED_EVENT_PREFIX):
         return True
+    if not allow_legacy:
+        return False
     pat = r"^door\d+$" if kind == "gateway" else r"^zone\d+$"
     return not _has_traced_rows(data) and bool(re.match(pat, n))
 
@@ -900,7 +908,7 @@ def load_project_tables(toml_path) -> dict | None:
 
 
 def merge_project_toml(generated_text: str, existing: dict | None):
-    """Regenerate WITHOUT destroying hand-authored content — ``(text, kept, retaken)``.
+    """Regenerate WITHOUT destroying hand-authored content — ``(text, kept, retaken, removed)``.
 
     Three bands, floorplan.merge_room's grammar:
     - a top-level table outside :data:`GENERATED_TABLES` (``[[npc]]``, ``[[chest]]``,
@@ -909,15 +917,25 @@ def merge_project_toml(generated_text: str, existing: dict | None):
     - ``[[layers]]`` / ``[[gateway]]`` / ``[[event]]`` are generator-owned LISTS whose hand
       rows are appended after the generated ones — identified by :func:`is_generated_region`
       / the generated art paths, NOT merged by name, because a name merge cannot express
-      DELETION (drop a door from the session and its stale row must go);
-    - ``[field]``/``[camera]``/``[walkmesh]``/``[player]`` regenerate wholesale; each whose
-      on-disk value differed is named in ``retaken`` so a hand edit there is said out loud
-      (``[player]`` includes the spawn: the session's centroid wins — move it in Place AFTER
-      settling the trace, or it will be re-derived)."""
+      DELETION (drop a door from the session and its stale row must go). Every claimed row
+      the session did not re-emit is named in ``removed`` — deletion is REPORTED, never
+      silent (floorplan.merge_room's own contract), and the legacy claim is OFF entirely on
+      a no-regions regenerate (see :func:`is_generated_region`);
+    - ``[field]``/``[camera]``/``[walkmesh]`` regenerate wholesale; each whose on-disk value
+      differed is named in ``retaken``. ``[player]`` merges PER KEY: ``spawn`` is the
+      generator's (the session's centroid wins, retaken when it differed) while every other
+      key — the Place tab's ``[[player.arrival]]`` rows above all — is the human's and rides
+      through. The floorplan owns [player] wholesale because its composer GENERATES arrivals;
+      this generator never does, so wholesale here was pure deletion (the review's catch)."""
+    import re
     import tomllib
     if not existing:
-        return generated_text, [], []
+        return generated_text, [], [], []
     gen = tomllib.loads(generated_text)
+    # THE LEGACY CLAIM IS GATED ON THE SESSION EMITTING REGIONS: a no-regions run mints no
+    # traced_ row, so the file would read as legacy forever and re-claim a Place door0 on
+    # every regenerate — recurring silent data loss, not a one-time migration.
+    allow_legacy = bool((gen.get("gateway") or []) or (gen.get("event") or []))
     kept_tables, scalars = {}, {}
     for key, val in existing.items():
         if key in GENERATED_TABLES:
@@ -928,23 +946,46 @@ def merge_project_toml(generated_text: str, existing: dict | None):
         else:
             scalars[key] = val                     # a bare key must precede the first [header]
     kept_rows = {"gateway": [], "event": []}
+    removed = []
+    gen_names = {(k, str(r.get("name"))) for k in ("gateway", "event")
+                 for r in gen.get(k) or [] if isinstance(r, dict)}
     for kind in ("gateway", "event"):
         for row in existing.get(kind) or []:
-            if isinstance(row, dict) and not is_generated_region(existing, kind, row.get("name")):
+            if not isinstance(row, dict):
+                continue
+            if is_generated_region(existing, kind, row.get("name"), allow_legacy=allow_legacy):
+                if (kind, str(row.get("name"))) not in gen_names:
+                    removed.append(f"[[{kind}]] {row.get('name') or '?'}")
+            else:
                 kept_rows[kind].append(row)
     kept_layers = [row for row in existing.get("layers") or []
                    if isinstance(row, dict) and not _is_generated_layer(row.get("image"))]
-    retaken = [k for k in ("field", "camera", "walkmesh", "player")
+    retaken = [k for k in ("field", "camera", "walkmesh")
                if k in existing and existing.get(k) != gen.get(k)]
+    old_player = existing.get("player") if isinstance(existing.get("player"), dict) else {}
+    player_extra = {k: v for k, v in (old_player or {}).items() if k != "spawn"}
+    if old_player and old_player.get("spawn") != (gen.get("player") or {}).get("spawn"):
+        retaken.append("player.spawn")
     kept = ([f"[[{k}]] ×{len(v)}" if isinstance(v, list) else f"[{k}]"
              for k, v in kept_tables.items()] + [f"{k} = …" for k in scalars]
+            + [f"[player].{k}" for k in player_extra]
             + [f"[[gateway]] {r.get('name') or '?'}" for r in kept_rows["gateway"]]
             + [f"[[event]] {r.get('name') or '?'}" for r in kept_rows["event"]]
             + [f"[[layers]] {r.get('image') or '?'}" for r in kept_layers])
     if not kept:
-        return generated_text, [], retaken
+        return generated_text, [], retaken, removed
     from .editor import model as _model
     text = generated_text.rstrip("\n")
+    if player_extra:
+        # PER-KEY [player]: the generated block is exactly two known lines, replaced with one
+        # self-consistent dumps chunk (an appended second [player] header would be a TOML
+        # redefinition error, and [[player.arrival]] rows must follow their own super-table).
+        merged_player = {"spawn": (gen.get("player") or {}).get("spawn"), **player_extra}
+        block = _model.dumps({"player": merged_player}).rstrip("\n")
+        text, n = re.subn(r"\[player\]\nspawn = \[-?\d+, -?\d+\]", block, text, count=1)
+        if n != 1:                                 # the generated shape moved: fail LOUDLY, the
+            raise ImageFieldError(                 # silent alternative is dropping arrivals
+                "internal: the generated [player] block was not found to merge")
     if scalars:
         head, sep, rest = text.partition("\n[")    # the generated text opens with comments,
         text = (head + "\n" + _model.dumps(scalars).rstrip("\n")   # then [field]
@@ -960,7 +1001,7 @@ def merge_project_toml(generated_text: str, existing: dict | None):
     if extra:
         text += ("\n\n# ---- hand-authored content preserved by the regenerate ----\n"
                  + _model.dumps(extra).rstrip("\n"))
-    return text + "\n", kept, retaken
+    return text + "\n", kept, retaken, removed
 
 
 # ----------------------------------------------------------------- orchestrator
@@ -982,14 +1023,15 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     from PIL import Image
     out = Path(out_dir)
     toml_path = out / f"{name}.field.toml"
-    # The unparseable-refusal fires HERE, before walkmesh/art are overwritten — a refusal must
-    # never leave a half-rewritten project (the floorplan emit's rule).
+    # The unparseable-refusal fires HERE — and EVERY write below is deferred until every
+    # refusal (this one, the Int16 bound, a zone above the horizon, the merge itself) has
+    # passed: a refusal must never leave a half-rewritten project (the floorplan emit's rule,
+    # and the adversarial review's catch on the first cut, which wrote art before merging).
     existing = None if force else load_project_tables(toml_path)
-    (out / "art").mkdir(parents=True, exist_ok=True)
 
     cam = _guide.make_camera(pitch, distance, fov_x_deg=fov, range_wh=(CANVAS_W, CANVAS_H))
 
-    # 1) floor polygon -> world -> outset -> triangulate -> walkmesh.obj
+    # 1) floor polygon -> world -> outset -> triangulate (the obj write is deferred)
     world = unproject_floor(cam, floor_px)
     spawn = (sum(p[0] for p in world) / len(world), sum(p[1] for p in world) / len(world))
     grown = outset_polygon(world, COLLISION_OUTSET)
@@ -998,11 +1040,10 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
         if not (-32767 <= x <= 32767 and -32767 <= z <= 32767):
             raise ImageFieldError(f"walkmesh vertex ({x:.0f},{z:.0f}) exceeds the Int16 world bound "
                                   f"— reduce distance/FOV or trace a smaller floor")
-    write_walkmesh_obj(verts, faces, out / "walkmesh.obj")
 
-    # 2) base background layer (opaque, far Z)
-    base = Image.open(image_path).convert("RGB")
-    _cover_to_canvas(base, CANVAS_W, CANVAS_H).save(out / "art" / "base.png")
+    # 2) art crops, HELD in memory until the merge clears
+    art_writes = [(out / "art" / "base.png",
+                   _cover_to_canvas(Image.open(image_path).convert("RGB"), CANVAS_W, CANVAS_H))]
 
     layers = [("art/base.png", Z_BASE)]
     fg_manifest, layer_notes = [], {}
@@ -1015,7 +1056,7 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
         else:
             z = int(spec["z"]) if spec["z"] is not None else Z_FOREGROUND
         fim = Image.open(spec["image"]).convert("RGBA")
-        _cover_to_canvas(fim, CANVAS_W, CANVAS_H).save(out / "art" / f"fg{i}.png")
+        art_writes.append((out / "art" / f"fg{i}.png", _cover_to_canvas(fim, CANVAS_W, CANVAS_H)))
         layers.append((f"art/fg{i}.png", z))
         fg_manifest.append({"image": str(spec["image"]), "z": z, "contact": spec["contact"]})
 
@@ -1060,10 +1101,17 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
                   f"zone = {_zone_world(ev['zone_px'], f'event {nm}')}", ""]
         ev_manifest.append(ev)
 
-    text, kept, retaken = merge_project_toml("\n".join(lines) + "\n", existing)
+    text, kept, retaken, removed = merge_project_toml("\n".join(lines) + "\n", existing)
+
+    # every refusal has passed: NOW touch the disk
+    (out / "art").mkdir(parents=True, exist_ok=True)
+    write_walkmesh_obj(verts, faces, out / "walkmesh.obj")
+    for dest, img in art_writes:
+        img.save(dest)
     toml_path.write_text(text, encoding="utf-8", newline="\n")
 
     return {"toml": str(toml_path), "walkmesh": str(out / "walkmesh.obj"),
             "world_floor": world, "spawn": spawn, "verts": len(verts), "faces": len(faces),
             "layers": layers, "foreground": fg_manifest,
-            "gateways": gw_manifest, "events": ev_manifest, "kept": kept, "retaken": retaken}
+            "gateways": gw_manifest, "events": ev_manifest,
+            "kept": kept, "retaken": retaken, "removed": removed}

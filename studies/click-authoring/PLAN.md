@@ -459,8 +459,20 @@ Prompted by a deliberate stress test: a 9762u-wide room composed into a camera a
 > `traced_door`/`traced_zone` prefix so ownership is decidable against Place-minted `door0`
 > names (a LEGACY project's `door0`/`zone0` rows are claimed once, reported, never doubled; the
 > claim rule `is_generated_region` is ONE owner spent by both the merge and the Trace tab's
-> session absorb). The unparseable refusal fires before any artifact is written; `--force`
-> discards; `[player]` retakes are said out loud. Fenced in the package `test_imagefield.py`.
+> session absorb). Every refusal fires before any artifact is written; `--force` discards.
+> Fenced in the package `test_imagefield.py`.
+> ★ **AN ADVERSARIAL PASS OVER THE MERGE FOUND THE SAME CLASSES 7c′'s PASS FOUND, again:**
+> (1) the legacy claim RECURRED — a no-regions session mints no traced_ row, so the file read
+> as legacy forever and a Place-drawn `door0` was re-claimed and re-deleted on EVERY
+> regenerate → the claim is now gated on the session actually emitting regions; (2) the
+> promised claim report had NO call site (a law in a docstring) → `removed` now rides the
+> manifest and the CLI prints it; (3) `[player]` wholesale deleted Place-authored
+> `[[player.arrival]]` rows — the floorplan owns [player] wholesale only because ITS composer
+> generates arrivals; this one never does → per-key merge, spawn generator-owned + reported;
+> (4) the first cut wrote art BEFORE merging, so a merge refusal could still half-rewrite →
+> all writes now deferred behind every refusal; (5) two of the round's own fences were
+> vacuous (a byte-compare over unchanged inputs; a min-edge fixture the collinear pass ate) —
+> both rebuilt with anti-vacuity asserts.
 
 **Three measured facts that set the shape:**
 - **Width, not length, is the expensive axis.** `fit_play_camera` fits the AABB, so the SAME

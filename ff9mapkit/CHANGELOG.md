@@ -13,10 +13,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `[[layers]]`/`[[gateway]]`/`[[event]]`; everything else rides through verbatim and is
   named in the output. Generated region rows now carry the `traced_door`/`traced_zone`
   prefix so ownership stays decidable against hand rows (a pre-prefix project's
-  `door0`/`zone0` rows are claimed once and reported, never doubled). An existing project
-  toml that does not parse refuses BEFORE anything is written; the new `--force` discards
-  hand content deliberately. `[player]` (the spawn) stays generator-owned — a hand-moved
-  spawn is re-derived and the retake is reported.
+  `door0`/`zone0` rows are claimed once and reported, never doubled — and the legacy claim
+  is OFF entirely on a no-regions regenerate, so a Place-drawn `door0` on a doorless traced
+  project survives indefinitely). Every generator row the session dropped is named in the
+  output. An existing project toml that does not parse refuses BEFORE anything is written —
+  as does every other refusal, ahead of every artifact write; the new `--force` discards
+  hand content deliberately. `[player]` merges per key: the spawn stays generator-owned
+  (a hand-moved spawn is re-derived and the retake reported) while Place-authored
+  `[[player.arrival]]` rows ride through untouched.
 - The Workspace Trace tab carries the project's own camera rig: a project generated at a
   non-default `--distance`/`--fov` reopens and regenerates through ITS camera (the rig
   rides the `.trace.json`), and the tab refuses floorplan-composed rooms, scrolling rooms

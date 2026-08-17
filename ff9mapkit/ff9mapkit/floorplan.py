@@ -1888,14 +1888,21 @@ def simplify_room_poly(pts, *, min_edge=8.0, collinear_u=2.0):
                 del out[i]
                 changed = True
                 break
-    kept = []
-    for p in out:
-        if not kept or math.hypot(p[0] - kept[-1][0], p[1] - kept[-1][1]) >= min_edge:
-            kept.append(p)
-    if len(kept) > 1 and math.hypot(kept[0][0] - kept[-1][0],
-                                    kept[0][1] - kept[-1][1]) < min_edge:
-        kept.pop()                                 # the closing edge obeys min_edge too
-    return [(int(round(x)), int(round(z))) for x, z in kept]
+    # Round FIRST, then filter: rounding an 8.3u diagonal edge can shrink it under min_edge,
+    # so a filter on floats could hand back a polygon polygon_problem refuses anyway (the
+    # review's catch). The loop treats the CLOSING edge like any other and iterates to a
+    # fixed point — one pass (or one pop) can leave a fresh short edge behind.
+    kept = [(int(round(x)), int(round(z))) for x, z in out]
+    changed = True
+    while changed and len(kept) > 3:
+        changed = False
+        for i in range(len(kept)):
+            a, b = kept[i], kept[(i + 1) % len(kept)]
+            if math.hypot(b[0] - a[0], b[1] - a[1]) < min_edge:
+                del kept[(i + 1) % len(kept)]
+                changed = True
+                break
+    return kept
 
 
 def room_from_trace(trace, *, name):

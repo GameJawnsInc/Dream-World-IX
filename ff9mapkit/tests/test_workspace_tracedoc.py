@@ -871,3 +871,41 @@ def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monke
     _argv2, kw2 = run.calls[1]
     kw2["on_finished"](0)                              # a clean REGENERATE stays put
     assert opened == [str(toml)]
+
+
+def test_after_generate_opens_the_toml_captured_at_launch(app, tmp_path, monkeypatch):
+    """The on_finished payload is resolved AT LAUNCH: an author who switches projects while
+    the job runs must not have the NEW project's path opened by the OLD job's finish."""
+    pytest.importorskip("PIL")
+    opened = []
+    run = _Run()
+    doc = TraceDoc(pick_palette("dark"), KIT, run=run, on_generated=opened.append)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30786")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    _argv, kw = run.calls[0]
+    launched = tmp_path / "photo-field" / "PICTURE.field.toml"
+    launched.parent.mkdir(parents=True, exist_ok=True)
+    launched.write_text('[field]\nid = 30786\nname = "PICTURE"\narea = 11\n', encoding="utf-8")
+    (tmp_path / "elsewhere").mkdir()
+    doc.load_image(_photo(tmp_path / "elsewhere", size=(640, 480)))   # a NEW session mid-job
+    kw["on_finished"](0)
+    assert opened == [str(launched)]                   # the launched project, never the new one
+
+
+def test_an_unrepresentable_pitch_is_said_not_swallowed(app, tmp_path):
+    """The slider is integer and banded 6-48; a sidecar pitch it cannot represent used to
+    clamp silently -- and a Regenerate would then MOVE the floor. The load now warns."""
+    pytest.importorskip("PIL")
+    import json
+    photo = _photo(tmp_path)
+    side = tmp_path / "photo.trace.json"
+    side.write_text(json.dumps({"image": str(photo), "pitch": 52,
+                                "floor": [[100, 300], [200, 300], [150, 400]]}),
+                    encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(side)
+    assert doc.pitch.value() == 48                     # the slider's own cap
+    assert "pitch 52" in doc.status.text() and "MOVES the floor" in doc.status.text()

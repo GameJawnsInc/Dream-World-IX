@@ -273,6 +273,16 @@ class TraceDoc(QWidget):
         return guide.make_camera(float(self.pitch.value()), self._distance,
                                  fov_x_deg=self._fov)
 
+    def _pitch_drift_note(self, wanted):
+        """The slider is integer and banded 6–48; a project pitch it cannot represent used to
+        clamp SILENTLY — and a Regenerate would then re-project the floor through the clamped
+        value, moving shipped geometry with no warning. Say it."""
+        got = float(self.pitch.value())
+        if abs(got - float(wanted)) > 0.01:
+            return (f" · ⚠ pitch {float(wanted):g} is outside this slider (now {got:g}) — a "
+                    f"Regenerate re-projects through {got:g} and MOVES the floor")
+        return ""
+
     def _valid_count(self):
         """(valid, bad): vertices below/above the current camera's horizon."""
         cam = self.canvas.camera()
@@ -850,21 +860,23 @@ class TraceDoc(QWidget):
                     f"--id {fid} — then ~ → Warp to field → {fid}.",
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
                       "or a floor larger than the Int16 world bound.",
-            on_finished=lambda code: self._after_generate(code, first))
+            on_finished=lambda code, _t=str(out / f"{name}.field.toml"):
+                self._after_generate(code, first, _t))
         if started:
             self._project = {"out": str(out), "name": name, "fid": int(fid)}
             self._stamped = True                       # the project now matches the session
             self._write_trace_sidecar(out)             # the re-editable session record
             self._refresh(f"Generating {name} → {out} …")
 
-    def _after_generate(self, code, first):
+    def _after_generate(self, code, first, toml):
         """A clean FIRST Generate opens the project in the Editor (through the shell's own
         ``open_field`` — which is what feeds the Place tab, rung 7d, so 'trace it → place
-        content on it' is one flow). Regenerates never yank; failures never open anything."""
-        if code != 0 or not first or self.on_generated is None or self._project is None:
+        content on it' is one flow). Regenerates never yank; failures never open anything.
+        ``toml`` was captured AT LAUNCH — reading the live ``self._project`` here would open
+        whatever project the author switched to while the job ran."""
+        if code != 0 or not first or self.on_generated is None:
             return
-        toml = Path(self._project["out"]) / f"{self._project['name']}.field.toml"
-        if toml.is_file():
+        if Path(toml).is_file():
             self.on_generated(str(toml))
 
     def _write_trace_sidecar(self, out):
@@ -924,7 +936,9 @@ class TraceDoc(QWidget):
         self._stamped = True                           # the record IS the project's state
         self._refresh_cutouts()
         self._refresh_regions()
-        self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place.")
+        drift = self._pitch_drift_note(data.get("pitch", imagefield.DEFAULT_PITCH))
+        self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place."
+                      + drift, "warn" if drift else "")
 
     def load_project(self, path):
         """Reopen a generated image-field PROJECT from its field.toml: prefer the folder's
@@ -1025,8 +1039,10 @@ class TraceDoc(QWidget):
         self._stamped = True                           # rebuilt FROM the project = in sync
         self._refresh_cutouts()
         self._refresh_regions()
+        drift = self._pitch_drift_note(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH))
         self._refresh(f"Reopened {path.name} — session REBUILT from the compiled project (no "
-                      f".trace.json yet; the next Generate writes one). Generate goes in place.")
+                      f".trace.json yet; the next Generate writes one). Generate goes in place."
+                      + drift, "warn" if drift else "")
 
     # ------------------------------------------------------------------ the open-field offer
     def offer_project(self, path):

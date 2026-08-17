@@ -649,17 +649,24 @@ def test_regenerate_refuses_an_unparseable_project_before_writing_anything(tmp_p
                 for p in sorted(root.rglob("*")) if p.is_file()}
 
     before = _tree(tmp_path / "out")
+    # CHANGED inputs, or the fence is vacuous: with the same photo and floor a violation
+    # would rewrite byte-identical artifacts and the compare could never go red (the
+    # adversarial review's catch on this test's own first cut)
+    from PIL import Image
+    Image.new("RGB", (384, 448), (10, 200, 10)).save(tmp_path / "src.png")
+    floor2 = [(100, 160), (300, 160), (340, 430), (40, 430)]
     with pytest.raises(IF.ImageFieldError, match="--force"):
-        IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE")
+        IF.build_image_field(tmp_path / "src.png", floor2, tmp_path / "out", name="MERGE")
     assert _tree(tmp_path / "out") == before          # byte-identical across the refusal
-    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+    man = IF.build_image_field(tmp_path / "src.png", floor2, tmp_path / "out", name="MERGE",
                                force=True)            # the escape hatch discards
     assert man["kept"] == [] and (tmp_path / "out" / "MERGE.field.toml").is_file()
+    assert _tree(tmp_path / "out") != before          # anti-vacuity: the inputs DO move bytes
 
 
-def test_player_is_generator_owned_and_the_retake_is_said_out_loud(tmp_path):
-    """[player] regenerates wholesale (the session's centroid wins) -- but a hand-moved spawn
-    is REPORTED via retaken, never silently reverted."""
+def test_player_spawn_is_generator_owned_and_the_retake_is_said_out_loud(tmp_path):
+    """[player].spawn regenerates (the session's centroid wins) -- but a hand-moved spawn is
+    REPORTED via retaken, never silently reverted."""
     pytest.importorskip("PIL")
     import tomllib
     toml, floor, _man = _merge_project(tmp_path)
@@ -671,4 +678,63 @@ def test_player_is_generator_owned_and_the_retake_is_said_out_loud(tmp_path):
                                 events=["It creaks.@200,340;300,340;300,380;200,380"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert data["player"]["spawn"] != moved            # the centroid is re-derived
-    assert "player" in man2["retaken"]
+    assert "player.spawn" in man2["retaken"]
+
+
+def test_place_authored_arrivals_ride_through_a_regenerate(tmp_path):
+    """[player] merges PER KEY: the Place tab writes [[player.arrival]] rows into the same
+    table the generator owns the spawn of, and the wholesale band was deleting them (the
+    review's catch — the floorplan owns [player] wholesale only because ITS composer
+    generates arrivals; this one never does)."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8") + (
+        '\n[[player.arrival]]\nentrance = 0\npos = [0, 900]\n'
+        '\n[[player.arrival]]\nentrance = 2\npos = [300, 1400]\nface = "north"\n'),
+        encoding="utf-8", newline="\n")
+    man2 = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    rows = data["player"]["arrival"]
+    assert [r["entrance"] for r in rows] == [0, 2] and rows[1]["face"] == "north"
+    assert isinstance(data["player"]["spawn"], list)   # the generator's key survives beside them
+    assert any("arrival" in k for k in man2["kept"])
+    assert "player.spawn" not in man2["retaken"]       # an untouched spawn is not a retake
+
+
+def test_a_no_regions_regenerate_never_claims_place_rows(tmp_path):
+    """THE RECURRING-DELETION HOLE (the review's high finding): a project traced with NO
+    regions emits no traced_ row, so the file reads as legacy forever — and the legacy claim
+    ate a Place-drawn door0 on EVERY regenerate. The claim is now gated on the session
+    actually emitting regions; a no-regions regenerate preserves door0/zone0 indefinitely."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE")
+    toml = tmp_path / "out" / "MERGE.field.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + (
+        '\n[[gateway]]\nname = "door0"\nto = 301\nzone = [[-500, 900], [-400, 900], '
+        '[-400, 1000], [-500, 1000]]\n'), encoding="utf-8", newline="\n")
+    for _ in range(2):                                 # every regenerate, not just the first
+        man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE")
+        data = tomllib.loads(toml.read_text(encoding="utf-8"))
+        assert [g["name"] for g in data["gateway"]] == ["door0"]
+        assert man["removed"] == []
+
+
+def test_claimed_and_stale_rows_are_named_in_removed(tmp_path):
+    """Deletion is REPORTED, never silent (floorplan.merge_room's own contract): a stale
+    traced_ door dropped from the session and a legacy-claimed door0 both land in removed,
+    and the manifest carries the list the CLI prints."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(
+        tmp_path, gateways=("4005@60,300;140,300;140,330;60,330",
+                            "4007@250,300;330,300;330,330;250,330"))
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
+    assert "[[gateway]] traced_door1" in man["removed"]
+    assert "[[event]] traced_zone0" in man["removed"]  # the session dropped its event too

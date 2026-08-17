@@ -2048,7 +2048,24 @@ def test_room_from_trace_refuses_what_it_cannot_serve():
 
 
 def test_simplify_room_poly_enforces_the_min_edge():
-    poly = [(0, 0), (4, 2), (2400, 0), (2400, 1600), (0, 1600)]   # (4,2) hugs the first corner
+    # (5, 5) hugs the first corner but is NOT near-collinear with its neighbours — the review
+    # caught the first fixture ((4, 2), perp distance exactly the collinear tolerance) being
+    # eaten by the collinear pass, which left the min-edge filter with no red-capable coverage
+    poly = [(0, 0), (5, 5), (2400, 0), (2400, 1600), (0, 1600)]
+    ex, ez = 2400 - 0, 0 - 0
+    perp = abs((5 - 0) * ez - (5 - 0) * ex) / math.hypot(ex, ez)
+    assert perp > 2.0, "the fixture vertex is collinear-droppable — this fence asserts nothing"
     out = F.simplify_room_poly(poly)
-    assert (4, 2) not in out and len(out) == 4
+    assert (5, 5) not in out and len(out) == 4
+    assert F.polygon_problem(out) is None
+
+
+def test_simplify_rounds_before_the_min_edge_filter():
+    """An 8.1u float diagonal that ROUNDS to 7.8u: filtering floats and rounding after hands
+    back exactly the sub-8u edge polygon_problem refuses (the review's catch — the fence is
+    the fixed order, round first then filter, closing edge included)."""
+    poly = [(0.49, 0.0), (6.49, 5.49), (2400.0, 0.0), (2400.0, 1600.0), (0.0, 1600.0)]
+    assert math.hypot(6.0, 5.49) >= 8.0               # the float edge passes the old filter
+    assert math.hypot(6.0, 5.0) < 8.0                 # its rounding does not
+    out = F.simplify_room_poly(poly)
     assert F.polygon_problem(out) is None
