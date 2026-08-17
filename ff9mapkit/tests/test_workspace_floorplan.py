@@ -20,6 +20,15 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# ★ NO BACKGROUND READERS (the sibling GUI modules' pin, and this file skipped it): the shell-
+# registration test builds a FULL Workspace, whose ModelsDoc enqueues model-thumb builds against
+# the developer's REAL cache behind a 3s release timer. qt_drain parks that Workspace ALIVE, the
+# timer fires at the next test that runs an event loop -- ~40 tests later, in the gesture section
+# -- and the spawned build imports UnityPy -> fmod_toolkit -> numpy on its worker thread while a
+# victim test's `pytest.approx` peeks at the half-initialized module (sys.modules.get, no lock):
+# "partially initialized module 'numpy'" in whichever test the window lands on. Measured 3-in-4
+# red on a cold cache; self-warming (red runs BUILD the cache), which is what made it look flaky.
+os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPointF, QRectF, Qt                          # noqa: E402
@@ -107,6 +116,12 @@ def _doc(app, *, run=None, kit=KIT, on_composed=None, id_base="30500", theme="da
     path deliberately, never by omission."""
     run = run or _Run()
     doc = FloorplanDoc(pick_palette(theme), kit, run=run, on_composed=on_composed)
+    # The sync lane is this module's ONLY judge lane (see _deterministic_qt_teardown) — but every
+    # gesture arms the 140ms async debounce all the same, and the gesture-section tests run real
+    # event loops well past 140ms after drawing. Measured: the timer fired inside
+    # test_ctrl_zero...'s processEvents and spawned a live judge worker MID-test. Stretch it so it
+    # cannot fire inside any test; a fence that wants the async lane must ask for it explicitly.
+    doc._debounce.setInterval(3_600_000)
     if id_base:
         doc.id_box.setText(id_base)
     return doc, run
