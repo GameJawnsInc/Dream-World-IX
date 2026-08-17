@@ -1588,6 +1588,63 @@ def test_a_canvas_with_no_real_viewport_leaves_every_label_where_it_was(app):
         assert got == label_offsets(dx, dy, 300, 22, centre=centre)[0]
 
 
+def _chips_pinned(c):
+    """Assert every visible chip sits at its ``_place_hint`` corner, fully inside the viewport."""
+    vp = c.viewport()
+    assert c._compass.pos().toTuple() == (10, 8), \
+        f"the compass was dragged off its corner: {c._compass.pos().toTuple()}"
+    g = c._hint.geometry()
+    assert g.x() == max(8, vp.width() - g.width() - 10), \
+        f"the zoom hint is not right-pinned: {g.getRect()} in a {vp.width()}px viewport"
+    assert g.x() >= 0 and g.right() < vp.width() and g.bottom() < vp.height(), \
+        f"the zoom hint hangs off the viewport: {g.getRect()} in {vp.width()}x{vp.height()}"
+
+
+def test_the_chips_stay_pinned_when_the_view_SCROLLS(app):
+    """★ Qt scrolls a QGraphicsView by ``QWidget::scroll`` ON THE VIEWPORT, WHICH MOVES THE
+    VIEWPORT'S CHILD WIDGETS — the chips are exactly that. Before ``scrollContentsBy`` re-pinned
+    them, every fit/zoom/pan dragged them by the scroll delta (a C++-initiated move: no Python
+    override sees it), and the first-paint ``fit()`` left the zoom hint half off the canvas's
+    right edge — 'Ctrl+scroll zo' — and the compass ABOVE the viewport in the default 1280x850
+    window at CALIBRE 100, native. The bars are driven by value, the path every scroll source
+    shares; both range and movement are asserted so the fence cannot go vacuous."""
+    doc, _ = _two_rooms(app)
+    c = _laid_out_canvas(app, doc, viewport_w=875)
+    _chips_pinned(c)                                   # the reported case: pinned right after fit()
+    c.scale(4, 4)                                      # overflow the viewport so a range EXISTS
+    app.processEvents()
+    hb, vb = c.horizontalScrollBar(), c.verticalScrollBar()
+    assert hb.maximum() > hb.minimum() and vb.maximum() > vb.minimum(), \
+        "no scroll range -- the fence would be vacuous"
+    before = (hb.value(), vb.value())
+    hb.setValue(hb.value() + 40)
+    vb.setValue(vb.value() + 25)
+    app.processEvents()
+    assert (hb.value(), vb.value()) != before, "the bars did not move -- the fence went vacuous"
+    _chips_pinned(c)
+
+
+def test_a_chip_on_a_narrow_viewport_ELIDES_and_never_clips(app):
+    """The other clip: a chart squeezed narrower than the hint's own width used to keep the full
+    string at the ``max(8, …)`` inset and CLIP it at the canvas edge. mapview's discipline plus an
+    elide: measured after polish, fully visible or elided, never clipped — and the full teaching
+    line comes back when the width does (the elide is re-derived from the stored full text, so a
+    narrow session cannot fossilize a cut)."""
+    doc, _ = _two_rooms(app)
+    c = _laid_out_canvas(app, doc, viewport_w=161)     # odd width, far under the hint's own
+    vp = c.viewport()
+    for lab, full in ((c._hint, c._hint_full), (c._compass, c._compass_full)):
+        g = lab.geometry()
+        assert g.x() >= 0 and g.right() < vp.width(), \
+            f"{lab.text()!r} clips at the viewport edge: {g.getRect()} in {vp.width()}px"
+        assert lab.text() != full, "a chip wider than the viewport must ELIDE, not overflow"
+    frame = c.width() - vp.width()
+    c.setFixedWidth(875 + frame)
+    app.processEvents()
+    assert c._hint.text() == c._hint_full and c._compass.text() == c._compass_full, \
+        "the full chip text must come back when the viewport recovers"
+
+
 # ============================================================ the live gate: fast, and still live
 # `compose` re-ran WHOLE on every gesture: ~17s per drag on an eight-room plan -- the same as
 # drawing it -- and one worker per
