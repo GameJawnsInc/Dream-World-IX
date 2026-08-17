@@ -271,3 +271,131 @@ The brief was 48 and 50; they are two thirds of ONE algorithm, so 49 came with t
   (`edx`), op 43 (`ecx`), op 16 (a constant `0x400`)** — all three mis-typed, all three now `int`.
   Fixed by matching ANY write to `r12d` before the tail return: the register a value arrives in is a
   codegen detail, not part of the ABI. Confidence board unaffected (0 violations); R1/R2/R3/CB green.
+
+## R9 (op 64) -- * DONE 2026-08-07: THE FULL-SCREEN FILL, AND AN UNDERCOUNTED ARITY
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 5. `body_gates.py` 12/12; 6 more tests (tier-r 197).
+**Named 113 -> 114; traffic 78.9% -> 81.5%. Across R4-R9: 79 -> 114 named, 51.8% -> 81.5%.**
+
+* **op 64 = `draw_fullscreen_fill`** (366 sites, medium). `fn 0x3f180` carves `0x80` bytes off the
+  arena cursor and builds **8 PS1 `TILE` primitives** `{u32 tag; u8 r,g,b,code; u16 x,y; u16 w,h}`
+  at `x=(i&3)*80`, `y=(i>>2)*110`, each `80x110` -- a 4x2 grid, and **4*80 = 320, 2*110 = 220 = THE
+  PS1 SCREEN**. Colour is `(arg2,arg3,arg4)`; code `0x60` opaque when `arg1 == 0xff` else `0x62`
+  (the rectangle ABE bit). Each tile goes to **`fn 0x3edb0` = libgpu `AddPrim`** (length into the
+  tag's top byte, 24-bit OT XOR-splice) at depth `arg1`, which `AddPrim` itself special-cases at
+  `0xff` -- so `0xff` is a sentinel, not a depth.
+* **LEAD: `op 143`'s own native fn IS `0x3edb0`** -- the corpus exposes `AddPrim` directly, unclaimed.
+* **CORPUS (the refutable part): 412/412 (100%)** of `$a2`/`$a3` constants are colour bytes `<=255`
+  vs **987/1609 (61.3%)** control (every other op with >=3 int args); `$a1` corpus-wide is exactly
+  `{0,1,2,255}`; and a real site builds the channels as **three shifts of ONE animated scalar**
+  (`r=v>>4, g=v>>3, b=v>>2`) -- coordinates could not look like that.
+* ** A SECOND DECODER BLIND SPOT -- op 64 takes FIVE arguments, not four.** R2 tracks the
+  translated MIPS `$sp` only while it lives in `rax`; op 64's stub does `mov rbx, rax` before
+  another call, then reads arg 4 as `[rbx+0x10]`. Fixed by following the value through the register
+  move. **Bounded: exactly 2 ops gain an argument (64 and 70, both 4 -> 5); calibration still
+  12/12 on name AND arity.**
+* **INDEPENDENT CORROBORATION: `M3-opcode-table.json` (from the x86 build's `[ebp+N]` frame) says
+  arity 5 for BOTH.** Both are in R2 finding 4's disagreement list, so that finding's blanket
+  *"prefer `hle_ops.json`"* was too broad -- **on stacked-argument arity M3 was right**. The
+  disagreement set shrinks 19 -> 17.
+
+## R10 (op 143) -- * DONE 2026-08-07: AddPrim + A CORRECTION TO OP 64
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 6. `body_gates.py` 14/14; 5 more tests (tier-r 202).
+**Named 114 -> 115; traffic 81.5% -> 81.6%. Across R4-R10: 79 -> 115 named, 51.8% -> 81.6%.**
+
+Only 9 call sites, so the traffic gain is trivial -- the rung earned its place by correcting the op
+it shares a function with.
+
+* **op 143 = `add_prim_blended`** (9 sites, medium). `fn 0x3edb0` is libgpu **`addPrim`**: length
+  out of the tag's top byte, then the PS1 OT insert XOR-swapping only the low **24 bits** so each
+  word keeps its top byte. **Then, unless `arg3 == 0xff`, it carves 8 more bytes off the arena
+  cursor for a 2-word primitive whose payload is `0xE1000200 | ((arg3 & 3) << 5)`** -- GP0(E1h)
+  Draw Mode, bits 5-6 the **ABR** semi-transparency mode, bit 9 dither: a **`DR_TPAGE`** (the same
+  state primitive the s76 probe logs, and the same ABR field op 206 ORs into `so` bindings).
+  `addPrim` inserts at the HEAD, so the prefix draws FIRST -- set the blend, then draw.
+* ** THE CORRECTION: op 64's `arg1` is a BLEND MODE, not an OT depth.** op 64 passes it straight
+  into this parameter (`mov r9d, esi`), which masks it to 2 bits. R9/ADDENDUM 5 called it a depth;
+  wrong. The corpus fits the corrected reading far better -- `1(x254)` is **ABR 1, additive**,
+  what a full-screen VFX flash wants; `2` subtractive, `0` 50/50, `255` opaque-and-emit-nothing.
+  **Neither op has a depth argument at all: the OT POINTER is the depth (`&ot[z]`).** Evidence
+  string, docstring and the B12 gate label all corrected; a test pins it so a revert fails loud.
+* **CORPUS: `arg0` is a primitive TAG** (length in the top byte, 24-bit link zeroed) -- **9/9
+  (100%)**, values `0x04000000` x4 / `0x08000000` x5, vs **73/2086 (3.5%)** for every other
+  int-arg0 op, a ~29x separation.
+* MEDIUM: `fn 0x3edb0` owns no debug string -- same posture as the RNG family (a documented external
+  shape, no name stated in the binary).
+
+## R11 (op 128) -- * DONE 2026-08-07: THE ACTOR ANCHOR, AND A REFUSAL RULE CORRECTED
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 7. `body_gates.py` 16/16; 5 more tests (tier-r 207).
+**Named 115 -> 116; traffic 81.6% -> 83.7%. Across R4-R11: 79 -> 116 named, 51.8% -> 83.7%.**
+Unnamed is now under 100.
+
+* ** THE REUSABLE CORRECTION: multi-command != ambiguous.** The callback lane refused op 128 for
+  reaching FOUR commands. The body shows they are **four routes to ONE answer** -- *where is this
+  actor's anchor point?* A multi-command op is only ambiguous when the commands are **unrelated**;
+  that is what makes the remaining callback-lane refusals worth revisiting.
+* **op 128 = `get_actor_anchor`** (305 sites, medium). `fn 0x450c0` resolves the actor through
+  `fn 0x44a60` -- **op 136's index space** -- and TAIL-JUMPS to `fn 0x44f80` (the op-206 gap again).
+  `GET_SLAVE(22)` asks whether the unit is attached; a slave takes `GET_MATRIX(14)` on bone
+  `byte[actor+0x1a]`, an ordinary unit `GET_POSITION(1)` (`bts ecx, 0x18`); height comes from
+  `actor+0x3c` **halved at mode 0**; and `CHECK_STATUS(20)` sub-mode 1, mask `0x200000` =
+  **`BattleStatus.Float`**, takes `0x80` back off it. Then `word[out+2] -= height` -> **out is an
+  i16 x/y/z triple, +2 is Y**.
+* ** THE FLOAT FIX IS WHAT PROVES THE READING**: a floating unit's reported position is ALREADY
+  raised, so the anchor correction must subtract that lift back out or double-count it. Nothing but
+  a body-anchor calculation needs that.
+* **CORPUS: `arg2` is an OUT-POINTER -- 11/11 (100%)** are PSX RAM pointers vs **0/928 (0.0%)** for
+  every other op whose arg2 is typed int. A clean separation. `$a0` only `{0,16}` (op 136's actor
+  indices); `$a1` only `{0 x289, 1 x15}`, the two height modes.
+* Natural sibling of op 136 `actor_relative_coord` -- same lookup, same anchoring job.
+
+## R12 (op 127) -- * DONE 2026-08-07: THE OTHER HALF OF THE PAIR
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 8. `body_gates.py` 18/18; 4 more tests (tier-r 211).
+**Named 116 -> 117; traffic 83.7% -> 85.2%. Across R4-R12: 79 -> 117 named, 51.8% -> 85.2%.**
+
+R11's corrected rule said the remaining callback-lane refusals were worth revisiting. op 127 was the
+immediate test and it paid out at once.
+
+* **op 127 = `get_actor_position`** (211 sites, medium). `fn 0x44f60` has op 128's exact shape --
+  resolve the actor via the shared `fn 0x44a60`, then TAIL-JUMP -- but to `fn 0x44e80`, the PLAIN
+  fetch. It gates on `GET_SLAVE(22)` then discriminates on `byte[actor+0x10]`: zero takes
+  `GET_MATRIX(14)` on bone `byte[actor+0x1a]` **and zeroes out.y**, non-zero takes
+  `GET_POSITION(1)`. Three commands, refused on the old rule -- three routes to one answer.
+* ** THE PAIR IS SELF-CONFIRMING: `fn 0x44e80` is exactly what op 128's body CALLS** before
+  adjusting. `op 127 = position`, `op 128 = that position + height/2 + the Float fix`. A gate
+  asserts the call edge AND the **negative** -- op 127's chain must NOT carry the Float correction;
+  if it did, the pair reading collapses and both names are wrong.
+* **CORPUS + ITS HONEST LIMIT:** op 127's `arg0` domain is `{0,16}`, **byte-identical to op 128's**;
+  controls span up to 40 distinct values. **But the control MEDIAN is 2**, so "small domain" alone
+  does not discriminate -- what carries is the IDENTITY of the two domains, and the gate requires
+  that, not smallness. `arg1` is never a constant in 211 sites (an out-parameter on the stack),
+  which is why op 128's pointer test could not be reused.
+
+## R13 (op 144) -- * DONE 2026-08-07: THE WRAPPING VRAM SCROLL BLIT
+
+Record: `CALLBACK-OPS.md` SS ADDENDUM 9. `body_gates.py` 20/20; 5 more tests (tier-r 216).
+**Named 117 -> 118; traffic 85.2% -> 86.4%. Across R4-R13: 79 -> 118 named, 51.8% -> 86.4%.**
+
+* **op 144 = `vram_scroll_blit`** (167 sites, medium). `fn 0x47b40` carves `0x30` bytes and builds
+  **TWO 6-word primitives** (tag length 5) with code word `0xE7000000` -- and the code is not a
+  guess: **`SFXRender.cs:316` dispatches `case 231` -> `DR_MOVE`** (231 == 0xE7), libgpu's
+  VRAM-to-VRAM block move, **the primitive the s76 probe logs** (U1 counted 641 rows on ef038).
+  **This is the op that queues them.**
+* **THE WRAP SPLIT** (`rem = arg0 % arg4`), matched field-for-field against `SFXRender.DR_MOVE`'s
+  own reader (`code[1]`=src, `code[2]`=size, `code[3]`=dst): part A = src `(arg5,arg6)` size
+  `(arg3,rem)` dst `(arg1, arg2+arg4-rem)`; part B = src `(arg5,arg6+rem)` size `(arg3,arg4-rem)`
+  dst `(arg1,arg2)`. **One band split at the phase and written back with the halves swapped = a
+  VERTICAL SCROLL WITH WRAPAROUND**, the PS1 way to animate a texture with no UV change. Each half
+  is skipped at zero height. Args = **`(scroll, dstX, dstY, width, period, srcX, srcY)`**.
+* Corpus: `arg0` is almost never constant (the animated phase); `$a1` = `640/448/576/704/512/832`
+  = **the VRAM page columns the W6b texel map is built on**; `$a2` = `256/384/368/288/320/480`.
+  Only **two** ops emit the code word: op 7 (one, unsplit) and op 144 (two, the split pair).
+* ** A GUESS REFUTED EN ROUTE:** "the destination is a page origin (`x % 64 == 0`)" was killed by
+  **19 real sites** (x = 480/608/672/752/800/864) -- a `DR_MOVE` destination is an ARBITRARY VRAM
+  rect. The shipped predicate is the one the HARDWARE requires (`x+w <= 1024`, `y < 512`, `w > 0`):
+  **167/167 (100%) vs 268/583 (46.0%)** control. Four candidates all scored 100% on op 144; the one
+  shipped is mechanism-required, not widest-ratio -- **the corpus test is SUPPORTING evidence, the
+  decisive evidence is the managed renderer naming the code word.**
