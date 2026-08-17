@@ -42,7 +42,20 @@ def qt_drain():
         # Keeping the widgets ALIVE in a process-global list means no Qt C++ graph ever dies
         # under GC: hidden windows idle at ~0 cost and the OS reclaims everything at process
         # end. A bounded leak in a TEST process, traded for a deterministic suite.
+        #
+        # ...but a parked widget is a LIVE widget, and its armed QTimers fire in whichever
+        # LATER test next runs an event loop. Measured: a parked Workspace's 3s thumb-release
+        # single-shot fired ~40 tests after its own test ended and spawned a worker thread that
+        # imported numpy under a victim test's `pytest.approx` ("partially initialized module").
+        # So every timer in every top-level graph is stopped before (and after) parking — a
+        # parked widget may keep its C++ graph, never its agenda.
+        qtc = sys.modules.get("PySide6.QtCore")
         for w in qtw.QApplication.topLevelWidgets():
+            try:
+                for t in w.findChildren(qtc.QTimer):
+                    t.stop()
+            except RuntimeError:                   # a wrapper whose C++ side already went
+                pass
             if w not in _QT_PARKED:
                 w.hide()
                 _QT_PARKED.append(w)

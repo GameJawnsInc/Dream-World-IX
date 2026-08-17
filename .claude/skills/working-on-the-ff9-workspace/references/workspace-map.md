@@ -108,6 +108,7 @@ Output: `tools/scroll_out/gui_snaps/<name>_<theme>_<scale>.png`.
 | `ExtraSelection` on `QPlainTextEdit` | It belongs to `QTextEdit`; PySide6 has no such attribute | Paint the highlight yourself |
 | A silent hang with no output | Almost always an unstubbed modal | `faulthandler.dump_traceback_later` |
 | A screen-fixed overlay parented to a `QGraphicsView` VIEWPORT | Qt scrolls via `QWidget::scroll`, which MOVES viewport children — every fit/zoom/pan dragged the floorplan's corner chips from C++ (no Python override sees it) until the zoom hint clipped at the canvas edge | Re-pin in a `scrollContentsBy` override (floorplandoc's `_place_hint`; still latent in mapview/backdrop/behaviordoc/worlddoc) |
+| A PARKED (hidden, alive) widget's armed `QTimer` | `qt_drain` parks widgets alive, so a pending single-shot fires in whichever LATER test next runs an event loop — the shell's 3s thumb-release timer fired ~40 tests after its own test, spawned a worker that imported UnityPy→numpy, and `pytest.approx`'s lock-free `sys.modules` peek hit the half-imported module: ONE roaming failure per run, self-warming via the real thumb cache | `qt_drain` stops every parked widget's timers; a GUI module that builds a Workspace pins `FF9MAPKIT_NO_THUMBS=1` at module top (the sibling modules' pattern) |
 
 ## Test suites
 
