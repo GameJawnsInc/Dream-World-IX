@@ -107,6 +107,7 @@ Output: `tools/scroll_out/gui_snaps/<name>_<theme>_<scale>.png`.
 | Removing a `QGroupBox` | Qt derives a control's screen-reader name from the enclosing groupbox title — 13 names silently stripped | `setBuddy`, and re-run the a11y suite |
 | `ExtraSelection` on `QPlainTextEdit` | It belongs to `QTextEdit`; PySide6 has no such attribute | Paint the highlight yourself |
 | A silent hang with no output | Almost always an unstubbed modal | `faulthandler.dump_traceback_later` |
+| A screen-fixed overlay parented to a `QGraphicsView` VIEWPORT | Qt scrolls via `QWidget::scroll`, which MOVES viewport children — every fit/zoom/pan dragged the floorplan's corner chips from C++ (no Python override sees it) until the zoom hint clipped at the canvas edge | Re-pin in a `scrollContentsBy` override (floorplandoc's `_place_hint`; still latent in mapview/backdrop/behaviordoc/worlddoc) |
 
 ## Test suites
 
