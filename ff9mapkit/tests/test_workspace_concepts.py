@@ -34,7 +34,7 @@ def test_the_headline_vocabulary_all_resolves():
     # the §3/§5 vocabulary a newcomer meets -- every one must answer to a card
     for term in ("field", "walkmesh", "gateway", "encounter", "campaign", "journey", "fork", "verbatim",
                  "native", "editable", "story flag", "scenario", "deploy", "F6", "Memoria", "mesID",
-                 "FBG", "bg-borrow"):
+                 "FBG", "bg-borrow", "paint template"):
         assert concepts.resolve(term) is not None, f"no concept card for {term!r}"
 
 

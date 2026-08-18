@@ -821,6 +821,21 @@ def test_paint_with_several_rooms_asks_the_seam_and_a_cancel_runs_nothing(app, t
     assert len(run.calls) == 1
 
 
+def test_the_paint_button_carries_the_round_trip_help_badge(app):
+    """The image round-trip (placeholders -> trace-over templates -> paint -> same filenames ->
+    recompose keeps it) had no home the author could read BEFORE running the job (ok_next only
+    appears after). The '?' badge is the up-front explainer — and it must be the SHARED concept
+    badge, so it opens the registry card and stays QSS-sized, not a private button."""
+    doc, _run = _doc(app)
+    b = doc.paint_help
+    assert b is not None, "the badge must exist — the card resolved at construction"
+    assert b.objectName() == "conceptBadge", "the shared forms_qt builder, not a private '?'"
+    assert b.text() == "?"
+    assert "Painting a room's art" in b.accessibleName()
+    from ff9mapkit.workspace import concepts
+    assert concepts.resolve("paint template").term == "paint-roundtrip"
+
+
 def test_paint_with_no_room_tomls_on_disk_refuses_out_loud(app, tmp_path):
     """A project whose room dirs vanished (moved, or a rename mid-recompose) is not a crash and
     not a silent no-op."""

@@ -1658,6 +1658,14 @@ class FloorplanDoc(QWidget):
             "survives recompose.")
         self.paint_btn.clicked.connect(self.on_paint_template)
         row.addWidget(self.paint_btn)
+        # The image round-trip is a WORKFLOW, not a control — too much for a tooltip, and the one
+        # place it was written down (the job's ok_next) only appears AFTER a run. The shared "?"
+        # concept badge (forms_qt's builder, QSS-sized, What's-This bubble) explains it up front.
+        from .forms_qt import _concept_badge
+        made = _concept_badge("paint-roundtrip", palette)
+        self.paint_help = made[0] if made else None
+        if self.paint_help is not None:
+            row.addWidget(self.paint_help)
         nl = QLabel("Dungeon")
         row.addWidget(nl)
         self.name_box = QLineEdit("DUNGEON")
@@ -1675,17 +1683,6 @@ class FloorplanDoc(QWidget):
         #  and because compose is pure Python under the GIL they stacked -- 2.7s of asked-for work
         #  took 13.2s, with the Compose button disabled throughout.
         row.addWidget(self.name_box)
-        ml = QLabel("Mod")
-        row.addWidget(ml)
-        self.mod_box = QLineEdit("FF9CustomMap")
-        self.mod_box.setCursorPosition(0)          # the snap showed "CustomMap": a box that opens
-        #                                            scrolled to the CARET hides its own default
-        self.mod_box.setAccessibleName("Mod folder")
-        self.mod_box.setToolTip("The Memoria mod folder this dungeon deploys into — leave as "
-                                "FF9CustomMap unless you keep separate mod stacks.")
-        ml.setBuddy(self.mod_box)
-        self.mod_box.textChanged.connect(lambda _t: self._touch())
-        row.addWidget(self.mod_box)
         row.addStretch(1)
         up.addLayout(row)
 
@@ -1707,6 +1704,22 @@ class FloorplanDoc(QWidget):
                                "collides in the GLOBAL EventDB.")
         self.id_box.textChanged.connect(lambda _t: self._touch(judge=True))
         row.addLayout(idform, 1)                   # the stretch: the band caption needs the width
+        # The Mod folder rides the ID ROW, not the name row. It moved here when the '?' paint badge
+        # tipped the first row past its width budget at CALIBRE 150 (measured: with everything on
+        # one row Qt gave up shaving and painted the 'Mod' label OVER the name box). It also
+        # belongs here by the row's own charter — 'where its ids live': the mod folder is where
+        # the composed dungeon DEPLOYS, a sibling concern to its id band, not to its name.
+        ml = QLabel("Mod")
+        row.addWidget(ml, 0, Qt.AlignmentFlag.AlignTop)
+        self.mod_box = QLineEdit("FF9CustomMap")
+        self.mod_box.setCursorPosition(0)          # the snap showed "CustomMap": a box that opens
+        #                                            scrolled to the CARET hides its own default
+        self.mod_box.setAccessibleName("Mod folder")
+        self.mod_box.setToolTip("The Memoria mod folder this dungeon deploys into — leave as "
+                                "FF9CustomMap unless you keep separate mod stacks.")
+        ml.setBuddy(self.mod_box)
+        self.mod_box.textChanged.connect(lambda _t: self._touch())
+        row.addWidget(self.mod_box, 0, Qt.AlignmentFlag.AlignTop)
         self.compose_btn = QPushButton("Compose…")
         self.compose_btn.setObjectName("accent")
         self.compose_btn.setAccessibleName("Compose the dungeon")

@@ -106,6 +106,19 @@ _CARDS = [
             "draws that room while running your script. You ship no pictures of your own.",
             "vs a custom scene, which ships its own background PNGs + camera + walkmesh.",
             ("bg borrow", "borrow bg", "borrow", "borrow background")),
+    Concept("paint-roundtrip", "Painting a room's art",
+            "Compose gives every room stand-in art — a checkerboard wall and floor — so the dungeon is "
+            "walkable before you've painted anything. 'Paint art…' writes see-through guide pictures beside "
+            "the room: its own camera view, the floor outline, and a marker for everything placed there, "
+            "with a legend saying how tall each thing should be. Trace over those in any image editor, then "
+            "save your painting over the two stand-in files — art/back.png and art/floor.png, same "
+            "filenames, same size. A recompose recognises a painted file and keeps it; only untouched "
+            "stand-ins get repainted.",
+            "ff9mapkit paint-template projects the solved camera + walkmesh + content markers; the composer "
+            "fingerprints its own placeholder PNGs (sha256), so a file that no longer matches is yours and "
+            "is preserved.",
+            ("paint template", "paint-template", "paint art", "paint round-trip", "placeholder art",
+             "checkerboard", "trace-over")),
     Concept("story-flag", "Story flag",
             "A yes/no marker the game remembers — 'chest opened', 'talked to the king', 'saw the intro'. Use a "
             "saved (Global) one so it sticks across saves and screen reloads; a Map flag is wiped whenever the "
