@@ -8358,6 +8358,8 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     pa.set_defaults(func=_cmd_playable_anims)
 
+    # registers `music-list` and `sfx-list` -- the names are f-string-built, so a literal grep
+    # for either verb finds only the help text that cites them, never this call site.
     for _snd, _label in (("music", "music"), ("sfx", "SFX")):
         sl = sub.add_parser(f"{_snd}-list", help=f"list {_label} song-id -> ResourceID (what audio-import replaces)")
         sl.add_argument("--filter", default=None, help="substring or exact-id filter")
