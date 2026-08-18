@@ -772,6 +772,64 @@ def test_the_gate_findings_reach_the_shared_problems_panel(app, tmp_path):
     assert posted and posted[0][1], "the refusal must reach the shell's Problems panel"
 
 
+# --------------------------------------------------------------------- the paint handoff
+# `ff9mapkit paint-template` had ZERO Workspace call sites (PLAN.md rung 7's standing note), so
+# "how do I paint over the placeholder checkerboard" had no in-app answer. These fence the new
+# call site: the button is WIRED (clicked, not just constructed), it refuses out loud before a
+# compose, it emits the exact one-path argv, and several rooms go through the picker seam.
+
+def test_paint_before_compose_refuses_and_runs_nothing(app):
+    doc, run = _two_rooms(app)
+    doc.paint_btn.click()                              # through the BUTTON: fences the wiring too
+    assert not run.calls
+    assert "Compose first" in _status(doc)
+
+
+def test_paint_a_single_composed_room_emits_the_exact_argv(app, tmp_path):
+    doc, run = _doc(app)
+    _draw(doc.canvas, _A)
+    ftoml = tmp_path / "ROOM1" / "room1.field.toml"
+    ftoml.parent.mkdir(parents=True)
+    ftoml.write_text("", encoding="utf-8")
+    doc._project = {"out": str(tmp_path)}
+    doc._ask_paint_room = lambda names: (_ for _ in ()).throw(
+        AssertionError("one room needs no picker"))
+    doc.paint_btn.click()
+    assert len(run.calls) == 1
+    argv, kw = run.calls[0]
+    assert argv == [sys.executable, "-m", "ff9mapkit", "paint-template", str(ftoml)]
+    assert kw["cwd"] == str(KIT)
+    # the ok_next carries the paint-over workflow: the two composer art files, by name
+    assert "art/back.png" in kw["ok_next"] and "art/floor.png" in kw["ok_next"]
+    assert "recompose" in kw["ok_next"].lower()
+
+
+def test_paint_with_several_rooms_asks_the_seam_and_a_cancel_runs_nothing(app, tmp_path):
+    doc, run = _two_rooms(app)
+    for n in ("ROOM1", "ROOM2"):
+        (tmp_path / n).mkdir(parents=True)
+        (tmp_path / n / f"{n.lower()}.field.toml").write_text("", encoding="utf-8")
+    doc._project = {"out": str(tmp_path)}
+    asked = []
+    doc._ask_paint_room = lambda names: (asked.append(list(names)), "ROOM2")[1]
+    doc.paint_btn.click()
+    assert asked == [["ROOM1", "ROOM2"]], "several rooms -> the picker seam, offered in order"
+    argv, _kw = run.calls[0]
+    assert argv[-1] == str(tmp_path / "ROOM2" / "room2.field.toml")
+    doc._ask_paint_room = lambda names: None           # the author cancels
+    doc.paint_btn.click()
+    assert len(run.calls) == 1
+
+
+def test_paint_with_no_room_tomls_on_disk_refuses_out_loud(app, tmp_path):
+    """A project whose room dirs vanished (moved, or a rename mid-recompose) is not a crash and
+    not a silent no-op."""
+    doc, run = _two_rooms(app)
+    doc._project = {"out": str(tmp_path)}
+    doc.paint_btn.click()
+    assert not run.calls and "No composed rooms" in _status(doc)
+
+
 # --------------------------------------------------------------------- the sidecar round trip
 
 def test_the_sidecar_round_trips_the_session(app, tmp_path):

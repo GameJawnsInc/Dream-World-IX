@@ -5282,6 +5282,10 @@ class Workspace(QMainWindow):
             ("Check for updates…", "command", self._open_update_dialog),
             ("About Dream World IX", "command", self._open_about),
         ]
+        pt_member = self._paint_template_target()
+        if pt_member:                              # only a field with a [camera] can be projected
+            cmds.insert(8, (f"Paint template for {pt_member} (trace-over art layers)…", "command",
+                            lambda m=pt_member: self._paint_template_member(m)))
         if self.plan is not None and self.campaign_path is not None:
             cmds.insert(2, ("Add field to campaign…", "command", self.on_add_field))
         if self.manifest is not None:
@@ -9320,6 +9324,44 @@ class Workspace(QMainWindow):
             return
         self.run_job([sys.executable, "-m", "ff9mapkit", "lint-campaign", str(self.campaign_path)],
                      cwd=KIT, subject="Lint (CLI)", ok_headline="Lint (CLI) — done")
+
+    def _paint_template_target(self):
+        """The member the Editor context is aimed at — the tree's selected field, else the
+        mounted form's member, else the loose field — IF its field.toml carries a ``[camera]``
+        (`paint-template`'s own gate: without one the verb refuses, so no row is offered).
+        ``None`` gates the Ctrl-K row off entirely."""
+        fa = self._ancestor_field(self.tree.currentItem())
+        member = ((self._payload(fa)[2] if fa is not None else None)
+                  or (self._save_ctx or {}).get("member") or self._loose)
+        if not member or member not in (getattr(self, "member_paths", None) or {}):
+            return None
+        try:
+            if not (self._doc(member).data.get("camera") or {}):
+                return None
+        except Exception:                          # noqa: BLE001 -- an unloadable member has no row
+            return None
+        return member
+
+    def _paint_template_member(self, member):
+        """Run ``paint-template`` on one open member — the 'how do I paint art for this room'
+        answer, surfaced (the verb had zero Workspace call sites; the owner had to ask). It
+        projects the field's solved camera + walkmesh + every content marker onto per-layer
+        trace-over PNGs with a legend, next to the field.toml."""
+        path = (getattr(self, "member_paths", None) or {}).get(member)
+        if path is None:
+            return
+        out_dir = Path(path).parent
+        self.run_job(
+            [sys.executable, "-m", "ff9mapkit", "paint-template", str(path)],
+            cwd=KIT, subject=f"Paint template — {member}",
+            ok_headline=f"{member} — paint templates → {out_dir}",
+            ok_next=("Open the paint_template.*.png files as trace-over layers "
+                     "(paint_template.import.jsx loads them all in Photoshop; "
+                     "paint_template.legend.json names each marker and how tall to paint it). "
+                     "Paint over them, then save your art under the field's own art files "
+                     "(a composed room's art/back.png + art/floor.png — same size, same "
+                     "filenames — survives recompose)."),
+            fail_hint="See the Output panel — paint-template names what it refused on.")
 
     # The Python traceback's first line is FIXED by the interpreter, so this is an exact anchor rather
     # than a guess. Deliberately NOT extended to sniffing "error"/"warning" anywhere in a line: a build

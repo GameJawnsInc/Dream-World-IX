@@ -699,8 +699,11 @@ a floorplan-composed room (→ Floorplan), a scrolling room (→ Floorplan/Place
 compose→open_campaign contract on the trace lane — regenerates never yank); Ctrl-K gained
 Go-to entries for Trace and Floorplan; gui_snap's Place fixture caught up to the 7d bundle-key
 shape (the stale bare-donor key meant markers never painted in the snap — pixel-verified fixed).
-(Still true: `ff9mapkit paint-template <field.toml>` has zero hits under `workspace/` — the
-"art guidance for this room" affordance remains unexposed.)
+(CLOSED 2026-08-18: `paint-template` now has two Workspace call sites — the Floorplan tab's
+"Paint art…" button (composed rooms; picker seam when several) and a Ctrl-K "Paint template
+for <member>" row gated on the open field carrying a `[camera]`. Both run through
+`shell.run_job` with an ok_next teaching the paint-over-the-placeholders workflow; fenced in
+`test_workspace_floorplan.py` (the paint-handoff section) and `test_gui_wave2_wiring.py`.)
 
 ### Rung 5 (bounded) — discrete multi-plane ⚠ SCOPE SHRUNK 2026-07-28
 Add `plane_y` to the un-projection (`s = (h - C.y)/ray.y`) so a **traced photo** with several flat

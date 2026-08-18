@@ -263,3 +263,37 @@ def test_the_toolbar_overflow_door_is_a_visible_themed_button(app, pin_prefs):
     # the layout SIZES AND PLACES the door from this metric -- a widget minimum cannot fix it (probed:
     # the widened button hung 9px off the window edge). Fusion's 12px cannot hold a glyph.
     assert app.style().pixelMetric(QStyle.PixelMetric.PM_ToolBarExtensionExtent, None, w) >= 24
+
+
+# ------------------------------------------------------------------ the paint-template handoff
+def test_paint_template_row_is_gated_on_a_camera_and_runs_the_verb(app, pin_prefs, tmp_path):
+    """`ff9mapkit paint-template` had ZERO Workspace call sites (click-authoring PLAN.md rung 7's
+    standing note) -- the 'how do I paint art for this room' answer nobody could discover. The
+    Ctrl-K row is the Editor-side call site: gated on the open field carrying a [camera] (the
+    verb's own refusal condition, checked here so a doomed job is never offered), and it hands
+    run_job the exact one-path argv with the paint-over workflow in ok_next."""
+    import sys as _sys
+
+    w = _win(app, pin_prefs)
+    def _rows():
+        return [(lbl, cb) for lbl, _k, cb in w._command_index() if lbl.startswith("Paint template")]
+    assert not _rows(), "nothing open -> no row"
+    nocam = tmp_path / "nocam" / "nocam.field.toml"
+    nocam.parent.mkdir(parents=True)
+    nocam.write_text('[field]\nid = 30990\nname = "NOCAM"\narea = 11\n', encoding="utf-8")
+    assert w.open_field(nocam)
+    assert not _rows(), "no [camera] -> the verb would refuse -> no row offered"
+    cam = tmp_path / "cam" / "cam.field.toml"
+    cam.parent.mkdir(parents=True)
+    cam.write_text('[field]\nid = 30991\nname = "CAM"\narea = 11\n\n[camera]\npitch = 48.0\n',
+                   encoding="utf-8")
+    assert w.open_field(cam)
+    rows = _rows()
+    assert len(rows) == 1 and "CAM" in rows[0][0]
+    calls = []
+    w.run_job = lambda argv, **kw: (calls.append((list(argv), kw)), True)[1]
+    rows[0][1]()
+    argv, kw = calls[0]
+    assert argv == [_sys.executable, "-m", "ff9mapkit", "paint-template", str(cam.resolve())]
+    # the ok_next carries the paint-over workflow: the composer's two art files, by name
+    assert "art/back.png" in kw["ok_next"] and "art/floor.png" in kw["ok_next"]

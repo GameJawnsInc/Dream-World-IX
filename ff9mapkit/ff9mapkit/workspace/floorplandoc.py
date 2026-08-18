@@ -1648,6 +1648,16 @@ class FloorplanDoc(QWidget):
                                    "repaints placeholder art.")
         self.import_btn.clicked.connect(self.on_import_room)
         row.addWidget(self.import_btn)
+        self.paint_btn = QPushButton("Paint art…")
+        self.paint_btn.setAccessibleName("Write paint templates for a composed room")
+        self.paint_btn.setToolTip(
+            "Answer 'how do I paint over the placeholder checkerboard': write trace-over "
+            "paint-template PNGs for a composed room — its solved camera, its walkmesh, and "
+            "every content marker, with a legend. Paint your art over them and save it as that "
+            "room's art/back.png + art/floor.png (same size, same filenames); the painting "
+            "survives recompose.")
+        self.paint_btn.clicked.connect(self.on_paint_template)
+        row.addWidget(self.paint_btn)
         nl = QLabel("Dungeon")
         row.addWidget(nl)
         self.name_box = QLineEdit("DUNGEON")
@@ -2554,6 +2564,59 @@ class FloorplanDoc(QWidget):
                 if k not in room and k not in self._ROOM_OWNED:
                     room[k] = v
 
+    def on_paint_template(self):
+        """The paint handoff: run ``paint-template`` on a composed room, so 'how do I paint art
+        for this room' is answered by the tab that painted the checkerboard. The CLI verb owns
+        the projection (camera + walkmesh + every content marker onto per-layer trace-over PNGs
+        with a legend); this only picks the room and hands its field.toml over."""
+        rooms = self._composed_room_tomls()
+        if rooms is None:
+            self._refresh("Compose first — the paint template projects a composed room's own "
+                          "camera and walkmesh, which only exist after Compose.", "error",
+                          judge=False)
+            return
+        if not rooms:
+            self._refresh("No composed rooms found under the project — Compose again.", "error",
+                          judge=False)
+            return
+        if len(rooms) == 1:
+            name, ftoml = rooms[0]
+        else:
+            name = self._ask_paint_room([n for n, _p in rooms])
+            if not name:
+                return
+            ftoml = dict(rooms)[name]
+        out_dir = Path(ftoml).parent
+        started = self._run(
+            [sys.executable, "-m", "ff9mapkit", "paint-template", str(ftoml)],
+            cwd=str(self.kit), subject=f"Paint template — {name}",
+            ok_headline=f"{name} — paint templates → {out_dir}",
+            ok_next=("Open the paint_template.*.png files as trace-over layers "
+                     "(paint_template.import.jsx loads them all in Photoshop; "
+                     "paint_template.legend.json names each marker and how tall to paint it). "
+                     "Paint over the placeholders, then save your art as this room's "
+                     "art/back.png + art/floor.png — same size, same filenames. The painting "
+                     "survives recompose."),
+            fail_hint="See the Output panel — paint-template names what it refused on.")
+        if started:
+            self._refresh(f"Projecting {name}'s camera + content → paint templates …",
+                          judge=False)
+
+    def _composed_room_tomls(self):
+        """``[(room name, field.toml path)]`` for every session room Compose has emitted, in
+        session order — ``None`` when there is no composed project at all. Resolved from disk on
+        the click (never cached): a recompose can rename or drop a room dir."""
+        if self._project is None:
+            return None
+        out = Path(self._project["out"])
+        found = []
+        for r in self._session["rooms"]:
+            name = str(r.get("name") or "")
+            hits = sorted((out / name).glob("*.field.toml")) if name else []
+            if hits:
+                found.append((name, hits[0]))
+        return found
+
     def _report(self, errors, warnings):
         """Push the gate findings at the shared Problems panel as well as this tab's list."""
         if self._problems is None:
@@ -2589,6 +2652,29 @@ class FloorplanDoc(QWidget):
             return None
         files = dlg.selectedFiles()
         return files[0] if files else None
+
+    def _ask_paint_room(self, names):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch): which
+        composed room to write paint templates for."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QListWidget, QVBoxLayout
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Which room to paint?")
+        lay = QVBoxLayout(dlg)
+        lst = QListWidget()
+        lst.setAccessibleName("Composed rooms")
+        lst.addItems(list(names))
+        lst.setCurrentRow(0)
+        lst.itemDoubleClicked.connect(lambda _it: dlg.accept())
+        lay.addWidget(lst)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        widgets.fit_dialog(dlg, ch=34, list_rows=10)
+        if dlg.exec() != QDialog.DialogCode.Accepted or lst.currentItem() is None:
+            return None
+        return lst.currentItem().text()
 
     def _ask_out(self):
         base = (self.kit.parent if (self.kit / "pyproject.toml").is_file()
