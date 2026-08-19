@@ -187,9 +187,13 @@ def test_owned_predicate_does_not_claim_a_foreign_model_sharing_the_field_id():
     too_broad = lambda ln: ln.split()[1:2] == ["6000"]   # noqa: E731  -- the defect this test pins
     assert DP.foreign_registrations_dropped(before, after, owned=too_broad) == []      # silent loss
     owned = DP.owned_predicate(fid=6000, model_ids=set(), anim_keys=set())
-    # the deploy's own rewritten field lines stay silent; the model it never wrote is REPORTED
-    assert DP.foreign_registrations_dropped(before, after, owned=owned) == ["3DModel 6000 GEO_FOREIGN_NPC"]
-    # ...and the filter built from the same predicate leaves that foreign line in the file to begin with,
+    # The deploy's own rewritten field lines stay silent; BOTH foreign registrations sharing the id are
+    # REPORTED. The battle line joined this list when BattleScene entered ID_KEYED_DIRECTIVES -- it is a
+    # co-deployed battle's registration that this field deploy neither emits nor owns, so a wholesale
+    # rewrite would delete it and black-screen that fight. Reporting it is the point, not a regression.
+    assert DP.foreign_registrations_dropped(before, after, owned=owned) == [
+        "3DModel 6000 GEO_FOREIGN_NPC", "BattleScene 6000 CAMKEYS BBG_B001"]
+    # ...and the filter built from the same predicate leaves both foreign lines in the file to begin with,
     # which is the real fix -- the warning is only the backstop.
     assert [ln for ln in before if not owned(ln)] == ["3DModel 6000 GEO_FOREIGN_NPC",
                                                      "BattleScene 6000 CAMKEYS BBG_B001"]
@@ -206,3 +210,27 @@ def test_owned_predicate_covers_the_playable_icon_and_name_registrations():
     assert not owned("BuffIcon 201 icon_c")                     # another custom status
     assert not owned("CharacterDefaultName 12 JP Tantalus")     # another language row
     assert not owned("CharacterDefaultName 13 US Other")        # another character
+
+
+# ---- BattleScene is a registration too -----------------------------------------------------------------
+def test_a_dropped_battlescene_is_reported_like_a_dropped_fieldscene():
+    """A deployed BATTLE registers ``BattleScene <id> <NAME> <BBG>`` in the very same DictionaryPatch a field
+    deploy rewrites. ID_KEYED_DIRECTIVES listed only FieldScene/LocationName, so ``_registration_identity``
+    returned None for a battle line -- and a campaign wholesale-replace deleted a co-deployed battle's
+    registration with no warning anywhere. The engine then black-screens on that fight (the null-.eb class).
+    Nothing else covers it: the deploy ledger counts FieldScene only, and the battle deploy writes no row."""
+    before = ["FieldScene 4003 11 10 GLADE 4003", "BattleScene 30415 CONDOR BBG_B900"]
+    after = ["FieldScene 5000 11 10 OTHER 5000"]
+    dropped = DP.foreign_registrations_dropped(before, after)
+    assert "BattleScene 30415 CONDOR BBG_B900" in dropped, dropped
+    assert "FieldScene 4003 11 10 GLADE 4003" in dropped     # the field half still reports, unchanged
+
+
+def test_battlescene_identity_is_id_keyed_and_kind_scoped():
+    # id-keyed: a re-registration under a NEW name is not a loss (same rationale as FieldScene)
+    assert DP.foreign_registrations_dropped(
+        ["BattleScene 12000 OLD BBG_B013"], ["BattleScene 12000 NEW BBG_B013"]) == []
+    # kind-scoped: a FieldScene must NOT satisfy a BattleScene of the same id -- the bands overlap
+    dropped = DP.foreign_registrations_dropped(
+        ["BattleScene 4003 FIGHT BBG_B013"], ["FieldScene 4003 11 10 GLADE 4003"])
+    assert dropped == ["BattleScene 4003 FIGHT BBG_B013"], dropped

@@ -9688,15 +9688,22 @@ def _foreign_registrations(dict_patch, new_lines) -> list:
         return []                                        # absent/unreadable -> nothing to lose
 
     def ids(lines):
+        # (kind, id) -> name, across BOTH scene directives. A campaign ships fields AND battles into one
+        # folder, so a BattleScene line here is a registration this build would silently unregister exactly
+        # like a foreign FieldScene. Keyed by KIND too: the custom field band and a minted battle-scene id
+        # can overlap, and a FieldScene must never satisfy a BattleScene of the same number.
         out = {}
         for ln in lines:
             p = ln.split()
             if len(p) >= 5 and p[0] == "FieldScene":
-                out[p[1]] = p[3]                         # id -> name
+                out[("FieldScene", p[1])] = p[3]         # FieldScene <id> <area> <?> <name> <block>
+            elif len(p) >= 4 and p[0] == "BattleScene":
+                out[("BattleScene", p[1])] = p[2]        # BattleScene <id> <NAME> <BBG>
         return out
 
     keep = ids(new_lines)
-    return [f"{i} ({n})" for i, n in sorted(ids(old).items()) if i not in keep]
+    return [f"{i} ({n})" if k == "FieldScene" else f"{k} {i} ({n})"
+            for (k, i), n in sorted(ids(old).items()) if (k, i) not in keep]
 
 
 def _merge_foreign_registrations(dict_patch, new_lines) -> list:
@@ -9709,13 +9716,15 @@ def _merge_foreign_registrations(dict_patch, new_lines) -> list:
         old = dict_patch.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError):
         return list(new_lines)
-    mine_fields, mine_blocks = set(), set()
+    mine_fields, mine_blocks, mine_scenes = set(), set(), set()
     for ln in new_lines:
         p = ln.split()
         if len(p) >= 5 and p[0] == "FieldScene":
             mine_fields.add(p[1]); mine_blocks.add(p[5] if len(p) > 5 else None)
         elif len(p) >= 2 and p[0] == "MessageFile":
             mine_blocks.add(p[1])
+        elif len(p) >= 4 and p[0] == "BattleScene":
+            mine_scenes.add(p[1])
 
     def mine(ln):
         p = ln.split()
@@ -9723,6 +9732,10 @@ def _merge_foreign_registrations(dict_patch, new_lines) -> list:
             return p[1] in mine_fields
         if len(p) >= 2 and p[0] == "MessageFile":
             return p[1] in mine_blocks
+        # A BattleScene THIS build re-emits must be dropped from the kept set so the new line replaces it;
+        # without this the merge kept the stale one and the battle build appended a duplicate registration.
+        if len(p) >= 2 and p[0] == "BattleScene":
+            return p[1] in mine_scenes
         return False
 
     keep = [ln for ln in old if ln.strip() and not mine(ln) and ln not in new_lines]
