@@ -128,8 +128,15 @@ def revert_dictionary_patch(current_lines, backup_lines, *, fid, model_ids, anim
     return kept, foreign_registrations_dropped(current_lines, kept, owned=_owned)
 
 
-ID_KEYED_DIRECTIVES = ("FieldScene", "LocationName")
-"""DictionaryPatch directives keyed by the FIELD ID in column 2 (``<directive> <fid> ...``)."""
+ID_KEYED_DIRECTIVES = ("FieldScene", "LocationName", "BattleScene")
+"""DictionaryPatch directives keyed by an id in column 2 (``<directive> <id> ...``).
+
+``BattleScene`` belongs here for the same reason ``FieldScene`` does: a deployed BATTLE registers
+``BattleScene <id> <NAME> <BBG>`` in the very same file a field/campaign deploy rewrites wholesale, so
+without it ``_registration_identity`` returned None for a battle line and a campaign wholesale-replace
+deleted a co-deployed battle's registration in silence -- the engine then black-screens on that fight.
+Identity stays ``(directive, id)``, so a FieldScene never satisfies a BattleScene of the same id: the
+custom field band (4000-9899) and a minted battle-scene id can overlap."""
 
 TEXT_BLOCK_DIRECTIVES = ("MessageFile",)
 """DictionaryPatch directives keyed by a TEXT BLOCK (mesID) in column 2 -- NOT by the field id, which is

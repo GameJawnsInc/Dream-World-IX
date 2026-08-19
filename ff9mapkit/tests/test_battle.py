@@ -307,6 +307,69 @@ def test_build_repoint_writes_battlepatch(tmp_path):
     assert "BattleBackground BBG_B013" in info["battle_patch"]
 
 
+def test_build_battle_mod_is_idempotent_under_its_own_rerun(tmp_path):
+    # Both patch appends were BLIND: they read the prior file and concatenated, never filtering their own
+    # earlier lines. So building the same battle twice into one out_root (a campaign rebuild, a redeploy)
+    # doubled the repoint block -- and once a BattleScene registration is in play, doubled the registration.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+        repoint_scene = 67
+    ''')
+    out = tmp_path / "dist"
+    build_battle_mod([proj], out)
+    first = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    build_battle_mod([proj], out)                          # no build_mod between -- the pure re-run
+    again = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    assert again.count("Battle: 67") == 1, f"the repoint block doubled on re-run:\n{again}"
+    assert again.count("BattleBackground BBG_B013") == 1
+    assert again == first, "a re-run with no change must be byte-identical"
+
+
+def test_build_battle_mod_rerun_keeps_one_registration_and_preserves_a_field_line(tmp_path):
+    # the DictionaryPatch half, plus the reason the filter must be identity-based and not "wipe the file":
+    # a co-built field mod's FieldScene line shares this file and must survive.
+    _write_scene(tmp_path)
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+        scene_id = 12000
+        scene_name = "GARGOYLE"
+    ''')
+    out = tmp_path / "dist"
+    layout = ModLayout(out)
+    layout.root.mkdir(parents=True, exist_ok=True)
+    layout.dictionary_patch.write_text("FieldScene 4003 GLADE\n", encoding="utf-8", newline="\n")
+
+    build_battle_mod([proj], out)
+    build_battle_mod([proj], out)
+    dp = layout.dictionary_patch.read_text(encoding="utf-8")
+    assert dp.count("BattleScene 12000") == 1, f"the registration doubled on re-run:\n{dp}"
+    assert "FieldScene 4003 GLADE" in dp, "a co-built field's registration must survive the battle append"
+
+
+def test_build_battle_mod_rerun_preserves_another_battles_block(tmp_path):
+    # two battles co-deployed into one folder: rebuilding one must not strip the other's block
+    from ff9mapkit.battle import battlepatch as _bp
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+        repoint_scene = 67
+    ''')
+    out = tmp_path / "dist"
+    layout = ModLayout(out)
+    layout.root.mkdir(parents=True, exist_ok=True)
+    other = _bp.merge_battle_patch("", ["Battle: 99", "BattleBackground BBG_B014"],
+                                   _bp.battle_owner("BBG_B014"))
+    layout.battle_patch.write_text(other, encoding="utf-8", newline="\n")
+
+    build_battle_mod([proj], out)
+    build_battle_mod([proj], out)
+    live = layout.battle_patch.read_text(encoding="utf-8")
+    assert live.count("Battle: 67") == 1 and live.count("Battle: 99") == 1, live
+    assert "BattleBackground BBG_B014" in live, "the other battle's block was stripped"
+
+
 def _write_scene(tmp_path):
     """Synthetic forked-scene dir (what `battle-import --fork-scene` produces): raw16/raw17 + eb/mes x7."""
     sd = tmp_path / "scene"
@@ -789,3 +852,79 @@ def test_build_mint_existing_slot_reuses_bundle_inb(tmp_path):
     assert "BattleScene 5503 ON_B013 BBG_B013" in info["dictionary"]
     # an existing real slot (<=177) keeps its bundled INB -> the kit does NOT shadow it with a static one
     assert not (layout.battle_info_dir / "INB_B013.inb.bytes").exists()
+
+
+# ---- the battle-tuning blocks a battle.toml carries (they used to be silently dropped) ----------------
+def test_battle_toml_battle_enemy_reaches_the_battlepatch(tmp_path):
+    # A [[battle_enemy]] in a battle.toml LINTED CLEAN and EMITTED NOTHING: the field build reads the three
+    # battlepatch blocks (build._emit_battle_patch) but the battle build never did. So the one doc whose
+    # whole subject IS a fight could not carry the by-name tuning for it -- silently, which is the worst way.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[battle_enemy]]
+        name = "Goblin"
+        max_hp = 500
+    ''')
+    assert validate_battle(proj) == []
+    info = build_battle_mod([proj], tmp_path / "dist")
+    assert "AnyEnemyByName: Goblin" in info["battle_patch"], info["battle_patch"]
+    assert "MaxHP 500" in info["battle_patch"]
+    live = ModLayout(tmp_path / "dist").battle_patch.read_text(encoding="utf-8")
+    assert "AnyEnemyByName: Goblin" in live, "emitted into info but never written to the file"
+
+
+def test_battle_toml_scene_patch_and_attack_reach_the_battlepatch(tmp_path):
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[battle_patch]]
+        scene = 30055
+        back_attack = true
+
+        [[battle_attack]]
+        name = "Goblin Punch"
+        power = 30
+    ''')
+    info = build_battle_mod([proj], tmp_path / "dist")
+    assert "Battle: 30055" in info["battle_patch"] and "BackAttack True" in info["battle_patch"]
+    assert "AnyAttackByName: Goblin Punch" in info["battle_patch"] and "Power 30" in info["battle_patch"]
+
+
+def test_battle_patch_blocks_are_validated_not_deferred_to_a_build_traceback(tmp_path):
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[battle_enemy]]
+        name = "X"
+        level = 300
+    ''')
+    assert any("range" in p for p in validate_battle(proj)), validate_battle(proj)
+
+
+def test_validate_battle_names_an_unknown_root_table(tmp_path):
+    # validate_battle had NO unknown-root-key sweep, so a typo'd table was silently inert -- exactly how
+    # [[battle_enemy]] hid. A misspelling must be named, not ignored.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[battle_enemies]]
+        name = "Goblin"
+    ''')
+    probs = validate_battle(proj)
+    assert any("battle_enemies" in p for p in probs), probs
+    assert any("battle_enemy" in p for p in probs), "the sweep should suggest the near-miss"
+
+
+def test_player_csv_keys_is_not_widened_to_carry_the_battlepatch_blocks():
+    """_PLAYER_CSV_KEYS is the CSV-BLOCK list, and journey.py iterates it in three places to decide what a
+    journey's [journey.tuning] may carry. Widening it to fix the dropped battlepatch blocks would silently
+    add three non-CSV tables to the journey tuning surface. They get their own list instead; this pins it."""
+    from ff9mapkit.battle.build import _BATTLE_PATCH_KEYS, _PLAYER_CSV_KEYS
+    assert len(_PLAYER_CSV_KEYS) == 11
+    assert not (set(_PLAYER_CSV_KEYS) & set(_BATTLE_PATCH_KEYS))
+    assert set(_BATTLE_PATCH_KEYS) == {"battle_patch", "battle_enemy", "battle_attack"}

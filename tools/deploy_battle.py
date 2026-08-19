@@ -112,20 +112,41 @@ if info["dictionary"]:
     else:
         cur = []
     sid = str(proj.scene_id) if proj.is_mint else None
+    # NOTE: this filter is LINE-SHAPE sensitive -- it assumes `BattleScene <id> <NAME> <BBG>` (BBG in
+    # column 4). It predates dictpatch._registration_identity and is deliberately left alone here; the
+    # identity-based filter lives in build_battle_mod, which owns the built dist.
     cur = [ln for ln in cur if not (ln.startswith("BattleScene")
                                     and (ln.split()[3:4] == [BBG] or ln.split()[1:2] == [sid]))]
     cur += info["dictionary"]
     live.dictionary_patch.write_text("\n".join(cur) + "\n", encoding="utf-8", newline="\n")
     relaunch = True
-if info["battle_patch"]:
-    if live.battle_patch.exists():
+
+# BattlePatch: SPLICE under this battle's `//` sentinel markers instead of appending. The old code appended
+# the built lines to the live file blindly, so deploying the same battle twice left two copies of its
+# Battle:/BattleBackground block in the live file -- and there was no way to REMOVE a block once the toml
+# stopped emitting it. merge_battle_patch replaces our own block, preserves every other line (a co-deployed
+# field's block under `field <id>` markers, another battle's, a stacked worktree's), and is idempotent.
+# Same pattern as tools/deploy_field.py. BattlePatch is parsed once at startup -> a change needs a RELAUNCH.
+from ff9mapkit.battle import battlepatch as _bp  # noqa: E402
+_bp_owner = _bp.battle_owner(BBG, proj.scene_id if proj.is_mint else None)
+_live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
+bp_revert_code = ""
+if info["battle_patch"] or _bp_owner in _live_bp_text:
+    _had_bp = live.battle_patch.exists()
+    if _had_bp:
         shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preBATTLE.{STAMP}")
-        cur = [ln for ln in live.battle_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    else:
-        cur = []
-    cur += info["battle_patch"]
-    live.battle_patch.write_text("\n".join(cur) + "\n", encoding="utf-8", newline="\n")
-    relaunch = True
+    _merged = _bp.merge_battle_patch(_live_bp_text, info["battle_patch"], _bp_owner)
+    if _merged:
+        live.battle_patch.write_text(_merged, encoding="utf-8", newline="\n")
+    elif live.battle_patch.exists():          # our last block went away and nothing else owns the file
+        live.battle_patch.unlink()
+    # Make the revert actually undo the splice. It used to only PRINT "restore backups/*.preBATTLE.*" --
+    # fine when the splice could only append to an existing file, wrong now that a deploy can CREATE one.
+    bp_revert_code = (f'\nshutil.copyfile(BK/"BattlePatch.txt.preBATTLE.{STAMP}", LIVE/"BattlePatch.txt")'
+                      if _had_bp else
+                      '\n_pb = LIVE/"BattlePatch.txt"\nif _pb.exists(): _pb.unlink()')
+    if info["battle_patch"]:
+        relaunch = True
 
 # optional: repoint a trigger field's encounter at the minted scene (back it up like any overwrite, so
 # the revert's restore loop handles it)
@@ -169,8 +190,10 @@ revert.write_text(
     "for rel in OVERWRITTEN:\n"
     "    b = BK/rel\n"
     "    if b.exists(): shutil.copyfile(b, LIVE/rel)\n"
-    f"print('reverted battle deploy for {BBG}. If patch lines were spliced, restore "
-    f"backups/*.preBATTLE.{STAMP}; relaunch FF9.')\n",
+    + bp_revert_code +
+    f"\nprint('reverted battle deploy for {BBG}"
+    f"{' (incl. its BattlePatch block)' if bp_revert_code else ''}. If DictionaryPatch lines were "
+    f"spliced, restore backups/*.preBATTLE.{STAMP}; relaunch FF9.')\n",
     encoding="utf-8", newline="\n")
 shutil.rmtree(tmp, ignore_errors=True)
 

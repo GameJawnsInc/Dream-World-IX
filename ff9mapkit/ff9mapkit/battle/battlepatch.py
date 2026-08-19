@@ -364,18 +364,31 @@ def validate_blocks(scene_patches=None, enemies=None, attacks=None) -> list[str]
 
 
 # ---- non-clobbering merge into a live BattlePatch.txt (deploy) ---------------------------------------
-def _markers(field_id):
-    return (f"// >>> ff9mapkit field {field_id} BattlePatch (auto -- edit the field.toml, not here)",
-            f"// <<< ff9mapkit field {field_id}")
+def battle_owner(bbg, scene_id=None) -> str:
+    """The sentinel owner token for a BATTLE's block -- ``battle BBG_B013`` / ``battle BBG_B013 scene 12000``.
+    Distinct per (bbg, scene) so two battles co-deployed into one folder cannot strip each other's block."""
+    return f"battle {bbg}" + (f" scene {scene_id}" if scene_id is not None else "")
 
 
-def merge_battle_patch(live_text: str, block_lines, field_id) -> str:
-    """Splice ``block_lines`` into ``live_text`` between this field's ``//`` sentinel markers, REPLACING any
-    prior block for the same id and PRESERVING every other line (a co-deployed battle's BGM/repoint lines, a
-    stacked worktree's lines). The engine skips ``//`` lines (``DataPatchers.cs:551``), so the markers are inert.
+def _markers(owner):
+    """The ``//`` sentinel pair naming who owns a block. An INT owner renders as ``field N`` -- byte-identical
+    to the historical marker, because every live BattlePatch.txt already carries blocks under that exact string
+    and ``tools/deploy_field.py`` finds-and-replaces its own block by it (a changed marker orphans them: the
+    next deploy appends a second block instead of replacing, and the old one patches forever). Any other owner
+    is used verbatim, which is how :func:`battle_owner` gets a battle its own block."""
+    tok = f"field {owner}" if isinstance(owner, int) else str(owner)
+    return (f"// >>> ff9mapkit {tok} BattlePatch (auto -- edit the field.toml, not here)",
+            f"// <<< ff9mapkit {tok}")
+
+
+def merge_battle_patch(live_text: str, block_lines, owner) -> str:
+    """Splice ``block_lines`` into ``live_text`` between this owner's ``//`` sentinel markers, REPLACING any
+    prior block for the same owner and PRESERVING every other line (a co-deployed battle's BGM/repoint lines, a
+    stacked worktree's lines). ``owner`` is a field id (int) or a :func:`battle_owner` token. The engine skips
+    ``//`` lines (``DataPatchers.cs:551``), so the markers are inert.
     An empty ``block_lines`` just strips our prior block (a redeploy after the toml's battle blocks were removed).
     Idempotent: re-merging the same block yields the same text."""
-    begin, end = _markers(field_id)
+    begin, end = _markers(owner)
     kept, skip = [], False
     for ln in live_text.splitlines():
         if ln.strip() == begin:

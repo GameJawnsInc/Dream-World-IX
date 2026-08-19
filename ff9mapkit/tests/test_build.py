@@ -1177,6 +1177,41 @@ def test_battle_bgm_dedups_scene_globally(tmp_path):
     assert bp.count("Battle: 330") == 1
 
 
+def test_rebuild_without_battle_blocks_removes_a_stale_battle_patch(tmp_path):
+    # build_mod writes a WHOLE mod, so it must OWN BattlePatch.txt in its out_root the way it owns
+    # DictionaryPatch. It never cleans out_root (the only rmtree is scripts_dir), and the write is a bare
+    # `if bp_lines:` -- so dropping the last [[battle_bgm]] used to leave the PREVIOUS build's file behind,
+    # still patching a scene the mod no longer mentions. Worse downstream: a campaign that emits no battle
+    # lines leaves the stale file for build_battle_mod's append to duplicate into.
+    proj = FieldProject.load(EXAMPLE)
+    proj.raw["battle_bgm"] = [{"scene": 330, "song": 35}]
+    out = tmp_path / "mod"
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    assert ModLayout(out).battle_patch.is_file(), "setup: the first build must emit a BattlePatch"
+
+    proj.raw.pop("battle_bgm")                             # the author removed the block
+    build_mod([proj], out, mod_name="FF9CustomMap")
+    assert not ModLayout(out).battle_patch.exists(), \
+        "a rebuild that emits no battle lines must not leave the prior build's BattlePatch.txt behind"
+
+
+def test_preserve_existing_keeps_a_foreign_battle_patch_block(tmp_path):
+    # ...but ONLY in its own dist. `preserve_existing` means "installing INTO a shipping folder" (the Build
+    # tab deploys in place with it), where another deploy's sentinel-marked block legitimately lives. The
+    # ownership delete must not reach into that folder and unpatch someone else's battle.
+    from ff9mapkit.battle import battlepatch as _bp
+    out = tmp_path / "mod"
+    out.mkdir()
+    foreign = _bp.merge_battle_patch("", ["Battle: 999", "Music: 7"], 4003)
+    ModLayout(out).battle_patch.write_text(foreign, encoding="utf-8", newline="\n")
+
+    proj = FieldProject.load(EXAMPLE)                      # emits NO battle lines of its own
+    build_mod([proj], out, mod_name="FF9CustomMap", preserve_existing=True)
+    live = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    assert "Battle: 999" in live and "ff9mapkit field 4003" in live, \
+        f"preserve_existing must keep another deploy's BattlePatch block, got:\n{live}"
+
+
 def test_validate_rejects_bad_battle_bgm(tmp_path):
     bad = tmp_path / "bad.field.toml"
     bad.write_text('[field]\nid=4003\nname="X"\narea=11\n[camera]\npitch=48\n'
