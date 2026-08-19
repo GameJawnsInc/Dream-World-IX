@@ -9864,6 +9864,14 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     bp_lines += tune_lines
     if bp_lines:
         layout.battle_patch.write_text("\n".join(bp_lines) + "\n", encoding="utf-8", newline="\n")
+    elif layout.battle_patch.exists() and not preserve_existing:
+        # OWN this file the way we own DictionaryPatch. build writes a WHOLE mod but never cleans out_root
+        # (the only rmtree is scripts_dir), so a bare `if bp_lines:` left the PREVIOUS build's BattlePatch
+        # behind once the author dropped their last battle block -- still patching a scene the mod no longer
+        # mentions, and (once a campaign co-builds battles) a stale file for the battle build to append into.
+        # `preserve_existing` = installing INTO a shipping folder, where another deploy's sentinel-marked
+        # block legitimately lives (battlepatch.merge_battle_patch) -- never delete there.
+        layout.battle_patch.unlink()
 
     # TextPatch.txt = item NAME/DESCRIPTION overrides ([[item_text]] -> >DATABASE find/replace). Mod-global,
     # same drop-in mechanism as the dictionary/battle patches; read once at startup -> a change needs a RELAUNCH.
