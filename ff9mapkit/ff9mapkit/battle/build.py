@@ -132,6 +132,19 @@ def _resolve_reskins(scene_cfg: dict, *, game=None):
 _PLAYER_CSV_KEYS = ("battle_action", "status", "status_set", "magic_sword_set", "character", "leveling",
                     "ability_gem", "command_set", "character_param", "learn", "ability_feature")
 
+# The mod-GLOBAL by-name battle-tuning blocks. SEPARATE from _PLAYER_CSV_KEYS on purpose: that list is the
+# CSV-BLOCK set, and journey.py iterates it in three places to decide what a [journey.tuning] may carry --
+# widening it would silently add three non-CSV tables to the journey tuning surface.
+_BATTLE_PATCH_KEYS = ("battle_patch", "battle_enemy", "battle_attack")
+
+# The sentinel owner for the aggregate by-name tuning block. Not a battle_owner() token: this block is
+# mod-global, summed across every battle.toml in the build, so it belongs to no single map.
+_TUNE_OWNER = "battle tuning"
+
+# Every table a battle.toml may declare at the ROOT. Used only for the unknown-key sweep: without it a
+# typo'd table is silently inert, which is exactly how [[battle_enemy]] went unnoticed for so long.
+KNOWN_ROOT_KEYS = frozenset(("battlemap", "scene") + _PLAYER_CSV_KEYS + _BATTLE_PATCH_KEYS)
+
 
 def _aslist(v):
     """A TOML block that may be a single table or a list of tables -> always a list (never traceback)."""
@@ -292,7 +305,35 @@ def validate_battle(project: BattleProject) -> list[str]:
                 if seq_inserts:
                     problems += [f"[[scene.seq_insert]]: {p}" for p in _seqauthor.validate_inserts(r17, seq_inserts)]
     problems += player_csv_problems(project.raw)            # mod-global player/ability CSV deltas (optional)
+    problems += battle_patch_problems(project.raw)          # mod-global by-name battle tuning (optional)
+    problems += unknown_root_keys(project.raw)
     return problems
+
+
+def battle_patch_problems(raw: dict) -> list[str]:
+    """Offline lint for a battle.toml's ``[[battle_patch]]`` / ``[[battle_enemy]]`` / ``[[battle_attack]]``
+    blocks. The field build has always linted these (``build.lint_logic``); the battle build did not, so a
+    bad one only surfaced as a BattleBuildError at emit -- and a VALID one was dropped entirely."""
+    from . import battlepatch as _bp
+    if not any(raw.get(k) for k in _BATTLE_PATCH_KEYS):
+        return []
+    return _bp.validate_blocks(_aslist(raw.get("battle_patch")), _aslist(raw.get("battle_enemy")),
+                               _aslist(raw.get("battle_attack")))
+
+
+def unknown_root_keys(raw: dict) -> list[str]:
+    """Name any ROOT table a battle.toml declares that the build does not read. There was no such sweep, so
+    a typo'd table was silently inert -- the same failure mode as the dropped battlepatch blocks, one letter
+    away. Suggests the nearest known key so `[[battle_enemies]]` points at `[[battle_enemy]]`."""
+    import difflib
+    out = []
+    for k in raw:
+        if k in KNOWN_ROOT_KEYS:
+            continue
+        near = difflib.get_close_matches(k, sorted(KNOWN_ROOT_KEYS), n=1, cutoff=0.6)
+        out.append(f"unknown table [{k}] -- the build ignores it"
+                   + (f"; did you mean [{near[0]}]?" if near else ""))
+    return out
 
 
 def _author_inb(bbg: str, tint=(128, 128, 128), shadow: int = 32) -> bytes:
@@ -563,11 +604,30 @@ def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", 
     # append doubled the repoint/BGM lines on every re-run; merging by owner also preserves a co-deployed
     # field's block and ANOTHER battle's block, which a wholesale rewrite would strip.
     bplines = [ln for r in results for ln in r.battle_patch_lines]
+    # The mod-GLOBAL by-name tuning blocks, aggregated across every battle.toml in this build (the same
+    # model build._emit_battle_patch uses for fields). These were read by the field build and NOT by the
+    # battle build, so a [[battle_enemy]] in the one doc whose whole subject is a fight was dropped.
+    tune_scene = [b for p in projects for b in _aslist(p.raw.get("battle_patch"))]
+    tune_enemy = [b for p in projects for b in _aslist(p.raw.get("battle_enemy"))]
+    tune_attack = [b for p in projects for b in _aslist(p.raw.get("battle_attack"))]
+    tune_lines: list[str] = []
+    tune_warns: list[str] = []
+    if tune_scene or tune_enemy or tune_attack:
+        try:
+            tune_lines, tune_warns = _battlepatch.build_lines(tune_scene, tune_enemy, tune_attack)
+        except _battlepatch.BattlePatchError as ex:
+            raise BattleBuildError(f"battle tuning block: {ex}") from ex
+        bplines += tune_lines
+
     live = layout.battle_patch.read_text(encoding="utf-8") if layout.battle_patch.exists() else ""
     merged = live
     for r in results:
         merged = _battlepatch.merge_battle_patch(merged, r.battle_patch_lines,
                                                  _battlepatch.battle_owner(r.bbg, r.scene_id))
+    # The aggregate tuning block belongs to no single map (it is mod-global, summed across every project in
+    # the build), so it owns its own sentinel block. Merging an EMPTY list strips a prior one, which is how
+    # removing the last [[battle_enemy]] from the toml removes it from the file.
+    merged = _battlepatch.merge_battle_patch(merged, tune_lines, _TUNE_OWNER)
     if merged != live:
         if merged:
             layout.battle_patch.write_text(merged, encoding="utf-8", newline="\n")
@@ -588,5 +648,5 @@ def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", 
     return {"root": str(layout.root), "maps": [r.bbg for r in results],
             "dictionary": dlines, "battle_patch": bplines,
             "written": [str(p) for r in results for p in r.written] + [str(p) for p in player_written],
-            "warnings": [w for r in results for w in r.warnings] + player_warns,
+            "warnings": [w for r in results for w in r.warnings] + player_warns + tune_warns,
             "lint": [str(f) for r in results for f in r.lint]}

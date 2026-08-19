@@ -852,3 +852,79 @@ def test_build_mint_existing_slot_reuses_bundle_inb(tmp_path):
     assert "BattleScene 5503 ON_B013 BBG_B013" in info["dictionary"]
     # an existing real slot (<=177) keeps its bundled INB -> the kit does NOT shadow it with a static one
     assert not (layout.battle_info_dir / "INB_B013.inb.bytes").exists()
+
+
+# ---- the battle-tuning blocks a battle.toml carries (they used to be silently dropped) ----------------
+def test_battle_toml_battle_enemy_reaches_the_battlepatch(tmp_path):
+    # A [[battle_enemy]] in a battle.toml LINTED CLEAN and EMITTED NOTHING: the field build reads the three
+    # battlepatch blocks (build._emit_battle_patch) but the battle build never did. So the one doc whose
+    # whole subject IS a fight could not carry the by-name tuning for it -- silently, which is the worst way.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[battle_enemy]]
+        name = "Goblin"
+        max_hp = 500
+    ''')
+    assert validate_battle(proj) == []
+    info = build_battle_mod([proj], tmp_path / "dist")
+    assert "AnyEnemyByName: Goblin" in info["battle_patch"], info["battle_patch"]
+    assert "MaxHP 500" in info["battle_patch"]
+    live = ModLayout(tmp_path / "dist").battle_patch.read_text(encoding="utf-8")
+    assert "AnyEnemyByName: Goblin" in live, "emitted into info but never written to the file"
+
+
+def test_battle_toml_scene_patch_and_attack_reach_the_battlepatch(tmp_path):
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[battle_patch]]
+        scene = 30055
+        back_attack = true
+
+        [[battle_attack]]
+        name = "Goblin Punch"
+        power = 30
+    ''')
+    info = build_battle_mod([proj], tmp_path / "dist")
+    assert "Battle: 30055" in info["battle_patch"] and "BackAttack True" in info["battle_patch"]
+    assert "AnyAttackByName: Goblin Punch" in info["battle_patch"] and "Power 30" in info["battle_patch"]
+
+
+def test_battle_patch_blocks_are_validated_not_deferred_to_a_build_traceback(tmp_path):
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[battle_enemy]]
+        name = "X"
+        level = 300
+    ''')
+    assert any("range" in p for p in validate_battle(proj)), validate_battle(proj)
+
+
+def test_validate_battle_names_an_unknown_root_table(tmp_path):
+    # validate_battle had NO unknown-root-key sweep, so a typo'd table was silently inert -- exactly how
+    # [[battle_enemy]] hid. A misspelling must be named, not ignored.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+
+        [[battle_enemies]]
+        name = "Goblin"
+    ''')
+    probs = validate_battle(proj)
+    assert any("battle_enemies" in p for p in probs), probs
+    assert any("battle_enemy" in p for p in probs), "the sweep should suggest the near-miss"
+
+
+def test_player_csv_keys_is_not_widened_to_carry_the_battlepatch_blocks():
+    """_PLAYER_CSV_KEYS is the CSV-BLOCK list, and journey.py iterates it in three places to decide what a
+    journey's [journey.tuning] may carry. Widening it to fix the dropped battlepatch blocks would silently
+    add three non-CSV tables to the journey tuning surface. They get their own list instead; this pins it."""
+    from ff9mapkit.battle.build import _BATTLE_PATCH_KEYS, _PLAYER_CSV_KEYS
+    assert len(_PLAYER_CSV_KEYS) == 11
+    assert not (set(_PLAYER_CSV_KEYS) & set(_BATTLE_PATCH_KEYS))
+    assert set(_BATTLE_PATCH_KEYS) == {"battle_patch", "battle_enemy", "battle_attack"}
