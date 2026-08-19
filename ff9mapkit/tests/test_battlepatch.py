@@ -248,3 +248,33 @@ def test_build_emit_battle_patch_aggregates_and_wraps_errors():
     assert build._emit_battle_patch([SimpleNamespace(raw={})]) == ([], [])   # no blocks -> no contribution
     with pytest.raises(build.BuildError):                                 # a bad block -> BuildError (not a crash)
         build._emit_battle_patch([SimpleNamespace(raw={"battle_enemy": [{"name": "X", "level": 999}]})])
+
+
+# ---- tools/deploy_battle.py's live splice ------------------------------------------------------------
+# The script runs at MODULE scope (no installed twin like ff9mapkit.deploy.deploy_field), so its live
+# splice cannot be exercised in-process. HONEST GAP: the merge itself is fenced above; these assert the
+# script actually SPENDS it, so a regression to the blind append cannot land silently. Same source-text
+# idiom test_deploy_campaign.py uses for its generated revert script. Behaviour is playtest-verified.
+def _deploy_battle_src():
+    from pathlib import Path
+    p = Path(__file__).resolve().parents[2] / "tools" / "deploy_battle.py"
+    if not p.is_file():
+        import pytest
+        pytest.skip("repo-only tools/ script not present (installed-package layout)")
+    return p.read_text(encoding="utf-8")
+
+
+def test_deploy_battle_splices_the_battlepatch_instead_of_appending():
+    src = _deploy_battle_src()
+    assert "merge_battle_patch" in src and "battle_owner" in src
+    assert 'cur += info["battle_patch"]' not in src, \
+        "the blind append is back -- deploying the same battle twice would duplicate its block"
+
+
+def test_deploy_battle_revert_undoes_the_battlepatch_splice():
+    # the splice can now CREATE BattlePatch.txt where none existed, so "restore the backup by hand"
+    # is not a revert -- the generated script must delete it in that branch.
+    src = _deploy_battle_src()
+    assert "bp_revert_code" in src
+    assert "_pb.unlink()" in src, "no revert branch for a BattlePatch.txt this deploy created"
+    assert 'BattlePatch.txt.preBATTLE' in src
