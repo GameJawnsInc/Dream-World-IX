@@ -307,6 +307,69 @@ def test_build_repoint_writes_battlepatch(tmp_path):
     assert "BattleBackground BBG_B013" in info["battle_patch"]
 
 
+def test_build_battle_mod_is_idempotent_under_its_own_rerun(tmp_path):
+    # Both patch appends were BLIND: they read the prior file and concatenated, never filtering their own
+    # earlier lines. So building the same battle twice into one out_root (a campaign rebuild, a redeploy)
+    # doubled the repoint block -- and once a BattleScene registration is in play, doubled the registration.
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+        repoint_scene = 67
+    ''')
+    out = tmp_path / "dist"
+    build_battle_mod([proj], out)
+    first = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    build_battle_mod([proj], out)                          # no build_mod between -- the pure re-run
+    again = ModLayout(out).battle_patch.read_text(encoding="utf-8")
+    assert again.count("Battle: 67") == 1, f"the repoint block doubled on re-run:\n{again}"
+    assert again.count("BattleBackground BBG_B013") == 1
+    assert again == first, "a re-run with no change must be byte-identical"
+
+
+def test_build_battle_mod_rerun_keeps_one_registration_and_preserves_a_field_line(tmp_path):
+    # the DictionaryPatch half, plus the reason the filter must be identity-based and not "wipe the file":
+    # a co-built field mod's FieldScene line shares this file and must survive.
+    _write_scene(tmp_path)
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+        scene_id = 12000
+        scene_name = "GARGOYLE"
+    ''')
+    out = tmp_path / "dist"
+    layout = ModLayout(out)
+    layout.root.mkdir(parents=True, exist_ok=True)
+    layout.dictionary_patch.write_text("FieldScene 4003 GLADE\n", encoding="utf-8", newline="\n")
+
+    build_battle_mod([proj], out)
+    build_battle_mod([proj], out)
+    dp = layout.dictionary_patch.read_text(encoding="utf-8")
+    assert dp.count("BattleScene 12000") == 1, f"the registration doubled on re-run:\n{dp}"
+    assert "FieldScene 4003 GLADE" in dp, "a co-built field's registration must survive the battle append"
+
+
+def test_build_battle_mod_rerun_preserves_another_battles_block(tmp_path):
+    # two battles co-deployed into one folder: rebuilding one must not strip the other's block
+    from ff9mapkit.battle import battlepatch as _bp
+    proj = _write_project(tmp_path, '''
+        [battlemap]
+        bbg = "BBG_B013"
+        repoint_scene = 67
+    ''')
+    out = tmp_path / "dist"
+    layout = ModLayout(out)
+    layout.root.mkdir(parents=True, exist_ok=True)
+    other = _bp.merge_battle_patch("", ["Battle: 99", "BattleBackground BBG_B014"],
+                                   _bp.battle_owner("BBG_B014"))
+    layout.battle_patch.write_text(other, encoding="utf-8", newline="\n")
+
+    build_battle_mod([proj], out)
+    build_battle_mod([proj], out)
+    live = layout.battle_patch.read_text(encoding="utf-8")
+    assert live.count("Battle: 67") == 1 and live.count("Battle: 99") == 1, live
+    assert "BattleBackground BBG_B014" in live, "the other battle's block was stripped"
+
+
 def _write_scene(tmp_path):
     """Synthetic forked-scene dir (what `battle-import --fork-scene` produces): raw16/raw17 + eb/mes x7."""
     sd = tmp_path / "scene"

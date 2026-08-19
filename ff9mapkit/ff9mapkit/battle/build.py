@@ -24,7 +24,9 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import dictpatch as _dp
 from ..config import LANGS, ModLayout
+from . import battlepatch as _battlepatch
 from . import camera_codec as _camera_codec
 from . import camera_data as _camera_data
 from . import event_data as _event_data
@@ -310,6 +312,7 @@ class BattleResult:
     written: list = field(default_factory=list)   # list[Path] -- every file emitted into the layout
     lint: list = field(default_factory=list)       # list[scenelint.Finding] -- offline balance notes
     extra_dict_lines: list = field(default_factory=list)   # list[str] -- e.g. a skin mint's 3DModel line
+    scene_id: int | None = None    # the MINTED scene id (None = bare override) -- keys this battle's BattlePatch block
 
 
 def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> BattleResult:
@@ -471,7 +474,8 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
         bp.append(f"BattleBackground {bbg}")
 
     return BattleResult(bbg=bbg, dict_line=dict_line, battle_patch_lines=bp, warnings=warnings,
-                        written=written, lint=lint, extra_dict_lines=skin_dlines)
+                        written=written, lint=lint, extra_dict_lines=skin_dlines,
+                        scene_id=project.scene_id)
 
 
 def _emit_player_data(projects, layout, *, game=None) -> tuple:
@@ -544,20 +548,31 @@ def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", 
     dlines = [r.dict_line for r in results if r.dict_line] \
         + [ln for r in results for ln in r.extra_dict_lines]
     if dlines:
-        # append to any existing DictionaryPatch (so a co-built field mod isn't clobbered)
-        prior = (layout.dictionary_patch.read_text(encoding="utf-8").splitlines()
-                 if layout.dictionary_patch.exists() else [])
+        # Append to any existing DictionaryPatch (so a co-built field mod isn't clobbered) -- but drop OUR OWN
+        # prior lines first, judged on the same (directive, id) identity dictpatch uses. The append used to be
+        # blind, so a re-run into the same out_root (a campaign rebuild, a redeploy) doubled every registration.
+        mine = {_dp._registration_identity(ln.split()) for ln in dlines}
+        mine.discard(None)
+        prior = [ln for ln in (layout.dictionary_patch.read_text(encoding="utf-8").splitlines()
+                               if layout.dictionary_patch.exists() else [])
+                 if ln.strip() and _dp._registration_identity(ln.split()) not in mine]
         layout.dictionary_patch.write_text(
-            "\n".join([ln for ln in prior if ln.strip()] + dlines) + "\n",
-            encoding="utf-8", newline="\n")
+            "\n".join(prior + dlines) + "\n", encoding="utf-8", newline="\n")
 
+    # BattlePatch: one sentinel-marked block per battle, spliced through the non-clobbering merge. A blind
+    # append doubled the repoint/BGM lines on every re-run; merging by owner also preserves a co-deployed
+    # field's block and ANOTHER battle's block, which a wholesale rewrite would strip.
     bplines = [ln for r in results for ln in r.battle_patch_lines]
-    if bplines:
-        prior = (layout.battle_patch.read_text(encoding="utf-8").splitlines()
-                 if layout.battle_patch.exists() else [])
-        layout.battle_patch.write_text(
-            "\n".join([ln for ln in prior if ln.strip()] + bplines) + "\n",
-            encoding="utf-8", newline="\n")
+    live = layout.battle_patch.read_text(encoding="utf-8") if layout.battle_patch.exists() else ""
+    merged = live
+    for r in results:
+        merged = _battlepatch.merge_battle_patch(merged, r.battle_patch_lines,
+                                                 _battlepatch.battle_owner(r.bbg, r.scene_id))
+    if merged != live:
+        if merged:
+            layout.battle_patch.write_text(merged, encoding="utf-8", newline="\n")
+        elif layout.battle_patch.exists():          # our last block went away and nothing else owns the file
+            layout.battle_patch.unlink()
 
     if not layout.mod_description.exists():
         layout.mod_description.write_text(
