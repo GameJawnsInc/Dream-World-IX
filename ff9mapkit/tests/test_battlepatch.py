@@ -196,6 +196,47 @@ def test_merge_idempotent():
     assert once == twice
 
 
+# ---- the owner token: an int still renders as `field N`, and a battle can own a block too -------------
+def test_int_owner_renders_byte_identical_to_the_historical_marker():
+    # LOAD-BEARING: every live BattlePatch.txt on disk already carries blocks under THIS exact string, and
+    # tools/deploy_field.py finds-and-replaces its own block by it. A changed marker orphans those blocks --
+    # the next deploy appends a second one instead of replacing, and the old one patches forever. Pinned as
+    # a literal, not built from the format string, so a "harmless" reword cannot pass.
+    begin, end = BP._markers(4003)
+    assert begin == "// >>> ff9mapkit field 4003 BattlePatch (auto -- edit the field.toml, not here)"
+    assert end == "// <<< ff9mapkit field 4003"
+
+
+def test_battle_owner_token_and_a_field_block_coexist_in_one_file():
+    # A campaign ships fields AND battles into one folder, so both must be able to own a block in the same
+    # BattlePatch.txt without either clobbering the other.
+    live = BP.merge_battle_patch("", ["AnyEnemyByName: Goblin", "MaxHP 500"], 4003)
+    live = BP.merge_battle_patch(live, ["Battle: 12000", "Music: 35"], BP.battle_owner("BBG_B013", 12000))
+    assert "ff9mapkit field 4003" in live and "MaxHP 500" in live          # the field block survived
+    assert "Battle: 12000" in live and "Music: 35" in live                 # the battle block landed
+    # ...and re-merging the battle block replaces only its own
+    again = BP.merge_battle_patch(live, ["Battle: 12000", "Music: 7"], BP.battle_owner("BBG_B013", 12000))
+    assert "Music: 7" in again and "Music: 35" not in again
+    assert "MaxHP 500" in again and again.count("ff9mapkit field 4003 ") == 1
+
+
+def test_battle_owner_is_distinct_per_bbg_and_per_scene():
+    # two battles in one campaign must not share an owner token, or the second strips the first
+    a, b = BP.battle_owner("BBG_B013", 12000), BP.battle_owner("BBG_B014", 12000)
+    assert a != b
+    assert BP.battle_owner("BBG_B013", 12000) != BP.battle_owner("BBG_B013", 12001)
+    live = BP.merge_battle_patch("", ["Battle: 12000", "Music: 1"], a)
+    live = BP.merge_battle_patch(live, ["Battle: 12001", "Music: 2"], b)
+    assert "Music: 1" in live and "Music: 2" in live
+
+
+def test_battle_merge_is_idempotent():
+    owner = BP.battle_owner("BBG_B013", 12000)
+    block = ["Battle: 12000", "Music: 35"]
+    once = BP.merge_battle_patch("", block, owner)
+    assert BP.merge_battle_patch(once, block, owner) == once
+
+
 # ---- build.py wiring (aggregation across fields + error wrapping) -------------------------------------
 def test_build_emit_battle_patch_aggregates_and_wraps_errors():
     from types import SimpleNamespace
