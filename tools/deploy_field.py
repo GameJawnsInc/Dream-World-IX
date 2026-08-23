@@ -20,6 +20,7 @@ from ff9mapkit import build as B
 from ff9mapkit import reverttmpl as _revert
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit.eb import EbScript, edit, disasm
+from ff9mapkit.fsutil import atomic_write_text
 
 import argparse, tomllib
 # Per-worktree deploy target: a gitignored .ff9deploy.toml at the repo root pins each worktree's OWN
@@ -31,8 +32,15 @@ def _worktree_cfg():
     if f.is_file():
         try:
             return tomllib.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            # A checkout that PINNED its deploy target must never silently fall back to the SHARED default
+            # folder -- that clobber is the exact hazard the pin exists to prevent, and a TOML typo used to
+            # cause it with zero output. Deploy is the destructive path, so this ABORTS loudly (the
+            # package's config._read_deploy_config stays soft for read-only verbs, but warns now too).
+            print(f"!! {f} is unreadable/malformed ({e})\n"
+                  f"!! refusing to guess a deploy target -- fix the file, or delete it to accept the "
+                  f"shared defaults deliberately.", file=sys.stderr)
+            sys.exit(2)
     return {}
 _cfg = _worktree_cfg()
 _def_folder = os.environ.get("FF9_MOD_FOLDER") or _cfg.get("mod_folder") or "FF9CustomMap"
@@ -41,8 +49,10 @@ _ap = argparse.ArgumentParser(description="Build a field.toml and deploy it reve
                                           "id, inside a per-worktree Memoria mod folder. Reach it via the "
                                           "debug menu (~)'s 'Warp to field'.")
 _ap.add_argument("toml", help="path to the field.toml")
-_ap.add_argument("--id", type=int, default=_def_id,
-                 help="custom field id to deploy into (e.g. 5000 to give a branch/worktree its own slot)")
+_ap.add_argument("--id", type=int, default=None,
+                 help="custom field id to deploy into (e.g. 5000 to give a branch/worktree its own slot). "
+                      "ALWAYS pass it explicitly: the fallback is the .ff9deploy.toml pin, else the SHARED "
+                      "4003 sandbox, where another session's deploy can clobber yours.")
 _ap.add_argument("--name", default=None,
                  help="internal field name (default TESTROOM for 4003, else TEST<id>)")
 _ap.add_argument("--mod-folder", dest="mod_folder", default=_def_folder,
@@ -54,7 +64,14 @@ _ap.add_argument("--text-block", dest="text_block", type=int, default=_cfg.get("
                       "several worktree mod folders stack in Memoria.ini FolderNames.")
 _args = _ap.parse_args()
 TOML = Path(_args.toml)
-FID = _args.id
+FID = _args.id if _args.id is not None else _def_id
+if _args.id is None:
+    # "always pass --id" was a doc-only mandate (CLAUDE.md, feedback-deploy-field-default-sandbox) with no
+    # enforcement at the call site -- and the silent 4003 default is a shared slot every session can clobber.
+    print("  !! no --id given -> defaulting to {} {}; pass --id explicitly.".format(
+              FID, "(the .ff9deploy.toml pin)" if "id" in _cfg
+              else "(the SHARED 4003 sandbox -- another session's deploy can clobber it)"),
+          file=sys.stderr)
 MOD_FOLDER = _args.mod_folder
 # The custom-field slot is a SANDBOX: force the test build to id FID + a fixed name so ANY field.toml
 # (any id/name) tests here without colliding with a live field. Each id gets a DISTINCT name -> distinct
@@ -65,16 +82,12 @@ TEST_NAME = _args.name or ("TESTROOM" if FID == 4003 else f"TEST{FID}")
 OUT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "scroll_out")))
 OUT.mkdir(exist_ok=True)
 
-# revert THIS id's prior deploy only (revert_deploy_<id>.py) -- NOT another id's deploy (so deploying
-# 5000 never reverts 4003) and NOT other tools' reverts (e.g. revert_alex_fast_warp.py: the Alexandria
-# fast-warp points at a slot and must SURVIVE a field deploy).
-prior = OUT / f"revert_deploy_{FID}.py"
-if prior.exists():
-    import subprocess
-    _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0   # no console flash when called by the GUI
-    subprocess.run([sys.executable, str(prior)], creationflags=_flags)
-
-# build -- forced into the 4003 sandbox identity (id + name), so a field that declares id 4002 or a
+# build FIRST, into a private tempdir -- nothing live is touched yet. The prelude revert below used to run
+# before this, so ANY author error (a typo'd toml path at load, a lint refusal, a BuildError) aborted with
+# the slot's prior deploy ALREADY torn down: the field un-registered and its files deleted over a build
+# that never happened, and a mid-playtest ~ Reload/Warp on that id black-screened. Build failures are the
+# COMMON failure of this script; they must leave the live install exactly as it was.
+# The build is forced into the 4003 sandbox identity (id + name), so a field that declares id 4002 or a
 # live-colliding name still tests safely. The on-disk field.toml is untouched (override is in-memory).
 tmp = Path(tempfile.mkdtemp(prefix="deployfield_"))
 proj = B.FieldProject.load(TOML)
@@ -95,6 +108,26 @@ s0 = EbScript.from_bytes(eb0); f0 = s0.entry(0).func_by_tag(0)
 scroll = 0x71 in [i.op for i in disasm.iter_code(eb0, f0.abs_start, f0.abs_end)]
 print(f"built {FBG} | {info['dictionary'][0]} | scroll={scroll}")
 
+# revert THIS id's prior deploy only (revert_deploy_<id>.py) -- NOT another id's deploy (so deploying
+# 5000 never reverts 4003) and NOT other tools' reverts (e.g. revert_alex_fast_warp.py: the Alexandria
+# fast-warp points at a slot and must SURVIVE a field deploy). Runs only after a SUCCESSFUL build (above),
+# and its exit code is CHECKED: a revert that crashed midway leaves the live folder half-reverted, and
+# deploying on top of that both hides the damage (a stale CSV/patch line the new build no longer ships
+# survives silently -> a wrong-state playtest) and OVERWRITES this script at the end -- orphaning the
+# backups the old revert pointed at.
+prior = OUT / f"revert_deploy_{FID}.py"
+if prior.exists():
+    import subprocess
+    _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0   # no console flash when called by the GUI
+    _pr = subprocess.run([sys.executable, str(prior)], creationflags=_flags)
+    if _pr.returncode:
+        print(f"!! the prelude revert FAILED (exit {_pr.returncode}): {prior}\n"
+              f"!! NOT deploying on top of a possibly half-reverted folder. Fix what the traceback above "
+              f"names; if the mod folder was since wiped/replaced (a campaign deploy), delete the stale "
+              f"revert script and re-run.", file=sys.stderr)
+        shutil.rmtree(tmp, ignore_errors=True)
+        sys.exit(2)
+
 # deploy reversibly
 GAME = find_game_path()
 live = ModLayout(GAME / MOD_FOLDER)
@@ -107,7 +140,7 @@ if not live.mod_description.exists():
         f"    <InstallationPath>{MOD_FOLDER}</InstallationPath>\n    <Category></Category>\n"
         f"    <Description></Description>\n</Mod>\n", encoding="utf-8", newline="\n")
 if not live.dictionary_patch.exists():
-    live.dictionary_patch.write_text("", encoding="utf-8", newline="\n")
+    atomic_write_text(live.dictionary_patch, "", newline="\n")
 BK = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backups")))
 BK.mkdir(parents=True, exist_ok=True)                 # gitignored -- absent in a fresh clone/worktree
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -174,7 +207,7 @@ if _src_manifest.is_file():
     else:
         _text = _src_manifest.read_text(encoding="utf-8")
     _live_manifest.parent.mkdir(parents=True, exist_ok=True)
-    _live_manifest.write_text(_text, encoding="utf-8", newline="\n")
+    atomic_write_text(_live_manifest, _text, newline="\n")
     print("  + custom [music] theme(s) -> RELAUNCH to register the new song id(s) + set MusicVolume > 0")
 mint_lines = info.get("mint_lines", [])
 # `3DModel <id> <NAME>` register a GEO id; `3DModelAnimation <key> <ANH_NAME>` register a custom anim (custom_battle_
@@ -212,7 +245,9 @@ dp += charname_lines                           # `CharacterDefaultName <id> <SYM
 dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
-live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
+# ATOMIC: a half-written DictionaryPatch (Ctrl-C, disk-full) unregisters EVERY field in the folder at the
+# next launch -- the null-.eb black screen, folder-wide -- and this file carries OTHER sessions' lines.
+atomic_write_text(live.dictionary_patch, "\n".join(dp) + "\n", newline="\n")
 _dropped = _dp.foreign_registrations_dropped(_dp_before, dp, owned=_dp_owned)   # a line this deploy does NOT own
 if _dropped:
     print("  !! WARNING: this deploy dropped DictionaryPatch registration(s) it does not own. A foreign "
@@ -244,21 +279,27 @@ if info.get("location_lines"):                  # the directive is read from Dic
 # whole donor field (s31 FieldMapExtraOffset can't resolve the fork name -> donor; the recurring hand-written
 # `4003 1860`). The donor is now recorded by the import (`[verbatim_eb] donor` OR `[field] source_field`) and
 # read by _verbatim_donor_id, so emit for both. Merged non-clobbering, reversible. Read at LAUNCH -> RELAUNCH.
+from ff9mapkit import forkdonor as _fdon
 fork_revert_code = ""
 _donor = B._verbatim_donor_id(proj)
 _fdp = live.root / "ForkDonorPatch.txt"
 if _donor and _donor != FID:
-    _had_fdp = _fdp.exists()
-    if _had_fdp:
+    if _fdp.exists():
         shutil.copyfile(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")
-    _cur = [ln for ln in (_fdp.read_text(encoding="utf-8").splitlines() if _had_fdp else [])
-            if ln.strip() and not ln.lstrip().startswith("#") and ln.split()[0:1] != [str(FID)]]
-    _cur.append(f"{FID} {_donor}")
-    _fdp.write_text("# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n" + "\n".join(_cur) + "\n",
-                    encoding="utf-8", newline="\n")
-    fork_revert_code = ('\nshutil.copyfile(BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}", live.root/"ForkDonorPatch.txt")'
-                        if _had_fdp else
-                        '\n_pf = live.root/"ForkDonorPatch.txt"\nif _pf.exists(): _pf.unlink()')
+    atomic_write_text(_fdp, _fdon.merge_row(_fdp.read_text(encoding="utf-8") if _fdp.exists() else "",
+                                            FID, _donor), newline="\n")
+    # SURGICAL revert (forkdonor.revert_row): drop OUR row from the file as it stands AT REVERT TIME and
+    # re-add the row we had pre-deploy -- never a snapshot restore/unlink, which deleted every row a LATER
+    # fork's deploy added (that fork then silently lost its s24-s33 donor remap: occlusion, off-mesh).
+    fork_revert_code = (
+        '\nfrom ff9mapkit import forkdonor as _fdm'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        '\n_fdb = BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}"'
+        '\n_fdl = live.root/"ForkDonorPatch.txt"'
+        '\n_fdn = _fdm.revert_row(_fdl.read_text(encoding="utf-8") if _fdl.exists() else "",'
+        f'\n                      _fdb.read_text(encoding="utf-8") if _fdb.exists() else "", {FID})'
+        '\nif _fdn: _awt(_fdl, _fdn, newline="\\n")'
+        '\nelif _fdl.exists(): _fdl.unlink()')
     print(f"  + ForkDonorPatch.txt ({FID} -> donor {_donor}; RELAUNCH to apply -- read at launch, not the menu reload)")
 # Item-data CSV deltas: mod-GLOBAL files build_mod emits when the field carries [start_inventory]/[[equipment]]
 # (the new-game starting bag/gear, read at NEW-GAME init) or [[shop]] (custom shop inventories, merged by id).
@@ -480,17 +521,27 @@ _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_pat
 _built_block = ([ln for ln in tl.battle_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
                 if tl.battle_patch.exists() else [])
 bp_revert_code = ""
-if _built_block or f"ff9mapkit field {FID}" in _live_bp_text:
-    _had_bp = live.battle_patch.exists()
-    if _had_bp:
+# trigger on the EXACT begin marker, never a substring: "ff9mapkit field 300" is a prefix of field 3000's
+# marker, and a false trigger armed a revert for a field that owned no block at all.
+if _built_block or _bp.has_block(_live_bp_text, FID):
+    if live.battle_patch.exists():
         shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
     _merged = _bp.merge_battle_patch(_live_bp_text, _built_block, FID)
     if _merged:
-        live.battle_patch.write_text(_merged, encoding="utf-8", newline="\n")
+        atomic_write_text(live.battle_patch, _merged, newline="\n")
     elif live.battle_patch.exists():
         live.battle_patch.unlink()
-    bp_revert_code = ('\nshutil.copyfile(BK/f"BattlePatch.txt.preDEPLOY.{STAMP}", live.battle_patch)' if _had_bp
-                      else '\n_pb = live.battle_patch\nif _pb.exists(): _pb.unlink()')
+    # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it stands
+    # AT REVERT TIME -- never a snapshot restore, which re-clobbered every block a co-deploy spliced in
+    # between (a battle's tuning silently vanished on this field's next redeploy prelude).
+    bp_revert_code = (
+        '\nfrom ff9mapkit.battle import battlepatch as _bpm'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        '\n_bpb = BK/f"BattlePatch.txt.preDEPLOY.{STAMP}"'
+        '\n_bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
+        f'\n                         _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {FID})'
+        '\nif _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
+        '\nelif live.battle_patch.exists(): live.battle_patch.unlink()')
     if _built_block:
         print(f"  + BattlePatch.txt (battle tuning + BGM, merged under field-{FID} markers; RELAUNCH to apply)")
 
@@ -503,17 +554,23 @@ _live_tp_text = live.text_patch.read_text(encoding="utf-8") if live.text_patch.e
 _built_tp = ([ln for ln in tl.text_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
              if tl.text_patch.exists() else [])
 tp_revert_code = ""
-if _built_tp or f"ff9mapkit field {FID}" in _live_tp_text:
-    _had_tp = live.text_patch.exists()
-    if _had_tp:
+if _built_tp or _itxt.has_block(_live_tp_text, FID):       # exact marker, same as the BattlePatch trigger
+    if live.text_patch.exists():
         shutil.copyfile(live.text_patch, BK / f"TextPatch.txt.preDEPLOY.{STAMP}")
     _merged_tp = _itxt.merge_text_patch(_live_tp_text, _built_tp, FID)
     if _merged_tp:
-        live.text_patch.write_text(_merged_tp, encoding="utf-8", newline="\n")
+        atomic_write_text(live.text_patch, _merged_tp, newline="\n")
     elif live.text_patch.exists():
         live.text_patch.unlink()
-    tp_revert_code = ('\nshutil.copyfile(BK/f"TextPatch.txt.preDEPLOY.{STAMP}", live.text_patch)' if _had_tp
-                      else '\n_pt = live.text_patch\nif _pt.exists(): _pt.unlink()')
+    # SURGICAL revert (itemtext.revert_splice) -- same contract as the BattlePatch fragment above.
+    tp_revert_code = (
+        '\nfrom ff9mapkit.content import itemtext as _itm'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        '\n_tpb = BK/f"TextPatch.txt.preDEPLOY.{STAMP}"'
+        '\n_tpn = _itm.revert_splice(live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else "",'
+        f'\n                         _tpb.read_text(encoding="utf-8") if _tpb.exists() else "", {FID})'
+        '\nif _tpn: _awt(live.text_patch, _tpn, newline="\\n")'
+        '\nelif live.text_patch.exists(): live.text_patch.unlink()')
     if _built_tp:
         print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")

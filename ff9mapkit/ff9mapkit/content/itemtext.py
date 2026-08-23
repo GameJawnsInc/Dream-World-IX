@@ -166,3 +166,37 @@ def merge_text_patch(live_text: str, block_lines, field_id) -> str:
     if block:
         out += [begin, *block, end]
     return ("\n".join(out) + "\n") if out else ""
+
+
+def extract_block(live_text: str, field_id) -> list:
+    """The body lines of this field's spliced block in ``live_text`` (``[]`` when it has none), markers
+    excluded. Mirrors :func:`ff9mapkit.battle.battlepatch.extract_block` -- see its docstring for why a
+    surgical revert needs the read half."""
+    begin, end = _markers(field_id)
+    out, take = [], False
+    for ln in live_text.splitlines():
+        if ln.strip() == begin:
+            take = True
+            continue
+        if ln.strip() == end:
+            take = False
+            continue
+        if take:
+            out.append(ln)
+    return out
+
+
+def has_block(live_text: str, field_id) -> bool:
+    """Does ``live_text`` carry a block for exactly this field? Whole-marker-line match, never substring
+    (``\"ff9mapkit field 300\" in text`` also matches field 3000's marker)."""
+    begin, _end = _markers(field_id)
+    return any(ln.strip() == begin for ln in live_text.splitlines())
+
+
+def revert_splice(current_text: str, backup_text: str, field_id) -> str:
+    """The SURGICAL deploy-revert of one field's item-text block: replace it in ``current_text`` (the live
+    file NOW) with the block it had in ``backup_text`` (the pre-deploy snapshot; ``\"\"`` when the file
+    didn't exist), preserving every other field's block -- including ones spliced in AFTER the backup was
+    taken, which a wholesale snapshot restore re-clobbered. Mirrors
+    :func:`ff9mapkit.battle.battlepatch.revert_splice`. ``\"\"`` result => delete the file."""
+    return merge_text_patch(current_text, extract_block(backup_text, field_id), field_id)

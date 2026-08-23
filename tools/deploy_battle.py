@@ -30,6 +30,7 @@ sys.path.insert(0, KIT)
 from ff9mapkit.config import find_game_path, ModLayout, LANGS  # noqa: E402
 from ff9mapkit.battle.build import BattleProject, build_battle_mod  # noqa: E402
 from ff9mapkit.eb import opcodes  # noqa: E402
+from ff9mapkit.fsutil import atomic_write_text  # noqa: E402
 
 REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -41,8 +42,13 @@ def _mod_folder_default():
             mf = tomllib.loads(f.read_text(encoding="utf-8")).get("mod_folder")
             if mf:
                 return mf
-        except Exception:
-            pass
+        except Exception as e:
+            # a malformed pin must not silently drop this checkout into the SHARED default folder --
+            # that clobber is the exact hazard the pin exists to prevent (same rule as deploy_field).
+            print(f"!! {f} is unreadable/malformed ({e})\n"
+                  f"!! refusing to guess a deploy target -- fix the file, or delete it to accept the "
+                  f"shared defaults deliberately.", file=sys.stderr)
+            raise SystemExit(2)
     return os.environ.get("FF9_MOD_FOLDER") or "FF9CustomMap"
 
 
@@ -118,7 +124,8 @@ if info["dictionary"]:
     cur = [ln for ln in cur if not (ln.startswith("BattleScene")
                                     and (ln.split()[3:4] == [BBG] or ln.split()[1:2] == [sid]))]
     cur += info["dictionary"]
-    live.dictionary_patch.write_text("\n".join(cur) + "\n", encoding="utf-8", newline="\n")
+    # ATOMIC: a half-written DictionaryPatch unregisters every field/battle in the folder at the next launch
+    atomic_write_text(live.dictionary_patch, "\n".join(cur) + "\n", newline="\n")
     relaunch = True
 
 # BattlePatch: SPLICE under this battle's `//` sentinel markers instead of appending. The old code appended
@@ -131,20 +138,30 @@ from ff9mapkit.battle import battlepatch as _bp  # noqa: E402
 _bp_owner = _bp.battle_owner(BBG, proj.scene_id if proj.is_mint else None)
 _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
 bp_revert_code = ""
-if info["battle_patch"] or _bp_owner in _live_bp_text:
-    _had_bp = live.battle_patch.exists()
-    if _had_bp:
+# trigger on the EXACT begin marker, never a substring: a bare battle_owner token is a PREFIX of the same
+# battle's with-scene token, so `_bp_owner in text` armed on a block this deploy does not own.
+if info["battle_patch"] or _bp.has_block(_live_bp_text, _bp_owner):
+    if live.battle_patch.exists():
         shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preBATTLE.{STAMP}")
     _merged = _bp.merge_battle_patch(_live_bp_text, info["battle_patch"], _bp_owner)
     if _merged:
-        live.battle_patch.write_text(_merged, encoding="utf-8", newline="\n")
+        atomic_write_text(live.battle_patch, _merged, newline="\n")
     elif live.battle_patch.exists():          # our last block went away and nothing else owns the file
         live.battle_patch.unlink()
-    # Make the revert actually undo the splice. It used to only PRINT "restore backups/*.preBATTLE.*" --
-    # fine when the splice could only append to an existing file, wrong now that a deploy can CREATE one.
-    bp_revert_code = (f'\nshutil.copyfile(BK/"BattlePatch.txt.preBATTLE.{STAMP}", LIVE/"BattlePatch.txt")'
-                      if _had_bp else
-                      '\n_pb = LIVE/"BattlePatch.txt"\nif _pb.exists(): _pb.unlink()')
+    # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it stands
+    # AT REVERT TIME -- the old snapshot restore re-clobbered every block another deploy spliced in between
+    # (and it looked for the backup under the generated script's BK = bk_dir, while the deploy wrote it to
+    # the backups ROOT above -- the restore branch crashed on FileNotFoundError whenever it was needed).
+    # The backup path is interpolated ABSOLUTE at generation time so the two can never disagree again.
+    bp_revert_code = (
+        '\nfrom ff9mapkit.battle import battlepatch as _bpm'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        f'\n_bpb = Path({str(BK / f"BattlePatch.txt.preBATTLE.{STAMP}")!r})'
+        '\n_bpl = LIVE/"BattlePatch.txt"'
+        '\n_bpn = _bpm.revert_splice(_bpl.read_text(encoding="utf-8") if _bpl.exists() else "",'
+        f'\n                         _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {_bp_owner!r})'
+        '\nif _bpn: _awt(_bpl, _bpn, newline="\\n")'
+        '\nelif _bpl.exists(): _bpl.unlink()')
     if info["battle_patch"]:
         relaunch = True
 
@@ -182,7 +199,8 @@ if _args.trigger_field is not None and proj.is_mint:
 # revert script: delete created files, restore overwritten (incl. any trigger-field ebs) from the backup
 revert = OUT / f"revert_battle_{BBG}.py"
 revert.write_text(
-    "#!/usr/bin/env python3\nimport shutil\nfrom pathlib import Path\n"
+    "#!/usr/bin/env python3\nimport shutil, sys\nfrom pathlib import Path\n"
+    f"sys.path.insert(0, {KIT!r})\n"                       # the bp fragment imports ff9mapkit modules
     f"LIVE = Path(r{str(live_root)!r})\nBK = Path(r{str(bk_dir)!r})\n"
     f"CREATED = {created!r}\nOVERWRITTEN = {overwritten!r}\n"
     "for rel in CREATED:\n"

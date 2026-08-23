@@ -406,3 +406,45 @@ def merge_battle_patch(live_text: str, block_lines, owner) -> str:
     if block:
         out += [begin, *block, end]
     return ("\n".join(out) + "\n") if out else ""
+
+
+def extract_block(live_text: str, owner) -> list:
+    """The body lines of ``owner``'s spliced block in ``live_text`` (``[]`` when it has none), markers
+    excluded -- the read half of :func:`merge_battle_patch`, and what lets a REVERT be surgical: pull the
+    owner's PRE-deploy block out of the backup snapshot and re-splice it into the file as it stands at
+    revert time, instead of restoring the whole snapshot over co-owners' blocks added since."""
+    begin, end = _markers(owner)
+    out, take = [], False
+    for ln in live_text.splitlines():
+        if ln.strip() == begin:
+            take = True
+            continue
+        if ln.strip() == end:
+            take = False
+            continue
+        if take:
+            out.append(ln)
+    return out
+
+
+def has_block(live_text: str, owner) -> bool:
+    """Does ``live_text`` carry a block for exactly this owner? Whole-marker-line match, NEVER substring:
+    ``\"ff9mapkit field 300\" in text`` also matches field 3000's marker, and a bare :func:`battle_owner`
+    token is a PREFIX of the same battle's with-scene token -- either substring test armed a spurious
+    revert for an owner that held nothing (``tools/deploy_field.py``'s old trigger)."""
+    begin, _end = _markers(owner)
+    return any(ln.strip() == begin for ln in live_text.splitlines())
+
+
+def revert_splice(current_text: str, backup_text: str, owner) -> str:
+    """The SURGICAL deploy-revert of one owner's block: in ``current_text`` (the live file NOW, which may
+    carry blocks OTHER deploys spliced in since), replace this owner's block with the one it had in
+    ``backup_text`` (its pre-deploy snapshot; ``\"\"`` when the file didn't exist) -- or just strip it when
+    the backup held none. Every foreign block survives, exactly as on the deploy side.
+
+    The wholesale ``shutil.copyfile(backup, live)`` restore this replaces re-clobbered every block spliced
+    between the deploy and its revert -- and a field redeploy RUNS its revert as the prelude, so the loss
+    window was the whole gap between two deploys of an id: redeploy field 30500 and a co-deployed battle's
+    tuning block silently vanished. Same defect class ``dictpatch.revert_dictionary_patch`` closed for
+    DictionaryPatch. Returns the new file text; ``\"\"`` means nothing is left (caller deletes the file)."""
+    return merge_battle_patch(current_text, extract_block(backup_text, owner), owner)
