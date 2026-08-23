@@ -212,14 +212,52 @@ def xdist_available(kit: Path) -> bool:
                           capture_output=True).returncode == 0
 
 
-def collect_count(kit: Path, log, run_log: Path) -> int:
+def collect_count(kit: Path, log, run_log: Path) -> tuple:
+    """``(n, rc)`` -- the collected-test count AND the collect pass's exit code. The rc must reach the
+    caller: a collection ERROR (a module that fails to import) leaves a count that clears the floor while
+    part of the suite silently isn't in it -- counting alone reads that as healthy."""
     rc = run([py_exe(), "-m", "pytest", "--collect-only", "-q"], log, cwd=kit, env=child_env(),
              timeout=1200, tee_to=run_log)
     tail = run_log.read_text(encoding="utf-8", errors="replace")[-4000:]
     m = re.findall(r"(\d+) tests? collected", tail)
     n = int(m[-1]) if m else 0
     log(f"collected {n} tests (pytest rc={rc})")
-    return n
+    return n, rc
+
+
+def last_green_collected(state: Path):
+    """The most recent FULL green run's ``collected`` count from ``ledger.jsonl`` (None when there is
+    none). Narrowed/smoke rows and non-green rows are not baselines -- a narrowed run's count reflects
+    its filter, and a red run may have died before collecting everything."""
+    try:
+        lines = (state / "ledger.jsonl").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for ln in reversed(lines):
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue
+        if e.get("result") == "green" and e.get("mode") == "full" and isinstance(e.get("collected"), int):
+            return e["collected"]
+    return None
+
+
+def effective_collect_floor(static_floor: int, state: Path, log) -> int:
+    """The collect floor that actually guards: the static ``--collect-floor``, RATCHETED up to 98% of the
+    last full green run's own collection. The static default is a bootstrap value and it ROTS AS THE SUITE
+    GROWS -- nightly_gate.md said 'raise it as collected rises' and nobody did: at 8418 collected the
+    shipped 6500 admitted a 1900-test silent drop, four times the 479-test worktree skip-trap this guard
+    was BUILT for. Deriving from the gate's own ledger makes the doc's law self-enforcing. A deliberate
+    suite shrink beyond 2% fails loud as collect-short; pass ``--no-dynamic-floor`` for that one run."""
+    prev = last_green_collected(state)
+    if prev is None:
+        return static_floor
+    dyn = int(prev * 0.98)
+    if dyn > static_floor:
+        log(f"collect floor: {dyn} (98% of the last full green's {prev}; static {static_floor} is the bootstrap)")
+        return dyn
+    return static_floor
 
 
 def parse_summary(run_log: Path) -> dict:
@@ -273,7 +311,12 @@ def main() -> int:
     ap.add_argument("--smoke", action="store_true", help="provision + collect check only, no suite run")
     ap.add_argument("--workers", type=int, default=6, help="xdist workers (default 6; 0 = serial)")
     ap.add_argument("--collect-floor", type=int, default=6500,
-                    help="abort if fewer tests collect (the worktree skip-trap guard)")
+                    help="abort if fewer tests collect (the worktree skip-trap guard). This is the "
+                         "BOOTSTRAP bound: each run ratchets the effective floor to 98%% of the last "
+                         "full green's own collection, so suite growth cannot rot the guard")
+    ap.add_argument("--no-dynamic-floor", action="store_true",
+                    help="use only the static --collect-floor this run -- the deliberate escape hatch "
+                         "after a legitimate suite SHRINK beyond 2%% (say why in the merge message)")
     ap.add_argument("--skip-ceiling", type=int, default=32,
                     help="POST-run verdict (audit rec 18): a green run that SKIPPED more than this "
                          "is flagged skip-long (rc 1) -- the collect floor cannot see a module-level "
@@ -314,11 +357,22 @@ def main() -> int:
         provision(main_repo, gate, log)
 
         kit = gate / "ff9mapkit"
-        n = collect_count(kit, log, log.path.with_suffix(".collect.log"))
+        n, crc = collect_count(kit, log, log.path.with_suffix(".collect.log"))
         entry["collected"] = n
-        if n < args.collect_floor:
+        if crc != 0:
+            # a collection ERROR (an import-broken module) still leaves a floor-clearing count while
+            # part of the suite silently isn't in it -- in --smoke mode nothing downstream would ever
+            # surface that, so this used to mint smoke-ok over a broken collection.
+            entry["result"] = "collect-error"
+            log(f"ABORT: the collect pass exited rc={crc} (collection errors) -- read "
+                f"{log.path.with_suffix('.collect.log')}. A count over an erroring collection is not "
+                f"a healthy suite.")
+            return 1
+        floor = args.collect_floor if args.no_dynamic_floor else effective_collect_floor(args.collect_floor, state, log)
+        entry["collect_floor"] = floor
+        if n < floor:
             entry["result"] = "collect-short"
-            log(f"ABORT: only {n} tests collected (< floor {args.collect_floor}) -- provisioning is "
+            log(f"ABORT: only {n} tests collected (< floor {floor}) -- provisioning is "
                 f"incomplete; a run now would be the skip-trap's false green. See nightly_gate.md.")
             return 1
         if args.smoke:
