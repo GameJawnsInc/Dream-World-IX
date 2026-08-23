@@ -180,13 +180,17 @@ def test_the_dictionary_rewrite_holds_the_sidecar_lock(src):
     the null-.eb black-screen class, invisible to the foreign-drop guard because the clobber happens in the
     OTHER process's read-to-write window (atomic_write_text makes each rewrite all-or-nothing but
     serialises nothing). Pin: the read AND the write both sit INSIDE the one `with locked_sidecar(...)`
-    block, no rewrite exists outside it, and a FileLockTimeout aborts the deploy -- never proceeds
-    unlocked. The lock itself is proven by test_fsutil's barrier concurrency test; this pins that the
-    scripts actually SPEND it (a law in a docstring is a wish)."""
+    block ON THE DICTIONARY PATCH (the splice files -- BattlePatch/TextPatch/ForkDonorPatch -- hold their
+    own per-target locks, pinned in test_patchfile_locks.py), no rewrite exists outside it, and a
+    FileLockTimeout aborts the deploy -- never proceeds unlocked. The lock itself is proven by
+    test_fsutil's barrier concurrency test; this pins that the scripts actually SPEND it (a law in a
+    docstring is a wish)."""
     tree = ast.parse(src)
     withs = [n for n in ast.walk(tree) if isinstance(n, ast.With)
              and any(isinstance(i.context_expr, ast.Call) and isinstance(i.context_expr.func, ast.Name)
-                     and i.context_expr.func.id == "locked_sidecar" for i in n.items)]
+                     and i.context_expr.func.id == "locked_sidecar" and i.context_expr.args
+                     and isinstance(i.context_expr.args[0], ast.Attribute)
+                     and i.context_expr.args[0].attr == "dictionary_patch" for i in n.items)]
     assert len(withs) == 1, "exactly one locked_sidecar block owns the DictionaryPatch rewrite"
     w = withs[0]
     reads = [n for n in ast.walk(w) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
@@ -195,12 +199,12 @@ def test_the_dictionary_rewrite_holds_the_sidecar_lock(src):
     assert reads, "the read must happen INSIDE the lock -- a read outside reopens the lost-update window"
     assert len(_dp_write_calls(w)) == 1, "the merged rewrite must happen INSIDE the lock"
     assert len(_dp_write_calls(tree)) == 1, "no DictionaryPatch rewrite may exist outside the locked block"
-    handlers = [h for n in ast.walk(tree) for h in (n.handlers if isinstance(n, ast.Try) else [])
-                if isinstance(h.type, ast.Name) and h.type.id == "FileLockTimeout"]
-    assert len(handlers) == 1, "a lock TIMEOUT must be caught by name (it is the one OSError that means " \
-                               "'another writer owns the file RIGHT NOW')..."
+    handlers = [h for n in ast.walk(tree) if isinstance(n, ast.Try) and any(x is w for x in ast.walk(n))
+                for h in n.handlers if isinstance(h.type, ast.Name) and h.type.id == "FileLockTimeout"]
+    assert handlers, "a lock TIMEOUT on the DictionaryPatch rewrite must be caught by name (it is the one " \
+                     "OSError that means 'another writer owns the file RIGHT NOW')..."
     assert any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "exit"
-               for c in ast.walk(handlers[0])), "...and abort the deploy loudly, never proceed unlocked"
+               for h in handlers for c in ast.walk(h)), "...and abort the deploy loudly, never proceed unlocked"
 
 
 def test_fresh_folder_bootstrap_is_create_exclusive():

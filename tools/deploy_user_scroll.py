@@ -17,6 +17,7 @@ from ff9mapkit.scene import cam as C, guide as G
 from ff9mapkit import build as B
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit.eb import EbScript, edit, disasm
+from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_sidecar
 from PIL import Image, ImageDraw
 
 if len(sys.argv) <= 1:
@@ -105,10 +106,16 @@ shutil.copytree(tl.fieldmap_dir(FBG), live.fieldmap_dir(FBG))
 for L in LANGS:
     live.ensure_dirs(FBG, langs=[L])
     shutil.copyfile(tl.eb_path(L, f"EVT_{NAME}.eb.bytes"), live.eb_path(L, f"EVT_{NAME}.eb.bytes"))
-dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
-      if ln.strip() and ln.split()[1:2] != [str(FID)]]
-dp.append(info["dictionary"][0])
-live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
+# LOCKED read->merge->write + ATOMIC (fsutil.locked_sidecar on the shared DictionaryPatch.txt.lock, same
+# as every deploy script): an unlocked window drops whichever lines a concurrent deploy read past.
+try:
+    with locked_sidecar(live.dictionary_patch):
+        dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
+              if ln.strip() and ln.split()[1:2] != [str(FID)]]
+        dp.append(info["dictionary"][0])
+        atomic_write_text(live.dictionary_patch, "\n".join(dp) + "\n", newline="\n")
+except FileLockTimeout as e:
+    sys.exit(f"!! {e}\n!! NOT rewriting {live.dictionary_patch} -- re-run once the other writer finishes.")
 for L in LANGS:
     p = live.eb_path(L, "EVT_HUT_INT.eb.bytes"); eb = p.read_bytes(); s = EbScript.from_bytes(eb); ok = False
     for ent in s.entries:

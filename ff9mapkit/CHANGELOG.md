@@ -21,6 +21,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `O_EXCL` (its check-then-write could land `""` over a just-merged rewrite). Proven by a
   barrier-synchronised multi-process test with an unlocked negative control that
   measurably loses lines.
+- The SAME lost-update class is now locked at every OTHER patch-file writer, one sidecar
+  per target file: the `BattlePatch.txt` / `TextPatch.txt` / `ForkDonorPatch.txt` splices
+  in `tools/deploy_field.py` + `tools/deploy_battle.py` and their generated revert
+  fragments (the splices are non-clobbering only against what they READ — a concurrent
+  pair could still drop each other's blocks in the read-to-write window), the
+  `MusicMetaData.txt` minted-song-id merge, the direct live-DictionaryPatch writers
+  `model-mint --deploy` and `model-anim-new` (whose lock also spans the free-key scan —
+  two concurrent mints could allocate the same key; a lost `3DModelAnimation` line WAS
+  the vanished key 60001), and the legacy one-off tools (`install_tworoom`, the scroll
+  spikes — now atomic as well as locked). Deploy-path tools catch `FileLockTimeout` by
+  name and abort loudly; revert fragments let it propagate into the prelude's checked
+  exit code. Pinned by AST in `tests/test_patchfile_locks.py` (each pin verified to fail
+  when its write is moved outside the lock).
 
 ### Fixed — the field/battle deploy loop survives its own failures (adversarial review, Lane B)
 - `tools/deploy_field.py` builds BEFORE running the prior revert as its prelude: a typo'd

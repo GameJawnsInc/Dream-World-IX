@@ -28,6 +28,7 @@ from ff9mapkit.scene import cam as C, guide as G, bgx as BGX
 from ff9mapkit import build as B
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit.eb import EbScript, edit, opcodes, disasm
+from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_sidecar
 from PIL import Image, ImageDraw, ImageFont
 
 OUT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "scroll_out")))
@@ -207,11 +208,17 @@ for L in LANGS:
     shutil.copyfile(tmp_layout.eb_path(L, f"EVT_{NAME}.eb.bytes"),
                     live.eb_path(L, f"EVT_{NAME}.eb.bytes"))
 
-# merge the 4003 DictionaryPatch line (keep the live 4000/4002 lines)
-dp = live.dictionary_patch.read_text(encoding="utf-8").rstrip("\n").splitlines()
-dp = [ln for ln in dp if not ln.split()[1:2] == [str(FID)]]   # drop any stale 4003 line
-dp.append(info["dictionary"][0])
-live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
+# merge the 4003 DictionaryPatch line (keep the live 4000/4002 lines).
+# LOCKED read->merge->write + ATOMIC (fsutil.locked_sidecar on the shared DictionaryPatch.txt.lock, same
+# as every deploy script): an unlocked window drops whichever lines a concurrent deploy read past.
+try:
+    with locked_sidecar(live.dictionary_patch):
+        dp = live.dictionary_patch.read_text(encoding="utf-8").rstrip("\n").splitlines()
+        dp = [ln for ln in dp if not ln.split()[1:2] == [str(FID)]]   # drop any stale 4003 line
+        dp.append(info["dictionary"][0])
+        atomic_write_text(live.dictionary_patch, "\n".join(dp) + "\n", newline="\n")
+except FileLockTimeout as e:
+    sys.exit(f"!! {e}\n!! NOT rewriting {live.dictionary_patch} -- re-run once the other writer finishes.")
 
 # repoint the interior door: HUT_INT Field(4000) -> Field(4003), all langs (same-length 2-byte patch)
 for L in LANGS:

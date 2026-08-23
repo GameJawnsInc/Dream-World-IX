@@ -79,12 +79,13 @@ def test_trusted_code_fragments_splice_and_stay_valid():
     representative fragment here mirrors the REAL surgical BattlePatch fragment ``tools/deploy_field.py``
     generates (multi-line, own imports, a parenthesized continuation) and must keep the script compilable."""
     frag = ('\nfrom ff9mapkit.battle import battlepatch as _bpm'
-            '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+            '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt, locked_sidecar as _lsc'
             '\n_bpb = BK/f"BattlePatch.txt.preDEPLOY.{STAMP}"'
-            '\n_bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
-            '\n                         _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", 4003)'
-            '\nif _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
-            '\nelif live.battle_patch.exists(): live.battle_patch.unlink()')
+            '\nwith _lsc(live.battle_patch):'
+            '\n    _bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
+            '\n                             _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", 4003)'
+            '\n    if _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
+            '\n    elif live.battle_patch.exists(): live.battle_patch.unlink()')
     src = build_revert_script(**BENIGN, bp_revert_code=frag)
     _compiles(src)
     assert "revert_splice" in src and "BattlePatch.txt.preDEPLOY" in src

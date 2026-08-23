@@ -214,15 +214,25 @@ if _src_manifest.is_file():
     from ff9mapkit import sound as _snd
     _live_manifest = live.root / "FF9_Data" / "EmbeddedAsset" / "Manifest" / "Sounds" / "MusicMetaData.txt"
     _built = _snd.parse_manifest(_src_manifest.read_text(encoding="utf-8"))
-    if _live_manifest.exists():                       # merge: live (stock + prior mints) + this deploy's new ids
-        _base = _snd.parse_manifest(_live_manifest.read_text(encoding="utf-8"))
-        _have = {e["id"] for e in _base}
-        _new = [e for e in _built if e["id"] >= _snd.MINT_ID_BASE["music"] and e["id"] not in _have]
-        _text = _snd.serialize_manifest(_base + _new)
-    else:
-        _text = _src_manifest.read_text(encoding="utf-8")
-    _live_manifest.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(_live_manifest, _text, newline="\n")
+    _live_manifest.parent.mkdir(parents=True, exist_ok=True)   # the lock sidecar needs the dir too
+    # LOCKED read->merge->write on <MusicMetaData.txt>.lock -- same lost-update class as the patch files:
+    # deploys ACCUMULATE their minted song ids by merging into the live manifest, so two concurrent music
+    # deploys into one folder can drop each other's new ids in the read-to-write window.
+    try:
+        with locked_sidecar(_live_manifest):
+            if _live_manifest.exists():               # merge: live (stock + prior mints) + this deploy's new ids
+                _base = _snd.parse_manifest(_live_manifest.read_text(encoding="utf-8"))
+                _have = {e["id"] for e in _base}
+                _new = [e for e in _built if e["id"] >= _snd.MINT_ID_BASE["music"] and e["id"] not in _have]
+                _text = _snd.serialize_manifest(_base + _new)
+            else:
+                _text = _src_manifest.read_text(encoding="utf-8")
+            atomic_write_text(_live_manifest, _text, newline="\n")
+    except FileLockTimeout as _lke:
+        print(f"!! {_lke}\n"
+              f"!! NOT merging the music manifest {_live_manifest} -- the theme's song id(s) would stay "
+              f"unregistered. Re-run this deploy once the other writer finishes.", file=sys.stderr)
+        sys.exit(2)
     print("  + custom [music] theme(s) -> RELAUNCH to register the new song id(s) + set MusicVolume > 0")
 mint_lines = info.get("mint_lines", [])
 # `3DModel <id> <NAME>` register a GEO id; `3DModelAnimation <key> <ANH_NAME>` register a custom anim (custom_battle_
@@ -314,22 +324,37 @@ fork_revert_code = ""
 _donor = B._verbatim_donor_id(proj)
 _fdp = live.root / "ForkDonorPatch.txt"
 if _donor and _donor != FID:
-    if _fdp.exists():
-        shutil.copyfile(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")
-    atomic_write_text(_fdp, _fdon.merge_row(_fdp.read_text(encoding="utf-8") if _fdp.exists() else "",
-                                            FID, _donor), newline="\n")
+    # LOCKED read->merge->write: hold <ForkDonorPatch>.lock across the window (own sidecar per target file
+    # -- the same fsutil.locked_sidecar the DictionaryPatch rewrite above holds on ITS file). merge_row is
+    # a non-clobbering splice, but non-clobbering only against what it READ: a concurrent pair into the
+    # same folder still drops each other's rows in the read-to-write window. The backup sits inside the
+    # lock too, so it snapshots the exact state the merge read.
+    try:
+        with locked_sidecar(_fdp):
+            if _fdp.exists():
+                shutil.copyfile(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")
+            atomic_write_text(_fdp, _fdon.merge_row(_fdp.read_text(encoding="utf-8") if _fdp.exists() else "",
+                                                    FID, _donor), newline="\n")
+    except FileLockTimeout as _lke:
+        print(f"!! {_lke}\n"
+              f"!! NOT merging the fork-donor row into {_fdp}. Field {FID} is registered but its s24-s33 "
+              f"donor behaviors (occlusion, off-mesh exemptions) would stay OFF -- re-run this deploy once "
+              f"the other writer finishes.", file=sys.stderr)
+        sys.exit(2)
     # SURGICAL revert (forkdonor.revert_row): drop OUR row from the file as it stands AT REVERT TIME and
     # re-add the row we had pre-deploy -- never a snapshot restore/unlink, which deleted every row a LATER
     # fork's deploy added (that fork then silently lost its s24-s33 donor remap: occlusion, off-mesh).
+    # LOCKED like the deploy-side splice; a timeout PROPAGATES (the deploy prelude checks the exit code).
     fork_revert_code = (
         '\nfrom ff9mapkit import forkdonor as _fdm'
-        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt, locked_sidecar as _lsc'
         '\n_fdb = BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}"'
         '\n_fdl = live.root/"ForkDonorPatch.txt"'
-        '\n_fdn = _fdm.revert_row(_fdl.read_text(encoding="utf-8") if _fdl.exists() else "",'
-        f'\n                      _fdb.read_text(encoding="utf-8") if _fdb.exists() else "", {FID})'
-        '\nif _fdn: _awt(_fdl, _fdn, newline="\\n")'
-        '\nelif _fdl.exists(): _fdl.unlink()')
+        '\nwith _lsc(_fdl):'
+        '\n    _fdn = _fdm.revert_row(_fdl.read_text(encoding="utf-8") if _fdl.exists() else "",'
+        f'\n                          _fdb.read_text(encoding="utf-8") if _fdb.exists() else "", {FID})'
+        '\n    if _fdn: _awt(_fdl, _fdn, newline="\\n")'
+        '\n    elif _fdl.exists(): _fdl.unlink()')
     print(f"  + ForkDonorPatch.txt ({FID} -> donor {_donor}; RELAUNCH to apply -- read at launch, not the menu reload)")
 # Item-data CSV deltas: mod-GLOBAL files build_mod emits when the field carries [start_inventory]/[[equipment]]
 # (the new-game starting bag/gear, read at NEW-GAME init) or [[shop]] (custom shop inventories, merged by id).
@@ -547,62 +572,87 @@ if any(_l in _STARTUP_CSVS for _l, _, _ in csv_reverts):
 # BGM/repoint lines + a stacked worktree's lines survive) and reversible. The engine skips `//` lines, and
 # BattlePatch is parsed once at startup -> a battle-tuning change needs a RELAUNCH (not just ~ Reload).
 from ff9mapkit.battle import battlepatch as _bp
-_live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
 _built_block = ([ln for ln in tl.battle_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
                 if tl.battle_patch.exists() else [])
 bp_revert_code = ""
-# trigger on the EXACT begin marker, never a substring: "ff9mapkit field 300" is a prefix of field 3000's
+# LOCKED read->merge->write: hold <BattlePatch>.lock across the whole window (own sidecar per target
+# file, same fsutil.locked_sidecar as the DictionaryPatch rewrite above). merge_battle_patch is a
+# non-clobbering splice, but only against what it READ -- a concurrent pair into the same folder still
+# drops each other's blocks in the read-to-write window. The has_block trigger reads the live text, so
+# the lock spans it too (deciding on a stale read reopens the same window).
+# Trigger on the EXACT begin marker, never a substring: "ff9mapkit field 300" is a prefix of field 3000's
 # marker, and a false trigger armed a revert for a field that owned no block at all.
-if _built_block or _bp.has_block(_live_bp_text, FID):
-    if live.battle_patch.exists():
-        shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
-    _merged = _bp.merge_battle_patch(_live_bp_text, _built_block, FID)
-    if _merged:
-        atomic_write_text(live.battle_patch, _merged, newline="\n")
-    elif live.battle_patch.exists():
-        live.battle_patch.unlink()
-    # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it stands
-    # AT REVERT TIME -- never a snapshot restore, which re-clobbered every block a co-deploy spliced in
-    # between (a battle's tuning silently vanished on this field's next redeploy prelude).
-    bp_revert_code = (
-        '\nfrom ff9mapkit.battle import battlepatch as _bpm'
-        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
-        '\n_bpb = BK/f"BattlePatch.txt.preDEPLOY.{STAMP}"'
-        '\n_bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
-        f'\n                         _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {FID})'
-        '\nif _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
-        '\nelif live.battle_patch.exists(): live.battle_patch.unlink()')
-    if _built_block:
-        print(f"  + BattlePatch.txt (battle tuning + BGM, merged under field-{FID} markers; RELAUNCH to apply)")
+try:
+    with locked_sidecar(live.battle_patch):
+        _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
+        if _built_block or _bp.has_block(_live_bp_text, FID):
+            if live.battle_patch.exists():
+                shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
+            _merged = _bp.merge_battle_patch(_live_bp_text, _built_block, FID)
+            if _merged:
+                atomic_write_text(live.battle_patch, _merged, newline="\n")
+            elif live.battle_patch.exists():
+                live.battle_patch.unlink()
+            # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it
+            # stands AT REVERT TIME -- never a snapshot restore, which re-clobbered every block a co-deploy
+            # spliced in between (a battle's tuning silently vanished on this field's next redeploy prelude).
+            # LOCKED like the deploy-side splice; a timeout PROPAGATES (the prelude checks the exit code).
+            bp_revert_code = (
+                '\nfrom ff9mapkit.battle import battlepatch as _bpm'
+                '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt, locked_sidecar as _lsc'
+                '\n_bpb = BK/f"BattlePatch.txt.preDEPLOY.{STAMP}"'
+                '\nwith _lsc(live.battle_patch):'
+                '\n    _bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
+                f'\n                             _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {FID})'
+                '\n    if _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
+                '\n    elif live.battle_patch.exists(): live.battle_patch.unlink()')
+except FileLockTimeout as _lke:
+    print(f"!! {_lke}\n"
+          f"!! NOT splicing the [[battle_patch]] block into {live.battle_patch} -- the field is deployed "
+          f"but its battle tuning is NOT. Re-run this deploy once the other writer finishes.", file=sys.stderr)
+    sys.exit(2)
+if bp_revert_code and _built_block:
+    print(f"  + BattlePatch.txt (battle tuning + BGM, merged under field-{FID} markers; RELAUNCH to apply)")
 
 # TextPatch.txt: the field's item NAME/DESCRIPTION overrides ([[item_text]] -> >DATABASE find/replace).
 # Same non-clobbering splice-under-`//`-markers as BattlePatch (another field's item text + a stacked
 # worktree's lines survive) and reversible. The engine skips `//` lines; TextPatch is read once at
 # DataPatchers.Initialize (AssetManager bring-up) -> a text change needs a RELAUNCH (not just ~ Reload).
 from ff9mapkit.content import itemtext as _itxt
-_live_tp_text = live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else ""
 _built_tp = ([ln for ln in tl.text_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
              if tl.text_patch.exists() else [])
 tp_revert_code = ""
-if _built_tp or _itxt.has_block(_live_tp_text, FID):       # exact marker, same as the BattlePatch trigger
-    if live.text_patch.exists():
-        shutil.copyfile(live.text_patch, BK / f"TextPatch.txt.preDEPLOY.{STAMP}")
-    _merged_tp = _itxt.merge_text_patch(_live_tp_text, _built_tp, FID)
-    if _merged_tp:
-        atomic_write_text(live.text_patch, _merged_tp, newline="\n")
-    elif live.text_patch.exists():
-        live.text_patch.unlink()
-    # SURGICAL revert (itemtext.revert_splice) -- same contract as the BattlePatch fragment above.
-    tp_revert_code = (
-        '\nfrom ff9mapkit.content import itemtext as _itm'
-        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
-        '\n_tpb = BK/f"TextPatch.txt.preDEPLOY.{STAMP}"'
-        '\n_tpn = _itm.revert_splice(live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else "",'
-        f'\n                         _tpb.read_text(encoding="utf-8") if _tpb.exists() else "", {FID})'
-        '\nif _tpn: _awt(live.text_patch, _tpn, newline="\\n")'
-        '\nelif live.text_patch.exists(): live.text_patch.unlink()')
-    if _built_tp:
-        print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
+# LOCKED read->merge->write on <TextPatch>.lock -- same lost-update class + same shape as the BattlePatch
+# splice above (the has_block trigger read sits inside the lock too).
+try:
+    with locked_sidecar(live.text_patch):
+        _live_tp_text = live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else ""
+        if _built_tp or _itxt.has_block(_live_tp_text, FID):   # exact marker, same as the BattlePatch trigger
+            if live.text_patch.exists():
+                shutil.copyfile(live.text_patch, BK / f"TextPatch.txt.preDEPLOY.{STAMP}")
+            _merged_tp = _itxt.merge_text_patch(_live_tp_text, _built_tp, FID)
+            if _merged_tp:
+                atomic_write_text(live.text_patch, _merged_tp, newline="\n")
+            elif live.text_patch.exists():
+                live.text_patch.unlink()
+            # SURGICAL revert (itemtext.revert_splice) -- same contract as the BattlePatch fragment above,
+            # LOCKED the same way; a timeout PROPAGATES (the prelude checks the exit code).
+            tp_revert_code = (
+                '\nfrom ff9mapkit.content import itemtext as _itm'
+                '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt, locked_sidecar as _lsc'
+                '\n_tpb = BK/f"TextPatch.txt.preDEPLOY.{STAMP}"'
+                '\nwith _lsc(live.text_patch):'
+                '\n    _tpn = _itm.revert_splice(live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else "",'
+                f'\n                             _tpb.read_text(encoding="utf-8") if _tpb.exists() else "", {FID})'
+                '\n    if _tpn: _awt(live.text_patch, _tpn, newline="\\n")'
+                '\n    elif live.text_patch.exists(): live.text_patch.unlink()')
+except FileLockTimeout as _lke:
+    print(f"!! {_lke}\n"
+          f"!! NOT splicing the [[item_text]] block into {live.text_patch} -- the field is deployed but "
+          f"its item text is NOT. Re-run this deploy once the other writer finishes.", file=sys.stderr)
+    sys.exit(2)
+if tp_revert_code and _built_tp:
+    print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
 # deploy LEDGER (diagnostics only, never load-bearing -- record() swallows filesystem failures). Written

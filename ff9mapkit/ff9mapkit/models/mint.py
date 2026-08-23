@@ -175,9 +175,15 @@ def deploy_mint(source_token: str, new_id: int, mod_folder, new_name=None, *, ga
     dest = Path(mod_folder).joinpath(*export._RES, *export.model_dir_parts(man["type_int"], new_id))
     export_mint(source_token, new_id, dest, new_name=man["name"], game=game)
     dp = Path(mod_folder) / "DictionaryPatch.txt"
-    lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
-    if man["directive"] not in lines:
-        lines.append(man["directive"])
-        fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    dp.parent.mkdir(parents=True, exist_ok=True)      # the lock sidecar needs the folder to exist
+    # LOCKED read->merge->write (fsutil.locked_sidecar -- the same DictionaryPatch.txt.lock every deploy
+    # script holds): the idempotent append still rewrites the whole file from what it READ, so an unlocked
+    # window drops whichever lines a concurrent deploy/revert merged in between. A FileLockTimeout
+    # propagates to the caller (the CLI prints and aborts).
+    with fsutil.locked_sidecar(dp):
+        lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+        if man["directive"] not in lines:
+            lines.append(man["directive"])
+            fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     man["dictionary_patch"] = str(dp)
     return man

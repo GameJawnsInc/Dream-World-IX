@@ -157,34 +157,52 @@ if info["dictionary"]:
 # Same pattern as tools/deploy_field.py. BattlePatch is parsed once at startup -> a change needs a RELAUNCH.
 from ff9mapkit.battle import battlepatch as _bp  # noqa: E402
 _bp_owner = _bp.battle_owner(BBG, proj.scene_id if proj.is_mint else None)
-_live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
 bp_revert_code = ""
-# trigger on the EXACT begin marker, never a substring: a bare battle_owner token is a PREFIX of the same
-# battle's with-scene token, so `_bp_owner in text` armed on a block this deploy does not own.
-if info["battle_patch"] or _bp.has_block(_live_bp_text, _bp_owner):
-    if live.battle_patch.exists():
-        shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preBATTLE.{STAMP}")
-    _merged = _bp.merge_battle_patch(_live_bp_text, info["battle_patch"], _bp_owner)
-    if _merged:
-        atomic_write_text(live.battle_patch, _merged, newline="\n")
-    elif live.battle_patch.exists():          # our last block went away and nothing else owns the file
-        live.battle_patch.unlink()
-    # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it stands
-    # AT REVERT TIME -- the old snapshot restore re-clobbered every block another deploy spliced in between
-    # (and it looked for the backup under the generated script's BK = bk_dir, while the deploy wrote it to
-    # the backups ROOT above -- the restore branch crashed on FileNotFoundError whenever it was needed).
-    # The backup path is interpolated ABSOLUTE at generation time so the two can never disagree again.
-    bp_revert_code = (
-        '\nfrom ff9mapkit.battle import battlepatch as _bpm'
-        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
-        f'\n_bpb = Path({str(BK / f"BattlePatch.txt.preBATTLE.{STAMP}")!r})'
-        '\n_bpl = LIVE/"BattlePatch.txt"'
-        '\n_bpn = _bpm.revert_splice(_bpl.read_text(encoding="utf-8") if _bpl.exists() else "",'
-        f'\n                         _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {_bp_owner!r})'
-        '\nif _bpn: _awt(_bpl, _bpn, newline="\\n")'
-        '\nelif _bpl.exists(): _bpl.unlink()')
-    if info["battle_patch"]:
-        relaunch = True
+# LOCKED read->merge->write: hold <BattlePatch>.lock across the whole window (own sidecar per target file,
+# same fsutil.locked_sidecar as the DictionaryPatch splice above and tools/deploy_field.py's BattlePatch
+# splice). merge_battle_patch is non-clobbering only against what it READ -- a concurrent pair into the
+# same folder still drops each other's blocks in the read-to-write window. The has_block trigger reads the
+# live text, so the lock spans it too. Trigger on the EXACT begin marker, never a substring: a bare
+# battle_owner token is a PREFIX of the same battle's with-scene token, so `_bp_owner in text` armed on a
+# block this deploy does not own.
+try:
+    with locked_sidecar(live.battle_patch):
+        _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
+        if info["battle_patch"] or _bp.has_block(_live_bp_text, _bp_owner):
+            if live.battle_patch.exists():
+                shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preBATTLE.{STAMP}")
+            _merged = _bp.merge_battle_patch(_live_bp_text, info["battle_patch"], _bp_owner)
+            if _merged:
+                atomic_write_text(live.battle_patch, _merged, newline="\n")
+            elif live.battle_patch.exists():          # our last block went away and nothing else owns the file
+                live.battle_patch.unlink()
+            # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it
+            # stands AT REVERT TIME -- the old snapshot restore re-clobbered every block another deploy
+            # spliced in between (and it looked for the backup under the generated script's BK = bk_dir,
+            # while the deploy wrote it to the backups ROOT above -- the restore branch crashed on
+            # FileNotFoundError whenever it was needed). The backup path is interpolated ABSOLUTE at
+            # generation time so the two can never disagree again. LOCKED like the deploy-side splice
+            # (the fragment re-mkdirs LIVE first -- a campaign wipe may have removed the folder, and the
+            # lock sidecar needs it); a timeout PROPAGATES and fails the revert loudly.
+            bp_revert_code = (
+                '\nfrom ff9mapkit.battle import battlepatch as _bpm'
+                '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt, locked_sidecar as _lsc'
+                f'\n_bpb = Path({str(BK / f"BattlePatch.txt.preBATTLE.{STAMP}")!r})'
+                '\n_bpl = LIVE/"BattlePatch.txt"'
+                '\n_bpl.parent.mkdir(parents=True, exist_ok=True)'
+                '\nwith _lsc(_bpl):'
+                '\n    _bpn = _bpm.revert_splice(_bpl.read_text(encoding="utf-8") if _bpl.exists() else "",'
+                f'\n                             _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {_bp_owner!r})'
+                '\n    if _bpn: _awt(_bpl, _bpn, newline="\\n")'
+                '\n    elif _bpl.exists(): _bpl.unlink()')
+            if info["battle_patch"]:
+                relaunch = True
+except FileLockTimeout as _lke:
+    print(f"!! {_lke}\n"
+          f"!! NOT splicing the battle-tuning block into {live.battle_patch} -- the battle assets are "
+          f"copied but the tuning is NOT applied. Re-run this deploy once the other writer finishes.",
+          file=sys.stderr)
+    sys.exit(2)
 
 # optional: repoint a trigger field's encounter at the minted scene (back it up like any overwrite, so
 # the revert's restore loop handles it)
