@@ -11,7 +11,8 @@ Usage:
     py tools/retarget_newgame_warp.py 4100 --from 4003  # pin the current target (else auto-detected)
     py tools/retarget_newgame_warp.py 4100 --dry-run    # report only, write nothing
 
-Backs up to ``backups/<lang>-<name>.preRETARGET.<ts>`` + writes ``tools/scroll_out/revert_newgame_retarget.py``.
+Backs up to ``backups/<lang>-<name>.preRETARGET.<ts>`` + writes ``tools/scroll_out/revert_newgame_retarget.py``
+-- both in the MAIN repo, never the running worktree's own (see tools/repo_root.py).
 """
 from __future__ import annotations
 
@@ -22,9 +23,12 @@ from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ -- for repo_root
+from repo_root import main_repo_root                         # noqa: E402
 from ff9mapkit import newgame                                # noqa: E402
 
-REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+MAIN = main_repo_root()      # the override backups + revert of live install state live HERE, not in an
+                             # ephemeral worktree (project-ff9-worktree-parked-backups)
 
 
 def main() -> int:
@@ -43,13 +47,21 @@ def main() -> int:
         return 2
 
     res = newgame.retarget(game, args.target, frm=args.frm, name=args.name,
-                           backups_dir=REPO / "backups", reverts_dir=REPO / "tools" / "scroll_out",
+                           backups_dir=MAIN / "backups", reverts_dir=MAIN / "tools" / "scroll_out",
                            dry_run=args.dry_run)
     if res["found"] == 0:
         return 1
     if res["revert"]:
         print(f"  RELAUNCH + New Game to test. (target {args.target} must be a REGISTERED field -- deploy it first.)")
-        print(f"  revert: py {Path(res['revert']).relative_to(REPO).as_posix()}")
+        # a runnable hint: relative only when the cwd actually contains it (a worktree cwd does not -- the
+        # revert lands in the MAIN repo's scroll_out), else the absolute path. Mirrors
+        # wire_newgame_from_stock; the old relative_to(REPO) RAISED ValueError from a worktree.
+        rp = Path(res["revert"])
+        try:
+            hint = rp.relative_to(Path.cwd()).as_posix()
+        except ValueError:
+            hint = str(rp)
+        print(f"  revert: py {hint}")
     return 0 if res["ok"] else 1
 
 

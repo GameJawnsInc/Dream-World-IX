@@ -866,6 +866,69 @@ def _snap_drift_body(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
+DEPLOYED_STATES = ("paired", "orphaned")
+
+
+class _pin_deployed_ledger:
+    """Pin the Build tab's 'Deployed here' ledger to a scratch install + a scratch revert cache.
+
+    Both halves are pinned NARROWLY (``config.find_game_path`` + ``builddoc.jobs.scroll_out_dir``) so the
+    snap never reads the developer's install, and never their tools/scroll_out -- which is now ONE dir
+    shared by every concurrent worktree, so an unpinned ledger would photograph whatever another session
+    had deployed and differ on every run.
+    """
+
+    def __init__(self, state: str):
+        self.state = state
+        self.root = _SCRATCH / "deployed" / state
+        self.scroll = self.root / "scroll_out"
+
+    def __enter__(self):
+        from ff9mapkit import config as _cfg
+        from ff9mapkit.workspace import builddoc as _bd
+        shutil.rmtree(self.root, ignore_errors=True)
+        mod = self.root / "game" / "FF9CustomMap"
+        mod.mkdir(parents=True)
+        (mod / "DictionaryPatch.txt").write_text(
+            "FieldScene 4003 11 0 TESTROOM extra\n"
+            "FieldScene 4100 11 0 BOLETTA extra\n"
+            "FieldScene 30210 11 0 TEST30210 extra\n", encoding="utf-8")
+        self.scroll.mkdir(parents=True)
+        if self.state == "paired":      # what the main repo's shared scroll_out really holds after a session
+            for f in ("revert_deploy_4003.py", "revert_deploy_4100.py",
+                      "revert_campaign.py", "revert_newgame_from_stock.py"):
+                (self.scroll / f).write_text("# undo\n", encoding="utf-8")
+        self._cfg, self._bd = _cfg, _bd
+        self._orig = (_cfg.find_game_path, _bd.jobs.scroll_out_dir)
+        _cfg.find_game_path = lambda *_a, **_k: self.root / "game"
+        _bd.jobs.scroll_out_dir = lambda _repo: self.scroll
+        return self
+
+    def __exit__(self, *exc):
+        self._cfg.find_game_path, self._bd.jobs.scroll_out_dir = self._orig
+        return False
+
+
+def snap_deployed(ctx: _Ctx, state: str) -> None:
+    """The 'Deployed here' ledger -- the inventory of what is in the game and what can still be undone.
+
+    'paired' = each registered id sitting next to the undo script its deploy wrote (the ledger doing its
+    job). 'orphaned' = the same registrations with an EMPTY revert cache: every row read-only, Revert
+    disabled. That second state is exactly what a Workspace launched from an agent worktree used to show
+    for ALL of them, because the deploy scripts write their undo into the MAIN repo while the tab looked
+    in the worktree's own (empty) tools/scroll_out.
+    """
+    if state not in DEPLOYED_STATES:
+        raise ValueError(f"unknown deployed state {state!r} (know: {', '.join(DEPLOYED_STATES)})")
+    with _pin_deployed_ledger(state), _no_modals():
+        win, _proj = _drift_project(ctx, "field")
+        doc = win.build_deploy
+        doc._refresh_deployed()
+        _settle(4)
+        _grab(ctx, f"deployed-{state}", doc.deployed_box)
+        _close(win)
+
+
 SCRIPT_STATES = ("tree", "panel")
 
 
@@ -1663,6 +1726,7 @@ def all_surfaces() -> list[str]:
             + [f"models:{s}" for s in MODEL_STATES]
             + [f"console:{s}" for s in CONSOLE_STATES]
             + [f"drift:{s}" for s in DRIFT_STATES]
+            + [f"deployed:{s}" for s in DEPLOYED_STATES]
             + [f"script:{s}" for s in SCRIPT_STATES]
             + [f"behavior:{s}" for s in BEHAVIOR_STATES]
             + [f"cutscene:{s}" for s in CUTSCENE_STATES]
@@ -1715,6 +1779,8 @@ def main() -> None:
                 snap_console(ctx, rest)
             elif kind == "drift":
                 snap_drift(ctx, rest)
+            elif kind == "deployed":
+                snap_deployed(ctx, rest)
             elif kind == "script":
                 snap_script(ctx, rest)
             elif kind == "behavior":

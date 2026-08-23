@@ -67,7 +67,13 @@ don't load; a DictionaryPatch `MessageFile` line registers a custom mesID — re
 
 ## Reverting a deploy
 
-`py tools/scroll_out/revert_deploy.py` (latest) or `revert_deploy_<id>.py`.
+`py tools/scroll_out/revert_deploy.py` (latest) or `revert_deploy_<id>.py` — **in the MAIN repo**
+(`C:\gd\Dream-World-IX`), not the worktree you deployed from. Every tool that touches live install
+state roots its `backups/` + `tools/scroll_out/` there via `tools/repo_root.py`, because a worktree
+is ephemeral and an undo parked in one evaporates while the game keeps the deploy. One consequence
+worth having: a redeploy finds a slot's prior revert no matter which worktree wrote it. The
+Workspace's Build tab reads the same dir (`jobs.scroll_out_dir`), so its "Deployed here" ledger and
+Revert buttons work from any tree.
 
 ## Re-wiring New Game
 

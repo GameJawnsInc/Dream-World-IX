@@ -27,12 +27,19 @@ from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ -- for repo_root
+from repo_root import main_repo_root  # noqa: E402
 from ff9mapkit.config import find_game_path, ModLayout, LANGS  # noqa: E402
 from ff9mapkit.battle.build import BattleProject, build_battle_mod  # noqa: E402
 from ff9mapkit.eb import opcodes  # noqa: E402
 from ff9mapkit.fsutil import atomic_write_text  # noqa: E402
 
 REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# TWO roots, deliberately distinct (mirrors tools/deploy_field.py): REPO is the RUNNING checkout and owns
+# the per-worktree .ff9deploy.toml pin; MAIN owns backups/ + tools/scroll_out/, so a battle deploy's
+# pre-deploy copies and revert_battle_<BBG>.py survive the worktree that wrote them
+# (project-ff9-worktree-parked-backups).
+MAIN = main_repo_root()
 
 
 def _mod_folder_default():
@@ -75,10 +82,10 @@ _args = _ap.parse_args()
 proj = BattleProject.load(_args.battle)
 BBG = proj.bbg
 MOD = _args.mod_folder
-OUT = Path(os.path.dirname(__file__)) / "scroll_out"
-OUT.mkdir(exist_ok=True)
-BK = REPO / "backups"
-BK.mkdir(exist_ok=True)
+OUT = MAIN / "tools" / "scroll_out"
+OUT.mkdir(parents=True, exist_ok=True)
+BK = MAIN / "backups"
+BK.mkdir(parents=True, exist_ok=True)
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 # build into a temp mod

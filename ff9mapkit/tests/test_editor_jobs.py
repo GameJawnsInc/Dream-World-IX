@@ -533,3 +533,114 @@ def test_current_newgame_target_round_trips_a_real_override(tmp_path):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(out)                                                 # a real override on disk...
     assert jobs.current_newgame_target(tmp_path) == 6000              # ...read back with NO stub
+
+
+# ------------------------------------------------- the shared undo home: MAIN repo, not the worktree
+# THE REGRESSION (project-ff9-worktree-parked-backups): the deploy SCRIPTS write their backups/ +
+# tools/scroll_out/ into the MAIN repo, so an undo survives the ephemeral agent worktree that made it.
+# A Workspace launched from a worktree used to look in its OWN (empty) scroll_out -- the "Deployed here"
+# ledger showed no undo scripts and every Revert button missed. These drive REAL git worktrees and the
+# REAL tools/repo_root.py: a stubbed resolver would prove only that the plumbing calls something.
+import pathlib                                                          # noqa: E402
+import shutil as _shutil                                                # noqa: E402
+import subprocess                                                       # noqa: E402
+
+_REAL_RESOLVER = pathlib.Path(__file__).resolve().parents[2] / "tools" / "repo_root.py"
+
+
+def _git(*args, cwd):
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+
+
+@pytest.fixture
+def main_and_worktree(tmp_path):
+    """A synthetic main repo + a REAL linked git worktree, each carrying a copy of the real
+    ``tools/repo_root.py`` -- so what answers here is the module the deploy scripts themselves import.
+    Nothing reads or writes the developer's actual repos."""
+    if not _REAL_RESOLVER.is_file():
+        pytest.skip("repo-only tools/repo_root.py not present (installed-package layout)")
+    if _shutil.which("git") is None:
+        pytest.skip("git not available")
+    main = tmp_path / "main"
+    main.mkdir()
+    if _git("init", cwd=main).returncode:
+        pytest.skip("git init failed in tmp_path")
+    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init", cwd=main)
+    wt = tmp_path / "wt"
+    if _git("worktree", "add", "--detach", str(wt), cwd=main).returncode:
+        pytest.skip("git worktree add failed")
+    for root in (main, wt):
+        (root / "tools").mkdir()
+        _shutil.copyfile(_REAL_RESOLVER, root / "tools" / "repo_root.py")
+        (root / "tools" / "deploy_field.py").write_text("# stub\n", encoding="utf-8")
+    if jobs.main_repo_root(main) != main:                    # e.g. a git too old for --path-format=absolute
+        pytest.skip("this git cannot answer --git-common-dir --path-format=absolute")
+    return main, wt
+
+
+def test_scroll_out_resolves_to_the_main_repo_even_from_a_worktree(main_and_worktree):
+    main, wt = main_and_worktree
+    assert jobs.main_repo_root(wt) == main
+    assert jobs.scroll_out_dir(wt) == main / "tools" / "scroll_out"
+    assert jobs.install_backups_dir(wt) == main / "backups"
+    assert jobs.scroll_out_dir(wt) != wt / "tools" / "scroll_out", "the parked-backups trap is back"
+
+
+def test_every_revert_the_gui_offers_reads_the_main_repos_scroll_out(main_and_worktree):
+    """The whole ledger + Revert surface, driven from the WORKTREE: each undo artifact is written by a
+    tool into MAIN, so each lookup must land there. Before the fix all six missed."""
+    main, wt = main_and_worktree
+    scroll = main / "tools" / "scroll_out"
+    scroll.mkdir(parents=True)
+    for f in ("revert_deploy_4008.py", "revert_campaign.py", "revert_install.py",
+              "revert_battle_BBG_B001.py", "revert_journey.py", "revert_newgame_from_stock.py"):
+        (scroll / f).write_text("# undo\n", encoding="utf-8")
+    assert jobs.revert_field_argv(wt, 4008)[-1].endswith("revert_deploy_4008.py")
+    for argv in (jobs.revert_field_argv(wt, 4008), jobs.revert_campaign_argv(wt),
+                 jobs.revert_install_argv(wt), jobs.revert_battle_argv(wt),
+                 jobs.revert_journey_argv(wt), jobs.revert_newgame_argv(wt)):
+        assert argv is not None, "an undo script written by a tool must be reachable from the worktree"
+        assert pathlib.Path(argv[-1]).parent == scroll
+
+
+def test_the_tool_scripts_themselves_still_run_from_the_running_checkout(main_and_worktree):
+    """The two roots are deliberately distinct: a worktree runs ITS OWN deploy code (that is the point of
+    a worktree) while writing the undo into MAIN. Collapsing them either way is a bug."""
+    _main, wt = main_and_worktree
+    assert jobs.deploy_field_argv(wt, "f.toml")[1] == str(wt / "tools" / "deploy_field.py")
+    assert jobs.deploy_campaign_argv(wt, "c.toml")[1] == str(wt / "tools" / "deploy_campaign.py")
+    assert jobs.newgame_from_stock_argv(wt, 4008)[1] == str(wt / "tools" / "wire_newgame_from_stock.py")
+
+
+def test_a_checkout_with_no_resolver_answers_itself(tmp_path):
+    """A checkout too old to have tools/repo_root.py (or an installed copy with no tools/) keeps the
+    pre-fix rooting -- which is exactly where ITS OWN scripts write, so the two still agree."""
+    assert jobs.main_repo_root(tmp_path) == tmp_path
+    assert jobs.scroll_out_dir(tmp_path) == tmp_path / "tools" / "scroll_out"
+
+
+def test_an_unloadable_resolver_is_a_fallback_not_a_crash(tmp_path):
+    """Break it for real (a syntax error), don't assert the except clause exists: a helper that cannot
+    load must degrade to the pre-fix rooting, never take the Workspace down on tab-show."""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "repo_root.py").write_text("def main_repo_root(  <<<\n", encoding="utf-8")
+    assert jobs.main_repo_root(tmp_path) == tmp_path
+
+
+def test_a_resolver_that_raises_is_a_fallback_too(tmp_path):
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "repo_root.py").write_text(
+        "def main_repo_root(start=None, fallback=None):\n    raise RuntimeError('boom')\n", encoding="utf-8")
+    assert jobs.main_repo_root(tmp_path) == tmp_path
+
+
+def test_the_resolver_module_never_shadows_the_tools_bare_import(tmp_path):
+    """The tools import it as the bare name ``repo_root``; registering our private load under that name
+    in sys.modules would make a same-process tool run get whichever copy loaded first."""
+    if not _REAL_RESOLVER.is_file():
+        pytest.skip("repo-only tools/repo_root.py not present (installed-package layout)")
+    (tmp_path / "tools").mkdir()
+    _shutil.copyfile(_REAL_RESOLVER, tmp_path / "tools" / "repo_root.py")
+    before = sys.modules.get("repo_root")
+    jobs.main_repo_root(tmp_path)
+    assert sys.modules.get("repo_root") is before

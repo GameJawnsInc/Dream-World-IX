@@ -3,7 +3,8 @@
 
 Thin repo shim over :func:`ff9mapkit.deploy.deploy_campaign` (the orchestration now lives in the package so
 the installed ``ff9mapkit deploy-campaign`` CLI shares it). This wrapper supplies the repo-flavored backup +
-revert dirs (``backups/`` + ``tools/scroll_out/``) and the worktree ``.ff9deploy.toml`` mod-folder default.
+revert dirs (the MAIN repo's ``backups/`` + ``tools/scroll_out/``, never a worktree's own -- see
+tools/repo_root.py) and the worktree ``.ff9deploy.toml`` mod-folder default.
 
 The model is install_tworoom's: ONE set-wide snapshot of the campaign mod folder + a WHOLESALE replace with the
 built dist + ONE ``revert_campaign.py``. New Game is wired by retargeting the shared FF9CustomMap field-70
@@ -24,9 +25,17 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 KIT = REPO / "ff9mapkit"
 sys.path.insert(0, str(KIT))
+sys.path.insert(0, str(HERE))                      # tools/ -- for repo_root (a spec-loaded run lacks it)
 
+from repo_root import main_repo_root               # noqa: E402
 from ff9mapkit import deploy                       # noqa: E402
 from ff9mapkit.deploy import DeployError           # noqa: E402
+
+# TWO roots, deliberately distinct (mirrors tools/deploy_field.py): REPO is the RUNNING checkout and owns
+# the per-worktree .ff9deploy.toml pin; MAIN owns backups/ + tools/scroll_out/, because a wholesale campaign
+# deploy's snapshot is the live install's ONLY undo and an agent worktree is ephemeral -- parking it there
+# evaporates the backup while the game keeps the install (project-ff9-worktree-parked-backups).
+MAIN = main_repo_root()
 
 
 def _worktree_cfg() -> dict:
@@ -82,7 +91,7 @@ def main(argv=None) -> int:
             allow_name_collision=args.allow_name_collision, allow_id_collision=args.allow_id_collision,
             flag_base=args.flag_base, no_promote_csv=args.no_promote_csv, promote_csv_to=args.promote_csv_to,
             out_dist=args.out_dist, allow_reflow=args.reflow_flags,
-            backups_dir=REPO / "backups", reverts_dir=HERE / "scroll_out")
+            backups_dir=MAIN / "backups", reverts_dir=MAIN / "tools" / "scroll_out")
     except DeployError as e:
         print(str(e), file=sys.stderr)
         return 2

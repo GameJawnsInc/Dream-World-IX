@@ -93,23 +93,19 @@ def test_own_id_disabled_without_a_readable_id(app, tmp_path):
 
 def test_own_id_revert_targets_that_id(app, tmp_path):
     """Revert must use the per-id script, not the generic 'latest' one -- otherwise reverting field 4008
-    could undo a different id's later deploy."""
-    scroll = _REPO / "tools" / "scroll_out"
-    if not scroll.is_dir():
-        pytest.skip("no scroll_out in this checkout")
-    per_id = scroll / "revert_deploy_4008.py"
-    made = not per_id.exists()
-    if made:
-        per_id.write_text("# test stub\n", encoding="utf-8")
-    try:
-        argv = jobs.revert_field_argv(_REPO, 4008)
-        assert argv[-1].endswith("revert_deploy_4008.py")
-        # ...and an id with no script falls back to the latest-deploy revert
-        assert jobs.revert_field_argv(_REPO, 999999)[-1].endswith("revert_deploy.py")
-        assert jobs.revert_field_argv(_REPO)[-1].endswith("revert_deploy.py")
-    finally:
-        if made:
-            per_id.unlink()
+    could undo a different id's later deploy.
+
+    Driven against a SCRATCH repo root, never the developer's own: this used to plant a stub in the real
+    checkout's tools/scroll_out (a test that reports on the machine it runs on), and that dir is now
+    shared by every concurrent worktree, so the stub would race other sessions."""
+    scroll = tmp_path / "tools" / "scroll_out"
+    scroll.mkdir(parents=True)
+    (scroll / "revert_deploy_4008.py").write_text("# test stub\n", encoding="utf-8")
+    assert jobs.scroll_out_dir(tmp_path) == scroll, "a repo with no resolver must answer itself"
+    assert jobs.revert_field_argv(tmp_path, 4008)[-1].endswith("revert_deploy_4008.py")
+    # ...and an id with no script falls back to the latest-deploy revert
+    assert jobs.revert_field_argv(tmp_path, 999999)[-1].endswith("revert_deploy.py")
+    assert jobs.revert_field_argv(tmp_path)[-1].endswith("revert_deploy.py")
 
 
 def test_install_to_game_preserves_other_fields(app, tmp_path, monkeypatch):
@@ -134,3 +130,85 @@ def test_install_to_game_preserves_other_fields(app, tmp_path, monkeypatch):
     argv = " ".join(str(x) for x in doc._calls[-1][0])
     assert "--preserve-existing" in argv
     assert snapped == [doc.game_mod], "Install-to-game must snapshot the mod folder before the write (§2)"
+
+# ------------------------------------- the undo home is the MAIN repo, even launched from a worktree
+# THE CALL-SITE LAW: jobs.scroll_out_dir / install_backups_dir exist and answer correctly (fenced in
+# test_editor_jobs.py); these pin that the Build tab actually SPENDS them. Launched from an agent
+# worktree the tab used to look in its own tools/scroll_out -- empty, because the deploy scripts write
+# into the main repo -- so the "Deployed here" ledger listed no undo scripts and Revert missed every
+# one, while Install-to-game parked the live install's ONLY backup in a tree that gets cleaned.
+
+
+def _worktree_doc(app, monkeypatch, tmp_path):
+    """A BuildDoc rooted at a REAL linked git worktree of a synthetic main repo. The install is pinned
+    OUT (no read of the developer's game folder) and $FF9_REPO cleared, or resolve_dev_repo would
+    redirect the doc at whatever checkout that names."""
+    import shutil as sh, subprocess
+    from ff9mapkit.workspace import builddoc
+    resolver = _REPO / "tools" / "repo_root.py"
+    if not resolver.is_file() or sh.which("git") is None:
+        pytest.skip("needs git + the repo-only tools/repo_root.py")
+
+    def git(*a, cwd):
+        return subprocess.run(["git", *a], cwd=str(cwd), capture_output=True, text=True)
+
+    main = tmp_path / "main"; main.mkdir()
+    if git("init", cwd=main).returncode:
+        pytest.skip("git init failed in tmp_path")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "i", cwd=main)
+    wt = tmp_path / "wt"
+    if git("worktree", "add", "--detach", str(wt), cwd=main).returncode:
+        pytest.skip("git worktree add failed")
+    for root in (main, wt):
+        (root / "tools").mkdir()
+        sh.copyfile(resolver, root / "tools" / "repo_root.py")
+        (root / "tools" / "deploy_field.py").write_text("# stub\n", encoding="utf-8")
+    if jobs.main_repo_root(wt) != main:
+        pytest.skip("this git cannot answer --git-common-dir --path-format=absolute")
+    monkeypatch.delenv("FF9_REPO", raising=False)
+    monkeypatch.setattr(builddoc.jobs, "detect_game_mod", lambda: None)
+    doc = BuildDoc(pick_palette("dark"), wt, run=lambda *a, **k: True, problems=lambda *a, **k: None)
+    assert doc.repo == wt and doc.has_tools, "the doc must stay rooted at the checkout it was launched from"
+    return doc, main, wt
+
+
+def test_the_deployed_ledger_scans_the_main_repos_scroll_out(app, tmp_path, monkeypatch):
+    from ff9mapkit.workspace import builddoc
+    doc, main, wt = _worktree_doc(app, monkeypatch, tmp_path)
+    seen = []
+    monkeypatch.setattr(builddoc.jobs, "scan_deployed_reverts",
+                        lambda dp, scroll: seen.append(scroll) or [])
+    doc._refresh_deployed()
+    assert seen and seen[-1] == main / "tools" / "scroll_out"
+    assert seen[-1] != wt / "tools" / "scroll_out", "the ledger is reading the ephemeral worktree again"
+
+
+def test_install_to_game_snapshots_into_the_main_repo(app, tmp_path, monkeypatch):
+    """Hard-Constraint §2's backup of live install state must outlive the worktree that took it."""
+    doc, main, wt = _worktree_doc(app, monkeypatch, tmp_path)
+    backups, reverts = doc._revert_dirs()
+    assert (backups, reverts) == (main / "backups", main / "tools" / "scroll_out")
+    assert wt not in backups.parents and backups != wt / "backups"
+
+
+def test_the_ledger_hint_never_points_at_a_disabled_revert(app, tmp_path, monkeypatch):
+    """A hint that says "select one and Revert selected" while Revert is DISABLED is a dead instruction.
+    Three situations (nothing registered / registered but no undo / some undo), three messages -- the
+    no-undo one is what a worktree launch showed for every row before the scroll_out fix."""
+    from ff9mapkit.workspace import builddoc
+    doc = _doc(app)
+    rows = {"none": [],
+            "orphaned": [{"kind": "field", "id": "4003", "name": "T", "script": None, "mtime": None}],
+            "mixed": [{"kind": "field", "id": "4003", "name": "T", "script": None, "mtime": None},
+                      {"kind": "field", "id": "4100", "name": "B", "script": "x.py", "mtime": 1.0}]}
+    seen = {}
+    for state, rs in rows.items():
+        monkeypatch.setattr(builddoc.jobs, "scan_deployed_reverts", lambda dp, s, _r=rs: _r)
+        doc._refresh_deployed()
+        seen[state] = doc.dep_hint.text()
+        assert doc.dep_revert.isEnabled() == (state == "mixed")
+        if not doc.dep_revert.isEnabled():
+            assert "Revert selected" not in seen[state], \
+                f"{state}: the hint sends the user to a button this method just disabled"
+    assert "Revert selected" in seen["mixed"], "the reachable case must still teach the button"
+    assert len(set(seen.values())) == 3, "each situation needs its own message, not a shared near-miss"

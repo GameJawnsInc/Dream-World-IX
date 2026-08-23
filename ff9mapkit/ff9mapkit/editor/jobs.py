@@ -162,6 +162,70 @@ def resolve_dev_repo(default_repo):
     return Path(default_repo)
 
 
+# --------------------------------------------------------------------------- the shared undo home
+# TWO roots, deliberately distinct -- the same split ``tools/deploy_field.py`` makes internally between its
+# ``_REPO`` and ``_MAIN``. The tool SCRIPTS run from the checkout the Workspace was launched from (a
+# worktree runs ITS OWN code, which is the point of a worktree), but the ``backups/`` + ``tools/scroll_out/``
+# they write into live in the MAIN repo: a worktree is ephemeral, so an undo parked in one evaporates while
+# the live game install keeps the deploy (project-ff9-worktree-parked-backups). Launched from a worktree,
+# a GUI that looked in its own scroll_out saw an EMPTY ledger and every Revert button missed.
+#
+# We ASK the checkout's own ``tools/repo_root.py`` instead of re-deriving the rule here, because two
+# implementations of "where does the undo live" is the very defect being fixed one layer up -- and a
+# checkout too old to HAVE repo_root.py falls back to answering itself, which is exactly where that
+# checkout's tools write. The package cannot simply import it: it is a repo-only ``tools/`` module and is
+# deliberately dependency-free (``tools/restore_memoria_dll.py`` imports it with no kit on sys.path).
+_MAIN_REPO: dict = {}      # str(repo_root) -> Path. Keyed on the INPUT: a bare process-wide memo of one
+                           # answer is how a shared global rots (project-ff9-global-module-monkeypatch).
+
+
+def _repo_root_module(repo_root):
+    """The checkout's ``tools/repo_root.py`` loaded as a private module, or ``None`` when it is absent or
+    unloadable. Never registered in ``sys.modules`` -- the tools import it under the bare name
+    ``repo_root``, and this must not shadow or be shadowed by that."""
+    p = Path(repo_root) / "tools" / "repo_root.py"
+    if not p.is_file():
+        return None
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_ff9mapkit_tools_repo_root", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:                    # noqa: BLE001 -- a broken helper must never break the GUI
+        return None
+
+
+def main_repo_root(repo_root):
+    """The MAIN repo for ``repo_root`` -- itself from the main checkout, the owning repo from a linked
+    worktree. Falls back to ``repo_root`` unchanged when the resolver is absent or cannot answer (no git,
+    not a repo, an installed copy with no ``tools/``), which is the pre-fix rooting and therefore still
+    agrees with such a checkout's own scripts. Memoized per input; never raises."""
+    key = str(repo_root)
+    if key not in _MAIN_REPO:
+        got = None
+        mod = _repo_root_module(repo_root)
+        if mod is not None:
+            try:
+                got = Path(mod.main_repo_root(start=Path(repo_root) / "tools", fallback=Path(repo_root)))
+            except Exception:            # noqa: BLE001 -- ditto
+                got = None
+        _MAIN_REPO[key] = got if got is not None else Path(repo_root)
+    return _MAIN_REPO[key]
+
+
+def scroll_out_dir(repo_root) -> Path:
+    """The revert cache every ``tools/deploy_*.py`` writes into -- the MAIN repo's ``tools/scroll_out``.
+    ONE per machine, so a slot's revert is found no matter which worktree deployed it."""
+    return main_repo_root(repo_root) / "tools" / "scroll_out"
+
+
+def install_backups_dir(repo_root) -> Path:
+    """Where a snapshot of live GAME-INSTALL state belongs -- the MAIN repo's ``backups/`` (Hard-Constraint
+    §2's dir, kept off any ephemeral worktree)."""
+    return main_repo_root(repo_root) / "backups"
+
+
 def detect_deployed_fields(mod_folder):
     """``[(id, name), ...]`` of the FieldScene lines in the worktree mod folder's DictionaryPatch -- the
     fields whose encounter a battle-mint can repoint (the valid 'trigger field' choices)."""
@@ -238,7 +302,7 @@ def scan_deployed_reverts(dict_patch, scroll_dir):
 
 def latest_battle_revert(repo_root):
     """The most recently written ``tools/scroll_out/revert_battle_*.py``, or ``None``."""
-    scroll = Path(repo_root) / "tools" / "scroll_out"
+    scroll = scroll_out_dir(repo_root)
     scripts = sorted(scroll.glob("revert_battle_*.py"), key=lambda p: p.stat().st_mtime, reverse=True)
     return scripts[0] if scripts else None
 
@@ -250,7 +314,7 @@ def latest_journey_revert(repo_root):
     unified ``revert_journey.py``; a standalone ``--apply-links`` writes only ``revert_journey_links.py``. The
     GUI Revert button must undo the user's LAST journey action, so we pick the most-recently-modified of the
     two (mirrors :func:`latest_battle_revert`) -- never a stale unified revert left over from an earlier run."""
-    scroll = Path(repo_root) / "tools" / "scroll_out"
+    scroll = scroll_out_dir(repo_root)
     cands = [p for p in (scroll / "revert_journey.py", scroll / "revert_journey_links.py") if p.is_file()]
     return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
 
@@ -399,13 +463,15 @@ def snapshot_mod_folder(mod_folder, backups_dir, reverts_dir):
 # Each returns a FULL argv whose [0] is the interpreter, so a QProcess can split it into
 # program=argv[0], arguments=argv[1:], and a subprocess can run it as-is.
 def _tool(repo_root, *parts):
+    """A path under the RUNNING checkout's ``tools/`` -- the deploy SCRIPTS. Undo artifacts do not live
+    here: they resolve through :func:`scroll_out_dir` (the main repo), matching what the scripts do."""
     return str(Path(repo_root, "tools", *parts))
 
 
 def revert_install_argv(repo_root):
     """The interpreter + the Install-to-game revert script (dev repo: ``tools/scroll_out/revert_install.py``),
     or ``None`` if no install has been snapshotted yet."""
-    p = Path(repo_root) / "tools" / "scroll_out" / "revert_install.py"
+    p = scroll_out_dir(repo_root) / "revert_install.py"
     return [sys.executable, str(p)] if p.is_file() else None
 
 
@@ -603,15 +669,16 @@ def revert_field_argv(repo_root, field_id=None):
     """Undo a field deploy. Without ``field_id`` this is the LATEST deploy (``revert_deploy.py``, whatever
     id it targeted); with one it is that id's own script (``revert_deploy_<id>.py``), which deploy_field
     writes per id -- so reverting field 4008 cannot undo someone else's later 4003 deploy instead."""
+    scroll = scroll_out_dir(repo_root)
     if field_id is not None:
-        per_id = _tool(repo_root, "scroll_out", f"revert_deploy_{int(field_id)}.py")
-        if Path(per_id).is_file():
-            return [sys.executable, per_id]
-    return [sys.executable, _tool(repo_root, "scroll_out", "revert_deploy.py")]
+        per_id = scroll / f"revert_deploy_{int(field_id)}.py"
+        if per_id.is_file():
+            return [sys.executable, str(per_id)]
+    return [sys.executable, str(scroll / "revert_deploy.py")]
 
 
 def revert_campaign_argv(repo_root):
-    return [sys.executable, _tool(repo_root, "scroll_out", "revert_campaign.py")]
+    return [sys.executable, str(scroll_out_dir(repo_root) / "revert_campaign.py")]
 
 
 def revert_journey_argv(repo_root):
@@ -649,7 +716,7 @@ def latest_newgame_revert(repo_root):
     """The most-recent New-Game revert script -- the create-from-stock ``revert_newgame_from_stock.py`` OR the
     patch ``revert_newgame_retarget.py`` -- by mtime (like :func:`latest_journey_revert`), or ``None``. So the
     GUI Revert undoes whichever New-Game action ran LAST, regardless of which wiring tool wrote it."""
-    scroll = Path(repo_root) / "tools" / "scroll_out"
+    scroll = scroll_out_dir(repo_root)
     cands = [p for p in (scroll / "revert_newgame_from_stock.py", scroll / "revert_newgame_retarget.py")
              if p.is_file()]
     return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
