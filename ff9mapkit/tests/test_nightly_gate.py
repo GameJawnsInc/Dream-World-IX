@@ -77,6 +77,44 @@ def test_collect_error_aborts_before_the_floor_check():
         "the collect-error abort must run before the floor comparison"
 
 
+# ---- latest.json is a VERDICT file: only full runs may write it ------------------------------------
+def test_run_mode_classifies_narrowed_and_smoke():
+    assert ng.run_mode(True, None) == "smoke"
+    assert ng.run_mode(False, "-k foo") == "narrowed"
+    assert ng.run_mode(False, None) == "full"
+
+
+def test_smoke_and_narrowed_never_overwrite_latest(tmp_path):
+    """THE LIVE INCIDENT (2026-08-05, nightly_gate.md): a narrowed verification run flipped latest.json
+    to skip-long and had to be restored BY HAND. And a smoke run overwrote the last real verdict with
+    smoke-ok -- which the post-merge hook presented as calmly as green. latest.json keeps the last FULL
+    verdict; everything still lands in ledger.jsonl."""
+    ng.write_ledger(tmp_path, {"result": "green", "mode": "full", "collected": 8418}, _quiet)
+    ng.write_ledger(tmp_path, {"result": "smoke-ok", "mode": "smoke"}, _quiet, update_latest=False)
+    ng.write_ledger(tmp_path, {"result": "skip-long", "mode": "narrowed"}, _quiet, update_latest=False)
+    latest = json.loads((tmp_path / "latest.json").read_text(encoding="utf-8"))
+    assert latest["result"] == "green" and latest["mode"] == "full"
+    rows = [json.loads(ln) for ln in (tmp_path / "ledger.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["result"] for r in rows] == ["green", "smoke-ok", "skip-long"]   # history keeps everything
+
+
+def test_latest_json_write_is_staged_and_replaced(tmp_path):
+    # the hook reads latest.json at every merge into master -- it must never observe a half-written file
+    ng.write_ledger(tmp_path, {"result": "green", "mode": "full"}, _quiet)
+    assert not (tmp_path / "latest.json.tmp").exists()
+    assert "os.replace(tmp, state" in _SRC
+
+
+def test_main_gates_latest_on_full_mode():
+    assert 'update_latest=entry.get("mode") == "full"' in _SRC
+    assert "run_mode(args.smoke, args.pytest_args)" in _SRC
+
+
+def test_full_run_checks_the_hook_is_still_installed():
+    # the hook is the ledger's delivery mechanism and is untracked -- its silent loss must be noticed
+    assert '"post-merge"' in _SRC and 'entry["hook"]' in _SRC
+
+
 # ---- parse_summary (the counts the skip ceiling judges on) -----------------------------------------
 def test_parse_summary_reads_the_final_pytest_line(tmp_path):
     log = tmp_path / "run.pytest.log"

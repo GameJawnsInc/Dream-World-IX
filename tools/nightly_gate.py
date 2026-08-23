@@ -269,12 +269,31 @@ def parse_summary(run_log: Path) -> dict:
 
 
 # ---- ledger ---------------------------------------------------------------------------------------
-def write_ledger(state: Path, entry: dict, log) -> None:
+def run_mode(smoke: bool, pytest_args) -> str:
+    """What kind of run this is, for the ledger. Only a ``full`` run is a suite VERDICT: a ``--pytest-args``
+    run is ``narrowed`` (its green is the green of a subset -- one such run flipped the live ledger to
+    skip-long on 2026-08-05 and had to be restored by hand), and ``smoke`` never runs the suite at all."""
+    return "smoke" if smoke else ("narrowed" if pytest_args else "full")
+
+
+def write_ledger(state: Path, entry: dict, log, update_latest: bool = True) -> None:
+    """Append ``entry`` to ``ledger.jsonl`` always; refresh ``latest.json`` only when ``update_latest``.
+
+    ``latest.json`` is what every session (and the post-merge hook) reads as THE suite state, so only a
+    FULL run may write it -- a smoke or narrowed run overwriting it replaces a real verdict with a
+    non-verdict that the hook then presents calmly. The write is staged + ``os.replace`` so a reader
+    (the hook fires on every merge into master) can never observe it half-written."""
     entry = {"timestamp": datetime.now().isoformat(timespec="seconds"), **entry}
     with open(state / "ledger.jsonl", "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry) + "\n")
-    (state / "latest.json").write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
-    log(f"ledger: {entry.get('result')} -> {state / 'latest.json'}")
+    if update_latest:
+        tmp = state / "latest.json.tmp"
+        tmp.write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, state / "latest.json")
+        log(f"ledger: {entry.get('result')} -> {state / 'latest.json'}")
+    else:
+        log(f"ledger: {entry.get('result')} (ledger.jsonl only -- a {entry.get('mode')} run is not a "
+            f"full-suite verdict; latest.json keeps the last real one)")
 
 
 # ---- scheduled task -------------------------------------------------------------------------------
@@ -350,8 +369,16 @@ def main() -> int:
     if not acquire_lock(state / "lock", log):
         return 0  # graceful: a run is already going; the scheduler also has IgnoreNew
     t0 = time.time()
-    entry = {"result": "error", "mode": "smoke" if args.smoke else "full", "log": str(log.path)}
+    entry = {"result": "error", "mode": run_mode(args.smoke, args.pytest_args), "log": str(log.path)}
     try:
+        # the post-merge hook is the ledger's delivery mechanism and it is NOT tracked by git -- if it
+        # goes missing (fresh clone, pruned .git) every merge stops surfacing this ledger and nobody
+        # notices the silence. The nightly run is the one place that can notice for them.
+        hook = main_repo / ".git" / "hooks" / "post-merge"
+        entry["hook"] = "present" if hook.is_file() else "missing"
+        if entry["hook"] == "missing":
+            log("!! .git/hooks/post-merge is MISSING in the main repo -- merges into master will not "
+                "surface this ledger. Recreate it from tools/nightly_gate.md (hooks are untracked).")
         ensure_gate_worktree(main_repo, gate, log)
         entry["sha"] = checkout_master(gate, log)
         provision(main_repo, gate, log)
@@ -414,7 +441,7 @@ def main() -> int:
         return rc
     finally:
         entry["duration_s"] = round(time.time() - t0, 1)
-        write_ledger(state, entry, log)
+        write_ledger(state, entry, log, update_latest=entry.get("mode") == "full")
         try:
             (state / "lock").unlink()
         except OSError:
