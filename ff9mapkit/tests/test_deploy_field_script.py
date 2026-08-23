@@ -98,6 +98,49 @@ def test_prelude_revert_failure_aborts_the_deploy():
                                          "would be silently deployed over"
 
 
+def test_splice_reverts_are_surgical_not_snapshot_restores():
+    """H2 (Lane B, 2026-08): BattlePatch/TextPatch/ForkDonorPatch deploy as non-clobbering splices, but the
+    generated reverts restored the whole pre-deploy SNAPSHOT -- re-clobbering every block/row another deploy
+    spliced in between. A redeploy runs its revert as the prelude, so the loss window was the whole gap
+    between two deploys of an id: redeploy field 30500 and a co-deployed battle's tuning (or a later fork's
+    donor row) silently vanished. The fragments must spend the library's surgical revert instead."""
+    assert _SRC.count("_bpm.revert_splice") == 1 and _SRC.count("_itm.revert_splice") == 1, \
+        "BattlePatch AND TextPatch revert fragments must spend the library's surgical revert"
+    assert "revert_row" in _SRC, "the ForkDonorPatch revert fragment"
+    assert "merge_row" in _SRC, "the deploy-side ForkDonorPatch write shares forkdonor's one rule"
+    for bad in ('shutil.copyfile(BK/f"BattlePatch.txt.preDEPLOY.{STAMP}", live.battle_patch)',
+                'shutil.copyfile(BK/f"TextPatch.txt.preDEPLOY.{STAMP}", live.text_patch)',
+                'shutil.copyfile(BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}"'):
+        assert bad not in _SRC, f"a wholesale snapshot restore is back: {bad}"
+    # and the triggers use the exact-marker helper, never a substring -- "ff9mapkit field 300" is a prefix
+    # of field 3000's marker, and a false trigger armed a revert for a field that owned no block at all.
+    assert 'f"ff9mapkit field {FID}" in' not in _SRC
+    assert _SRC.count("has_block") >= 2
+
+
+def test_generated_revert_fragments_compile_when_spliced():
+    """The *_revert_code fragments are Python source built by string concatenation -- a stray quote or a
+    bad indent in one yields a revert script that dies at PARSE time, and (H3) a crashed prelude now
+    hard-blocks every redeploy of the slot. Evaluate the REAL fragment expressions out of the script's AST
+    (with FID bound as in a deploy) and compile the fully spliced revert."""
+    tree = ast.parse(_SRC)
+    frags = {}
+    for name in ("bp_revert_code", "tp_revert_code", "fork_revert_code"):
+        exprs = [n.value for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                 for t in n.targets if isinstance(t, ast.Name) and t.id == name]
+        real = [e for e in exprs if not (isinstance(e, ast.Constant) and e.value == "")]
+        assert real, f"no fragment expression found for {name}"
+        code = compile(ast.Expression(ast.fix_missing_locations(real[-1])), "<frag>", "eval")
+        frags[name] = eval(code, {"FID": 4003})  # noqa: S307 -- evaluating our own source's literal
+    from ff9mapkit.reverttmpl import build_revert_script
+    src = build_revert_script(kit="k", backup_dir="b", stamp="s", mod_folder="M", fid=4003, name="T",
+                              fbg="F", text_block=4003, repo="r",
+                              bp_revert_code=frags["bp_revert_code"],
+                              tp_revert_code=frags["tp_revert_code"],
+                              fork_revert_code=frags["fork_revert_code"])
+    compile(src, "<revert>", "exec")
+
+
 def test_message_file_line_is_carried_into_the_live_dictionary_patch():
     """THE BLACK-SCREEN REGRESSION (2026-07-18). `deploy_field` does not copy the built dist's
     DictionaryPatch -- it REBUILDS the live one from parts (mint lines, charname, status icons, the

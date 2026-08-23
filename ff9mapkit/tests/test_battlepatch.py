@@ -319,12 +319,20 @@ def test_deploy_battle_splices_the_battlepatch_instead_of_appending():
     assert "merge_battle_patch" in src and "battle_owner" in src
     assert 'cur += info["battle_patch"]' not in src, \
         "the blind append is back -- deploying the same battle twice would duplicate its block"
+    # the trigger must be the exact-marker helper: a bare battle_owner token is a PREFIX of the same
+    # battle's with-scene token, so the substring test armed on a block this deploy does not own.
+    assert "has_block" in src and "_bp_owner in _live_bp_text" not in src
 
 
-def test_deploy_battle_revert_undoes_the_battlepatch_splice():
-    # the splice can now CREATE BattlePatch.txt where none existed, so "restore the backup by hand"
-    # is not a revert -- the generated script must delete it in that branch.
+def test_deploy_battle_revert_undoes_the_battlepatch_splice_surgically():
+    """Lane B 2026-08: the revert must re-splice its OWN pre-deploy block into the file as it stands at
+    revert time (revert_splice), never restore the whole snapshot -- that re-clobbered every block another
+    deploy spliced in between. The old restore was ALSO broken outright: it looked for the backup under the
+    generated script's BK (= bk_dir, the per-deploy overwrite dir) while the deploy wrote it to the backups
+    ROOT, so the restore branch crashed on FileNotFoundError whenever it was actually needed."""
     src = _deploy_battle_src()
-    assert "bp_revert_code" in src
-    assert "_pb.unlink()" in src, "no revert branch for a BattlePatch.txt this deploy created"
-    assert 'BattlePatch.txt.preBATTLE' in src
+    assert "bp_revert_code" in src and "revert_splice" in src
+    assert 'shutil.copyfile(BK/"BattlePatch.txt.preBATTLE' not in src, \
+        "the wholesale (and wrong-dir) snapshot restore is back"
+    assert "_bpl.exists(): _bpl.unlink()" in src, "no revert branch for a BattlePatch.txt this deploy created"
+    assert "sys.path.insert" in src, "the generated revert imports ff9mapkit -- it needs the kit on sys.path"

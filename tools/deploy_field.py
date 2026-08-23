@@ -20,6 +20,7 @@ from ff9mapkit import build as B
 from ff9mapkit import reverttmpl as _revert
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit.eb import EbScript, edit, disasm
+from ff9mapkit.fsutil import atomic_write_text
 
 import argparse, tomllib
 # Per-worktree deploy target: a gitignored .ff9deploy.toml at the repo root pins each worktree's OWN
@@ -260,21 +261,27 @@ if info.get("location_lines"):                  # the directive is read from Dic
 # whole donor field (s31 FieldMapExtraOffset can't resolve the fork name -> donor; the recurring hand-written
 # `4003 1860`). The donor is now recorded by the import (`[verbatim_eb] donor` OR `[field] source_field`) and
 # read by _verbatim_donor_id, so emit for both. Merged non-clobbering, reversible. Read at LAUNCH -> RELAUNCH.
+from ff9mapkit import forkdonor as _fdon
 fork_revert_code = ""
 _donor = B._verbatim_donor_id(proj)
 _fdp = live.root / "ForkDonorPatch.txt"
 if _donor and _donor != FID:
-    _had_fdp = _fdp.exists()
-    if _had_fdp:
+    if _fdp.exists():
         shutil.copyfile(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")
-    _cur = [ln for ln in (_fdp.read_text(encoding="utf-8").splitlines() if _had_fdp else [])
-            if ln.strip() and not ln.lstrip().startswith("#") and ln.split()[0:1] != [str(FID)]]
-    _cur.append(f"{FID} {_donor}")
-    _fdp.write_text("# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n" + "\n".join(_cur) + "\n",
-                    encoding="utf-8", newline="\n")
-    fork_revert_code = ('\nshutil.copyfile(BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}", live.root/"ForkDonorPatch.txt")'
-                        if _had_fdp else
-                        '\n_pf = live.root/"ForkDonorPatch.txt"\nif _pf.exists(): _pf.unlink()')
+    atomic_write_text(_fdp, _fdon.merge_row(_fdp.read_text(encoding="utf-8") if _fdp.exists() else "",
+                                            FID, _donor), newline="\n")
+    # SURGICAL revert (forkdonor.revert_row): drop OUR row from the file as it stands AT REVERT TIME and
+    # re-add the row we had pre-deploy -- never a snapshot restore/unlink, which deleted every row a LATER
+    # fork's deploy added (that fork then silently lost its s24-s33 donor remap: occlusion, off-mesh).
+    fork_revert_code = (
+        '\nfrom ff9mapkit import forkdonor as _fdm'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        '\n_fdb = BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}"'
+        '\n_fdl = live.root/"ForkDonorPatch.txt"'
+        '\n_fdn = _fdm.revert_row(_fdl.read_text(encoding="utf-8") if _fdl.exists() else "",'
+        f'\n                      _fdb.read_text(encoding="utf-8") if _fdb.exists() else "", {FID})'
+        '\nif _fdn: _awt(_fdl, _fdn, newline="\\n")'
+        '\nelif _fdl.exists(): _fdl.unlink()')
     print(f"  + ForkDonorPatch.txt ({FID} -> donor {_donor}; RELAUNCH to apply -- read at launch, not the menu reload)")
 # Item-data CSV deltas: mod-GLOBAL files build_mod emits when the field carries [start_inventory]/[[equipment]]
 # (the new-game starting bag/gear, read at NEW-GAME init) or [[shop]] (custom shop inventories, merged by id).
@@ -496,17 +503,27 @@ _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_pat
 _built_block = ([ln for ln in tl.battle_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
                 if tl.battle_patch.exists() else [])
 bp_revert_code = ""
-if _built_block or f"ff9mapkit field {FID}" in _live_bp_text:
-    _had_bp = live.battle_patch.exists()
-    if _had_bp:
+# trigger on the EXACT begin marker, never a substring: "ff9mapkit field 300" is a prefix of field 3000's
+# marker, and a false trigger armed a revert for a field that owned no block at all.
+if _built_block or _bp.has_block(_live_bp_text, FID):
+    if live.battle_patch.exists():
         shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
     _merged = _bp.merge_battle_patch(_live_bp_text, _built_block, FID)
     if _merged:
         live.battle_patch.write_text(_merged, encoding="utf-8", newline="\n")
     elif live.battle_patch.exists():
         live.battle_patch.unlink()
-    bp_revert_code = ('\nshutil.copyfile(BK/f"BattlePatch.txt.preDEPLOY.{STAMP}", live.battle_patch)' if _had_bp
-                      else '\n_pb = live.battle_patch\nif _pb.exists(): _pb.unlink()')
+    # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it stands
+    # AT REVERT TIME -- never a snapshot restore, which re-clobbered every block a co-deploy spliced in
+    # between (a battle's tuning silently vanished on this field's next redeploy prelude).
+    bp_revert_code = (
+        '\nfrom ff9mapkit.battle import battlepatch as _bpm'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        '\n_bpb = BK/f"BattlePatch.txt.preDEPLOY.{STAMP}"'
+        '\n_bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
+        f'\n                         _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {FID})'
+        '\nif _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
+        '\nelif live.battle_patch.exists(): live.battle_patch.unlink()')
     if _built_block:
         print(f"  + BattlePatch.txt (battle tuning + BGM, merged under field-{FID} markers; RELAUNCH to apply)")
 
@@ -519,17 +536,23 @@ _live_tp_text = live.text_patch.read_text(encoding="utf-8") if live.text_patch.e
 _built_tp = ([ln for ln in tl.text_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
              if tl.text_patch.exists() else [])
 tp_revert_code = ""
-if _built_tp or f"ff9mapkit field {FID}" in _live_tp_text:
-    _had_tp = live.text_patch.exists()
-    if _had_tp:
+if _built_tp or _itxt.has_block(_live_tp_text, FID):       # exact marker, same as the BattlePatch trigger
+    if live.text_patch.exists():
         shutil.copyfile(live.text_patch, BK / f"TextPatch.txt.preDEPLOY.{STAMP}")
     _merged_tp = _itxt.merge_text_patch(_live_tp_text, _built_tp, FID)
     if _merged_tp:
         live.text_patch.write_text(_merged_tp, encoding="utf-8", newline="\n")
     elif live.text_patch.exists():
         live.text_patch.unlink()
-    tp_revert_code = ('\nshutil.copyfile(BK/f"TextPatch.txt.preDEPLOY.{STAMP}", live.text_patch)' if _had_tp
-                      else '\n_pt = live.text_patch\nif _pt.exists(): _pt.unlink()')
+    # SURGICAL revert (itemtext.revert_splice) -- same contract as the BattlePatch fragment above.
+    tp_revert_code = (
+        '\nfrom ff9mapkit.content import itemtext as _itm'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        '\n_tpb = BK/f"TextPatch.txt.preDEPLOY.{STAMP}"'
+        '\n_tpn = _itm.revert_splice(live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else "",'
+        f'\n                         _tpb.read_text(encoding="utf-8") if _tpb.exists() else "", {FID})'
+        '\nif _tpn: _awt(live.text_patch, _tpn, newline="\\n")'
+        '\nelif live.text_patch.exists(): live.text_patch.unlink()')
     if _built_tp:
         print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")

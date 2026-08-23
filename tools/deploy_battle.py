@@ -131,20 +131,30 @@ from ff9mapkit.battle import battlepatch as _bp  # noqa: E402
 _bp_owner = _bp.battle_owner(BBG, proj.scene_id if proj.is_mint else None)
 _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
 bp_revert_code = ""
-if info["battle_patch"] or _bp_owner in _live_bp_text:
-    _had_bp = live.battle_patch.exists()
-    if _had_bp:
+# trigger on the EXACT begin marker, never a substring: a bare battle_owner token is a PREFIX of the same
+# battle's with-scene token, so `_bp_owner in text` armed on a block this deploy does not own.
+if info["battle_patch"] or _bp.has_block(_live_bp_text, _bp_owner):
+    if live.battle_patch.exists():
         shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preBATTLE.{STAMP}")
     _merged = _bp.merge_battle_patch(_live_bp_text, info["battle_patch"], _bp_owner)
     if _merged:
         live.battle_patch.write_text(_merged, encoding="utf-8", newline="\n")
     elif live.battle_patch.exists():          # our last block went away and nothing else owns the file
         live.battle_patch.unlink()
-    # Make the revert actually undo the splice. It used to only PRINT "restore backups/*.preBATTLE.*" --
-    # fine when the splice could only append to an existing file, wrong now that a deploy can CREATE one.
-    bp_revert_code = (f'\nshutil.copyfile(BK/"BattlePatch.txt.preBATTLE.{STAMP}", LIVE/"BattlePatch.txt")'
-                      if _had_bp else
-                      '\n_pb = LIVE/"BattlePatch.txt"\nif _pb.exists(): _pb.unlink()')
+    # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it stands
+    # AT REVERT TIME -- the old snapshot restore re-clobbered every block another deploy spliced in between
+    # (and it looked for the backup under the generated script's BK = bk_dir, while the deploy wrote it to
+    # the backups ROOT above -- the restore branch crashed on FileNotFoundError whenever it was needed).
+    # The backup path is interpolated ABSOLUTE at generation time so the two can never disagree again.
+    bp_revert_code = (
+        '\nfrom ff9mapkit.battle import battlepatch as _bpm'
+        '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+        f'\n_bpb = Path({str(BK / f"BattlePatch.txt.preBATTLE.{STAMP}")!r})'
+        '\n_bpl = LIVE/"BattlePatch.txt"'
+        '\n_bpn = _bpm.revert_splice(_bpl.read_text(encoding="utf-8") if _bpl.exists() else "",'
+        f'\n                         _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {_bp_owner!r})'
+        '\nif _bpn: _awt(_bpl, _bpn, newline="\\n")'
+        '\nelif _bpl.exists(): _bpl.unlink()')
     if info["battle_patch"]:
         relaunch = True
 
@@ -182,7 +192,8 @@ if _args.trigger_field is not None and proj.is_mint:
 # revert script: delete created files, restore overwritten (incl. any trigger-field ebs) from the backup
 revert = OUT / f"revert_battle_{BBG}.py"
 revert.write_text(
-    "#!/usr/bin/env python3\nimport shutil\nfrom pathlib import Path\n"
+    "#!/usr/bin/env python3\nimport shutil, sys\nfrom pathlib import Path\n"
+    f"sys.path.insert(0, {KIT!r})\n"                       # the bp fragment imports ff9mapkit modules
     f"LIVE = Path(r{str(live_root)!r})\nBK = Path(r{str(bk_dir)!r})\n"
     f"CREATED = {created!r}\nOVERWRITTEN = {overwritten!r}\n"
     "for rel in CREATED:\n"
