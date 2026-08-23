@@ -163,6 +163,33 @@ def test_generated_revert_fragments_compile_when_spliced():
     compile(src, "<revert>", "exec")
 
 
+def test_backup_and_revert_dirs_root_at_the_main_repo_not_the_checkout():
+    """THE WORKTREE-PARKED-BACKUPS TRAP (project-ff9-worktree-parked-backups; it fired twice on
+    2026-07-30 for other scripts): BK and OUT used to root at the checkout this script ran from, so a
+    deploy from an agent worktree parked its pre-deploy backups AND its revert_deploy_<id>.py in an
+    ephemeral tree -- the live install kept the deploy while its only undo evaporated, and the prelude
+    of a redeploy from any OTHER tree found no prior revert to run. Both must derive from _MAIN
+    (tools/repo_root.py: the common git dir's parent, falling back to this checkout without git)."""
+    tree = ast.parse(_SRC)
+    main_vals = _assignments("_MAIN")
+    assert len(main_vals) == 1 and isinstance(main_vals[0], ast.Call), \
+        "_MAIN must be bound exactly once, from a call"
+    f = main_vals[0].func
+    assert isinstance(f, ast.Name) and f.id == "main_repo_root", \
+        "_MAIN must come from repo_root.main_repo_root"
+    for name in ("BK", "OUT"):
+        vals = _assignments(name)
+        assert len(vals) == 1, f"{name} must be bound exactly once"
+        assert any(isinstance(n, ast.Name) and n.id == "_MAIN" for n in ast.walk(vals[0])), \
+            f"{name} must derive from _MAIN (the main repo), not this checkout"
+    # the OTHER root must NOT move with it: .ff9deploy.toml is the deliberately per-worktree deploy
+    # pin (moving it to the main repo would un-isolate every session's mod folder), and the deploy
+    # ledger + generated revert record which CHECKOUT acted -- that provenance is the running tree.
+    assert '_REPO / ".ff9deploy.toml"' in _SRC
+    assert "checkout=_REPO" in _SRC
+    assert "repo=_REPO" in _SRC
+
+
 def test_message_file_line_is_carried_into_the_live_dictionary_patch():
     """THE BLACK-SCREEN REGRESSION (2026-07-18). `deploy_field` does not copy the built dist's
     DictionaryPatch -- it REBUILDS the live one from parts (mint lines, charname, status icons, the

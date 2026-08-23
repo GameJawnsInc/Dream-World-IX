@@ -30,7 +30,14 @@
 # Close FF9 first: the running game memory-maps the DLLs, so the copy fails (WinError 1224).
 import glob, os, re, shutil, sys
 
-BKP  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backups")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ -- for repo_root (a spec-loaded run lacks it)
+from repo_root import main_repo_root
+
+# backups/ lives in the MAIN repo, resolved via git even from an agent worktree: a worktree-parked
+# DLL snapshot evaporates with the tree while the game keeps the (possibly bad) build, and this
+# script then finds nothing to restore (project-ff9-worktree-parked-backups). Falls back to this
+# checkout's own backups/ when git cannot answer -- the pre-fix behavior.
+BKP  = str(main_repo_root() / "backups")
 GAME = r"C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 ARCHES = ("x64", "x86")
 MANAGED = {a: f"{GAME}/{a}/FF9_Data/Managed" for a in ARCHES}

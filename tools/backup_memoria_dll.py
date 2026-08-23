@@ -16,9 +16,9 @@
 # and prints the matching restore one-liner. Exits non-zero unless the FULL set (3 DLLs x
 # 2 arches) was captured -- a partial backup is partial safety, and this says so loudly.
 #
-# Run from the MAIN repo (C:\gd\Dream-World-IX): backups/ lives there; a worktree run would
-# stash the snapshot where the main repo's restore tool won't look (it warns if it has to
-# create the backups dir).
+# backups/ resolves to the MAIN repo's backups/ via BKP (restore_memoria_dll -> repo_root), so a
+# worktree run no longer parks the snapshot in an ephemeral tree. The created-dir warning below
+# fires only on the gitless fallback (or a fresh clone), where BKP is this checkout's own.
 import os, re, shutil, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
