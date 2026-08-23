@@ -27,12 +27,21 @@ from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ -- for repo_root
+from repo_root import main_repo_root  # noqa: E402
 from ff9mapkit.config import find_game_path, ModLayout, LANGS  # noqa: E402
 from ff9mapkit.battle.build import BattleProject, build_battle_mod  # noqa: E402
 from ff9mapkit.eb import opcodes  # noqa: E402
 from ff9mapkit.fsutil import atomic_write_text  # noqa: E402
 
+# TWO roots, deliberately distinct (the same split as tools/deploy_field.py): REPO is the RUNNING checkout
+# and owns the per-worktree .ff9deploy.toml deploy pin; MAIN is the main repo and owns backups/ +
+# tools/scroll_out. Rooting those at REPO parked a deploy's ONLY pre-deploy backups and its revert script
+# in an ephemeral agent worktree -- the live install kept the deploy while its undo evaporated with the
+# tree (project-ff9-worktree-parked-backups). One shared scroll_out also means a battle's prior
+# revert_battle_<BBG>.py is findable no matter which worktree wrote it.
 REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+MAIN = main_repo_root()
 
 
 def _mod_folder_default():
@@ -75,10 +84,10 @@ _args = _ap.parse_args()
 proj = BattleProject.load(_args.battle)
 BBG = proj.bbg
 MOD = _args.mod_folder
-OUT = Path(os.path.dirname(__file__)) / "scroll_out"
-OUT.mkdir(exist_ok=True)
-BK = REPO / "backups"
-BK.mkdir(exist_ok=True)
+OUT = MAIN / "tools" / "scroll_out"
+OUT.mkdir(parents=True, exist_ok=True)
+BK = MAIN / "backups"
+BK.mkdir(parents=True, exist_ok=True)              # gitignored -- absent in a fresh clone
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 # build into a temp mod
@@ -211,7 +220,7 @@ revert.write_text(
     + bp_revert_code +
     f"\nprint('reverted battle deploy for {BBG}"
     f"{' (incl. its BattlePatch block)' if bp_revert_code else ''}. If DictionaryPatch lines were "
-    f"spliced, restore backups/*.preBATTLE.{STAMP}; relaunch FF9.')\n",
+    f"spliced, restore {BK.as_posix()}/*.preBATTLE.{STAMP}; relaunch FF9.')\n",
     encoding="utf-8", newline="\n")
 shutil.rmtree(tmp, ignore_errors=True)
 
