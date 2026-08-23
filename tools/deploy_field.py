@@ -65,16 +65,12 @@ TEST_NAME = _args.name or ("TESTROOM" if FID == 4003 else f"TEST{FID}")
 OUT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "scroll_out")))
 OUT.mkdir(exist_ok=True)
 
-# revert THIS id's prior deploy only (revert_deploy_<id>.py) -- NOT another id's deploy (so deploying
-# 5000 never reverts 4003) and NOT other tools' reverts (e.g. revert_alex_fast_warp.py: the Alexandria
-# fast-warp points at a slot and must SURVIVE a field deploy).
-prior = OUT / f"revert_deploy_{FID}.py"
-if prior.exists():
-    import subprocess
-    _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0   # no console flash when called by the GUI
-    subprocess.run([sys.executable, str(prior)], creationflags=_flags)
-
-# build -- forced into the 4003 sandbox identity (id + name), so a field that declares id 4002 or a
+# build FIRST, into a private tempdir -- nothing live is touched yet. The prelude revert below used to run
+# before this, so ANY author error (a typo'd toml path at load, a lint refusal, a BuildError) aborted with
+# the slot's prior deploy ALREADY torn down: the field un-registered and its files deleted over a build
+# that never happened, and a mid-playtest ~ Reload/Warp on that id black-screened. Build failures are the
+# COMMON failure of this script; they must leave the live install exactly as it was.
+# The build is forced into the 4003 sandbox identity (id + name), so a field that declares id 4002 or a
 # live-colliding name still tests safely. The on-disk field.toml is untouched (override is in-memory).
 tmp = Path(tempfile.mkdtemp(prefix="deployfield_"))
 proj = B.FieldProject.load(TOML)
@@ -94,6 +90,26 @@ eb0 = tl.eb_path("us", f"EVT_{name}.eb.bytes").read_bytes()
 s0 = EbScript.from_bytes(eb0); f0 = s0.entry(0).func_by_tag(0)
 scroll = 0x71 in [i.op for i in disasm.iter_code(eb0, f0.abs_start, f0.abs_end)]
 print(f"built {FBG} | {info['dictionary'][0]} | scroll={scroll}")
+
+# revert THIS id's prior deploy only (revert_deploy_<id>.py) -- NOT another id's deploy (so deploying
+# 5000 never reverts 4003) and NOT other tools' reverts (e.g. revert_alex_fast_warp.py: the Alexandria
+# fast-warp points at a slot and must SURVIVE a field deploy). Runs only after a SUCCESSFUL build (above),
+# and its exit code is CHECKED: a revert that crashed midway leaves the live folder half-reverted, and
+# deploying on top of that both hides the damage (a stale CSV/patch line the new build no longer ships
+# survives silently -> a wrong-state playtest) and OVERWRITES this script at the end -- orphaning the
+# backups the old revert pointed at.
+prior = OUT / f"revert_deploy_{FID}.py"
+if prior.exists():
+    import subprocess
+    _flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0   # no console flash when called by the GUI
+    _pr = subprocess.run([sys.executable, str(prior)], creationflags=_flags)
+    if _pr.returncode:
+        print(f"!! the prelude revert FAILED (exit {_pr.returncode}): {prior}\n"
+              f"!! NOT deploying on top of a possibly half-reverted folder. Fix what the traceback above "
+              f"names; if the mod folder was since wiped/replaced (a campaign deploy), delete the stale "
+              f"revert script and re-run.", file=sys.stderr)
+        shutil.rmtree(tmp, ignore_errors=True)
+        sys.exit(2)
 
 # deploy reversibly
 GAME = find_game_path()

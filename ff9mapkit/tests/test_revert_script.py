@@ -83,6 +83,16 @@ def test_trusted_code_fragments_splice_and_stay_valid():
     assert "BattlePatch.txt.preDEPLOY" in src
 
 
+def test_revert_tolerates_a_wiped_mod_folder():
+    """A campaign deploy wholesale-replaces mod folders, and a field deploy runs this script as its PRELUDE
+    with the exit code now checked -- so a revert that crashes over a missing DictionaryPatch would hard-block
+    every redeploy of the slot. Pin: a missing live DictionaryPatch reads as empty, and restore targets get
+    their parent dirs recreated rather than assuming the deploy-time tree still exists."""
+    src = build_revert_script(**BENIGN)
+    assert "if live.dictionary_patch.exists() else []" in src
+    assert src.count("mkdir(parents=True, exist_ok=True)") >= 2   # the DictionaryPatch write + the .mes restore
+
+
 def test_int_fields_are_coerced():
     """fid / text_block are forced through int() -- a stringy int works, junk raises (never silently becomes a
     stray identifier in the script)."""

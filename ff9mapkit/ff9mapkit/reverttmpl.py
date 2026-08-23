@@ -61,10 +61,14 @@ STAMP={stamp!r}; BK=Path({backup_dir!r}); _GAME=find_game_path(); live=ModLayout
 # old behavior) re-clobbered co-deployed lines; a GEO-BLOCK drop (the older-still behavior) wiped foreign clip lines
 # like key 60001. (The staged Models//Animations/ FBX+clip trees are LEFT on disk -- inert once unregistered.)
 _MINT_IDS=set({_mint_ids_repr}); _MINT_ANIM_KEYS=set({_mint_anim_keys_repr}); _MES_BLOCKS=set({_mes_blocks_repr})
-_dp_before=live.dictionary_patch.read_text(encoding="utf-8").splitlines()
+# a MISSING live DictionaryPatch is EMPTY, not an error: a campaign deploy wholesale-replaces mod folders,
+# and a deploy runs this script as its prelude -- crashing here would hard-block every redeploy of the slot
+# (the prelude's exit code is checked) over a folder there is nothing left to revert in.
+_dp_before=live.dictionary_patch.read_text(encoding="utf-8").splitlines() if live.dictionary_patch.exists() else []
 _dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
 _bak=_dpbak.read_text(encoding="utf-8").splitlines() if _dpbak.exists() else []
 _dpkeep,_lost=_dp.revert_dictionary_patch(_dp_before, _bak, fid={fid_str!r}, model_ids=_MINT_IDS, anim_keys=_MINT_ANIM_KEYS, text_blocks=_MES_BLOCKS)
+live.dictionary_patch.parent.mkdir(parents=True, exist_ok=True)
 live.dictionary_patch.write_text("\\n".join(_dpkeep)+"\\n", encoding="utf-8", newline="\\n")
 for _dl in _lost:   # belt-and-suspenders: a foreign line this revert shouldn't have touched
     print(f"  !! WARNING: revert dropped a DictionaryPatch line it does not own: {{_dl}}")
@@ -75,7 +79,9 @@ for L in LANGS:
     p=live.eb_path(L,{eb_stem!r})
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
-    if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
+    if mb.exists():
+        live.mes_path(L,{text_block}).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
 # Ledger: this id is now deliberately UNregistered, so `doctor` won't cry "lost registration" over it. Note a
 # deploy runs the prior revert as its PRELUDE, so most 'retired' rows are immediately followed by a 'deployed'
 # row -- last-event-wins makes that read correctly. This call only helps NEWLY generated reverts; the ~30 older

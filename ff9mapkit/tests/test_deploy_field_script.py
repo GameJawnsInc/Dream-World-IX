@@ -56,6 +56,48 @@ def test_foreign_drop_guard_is_still_handed_that_predicate():
     assert len(owned) == 1 and isinstance(owned[0], ast.Name) and owned[0].id == "_dp_owned"
 
 
+def _first_call_line(tree, pred):
+    """The earliest source line of a Call node matching ``pred`` (asserts one exists)."""
+    lines = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call) and pred(n)]
+    assert lines, "expected call not found in tools/deploy_field.py"
+    return min(lines)
+
+
+def test_build_runs_before_the_prelude_revert():
+    """H1 (Lane B, 2026-08): the prelude revert used to run FIRST, so any author error -- a typo'd toml path
+    at FieldProject.load, a lint refusal, a BuildError -- aborted with the slot's prior deploy ALREADY torn
+    down: the field un-registered and its files deleted over a build that never happened, and a mid-playtest
+    ~ Reload/Warp on that id black-screened. The build touches only a private tempdir, so it must come first;
+    a failed build then leaves the live install exactly as it was. (build_mod reads nothing live -- verified
+    against build.py -- so the reorder has no behavioural cost.)"""
+    tree = ast.parse(_SRC)
+    load_ln = _first_call_line(tree, lambda n: isinstance(n.func, ast.Attribute) and n.func.attr == "load")
+    build_ln = _first_call_line(tree, lambda n: isinstance(n.func, ast.Attribute) and n.func.attr == "build_mod")
+    run_ln = _first_call_line(tree, lambda n: isinstance(n.func, ast.Attribute) and n.func.attr == "run"
+                              and isinstance(n.func.value, ast.Name) and n.func.value.id == "subprocess")
+    assert load_ln < run_ln and build_ln < run_ln, \
+        "the prelude revert must run only after a successful load + build"
+
+
+def test_prelude_revert_failure_aborts_the_deploy():
+    """H3: the prelude's subprocess.run result used to be discarded. A revert that crashed midway (mod folder
+    wiped by a campaign deploy, a moved backups/ dir) was silently swallowed; the deploy then continued on a
+    half-reverted folder -- a stale CSV/patch line the new build no longer ships survives silently -- and
+    finally OVERWROTE revert_deploy_<id>.py, orphaning the backups the old revert pointed at. Pin: the run
+    result is bound to a name and its returncode is consulted."""
+    tree = ast.parse(_SRC)
+    runs = [n for n in ast.walk(tree) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+            and isinstance(n.value.func, ast.Attribute) and n.value.func.attr == "run"
+            and isinstance(n.value.func.value, ast.Name) and n.value.func.value.id == "subprocess"]
+    assert len(runs) == 1, "the prelude subprocess.run must be BOUND so its returncode can be checked"
+    (target,) = runs[0].targets
+    assert isinstance(target, ast.Name)
+    assert any(isinstance(n, ast.Attribute) and n.attr == "returncode"
+               and isinstance(n.value, ast.Name) and n.value.id == target.id
+               for n in ast.walk(tree)), "the prelude's returncode is never checked -- a crashed revert " \
+                                         "would be silently deployed over"
+
+
 def test_message_file_line_is_carried_into_the_live_dictionary_patch():
     """THE BLACK-SCREEN REGRESSION (2026-07-18). `deploy_field` does not copy the built dist's
     DictionaryPatch -- it REBUILDS the live one from parts (mint lines, charname, status icons, the
