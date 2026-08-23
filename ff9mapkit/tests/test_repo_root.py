@@ -112,14 +112,31 @@ def _src(name):
     return (REPO / "tools" / f"{name}.py").read_text(encoding="utf-8")
 
 
-def test_all_four_backup_writers_spend_the_resolver():
-    """deploy_field (BK + OUT), wire_newgame_from_stock (backups_dir/reverts_dir), and the DLL
-    backup/restore pair (BKP, defined once in restore) must all root at the MAIN repo. backup_memoria_dll
-    imports BKP from restore_memoria_dll, so the pair is covered by restore's definition."""
-    for name in ("deploy_field", "wire_newgame_from_stock", "restore_memoria_dll"):
+def test_every_backup_writer_spends_the_resolver():
+    """Every tool that backs up GAME-INSTALL state must root its backup + revert dirs at the MAIN repo:
+    deploy_field (BK + OUT), wire_newgame_from_stock (backups_dir/reverts_dir), the DLL backup/restore pair
+    (BKP, defined once in restore -- backup_memoria_dll imports it, so the pair is covered by restore's
+    definition), and the three sibling deploy shims (deploy_battle's BK + OUT, deploy_campaign's and
+    deploy_journey's backups_dir/reverts_dir)."""
+    for name in ("deploy_field", "wire_newgame_from_stock", "restore_memoria_dll",
+                 "deploy_battle", "deploy_campaign", "deploy_journey"):
         assert "main_repo_root" in _src(name), f"tools/{name}.py no longer spends repo_root.main_repo_root"
     assert "from restore_memoria_dll import" in _src("backup_memoria_dll")
     # and the exact worktree-parked rootings must not come back
     assert '"..", "backups"' not in _src("deploy_field")
     assert '"..", "backups"' not in _src("restore_memoria_dll")
     assert 'REPO / "backups"' not in _src("wire_newgame_from_stock")
+    for name in ("deploy_battle", "deploy_campaign", "deploy_journey"):
+        assert 'REPO / "backups"' not in _src(name), f"tools/{name}.py roots backups at the RUNNING checkout"
+    assert 'Path(os.path.dirname(__file__)) / "scroll_out"' not in _src("deploy_battle")
+    for name in ("deploy_campaign", "deploy_journey"):
+        assert 'HERE / "scroll_out"' not in _src(name), f"tools/{name}.py roots reverts at the RUNNING checkout"
+
+
+def test_the_per_worktree_deploy_pin_did_not_move_with_the_backups():
+    """The OTHER root must NOT follow: ``.ff9deploy.toml`` is the deliberately PER-WORKTREE deploy pin, so
+    reading it from the main repo would un-isolate every session's mod folder (the exact clobber the pin
+    exists to prevent). It stays at the running checkout in both shims that read one."""
+    for name in ("deploy_battle", "deploy_campaign"):
+        assert 'REPO / ".ff9deploy.toml"' in _src(name), \
+            f"tools/{name}.py must read its deploy pin from the RUNNING checkout"
