@@ -237,6 +237,56 @@ def test_battle_merge_is_idempotent():
     assert BP.merge_battle_patch(once, block, owner) == once
 
 
+# ---- revert_splice / has_block (the SURGICAL deploy-revert -- Lane B 2026-08) -------------------------
+def test_revert_splice_preserves_a_coowner_block_added_since_the_backup():
+    """THE defect this replaces: the generated revert was `shutil.copyfile(backup, live)`. Field 30500
+    deploys (backup taken), battle 30510 splices its tuning in, field 30500 redeploys -- the prelude revert
+    restored the snapshot and the battle's block silently vanished (no guard watches BattlePatch, and the
+    loss only shows at the NEXT relaunch). The surgical revert touches only its own block."""
+    backup = BP.merge_battle_patch("Music: 9\n", ["MaxHP 1"], 30500)      # our OLD block, at backup time
+    live = BP.merge_battle_patch(backup, ["MaxHP 2"], 30500)              # the deploy replaced it...
+    owner_b = BP.battle_owner("BBG_B013", 30510)
+    live = BP.merge_battle_patch(live, ["Battle: 30510", "Music: 35"], owner_b)  # ...then a battle co-deployed
+    out = BP.revert_splice(live, backup, 30500)
+    assert "MaxHP 1" in out and "MaxHP 2" not in out                      # our pre-deploy block is back
+    assert "Battle: 30510" in out and "Music: 35" in out                  # the co-owner SURVIVES
+    assert "Music: 9" in out                                              # unmarked lines survive too
+
+
+def test_revert_splice_with_no_backup_strips_only_our_block():
+    live = BP.merge_battle_patch("", ["MaxHP 2"], 30500)
+    live = BP.merge_battle_patch(live, ["Battle: 30510"], BP.battle_owner("BBG_B013", 30510))
+    out = BP.revert_splice(live, "", 30500)                               # the file did not exist pre-deploy
+    assert "MaxHP 2" not in out and "ff9mapkit field 30500" not in out
+    # the old not-had branch UNLINKED the whole file here -- taking the foreign block with it
+    assert "Battle: 30510" in out
+
+
+def test_revert_splice_empty_result_signals_delete():
+    live = BP.merge_battle_patch("", ["MaxHP 2"], 30500)                  # we are the only owner
+    assert BP.revert_splice(live, "", 30500) == ""                        # "" -> the caller unlinks the file
+
+
+def test_extract_block_reads_back_what_merge_wrote():
+    block = ["AnyEnemyByName: Goblin", "MaxHP 500"]
+    live = BP.merge_battle_patch("Battle: 40\n", block, 4003)
+    assert BP.extract_block(live, 4003) == block
+    assert BP.extract_block(live, 4004) == []                             # exact owner only
+    assert BP.extract_block("", 4003) == []
+
+
+def test_has_block_is_exact_never_substring():
+    """The old deploy trigger was `\"ff9mapkit field 300\" in text` -- which also matches field 3000's
+    marker, arming a spurious snapshot-restoring revert for a field that owned nothing. And a bare
+    battle_owner token is a PREFIX of the same battle's with-scene token."""
+    live = BP.merge_battle_patch("", ["MaxHP 1"], 3000)
+    assert BP.has_block(live, 3000)
+    assert not BP.has_block(live, 300)
+    scoped = BP.merge_battle_patch("", ["Battle: 1"], BP.battle_owner("BBG_B013", 12000))
+    assert BP.has_block(scoped, BP.battle_owner("BBG_B013", 12000))
+    assert not BP.has_block(scoped, BP.battle_owner("BBG_B013"))
+
+
 # ---- build.py wiring (aggregation across fields + error wrapping) -------------------------------------
 def test_build_emit_battle_patch_aggregates_and_wraps_errors():
     from types import SimpleNamespace

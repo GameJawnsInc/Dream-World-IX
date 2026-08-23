@@ -192,6 +192,26 @@ def test_merge_empty_strips_prior_block():
     assert "keep" in stripped
 
 
+def test_revert_splice_preserves_a_coowner_block_added_since_the_backup():
+    """Mirror of battlepatch.revert_splice (see test_battlepatch): the generated revert used to restore the
+    whole pre-deploy snapshot, re-clobbering any block another field spliced in between -- and a redeploy
+    runs the revert as its prelude, so the window was the whole gap between two deploys of an id."""
+    ours = IT.render_block_lines([{"name": "Potion", "display_name": "Old"}])
+    backup = IT.merge_text_patch("", ours, 30500)
+    live = IT.merge_text_patch(backup, IT.render_block_lines([{"name": "Potion", "display_name": "New"}]), 30500)
+    live = IT.merge_text_patch(live, IT.render_block_lines([{"name": "Hi-Potion", "display_name": "B"}]), 30600)
+    out = IT.revert_splice(live, backup, 30500)
+    assert "Replace: Old" in out and "Replace: New" not in out            # our pre-deploy block is back
+    assert "Replace: B" in out                                            # field 30600's block SURVIVES
+    final = IT.revert_splice(out, "", 30600)                              # and strips cleanly in turn
+    assert "field 30600" not in final and "Replace: Old" in final
+
+
+def test_has_block_is_exact_never_substring():
+    live = IT.merge_text_patch("", IT.render_block_lines([{"name": "Potion", "display_name": "X"}]), 3000)
+    assert IT.has_block(live, 3000) and not IT.has_block(live, 300)
+
+
 def test_merge_markers_are_comments():
     # the markers MUST start with // so the engine skips them (TextPatcher: line.StartsWith("//") -> continue)
     out = IT.merge_text_patch("", IT.render_block_lines([{"name": "Potion", "display_name": "X"}]), 4003)
