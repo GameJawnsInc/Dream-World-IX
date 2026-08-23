@@ -3,8 +3,8 @@
 
 Thin repo shim over :func:`ff9mapkit.deploy.deploy_campaign` (the orchestration now lives in the package so
 the installed ``ff9mapkit deploy-campaign`` CLI shares it). This wrapper supplies the repo-flavored backup +
-revert dirs (the MAIN repo's ``backups/`` + ``tools/scroll_out/``, never a worktree's own -- see
-tools/repo_root.py) and the worktree ``.ff9deploy.toml`` mod-folder default.
+revert dirs (the MAIN repo's ``backups/`` + ``tools/scroll_out/``) and the worktree ``.ff9deploy.toml``
+mod-folder default.
 
 The model is install_tworoom's: ONE set-wide snapshot of the campaign mod folder + a WHOLESALE replace with the
 built dist + ONE ``revert_campaign.py``. New Game is wired by retargeting the shared FF9CustomMap field-70
@@ -31,10 +31,11 @@ from repo_root import main_repo_root               # noqa: E402
 from ff9mapkit import deploy                       # noqa: E402
 from ff9mapkit.deploy import DeployError           # noqa: E402
 
-# TWO roots, deliberately distinct (mirrors tools/deploy_field.py): REPO is the RUNNING checkout and owns
-# the per-worktree .ff9deploy.toml pin; MAIN owns backups/ + tools/scroll_out/, because a wholesale campaign
-# deploy's snapshot is the live install's ONLY undo and an agent worktree is ephemeral -- parking it there
-# evaporates the backup while the game keeps the install (project-ff9-worktree-parked-backups).
+# TWO roots, deliberately distinct (the same split as tools/deploy_field.py): REPO is the RUNNING checkout
+# and owns the per-worktree .ff9deploy.toml deploy pin; MAIN is the main repo and owns backups/ +
+# tools/scroll_out. Rooting those at REPO parked an install's ONLY snapshot and its revert_campaign.py in
+# an ephemeral agent worktree -- the live install kept the wholesale replace while its undo evaporated with
+# the tree (project-ff9-worktree-parked-backups).
 MAIN = main_repo_root()
 
 

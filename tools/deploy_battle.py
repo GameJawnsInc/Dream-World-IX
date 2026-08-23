@@ -32,13 +32,15 @@ from repo_root import main_repo_root  # noqa: E402
 from ff9mapkit.config import find_game_path, ModLayout, LANGS  # noqa: E402
 from ff9mapkit.battle.build import BattleProject, build_battle_mod  # noqa: E402
 from ff9mapkit.eb import opcodes  # noqa: E402
-from ff9mapkit.fsutil import atomic_write_text  # noqa: E402
+from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_sidecar  # noqa: E402
 
+# TWO roots, deliberately distinct (the same split as tools/deploy_field.py): REPO is the RUNNING checkout
+# and owns the per-worktree .ff9deploy.toml deploy pin; MAIN is the main repo and owns backups/ +
+# tools/scroll_out. Rooting those at REPO parked a deploy's ONLY pre-deploy backups and its revert script
+# in an ephemeral agent worktree -- the live install kept the deploy while its undo evaporated with the
+# tree (project-ff9-worktree-parked-backups). One shared scroll_out also means a battle's prior
+# revert_battle_<BBG>.py is findable no matter which worktree wrote it.
 REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-# TWO roots, deliberately distinct (mirrors tools/deploy_field.py): REPO is the RUNNING checkout and owns
-# the per-worktree .ff9deploy.toml pin; MAIN owns backups/ + tools/scroll_out/, so a battle deploy's
-# pre-deploy copies and revert_battle_<BBG>.py survive the worktree that wrote them
-# (project-ff9-worktree-parked-backups).
 MAIN = main_repo_root()
 
 
@@ -85,7 +87,7 @@ MOD = _args.mod_folder
 OUT = MAIN / "tools" / "scroll_out"
 OUT.mkdir(parents=True, exist_ok=True)
 BK = MAIN / "backups"
-BK.mkdir(parents=True, exist_ok=True)
+BK.mkdir(parents=True, exist_ok=True)              # gitignored -- absent in a fresh clone
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 # build into a temp mod
@@ -119,20 +121,32 @@ live = ModLayout(live_root)
 # splice patch lines reversibly (filter a prior same-BBG / same-scene line, then append)
 relaunch = False
 if info["dictionary"]:
-    if live.dictionary_patch.exists():
-        shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preBATTLE.{STAMP}")
-        cur = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    else:
-        cur = []
-    sid = str(proj.scene_id) if proj.is_mint else None
-    # NOTE: this filter is LINE-SHAPE sensitive -- it assumes `BattleScene <id> <NAME> <BBG>` (BBG in
-    # column 4). It predates dictpatch._registration_identity and is deliberately left alone here; the
-    # identity-based filter lives in build_battle_mod, which owns the built dist.
-    cur = [ln for ln in cur if not (ln.startswith("BattleScene")
-                                    and (ln.split()[3:4] == [BBG] or ln.split()[1:2] == [sid]))]
-    cur += info["dictionary"]
-    # ATOMIC: a half-written DictionaryPatch unregisters every field/battle in the folder at the next launch
-    atomic_write_text(live.dictionary_patch, "\n".join(cur) + "\n", newline="\n")
+    # LOCKED read->merge->write: hold <DictionaryPatch>.lock across the whole window (same lock as
+    # deploy_field and the generated reverts). Two unserialised rewrites into ONE folder silently drop
+    # whichever lines the other read past -- a lost FieldScene/BattleScene line is the null-.eb black
+    # screen. A lock TIMEOUT aborts LOUDLY below rather than proceeding unlocked.
+    try:
+        with locked_sidecar(live.dictionary_patch):
+            if live.dictionary_patch.exists():
+                shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preBATTLE.{STAMP}")
+                cur = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            else:
+                cur = []
+            sid = str(proj.scene_id) if proj.is_mint else None
+            # NOTE: this filter is LINE-SHAPE sensitive -- it assumes `BattleScene <id> <NAME> <BBG>` (BBG in
+            # column 4). It predates dictpatch._registration_identity and is deliberately left alone here; the
+            # identity-based filter lives in build_battle_mod, which owns the built dist.
+            cur = [ln for ln in cur if not (ln.startswith("BattleScene")
+                                            and (ln.split()[3:4] == [BBG] or ln.split()[1:2] == [sid]))]
+            cur += info["dictionary"]
+            # ATOMIC: a half-written DictionaryPatch unregisters every field/battle in the folder at the next launch
+            atomic_write_text(live.dictionary_patch, "\n".join(cur) + "\n", newline="\n")
+    except FileLockTimeout as _lke:
+        print(f"!! {_lke}\n"
+              f"!! NOT splicing the BattleScene registration into {live.dictionary_patch} -- the battle "
+              f"assets are copied but UNREGISTERED. Re-run this deploy once the other writer finishes.",
+              file=sys.stderr)
+        sys.exit(2)
     relaunch = True
 
 # BattlePatch: SPLICE under this battle's `//` sentinel markers instead of appending. The old code appended
@@ -218,7 +232,7 @@ revert.write_text(
     + bp_revert_code +
     f"\nprint('reverted battle deploy for {BBG}"
     f"{' (incl. its BattlePatch block)' if bp_revert_code else ''}. If DictionaryPatch lines were "
-    f"spliced, restore backups/*.preBATTLE.{STAMP}; relaunch FF9.')\n",
+    f"spliced, restore {BK.as_posix()}/*.preBATTLE.{STAMP}; relaunch FF9.')\n",
     encoding="utf-8", newline="\n")
 shutil.rmtree(tmp, ignore_errors=True)
 

@@ -104,6 +104,29 @@ def test_revert_tolerates_a_wiped_mod_folder():
     assert "live.dictionary_patch.write_text" not in src
 
 
+def test_dictionary_revert_holds_the_sidecar_lock():
+    """The generated revert does the same read->merge->write a deploy does, into the same shared file --
+    and a deploy RUNS it as the prelude, so at any instant some other session's revert may be rewriting a
+    folder a deploy is about to. Pin: the read, the surgical merge, and the atomic write all sit inside
+    `with locked_sidecar(...)` (the same fsutil lock the deploy scripts hold). A timeout PROPAGATES here on
+    purpose: the traceback fails the script, and the prelude's checked exit code turns that into a loud
+    deploy abort -- rewriting unlocked could drop a foreign FieldScene line that exists in NO backup."""
+    src = build_revert_script(**BENIGN)
+    tree = ast.parse(src)
+    withs = [n for n in ast.walk(tree) if isinstance(n, ast.With)
+             and any(isinstance(i.context_expr, ast.Call) and isinstance(i.context_expr.func, ast.Name)
+                     and i.context_expr.func.id == "locked_sidecar" for i in n.items)]
+    assert len(withs) == 1, "exactly one locked_sidecar block owns the DictionaryPatch revert"
+    w = withs[0]
+    calls = {n.func.id for n in ast.walk(w) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    attrs = {n.func.attr for n in ast.walk(w) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "read_text" in attrs and "revert_dictionary_patch" in attrs, "read + merge inside the lock"
+    assert "atomic_write_text" in calls, "the write inside the lock"
+    # the mkdir must PRECEDE the lock: after a campaign wipe the mod folder may not exist, and the sidecar
+    # lockfile needs the folder as much as the write does -- a crash here would hard-block every redeploy.
+    assert src.index("mkdir(parents=True, exist_ok=True)") < src.index("with locked_sidecar(")
+
+
 def test_int_fields_are_coerced():
     """fid / text_block are forced through int() -- a stringy int works, junk raises (never silently becomes a
     stray identifier in the script)."""

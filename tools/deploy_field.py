@@ -22,7 +22,7 @@ from ff9mapkit import build as B
 from ff9mapkit import reverttmpl as _revert
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit.eb import EbScript, edit, disasm
-from ff9mapkit.fsutil import atomic_write_text
+from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_sidecar
 
 import argparse, tomllib
 # Per-worktree deploy target: a gitignored .ff9deploy.toml at the repo root pins each worktree's OWN
@@ -149,7 +149,13 @@ if not live.mod_description.exists():
         f"    <InstallationPath>{MOD_FOLDER}</InstallationPath>\n    <Category></Category>\n"
         f"    <Description></Description>\n</Mod>\n", encoding="utf-8", newline="\n")
 if not live.dictionary_patch.exists():
-    atomic_write_text(live.dictionary_patch, "", newline="\n")
+    # O_EXCL: exactly one concurrent bootstrapper creates it. A plain check-then-write here could land ""
+    # OVER another session's just-merged rewrite on a brand-new folder -- the same lost-line class the
+    # locked merge below closes, through a different door.
+    try:
+        os.close(os.open(str(live.dictionary_patch), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        pass
 BK = _MAIN / "backups"
 BK.mkdir(parents=True, exist_ok=True)                 # gitignored -- absent in a fresh clone
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -231,7 +237,6 @@ charname_lines = info.get("charname_lines", [])   # [[playable]] CharacterDefaul
 charname_keys = {(p[1], p[2]) for p in (ln.split() for ln in charname_lines) if len(p) >= 3}   # (char-id, lang)
 status_icon_lines = info.get("status_icon_lines", [])   # [[playable]] custom-status Buff/DebuffIcon <statusId> <sprite>
 status_icon_ids = {p[1] for p in (ln.split() for ln in status_icon_lines) if len(p) >= 2}       # status ids being re-set
-_dp_before = live.dictionary_patch.read_text(encoding="utf-8").splitlines()
 # A live DictionaryPatch line THIS deploy owns -- filtered out below and re-appended fresh, and handed to the
 # foreign-drop guard as its `owned=` predicate. ONE rule, from the library, deliberately: the hand-rolled copy
 # that used to sit here matched on column 2 alone, so deploying a field in the 6000s claimed another session's
@@ -247,16 +252,32 @@ message_blocks = {p[1] for p in (ln.split() for ln in message_file_lines) if len
 _dp_owned = _dp.owned_predicate(fid=FID, model_ids=mint_ids, anim_keys=mint_anim_keys,
                                 status_icon_ids=status_icon_ids, charname_keys=charname_keys,
                                 text_blocks=message_blocks)
-dp = [ln for ln in _dp_before if ln.strip() and not _dp_owned(ln)]
-dp += message_file_lines                       # `MessageFile <block>` -- MUST precede the FieldScene line
-dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
-dp += charname_lines                           # `CharacterDefaultName <id> <SYM> <name>` -- 13th+ char name (launch)
-dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
-dp.append(info["dictionary"][0])
-dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
-# ATOMIC: a half-written DictionaryPatch (Ctrl-C, disk-full) unregisters EVERY field in the folder at the
-# next launch -- the null-.eb black screen, folder-wide -- and this file carries OTHER sessions' lines.
-atomic_write_text(live.dictionary_patch, "\n".join(dp) + "\n", newline="\n")
+# LOCKED read->merge->write: hold <DictionaryPatch>.lock (fsutil.locked_sidecar) across the whole window.
+# ATOMIC (below) makes the rewrite all-or-nothing but does NOT serialise two rewriters -- 18+ sessions
+# share this install, and a concurrent deploy/revert into the SAME folder that reads while we are between
+# read and write re-writes the file WITHOUT our line (or we without theirs): a lost FieldScene line is the
+# null-.eb black screen, and the foreign-drop guard cannot see it because the drop happens in the OTHER
+# process's window. A lock TIMEOUT aborts LOUDLY below -- proceeding unlocked is the one wrong answer.
+try:
+    with locked_sidecar(live.dictionary_patch):
+        _dp_before = (live.dictionary_patch.read_text(encoding="utf-8").splitlines()
+                      if live.dictionary_patch.exists() else [])
+        dp = [ln for ln in _dp_before if ln.strip() and not _dp_owned(ln)]
+        dp += message_file_lines               # `MessageFile <block>` -- MUST precede the FieldScene line
+        dp += mint_lines                       # `3DModel <id> <name>` -- register minted ids (read at launch)
+        dp += charname_lines                   # `CharacterDefaultName <id> <SYM> <name>` -- 13th+ char name (launch)
+        dp += status_icon_lines                # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
+        dp.append(info["dictionary"][0])
+        dp += info.get("location_lines", [])   # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
+        # ATOMIC: a half-written DictionaryPatch (Ctrl-C, disk-full) unregisters EVERY field in the folder at
+        # the next launch -- the null-.eb black screen, folder-wide -- and this file carries OTHER sessions' lines.
+        atomic_write_text(live.dictionary_patch, "\n".join(dp) + "\n", newline="\n")
+except FileLockTimeout as _lke:
+    print(f"!! {_lke}\n"
+          f"!! NOT rewriting {live.dictionary_patch}. This slot's prior registration was already removed "
+          f"by the prelude revert, so field {FID} stays UNREGISTERED (a warp to it black-screens) until a "
+          f"re-run completes -- re-run this deploy once the other writer finishes.", file=sys.stderr)
+    sys.exit(2)
 _dropped = _dp.foreign_registrations_dropped(_dp_before, dp, owned=_dp_owned)   # a line this deploy does NOT own
 if _dropped:
     print("  !! WARNING: this deploy dropped DictionaryPatch registration(s) it does not own. A foreign "

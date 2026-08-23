@@ -3,8 +3,7 @@
 
 Thin repo shim over :func:`ff9mapkit.deploy.deploy_journey` (the orchestration now lives in the package so
 the installed ``ff9mapkit deploy-journey`` CLI shares it). This wrapper supplies the repo-flavored backup +
-revert dirs (the MAIN repo's ``backups/`` + ``tools/scroll_out/``, never a worktree's own -- see
-tools/repo_root.py).
+revert dirs (the MAIN repo's ``backups/`` + ``tools/scroll_out/``).
 
 DEFAULT = a DRY-RUN: lint + print the resolved namespace + the ordered deploy PLAYBOOK. ``--apply`` runs the
 whole playbook in one shot (each campaign -> the link rewrites -> the hub field) with ONE unified revert; it
@@ -34,9 +33,10 @@ sys.path.insert(0, str(HERE))                      # tools/ -- for repo_root (a 
 from repo_root import main_repo_root               # noqa: E402
 from ff9mapkit import deploy                       # noqa: E402
 
-# backups/ + tools/scroll_out/ live in the MAIN repo, not the running checkout: a journey --apply snapshots
-# every campaign's mod folder, and parking that undo in an ephemeral agent worktree loses it while the game
-# keeps the install (project-ff9-worktree-parked-backups). REPO stays the running checkout.
+# The backup + revert dirs root at the MAIN repo, never at the RUNNING checkout (REPO): a journey --apply
+# is the widest install we have (every campaign + the links + the hub) under ONE revert_journey.py, and
+# rooting that at the checkout parked the whole set's only undo in an ephemeral agent worktree -- the game
+# kept every installed folder while its undo evaporated with the tree (project-ff9-worktree-parked-backups).
 MAIN = main_repo_root()
 
 

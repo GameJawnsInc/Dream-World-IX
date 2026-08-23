@@ -9,7 +9,10 @@ silent-loss hole (see ``dictpatch.owned_predicate``).
 import ast
 import pathlib
 
+import pytest
+
 _SRC = (pathlib.Path(__file__).resolve().parents[2] / "tools" / "deploy_field.py").read_text(encoding="utf-8")
+_BATTLE_SRC = (pathlib.Path(__file__).resolve().parents[2] / "tools" / "deploy_battle.py").read_text(encoding="utf-8")
 
 
 def _assignments(name):
@@ -161,6 +164,51 @@ def test_generated_revert_fragments_compile_when_spliced():
                               tp_revert_code=frags["tp_revert_code"],
                               fork_revert_code=frags["fork_revert_code"])
     compile(src, "<revert>", "exec")
+
+
+def _dp_write_calls(node):
+    """Every ``atomic_write_text(...)`` under ``node`` whose first arg is ``<x>.dictionary_patch``."""
+    return [n for n in ast.walk(node) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            and n.func.id == "atomic_write_text" and n.args
+            and isinstance(n.args[0], ast.Attribute) and n.args[0].attr == "dictionary_patch"]
+
+
+@pytest.mark.parametrize("src", [_SRC, _BATTLE_SRC], ids=["deploy_field", "deploy_battle"])
+def test_the_dictionary_rewrite_holds_the_sidecar_lock(src):
+    """Lane C: 18+ sessions share ONE install, and two deploys into the same folder interleaving their
+    DictionaryPatch read->merge->write windows silently drop each other's FieldScene/BattleScene lines --
+    the null-.eb black-screen class, invisible to the foreign-drop guard because the clobber happens in the
+    OTHER process's read-to-write window (atomic_write_text makes each rewrite all-or-nothing but
+    serialises nothing). Pin: the read AND the write both sit INSIDE the one `with locked_sidecar(...)`
+    block, no rewrite exists outside it, and a FileLockTimeout aborts the deploy -- never proceeds
+    unlocked. The lock itself is proven by test_fsutil's barrier concurrency test; this pins that the
+    scripts actually SPEND it (a law in a docstring is a wish)."""
+    tree = ast.parse(src)
+    withs = [n for n in ast.walk(tree) if isinstance(n, ast.With)
+             and any(isinstance(i.context_expr, ast.Call) and isinstance(i.context_expr.func, ast.Name)
+                     and i.context_expr.func.id == "locked_sidecar" for i in n.items)]
+    assert len(withs) == 1, "exactly one locked_sidecar block owns the DictionaryPatch rewrite"
+    w = withs[0]
+    reads = [n for n in ast.walk(w) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "read_text" and isinstance(n.func.value, ast.Attribute)
+             and n.func.value.attr == "dictionary_patch"]
+    assert reads, "the read must happen INSIDE the lock -- a read outside reopens the lost-update window"
+    assert len(_dp_write_calls(w)) == 1, "the merged rewrite must happen INSIDE the lock"
+    assert len(_dp_write_calls(tree)) == 1, "no DictionaryPatch rewrite may exist outside the locked block"
+    handlers = [h for n in ast.walk(tree) for h in (n.handlers if isinstance(n, ast.Try) else [])
+                if isinstance(h.type, ast.Name) and h.type.id == "FileLockTimeout"]
+    assert len(handlers) == 1, "a lock TIMEOUT must be caught by name (it is the one OSError that means " \
+                               "'another writer owns the file RIGHT NOW')..."
+    assert any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "exit"
+               for c in ast.walk(handlers[0])), "...and abort the deploy loudly, never proceed unlocked"
+
+
+def test_fresh_folder_bootstrap_is_create_exclusive():
+    """The bootstrap used check-then-write ('' if missing): on a brand-new folder, the loser of that race
+    could land the empty file OVER the winner's just-merged rewrite -- the same lost-line class as the
+    unlocked merge, through a different door. O_CREAT|O_EXCL makes exactly one concurrent creator win."""
+    assert "os.O_CREAT | os.O_EXCL" in _SRC
+    assert _SRC.count("atomic_write_text(live.dictionary_patch") == 1   # only the locked merge writes it
 
 
 def test_backup_and_revert_dirs_root_at_the_main_repo_not_the_checkout():

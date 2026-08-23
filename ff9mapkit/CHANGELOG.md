@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — concurrent deploys can no longer lose each other's DictionaryPatch lines
+- The `DictionaryPatch.txt` read→merge→write in `tools/deploy_field.py`,
+  `tools/deploy_battle.py`, and the generated revert scripts now holds a cross-process
+  lock (`fsutil.locked_sidecar`, a `DictionaryPatch.txt.lock` sidecar) for the whole
+  window. Concurrent sessions deploying into ONE mod folder could interleave those
+  windows and silently drop each other's `FieldScene`/`BattleScene` lines — the null-.eb
+  black-screen class, invisible to the foreign-drop guard because the clobber happens in
+  the other process's window (they also raced onto the shared `.tmp` staging name and
+  died on PermissionError). The fd-level lock is the deploy ledger's measured,
+  tear-tested one, extracted to `fsutil.exclusive_fd_lock` so both share it; exotic
+  platforms with neither `fcntl` nor `msvcrt` degrade to unlocked non-fatally (like the
+  ledger), but a lock TIMEOUT aborts a deploy loudly — proceeding unlocked is the one
+  wrong answer. `deploy_field`'s fresh-folder bootstrap creates the empty registry with
+  `O_EXCL` (its check-then-write could land `""` over a just-merged rewrite). Proven by a
+  barrier-synchronised multi-process test with an unlocked negative control that
+  measurably loses lines.
+
 ### Fixed — the field/battle deploy loop survives its own failures (adversarial review, Lane B)
 - `tools/deploy_field.py` builds BEFORE running the prior revert as its prelude: a typo'd
   toml path or a lint refusal used to abort with the slot's prior deploy already torn down
