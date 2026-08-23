@@ -30,7 +30,7 @@ sys.path.insert(0, KIT)
 from ff9mapkit.config import find_game_path, ModLayout, LANGS  # noqa: E402
 from ff9mapkit.battle.build import BattleProject, build_battle_mod  # noqa: E402
 from ff9mapkit.eb import opcodes  # noqa: E402
-from ff9mapkit.fsutil import atomic_write_text  # noqa: E402
+from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_sidecar  # noqa: E402
 
 REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -112,20 +112,32 @@ live = ModLayout(live_root)
 # splice patch lines reversibly (filter a prior same-BBG / same-scene line, then append)
 relaunch = False
 if info["dictionary"]:
-    if live.dictionary_patch.exists():
-        shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preBATTLE.{STAMP}")
-        cur = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    else:
-        cur = []
-    sid = str(proj.scene_id) if proj.is_mint else None
-    # NOTE: this filter is LINE-SHAPE sensitive -- it assumes `BattleScene <id> <NAME> <BBG>` (BBG in
-    # column 4). It predates dictpatch._registration_identity and is deliberately left alone here; the
-    # identity-based filter lives in build_battle_mod, which owns the built dist.
-    cur = [ln for ln in cur if not (ln.startswith("BattleScene")
-                                    and (ln.split()[3:4] == [BBG] or ln.split()[1:2] == [sid]))]
-    cur += info["dictionary"]
-    # ATOMIC: a half-written DictionaryPatch unregisters every field/battle in the folder at the next launch
-    atomic_write_text(live.dictionary_patch, "\n".join(cur) + "\n", newline="\n")
+    # LOCKED read->merge->write: hold <DictionaryPatch>.lock across the whole window (same lock as
+    # deploy_field and the generated reverts). Two unserialised rewrites into ONE folder silently drop
+    # whichever lines the other read past -- a lost FieldScene/BattleScene line is the null-.eb black
+    # screen. A lock TIMEOUT aborts LOUDLY below rather than proceeding unlocked.
+    try:
+        with locked_sidecar(live.dictionary_patch):
+            if live.dictionary_patch.exists():
+                shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preBATTLE.{STAMP}")
+                cur = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            else:
+                cur = []
+            sid = str(proj.scene_id) if proj.is_mint else None
+            # NOTE: this filter is LINE-SHAPE sensitive -- it assumes `BattleScene <id> <NAME> <BBG>` (BBG in
+            # column 4). It predates dictpatch._registration_identity and is deliberately left alone here; the
+            # identity-based filter lives in build_battle_mod, which owns the built dist.
+            cur = [ln for ln in cur if not (ln.startswith("BattleScene")
+                                            and (ln.split()[3:4] == [BBG] or ln.split()[1:2] == [sid]))]
+            cur += info["dictionary"]
+            # ATOMIC: a half-written DictionaryPatch unregisters every field/battle in the folder at the next launch
+            atomic_write_text(live.dictionary_patch, "\n".join(cur) + "\n", newline="\n")
+    except FileLockTimeout as _lke:
+        print(f"!! {_lke}\n"
+              f"!! NOT splicing the BattleScene registration into {live.dictionary_patch} -- the battle "
+              f"assets are copied but UNREGISTERED. Re-run this deploy once the other writer finishes.",
+              file=sys.stderr)
+        sys.exit(2)
     relaunch = True
 
 # BattlePatch: SPLICE under this battle's `//` sentinel markers instead of appending. The old code appended

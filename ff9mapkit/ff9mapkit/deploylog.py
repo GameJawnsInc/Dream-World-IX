@@ -30,30 +30,21 @@ stderr rather than hidden, because a silent swallow of a ``TypeError`` is how a 
 
 from __future__ import annotations
 
-import contextlib
 import datetime
 import os
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from .deploystack import dictionary_ids_at, parse_folder_names
+from .fsutil import exclusive_fd_lock
 
-try:                                    # POSIX
-    import fcntl
-except ImportError:                     # pragma: no cover - Windows
-    fcntl = None
-try:                                    # Windows
-    import msvcrt
-except ImportError:                     # pragma: no cover - POSIX
-    msvcrt = None
-
-#: The byte offset :func:`_exclusive` locks on Windows. Deliberately far past any plausible end of file, so
-#: the lock is a pure cross-process mutex and never a mandatory lock over real records (Windows byte-range
-#: locks BLOCK other processes' writes to the locked range; locking real data would be a foot-gun).
-_LOCK_OFFSET = 1 << 40
-#: How long :func:`_exclusive` will fight for the Windows lock before giving the line up as unrecordable.
+#: How long :func:`record` will fight for the ledger lock before giving the line up as unrecordable. A
+#: line lost to a sustained pile-up is the correct trade for a DIAGNOSTIC; a deploy blocked is not. (The
+#: lock itself lives in ``fsutil.exclusive_fd_lock`` now -- extracted so the LOAD-BEARING rewriters, the
+#: deploy scripts' DictionaryPatch merges, share the one implementation this module's concurrency test
+#: proved out. The timeout raises ``fsutil.FileLockTimeout``, a ``TimeoutError`` -> ``OSError``, so
+#: :func:`record`'s wholesale OSError swallow keeps covering it.)
 _LOCK_TIMEOUT = 5.0
 
 LEDGER_NAME = "ff9mapkit-deploys.log"
@@ -109,9 +100,10 @@ def record(game, event: str, field_id: int, mod_folder: str, checkout=None, note
     seek-then-write -- exactly the interleaving hazard -- and 4 barrier-synchronised processes writing 20
     lines each left 69 of 80 on disk, the rest overwritten. (An earlier draft asserted the POSIX guarantee
     applied; it does not. Do not restore that claim.) So the write also takes a cross-process EXCLUSIVE
-    LOCK (:func:`_exclusive` -- ``fcntl.flock`` / ``msvcrt.locking``), which is what actually serialises
-    appenders on Windows. ``tests/test_deploylog.py`` drives the real :func:`record` through a barrier and
-    asserts no line is lost or torn, against a deliberately seek-then-write control that still tears.
+    LOCK (``fsutil.exclusive_fd_lock`` -- ``fcntl.flock`` / ``msvcrt.locking``), which is what actually
+    serialises appenders on Windows. ``tests/test_deploylog.py`` drives the real :func:`record` through a
+    barrier and asserts no line is lost or torn, against a deliberately seek-then-write control that still
+    tears.
 
     ``checkout`` defaults to the current working directory -- the deploy scripts pass their repo root."""
     ent = Entry(_now(), event, int(field_id), str(mod_folder),
@@ -120,7 +112,7 @@ def record(game, event: str, field_id: int, mod_folder: str, checkout=None, note
     fd = None
     try:
         fd = os.open(str(ledger_path(game)), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
-        with _exclusive(fd):
+        with exclusive_fd_lock(fd, timeout=_LOCK_TIMEOUT, name=LEDGER_NAME):
             os.lseek(fd, 0, os.SEEK_END)   # no-op under POSIX O_APPEND; the real append on Windows
             os.write(fd, data)
         return True
@@ -139,48 +131,6 @@ def record(game, event: str, field_id: int, mod_folder: str, checkout=None, note
                 os.close(fd)
             except OSError:
                 pass
-
-
-@contextlib.contextmanager
-def _exclusive(fd):
-    """Hold a cross-process exclusive lock on ``fd`` for the duration of the block, so two checkouts
-    appending at the same instant serialise instead of clobbering (see :func:`record`).
-
-    POSIX takes ``flock`` on the descriptor. Windows takes a byte-range lock at :data:`_LOCK_OFFSET`, far
-    past EOF, so it acts purely as a mutex -- via ``LK_NBLCK`` in a short backoff loop, NOT the blocking
-    ``LK_LOCK``: that one retries on a **one-second** granularity, which turned the 80-line concurrency
-    test into a 35-second test and would stall a contended deploy for whole seconds to write one
-    diagnostic line. After :data:`_LOCK_TIMEOUT` the ``OSError`` propagates to :func:`record`, which
-    swallows it -- a line lost to a sustained pile-up is the correct trade; a deploy blocked is not. On
-    an exotic platform with neither module the block is a no-op: the single ``os.write`` is still the
-    best available, and the ledger stays non-fatal."""
-    if fcntl is not None:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            with contextlib.suppress(OSError):
-                fcntl.flock(fd, fcntl.LOCK_UN)
-    elif msvcrt is not None:
-        deadline, delay = time.monotonic() + _LOCK_TIMEOUT, 0.001
-        while True:
-            os.lseek(fd, _LOCK_OFFSET, os.SEEK_SET)
-            try:
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-                break
-            except OSError:
-                if time.monotonic() >= deadline:
-                    raise
-                time.sleep(delay)
-                delay = min(delay * 2, 0.05)
-        try:
-            yield
-        finally:
-            with contextlib.suppress(OSError):
-                os.lseek(fd, _LOCK_OFFSET, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-    else:                                   # pragma: no cover - neither fcntl nor msvcrt
-        yield
 
 
 def _now() -> str:
