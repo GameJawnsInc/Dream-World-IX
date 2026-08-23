@@ -115,6 +115,46 @@ def test_full_run_checks_the_hook_is_still_installed():
     assert '"post-merge"' in _SRC and 'entry["hook"]' in _SRC
 
 
+# ---- the post-merge hook TEMPLATE (nightly_gate.md is its only backup -- hooks are untracked) ------
+def _hook_template() -> str:
+    md = (REPO / "tools" / "nightly_gate.md").read_text(encoding="utf-8")
+    inside, lines = False, []
+    for ln in md.splitlines():
+        if ln.strip() == "```sh":
+            inside = True
+            continue
+        if inside and ln.strip() == "```":
+            break
+        if inside:
+            lines.append(ln)
+    assert lines and lines[0].startswith("#!/bin/sh"), "the hook template sh fence has moved/vanished"
+    return "\n".join(lines) + "\n"
+
+
+def test_hook_template_is_valid_sh(tmp_path):
+    import shutil as _sh
+    import subprocess
+    sh = _sh.which("sh")
+    if sh is None:
+        import pytest
+        pytest.skip("no sh on PATH (Git Bash absent)")
+    f = tmp_path / "post-merge"
+    f.write_text(_hook_template(), encoding="utf-8", newline="\n")
+    p = subprocess.run([sh, "-n", str(f)], capture_output=True, text=True)
+    assert p.returncode == 0, f"the documented hook template does not parse: {p.stderr}"
+
+
+def test_hook_template_judges_staleness_and_never_calms_smoke():
+    """Lane C: (1) a green verdict DECAYS -- if the scheduled task silently dies, latest.json stays green
+    forever and every merge reads yesterday's suite as today's, so the hook must judge the stamp's age;
+    (2) smoke-ok is a NON-verdict and must never share green's calm one-liner (the old `green|smoke-ok)`
+    branch presented an unknown suite state as healthy)."""
+    t = _hook_template()
+    assert "STALE" in t and "age_h" in t
+    assert "green|smoke-ok)" not in t
+    assert "SUITE HAS NOT RUN" in t
+
+
 # ---- parse_summary (the counts the skip ceiling judges on) -----------------------------------------
 def test_parse_summary_reads_the_final_pytest_line(tmp_path):
     log = tmp_path / "run.pytest.log"
