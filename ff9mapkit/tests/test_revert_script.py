@@ -98,6 +98,10 @@ def test_revert_tolerates_a_wiped_mod_folder():
     src = build_revert_script(**BENIGN)
     assert "if live.dictionary_patch.exists() else []" in src
     assert src.count("mkdir(parents=True, exist_ok=True)") >= 2   # the DictionaryPatch write + the .mes restore
+    # M6: at revert time the live file is the ONLY copy of foreign lines added since the deploy -- a
+    # truncated write loses other sessions' registrations with no backup that contains them.
+    assert "atomic_write_text(live.dictionary_patch" in src
+    assert "live.dictionary_patch.write_text" not in src
 
 
 def test_int_fields_are_coerced():

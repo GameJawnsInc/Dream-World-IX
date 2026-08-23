@@ -30,6 +30,7 @@ sys.path.insert(0, KIT)
 from ff9mapkit.config import find_game_path, ModLayout, LANGS  # noqa: E402
 from ff9mapkit.battle.build import BattleProject, build_battle_mod  # noqa: E402
 from ff9mapkit.eb import opcodes  # noqa: E402
+from ff9mapkit.fsutil import atomic_write_text  # noqa: E402
 
 REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -123,7 +124,8 @@ if info["dictionary"]:
     cur = [ln for ln in cur if not (ln.startswith("BattleScene")
                                     and (ln.split()[3:4] == [BBG] or ln.split()[1:2] == [sid]))]
     cur += info["dictionary"]
-    live.dictionary_patch.write_text("\n".join(cur) + "\n", encoding="utf-8", newline="\n")
+    # ATOMIC: a half-written DictionaryPatch unregisters every field/battle in the folder at the next launch
+    atomic_write_text(live.dictionary_patch, "\n".join(cur) + "\n", newline="\n")
     relaunch = True
 
 # BattlePatch: SPLICE under this battle's `//` sentinel markers instead of appending. The old code appended
@@ -143,7 +145,7 @@ if info["battle_patch"] or _bp.has_block(_live_bp_text, _bp_owner):
         shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preBATTLE.{STAMP}")
     _merged = _bp.merge_battle_patch(_live_bp_text, info["battle_patch"], _bp_owner)
     if _merged:
-        live.battle_patch.write_text(_merged, encoding="utf-8", newline="\n")
+        atomic_write_text(live.battle_patch, _merged, newline="\n")
     elif live.battle_patch.exists():          # our last block went away and nothing else owns the file
         live.battle_patch.unlink()
     # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it stands

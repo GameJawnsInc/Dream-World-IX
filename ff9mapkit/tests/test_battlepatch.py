@@ -338,6 +338,7 @@ def test_deploy_battle_revert_undoes_the_battlepatch_splice_surgically():
     ROOT, so the restore branch crashed on FileNotFoundError whenever it was actually needed."""
     src = _deploy_battle_src()
     assert "bp_revert_code" in src and "revert_splice" in src
+    assert "live.dictionary_patch.write_text" not in src and "atomic_write_text" in src  # M6: atomic rewrites
     assert 'shutil.copyfile(BK/"BattlePatch.txt.preBATTLE' not in src, \
         "the wholesale (and wrong-dir) snapshot restore is back"
     assert "_bpl.exists(): _bpl.unlink()" in src, "no revert branch for a BattlePatch.txt this deploy created"

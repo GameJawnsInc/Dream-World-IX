@@ -140,7 +140,7 @@ if not live.mod_description.exists():
         f"    <InstallationPath>{MOD_FOLDER}</InstallationPath>\n    <Category></Category>\n"
         f"    <Description></Description>\n</Mod>\n", encoding="utf-8", newline="\n")
 if not live.dictionary_patch.exists():
-    live.dictionary_patch.write_text("", encoding="utf-8", newline="\n")
+    atomic_write_text(live.dictionary_patch, "", newline="\n")
 BK = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backups")))
 BK.mkdir(parents=True, exist_ok=True)                 # gitignored -- absent in a fresh clone/worktree
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -207,7 +207,7 @@ if _src_manifest.is_file():
     else:
         _text = _src_manifest.read_text(encoding="utf-8")
     _live_manifest.parent.mkdir(parents=True, exist_ok=True)
-    _live_manifest.write_text(_text, encoding="utf-8", newline="\n")
+    atomic_write_text(_live_manifest, _text, newline="\n")
     print("  + custom [music] theme(s) -> RELAUNCH to register the new song id(s) + set MusicVolume > 0")
 mint_lines = info.get("mint_lines", [])
 # `3DModel <id> <NAME>` register a GEO id; `3DModelAnimation <key> <ANH_NAME>` register a custom anim (custom_battle_
@@ -245,7 +245,9 @@ dp += charname_lines                           # `CharacterDefaultName <id> <SYM
 dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
-live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
+# ATOMIC: a half-written DictionaryPatch (Ctrl-C, disk-full) unregisters EVERY field in the folder at the
+# next launch -- the null-.eb black screen, folder-wide -- and this file carries OTHER sessions' lines.
+atomic_write_text(live.dictionary_patch, "\n".join(dp) + "\n", newline="\n")
 _dropped = _dp.foreign_registrations_dropped(_dp_before, dp, owned=_dp_owned)   # a line this deploy does NOT own
 if _dropped:
     print("  !! WARNING: this deploy dropped DictionaryPatch registration(s) it does not own. A foreign "
@@ -526,7 +528,7 @@ if _built_block or _bp.has_block(_live_bp_text, FID):
         shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
     _merged = _bp.merge_battle_patch(_live_bp_text, _built_block, FID)
     if _merged:
-        live.battle_patch.write_text(_merged, encoding="utf-8", newline="\n")
+        atomic_write_text(live.battle_patch, _merged, newline="\n")
     elif live.battle_patch.exists():
         live.battle_patch.unlink()
     # SURGICAL revert (battlepatch.revert_splice): restore OUR pre-deploy block into the file as it stands
@@ -557,7 +559,7 @@ if _built_tp or _itxt.has_block(_live_tp_text, FID):       # exact marker, same 
         shutil.copyfile(live.text_patch, BK / f"TextPatch.txt.preDEPLOY.{STAMP}")
     _merged_tp = _itxt.merge_text_patch(_live_tp_text, _built_tp, FID)
     if _merged_tp:
-        live.text_patch.write_text(_merged_tp, encoding="utf-8", newline="\n")
+        atomic_write_text(live.text_patch, _merged_tp, newline="\n")
     elif live.text_patch.exists():
         live.text_patch.unlink()
     # SURGICAL revert (itemtext.revert_splice) -- same contract as the BattlePatch fragment above.

@@ -118,6 +118,17 @@ def test_splice_reverts_are_surgical_not_snapshot_restores():
     assert _SRC.count("has_block") >= 2
 
 
+def test_live_patch_rewrites_are_atomic():
+    """M6: the live DictionaryPatch/BattlePatch/TextPatch rewrites went through Path.write_text -- a
+    half-written DictionaryPatch (Ctrl-C, disk-full) unregisters EVERY field in the folder at the next
+    launch, and these files carry OTHER sessions' lines. fsutil.atomic_write_text is the house rule for
+    load-bearing writes (2026-07 review); pin that this script spends it."""
+    for bad in ("live.dictionary_patch.write_text", "live.battle_patch.write_text",
+                "live.text_patch.write_text"):
+        assert bad not in _SRC, f"non-atomic live rewrite is back: {bad}"
+    assert "atomic_write_text" in _SRC
+
+
 def test_deploy_target_resolution_is_loud():
     """M5: a malformed .ff9deploy.toml used to be swallowed (`except Exception: pass`) -- the worktree then
     silently deployed into the SHARED default folder, the exact hazard the pin exists to prevent. Deploy is

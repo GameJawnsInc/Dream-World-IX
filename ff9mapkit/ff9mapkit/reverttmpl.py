@@ -48,6 +48,7 @@ import sys, shutil
 from pathlib import Path
 sys.path.insert(0, {kit!r})
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
+from ff9mapkit.fsutil import atomic_write_text
 from ff9mapkit import dictpatch as _dp
 from ff9mapkit import deploylog as _dlog   # NEEDED by the ledger call at the bottom -- a missing import here
 #                                            NameErrors every generated revert, and a deploy RUNS the revert
@@ -69,7 +70,9 @@ _dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
 _bak=_dpbak.read_text(encoding="utf-8").splitlines() if _dpbak.exists() else []
 _dpkeep,_lost=_dp.revert_dictionary_patch(_dp_before, _bak, fid={fid_str!r}, model_ids=_MINT_IDS, anim_keys=_MINT_ANIM_KEYS, text_blocks=_MES_BLOCKS)
 live.dictionary_patch.parent.mkdir(parents=True, exist_ok=True)
-live.dictionary_patch.write_text("\\n".join(_dpkeep)+"\\n", encoding="utf-8", newline="\\n")
+# ATOMIC: at revert time this file is the ONLY copy of foreign lines added since the deploy -- a truncated
+# write here loses other sessions' registrations with no backup that contains them.
+atomic_write_text(live.dictionary_patch, "\\n".join(_dpkeep)+"\\n", newline="\\n")
 for _dl in _lost:   # belt-and-suspenders: a foreign line this revert shouldn't have touched
     print(f"  !! WARNING: revert dropped a DictionaryPatch line it does not own: {{_dl}}")
 shutil.rmtree(live.fieldmap_dir({fbg!r}), ignore_errors=True)
