@@ -324,6 +324,12 @@ def test_deploy_battle_splices_the_battlepatch_instead_of_appending():
     assert "has_block" in src and "_bp_owner in _live_bp_text" not in src
 
 
+def test_deploy_battle_malformed_deploy_pin_is_loud():
+    # a TOML typo in .ff9deploy.toml must abort, not silently share the default folder (mirrors deploy_field)
+    src = _deploy_battle_src()
+    assert "refusing to guess a deploy target" in src
+
+
 def test_deploy_battle_revert_undoes_the_battlepatch_splice_surgically():
     """Lane B 2026-08: the revert must re-splice its OWN pre-deploy block into the file as it stands at
     revert time (revert_splice), never restore the whole snapshot -- that re-clobbered every block another

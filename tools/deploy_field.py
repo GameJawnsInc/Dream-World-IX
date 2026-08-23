@@ -32,8 +32,15 @@ def _worktree_cfg():
     if f.is_file():
         try:
             return tomllib.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            # A checkout that PINNED its deploy target must never silently fall back to the SHARED default
+            # folder -- that clobber is the exact hazard the pin exists to prevent, and a TOML typo used to
+            # cause it with zero output. Deploy is the destructive path, so this ABORTS loudly (the
+            # package's config._read_deploy_config stays soft for read-only verbs, but warns now too).
+            print(f"!! {f} is unreadable/malformed ({e})\n"
+                  f"!! refusing to guess a deploy target -- fix the file, or delete it to accept the "
+                  f"shared defaults deliberately.", file=sys.stderr)
+            sys.exit(2)
     return {}
 _cfg = _worktree_cfg()
 _def_folder = os.environ.get("FF9_MOD_FOLDER") or _cfg.get("mod_folder") or "FF9CustomMap"
@@ -42,8 +49,10 @@ _ap = argparse.ArgumentParser(description="Build a field.toml and deploy it reve
                                           "id, inside a per-worktree Memoria mod folder. Reach it via the "
                                           "debug menu (~)'s 'Warp to field'.")
 _ap.add_argument("toml", help="path to the field.toml")
-_ap.add_argument("--id", type=int, default=_def_id,
-                 help="custom field id to deploy into (e.g. 5000 to give a branch/worktree its own slot)")
+_ap.add_argument("--id", type=int, default=None,
+                 help="custom field id to deploy into (e.g. 5000 to give a branch/worktree its own slot). "
+                      "ALWAYS pass it explicitly: the fallback is the .ff9deploy.toml pin, else the SHARED "
+                      "4003 sandbox, where another session's deploy can clobber yours.")
 _ap.add_argument("--name", default=None,
                  help="internal field name (default TESTROOM for 4003, else TEST<id>)")
 _ap.add_argument("--mod-folder", dest="mod_folder", default=_def_folder,
@@ -55,7 +64,14 @@ _ap.add_argument("--text-block", dest="text_block", type=int, default=_cfg.get("
                       "several worktree mod folders stack in Memoria.ini FolderNames.")
 _args = _ap.parse_args()
 TOML = Path(_args.toml)
-FID = _args.id
+FID = _args.id if _args.id is not None else _def_id
+if _args.id is None:
+    # "always pass --id" was a doc-only mandate (CLAUDE.md, feedback-deploy-field-default-sandbox) with no
+    # enforcement at the call site -- and the silent 4003 default is a shared slot every session can clobber.
+    print("  !! no --id given -> defaulting to {} {}; pass --id explicitly.".format(
+              FID, "(the .ff9deploy.toml pin)" if "id" in _cfg
+              else "(the SHARED 4003 sandbox -- another session's deploy can clobber it)"),
+          file=sys.stderr)
 MOD_FOLDER = _args.mod_folder
 # The custom-field slot is a SANDBOX: force the test build to id FID + a fixed name so ANY field.toml
 # (any id/name) tests here without colliding with a live field. Each id gets a DISTINCT name -> distinct

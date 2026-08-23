@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -259,7 +260,9 @@ def _read_deploy_config(start: str | os.PathLike | None = None) -> dict:
 
     Soft-failing is deliberate: this file is a convenience pin, and a caller who passed ``--mod-folder``
     or set the env var has already said what they want. A hard parse error here would break commands
-    that never needed the file.
+    that never needed the file. But soft is not SILENT: a malformed pin means this checkout silently
+    falls back to the SHARED default folder -- the exact clobber the pin exists to prevent -- so the
+    parse failure is announced on stderr (the deploy scripts go further and abort outright).
     """
     p = _find_deploy_config(start)
     if p is None or tomllib is None:
@@ -267,7 +270,9 @@ def _read_deploy_config(start: str | os.PathLike | None = None) -> dict:
     try:
         with p.open("rb") as fh:
             return tomllib.load(fh)
-    except (OSError, ValueError):
+    except (OSError, ValueError) as e:
+        print(f"!! {p} could not be parsed ({e}) -- IGNORING the deploy pin (shared defaults apply). "
+              f"Fix the file, or delete it to accept the defaults deliberately.", file=sys.stderr)
         return {}
 
 

@@ -41,8 +41,13 @@ def _mod_folder_default():
             mf = tomllib.loads(f.read_text(encoding="utf-8")).get("mod_folder")
             if mf:
                 return mf
-        except Exception:
-            pass
+        except Exception as e:
+            # a malformed pin must not silently drop this checkout into the SHARED default folder --
+            # that clobber is the exact hazard the pin exists to prevent (same rule as deploy_field).
+            print(f"!! {f} is unreadable/malformed ({e})\n"
+                  f"!! refusing to guess a deploy target -- fix the file, or delete it to accept the "
+                  f"shared defaults deliberately.", file=sys.stderr)
+            raise SystemExit(2)
     return os.environ.get("FF9_MOD_FOLDER") or "FF9CustomMap"
 
 

@@ -118,6 +118,17 @@ def test_splice_reverts_are_surgical_not_snapshot_restores():
     assert _SRC.count("has_block") >= 2
 
 
+def test_deploy_target_resolution_is_loud():
+    """M5: a malformed .ff9deploy.toml used to be swallowed (`except Exception: pass`) -- the worktree then
+    silently deployed into the SHARED default folder, the exact hazard the pin exists to prevent. Deploy is
+    the destructive path, so it must ABORT on a malformed pin. And "always pass --id" was a doc-only mandate
+    (feedback-deploy-field-default-sandbox): the silent 4003 default is a shared slot, so defaulting must
+    announce itself."""
+    assert "refusing to guess a deploy target" in _SRC     # the malformed-pin abort
+    assert "except Exception:\n            pass" not in _SRC
+    assert "no --id given" in _SRC                          # the defaulted-id warning
+
+
 def test_generated_revert_fragments_compile_when_spliced():
     """The *_revert_code fragments are Python source built by string concatenation -- a stray quote or a
     bad indent in one yields a revert script that dies at PARSE time, and (H3) a crashed prelude now

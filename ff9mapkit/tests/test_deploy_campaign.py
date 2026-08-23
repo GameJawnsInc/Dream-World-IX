@@ -35,6 +35,23 @@ def test_resolve_mod_folder(monkeypatch):
     assert dc.resolve_mod_folder("CLI") == "CLI"
 
 
+def test_malformed_deploy_pin_warns_instead_of_silently_sharing(tmp_path, capsys):
+    """M5 (Lane B, 2026-08): a TOML typo in .ff9deploy.toml used to read as ABSENT -- the checkout then
+    silently fell back to the SHARED default folder, the exact clobber the pin exists to prevent. The
+    package reader stays soft (read-only verbs must not break over a pin they never needed) but is no
+    longer silent."""
+    import ff9mapkit.config as C
+    (tmp_path / ".git").mkdir()                            # bound the upward search to this dir
+    pin = tmp_path / C.DEPLOY_CONFIG_NAME
+    pin.write_text('mod_folder = "unclosed', encoding="utf-8")
+    assert C._read_deploy_config(tmp_path) == {}           # still soft...
+    err = capsys.readouterr().err
+    assert "could not be parsed" in err and "deploy pin" in err   # ...but LOUD
+    pin.write_text('mod_folder = "OK"', encoding="utf-8")  # a healthy pin stays quiet
+    assert C._read_deploy_config(tmp_path)["mod_folder"] == "OK"
+    assert capsys.readouterr().err == ""
+
+
 def test_resolve_entry():
     p = _plan()
     assert deploy.resolve_entry(p, None) == 30100        # manifest entry_field IC_ENT -> its new id
