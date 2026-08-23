@@ -30,7 +30,11 @@ agent session, and must never be pruned with them. It stays permanently provisio
 fixtures + `.ff9mapkit-cache` are gitignored, so `checkout --force` never touches them), which is
 what defuses the **worktree skip-trap** (a fresh worktree silently fails to collect ~479 byte-level
 tests and reports green anyway). Belt-and-braces, the runner also **aborts as `collect-short`** if
-fewer than `--collect-floor` (default 6500) tests collect, rather than minting a false green.
+fewer tests collect than the floor — which **self-ratchets to 98% of the last full green run's own
+collection** (the static `--collect-floor`, default 6500, is only the bootstrap; the old fixed floor
+rotted as the suite grew until it admitted a drop 4× the trap it was built for). A collection that
+exits non-zero (an import-broken module) aborts as **`collect-error`** — the count alone would clear
+the floor while part of the suite silently isn't in it.
 
 ## Reading results
 
@@ -39,7 +43,7 @@ fewer than `--collect-floor` (default 6500) tests collect, rather than minting a
 ```json
 {
   "timestamp": "2026-08-04T04:41:12",
-  "result": "green",            // green | red | error | timeout | collect-short | smoke-ok
+  "result": "green",            // green | red | error | timeout | collect-short | collect-error | skip-long
   "mode": "full",
   "sha": "8cbc39e6",            // the master commit that was tested
   "collected": 6947,
@@ -50,6 +54,11 @@ fewer than `--collect-floor` (default 6500) tests collect, rather than minting a
   "suite_log": "...runs\\<ts>.pytest.log"  // full pytest output, incl. --durations=25 profiling
 }
 ```
+
+**`latest.json` is a VERDICT file: only a FULL run writes it.** A `--smoke` or narrowed
+(`--pytest-args`) run appends to `ledger.jsonl` only — the 2026-08-05 incident (a narrowed
+verification run flipped `latest.json` to `skip-long`, restored by hand) is why. So `latest.json`
+always answers "what did the whole suite last say", never "what did somebody's subset say".
 
 `ledger.jsonl` is the same shape, one line per run, append-only — grep it for trends. The
 `--durations=25` block at the end of each `*.pytest.log` is the standing profiling data: if the
@@ -103,9 +112,35 @@ if [ ! -f "$ledger" ]; then
 fi
 result=$(sed -n 's/.*"result": *"\([^"]*\)".*/\1/p' "$ledger" | head -1)
 stamp=$(sed -n 's/.*"timestamp": *"\([^"]*\)".*/\1/p' "$ledger" | head -1)
+# A green VERDICT decays: if the scheduled task silently dies (logged out at 04:00 for days,
+# task disabled by an update), latest.json stays green forever and every merge reads
+# yesterday's suite as today's. GNU date (Git Bash) parses the ISO stamp; if it cannot,
+# the age stays unknown and we stay calm rather than cry wolf.
+age_h=""
+if [ -n "$stamp" ]; then
+    then_s=$(date -d "$stamp" +%s 2>/dev/null)
+    [ -n "$then_s" ] && age_h=$(( ($(date +%s) - then_s) / 3600 ))
+fi
+if [ -n "$age_h" ] && [ "$age_h" -gt 48 ]; then
+    cat <<EOF
+!! =====================================================================
+!! [test-gate] THE LEDGER IS STALE: the last entry ($result) is ${age_h}h
+!! old. The nightly gate has NOT run for over 2 days -- its verdict is
+!! HISTORY, not the state of master. Check Task Scheduler ('FF9 nightly
+!! test gate'; were you logged out at 04:00?), or run
+!! tools/nightly_gate.py by hand now.
+!! Ledger: $ledger
+!! =====================================================================
+EOF
+    exit 0
+fi
 case "$result" in
-    green|smoke-ok)
-        echo "[test-gate] last nightly gate: $result ($stamp)"
+    green)
+        echo "[test-gate] last nightly gate: green ($stamp)"
+        ;;
+    smoke-ok)
+        # a legacy latest.json only -- smoke runs no longer write the verdict file
+        echo "[test-gate] last ledger entry is smoke-ok ($stamp) -- provisioning only, the SUITE HAS NOT RUN"
         ;;
     *)
         cat <<EOF
@@ -141,7 +176,8 @@ Everything is idempotent; re-running any step is safe.
    ```
 
    First run takes a few minutes (template extraction). Expect `smoke OK` and a
-   `smoke-ok` ledger entry.
+   `smoke-ok` row in `ledger.jsonl` (`latest.json` stays untouched — it holds full-suite
+   verdicts only, so it won't exist until the first real nightly).
 4. **Register the scheduled task** (defaults to daily 04:00):
 
    ```bash
@@ -164,8 +200,12 @@ Everything is idempotent; re-running any step is safe.
 - **Workers:** the task runs the script's defaults (`-n 6` — the measured sweet spot; `-n auto`
   re-contends on disk, don't). To change permanently, edit `--workers`'s default in the script and
   merge; the gate picks it up the next night. Falls back to serial automatically if xdist is missing.
-- **Collect floor:** the suite grows; if `collected` in the ledger rises well above 6500, raise the
-  default in the script so the guard stays meaningful (floor ≈ 90% of current collection).
+- **Collect floor:** self-maintaining since Lane C (2026-08-23): the effective floor is 98% of the
+  last full green's own `collected` (the ledger is the baseline), with the static `--collect-floor`
+  as the bootstrap bound. The old rule here ("raise the default as the suite grows") was never
+  executed and the fixed floor rotted to 77% of collection — do not reintroduce a manual number.
+  A **deliberate** suite shrink beyond 2% will abort `collect-short`; run once with
+  `--no-dynamic-floor` and say why in the merge message.
 - **Skip ceiling** (`--skip-ceiling`, default 32 — audit rec 18): the floor is structurally BLIND
   to a module-level `skipif`, which still *collects* the family it silences — 56 coastmorph tests
   skipping en masse would read as a green ledger. A green run whose `skipped` exceeds the ceiling

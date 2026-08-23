@@ -16,6 +16,8 @@ from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ -- for repo_root (a spec-loaded run lacks it)
+from repo_root import main_repo_root
 from ff9mapkit import build as B
 from ff9mapkit import reverttmpl as _revert
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
@@ -27,6 +29,13 @@ import argparse, tomllib
 # mod folder + slot id, so worktrees never share a DictionaryPatch.txt and can't clobber each other's
 # registrations. Resolution order: CLI flag > $FF9_MOD_FOLDER > .ff9deploy.toml > defaults.
 _REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# TWO roots, deliberately distinct: _REPO is the RUNNING checkout (it owns the per-worktree
+# .ff9deploy.toml pin and names this checkout in the deploy ledger), _MAIN is the main repo (it owns
+# backups/ + tools/scroll_out). Rooting those at _REPO parked a deploy's ONLY backups + revert script
+# in an ephemeral agent worktree: the live install kept the deploy while its undo evaporated with the
+# tree (project-ff9-worktree-parked-backups). One shared scroll_out also lets the prelude below find a
+# slot's prior revert no matter which worktree wrote it.
+_MAIN = main_repo_root()
 def _worktree_cfg():
     f = _REPO / ".ff9deploy.toml"
     if f.is_file():
@@ -79,8 +88,8 @@ MOD_FOLDER = _args.mod_folder
 # and a field named like a live one (e.g. HUT_INT) can't overwrite the real field. 4003 stays TESTROOM
 # for back-compat (the New-Game auto-warp + existing reverts).
 TEST_NAME = _args.name or ("TESTROOM" if FID == 4003 else f"TEST{FID}")
-OUT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "scroll_out")))
-OUT.mkdir(exist_ok=True)
+OUT = _MAIN / "tools" / "scroll_out"
+OUT.mkdir(parents=True, exist_ok=True)
 
 # build FIRST, into a private tempdir -- nothing live is touched yet. The prelude revert below used to run
 # before this, so ANY author error (a typo'd toml path at load, a lint refusal, a BuildError) aborted with
@@ -147,8 +156,8 @@ if not live.dictionary_patch.exists():
         os.close(os.open(str(live.dictionary_patch), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
     except FileExistsError:
         pass
-BK = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backups")))
-BK.mkdir(parents=True, exist_ok=True)                 # gitignored -- absent in a fresh clone/worktree
+BK = _MAIN / "backups"
+BK.mkdir(parents=True, exist_ok=True)                 # gitignored -- absent in a fresh clone
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preDEPLOY.{STAMP}")
 for L in LANGS:

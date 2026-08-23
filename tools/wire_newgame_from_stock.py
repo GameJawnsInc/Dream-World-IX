@@ -2,8 +2,9 @@
 """Create the field-70 New-Game override FROM STOCK and point it at a custom entry id -- PURE MOD, no DLL.
 
 Thin repo shim over :func:`ff9mapkit.newgame.wire_from_stock` (the logic now lives in the package so the
-installed ``ff9mapkit`` CLI shares it). This wrapper just supplies the repo-flavored backup/revert dirs
-(``backups/`` + ``tools/scroll_out/``) and the REPO-relative revert hint. The field-70 opening (FMV + fade)
+installed ``ff9mapkit`` CLI shares it). This wrapper just supplies the repo-flavored backup/revert dirs --
+the MAIN repo's ``backups/`` + ``tools/scroll_out/``, never a worktree's own (see tools/repo_root.py:
+a worktree-parked backup/revert evaporates with the tree while the live install keeps the override). The field-70 opening (FMV + fade)
 is PRESERVED -> New Game plays the faithful intro, then warps into the fork. The target MUST be a registered
 field (deploy the chain first) or New Game warps to an unregistered id = black screen.
 
@@ -23,10 +24,12 @@ from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ -- for repo_root
+from repo_root import main_repo_root                         # noqa: E402
 from ff9mapkit import newgame                                # noqa: E402
 from ff9mapkit.config import find_game_path                  # noqa: E402
 
-REPO = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+MAIN = main_repo_root()                                      # backups/reverts of install state live HERE
 
 
 def main() -> int:
@@ -43,10 +46,17 @@ def main() -> int:
         return 2
 
     res = newgame.wire_from_stock(game, args.target, mod_folder=args.mod_folder,
-                                  backups_dir=REPO / "backups", reverts_dir=REPO / "tools" / "scroll_out",
+                                  backups_dir=MAIN / "backups", reverts_dir=MAIN / "tools" / "scroll_out",
                                   dry_run=args.dry_run)
     if res["revert"]:
-        print(f"  revert: py {Path(res['revert']).relative_to(REPO).as_posix()}")
+        # a runnable hint: relative only when the cwd actually contains it (a worktree cwd does not --
+        # the revert lands in the MAIN repo's scroll_out), else the absolute path.
+        rp = Path(res["revert"])
+        try:
+            hint = rp.relative_to(Path.cwd()).as_posix()
+        except ValueError:
+            hint = str(rp)
+        print(f"  revert: py {hint}")
         print(f"  seamless (skip the intro FMV): py tools/skip_opening_fmv.py")
     return 0 if res["ok"] else 2
 
