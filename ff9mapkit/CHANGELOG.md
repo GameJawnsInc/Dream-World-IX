@@ -5,6 +5,29 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the field/battle deploy loop survives its own failures (adversarial review, Lane B)
+- `tools/deploy_field.py` builds BEFORE running the prior revert as its prelude: a typo'd
+  toml path or a lint refusal used to abort with the slot's prior deploy already torn down
+  (un-registered + files deleted), black-screening a mid-playtest ~ Reload on that id. The
+  prelude's exit code is now checked (a half-reverted folder aborts the deploy loudly), and
+  the generated revert tolerates a campaign-wiped mod folder instead of crashing over it.
+- The BattlePatch/TextPatch/ForkDonorPatch deploy-reverts are SURGICAL (new
+  `battlepatch.extract_block`/`has_block`/`revert_splice`, `itemtext` mirrors, new
+  `ff9mapkit.forkdonor` row helpers): the old whole-snapshot restore re-clobbered every
+  block/row another deploy spliced in between — a redeploy runs its revert as the prelude,
+  so redeploying field A silently deleted a co-deployed battle's tuning block and a later
+  fork's donor row. `tools/deploy_battle.py`'s restore also looked for its backup in the
+  wrong directory (crashed whenever needed); its surgical fragment embeds the absolute
+  path. Both scripts' triggers match the exact begin marker (never a substring — "field
+  300" armed on field 3000's block).
+- A malformed `.ff9deploy.toml` ABORTS the deploy scripts (it used to silently fall back
+  to the SHARED default mod folder — the exact clobber the pin exists to prevent); the
+  package reader warns on stderr. `deploy_field` also warns whenever `--id` was defaulted.
+- Live `DictionaryPatch.txt`/`BattlePatch.txt`/`TextPatch.txt` rewrites (both deploy
+  scripts + the generated revert) route through `fsutil.atomic_write_text` — a truncated
+  DictionaryPatch unregisters the whole folder, and at revert time the live file is the
+  only copy of foreign lines added since the deploy.
+
 ### Changed — `image-field` re-runs MERGE instead of overwriting
 - Regenerating an image-field project used to rewrite `<name>.field.toml` wholesale,
   destroying every hand-authored table (`[[npc]]`, `[[chest]]`, `[music]`, doors drawn in
