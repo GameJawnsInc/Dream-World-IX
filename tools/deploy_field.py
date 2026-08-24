@@ -729,8 +729,12 @@ try:
         MOD_FOLDER)
     if _warn:
         print(f"\n  !! {_warn}")
-except Exception:
-    pass                                                   # a missing/odd Memoria.ini must never break a deploy
+except Exception as _ge:
+    # a guard failure must never break a deploy -- but it must never be SILENT either: a swallowed
+    # crash here disables the text-shadow warning layer forever (a check that cannot fail). The
+    # check functions already handle a missing/odd Memoria.ini themselves; reaching this line means
+    # the guard itself is broken.
+    print(f"  (text-shadow guard unavailable -- fix it, the shadow is now UNCHECKED: {_ge})")
 
 # id-collision guard: this field id ALSO registered (as a FieldScene/BattleScene) by another stacked FolderNames
 # folder collides in the GLOBAL FF9DBAll.EventDB -> one side loads the wrong .eb -> black screen (the 30011 vs
@@ -740,8 +744,8 @@ try:
     _iw = id_collision_warning(check_id_collisions(GAME, MOD_FOLDER, {FID}), MOD_FOLDER)
     if _iw:
         print(f"\n  !! {_iw}")
-except Exception:
-    pass
+except Exception as _ge:
+    print(f"  (id-collision guard unavailable -- fix it, collisions are now UNCHECKED: {_ge})")
 
 # CSV-shadow guard: the starting bag (InitialItems.csv) is read HIGHEST-PRIORITY-WINS, so deploying it into a
 # folder a HIGHER-priority FolderNames folder also ships silently drops it. (ShopItems/DefaultEquipment MERGE,
@@ -754,8 +758,8 @@ try:
                 _cw = check_csv_shadow(GAME, MOD_FOLDER, _rel)
                 if _cw:
                     print(f"\n  !! {_cw}")
-except Exception:
-    pass
+except Exception as _ge:
+    print(f"  (csv-shadow guard unavailable -- fix it, the shadow is now UNCHECKED: {_ge})")
 
 print(f"\n=== Reach it in-game: ~ -> debug menu -> Warp to field {FID} "
       f"(or New Game, if the auto-warp targets {FID}). ===")

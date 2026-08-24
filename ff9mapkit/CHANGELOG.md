@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the deploy-time warning layer can no longer fail silently (adversarial review, Lane I)
+- The live-stack guards in `tools/deploy_field.py` (text-block shadow, global-EventDB id
+  collision, CSV shadow) each ran inside `except Exception: pass` — so a regression in
+  `deploystack` would have disabled the entire warning layer silently and permanently,
+  while every deploy kept printing a clean-looking transcript (the "check that cannot
+  fail" class). A guard crash now prints a visible one-liner naming what went unchecked
+  (still never breaks a deploy — the check functions handle a missing `Memoria.ini`
+  themselves; the handler only fires when the guard itself is broken).
+- `tools/deploy_battle.py`, which registers `BattleScene` ids in the same GLOBAL EventDB,
+  carried **no id-collision guard at all** — and the canonical 30011 black-screen incident
+  was precisely a FieldScene-vs-BattleScene cross. It now runs the same guard over every
+  BattleScene id it splices. Both wirings (and the print-on-crash handlers) are pinned by
+  AST in `tests/test_deploy_field_script.py`. Audited healthy, no change: the package
+  deploy lanes (campaign / journey / single-folder) run all three guards pre-install and
+  ABORT by default (`allow_id_collision` / `allow_name_collision` to override), unwrapped.
+
 ### Fixed — the engine build/restore loop gets its enforcement call sites (adversarial review, Lane H)
 - The engine-DLL build was the one place a CLAUDE.md hard constraint ("back up before
   editing any game/engine file") was violated by design: raw msbuild AUTO-DEPLOYS over the
