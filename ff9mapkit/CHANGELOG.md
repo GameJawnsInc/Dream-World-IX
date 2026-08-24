@@ -11,8 +11,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   against a justified allowlist, pins the wheel `package-data` to provenance-clean globs,
   and scans locally built dists. The audit that motivated it found one real violation —
   the committed `release/FF9CustomMap` demo's built `.eb` files embed the SE-derived
-  blank-field template verbatim (the same subtlety that makes build goldens hashes) — now
-  fenced pending the owner's removal decision; everything else the audit swept (studies,
+  blank-field template verbatim (the same subtlety that makes build goldens hashes) — the
+  owner ruled it a deliberate one-off, now documented in PROVENANCE.md ("The release-demo
+  exception") and FROZEN to the exact grant-time files (the tripwire enforces the freeze:
+  any new derived file under the folder fails). Everything else the audit swept (studies,
   fixtures, docsite, examples, FLAG_LORE caps) verified clean, and the "a build can never
   bundle FF9 bytes even on a provisioned machine" claim tested TRUE empirically for both
   wheel and sdist. The offline hut dialogue proof now builds from the tracked example

@@ -166,8 +166,9 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   Author on a copy / `ff9mapkit new` / a Blender export. (`ff9mapkit/examples/vivi-hut/` is a retired
   offline build-oracle: do NOT re-polish it in-game.)
 - **Provenance gate is CLEAR and must stay so** — zero Square-Enix binary bytes; templates regenerate from
-  the user's own install (`ff9mapkit extract-templates`). The one documented game-text exception is
-  `research/FLAG_LORE.md`'s ≤110-char excerpts (`ff9mapkit/docs/PROVENANCE.md`).
+  the user's own install (`ff9mapkit extract-templates`). Documented exceptions: FLAG_LORE's ≤110-char
+  excerpts + the owner-granted `release/` demo (FROZEN; `test_provenance_tripwire.py` enforces both the
+  gate and the freeze) — `ff9mapkit/docs/PROVENANCE.md`.
 - **Versions:** kit `1.0.0b19`, Blender add-on `0.9.29`. (b18 was tagged but never published — its CI caught 3 portability bugs; b19 is the fixed re-cut.)
 
 ---
