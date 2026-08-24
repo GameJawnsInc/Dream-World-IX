@@ -27,6 +27,14 @@ BLOCK_SIZE = 100              # ids per mod block
 FIELD_ID_MAX = 32767
 SCRATCH_ID_MIN = 30000
 SCRATCH_ID_MAX = FIELD_ID_MAX
+# The engine-RESERVED world-map hole INSIDE the custom band: EventDB[9000..9012] are the 13 world-state
+# dispatchers (EVT_WORLD_WORLD00..12, the WorldMap()/wldMapNo values), registered by the ENGINE itself --
+# so no DictionaryPatch line exists for a collision check to trip on. A custom FieldScene there silently
+# REPLACES the world script: every field->overworld transition in that world state then loads a field .eb
+# name from the World/ folder -> not found -> black screen. journey/reid/campaign/floorplan each grew a
+# private guard for this; pack owns the constants now (journey.WORLD_ID_LO/HI re-exports them) and
+# :func:`check_custom_id` refuses the hole, so a caller of the shared validator gets the law for free.
+WORLD_ID_LO, WORLD_ID_HI = 9000, 9012
 
 
 def suggest_base(mod_name: str) -> int:
@@ -38,14 +46,22 @@ def suggest_base(mod_name: str) -> int:
     """
     n_blocks = (CUSTOM_ID_MAX - CUSTOM_ID_MIN) // BLOCK_SIZE
     h = int.from_bytes(hashlib.sha1(mod_name.encode("utf-8")).digest()[:4], "big")
-    return CUSTOM_ID_MIN + (h % n_blocks) * BLOCK_SIZE
+    base = CUSTOM_ID_MIN + (h % n_blocks) * BLOCK_SIZE
+    if base <= WORLD_ID_HI and base + BLOCK_SIZE - 1 >= WORLD_ID_LO:
+        base += BLOCK_SIZE          # the 9000 block holds the engine world-map hole -- never suggest it
+    return base
 
 
 def suggest_ids(base: int, count: int) -> list[int]:
-    """``count`` consecutive ids from ``base`` (validated to stay in the custom range)."""
+    """``count`` consecutive ids from ``base`` (validated to stay in the custom range AND clear of the
+    engine-reserved world-map hole -- see :data:`WORLD_ID_LO`)."""
     if base < CUSTOM_ID_MIN or base + count - 1 > CUSTOM_ID_MAX:
         raise ValueError(f"id block [{base}..{base + count - 1}] outside custom range "
                          f"[{CUSTOM_ID_MIN}..{CUSTOM_ID_MAX}]")
+    if base <= WORLD_ID_HI and base + count - 1 >= WORLD_ID_LO:
+        raise ValueError(f"id block [{base}..{base + count - 1}] intersects the engine-reserved "
+                         f"world-map hole {WORLD_ID_LO}-{WORLD_ID_HI} (EVT_WORLD_WORLD00..12) -- "
+                         "a FieldScene there clobbers the world scripts; pick a base clear of it")
     return [base + i for i in range(count)]
 
 
@@ -53,11 +69,13 @@ def check_custom_id(value, what: str = "field id") -> int:
     """Parse + band-check a user-entered custom field id; return it as an int.
 
     A custom field id lives in ``[CUSTOM_ID_MIN..FIELD_ID_MAX]`` (real ids are locked; the scratch band
-    is the top of it). Raises ``ValueError`` on a non-number or an out-of-band value, in the exact voice
-    the Workspace New pickers hand-copied at four sites -- ``"{what} {id} out of the custom band
-    4000-32767 (real ids are locked)"`` -- so this one validator can replace them without changing a
-    character of what the user reads. ``what`` names the input for that message ('field id', 'entry
-    field id', 'hub field id'); callers int() the value separately today.
+    is the top of it) and must miss the engine-reserved world-map hole ``WORLD_ID_LO..WORLD_ID_HI``
+    (a FieldScene there clobbers a world dispatcher -- see the constant's comment). Raises ``ValueError``
+    on a non-number or an out-of-band value, in the exact voice the Workspace New pickers hand-copied at
+    four sites -- ``"{what} {id} out of the custom band 4000-32767 (real ids are locked)"`` -- so this
+    one validator can replace them without changing a character of what the user reads. ``what`` names
+    the input for that message ('field id', 'entry field id', 'hub field id'); callers int() the value
+    separately today.
     """
     try:
         n = int(str(value).strip())
@@ -66,6 +84,11 @@ def check_custom_id(value, what: str = "field id") -> int:
     if not (CUSTOM_ID_MIN <= n <= FIELD_ID_MAX):
         raise ValueError(f"{what} {n} out of the custom band {CUSTOM_ID_MIN}–{FIELD_ID_MAX} "
                          "(real ids are locked)")
+    if WORLD_ID_LO <= n <= WORLD_ID_HI:
+        raise ValueError(f"{what} {n} lands in the engine-reserved world-map hole "
+                         f"{WORLD_ID_LO}-{WORLD_ID_HI} (EventDB[{WORLD_ID_LO}..{WORLD_ID_HI}] = the "
+                         "world-state dispatchers EVT_WORLD_WORLD00..12) -- a FieldScene there clobbers "
+                         "the world scripts; pick an id clear of the hole")
     return n
 
 

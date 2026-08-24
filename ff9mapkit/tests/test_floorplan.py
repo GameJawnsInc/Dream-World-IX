@@ -613,10 +613,12 @@ def test_preflight_skips_taken_ids_and_the_engine_world_hole():
 
 def test_the_kit_id_helpers_this_replaces():
     """★ Each obvious candidate fails differently, and the failures are silent-ish. Pinned so nobody
-    'simplifies' the pre-flight back onto them."""
+    'simplifies' the pre-flight back onto them. (Lane G closed the check_custom_id hole gap -- it now
+    REFUSES 9005 -- but it still validates one id, not a free consecutive run, so the pre-flight stays.)"""
     with pytest.raises(ValueError):
         pack.suggest_ids(30500, 3)                    # caps at CUSTOM_ID_MAX = 9899
-    assert pack.check_custom_id(9005) == 9005         # no carve-out for the 9000-9012 world hole
+    with pytest.raises(ValueError, match="world-map hole"):
+        pack.check_custom_id(9005)                    # the 9000-9012 carve-out now lives in the validator
 
 
 def test_a_hand_pinned_id_inside_the_world_hole_is_refused():
