@@ -19,6 +19,7 @@ sys.path.insert(0, KIT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ -- for repo_root (a spec-loaded run lacks it)
 from repo_root import main_repo_root
 from ff9mapkit import build as B
+from ff9mapkit import pack as _pack
 from ff9mapkit import reverttmpl as _revert
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit.eb import EbScript, edit, disasm
@@ -81,6 +82,16 @@ if _args.id is None:
               FID, "(the .ff9deploy.toml pin)" if "id" in _cfg
               else "(the SHARED 4003 sandbox -- another session's deploy can clobber it)"),
           file=sys.stderr)
+# Band-check the slot BEFORE anything else: --id (and the .ff9deploy pin) override the toml's id AFTER
+# its author-time checks ran, so the override itself must honor the band law -- the custom band
+# 4000-32767 AND the engine-reserved 9000-9012 world-dispatcher hole, where a FieldScene clobbers the
+# world scripts. check_custom_id owns the voice; build.validate would refuse too, but this fails first,
+# with nothing built and nothing live touched.
+try:
+    _pack.check_custom_id(FID, what="deploy slot id")
+except ValueError as _e:
+    print(f"!! {_e}", file=sys.stderr)
+    sys.exit(2)
 MOD_FOLDER = _args.mod_folder
 # The custom-field slot is a SANDBOX: force the test build to id FID + a fixed name so ANY field.toml
 # (any id/name) tests here without colliding with a live field. Each id gets a DISTINCT name -> distinct

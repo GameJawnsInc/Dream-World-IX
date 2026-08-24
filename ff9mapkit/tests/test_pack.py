@@ -26,6 +26,29 @@ def test_suggest_ids_range_check():
         pack.suggest_ids(3999, 1)
     with pytest.raises(ValueError):
         pack.suggest_ids(pack.CUSTOM_ID_MAX, 5)
+    # Lane G: a block straddling the engine world-map hole is refused; either shore of it is fine
+    with pytest.raises(ValueError, match="world-map hole"):
+        pack.suggest_ids(8950, 60)                                    # 8950..9009 crosses 9000
+    with pytest.raises(ValueError, match="world-map hole"):
+        pack.suggest_ids(9005, 2)                                     # entirely inside
+    assert pack.suggest_ids(8990, 10) == list(range(8990, 9000))      # ends AT the hole's edge
+    assert pack.suggest_ids(9013, 3) == [9013, 9014, 9015]            # starts just past it
+
+
+def test_suggest_base_never_proposes_the_world_hole_block():
+    """The 9000 block sits inside suggest_base's hash space (4000-9899 in 100-id blocks) -- so before
+    Lane G the kit could SCAFFOLD a mod at id 9000, which build.validate now refuses: the kit must never
+    suggest an id its own chokepoint rejects. A name hashing onto 9000 is bumped one block to 9100."""
+    import hashlib as _h
+    n_blocks = (pack.CUSTOM_ID_MAX - pack.CUSTOM_ID_MIN) // pack.BLOCK_SIZE
+    victim = next(  # deterministic: the first probe name whose RAW hash formula lands on the 9000 block
+        n for n in (f"mod{i}" for i in range(10000))
+        if pack.CUSTOM_ID_MIN + (int.from_bytes(_h.sha1(n.encode()).digest()[:4], "big") % n_blocks)
+        * pack.BLOCK_SIZE == 9000)
+    assert pack.suggest_base(victim) == 9100
+    for i in range(200):                                              # and no name ever lands in the hole
+        b = pack.suggest_base(f"probe{i}")
+        assert not (pack.WORLD_ID_LO <= b <= pack.WORLD_ID_HI)
 
 
 def test_check_custom_id_speaks_the_hand_copied_band_voice():
@@ -46,6 +69,16 @@ def test_check_custom_id_speaks_the_hand_copied_band_voice():
                                "(real ids are locked)")
     with pytest.raises(ValueError):                             # a non-number is refused, not int()-crashed
         pack.check_custom_id("not-an-int")
+
+    # Lane G: the engine-reserved world-map hole (EventDB[9000..9012] = EVT_WORLD_WORLD00..12) is refused
+    # by the SHARED validator -- the gap that made floorplan/campaign/reid/journey each grow a private
+    # guard while the GUI pickers (which trust this validator) accepted 9005.
+    for in_hole in (pack.WORLD_ID_LO, 9005, pack.WORLD_ID_HI):
+        with pytest.raises(ValueError) as hole:
+            pack.check_custom_id(in_hole)
+        assert "world-map hole" in str(hole.value) and "EVT_WORLD_WORLD" in str(hole.value)
+    assert pack.check_custom_id(pack.WORLD_ID_LO - 1) == 8999   # the edges stay usable
+    assert pack.check_custom_id(pack.WORLD_ID_HI + 1) == 9013
 
     # THE REWIRE IS DONE: the New pickers must no longer hand-copy the band literal -- they validate through
     # this one validator now. If a call site re-hand-copies the string (the drift this dedupe existed to

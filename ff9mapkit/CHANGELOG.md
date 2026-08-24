@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the field-id band law is enforced at the chokepoints (adversarial review, Lane G)
+- The engine-reserved world-map hole (EventDB[9000..9012] = the world-state dispatchers
+  `EVT_WORLD_WORLD00..12`) and the real-field band (ids below 4000) were guarded by four
+  private call sites (journey, reid, campaign, floorplan) — but not at the chokepoint
+  every lane funnels through, so `deploy_field.py --id 9005`, `ff9mapkit build`/`deploy`
+  of a toml declaring such an id, and the Workspace New pickers all sailed to a
+  `FieldScene` registration that clobbers a world dispatcher (every field→overworld
+  transition in that world state then black-screens) or repoints a REAL location's
+  script. Now: `build.validate` refuses both bands (the one lawful sub-4000 case — a
+  fork sitting on its OWN donor id, an in-place edit whose FieldScene matches the
+  vanilla registration — is recognised via the fork's donor record);
+  `pack.check_custom_id` (the shared validator all GUI pickers route through) refuses
+  the hole, closing the documented gap that had taught callers to hand-roll their own
+  pre-flight; `deploy_field.py` band-checks the slot id through it BEFORE the build
+  (fail fast, touch nothing); and the kit's own allocators stop proposing what its
+  chokepoint rejects — `pack.suggest_base` bumps a mod name hashing onto the 9000
+  block, `pack.suggest_ids` refuses a run intersecting the hole. `pack` now owns the
+  hole constants (`WORLD_ID_LO/HI`; journey re-exports), and the editor feedback table
+  translates both refusals.
+
 ### Added — the provenance TRIPWIRE (adversarial review, Lane F)
 - The zero-SE-bytes gate (`docs/PROVENANCE.md`) gets its first check that can fail:
   `tests/test_provenance_tripwire.py` scans the tracked tree for game-derived byte classes

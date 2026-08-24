@@ -55,15 +55,17 @@ from pathlib import Path
 
 from . import campaign as _campaign
 from . import hub as _hub
+from . import pack as _pack
 from .flags import CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, KIT_STANDING_FLOOR
 
 SCENARIO_MAX = 32767
-ID_LO, ID_HI = 4000, 32767                  # custom field-id band (Int16 cap; CLAUDE.md §3)
-WORLD_ID_LO, WORLD_ID_HI = 9000, 9012       # engine-RESERVED world-map location ids (EVT_WORLD_WORLD00..12, the
-#                                             WorldMap()/wldMapNo values). A forked FIELD id here clobbers the world
-#                                             script in the GLOBAL EventDB -> any field->overworld transition loads a
-#                                             field .eb name from the World/ folder -> not found -> black screen. The
-#                                             custom band MUST skip this sub-band (lint error below).
+ID_LO, ID_HI = _pack.CUSTOM_ID_MIN, _pack.FIELD_ID_MAX   # custom field-id band (Int16 cap; CLAUDE.md §3)
+WORLD_ID_LO, WORLD_ID_HI = _pack.WORLD_ID_LO, _pack.WORLD_ID_HI   # engine-RESERVED world-map location ids
+#                                             (EVT_WORLD_WORLD00..12, the WorldMap()/wldMapNo values; owner + the
+#                                             why: pack.py). A forked FIELD id here clobbers the world script in the
+#                                             GLOBAL EventDB -> any field->overworld transition loads a field .eb
+#                                             name from the World/ folder -> not found -> black screen. The custom
+#                                             band MUST skip this sub-band (lint error below).
 _SLUG_RE = re.compile(r"^[A-Za-z0-9_]+$")    # a journey id slug -> hub-choice key + seed namespace
 
 

@@ -1161,9 +1161,9 @@ def preflight_ids(count, *, id_base, taken=()):
     ★ Nothing in the kit composes this, and each obvious candidate fails differently:
       * ``pack.suggest_ids(30500, 3)`` RAISES -- it caps at ``CUSTOM_ID_MAX = 9899`` (pack.py:20)
         while the scratch band, and this lane's own ``.ff9deploy.toml`` pin, is 30500.
-      * ``pack.check_custom_id(9005)`` returns 9005 -- it bounds only [4000, 32767] and has NO
-        carve-out for the 9000-9012 engine world-map hole, where a FieldScene clobbers a world
-        script in the GLOBAL EventDB.
+      * ``pack.check_custom_id`` band-checks ONE id (since the Lane G review it also refuses the
+        9000-9012 engine world-map hole) -- but a pre-flight needs a free consecutive RUN, and an
+        allocator must JUMP the hole rather than error on it, so the skip below stays.
       * ``deploystack.check_id_collisions`` deliberately EXCLUDES the target folder (deploystack.py:558)
         so a redeploy of an id you already own is not flagged against you -- the opposite of what a
         fresh mint needs. Pass ``taken`` from ``deploylog.registrations(game)[0]`` (note: that
