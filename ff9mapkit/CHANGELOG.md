@@ -18,6 +18,33 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   wheel and sdist. The offline hut dialogue proof now builds from the tracked example
   instead of the bundle, and the hut's kit-synthesized camera `.bgx` moved to `art/hut/`.
 
+### Fixed — a wholesale install can no longer silently destroy a concurrent locked deploy (M8)
+- The M7 sidecar locks serialise two rewriters of ONE patch file, but a WHOLESALE install
+  (deploy-campaign / deploy-journey / the hub overlay: snapshot → rmtree → copytree)
+  cannot use them — rmtree would have to delete the very lockfile a concurrent field
+  deploy holds open, and on Windows an open fd inside the tree fails the rmtree partway.
+  So a concurrent `tools/deploy_field.py` RMW into the same folder (the shared
+  `FF9CustomMap` default is the realistic case) could land its LOCKED rewrite between
+  snapshot and rmtree and be silently destroyed — invisible to the wiped-regs guard,
+  which compares snapshot-time state. New `fsutil.locked_mod_folder` closes it: one
+  `<game>/<folder>.ff9lock` OUTSIDE the folder (beside `Memoria.ini`, stable across the
+  replace), on the same proven `exclusive_fd_lock`, with a folder-scale timeout
+  (`FOLDER_LOCK_TIMEOUT`, 120s — a folder section is whole-tree copies, not the
+  sidecar's milliseconds). Taken by the wholesale paths (`deploy_campaign`,
+  `deploy_field`, `_install_hub`, `_apply_journey_single`) around snapshot→replace, and
+  by the RMW writers around their WHOLE live-mutation section — `tools/deploy_field.py`,
+  `tools/deploy_battle.py`, `model-mint --deploy`, `model-anim-new`, and both generated
+  dev-loop reverts (`revert_deploy_<id>.py`, `revert_battle_<BBG>.py`). Lock ORDER is
+  folder THEN sidecar, everywhere; M7 semantics carry over (deploy-path timeout aborts
+  loudly, revert timeouts propagate into the prelude's checked exit code, lockless
+  platforms degrade non-fatally). Proven by a barrier-synchronised two-process test
+  (field RMW vs wholesale replace) whose unlocked negative control measurably loses the
+  write — and a one-sided control (field locked, wholesale not) lost 8/8, so the
+  wholesale-side adoption is the load-bearing half; adoption is pinned by AST in
+  `tests/test_folder_lock.py`. Residual gap, deliberate: the campaign/journey generated
+  reverts (snapshot restores, run manually) and the legacy scroll spikes stay
+  sidecar-only — they are standalone-by-design or one-offs.
+
 ### Fixed — the campaign deploy re-wires New Game itself (adversarial review, Lane E)
 - A wholesale campaign replace wipes a field-70 New-Game override living in the folder it
   reinstalls; re-wiring was a manual law ("re-run `wire_newgame_from_stock` after each

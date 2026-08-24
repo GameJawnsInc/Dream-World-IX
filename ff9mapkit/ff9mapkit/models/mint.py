@@ -173,17 +173,22 @@ def deploy_mint(source_token: str, new_id: int, mod_folder, new_name=None, *, ga
     man = mint_manifest(source_token, new_id, new_name, game=game)
     from . import export
     dest = Path(mod_folder).joinpath(*export._RES, *export.model_dir_parts(man["type_int"], new_id))
-    export_mint(source_token, new_id, dest, new_name=man["name"], game=game)
     dp = Path(mod_folder) / "DictionaryPatch.txt"
-    dp.parent.mkdir(parents=True, exist_ok=True)      # the lock sidecar needs the folder to exist
-    # LOCKED read->merge->write (fsutil.locked_sidecar -- the same DictionaryPatch.txt.lock every deploy
-    # script holds): the idempotent append still rewrites the whole file from what it READ, so an unlocked
-    # window drops whichever lines a concurrent deploy/revert merged in between. A FileLockTimeout
-    # propagates to the caller (the CLI prints and aborts).
-    with fsutil.locked_sidecar(dp):
-        lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
-        if man["directive"] not in lines:
-            lines.append(man["directive"])
-            fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    # FOLDER lock around the WHOLE live mutation (the Models/ tree export AND the registration), OUTSIDE
+    # the sidecar (lock order: folder THEN sidecar): a wholesale campaign/journey install cannot hold a
+    # sidecar inside a tree it deletes, so without this the export + line could land between its snapshot
+    # and rmtree and be silently destroyed. A FileLockTimeout propagates (the CLI prints and aborts).
+    with fsutil.locked_mod_folder(Path(mod_folder)):
+        export_mint(source_token, new_id, dest, new_name=man["name"], game=game)
+        dp.parent.mkdir(parents=True, exist_ok=True)      # the lock sidecar needs the folder to exist
+        # LOCKED read->merge->write (fsutil.locked_sidecar -- the same DictionaryPatch.txt.lock every deploy
+        # script holds): the idempotent append still rewrites the whole file from what it READ, so an unlocked
+        # window drops whichever lines a concurrent deploy/revert merged in between. A FileLockTimeout
+        # propagates to the caller (the CLI prints and aborts).
+        with fsutil.locked_sidecar(dp):
+            lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+            if man["directive"] not in lines:
+                lines.append(man["directive"])
+                fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     man["dictionary_patch"] = str(dp)
     return man
