@@ -281,15 +281,16 @@ _GENERATED_EXAMPLES = {"boletta": "make_creature.py"}
 
 # Examples PROVISIONED from TRACKED repo files: toolkit-test's gitignored inputs are deploy-derived
 # but from OUR OWN novel interior (zero SE bytes -- which is why their sources are committable):
-# the painted art is tracked at art/hut/, the interior's kit-built camera in the release bundle.
+# the painted art AND the interior's kit-built camera .bgx are tracked at art/hut/ (the .bgx moved
+# there from the release bundle in the 2026-08 provenance audit -- the bundle's BUILT .eb files embed
+# the SE-derived blank-field template, but the synthesized camera is the kit's own bytes).
 # The corpus stages a buildable tmp copy from them, fully offline.
 # example dir -> [(repo-root-relative source, example-relative dest), ...]
 _PROVISIONED_EXAMPLES: "dict[str, list[tuple[str, str]]]" = {
     "toolkit-test": [
         ("art/hut/walls.png", "art/walls.png"),
         ("art/hut/floor.png", "art/floor.png"),
-        ("release/FF9CustomMap/StreamingAssets/assets/resources/FieldMaps/FBG_N11_HUT_INT/"
-         "FBG_N11_HUT_INT.bgx", "camera-ref.bgx"),
+        ("art/hut/FBG_N11_HUT_INT.bgx", "camera-ref.bgx"),
     ],
 }
 

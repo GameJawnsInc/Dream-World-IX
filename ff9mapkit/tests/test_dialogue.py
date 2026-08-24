@@ -14,8 +14,23 @@ from ff9mapkit import dialogue as D
 from ff9mapkit.content import text as T
 
 REPO = Path(__file__).resolve().parents[2]
-HUT_MOD = REPO / "release" / "FF9CustomMap"                 # the kit's own known-good hut (committed)
 ALEX_EB = Path(__file__).resolve().parent / "fixtures" / "alex100-us.eb.bytes"   # a REAL field .eb
+
+
+def _built_hut(tmp_path):
+    """Build the vivi-hut interior into a fresh mod folder from the tracked example -- the offline JOIN
+    proof used to read the committed ``release/FF9CustomMap`` bundle, but a BUILT field's ``.eb`` embeds
+    the SE-derived blank-field template (docs/PROVENANCE.md -- the very reason the build goldens are
+    hashes), so the test now builds its own copy instead of depending on committed game-derived bytes.
+    Building needs the extracted templates; an unprovisioned checkout skips, same as the golden tests."""
+    from ff9mapkit import build as B
+    ex = REPO / "ff9mapkit" / "examples" / "vivi-hut" / "hut_int.field.toml"
+    try:
+        proj = B.FieldProject.load(ex)
+        B.build_mod([proj], tmp_path / "mod", mod_name="FF9CustomMap")
+    except Exception as e:                        # noqa: BLE001 -- any provisioning gap = skip, like the goldens
+        pytest.skip(f"cannot build the hut example here ({e}) -- run extract-templates")
+    return tmp_path / "mod"
 
 
 # --- parse_mes: the missing reader (inverse of content.text) -----------------------------
@@ -144,10 +159,9 @@ def test_npc_stub_toml_editable_blocks():
     assert npc["dialogue"] == "Hi there, traveler!" and npc["pos"] == [0, 0] and npc["preset"] == "vivi"
 
 
-# --- the offline plausibility proof: the kit's own hut, no install -----------------------
-@pytest.mark.skipif(not HUT_MOD.is_dir(), reason="release/FF9CustomMap absent")
-def test_read_local_dialogue_joins_the_hut():
-    lines = D.read_local_dialogue(HUT_MOD, "HUT_INT")
+# --- the offline plausibility proof: the kit's own hut, built fresh from its example ------
+def test_read_local_dialogue_joins_the_hut(tmp_path):
+    lines = D.read_local_dialogue(_built_hut(tmp_path), "HUT_INT")
     talk = [ln for ln in lines if ln.source == "npc" and ln.text]
     assert talk, "the hut's NPC should resolve to its line"
     assert any(ln.text == "I miss you Zidane" for ln in talk)              # decoded .eb JOIN parsed .mes
