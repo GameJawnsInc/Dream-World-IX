@@ -379,3 +379,27 @@ def test_unknown_flag_name_errors_on_load(tmp_path):
         'requires_flag = "never_defined"\n', encoding="utf-8")
     with pytest.raises(ValueError, match="unknown flag name"):
         build.FieldProject.load(p)
+
+
+# ---- the kit_world_flags band is FULLY CONSUMED by the ferry words (Lane D, 2026-08) ------
+def test_kit_world_flags_band_is_fully_consumed_by_the_ferry_words():
+    """The band's old registry note said 'reserved ahead: allocate here by name' while the ferry
+    departure byte + origin Int24 had already consumed all 32 bits -- an invitation to mint a new
+    named world flag straight into LIVE ferry state. The words must tile the band exactly, be
+    visible to named_word_at (so a raw edit warns), and the region text must say so."""
+    assert flags.FERRY_DEPART_BYTE * 8 == flags.KIT_WORLD_FLAG_BASE
+    assert flags.FERRY_ORIGIN_X_INT24 == flags.FERRY_DEPART_BYTE + 1
+    assert (flags.FERRY_ORIGIN_X_INT24 + 2) * 8 + 7 == flags.KIT_WORLD_FLAG_BASE + 31
+    assert flags.named_word_at(flags.KIT_WORLD_FLAG_BASE).name == "FerryDepartPort"
+    assert flags.named_word_at(flags.KIT_WORLD_FLAG_BASE + 31).name == "FerryOriginXInt24"
+    region = flags.bit_region(flags.KIT_WORLD_FLAG_BASE)
+    assert region.name == "kit_world_flags" and region.reserved
+    assert "FULLY CONSUMED" in region.meaning
+
+
+def test_read_word_int24():
+    # the ferry-origin word is a signed little-endian Int24 (x256 fixed-point world X)
+    blob = bytearray(2048)
+    blob[1873:1876] = (-70000).to_bytes(3, "little", signed=True)
+    w = next(w for w in flags.NAMED_WORDS if w.name == "FerryOriginXInt24")
+    assert flags._read_word(bytes(blob), w.byte, w.width, w.signed) == -70000

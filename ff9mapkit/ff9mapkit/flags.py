@@ -113,8 +113,9 @@ AUTO_ATE_BASE = 14824                          # the [ate] availability flag: 14
 BEHAVIOR_FLAG_BASE = 14864                     # content/behavior.py Blackboard flag band: 14864-14959
 BEHAVIOR_FLAG_END = 14959
 SIEGE_REQUEST_BASE = 14960                     # content/siege.py request flags: 14960-14975
-KIT_WORLD_FLAG_BASE = 14976                    # named standing world-content flags: 14976-15007
-                                               # (reserved for e.g. the boat parked-position rung)
+KIT_WORLD_FLAG_BASE = 14976                    # named standing world-content flags: 14976-15007 --
+                                               # FULLY CONSUMED by the ferry words below (bytes
+                                               # 1872-1875); a future named world flag needs a NEW band
 FERRY_DEPART_BYTE = 1872                       # scene-ladder rung 2: the ferry-departure port code
                                                # (bits 14976-14983 = the band's first byte; 0 = none,
                                                # 1-4 = Ashvale/Tidefall/Grimhorn/Larkspur -- written by
@@ -207,6 +208,17 @@ NAMED_WORDS = [
             "battle.cs:43"),
     WordVar("MagicDisabledFlag", 227, 1, False, "Nonzero disables magic in the menu (e.g. Oeilvert's "
             "anti-magic field; set by Oeilvert fields).", "a", "AbilityUI.cs:28,881"),
+    # The kit's ferry words (scene-ladder rungs 2+3c) -- they fully consume the kit_world_flags band,
+    # so the save inspector must show them as WORDS, not mystery bits (and named_word_at must warn a
+    # raw edit landing there).
+    WordVar("FerryDepartPort", 1872, 1, False, "Kit scene-ladder: the pending ferry-departure port code "
+            "(0 = none, 1-4 = Ashvale/Tidefall/Grimhorn/Larkspur); written by the hall's ferry arms, "
+            "consumed + cleared by WORLD11's departure director.", "a",
+            "flags.FERRY_DEPART_BYTE; scene-ladder rung 2"),
+    WordVar("FerryOriginXInt24", 1873, 3, True, "Kit scene-ladder: the hall-entry world X (x256 "
+            "fixed-point Int24), cached before the stage preset clobbers the saved position; WORLD11's "
+            "departure prologue box-tests it to classify the origin port.", "a",
+            "flags.FERRY_ORIGIN_X_INT24; scene-ladder rung 3c"),
     # The netsync co-op cells (kit-reserved, engine s37): while [Netsync] Enabled the engine writes the
     # PEER's presence + walkmesh position here every frame; [[coop]] gates read them as GLOB vars.
     # Save values are transient echoes (rewritten while co-op runs; never written when disabled).
@@ -237,8 +249,11 @@ BIT_REGIONS = [
               "The [siege] war-council request flags (content/siege.py). Kit-owned.", True, "a",
               "content/siege.py REQUEST_FLAG_BASE"),
     BitRegion("kit_world_flags", KIT_WORLD_FLAG_BASE, KIT_WORLD_FLAG_BASE + 31,
-              "Named standing world-content flags (reserved ahead: the boat parked-position rung "
-              "and kin allocate here by name).", True, "a", "flags.py safe-band partition"),
+              "Named standing world-content flags -- FULLY CONSUMED, live in real saves: the ferry "
+              "departure byte (FERRY_DEPART_BYTE 1872, bits 14976-14983) + the ferry origin Int24 "
+              "(bytes 1873-1875, bits 14984-15007). The band's old 'reserved ahead: allocate here by "
+              "name' note outlived its space -- a new named world flag needs a NEW band, never these "
+              "bits.", True, "a", "flags.py safe-band partition; scene-ladder rungs 2+3c"),
     BitRegion("behavior_blackboard_bytes", BEHAVIOR_BYTE_BASE * 8, BEHAVIOR_BYTE_END * 8 + 7,
               "The behavior Blackboard BYTE band (bytes 1876-1989): compiled counters/timers/vars, "
               "cleared/preset by the emitted Main_Init. A story bit here lands inside a compiled "
@@ -734,6 +749,8 @@ def _read_word(blob: bytes, byte: int, width: int, signed: bool) -> int:
     chunk = blob[byte:byte + width]
     if len(chunk) < width:
         chunk = chunk + b"\x00" * (width - len(chunk))
+    if width == 3:                                 # the ferry-origin Int24 (struct has no 3-byte code)
+        return int.from_bytes(chunk, "little", signed=signed)
     fmt = {1: "b" if signed else "B", 2: "<h" if signed else "<H"}[width]
     return struct.unpack(fmt, chunk)[0]
 

@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — flag-band laws get their call sites (adversarial review, Lane D)
+- A campaign/journey member carrying `[behavior] byte_band = "wide"` — or `[siege]`, which
+  desugars to the wide band — is now **refused** at `lint_campaign` (and by a post-desugar
+  belt in the build): the wide Blackboard band overlaps the campaign per-member flag
+  windows, so that member's `Main_Init` would clear sibling members' once-flags in a live
+  save. The standalone-only contract previously lived only in a comment.
+- A `[[qte]]`/`[[numeric_input]]` `result` word can no longer silently overlap the
+  project's own story flags: the result home (bytes 1990–2005) is deliberately unreserved,
+  so each side's validator passed alone while every submit whole-word-clobbered the flag —
+  `build.validate` now cross-checks the two channels and names the colliding indices.
+- `flags.py`'s `kit_world_flags` registry entry stopped claiming free space: the band is
+  fully consumed by the ferry departure byte + origin Int24, which now appear in
+  `NAMED_WORDS` (save inspector + `named_word_at` coverage, with an Int24 read path).
+
 ### Fixed — concurrent deploys can no longer lose each other's DictionaryPatch lines
 - The `DictionaryPatch.txt` read→merge→write in `tools/deploy_field.py`,
   `tools/deploy_battle.py`, and the generated revert scripts now holds a cross-process
