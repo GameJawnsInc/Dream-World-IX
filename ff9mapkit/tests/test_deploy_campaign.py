@@ -52,6 +52,74 @@ def test_malformed_deploy_pin_warns_instead_of_silently_sharing(tmp_path, capsys
     assert capsys.readouterr().err == ""
 
 
+def _quiet(*_a, **_k):
+    pass
+
+
+def test_wire_new_game_recreates_the_wiped_override_from_stock(monkeypatch, tmp_path):
+    """Lane E (2026-08): the wholesale replace WIPES a field-70 override living in the very folder it
+    reinstalls, and newgame.retarget can only edit an override that still exists -- so every opening
+    re-deploy ended in a WARNING plus the manual law 're-run wire_newgame_from_stock' (CLAUDE.md par.5),
+    which cost a playtest whenever it was forgotten. found == 0 now recreates the override FROM STOCK into
+    the installed folder; its revert is NOT chained (the campaign snapshot already undoes files inside
+    mod_folder -- chaining it after the snapshot restore would delete the restored override)."""
+    calls = {}
+    monkeypatch.setattr(deploy.newgame, "retarget",
+                        lambda *a, **k: {"ok": False, "found": 0, "revert": None})
+    monkeypatch.setattr(deploy.newgame, "wire_from_stock",
+                        lambda game, target, *, mod_folder, **k: calls.update(target=target, folder=mod_folder)
+                        or {"ok": True, "revert": str(tmp_path / "rev.py")})
+    got = deploy.wire_new_game_after_install("GAME", 6000, "FF9CustomMap-ow", backups_dir=tmp_path,
+                                             reverts_dir=tmp_path, out=_quiet, verbose=False)
+    assert calls == {"target": 6000, "folder": "FF9CustomMap-ow"}   # recreated, into the installed folder
+    assert got is None                                              # the snapshot owns the undo
+
+    # a live override elsewhere -> plain retarget, no stock recreation
+    calls.clear()
+    monkeypatch.setattr(deploy.newgame, "retarget",
+                        lambda *a, **k: {"ok": True, "found": 2, "revert": "warp_rev.py"})
+    got = deploy.wire_new_game_after_install("GAME", 6000, "F", backups_dir=tmp_path,
+                                             reverts_dir=tmp_path, out=_quiet, verbose=False)
+    assert got == "warp_rev.py" and calls == {}
+
+    # overrides exist but none warps (corrupt) -> warn only, never stack a second override from stock
+    monkeypatch.setattr(deploy.newgame, "retarget",
+                        lambda *a, **k: {"ok": False, "found": 1, "revert": None})
+    got = deploy.wire_new_game_after_install("GAME", 6000, "F", backups_dir=tmp_path,
+                                             reverts_dir=tmp_path, out=_quiet, verbose=False)
+    assert got is None and calls == {}
+
+
+def test_revert_codegen_treats_toml_derived_names_as_data():
+    """Lane E: render_revert_campaign / _render_field_revert raw-interpolated the campaign/field NAME
+    (toml-derived free text) into the generated revert's docstring and prints -- the exact class the
+    reverttmpl hardening closed for the per-id reverts ('raw interpolation of a toml-derived string into
+    generated code is arbitrary-code-execution-on-revert'). Names now enter only as repr() literals."""
+    import ast
+    payload = '"""\nimport os\nos.system("calc")\n"""'
+    for src in (deploy.render_revert_campaign("C:/live", "C:/snap", None, payload, "20260823-000000"),
+                deploy._render_field_revert("C:/live", "C:/snap", "20260823-000000", payload),
+                deploy._render_field_revert("C:/live", None, "20260823-000000", payload)):
+        compile(src, "<revert>", "exec")                       # never breaks the script
+        tree = ast.parse(src)
+        assert not any(isinstance(n, ast.Attribute) and n.attr == "system" for n in ast.walk(tree))
+        assert payload in {n.value for n in ast.walk(tree)
+                           if isinstance(n, ast.Constant) and isinstance(n.value, str)}   # carried as DATA
+
+
+def test_bootstrap_and_hub_folder_hardening_pins():
+    """Source pins for the two silent-clobber closes: (1) the fresh-folder DictionaryPatch bootstrap uses
+    O_EXCL (a check-then-write could land '' over a concurrent field deploy's just-merged rewrite -- the
+    twin of the M7 fix in tools/deploy_field.py); (2) the journey hub install never falls back to a SHARED
+    folder (the old `plan.hub_folder or highest` would overlay the hub onto the highest-priority folder
+    and let copytree replace its DictionaryPatch with the hub's single line)."""
+    src = (Path(deploy.__file__)).read_text(encoding="utf-8")
+    assert "O_EXCL" in src
+    assert 'dictionary_patch.write_text("", ' not in src
+    assert "plan.hub_folder or " not in src
+    assert "no dedicated hub folder" in src
+
+
 def test_resolve_entry():
     p = _plan()
     assert deploy.resolve_entry(p, None) == 30100        # manifest entry_field IC_ENT -> its new id
