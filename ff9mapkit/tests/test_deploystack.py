@@ -492,3 +492,87 @@ def test_id_collision_warning_text_and_none(tmp_path):
     w = id_collision_warning(check_id_collisions(g, "A", {30011}), "A")
     assert w and "ID COLLISION" in w and "30011" in w and "'B'" in w and "CAMKEYS" in w and "EventDB" in w
     assert id_collision_warning([], "A") is None             # clear -> no warning
+
+
+# ---- the cross-folder 3DModel-id guard (global FF9BattleDB.GEO -- a DIFFERENT DB from EventDB) ----
+from ff9mapkit.deploystack import (check_model_id_collisions, model_id_collision_warning,  # noqa: E402
+                                   model_ids_at)
+
+
+def test_model_ids_at_parses_only_3dmodel_lines(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    _mk_dict(g, "A", ["3DModel 6001 GEO_NPC_F1_CUS", "3DModelAnimation 60001 ANH_NPC_F1_CUS_IDLE",
+                      "FieldScene 6002 11 T6002 T6002 741", "3DModel xx bad", "3DModel", "junk"])
+    ids = model_ids_at(g / "A")
+    # 3DModelAnimation keys the AnimationDB and FieldScene keys EventDB -- both are OTHER DBs, not parsed
+    assert ids == {6001: "GEO_NPC_F1_CUS"}
+    assert model_ids_at(g / "missing") == {}
+
+
+def test_model_ids_at_last_line_wins_and_tolerates_missing_name(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    _mk_dict(g, "A", ["3DModel 6001 GEO_OLD", "3DModel 6001 GEO_NEW", "3DModel 6002"])
+    ids = model_ids_at(g / "A")
+    assert ids[6001] == "GEO_NEW"                            # duplicate id in one file: last writer wins
+    assert ids[6002] == ""                                   # a nameless line still registers the id
+
+
+def test_model_id_collision_3dmodel_vs_3dmodel(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")    # FolderNames = A, B, C
+    _mk_dict(g, "B", ["3DModel 6001 GEO_NPC_F1_THEIRS"])
+    cs = check_model_id_collisions(g, "A", {6001, 6002})     # 6001 collides, 6002 free
+    assert len(cs) == 1
+    c = cs[0]
+    assert (c.model_id, c.other_folder, c.other_name) == (6001, "B", "GEO_NPC_F1_THEIRS")
+    assert check_model_id_collisions(g, "A", {6002}) == []   # an id nobody else mints -> clear
+
+
+def test_model_id_vs_event_db_id_is_not_a_collision_either_way(tmp_path):
+    """THE false-positive fence. The mint band (6000-32767) overlaps the custom field band (4000-9899), so a
+    3DModel id numerically equal to another folder's FieldScene/BattleScene id is ROUTINE -- they key
+    different global DBs (FF9BattleDB.GEO vs FF9DBAll.EventDB). Neither guard may see across: merging
+    3DModel lines into dictionary_ids_at (or vice versa) would cry wolf on every shared number."""
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_dict(g, "B", ["FieldScene 6001 11 T6001 T6001 741", "BattleScene 6003 CAMKEYS BBG_B209"])
+    _mk_dict(g, "C", ["3DModel 4100 GEO_NPC_F1_CUS"])
+    # deploying a MINT on a number a foreign folder uses as a field/battle id: clear
+    assert check_model_id_collisions(g, "A", {6001, 6003}) == []
+    # deploying a FIELD on a number a foreign folder uses as a mint GEO id: equally clear
+    assert check_id_collisions(g, "A", {4100}) == []
+    # and the same numbers colliding within their OWN DB still fire
+    assert len(check_model_id_collisions(g, "A", {4100})) == 1
+    assert len(check_id_collisions(g, "A", {6001, 6003})) == 2
+
+
+def test_model_id_collision_excludes_target_folder(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_dict(g, "B", ["3DModel 6001 GEO_NPC_F1_CUS"])
+    assert check_model_id_collisions(g, "B", {6001}) == []   # a redeploy replaces its own line in place
+
+
+def test_model_id_collision_graceful_without_ini_and_order_override(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    _mk_dict(g, "B", ["3DModel 6001 GEO_NPC_F1_CUS"])
+    assert check_model_id_collisions(g, "A", {6001}) == []   # no Memoria.ini -> empty stack, no false alarm
+    cs = check_model_id_collisions(g, "A", {6001}, folder_names=["A", "B", "C"])   # explicit order
+    assert len(cs) == 1 and cs[0].other_folder == "B"
+
+
+def test_model_id_collision_warning_text_and_none(tmp_path):
+    g = tmp_path / "game"
+    g.mkdir()
+    (g / "Memoria.ini").write_text(INI, encoding="utf-8")
+    _mk_dict(g, "B", ["3DModel 6001 GEO_NPC_F1_THEIRS"])
+    w = model_id_collision_warning(check_model_id_collisions(g, "A", {6001}), "A")
+    assert w and "3DMODEL ID COLLISION" in w and "6001" in w and "'B'" in w
+    assert "GEO_NPC_F1_THEIRS" in w and "FF9BattleDB.GEO" in w
+    assert model_id_collision_warning([], "A") is None       # clear -> no warning

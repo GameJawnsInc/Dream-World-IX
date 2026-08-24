@@ -13,6 +13,7 @@ import pytest
 
 _SRC = (pathlib.Path(__file__).resolve().parents[2] / "tools" / "deploy_field.py").read_text(encoding="utf-8")
 _BATTLE_SRC = (pathlib.Path(__file__).resolve().parents[2] / "tools" / "deploy_battle.py").read_text(encoding="utf-8")
+_CLI_SRC = (pathlib.Path(__file__).resolve().parents[1] / "ff9mapkit" / "cli.py").read_text(encoding="utf-8")
 
 
 def _assignments(name):
@@ -66,7 +67,7 @@ def _first_call_line(tree, pred):
     return min(lines)
 
 
-_GUARDS = {"check_text_block_shadow", "check_id_collisions", "check_csv_shadow"}
+_GUARDS = {"check_text_block_shadow", "check_id_collisions", "check_csv_shadow", "check_model_id_collisions"}
 
 
 def _guard_handlers(src):
@@ -90,9 +91,17 @@ def test_the_live_stack_guards_are_wired_and_their_crashes_print():
     BattleScene ids in the same GLOBAL EventDB (the 30011 collision WAS FieldScene-vs-BattleScene),
     carried no id guard at all. Pin both: the guards are called, and every guard's except handler
     PRINTS (still never breaks a deploy -- the check functions handle a missing Memoria.ini
-    themselves; the handler only fires when the guard itself is broken, and that must be visible)."""
+    themselves; the handler only fires when the guard itself is broken, and that must be visible).
+
+    Extended for the GEO half of the same law: `3DModel <id>` lines register minted GEO ids in
+    FF9BattleDB.GEO -- a DIFFERENT global DB from EventDB, which check_id_collisions deliberately
+    does NOT parse (the mint band 6000+ overlaps the field band 4000-9899, so merging them would
+    false-positive on shared numbers). Every path that ships 3DModel lines -- deploy_field's
+    mint_lines merge, deploy_battle's info["dictionary"] splice, and `model-mint --deploy` in the
+    CLI -- must run check_model_id_collisions under the same print-on-crash contract."""
     for src, who, want in ((_SRC, "deploy_field", _GUARDS),
-                           (_BATTLE_SRC, "deploy_battle", {"check_id_collisions"})):
+                           (_BATTLE_SRC, "deploy_battle", {"check_id_collisions", "check_model_id_collisions"}),
+                           (_CLI_SRC, "cli model-mint --deploy", {"check_model_id_collisions"})):
         pairs = _guard_handlers(src)
         assert {g for g, _ in pairs} >= want, f"{who}: guard call(s) missing"
         assert pairs, who

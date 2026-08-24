@@ -2346,6 +2346,21 @@ def _cmd_model_mint(args: argparse.Namespace) -> int:
     print(f"  register it with this DictionaryPatch line:  {man['directive']}")
     if args.deploy:
         print(f"  (appended to {man['dictionary_patch']})")
+        # 3DModel-id guard: the minted GEO id ALSO registered as `3DModel` by another stacked FolderNames
+        # folder collides in the GLOBAL FF9BattleDB.GEO (NOT EventDB -- a foreign FieldScene on the same
+        # number is a different DB and no collision) -> the wrong model loads. MODFOLDER sits beside
+        # Memoria.ini in normal use; elsewhere there is no ini and the check degrades to []. Loud WARN,
+        # never an abort, and a guard CRASH prints too -- a silently swallowed failure would disable this
+        # warning layer forever (a check that cannot fail).
+        try:
+            from .deploystack import check_model_id_collisions, model_id_collision_warning
+            _mf = Path(args.deploy).resolve()
+            _mw = model_id_collision_warning(
+                check_model_id_collisions(_mf.parent, _mf.name, {man["id"]}), _mf.name)
+            if _mw:
+                print(f"\n  !! {_mw}")
+        except Exception as _ge:
+            print(f"  (3DModel-id guard unavailable -- fix it, model-id collisions are now UNCHECKED: {_ge})")
     print(f"  place it:  [[npc]] model = {man['id']}   (borrows {man['anims_from']}'s animset by name)")
     print("  RELAUNCH FF9 to register the new id (a 3DModel line is read at launch, like a FieldScene line).")
     _print_model_notes(man["source"], minted=True, merge_warnings=man.get("merge_warnings"))
