@@ -866,6 +866,19 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
         raw = member_raw.get(m.name)
         if raw is None:
             continue
+        # (e2b) the WIDE Blackboard band is STANDALONE-only, enforced HERE (build_campaign refuses on
+        # lint errors -- the contract used to live only in a content/behavior.py comment): its flag
+        # window (9520-9759) + byte band (1220-1989, bits 9760-15919) sit INSIDE the campaign lane, and
+        # the member's own Main_Init clears its allocations there -- wiping SIBLING members' per-member
+        # once-flags in a live save. [siege] desugars to exactly that band (it cannot fit the safe one).
+        _bband = (raw.get("behavior") or {}).get("byte_band") if isinstance(raw.get("behavior"), dict) else None
+        if _bband == "wide" or isinstance(raw.get("siege"), dict):
+            _src = '[behavior] byte_band = "wide"' if _bband == "wide" else "[siege] (it desugars to the wide band)"
+            errors.append(f"member {m.name}: {_src} -- the wide Blackboard band (flags 9520-9759 + bytes "
+                          f"1220-1989) overlaps the campaign per-member flag windows in "
+                          f"[{FIRST_SAFE_FLAG}, {KIT_STANDING_FLOOR}); this member's Main_Init would "
+                          f"clear sibling members' once-flags -> SAVE CORRUPTION. Wide-band behavior / "
+                          f"[siege] fields are STANDALONE-only (content/behavior.py).")
         prod, cons = _member_flags_from_toml(raw)
         for idx in sorted(prod | cons):
             if MOGNET_LOCK_LO <= idx <= READMAIL_PAYLOAD_HI:

@@ -7258,6 +7258,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # (identical order -> identical GLOB allocation -> identical bytes across languages).
     if _behaviortoml.table(project.raw):
         from .content import behavior as _behavior
+        # The WIDE-band belt (campaign lint (e2b) is the primary guard; this catches any path that
+        # assigns a per-member flag window without passing lint_campaign): wide allocations (flags
+        # 9520-9759 + bytes 1220-1989) live inside the campaign lane, so compiling them for a member
+        # with a flag window corrupts SIBLING members' once-flags. Runs post-desugar, so a [siege]
+        # member (which generates byte_band = "wide") is caught here too.
+        if project.flag_base is not None and \
+                (project.raw.get("behavior") or {}).get("byte_band") == "wide":
+            raise BuildError(f'[behavior] byte_band = "wide" on a campaign member (flag window base '
+                             f'{project.flag_base}): the wide Blackboard band overlaps the campaign '
+                             f'per-member flag windows -- wide-band behavior/[siege] fields are '
+                             f'STANDALONE-only (content/behavior.py).')
         try:
             routed = None
             if _behaviortoml.wants_autoroute(project.raw):

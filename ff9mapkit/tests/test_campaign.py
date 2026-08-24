@@ -435,6 +435,23 @@ def test_lint_refuses_a_flag_width_below_one(tmp_path):
     assert campaign.lint_campaign(plan, tmp_path)[0] == []
 
 
+def test_lint_refuses_a_wide_band_member(tmp_path):
+    """Lane D (2026-08): the wide Blackboard band (flags 9520-9759 + bytes 1220-1989) sits INSIDE the
+    campaign lane [8712, 14664), and a wide-band field's Main_Init clears its allocations there -- wiping
+    SIBLING members' per-member once-flags in a live save. The standalone-only contract lived ONLY in a
+    content/behavior.py comment; nothing refused a campaign member that opted in ('a law in a docstring
+    is a wish'). [siege] desugars to exactly that band, so it is refused the same way."""
+    plan = _lint_plan(tmp_path, member_content={"A": '\n[behavior]\nbyte_band = "wide"\n'})
+    errs = campaign.lint_campaign(plan, tmp_path)[0]
+    assert any("wide" in e and "STANDALONE-only" in e and "member A" in e for e in errs), errs
+    plan2 = _lint_plan(tmp_path, member_content={"B": "\n[siege]\nphases = []\n"})
+    errs2 = campaign.lint_campaign(plan2, tmp_path)[0]
+    assert any("siege" in e and "STANDALONE-only" in e and "member B" in e for e in errs2), errs2
+    # the safe default band stays legal on a member
+    plan3 = _lint_plan(tmp_path, member_content={"A": '\n[behavior]\nbyte_band = "safe"\n'})
+    assert not any("STANDALONE-only" in e for e in campaign.lint_campaign(plan3, tmp_path)[0])
+
+
 def test_lint_structural_pass(tmp_path):
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
     errors, warnings = campaign.lint_campaign(plan, tmp_path)
