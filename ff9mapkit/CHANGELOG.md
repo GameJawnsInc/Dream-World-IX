@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the provenance TRIPWIRE (adversarial review, Lane F)
+- The zero-SE-bytes gate (`docs/PROVENANCE.md`) gets its first check that can fail:
+  `tests/test_provenance_tripwire.py` scans the tracked tree for game-derived byte classes
+  against a justified allowlist, pins the wheel `package-data` to provenance-clean globs,
+  and scans locally built dists. The audit that motivated it found one real violation —
+  the committed `release/FF9CustomMap` demo's built `.eb` files embed the SE-derived
+  blank-field template verbatim (the same subtlety that makes build goldens hashes) — now
+  fenced pending the owner's removal decision; everything else the audit swept (studies,
+  fixtures, docsite, examples, FLAG_LORE caps) verified clean, and the "a build can never
+  bundle FF9 bytes even on a provisioned machine" claim tested TRUE empirically for both
+  wheel and sdist. The offline hut dialogue proof now builds from the tracked example
+  instead of the bundle, and the hut's kit-synthesized camera `.bgx` moved to `art/hut/`.
+
 ### Fixed — a wholesale install can no longer silently destroy a concurrent locked deploy (M8)
 - The M7 sidecar locks serialise two rewriters of ONE patch file, but a WHOLESALE install
   (deploy-campaign / deploy-journey / the hub overlay: snapshot → rmtree → copytree)
