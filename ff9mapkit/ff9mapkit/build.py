@@ -1263,8 +1263,9 @@ def validate(project: FieldProject) -> list[str]:
         if key not in f:
             problems.append(f"[field] missing required key '{key}'")
     if "id" in f:                                          # the engine fldMapNo is Int16 -> ids > 32767 are
-        try:                                               # unreachable AND can break the WHOLE DictionaryPatch
-            _fid = int(f["id"])                            # parse (a higher id black-screens New Game; 2026-06-15)
+        from . import pack as _pack                        # unreachable AND can break the WHOLE DictionaryPatch
+        try:                                               # parse (a higher id black-screens New Game; 2026-06-15)
+            _fid = int(f["id"])
             if not (1 <= _fid <= 32767):
                 problems.append(f"[field] id {_fid} out of range 1-32767 (the engine fldMapNo is a signed 16-bit "
                                 "int; a larger id registers unreachable and can break DictionaryPatch parsing -> "
@@ -1272,6 +1273,26 @@ def validate(project: FieldProject) -> list[str]:
                                 "30000-32767 -- an id below 4000 also collides with the REAL field bands, and "
                                 "since text_block derives from the id, a low one can land on a real text "
                                 "block (default_text_block refuses rather than squat it).")
+            # This is THE chokepoint every lane funnels through (ff9mapkit build/deploy, deploy_field.py's
+            # --id override, campaign members, gen-hub's emitted toml) -- so the two in-range-but-forbidden
+            # bands are refused HERE, not just in the four private guards that grew around the gap
+            # (journey / reid / campaign / floorplan). ONE lawful sub-4000 case exists: a fork sitting on
+            # its OWN donor id (an in-place edit of that real field -- its FieldScene line matches the
+            # vanilla registration, so nothing is repointed; the self-mapping ForkDonorPatch skip is the
+            # same recognition one file over).
+            elif _fid < _pack.CUSTOM_ID_MIN and donor_field_id(project.raw) != _fid:
+                problems.append(f"[field] id {_fid} is in the REAL-band (ids below {_pack.CUSTOM_ID_MIN} are "
+                                "base-game territory): its FieldScene line would REPOINT that real location's "
+                                "script to this field's EVT name, so the real screen black-screens in normal "
+                                "play. Use the custom band 4000-9899 or dev scratch 30000-32767 -- or, if "
+                                "this is a deliberate in-place edit of that real field, record the fork "
+                                f"([field] source_field = {_fid} / [verbatim_eb] donor = {_fid}).")
+            elif _pack.WORLD_ID_LO <= _fid <= _pack.WORLD_ID_HI:
+                problems.append(f"[field] id {_fid} lands in the engine-reserved world-map hole "
+                                f"{_pack.WORLD_ID_LO}-{_pack.WORLD_ID_HI} (EventDB[{_pack.WORLD_ID_LO}.."
+                                f"{_pack.WORLD_ID_HI}] = the world-state dispatchers EVT_WORLD_WORLD00..12) -- "
+                                "a FieldScene there clobbers the world scripts: every field->overworld "
+                                "transition in that world state black-screens. Pick an id clear of the hole.")
         except (TypeError, ValueError):
             problems.append(f"[field] id must be an integer (got {f['id']!r})")
     if "area" in f and int(f["area"]) < 10:

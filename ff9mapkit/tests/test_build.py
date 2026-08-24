@@ -182,6 +182,40 @@ def test_validate_rejects_out_of_range_field_id(tmp_path):
     assert not any("out of range 1-32767" in p for p in validate(FieldProject.load(ok)))
 
 
+def test_validate_refuses_the_world_hole_and_the_real_band(tmp_path):
+    """Lane G: the 9000-9012 EventDB world-dispatcher hole and the real band (< 4000) were guarded in four
+    private call sites (journey/reid/campaign/floorplan) but NOT at the build chokepoint every lane funnels
+    through -- so `deploy_field.py --id 9005` sailed to a FieldScene registration that clobbers
+    EVT_WORLD_WORLD05 (every field->overworld transition in world state 5 then black-screens), and a toml
+    with a real-band id repoints a REAL location's script. validate() is that chokepoint; both refuse now."""
+    cam = "\n\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+
+    def _probs(fid):
+        p = tmp_path / f"f{fid}.field.toml"
+        p.write_text(f'[field]\nid = {fid}\nname = "T{fid}"\narea = 11' + cam, encoding="utf-8")
+        return validate(FieldProject.load(p))
+
+    for in_hole in (9000, 9005, 9012):
+        assert any("world-map hole" in x for x in _probs(in_hole)), in_hole
+    assert any("is in the REAL-band" in x for x in _probs(1663))       # a real Alexandria-band id
+    assert any("is in the REAL-band" in x for x in _probs(3999))       # the band edge
+    for ok in (4003, 8999, 9013, 30000, 32767):                        # the hole's edges + both bands stay usable
+        probs = _probs(ok)
+        assert not any(("world-map hole" in x) or ("REAL-band" in x) for x in probs), (ok, probs)
+
+    # THE one lawful sub-4000 case: a fork sitting on its OWN donor id -- an in-place edit of that real
+    # field, whose FieldScene line matches the vanilla registration (nothing repointed). A fork of a
+    # DIFFERENT donor squatting a real id still repoints, so it still refuses.
+    def _fork_probs(fid, donor):
+        p = tmp_path / f"fk{fid}_{donor}.field.toml"
+        p.write_text(f'[field]\nid = {fid}\nname = "K{fid}"\narea = 11\nsource_field = {donor}\n' + cam,
+                     encoding="utf-8")
+        return validate(FieldProject.load(p))
+
+    assert not any("REAL-band" in x for x in _fork_probs(600, 600))
+    assert any("is in the REAL-band" in x for x in _fork_probs(600, 601))
+
+
 def test_build_reproduces_hut_int_eb_byte_exact(built):
     # The hut script EMBEDS the blank field (game-derived), so we can't ship its bytes as a golden.
     # Instead we compare the fresh build's SHA-256 to the manifest (a hash isn't a redistribution of

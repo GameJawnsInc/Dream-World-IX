@@ -206,6 +206,14 @@ _REWRITES = (
     ("out of range 1-32767",
      "The field id you picked is below 1 or above 32767, and the game can't use an id outside that range.",
      "Pick a field id between 4000 and 9899 for a custom field."),
+    ("world-map hole",
+     "The id you picked is one of the 13 slots (9000–9012) the game engine itself uses for the overworld's "
+     "scripts, so a custom field there would break walking out onto the world map.",
+     "Pick a different id — 4000–9899 avoiding 9000–9012, or 30000+ for a test slot."),
+    ("is in the real-band",
+     "The id you picked belongs to the real game's own screens, so your field would replace one of them "
+     "and that screen would stop working in normal play.",
+     "Pick a custom id between 4000 and 9899 (or 30000+ for a test slot)."),
     ("custom band 4000",
      "The id you entered isn't a free custom one — it's either a real, locked game id (below 4000) or above "
      "the maximum allowed.",
