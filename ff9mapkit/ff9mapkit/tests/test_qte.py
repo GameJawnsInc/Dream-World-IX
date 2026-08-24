@@ -286,6 +286,38 @@ def test_validate_negatives(tmp_path):
     assert any("blackboard" in pr for pr in probs2)
 
 
+def test_result_word_cannot_overlap_an_authored_story_flag(tmp_path):
+    """Lane D (2026-08): the modal-result home (bytes 1990-2005) is deliberately UNRESERVED in flags.py,
+    so a [[flag]] there and a [[qte]]/[[numeric_input]] `result` word there each pass their OWN validator
+    -- and every submit/bout then whole-word-writes the flag away, silently. The canonical guidance even
+    steers both channels into the same bytes (result 'e.g. 2000'; a flag author picking a high index 'out
+    of everyone's way'). Only build.validate sees both, so it must cross-check them."""
+    # the fixture's own result = 1998 spans bits 15984-15999; land a flag inside that word
+    clash = _TOML + '\n[[flag]]\nname = "duel_won"\nindex = 15990\n'
+    f = tmp_path / "clash.field.toml"
+    f.write_text(clash, encoding="utf-8")
+    probs = BLD.validate(BLD.FieldProject.load(f))
+    assert any("duel" in pr and "result 1998" in pr and "15990" in pr for pr in probs), probs
+    # the [[numeric_input]] channel shares the same check
+    ni = (
+        '[field]\nid = 30002\nname = "NI"\narea = 11\n'
+        "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+        '\n[[npc]]\nname = "dealer"\npreset = "vivi"\npos = [0, -300]\ndialogue = "Bid?"\n'
+        '\n[[numeric_input]]\nname = "bid"\nresult = 1998\ndigits = 3\nmultiplier = 100\n'
+        '\n[[choice]]\nnpc = "dealer"\nprompt = "Care to bid?"\n'
+        'options = [ { text = "Bid", input = "bid" }, { text = "Not today" } ]\n'
+        '\n[[flag]]\nname = "bid_won"\nindex = 15984\n')
+    f2 = tmp_path / "ni.field.toml"
+    f2.write_text(ni, encoding="utf-8")
+    probs2 = BLD.validate(BLD.FieldProject.load(f2))
+    assert any("bid" in pr and "result 1998" in pr and "15984" in pr for pr in probs2), probs2
+    # a flag CLEAR of the word stays legal (byte 1990 = bit 15920; the word owns 1998-1999)
+    ok = _TOML + '\n[[flag]]\nname = "duel_won"\nindex = 15920\n'
+    f3 = tmp_path / "ok.field.toml"
+    f3.write_text(ok, encoding="utf-8")
+    assert BLD.validate(BLD.FieldProject.load(f3)) == []
+
+
 def test_qte_and_coop_share_a_field(tmp_path):
     """[[qte]] + [[coop]] on one field is LEGAL -- the scratch band was moved below the
     co-op cells precisely so a bout under live co-op keeps its scoring (and a refusal

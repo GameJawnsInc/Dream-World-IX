@@ -2394,6 +2394,7 @@ def validate(project: FieldProject) -> list[str]:
     # [[numeric_input]] steppers (the Treno-bid substrate, content.numinput): validate each block and
     # collect the names the option-level `input =` key may reference.
     ni_names = set()
+    _modal_results = []                          # (ctx, result byte) of every modal's Int16 landing word
     ni_blocks = project.raw.get("numeric_input", []) or []
     for ii, blk in enumerate(ni_blocks):
         try:
@@ -2404,6 +2405,7 @@ def validate(project: FieldProject) -> list[str]:
         if sp.name in ni_names:
             problems.append(f"[[numeric_input]] duplicate name {sp.name!r}")
         ni_names.add(sp.name)
+        _modal_results.append((f"[[numeric_input]] {sp.name!r}", sp.result))
         # gMesValue is ONE 8-slot bank: the stepper's digits live in slots 8-digits..7 and the submit
         # echo loads slot 0, while a [[behavior.hud]] row drives slots 0..len(values)-1 -- any live
         # strip would fight the stepper for slot 0 (and big strips for the digit slots too).
@@ -2428,6 +2430,20 @@ def validate(project: FieldProject) -> list[str]:
         if qs.name in qte_names:
             problems.append(f"[[qte]] duplicate name {qs.name!r}")
         qte_names.add(qs.name)
+        _modal_results.append((f"[[qte]] {qs.name!r}", qs.result))
+    # A modal `result` word vs the project's OWN story flags: the result home (bytes 1990-2005) is
+    # deliberately UNRESERVED in flags.py, so each side's own validator passes -- an authored [[flag]]
+    # (or any gate index) landing inside a result word's 16 bits is clobbered whole-word on every
+    # submit/bout, and the flag write corrupts the score right back. Only HERE are both channels known.
+    if _modal_results:
+        _authored = _flags.collect_safe_flag_indices(project.raw)
+        for _ctx, _rb in _modal_results:
+            _hits = sorted(b for b in range(_rb * 8, _rb * 8 + 16) if b in _authored)
+            if _hits:
+                problems.append(f"{_ctx}: result {_rb} -- the Int16 word (bytes {_rb}-{_rb + 1} = bits "
+                                f"{_rb * 8}-{_rb * 8 + 15}) overlaps this project's own story flag(s) "
+                                f"{_hits}: every submit/bout writes the whole word, silently clobbering "
+                                f"the flag -- move the result word or the flag index.")
     if qte_blocks:
         if "verbatim_eb" in project.raw:
             problems.append("[[qte]] is not supported on a verbatim fork yet -- its entry "
