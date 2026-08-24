@@ -25,6 +25,7 @@ from pathlib import Path
 from . import campaign as C
 from . import deploystack as DS
 from . import dictpatch as DP
+from . import fsutil
 from . import newgame
 from .config import LANGS, ModLayout, find_game_path
 
@@ -365,82 +366,94 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     if twarn:
         out("\n  !! " + twarn)
 
-    # (2) bootstrap a fresh mod folder so the snapshot has something to copy
-    live_root.mkdir(parents=True, exist_ok=True)
-    live = ModLayout(live_root)
-    if not live.mod_description.exists():
-        live.mod_description.write_text(
-            f"<Mod>\n    <Name>{mod_folder}</Name>\n    <Author></Author>\n"
-            f"    <InstallationPath>{mod_folder}</InstallationPath>\n    <Category></Category>\n"
-            f"    <Description></Description>\n</Mod>\n", encoding="utf-8", newline="\n")
-    if not live.dictionary_patch.exists():
-        # O_EXCL: exactly one concurrent bootstrapper creates it. A plain check-then-write here could land
-        # "" OVER a concurrent field deploy's just-merged rewrite on a brand-new folder -- the same
-        # lost-line class tools/deploy_field.py's bootstrap closes (the M7 locking pass covered that
-        # script but missed this twin).
-        try:
-            os.close(os.open(str(live.dictionary_patch), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-        except FileExistsError:
-            pass
-
-    # (3) ONE set-wide snapshot, then (4) WHOLESALE replace (install_tworoom model)
-    snap = backups_dir / f"{mod_folder}.pre-{plan.name}.{stamp}"
-    snap.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(live_root, snap)
-    out(f"snapshot {live_root} -> {snap}")
-
-    # prepare the revert emitter + write a snapshot-only revert BEFORE the risky wholesale-replace below --
-    # a copytree failure partway (disk full, a locked file, AV) must still leave a usable revert_campaign.py,
-    # not just a naked snapshot dir the user has to restore by hand.
+    # (2)-(4) run under the FOLDER lock (<game>/<mod_folder>.ff9lock -- OUTSIDE the folder, so the rmtree
+    # below can't delete it): a wholesale replace cannot hold the per-file sidecar locks inside a tree it
+    # deletes, so without this a concurrent field deploy's LOCKED DictionaryPatch rewrite could land
+    # between snapshot and rmtree and be silently destroyed -- invisible to the wiped-regs guard, which
+    # compares snapshot-time state. A TIMEOUT aborts loudly below (nothing installed, nothing touched).
     warp_revert = None
-    reverts_dir.mkdir(parents=True, exist_ok=True)
-    rev = reverts_dir / "revert_campaign.py"
     csv_reverts: list = []
-
-    def _write_revert():
-        rev.write_text(render_revert_campaign(live_root, snap, warp_revert, plan.name, stamp, csv_reverts),
-                       encoding="utf-8", newline="\n")
-    _write_revert()
-    report["revert"] = rev
-
-    # dropped-registration guard: a WHOLESALE replace drops any registration the dist doesn't carry -- a clip
-    # `ff9mapkit model-anim-new` wrote directly into this folder's DictionaryPatch, the FieldScene line of a
-    # field ANOTHER checkout deployed into this same shared folder (2026-07-18), or a member this campaign
-    # itself retired. The snapshot restores them on REVERT, but the forward install silently loses them -> WARN
-    # (CLAUDE.md deploy footgun, 2026-07-08). Only reported; the wholesale replace is the campaign-owns-the-
-    # folder model. The warning states both readings -- see _wiped_regs_warning on why it must not pick one.
-    _lost = _regs_wiped(live, dist_root)
-    if _lost:
-        out("  !! " + _wiped_regs_warning(_lost))
-    # LINK RECEIPT GUARD. A journey's cross-campaign doors exist ONLY as an edit to the installed .eb --
-    # no dist carries them, because the destination is another campaign's id and only the journey knows
-    # it. The wholesale replace below therefore REVERTS them, silently, and the fast loop (iterate on one
-    # campaign) eats the slow loop's output (assemble the journey). docs/JOURNEYS.md warns in prose; prose
-    # is not a mechanism. REFUSE unless the author says otherwise -- reverting is nearly always what they
-    # would have wanted to avoid, and re-running deploy-journey restores it.
-    from . import linkreceipt as _lr
-    _links = _lr.check(live_root)
-    if _links.has_receipt and not allow_link_wipe:
-        err("\nABORT (nothing installed): this folder carries journey link patches that a wholesale "
-            "replace would revert.\n" + _links.render())
-        err("\n  The dist cannot contain these -- they target another campaign's ids. After deploying this "
-            "campaign, re-run `ff9mapkit deploy-journey` to re-apply them, or pass --allow-link-wipe to "
-            "install anyway and lose them until you do.")
-        report["applied"] = False
-        return report
     try:
-        shutil.rmtree(live_root, ignore_errors=True)
-        shutil.copytree(dist_root, live_root)
-    except OSError as e:
-        err(f"\nERROR installing dist -> {live_root}: {e}")
-        try:
-            shutil.rmtree(live_root, ignore_errors=True)
-            shutil.copytree(snap, live_root)
-            err(f"Restored the pre-install snapshot from {snap} -- {live_root} is back to its prior state.")
-        except OSError as e2:
-            err(f"Restoring the snapshot ALSO failed ({e2}) -- {live_root} may be left half-installed. "
-                f"Restore by hand: copy {snap} -> {live_root}, or run: py {rev}")
-        _write_revert()
+        with fsutil.locked_mod_folder(live_root):
+            # (2) bootstrap a fresh mod folder so the snapshot has something to copy
+            live_root.mkdir(parents=True, exist_ok=True)
+            live = ModLayout(live_root)
+            if not live.mod_description.exists():
+                live.mod_description.write_text(
+                    f"<Mod>\n    <Name>{mod_folder}</Name>\n    <Author></Author>\n"
+                    f"    <InstallationPath>{mod_folder}</InstallationPath>\n    <Category></Category>\n"
+                    f"    <Description></Description>\n</Mod>\n", encoding="utf-8", newline="\n")
+            if not live.dictionary_patch.exists():
+                # O_EXCL: exactly one concurrent bootstrapper creates it. A plain check-then-write here could land
+                # "" OVER a concurrent field deploy's just-merged rewrite on a brand-new folder -- the same
+                # lost-line class tools/deploy_field.py's bootstrap closes (the M7 locking pass covered that
+                # script but missed this twin).
+                try:
+                    os.close(os.open(str(live.dictionary_patch), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                except FileExistsError:
+                    pass
+
+            # (3) ONE set-wide snapshot, then (4) WHOLESALE replace (install_tworoom model)
+            snap = backups_dir / f"{mod_folder}.pre-{plan.name}.{stamp}"
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(live_root, snap)
+            out(f"snapshot {live_root} -> {snap}")
+
+            # prepare the revert emitter + write a snapshot-only revert BEFORE the risky wholesale-replace below --
+            # a copytree failure partway (disk full, a locked file, AV) must still leave a usable revert_campaign.py,
+            # not just a naked snapshot dir the user has to restore by hand.
+            reverts_dir.mkdir(parents=True, exist_ok=True)
+            rev = reverts_dir / "revert_campaign.py"
+
+            def _write_revert():
+                rev.write_text(render_revert_campaign(live_root, snap, warp_revert, plan.name, stamp, csv_reverts),
+                               encoding="utf-8", newline="\n")
+            _write_revert()
+            report["revert"] = rev
+
+            # dropped-registration guard: a WHOLESALE replace drops any registration the dist doesn't carry -- a clip
+            # `ff9mapkit model-anim-new` wrote directly into this folder's DictionaryPatch, the FieldScene line of a
+            # field ANOTHER checkout deployed into this same shared folder (2026-07-18), or a member this campaign
+            # itself retired. The snapshot restores them on REVERT, but the forward install silently loses them -> WARN
+            # (CLAUDE.md deploy footgun, 2026-07-08). Only reported; the wholesale replace is the campaign-owns-the-
+            # folder model. The warning states both readings -- see _wiped_regs_warning on why it must not pick one.
+            _lost = _regs_wiped(live, dist_root)
+            if _lost:
+                out("  !! " + _wiped_regs_warning(_lost))
+            # LINK RECEIPT GUARD. A journey's cross-campaign doors exist ONLY as an edit to the installed .eb --
+            # no dist carries them, because the destination is another campaign's id and only the journey knows
+            # it. The wholesale replace below therefore REVERTS them, silently, and the fast loop (iterate on one
+            # campaign) eats the slow loop's output (assemble the journey). docs/JOURNEYS.md warns in prose; prose
+            # is not a mechanism. REFUSE unless the author says otherwise -- reverting is nearly always what they
+            # would have wanted to avoid, and re-running deploy-journey restores it.
+            from . import linkreceipt as _lr
+            _links = _lr.check(live_root)
+            if _links.has_receipt and not allow_link_wipe:
+                err("\nABORT (nothing installed): this folder carries journey link patches that a wholesale "
+                    "replace would revert.\n" + _links.render())
+                err("\n  The dist cannot contain these -- they target another campaign's ids. After deploying this "
+                    "campaign, re-run `ff9mapkit deploy-journey` to re-apply them, or pass --allow-link-wipe to "
+                    "install anyway and lose them until you do.")
+                report["applied"] = False
+                return report
+            try:
+                shutil.rmtree(live_root, ignore_errors=True)
+                shutil.copytree(dist_root, live_root)
+            except OSError as e:
+                err(f"\nERROR installing dist -> {live_root}: {e}")
+                try:
+                    shutil.rmtree(live_root, ignore_errors=True)
+                    shutil.copytree(snap, live_root)
+                    err(f"Restored the pre-install snapshot from {snap} -- {live_root} is back to its prior state.")
+                except OSError as e2:
+                    err(f"Restoring the snapshot ALSO failed ({e2}) -- {live_root} may be left half-installed. "
+                        f"Restore by hand: copy {snap} -> {live_root}, or run: py {rev}")
+                _write_revert()
+                return report
+    except fsutil.FileLockTimeout as e:
+        err(f"\nABORT (nothing installed): {e}")
+        err(f"Another session's deploy/revert holds the folder lock for '{mod_folder}' -- re-run this "
+            f"install once it finishes.")
         return report
     out(f"installed dist -> {live_root}  ({len(plan.members)} fields)")
     report["applied"] = True
@@ -653,50 +666,61 @@ def deploy_field(target, *, game=None, mod_folder=None, apply=False, allow_name_
         if twarn:
             out("\n  !! " + twarn)
 
-        # --- the SHARED-FOLDER gate. Installing wholesale into a folder that registers fields this build
-        #     does not emit unregisters them: their .eb/.mes stay on disk, so nothing looks wrong until the
-        #     engine black-screens on the field whose FieldScene line vanished. Same rule build_mod enforces
-        #     for `--out`; the surgical per-id merge that would make this safe is Phase 2 (repo script only).
-        if existed:
-            _lost = _regs_wiped(ModLayout(live_root), dist_root)
-            if _lost:
-                out("\n  !! " + _wiped_regs_warning(_lost, dist_word="built field"))
-                if not allow_drop:
-                    err(f"\nABORTING before install (no game files touched). '{folder}' holds other fields; a "
-                        f"single-field install OWNS its folder and replaces it wholesale. Install into a "
-                        f"dedicated folder (the default), or pass allow_drop to replace anyway.")
-                    return report
-
-        # --- snapshot, install, revert ---
-        snap = None
-        if existed:
-            snap = backups_dir / f"{folder}.pre-{proj.name}.{stamp}"
-            snap.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(live_root, snap)
-            out(f"snapshot {live_root} -> {snap}")
-
-        # Write the revert BEFORE the risky copytree -- a failure partway (disk full, locked file, AV) must
-        # still leave a usable revert, not a naked snapshot the user has to restore by hand.
-        reverts_dir.mkdir(parents=True, exist_ok=True)
-        rev = reverts_dir / f"revert_field_{re.sub(r'[^A-Za-z0-9_-]', '', str(proj.name)) or 'field'}.py"
-        rev.write_text(_render_field_revert(live_root, snap, stamp, proj.name),
-                       encoding="utf-8", newline="\n")
-        report["revert"] = rev
-        report["created_folder"] = not existed
-
+        # --- the gate + snapshot + install run under the FOLDER lock (<game>/<folder>.ff9lock, OUTSIDE the
+        #     folder -- the rmtree below can't delete it): a wholesale replace can't hold the per-file
+        #     sidecar locks inside a tree it deletes, so without this a concurrent writer's LOCKED rewrite
+        #     could land between snapshot and rmtree and be silently destroyed. A TIMEOUT aborts loudly.
         try:
-            shutil.rmtree(live_root, ignore_errors=True)
-            shutil.copytree(dist_root, live_root)
-        except OSError as e:
-            err(f"\nERROR installing -> {live_root}: {e}")
-            if snap is not None:
+            with fsutil.locked_mod_folder(live_root):
+                # --- the SHARED-FOLDER gate. Installing wholesale into a folder that registers fields this build
+                #     does not emit unregisters them: their .eb/.mes stay on disk, so nothing looks wrong until the
+                #     engine black-screens on the field whose FieldScene line vanished. Same rule build_mod enforces
+                #     for `--out`; the surgical per-id merge that would make this safe is Phase 2 (repo script only).
+                if existed:
+                    _lost = _regs_wiped(ModLayout(live_root), dist_root)
+                    if _lost:
+                        out("\n  !! " + _wiped_regs_warning(_lost, dist_word="built field"))
+                        if not allow_drop:
+                            err(f"\nABORTING before install (no game files touched). '{folder}' holds other fields; a "
+                                f"single-field install OWNS its folder and replaces it wholesale. Install into a "
+                                f"dedicated folder (the default), or pass allow_drop to replace anyway.")
+                            return report
+
+                # --- snapshot, install, revert ---
+                snap = None
+                if existed:
+                    snap = backups_dir / f"{folder}.pre-{proj.name}.{stamp}"
+                    snap.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(live_root, snap)
+                    out(f"snapshot {live_root} -> {snap}")
+
+                # Write the revert BEFORE the risky copytree -- a failure partway (disk full, locked file, AV) must
+                # still leave a usable revert, not a naked snapshot the user has to restore by hand.
+                reverts_dir.mkdir(parents=True, exist_ok=True)
+                rev = reverts_dir / f"revert_field_{re.sub(r'[^A-Za-z0-9_-]', '', str(proj.name)) or 'field'}.py"
+                rev.write_text(_render_field_revert(live_root, snap, stamp, proj.name),
+                               encoding="utf-8", newline="\n")
+                report["revert"] = rev
+                report["created_folder"] = not existed
+
                 try:
                     shutil.rmtree(live_root, ignore_errors=True)
-                    shutil.copytree(snap, live_root)
-                    err(f"Restored the pre-install snapshot from {snap}.")
-                except OSError as e2:
-                    err(f"Restoring the snapshot ALSO failed ({e2}) -- {live_root} may be half-installed. "
-                        f"Restore by hand: copy {snap} -> {live_root}, or run: py {rev}")
+                    shutil.copytree(dist_root, live_root)
+                except OSError as e:
+                    err(f"\nERROR installing -> {live_root}: {e}")
+                    if snap is not None:
+                        try:
+                            shutil.rmtree(live_root, ignore_errors=True)
+                            shutil.copytree(snap, live_root)
+                            err(f"Restored the pre-install snapshot from {snap}.")
+                        except OSError as e2:
+                            err(f"Restoring the snapshot ALSO failed ({e2}) -- {live_root} may be half-installed. "
+                                f"Restore by hand: copy {snap} -> {live_root}, or run: py {rev}")
+                    return report
+        except fsutil.FileLockTimeout as e:
+            err(f"\nABORTING before install (no game files touched): {e}")
+            err(f"Another session's deploy/revert holds the folder lock for '{folder}' -- re-run once it "
+                f"finishes.")
             return report
     out(f"installed -> {live_root}  (field {proj.id} '{proj.name}')")
     report["applied"] = True
@@ -855,13 +879,17 @@ def _install_hub(hub_toml, hub_id, hub_folder, game, *, backups_dir, reverts_dir
             out("\n  !! " + _tw)
     except Exception:                                       # noqa: BLE001 -- a guard must never block a deploy
         pass
-    live_root.mkdir(parents=True, exist_ok=True)
     snap = Path(backups_dir) / f"{hub_folder}.pre-hub-{hub_id}.{stamp}"
     snap.parent.mkdir(parents=True, exist_ok=True)
-    if snap.exists():
-        shutil.rmtree(snap, ignore_errors=True)
-    shutil.copytree(live_root, snap)
-    shutil.copytree(dist, live_root, dirs_exist_ok=True)    # overlay -- preserves a prior New-Game override
+    # FOLDER lock around snapshot -> overlay: the overlay's copytree replaces files a concurrent field
+    # deploy may be mid-rewrite on, and the snapshot must capture the state the install actually replaces.
+    # A FileLockTimeout PROPAGATES to the caller's except -> a loud journey abort.
+    with fsutil.locked_mod_folder(live_root):
+        live_root.mkdir(parents=True, exist_ok=True)
+        if snap.exists():
+            shutil.rmtree(snap, ignore_errors=True)
+        shutil.copytree(live_root, snap)
+        shutil.copytree(dist, live_root, dirs_exist_ok=True)    # overlay -- preserves a prior New-Game override
     out(f"installed hub field {hub_id} -> {live_root}  (snapshot {snap.name})")
     reverts_dir = Path(reverts_dir)
     reverts_dir.mkdir(parents=True, exist_ok=True)
@@ -1162,25 +1190,33 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
                 f"NAME, remove that folder, or pass allow_collision=True to overwrite it.")
             return 2, None
 
-    # (2) install: snapshot, script the snapshot-restore revert FIRST, then wholesale-replace.
-    live_root.mkdir(parents=True, exist_ok=True)
-    snap = Path(backups_dir) / f"{folder}.pre-journey.{stamp}"
-    snap.parent.mkdir(parents=True, exist_ok=True)
-    if snap.exists():
-        shutil.rmtree(snap, ignore_errors=True)
-    shutil.copytree(live_root, snap)
-    rev = reverts_dir / "revert_journey_single_folder.py"
-    rev.write_text(_render_folder_revert(live_root, snap, stamp), encoding="utf-8", newline="\n")
-    captured.append(str(rev))
-    _flush()
-    _lost = _regs_wiped(ModLayout(live_root), merged)   # model-anim-new-between-deploys footgun (snapshot reverts it)
-    if _lost:
-        out("  !! " + _wiped_regs_warning(_lost, "merged dist"))
+    # (2) install: snapshot, script the snapshot-restore revert FIRST, then wholesale-replace -- all under
+    # the FOLDER lock (<game>/<folder>.ff9lock, OUTSIDE the folder): without it a concurrent field deploy's
+    # LOCKED rewrite can land between snapshot and rmtree and be silently destroyed. A TIMEOUT aborts loudly.
     try:
-        shutil.rmtree(live_root, ignore_errors=True)
-        shutil.copytree(merged, live_root)
-    except OSError as e:
-        return _abort(f"install copy failed mid-write ({e}) -- run the revert to restore the snapshot")
+        with fsutil.locked_mod_folder(live_root):
+            live_root.mkdir(parents=True, exist_ok=True)
+            snap = Path(backups_dir) / f"{folder}.pre-journey.{stamp}"
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            if snap.exists():
+                shutil.rmtree(snap, ignore_errors=True)
+            shutil.copytree(live_root, snap)
+            rev = reverts_dir / "revert_journey_single_folder.py"
+            rev.write_text(_render_folder_revert(live_root, snap, stamp), encoding="utf-8", newline="\n")
+            captured.append(str(rev))
+            _flush()
+            _lost = _regs_wiped(ModLayout(live_root), merged)   # model-anim-new-between-deploys footgun (snapshot reverts it)
+            if _lost:
+                out("  !! " + _wiped_regs_warning(_lost, "merged dist"))
+            try:
+                shutil.rmtree(live_root, ignore_errors=True)
+                shutil.copytree(merged, live_root)
+            except OSError as e:
+                return _abort(f"install copy failed mid-write ({e}) -- run the revert to restore the snapshot")
+    except fsutil.FileLockTimeout as e:
+        err(f"\n{e}")
+        return _abort(f"could not take the folder lock for '{folder}' -- another session's deploy/revert "
+                      f"holds it; nothing was installed. Re-run once it finishes")
     out(f"=== 2. installed merged dist -> {live_root}  (snapshot {snap.name}) ===")
 
     # (3) cross-campaign links -- all .eb live in the ONE merged folder now.

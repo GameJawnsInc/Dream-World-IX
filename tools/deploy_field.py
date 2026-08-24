@@ -11,7 +11,7 @@ BattlePatch + engine DLL changes also need a relaunch.
 
 Usage:  python tools/deploy_field.py <field.toml> [--id N] [--name NAME]
 """
-import os, sys, struct, shutil, tempfile, datetime, glob
+import contextlib, os, sys, struct, shutil, tempfile, datetime, glob
 from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
@@ -22,7 +22,7 @@ from ff9mapkit import build as B
 from ff9mapkit import reverttmpl as _revert
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit.eb import EbScript, edit, disasm
-from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_sidecar
+from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_mod_folder, locked_sidecar
 
 import argparse, tomllib
 # Per-worktree deploy target: a gitignored .ff9deploy.toml at the repo root pins each worktree's OWN
@@ -140,6 +140,26 @@ if prior.exists():
 # deploy reversibly
 GAME = find_game_path()
 live = ModLayout(GAME / MOD_FOLDER)
+# FOLDER LOCK (M8, two-level: folder THEN sidecar): hold <game>/<MOD_FOLDER>.ff9lock -- OUTSIDE the
+# folder, beside Memoria.ini -- across the WHOLE live-mutation section below (bootstrap through the
+# TextPatch splice). The per-file sidecar locks serialise RMW pairs, but a wholesale installer
+# (deploy-campaign/journey: snapshot -> rmtree -> copytree) cannot hold a sidecar INSIDE a tree it
+# deletes -- so without this lock, this deploy's LOCKED rewrites could land between that installer's
+# snapshot and rmtree and be silently destroyed (invisible to its wiped-regs guard, which compares
+# snapshot-time state). Entered via ExitStack (the section is 500 lines of top-level script); a sys.exit
+# inside it releases the lock at process death (the OS drops fd locks with the fd). Runs AFTER the
+# prelude revert above, which takes the same lock itself -- holding it across the subprocess would
+# deadlock. A TIMEOUT aborts loudly -- proceeding unlocked is the one wrong answer.
+_folder_lock = contextlib.ExitStack()
+try:
+    _folder_lock.enter_context(locked_mod_folder(live.root))
+except FileLockTimeout as _lke:
+    print(f"!! {_lke}\n"
+          f"!! NOT deploying into {live.root} -- a wholesale campaign/journey install (or another "
+          f"deploy/revert's live-mutation section) holds the folder lock. Nothing was touched; re-run "
+          f"this deploy once the other operation finishes.", file=sys.stderr)
+    shutil.rmtree(tmp, ignore_errors=True)
+    sys.exit(2)
 # bootstrap a fresh per-worktree mod folder: give it a ModDescription.xml (so Memoria's Mod Manager
 # recognizes it) and an empty DictionaryPatch.txt (so the backup/read steps below have a file).
 live.root.mkdir(parents=True, exist_ok=True)
@@ -653,6 +673,9 @@ except FileLockTimeout as _lke:
     sys.exit(2)
 if tp_revert_code and _built_tp:
     print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
+# last live write done -- release the folder lock before the ledger + guards (they live OUTSIDE the folder,
+# and the generated revert below is only WRITTEN here, into scroll_out; it takes the lock itself when RUN).
+_folder_lock.close()
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
 # deploy LEDGER (diagnostics only, never load-bearing -- record() swallows filesystem failures). Written

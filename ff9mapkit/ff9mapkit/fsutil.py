@@ -15,6 +15,14 @@ foreign-drop guard cannot see it because the clobber happens in the OTHER proces
 :func:`locked_sidecar` is the serialiser; the fd-level primitive under it
 (:func:`exclusive_fd_lock`) is the same measured, tear-tested lock the deploy ledger
 (``deploylog``) proved out.
+
+The folder rule: the sidecar serialises two rewriters of ONE file, but a WHOLESALE install
+(deploy-campaign/journey: snapshot -> rmtree -> copytree of the whole mod folder) cannot hold
+a sidecar inside a tree it deletes -- so a field deploy's LOCKED rewrite could still land
+between snapshot and rmtree and be silently destroyed. :func:`locked_mod_folder` is the
+coarse serialiser for that: one lockfile per mod folder, living OUTSIDE the folder (beside
+``Memoria.ini``), taken by every live-mutating writer around its WHOLE mutation section.
+LOCK ORDER is folder THEN sidecar, never the reverse.
 """
 
 from __future__ import annotations
@@ -45,6 +53,14 @@ _LOCK_OFFSET = 1 << 40
 #: caller must abort loudly rather than proceed unlocked. Generous, because a false abort mid-deploy costs
 #: a re-run while a longer wait costs nothing.
 LOCK_TIMEOUT = 10.0
+
+#: Default deadline for :func:`locked_mod_folder`. A folder-level critical section is a whole-folder
+#: snapshot + wholesale replace, or a full deploy's live-mutation run (which can include a C# recompile of
+#: the live Scripts DLL) -- seconds to tens of seconds, not the sidecar's few milliseconds -- so the
+#: deadline must clear the SLOW normal case. Reaching it still means a WEDGED holder, and the same M7
+#: semantics apply: a deploy path aborts loudly rather than proceed unlocked (a false abort costs a
+#: re-run; a longer wait costs nothing).
+FOLDER_LOCK_TIMEOUT = 120.0
 
 
 class FileLockTimeout(TimeoutError):
@@ -156,6 +172,38 @@ def locked_sidecar(target: "Path | str", timeout: float = LOCK_TIMEOUT):
     registry other sessions co-own and proceeding unlocked is the one wrong answer."""
     p = Path(target)
     lock = p.with_name(p.name + ".lock")
+    fd = os.open(str(lock), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        with exclusive_fd_lock(fd, timeout=timeout, name=str(lock)):
+            yield
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def locked_mod_folder(folder_root: "Path | str", timeout: float = FOLDER_LOCK_TIMEOUT):
+    """Serialise LIVE MUTATION of a whole mod folder across processes by holding ``<folder>.ff9lock``
+    BESIDE the folder (in the game root, next to ``Memoria.ini``) -- never inside it.
+
+    Why a second, coarser lock exists: :func:`locked_sidecar` serialises two read->merge->write pairs on
+    ONE file, but a WHOLESALE installer (deploy-campaign/journey: snapshot -> rmtree -> copytree) cannot
+    hold a sidecar INSIDE a tree it deletes -- rmtree would have to remove the very lockfile a concurrent
+    field deploy holds open, and on Windows an open fd inside the tree makes the rmtree itself fail
+    partway. So a field deploy's LOCKED rewrite could land between snapshot and rmtree and be silently
+    destroyed -- invisible to the wiped-regs guard, which compares snapshot-time state. This lockfile
+    lives OUTSIDE the tree, so its identity is stable across the replace and the wholesale holder can
+    delete freely. Every live-mutating writer takes it around its WHOLE mutation section: the wholesale
+    installs in :mod:`ff9mapkit.deploy`, the dev-loop deploy scripts, ``model-mint --deploy`` /
+    ``model-anim-new``, and the generated dev-loop reverts.
+
+    LOCK ORDER is folder THEN sidecar, never the reverse (the sidecar-only legacy tools take a single
+    lock, so no cycle exists). Like the sidecar: created on first use, deliberately never deleted; a
+    platform with neither lock module degrades to unlocked non-fatally; a TIMEOUT raises
+    :class:`FileLockTimeout` -- deploy paths catch it BY NAME and abort loudly, generated reverts let it
+    propagate into the prelude's checked exit code. ``folder_root``'s PARENT must exist (it is the game
+    root); the folder itself need not -- a revert may run after a campaign install wiped it."""
+    root = Path(folder_root)
+    lock = root.parent / (root.name + ".ff9lock")
     fd = os.open(str(lock), os.O_CREAT | os.O_RDWR, 0o644)
     try:
         with exclusive_fd_lock(fd, timeout=timeout, name=str(lock)):
