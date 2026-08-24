@@ -432,7 +432,7 @@ class BuildDoc(QWidget):
             dp = config.find_game_path() / self.mod_folder / "DictionaryPatch.txt"
         except Exception:                                # noqa: BLE001 -- no install found -> no field rows
             dp = None
-        scroll = self.repo / "tools" / "scroll_out" if self.has_tools else None
+        scroll = jobs.scroll_out_dir(self.repo) if self.has_tools else None
         rows = jobs.scan_deployed_reverts(dp, scroll)
         self.dep_list.clear()
         for r in rows:
@@ -442,8 +442,15 @@ class BuildDoc(QWidget):
                 it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.dep_list.addItem(it)
         n_undo = sum(1 for r in rows if r["script"])
+        # THREE situations, three messages. The mixed case's "select one and Revert selected" is a DEAD
+        # instruction when nothing is revertable -- it pointed at a button this same method disables, and
+        # a worktree launch used to land every row in that state (empty scroll_out; caught by gui_snap
+        # deployed:orphaned). Say what is true instead of repeating the happy path.
         if not rows:
             self.dep_hint.setText(f"Nothing registered in {self.mod_folder} yet.")
+        elif n_undo == 0:
+            self.dep_hint.setText(f"{len(rows)} deployed here · none has an undo script, so nothing here "
+                                  "can be reverted from this tab.")
         else:
             self.dep_hint.setText(f"{len(rows)} deployed here · {n_undo} with an undo script — select one "
                                   "and Revert selected to undo it.")
@@ -779,11 +786,15 @@ class BuildDoc(QWidget):
             w.setEnabled(not b)
 
     def _revert_dirs(self):
-        """(backups_dir, reverts_dir) for the Install-to-game snapshot -- the repo's ``backups/`` +
+        """(backups_dir, reverts_dir) for the Install-to-game snapshot -- the MAIN repo's ``backups/`` +
         ``tools/scroll_out/`` on a dev checkout, else the installed copy's per-user cache (Install-to-game
-        works on both, so this can't assume repo tools)."""
+        works on both, so this can't assume repo tools).
+
+        MAIN, not ``self.repo``: this snapshot IS the live install's only undo, and a Workspace launched
+        from an agent worktree used to park it there, so cleaning the tree destroyed the backup while the
+        game kept the install (project-ff9-worktree-parked-backups). Same rooting the deploy scripts use."""
         if self.has_tools:
-            return self.repo / "backups", self.repo / "tools" / "scroll_out"
+            return jobs.install_backups_dir(self.repo), jobs.scroll_out_dir(self.repo)
         from .. import provision
         return provision.deploy_backups_dir(), provision.deploy_reverts_dir()
 

@@ -79,12 +79,13 @@ def test_trusted_code_fragments_splice_and_stay_valid():
     representative fragment here mirrors the REAL surgical BattlePatch fragment ``tools/deploy_field.py``
     generates (multi-line, own imports, a parenthesized continuation) and must keep the script compilable."""
     frag = ('\nfrom ff9mapkit.battle import battlepatch as _bpm'
-            '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt'
+            '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt, locked_sidecar as _lsc'
             '\n_bpb = BK/f"BattlePatch.txt.preDEPLOY.{STAMP}"'
-            '\n_bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
-            '\n                         _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", 4003)'
-            '\nif _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
-            '\nelif live.battle_patch.exists(): live.battle_patch.unlink()')
+            '\nwith _lsc(live.battle_patch):'
+            '\n    _bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
+            '\n                             _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", 4003)'
+            '\n    if _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
+            '\n    elif live.battle_patch.exists(): live.battle_patch.unlink()')
     src = build_revert_script(**BENIGN, bp_revert_code=frag)
     _compiles(src)
     assert "revert_splice" in src and "BattlePatch.txt.preDEPLOY" in src
@@ -102,6 +103,29 @@ def test_revert_tolerates_a_wiped_mod_folder():
     # truncated write loses other sessions' registrations with no backup that contains them.
     assert "atomic_write_text(live.dictionary_patch" in src
     assert "live.dictionary_patch.write_text" not in src
+
+
+def test_dictionary_revert_holds_the_sidecar_lock():
+    """The generated revert does the same read->merge->write a deploy does, into the same shared file --
+    and a deploy RUNS it as the prelude, so at any instant some other session's revert may be rewriting a
+    folder a deploy is about to. Pin: the read, the surgical merge, and the atomic write all sit inside
+    `with locked_sidecar(...)` (the same fsutil lock the deploy scripts hold). A timeout PROPAGATES here on
+    purpose: the traceback fails the script, and the prelude's checked exit code turns that into a loud
+    deploy abort -- rewriting unlocked could drop a foreign FieldScene line that exists in NO backup."""
+    src = build_revert_script(**BENIGN)
+    tree = ast.parse(src)
+    withs = [n for n in ast.walk(tree) if isinstance(n, ast.With)
+             and any(isinstance(i.context_expr, ast.Call) and isinstance(i.context_expr.func, ast.Name)
+                     and i.context_expr.func.id == "locked_sidecar" for i in n.items)]
+    assert len(withs) == 1, "exactly one locked_sidecar block owns the DictionaryPatch revert"
+    w = withs[0]
+    calls = {n.func.id for n in ast.walk(w) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    attrs = {n.func.attr for n in ast.walk(w) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "read_text" in attrs and "revert_dictionary_patch" in attrs, "read + merge inside the lock"
+    assert "atomic_write_text" in calls, "the write inside the lock"
+    # the mkdir must PRECEDE the lock: after a campaign wipe the mod folder may not exist, and the sidecar
+    # lockfile needs the folder as much as the write does -- a crash here would hard-block every redeploy.
+    assert src.index("mkdir(parents=True, exist_ok=True)") < src.index("with locked_sidecar(")
 
 
 def test_int_fields_are_coerced():

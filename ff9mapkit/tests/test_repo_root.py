@@ -112,14 +112,52 @@ def _src(name):
     return (REPO / "tools" / f"{name}.py").read_text(encoding="utf-8")
 
 
-def test_all_four_backup_writers_spend_the_resolver():
-    """deploy_field (BK + OUT), wire_newgame_from_stock (backups_dir/reverts_dir), and the DLL
-    backup/restore pair (BKP, defined once in restore) must all root at the MAIN repo. backup_memoria_dll
-    imports BKP from restore_memoria_dll, so the pair is covered by restore's definition."""
-    for name in ("deploy_field", "wire_newgame_from_stock", "restore_memoria_dll"):
+# Every tool that snapshots or undoes LIVE GAME-INSTALL state. Split-brain is the hazard this list
+# guards: while deploy_field rooted at MAIN and the sibling shims still rooted at the running checkout,
+# ONE machine had two answers to "where is the undo", and no single rule could make the Workspace's
+# ledger right for both (a GUI switched to MAIN found field reverts and lost campaign/journey/battle).
+_BACKUP_WRITERS = ("deploy_field", "deploy_campaign", "deploy_journey", "deploy_battle",
+                   "wire_newgame_from_stock", "retarget_newgame_warp", "restore_memoria_dll")
+
+
+def test_every_backup_writer_spends_the_resolver():
+    """Every tool that backs up GAME-INSTALL state must root its backup + revert dirs at the MAIN repo:
+    deploy_field (BK + OUT), the three sibling deploy shims (deploy_battle's BK + OUT, deploy_campaign's
+    and deploy_journey's backups_dir/reverts_dir), BOTH New-Game wirings (wire_newgame_from_stock and
+    retarget_newgame_warp), and the DLL backup/restore pair (BKP, defined once in restore --
+    backup_memoria_dll imports it, so the pair is covered by restore's definition)."""
+    for name in _BACKUP_WRITERS:
         assert "main_repo_root" in _src(name), f"tools/{name}.py no longer spends repo_root.main_repo_root"
     assert "from restore_memoria_dll import" in _src("backup_memoria_dll")
-    # and the exact worktree-parked rootings must not come back
+
+
+def test_the_worktree_parked_rootings_never_come_back():
+    """The exact pre-fix expressions, per file -- each one parked a live deploy's only undo in an
+    ephemeral tree. Named individually because a generic scan cannot tell REPO-the-pin (legitimate:
+    .ff9deploy.toml, the ledger's checkout provenance) from REPO-the-backup-dir (the trap)."""
     assert '"..", "backups"' not in _src("deploy_field")
     assert '"..", "backups"' not in _src("restore_memoria_dll")
-    assert 'REPO / "backups"' not in _src("wire_newgame_from_stock")
+    assert 'Path(os.path.dirname(__file__)) / "scroll_out"' not in _src("deploy_battle")
+    for name in ("wire_newgame_from_stock", "deploy_campaign", "deploy_journey",
+                 "deploy_battle", "retarget_newgame_warp"):
+        src = _src(name)
+        assert 'REPO / "backups"' not in src, f"tools/{name}.py roots backups at the RUNNING checkout"
+        assert 'HERE / "scroll_out"' not in src, f"tools/{name}.py roots reverts at the RUNNING checkout"
+        assert 'REPO / "tools" / "scroll_out"' not in src,             f"tools/{name}.py roots reverts at the RUNNING checkout"
+
+
+def test_the_per_worktree_deploy_pin_did_not_move_with_the_backups():
+    """The OTHER root must NOT follow: ``.ff9deploy.toml`` is the deliberately PER-WORKTREE deploy pin, so
+    reading it from the main repo would un-isolate every session's mod folder (the exact clobber the pin
+    exists to prevent). It stays at the running checkout in both shims that read one."""
+    for name in ("deploy_battle", "deploy_campaign"):
+        assert 'REPO / ".ff9deploy.toml"' in _src(name),             f"tools/{name}.py must read its deploy pin from the RUNNING checkout"
+
+
+def test_the_package_asks_the_tools_rather_than_re_deriving_the_rule():
+    """The Workspace's dev branch resolves through THIS module (editor.jobs loads it by path), so the GUI
+    cannot silently disagree with the scripts it shells out to. Two implementations of "where does the
+    undo live" is the very defect above, one layer up -- so the package must not grow its own git call."""
+    jobs_src = (REPO / "ff9mapkit" / "ff9mapkit" / "editor" / "jobs.py").read_text(encoding="utf-8")
+    assert '"repo_root.py"' in jobs_src, "editor.jobs no longer loads tools/repo_root.py"
+    assert "git-common-dir" not in jobs_src, "editor.jobs re-derives the rule instead of asking the resolver"

@@ -19,6 +19,36 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   fully consumed by the ferry departure byte + origin Int24, which now appear in
   `NAMED_WORDS` (save inspector + `named_word_at` coverage, with an Int24 read path).
 
+### Fixed — concurrent deploys can no longer lose each other's DictionaryPatch lines
+- The `DictionaryPatch.txt` read→merge→write in `tools/deploy_field.py`,
+  `tools/deploy_battle.py`, and the generated revert scripts now holds a cross-process
+  lock (`fsutil.locked_sidecar`, a `DictionaryPatch.txt.lock` sidecar) for the whole
+  window. Concurrent sessions deploying into ONE mod folder could interleave those
+  windows and silently drop each other's `FieldScene`/`BattleScene` lines — the null-.eb
+  black-screen class, invisible to the foreign-drop guard because the clobber happens in
+  the other process's window (they also raced onto the shared `.tmp` staging name and
+  died on PermissionError). The fd-level lock is the deploy ledger's measured,
+  tear-tested one, extracted to `fsutil.exclusive_fd_lock` so both share it; exotic
+  platforms with neither `fcntl` nor `msvcrt` degrade to unlocked non-fatally (like the
+  ledger), but a lock TIMEOUT aborts a deploy loudly — proceeding unlocked is the one
+  wrong answer. `deploy_field`'s fresh-folder bootstrap creates the empty registry with
+  `O_EXCL` (its check-then-write could land `""` over a just-merged rewrite). Proven by a
+  barrier-synchronised multi-process test with an unlocked negative control that
+  measurably loses lines.
+- The SAME lost-update class is now locked at every OTHER patch-file writer, one sidecar
+  per target file: the `BattlePatch.txt` / `TextPatch.txt` / `ForkDonorPatch.txt` splices
+  in `tools/deploy_field.py` + `tools/deploy_battle.py` and their generated revert
+  fragments (the splices are non-clobbering only against what they READ — a concurrent
+  pair could still drop each other's blocks in the read-to-write window), the
+  `MusicMetaData.txt` minted-song-id merge, the direct live-DictionaryPatch writers
+  `model-mint --deploy` and `model-anim-new` (whose lock also spans the free-key scan —
+  two concurrent mints could allocate the same key; a lost `3DModelAnimation` line WAS
+  the vanished key 60001), and the legacy one-off tools (`install_tworoom`, the scroll
+  spikes — now atomic as well as locked). Deploy-path tools catch `FileLockTimeout` by
+  name and abort loudly; revert fragments let it propagate into the prelude's checked
+  exit code. Pinned by AST in `tests/test_patchfile_locks.py` (each pin verified to fail
+  when its write is moved outside the lock).
+
 ### Fixed — the field/battle deploy loop survives its own failures (adversarial review, Lane B)
 - `tools/deploy_field.py` builds BEFORE running the prior revert as its prelude: a typo'd
   toml path or a lint refusal used to abort with the slot's prior deploy already torn down

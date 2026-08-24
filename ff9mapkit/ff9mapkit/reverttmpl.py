@@ -48,7 +48,7 @@ import sys, shutil
 from pathlib import Path
 sys.path.insert(0, {kit!r})
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
-from ff9mapkit.fsutil import atomic_write_text
+from ff9mapkit.fsutil import atomic_write_text, locked_sidecar
 from ff9mapkit import dictpatch as _dp
 from ff9mapkit import deploylog as _dlog   # NEEDED by the ledger call at the bottom -- a missing import here
 #                                            NameErrors every generated revert, and a deploy RUNS the revert
@@ -62,17 +62,24 @@ STAMP={stamp!r}; BK=Path({backup_dir!r}); _GAME=find_game_path(); live=ModLayout
 # old behavior) re-clobbered co-deployed lines; a GEO-BLOCK drop (the older-still behavior) wiped foreign clip lines
 # like key 60001. (The staged Models//Animations/ FBX+clip trees are LEFT on disk -- inert once unregistered.)
 _MINT_IDS=set({_mint_ids_repr}); _MINT_ANIM_KEYS=set({_mint_anim_keys_repr}); _MES_BLOCKS=set({_mes_blocks_repr})
-# a MISSING live DictionaryPatch is EMPTY, not an error: a campaign deploy wholesale-replaces mod folders,
-# and a deploy runs this script as its prelude -- crashing here would hard-block every redeploy of the slot
-# (the prelude's exit code is checked) over a folder there is nothing left to revert in.
-_dp_before=live.dictionary_patch.read_text(encoding="utf-8").splitlines() if live.dictionary_patch.exists() else []
 _dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
 _bak=_dpbak.read_text(encoding="utf-8").splitlines() if _dpbak.exists() else []
-_dpkeep,_lost=_dp.revert_dictionary_patch(_dp_before, _bak, fid={fid_str!r}, model_ids=_MINT_IDS, anim_keys=_MINT_ANIM_KEYS, text_blocks=_MES_BLOCKS)
+# a MISSING live DictionaryPatch is EMPTY, not an error: a campaign deploy wholesale-replaces mod folders,
+# and a deploy runs this script as its prelude -- crashing here would hard-block every redeploy of the slot
+# (the prelude's exit code is checked) over a folder there is nothing left to revert in. The mkdir runs
+# BEFORE the lock: the sidecar lockfile needs the folder to exist too.
 live.dictionary_patch.parent.mkdir(parents=True, exist_ok=True)
-# ATOMIC: at revert time this file is the ONLY copy of foreign lines added since the deploy -- a truncated
-# write here loses other sessions' registrations with no backup that contains them.
-atomic_write_text(live.dictionary_patch, "\\n".join(_dpkeep)+"\\n", newline="\\n")
+# LOCKED read->merge->write: hold <DictionaryPatch>.lock across the window (the same fsutil.locked_sidecar
+# the deploy scripts hold), or a concurrent deploy into this folder and this revert silently drop each
+# other's lines. A lock TIMEOUT propagates: the traceback fails this script loudly, and a deploy running it
+# as the prelude checks the exit code -- rewriting unlocked could drop a foreign FieldScene line for which
+# NO backup exists.
+with locked_sidecar(live.dictionary_patch):
+    _dp_before=live.dictionary_patch.read_text(encoding="utf-8").splitlines() if live.dictionary_patch.exists() else []
+    _dpkeep,_lost=_dp.revert_dictionary_patch(_dp_before, _bak, fid={fid_str!r}, model_ids=_MINT_IDS, anim_keys=_MINT_ANIM_KEYS, text_blocks=_MES_BLOCKS)
+    # ATOMIC: at revert time this file is the ONLY copy of foreign lines added since the deploy -- a truncated
+    # write here loses other sessions' registrations with no backup that contains them.
+    atomic_write_text(live.dictionary_patch, "\\n".join(_dpkeep)+"\\n", newline="\\n")
 for _dl in _lost:   # belt-and-suspenders: a foreign line this revert shouldn't have touched
     print(f"  !! WARNING: revert dropped a DictionaryPatch line it does not own: {{_dl}}")
 shutil.rmtree(live.fieldmap_dir({fbg!r}), ignore_errors=True)

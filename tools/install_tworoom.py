@@ -23,6 +23,7 @@ from pathlib import Path
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
 from ff9mapkit.config import LANGS, ModLayout, find_game_path  # noqa: E402
+from ff9mapkit.fsutil import FileLockTimeout, atomic_write_bytes, locked_sidecar  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 DIST = REPO / "tworoom" / "dist"
@@ -70,8 +71,18 @@ def main():
             shutil.copyfile(src, dst)
         print(f"  installed EVT_{name} ({len(LANGS)} langs)")
 
-    # 4. DictionaryPatch = exactly the two new lines (drops the old 4000/4002/4003 lines)
-    shutil.copyfile(dist.dictionary_patch, live.dictionary_patch)
+    # 4. DictionaryPatch = exactly the two new lines (drops the old 4000/4002/4003 lines).
+    # LOCKED + ATOMIC (fsutil.locked_sidecar on the shared DictionaryPatch.txt.lock): this wholesale
+    # replace shares the file with every locked read->merge->write (deploy_field / deploy_battle / the
+    # generated reverts) -- landing it inside another writer's read-to-write window silently loses lines,
+    # and a torn plain copy unregisters the whole folder at the next launch. Timeout -> loud abort (the
+    # snapshot above is untouched; nothing live was modified by THIS step yet).
+    try:
+        with locked_sidecar(live.dictionary_patch):
+            atomic_write_bytes(live.dictionary_patch, dist.dictionary_patch.read_bytes())
+    except FileLockTimeout as e:
+        raise SystemExit(f"!! {e}\n!! NOT rewriting {live.dictionary_patch} -- re-run once the other "
+                         f"writer finishes (the pre-install snapshot at {bk} is intact).")
     print("  DictionaryPatch -> " + live.dictionary_patch.read_text(encoding="utf-8").strip().replace("\n", " | "))
 
     # 5. revert script (full restore from the snapshot)

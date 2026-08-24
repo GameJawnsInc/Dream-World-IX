@@ -2323,6 +2323,7 @@ def _print_model_notes(geo, *, minted, merge_warnings=None):
 def _cmd_model_mint(args: argparse.Namespace) -> int:
     """Mint a NEW additive GEO model id (a fresh SetModel target, not an override) -- DLL-free."""
     from pathlib import Path
+    from .fsutil import FileLockTimeout
     from .models import mint as mmint
     try:
         if args.deploy:
@@ -2335,7 +2336,9 @@ def _cmd_model_mint(args: argparse.Namespace) -> int:
             mmint.export_mint(args.source, args.id, dest, new_name=man["name"], game=args.game)
             man["fbx"] = str(dest / f"{man['id']}.fbx")
             where = args.out
-    except (RuntimeError, FileNotFoundError, ValueError) as e:
+    # FileLockTimeout by NAME: another process is mid-rewrite of the folder's DictionaryPatch -- abort
+    # loudly (the message says whose lock and what to do), never traceback or proceed unlocked.
+    except (RuntimeError, FileNotFoundError, ValueError, FileLockTimeout) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"minted GEO id {man['id']} = {man['name']} (type {man['type_int']}) from {man['source']}")
@@ -2382,6 +2385,7 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
 def _cmd_model_anim_new(args: argparse.Namespace) -> int:
     """Author a wholly NEW animation clip (not an edit): from a Blender .glb action, or the built-in
     spin template (the no-Blender demo). Registers it via a 3DModelAnimation DictionaryPatch line."""
+    from .fsutil import FileLockTimeout
     from .models import anim as manim
     from .models import extract as mextract
     try:
@@ -2408,7 +2412,9 @@ def _cmd_model_anim_new(args: argparse.Namespace) -> int:
                                   name=args.suffix.lower(), warn=warns.append)
         man = manim.deploy_new_anim(args.model, clip, args.deploy, key=args.key,
                                     suffix=args.suffix, game=args.game)
-    except (RuntimeError, FileNotFoundError, ValueError) as e:
+    # FileLockTimeout by NAME: another process is mid-rewrite of the folder's DictionaryPatch -- abort
+    # loudly (the message says whose lock and what to do), never traceback or proceed unlocked.
+    except (RuntimeError, FileNotFoundError, ValueError, FileLockTimeout) as e:
         print(str(e), file=sys.stderr)
         return 2
     for w in warns:
