@@ -159,9 +159,9 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   merge into master — heed it): re-run the failing file on clean master (deployed-state false reds are
   real), bisect yesterday's merges with that file, fix if small/in-domain, else REVERT the culprit merge
   and tell the user. Never build on a red master silently — triage is not optional or deferrable.
-- **New Game lands via a stock field-70 override (`Field(<id>)`), not a DLL edit** — and every
-  `deploy_campaign` wholesale-replace WIPES it. Re-run `tools/wire_newgame_from_stock.py <id>` after each
-  opening re-deploy. → [[project-ff9-new-game-entry]].
+- **New Game lands via a stock field-70 override (`Field(<id>)`), not a DLL edit.** `deploy_campaign` now
+  re-wires it automatically after its wholesale replace (recreating from stock when wiped); re-run
+  `tools/wire_newgame_from_stock.py <id>` only for manual/other-tool edits. → [[project-ff9-new-game-entry]].
 - **Never edit a bundled example in place** — the form editor's Save rewrites the byte-exact golden oracle.
   Author on a copy / `ff9mapkit new` / a Blender export. (`ff9mapkit/examples/vivi-hut/` is a retired
   offline build-oracle: do NOT re-polish it in-game.)
