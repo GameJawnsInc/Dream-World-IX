@@ -66,6 +66,21 @@ def _first_call_line(tree, pred):
     return min(lines)
 
 
+def test_the_slot_id_is_band_checked_through_the_shared_validator_before_the_build():
+    """Lane G: ``--id`` (and the .ff9deploy pin) override the toml's id AFTER its author-time checks ran,
+    and 9000-9012 is the engine's world-dispatcher hole -- a FieldScene there clobbers EVT_WORLD_WORLDxx
+    at the next launch. The script must band-check FID through the SHARED validator
+    (``pack.check_custom_id``, which owns the band voice AND the hole carve-out) before ``build_mod``,
+    so a bad slot fails with nothing built and nothing live touched."""
+    tree = ast.parse(_SRC)
+    checks = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+              and n.func.attr == "check_custom_id"]
+    assert len(checks) == 1, "FID must be validated exactly once, by pack.check_custom_id"
+    assert isinstance(checks[0].args[0], ast.Name) and checks[0].args[0].id == "FID"
+    build = _first_call_line(tree, lambda n: isinstance(n.func, ast.Attribute) and n.func.attr == "build_mod")
+    assert checks[0].lineno < build, "the band check must run BEFORE the build (fail fast, touch nothing)"
+
+
 def test_build_runs_before_the_prelude_revert():
     """H1 (Lane B, 2026-08): the prelude revert used to run FIRST, so any author error -- a typo'd toml path
     at FieldProject.load, a lint refusal, a BuildError -- aborted with the slot's prior deploy ALREADY torn
