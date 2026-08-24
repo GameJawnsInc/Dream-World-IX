@@ -301,6 +301,22 @@ try:
 except Exception as _ge:
     print(f"  (id-collision guard unavailable -- fix it, collisions are now UNCHECKED: {_ge})")
 
+# 3DModel-id guard (the GEO half of the same law): a skin mint's `3DModel <id>` line (spliced from
+# info["dictionary"]) that another stacked folder ALSO registers collides in the GLOBAL FF9BattleDB.GEO --
+# a DIFFERENT DB from EventDB, so the BattleScene guard above cannot see it (and must not: a 3DModel id
+# equal to a foreign FieldScene/BattleScene id is a different DB, NOT a collision). A shared GEO id maps
+# to ONE name -> the wrong model loads in battle. Same loud-WARN, print-on-crash contract.
+try:
+    from ff9mapkit.deploystack import check_model_id_collisions, model_id_collision_warning  # noqa: E402
+    _geo_ids = {int(ln.split()[1]) for ln in info.get("dictionary") or ()
+                if ln.split()[:1] == ["3DModel"] and ln.split()[1].lstrip("-").isdigit()}
+    if _geo_ids:
+        _mw = model_id_collision_warning(check_model_id_collisions(live_root.parent, MOD, _geo_ids), MOD)
+        if _mw:
+            print(f"\n  !! {_mw}")
+except Exception as _ge:
+    print(f"  (3DModel-id guard unavailable -- fix it, model-id collisions are now UNCHECKED: {_ge})")
+
 print(f"revert: py {revert}")
 print("Relaunch the game (DictionaryPatch/BattlePatch load at launch)." if relaunch
       else "No relaunch needed (the FBX + textures are read at battle start).")

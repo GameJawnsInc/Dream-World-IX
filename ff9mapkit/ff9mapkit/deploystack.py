@@ -580,3 +580,88 @@ def id_collision_warning(collisions: list, target_folder: str) -> str | None:
     lines.append("Fix: use an id no other stacked folder registers -- e.g. your worktree's `.ff9deploy.toml` "
                  "scratch/campaign band. (Diagnose: grep -rn '<id>' FF9CustomMap*/DictionaryPatch.txt.)")
     return "\n".join(lines)
+
+
+# ---- cross-folder 3DModel ID-collision guard (FF9BattleDB.GEO is GLOBAL -- and it is NOT EventDB) ----
+# A ``3DModel <id> <NAME>`` DictionaryPatch line registers a minted GEO id (band 6000-32767 --
+# battle/skinmint.py + models/mint.py) into ``FF9BattleDB.GEO`` (DataPatchers.cs:574) -- a DIFFERENT global
+# id->name DB from the ``FF9DBAll.EventDB`` the FieldScene/BattleScene guard above covers. Two stacked
+# folders registering the same GEO id collide THERE: the id ends up mapped to ONE name, so the losing
+# folder's [[mint]]/[[npc]] placement or battle skin loads the WRONG model (no error, just the wrong mesh).
+# Deliberately its OWN guard, never merged into :func:`dictionary_ids_at`: the mint band 6000+ genuinely
+# overlaps the custom field band 4000-9899, so a 3DModel id equal to a foreign FieldScene/BattleScene id is
+# routine and NOT a collision (different DBs) -- folding the two together would mint false positives on
+# exactly the ids the bands share.
+
+@dataclass
+class ModelIdCollision:
+    """One minted GEO id a deploy registers (a ``3DModel`` line) that ANOTHER live FolderNames folder's
+    ``DictionaryPatch.txt`` also registers with its own ``3DModel`` line. ``other_name`` is that line's GEO
+    name (for the message)."""
+    model_id: int
+    other_folder: str
+    other_name: str
+
+
+def model_ids_at(root) -> dict:
+    """Map ``id -> GEO name`` for every ``3DModel`` line in a mod/dist root's ``DictionaryPatch.txt``
+    (``{}`` if absent/unreadable). The kind-aware sibling of :func:`dictionary_ids_at`, kept SEPARATE because
+    these ids key a different global DB (``FF9BattleDB.GEO``, not ``EventDB``). Exact-directive match:
+    ``3DModelAnimation`` keys a third DB again (the AnimationDB) and is not parsed here. On a duplicate id
+    within one file the last line wins (mirrors the engine's last-writer-wins)."""
+    out: dict = {}
+    p = Path(root) / "DictionaryPatch.txt"
+    if not p.is_file():
+        return out
+    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0] != "3DModel":
+            continue
+        try:
+            mid = int(parts[1])
+        except ValueError:
+            continue
+        out[mid] = parts[2] if len(parts) > 2 else ""
+    return out
+
+
+def check_model_id_collisions(game_dir, target_folder: str, ids, folder_names: list | None = None) -> list:
+    """Do any minted GEO ``ids`` a deploy registers (its ``3DModel`` lines) into ``target_folder`` collide
+    with a ``3DModel`` id ANOTHER live FolderNames folder already registers? (``FF9BattleDB.GEO`` is GLOBAL
+    -> a shared id maps to ONE GEO name, so one side's placements load the WRONG model.) Returns a list of
+    :class:`ModelIdCollision` (``[]`` => clear). Same contract as :func:`check_id_collisions`: reads
+    ``Memoria.ini`` ``FolderNames`` (unless ``folder_names`` is passed), degrades to ``[]`` when unreadable,
+    EXCLUDES the target folder (a redeploy replaces its own line in place), and checks only folders actually
+    in the stack. 3DModel-vs-3DModel ONLY: a foreign ``FieldScene``/``BattleScene`` on the same number lives
+    in a different DB and is deliberately NOT flagged."""
+    game_dir = Path(game_dir)
+    order = folder_names
+    if order is None:
+        ini = game_dir / "Memoria.ini"
+        order = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+    others = [f for f in order if f != target_folder]
+    if not others:
+        return []
+    want = sorted({int(i) for i in ids})
+    out: list = []
+    for f in others:
+        their = model_ids_at(game_dir / f)
+        for i in want:
+            if i in their:
+                out.append(ModelIdCollision(i, f, their[i]))
+    return out
+
+
+def model_id_collision_warning(collisions: list, target_folder: str) -> str | None:
+    """A human-readable multi-line warning for cross-folder 3DModel id collisions, or ``None`` when clear."""
+    if not collisions:
+        return None
+    lines = [f"3DMODEL ID COLLISION: {len(collisions)} minted GEO id(s) this deploy registers in "
+             f"'{target_folder}' are ALSO registered as `3DModel` by another Memoria.ini FolderNames folder. "
+             f"FF9BattleDB.GEO is GLOBAL across folders, so a shared id maps to ONE GEO name -- one side's "
+             f"[[mint]]/[[npc]]/skin loads the WRONG model (no error, just the wrong mesh in battle/field):"]
+    for c in collisions:
+        lines.append(f"  - id {c.model_id} vs '{c.other_folder}' (3DModel '{c.other_name}')")
+    lines.append("Fix: mint a different id in the 6000-32767 band that no other stacked folder registers. "
+                 "(Diagnose: grep -n '3DModel' FF9CustomMap*/DictionaryPatch.txt.)")
+    return "\n".join(lines)

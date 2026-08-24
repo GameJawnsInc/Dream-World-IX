@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — minted `3DModel` GEO ids get their own cross-folder collision guard
+- `3DModel <id> <name>` DictionaryPatch lines register minted GEO ids (band 6000–32767) in
+  the GLOBAL `FF9BattleDB.GEO` — a **different** global DB from the `FF9DBAll.EventDB` the
+  FieldScene/BattleScene guard covers — so a cross-folder 3DModel-vs-3DModel duplicate id
+  made the wrong model load in battle/field, and nothing checked it. New kind-aware
+  `deploystack.model_ids_at` / `check_model_id_collisions` / `model_id_collision_warning`
+  (deliberately NOT merged into `dictionary_ids_at`: the mint band overlaps the custom
+  field band 4000–9899, so a 3DModel id equal to a foreign FieldScene id is routine, not a
+  collision — merging the namespaces would mint false positives). Wired, under the Lane-I
+  loud-WARN + print-on-crash contract, into every path that ships `3DModel` lines:
+  `tools/deploy_field.py`'s mint-lines merge, `tools/deploy_battle.py`'s dictionary splice,
+  and the `model-mint --deploy` CLI path. Pinned by AST alongside the other live-stack
+  guards in `tests/test_deploy_field_script.py`; unit-covered in `tests/test_deploystack.py`
+  (including the both-directions false-positive fence).
+
 ### Fixed — the deploy-time warning layer can no longer fail silently (adversarial review, Lane I)
 - The live-stack guards in `tools/deploy_field.py` (text-block shadow, global-EventDB id
   collision, CSV shadow) each ran inside `except Exception: pass` — so a regression in

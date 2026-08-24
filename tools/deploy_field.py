@@ -747,6 +747,21 @@ try:
 except Exception as _ge:
     print(f"  (id-collision guard unavailable -- fix it, collisions are now UNCHECKED: {_ge})")
 
+# 3DModel-id guard: a minted `3DModel <id>` this deploy registers (mint_lines) that another stacked
+# FolderNames folder ALSO registers collides in the GLOBAL FF9BattleDB.GEO -- a DIFFERENT DB from EventDB,
+# so the guard above cannot see it (and must not: the mint band 6000+ overlaps the field band 4000-9899, so
+# a 3DModel id equal to a foreign FieldScene id is routine, NOT a collision). A shared GEO id maps to ONE
+# name -> the loser's [[mint]]/[[npc]]/skin loads the WRONG model. Same loud-WARN contract as above.
+try:
+    from ff9mapkit.deploystack import check_model_id_collisions, model_id_collision_warning
+    _geo_ids = {int(i) for i in mint_ids}
+    if _geo_ids:
+        _mw = model_id_collision_warning(check_model_id_collisions(GAME, MOD_FOLDER, _geo_ids), MOD_FOLDER)
+        if _mw:
+            print(f"\n  !! {_mw}")
+except Exception as _ge:
+    print(f"  (3DModel-id guard unavailable -- fix it, model-id collisions are now UNCHECKED: {_ge})")
+
 # CSV-shadow guard: the starting bag (InitialItems.csv) is read HIGHEST-PRIORITY-WINS, so deploying it into a
 # folder a HIGHER-priority FolderNames folder also ships silently drops it. (ShopItems/DefaultEquipment MERGE,
 # so they don't whole-file-shadow.) Only check the ones this deploy actually shipped.
