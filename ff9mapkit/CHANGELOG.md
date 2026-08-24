@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the engine build/restore loop gets its enforcement call sites (adversarial review, Lane H)
+- The engine-DLL build was the one place a CLAUDE.md hard constraint ("back up before
+  editing any game/engine file") was violated by design: raw msbuild AUTO-DEPLOYS over the
+  live install, and its four safety rules (snapshot first — forgotten once historically;
+  dash-style switches, MSYS mangles `/t:` into paths; the `SolutionDir` trailing backslash;
+  a by-hand post-deploy sha comparison) were all procedural. New `tools/build_memoria.py`
+  is their call site: it refuses to build until the full 3×2 pre-build snapshot exists,
+  runs msbuild as a list-args subprocess (the MSYS class cannot occur), sha-verifies the
+  deploy landed on BOTH arches (a build while FF9 runs can fail the Deploy task partway —
+  a MIXED deploy is now flagged loudly with the restore one-liner), reports the shared
+  clone's in-flight edit count before deploying it, and offers `--no-deploy` via the s45
+  `DWIXNoDeploy` csproj lever (refused when the clone's csproj cannot honor it).
+- `tools/restore_memoria_dll.py` — the emergency revert path — is now ALL-OR-NOTHING: every
+  destination is probed for writability before the first copy, because a running FF9
+  memory-maps only the arch it runs, so file-by-file copying could restore x86 and fail
+  x64 — a mixed-version engine, worse than either side. And the selector is required: the
+  old no-argument default chased the long-gone `baseline` set (a documented trap); a bare
+  run now prints usage plus the newest backups on disk.
+
 ### Fixed — the field-id band law is enforced at the chokepoints (adversarial review, Lane G)
 - The engine-reserved world-map hole (EventDB[9000..9012] = the world-state dispatchers
   `EVT_WORLD_WORLD00..12`) and the real-field band (ids below 4000) were guarded by four
