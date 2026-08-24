@@ -676,41 +676,47 @@ def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | Non
         raise AnimError(f"{anh} is a real FF9 clip name -- pick a different suffix "
                         f"(registering it at a new key would hijack the stock name->key lookup)")
     dp = Path(mod_folder) / "DictionaryPatch.txt"
-    dp.parent.mkdir(parents=True, exist_ok=True)      # the lock sidecar needs the folder to exist
-    # LOCKED allocate->write (fsutil.locked_sidecar -- the same DictionaryPatch.txt.lock every deploy
-    # script holds): this writes a registration line STRAIGHT into a live folder's DictionaryPatch, and an
-    # unlocked read->merge->write window drops whichever lines a concurrent deploy read past (the vanished
-    # key 60001 was exactly a model-anim-new line lost between two deploys). The lock spans the free-key
-    # SCAN too -- it reads the same registry the write extends, so two concurrent mints outside one lock
-    # would allocate the same key. A FileLockTimeout propagates to the caller (the CLI prints and aborts).
-    with fsutil.locked_sidecar(dp):
-        registered = _anim_key_registry(dp)
-        if key is not None:
-            k = int(key)
-            if not 0 < k <= _NEW_ANIM_KEY_MAX:
-                raise AnimError(f"anim key {k} does not fit a field anim slot (16-bit, max {_NEW_ANIM_KEY_MAX}"
-                                f") -- the .eb and the engine would silently truncate it and no clip would "
-                                f"attach; mint keys in the {_NEW_ANIM_KEY_BASE}-{_NEW_ANIM_KEY_MAX} band")
-        else:
-            k = next((kk for kk, nm in registered.items() if nm == anh), None)   # re-deploy reuses its key
-            if k is None:
-                k = _NEW_ANIM_KEY_BASE
-                while k in registered:
-                    k += 1
-                if k > _NEW_ANIM_KEY_MAX:
-                    raise AnimError(f"no free anim key left in {_NEW_ANIM_KEY_BASE}-{_NEW_ANIM_KEY_MAX} "
-                                    f"(this folder's DictionaryPatch registers them all)")
-        dest = anim_disc_path(mod_folder, gid, k)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
-        directive = f"3DModelAnimation {k} {anh}"
-        lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
-        if directive not in lines:
-            # replace, never dup: a duplicate KEY double-Adds in AnimationDB; a duplicate NAME (same clip
-            # re-registered at an explicit new key) leaves a stale name->key row shadowing the new one
-            lines = [ln for ln in lines if not ln.startswith(f"3DModelAnimation {k} ")
-                     and not (ln.startswith("3DModelAnimation ") and ln.endswith(f" {anh}"))]
-            lines.append(directive)
-            fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    # FOLDER lock around the WHOLE live mutation (the clip write AND the registration), OUTSIDE the
+    # sidecar (lock order: folder THEN sidecar): a wholesale campaign/journey install cannot hold a
+    # sidecar inside a tree it deletes, so without this the clip + line could land between its snapshot
+    # and rmtree and be silently destroyed -- the vanished key 60001's wholesale twin. A FileLockTimeout
+    # propagates to the caller (the CLI prints and aborts).
+    with fsutil.locked_mod_folder(Path(mod_folder)):
+        dp.parent.mkdir(parents=True, exist_ok=True)      # the lock sidecar needs the folder to exist
+        # LOCKED allocate->write (fsutil.locked_sidecar -- the same DictionaryPatch.txt.lock every deploy
+        # script holds): this writes a registration line STRAIGHT into a live folder's DictionaryPatch, and an
+        # unlocked read->merge->write window drops whichever lines a concurrent deploy read past (the vanished
+        # key 60001 was exactly a model-anim-new line lost between two deploys). The lock spans the free-key
+        # SCAN too -- it reads the same registry the write extends, so two concurrent mints outside one lock
+        # would allocate the same key. A FileLockTimeout propagates to the caller (the CLI prints and aborts).
+        with fsutil.locked_sidecar(dp):
+            registered = _anim_key_registry(dp)
+            if key is not None:
+                k = int(key)
+                if not 0 < k <= _NEW_ANIM_KEY_MAX:
+                    raise AnimError(f"anim key {k} does not fit a field anim slot (16-bit, max {_NEW_ANIM_KEY_MAX}"
+                                    f") -- the .eb and the engine would silently truncate it and no clip would "
+                                    f"attach; mint keys in the {_NEW_ANIM_KEY_BASE}-{_NEW_ANIM_KEY_MAX} band")
+            else:
+                k = next((kk for kk, nm in registered.items() if nm == anh), None)   # re-deploy reuses its key
+                if k is None:
+                    k = _NEW_ANIM_KEY_BASE
+                    while k in registered:
+                        k += 1
+                    if k > _NEW_ANIM_KEY_MAX:
+                        raise AnimError(f"no free anim key left in {_NEW_ANIM_KEY_BASE}-{_NEW_ANIM_KEY_MAX} "
+                                        f"(this folder's DictionaryPatch registers them all)")
+            dest = anim_disc_path(mod_folder, gid, k)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
+            directive = f"3DModelAnimation {k} {anh}"
+            lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+            if directive not in lines:
+                # replace, never dup: a duplicate KEY double-Adds in AnimationDB; a duplicate NAME (same clip
+                # re-registered at an explicit new key) leaves a stale name->key row shadowing the new one
+                lines = [ln for ln in lines if not ln.startswith(f"3DModelAnimation {k} ")
+                         and not (ln.startswith("3DModelAnimation ") and ln.endswith(f" {anh}"))]
+                lines.append(directive)
+                fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return {"geo": geo, "geo_id": gid, "key": k, "name": anh, "path": str(dest),
             "directive": directive, "dictionary_patch": str(dp)}

@@ -17,6 +17,7 @@ relaunch (DictionaryPatch/BattlePatch load at launch).
 Usage:  py tools/deploy_battle.py <battle.toml> [--mod-folder NAME] [--trigger-field N]
 """
 import argparse
+import contextlib
 import datetime
 import os
 import shutil
@@ -32,7 +33,7 @@ from repo_root import main_repo_root  # noqa: E402
 from ff9mapkit.config import find_game_path, ModLayout, LANGS  # noqa: E402
 from ff9mapkit.battle.build import BattleProject, build_battle_mod  # noqa: E402
 from ff9mapkit.eb import opcodes  # noqa: E402
-from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_sidecar  # noqa: E402
+from ff9mapkit.fsutil import FileLockTimeout, atomic_write_text, locked_mod_folder, locked_sidecar  # noqa: E402
 
 # TWO roots, deliberately distinct (the same split as tools/deploy_field.py): REPO is the RUNNING checkout
 # and owns the per-worktree .ff9deploy.toml deploy pin; MAIN is the main repo and owns backups/ +
@@ -96,6 +97,21 @@ stage_root = tmp / "mod"
 info = build_battle_mod([proj], stage_root, mod_name=MOD)
 
 live_root = find_game_path() / MOD
+# FOLDER LOCK (M8, two-level: folder THEN sidecar): hold <game>/<MOD>.ff9lock -- OUTSIDE the folder --
+# across the whole live-mutation section (asset copies through the trigger-field repoint), same contract
+# as tools/deploy_field.py: a wholesale campaign/journey install cannot hold a sidecar inside a tree it
+# deletes, so without this lock these writes could land between its snapshot and rmtree and be silently
+# destroyed. Entered via ExitStack (flat top-level script); a sys.exit inside releases at process death.
+_folder_lock = contextlib.ExitStack()
+try:
+    _folder_lock.enter_context(locked_mod_folder(live_root))
+except FileLockTimeout as _lke:
+    print(f"!! {_lke}\n"
+          f"!! NOT deploying into {live_root} -- a wholesale campaign/journey install (or another "
+          f"deploy/revert's live-mutation section) holds the folder lock. Nothing was touched; re-run "
+          f"this deploy once the other operation finishes.", file=sys.stderr)
+    shutil.rmtree(tmp, ignore_errors=True)
+    sys.exit(2)
 live_root.mkdir(parents=True, exist_ok=True)
 bk_dir = BK / f"battle_predeploy.{STAMP}"     # holds the pre-deploy copy of any file we overwrite
 
@@ -235,19 +251,30 @@ if _args.trigger_field is not None and proj.is_mint:
               f"(x{n} langs)")
         relaunch = True
 
+# last live write done -- release the folder lock (the revert below is only WRITTEN here, into scroll_out;
+# it takes the same lock itself when RUN).
+_folder_lock.close()
+
 # revert script: delete created files, restore overwritten (incl. any trigger-field ebs) from the backup
 revert = OUT / f"revert_battle_{BBG}.py"
 revert.write_text(
-    "#!/usr/bin/env python3\nimport shutil, sys\nfrom pathlib import Path\n"
+    "#!/usr/bin/env python3\nimport contextlib, shutil, sys\nfrom pathlib import Path\n"
     f"sys.path.insert(0, {KIT!r})\n"                       # the bp fragment imports ff9mapkit modules
+    "from ff9mapkit.fsutil import locked_mod_folder\n"
     f"LIVE = Path(r{str(live_root)!r})\nBK = Path(r{str(bk_dir)!r})\n"
     f"CREATED = {created!r}\nOVERWRITTEN = {overwritten!r}\n"
+    # FOLDER LOCK (M8): the whole live-mutation section, same lock the deploy scripts + the wholesale
+    # installers hold -- an ExitStack (not a `with`) so the bp fragment splices at column 0 unchanged.
+    # A timeout PROPAGATES: the traceback fails this revert loudly rather than mutating unlocked.
+    "_fl = contextlib.ExitStack()\n"
+    "_fl.enter_context(locked_mod_folder(LIVE))\n"
     "for rel in CREATED:\n"
     "    (LIVE/rel).unlink(missing_ok=True)\n"
     "for rel in OVERWRITTEN:\n"
     "    b = BK/rel\n"
     "    if b.exists(): shutil.copyfile(b, LIVE/rel)\n"
     + bp_revert_code +
+    "\n_fl.close()"
     f"\nprint('reverted battle deploy for {BBG}"
     f"{' (incl. its BattlePatch block)' if bp_revert_code else ''}. If DictionaryPatch lines were "
     f"spliced, restore {BK.as_posix()}/*.preBATTLE.{STAMP}; relaunch FF9.')\n",

@@ -44,16 +44,23 @@ def build_revert_script(*, kit, backup_dir, stamp, mod_folder, fid, name, fbg, t
                  f"+ BattlePatch + TextPatch + ForkDonorPatch restored; {name} removed. (staged "
                  "Models//Animations/ trees left inert on disk)")
     return f'''#!/usr/bin/env python3
-import sys, shutil
+import contextlib, sys, shutil
 from pathlib import Path
 sys.path.insert(0, {kit!r})
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
-from ff9mapkit.fsutil import atomic_write_text, locked_sidecar
+from ff9mapkit.fsutil import atomic_write_text, locked_mod_folder, locked_sidecar
 from ff9mapkit import dictpatch as _dp
 from ff9mapkit import deploylog as _dlog   # NEEDED by the ledger call at the bottom -- a missing import here
 #                                            NameErrors every generated revert, and a deploy RUNS the revert
 #                                            as its prelude, so that would break deploying outright.
 STAMP={stamp!r}; BK=Path({backup_dir!r}); _GAME=find_game_path(); live=ModLayout(_GAME/{mod_folder!r})
+# FOLDER LOCK (M8, folder THEN sidecar): <game>/<folder>.ff9lock -- OUTSIDE the folder, so a wholesale
+# campaign/journey install (snapshot -> rmtree -> copytree) shares it: without it this revert's rewrites
+# could land between that installer's snapshot and rmtree and be silently destroyed. An ExitStack, not a
+# `with`, so the *_revert_code fragments keep their column-0 splice; a timeout PROPAGATES -- the traceback
+# fails this revert loudly and the deploy prelude's checked exit code turns that into a loud abort.
+_folder_lock = contextlib.ExitStack()
+_folder_lock.enter_context(locked_mod_folder(live.root))
 # surgical DictionaryPatch revert: drop THIS id's line + THIS deploy's OWN mint registrations (3DModel <mintId> by
 # exact id and 3DModelAnimation <key> by exact key) from the CURRENT live file -- preserving any FOREIGN line another
 # tool added into the SAME mod folder since this deploy (deploy_battle's "BattleScene <sceneid>", or a
@@ -92,6 +99,7 @@ for L in LANGS:
     if mb.exists():
         live.mes_path(L,{text_block}).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
+_folder_lock.close()   # last live-folder write done -- the ledger below lives OUTSIDE the mod folder
 # Ledger: this id is now deliberately UNregistered, so `doctor` won't cry "lost registration" over it. Note a
 # deploy runs the prior revert as its PRELUDE, so most 'retired' rows are immediately followed by a 'deployed'
 # row -- last-event-wins makes that read correctly. This call only helps NEWLY generated reverts; the ~30 older
