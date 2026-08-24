@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the campaign deploy re-wires New Game itself (adversarial review, Lane E)
+- A wholesale campaign replace wipes a field-70 New-Game override living in the folder it
+  reinstalls; re-wiring was a manual law ("re-run `wire_newgame_from_stock` after each
+  opening re-deploy") that cost a playtest whenever forgotten. `deploy_campaign` now
+  recreates the override from stock into the installed folder when none is live (the
+  snapshot owns its undo); a corrupt-override state still warns without stacking a copy.
+- Three silent-clobber closes in the same pass: the journey hub install's dead-but-loaded
+  `or highest` fallback (which would have let the hub overlay replace a SHARED folder's
+  DictionaryPatch wholesale) is a loud abort; the fresh-folder DictionaryPatch bootstrap
+  uses `O_EXCL` (the M7 fix's missed twin); and the campaign/field revert generators now
+  carry toml-derived names only as `repr()` literals (the reverttmpl injection class).
+
 ### Fixed — flag-band laws get their call sites (adversarial review, Lane D)
 - A campaign/journey member carrying `[behavior] byte_band = "wide"` — or `[siege]`, which
   desugars to the wide band — is now **refused** at `lint_campaign` (and by a post-desugar

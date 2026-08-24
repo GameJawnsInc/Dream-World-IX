@@ -15,6 +15,7 @@ gotchas: CLAUDE.md §3/§4, memory ``project-ff9-new-game-entry``.
 from __future__ import annotations
 
 import datetime
+import os
 import re
 import shutil
 import sys
@@ -144,10 +145,16 @@ def render_revert_campaign(live_root, snap, warp_revert, name, stamp, csv_revert
     New-Game patch + (if start-state CSVs were promoted) restore/remove those. ``csv_reverts`` =
     ``[(dst, backup_or_None), ...]`` (a backup => restore; None => the CSV was newly created => delete it)."""
     live_root, snap = Path(live_root), Path(snap)
+    # the campaign NAME is toml-derived free text -- it enters the generated script only as a repr()
+    # literal, never raw inside a docstring/print (the reverttmpl contract: raw interpolation of a
+    # toml-derived string into generated code is arbitrary-code-execution-on-revert waiting for one
+    # odd character).
     lines = [
-        f'"""Revert campaign {name} ({stamp}): restore {live_root.name} + undo the New-Game warp."""',
+        '"""Revert a campaign deploy: restore the mod folder + undo the New-Game warp."""',
         "import shutil",
         "from pathlib import Path",
+        f"CAMPAIGN = {str(name)!r}",
+        f"STAMP = {str(stamp)!r}",
         f"live = Path(r{str(live_root)!r})",
         f"snap = Path(r{str(snap)!r})",
         "if snap.is_dir():",
@@ -179,8 +186,47 @@ def render_revert_campaign(live_root, snap, warp_revert, name, stamp, csv_revert
             "    else:",
             "        print('WARNING: backup missing -- left', _dst, 'as-is:', _bkp)",
         ]
-    lines += [f'print("reverted campaign {name} {stamp}")', ""]
+    lines += ['print("reverted campaign", CAMPAIGN, STAMP)', ""]
     return "\n".join(lines)
+
+
+def wire_new_game_after_install(game, entry_id, mod_folder, *, backups_dir, reverts_dir, out, verbose):
+    """Wire New Game to ``entry_id`` after a wholesale campaign install -- retarget the live field-70
+    override, or RECREATE it from stock when none exists. Returns the warp revert path to chain into
+    ``revert_campaign.py``, or ``None``.
+
+    THE STANDING TRAP, closed at its call site: a wholesale replace WIPES a field-70 override living in
+    the very folder it reinstalls (the typical opening-campaign flow), and ``newgame.retarget`` can only
+    edit an override that still exists -- so every opening re-deploy ended with a WARNING and a manual
+    law ("re-run tools/wire_newgame_from_stock.py <id>", CLAUDE.md par.5) that cost a playtest whenever it
+    was forgotten. ``found == 0`` is exactly the wiped/fresh case -> recreate FROM STOCK into the folder
+    just installed. The wire's own revert is deliberately NOT returned in that case: the created files
+    live inside ``mod_folder``, so the campaign's snapshot restore already undoes them -- chaining the
+    wire revert AFTER the snapshot restore would delete the snapshot's own restored override."""
+    out(f"wiring New Game: field-70 override -> Field({entry_id})")
+    res = newgame.retarget(game, entry_id, backups_dir=backups_dir, reverts_dir=reverts_dir, verbose=verbose)
+    if res["ok"]:
+        return res["revert"]
+    if res.get("found", 0) == 0:
+        out(f"  no live field-70 override found (a wholesale replace wipes one living in '{mod_folder}') "
+            f"-> recreating it FROM STOCK in '{mod_folder}'")
+        try:
+            wres = newgame.wire_from_stock(game, entry_id, mod_folder=mod_folder,
+                                           backups_dir=backups_dir, reverts_dir=reverts_dir, verbose=verbose)
+        except Exception as e:                            # noqa: BLE001 -- the fallback must not fail the install
+            wres = {"ok": False, "error": str(e)}
+        if wres.get("ok"):
+            out(f"  New Game wired from stock -> Field({entry_id})  (undone by the folder snapshot on revert)")
+        else:
+            out("  WARNING: could not recreate the field-70 override from stock"
+                + (f" ({wres.get('error')})" if wres.get("error") else "")
+                + f". The campaign is installed; wire New Game by hand "
+                  f"(tools/wire_newgame_from_stock.py {entry_id}), or reach the chain via ~ -> Warp.")
+        return None
+    out("  WARNING: field-70 override copies exist but none warps the expected target -- New Game NOT "
+        "wired (a corrupt/non-opening override?). The campaign is installed; wire New Game by hand, or "
+        "reach the chain via ~ -> Warp.")
+    return None
 
 
 # --------------------------------------------------------------------------- campaign deploy
@@ -328,7 +374,14 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
             f"    <InstallationPath>{mod_folder}</InstallationPath>\n    <Category></Category>\n"
             f"    <Description></Description>\n</Mod>\n", encoding="utf-8", newline="\n")
     if not live.dictionary_patch.exists():
-        live.dictionary_patch.write_text("", encoding="utf-8", newline="\n")
+        # O_EXCL: exactly one concurrent bootstrapper creates it. A plain check-then-write here could land
+        # "" OVER a concurrent field deploy's just-merged rewrite on a brand-new folder -- the same
+        # lost-line class tools/deploy_field.py's bootstrap closes (the M7 locking pass covered that
+        # script but missed this twin).
+        try:
+            os.close(os.open(str(live.dictionary_patch), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            pass
 
     # (3) ONE set-wide snapshot, then (4) WHOLESALE replace (install_tworoom model)
     snap = backups_dir / f"{mod_folder}.pre-{plan.name}.{stamp}"
@@ -392,17 +445,12 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     out(f"installed dist -> {live_root}  ({len(plan.members)} fields)")
     report["applied"] = True
 
-    # (5) New-Game wiring: retarget the SHARED FF9CustomMap field-70 override -> the entry id (direct
-    #     newgame.retarget call -- no subprocess). Reversible separately; revert_campaign wraps it.
+    # (5) New-Game wiring: retarget the SHARED field-70 override -> the entry id, RECREATING it from stock
+    #     when the wholesale replace above just wiped it (the standing trap, closed at its call site).
     if not no_warp:
-        out(f"wiring New Game: field-70 override -> Field({entry_id})")
-        res = newgame.retarget(game, entry_id, backups_dir=backups_dir, reverts_dir=reverts_dir, verbose=verbose)
-        if not res["ok"]:
-            out("  WARNING: New-Game retarget did not wire (no field-70 override evt_alex1_ts_opening.eb.bytes in\n"
-                "  a FolderNames folder?). The campaign is installed; wire New Game once that override exists, or\n"
-                "  reach the chain via ~ -> Warp.")
-        else:
-            warp_revert = res["revert"]
+        warp_revert = wire_new_game_after_install(game, entry_id, mod_folder,
+                                                  backups_dir=backups_dir, reverts_dir=reverts_dir,
+                                                  out=out, verbose=verbose)
     report["warp_revert"] = warp_revert
 
     # (5.5) promote the entry field's start-state CSVs to the HIGHEST folder so they win at New Game.
@@ -472,8 +520,11 @@ def _render_field_revert(live_root, snap, stamp, name) -> str:
     """Undo a single-field install: restore the pre-install snapshot, or REMOVE the folder when the deploy
     created it. The create case is why this can't just be :func:`_render_folder_revert` -- with no snapshot
     to copy back, that one leaves the freshly-installed folder in place and reports success."""
-    head = [f'"""Revert the `ff9mapkit deploy` of field {name} ({stamp})."""',
+    # the field NAME is toml-derived free text -> a repr() literal only (see render_revert_campaign)
+    head = ['"""Revert an `ff9mapkit deploy` single-field install."""',
             "import shutil", "from pathlib import Path",
+            f"FIELD = {str(name)!r}",
+            f"STAMP = {str(stamp)!r}",
             f"live = Path(r{str(live_root)!r})"]
     if snap is None:
         return "\n".join(head + [
@@ -483,7 +534,7 @@ def _render_field_revert(live_root, snap, stamp, name) -> str:
             "else:",
             "    print('nothing to remove --', live, 'is already gone')",
             "print('NOTE: Memoria auto-detected this folder at launch; RELAUNCH to drop it.')",
-            f"print('reverted field deploy {stamp}')", ""])
+            "print('reverted field deploy', FIELD, STAMP)", ""])
     return "\n".join(head + [
         f"snap = Path(r{str(snap)!r})",
         "if snap.is_dir():",
@@ -848,8 +899,15 @@ def _apply_journey(manifest, plan, *, game, newgame, hub_out, backups_dir, rever
         return 2, None
 
     stamp = _stamp()
-    highest = resolve_highest_folder(folder_order(game), None)
-    hub_folder = plan.hub_folder or highest
+    if not plan.hub_folder:
+        # build_deploy_plan derives a DEDICATED hub folder whenever [hub] id is set (checked just above),
+        # so this is unreachable today -- but the old fallback here was `or resolve_highest_folder(...)`,
+        # which would OVERLAY the hub onto the highest-priority SHARED folder and let copytree replace
+        # that folder's DictionaryPatch.txt with the hub's single line: every field registered there
+        # unregistered in one step. Fail loud; never fall back to a shared folder.
+        err("ABORT: the journey plan carries no dedicated hub folder (plan.hub_folder is None).")
+        return 2, None
+    hub_folder = plan.hub_folder
     captured: list = []
     reverts_dir = Path(reverts_dir)
     reverts_dir.mkdir(parents=True, exist_ok=True)
