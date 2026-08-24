@@ -8,7 +8,10 @@
 #
 # USAGE:
 #   py tools/restore_memoria_dll.py <selector>   # restore the newest backup set matching <selector>
-#   py tools/restore_memoria_dll.py baseline     # the historical no-edits-rebuild set (may be absent!)
+#
+# The selector is REQUIRED: the old no-argument default ('baseline', the historical
+# no-edits-rebuild set) pointed at a set that is GONE from backups/, so a bare run was a
+# documented trap. A bare run now prints usage + the newest backups on disk and exits 2.
 #
 # The selector is a substring of the backup file name -- usually a timestamp like
 # "20260722-095733". Backup names in backups/ come in several conventions, ALL matched here:
@@ -76,8 +79,14 @@ def restore(sel, bkp=BKP, managed=MANAGED):
     Returns (restored, failed) copy counts. A DLL with no matching backup is reported and
     skipped (the backups/ tree has never held all three DLLs at once); a copy ERROR counts
     as failed.
+
+    ALL-OR-NOTHING: every destination is probed for writability BEFORE the first copy. A
+    running FF9 memory-maps only the arch it runs (usually x64), so a naive file-by-file
+    restore would land the OTHER arch and then fail -- leaving a MIXED-version engine on
+    disk, a state strictly worse than either side. If any destination is locked, nothing
+    is copied.
     """
-    restored = failed = 0
+    plan = []                                    # (dll, arch, src, dst)
     for dll in DLLS:
         by_arch = find_backups(dll, sel, bkp)
         if not by_arch:
@@ -88,14 +97,30 @@ def restore(sel, bkp=BKP, managed=MANAGED):
             if not src:
                 print(f"  !! {dll}: no {arch} or arch-neutral backup matching '{sel}' -- {arch} SKIPPED")
                 continue
+            plan.append((dll, arch, src, os.path.join(mgd, dll)))
+    locked = []
+    for dll, arch, _src, dst in plan:            # pre-flight: probe every existing destination
+        if os.path.exists(dst):
             try:
-                shutil.copy2(src, os.path.join(mgd, dll))
+                with open(dst, "r+b"):
+                    pass
             except OSError as e:
-                print(f"  !! {dll} [{arch}]: COPY FAILED ({e}) -- is FF9 running? Close it and re-run.")
-                failed += 1
-                continue
-            print(f"  {dll:<22} [{arch}] <- {os.path.basename(src)}")
-            restored += 1
+                print(f"  !! {dll} [{arch}]: destination LOCKED ({e}) -- is FF9 running?")
+                locked.append(dll)
+    if locked:
+        print(f"  !! ALL-OR-NOTHING: {len(locked)} destination(s) locked -- copying NOTHING (a partial "
+              "restore is a mixed-version engine, worse than either side). Close FF9 and re-run.")
+        return 0, len(locked)
+    restored = failed = 0
+    for dll, arch, src, dst in plan:
+        try:
+            shutil.copy2(src, dst)
+        except OSError as e:
+            print(f"  !! {dll} [{arch}]: COPY FAILED ({e}) -- is FF9 running? Close it and re-run.")
+            failed += 1
+            continue
+        print(f"  {dll:<22} [{arch}] <- {os.path.basename(src)}")
+        restored += 1
     return restored, failed
 
 
@@ -110,7 +135,15 @@ def newest_backups(bkp=BKP, per_dll=2):
 
 
 def main(argv):
-    sel = argv[1] if len(argv) > 1 else "baseline"
+    if len(argv) < 2:
+        # the old default ('baseline') named a set that is GONE from backups/ -- a bare run was a
+        # documented trap that always ended in NOTHING RESTORED. Require the selector instead.
+        print("USAGE: py tools/restore_memoria_dll.py <selector>   (usually the timestamp "
+              "backup_memoria_dll.py printed)\nNewest backups on disk:")
+        hints = newest_backups(BKP)
+        print("\n".join(hints) if hints else "    (none at all)")
+        return 2
+    sel = argv[1]
     print(f"Restoring Memoria DLLs matching '{sel}' -> game Managed (x64 + x86)\n")
     restored, failed = restore(sel, BKP, MANAGED)   # pass the globals so tests can patch them
     if restored == 0 and failed == 0:

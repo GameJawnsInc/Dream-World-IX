@@ -1,6 +1,6 @@
 ---
 name: building-the-memoria-engine
-description: Build and patch the local custom Memoria engine -- a rare, DANGEROUS workflow. Confirm a DLL rebuild is truly needed before starting (most tasks need none), and back up the DLL first because the build AUTO-DEPLOYS with no backup. Use when the user rebuilds `Assembly-CSharp.dll`, adds/edits a memoria-patch (the `memoria-patches/` stack, s12-s58), works on the fork-donor remap suite (sweeping a hardcoded `fldMapNo` in its four forms -- `==` compare, local alias, name-key, lookup-arg -- via `EffectiveFieldId`/`EffectiveFieldName`/`FieldLocationName`), or runs `verify_fork_gates` / `restore_memoria_dll`. Covers the MSBuild recipe (`/p:SolutionDir=C:\gd\FFIX\Memoria\` trailing slash required, add new `.cs` to the csproj), version-match commit `6b8bb2d5`, the fork-gate census, and why forked fields require the bundle while novel fields run on stock. For deploying mod content (not engine code) see `deploying-ff9-mods`; for USING the fork gates see `forking-ff9-fields`.
+description: Build and patch the local custom Memoria engine -- a rare, DANGEROUS workflow. Confirm a DLL rebuild is truly needed before starting (most tasks need none), then build via `py tools/build_memoria.py` -- it enforces the pre-build DLL backup (the raw build AUTO-DEPLOYS over the live install), the exact msbuild flags, and post-deploy sha verification. Use when the user rebuilds `Assembly-CSharp.dll`, adds/edits a memoria-patch (the `memoria-patches/` stack, s12-s58), works on the fork-donor remap suite (sweeping a hardcoded `fldMapNo` in its four forms -- `==` compare, local alias, name-key, lookup-arg -- via `EffectiveFieldId`/`EffectiveFieldName`/`FieldLocationName`), or runs `verify_fork_gates` / `restore_memoria_dll`. Covers the MSBuild recipe (`/p:SolutionDir=C:\gd\FFIX\Memoria\` trailing slash required, add new `.cs` to the csproj), version-match commit `6b8bb2d5`, the fork-gate census, and why forked fields require the bundle while novel fields run on stock. For deploying mod content (not engine code) see `deploying-ff9-mods`; for USING the fork gates see `forking-ff9-fields`.
 ---
 
 > Thin router — link the canonical doc (Layer 3) and the memory recipe (Layer 2); do NOT recopy opcode tables, TOML schemas, or coast laws — those live once in docs/ and memory/ and would rot if forked here.
@@ -17,24 +17,25 @@ feature. If it is not certain the change is engine-side, STOP and ask the user b
 proceeding. A DLL change also requires a full game **relaunch** (~ reload is not enough) and
 a human playtest — the agent cannot see the running game.
 
-## Back up the DLL first
+## Build through the wrapper — `py tools/build_memoria.py [--label L]`
 
-**The build AUTO-DEPLOYS to the game with NO backup.** The csproj `AfterBuild` copies the
-built `Assembly-CSharp.dll` (+ `Memoria.Prime.dll`, `UnityEngine.UI.dll`) into BOTH
-`x64\FF9_Data\Managed\` and `x86\FF9_Data\Managed\`, overwriting the installed engine. Before
-the build, run `py tools/backup_memoria_dll.py [label]` from the MAIN repo — it snapshots all
-3 DLLs x both arches to `backups/` under one canonical name + shared timestamp, prints the
-matching `restore_memoria_dll.py` one-liner, and exits non-zero unless the FULL set was
-captured (do not build on a partial). A missed backup is only recoverable by re-running
-`Memoria.Patcher.exe` or Steam verify-integrity + re-patch.
+**The build AUTO-DEPLOYS to the game** (the csproj `AfterBuild` copies the built
+`Assembly-CSharp.dll` + `Memoria.Prime.dll` + `UnityEngine.UI.dll` into BOTH arches' Managed
+folders), and the wrapper is the enforcement call site for the four laws that used to be
+procedural: it **refuses to build until the full 3x2 pre-build snapshot exists** (via
+`backup_memoria_dll.py`; a missed backup is only recoverable by re-running
+`Memoria.Patcher.exe`), invokes msbuild with the exact mandated flags as a **list-args
+subprocess** (no shell → immune to the bash/MSYS `/t:` mangling → MSB1008 class), always
+passes **`-p:SolutionDir=<clone>\`** with the load-bearing trailing backslash (else the
+machine's .NET v4.0 mscorlib leaks in → `CS1703`/`CS0433`), and **verifies post-deploy** that
+Output sha256 == both arches' live copies — a build while FF9 runs can fail the Deploy task
+partway, and a MIXED deploy is flagged loudly with the restore one-liner. `--no-deploy` =
+compile-check only (refused if the clone's csproj lacks the s45 `DWIXNoDeploy` condition).
+It also reports the shared clone's in-flight edit count first — a build deploys other
+sessions' edits too. Tests: `ff9mapkit/tests/test_build_memoria.py`.
 
-## The MSBuild recipe
-
-MSBuild VS18 BuildTools; build the csproj with **`/p:SolutionDir=C:\gd\FFIX\Memoria\`** — the
-trailing `\` is REQUIRED (else the machine's .NET v4.0 mscorlib leaks in → `CS1703`/`CS0433`
-duplicate-type errors). New `.cs` files must be added to the csproj `<Compile Include>`. Run
-the build from PowerShell, not bash (bash mangles the backslashes → MSB1008). Exact
-invocation, one-time References setup, and every known gotcha:
+New `.cs` files must be added to the csproj `<Compile Include>`. The raw msbuild recipe
+(for debugging the wrapper itself), one-time References setup, and every known gotcha:
 [`references/build-recipe.md`](references/build-recipe.md).
 
 ## Version-match 6b8bb2d5
@@ -66,13 +67,13 @@ Method + findings: memory `project-ff9-fork-verification-harness`.
 
 - `py tools/restore_memoria_dll.py <selector>` — copies the newest backup set whose name
   contains `<selector>` back into both Managed folders. `<selector>` = the timestamp
-  `backup_memoria_dll.py` printed for YOUR pre-build snapshot. Run it from the MAIN repo
-  (`backups/` lives there, not in a worktree).
-- ⚠ `baseline` (the historical no-edits-rebuild set — and the script's no-argument DEFAULT) is
-  GONE from `backups/`: it now exits non-zero with `NOTHING RESTORED`. Always pass a real
-  timestamp. Detail: [`references/build-recipe.md`](references/build-recipe.md).
+  `backup_memoria_dll.py` / `build_memoria.py` printed for YOUR pre-build snapshot — it is
+  REQUIRED (a bare run prints usage + the newest backups and exits 2; the old no-arg default
+  chased the long-gone `baseline` set). Run from the MAIN repo (`backups/` lives there).
+- The restore is **ALL-OR-NOTHING**: every destination is probed before the first copy, so a
+  running FF9 (which memory-maps only the arch it runs) can no longer produce a half-restored
+  mixed-version engine — it refuses and says to close the game.
 - TRUE stock = re-run the Memoria patcher (`Memoria.Patcher.exe`).
-- Close FF9 first: restoring over a running game hits `WinError 1224` (DLL memory-mapped).
 
 ## Engine-independence split
 

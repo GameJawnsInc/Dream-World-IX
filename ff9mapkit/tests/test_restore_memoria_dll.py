@@ -161,6 +161,44 @@ def test_arch_token_must_be_a_whole_token(tmp_path):
     assert rmd.backup_arch("Assembly-CSharp.dll.pre-gui-redesign-x64.20260703-172058") == "x64"
 
 
+# ---------------------------------------------------------------- all-or-nothing (Lane H)
+
+def test_a_locked_destination_aborts_the_whole_restore_before_any_copy(tmp_path, capsys):
+    """Lane H (2026-08-24): a running FF9 memory-maps only the arch it runs, so a file-by-file
+    restore could land x86 and then fail x64 -- a MIXED-version engine, worse than either side.
+    The pre-flight probes every existing destination first; one locked target = zero copies."""
+    bkp, managed = _install(tmp_path, [
+        ("Assembly-CSharp.x64.dll.20260824-120000", b"new-x64"),
+        ("Assembly-CSharp.x86.dll.20260824-120000", b"new-x86"),
+    ])
+    # simulate the lock: the x64 destination exists but cannot be opened r+b (a directory
+    # raises OSError on the probe, the same class as a Windows memory-mapped DLL)
+    (pathlib.Path(managed["x64"]) / "Assembly-CSharp.dll").mkdir()
+    (pathlib.Path(managed["x86"]) / "Assembly-CSharp.dll").write_bytes(b"old-x86")
+    restored, failed = rmd.restore("20260824-120000", bkp, managed)
+    out = capsys.readouterr().out
+    assert (restored, failed) == (0, 1)
+    assert "LOCKED" in out and "ALL-OR-NOTHING" in out
+    assert _managed_bytes(managed, "x86") == b"old-x86"        # the unlocked arch was NOT touched
+
+
+def test_bare_run_prints_usage_instead_of_chasing_the_gone_baseline(tmp_path, capsys, monkeypatch):
+    """The no-argument default used to be 'baseline' -- a set documented as GONE, so a bare run
+    was a trap that always ended in NOTHING RESTORED. It now asks for the selector and shows
+    what IS on disk."""
+    bkp, managed = _install(tmp_path, [
+        ("Assembly-CSharp.x64.dll.20260824-120000", b"x64"),
+    ])
+    monkeypatch.setattr(rmd, "BKP", bkp)
+    monkeypatch.setattr(rmd, "MANAGED", managed)
+    rc = rmd.main(["restore_memoria_dll.py"])
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "USAGE" in out
+    assert "Assembly-CSharp.x64.dll.20260824-120000" in out
+    assert _managed_bytes(managed, "x64") is None
+
+
 # ---------------------------------------------------------------- copy failure = loud, non-zero
 
 def test_copy_failure_counts_failed_and_main_exits_nonzero(tmp_path, capsys, monkeypatch):
