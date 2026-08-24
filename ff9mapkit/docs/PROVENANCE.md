@@ -14,8 +14,9 @@ A few base assets the kit needs are *derived* from FF9's own field data:
 | battle-map geometry/textures (`<BBG>.fbx`, `image#.png`) | a real battle background forked into an editable FBX + PNGs by `ff9mapkit battle-import` | read from **your** install at runtime into a user‑chosen dir; gitignored, never committed (no committed battle template — you fork from your own install) |
 | minted-scene assets (`scene/*.raw16/.raw17/.eb/.mes`) | a real battle's gameplay/sequence/camera/text, forked by `battle-import --fork-scene` for a tier-c mint | read from **your** install into a user‑chosen dir; gitignored (`*.raw16.bytes`/`*.raw17.bytes`/`scene/eb`/`scene/mes`), never committed. The mint's static `.inb` is *authored* by the kit (pure `struct.pack`), not extracted |
 
-None of those bytes are committed to this repository or packaged in the wheel. Instead the repo ships
-only the project's part:
+None of those bytes are committed to this repository or packaged in the wheel (one owner‑granted,
+frozen exception: see "The release‑demo exception" below). Instead the repo ships only the
+project's part:
 
 - **copy/insert patches** (`data/provenance/*.patch`) — each is a list of *copy‑from‑offset*
   directives plus the literal bytes the patch changes. A copy directive references your file by
@@ -94,6 +95,21 @@ One further, deliberately tiny exception of the same kind: the save-moogle's def
 point behaves indistinguishably from a stock one. The same brief-identifying-quotation rationale as
 FLAG_LORE's excerpts, granted explicitly by the project owner for the savepoint menu wording
 ("the wiki-with-dialog case"). These two are the repository's only committed game-text exceptions.
+
+## The release‑demo exception (owner‑granted, 2026‑08‑24)
+
+`release/FF9CustomMap/` — the committed "Vivi's Return" demo mod — is the repository's one
+committed exception in the *binary* category. Its painted art, dialogue `.mes`, walkmesh `.bgi`
+and camera `.bgx` are kit‑authored, but its built `.eb` files necessarily embed the game‑derived
+blank‑field skeleton every kit build starts from — the same fact that makes the build goldens
+SHA‑256 hashes rather than bytes (~850 derived bytes of one cleaned 956‑byte base field, per
+language file). The 2026‑08 provenance audit measured and surfaced this; the project owner ruled
+the demo stays as a deliberate one‑off, on the same brief‑derived‑material rationale as the
+FLAG_LORE excerpts above. The grant is **frozen to the exact files present at grant time**: the
+tripwire test (`tests/test_provenance_tripwire.py`) enumerates them, so adding any new derived
+file under the folder — or committing any other built mod folder anywhere — fails the suite like
+any other violation. Nothing in the demo is packaged in the wheel or sdist (`release/` sits
+outside the package tree).
 
 ## What about the overworld (world) pillar?
 

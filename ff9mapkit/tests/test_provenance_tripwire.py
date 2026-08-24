@@ -11,7 +11,8 @@ goldens are SHA-256 hashes rather than bytes -- was articulated in PROVENANCE.md
 
 These tests are the law's call site: the tracked tree and any locally built dists are scanned for the
 game-derived byte CLASSES, against a justified allowlist. Repo-layout only (an installed package has no
-tree to scan); skipped cleanly when git is absent.
+tree to scan); skipped cleanly when git is absent. (The audit's one finding was subsequently GRANTED a
+frozen one-off exception by the project owner -- see _RELEASE_DEMO_EXCEPTION below.)
 """
 from __future__ import annotations
 
@@ -42,12 +43,40 @@ _ALLOWED = {
     "art/hut/FBG_N11_HUT_INT.bgx",
 }
 
-# CONFIRMED VIOLATION, REMOVAL PENDING THE OWNER'S CALL (Lane F, 2026-08-23): the committed demo mod
-# folder. Its .mes/.bgx/.bgi are kit-authored, but its 28 built .eb files embed the SE-derived
-# blank-field template (measured -- see the module docstring). The folder is publicly distributed, so
-# removing it -- and whether to scrub history -- is the owner's outward-facing decision, not a test's.
-# When the folder is removed, DELETE this prefix so the tripwire becomes the permanent guard there.
-_PENDING_OWNER_REMOVAL_PREFIX = "release/FF9CustomMap/"
+# THE RELEASE-DEMO EXCEPTION -- granted by the project owner (2026-08-24), closing the Lane F audit's
+# one finding. The committed "Vivi's Return" demo mod stays: its art/.mes/.bgx/.bgi are kit-authored,
+# and its built .eb files embed the SE-derived blank-field skeleton every kit build starts from
+# (measured -- see the module docstring), which the owner ruled acceptable as a deliberate one-off --
+# the same brief-derived-material rationale as the FLAG_LORE excerpts (docs/PROVENANCE.md,
+# "The release-demo exception"). The grant is FROZEN to the exact files present at grant time: a
+# prefix would quietly extend it to anything later added under the folder, so any NEW flagged file
+# there (or any other built mod folder anywhere) fails this tripwire like any other violation.
+_RELEASE_DEMO_EXCEPTION = frozenset({
+    "release/FF9CustomMap/FF9_Data/embeddedasset/text/es/field/1073.mes",
+    "release/FF9CustomMap/FF9_Data/embeddedasset/text/fr/field/1073.mes",
+    "release/FF9CustomMap/FF9_Data/embeddedasset/text/gr/field/1073.mes",
+    "release/FF9CustomMap/FF9_Data/embeddedasset/text/it/field/1073.mes",
+    "release/FF9CustomMap/FF9_Data/embeddedasset/text/jp/field/1073.mes",
+    "release/FF9CustomMap/FF9_Data/embeddedasset/text/uk/field/1073.mes",
+    "release/FF9CustomMap/FF9_Data/embeddedasset/text/us/field/1073.mes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/FieldMaps/FBG_N11_HUT_EXT/FBG_N11_HUT_EXT.bgi.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/FieldMaps/FBG_N11_HUT_EXT/FBG_N11_HUT_EXT.bgx",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/FieldMaps/FBG_N11_HUT_INT/FBG_N11_HUT_INT.bgi.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/es/EVT_HUT_EXT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/es/EVT_HUT_INT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/fr/EVT_HUT_EXT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/fr/EVT_HUT_INT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/gr/EVT_HUT_EXT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/gr/EVT_HUT_INT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/it/EVT_HUT_EXT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/it/EVT_HUT_INT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/jp/EVT_HUT_EXT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/jp/EVT_HUT_INT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/uk/EVT_HUT_EXT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/uk/EVT_HUT_INT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/us/EVT_HUT_EXT.eb.bytes",
+    "release/FF9CustomMap/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/field/us/EVT_HUT_INT.eb.bytes",
+})
 
 
 _SOURCE_SUFFIXES = {".py", ".md", ".toml", ".txt", ".json", ".rst", ".ps1", ".yml", ".yaml", ".cfg", ".in"}
@@ -76,8 +105,7 @@ def _tracked_files() -> list:
 
 def test_tracked_tree_carries_no_new_game_derived_bytes():
     hits = {f for f in _tracked_files() if _flagged(f)}
-    pending = {f for f in hits if f.startswith(_PENDING_OWNER_REMOVAL_PREFIX)}
-    fresh = sorted(hits - _ALLOWED - pending)
+    fresh = sorted(hits - _ALLOWED - _RELEASE_DEMO_EXCEPTION)
     assert not fresh, (
         "PROVENANCE: tracked file(s) of a game-derived byte class are not in the allowlist. Either the "
         "file carries Square-Enix-derived bytes (remove it -- the repo is PUBLIC and the gate is ZERO, "
@@ -86,10 +114,10 @@ def test_tracked_tree_carries_no_new_game_derived_bytes():
 
 
 def test_the_allowlist_is_live_not_stale():
-    # a stale allowlist row outlives its file and quietly widens the gate; every entry must exist
+    # a stale allowlist/exception row outlives its file and quietly widens the gate; every entry must exist
     tracked = set(_tracked_files())
-    dead = sorted(f for f in _ALLOWED if f not in tracked)
-    assert not dead, f"allowlisted file(s) no longer tracked -- delete the row(s): {dead}"
+    dead = sorted(f for f in (_ALLOWED | _RELEASE_DEMO_EXCEPTION) if f not in tracked)
+    assert not dead, f"allowlisted/excepted file(s) no longer tracked -- delete the row(s): {dead}"
 
 
 def test_wheel_package_data_stays_pinned_to_provenance_clean_files():
