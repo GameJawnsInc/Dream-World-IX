@@ -66,6 +66,42 @@ def _first_call_line(tree, pred):
     return min(lines)
 
 
+_GUARDS = {"check_text_block_shadow", "check_id_collisions", "check_csv_shadow"}
+
+
+def _guard_handlers(src):
+    """(guard_name, handler) pairs: every except handler wrapping a live-stack guard call."""
+    out = []
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.Try):
+            continue
+        called = {n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", "")
+                  for stmt in node.body for n in ast.walk(stmt) if isinstance(n, ast.Call)}
+        for g in called & _GUARDS:
+            out.extend((g, h) for h in node.handlers)
+    return out
+
+
+def test_the_live_stack_guards_are_wired_and_their_crashes_print():
+    """Lane I (2026-08-24): the live-stack guards (text-block shadow / EventDB id collision / CSV
+    shadow) each sat in ``except Exception: pass`` -- so a deploystack regression would disable the
+    whole warning layer silently and FOREVER (the 'check that cannot fail' class), while every
+    deploy kept printing a clean-looking transcript. And deploy_battle.py, which registers
+    BattleScene ids in the same GLOBAL EventDB (the 30011 collision WAS FieldScene-vs-BattleScene),
+    carried no id guard at all. Pin both: the guards are called, and every guard's except handler
+    PRINTS (still never breaks a deploy -- the check functions handle a missing Memoria.ini
+    themselves; the handler only fires when the guard itself is broken, and that must be visible)."""
+    for src, who, want in ((_SRC, "deploy_field", _GUARDS),
+                           (_BATTLE_SRC, "deploy_battle", {"check_id_collisions"})):
+        pairs = _guard_handlers(src)
+        assert {g for g, _ in pairs} >= want, f"{who}: guard call(s) missing"
+        assert pairs, who
+        for g, h in pairs:
+            prints = [n for stmt in h.body for n in ast.walk(stmt)
+                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "print"]
+            assert prints, f"{who}: the {g} guard's except handler must print, not pass silently"
+
+
 def test_the_slot_id_is_band_checked_through_the_shared_validator_before_the_build():
     """Lane G: ``--id`` (and the .ff9deploy pin) override the toml's id AFTER its author-time checks ran,
     and 9000-9012 is the engine's world-dispatcher hole -- a FieldScene there clobbers EVT_WORLD_WORLDxx

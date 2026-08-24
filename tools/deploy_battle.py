@@ -283,6 +283,24 @@ shutil.rmtree(tmp, ignore_errors=True)
 
 for w in info["warnings"]:
     print(f"warning: {w}")
+
+# id-collision guard (the same law tools/deploy_field.py enforces -- this script never did): a
+# BattleScene id ALSO registered by another stacked FolderNames folder collides in the GLOBAL
+# FF9DBAll.EventDB -- one side loads the wrong .eb -> black screen (the 30011 case WAS a
+# FieldScene-vs-BattleScene cross). A loud WARN (not abort): the deploy is reversible and the
+# collision only bites at the next launch. A guard CRASH prints too -- a silently swallowed
+# failure would disable this warning layer forever (a check that cannot fail).
+try:
+    from ff9mapkit.deploystack import check_id_collisions, id_collision_warning  # noqa: E402
+    _reg_ids = {int(ln.split()[1]) for ln in info.get("dictionary") or ()
+                if ln.split()[:1] == ["BattleScene"] and ln.split()[1].lstrip("-").isdigit()}
+    if _reg_ids:
+        _iw = id_collision_warning(check_id_collisions(live_root.parent, MOD, _reg_ids), MOD)
+        if _iw:
+            print(f"\n  !! {_iw}")
+except Exception as _ge:
+    print(f"  (id-collision guard unavailable -- fix it, collisions are now UNCHECKED: {_ge})")
+
 print(f"revert: py {revert}")
 print("Relaunch the game (DictionaryPatch/BattlePatch load at launch)." if relaunch
       else "No relaunch needed (the FBX + textures are read at battle start).")
