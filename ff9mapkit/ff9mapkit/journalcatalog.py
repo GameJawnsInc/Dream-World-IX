@@ -373,6 +373,32 @@ PATCH_ENTRY_COLS = ("E", "id", "section", "category", "latch", "window_on", "win
                     "missable_close", "missable_conf", "verify", "title", "detail")
 PATCH_DEFERRED_COLS = ("D", "bit", "why")
 PATCH_BEAT_COLS = ("B", "section", "enter", "objective")
+PATCH_COUNTER_COLS = ("C", "section", "label", "kind", "a", "b", "c", "denom")
+
+
+def side_counters() -> tuple:
+    """The SIDE-arc counter rows the menu's SIDE QUESTS tab renders -- ``(section_id, label,
+    kind, a, b, c, denom)`` rows, every number IMPORTED from :mod:`journal`'s engine-cited
+    constants (single source; a test cross-checks rows against journal's own offline readers on
+    a synthetic heap). The five kinds are the primitive gEventGlobal reads the DLL implements
+    ONCE: ``byte[a]`` / ``bit[a]`` / ``bitcount[a..a+b)`` / ``field[a]>>b & (2^c-1)`` /
+    ``sysvar[a]`` (the one non-geg read; the DLL skips it when no event engine is live)."""
+    from . import journal as _J
+    return (
+        ("side.chocobo-hot-cold", "Beak level",   "byte",     _J.BEAK_LEVEL_OFF, 0, 0, 99),
+        ("side.chocobo-hot-cold", "Dig terrain",  "byte",     _J.DIG_ABILITY_OFF, 0, 0, _J.DIG_ABILITY_MAX),
+        ("side.chocobo-hot-cold", "Beaches",      "bitcount", _J.SANDY_BEACH_BIT, _J.ENGINE_TARGETS["AllSandyBeach"][0], 0, _J.ENGINE_TARGETS["AllSandyBeach"][0]),
+        ("side.chocobo-hot-cold", "Paradise",     "bit",      _J.CHOCOBO_PARADISE_BIT, 0, 0, 1),
+        ("side.chocographs",      "Found",        "bitcount", _J.CHOCOGRAPH_FOUND_OFF * 8, _J.CHOCOGRAPH_MAX, 0, _J.CHOCOGRAPH_MAX),
+        ("side.chocographs",      "Dug up",       "bitcount", _J.CHOCOGRAPH_OPENED_OFF * 8, _J.CHOCOGRAPH_MAX, 0, _J.CHOCOGRAPH_MAX),
+        ("side.stellazzio",       "Coins turned in", "bitcount", _J.STELLAZZIO_OFF * 8, _J.STELLAZZIO_MAX, 0, _J.STELLAZZIO_MAX),
+        ("side.mognet",           "Delivered",    "byte",     _J.MOGNET_DELIVERED_OFF, 0, 0, 0),
+        ("side.mognet",           "Stiltzkin",    "byte",     _J.MOGNET_STILTZKIN_OFF, 0, 0, 0),
+        ("side.mognet",           "Central found", "bit",     _J.MOGNET_CENTRAL_BIT, 0, 0, 1),
+        ("side.ragtime-mouse",    "Quizzes",      "field",    _J.RAGTIME_OFF, 3, 5, _J.RAGTIME_MAX),
+        ("side.frog-catching",    "Frogs caught", "sysvar",   16, 0, 0, 0),
+        ("side.friendly-monsters", "Yan's blessing", "bit",   _J.YAN_BLESSING_BIT, 0, 0, 1),
+    )
 
 
 def _tsv(*cells) -> str:
@@ -400,6 +426,7 @@ def render_patch(*, catalog=None) -> str:
          "# " + " | ".join(PATCH_ENTRY_COLS),
          "# " + " | ".join(PATCH_DEFERRED_COLS),
          "# " + " | ".join(PATCH_BEAT_COLS),
+         "# " + " | ".join(PATCH_COUNTER_COLS),
          "V\t1"]
     for s in sections:
         L.append(_tsv("S", s.id, s.disc, s.sc_enter, s.sc_leave, 1 if s.side else 0,
@@ -415,6 +442,8 @@ def render_patch(*, catalog=None) -> str:
                       mc, mf, e.verify, e.title, e.detail))
     for d in deferred:
         L.append(_tsv("D", d.bit, d.why))
+    for c in side_counters():
+        L.append(_tsv("C", *c))
     return "\n".join(L) + "\n"
 
 
