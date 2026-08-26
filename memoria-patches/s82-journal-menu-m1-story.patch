@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..24dc450 100644
+index 1d90b6f..3dd7413 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
-@@ -1,38 +1,75 @@
+@@ -1,38 +1,76 @@
  using Assets.Sources.Scripts.UI.Common;
  using Memoria;
 +using Memoria.Assets;
@@ -51,6 +51,7 @@ index 1d90b6f..24dc450 100644
  {
 +    private const String ListGroupButton = "Journal.List";
 +    private const String DetailGroupButton = "Journal.Detail";
++    private static readonly String[] TabNames = { "STORY", "SIDE QUESTS" };   // M4 appends RECORDS
 +
      public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
      {
@@ -96,7 +97,7 @@ index 1d90b6f..24dc450 100644
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
-@@ -40,6 +77,13 @@ public class JournalUI : UIScene
+@@ -40,6 +78,13 @@ public class JournalUI : UIScene
      {
          if (base.OnKeyCancel(go))
          {
@@ -110,7 +111,7 @@ index 1d90b6f..24dc450 100644
              FF9Sfx.FF9SFX_Play(101);
              this.Hide(delegate
              {
-@@ -51,12 +95,253 @@ public class JournalUI : UIScene
+@@ -51,12 +96,379 @@ public class JournalUI : UIScene
          return true;
      }
  
@@ -123,8 +124,7 @@ index 1d90b6f..24dc450 100644
 +                // the M2 descend: focus drops INTO the section's entry checklist (stock ItemUI
 +                // grammar -- parent row stays lit as the held secondary group). An unreached
 +                // ("????") section refuses with the stock buzz: its checklist is a spoiler.
-+                List<JournalRegistry.Section> main = JournalRegistry.MainSections();
-+                Boolean reached = main.Count > 0 && this.currentIndex <= CurrentSectionIndex(main);
++                Boolean reached = this.IsReached(this.SectionsForTab(), this.currentIndex);
 +                if (reached && this.detailPopulator != null && this.detailHasRows)
 +                {
 +                    FF9Sfx.FF9SFX_Play(103);
@@ -149,6 +149,66 @@ index 1d90b6f..24dc450 100644
 +                FF9Sfx.FF9SFX_Play(103);                   // browsing the checklist: acknowledge
 +        }
 +        return true;
++    }
++
++    public override Boolean OnKeyLeftBumper(GameObject go)
++    {
++        if (base.OnKeyLeftBumper(go))
++            this.StepTab(-1);
++        return true;
++    }
++
++    public override Boolean OnKeyRightBumper(GameObject go)
++    {
++        if (base.OnKeyRightBumper(go))
++            this.StepTab(1);
++        return true;
++    }
++
++    private void StepTab(Int32 dir)
++    {
++        // the stock category-paging grammar (SFX 1047; the caption rail renames). The rebuild
++        // happens UNDER the live section group, which is exactly the cursor-move-beep shape --
++        // MuteActiveSound across it, unmuted after the 2-frame Invoke-deferred settle (the s45
++        // idiom; Hide also unmutes unconditionally, the strand insurance).
++        FF9Sfx.FF9SFX_Play(1047);
++        this.currentTab = (this.currentTab + dir + TabNames.Length) % TabNames.Length;
++        this.currentIndex = 0;
++        if (ButtonGroupState.ActiveGroup == DetailGroupButton)
++            ButtonGroupState.ActiveGroup = ListGroupButton;   // a tab switch abandons the descend
++        ButtonGroupState.MuteActiveSound = true;
++        try { this.RefreshSectionList(); }
++        catch (Exception err) { Log.Error(err); }
++        try { this.RefreshDetail(); }
++        catch (Exception err) { Log.Error(err); }
++        Transform topRow = this.listPopulator != null ? this.listPopulator.GetItem(0) : null;
++        if (topRow != null)
++            ButtonGroupState.SetCursorStartSelect(topRow.gameObject, ListGroupButton);
++        base.StartCoroutine(this.UnmuteAfterSettle());
++    }
++
++    private System.Collections.IEnumerator UnmuteAfterSettle()
++    {
++        yield return null;
++        yield return null;
++        ButtonGroupState.MuteActiveSound = false;
++    }
++
++    private List<JournalRegistry.Section> SectionsForTab()
++    {
++        return this.currentTab == 1 ? JournalRegistry.SideSections() : JournalRegistry.MainSections();
++    }
++
++    private Boolean IsReached(List<JournalRegistry.Section> secs, Int32 index)
++    {
++        // STORY: position against the ladder index (row 0 always reached -- a fresh save stands
++        // in it). SIDE: first availability is an SC anchor of its own -- reached when the story
++        // clock has passed it.
++        if (index < 0 || index >= secs.Count)
++            return false;
++        if (this.currentTab == 0)
++            return index <= CurrentSectionIndex(secs);
++        return FF9StateSystem.EventState.ScenarioCounter >= secs[index].Enter;
 +    }
 +
 +    public override Boolean OnItemSelect(GameObject go)
@@ -215,33 +275,49 @@ index 1d90b6f..24dc450 100644
 +    {
 +        if (this.detailPopulator == null || this.detailListRoot == null)
 +            return;
-+        List<JournalRegistry.Section> main = JournalRegistry.MainSections();
-+        if (main.Count == 0 || this.currentIndex >= main.Count)
++        List<JournalRegistry.Section> secs = this.SectionsForTab();
++        if (secs.Count == 0 || this.currentIndex >= secs.Count)
 +        {
 +            this.detailListRoot.SetActive(false);
 +            this.detailHasRows = false;
 +            return;
 +        }
-+        Boolean reached = this.currentIndex <= CurrentSectionIndex(main);
-+        JournalRegistry.Section sec = main[this.currentIndex];
++        Boolean reached = this.IsReached(secs, this.currentIndex);
++        JournalRegistry.Section sec = secs[this.currentIndex];
 +        List<JournalRegistry.Entry> entries = JournalRegistry.EntriesFor(sec.Id);
-+        if (!reached || entries.Count == 0)
++        List<JournalRegistry.Counter> counters = JournalRegistry.CountersFor(sec.Id);
++        if (!reached || (entries.Count == 0 && counters.Count == 0))
 +        {
-+            // an unreached section's checklist is a spoiler; a reached one with no authored
-+            // entries yet has nothing to draw -- either way the pane HIDES rather than sitting
-+            // empty (an empty sheet reads as a bug; the M1 screenshot proved it)
++            // an unreached section's checklist is a spoiler; a reached one with nothing authored
++            // and no counters has nothing to draw -- either way the pane HIDES rather than
++            // sitting empty (an empty sheet reads as a bug; the M1 screenshot proved it)
 +            this.detailListRoot.SetActive(false);
 +            this.detailHasRows = false;
 +            return;
 +        }
 +        this.detailListRoot.SetActive(true);
-+        Int32 got = 0;
-+        foreach (JournalRegistry.Entry e in entries)
-+            if (LatchSet(e.Latch))
-+                got++;
 +        if (this.detailHeaderLabel != null)
-+            this.detailHeaderLabel.rawText = $"{sec.Title}  --  {got}/{entries.Count}";
++        {
++            if (entries.Count > 0)
++            {
++                Int32 got = 0;
++                foreach (JournalRegistry.Entry e in entries)
++                    if (LatchSet(e.Latch))
++                        got++;
++                this.detailHeaderLabel.rawText = $"{sec.Title}  --  {got}/{entries.Count}";
++            }
++            else
++                this.detailHeaderLabel.rawText = sec.Title;   // counters carry their own numbers
++        }
++        // COUNTERS first (an arc's aggregate numbers), then the entry checklist -- both are rows
++        // of the ONE list, so the scroll, the finger and the descend need no second machinery
 +        List<ListDataTypeBase> data = new List<ListDataTypeBase>();
++        foreach (JournalRegistry.Counter c in counters)
++        {
++            Int32 v = ReadCounter(c);
++            if (v >= 0)                                    // a sysvar with no live engine: skip
++                data.Add(new JournalCounterData { Counter = c, Value = v });
++        }
 +        foreach (JournalRegistry.Entry e in entries)
 +            data.Add(new JournalEntryData { Entry = e });
 +        try
@@ -261,13 +337,63 @@ index 1d90b6f..24dc450 100644
 +        }
 +    }
 +
++    private static Int32 ReadCounter(JournalRegistry.Counter c)
++    {
++        // the five primitive reads the C records name (journalcatalog.side_counters) -- every
++        // layout constant lives in the KIT; this switch is the whole engine-side vocabulary
++        Byte[] geg = FF9StateSystem.EventState.gEventGlobal;
++        switch (c.Kind)
++        {
++            case "byte":
++                return geg[c.A];
++            case "bit":
++                return LatchSet(c.A) ? 1 : 0;
++            case "bitcount":
++            {
++                Int32 n = 0;
++                for (Int32 i = 0; i < c.B; i++)
++                    if (LatchSet(c.A + i))
++                        n++;
++                return n;
++            }
++            case "field":
++                return (geg[c.A] >> c.B) & ((1 << c.C) - 1);
++            case "sysvar":
++            {
++                EventEngine ev = PersistenSingleton<EventEngine>.Instance;
++                if (ev == null)
++                    return -1;                             // no live engine: the row is skipped
++                try { return ev.GetSysvar(c.A); }
++                catch (Exception err) { Log.Error(err); return -1; }
++            }
++            default:
++                return -1;
++        }
++    }
++
 +    private void PopulateDetailCell(Transform item, ListDataTypeBase data, Int32 index, Boolean isInit)
 +    {
++        if (isInit)
++            this.DisplayWindowBackground(item.gameObject, null);
++        if (data is JournalCounterData)
++        {
++            // an aggregate row: "Label   N[/denom]" -- no mark, no help bubble
++            JournalCounterData crow = (JournalCounterData)data;
++            UILabel cLabel = item.GetChild(0).GetComponent<UILabel>();
++            item.GetChild(1).gameObject.SetActive(false);
++            cLabel.gameObject.SetActive(true);
++            cLabel.rawText = crow.Counter.Denom > 0
++                ? $"{crow.Counter.Label}   {crow.Value}/{crow.Counter.Denom}"
++                : $"{crow.Counter.Label}   {crow.Value}";
++            cLabel.color = FF9TextTool.White;
++            ButtonGroupState cBtn = item.GetComponent<ButtonGroupState>();
++            if (cBtn != null)
++                cBtn.Help = new ButtonGroupState.HelpDetail { Enable = false };
++            return;
++        }
 +        JournalEntryData row = (JournalEntryData)data;
 +        JournalRegistry.Entry e = row.Entry;
 +        Boolean got = LatchSet(e.Latch);
-+        if (isInit)
-+            this.DisplayWindowBackground(item.gameObject, null);
 +        // LAW 5, runtime name resolution: the catalog ships only the unified item id and
 +        // ETb.GetItemName reads the LIVE tables (regular/important/card, ETb.cs:237-246) -- a
 +        // Moguri rename renders the Moguri name. A gil reward is literal; a titled row is ours.
@@ -298,11 +424,14 @@ index 1d90b6f..24dc450 100644
 +    {
 +        if (this.listPopulator == null)
 +            return;
-+        List<JournalRegistry.Section> main = JournalRegistry.MainSections();
++        if (this.sectionHeaderLabel != null)
++            this.sectionHeaderLabel.rawText = TabNames[this.currentTab];
++        List<JournalRegistry.Section> secs = this.SectionsForTab();
 +        List<ListDataTypeBase> data = new List<ListDataTypeBase>();
-+        foreach (JournalRegistry.Section s in main)
++        foreach (JournalRegistry.Section s in secs)
 +            data.Add(new JournalSectionData { Section = s });
-+        this.currentIndex = main.Count > 0 ? CurrentSectionIndex(main) : 0;
++        if (this.currentTab == 0)
++            this.currentIndex = secs.Count > 0 ? CurrentSectionIndex(secs) : 0;
 +        try
 +        {
 +            if (data.Count > 0)
@@ -332,14 +461,12 @@ index 1d90b6f..24dc450 100644
 +    private void PopulateListCell(Transform item, ListDataTypeBase data, Int32 index, Boolean isInit)
 +    {
 +        JournalSectionData row = (JournalSectionData)data;
-+        List<JournalRegistry.Section> main = JournalRegistry.MainSections();
-+        Int32 curIdx = main.Count > 0 ? CurrentSectionIndex(main) : 0;
-+        // The ratified spoiler policy: a section PAST where the story clock stands renders "????"
-+        // -- a first playthrough discovers the walkthrough as it goes. The rows and the ladder
-+        // index the SAME sorted list, so position against the ladder index IS the reached test
-+        // (and row 0 is always reached: a fresh save is standing in it).
-+        Boolean reached = index <= curIdx;
-+        Boolean current = index == curIdx;
++        List<JournalRegistry.Section> secs = this.SectionsForTab();
++        // The ratified spoiler policy, tab-aware: STORY gates on the ladder index, SIDE on the
++        // arc's own first-availability anchor; unreached renders "????" either way. The yellow
++        // current-row marker is a STORY concept only (side arcs have no "current").
++        Boolean reached = this.IsReached(secs, index);
++        Boolean current = this.currentTab == 0 && secs.Count > 0 && index == CurrentSectionIndex(secs);
 +        if (isInit)
 +            this.DisplayWindowBackground(item.gameObject, null);   // the row wears the CURRENT
 +        ButtonGroupState button = item.GetComponent<ButtonGroupState>();   // grey/blue window atlas
@@ -368,7 +495,7 @@ index 1d90b6f..24dc450 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +354,10 @@ public class JournalUI : UIScene
+@@ -69,10 +481,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -381,7 +508,7 @@ index 1d90b6f..24dc450 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +365,259 @@ public class JournalUI : UIScene
+@@ -80,29 +492,259 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -538,13 +665,13 @@ index 1d90b6f..24dc450 100644
 +            UILocalize capLoc = capNameGo.GetComponent<UILocalize>();
 +            if (capLoc != null)
 +                capLoc.key = String.Empty;
-+            UILabel headerLabel = capNameGo.GetComponent<UILabel>();
-+            headerLabel.SetAnchor((GameObject)null);
-+            headerLabel.pivot = UIWidget.Pivot.Left;
-+            Vector3 capLp = headerLabel.transform.localPosition;
-+            headerLabel.transform.localPosition = new Vector3(
++            this.sectionHeaderLabel = capNameGo.GetComponent<UILabel>();
++            this.sectionHeaderLabel.SetAnchor((GameObject)null);
++            this.sectionHeaderLabel.pivot = UIWidget.Pivot.Left;
++            Vector3 capLp = this.sectionHeaderLabel.transform.localPosition;
++            this.sectionHeaderLabel.transform.localPosition = new Vector3(
 +                clipCX - capPanelGo.transform.localPosition.x - dressW / 2f + 40f, capLp.y, capLp.z);
-+            headerLabel.rawText = "STORY";
++            this.sectionHeaderLabel.rawText = TabNames[0];
 +        }
 +        listRoot.SetActive(true);
 +
@@ -664,7 +791,7 @@ index 1d90b6f..24dc450 100644
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +630,7 @@ public class JournalUI : UIScene
+@@ -115,7 +757,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -673,7 +800,7 @@ index 1d90b6f..24dc450 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +656,205 @@ public class JournalUI : UIScene
+@@ -141,6 +783,266 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
@@ -682,6 +809,8 @@ index 1d90b6f..24dc450 100644
 +    [NonSerialized] private UIWidget listClipWidget;
 +    [NonSerialized] private UILabel nowLabel;
 +    [NonSerialized] private Int32 currentIndex;
++    [NonSerialized] private Int32 currentTab;              // 0 STORY / 1 SIDE QUESTS (M4: RECORDS)
++    [NonSerialized] private UILabel sectionHeaderLabel;
 +    [NonSerialized] private RecycleListPopulator detailPopulator;
 +    [NonSerialized] private UIWidget detailClipWidget;
 +    [NonSerialized] private UILabel detailHeaderLabel;
@@ -696,6 +825,12 @@ index 1d90b6f..24dc450 100644
 +    private class JournalEntryData : ListDataTypeBase
 +    {
 +        public JournalRegistry.Entry Entry;
++    }
++
++    private class JournalCounterData : ListDataTypeBase
++    {
++        public JournalRegistry.Counter Counter;
++        public Int32 Value;
 +    }
 +}
 +
@@ -733,9 +868,21 @@ index 1d90b6f..24dc450 100644
 +        public String Detail;
 +    }
 +
++    public class Counter
++    {
++        public String SectionId;
++        public String Label;
++        public String Kind;                                // byte | bit | bitcount | field | sysvar
++        public Int32 A;
++        public Int32 B;
++        public Int32 C;
++        public Int32 Denom;                                // 0 = render bare
++    }
++
 +    private static List<Section> _sections;
 +    private static List<Entry> _entries;
 +    private static List<KeyValuePair<Int32, String>> _beats;   // (enter, objective), B records
++    private static List<Counter> _counters;                    // C records
 +    private static Boolean _loaded;
 +
 +    private static void EnsureLoaded()
@@ -760,6 +907,7 @@ index 1d90b6f..24dc450 100644
 +                List<Section> parsed = new List<Section>();
 +                List<Entry> parsedEntries = new List<Entry>();
 +                List<KeyValuePair<Int32, String>> parsedBeats = new List<KeyValuePair<Int32, String>>();
++                List<Counter> parsedCounters = new List<Counter>();
 +                foreach (String raw in File.ReadAllLines(path))
 +                {
 +                    if (raw.Length == 0 || raw[0] == '#')
@@ -814,12 +962,30 @@ index 1d90b6f..24dc450 100644
 +                        if (Int32.TryParse(tok[2], out Int32 bEnter) && tok[3] != "-")
 +                            parsedBeats.Add(new KeyValuePair<Int32, String>(bEnter, tok[3]));
 +                    }
++                    else if (tok[0] == "C" && tok.Length >= 8)
++                    {
++                        // C section label kind a b c denom -- a SIDE-arc counter row: the kit
++                        // names the primitive read; this DLL only implements the five kinds
++                        if (Int32.TryParse(tok[4], out Int32 cA) && Int32.TryParse(tok[5], out Int32 cB)
++                            && Int32.TryParse(tok[6], out Int32 cC) && Int32.TryParse(tok[7], out Int32 cD))
++                            parsedCounters.Add(new Counter
++                            {
++                                SectionId = tok[1],
++                                Label = tok[2] == "-" ? String.Empty : tok[2],
++                                Kind = tok[3],
++                                A = cA,
++                                B = cB,
++                                C = cC,
++                                Denom = cD,
++                            });
++                    }
 +                }
 +                if (parsed.Count > 0)
 +                {
 +                    _sections = parsed;                    // whole-document replace, low->high
 +                    _entries = parsedEntries;              // entries travel WITH their sections
 +                    _beats = parsedBeats;                  // and so do the beats
++                    _counters = parsedCounters;
 +                }
 +            }
 +            catch (Exception err)
@@ -853,6 +1019,28 @@ index 1d90b6f..24dc450 100644
 +            if (scenarioCounter >= ladder[i].Key)
 +                idx = i;
 +        return ladder[idx].Value;
++    }
++
++    public static List<Section> SideSections()
++    {
++        EnsureLoaded();
++        List<Section> outList = new List<Section>();
++        foreach (Section s in _sections)
++            if (s.Side)
++                outList.Add(s);
++        outList.Sort((a, b) => a.Enter.CompareTo(b.Enter));   // by first availability
++        return outList;
++    }
++
++    public static List<Counter> CountersFor(String sectionId)
++    {
++        EnsureLoaded();
++        List<Counter> outList = new List<Counter>();
++        if (_counters != null)
++            foreach (Counter c in _counters)
++                if (c.SectionId == sectionId)
++                    outList.Add(c);
++        return outList;
 +    }
 +
 +    public static List<Entry> EntriesFor(String sectionId)
