@@ -1,9 +1,10 @@
 # JournalUI — the in-game Journal menu screen (design proposal, awaiting owner ratification)
 
-> **Status: PROPOSAL.** No C# exists. The owner directed (2026-08-26): replace Folklore's main-menu
-> row with Journal; shape = main quest vs. side-quest types; fit the stock UI while staying a
-> modern, efficient UX. Per the battle-GUI precedent, the shape decisions below get RATIFIED before
-> the first patch line is written. The laws this build must honor:
+> **Status: ★ RATIFIED (owner, 2026-08-26) — building.** All four questions in §4 answered as
+> recommended: Folklore HIDDEN entirely; the 3 tabs STORY / SIDE QUESTS / RECORDS; unreached
+> sections render "????" (SC-gated); the story tab is MERGED (NOW banner + section checklists in
+> one). The owner directive: replace Folklore's main-menu row with Journal; fit the stock UI while
+> staying a modern, efficient UX. The laws this build must honor:
 > [[project-ff9-ngui-menu-construction]] (PRESERVE-THE-BAKE, SCROLL-SUM, the group ladder, the
 > title-plate/collapse law) and `studies/menu-shape-language/VOCABULARY.md` (the shape inventory).
 
