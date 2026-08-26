@@ -965,7 +965,8 @@ def test_no_expression_publishes_a_RAW_Int24():
 
 # ---- CROSS-VALIDATION: the .eb expression vs this module own offline reader ---------------------
 _GEG_CROSS_ROWS = (
-    "story.scenario", "chocobo.chocographs_found", "chocobo.chocographs_dug", "chocobo.beak_level",
+    "story.scenario", "story.next_objective",
+    "chocobo.chocographs_found", "chocobo.chocographs_dug", "chocobo.beak_level",
     "chocobo.dig_ability", "chocobo.beaches", "minigame.stellazzio", "minigame.ragtime_quiz",
     "minigame.coin_toss", "mognet.delivered", "mognet.stiltzkin_tally", "mognet.letters_carried",
     "mognet.give_locks", "mognet.read_locks", "mognet.central_discovered",

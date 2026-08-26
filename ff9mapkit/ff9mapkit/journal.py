@@ -452,6 +452,29 @@ def _r_scenario(st):
     return Read(sc, f"{ms[1]} (>= {ms[0]})" if ms else "(before the first milestone)")
 
 
+def _story_ladder():
+    """The walkthrough spine's next-objective ladder -- loaded ONCE from the entry catalog
+    (journalcatalog.main_story_ladder), which is the single source the in-game [TBLE] table and
+    expression are also generated from. Cached because ROWS readers run per report row."""
+    global _STORY_LADDER
+    if _STORY_LADDER is None:
+        from . import journalcatalog as _jc
+        _STORY_LADDER = _jc.main_story_ladder()
+    return _STORY_LADDER
+
+
+_STORY_LADDER = None
+
+
+def _r_next_objective(st):
+    # The SAME bucket the in-game expression computes: sum(SC >= enter) over the spine's main
+    # sections EXCLUDING the first, so a fresh save (SC below the first anchor) reads row 0.
+    sc = _u16(st.geg, SCENARIO_OFF)
+    enters, rows = _story_ladder()
+    idx = sum(1 for t in enters[1:] if sc >= t)
+    return Read(idx, rows[idx])
+
+
 def _r_th_points(st):
     return Read(treasure_hunter_points(st.geg))
 
@@ -712,6 +735,12 @@ ROWS = [
                  "and the setter (EventState.cs:19-23) is unguarded, so it is not monotonic. "
                  "flags.SCENARIO_MILESTONES is 52 anchors carrying 39 distinct AREA names -- never render "
                  "N/52, and never derive a missability verdict from it."),
+    RowSpec("story.next_objective", "story", "Next objective", None, "", "EventState.cs:18",
+            "engine-read", "tracked", "geg", _r_next_objective,
+            note="SC bucketed on the walkthrough spine (journalcatalog.main_story_ladder): the CURRENT "
+                 "main-path section's authored `objective`, or its title where the prose pass has not "
+                 "reached. The index is the rank-ladder expression class over the spine's sc_enter "
+                 "anchors -- a WHERE, never an N/44 (the counter is not monotonic; see story.scenario)."),
 
     # --- treasure ----------------------------------------------------------------------------------
     RowSpec("treasure.hunter_points", "treasure", "Treasure Hunter points", None, "",
@@ -1062,6 +1091,12 @@ def _rank_ladder(value: str, thresholds) -> str:
 EB_EXPRESSIONS = {
     # --- story / treasure ---------------------------------------------------------------------
     "story.scenario": ("Global.UInt16[0]", "EventState.cs:18"),
+    # The next-objective index: the rank-ladder class (in-game proven on the TH rank) over the
+    # walkthrough spine's main-path sc_enter anchors, first excluded (fresh save -> row 0). The
+    # SAME journalcatalog.main_story_ladder() feeds _r_next_objective and the [TBLE] rows, so the
+    # published index and the rendered row cannot come from different ladders.
+    "story.next_objective": (_rank_ladder("Global.UInt16[0]", _story_ladder()[0][1:]),
+                             "EventState.cs:18"),
     # The memoria_variable lane, OWNER-CONFIRMED in-game on bench 30800 (rung 0): `Null.SBit[N]` is
     # VariableSource.Null + VariableType.Any -> GetMemoriaCustomVariable((memoria_variable)N)
     # (EBin.cs:1636-1638). N=5 read real per-save Treasure-Hunter points (0 / 178 / 215).

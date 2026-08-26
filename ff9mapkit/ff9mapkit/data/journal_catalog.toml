@@ -27,6 +27,7 @@ id = "d1.prima-vista"
 disc = 1
 title = "The Prima Vista & Alexandria"
 sc = { enter = 1000, leave = 2020 }
+objective = "Kidnap Princess Garnet"   # the troupe's plan -- every prologue path converges on it
 
 [[section]]
 id = "d1.evil-forest"
@@ -63,6 +64,7 @@ id = "d1.lindblum"
 disc = 1
 title = "Lindblum & the Festival of the Hunt"
 sc = { enter = 3000, leave = 3710 }   # merges 3000 (castle) + 3100 (town)
+objective = "Lindblum"                 # display shortening only -- the title overflows the window line
 
 [[section]]
 id = "d1.gizamaluke"
