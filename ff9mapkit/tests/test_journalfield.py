@@ -648,9 +648,11 @@ def test_the_BUILT_mes_TAG_BANK_IS_the_txid_the_build_assigned(built_bench_mes):
     asked = [(ln.table, slot) for p in JF.PAGES
              for slot, ln in zip(_slots_of(p), p.lines) if ln.kind == "table"]
     asked += [("marks", s) for c in JF.default_bench_checklists()
-              for s in JF.render_checklist(c)[2]]           # round 7: the walkthrough marks
-    assert asked == [("th_rank", 2), ("hunt", 4),
-                     ("marks", 0), ("marks", 1), ("marks", 3), ("marks", 5), ("marks", 7)]
+              for s in JF.render_checklist(c)[2]]           # the walkthrough marks
+    assert asked[:2] == [("th_rank", 2), ("hunt", 4)]
+    # one mark per catalog entry of the shipped section -- pinned, not derived twice
+    assert [t for t, _s in asked[2:]] == ["marks"] * 30
+    assert asked[2:7] == [("marks", 0), ("marks", 1), ("marks", 3), ("marks", 5), ("marks", 7)]
     got = sorted((int(m.group(1)), int(m.group(2)))
                  for b in built_bench_mes.values()
                  for m in re.finditer(r"\[TEXT=([^,\]]+),(\d+)\]", b))
@@ -724,7 +726,8 @@ def test_the_BUILT_eb_has_EXACTLY_the_expected_number_of_value_writes(built_benc
     walks = JF.default_bench_checklists()
     want = (sum(len(JF.bench_page_values(p)) for p in JF.PAGES)
             + sum(len(JF.render_checklist(c)[1]) for c in walks))
-    assert want == 39         # 3+5+5+5+7+2+4 pages + 8 walkthrough (5 marks + 3 item-id consts)
+    assert want == 82         # 31 pages + 51 walkthrough (30 marks + 21 item-id consts; 9 gil
+    #                           rows publish only their mark)
     assert len(got) == want, f"{len(got)} SetTextVariable ops in the built .eb, expected {want}"
     assert [i.imm(0) for i in got] == ([s for p in JF.PAGES
                                         for s in range(len(JF.bench_page_values(p)))]

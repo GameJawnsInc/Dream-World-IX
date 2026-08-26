@@ -1018,12 +1018,14 @@ def bench_page_values(page: "Page") -> tuple:
 
 
 def default_bench_checklists() -> tuple:
-    """The checklist arm(s) the bench ships THIS round: the FIRST pack of the first authored
-    walkthrough section (the four Prima Vista ship pickups) -- ONE new page, so the playtest
-    verdict lands on the checklist MECHANISM (live marks + runtime [ITEM=] names + a gil literal)
-    and not on eight pages of it. The remaining packs join after the mechanism playtests green;
-    the packer and the lint already cover them."""
-    return checklist_pages("d1.prima-vista")[:1]
+    """The checklist arms the bench ships: the WHOLE first authored walkthrough section.
+
+    Round 7 shipped only the first pack, so the playtest verdict would land on the MECHANISM --
+    and it did: owner, New Game 2026-08-26, two live pickups flipped their marks OK while the
+    uncollected rows held --, names rendered off the live tables, width baked correctly. With the
+    mechanism confirmed, the remaining packs are the same proven surface scaled, so the whole
+    section rides (7 packs + 7 dashboard pages + Close = 15 menu rows, under the 16-row mask)."""
+    return checklist_pages("d1.prima-vista")
 
 
 def bench_toml(*, pages=PAGES, checklists=None) -> str:
