@@ -1048,12 +1048,14 @@ def test_next_objective_offline_and_eb_compute_the_same_bucket():
     assert it lands inside the rows the table renders."""
     from ff9mapkit import journalcatalog as JC
     enters, rows = JC.main_story_ladder()
-    assert len(enters) == len(rows) == 44
-    assert rows[0] == "Kidnap Princess Garnet"      # the one authored objective (scope: the roof)
+    assert len(enters) == len(rows) == 50           # 44 sections + the 6 opening BEATS (census SC
+    #                                                 writes 1150/1154/1400/1500/1900/2005)
+    assert rows[0] == "Kidnap Princess Garnet"
+    assert enters[1] == 1150 and rows[1] == "Follow the boy"    # the beats fold into ONE ladder
     assert enters == tuple(sorted(enters))          # a ladder must be ascending
     spec = J.row_spec("story.next_objective")
     lo, hi = J.eb_bounds(spec.eb)
-    assert (lo, hi) == (0, 43)                      # every index names a real row -- no blank line
+    assert (lo, hi) == (0, 49)                      # every index names a real row -- no blank line
     # the offline bucket at each enter boundary and just below it
     for i, t in enumerate(enters):
         assert sum(1 for x in enters[1:] if t >= x) == i

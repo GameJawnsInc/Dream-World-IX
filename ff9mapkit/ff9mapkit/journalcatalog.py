@@ -104,6 +104,14 @@ class Section:
                               # Empty -> the section TITLE is the honest fallback (a place name is a
                               # direction, not an invention); authored section by section with the
                               # prose pass, same as entry detail.
+    beats: tuple = ()         # optional WITHIN-section refinement: ((enter, objective), ...) --
+                              # the game's own intermediate SC writes (the census: e.g. 1150 fires
+                              # at the Alexandria shop when Vivi's ticket is declared fake), each
+                              # with its own imperative line. Folded into the ONE flat ladder by
+                              # main_story_ladder, so the banner, the offline report and the bench
+                              # .eb all refine together. A beat enter is a MEASURED write value,
+                              # never hand-invented (LAW: sc values come from the anchor table or
+                              # the census).
 
 
 @dataclass(frozen=True)
@@ -157,7 +165,8 @@ def load_catalog(path: "Path | None" = None) -> tuple:
         Section(id=s["id"], disc=int(s["disc"]), title=s["title"],
                 sc_enter=int(s["sc"]["enter"]), sc_leave=int(s["sc"]["leave"]),
                 side=bool(s.get("side", False)), areas=tuple(s.get("areas", ())),
-                objective=s.get("objective", ""))
+                objective=s.get("objective", ""),
+                beats=tuple((int(b["enter"]), b["objective"]) for b in s.get("beat", ())))
         for s in raw.get("section", ()))
     entries = []
     for e in raw.get("entry", ()):
@@ -207,6 +216,25 @@ def lint_catalog(sections, entries, deferred=()) -> list:
                 probs.append(f"section {s.id}: LAW 6 -- objective row measures "
                              f"{_text.measure(row):.1f}u > {DETAIL_BUDGET}u: {row!r} (author a "
                              f"shorter `objective`)")
+        # beats: measured SC values inside the section window, ascending, budgeted prose
+        prev_enter = s.sc_enter
+        for b_enter, b_obj in s.beats:
+            if s.side:
+                probs.append(f"section {s.id}: a side section has no place on the story clock -- "
+                             f"no beats")
+                break
+            if not (s.sc_enter < b_enter and (s.sc_leave == 0 or b_enter < s.sc_leave)):
+                probs.append(f"section {s.id}: beat enter {b_enter} outside the section window "
+                             f"{s.sc_enter}..{s.sc_leave}")
+            if b_enter <= prev_enter and prev_enter != s.sc_enter:
+                probs.append(f"section {s.id}: beats must ascend ({prev_enter} then {b_enter})")
+            prev_enter = b_enter
+            if not b_obj:
+                probs.append(f"section {s.id}: beat {b_enter} has no objective -- a beat exists "
+                             f"only to refine the text")
+            elif _text.measure(b_obj) > DETAIL_BUDGET:
+                probs.append(f"section {s.id}: LAW 6 -- beat {b_enter} objective measures "
+                             f"{_text.measure(b_obj):.1f}u > {DETAIL_BUDGET}u: {b_obj!r}")
 
     ids, bits = [], {}
     for e in entries:
@@ -344,6 +372,7 @@ PATCH_ENTRY_COLS = ("E", "id", "section", "category", "latch", "window_on", "win
                     "inventory", "counter", "manual", "item", "gil", "th",
                     "missable_close", "missable_conf", "verify", "title", "detail")
 PATCH_DEFERRED_COLS = ("D", "bit", "why")
+PATCH_BEAT_COLS = ("B", "section", "enter", "objective")
 
 
 def _tsv(*cells) -> str:
@@ -370,10 +399,13 @@ def render_patch(*, catalog=None) -> str:
          "# " + " | ".join(PATCH_SECTION_COLS),
          "# " + " | ".join(PATCH_ENTRY_COLS),
          "# " + " | ".join(PATCH_DEFERRED_COLS),
+         "# " + " | ".join(PATCH_BEAT_COLS),
          "V\t1"]
     for s in sections:
         L.append(_tsv("S", s.id, s.disc, s.sc_enter, s.sc_leave, 1 if s.side else 0,
                       s.title, s.objective))
+        for b_enter, b_obj in s.beats:
+            L.append(_tsv("B", s.id, b_enter, b_obj))
     for e in entries:
         mc = e.missable.get("close_sc") if e.missable else None
         mf = e.missable.get("confidence") if e.missable else None
@@ -405,5 +437,9 @@ def main_story_ladder(*, catalog=None) -> tuple:
     and nothing here renders an N/44."""
     sections, _entries, _deferred = catalog if catalog is not None else load_catalog()
     main = sorted((s for s in sections if not s.side), key=lambda s: s.sc_enter)
-    return (tuple(s.sc_enter for s in main),
-            tuple(s.objective or s.title for s in main))
+    rungs = []
+    for s in main:
+        rungs.append((s.sc_enter, s.objective or s.title))
+        rungs.extend(s.beats)          # measured intermediate SC writes refine WITHIN the section
+    rungs.sort(key=lambda r: r[0])
+    return (tuple(r[0] for r in rungs), tuple(r[1] for r in rungs))
