@@ -94,7 +94,8 @@ def test_every_catalog_row_is_placed_exactly_once_OR_is_declared_unrenderable():
     assert len(placed) == len(set(placed))                    # nothing placed twice
     want = {s.id for s in J.ROWS if JF.renderable(s.id)}
     assert set(placed) == want
-    assert len(want) == 30 and len(J.ROWS) == 48              # 30 renderable, 18 declared, pinned
+    assert len(want) == 31 and len(J.ROWS) == 49              # 31 renderable (r8: +next_objective),
+    #                                                           18 declared, pinned
     # ...and every one of the 18 has a WRITTEN reason, so nothing is merely absent
     for s in J.ROWS:
         if not JF.renderable(s.id):
@@ -241,10 +242,15 @@ def test_the_two_TBLE_banks_come_from_the_catalog_not_a_copy():
     # the preview and the build's own emitter are ONE function, never two spellings of the tag
     from ff9mapkit.content import texttable as TT
     assert JF.table_texts() == {n: TT.entry_text(r) for n, r in JF.TABLES.items()}
+    from ff9mapkit import journalcatalog as JC
     assert JF.text_table_blocks() == [{"name": "th_rank", "rows": list(J.TH_RANKS)},
                                       {"name": "hunt", "rows": ["---", "Zidane", "Vivi", "Freya"]},
                                       # round 7: the walkthrough checklist's per-entry mark rows
-                                      {"name": "marks", "rows": ["--", "OK"]}]
+                                      {"name": "marks", "rows": ["--", "OK"]},
+                                      # round 8: the next-objective ladder, generated from the
+                                      # entry catalog (one row per main-path spine section)
+                                      {"name": "objectives",
+                                       "rows": list(JC.main_story_ladder()[1])}]
 
 
 def test_a_page_emits_the_BANK_NAME_and_never_a_NUMBER():
@@ -281,13 +287,14 @@ def test_a_TEXT_slot_is_clamped_by_the_EMITTER_not_by_the_author():
     so a negative indexes tableText[-n] and throws. The clamp is `E E const(0) B_GE B_MULT` -- E is
     DUPLICATED; the single-E spelling both defeats the clamp and underflows the CalcStack."""
     from ff9mapkit.content.behavior import hud_row_index_clamp
-    p = JF.PAGES[0]                                       # story: slot 2 feeds [TEXT=]
-    assert JF.table_slots_of(p) == (2,)
+    p = JF.PAGES[0]                                       # story: slots 2 AND 3 feed [TEXT=]
+    assert JF.table_slots_of(p) == (2, 3)
     _t, exprs = JF.render_page(p)
     body = JF.page_body(exprs, 700, table_slots=JF.table_slots_of(p))
     ins = list(D.iter_code(body, 0, len(body)))
-    clamped = EA.assemble(hud_row_index_clamp(exprs[2]) + " B_EXPR_END")
-    assert clamped in body
+    for slot in (2, 3):
+        clamped = EA.assemble(hud_row_index_clamp(exprs[slot]) + " B_EXPR_END")
+        assert clamped in body, slot
     assert EA.assemble(exprs[2] + " B_EXPR_END") not in body   # the UNCLAMPED form is not emitted
     assert JF.pretty_listing(body)[2].count("B_MULT") == 1   # the clamp, and only the clamp
 
@@ -557,7 +564,7 @@ def test_the_bench_toml_parses_and_carries_the_load_bearing_pieces():
     refs = [(t, s) for o in ch["options"] for t, s in
             re.findall(r"\[TEXT=([^,\]]+),(\d+)\]", o.get("reply", ""))]
     walk_refs = [("marks", str(s)) for c in walks for s in JF.render_checklist(c)[2]]
-    assert refs == [("th_rank", "2"), ("hunt", "4")] + walk_refs
+    assert refs == [("th_rank", "2"), ("objectives", "3"), ("hunt", "4")] + walk_refs
     assert {t for t, _s in refs} <= names                   # every reference resolves in this field
 
 
@@ -626,7 +633,7 @@ def test_the_BUILT_mes_CONTAINS_a_TBLE_entry_per_declared_bank(built_bench_mes):
     the kit had no general emitter and the bench froze each tag to a literal row instead."""
     from ff9mapkit.content import texttable as TT
     banks = {t: b for t, b in built_bench_mes.items() if TT.TABLE_OPEN in b}
-    assert len(banks) == len(JF.TABLES) == 3               # round 7 adds the checklist's marks bank
+    assert len(banks) == len(JF.TABLES) == 4               # marks (r7) + objectives (r8) joined
     assert sorted(banks.values()) == sorted(JF.table_texts().values())
     # rows survive the text pipeline verbatim: the engine splits the body on '\n' after the tag
     # (DialogBoxSymbols.cs:35-38), so a re-flow or an escaped newline would silently re-number them
@@ -649,10 +656,10 @@ def test_the_BUILT_mes_TAG_BANK_IS_the_txid_the_build_assigned(built_bench_mes):
              for slot, ln in zip(_slots_of(p), p.lines) if ln.kind == "table"]
     asked += [("marks", s) for c in JF.default_bench_checklists()
               for s in JF.render_checklist(c)[2]]           # the walkthrough marks
-    assert asked[:2] == [("th_rank", 2), ("hunt", 4)]
+    assert asked[:3] == [("th_rank", 2), ("objectives", 3), ("hunt", 4)]
     # one mark per catalog entry of the shipped section -- pinned, not derived twice
-    assert [t for t, _s in asked[2:]] == ["marks"] * 30
-    assert asked[2:7] == [("marks", 0), ("marks", 1), ("marks", 3), ("marks", 5), ("marks", 7)]
+    assert [t for t, _s in asked[3:]] == ["marks"] * 30
+    assert asked[3:8] == [("marks", 0), ("marks", 1), ("marks", 3), ("marks", 5), ("marks", 7)]
     got = sorted((int(m.group(1)), int(m.group(2)))
                  for b in built_bench_mes.values()
                  for m in re.finditer(r"\[TEXT=([^,\]]+),(\d+)\]", b))
@@ -726,8 +733,8 @@ def test_the_BUILT_eb_has_EXACTLY_the_expected_number_of_value_writes(built_benc
     walks = JF.default_bench_checklists()
     want = (sum(len(JF.bench_page_values(p)) for p in JF.PAGES)
             + sum(len(JF.render_checklist(c)[1]) for c in walks))
-    assert want == 82         # 31 pages + 51 walkthrough (30 marks + 21 item-id consts; 9 gil
-    #                           rows publish only their mark)
+    assert want == 83         # 32 pages (round 8: +1 next-objective) + 51 walkthrough
+    #                           (30 marks + 21 item-id consts; 9 gil rows publish only their mark)
     assert len(got) == want, f"{len(got)} SetTextVariable ops in the built .eb, expected {want}"
     assert [i.imm(0) for i in got] == ([s for p in JF.PAGES
                                         for s in range(len(JF.bench_page_values(p)))]
@@ -769,7 +776,7 @@ def test_exactly_ONE_page_is_polled_this_round():
     playtest that justified it -- it is pinned so that cannot happen by drift."""
     polled = [p.key for p in JF.PAGES if p.polled]
     assert polled == ["story"], polled
-    assert JF.PAGES[0].key == "story" and len(JF.PAGES[0].lines) == 3   # row 0, the shortest page
+    assert JF.PAGES[0].key == "story" and len(JF.PAGES[0].lines) == 4   # row 0 (r8: +objective)
 
 
 def test_the_polled_page_flags_are_OUTSIDE_the_turbo_injection_predicate():
@@ -923,8 +930,10 @@ def test_the_BUILT_mes_gives_the_polled_page_NTUR_and_NFOC_and_nothing_forbidden
     vacuously against an entry that could never have contained one."""
     story = JF.render_page(JF.PAGES[0])[0]
     body = next(b for b in built_bench_mes.values() if story.split("\n", 1)[0] in b)
-    assert body == "[NTUR][NFOC]" + re.sub(r"\[TEXT=[^,\]]+,", "[TEXT=%d," % _bank(built_bench_mes,
-                                                                                  "th_rank"), story)
+    want_body = ("[NTUR][NFOC]" + story
+                 .replace("[TEXT=th_rank,", "[TEXT=%d," % _bank(built_bench_mes, "th_rank"))
+                 .replace("[TEXT=objectives,", "[TEXT=%d," % _bank(built_bench_mes, "objectives")))
+    assert body == want_body
     for tag in tuple(T.POLL_FORBIDDEN_TAGS) + ("[TIME=",):
         assert tag not in body, (tag, body[:120])
     # ...and the SIX CONTROL pages keep the owner-confirmed sync shape: auto-[NTUR], never [NFOC]
@@ -1030,3 +1039,44 @@ def test_checklist_marks_render_the_bit_and_the_runtime_name():
     assert f"[ITEM={i + 1}]" in text
     # the gil row: literal, exactly one slot (its mark)
     assert "47 Gil" in text
+
+
+# ---- ROUND 8: the next-objective ladder ---------------------------------------------------------
+def test_next_objective_offline_and_eb_compute_the_same_bucket():
+    """The one-ladder law: the offline reader, the .eb expression, and the [TBLE] rows all come
+    from journalcatalog.main_story_ladder(). Walk the offline bucket over every boundary and
+    assert it lands inside the rows the table renders."""
+    from ff9mapkit import journalcatalog as JC
+    enters, rows = JC.main_story_ladder()
+    assert len(enters) == len(rows) == 44
+    assert rows[0] == "Kidnap Princess Garnet"      # the one authored objective (scope: the roof)
+    assert enters == tuple(sorted(enters))          # a ladder must be ascending
+    spec = J.row_spec("story.next_objective")
+    lo, hi = J.eb_bounds(spec.eb)
+    assert (lo, hi) == (0, 43)                      # every index names a real row -- no blank line
+    # the offline bucket at each enter boundary and just below it
+    for i, t in enumerate(enters):
+        assert sum(1 for x in enters[1:] if t >= x) == i
+        if i:
+            assert sum(1 for x in enters[1:] if (t - 1) >= x) == i - 1
+    assert JF.TABLES["objectives"] == rows          # the rendered rows ARE the ladder's
+
+
+def test_next_objective_renders_full_width_on_the_story_page():
+    """An empty label renders the row with NO value-column padding -- the whole line budget belongs
+    to the sentence -- and the story page keeps its playtested slot numbering (the new line is
+    LAST)."""
+    text, exprs = JF.render_page(JF.PAGES[0])
+    lines = text.split("\n")
+    assert lines[-1] == "[TEXT=objectives,3]"       # unpadded: no leading spaces, slot 3 (last)
+    assert len(exprs) == 4
+    assert JF.table_slots_of(JF.PAGES[0]) == (2, 3)  # rank keeps its confirmed slot 2
+
+
+def test_overlong_objective_row_is_refused_at_the_catalog():
+    """LAW 6 over the ladder: a main section whose rendered row (objective or title fallback)
+    cannot fit the window line fails the catalog lint, not the playtest."""
+    from ff9mapkit import journalcatalog as JC
+    s = JC.Section(id="d9.x", disc=1, title="An enormously long section title that cannot fit",
+                   sc_enter=100, sc_leave=200)
+    assert any("LAW 6" in p and "objective row" in p for p in JC.lint_catalog((s,), ()))

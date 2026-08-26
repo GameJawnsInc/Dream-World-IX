@@ -136,6 +136,11 @@ TABLES = {
     # question arises). "--" not blank for row 0: an unclaimed entry must LOOK unclaimed, not
     # like a rendering bug.
     "marks": ("--", "OK"),
+    # The main story's NEXT OBJECTIVE, one row per walkthrough-spine section (authored prose or
+    # the title fallback), GENERATED from the entry catalog -- the same main_story_ladder() that
+    # generates the row's expression and its offline reader, so the published index and the
+    # rendered row cannot come from different ladders.
+    "objectives": _JC.main_story_ladder()[1],
 }
 
 
@@ -238,6 +243,9 @@ PAGES = (
         Line("story.scenario", "Scenario", "num"),
         Line("treasure.hunter_points", "T.Hunter pts", "num"),
         Line("treasure.hunter_rank", "T.Hunter rank", "table", table="th_rank"),
+        # LAST so the slots above keep their playtested numbering. Label "" -> the row renders
+        # FULL-WIDTH (no value column): an objective is a sentence, not an aligned value.
+        Line("story.next_objective", "", "table", table="objectives"),
     ), polled=True),
     Page("chocobo", "CHOCOBO", "Chocobo", (
         Line("chocobo.chocographs_found", "Chocographs", "num"),
@@ -379,7 +387,10 @@ def render_page(page: "Page") -> tuple:
         den = _denom_of(line)
         if den is not None:
             val += f"/{den}"
-        body.append(_pad_to(line.label, VALUE_COLUMN) + val)
+        # An EMPTY label renders the value FULL-WIDTH: no value-column padding, the whole
+        # LINE_BUDGET belongs to the row (the next-objective sentence). Alignment is a property of
+        # labelled value columns; padding 15 units of nothing would just halve the text budget.
+        body.append(val if line.label == "" else _pad_to(line.label, VALUE_COLUMN) + val)
     # THE HEADER RULE, by construction: extend the `=` run until it out-measures every line, so the
     # rule reaches the window edge instead of stopping short of it. This is COSMETIC -- the engine
     # bakes Width from the real rendered strings at open (Dialog.AutomaticSize, Dialog.cs:1560-1591),
@@ -436,6 +447,8 @@ def _worst_case_width(line: "Line") -> float:
         den = _denom_of(line)
         if den is not None:
             val += f"/{den}"
+    if line.label == "":                      # full-width row -- same rule as render_page
+        return _text.measure(val)
     return _text.measure(_pad_to(line.label, VALUE_COLUMN) + val)
 
 

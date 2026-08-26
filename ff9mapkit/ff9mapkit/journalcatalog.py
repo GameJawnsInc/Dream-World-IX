@@ -100,6 +100,10 @@ class Section:
     sc_leave: int
     side: bool = False
     areas: tuple = ()         # manifest area ids; filled by the generator pass, not by hand
+    objective: str = ""       # the main story's "what you are doing now", imperative, OUR prose.
+                              # Empty -> the section TITLE is the honest fallback (a place name is a
+                              # direction, not an invention); authored section by section with the
+                              # prose pass, same as entry detail.
 
 
 @dataclass(frozen=True)
@@ -152,7 +156,8 @@ def load_catalog(path: "Path | None" = None) -> tuple:
     sections = tuple(
         Section(id=s["id"], disc=int(s["disc"]), title=s["title"],
                 sc_enter=int(s["sc"]["enter"]), sc_leave=int(s["sc"]["leave"]),
-                side=bool(s.get("side", False)), areas=tuple(s.get("areas", ())))
+                side=bool(s.get("side", False)), areas=tuple(s.get("areas", ())),
+                objective=s.get("objective", ""))
         for s in raw.get("section", ()))
     entries = []
     for e in raw.get("entry", ()):
@@ -193,6 +198,15 @@ def lint_catalog(sections, entries, deferred=()) -> list:
             probs.append(f"section {s.id}: disc {s.disc} out of range 1-4")
         if s.sc_leave != 0 and s.sc_leave <= s.sc_enter:
             probs.append(f"section {s.id}: sc window {s.sc_enter}..{s.sc_leave} is empty")
+        # LAW 6 over the next-objective ladder: every MAIN section's rendered row (the authored
+        # objective, or the title fallback) must fit the window line -- the ladder renders whichever
+        # exists, so both are budgeted here, not at render time.
+        if not s.side:
+            row = s.objective or s.title
+            if _text.measure(row) > DETAIL_BUDGET:
+                probs.append(f"section {s.id}: LAW 6 -- objective row measures "
+                             f"{_text.measure(row):.1f}u > {DETAIL_BUDGET}u: {row!r} (author a "
+                             f"shorter `objective`)")
 
     ids, bits = [], {}
     for e in entries:
@@ -317,3 +331,26 @@ def entries_for(section_id: str, *, catalog=None) -> tuple:
     """The section's entries in authored (walkthrough) order."""
     sections, entries, _deferred = catalog if catalog is not None else load_catalog()
     return tuple(e for e in entries if e.section == section_id)
+
+
+def main_story_ladder(*, catalog=None) -> tuple:
+    """``(enters, rows)`` for the main story's NEXT-OBJECTIVE ladder -- the ONE source both the
+    offline reader and the in-game expression/table are generated from, so an index computed by
+    one always names the row the other renders.
+
+      ``enters``: the main-path sections' ``sc_enter`` anchors, ascending (side content excluded --
+      it has no place on a linear clock);
+      ``rows``: one display string per section, same order -- the authored ``objective`` when the
+      prose pass has reached that section, else the section TITLE (a place name is an honest
+      direction, never an invention).
+
+    The current-section index is ``sum(SC >= enters[i] for i in 1..N-1)`` -- the rank-ladder
+    expression class (`journal._rank_ladder`, in-game proven on the Treasure-Hunter rank), with the
+    FIRST enter excluded so a fresh save (SC below the first anchor) indexes row 0 instead of -1.
+    ScenarioCounter is not strictly monotonic (7 real fields decrement it -- journal.ROWS
+    story.scenario's note), so the index is "where the story clock stands", not a progress bar,
+    and nothing here renders an N/44."""
+    sections, _entries, _deferred = catalog if catalog is not None else load_catalog()
+    main = sorted((s for s in sections if not s.side), key=lambda s: s.sc_enter)
+    return (tuple(s.sc_enter for s in main),
+            tuple(s.objective or s.title for s in main))
