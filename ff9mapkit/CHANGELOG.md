@@ -243,6 +243,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   different variable class, so an unclamped meter is unrepresentable, not merely
   discouraged. A field using neither compiles byte-identical to before, on both
   backends; a drift gate flag nothing ever raises refuses at build.
+
+### Fixed — a `[behavior]` timer field's countdown no longer follows you out
 - FF9's countdown HUD is engine-global and save-persisted by design (the Festival of the
   Hunt's clock spans Lindblum), so a minigame clock armed by `timer =` used to keep
   rendering on the world map and in unrelated fields after any walk-out — and even
