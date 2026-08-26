@@ -161,6 +161,25 @@ def _where_else(key: str, vocab: dict, not_path: str) -> list[str]:
     return sorted(p for p, keys in vocab.items() if key in keys and p != not_path and p)
 
 
+# ⚠ KEYS THE BUILD READS EVERYWHERE AND WIRES ALMOST NOWHERE -- for these, and ONLY these, every
+# other message this module can produce ("the build never reads it, so it is silently ignored") is
+# a LIE, and it was a costly one: `polled` is read by content.text.window_polled from dress_window,
+# which every dialogue-bearing block routes through, so `[[npc]] polled = true` DID change the
+# shipped bytes (it defaults [NFOC] on) while the lint told the author it was inert.
+#
+# They are absent from those blocks' VOCAB on purpose -- the universal read goes through a plain
+# copy so it harvests nothing (fieldschema._Spy records only `get`) -- so the unknown-key path is
+# where the author meets them, and it has to tell the truth. `build.validate` REFUSES them outside
+# their wired lanes; this text points at that refusal instead of contradicting it.
+_READ_EVERYWHERE = {
+    "polled": ("the build DOES read it here -- content/text.py:window_polled runs from "
+               "dress_window on every dialogue block and would default [NFOC] onto a BLOCKING "
+               "window with no script close -- so `ff9mapkit lint` REFUSES it rather than "
+               "ignoring it. It is WIRED only on a [[choice.options]] / [ate] option reply, "
+               "which opens its window async, polls for a real button edge and closes it."),
+}
+
+
 def _finding(path: str, key: str, value, local: frozenset, vocab: dict,
              entered_via_list: bool) -> str:
     loc = _display(path, entered_via_list)
@@ -169,6 +188,8 @@ def _finding(path: str, key: str, value, local: frozenset, vocab: dict,
         what = f"unknown section {shape}"
     else:
         what = f"unknown key '{key}' in {loc}"
+    if key in _READ_EVERYWHERE and path:
+        return f"{what} -- {_READ_EVERYWHERE[key]}"
     close = difflib.get_close_matches(key, sorted(local), n=2, cutoff=0.6)
     if close:
         alts = " or ".join(f"'{c}'" for c in close)

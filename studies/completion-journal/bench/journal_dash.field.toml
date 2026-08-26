@@ -52,6 +52,55 @@
 #   opened after it died. The kit now emits [NTUR] on readout windows automatically; the scribe
 #   asks for it explicitly, because it is not a readout and it is the control.
 #
+# ★★ WHAT IS NEW THIS ROUND, AND IT IS EXACTLY ONE THING -- THE POLLED STORY PAGE.
+#   [NTUR] alone is not the end of the turbo story. ShouldTurboDialog has TWO arms
+#   (UIKeyTrigger.cs:974-991). Arm A is the fan-out above. Arm B (:984-988) fires when EVERY
+#   open window is dismiss-inhibited AND one has Auto/Transparent style AND the script armed
+#   B_KEYON -- and it SYNTHESIZES a Confirm into the SCRIPT'S OWN input stream. B_KEYON is what
+#   sets that flag (EBin.cs:1080), so 'hold the window and poll for a press' is precisely the
+#   configuration arm B serves: the poll would exit on frame 1, same symptom, new mechanism.
+#   A blocking WindowSync page cannot be saved from TOML either -- the tags that stop the
+#   synthesized confirm ([NFOC]/[TIME]) stop the PLAYER's too, and a WindowSync nobody can
+#   dismiss parks the script on wait == 254 forever (EBin.cs:137-148).
+#   SO THE STORY PAGE (menu row 0, the shortest) SWAPS SHAPE, and only it:
+#     WindowAsync(2, 0, txid) ; Wait(8) ; while(!B_KEYON(0xB0000)) Wait(1) ; CloseWindow(2) ;
+#     Wait(4)   -- 32 bytes, values published BEFORE the open, .mes entry [NTUR][NFOC].
+#   Three independent guards, all required: style 0 (plain) keeps the window OUT of arm B's
+#   predicate structurally, [NFOC] holds it against arm A, [NTUR] blocks arm B's injector.
+#   The shape is STOCK-COMMON, not an invention -- 2,034 WindowAsync+IsButton-poll sites across
+#   115 shipping fields; field 2950's Chocobo-forest readout is the verbatim precedent.
+#   PAGES 1-6 ARE UNCHANGED (blocking WindowSync + auto-[NTUR], flags 128) AND THAT IS THE
+#   POINT: they are the same-field control, so one interaction isolates one mechanism.
+#
+#   ⚠ THE STORY PAGE ALSO CHANGES SHAPE ON SCREEN, and that is expected, not a regression:
+#   a non-bubble style ships tail-less and CENTERED (THE WINDOW-GEOMETRY LAW), so it draws as
+#   a plain screen-fixed panel instead of a bubble over the keeper. Pages 1-6 stay bubbles.
+#
+# PLAYTEST -- 4 observations, and STATE THE F9 TURBO KEY EVERY TIME (it has no on-screen
+# indicator and persists for the whole session, UIKeyTrigger.cs:393-399; without the state a
+# verdict here means nothing):
+#   ⚠ THIS BENCH IS ONE PAGE PER TALK -- it rides the flat [[choice]] lane, not talk_body's
+#   re-open loop (see WHAT IS STILL DELIBERATELY UNLIKE THE SHIPPED DASHBOARD, above). So the
+#   correct expectation after a page closes is CONTROL BACK IN THE FIELD, not the selector
+#   re-opening. Re-talk to the keeper for the next page.
+#   A. Turbo OFF. Talk to the keeper -> "Story & treasure". EXPECT: the page opens, HOLDS
+#      indefinitely with hands off the pad, and closes on X, handing control back.
+#   B. Same page, dismiss with O (or the Moogle button) instead. EXPECT: identical -- the poll
+#      mask is Confirm|Cancel|Special, stock's own dismissal set.
+#   C. Press F9 (turbo ON). Repeat A. EXPECT: the page STILL HOLDS. This is the experiment.
+#   D. Controls, turbo still ON: open "Chocobo" (page 1, still the sync shape) -- must hold;
+#      talk to the scribe (plain window, explicit no_turbo) -- must hold. If a CONTROL breaks,
+#      the change is not what moved.
+#
+# READING THE RESULT -- one outcome per mechanism, which is why only ONE page converted:
+#   * holds in A/B, closes instantly ONLY under turbo (C) -> arm B survived style 0 AND [NTUR].
+#     The async+poll shape is dead on stock Memoria; escalate to the DLL path. THE FALSIFIER.
+#   * closes instantly in BOTH A and C -> not turbo. Suspect the Wait(8) debounce swallowing
+#     (or failing to swallow) the confirm that SELECTED the row -- check the emitted .mes, not
+#     the source, for the [NFOC] tag.
+#   * never closes on X or O -> the poll mask or the B_KEYON edge. Try Confirm only (131072).
+#   * page fine, a CONTROL breaks -> the regeneration touched shared text/emitters; re-diff.
+#
 # DEPLOY (the HUMAN does this -- the agent does not):
 #   py tools/deploy_field.py studies/completion-journal/bench/journal_dash.field.toml --id 30801
 # FIRST deploy of 30801 needs a RELAUNCH (it registers a DictionaryPatch line); after
@@ -160,6 +209,10 @@ Scenario                 [NUMB=0]
 T.Hunter pts            [NUMB=1]
 T.Hunter rank          [TEXT=th_rank,2]"""
   window = 2
+  polled = true           # async open + B_KEYON poll + script close
+  style = "plain"         # flags 0 -- outside ShouldTurboDialog arm B
+  no_focus = true         # [NFOC] -- only the script closes this window
+  no_turbo = true         # [NTUR] -- and the engine cannot press Confirm for it
   values = [
     "expr:Global.UInt16[0]",
     "expr:Null.SBit[5]",

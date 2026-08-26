@@ -198,6 +198,8 @@ research/dominance_census.json
 # UNDERSTAND-layer pass: generated outputs of research/gen_understand_layer.py (regenerable). Track the
 # generator + the STORY_FLAGS.md §8 write-up, ignore the derived JSON + the verification-input scratch.
 research/understand_layer.json
+# completion-journal Q2 censuses: derived from the user's install, regenerable by the scripts beside them
+studies/completion-journal/research/*.json
 research/understand_candidate.md
 # per-bit lore pass: gen_flag_lore.py's machine-form output (regenerable; carries the same short
 # dialogue excerpts as the tracked FLAG_LORE.md digest -- see ff9mapkit/docs/PROVENANCE.md).

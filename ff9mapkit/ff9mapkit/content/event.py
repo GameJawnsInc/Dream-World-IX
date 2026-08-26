@@ -164,6 +164,97 @@ def message(text_id: int, *, window: int = 1, flags: int = 128, actor_uid: int |
     return opcodes.window_sync(window, flags, text_id)
 
 
+# --------------------------------------------------------------- THE TURBO-PROOF POLLED WINDOW ---
+# Field-event input bits (EventInput.cs:537-562). Kept here because this is the one module that
+# emits a poll for the WINDOW lane; content/region.py owns the region-trigger masks (SELECT/START)
+# and content/numinput.py the stepper's directional set.
+KEY_CANCEL = 0x10000        # EventInput.Cancel   (65536)
+KEY_CONFIRM = 0x20000       # EventInput.Confirm  (131072)
+KEY_SPECIAL = 0x80000       # EventInput.Special  (524288 -- the "Moogle"/menu-extra button)
+#: Confirm | Cancel | Special = 720896 -- STOCK'S OWN dismissal mask, the most common one in the
+#: corpus (1,710 of the 2,034 poll-adjacent async window sites across 115 shipping fields).
+KEY_DISMISS = KEY_CONFIRM | KEY_CANCEL | KEY_SPECIAL
+
+POLL_DEBOUNCE = 8   # frames swallowed before the poll arms -- field 2950's readout precedent. The
+                    # confirm that PICKED the menu row is a live sKeyOn edge; too short and the page
+                    # closes on open (indistinguishable in-game from the turbo bug).
+POLL_WAIT = 1       # frames per poll iteration (stock's do/while body)
+POLL_SETTLE = 4     # frames after the close, before the caller re-opens anything
+
+
+def polled_window(text_id: int, *, window: int = 1, flags: int = 0, mask: int = KEY_DISMISS,
+                  debounce: int = POLL_DEBOUNCE, poll_wait: int = POLL_WAIT,
+                  settle: int = POLL_SETTLE) -> bytes:
+    """A window the PLAYER dismisses and TURBO CANNOT -- open async, hold, spin on a real button
+    edge, close. The blocking :func:`message` (``WindowSync``) cannot be made turbo-proof from TOML;
+    this shape can, and it is what a page a player must actually READ has to use.
+
+    Emits, byte-exactly (32 bytes at the defaults)::
+
+        WindowAsync(win, flags, text_id)     ; 0x20 -- MESN returns 0, non-blocking
+        Wait(debounce)                       ; swallow the confirm edge that opened this
+      poll:
+        05 { const4(mask) B_KEYON }          ; the press EDGE, not held state
+        JMP_IF done                          ; 0x03
+        Wait(poll_wait)
+        JMP poll                             ; 0x01 -- SIGNED; JMP_IFNOT (0x02) is unsigned/forward-only
+      done:
+        CloseWindow(win)                     ; 0x21
+        Wait(settle)
+
+    WHY EACH PIECE, and none of it is boilerplate:
+
+    * **ASYNC, not sync.** The text side of this shape carries ``[NFOC]``, which sets
+      ``Dialog.FlagButtonInh`` -- so no press can ever dismiss the Dialog, and a blocking
+      ``WindowSync`` would sit on ``gCur.wait == 254`` forever (EBin.cs:137-148). Nothing here emits
+      ``WaitWindow`` (0x54) either, so that hang is structurally unreachable on this path.
+    * **The style refusal.** ``flags`` must resolve OUTSIDE arm B's predicate (Auto/Transparent) --
+      see THE TURBO-INJECTION LAW in :mod:`content.text`. ``B_KEYON`` itself sets
+      ``VoicePlayer.scriptRequestedButtonPress`` (EBin.cs:1080), so THIS VERY LOOP arms the injector;
+      with an Auto/Transparent window open, ``UIKeyTrigger.cs:986-987`` writes a Confirm straight
+      into ``ETb.sKey``/``EventInput`` and the loop reads a press nobody made. That is the one guard
+      that can be made unrepresentable rather than merely linted, so it raises here.
+    * **The edge, not the level.** ``B_KEYON`` is the press edge (``sKeyOn = inputs & ~sKey``,
+      ETb.cs:50-77); ``B_KEY`` would re-trigger on a held button and close the page instantly.
+    * **The back-hop is 0x01.** ``JMP_IFNOT`` (0x02) reads its operand UNSIGNED via ``getUShortIP``
+      and can only go forward (eb/labelasm.py:40).
+
+    THE SHAPE IS STOCK-COMMON, not an invention: 2,034 ``WindowAsync``-then-``IsButton``-poll sites
+    across 115 shipping fields. Field 2950 (Chocobo's Forest) is the verbatim readout precedent --
+    ``SetTextVariable ; WindowAsync(1, 0, 301) ; Wait(8) ; while(!IsButton) Wait(1) ; CloseWindow(1)``
+    -- and field 407's moogle menu is the async-selector one. Stock's own flags histogram over those
+    sites matches the engine's design: polled windows at flags 0/8 are READOUTS and MENUS."""
+    from ..eb import exprasm as _exprasm
+    from ..eb.labelasm import JMP, JMP_IF, asm, label
+    from . import text as _text
+    flags = int(flags)
+    if _text.turbo_injectable(flags):
+        raise ValueError(
+            f"polled_window: window style {flags} resolves to {_text.window_style_of(flags)}, which "
+            f"is INSIDE ShouldTurboDialog arm B's predicate (UIKeyTrigger.cs:984). This loop arms "
+            f"that injector itself -- B_KEYON sets VoicePlayer.scriptRequestedButtonPress "
+            f"(EBin.cs:1080) -- so the engine would write a Confirm into the script's own input "
+            f"stream and the poll would exit on frame 1 with no press. Use a poll-safe style: "
+            f"plain (0), notail (4), mognet (8), ate (64) or bubble_notail (132).")
+    if not 0 < int(mask) <= 0x3FFFFFF:
+        raise ValueError(
+            f"polled_window: button mask {mask} is outside EventInput's 26-bit space "
+            f"(ETb.GetInputs masks & 0x3FFFFFF, ETb.cs:50-77) -- an empty mask never exits the poll "
+            f"and the field hangs with a window nobody can close")
+    return asm([
+        opcodes.window_async(int(window), flags, int(text_id)),
+        opcodes.wait(int(debounce)),
+        label("poll"),
+        bytes([_region.EXPR_OP]) + _exprasm.assemble(f"const4({int(mask)}) B_KEYON B_EXPR_END"),
+        (JMP_IF, "done"),
+        opcodes.wait(int(poll_wait)),
+        (JMP, "poll"),
+        label("done"),
+        opcodes.close_window(int(window)),
+        opcodes.wait(int(settle)),
+    ])
+
+
 def give_item(item_id, count: int = 1) -> bytes:
     """Body part: AddItem(item, count). ``item_id`` may be a numeric id OR a name ("Potion") --
     resolved via :mod:`ff9mapkit.items` so authors don't have to memorize ids. Works for ANY item,

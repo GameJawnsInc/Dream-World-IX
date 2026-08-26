@@ -377,7 +377,7 @@ Multi-line dialogue keeps **one** quote pair — the auto-wrap opens `“` on th
 closes `”` on the last, exactly as stock does. (Avoid `[PAGE]` inside a *spoken* line with a speaker:
 stock never quotes across a page break — give each conversation line its own entry/`say` step.)
 
-### Window styling (style · window · actor · instant · speed · duration · window_pos · box · no_turbo)
+### Window styling (style · window · actor · instant · speed · duration · window_pos · box · no_turbo · no_focus · polled)
 
 Every dialogue-bearing block — `[[npc]]`, `[[event]]`, `[[on_entry]]`, `[[choice]]` (+ its options),
 and cutscene `say` steps — takes the same optional presentation keys. All default to exactly what the
@@ -436,9 +436,49 @@ kit always emitted (an ordinary speech bubble), so omitting them changes nothing
   `no_turbo = false` on a readout is refused by `lint` — opting out of this has to be deliberate.
 
   `[NTUR]` is the **only** inhibitor that leaves the player's own Confirm working. `hold`,
-  `duration` and `[NFOC]` also stop turbo, but they do it by setting the engine's *button-inhibit*
-  flag — which means the player can't dismiss the window either, and a **blocking** window nobody can
-  dismiss hangs the script forever. Nothing is added when one of those is already present.
+  `duration` and `no_focus` also stop the fan-out, but they do it by setting the engine's
+  *button-inhibit* flag — which means the player can't dismiss the window either, and a **blocking**
+  window nobody can dismiss hangs the script forever. Nothing is added when one of those is already
+  present **and the window is not `polled`** — see the next two keys for why that exception exists.
+- **`no_focus`** — emit `[NFOC]`: the engine's button-inhibit flag, so **only the script can close
+  this window** (it also stops the window resetting a pending choice answer). On a **blocking**
+  window — a `[[choice]]`/`[ate]` option's `reply`, an ordinary `[[npc]]` line, a `[[prop]]` or
+  `[[event]]` message, a cutscene `say` — that is an unconditional **softlock**, and `lint` refuses
+  it on *every* one of them (the same rule also covers `hold`, and a literal `[NFOC]`/`[TIME=-1]`
+  written into the body). Its home is a window the script closes itself: a cutscene `open` step
+  (which must carry its matching `close`), or a `polled` reply.
+- **`polled`** (`[[choice.options]]` and `[ate]` options — the two lanes that emit the poll) — the
+  **turbo-proof page**. Anywhere else `lint` refuses the key rather than ignoring it: it is *read*
+  on every dialogue block (it defaults `no_focus` on), so an unwired `polled = true` would ship the
+  softlock above with none of the async machinery that makes it safe. The reply is opened
+  *asynchronously*, held, watched for a real button press, and closed by the script, instead of the
+  ordinary blocking window. Use it for a page the player must actually **read** — a stats screen, a
+  completion dashboard, a long readout — because a blocking window cannot be made turbo-proof at
+  all: every tag that survives a latched F9 also blocks the player's own Confirm, and then the
+  blocking window hangs.
+
+  There are **two** turbo mechanisms, not one, and a polled page has to beat both. The first fans a
+  synthesized confirm out to every open window (that's what `no_turbo` blocks). The second fires
+  only when every open window is button-inhibited *and* one of them is in the bubble/transparent
+  family *and* the script is polling for input — and it writes a confirm straight into the script's
+  own input stream, so the poll reads a press nobody made. That second one is beaten by `[NTUR]`
+  **or** by a window style outside that family, and the kit ships both guards:
+
+  ```toml
+  [[choice.options]]
+  text = "Story & treasure"
+  reply = """…"""
+  polled = true
+  style = "plain"      # 0/4/8/64/132 are safe; bubble/transparent (128/16/144/160) are refused
+  ```
+
+  `polled` defaults `no_turbo` and `no_focus` to `true`; `lint` re-checks the emitted entry and
+  refuses `[IMME]`, `[PAGE]`, `[WDTH=…]`, any `duration`, and an unsafe `style` on a polled row.
+  (`[WDTH=…]` is refused because it is **dummied** — the engine consumes the tag and does nothing —
+  so on the one entry whose geometry has to be reasoned about exactly it is a dead tag standing
+  where the real mechanism is: a polled page bakes its width **once**, at the async open, from the
+  values published just before it.) The shape is one of stock's most common idioms (2,034 sites
+  across 115 shipping fields — Chocobo's Forest counts your catches this way).
 - **`dim`** — wrap the window in one of **stock's reading fade brackets** (censused across all 817
   field scripts; 241 bracket sites). On `[[npc]]`, `[[event]]`, `[[on_entry]]` and cutscene `say`
   steps; pairs naturally with `style = "transparent"`:
