@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..54443ba 100644
+index 1d90b6f..c5ae989 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
-@@ -1,38 +1,69 @@
+@@ -1,38 +1,75 @@
  using Assets.Sources.Scripts.UI.Common;
  using Memoria;
 +using Memoria.Assets;
@@ -63,6 +63,12 @@ index 1d90b6f..54443ba 100644
 +                ButtonGroupState.SetPointerLimitRectToGroup(this.listClipWidget, this.listPopulator.cellHeight, ListGroupButton);
 +                ButtonGroupState.SetPointerOffsetToGroup(new Vector2(54f, 0f), ListGroupButton);
 +                ButtonGroupState.SetPointerDepthToGroup(this.listPopulator.panel.depth + 2, ListGroupButton);
++                // seat the cursor on the CURRENT section before arming -- without a start-select
++                // the finger lands on whatever NGUI defaults to and the first Down press jumps
++                // a whole page (the M2 playtest find, on the detail list)
++                Transform curRow = this.listPopulator.GetItem(this.currentIndex);
++                if (curRow != null)
++                    ButtonGroupState.SetCursorStartSelect(curRow.gameObject, ListGroupButton);
 +                ButtonGroupState.ActiveGroup = ListGroupButton;
 +            }
 +            if (afterFinished != null)
@@ -90,7 +96,7 @@ index 1d90b6f..54443ba 100644
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
-@@ -40,6 +71,13 @@ public class JournalUI : UIScene
+@@ -40,6 +77,13 @@ public class JournalUI : UIScene
      {
          if (base.OnKeyCancel(go))
          {
@@ -104,7 +110,7 @@ index 1d90b6f..54443ba 100644
              FF9Sfx.FF9SFX_Play(101);
              this.Hide(delegate
              {
-@@ -51,12 +89,238 @@ public class JournalUI : UIScene
+@@ -51,12 +95,245 @@ public class JournalUI : UIScene
          return true;
      }
  
@@ -122,6 +128,12 @@ index 1d90b6f..54443ba 100644
 +                if (reached && this.detailPopulator != null && this.detailHasRows)
 +                {
 +                    FF9Sfx.FF9SFX_Play(103);
++                    // a fresh checklist starts at ROW 0, cursor seated BEFORE the group arms --
++                    // the down-skip find: an unseated group's first press jumps a page
++                    ButtonGroupState.RemoveCursorMemorize(DetailGroupButton);
++                    Transform topRow = this.detailPopulator.GetItem(0);
++                    if (topRow != null)
++                        ButtonGroupState.SetCursorStartSelect(topRow.gameObject, DetailGroupButton);
 +                    ButtonGroupState.SetScrollButtonToGroup(this.detailPopulator.ScrollButton, DetailGroupButton);
 +                    ButtonGroupState.SetPointerLimitRectToGroup(this.detailClipWidget, this.detailPopulator.cellHeight, DetailGroupButton);
 +                    ButtonGroupState.SetPointerOffsetToGroup(new Vector2(54f, 0f), DetailGroupButton);
@@ -186,9 +198,10 @@ index 1d90b6f..54443ba 100644
 +            this.nowLabel.rawText = "(no JournalPatch.txt in any mod folder)";
 +            return;
 +        }
-+        JournalRegistry.Section cur = main[CurrentSectionIndex(main)];
-+        String objective = String.IsNullOrEmpty(cur.Objective) ? cur.Title : cur.Objective;
-+        this.nowLabel.rawText = objective;
++        // the BEAT-refined ladder: the game writes intermediate SC values inside a section
++        // (census-measured -- 1150 fires at the Alexandria shop when the ticket is declared
++        // fake), and each authored beat refines the banner without touching the section list
++        this.nowLabel.rawText = JournalRegistry.NowText(FF9StateSystem.EventState.ScenarioCounter);
 +    }
 +
 +    private static Boolean LatchSet(Int32 bit)
@@ -347,7 +360,7 @@ index 1d90b6f..54443ba 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +333,10 @@ public class JournalUI : UIScene
+@@ -69,10 +346,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -360,7 +373,7 @@ index 1d90b6f..54443ba 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +344,259 @@ public class JournalUI : UIScene
+@@ -80,29 +357,259 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -643,7 +656,7 @@ index 1d90b6f..54443ba 100644
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +609,7 @@ public class JournalUI : UIScene
+@@ -115,7 +622,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -652,7 +665,7 @@ index 1d90b6f..54443ba 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +635,171 @@ public class JournalUI : UIScene
+@@ -141,6 +648,205 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
@@ -714,6 +727,7 @@ index 1d90b6f..54443ba 100644
 +
 +    private static List<Section> _sections;
 +    private static List<Entry> _entries;
++    private static List<KeyValuePair<Int32, String>> _beats;   // (enter, objective), B records
 +    private static Boolean _loaded;
 +
 +    private static void EnsureLoaded()
@@ -737,6 +751,7 @@ index 1d90b6f..54443ba 100644
 +                // `-` is the absent sentinel.
 +                List<Section> parsed = new List<Section>();
 +                List<Entry> parsedEntries = new List<Entry>();
++                List<KeyValuePair<Int32, String>> parsedBeats = new List<KeyValuePair<Int32, String>>();
 +                foreach (String raw in File.ReadAllLines(path))
 +                {
 +                    if (raw.Length == 0 || raw[0] == '#')
@@ -784,11 +799,19 @@ index 1d90b6f..54443ba 100644
 +                            e.Th = th;
 +                        parsedEntries.Add(e);
 +                    }
++                    else if (tok[0] == "B" && tok.Length >= 4)
++                    {
++                        // B section enter objective -- a WITHIN-section beat: the game's own
++                        // intermediate SC write (census-measured), refining the NOW banner
++                        if (Int32.TryParse(tok[2], out Int32 bEnter) && tok[3] != "-")
++                            parsedBeats.Add(new KeyValuePair<Int32, String>(bEnter, tok[3]));
++                    }
 +                }
 +                if (parsed.Count > 0)
 +                {
 +                    _sections = parsed;                    // whole-document replace, low->high
 +                    _entries = parsedEntries;              // entries travel WITH their sections
++                    _beats = parsedBeats;                  // and so do the beats
 +                }
 +            }
 +            catch (Exception err)
@@ -798,6 +821,30 @@ index 1d90b6f..54443ba 100644
 +        }
 +        if (_sections.Count > 0)
 +            Log.Message($"[JournalRegistry] {_sections.Count} sections registered");
++    }
++
++    public static String NowText(Int32 scenarioCounter)
++    {
++        // The NEXT-OBJECTIVE text: the deepest rung of the flat (sections + beats) ladder at or
++        // below SC -- the same fold the kit's main_story_ladder() computes for the offline report
++        // and the bench .eb, so all three surfaces answer identically. The first rung is the
++        // floor (a fresh save, SC below the first anchor, reads rung 0).
++        EnsureLoaded();
++        List<Section> main = MainSections();
++        if (main.Count == 0)
++            return "(no JournalPatch.txt in any mod folder)";
++        List<KeyValuePair<Int32, String>> ladder = new List<KeyValuePair<Int32, String>>();
++        foreach (Section s in main)
++            ladder.Add(new KeyValuePair<Int32, String>(s.Enter,
++                String.IsNullOrEmpty(s.Objective) ? s.Title : s.Objective));
++        if (_beats != null)
++            ladder.AddRange(_beats);
++        ladder.Sort((a, b) => a.Key.CompareTo(b.Key));
++        Int32 idx = 0;
++        for (Int32 i = 1; i < ladder.Count; i++)
++            if (scenarioCounter >= ladder[i].Key)
++                idx = i;
++        return ladder[idx].Value;
 +    }
 +
 +    public static List<Entry> EntriesFor(String sectionId)
