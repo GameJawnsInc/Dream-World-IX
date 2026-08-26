@@ -242,7 +242,9 @@ def test_the_two_TBLE_banks_come_from_the_catalog_not_a_copy():
     from ff9mapkit.content import texttable as TT
     assert JF.table_texts() == {n: TT.entry_text(r) for n, r in JF.TABLES.items()}
     assert JF.text_table_blocks() == [{"name": "th_rank", "rows": list(J.TH_RANKS)},
-                                      {"name": "hunt", "rows": ["---", "Zidane", "Vivi", "Freya"]}]
+                                      {"name": "hunt", "rows": ["---", "Zidane", "Vivi", "Freya"]},
+                                      # round 7: the walkthrough checklist's per-entry mark rows
+                                      {"name": "marks", "rows": ["--", "OK"]}]
 
 
 def test_a_page_emits_the_BANK_NAME_and_never_a_NUMBER():
@@ -538,18 +540,24 @@ def test_the_bench_toml_parses_and_carries_the_load_bearing_pieces():
     from ff9mapkit.content import behaviortoml as BT
     assert BT.table(d) is not None
     ch = d["choice"][0]
-    assert [o["text"] for o in ch["options"]] == [p.menu for p in JF.PAGES] + [JF.MENU_CLOSE]
+    walks = JF.default_bench_checklists()                   # round 7: the walkthrough arm(s)
+    assert [o["text"] for o in ch["options"]] == ([p.menu for p in JF.PAGES]
+                                                  + [c.menu for c in walks] + [JF.MENU_CLOSE])
     assert "reply" not in ch["options"][-1]                 # Close does nothing but close
     for p, o in zip(JF.PAGES, ch["options"]):
         assert o["reply"] == JF.bench_page_text(p) == JF.render_page(p)[0]
         assert not o["reply"].endswith(chr(10))            # a trailing blank line costs a window row
+    for c, o in zip(walks, ch["options"][len(JF.PAGES):]):
+        assert o["reply"] == JF.render_checklist(c)[0]     # the catalog's page, never a copy
+        assert not o["reply"].endswith(chr(10))
     # THE BENCH DECLARES ITS OWN [TBLE] BANKS, and its page text carries the real tag rather than the
     # widest literal row it used to freeze in (owner: "T hunter rank and chests opened are wrong").
     assert d["text_table"] == JF.text_table_blocks()
     names = {t["name"] for t in d["text_table"]}
     refs = [(t, s) for o in ch["options"] for t, s in
             re.findall(r"\[TEXT=([^,\]]+),(\d+)\]", o.get("reply", ""))]
-    assert refs == [("th_rank", "2"), ("hunt", "4")]
+    walk_refs = [("marks", str(s)) for c in walks for s in JF.render_checklist(c)[2]]
+    assert refs == [("th_rank", "2"), ("hunt", "4")] + walk_refs
     assert {t for t, _s in refs} <= names                   # every reference resolves in this field
 
 
@@ -618,7 +626,7 @@ def test_the_BUILT_mes_CONTAINS_a_TBLE_entry_per_declared_bank(built_bench_mes):
     the kit had no general emitter and the bench froze each tag to a literal row instead."""
     from ff9mapkit.content import texttable as TT
     banks = {t: b for t, b in built_bench_mes.items() if TT.TABLE_OPEN in b}
-    assert len(banks) == len(JF.TABLES) == 2
+    assert len(banks) == len(JF.TABLES) == 3               # round 7 adds the checklist's marks bank
     assert sorted(banks.values()) == sorted(JF.table_texts().values())
     # rows survive the text pipeline verbatim: the engine splits the body on '\n' after the tag
     # (DialogBoxSymbols.cs:35-38), so a re-flow or an escaped newline would silently re-number them
@@ -639,7 +647,10 @@ def test_the_BUILT_mes_TAG_BANK_IS_the_txid_the_build_assigned(built_bench_mes):
     # what the pages ASK for, by name + slot, straight off the generator
     asked = [(ln.table, slot) for p in JF.PAGES
              for slot, ln in zip(_slots_of(p), p.lines) if ln.kind == "table"]
-    assert asked == [("th_rank", 2), ("hunt", 4)]
+    asked += [("marks", s) for c in JF.default_bench_checklists()
+              for s in JF.render_checklist(c)[2]]           # round 7: the walkthrough marks
+    assert asked == [("th_rank", 2), ("hunt", 4),
+                     ("marks", 0), ("marks", 1), ("marks", 3), ("marks", 5), ("marks", 7)]
     got = sorted((int(m.group(1)), int(m.group(2)))
                  for b in built_bench_mes.values()
                  for m in re.finditer(r"\[TEXT=([^,\]]+),(\d+)\]", b))
@@ -710,11 +721,15 @@ def test_the_BUILT_eb_has_EXACTLY_the_expected_number_of_value_writes(built_benc
     eb = EbScript.from_bytes(built_bench_eb)
     got = [i for e in eb.entries if not e.empty for f in e.funcs
            for i in eb.instrs(f) if i.name == "SetTextVariable"]
-    want = sum(len(JF.bench_page_values(p)) for p in JF.PAGES)
-    assert want == 31                                     # 3+5+5+5+7+2+4 -- pinned, not derived twice
+    walks = JF.default_bench_checklists()
+    want = (sum(len(JF.bench_page_values(p)) for p in JF.PAGES)
+            + sum(len(JF.render_checklist(c)[1]) for c in walks))
+    assert want == 39         # 3+5+5+5+7+2+4 pages + 8 walkthrough (5 marks + 3 item-id consts)
     assert len(got) == want, f"{len(got)} SetTextVariable ops in the built .eb, expected {want}"
-    assert [i.imm(0) for i in got] == [s for p in JF.PAGES
-                                       for s in range(len(JF.bench_page_values(p)))]
+    assert [i.imm(0) for i in got] == ([s for p in JF.PAGES
+                                        for s in range(len(JF.bench_page_values(p)))]
+                                       + [s for c in walks
+                                          for s in range(len(JF.render_checklist(c)[1]))])
 
 
 @pytest.mark.skipif(not os.path.isfile(_BENCH), reason="the T1b bench toml is not in this checkout")
@@ -961,3 +976,54 @@ def test_the_bench_page_text_survives_the_build_text_pipeline_byte_identical():
         assert overflow == [], (o["text"], overflow)
         assert wrapped == r, o["text"]
         assert T.apply_markup(r) == r, o["text"]
+
+
+# ---- ROUND 7: the walkthrough checklist surface -------------------------------------------------
+def test_checklist_packer_respects_both_ceilings_and_drops_nothing():
+    packs = JF.checklist_pages("d1.prima-vista")
+    from ff9mapkit import journalcatalog as JC
+    entries = JC.entries_for("d1.prima-vista")
+    assert [e.id for p in packs for e in p.entries] == [e.id for e in entries]   # order, no drops
+    for p in packs:
+        _text, exprs, _t = JF.render_checklist(p)
+        assert len(exprs) <= JF.MES_VALUE_SLOTS
+        assert len(JF.render_checklist(p)[0].split("\n")) <= JF.MAX_PAGE_LINES
+    assert JF.lint_checklists(packs) == []
+
+
+def test_checklist_refuses_a_non_latch_row_loudly():
+    """Silently dropping a row is the defect class the placement audit kills; a predicate this
+    surface cannot read must refuse at generation, not vanish."""
+    from ff9mapkit import journalcatalog as JC
+    bad = JC.Entry(id="story.x", section="d1.prima-vista", category="story",
+                   counter="party.gil")
+    cat = ((), (bad,), ())
+    with pytest.raises(ValueError, match="non-latch"):
+        JF.checklist_pages("d1.prima-vista", catalog=cat)
+
+
+def test_checklist_lint_catches_a_duplicate_entry_across_packs():
+    from ff9mapkit import journalcatalog as JC
+    e = JC.Entry(id="treasure.b7171", section="s", category="treasure", latch=7171, item=249,
+                 detail="dup")
+    p1 = JF.ChecklistPage(key="w.1", title="W 1", menu="W 1", entries=(e,))
+    p2 = JF.ChecklistPage(key="w.2", title="W 2", menu="W 2", entries=(e,))
+    assert any("already on" in b for b in JF.lint_checklists((p1, p2)))
+
+
+def test_checklist_marks_render_the_bit_and_the_runtime_name():
+    """The three per-entry mechanisms, asserted on the emitted text: the mark tag reads the SAME
+    slot the latch expression publishes, an item row publishes its unified id as a const for
+    [ITEM=], and a gil row is literal text costing no second slot."""
+    packs = JF.checklist_pages("d1.prima-vista")
+    text, exprs, tslots = JF.render_checklist(packs[0])
+    lines = text.split("\n")[1:]
+    for s in tslots:
+        assert exprs[s].startswith("Global.Bit["), exprs[s]
+        assert f"[TEXT=marks,{s}]" in "\n".join(lines)
+    # bit 7171 (Phoenix Pinion, unified id 249): mark slot + const id slot, paired
+    i = exprs.index("Global.Bit[7171]")
+    assert exprs[i + 1] == "const(249)"
+    assert f"[ITEM={i + 1}]" in text
+    # the gil row: literal, exactly one slot (its mark)
+    assert "47 Gil" in text

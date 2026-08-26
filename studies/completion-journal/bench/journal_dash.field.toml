@@ -52,7 +52,8 @@
 #   opened after it died. The kit now emits [NTUR] on readout windows automatically; the scribe
 #   asks for it explicitly, because it is not a readout and it is the control.
 #
-# ★★ WHAT IS NEW THIS ROUND, AND IT IS EXACTLY ONE THING -- THE POLLED STORY PAGE.
+# THE POLLED STORY PAGE -- ★ OWNER-CONFIRMED with the round-6 playtest (rank G / winner
+# Vivi / live-rows pages, 2026-08-26). Kept as shipped mechanics documentation:
 #   [NTUR] alone is not the end of the turbo story. ShouldTurboDialog has TWO arms
 #   (UIKeyTrigger.cs:974-991). Arm A is the fan-out above. Arm B (:984-988) fires when EVERY
 #   open window is dismiss-inhibited AND one has Auto/Transparent style AND the script armed
@@ -76,30 +77,33 @@
 #   a non-bubble style ships tail-less and CENTERED (THE WINDOW-GEOMETRY LAW), so it draws as
 #   a plain screen-fixed panel instead of a bubble over the keeper. Pages 1-6 stay bubbles.
 #
-# PLAYTEST -- 4 observations, and STATE THE F9 TURBO KEY EVERY TIME (it has no on-screen
-# indicator and persists for the whole session, UIKeyTrigger.cs:393-399; without the state a
-# verdict here means nothing):
-#   ⚠ THIS BENCH IS ONE PAGE PER TALK -- it rides the flat [[choice]] lane, not talk_body's
-#   re-open loop (see WHAT IS STILL DELIBERATELY UNLIKE THE SHIPPED DASHBOARD, above). So the
-#   correct expectation after a page closes is CONTROL BACK IN THE FIELD, not the selector
-#   re-opening. Re-talk to the keeper for the next page.
-#   A. Turbo OFF. Talk to the keeper -> "Story & treasure". EXPECT: the page opens, HOLDS
-#      indefinitely with hands off the pad, and closes on X, handing control back.
-#   B. Same page, dismiss with O (or the Moogle button) instead. EXPECT: identical -- the poll
-#      mask is Confirm|Cancel|Special, stock's own dismissal set.
-#   C. Press F9 (turbo ON). Repeat A. EXPECT: the page STILL HOLDS. This is the experiment.
-#   D. Controls, turbo still ON: open "Chocobo" (page 1, still the sync shape) -- must hold;
-#      talk to the scribe (plain window, explicit no_turbo) -- must hold. If a CONTROL breaks,
-#      the change is not what moved.
+# ★★ WHAT IS NEW THIS ROUND, AND IT IS EXACTLY ONE THING -- THE WALKTHROUGH PAGE.
+#   The last menu row before Close is the ENTRY catalog's first in-game surface
+#   (journalcatalog.py + data/journal_catalog.toml -- the full-fidelity walkthrough, SCHEMA.md):
+#   the four Prima Vista ship pickups, each with a LIVE per-entry mark. Three mechanisms share
+#   the one page, all already proven separately but never composed:
+#     * the mark: slot s publishes `Global.Bit[<latch bit>]`, [TEXT=marks,s] renders --/OK;
+#     * the name (LAW 5): slot s+1 publishes the unified item id, [ITEM=s+1] renders
+#       ETb.GetItemName() off the LIVE tables (NGUIText.cs:87-90) -- a Moguri rename shows the
+#       Moguri name, never a baked catalog string;
+#     * the gil row: literal text, no slot beyond its mark.
 #
-# READING THE RESULT -- one outcome per mechanism, which is why only ONE page converted:
-#   * holds in A/B, closes instantly ONLY under turbo (C) -> arm B survived style 0 AND [NTUR].
-#     The async+poll shape is dead on stock Memoria; escalate to the DLL path. THE FALSIFIER.
-#   * closes instantly in BOTH A and C -> not turbo. Suspect the Wait(8) debounce swallowing
-#     (or failing to swallow) the confirm that SELECTED the row -- check the emitted .mes, not
-#     the source, for the [NFOC] tag.
-#   * never closes on X or O -> the poll mask or the B_KEYON edge. Try Confirm only (131072).
-#   * page fine, a CONTROL breaks -> the regeneration touched shared text/emitters; re-diff.
+# PLAYTEST -- 3 observations on the WALKTHROUGH page (the 7 dashboard pages + the polled story
+# page are the round-6-confirmed controls; F9 turbo state still worth stating):
+#   A. Talk to the keeper -> "Walkthrough". EXPECT: 4 rows + their locator lines. Every row
+#      the save's playthrough actually collected shows OK; an uncollected one shows --.
+#      (The ship pickups are prologue-era: a mid-game save that swept the ship should be 4x OK.)
+#   B. The names: Phoenix Pinion / Phoenix Down / Potion must be the INSTALL's names (Moguri
+#      renames included), plus the literal gil row -- no blank name, no wrong item.
+#   C. The width: the window must fit the widest name without wrapping (values publish before
+#      the open, so AutomaticSize bakes over the real names).
+#
+# READING THE RESULT:
+#   * a row wrongly -- on a save that HAS the item -> the latch bit join is wrong for that
+#     entry (atlas bit vs the real chest) -- report WHICH row; the bit is in the reply comment.
+#   * every row -- -> the Global.Bit publish or the marks table; check another page's [TEXT=]
+#     row (rank) still resolves, then the emitted .eb.
+#   * a blank name -> GetItemName got an id outside every pool: the unified-id transcription.
 #
 # DEPLOY (the HUMAN does this -- the agent does not):
 #   py tools/deploy_field.py studies/completion-journal/bench/journal_dash.field.toml --id 30801
@@ -190,6 +194,10 @@ rows = ["H", "G", "F", "E", "D", "C", "B", "A", "S"]
 [[text_table]]
 name = "hunt"
 rows = ["---", "Zidane", "Vivi", "Freya"]
+
+[[text_table]]
+name = "marks"
+rows = ["--", "OK"]
 
 # --- THE MENU + THE SEVEN PAGES ------------------------------------------------------------
 # `Close` is LAST: with no [PCHC]/[PCHM] the engine's CANCEL row is the last one
@@ -320,6 +328,39 @@ Last entrance          [NUMB=3]"""
     "expr:B_SYSVAR[20] const(3600) B_DIV",
     "expr:B_SYSVAR[20] const(60) B_DIV const(60) B_REM",
     "expr:Global.UInt16[2]",
+  ]
+
+  # --- THE WALKTHROUGH PAGE (new this round; see the header) -------------------------
+  # Entries in reply order, for reading a playtest verdict back to the catalog:
+  #   [TEXT=marks] row 0: treasure.b7174 (latch bit 7174)
+  #   [TEXT=marks] row 1: treasure.b7175 (latch bit 7175)
+  #   [TEXT=marks] row 2: treasure.b7171 (latch bit 7171)
+  #   [TEXT=marks] row 3: treasure.b7172 (latch bit 7172)
+  #   [TEXT=marks] row 4: treasure.b7186 (latch bit 7186)
+  [[choice.options]]
+  text = "Walkthrough 1/7"
+  reply = """
+== PRIMA VISTA 1/7 =====
+[TEXT=marks,0] 47 Gil
+   Cargo hold, at the meeting
+[TEXT=marks,1] [ITEM=2]
+   Also in the cargo hold
+[TEXT=marks,3] [ITEM=4]
+   Engine room, the escape
+[TEXT=marks,5] [ITEM=6]
+   Engine room, further in
+[TEXT=marks,7] 33 Gil
+   On the main street"""
+  window = 2
+  values = [
+    "expr:Global.Bit[7174]",
+    "expr:Global.Bit[7175]",
+    "expr:const(236)",
+    "expr:Global.Bit[7171]",
+    "expr:const(249)",
+    "expr:Global.Bit[7172]",
+    "expr:const(240)",
+    "expr:Global.Bit[7186]",
   ]
 
   [[choice.options]]

@@ -69,6 +69,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field as _field
 
 from . import journal as _J
+from . import journalcatalog as _JC
 from .content import choice as _choice, region as _region, text as _text, texttable as _texttable
 from .eb import exprasm as _exprasm, exprsem as _exprsem, opcodes as _opcodes
 
@@ -130,6 +131,11 @@ TABLES = {
     # out-of-range byte -- GetStringFromTable's own upper guard returns String.Empty (ETb.cs:278), a BLANK
     # line, which reads as a bug.
     "hunt": ("---", "Zidane", "Vivi", "Freya"),
+    # The walkthrough checklist's per-entry mark: row index = the entry's latch bit, read live
+    # (`Global.Bit[n]` publishes exactly 0 or 1, so both rows are always reachable and no clamp
+    # question arises). "--" not blank for row 0: an unclaimed entry must LOOK unclaimed, not
+    # like a rendering bug.
+    "marks": ("--", "OK"),
 }
 
 
@@ -576,6 +582,158 @@ def talk_body(page_txids: dict, menu_txid: int, *,
             + _opcodes.ENABLE_MOVE + _opcodes.RETURN)
 
 
+# ============================ the walkthrough checklist ============================
+# The ENTRY catalog's in-game surface (journalcatalog.py -- the full-fidelity walkthrough the owner
+# picked, SCHEMA.md). A checklist page renders one walkthrough section's entries with a LIVE mark
+# per row: slot s publishes `Global.Bit[<latch>]` (0/1) and `[TEXT=marks,s]` renders it as
+# "--"/"OK". The reward's display name is LAW 5's runtime resolution: slot s+1 publishes the
+# UNIFIED item id as a constant and `[ITEM=s+1]` renders `ETb.GetItemName(gMesValue[s+1])`
+# (NGUIText.cs:87-90, ETb.cs:237-246) -- regular/important/card, all off the LIVE tables, so a
+# Moguri rename shows the Moguri name. A gil reward is literal text (nothing to resolve).
+#
+# SLOT COST: 2 per item entry, 1 per gil entry -- the 8-slot ceiling packs 4-8 entries per page.
+# LINE COST: 2 per entry (the mark line + the indented detail) under the ~13-line window.
+# :func:`checklist_pages` packs a section under both ceilings at once, preserving authored order.
+CHECKLIST_DETAIL_INDENT = "   "
+
+
+@dataclass(frozen=True)
+class ChecklistPage:
+    key: str                  # stable id, e.g. "walk.d1.prima-vista.1"
+    title: str                # header text between the `==` rules
+    menu: str                 # the menu row label
+    entries: tuple = ()       # journalcatalog.Entry rows, authored order
+
+
+def _entry_value_part(e) -> str:
+    """The reward half of an entry's mark line, WITHOUT the mark tag. The slot number is the
+    caller's (it depends on position in the page), so this returns a format hole for it."""
+    if e.item is not None:
+        return "[ITEM={item_slot}]"
+    if e.gil is not None:
+        return f"{e.gil} Gil"
+    return e.title            # a titled row with no id-keyed reward (validated by lint)
+
+
+def _entry_name_proxy(e) -> str:
+    """What the reward renders, for WIDTH purposes only -- the stock enum name with case-boundary
+    spaces as the display proxy ("PhoenixPinion" -> "Phoenix Pinion"). A Moguri rename can render
+    wider; `Dialog.AutomaticSize` handles the real width at open (values are published first), so
+    this feeds the DESIGN budget lint, never the screen."""
+    if e.item is not None:
+        from ._itemdb import ITEMS
+        name = ITEMS.get(int(e.item), "")
+        if not name and 512 <= int(e.item) <= _JC.ITEM_ID_MAX:
+            name = "Card"                                  # card names are short; a safe proxy
+        if not name:
+            name = "Key item name here"                    # key-item width proxy
+        import re as _re
+        return _re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)
+    if e.gil is not None:
+        return f"{e.gil} Gil"
+    return e.title
+
+
+def render_checklist(page: "ChecklistPage") -> tuple:
+    """``(text, exprs, table_slots)`` for one checklist page -- the ``.mes`` body, the RPN
+    expressions to publish in slot order, and which slots feed a ``[TEXT=]`` tag.
+
+    Same construction discipline as :func:`render_page`: values published before the open (the
+    width bakes over real names), the header rule grown until it out-measures every line, no bank
+    number ever spelled (the ``marks`` [[text_table]] name resolves at build)."""
+    exprs: list = []
+    table_slots: list = []
+    body: list = []
+    for e in page.entries:
+        s = len(exprs)
+        table_slots.append(s)
+        exprs.append(f"Global.Bit[{e.latch}]")
+        part = _entry_value_part(e)
+        if e.item is not None:
+            exprs.append(f"const({int(e.item)})")
+            part = part.format(item_slot=s + 1)
+        body.append(f"[TEXT=marks,{s}] {part}")
+        if e.detail:
+            body.append(CHECKLIST_DETAIL_INDENT + e.detail)
+    widest = max((_text.measure(f"-- {_entry_name_proxy(e)}") for e in page.entries),
+                 default=0.0)
+    widest = max([widest] + [_text.measure(CHECKLIST_DETAIL_INDENT + e.detail)
+                             for e in page.entries if e.detail])
+    header = f"== {page.title} "
+    while _text.measure(header) <= widest:
+        header += "="
+    return header + "\n" + "\n".join(body), tuple(exprs), tuple(table_slots)
+
+
+def checklist_pages(section_id: str, *, catalog=None, key_prefix: str = "walk") -> tuple:
+    """Pack one walkthrough section's LATCH entries into checklist pages under BOTH ceilings
+    (8 slots, ~13 lines), preserving authored order. Non-latch predicates (counter/window/
+    inventory/manual) have no per-row live read on this surface yet and are refused loudly --
+    silently dropping a row is the defect class the placement audit exists to kill."""
+    entries = _JC.entries_for(section_id, catalog=catalog)
+    bad = [e.id for e in entries if e.latch is None]
+    if bad:
+        raise ValueError(f"checklist {section_id}: non-latch rows {bad} -- this surface renders "
+                         f"latch reads only (v1); render them elsewhere or defer the section")
+    packs: list = []
+    cur: list = []
+    slots = lines = 0
+    for e in entries:
+        need_s = 2 if e.item is not None else 1
+        need_l = 2 if e.detail else 1
+        if cur and (slots + need_s > MES_VALUE_SLOTS or lines + need_l > MAX_PAGE_LINES - 1):
+            packs.append(tuple(cur))
+            cur, slots, lines = [], 0, 0
+        cur.append(e)
+        slots += need_s
+        lines += need_l
+    if cur:
+        packs.append(tuple(cur))
+    n = len(packs)
+    sec_title = section_id.split(".", 1)[-1].replace("-", " ").upper()
+    return tuple(
+        ChecklistPage(key=f"{key_prefix}.{section_id}.{i + 1}",
+                      title=(f"{sec_title} {i + 1}/{n}" if n > 1 else sec_title),
+                      menu=f"Walkthrough {i + 1}/{n}" if n > 1 else "Walkthrough",
+                      entries=pack)
+        for i, pack in enumerate(packs))
+
+
+def lint_checklists(pages) -> list:
+    """The checklist surface's own gate -- the same ceilings :func:`lint_pages` enforces, computed
+    over THIS page kind's real emissions, plus the catalog joins. [] is green."""
+    bad: list = []
+    seen: dict = {}
+    for p in pages:
+        text, exprs, table_slots = render_checklist(p)
+        rendered = text.split("\n")
+        if len(exprs) > MES_VALUE_SLOTS:
+            bad.append(f"checklist {p.key}: {len(exprs)} slots > {MES_VALUE_SLOTS}")
+        if len(rendered) > MAX_PAGE_LINES:
+            bad.append(f"checklist {p.key}: {len(rendered)} lines > {MAX_PAGE_LINES}")
+        if _text.measure(rendered[0]) > WRAP_BUDGET:
+            bad.append(f"checklist {p.key}: header renders {_text.measure(rendered[0]):.2f}u > "
+                       f"the {WRAP_BUDGET} wrap")
+        for e in p.entries:
+            if e.id in seen:
+                bad.append(f"checklist {p.key}: entry {e.id} already on {seen[e.id]}")
+            seen[e.id] = p.key
+            w = _text.measure(f"OK {_entry_name_proxy(e)}")
+            if w > LINE_BUDGET:
+                bad.append(f"checklist {p.key}: {e.id} renders ~{w:.2f}u > the {LINE_BUDGET} "
+                           f"budget (stock-name width proxy)")
+            if e.detail and _text.measure(CHECKLIST_DETAIL_INDENT + e.detail) > LINE_BUDGET:
+                bad.append(f"checklist {p.key}: {e.id} detail exceeds the {LINE_BUDGET} budget")
+        # every expression through the SAME validator a page extra gets -- one owner, one gate
+        for ex in exprs:
+            try:
+                _exprsem.analyze(ex + " B_EXPR_END")
+                _exprasm.assemble(ex + " B_EXPR_END")
+            except Exception as exc:                       # noqa: BLE001
+                bad.append(f"checklist {p.key}: expr {ex!r} does not evaluate: {exc}")
+    return bad
+
+
 # ============================ the gate ============================
 def live_key_item_count() -> "int | None":
     """The install's key-item table size, or None when the install is unreachable (keyitems.py:30-48)."""
@@ -859,7 +1017,16 @@ def bench_page_values(page: "Page") -> tuple:
     return tuple(f"expr:{e}" for e in exprs)
 
 
-def bench_toml(*, pages=PAGES) -> str:
+def default_bench_checklists() -> tuple:
+    """The checklist arm(s) the bench ships THIS round: the FIRST pack of the first authored
+    walkthrough section (the four Prima Vista ship pickups) -- ONE new page, so the playtest
+    verdict lands on the checklist MECHANISM (live marks + runtime [ITEM=] names + a gil literal)
+    and not on eight pages of it. The remaining packs join after the mechanism playtests green;
+    the packer and the lint already cover them."""
+    return checklist_pages("d1.prima-vista")[:1]
+
+
+def bench_toml(*, pages=PAGES, checklists=None) -> str:
     """The T1b bench as a complete, lint-clean ``field.toml`` (id 30801). DO NOT DEPLOY from
     here -- the human deploys.
 
@@ -868,6 +1035,8 @@ def bench_toml(*, pages=PAGES) -> str:
     machine without the game this function emitted a DIFFERENT file (``Key items [NUMB=1]`` instead of
     ``Key items [NUMB=1]/80``) -- a silently install-dependent artifact, in the one file whose whole
     job is to be byte-identical to what the tests and the playtester see."""
+    if checklists is None:
+        checklists = default_bench_checklists()
     L = [
         "# " + "=" * 85,
         f"# COMPLETION-JOURNAL T1b -- LIVE DASHBOARD BENCH  --  field {BENCH_FIELD_ID}",
@@ -923,7 +1092,8 @@ def bench_toml(*, pages=PAGES) -> str:
         "#   opened after it died. The kit now emits [NTUR] on readout windows automatically; the scribe",
         "#   asks for it explicitly, because it is not a readout and it is the control.",
         "#",
-        "# ★★ WHAT IS NEW THIS ROUND, AND IT IS EXACTLY ONE THING -- THE POLLED STORY PAGE.",
+        "# THE POLLED STORY PAGE -- ★ OWNER-CONFIRMED with the round-6 playtest (rank G / winner",
+        "# Vivi / live-rows pages, 2026-08-26). Kept as shipped mechanics documentation:",
         "#   [NTUR] alone is not the end of the turbo story. ShouldTurboDialog has TWO arms",
         "#   (UIKeyTrigger.cs:974-991). Arm A is the fan-out above. Arm B (:984-988) fires when EVERY",
         "#   open window is dismiss-inhibited AND one has Auto/Transparent style AND the script armed",
@@ -947,30 +1117,33 @@ def bench_toml(*, pages=PAGES) -> str:
         "#   a non-bubble style ships tail-less and CENTERED (THE WINDOW-GEOMETRY LAW), so it draws as",
         "#   a plain screen-fixed panel instead of a bubble over the keeper. Pages 1-6 stay bubbles.",
         "#",
-        "# PLAYTEST -- 4 observations, and STATE THE F9 TURBO KEY EVERY TIME (it has no on-screen",
-        "# indicator and persists for the whole session, UIKeyTrigger.cs:393-399; without the state a",
-        "# verdict here means nothing):",
-        "#   ⚠ THIS BENCH IS ONE PAGE PER TALK -- it rides the flat [[choice]] lane, not talk_body's",
-        "#   re-open loop (see WHAT IS STILL DELIBERATELY UNLIKE THE SHIPPED DASHBOARD, above). So the",
-        "#   correct expectation after a page closes is CONTROL BACK IN THE FIELD, not the selector",
-        "#   re-opening. Re-talk to the keeper for the next page.",
-        "#   A. Turbo OFF. Talk to the keeper -> \"Story & treasure\". EXPECT: the page opens, HOLDS",
-        "#      indefinitely with hands off the pad, and closes on X, handing control back.",
-        "#   B. Same page, dismiss with O (or the Moogle button) instead. EXPECT: identical -- the poll",
-        "#      mask is Confirm|Cancel|Special, stock's own dismissal set.",
-        "#   C. Press F9 (turbo ON). Repeat A. EXPECT: the page STILL HOLDS. This is the experiment.",
-        "#   D. Controls, turbo still ON: open \"Chocobo\" (page 1, still the sync shape) -- must hold;",
-        "#      talk to the scribe (plain window, explicit no_turbo) -- must hold. If a CONTROL breaks,",
-        "#      the change is not what moved.",
+        "# ★★ WHAT IS NEW THIS ROUND, AND IT IS EXACTLY ONE THING -- THE WALKTHROUGH PAGE.",
+        "#   The last menu row before Close is the ENTRY catalog's first in-game surface",
+        "#   (journalcatalog.py + data/journal_catalog.toml -- the full-fidelity walkthrough, SCHEMA.md):",
+        "#   the four Prima Vista ship pickups, each with a LIVE per-entry mark. Three mechanisms share",
+        "#   the one page, all already proven separately but never composed:",
+        "#     * the mark: slot s publishes `Global.Bit[<latch bit>]`, [TEXT=marks,s] renders --/OK;",
+        "#     * the name (LAW 5): slot s+1 publishes the unified item id, [ITEM=s+1] renders",
+        "#       ETb.GetItemName() off the LIVE tables (NGUIText.cs:87-90) -- a Moguri rename shows the",
+        "#       Moguri name, never a baked catalog string;",
+        "#     * the gil row: literal text, no slot beyond its mark.",
         "#",
-        "# READING THE RESULT -- one outcome per mechanism, which is why only ONE page converted:",
-        "#   * holds in A/B, closes instantly ONLY under turbo (C) -> arm B survived style 0 AND [NTUR].",
-        "#     The async+poll shape is dead on stock Memoria; escalate to the DLL path. THE FALSIFIER.",
-        "#   * closes instantly in BOTH A and C -> not turbo. Suspect the Wait(8) debounce swallowing",
-        "#     (or failing to swallow) the confirm that SELECTED the row -- check the emitted .mes, not",
-        "#     the source, for the [NFOC] tag.",
-        "#   * never closes on X or O -> the poll mask or the B_KEYON edge. Try Confirm only (131072).",
-        "#   * page fine, a CONTROL breaks -> the regeneration touched shared text/emitters; re-diff.",
+        "# PLAYTEST -- 3 observations on the WALKTHROUGH page (the 7 dashboard pages + the polled story",
+        "# page are the round-6-confirmed controls; F9 turbo state still worth stating):",
+        "#   A. Talk to the keeper -> \"Walkthrough\". EXPECT: 4 rows + their locator lines. Every row",
+        "#      the save's playthrough actually collected shows OK; an uncollected one shows --.",
+        "#      (The ship pickups are prologue-era: a mid-game save that swept the ship should be 4x OK.)",
+        "#   B. The names: Phoenix Pinion / Phoenix Down / Potion must be the INSTALL's names (Moguri",
+        "#      renames included), plus the literal gil row -- no blank name, no wrong item.",
+        "#   C. The width: the window must fit the widest name without wrapping (values publish before",
+        "#      the open, so AutomaticSize bakes over the real names).",
+        "#",
+        "# READING THE RESULT:",
+        "#   * a row wrongly -- on a save that HAS the item -> the latch bit join is wrong for that",
+        "#     entry (atlas bit vs the real chest) -- report WHICH row; the bit is in the reply comment.",
+        "#   * every row -- -> the Global.Bit publish or the marks table; check another page's [TEXT=]",
+        "#     row (rank) still resolves, then the emitted .eb.",
+        "#   * a blank name -> GetItemName got an id outside every pool: the unified-id transcription.",
         "#",
         "# DEPLOY (the HUMAN does this -- the agent does not):",
         f"#   py tools/deploy_field.py studies/completion-journal/bench/journal_dash.field.toml --id {BENCH_FIELD_ID}",
@@ -1133,6 +1306,20 @@ def bench_toml(*, pages=PAGES) -> str:
               # summed expressions (100 B_HAVE_ITEM terms for the card count), not formatting.
               "  values = ["]
         L += [f'    "{v}",' for v in vals]
+        L += ["  ]", ""]
+    for c in checklists:
+        text, exprs, _tslots = render_checklist(c)
+        L += ["  # --- THE WALKTHROUGH PAGE (new this round; see the header) -------------------------",
+              "  # Entries in reply order, for reading a playtest verdict back to the catalog:",
+              *(f"  #   [TEXT=marks] row {i}: {e.id} (latch bit {e.latch})"
+                for i, e in enumerate(c.entries)),
+              "  [[choice.options]]",
+              f'  text = "{c.menu}"',
+              '  reply = """',
+              text + '"""',
+              "  window = 2"]
+        L += ["  values = ["]
+        L += [f'    "expr:{ex}",' for ex in exprs]
         L += ["  ]", ""]
     L += ["  [[choice.options]]",
           f'  text = "{MENU_CLOSE}"',

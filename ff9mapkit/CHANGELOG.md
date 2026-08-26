@@ -5,6 +5,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the full-fidelity walkthrough catalog: first section + the checklist surface
+- **`data/journal_catalog.toml`** (shipped package data) opens the completion journal's second
+  layer: the ENTRY catalog the frozen schema defines (one row per obtainable thing, keyed on the
+  engine predicate that proves the player has it). The whole 55-section walkthrough spine ships
+  from day one; **`d1.prima-vista` is the first authored section** — 30 rows (the Prima Vista ship
+  + the Alexandria prologue sweep), machine-seeded from the treasure_join v2 reward-event atlas
+  (410 events over 410 latch bits, mined from 818 real fields' `.eb`) and prose-passed by hand.
+  Rows a covered room owns but a later story visit grants are **declared `[[deferred]]`
+  omissions**, never silent ones — a stale deferral (the row now exists) is refused.
+- **`journalcatalog.py`** loads and lints the catalog: the schema's eight laws, each
+  provable-breakable in `tests/test_journalcatalog.py` (exactly-one-predicate; atlas
+  exhaustiveness both directions, scoped to covered rooms; the Main_Init catch-up refusal — the
+  33-bit 3818 class ships as data so the lint runs install-free; missable-confidence gating;
+  runtime name resolution; measured text budgets; exclusive-group structure; crosscheck rows
+  never ship text).
+- **The checklist page** (`journalfield.checklist_pages`/`render_checklist`/`lint_checklists`):
+  the catalog's in-game surface. Per entry, slot *s* publishes `Global.Bit[<latch>]` and
+  `[TEXT=marks,s]` renders `--`/`OK`; an item row publishes its **unified item id** into slot
+  *s+1* and `[ITEM=s+1]` renders `ETb.GetItemName()` off the LIVE tables (NGUIText.cs:87-90,
+  ETb.cs:237-246 — regular/important/card; a Moguri rename shows the Moguri name, the schema's
+  runtime-resolution law); a gil row is literal text. The packer folds a section under the 8-slot
+  and ~13-line ceilings at once, preserving authored order, and refuses a non-latch row loudly.
+  Bench 30801 carries the first pack as one new menu arm; the built-artifact tests count its 8
+  value writes in the emitted `.eb` and resolve its `marks` bank to the real txid.
+
 ### Added — minted `3DModel` GEO ids get their own cross-folder collision guard
 - `3DModel <id> <name>` DictionaryPatch lines register minted GEO ids (band 6000–32767) in
   the GLOBAL `FF9BattleDB.GEO` — a **different** global DB from the `FF9DBAll.EventDB` the

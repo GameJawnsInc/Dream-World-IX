@@ -1,0 +1,768 @@
+# The full-fidelity completion-journal ENTRY catalog -- SCHEMA.md v1 (studies/completion-journal/).
+#
+# Two block kinds:
+#   [[section]] -- the walkthrough spine: OUR arrangement of the game's own order, SC windows from
+#                  the curated anchor table (flags.py SCENARIO_MILESTONES), never hand-invented.
+#   [[entry]]   -- one obtainable THING, keyed on the engine predicate that proves the player has it.
+#                  Machine-seeded from the treasure_join v2 reward-event atlas
+#                  (studies/completion-journal/research/seed_section.py); prose is OURS, original.
+#
+# Laws + lint: ff9mapkit/journalcatalog.py (the eight SCHEMA laws, each provable-breakable in
+# tests/test_journalcatalog.py). Display names for id-keyed rows resolve at RUNTIME ([ITEM=] tag),
+# never from text baked here (LAW 5 -- the owner's install stacks Moguri).
+#
+# Provenance: engine-derived integers (GLOB bit indices, unified item ids, TH points) + our own
+# prose. No Square-Enix text, no third-party guide text (PROVENANCE.md; PLAN.md SS5).
+#
+# AUTHORED SO FAR: d1.prima-vista (30 rows). Every other section is spine-only -- entries land
+# section by section with their prose pass; LAW 2 exhaustiveness is scoped to covered rooms.
+# Deferred out of d1.prima-vista with reasons:
+#   bit 7206 (Alexandria/Wpn. Shop) + bit 7207 (Alexandria/Synthesist) -- those shops are not open
+#   in the prologue visit; the events sit in later-visit field variants. They join their own
+#   section during the d2/d3 Alexandria prose passes.
+
+# ---------------------------------------------------------------- disc 1
+[[section]]
+id = "d1.prima-vista"
+disc = 1
+title = "The Prima Vista & Alexandria"
+sc = { enter = 1000, leave = 2020 }
+
+[[section]]
+id = "d1.evil-forest"
+disc = 1
+title = "Evil Forest"
+sc = { enter = 2020, leave = 2500 }   # merges anchors 2020 + 2300
+
+[[section]]
+id = "d1.ice-cavern"
+disc = 1
+title = "Ice Cavern"
+sc = { enter = 2500, leave = 2600 }
+
+[[section]]
+id = "d1.dali"
+disc = 1
+title = "Dali"
+sc = { enter = 2600, leave = 2800 }   # merges 2600 + 2700 (underground)
+
+[[section]]
+id = "d1.observatory-mountain"
+disc = 1
+title = "Observatory Mountain"
+sc = { enter = 2800, leave = 2910 }
+
+[[section]]
+id = "d1.cargo-ship"
+disc = 1
+title = "The Cargo Ship"
+sc = { enter = 2910, leave = 3000 }
+
+[[section]]
+id = "d1.lindblum"
+disc = 1
+title = "Lindblum & the Festival of the Hunt"
+sc = { enter = 3000, leave = 3710 }   # merges 3000 (castle) + 3100 (town)
+
+[[section]]
+id = "d1.gizamaluke"
+disc = 1
+title = "Gizamaluke's Grotto"
+sc = { enter = 3710, leave = 3750 }
+
+[[section]]
+id = "d1.south-gate"
+disc = 1
+title = "South Gate"
+sc = { enter = 3750, leave = 3800 }
+
+[[section]]
+id = "d1.burmecia"
+disc = 1
+title = "Burmecia"
+sc = { enter = 3800, leave = 4445 }
+
+# ---------------------------------------------------------------- disc 2
+[[section]]
+id = "d2.treno"
+disc = 2
+title = "Treno"
+sc = { enter = 4445, leave = 4500 }
+
+[[section]]
+id = "d2.gargan-roo"
+disc = 2
+title = "Gargan Roo"
+sc = { enter = 4500, leave = 4600 }
+
+[[section]]
+id = "d2.alexandria-castle"
+disc = 2
+title = "Alexandria Castle (Garnet's return)"
+sc = { enter = 4600, leave = 4650 }
+
+[[section]]
+id = "d2.cleyra"
+disc = 2
+title = "Cleyra"
+sc = { enter = 4650, leave = 4990 }
+
+[[section]]
+id = "d2.red-rose"
+disc = 2
+title = "The Red Rose"
+sc = { enter = 4990, leave = 5030 }
+
+[[section]]
+id = "d2.alexandria-rescue"
+disc = 2
+title = "Alexandria Castle (the rescue)"
+sc = { enter = 5030, leave = 5510 }
+
+[[section]]
+id = "d2.pinnacle-rocks"
+disc = 2
+title = "Pinnacle Rocks"
+sc = { enter = 5510, leave = 5660 }
+
+[[section]]
+id = "d2.lindblum-occupied"
+disc = 2
+title = "Lindblum under occupation"
+sc = { enter = 5660, leave = 5900 }
+
+[[section]]
+id = "d2.fossil-roo"
+disc = 2
+title = "Fossil Roo"
+sc = { enter = 5900, leave = 6100 }
+
+[[section]]
+id = "d2.conde-petie"
+disc = 2
+title = "Conde Petie"
+sc = { enter = 6100, leave = 6300 }
+
+[[section]]
+id = "d2.mountain-path"
+disc = 2
+title = "Conde Petie Mountain Path"
+sc = { enter = 6300, leave = 6600 }
+
+[[section]]
+id = "d2.madain-sari"
+disc = 2
+title = "Madain Sari"
+sc = { enter = 6600, leave = 6700 }
+
+[[section]]
+id = "d2.iifa-tree"
+disc = 2
+title = "The Iifa Tree"
+sc = { enter = 6700, leave = 6800 }
+
+[[section]]
+id = "d2.madain-sari-return"
+disc = 2
+title = "Madain Sari (Amarant)"
+sc = { enter = 6800, leave = 6900 }
+
+[[section]]
+id = "d2.iifa-finale"
+disc = 2
+title = "The Iifa Tree (the fleet)"
+sc = { enter = 6900, leave = 7010 }
+
+# ---------------------------------------------------------------- disc 3
+[[section]]
+id = "d3.alexandria"
+disc = 3
+title = "Alexandria (the coronation)"
+sc = { enter = 7010, leave = 7550 }   # merges 7010 + 7200 (castle)
+
+[[section]]
+id = "d3.treno-tournament"
+disc = 3
+title = "Treno -- the Card Tournament"
+sc = { enter = 7550, leave = 8000 }
+
+[[section]]
+id = "d3.alexandria-attack"
+disc = 3
+title = "Alexandria under attack"
+sc = { enter = 8000, leave = 9000 }   # merges 8000 + 8400 (castle)
+
+[[section]]
+id = "d3.lindblum-regroup"
+disc = 3
+title = "Lindblum (the regroup)"
+sc = { enter = 9000, leave = 9400 }
+
+[[section]]
+id = "d3.blue-narciss"
+disc = 3
+title = "The Blue Narciss"
+sc = { enter = 9400, leave = 9510 }
+
+[[section]]
+id = "d3.desert-palace"
+disc = 3
+title = "The Desert Palace"
+sc = { enter = 9510, leave = 9605 }
+
+[[section]]
+id = "d3.oeilvert"
+disc = 3
+title = "Oeilvert"
+sc = { enter = 9605, leave = 9800 }
+
+[[section]]
+id = "d3.desert-palace-return"
+disc = 3
+title = "The Desert Palace (the rescue)"
+sc = { enter = 9800, leave = 9990 }   # IsEikoAbducted: 9860 <= SC < 9990 (EventState.cs:36)
+
+[[section]]
+id = "d3.mount-gulug"
+disc = 3
+title = "Mount Gulug"
+sc = { enter = 9990, leave = 10000 }
+
+[[section]]
+id = "d3.lindblum-hilda"
+disc = 3
+title = "Lindblum Castle (Hilda's return)"
+sc = { enter = 10000, leave = 10400 }
+
+[[section]]
+id = "d3.alexandria-respite"
+disc = 3
+title = "Alexandria Castle (the respite)"
+sc = { enter = 10400, leave = 10500 }
+
+[[section]]
+id = "d3.ipsens-castle"
+disc = 3
+title = "Ipsen's Castle"
+sc = { enter = 10500, leave = 10600 }
+
+[[section]]
+id = "d3.four-shrines"
+disc = 3
+title = "The Four Shrines"
+sc = { enter = 10600, leave = 10830 }   # merges 10600 HG3 + 10620 Water + 10670 Earth
+
+[[section]]
+id = "d3.terra"
+disc = 3
+title = "Terra"
+sc = { enter = 10830, leave = 10900 }
+
+[[section]]
+id = "d3.bran-bal"
+disc = 3
+title = "Bran Bal"
+sc = { enter = 10900, leave = 10930 }
+
+[[section]]
+id = "d3.pandemonium"
+disc = 3
+title = "Pandemonium"
+sc = { enter = 10930, leave = 11100 }
+
+# ---------------------------------------------------------------- disc 4
+[[section]]
+id = "d4.invincible"
+disc = 4
+title = "The Invincible"
+sc = { enter = 11100, leave = 11610 }
+
+[[section]]
+id = "d4.memoria"
+disc = 4
+title = "Memoria"
+sc = { enter = 11610, leave = 11765 }
+
+[[section]]
+id = "d4.crystal-world"
+disc = 4
+title = "The Crystal World"
+sc = { enter = 11765, leave = 65535 }   # covers the 12000 ending anchor; nothing follows
+
+# ------------------------------------------------- side content (side = true)
+# sc.enter = first availability (main-path anchor it unlocks behind);
+# sc.leave = 0 (open) unless the content itself closes.
+
+[[section]]
+id = "side.chocobo-hot-cold"
+disc = 0
+side = true
+title = "Chocobo Hot & Cold"
+sc = { enter = 5900, leave = 0 }      # Chocobo's Forest opens on the way to Fossil Roo
+
+[[section]]
+id = "side.stellazzio"
+disc = 0
+side = true
+title = "The Stellazzio Coins"
+sc = { enter = 4445, leave = 0 }      # Queen Stella, Treno (coins collectible from disc 1)
+
+[[section]]
+id = "side.mognet"
+disc = 0
+side = true
+title = "Mognet & Mognet Central"
+sc = { enter = 1000, leave = 0 }
+
+[[section]]
+id = "side.quans-dwelling"
+disc = 0
+side = true
+title = "Quan's Dwelling"
+sc = { enter = 3000, leave = 0 }
+
+[[section]]
+id = "side.daguerreo"
+disc = 0
+side = true
+title = "Daguerreo"
+sc = { enter = 9400, leave = 0 }
+
+[[section]]
+id = "side.treno-auction"
+disc = 0
+side = true
+title = "The Treno Auction House"
+sc = { enter = 4445, leave = 0 }
+
+[[section]]
+id = "side.frog-catching"
+disc = 0
+side = true
+title = "Frog Catching (Qu's Marshes)"
+sc = { enter = 3100, leave = 0 }
+
+[[section]]
+id = "side.ragtime-mouse"
+disc = 0
+side = true
+title = "Ragtime Mouse"
+sc = { enter = 2020, leave = 0 }
+
+[[section]]
+id = "side.friendly-monsters"
+disc = 0
+side = true
+title = "The Friendly Monsters"
+sc = { enter = 2500, leave = 0 }
+
+[[section]]
+id = "side.chocographs"
+disc = 0
+side = true
+title = "Chocographs"
+sc = { enter = 5900, leave = 0 }
+
+[[section]]
+id = "side.excalibur2"
+disc = 0
+side = true
+title = "Excalibur II"
+sc = { enter = 11610, leave = 0 }     # Memoria, sub-12h -- run_mode content
+
+# ==============================================================================
+# ENTRIES
+# ==============================================================================
+
+[[entry]]
+id       = "treasure.b7174"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Cargo hold, at the meeting"
+latch    = 7174
+gil      = 47
+th       = 1
+source   = "treasure_join v2 bit 7174 -- Prima Vista/Cargo Room, fields [50, 51]"
+
+[[entry]]
+id       = "treasure.b7175"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Also in the cargo hold"
+latch    = 7175
+item     = 236            # Potion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7175 -- Prima Vista/Cargo Room, fields [50, 51]"
+
+[[entry]]
+id       = "treasure.b7171"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Engine room, the escape"
+latch    = 7171
+item     = 249            # PhoenixPinion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7171 -- Prima Vista/Engine Roo, fields [57]"
+
+[[entry]]
+id       = "treasure.b7172"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Engine room, further in"
+latch    = 7172
+item     = 240            # PhoenixDown (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7172 -- Prima Vista/Engine Roo, fields [57]"
+
+[[entry]]
+id       = "treasure.b7186"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "On the main street"
+latch    = 7186
+gil      = 33
+th       = 1
+source   = "treasure_join v2 bit 7186 -- Alexandria/Main Street, fields [101, 1851]"
+
+[[entry]]
+id       = "treasure.b7187"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "On the main street"
+latch    = 7187
+item     = 512            # card #0 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7187 -- Alexandria/Main Street, fields [101, 1851]"
+
+[[entry]]
+id       = "treasure.b7196"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "On the main street"
+latch    = 7196
+item     = 518            # card #6 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7196 -- Alexandria/Main Street, fields [107, 1856]"
+
+[[entry]]
+id       = "treasure.b7197"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "On the main street"
+latch    = 7197
+item     = 521            # card #9 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7197 -- Alexandria/Main Street, fields [107, 1856]"
+
+[[entry]]
+id       = "treasure.b7198"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "On the main street"
+latch    = 7198
+item     = 517            # card #5 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7198 -- Alexandria/Main Street, fields [107, 1856]"
+
+[[entry]]
+id       = "treasure.b7199"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "On the main street"
+latch    = 7199
+item     = 236            # Potion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7199 -- Alexandria/Main Street, fields [107, 1856]"
+
+[[entry]]
+id       = "treasure.b7214"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "On the main street"
+latch    = 7214
+item     = 236            # Potion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7214 -- Alexandria/Main Street, fields [100, 1850]"
+
+[[entry]]
+id       = "treasure.b7215"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "On the main street"
+latch    = 7215
+item     = 236            # Potion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7215 -- Alexandria/Main Street, fields [100]"
+
+[[entry]]
+id       = "treasure.b7184"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Inside a residence"
+latch    = 7184
+item     = 236            # Potion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7184 -- Alexandria/Residence, fields [114, 1863]"
+
+[[entry]]
+id       = "treasure.b7185"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Inside a residence"
+latch    = 7185
+gil      = 9
+th       = 1
+source   = "treasure_join v2 bit 7185 -- Alexandria/Residence, fields [114, 1863]"
+
+[[entry]]
+id       = "treasure.b7212"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Inside a residence"
+latch    = 7212
+gil      = 3
+th       = 1
+source   = "treasure_join v2 bit 7212 -- Alexandria/Residence, fields [113, 1862]"
+
+[[entry]]
+id       = "treasure.b7213"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Inside a residence"
+latch    = 7213
+item     = 244            # EyeDrops (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7213 -- Alexandria/Residence, fields [113, 1862]"
+
+[[entry]]
+id       = "treasure.b7188"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "Inside a residence"
+latch    = 7188
+item     = 513            # card #1 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7188 -- Alexandria/Residence, fields [114, 1863]"
+
+[[entry]]
+id       = "treasure.b7192"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Inside the pub"
+latch    = 7192
+item     = 236            # Potion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7192 -- Alexandria/Pub, fields [112, 1861]"
+
+[[entry]]
+id       = "treasure.b7193"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Inside the pub"
+latch    = 7193
+gil      = 27
+th       = 1
+source   = "treasure_join v2 bit 7193 -- Alexandria/Pub, fields [112, 1861]"
+
+[[entry]]
+id       = "treasure.b7194"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "Inside the pub"
+latch    = 7194
+item     = 515            # card #3 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7194 -- Alexandria/Pub, fields [112, 1861]"
+
+[[entry]]
+id       = "treasure.b7195"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "In the item shop"
+latch    = 7195
+gil      = 38
+th       = 1
+source   = "treasure_join v2 bit 7195 -- Alexandria/Item Shop, fields [108, 1857]"
+
+[[entry]]
+id       = "treasure.b7189"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "The rooftop route"
+latch    = 7189
+gil      = 63
+th       = 1
+source   = "treasure_join v2 bit 7189 -- Alexandria/Rooftop, fields [116]"
+
+[[entry]]
+id       = "treasure.b7190"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "The rooftop route"
+latch    = 7190
+gil      = 92
+th       = 1
+source   = "treasure_join v2 bit 7190 -- Alexandria/Rooftop, fields [116]"
+
+[[entry]]
+id       = "treasure.b7191"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "The rooftop route"
+latch    = 7191
+gil      = 29
+th       = 1
+source   = "treasure_join v2 bit 7191 -- Alexandria/Rooftop, fields [116]"
+
+[[entry]]
+id       = "treasure.b7205"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "In the town square"
+latch    = 7205
+item     = 249            # PhoenixPinion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7205 -- Alexandria/Square, fields [103, 1853]"
+
+[[entry]]
+id       = "treasure.b7200"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "Inside the steeple"
+latch    = 7200
+item     = 513            # card #1 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7200 -- Alexandria/Steeple, fields [115, 1865]"
+
+[[entry]]
+id       = "treasure.b7201"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "Inside the steeple"
+latch    = 7201
+item     = 512            # card #0 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7201 -- Alexandria/Steeple, fields [115, 1865]"
+
+[[entry]]
+id       = "treasure.b7202"
+section  = "d1.prima-vista"
+category = "card"
+title    = ""
+detail   = "Inside the steeple"
+latch    = 7202
+item     = 520            # card #8 (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7202 -- Alexandria/Steeple, fields [115, 1865]"
+
+[[entry]]
+id       = "treasure.b7203"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Inside the steeple"
+latch    = 7203
+item     = 253            # Tent (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7203 -- Alexandria/Steeple, fields [115, 1865]"
+
+[[entry]]
+id       = "treasure.b7204"
+section  = "d1.prima-vista"
+category = "treasure"
+title    = ""
+detail   = "Inside the steeple"
+latch    = 7204
+item     = 236            # Potion (runtime-resolved in-game)
+th       = 1
+source   = "treasure_join v2 bit 7204 -- Alexandria/Steeple, fields [115, 1865]"
+
+# ==============================================================================
+# DECLARED OMISSIONS (LAW 2's non-silent form) -- atlas events whose rooms
+# overlap authored sections but which belong to a later story visit. Each joins
+# its own section's prose pass, at which point the lint refuses the stale
+# deferral automatically.
+# ==============================================================================
+
+[[deferred]]
+bit = 7206
+why = "Alexandria/Wpn. Shop -- not open in the prologue visit; a later Alexandria section"
+
+[[deferred]]
+bit = 7207
+why = "Alexandria/Synthesist -- the synth shop does not exist in the prologue; a later Alexandria section"
+
+[[deferred]]
+bit = 7585
+why = "Alexandria/Main Street later-visit variant (field 1850 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7586
+why = "Alexandria/Main Street later-visit variant (field 1850 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7587
+why = "Alexandria/Main Street later-visit variant (field 1850 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7588
+why = "Alexandria/Main Street later-visit variant (field 1850 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7589
+why = "Alexandria/Main Street later-visit variant (field 1850 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7590
+why = "Alexandria/Main Street later-visit variant (field 1850 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7591
+why = "Alexandria/Main Street later-visit variant (field 1850 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7594
+why = "Alexandria/Steeple later-visit variant (field 1865 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7595
+why = "Alexandria/Steeple later-visit variant (field 1865 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7709
+why = "Alexandria/Steeple later-visit variant (field 1865 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7710
+why = "Alexandria/Steeple later-visit variant (field 1865 only); a later Alexandria section"
+
+[[deferred]]
+bit = 7711
+why = "Alexandria/Steeple later-visit variant (field 1865 only); a later Alexandria section"
