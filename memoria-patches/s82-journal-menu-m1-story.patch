@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..6d24b3a 100644
+index 1d90b6f..d9264c1 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
-@@ -1,38 +1,64 @@
+@@ -1,38 +1,66 @@
  using Assets.Sources.Scripts.UI.Common;
  using Memoria;
 +using Memoria.Assets;
@@ -68,8 +68,10 @@ index 1d90b6f..6d24b3a 100644
 +                afterFinished();
 +        };
 +        base.Show(afterShowAction);
-+        this.RefreshNowBanner();
-+        this.RefreshSectionList();
++        try { this.RefreshNowBanner(); }
++        catch (Exception err) { Log.Error(err); }          // one dead panel must not kill the
++        try { this.RefreshSectionList(); }                 // other (the M1 Newtonsoft throw
++        catch (Exception err) { Log.Error(err); }          // blanked the WHOLE screen)
      }
  
      public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
@@ -85,7 +87,7 @@ index 1d90b6f..6d24b3a 100644
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
-@@ -51,12 +77,107 @@ public class JournalUI : UIScene
+@@ -51,12 +79,107 @@ public class JournalUI : UIScene
          return true;
      }
  
@@ -197,7 +199,7 @@ index 1d90b6f..6d24b3a 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +190,10 @@ public class JournalUI : UIScene
+@@ -69,10 +192,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -210,7 +212,7 @@ index 1d90b6f..6d24b3a 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +201,146 @@ public class JournalUI : UIScene
+@@ -80,29 +203,148 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -236,7 +238,9 @@ index 1d90b6f..6d24b3a 100644
 +        // THE NOW BANNER -- a wide bordered pane across the top; caption "Now", body = the current
 +        // main-story objective (refreshed every Show; SC moves between opens).
 +        UILabel bannerCaption;
-+        GameObject bannerGo = this.BuildFramedPane(menu, "Journal Now Banner", 170f, 400f, 1130f, 220f, true, out bannerCaption);
++        // seated LEFT of the collapsed main-menu title plate (the plate holds baked top-right
++        // ~x 250..655, y 390..475 -- measured off the M1 screenshot); right edge 230 clears it
++        GameObject bannerGo = this.BuildFramedPane(menu, "Journal Now Banner", -260f, 400f, 980f, 200f, true, out bannerCaption);
 +        bannerCaption.rawText = "Now";
 +        GameObject nowGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
 +        nowGo.name = "Journal Now Body";
@@ -378,7 +382,7 @@ index 1d90b6f..6d24b3a 100644
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +353,7 @@ public class JournalUI : UIScene
+@@ -115,7 +357,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -387,7 +391,7 @@ index 1d90b6f..6d24b3a 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +379,91 @@ public class JournalUI : UIScene
+@@ -141,6 +383,107 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
@@ -440,22 +444,38 @@ index 1d90b6f..6d24b3a 100644
 +            {
 +                if (!folder.TryFindAssetInModOnDisc(PatchPath, out String path))
 +                    continue;
-+                Newtonsoft.Json.Linq.JObject doc = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(path));
++                // TAB-separated records (journalcatalog.render_patch): `S id disc enter leave
++                // side title objective` -- NOT JSON, because this Unity-5.2 Mono profile throws
++                // TypeLoadException the moment a method referencing Newtonsoft's types is JITted
++                // (measured in-game 2026-08-26, Memoria.log). Prose rides the LAST columns;
++                // `-` is the absent sentinel.
 +                List<Section> parsed = new List<Section>();
-+                foreach (Newtonsoft.Json.Linq.JToken s in doc["sections"])
++                foreach (String raw in File.ReadAllLines(path))
 +                {
++                    if (raw.Length == 0 || raw[0] == '#' || raw[0] != 'S')
++                        continue;                          // M1 consumes section records only
++                    String[] tok = raw.Split('	');
++                    if (tok.Length < 8 || tok[0] != "S")
++                        continue;
++                    if (!Int32.TryParse(tok[2], out Int32 disc) || !Int32.TryParse(tok[3], out Int32 enter)
++                        || !Int32.TryParse(tok[4], out Int32 leave))
++                    {
++                        Log.Warning($"[JournalRegistry] bad section line in {path}: '{raw}'");
++                        continue;
++                    }
 +                    parsed.Add(new Section
 +                    {
-+                        Id = (String)s["id"],
-+                        Disc = (Int32)s["disc"],
-+                        Title = (String)s["title"],
-+                        Objective = (String)(s["objective"] ?? ""),
-+                        Enter = (Int32)s["enter"],
-+                        Leave = (Int32)s["leave"],
-+                        Side = (Boolean)(s["side"] ?? false),
++                        Id = tok[1],
++                        Disc = disc,
++                        Enter = enter,
++                        Leave = leave,
++                        Side = tok[5] == "1",
++                        Title = tok[6] == "-" ? String.Empty : tok[6],
++                        Objective = tok[7] == "-" ? String.Empty : tok[7],
 +                    });
 +                }
-+                _sections = parsed;                        // whole-document replace, low->high
++                if (parsed.Count > 0)
++                    _sections = parsed;                    // whole-document replace, low->high
 +            }
 +            catch (Exception err)
 +            {
