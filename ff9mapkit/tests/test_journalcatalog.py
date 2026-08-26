@@ -179,3 +179,32 @@ def test_shipped_catalog_joins_the_real_atlas(catalog):
     sections, entries, deferred = catalog
     atlas = json.loads(_ATLAS.read_text(encoding="utf-8"))
     assert JC.lint_against_atlas(entries, atlas, deferred) == []
+
+
+# ============================ the JournalPatch sidecar (M1) ============================
+def test_render_patch_round_trips_the_catalog(catalog):
+    """The golden law: emitted == loaded. The s81+ menu reads this JSON as its only catalog
+    source, so a drift between the file and the module is a wrong menu with no error anywhere."""
+    import json
+    sections, entries, deferred = catalog
+    doc = json.loads(JC.render_patch())
+    assert doc["version"] == 1
+    assert len(doc["sections"]) == len(sections)
+    assert len(doc["entries"]) == len(entries)
+    assert len(doc["deferred"]) == len(deferred)
+    by_id = {s["id"]: s for s in doc["sections"]}
+    pv = by_id["d1.prima-vista"]
+    assert pv["objective"] == "Kidnap Princess Garnet" and pv["enter"] == 1000
+    e0 = next(e for e in doc["entries"] if e["id"] == "treasure.b7174")
+    assert e0["latch"] == 7174 and e0["gil"] == 47 and e0["item"] is None
+    e1 = next(e for e in doc["entries"] if e["id"] == "treasure.b7171")
+    assert e1["item"] == 249 and e1["gil"] is None       # LAW 5: the id ships, never the name
+    assert JC.render_patch() == JC.render_patch()        # deterministic -- diffs stay reviewable
+
+
+def test_build_emits_the_journal_patch(tmp_path):
+    from ff9mapkit.build import _emit_journal_patch
+    from ff9mapkit.config import ModLayout
+    layout = ModLayout(tmp_path)
+    assert _emit_journal_patch(layout) == []
+    assert layout.journal_patch.read_text(encoding="utf-8") == JC.render_patch()

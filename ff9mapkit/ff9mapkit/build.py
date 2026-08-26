@@ -9567,6 +9567,22 @@ def _emit_item_data(projects, layout) -> tuple:
     return warnings, directives
 
 
+def _emit_journal_patch(layout) -> list:
+    """Emit the mod-GLOBAL ``JournalPatch.txt`` -- the completion-Journal catalog sidecar the s81+
+    JournalUI menu reads (the FolklorePatch idiom: every mod folder's copy, low->high). Generated
+    from the SHIPPED ``data/journal_catalog.toml`` (:func:`journalcatalog.render_patch`), never
+    from field content -- the journal is mod-global, so every built mod carries the current
+    catalog and authoring iterates with zero engine rebuilds. Warn-and-skip on failure (the
+    _emit_folklore discipline): a catalog problem is `journalcatalog.lint_catalog`'s job to
+    REPORT precisely; the build must not crash a whole mod over the journal sidecar."""
+    try:
+        from . import journalcatalog as _jc
+        layout.journal_patch.write_text(_jc.render_patch(), encoding="utf-8", newline="\n")
+        return []
+    except Exception as e:                                 # noqa: BLE001
+        return [f"JournalPatch.txt skipped: {e}"]
+
+
 def _emit_folklore(projects, layout) -> list:
     """Emit the mod-GLOBAL Folklore codex text -- the three cumulative KeyItem ``.mes`` overlays
     (``FF9_Data/embeddedasset/text/<lang>/keyitem/{imp_name,imp_help,imp_skin}.mes``) from every built
@@ -10088,6 +10104,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings += _emit_shops(projects, layout)
     start_warnings += _emit_synthesis(projects, layout)
     start_warnings += _emit_folklore(projects, layout)
+    start_warnings += _emit_journal_patch(layout)
     item_warns, weapon_mint_lines = _emit_item_data(projects, layout)
     start_warnings += item_warns
     start_warnings += _emit_battle_data(projects, layout)

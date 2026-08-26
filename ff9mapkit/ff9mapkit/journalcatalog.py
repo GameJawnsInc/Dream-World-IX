@@ -333,6 +333,35 @@ def entries_for(section_id: str, *, catalog=None) -> tuple:
     return tuple(e for e in entries if e.section == section_id)
 
 
+def render_patch(*, catalog=None) -> str:
+    """The ``JournalPatch.txt`` body -- the WHOLE catalog as JSON for the s81+ JournalUI menu
+    screen (sections + entries + deferred), so the in-game menu and this module read one truth
+    and catalog authoring never rebuilds the DLL.
+
+    Emitted deterministically (sorted keys, fixed indent) so the deploy artifact diffs cleanly
+    and a golden test can pin emitted == loaded. Display names stay LAW-5 runtime: an entry
+    carries only its unified item ID -- the DLL renders the name off the live tables."""
+    import json
+    sections, entries, deferred = catalog if catalog is not None else load_catalog()
+    doc = {
+        "version": 1,
+        "sections": [
+            {"id": s.id, "disc": s.disc, "title": s.title, "objective": s.objective,
+             "enter": s.sc_enter, "leave": s.sc_leave, "side": s.side}
+            for s in sections],
+        "entries": [
+            {"id": e.id, "section": e.section, "category": e.category, "title": e.title,
+             "detail": e.detail, "latch": e.latch,
+             "window": list(e.window) if e.window else None,
+             "inventory": e.inventory, "counter": e.counter, "manual": e.manual,
+             "item": e.item, "gil": e.gil, "th": e.th, "missable": e.missable,
+             "verify": e.verify}
+            for e in entries],
+        "deferred": [{"bit": d.bit, "why": d.why} for d in deferred],
+    }
+    return json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
+
+
 def main_story_ladder(*, catalog=None) -> tuple:
     """``(enters, rows)`` for the main story's NEXT-OBJECTIVE ladder -- the ONE source both the
     offline reader and the in-game expression/table are generated from, so an index computed by

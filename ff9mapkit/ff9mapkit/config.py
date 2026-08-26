@@ -456,6 +456,14 @@ class ModLayout:
         (drives the dedicated screen's categories AND the Key-Items-tab filter)."""
         return self.root / "FolklorePatch.txt"
 
+    @property
+    def journal_patch(self) -> Path:
+        """``<root>/JournalPatch.txt`` -- the completion-Journal catalog sidecar (JSON: sections +
+        entries + deferred, rendered by :func:`ff9mapkit.journalcatalog.render_patch`). The s81+
+        JournalUI reads every mod folder's copy low->high (the FolklorePatch idiom), so catalog
+        authoring iterates with ZERO engine rebuilds -- the DLL never bakes catalog content."""
+        return self.root / "JournalPatch.txt"
+
     # --- dialogue text (.mes), one folder per language ---
     def text_field_dir(self, lang: str) -> Path:
         return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "field"

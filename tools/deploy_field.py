@@ -503,6 +503,17 @@ if _src_fp.exists():
     csv_reverts.append(("FolklorePatch", str(_live_fp), _had))
     _folk_deployed = True
     print("  + FolklorePatch.txt (Folklore codex registry)")
+# the completion-Journal catalog sidecar (sections + entries + deferred; the s81+ menu's data --
+# read once per process by JournalRegistry, so a catalog edit needs a RELAUNCH, not ~ reload)
+_src_jp = tl.journal_patch
+if _src_jp.exists():
+    _live_jp = live.journal_patch
+    _had = _live_jp.exists()
+    if _had:
+        shutil.copyfile(_live_jp, BK / f"JournalPatch.txt.preDEPLOY.{STAMP}")
+    shutil.copyfile(_src_jp, _live_jp)
+    csv_reverts.append(("JournalPatch", str(_live_jp), _had))
+    print("  + JournalPatch.txt (completion-Journal catalog) -> RELAUNCH to apply (loads once per process)")
 if _folk_deployed:
     print("  + text/<lang>/keyitem/{imp_name,imp_help,imp_skin}.mes (Folklore codex) -> RELAUNCH to apply "
           "(KeyItem text + the FolklorePatch registry load once per process, not the ~ reload)")
