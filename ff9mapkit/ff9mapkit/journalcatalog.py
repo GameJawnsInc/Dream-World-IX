@@ -333,33 +333,57 @@ def entries_for(section_id: str, *, catalog=None) -> tuple:
     return tuple(e for e in entries if e.section == section_id)
 
 
-def render_patch(*, catalog=None) -> str:
-    """The ``JournalPatch.txt`` body -- the WHOLE catalog as JSON for the s81+ JournalUI menu
-    screen (sections + entries + deferred), so the in-game menu and this module read one truth
-    and catalog authoring never rebuilds the DLL.
+#: The ``JournalPatch.txt`` record grammar (v1). TAB-separated, one record per line, a leading
+#: kind tag -- the FolklorePatch/DictionaryPatch ``Split`` idiom, because the ENGINE'S RUNTIME
+#: CANNOT PARSE JSON: FF9 is Unity 5.2's .NET-2.0 Mono profile and the Managed Newtonsoft 13
+#: throws ``TypeLoadException`` at JIT (measured in-game 2026-08-26, Memoria.log -- it wants
+#: ``INotifyPropertyChanging`` from a newer System.dll). Prose rides the LAST columns; ``-`` is
+#: the absent sentinel for optional values; no prose field may contain a TAB (asserted here).
+PATCH_SECTION_COLS = ("S", "id", "disc", "enter", "leave", "side", "title", "objective")
+PATCH_ENTRY_COLS = ("E", "id", "section", "category", "latch", "window_on", "window_off",
+                    "inventory", "counter", "manual", "item", "gil", "th",
+                    "missable_close", "missable_conf", "verify", "title", "detail")
+PATCH_DEFERRED_COLS = ("D", "bit", "why")
 
-    Emitted deterministically (sorted keys, fixed indent) so the deploy artifact diffs cleanly
-    and a golden test can pin emitted == loaded. Display names stay LAW-5 runtime: an entry
-    carries only its unified item ID -- the DLL renders the name off the live tables."""
-    import json
+
+def _tsv(*cells) -> str:
+    out = []
+    for c in cells:
+        s = "-" if c is None or c == "" else str(c)
+        if "\t" in s or "\n" in s:
+            raise ValueError(f"JournalPatch cell may not contain a tab/newline: {s!r}")
+        out.append(s)
+    return "\t".join(out)
+
+
+def render_patch(*, catalog=None) -> str:
+    """The ``JournalPatch.txt`` body -- the WHOLE catalog as TAB-separated records for the s81+
+    JournalUI menu screen (sections + entries + deferred), so the in-game menu and this module
+    read one truth and catalog authoring never rebuilds the DLL. See the record grammar above
+    for WHY this is not JSON (the engine's Mono cannot load Newtonsoft's types).
+
+    Emitted deterministically so the deploy artifact diffs cleanly and the golden test can pin
+    emitted == loaded. Display names stay LAW-5 runtime: an entry carries only its unified item
+    ID -- the DLL renders the name off the live tables."""
     sections, entries, deferred = catalog if catalog is not None else load_catalog()
-    doc = {
-        "version": 1,
-        "sections": [
-            {"id": s.id, "disc": s.disc, "title": s.title, "objective": s.objective,
-             "enter": s.sc_enter, "leave": s.sc_leave, "side": s.side}
-            for s in sections],
-        "entries": [
-            {"id": e.id, "section": e.section, "category": e.category, "title": e.title,
-             "detail": e.detail, "latch": e.latch,
-             "window": list(e.window) if e.window else None,
-             "inventory": e.inventory, "counter": e.counter, "manual": e.manual,
-             "item": e.item, "gil": e.gil, "th": e.th, "missable": e.missable,
-             "verify": e.verify}
-            for e in entries],
-        "deferred": [{"bit": d.bit, "why": d.why} for d in deferred],
-    }
-    return json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
+    L = ["# ff9mapkit completion-Journal catalog sidecar v1 -- TAB-separated records",
+         "# " + " | ".join(PATCH_SECTION_COLS),
+         "# " + " | ".join(PATCH_ENTRY_COLS),
+         "# " + " | ".join(PATCH_DEFERRED_COLS),
+         "V\t1"]
+    for s in sections:
+        L.append(_tsv("S", s.id, s.disc, s.sc_enter, s.sc_leave, 1 if s.side else 0,
+                      s.title, s.objective))
+    for e in entries:
+        mc = e.missable.get("close_sc") if e.missable else None
+        mf = e.missable.get("confidence") if e.missable else None
+        L.append(_tsv("E", e.id, e.section, e.category, e.latch,
+                      e.window[0] if e.window else None, e.window[1] if e.window else None,
+                      e.inventory, e.counter, e.manual, e.item, e.gil, e.th,
+                      mc, mf, e.verify, e.title, e.detail))
+    for d in deferred:
+        L.append(_tsv("D", d.bit, d.why))
+    return "\n".join(L) + "\n"
 
 
 def main_story_ladder(*, catalog=None) -> tuple:

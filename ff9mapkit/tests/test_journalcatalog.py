@@ -183,23 +183,38 @@ def test_shipped_catalog_joins_the_real_atlas(catalog):
 
 # ============================ the JournalPatch sidecar (M1) ============================
 def test_render_patch_round_trips_the_catalog(catalog):
-    """The golden law: emitted == loaded. The s81+ menu reads this JSON as its only catalog
-    source, so a drift between the file and the module is a wrong menu with no error anywhere."""
-    import json
+    """The golden law: emitted == loaded. The s81+ menu reads this TSV as its only catalog
+    source, so a drift between the file and the module is a wrong menu with no error anywhere.
+    (TSV, not JSON: the engine's Unity-5.2 Mono throws TypeLoadException JITting any method
+    that references Newtonsoft's types -- measured in-game 2026-08-26.)"""
     sections, entries, deferred = catalog
-    doc = json.loads(JC.render_patch())
-    assert doc["version"] == 1
-    assert len(doc["sections"]) == len(sections)
-    assert len(doc["entries"]) == len(entries)
-    assert len(doc["deferred"]) == len(deferred)
-    by_id = {s["id"]: s for s in doc["sections"]}
-    pv = by_id["d1.prima-vista"]
-    assert pv["objective"] == "Kidnap Princess Garnet" and pv["enter"] == 1000
-    e0 = next(e for e in doc["entries"] if e["id"] == "treasure.b7174")
-    assert e0["latch"] == 7174 and e0["gil"] == 47 and e0["item"] is None
-    e1 = next(e for e in doc["entries"] if e["id"] == "treasure.b7171")
-    assert e1["item"] == 249 and e1["gil"] is None       # LAW 5: the id ships, never the name
+    body = JC.render_patch()
+    rows = [ln.split("\t") for ln in body.splitlines() if ln and not ln.startswith("#")]
+    kinds = {}
+    for r in rows:
+        kinds.setdefault(r[0], []).append(r)
+    assert kinds["V"][0][1] == "1"
+    assert len(kinds["S"]) == len(sections)
+    assert len(kinds["E"]) == len(entries)
+    assert len(kinds["D"]) == len(deferred)
+    for r in kinds["S"]:
+        assert len(r) == len(JC.PATCH_SECTION_COLS), r
+    for r in kinds["E"]:
+        assert len(r) == len(JC.PATCH_ENTRY_COLS), r
+    pv = next(r for r in kinds["S"] if r[1] == "d1.prima-vista")
+    assert pv[3] == "1000" and pv[7] == "Kidnap Princess Garnet"
+    e0 = next(r for r in kinds["E"] if r[1] == "treasure.b7174")
+    assert e0[4] == "7174" and e0[11] == "47" and e0[10] == "-"     # gil row: no item id
+    e1 = next(r for r in kinds["E"] if r[1] == "treasure.b7171")
+    assert e1[10] == "249" and e1[11] == "-"             # LAW 5: the id ships, never the name
     assert JC.render_patch() == JC.render_patch()        # deterministic -- diffs stay reviewable
+
+
+def test_render_patch_refuses_a_tab_in_prose():
+    """The one way the fixed-column grammar can silently shear: a tab inside a prose cell."""
+    s = JC.Section(id="d9.x", disc=1, title="A\ttab", sc_enter=1, sc_leave=2)
+    with pytest.raises(ValueError, match="tab"):
+        JC.render_patch(catalog=((s,), (), ()))
 
 
 def test_build_emits_the_journal_patch(tmp_path):
