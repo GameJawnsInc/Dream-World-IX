@@ -384,6 +384,7 @@ latch    = 7174
 gil      = 47
 th       = 1
 source   = "treasure_join v2 bit 7174 -- Prima Vista/Cargo Room, fields [50, 51]"
+verify   = "playtested"     # owner, New Game 2026-08-26: the mark flipped OK on the live pickup
 
 [[entry]]
 id       = "treasure.b7175"
@@ -395,6 +396,7 @@ latch    = 7175
 item     = 236            # Potion (runtime-resolved in-game)
 th       = 1
 source   = "treasure_join v2 bit 7175 -- Prima Vista/Cargo Room, fields [50, 51]"
+verify   = "playtested"     # owner, New Game 2026-08-26: the mark flipped OK on the live pickup
 
 [[entry]]
 id       = "treasure.b7171"

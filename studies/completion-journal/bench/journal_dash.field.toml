@@ -363,5 +363,183 @@ Last entrance          [NUMB=3]"""
     "expr:Global.Bit[7186]",
   ]
 
+  # --- THE WALKTHROUGH PAGE (new this round; see the header) -------------------------
+  # Entries in reply order, for reading a playtest verdict back to the catalog:
+  #   [TEXT=marks] row 0: treasure.b7187 (latch bit 7187)
+  #   [TEXT=marks] row 1: treasure.b7196 (latch bit 7196)
+  #   [TEXT=marks] row 2: treasure.b7197 (latch bit 7197)
+  #   [TEXT=marks] row 3: treasure.b7198 (latch bit 7198)
+  [[choice.options]]
+  text = "Walkthrough 2/7"
+  reply = """
+== PRIMA VISTA 2/7 
+[TEXT=marks,0] [ITEM=1]
+   On the main street
+[TEXT=marks,2] [ITEM=3]
+   On the main street
+[TEXT=marks,4] [ITEM=5]
+   On the main street
+[TEXT=marks,6] [ITEM=7]
+   On the main street"""
+  window = 2
+  values = [
+    "expr:Global.Bit[7187]",
+    "expr:const(512)",
+    "expr:Global.Bit[7196]",
+    "expr:const(518)",
+    "expr:Global.Bit[7197]",
+    "expr:const(521)",
+    "expr:Global.Bit[7198]",
+    "expr:const(517)",
+  ]
+
+  # --- THE WALKTHROUGH PAGE (new this round; see the header) -------------------------
+  # Entries in reply order, for reading a playtest verdict back to the catalog:
+  #   [TEXT=marks] row 0: treasure.b7199 (latch bit 7199)
+  #   [TEXT=marks] row 1: treasure.b7214 (latch bit 7214)
+  #   [TEXT=marks] row 2: treasure.b7215 (latch bit 7215)
+  #   [TEXT=marks] row 3: treasure.b7184 (latch bit 7184)
+  [[choice.options]]
+  text = "Walkthrough 3/7"
+  reply = """
+== PRIMA VISTA 3/7 
+[TEXT=marks,0] [ITEM=1]
+   On the main street
+[TEXT=marks,2] [ITEM=3]
+   On the main street
+[TEXT=marks,4] [ITEM=5]
+   On the main street
+[TEXT=marks,6] [ITEM=7]
+   Inside a residence"""
+  window = 2
+  values = [
+    "expr:Global.Bit[7199]",
+    "expr:const(236)",
+    "expr:Global.Bit[7214]",
+    "expr:const(236)",
+    "expr:Global.Bit[7215]",
+    "expr:const(236)",
+    "expr:Global.Bit[7184]",
+    "expr:const(236)",
+  ]
+
+  # --- THE WALKTHROUGH PAGE (new this round; see the header) -------------------------
+  # Entries in reply order, for reading a playtest verdict back to the catalog:
+  #   [TEXT=marks] row 0: treasure.b7185 (latch bit 7185)
+  #   [TEXT=marks] row 1: treasure.b7212 (latch bit 7212)
+  #   [TEXT=marks] row 2: treasure.b7213 (latch bit 7213)
+  #   [TEXT=marks] row 3: treasure.b7188 (latch bit 7188)
+  #   [TEXT=marks] row 4: treasure.b7192 (latch bit 7192)
+  [[choice.options]]
+  text = "Walkthrough 4/7"
+  reply = """
+== PRIMA VISTA 4/7 
+[TEXT=marks,0] 9 Gil
+   Inside a residence
+[TEXT=marks,1] 3 Gil
+   Inside a residence
+[TEXT=marks,2] [ITEM=3]
+   Inside a residence
+[TEXT=marks,4] [ITEM=5]
+   Inside a residence
+[TEXT=marks,6] [ITEM=7]
+   Inside the pub"""
+  window = 2
+  values = [
+    "expr:Global.Bit[7185]",
+    "expr:Global.Bit[7212]",
+    "expr:Global.Bit[7213]",
+    "expr:const(244)",
+    "expr:Global.Bit[7188]",
+    "expr:const(513)",
+    "expr:Global.Bit[7192]",
+    "expr:const(236)",
+  ]
+
+  # --- THE WALKTHROUGH PAGE (new this round; see the header) -------------------------
+  # Entries in reply order, for reading a playtest verdict back to the catalog:
+  #   [TEXT=marks] row 0: treasure.b7193 (latch bit 7193)
+  #   [TEXT=marks] row 1: treasure.b7194 (latch bit 7194)
+  #   [TEXT=marks] row 2: treasure.b7195 (latch bit 7195)
+  #   [TEXT=marks] row 3: treasure.b7189 (latch bit 7189)
+  #   [TEXT=marks] row 4: treasure.b7190 (latch bit 7190)
+  #   [TEXT=marks] row 5: treasure.b7191 (latch bit 7191)
+  [[choice.options]]
+  text = "Walkthrough 5/7"
+  reply = """
+== PRIMA VISTA 5/7 
+[TEXT=marks,0] 27 Gil
+   Inside the pub
+[TEXT=marks,1] [ITEM=2]
+   Inside the pub
+[TEXT=marks,3] 38 Gil
+   In the item shop
+[TEXT=marks,4] 63 Gil
+   The rooftop route
+[TEXT=marks,5] 92 Gil
+   The rooftop route
+[TEXT=marks,6] 29 Gil
+   The rooftop route"""
+  window = 2
+  values = [
+    "expr:Global.Bit[7193]",
+    "expr:Global.Bit[7194]",
+    "expr:const(515)",
+    "expr:Global.Bit[7195]",
+    "expr:Global.Bit[7189]",
+    "expr:Global.Bit[7190]",
+    "expr:Global.Bit[7191]",
+  ]
+
+  # --- THE WALKTHROUGH PAGE (new this round; see the header) -------------------------
+  # Entries in reply order, for reading a playtest verdict back to the catalog:
+  #   [TEXT=marks] row 0: treasure.b7205 (latch bit 7205)
+  #   [TEXT=marks] row 1: treasure.b7200 (latch bit 7200)
+  #   [TEXT=marks] row 2: treasure.b7201 (latch bit 7201)
+  #   [TEXT=marks] row 3: treasure.b7202 (latch bit 7202)
+  [[choice.options]]
+  text = "Walkthrough 6/7"
+  reply = """
+== PRIMA VISTA 6/7 
+[TEXT=marks,0] [ITEM=1]
+   In the town square
+[TEXT=marks,2] [ITEM=3]
+   Inside the steeple
+[TEXT=marks,4] [ITEM=5]
+   Inside the steeple
+[TEXT=marks,6] [ITEM=7]
+   Inside the steeple"""
+  window = 2
+  values = [
+    "expr:Global.Bit[7205]",
+    "expr:const(249)",
+    "expr:Global.Bit[7200]",
+    "expr:const(513)",
+    "expr:Global.Bit[7201]",
+    "expr:const(512)",
+    "expr:Global.Bit[7202]",
+    "expr:const(520)",
+  ]
+
+  # --- THE WALKTHROUGH PAGE (new this round; see the header) -------------------------
+  # Entries in reply order, for reading a playtest verdict back to the catalog:
+  #   [TEXT=marks] row 0: treasure.b7203 (latch bit 7203)
+  #   [TEXT=marks] row 1: treasure.b7204 (latch bit 7204)
+  [[choice.options]]
+  text = "Walkthrough 7/7"
+  reply = """
+== PRIMA VISTA 7/7 
+[TEXT=marks,0] [ITEM=1]
+   Inside the steeple
+[TEXT=marks,2] [ITEM=3]
+   Inside the steeple"""
+  window = 2
+  values = [
+    "expr:Global.Bit[7203]",
+    "expr:const(253)",
+    "expr:Global.Bit[7204]",
+    "expr:const(236)",
+  ]
+
   [[choice.options]]
   text = "Close"

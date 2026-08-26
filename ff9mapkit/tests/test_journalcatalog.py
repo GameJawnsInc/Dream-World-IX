@@ -47,7 +47,11 @@ def test_prima_vista_is_fully_authored(catalog):
         assert e.predicate() == "latch"
         assert e.detail, f"{e.id}: the prose pass may not ship an empty detail"
         assert e.provenance == "census"
-        assert e.verify == "unverified"   # flips to playtested only on an owner report
+    # verify flips ONLY on an owner report. The New Game playtest (2026-08-26) exercised exactly
+    # two latches live -- the cargo-hold pair flipped OK on pickup; every other row stays honest.
+    verified = {e.latch for e in pv if e.verify == "playtested"}
+    assert verified == {7174, 7175}
+    assert all(e.verify == "unverified" for e in pv if e.latch not in verified)
     # the four ship rows come first -- the walkthrough starts on the Prima Vista
     assert [e.latch for e in pv[:4]] == [7174, 7175, 7171, 7172]
 

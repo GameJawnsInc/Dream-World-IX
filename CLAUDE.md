@@ -300,7 +300,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
 - Click authoring — ★★ Rungs 0-4 + 6a-6d owner-confirmed; BOTH lanes merge on regenerate; 7e+7f built, Trace carries its own rig; 7b+7d playtests deployed 30700-30702 → `studies/click-authoring/PLAN.md`
 - Path D, the genuinely new 3rd overworld — ★★★ rungs 0-6 ALL DONE, ladder complete: the 9013 round trip owner-confirmed, bench 30950 entry + "!"-Confirm exit; next = §8 polish at owner's call → `studies/path-d-new-world/rung6/`; laws → [[project-ff9-overhang-context-law]]
-- In-game 100%-completion Journal — ★★ round 6 owner-confirmed: rank+winner rows LIVE, cross-validated; FULL FIDELITY, schema frozen; next = spine authoring → `studies/completion-journal/PLAN.md`
+- In-game 100%-completion Journal — ★★ walkthrough catalog LIVE: checklist marks update in play (owner-confirmed); d1.prima-vista authored; next = more sections → `studies/completion-journal/PLAN.md`
 - Interactive docs (docsite/) — ★ LIVE at jawnston.com/ff9docs via `docsite/deploy.ps1`, noindex inherited; gates green, S1-S7 playtest pending, critique #1-4 CLOSED, What-can-I-do catalog shipped → `studies/interactive-docs/PLAN.md`
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
