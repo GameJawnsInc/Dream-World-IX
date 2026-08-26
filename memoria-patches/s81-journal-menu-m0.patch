@@ -1,0 +1,315 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index 62fb585..8e18e65 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -636,6 +636,7 @@
+     <Compile Include="Memoria\Assets\Text\AudioResources.cs" />
+     <Compile Include="Memoria\Data\Items\IdMap.cs" />
+     <Compile Include="Memoria\Data\Items\ItemDefence.cs" />
++    <Compile Include="Global\JournalUI.cs" />
+     <Compile Include="Global\Dialog\Dialog.cs" />
+     <Compile Include="Global\Dialog\DialogAnimator.cs" />
+     <Compile Include="Global\Dialog\DialogManager.cs" />
+diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
+new file mode 100644
+index 0000000..1d90b6f
+--- /dev/null
++++ b/Assembly-CSharp/Global/JournalUI.cs
+@@ -0,0 +1,174 @@
++using Assets.Sources.Scripts.UI.Common;
++using Memoria;
++using Memoria.Prime;
++using System;
++using UnityEngine;
++
++// ff9mapkit s81 -- THE COMPLETION JOURNAL submenu, rung M0: the skeleton screen.
++// The Journal takes Folklore's main-menu seat (owner ratification 2026-08-26: Folklore hidden
++// entirely; three tabs STORY / SIDE QUESTS / RECORDS; unreached story sections render "????";
++// the story tab merges the NOW-objective banner with the per-section checklist). Design + the
++// rung ladder: studies/completion-journal/MENU-DESIGN.md. Data will arrive per-deploy via
++// JournalPatch.txt (the s45 FolklorePatch.txt idiom) -- the DLL never bakes catalog content.
++//
++// M0 deliberately renders ONE static pane and nothing live: the playtest verdict must land on
++// the row swap + scene plumbing + clean return, not on list machinery. Key routing needs no
++// armed button group -- UIKeyTrigger dispatches OnKeyCancel by UIState (UIKeyTrigger.cs:646),
++// so this scene is exitable with zero interactive widgets.
++//
++// The s45 laws carried forward (each was paid for with a playtest round):
++//  * every runtime clone lives UNDER this scene's transform (the DontDestroyOnLoad tree law);
++//  * every repositioned clone gets SetAnchor(null) -- NGUI anchors re-assert every frame;
++//  * the scene GameObject is built on the UI layer by UIManager.Start (a fresh GameObject lands
++//    on layer 0, which every UI camera culls -- the s45 invisible-shell find).
++public class JournalUI : UIScene
++{
++    public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
++    {
++        base.Show(afterFinished);
++    }
++
++    public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
++    {
++        base.Hide(afterFinished);
++        // THE ItemUI IDIOM (via s45): re-tween the main menu's row column back in while this
++        // scene fades -- StartSubmenuTweenIn is the ONLY thing that reopens the collapsed clip.
++        PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
++    }
++
++    public override Boolean OnKeyCancel(GameObject go)
++    {
++        if (base.OnKeyCancel(go))
++        {
++            FF9Sfx.FF9SFX_Play(101);
++            this.Hide(delegate
++            {
++                PersistenSingleton<UIManager>.Instance.MainMenuScene.NeedTweenAndHideSubMenu = false;
++                PersistenSingleton<UIManager>.Instance.MainMenuScene.CurrentSubMenu = MainMenuUI.SubMenu.Folklore;
++                PersistenSingleton<UIManager>.Instance.ChangeUIState(UIManager.UIState.MainMenu);
++            });
++        }
++        return true;
++    }
++
++    private void Awake()
++    {
++        // Built IN CODE from cloned stock pieces (the ControlPanel idiom; zero new Unity assets).
++        // Awake runs on the first Show -- UIManager.Start creates the GameObject INACTIVE, so the
++        // clone-source menu widgets all exist by now. UI space: center origin, +y up, 1080 tall;
++        // panes stay inside the pillarbox-safe +-771 band.
++        MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
++
++        // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
++        GameObject bgGo = UnityEngine.Object.Instantiate(menu.transform.GetChild(4).gameObject);
++        bgGo.name = "Journal Background";
++        bgGo.transform.parent = base.transform;
++        bgGo.transform.localScale = Vector3.one;
++        bgGo.transform.localPosition = Vector3.zero;
++        foreach (UIWidget bgWidget in bgGo.GetComponentsInChildren<UIWidget>(true))
++            bgWidget.SetAnchor((GameObject)null);
++        UISprite bgSprite = bgGo.GetComponent<UISprite>();
++        if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
++            bgSprite.spriteName = "item_bg";               // the stock submenu backdrop flavor
++        bgGo.SetActive(true);
++
++        // the stock cross-fade (HonoFading re-derives its sprite from the clone's own object)
++        GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
++        fadeGo.name = "Journal Fade";
++        fadeGo.transform.parent = base.transform;
++        fadeGo.transform.localPosition = menu.ScreenFadeGameObject.transform.localPosition;
++        fadeGo.transform.localScale = Vector3.one;
++        base.FadingComponent = fadeGo.GetComponent<HonoFading>();
++
++        // M0's one visible element: a bordered framed pane, caption JOURNAL, a static body naming
++        // what lands next -- so the playtest can SEE the scene rendered (an empty screen and a
++        // failed screen look identical).
++        UILabel caption;
++        GameObject pane = this.BuildFramedPane(menu, "Journal M0 Pane", 0f, 0f, 900f, 700f, true, out caption);
++        caption.rawText = "Journal";
++        GameObject bodyGo = UnityEngine.Object.Instantiate(menu.LocationInfoPanel.GetChild(0));
++        bodyGo.name = "Journal M0 Body";
++        bodyGo.transform.parent = pane.transform;
++        bodyGo.transform.localScale = Vector3.one;
++        bodyGo.SetActive(true);
++        UILabel body = bodyGo.GetComponent<UILabel>();
++        body.SetAnchor((GameObject)null);
++        body.pivot = UIWidget.Pivot.Top;
++        body.SetRawRect(0f, 240f, 700f, 480f);
++        body.alignment = NGUIText.Alignment.Center;
++        body.overflowMethod = UILabel.Overflow.ShrinkContent;
++        body.multiLine = true;
++        body.rawText = "M0 skeleton\n\nStory\nSide Quests\nRecords\n\n(cancel returns to the menu)";
++    }
++
++    // the s45 pane recipe, verbatim mechanics: clone GenericInfoPanel, gut it, re-anchor its
++    // FRAME child onto OUR pane rect (the ControlPanel.InstantiatePanel pattern)
++    private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
++    {
++        GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
++        paneGo.name = name;
++        UIWidget pane = paneGo.GetComponent<UIWidget>();
++        GameObject frameGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel.GetChild(2));
++        paneGo.transform.DestroyChildren();
++        frameGo.name = name + " Frame";
++        frameGo.transform.parent = paneGo.transform;
++        frameGo.transform.localScale = Vector3.one;
++        UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
++        if (frameLoc != null)
++            frameLoc.key = String.Empty;                   // the caption plate is OURS to write
++        caption = frameGo.GetComponentInChildren<UILabel>();
++        caption.fontSize = 34;
++        if (!bordered)
++        {
++            GameObject borderGo = frameGo.FindChild("Border");
++            if (borderGo != null)
++                borderGo.SetActive(false);
++            GameObject shadowGo = frameGo.FindChild("Shadow");
++            if (shadowGo != null)
++                shadowGo.SetActive(false);
++        }
++        UIWidget frame = frameGo.GetComponent<UIWidget>();
++        frame.leftAnchor.Set(pane.transform, 0f, 0);
++        frame.rightAnchor.Set(pane.transform, 1f, 0);
++        frame.topAnchor.Set(pane.transform, 1f, 0);
++        frame.bottomAnchor.Set(pane.transform, 0f, 0);
++        paneGo.transform.parent = base.transform;
++        paneGo.transform.localScale = Vector3.one;
++        pane.SetAnchor((GameObject)null);
++        pane.pivot = UIWidget.Pivot.Center;
++        pane.SetRawRect(x, y, w, h);
++        frameGo.SetActive(true);
++        paneGo.SetActive(true);
++        return paneGo;
++    }
++}
++
++// The s81 feature gate: Memoria.ini [Journal] Enabled, DEFAULT ON ("1") -- the Journal is core to
++// the Dream World IX bundle (it takes Folklore's menu seat per the owner's direction), and
++// [Journal] Enabled=0 is the off switch that also un-hides Folklore (MainMenuUI's row mint reads
++// both gates). Read once per process; the s45 FolkloreConfig idiom.
++internal static class JournalConfig
++{
++    private static Int32 _enabled = -1;
++
++    internal static Boolean Enabled
++    {
++        get
++        {
++            if (_enabled < 0)
++            {
++                try
++                {
++                    IniFile ini = new IniFile(IniFile.MemoriaIniPath);
++                    _enabled = ini.GetSetting("Journal", "Enabled", "1").Trim() == "1" ? 1 : 0;
++                }
++                catch (Exception err)
++                {
++                    Log.Error(err);
++                    _enabled = 1;                          // unreadable ini -> the bundle default
++                }
++            }
++            return _enabled > 0;
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
+index e02d8af..6bbc666 100644
+--- a/Assembly-CSharp/Global/MainMenuUI.cs
++++ b/Assembly-CSharp/Global/MainMenuUI.cs
+@@ -212,7 +212,12 @@ public class MainMenuUI : UIScene
+                             this.FolkloreSubMenu.GetComponent<UIButton>().SetState(UIButtonColor.State.Normal, false);
+                             this.Hide(delegate
+                             {
+-                                PersistenSingleton<UIManager>.Instance.ChangeUIState(UIManager.UIState.Folklore);
++                                // ff9mapkit s81 -- the seat's OWNER decides the descend: with
++                                // [Journal] on (the bundle default) this row IS the Journal and
++                                // Folklore is hidden entirely (owner ratification 2026-08-26);
++                                // [Journal] Enabled=0 restores the s45 Folklore descend.
++                                PersistenSingleton<UIManager>.Instance.ChangeUIState(
++                                    JournalConfig.Enabled ? UIManager.UIState.Journal : UIManager.UIState.Folklore);
+                                 base.Loading = true;
+                             });
+                             break;
+@@ -774,14 +779,18 @@ public class MainMenuUI : UIScene
+         // Folklore -> Config). Gated on Memoria.ini [Folklore] Enabled; absent = vanilla bytes-for-
+         // bytes behavior. The generalized manual layout loop replaces the Party block's hardcoded
+         // 8-row walk whenever Folklore is present (the UITable is disabled; there is NO auto-reflow).
+-        if (this.FolkloreSubMenu == null && FolkloreConfig.Enabled)
++        // ff9mapkit s81 -- the seat now has two possible OWNERS: the Journal (the bundle default,
++        // [Journal] Enabled=1) or s45's Folklore ([Journal] off + [Folklore] on). One row either
++        // way; with the Journal on, Folklore is hidden ENTIRELY (owner ratification 2026-08-26 --
++        // its screen class stays compiled and one ini flip re-exposes it).
++        if (this.FolkloreSubMenu == null && (JournalConfig.Enabled || FolkloreConfig.Enabled))
+         {
+             UITable folkloreTable = this.SubMenuPanel.GetChild(0).GetChild(0).GetComponent<UITable>();
+             this.FolkloreSubMenu = UnityEngine.Object.Instantiate(this.CardSubMenu);
+             UILocalize folkloreLocalize = this.FolkloreSubMenu.GetChild(0).GetComponent<UILocalize>();
+             ButtonGroupState.HelpDetail folkloreHelp = this.FolkloreSubMenu.GetComponent<ButtonGroupState>().Help;
+-            folkloreLocalize.key = "Folklore";
+-            folkloreHelp.TextKey = "FolkloreHelp";
++            folkloreLocalize.key = JournalConfig.Enabled ? "Journal" : "Folklore";
++            folkloreHelp.TextKey = JournalConfig.Enabled ? "JournalHelp" : "FolkloreHelp";
+             this.ConfigSubMenu.transform.parent = null;    // the Party reparent dance: Config stays last
+             this.FolkloreSubMenu.transform.parent = folkloreTable.transform;
+             this.ConfigSubMenu.transform.parent = folkloreTable.transform;
+diff --git a/Assembly-CSharp/Global/UI/UIManager.cs b/Assembly-CSharp/Global/UI/UIManager.cs
+index 21b6f20..59d9006 100644
+--- a/Assembly-CSharp/Global/UI/UIManager.cs
++++ b/Assembly-CSharp/Global/UI/UIManager.cs
+@@ -156,6 +156,8 @@ public class UIManager : PersistenSingleton<UIManager>
+                     return "Ending";
+                 case UIManager.UIState.Folklore:
+                     return "Folklore";
++                case UIManager.UIState.Journal:
++                    return "Journal";
+             }
+             return String.Empty;
+         }
+@@ -213,6 +215,20 @@ public class UIManager : PersistenSingleton<UIManager>
+             folklorePanel.depth = 5;
+             this.FolkloreScene = folkloreGo.AddComponent<FolkloreUI>();
+         }
++        // ff9mapkit s81 -- the completion-Journal scene, same runtime-construction recipe (created
++        // INACTIVE so its Awake defers to the first Show; the UI layer line is load-bearing).
++        if (JournalConfig.Enabled && this.JournalScene == null && this.MainMenuScene != null)
++        {
++            GameObject journalGo = new GameObject("Journal UI");
++            journalGo.layer = this.MainMenuScene.gameObject.layer;
++            journalGo.transform.parent = this.MainMenuScene.transform.parent;
++            journalGo.transform.localPosition = Vector3.zero;
++            journalGo.transform.localScale = Vector3.one;
++            journalGo.SetActive(false);
++            UIPanel journalPanel = journalGo.AddComponent<UIPanel>();
++            journalPanel.depth = 5;
++            this.JournalScene = journalGo.AddComponent<JournalUI>();
++        }
+     }
+ 
+     public void OnLevelWasLoaded(Int32 sceneNo)
+@@ -243,6 +259,8 @@ public class UIManager : PersistenSingleton<UIManager>
+         this.EndGameScene.gameObject.SetActive(false);
+         if (this.FolkloreScene != null)                    // ff9mapkit s45 -- MANDATORY: the sweep is
+             this.FolkloreScene.gameObject.SetActive(false); // hand-maintained; omit = the codex renders
++        if (this.JournalScene != null)                     // ff9mapkit s81 -- same law for the Journal
++            this.JournalScene.gameObject.SetActive(false);
+         this.MainMenuScene.SubMenuPanel.SetActive(false);  // over field/battle/world after a load
+         ButtonGroupState.DisableAllGroup(true);
+         ButtonGroupState.HelpEnabled = false;
+@@ -409,6 +427,8 @@ public class UIManager : PersistenSingleton<UIManager>
+                 return this.EndGameScene;
+             case UIManager.UIState.Folklore:               // ff9mapkit s45 (null while [Folklore] is off)
+                 return this.FolkloreScene;
++            case UIManager.UIState.Journal:                // ff9mapkit s81 (null while [Journal] is off)
++                return this.JournalScene;
+         }
+         if (this.QuitScene.isShowQuitUI)
+             return this.NoneScene;
+@@ -645,7 +665,7 @@ public class UIManager : PersistenSingleton<UIManager>
+ 
+     public static Boolean IsUIStateMenu(UIManager.UIState state)
+     {
+-        return (state >= UIState.MainMenu && state <= UIState.Tutorial) || state == UIState.QuadMist || state == UIState.Chocograph || state == UIState.Folklore;
++        return (state >= UIState.MainMenu && state <= UIState.Tutorial) || state == UIState.QuadMist || state == UIState.Chocograph || state == UIState.Folklore || state == UIState.Journal;
+     }
+ 
+     public static Vector2 UIContentSize = GetUIContentSize();
+@@ -729,6 +749,9 @@ public class UIManager : PersistenSingleton<UIManager>
+     // WMWorld blackscreen law (memoria-patches lore, 2026-07-02).
+     [NonSerialized]
+     public FolkloreUI FolkloreScene;
++    [NonSerialized]
++    public JournalUI JournalScene;                         // ff9mapkit s81 -- same runtime-built,
++                                                           // same [NonSerialized] layout law
+ 
+     [Header("ETC")]
+     public DialogManager Dialogs;
+@@ -764,9 +787,10 @@ public class UIManager : PersistenSingleton<UIManager>
+         PreEnding,
+         Ending,
+         EndGame,
+-        Folklore    // ff9mapkit s45 -- APPENDED (state/prevState are serialized: a mid-enum insert
++        Folklore,   // ff9mapkit s45 -- APPENDED (state/prevState are serialized: a mid-enum insert
+                     // would shift the baked ordinals in the scene asset). IsUIStateMenu is widened
+                     // to include it (28 falls outside the MainMenu..Tutorial range test).
++        Journal     // ff9mapkit s81 -- APPENDED after Folklore, same ordinal law + IsUIStateMenu widening
+     }
+ 
+     public enum Scene
