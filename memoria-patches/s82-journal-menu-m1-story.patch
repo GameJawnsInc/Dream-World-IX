@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..c5ae989 100644
+index 1d90b6f..24dc450 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
 @@ -1,38 +1,75 @@
@@ -110,7 +110,7 @@ index 1d90b6f..c5ae989 100644
              FF9Sfx.FF9SFX_Play(101);
              this.Hide(delegate
              {
-@@ -51,12 +95,245 @@ public class JournalUI : UIScene
+@@ -51,12 +95,253 @@ public class JournalUI : UIScene
          return true;
      }
  
@@ -247,7 +247,10 @@ index 1d90b6f..c5ae989 100644
 +        try
 +        {
 +            if (this.detailPopulator.ItemsPool.Count == 0)
++            {
 +                this.detailPopulator.PopulateListItemWithData = this.PopulateDetailCell;
++                this.detailPopulator.OnRecycleListItemClick += this.OnListItemClick;   // same chain
++            }
 +            this.detailPopulator.InitTableView(data, 0);
 +            this.detailHasRows = true;
 +        }
@@ -307,6 +310,11 @@ index 1d90b6f..c5ae989 100644
 +                if (this.listPopulator.ItemsPool.Count == 0)
 +                {
 +                    this.listPopulator.PopulateListItemWithData = this.PopulateListCell;
++                    // a cell CLICK routes through the stock chain (RecycleListItem.OnClick ->
++                    // itemClicked -> this delegate -> UIScene.OnListItemClick -> onPress ->
++                    // OnKeyConfirm) -- without this line the mouse can hover but never confirm
++                    // (the M2 playtest find: "clicking a Story row doesn't move focus")
++                    this.listPopulator.OnRecycleListItemClick += this.OnListItemClick;
 +                    this.listPopulator.InitTableView(data, this.currentIndex);
 +                }
 +                else
@@ -360,7 +368,7 @@ index 1d90b6f..c5ae989 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +346,10 @@ public class JournalUI : UIScene
+@@ -69,10 +354,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -373,7 +381,7 @@ index 1d90b6f..c5ae989 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +357,259 @@ public class JournalUI : UIScene
+@@ -80,29 +365,259 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -656,7 +664,7 @@ index 1d90b6f..c5ae989 100644
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +622,7 @@ public class JournalUI : UIScene
+@@ -115,7 +630,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -665,7 +673,7 @@ index 1d90b6f..c5ae989 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +648,205 @@ public class JournalUI : UIScene
+@@ -141,6 +656,205 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
