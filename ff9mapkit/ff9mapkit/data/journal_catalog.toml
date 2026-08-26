@@ -28,6 +28,27 @@ disc = 1
 title = "The Prima Vista & Alexandria"
 sc = { enter = 1000, leave = 2020 }
 objective = "Kidnap Princess Garnet"   # the troupe's plan -- every prologue path converges on it
+# WITHIN-section beats: the game's own intermediate SC writes (sc_relative_scan over 818 fields,
+# 2026-08-26 -- 1150 Alexandria/Shop, 1154 Steeple, 1400 Music Room, 1500 Cargo, 1900 Throne/Event,
+# 2005 Crash Site). Each refines the NOW banner; enters are MEASURED, never invented.
+[[section.beat]]
+enter = 1150
+objective = "Follow the boy"           # the ticket is declared fake; a new friend appears
+[[section.beat]]
+enter = 1154
+objective = "Over the rooftops"        # with Puck, into the castle -- the authoring cutoff beat
+[[section.beat]]
+enter = 1400
+objective = "Perform for the queen"
+[[section.beat]]
+enter = 1500
+objective = "Chase after the princess"
+[[section.beat]]
+enter = 1900
+objective = "Escape Alexandria"
+[[section.beat]]
+enter = 2005
+objective = "Survive the crash"
 
 [[section]]
 id = "d1.evil-forest"
