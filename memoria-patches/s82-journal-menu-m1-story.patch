@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..d9264c1 100644
+index 1d90b6f..54443ba 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
-@@ -1,38 +1,66 @@
+@@ -1,38 +1,69 @@
  using Assets.Sources.Scripts.UI.Common;
  using Memoria;
 +using Memoria.Assets;
@@ -50,6 +50,7 @@ index 1d90b6f..d9264c1 100644
  public class JournalUI : UIScene
  {
 +    private const String ListGroupButton = "Journal.List";
++    private const String DetailGroupButton = "Journal.Detail";
 +
      public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
      {
@@ -72,6 +73,8 @@ index 1d90b6f..d9264c1 100644
 +        catch (Exception err) { Log.Error(err); }          // one dead panel must not kill the
 +        try { this.RefreshSectionList(); }                 // other (the M1 Newtonsoft throw
 +        catch (Exception err) { Log.Error(err); }          // blanked the WHOLE screen)
++        try { this.RefreshDetail(); }
++        catch (Exception err) { Log.Error(err); }
      }
  
      public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
@@ -87,15 +90,73 @@ index 1d90b6f..d9264c1 100644
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
-@@ -51,12 +79,107 @@ public class JournalUI : UIScene
+@@ -40,6 +71,13 @@ public class JournalUI : UIScene
+     {
+         if (base.OnKeyCancel(go))
+         {
++            // the group ladder: cancel inside the detail list walks UP one tier, not out
++            if (ButtonGroupState.ActiveGroup == DetailGroupButton)
++            {
++                FF9Sfx.FF9SFX_Play(101);
++                ButtonGroupState.ActiveGroup = ListGroupButton;
++                return true;
++            }
+             FF9Sfx.FF9SFX_Play(101);
+             this.Hide(delegate
+             {
+@@ -51,12 +89,238 @@ public class JournalUI : UIScene
          return true;
      }
  
 +    public override Boolean OnKeyConfirm(GameObject go)
 +    {
 +        if (base.OnKeyConfirm(go))
-+            FF9Sfx.FF9SFX_Play(103);                       // browse-only in M1; M2 gives Confirm
-+        return true;                                       // the section-detail descend
++        {
++            if (ButtonGroupState.ActiveGroup == ListGroupButton)
++            {
++                // the M2 descend: focus drops INTO the section's entry checklist (stock ItemUI
++                // grammar -- parent row stays lit as the held secondary group). An unreached
++                // ("????") section refuses with the stock buzz: its checklist is a spoiler.
++                List<JournalRegistry.Section> main = JournalRegistry.MainSections();
++                Boolean reached = main.Count > 0 && this.currentIndex <= CurrentSectionIndex(main);
++                if (reached && this.detailPopulator != null && this.detailHasRows)
++                {
++                    FF9Sfx.FF9SFX_Play(103);
++                    ButtonGroupState.SetScrollButtonToGroup(this.detailPopulator.ScrollButton, DetailGroupButton);
++                    ButtonGroupState.SetPointerLimitRectToGroup(this.detailClipWidget, this.detailPopulator.cellHeight, DetailGroupButton);
++                    ButtonGroupState.SetPointerOffsetToGroup(new Vector2(54f, 0f), DetailGroupButton);
++                    ButtonGroupState.SetPointerDepthToGroup(this.detailPopulator.panel.depth + 2, DetailGroupButton);
++                    ButtonGroupState.ActiveGroup = DetailGroupButton;
++                    ButtonGroupState.SetSecondaryOnGroup(ListGroupButton);
++                    ButtonGroupState.HoldActiveStateOnGroup(ListGroupButton);
++                }
++                else
++                    FF9Sfx.FF9SFX_Play(102);
++            }
++            else
++                FF9Sfx.FF9SFX_Play(103);                   // browsing the checklist: acknowledge
++        }
++        return true;
++    }
++
++    public override Boolean OnItemSelect(GameObject go)
++    {
++        // cursor rest on a section row re-aims the detail pane (pattern 2, the Chocograph
++        // HintContentPanel idiom via s45's cell-index read)
++        if (base.OnItemSelect(go))
++        {
++            if (ButtonGroupState.ActiveGroup == ListGroupButton && go != null)
++            {
++                RecycleListItem cell = go.GetComponent<RecycleListItem>();
++                if (cell != null && this.currentIndex != cell.ItemDataIndex)
++                {
++                    this.currentIndex = cell.ItemDataIndex;
++                    try { this.RefreshDetail(); }
++                    catch (Exception err) { Log.Error(err); }
++                }
++            }
++        }
++        return true;
 +    }
 +
 +    // ============================ the live reads ============================
@@ -128,6 +189,93 @@ index 1d90b6f..d9264c1 100644
 +        JournalRegistry.Section cur = main[CurrentSectionIndex(main)];
 +        String objective = String.IsNullOrEmpty(cur.Objective) ? cur.Title : cur.Objective;
 +        this.nowLabel.rawText = objective;
++    }
++
++    private static Boolean LatchSet(Int32 bit)
++    {
++        // the collected mark: one gEventGlobal bit, the documented layout (byte = n>>3, bit =
++        // n&7) read straight off the save heap -- the SAME bit the bench's `.eb` publishes
++        return bit >= 0 && ((FF9StateSystem.EventState.gEventGlobal[bit >> 3] >> (bit & 7)) & 1) != 0;
++    }
++
++    private void RefreshDetail()
++    {
++        if (this.detailPopulator == null || this.detailListRoot == null)
++            return;
++        List<JournalRegistry.Section> main = JournalRegistry.MainSections();
++        if (main.Count == 0 || this.currentIndex >= main.Count)
++        {
++            this.detailListRoot.SetActive(false);
++            this.detailHasRows = false;
++            return;
++        }
++        Boolean reached = this.currentIndex <= CurrentSectionIndex(main);
++        JournalRegistry.Section sec = main[this.currentIndex];
++        List<JournalRegistry.Entry> entries = JournalRegistry.EntriesFor(sec.Id);
++        if (!reached || entries.Count == 0)
++        {
++            // an unreached section's checklist is a spoiler; a reached one with no authored
++            // entries yet has nothing to draw -- either way the pane HIDES rather than sitting
++            // empty (an empty sheet reads as a bug; the M1 screenshot proved it)
++            this.detailListRoot.SetActive(false);
++            this.detailHasRows = false;
++            return;
++        }
++        this.detailListRoot.SetActive(true);
++        Int32 got = 0;
++        foreach (JournalRegistry.Entry e in entries)
++            if (LatchSet(e.Latch))
++                got++;
++        if (this.detailHeaderLabel != null)
++            this.detailHeaderLabel.rawText = $"{sec.Title}  --  {got}/{entries.Count}";
++        List<ListDataTypeBase> data = new List<ListDataTypeBase>();
++        foreach (JournalRegistry.Entry e in entries)
++            data.Add(new JournalEntryData { Entry = e });
++        try
++        {
++            if (this.detailPopulator.ItemsPool.Count == 0)
++                this.detailPopulator.PopulateListItemWithData = this.PopulateDetailCell;
++            this.detailPopulator.InitTableView(data, 0);
++            this.detailHasRows = true;
++        }
++        catch (Exception err)
++        {
++            Log.Error(err);
++            this.detailHasRows = false;
++        }
++    }
++
++    private void PopulateDetailCell(Transform item, ListDataTypeBase data, Int32 index, Boolean isInit)
++    {
++        JournalEntryData row = (JournalEntryData)data;
++        JournalRegistry.Entry e = row.Entry;
++        Boolean got = LatchSet(e.Latch);
++        if (isInit)
++            this.DisplayWindowBackground(item.gameObject, null);
++        // LAW 5, runtime name resolution: the catalog ships only the unified item id and
++        // ETb.GetItemName reads the LIVE tables (regular/important/card, ETb.cs:237-246) -- a
++        // Moguri rename renders the Moguri name. A gil reward is literal; a titled row is ours.
++        String name = e.Item >= 0 ? ETb.GetItemName(e.Item)
++                    : e.Gil >= 0 ? $"{e.Gil} Gil"
++                    : e.Title;
++        if (String.IsNullOrEmpty(name))
++            name = e.Id;                                   // never a blank row; the id names the bug
++        UILabel nameLabel = item.GetChild(0).GetComponent<UILabel>();
++        GameObject newIconGo = item.GetChild(1).gameObject;
++        newIconGo.SetActive(false);
++        nameLabel.gameObject.SetActive(true);
++        nameLabel.rawText = (got ? "OK  " : "--  ") + name;
++        nameLabel.color = got ? FF9TextTool.White : FF9TextTool.Gray;
++        // the locator prose rides the stock help bubble on cursor rest (HelpDetail.Text takes
++        // raw text) -- the walkthrough's own words, shown only inside the checklist
++        ButtonGroupState button = item.GetComponent<ButtonGroupState>();
++        if (button != null)
++            button.Help = new ButtonGroupState.HelpDetail
++            {
++                Enable = !String.IsNullOrEmpty(e.Detail),
++                Text = e.Detail,
++                Tail = true,
++            };
 +    }
 +
 +    private void RefreshSectionList()
@@ -199,7 +347,7 @@ index 1d90b6f..d9264c1 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +192,10 @@ public class JournalUI : UIScene
+@@ -69,10 +333,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -212,7 +360,7 @@ index 1d90b6f..d9264c1 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +203,148 @@ public class JournalUI : UIScene
+@@ -80,29 +344,259 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -235,6 +383,10 @@ index 1d90b6f..d9264c1 100644
 -        body.overflowMethod = UILabel.Overflow.ShrinkContent;
 -        body.multiLine = true;
 -        body.rawText = "M0 skeleton\n\nStory\nSide Quests\nRecords\n\n(cancel returns to the menu)";
+-    }
+-
+-    // the s45 pane recipe, verbatim mechanics: clone GenericInfoPanel, gut it, re-anchor its
+-    // FRAME child onto OUR pane rect (the ControlPanel.InstantiatePanel pattern)
 +        // THE NOW BANNER -- a wide bordered pane across the top; caption "Now", body = the current
 +        // main-story objective (refreshed every Show; SC moves between opens).
 +        UILabel bannerCaption;
@@ -374,15 +526,124 @@ index 1d90b6f..d9264c1 100644
 +            headerLabel.rawText = "STORY";
 +        }
 +        listRoot.SetActive(true);
-     }
- 
--    // the s45 pane recipe, verbatim mechanics: clone GenericInfoPanel, gut it, re-anchor its
--    // FRAME child onto OUR pane rect (the ControlPanel.InstantiatePanel pattern)
++
++        // THE DETAIL LIST -- the section's entry checklist, the same donor recipe at the RIGHT
++        // seat (column center +385; the section list holds -415). Hidden until a reached section
++        // is hovered; focus descends into it on Confirm (group Journal.Detail).
++        GameObject dRoot = UnityEngine.Object.Instantiate(
++            PersistenSingleton<UIManager>.Instance.ItemScene.KeyItemListPanel);
++        dRoot.name = "Journal Detail List";
++        dRoot.transform.parent = base.transform;
++        dRoot.transform.localScale = Vector3.one;
++        GameObject dPanelGo = dRoot.GetChild(1);
++        this.detailPopulator = dPanelGo.GetComponent<RecycleListPopulator>();
++        Vector3 dBakedPanelPos = dPanelGo.transform.localPosition;
++        Vector4 dBakedClip = this.detailPopulator.panel.baseClipRegion;
++        Vector2 dBakedClipOffset = this.detailPopulator.panel.clipOffset;
++        Vector3 dBakedDressingPos = dRoot.GetChild(2).transform.localPosition;
++        this.detailPopulator.table.transform.DestroyChildren();
++        Transform dTemplate = UnityEngine.Object.Instantiate(this.detailPopulator.itemPrefab);
++        dTemplate.name = "Journal Detail Cell Template";
++        dTemplate.parent = this.detailPopulator.table.transform;
++        dTemplate.gameObject.SetActive(false);
++        this.detailPopulator.itemPrefab = dTemplate;
++        ButtonGroupState dCellGroup = dTemplate.gameObject.GetComponent<ButtonGroupState>();
++        if (dCellGroup != null)
++        {
++            dCellGroup.GroupName = DetailGroupButton;
++            dCellGroup.Help = new ButtonGroupState.HelpDetail { Enable = false };
++        }
++        GOScrollablePanel dScroll = new GOScrollablePanel(dRoot);
++        Single dRowH = this.detailPopulator.cellHeight;
++        Int32 dRowCount = Math.Max(1, Mathf.RoundToInt(dBakedClip.w / dRowH));
++        Single dListH = dRowCount * dRowH;
++        dScroll.SubPanel.ChangeDims(1, dRowCount, colW, dRowH);
++        dTemplate.localScale = Vector3.one;
++        dTemplate.localPosition = new Vector3(
++            this.detailPopulator.table.padding.x + colW / 2f,
++            -(this.detailPopulator.table.padding.y + dRowH / 2f), 0f);
++        this.detailPopulator.panel.depth = (scenePanel != null ? scenePanel.depth : 5) + 1;
++        UIWidget dRootWidget = dRoot.GetComponent<UIWidget>();
++        if (dRootWidget != null)
++            dRootWidget.SetAnchor((GameObject)null);
++        dPanelGo.transform.localPosition = Vector3.zero;
++        this.detailPopulator.panel.clipOffset = Vector2.zero;
++        this.detailPopulator.table.transform.localPosition = new Vector3(
++            dBakedClip.x - colW / 2f - this.detailPopulator.table.padding.x,
++            dBakedClip.y + dListH / 2f + this.detailPopulator.table.padding.y, 0f);
++        dRoot.transform.localPosition = new Vector3(385f - dBakedClip.x, -140f - dBakedClip.y, 0f);
++        GameObject dPointerGo = new GameObject("Journal Detail Pointer Rect");
++        dPointerGo.layer = base.gameObject.layer;
++        dPointerGo.transform.parent = base.transform;
++        dPointerGo.transform.localScale = Vector3.one;
++        dPointerGo.transform.localPosition = new Vector3(385f, -140f, 0f);
++        this.detailClipWidget = dPointerGo.AddComponent<UIWidget>();
++        this.detailClipWidget.pivot = UIWidget.Pivot.Center;
++        this.detailClipWidget.width = (Int32)colW;
++        this.detailClipWidget.height = (Int32)dListH;
++        Single dDressW = colW + 4f;
++        GameObject dDressingGo = dRoot.GetChild(2);
++        dDressingGo.SetActive(true);
++        dDressingGo.transform.localScale = Vector3.one;
++        UIWidget dDressingRoot = dDressingGo.GetComponent<UIWidget>();
++        if (dDressingRoot != null)
++            dDressingRoot.SetAnchor((GameObject)null);
++        Vector3 dDressSeat = dBakedDressingPos - dBakedPanelPos
++            - new Vector3(dBakedClipOffset.x, dBakedClipOffset.y, 0f);
++        dDressingGo.transform.localPosition = dDressSeat;
++        Single dClipCX = dBakedClip.x - dDressSeat.x;
++        Int32 dCapIdx = -1;
++        for (Int32 i = 0; i < dDressingGo.transform.childCount; i++)
++        {
++            GameObject childGo = dDressingGo.GetChild(i);
++            if (childGo.GetComponent<UIPanel>() != null)
++            {
++                dCapIdx = i;
++                continue;
++            }
++            UIWidget w = childGo.GetComponent<UIWidget>();
++            if (w == null)
++                continue;
++            w.SetAnchor((GameObject)null);
++            Vector3 lp = w.transform.localPosition;
++            w.transform.localPosition = new Vector3(
++                dClipCX + (w.pivotOffset.x - 0.5f) * dDressW, lp.y, lp.z);
++            w.width = (Int32)dDressW;
++        }
++        if (dCapIdx >= 0)
++        {
++            GameObject dCapPanelGo = dDressingGo.GetChild(dCapIdx);
++            dCapPanelGo.SetActive(true);
++            UIPanel dCapPanel = dCapPanelGo.GetComponent<UIPanel>();
++            if (dCapPanel != null)
++            {
++                dCapPanel.SetAnchor((GameObject)null);
++                dCapPanel.depth = this.detailPopulator.panel.depth + 1;
++            }
++            for (Int32 i = 1; i < dCapPanelGo.transform.childCount; i++)
++                dCapPanelGo.transform.GetChild(i).gameObject.SetActive(false);
++            GameObject dCapNameGo = dCapPanelGo.GetChild(0);
++            dCapNameGo.SetActive(true);
++            UILocalize dCapLoc = dCapNameGo.GetComponent<UILocalize>();
++            if (dCapLoc != null)
++                dCapLoc.key = String.Empty;
++            this.detailHeaderLabel = dCapNameGo.GetComponent<UILabel>();
++            this.detailHeaderLabel.SetAnchor((GameObject)null);
++            this.detailHeaderLabel.pivot = UIWidget.Pivot.Left;
++            Vector3 dCapLp = this.detailHeaderLabel.transform.localPosition;
++            this.detailHeaderLabel.transform.localPosition = new Vector3(
++                dClipCX - dCapPanelGo.transform.localPosition.x - dDressW / 2f + 40f, dCapLp.y, dCapLp.z);
++            this.detailHeaderLabel.rawText = String.Empty;
++        }
++        this.detailListRoot = dRoot;
++        dRoot.SetActive(false);                            // hidden until RefreshDetail aims it
++    }
++
 +    // the s45 pane recipe, verbatim mechanics
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +357,7 @@ public class JournalUI : UIScene
+@@ -115,7 +609,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -391,7 +652,7 @@ index 1d90b6f..d9264c1 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +383,107 @@ public class JournalUI : UIScene
+@@ -141,6 +635,171 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
@@ -400,10 +661,20 @@ index 1d90b6f..d9264c1 100644
 +    [NonSerialized] private UIWidget listClipWidget;
 +    [NonSerialized] private UILabel nowLabel;
 +    [NonSerialized] private Int32 currentIndex;
++    [NonSerialized] private RecycleListPopulator detailPopulator;
++    [NonSerialized] private UIWidget detailClipWidget;
++    [NonSerialized] private UILabel detailHeaderLabel;
++    [NonSerialized] private GameObject detailListRoot;
++    [NonSerialized] private Boolean detailHasRows;
 +
 +    private class JournalSectionData : ListDataTypeBase
 +    {
 +        public JournalRegistry.Section Section;
++    }
++
++    private class JournalEntryData : ListDataTypeBase
++    {
++        public JournalRegistry.Entry Entry;
 +    }
 +}
 +
@@ -427,7 +698,22 @@ index 1d90b6f..d9264c1 100644
 +        public Boolean Side;
 +    }
 +
++    public class Entry
++    {
++        public String Id;
++        public String SectionId;
++        public String Category;
++        public Int32 Latch = -1;                           // -1 = absent (the `-` sentinel)
++        public Int32 Item = -1;                            // unified item id (LAW 5: name resolves live)
++        public Int32 Gil = -1;
++        public Int32 Th;
++        public String Verify;
++        public String Title;
++        public String Detail;
++    }
++
 +    private static List<Section> _sections;
++    private static List<Entry> _entries;
 +    private static Boolean _loaded;
 +
 +    private static void EnsureLoaded()
@@ -450,32 +736,60 @@ index 1d90b6f..d9264c1 100644
 +                // (measured in-game 2026-08-26, Memoria.log). Prose rides the LAST columns;
 +                // `-` is the absent sentinel.
 +                List<Section> parsed = new List<Section>();
++                List<Entry> parsedEntries = new List<Entry>();
 +                foreach (String raw in File.ReadAllLines(path))
 +                {
-+                    if (raw.Length == 0 || raw[0] == '#' || raw[0] != 'S')
-+                        continue;                          // M1 consumes section records only
++                    if (raw.Length == 0 || raw[0] == '#')
++                        continue;
 +                    String[] tok = raw.Split('	');
-+                    if (tok.Length < 8 || tok[0] != "S")
-+                        continue;
-+                    if (!Int32.TryParse(tok[2], out Int32 disc) || !Int32.TryParse(tok[3], out Int32 enter)
-+                        || !Int32.TryParse(tok[4], out Int32 leave))
++                    if (tok[0] == "S" && tok.Length >= 8)
 +                    {
-+                        Log.Warning($"[JournalRegistry] bad section line in {path}: '{raw}'");
-+                        continue;
++                        if (!Int32.TryParse(tok[2], out Int32 disc) || !Int32.TryParse(tok[3], out Int32 enter)
++                            || !Int32.TryParse(tok[4], out Int32 leave))
++                        {
++                            Log.Warning($"[JournalRegistry] bad section line in {path}: '{raw}'");
++                            continue;
++                        }
++                        parsed.Add(new Section
++                        {
++                            Id = tok[1],
++                            Disc = disc,
++                            Enter = enter,
++                            Leave = leave,
++                            Side = tok[5] == "1",
++                            Title = tok[6] == "-" ? String.Empty : tok[6],
++                            Objective = tok[7] == "-" ? String.Empty : tok[7],
++                        });
 +                    }
-+                    parsed.Add(new Section
++                    else if (tok[0] == "E" && tok.Length >= 18)
 +                    {
-+                        Id = tok[1],
-+                        Disc = disc,
-+                        Enter = enter,
-+                        Leave = leave,
-+                        Side = tok[5] == "1",
-+                        Title = tok[6] == "-" ? String.Empty : tok[6],
-+                        Objective = tok[7] == "-" ? String.Empty : tok[7],
-+                    });
++                        // E id section category latch win_on win_off inventory counter manual
++                        //   item gil th miss_close miss_conf verify title detail
++                        Entry e = new Entry
++                        {
++                            Id = tok[1],
++                            SectionId = tok[2],
++                            Category = tok[3],
++                            Verify = tok[15],
++                            Title = tok[16] == "-" ? String.Empty : tok[16],
++                            Detail = tok[17] == "-" ? String.Empty : tok[17],
++                        };
++                        if (Int32.TryParse(tok[4], out Int32 latch))
++                            e.Latch = latch;
++                        if (Int32.TryParse(tok[10], out Int32 itemId))
++                            e.Item = itemId;
++                        if (Int32.TryParse(tok[11], out Int32 gil))
++                            e.Gil = gil;
++                        if (Int32.TryParse(tok[12], out Int32 th))
++                            e.Th = th;
++                        parsedEntries.Add(e);
++                    }
 +                }
 +                if (parsed.Count > 0)
++                {
 +                    _sections = parsed;                    // whole-document replace, low->high
++                    _entries = parsedEntries;              // entries travel WITH their sections
++                }
 +            }
 +            catch (Exception err)
 +            {
@@ -484,6 +798,17 @@ index 1d90b6f..d9264c1 100644
 +        }
 +        if (_sections.Count > 0)
 +            Log.Message($"[JournalRegistry] {_sections.Count} sections registered");
++    }
++
++    public static List<Entry> EntriesFor(String sectionId)
++    {
++        EnsureLoaded();
++        List<Entry> outList = new List<Entry>();
++        if (_entries != null)
++            foreach (Entry e in _entries)
++                if (e.SectionId == sectionId)
++                    outList.Add(e);                        // authored (walkthrough) order preserved
++        return outList;
 +    }
 +
 +    public static List<Section> MainSections()
