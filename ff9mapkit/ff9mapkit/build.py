@@ -2684,30 +2684,17 @@ def validate(project: FieldProject) -> list[str]:
                 # it: content/choice.py:reply_slot_problems.
                 for _tail in _choice.reply_slot_problems(o):
                     problems.append(f"[[choice]] #{c} option {oi} {_tail}")
-                # ★ THE BROADCAST-CONFIRM LAW, at the call site (studies/messages/SURVEY.md §7a).
-                # DialogManager.OnKeyConfirm (DialogManager.cs:335-341) fans a confirm press out to
-                # EVERY active window with no filter, and Dialog.OnKeyConfirm (Dialog.cs:789) closes
-                # a window that has FINISHED TYPING and is not `ignoreInputFlag`. An option reply is
-                # opened BY a confirm press -- the one that picked the row -- so an instant-popped
-                # reply is already finished when that press fans out and dismisses itself on arrival.
-                # Owner playtest, bench 30801: the page "immediately does the closing animation and
-                # exits the entire dialogue tree". A typewriter reply is safe (a mid-type press SKIPS
-                # to full text), and so is one that sets ignoreInputFlag via [TIME=-1]/[NFOC].
-                # NOTE this is about the OPTION's reply, never the choice block's own `instant` --
-                # an instant SELECTOR is proven fine (studies/messages/bench/winstyle.field.toml:127).
-                _reply = str(o.get("reply") or "")
-                if _reply.strip():
-                    _inst = bool(o.get("instant")) or "[IMME]" in _reply
-                    _held = "[NFOC]" in _reply or "[TIME=-1]" in _reply
-                    if _inst and not _held:
-                        problems.append(
-                            f"[[choice]] #{c} option {oi} has an INSTANT reply -- the confirm press "
-                            f"that selects this row fans out to every open window (DialogManager.cs:335-341) "
-                            f"and closes any that has finished typing (Dialog.cs:789), so an instant reply "
-                            f"dismisses itself the moment it opens and the dialogue tree exits. Drop "
-                            f"`instant`/[IMME] from the option (a typewriter reply survives -- a mid-type "
-                            f"press skips to full text), or hold it with [NFOC]/[TIME=-1] if it must not "
-                            f"be dismissable. The choice block's own `instant` is unaffected.")
+                # ★ THE BROADCAST-CONFIRM LAW, ★ THE SYNC-HOLD SOFTLOCK RULE and ★ THE POLLED-PAGE
+                # RULES used to live HERE, in the [[choice]] option loop. They do not any more --
+                # they all run in THE WINDOW-ATTRIBUTE SWEEP below (`_check_window_attrs`, the
+                # `window_close=` lane), for two independent reasons:
+                #   * `hold`/`no_focus` are keys of EVERY dialogue-bearing block and `polled` is
+                #     READ on every one of them (content.text.window_polled runs from dress_window),
+                #     so a rule scoped to choice replies left `[[npc]] no_focus = true` -- the same
+                #     unconditional gCur.wait == 254 hang -- validating clean and shipping;
+                #   * the `[ate]` menu is a SECOND lane into content.choice.option_body (see
+                #     `_apply_ate`), so a rule that walks only [[choice]] misses half its own
+                #     emitter. It joins them at the sweep rather than getting a copy.
                 # `values` -- the LIVE NUMBERS lane (content/choice.py:option_values_body). Same
                 # rulebook as [[behavior.hud]]'s `values`, reached through the SAME validator
                 # (behavior.hud_expr_tokens / hud_text_table_slots), because both publish into the
@@ -2789,7 +2776,8 @@ def validate(project: FieldProject) -> list[str]:
     _wa_verbatim = bool(project.raw.get("verbatim_eb"))
     def _check_window_attrs(label: str, src: dict, *, actor: str = "no",
                             opcode_side: bool = True, text_side: bool = True,
-                            allow_dim: bool = True, lock: str = "no", lock_default=True):
+                            allow_dim: bool = True, lock: str = "no", lock_default=True,
+                            window_close: str = "sync", default_body: str = ""):
         # actor: "no" (key unsupported here) | "yes" | "player-only" (verbatim: slots assigned later)
         # | "cast" (a cutscene cast step -- its actor names the performer, validated elsewhere).
         # opcode_side/text_side=False: the block does NOT wire those keys, so DON'T probe them --
@@ -2797,6 +2785,28 @@ def validate(project: FieldProject) -> list[str]:
         # (the unknown-key lint then covers strays there instead).
         # lock: "no" | "yes" (lock + lock_menu wired) | "lock-only" ([[on_entry]]: no menu pair).
         # lock_default = what an absent `lock` resolves to (differs per block/trigger).
+        # window_close -- HOW THIS BLOCK'S WINDOW ENDS, which is what decides whether a
+        # FlagButtonInh tag is a feature or a hang. THREE lanes, and every dialogue-bearing block
+        # is exactly one of them:
+        #   "sync"   the default and the common case: a BLOCKING WindowSync (0x1F) with no script
+        #            close after it ([[npc]], [[prop]], [[event]], [[on_entry]], [[coop]], a
+        #            [[choice]] prompt, a cutscene `say`). `hold`/`no_focus` hang it forever and
+        #            `polled` is not wired -> both refused (content.text.sync_hold_problems /
+        #            polled_lane_problem).
+        #   "async"  the script opens it and closes it itself -- a cutscene `open` step, whose
+        #            matching `close` the window ledger (_validate_window_scene) already enforces.
+        #            A hold is LOAD-BEARING there (THE BROADCAST-CONFIRM LAW: an un-held async hint
+        #            is taken down by the next window's dismissal), so the softlock rule stays out.
+        #   "polled" an option row that MAY opt into the async poll shape: [[choice.options]] and
+        #            [ate] options, the two lanes that reach content.choice.option_body. With
+        #            `polled = true` it is the async primitive (holds required, polled rulebook
+        #            scored on the emitted entry); without it, it is a plain "sync" reply.
+        # [behavior] branch `announce` / [behavior.hud] strips are NOT in this sweep and are not a
+        # gap: both emit WindowAsync (content/behavior.py:3687, :2871), i.e. the "async" lane, so
+        # the softlock rule is a no-op on them by construction.
+        # default_body -- the line this block still opens a window for when it authored none. Only
+        # [[npc]] has one: a dialogue-less NPC keeps its talk func and gets a minted "..." entry
+        # (_npc_needs_default_talk), so a hold key on it is a real window, not a dead key.
         if lock != "no":
             lv = src.get("lock")
             if lv is not None and not isinstance(lv, bool):
@@ -2897,6 +2907,11 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"{label}: hold and duration are the same engine tag with opposite "
                                 f"meanings ([TIME=-1] holds forever, [TIME=n] auto-closes after n "
                                 f"frames) -- keep one.")
+            nf = src.get("no_focus")
+            if nf is not None and not isinstance(nf, bool):
+                problems.append(f"{label} no_focus must be true/false (emit [NFOC]: FlagButtonInh "
+                                f"+ FlagResetChoice = false, so ONLY the script can close this "
+                                f"window; got {nf!r})")
             # ★ THE TURBO-CONFIRM LAW at the call site (content/text.py:NO_TURBO_TAG).
             # dress_window turbo-proofs a READOUT window automatically, so the only way to ship one
             # that a turbo session eats is to opt OUT on purpose -- and an opt-out of a law has to be
@@ -2918,9 +2933,84 @@ def validate(project: FieldProject) -> list[str]:
                         f"synthesizes a confirm EVERY FRAME with no input, DialogManager.cs:334-340 "
                         f"fans it to every open window and Dialog.cs:789-796 hides this one the "
                         f"instant it finishes typing -- the player never reads the number. Drop "
-                        f"no_turbo = false, or inhibit the window instead with hold/duration/[NFOC] "
-                        f"(NB those also block the PLAYER's confirm, so a blocking window then hangs "
-                        f"the script on wait == 254).")
+                        f"no_turbo = false, or hold the window with duration = n (auto-close). NB "
+                        f"hold/no_focus block the PLAYER's confirm too, so on a blocking window "
+                        f"they hang the script on wait == 254 -- a page that must survive a latched "
+                        f"F9 wants `polled = true`, not an inhibitor.")
+            # ---- THE THREE WINDOW-LIFETIME RULES, at the ONE chokepoint every dialogue-bearing
+            # block passes. They were scoped to the [[choice]] option loop and therefore missed
+            # [[npc]]/[[prop]]/[[event]]/cutscene `say` (where the same keys are legal to WRITE)
+            # and the whole [ate] lane.
+            #
+            # THE BODY IS WHAT DECIDES WHETHER THERE IS A WINDOW AT ALL -- a [[prop]] with no
+            # `dialogue` or an [[event]] that only gives an item opens nothing, so a hold key there
+            # is inert, not a hang, and calling it a SOFTLOCK would be a false refusal. On an OPTION
+            # row the window is its `reply` specifically: `text` is the MENU ROW label (and it is in
+            # BODY_KEYS for [[coop]]'s sake), so `body_text` would read the label as a body and
+            # report a reply-less polled row as if it had one. Elsewhere `body_text` is right, and
+            # it is a plain copy -- asking an [[npc]] about `reply` harvests nothing.
+            if window_close == "polled":
+                _body = str(src.get("reply") or "")
+            else:
+                _body = _text.body_text(src) or default_body
+            # `polled` is PROBED only where it is wired (so it stays in those blocks' harvested
+            # VOCAB) and read through a plain copy everywhere else (so a refusal does not bless it
+            # as a legal key of every block). Either way the VALUE is live -- that is the defect.
+            if window_close == "polled":
+                _polled = bool(src.get(_text.POLLED_KEY))
+            else:
+                _polled = _text.window_polled(src)
+                if _polled:
+                    problems.append(_text.polled_lane_problem(label))
+                    _polled = False          # refused -> score the rest as the sync window it is
+            # ★ THE SYNC-HOLD SOFTLOCK RULE (content.text.sync_hold_problems).
+            if str(_body).strip() and (window_close == "sync"
+                                       or (window_close == "polled" and not _polled)):
+                for _tail in _text.sync_hold_problems(src, _body):
+                    problems.append(f"{label}{_tail}")
+            if window_close == "polled" and str(_body).strip():
+                # ★ THE BROADCAST-CONFIRM LAW (studies/messages/SURVEY.md §7a).
+                # DialogManager.OnKeyConfirm (DialogManager.cs:335-341) fans a confirm press out to
+                # EVERY active window with no filter, and Dialog.OnKeyConfirm (Dialog.cs:789) closes
+                # a window that has FINISHED TYPING and is not `ignoreInputFlag`. An option reply is
+                # opened BY a confirm press -- the one that picked the row -- so an instant-popped
+                # reply is already finished when that press fans out and dismisses itself on arrival.
+                # Owner playtest, bench 30801: the page "immediately does the closing animation and
+                # exits the entire dialogue tree". A typewriter reply is safe (a mid-type press SKIPS
+                # to full text), and so is one that sets ignoreInputFlag -- but only on a `polled`
+                # reply, because on the blocking WindowSync those same tags are the softlock above.
+                # NOTE this is about the OPTION's reply, never the choice block's own `instant` --
+                # an instant SELECTOR is proven fine (studies/messages/bench/winstyle.field.toml:127).
+                if (bool(src.get("instant")) or "[IMME]" in _body) and not _text.hold_sources(src, _body):
+                    problems.append(
+                        f"{label} has an INSTANT reply -- the confirm press "
+                        f"that selects this row fans out to every open window (DialogManager.cs:335-341) "
+                        f"and closes any that has finished typing (Dialog.cs:789), so an instant reply "
+                        f"dismisses itself the moment it opens and the dialogue tree exits. Drop "
+                        f"`instant`/[IMME] from the option (a typewriter reply survives -- a mid-type "
+                        f"press skips to full text), or make it a `polled` page (async open + script "
+                        f"poll + script close) if it must not be dismissable -- holding a BLOCKING "
+                        f"reply is a softlock. The choice block's own `instant` is unaffected.")
+            # ★ THE POLLED-PAGE RULES (content/text.polled_window_problems). Scored on the EMITTED
+            # .mes entry, not on the authored string: the [NTUR]/[NFOC] halves come from
+            # `dress_window` and the poll loop from `content/event.polled_window`, two lanes that
+            # meet only at build -- so no single emitter can make these unrepresentable, and a
+            # missing tag is invisible until a latched F9 eats the page in-game.
+            if _polled:
+                if not str(_body).strip():
+                    problems.append(f"{label}: polled needs a `reply` -- there is no window to "
+                                    f"open, hold, poll and close without one")
+                else:
+                    try:
+                        _dressed = _text.dress_window(src, _body)[0]
+                    except (TypeError, ValueError):
+                        # a malformed speed/duration/box/style -- the type rules above name it
+                        # precisely; re-raising here would replace an actionable message with a
+                        # traceback out of the emitter
+                        _dressed = None
+                    if _dressed is not None:
+                        for _tail in _text.polled_window_problems(src, _dressed):
+                            problems.append(f"{label} {_tail}")
         a = src.get("actor") if opcode_side else None
         if a is not None and actor != "cast":      # "cast": the step's actor IS the performer
             if actor == "no":
@@ -2939,7 +3029,8 @@ def validate(project: FieldProject) -> list[str]:
     _wa_ev_actor = "player-only" if _wa_verbatim else "yes"
     _wa_choice_npcs = {ch.get("npc") for ch in project.raw.get("choice", []) if ch.get("npc")}
     for i, n in enumerate(project.raw.get("npc", [])):
-        _check_window_attrs(f"[[npc]] {n.get('name') or '#' + str(i)}", n, lock="yes")
+        _check_window_attrs(f"[[npc]] {n.get('name') or '#' + str(i)}", n, lock="yes",
+                            default_body=_text.DEFAULT_SILENT_TALK)
         if n.get("lock") is False and n.get("name") in _wa_choice_npcs:
             problems.append(f"[[npc]] {n.get('name')!r}: lock = false with an attached [[choice]] "
                             f"-- a choice menu NEEDS the lock (the d-pad would move the character "
@@ -3002,10 +3093,36 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[choice]] #{c}: an NPC-attached choice already attributes its window "
                             f"to that NPC -- drop `actor`")
         for oi, o in enumerate(ch.get("options", [])):
-            _check_window_attrs(f"[[choice]] #{c} option {oi}", o, allow_dim=False)
+            _check_window_attrs(f"[[choice]] #{c} option {oi}", o, allow_dim=False,
+                                window_close="polled")
+    # [ate] -- the SECOND lane into content.choice.option_body (_apply_ate -> option_body), so its
+    # rows honour `window`/`style`/`polled` exactly like a [[choice]] row and get exactly the same
+    # rules from the same function. Before this they got NONE: a polled ATE reply shipped with
+    # neither [NTUR] nor [NFOC] and validate said nothing, or -- with the default bubble style --
+    # raised a bare ValueError out of content/event.polled_window in the middle of build_mod.
+    # The [ate] TABLE itself is deliberately not swept: it wires only speaker/prompt/tail/options
+    # (collect_text), so probing the presentation keys here would harvest them as accepted-but-inert.
+    _ate_block = project.raw.get("ate")
+    if isinstance(_ate_block, dict):
+        for oi, o in enumerate(_ate_block.get("options", []) or []):
+            if isinstance(o, dict):
+                _check_window_attrs(f"[ate] option {oi}", o, allow_dim=False,
+                                    window_close="polled")
     for k, co in enumerate(project.raw.get("coop", [])):
         _check_window_attrs(f"[[coop]] #{k}", co, opcode_side=False)
     for k, p in enumerate(project.raw.get("prop", [])):
+        if p.get("dialogue") is not None and not _wa_verbatim:
+            # a readable prop is only WIRED on a verbatim fork (_verbatim_prop_messages /
+            # _inject_verbatim_props); the synthesize call site passes no dialogue_text_id,
+            # so the authored text would be dropped SILENTLY -- refuse with the true reason
+            # instead of sweeping window attrs on a window that will never exist (the
+            # turbo-page re-verify caught the sweep false-refusing exactly this shape).
+            problems.append(
+                f"[[prop]] #{k}: `dialogue` is only wired on a VERBATIM fork ([verbatim_eb]) "
+                f"-- the synthesized field drops it silently, so this text would never "
+                f"appear in-game. Move the line to an [[npc]] (a talkable actor), or fork "
+                f"the donor --verbatim, where a readable prop ships a real tag-3 WindowSync.")
+            continue
         _check_window_attrs(f"[[prop]] #{k}", p, opcode_side=False)
     for k, ch in enumerate(project.raw.get("chest", [])):
         _check_window_attrs(f"[[chest]] #{k}", ch, opcode_side=False, text_side=False)
@@ -3014,8 +3131,12 @@ def validate(project: FieldProject) -> list[str]:
     for _ci, cs in enumerate(_cutscene.blocks(project.raw.get("cutscene"))):
         for _sk, s in enumerate(cs.get("steps") or []):
             if _cutscene.step_text(s) is not None:
+                # a `say` step is a BLOCKING message (content/cutscene.py:365 -> event.message);
+                # an `open` step is the ASYNC lane the multi-window verbs drive (:374), where a
+                # hold is load-bearing and the window ledger already owns the missing-close case
                 _check_window_attrs(f"[cutscene] step {_sk}", s,
-                                    actor=("cast" if cs.get("actors") else "no"))
+                                    actor=("cast" if cs.get("actors") else "no"),
+                                    window_close=("async" if "open" in s else "sync"))
     _cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
     for _ci, cs in enumerate(_cs_blocks):
         # the [[cutscene]] DISPATCH (#13 v2): several scenes per field, each validated alone. A singleton
