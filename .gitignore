@@ -287,3 +287,6 @@ examples/stolen-ember/dist/
 
 # nightly test gate state (lock, ledger, run logs) -- tools/nightly_gate.py writes here
 /.test-gate/
+
+# in-game harness runs (frames, events, Memoria.log, report.json) -- tools/play.py writes here
+/.harness-runs/

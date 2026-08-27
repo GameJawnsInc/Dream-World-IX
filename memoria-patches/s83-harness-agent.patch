@@ -1,0 +1,930 @@
+--- a/Assembly-CSharp/Global/Hono/HonoInputManager.cs
++++ b/Assembly-CSharp/Global/Hono/HonoInputManager.cs
+@@ -885,8 +885,17 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+         }
+     }
+ 
++    // [ff9mapkit s83] THE TEST-HARNESS INPUT INJECTION POINT. These three methods are the single choke
++    // point every input consumer in the game reads -- field walking, world map, battle commands, every
++    // menu -- so overriding here (rather than faking OS key events) gives the harness a complete virtual
++    // controller that needs no window focus and does not steal the human's keyboard. The harness value
++    // is OR-ed in, never substituted, so a human can drive the same session by hand while a scenario
++    // runs. HarnessAgent.Active is a plain static bool that is false unless a run has explicitly armed
++    // the harness, so an unarmed game pays one predictable-branch bool test per key query.
+     public Boolean IsInput(Control index)
+     {
++        if (Memoria.Harness.HarnessAgent.IsHeld(index))
++            return true;
+         Int32 indexInt = (Int32)index;
+         if (indexInt >= this.KeyName.Length || indexInt < 0)
+             return this.GetDirectionKey(index);
+@@ -897,6 +906,8 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+ 
+     public Boolean IsInputDown(Control index)
+     {
++        if (Memoria.Harness.HarnessAgent.WasPressed(index))     // [ff9mapkit s83]
++            return true;
+         Int32 indexInt = (Int32)index;
+         if (indexInt >= this.KeyName.Length || index < 0)
+             return this.GetDirectionKeyDown(index);
+@@ -907,6 +918,8 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+ 
+     public Boolean IsInputUp(Control index)
+     {
++        if (Memoria.Harness.HarnessAgent.WasReleased(index))    // [ff9mapkit s83]
++            return true;
+         Int32 indexInt = (Int32)index;
+         if (indexInt >= this.KeyName.Length || indexInt < 0)
+             return this.GetDirectionKeyUp(index);
+--- a/Assembly-CSharp/Global/TitleUI.cs
++++ b/Assembly-CSharp/Global/TitleUI.cs
+@@ -954,6 +954,17 @@ public class TitleUI : UIScene
+         }
+     }
+ 
++    // [ff9mapkit s83] Test-harness entry: start a new game WITHOUT navigating the title menu.
++    // A scenario could in principle blind-press Confirm on the title, but the highlighted entry there
++    // depends on whether a save exists (Continue appears and takes the default), so the same script
++    // would start a new game on one machine and resume someone's save on another. Calling the click
++    // handler the button itself calls removes that whole class of flake. Same path the StartFieldCreator
++    // debug option already uses from ShowMenuPanel.
++    public void HarnessStartNewGame()
++    {
++        this.OnNewGameButtonClick();
++    }
++
+     private void OnNewGameButtonClick()
+     {
+         AutoSplitterPipe.SignalGameStart();
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1378,6 +1378,7 @@
+     <Compile Include="Memoria\Test\Values\Unity\Vector2Message.cs" />
+     <Compile Include="Memoria\Test\Values\Unity\Vector3Message.cs" />
+     <Compile Include="Memoria\Test\Values\Unity\Vector4Message.cs" />
++    <Compile Include="Memoria\Harness\HarnessAgent.cs" />
+     <Compile Include="Memoria\World\WorldConfiguration.cs" />
+     <Compile Include="Memoria\World\WorldMeshOverride.cs" />
+     <Compile Include="Memoria\World\WorldDiscSpike.cs" />
+--- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+@@ -128,6 +128,11 @@
+     {
+         try
+         {
++            // [ff9mapkit s83] Bootstrap the test-harness agent. Idempotent (one null compare once it
++            // exists) and hosted here because this trigger is alive from the title screen onward, so a
++            // scenario can drive the game from New Game rather than only from an already-loaded field.
++            // The agent itself stays dormant until a run creates the `ff9harness/arm` file.
++            Memoria.Harness.HarnessAgent.Ensure();
+             GameLoopManager.RaiseUpdateEvent();
+ 
+             if (UnityXInput.Input.GetAxis("Mouse X") < 1.0 / 1000.0 && UnityXInput.Input.GetAxis("Mouse Y") < 1.0 / 1000.0)
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -454,6 +454,46 @@
+         _instance = go.AddComponent<Ff9mkDebugMenu>();
+     }
+ 
++    // ---------------------------------------------------------------------------------------------
++    // [ff9mapkit s83] Entry points for the TEST HARNESS (Memoria.Harness.HarnessAgent).
++    //
++    // The harness deliberately does NOT reimplement warping. This menu's warp is the in-game-proven
++    // path -- lock control, fade to black, THEN change map from ServicePendingWarp on a later frame,
++    // exactly as a gateway does -- and a second copy of that sequence would drift from this one and
++    // start producing "works by hand, fails in the harness" bugs. These are thin adapters: they push
++    // the harness's arguments into the same text boxes a human would type into, then call the same
++    // private method the buttons call. ServicePendingWarp runs from Update() regardless of whether
++    // the menu is open, so a harness warp completes with no window ever shown.
++    // ---------------------------------------------------------------------------------------------
++    public static Boolean HarnessWarp(Int32 mapNo, Int32 entrance, Int32 scenario)
++    {
++        Ensure();
++        _instance._entranceText = entrance >= 0 ? entrance.ToString() : "";
++        _instance._scenarioText = scenario >= 0 ? scenario.ToString() : "";
++        return _instance.Warp(mapNo, false);
++    }
++
++    public static void HarnessWorldWarp(Int32 mapNo, Int32 entrance, Int32 scenario)
++    {
++        Ensure();
++        _instance._entranceText = entrance >= 0 ? entrance.ToString() : "";
++        _instance._scenarioText = scenario >= 0 ? scenario.ToString() : "";
++        _instance.WorldWarp(mapNo);
++    }
++
++    public static void HarnessWorldTeleport(Single wx, Single wz)
++    {
++        Ensure();
++        _instance.WorldTeleportTo(wx, wz);
++    }
++
++    // The one-line status the menu shows a human, surfaced so a failed harness action explains itself
++    // in state.json instead of silently doing nothing.
++    public static String HarnessStatus
++    {
++        get { return _instance == null ? null : _instance._status; }
++    }
++
+     // Open/close the menu, PAUSING field input while open (save the current user-control state, disable
+     // it, restore on a plain close) so the d-pad + the Use(!)/action button don't drive the field behind
+     // the popup. A warp/reload action instead closes the menu directly -- the field transition itself
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+new file mode 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -0,0 +1,794 @@
++using System;
++using System.Collections;
++using System.Collections.Generic;
++using System.Globalization;
++using System.IO;
++using System.Text;
++using Assets.Scripts.Common;
++using UnityEngine;
++
++// [ff9mapkit s83] THE TEST HARNESS AGENT -- the in-process half of the automated play/verify loop.
++//
++// WHY THIS EXISTS: the agent developing this toolkit cannot play the game. It could deploy a build and
++// capture a static PNG of the window (tools/game_snap.ps1), but it could not press a button, could not
++// know WHERE the character was, and could not read a line of dialogue -- so every behavioural claim had
++// to be paid for with a human playtest. This class closes that loop from inside the engine:
++//
++//   IN   a plain-text request file  (ff9harness/req.txt)    -- frame-exact button presses, warps, flags
++//   OUT  a JSON state file          (ff9harness/state.json) -- where you are, what you can see
++//   OUT  an append-only event log   (ff9harness/events.jsonl)
++//   OUT  PNG frames                 (ff9harness/shots/)
++//
++// Input is injected at HonoInputManager.IsInput/IsInputDown/IsInputUp -- the single choke point every
++// consumer (field, world, battle, menus) reads. That means the harness needs NO window focus and does
++// NOT steal the keyboard: the game believes a virtual controller button is held while the human can
++// still type in another window, and real input is OR-ed in so a human can drive the same session.
++//
++// DORMANT BY DEFAULT -- and that is load-bearing, not politeness. One game install is shared by every
++// concurrent worktree on this machine. With no `ff9harness/arm` file present, `Active` is false, the
++// three input hooks early-out on a static bool, nothing is written, and behaviour is bit-identical to
++// an unpatched engine. The driver creates `arm` before launching and removes it when the run ends.
++//
++// FRAME MODEL: every schedule is expressed in ABSOLUTE Time.frameCount values decided at least one frame
++// ahead. Unity does not order component Updates, so a press scheduled for "now" could be sampled by
++// HonoInputManager either side of our own Update and would be seen once, twice, or never -- the exact
++// flakiness that makes a harness worthless. Scheduling into the future makes every consumer in a given
++// frame agree regardless of execution order.
++namespace Memoria.Harness
++{
++    public sealed class HarnessAgent : MonoBehaviour
++    {
++        public const Int32 ProtocolVersion = 1;
++
++        // ---- arming ----------------------------------------------------------------------------
++        // Read by the HonoInputManager hooks on EVERY key query of every frame, so it is a plain static
++        // field -- no property, no file check, no allocation on the hot path.
++        public static Boolean Active;
++
++        private static HarnessAgent _instance;
++        private static String _dir;             // <game>/x64/ff9harness
++        private static String _shotDir;
++
++        // ---- virtual controller ----------------------------------------------------------------
++        // Absolute frame numbers, one slot per Control (the enum has 16 members). A button is HELD on
++        // frames [_downFrame, _upFrame), reports Down on exactly _downFrame and Up on exactly _upFrame.
++        private const Int32 ControlCount = 16;
++        private static readonly Int32[] _downFrame = new Int32[ControlCount];
++        private static readonly Int32[] _upFrame = new Int32[ControlCount];
++
++        public static Boolean IsHeld(Control c)
++        {
++            Int32 i = (Int32)c;
++            if (!Active || i < 0 || i >= ControlCount)
++                return false;
++            Int32 f = Time.frameCount;
++            return f >= _downFrame[i] && f < _upFrame[i];
++        }
++
++        public static Boolean WasPressed(Control c)
++        {
++            Int32 i = (Int32)c;
++            return Active && i >= 0 && i < ControlCount && Time.frameCount == _downFrame[i];
++        }
++
++        public static Boolean WasReleased(Control c)
++        {
++            Int32 i = (Int32)c;
++            return Active && i >= 0 && i < ControlCount && Time.frameCount == _upFrame[i];
++        }
++
++        // ---- request queue ---------------------------------------------------------------------
++        private sealed class Step
++        {
++            public String Op;
++            public String[] Args;
++        }
++
++        private readonly Queue<Step> _queue = new Queue<Step>();
++        private readonly List<Int32> _watch = new List<Int32>();   // gEventGlobal bit indices published in state
++        private Int64 _seq = -1;            // last request sequence ACCEPTED
++        private Int64 _ack = -1;            // last request sequence COMPLETED (queue drained)
++        private Boolean _pendingAck;        // a request is accepted but not yet fully completed
++        private Int32 _blockUntilFrame;     // the queue does not advance until Time.frameCount reaches this
++        private Int32 _tickedFrame = -1;    // Update re-entry guard (one logical tick per rendered frame)
++        private Int32 _armPollFrame;
++        private Int32 _reqPollFrame;
++        private Int32 _stateFrame;
++        private Int32 _stateEvery = 2;      // frames between state writes; `stateevery N` tunes it
++        private String _lastError;
++        private String _note = "";
++        private Int32 _shotsTaken;
++        private Int32 _shotsPending;
++
++        // ------------------------------------------------------------------------------------------
++        // Bootstrap. Called once per frame from UIKeyTrigger.Update (idempotent -- one null compare once
++        // built). A DontDestroyOnLoad MonoBehaviour rather than a call-through so the agent outlives
++        // every scene change: title -> field -> battle -> world all keep the same queue and the same
++        // held buttons.
++        // ------------------------------------------------------------------------------------------
++        public static void Ensure()
++        {
++            if (_instance != null)
++                return;
++            GameObject go = new GameObject("Ff9mkHarnessAgent");
++            UnityEngine.Object.DontDestroyOnLoad(go);
++            _instance = go.AddComponent<HarnessAgent>();
++        }
++
++        private void Update()
++        {
++            if (_tickedFrame == Time.frameCount)
++                return;
++            _tickedFrame = Time.frameCount;
++
++            try
++            {
++                PollArm();
++                if (!Active)
++                    return;
++                PollRequest();
++                DrainQueue();
++                PublishState(false);
++            }
++            catch (Exception err)
++            {
++                // The harness must never be able to crash the game it is testing: a malformed request
++                // line or a locked file becomes a reported error and a disarm, not a dead frame loop.
++                _lastError = err.Message;
++                Active = false;
++                ClearAllButtons();
++                Memoria.Prime.Log.Message("[ff9mk harness] disarmed after an unhandled error: " + err);
++            }
++        }
++
++        // The arm file is POLLED rather than read once, so a run can arm or disarm a LIVE game with no
++        // relaunch. Twice a second is far below noise -- File.Exists on a warm directory is microseconds.
++        private void PollArm()
++        {
++            if (_dir == null)
++            {
++                _dir = Path.GetFullPath(Path.Combine(Path.Combine(Application.dataPath, ".."), "ff9harness"));
++                _shotDir = Path.Combine(_dir, "shots");
++            }
++            if (Time.frameCount - _armPollFrame < 30)
++                return;
++            _armPollFrame = Time.frameCount;
++
++            Boolean armed = File.Exists(Path.Combine(_dir, "arm"));
++            if (armed == Active)
++                return;
++
++            Active = armed;
++            _queue.Clear();
++            ClearAllButtons();
++            if (armed)
++            {
++                Directory.CreateDirectory(_shotDir);
++                _seq = -1;
++                _ack = -1;
++                _pendingAck = false;
++                _blockUntilFrame = 0;
++                _lastError = null;
++                _shotsTaken = 0;
++                _shotsPending = 0;
++                Event("armed", "protocol", ProtocolVersion.ToString(CultureInfo.InvariantCulture));
++                Memoria.Prime.Log.Message("[ff9mk harness] ARMED -- channel at " + _dir);
++            }
++            else
++            {
++                Memoria.Prime.Log.Message("[ff9mk harness] disarmed");
++            }
++        }
++
++        private static void ClearAllButtons()
++        {
++            for (Int32 i = 0; i < ControlCount; i++)
++            {
++                _downFrame[i] = -1;
++                _upFrame[i] = -1;
++            }
++        }
++
++        // ------------------------------------------------------------------------------------------
++        // req.txt -- a line-oriented text protocol, deliberately NOT JSON. The game side needs no JSON
++        // parser (Assembly-CSharp bundles none, and hand-rolling one inside the frame loop is a bug
++        // farm); the driver side needs three lines of Python to emit it. State comes BACK as JSON,
++        // where the asymmetry reverses: C# writes it with a StringBuilder, Python reads it for free.
++        //
++        // The first line must be `seq <n>`. A request whose seq is not GREATER than the last accepted
++        // one is ignored, which makes the read idempotent: the driver writes the file once and we may
++        // poll it any number of times, including while it is mid-rewrite.
++        // ------------------------------------------------------------------------------------------
++        private void PollRequest()
++        {
++            // Poll hard while idle (latency between steps is the driver's round-trip cost), gently
++            // while a queue is already running.
++            Int32 every = _queue.Count == 0 ? 2 : 10;
++            if (Time.frameCount - _reqPollFrame < every)
++                return;
++            _reqPollFrame = Time.frameCount;
++
++            String path = Path.Combine(_dir, "req.txt");
++            if (!File.Exists(path))
++                return;
++
++            String[] lines;
++            try
++            {
++                lines = File.ReadAllLines(path);
++            }
++            catch (IOException)
++            {
++                return;     // mid-write by the driver; the next poll gets it
++            }
++            if (lines.Length == 0)
++                return;
++
++            Int64 seq;
++            String[] head = Split(lines[0]);
++            if (head.Length < 2 || head[0] != "seq" || !Int64.TryParse(head[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out seq))
++                return;
++            if (seq <= _seq)
++                return;
++
++            _seq = seq;
++            Int32 added = 0;
++            for (Int32 i = 1; i < lines.Length; i++)
++            {
++                String[] tok = Split(lines[i]);
++                if (tok.Length == 0 || tok[0].StartsWith("#"))
++                    continue;
++                String[] args = new String[tok.Length - 1];
++                Array.Copy(tok, 1, args, 0, args.Length);
++                _queue.Enqueue(new Step { Op = tok[0].ToLowerInvariant(), Args = args });
++                added++;
++            }
++            _pendingAck = true;
++            Event("accepted", "seq", seq.ToString(CultureInfo.InvariantCulture), "steps", added.ToString(CultureInfo.InvariantCulture));
++        }
++
++        private static String[] Split(String line)
++        {
++            if (String.IsNullOrEmpty(line))
++                return new String[0];
++            return line.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
++        }
++
++        private void DrainQueue()
++        {
++            while (_queue.Count > 0 && Time.frameCount >= _blockUntilFrame)
++            {
++                Step s = _queue.Dequeue();
++                try
++                {
++                    Execute(s);
++                }
++                catch (Exception err)
++                {
++                    _lastError = s.Op + ": " + err.Message;
++                    Event("error", "op", s.Op, "message", err.Message);
++                }
++            }
++            // The ack must be latched on PERSISTENT state, not on "was the queue busy at the top of
++            // THIS tick". When the final step blocks -- which is almost all of them: press, wait, warp,
++            // shot -- the queue empties on the frame it is dequeued but the block has not elapsed, and
++            // by the next frame a frame-local "was busy" is already false. That loses the ack forever
++            // and every command hangs until the driver's timeout. Caught by the offline stand-in
++            // (ff9mapkit/tests/test_harness.py) before it ever cost a game launch.
++            if (_pendingAck && _queue.Count == 0 && Time.frameCount >= _blockUntilFrame && _shotsPending == 0)
++            {
++                _pendingAck = false;
++                _ack = _seq;
++                Event("ack", "seq", _ack.ToString(CultureInfo.InvariantCulture));
++                PublishState(true);
++            }
++        }
++
++        // ------------------------------------------------------------------------------------------
++        // The verbs. `press` BLOCKS for its own duration (tap-then-continue is the 99% case); `hold`
++        // does NOT (so a scenario can walk and act in the same breath) -- the explicit sync is `wait`.
++        // Everything else is instantaneous.
++        // ------------------------------------------------------------------------------------------
++        private void Execute(Step s)
++        {
++            switch (s.Op)
++            {
++                case "wait":
++                    Block(Arg(s, 0, 1));
++                    break;
++
++                case "press":
++                {
++                    Control c = ParseControl(s.Args.Length > 0 ? s.Args[0] : "");
++                    Int32 frames = Math.Max(1, Arg(s, 1, 2));
++                    Schedule(c, frames);
++                    Block(frames + 2);          // +1 for the scheduling offset, +1 so IsInputUp lands inside the step
++                    break;
++                }
++
++                case "hold":
++                {
++                    Control c = ParseControl(s.Args.Length > 0 ? s.Args[0] : "");
++                    Schedule(c, Math.Max(1, Arg(s, 1, 30)));
++                    break;
++                }
++
++                case "release":
++                {
++                    Int32 i = (Int32)ParseControl(s.Args.Length > 0 ? s.Args[0] : "");
++                    // Land the release on the NEXT frame so a consumer that already sampled this frame
++                    // still sees a consistent held state; _upFrame in the past would never report Up.
++                    _upFrame[i] = Time.frameCount + 1;
++                    break;
++                }
++
++                case "warp":
++                    if (!Ff9mkDebugMenu.HarnessWarp(Arg(s, 0, -1), Arg(s, 1, -1), Arg(s, 2, -1)))
++                        throw new InvalidOperationException("warp refused (not on a field?)");
++                    Block(2);
++                    break;
++
++                case "worldwarp":
++                    Ff9mkDebugMenu.HarnessWorldWarp(Arg(s, 0, -1), Arg(s, 1, -1), Arg(s, 2, -1));
++                    Block(2);
++                    break;
++
++                case "teleport":
++                    Ff9mkDebugMenu.HarnessWorldTeleport(ArgF(s, 0, 0f), ArgF(s, 1, 0f));
++                    Block(2);
++                    break;
++
++                case "newgame":
++                {
++                    TitleUI title = UnityEngine.Object.FindObjectOfType<TitleUI>();
++                    if (title == null)
++                        throw new InvalidOperationException("newgame: not at the title screen");
++                    title.HarnessStartNewGame();
++                    Block(2);
++                    break;
++                }
++
++                case "control":
++                    PersistenSingleton<EventEngine>.Instance.SetUserControl(Arg(s, 0, 1) != 0);
++                    break;
++
++                case "flag":
++                {
++                    Int32 n = Arg(s, 0, -1);
++                    if (n < 0 || (n >> 3) >= FF9StateSystem.EventState.gEventGlobal.Length)
++                        throw new ArgumentOutOfRangeException("flag", "bit " + n + " is out of range");
++                    Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++                    if (Arg(s, 1, 1) != 0)
++                        g[n >> 3] |= (Byte)(1 << (n & 7));
++                    else
++                        g[n >> 3] &= (Byte)~(1 << (n & 7));
++                    break;
++                }
++
++                case "byte":
++                {
++                    Int32 idx = Arg(s, 0, -1);
++                    if (idx < 0 || idx >= FF9StateSystem.EventState.gEventGlobal.Length)
++                        throw new ArgumentOutOfRangeException("byte", "index " + idx + " is out of range");
++                    FF9StateSystem.EventState.gEventGlobal[idx] = (Byte)Arg(s, 1, 0);
++                    break;
++                }
++
++                case "watch":
++                    foreach (String a in s.Args)
++                    {
++                        Int32 n;
++                        if (Int32.TryParse(a, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) && !_watch.Contains(n))
++                            _watch.Add(n);
++                    }
++                    break;
++
++                case "unwatch":
++                    _watch.Clear();
++                    break;
++
++                case "timescale":
++                    Time.timeScale = Mathf.Clamp(ArgF(s, 0, 1f), 0f, 8f);
++                    break;
++
++                case "stateevery":
++                    _stateEvery = Math.Max(1, Arg(s, 0, 2));
++                    break;
++
++                case "shot":
++                    _shotsPending++;
++                    StartCoroutine(CaptureShot(s.Args.Length > 0 ? s.Args[0] : "shot"));
++                    Block(2);
++                    break;
++
++                case "note":
++                    _note = String.Join(" ", s.Args);
++                    Event("note", "text", _note);
++                    break;
++
++                case "quit":
++                    Event("quit");
++                    FlushEvents();
++                    Application.Quit();
++                    break;
++
++                default:
++                    throw new NotSupportedException("unknown op '" + s.Op + "'");
++            }
++        }
++
++        private void Block(Int32 frames)
++        {
++            Int32 until = Time.frameCount + Math.Max(0, frames);
++            if (until > _blockUntilFrame)
++                _blockUntilFrame = until;
++        }
++
++        // Schedule a virtual press starting NEXT frame -- see the FRAME MODEL note at the top of the file.
++        private static void Schedule(Control c, Int32 frames)
++        {
++            Int32 i = (Int32)c;
++            if (i < 0 || i >= ControlCount)
++                throw new ArgumentOutOfRangeException("button");
++            _downFrame[i] = Time.frameCount + 1;
++            _upFrame[i] = _downFrame[i] + frames;
++        }
++
++        private static Int32 Arg(Step s, Int32 i, Int32 fallback)
++        {
++            Int32 v;
++            if (s.Args.Length > i && Int32.TryParse(s.Args[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out v))
++                return v;
++            return fallback;
++        }
++
++        private static Single ArgF(Step s, Int32 i, Single fallback)
++        {
++            Single v;
++            if (s.Args.Length > i && Single.TryParse(s.Args[i], NumberStyles.Float, CultureInfo.InvariantCulture, out v))
++                return v;
++            return fallback;
++        }
++
++        // Accepts the Control enum names plus the aliases a human (or a scenario author) actually types.
++        private static Control ParseControl(String name)
++        {
++            switch ((name ?? "").ToLowerInvariant())
++            {
++                case "confirm": case "ok": case "x": case "circle": case "a": return Control.Confirm;
++                case "cancel": case "back": case "b": return Control.Cancel;
++                case "menu": case "triangle": case "y": return Control.Menu;
++                case "special": case "square": return Control.Special;
++                case "l1": case "leftbumper": return Control.LeftBumper;
++                case "r1": case "rightbumper": return Control.RightBumper;
++                case "l2": case "lefttrigger": return Control.LeftTrigger;
++                case "r2": case "righttrigger": return Control.RightTrigger;
++                case "start": case "pause": return Control.Pause;
++                case "select": return Control.Select;
++                case "up": case "north": return Control.Up;
++                case "down": case "south": return Control.Down;
++                case "left": case "west": return Control.Left;
++                case "right": case "east": return Control.Right;
++                default: throw new ArgumentException("unknown button '" + name + "'");
++            }
++        }
++
++        // ------------------------------------------------------------------------------------------
++        // Screenshots. ReadPixels at end-of-frame rather than Application.CaptureScreenshot: the latter
++        // is fire-and-forget with an engine-chosen path, so the driver can never know WHEN the file is
++        // complete. This version owns the path and decrements _shotsPending only once the bytes are on
++        // disk, which is what lets DrainQueue hold the ack until every frame is actually captured.
++        //
++        // It also beats the external PrintWindow capture on two counts: it needs no window focus and it
++        // cannot return the all-black frame that exclusive fullscreen gives game_snap.ps1.
++        // ------------------------------------------------------------------------------------------
++        private IEnumerator CaptureShot(String name)
++        {
++            yield return new WaitForEndOfFrame();
++            String path = null;
++            try
++            {
++                Texture2D tex = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
++                tex.ReadPixels(new Rect(0f, 0f, Screen.width, Screen.height), 0, 0, false);
++                tex.Apply();
++                Byte[] png = tex.EncodeToPNG();
++                UnityEngine.Object.Destroy(tex);
++                path = Path.Combine(_shotDir, Sanitize(name) + ".png");
++                File.WriteAllBytes(path, png);
++                _shotsTaken++;
++                Event("shot", "name", name, "path", path, "w", Screen.width.ToString(CultureInfo.InvariantCulture), "h", Screen.height.ToString(CultureInfo.InvariantCulture));
++            }
++            catch (Exception err)
++            {
++                _lastError = "shot: " + err.Message;
++                Event("error", "op", "shot", "message", err.Message);
++            }
++            _shotsPending = Math.Max(0, _shotsPending - 1);
++        }
++
++        private static String Sanitize(String name)
++        {
++            StringBuilder sb = new StringBuilder();
++            foreach (Char c in name ?? "shot")
++                sb.Append(Char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.' ? c : '_');
++            return sb.Length == 0 ? "shot" : sb.ToString();
++        }
++
++        // ------------------------------------------------------------------------------------------
++        // state.json -- what the driver asserts against. EVERY read is individually try/caught and
++        // degrades to null: this file is sampled at the title screen, mid-transition and mid-battle,
++        // where half of these singletons do not exist yet. One missing subsystem must cost one null
++        // field, never the whole state document.
++        // ------------------------------------------------------------------------------------------
++        private void PublishState(Boolean force)
++        {
++            if (!force && Time.frameCount - _stateFrame < _stateEvery)
++                return;
++            _stateFrame = Time.frameCount;
++
++            StringBuilder sb = new StringBuilder(1024);
++            sb.Append("{");
++            Num(sb, "v", ProtocolVersion); sb.Append(",");
++            Num(sb, "frame", Time.frameCount); sb.Append(",");
++            Num(sb, "seq", _seq); sb.Append(",");
++            Num(sb, "ack", _ack); sb.Append(",");
++            Num(sb, "queue", _queue.Count); sb.Append(",");
++            Bool(sb, "busy", _queue.Count > 0 || _shotsPending > 0 || Time.frameCount < _blockUntilFrame); sb.Append(",");
++            Num(sb, "shots", _shotsTaken); sb.Append(",");
++            Num(sb, "timescale", Time.timeScale); sb.Append(",");
++            Str(sb, "note", _note); sb.Append(",");
++            Str(sb, "error", _lastError); sb.Append(",");
++
++            Str(sb, "ui_state", Try(() => PersistenSingleton<UIManager>.Instance.State.ToString())); sb.Append(",");
++            Str(sb, "scene", Try(() => PersistenSingleton<SceneDirector>.Instance.CurrentScene)); sb.Append(",");
++            Bool(sb, "fading", Try(() => PersistenSingleton<SceneDirector>.Instance.IsFading, false)); sb.Append(",");
++            Num(sb, "sys_mode", Try(() => (Int32)PersistenSingleton<FF9StateSystem>.Instance.mode, -1)); sb.Append(",");
++            Num(sb, "scenario", Try(() => FF9StateSystem.EventState.ScenarioCounter, -1)); sb.Append(",");
++
++            // field
++            Int32 fld = Try(() => (Int32)FF9StateSystem.Common.FF9.fldMapNo, -1);
++            sb.Append("\"field\":{");
++            Num(sb, "id", fld); sb.Append(",");
++            Str(sb, "name", Try(() =>
++            {
++                String n;
++                return EventEngineUtils.eventIDToFBGID.TryGetValue(fld, out n) ? n : null;
++            }));
++            sb.Append("},");
++
++            // world
++            sb.Append("\"world\":{");
++            Num(sb, "id", Try(() => (Int32)FF9StateSystem.Common.FF9.wldMapNo, -1)); sb.Append(",");
++            Num(sb, "x", Try(() => ff9.w_moveActorPtr.RealPosition.x, Single.NaN)); sb.Append(",");
++            Num(sb, "z", Try(() => ff9.w_moveActorPtr.RealPosition.z, Single.NaN)); sb.Append(",");
++            Num(sb, "vehicle", Try(() => (Int32)FF9StateSystem.EventState.gEventGlobal[190], -1));
++            sb.Append("},");
++
++            // player
++            sb.Append("\"player\":{");
++            PosObj po = Try(() => PersistenSingleton<EventEngine>.Instance.GetControlChar());
++            Num(sb, "x", po != null && po.pos != null && po.pos.Length > 0 ? po.pos[0] : Single.NaN); sb.Append(",");
++            Num(sb, "y", po != null && po.pos != null && po.pos.Length > 1 ? po.pos[1] : Single.NaN); sb.Append(",");
++            Num(sb, "z", po != null && po.pos != null && po.pos.Length > 2 ? po.pos[2] : Single.NaN); sb.Append(",");
++            Num(sb, "dir", po != null && po.rot != null && po.rot.Length > 1 ? po.rot[1] : -1); sb.Append(",");
++            Num(sb, "floor", po != null ? po.activeFloor : -1); sb.Append(",");
++            Num(sb, "tri", po != null ? po.activeTri : -1); sb.Append(",");
++            Bool(sb, "control", Try(() => PersistenSingleton<EventEngine>.Instance.GetUserControl(), false));
++            sb.Append("},");
++
++            AppendDialog(sb); sb.Append(",");
++            AppendWatch(sb); sb.Append(",");
++            AppendHeld(sb);
++            sb.Append("}");
++
++            WriteAtomic(Path.Combine(_dir, "state.json"), sb.ToString());
++        }
++
++        // The on-screen text. This is the assertion that was flatly impossible before -- a scenario can
++        // now say "after talking to the NPC the box reads <line>" and have it MEAN something.
++        private void AppendDialog(StringBuilder sb)
++        {
++            sb.Append("\"dialog\":{");
++            try
++            {
++                DialogManager dm = PersistenSingleton<UIManager>.Instance.Dialogs;
++                List<Dialog> active = dm.ActiveDialogList;
++                Int32 n = active == null ? 0 : active.Count;
++                Bool(sb, "open", n > 0); sb.Append(",");
++                Num(sb, "count", n); sb.Append(",");
++                sb.Append("\"texts\":[");
++                for (Int32 i = 0; i < n; i++)
++                {
++                    if (i > 0) sb.Append(",");
++                    sb.Append(Quote(active[i] == null ? null : active[i].Phrase));
++                }
++                sb.Append("],");
++                Dialog choice = dm.GetChoiceDialog();
++                if (choice == null)
++                {
++                    sb.Append("\"choice\":null");
++                }
++                else
++                {
++                    sb.Append("\"choice\":{");
++                    Num(sb, "selected", choice.SelectChoice); sb.Append(",");
++                    Num(sb, "count", choice.ChoiceNumber); sb.Append(",");
++                    sb.Append("\"options\":[");
++                    String[] opts = choice.ChoicePhrases;
++                    for (Int32 i = 0; opts != null && i < opts.Length; i++)
++                    {
++                        if (i > 0) sb.Append(",");
++                        sb.Append(Quote(opts[i]));
++                    }
++                    sb.Append("]}");
++                }
++            }
++            catch (Exception)
++            {
++                sb.Append("\"open\":false,\"count\":0,\"texts\":[],\"choice\":null");
++            }
++            sb.Append("}");
++        }
++
++        private void AppendWatch(StringBuilder sb)
++        {
++            sb.Append("\"flags\":{");
++            try
++            {
++                Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++                for (Int32 i = 0; i < _watch.Count; i++)
++                {
++                    Int32 n = _watch[i];
++                    if (i > 0) sb.Append(",");
++                    Boolean set = (n >> 3) < g.Length && (g[n >> 3] & (1 << (n & 7))) != 0;
++                    Bool(sb, n.ToString(CultureInfo.InvariantCulture), set);
++                }
++            }
++            catch (Exception)
++            {
++            }
++            sb.Append("}");
++        }
++
++        private static void AppendHeld(StringBuilder sb)
++        {
++            sb.Append("\"held\":[");
++            Boolean first = true;
++            for (Int32 i = 0; i < ControlCount; i++)
++            {
++                if (!IsHeld((Control)i))
++                    continue;
++                if (!first) sb.Append(",");
++                sb.Append(Quote(((Control)i).ToString()));
++                first = false;
++            }
++            sb.Append("]");
++        }
++
++        // ---- events.jsonl ------------------------------------------------------------------------
++        private readonly List<String> _pendingEvents = new List<String>();
++
++        private void Event(String kind, params String[] kv)
++        {
++            StringBuilder sb = new StringBuilder(128);
++            sb.Append("{");
++            Num(sb, "frame", Time.frameCount); sb.Append(",");
++            Str(sb, "kind", kind);
++            for (Int32 i = 0; i + 1 < kv.Length; i += 2)
++            {
++                sb.Append(",");
++                Str(sb, kv[i], kv[i + 1]);
++            }
++            sb.Append("}");
++            _pendingEvents.Add(sb.ToString());
++            FlushEvents();
++        }
++
++        private void FlushEvents()
++        {
++            if (_pendingEvents.Count == 0 || _dir == null)
++                return;
++            try
++            {
++                File.AppendAllText(Path.Combine(_dir, "events.jsonl"), String.Join("\n", _pendingEvents.ToArray()) + "\n");
++                _pendingEvents.Clear();
++            }
++            catch (IOException)
++            {
++                // The driver may be reading; keep them buffered and retry on the next event.
++            }
++        }
++
++        // ---- tiny JSON writer + guarded readers ---------------------------------------------------
++        // Write to a sibling temp file then Replace, so the driver never parses a half-written document.
++        // The driver retries on a parse failure anyway -- belt and braces, because a torn state read is
++        // the kind of 1-in-500 flake that would discredit the whole harness.
++        private static void WriteAtomic(String path, String text)
++        {
++            String tmp = path + ".tmp";
++            try
++            {
++                File.WriteAllText(tmp, text, Encoding.UTF8);
++                if (File.Exists(path))
++                    File.Replace(tmp, path, null);
++                else
++                    File.Move(tmp, path);
++            }
++            catch (IOException)
++            {
++                // Windows fails the replace with a sharing violation whenever the driver happens to
++                // have state.json open at that instant -- a REAL collision at 30 publishes per second
++                // against a 30 Hz poll, measured, not theoretical. Do NOT retry in a spin here: this
++                // runs inside the frame loop, and sleeping to win a file race would stutter the very
++                // game we are measuring. Skipping is free -- the next publish is two frames away, and
++                // the driver retries a torn read anyway.
++            }
++            catch (UnauthorizedAccessException)
++            {
++            }
++        }
++
++        private static T Try<T>(Func<T> read, T fallback = default(T))
++        {
++            try
++            {
++                return read();
++            }
++            catch (Exception)
++            {
++                return fallback;
++            }
++        }
++
++        private static void Str(StringBuilder sb, String key, String value)
++        {
++            sb.Append(Quote(key)).Append(":").Append(Quote(value));
++        }
++
++        private static void Num(StringBuilder sb, String key, Int64 value)
++        {
++            sb.Append(Quote(key)).Append(":").Append(value.ToString(CultureInfo.InvariantCulture));
++        }
++
++        private static void Num(StringBuilder sb, String key, Single value)
++        {
++            sb.Append(Quote(key)).Append(":");
++            if (Single.IsNaN(value) || Single.IsInfinity(value))
++                sb.Append("null");
++            else
++                sb.Append(value.ToString("0.###", CultureInfo.InvariantCulture));
++        }
++
++        private static void Bool(StringBuilder sb, String key, Boolean value)
++        {
++            sb.Append(Quote(key)).Append(":").Append(value ? "true" : "false");
++        }
++
++        private static String Quote(String s)
++        {
++            if (s == null)
++                return "null";
++            StringBuilder sb = new StringBuilder(s.Length + 8);
++            sb.Append('"');
++            foreach (Char c in s)
++            {
++                switch (c)
++                {
++                    case '"': sb.Append("\\\""); break;
++                    case '\\': sb.Append("\\\\"); break;
++                    case '\n': sb.Append("\\n"); break;
++                    case '\r': sb.Append("\\r"); break;
++                    case '\t': sb.Append("\\t"); break;
++                    default:
++                        if (c < ' ' || c > '~')
++                            sb.Append("\\u").Append(((Int32)c).ToString("x4", CultureInfo.InvariantCulture));
++                        else
++                            sb.Append(c);
++                        break;
++                }
++            }
++            sb.Append('"');
++            return sb.ToString();
++        }
++    }
++}
