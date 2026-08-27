@@ -30,66 +30,88 @@ out, (8,18), has no override in the mod folder, so nothing loads there and all 1
 = 256 of its samples MISS. Larkspur: 3 such blocks x 256 = 768. The arithmetic
 reproduces both archived counts exactly.
 
-So a MISS here is not a hole in deployed geometry -- it is ground the probe never
+So a MISS here was not a hole in deployed geometry -- it was ground the probe never
 measured (an unmodded block; stock ocean, most likely, but the probe does not read
-the stock map and cannot claim it). Two very different things wear the same "MISS",
-and this probe now separates them:
+the stock map and cannot claim it). Two very different things wore the same "MISS".
 
-  * UNCOVERED -- the sample lies outside every block that contributed a mesh.
-    Out of measurement scope. Never water, never land, DOES NOT disqualify: the
-    probe's own blindness is not evidence of a defect on the ground. Recorded, and
-    every admitted candidate carries `uncovered_dist` so a reviewer can see which
-    sites were sited next to a blind spot.
-  * HOLE -- a MISS INSIDE a block that did load. That is a real hole in deployed
-    geometry, and the placement census gate is a hard zero on it ("a miss ANYWHERE
-    is a stranding spot (land) or a vehicle wall + void render (water)"). A dock is
-    exactly where the boat hull and the landing apron meet, so a hole within the
-    24u admission envelope DISQUALIFIES the candidate outright.
+THE FIX IS IN TWO PARTS, and the first removes the ambiguity rather than managing it:
 
-The deliberate choice, stated: MISS never counts as water (both classes), but only
-the HOLE class disqualifies. Blanket disqualification on any MISS would have thrown
-away every Tidefall and Larkspur candidate over an artifact of the bbox sweep, which
-is a different wrong answer, not a safer one. In THIS island set every MISS is
-UNCOVERED and the hole arm never fires -- `--selftest` exercises it on a synthetic
-grid so the arm is not a check that cannot fail.
+  1. THE SWEEP IS SCOPED TO THE ISLAND'S OWN BLOCKS (`sweep_domain`). The lattice is
+     still laid over the bounding box, but only points inside the CLOSED span of a
+     block that actually loaded are queried -- closed, because a block's mesh reaches
+     its own edge verts, so the rim is measured by the block behind it. The probe now
+     never asks a question it cannot answer, and MISS recovers its census meaning:
+     a MISS is a REAL hole, and `n_miss` is a hard-zero gate ("a miss ANYWHERE is a
+     stranding spot (land) or a vehicle wall + void render (water)"). It prints a
+     GATE FAIL line if one ever appears.
+  2. MISS IS EXCLUDED FROM `water`, and because a dock is exactly where the boat hull
+     and the landing apron meet, a MISS within the 24u admission envelope
+     DISQUALIFIES the candidate outright.
+
+Bounding-box points OUTSIDE the island's blocks are UNMEASURED: never queried, never
+water, never land, and they DO NOT disqualify -- the probe's own blindness is not
+evidence of a defect on the ground. They are recorded as `unmeasured_xz`, and every
+admitted candidate carries `unmeasured_dist`, so "this dock sits Nu from ground the
+probe never looked at" is visible instead of invisible. Treating them as a defect
+would have thrown away every Tidefall and Larkspur candidate over an artifact of the
+old sweep -- a different wrong answer, not a safer one.
+
+Both arms are silent on the real island set (after the re-scope `n_miss` is 0 on all
+five islands), so `--selftest` exercises the re-scope and the disqualify path on
+synthetic input -- neither is a check that cannot fail.
 
 THE SOURCE SEAM: `--src DIR` points the loader at a snapshot directory instead of
 the live install, so a result is reproducible after the shared install drifts (same
 law as the deploy-target seam in the brief -- pin the path through a seam, never
 read the real file). A snapshot dir holds the files flat; the install nests them
-under r<by>/. `--legacy-water` reproduces the pre-fix classification, for A/B only.
+under r<by>/. `--legacy-water` restores the WHOLE pre-fix probe -- bbox sweep, MISS
+counted as water, no disqualify test -- so it reproduces the archived run; A/B only.
 
 --------------------------------------------------------------------------------
 RE-RUN VERDICT (2026-08-27, A/B against ONE pinned snapshot of the live install)
 --------------------------------------------------------------------------------
 `--legacy-water` first, then the fix, same `--src` -- so the diff is the fix alone.
-Legacy reproduced the 2026-07-25 archive exactly (Tidefall 561 land / 1056 water /
-136 candidates; Larkspur 366 / 2035 / 141; Grimhorn 589 / 1812 / 210; Sandreach 116
-/ 973 / 0), so the install had not drifted under these blocks.
+Legacy reproduces the 2026-07-25 archive on every count (Tidefall 561 land / 1056
+water / 256 miss / 136 candidates; Larkspur 366 / 2035 / 768 / 141; Grimhorn 589 /
+1812 / 0 / 210; Sandreach 116 / 973 / 0 / 0) and on every candidate's identity,
+order, water_dist, relief and y.
+
+ONE REAL DRIFT, fully explained: four samples read `topo` 59 where the archive read
+0/17 -- (48,-1160) Ashvale, (420,-1224) Tidefall, (1204,-1184) Grimhorn, (700,-608)
+Larkspur. Those are exactly the four R2 QUAY BEACON anchors (REVERT.md:1211, 1307,
+1373), deployed 2026-07-26, the day AFTER the archive; topo 59 is their terrain-hull
+collision class. None of them is one of the four grafted dock coords. This is the
+drift `--src` exists to pin.
 
 THE DEFECT WAS REAL BUT INERT ON THIS DATA. Water drops by exactly the miss count
 (Tidefall 1056 -> 800, Larkspur 2035 -> 1267) and NOT ONE candidate moved: 0 added,
-0 dropped, 0 water_dist changed, on every island. Falsified directly rather than
-inferred -- re-running the admission test against the UNCOVERED samples alone
-admits 0 candidates on Tidefall and 0 on Larkspur, so nothing was ever holding a
-hole up as its reason to exist. 14 candidates (5 Tidefall, 9 Larkspur) do have an
-unmeasured block within 24u, but each also has real sea within 12u; they now carry
-`uncovered_dist` so that is visible instead of invisible.
+0 dropped, 0 water_dist changed, on every island -- true of the classifier fix alone
+AND of the re-scoped sweep. Falsified directly rather than inferred: re-running the
+admission test against the unmeasured samples ALONE admits 0 candidates on Tidefall
+and 0 on Larkspur, so nothing was ever holding a hole up as its reason to exist.
+A handful of candidates (5 Tidefall, 8 Larkspur) do sit within 24u of unmeasured
+ground, but each also has real sea within 12u; they now carry `unmeasured_dist`.
+
+THE RE-SCOPE. Scoping the sweep to each island's own blocks drops 256 wasted ground
+queries on Tidefall and 768 on Larkspur, and leaves the candidate list on all five
+islands IDENTICAL -- it is a fix to how the measurement is constructed, not to what
+it concludes. Its payoff is the gate: `n_miss` is now **0 on all five islands**, and
+it means what the census means by it.
 
 All four dock coordinates grafted into the composed-world design SURVIVE, each
 backed by real sea at 12u: (272,-1168) Ashvale, (412,-1224) Tidefall, (1204,-1192)
-Grimhorn, (700,-616) Larkspur (uncovered_dist 29.12u). Independently of this probe,
+Grimhorn, (700,-616) Larkspur (unmeasured_dist 29.12u). Independently of this probe,
 (412,-1224) was already found unbuildable in play -- the ring's R2 moved that
 trigger to (420,-1232) because the beacon hull crossed the (6,19)/(6,18) seam
 (southern-ring/DESIGN.md:44-45).
 
-NOT FIXED HERE, and worth knowing before trusting a candidate COUNT: the scan sweeps
-each island's bounding RECTANGLE, so it measures only what the mod folder overrides
-and never reads the stock map. The uncovered blocks are almost certainly stock ocean
--- but "almost certainly" is not a measurement, which is the whole point of the
-split above. `n_candidates` is now the true total; the `candidates` list is still
-capped at 400 (Ashvale: 562 real, 400 listed -- the archived run recorded only the
-capped list, with no total).
+STILL TRUE, and worth knowing before trusting a candidate COUNT: the probe reads only
+the mod folder and never the stock map, so ground outside an island's own blocks stays
+unmeasured by construction -- it is almost certainly stock ocean, but "almost
+certainly" is not a measurement, which is the whole point of reporting it separately.
+`n_candidates` is the true total; the `candidates` list is still capped at 400
+(Ashvale: 562 real, 400 listed -- the archived run recorded only the capped list,
+with no total).
 """
 import argparse
 import json
@@ -167,21 +189,16 @@ def in_covered(covered, x, z, eps=1e-6):
     return False
 
 
-def classify(grid, covered, legacy=False):
-    """(land, water, holes, uncovered). THE FIX: MISS is excluded from `water` -- a hole is
-    not sea -- and split by whether the sample fell inside a block that actually loaded.
-    `legacy=True` restores the defect (water = complement of land) for A/B only."""
+def classify(grid, legacy=False):
+    """(land, water, miss). THE FIX: MISS is excluded from `water` -- a hole is not sea.
+    With the sweep scoped to the island's own blocks (see `sweep_domain`) every MISS the
+    ground query returns is a REAL hole in deployed geometry, so `miss` is the census gate:
+    it must be 0. `legacy=True` restores the defect (water = complement of land) for A/B."""
     land = {k: v for k, v in grid.items() if v[1] in LAND_MESH and v[0] > 0.25}
+    miss = {k for k, v in grid.items() if v[1] == "MISS"}
     if legacy:
-        return land, {k for k in grid if k not in land}, set(), set()
-    holes, uncovered = set(), set()
-    for k, v in grid.items():
-        if v[1] != "MISS":
-            continue
-        (holes if in_covered(covered, k[0], k[1]) else uncovered).add(k)
-    water = {k for k, v in grid.items()
-             if k not in land and k not in holes and k not in uncovered}
-    return land, water, holes, uncovered
+        return land, {k for k in grid if k not in land}, miss
+    return land, {k for k in grid if k not in land and k not in miss}, miss
 
 
 def disc_offsets(radius):
@@ -207,24 +224,46 @@ def nearest(px, pz, pts):
     return None
 
 
-def scan(name, blocks, src=None, legacy=False):
-    ml, covered = load_world_meshlist(blocks, src)
+def sweep_domain(blocks, covered, legacy=False):
+    """(probe, unmeasured) -- the 4u lattice over the island's bounding box, split into the
+    points this probe can actually measure and the ones it cannot.
+
+    THE RE-SCOPE: `probe` is only the lattice inside the CLOSED span of a block that loaded,
+    because an island's block list is not a rectangle -- Tidefall's bbox holds 6 blocks
+    against a 5-block list, Larkspur's 9 against 6. Sweeping the bbox queried ground no mesh
+    was ever loaded for and called the result MISS, which is what let a measurement hole pose
+    as sea. Scoped this way the probe never asks a question it cannot answer, and a MISS
+    recovers its census meaning. `legacy=True` restores the whole pre-fix bbox sweep."""
     xs = [bx for bx, _ in blocks]
     zs = [by for _, by in blocks]
     x0, x1 = BLOCK * min(xs), BLOCK * (max(xs) + 1)
     z1, z0 = -BLOCK * min(zs), -BLOCK * (max(zs) + 1)
-    grid = {}
+    probe, unmeasured = [], set()
     x = x0
     while x <= x1:
         z = z0
         while z <= z1:
-            gy, mesh, idall, topo = P.place(ml, x, z, 0.0, sky=True)
-            grid[(round(x), round(z))] = (gy, mesh, topo)
+            if legacy or in_covered(covered, x, z):
+                probe.append((x, z))
+            else:
+                unmeasured.add((round(x), round(z)))
             z += STEP
         x += STEP
-    land, water, holes, uncovered = classify(grid, covered, legacy)
+    return probe, unmeasured
 
-    cands, n_hole_rejected = [], 0
+
+def scan(name, blocks, src=None, legacy=False):
+    ml, covered = load_world_meshlist(blocks, src)
+    xs = [bx for bx, _ in blocks]
+    zs = [by for _, by in blocks]
+    probe, unmeasured = sweep_domain(blocks, covered, legacy)
+    grid = {}
+    for (x, z) in probe:
+        gy, mesh, idall, topo = P.place(ml, x, z, 0.0, sky=True)
+        grid[(round(x), round(z))] = (gy, mesh, topo)
+    land, water, miss = classify(grid, legacy)
+
+    cands, n_miss_rejected = [], 0
     for (px, pz), (gy, mesh, topo) in land.items():
         pad = [(px + dx, pz + dz) for dx in (-8, -4, 0, 4, 8) for dz in (-8, -4, 0, 4, 8)]
         padvals = [land.get((round(a), round(b))) for a, b in pad]
@@ -244,52 +283,64 @@ def scan(name, blocks, src=None, legacy=False):
                 break
         if best > WATER_MAX:
             continue
-        # a real hole in deployed geometry inside the admission envelope disqualifies;
-        # an unmeasured block does not -- it is only recorded.
-        hole_d = nearest(px, pz, holes)
-        if hole_d is not None and hole_d <= WATER_MAX:
-            n_hole_rejected += 1
-            continue
+        # a MISS inside the island's own blocks is a real hole in deployed geometry -- one
+        # inside the admission envelope disqualifies. UNMEASURED ground does not: it was
+        # never queried, and the probe's own blindness is not evidence of a defect.
+        # Skipped under `legacy`, which restores the pre-fix probe whole (it had no such test).
+        if not legacy:
+            miss_d = nearest(px, pz, miss)
+            if miss_d is not None and miss_d <= WATER_MAX:
+                n_miss_rejected += 1
+                continue
         cands.append((round(relief, 2), best, px, pz, round(gy, 2), topo, mesh,
-                      nearest(px, pz, uncovered)))
+                      nearest(px, pz, unmeasured)))
     # rank: closest to water, then flattest
     cands.sort(key=lambda c: (c[1], c[0]))
     bbox_blocks = set((bx, by) for bx in range(min(xs), max(xs) + 1)
                       for by in range(min(zs), max(zs) + 1))
     return dict(
+        sweep="bbox (legacy)" if legacy else "island blocks",
         blocks=sorted(blocks),
         blocks_covered=sorted(covered),
-        blocks_uncovered=sorted(bbox_blocks - covered),
+        blocks_no_mesh=sorted(set(blocks) - covered),   # declared but nothing loaded: a defect
+        blocks_outside_list=sorted(bbox_blocks - covered),
         n_samples=len(grid), n_land=len(land), n_water=len(water),
-        n_miss=len(holes) + len(uncovered), n_hole=len(holes), n_uncovered=len(uncovered),
-        n_hole_rejected=n_hole_rejected,
+        # in "island blocks" scope every MISS is a real hole -- the census gate is n_miss == 0
+        n_miss=len(miss), n_miss_rejected=n_miss_rejected,
+        n_unmeasured=len(unmeasured),
         # coordinates, not just counts -- the archived run cannot be audited after the fact
-        hole_xz=sorted(holes), uncovered_xz=sorted(uncovered),
+        miss_xz=sorted(miss), unmeasured_xz=sorted(unmeasured),
         n_candidates=len(cands),                       # true total; the list below is capped
         candidates=[dict(x=c[2], z=c[3], y=c[4], water_dist=c[1], relief=c[0],
-                         topo=c[5], mesh=c[6], uncovered_dist=c[7]) for c in cands[:400]])
+                         topo=c[5], mesh=c[6], unmeasured_dist=c[7]) for c in cands[:400]])
 
 
 def selftest():
-    """Exercise the HOLE arm, which never fires on the real island set (every MISS there is
-    UNCOVERED). Break-it-to-prove-it: a synthetic MISS inside a covered block must classify
-    as a hole, the same sample outside every covered block must classify as uncovered, and
-    neither may reach `water`."""
-    covered = {(0, 0)}
-    inside, outside = (32, -32), (96, -32)             # block (0,0) spans x[0,64] z[-64,0]
-    grid = {inside: (0.0, "MISS", None), outside: (0.0, "MISS", None),
-            (16, -16): (3.0, "Terrain", 0), (48, -48): (0.0, "Sea4", None)}
-    land, water, holes, uncovered = classify(grid, covered)
-    assert holes == {inside}, holes
-    assert uncovered == {outside}, uncovered
-    assert water == {(48, -48)}, water                 # and NOT either MISS -- the fix
+    """Break-it-to-prove-it. Both arms below are silent on the real island set -- there, every
+    MISS was an artifact of the bbox sweep and the re-scope removes them all, so `n_miss` is 0
+    everywhere and the disqualify path never fires. Exercise them on synthetic input instead."""
+    # 1. THE RE-SCOPE. Block (0,0) alone loads; the sweep must query its closed span and
+    #    nothing else, so the bbox lattice splits into measured vs never-queried.
+    probe, unmeasured = sweep_domain([(0, 0), (1, 0)], {(0, 0)})
+    assert (64, -32) in probe, "the shared edge is measured by the block behind it"
+    assert (68, -32) not in probe and (68, -32) in unmeasured, "block (1,0) loaded nothing"
+    assert not (set(probe) & unmeasured), "a point is measured or not, never both"
+    lg_probe, lg_unmeasured = sweep_domain([(0, 0), (1, 0)], {(0, 0)}, legacy=True)
+    assert lg_unmeasured == set() and len(lg_probe) == 33 * 17, "legacy sweeps the whole bbox"
+
+    # 2. THE CLASSIFIER. A MISS is a hole, never sea -- and it disqualifies within 24u.
+    hole = (32, -32)
+    grid = {hole: (0.0, "MISS", None), (16, -16): (3.0, "Terrain", 0),
+            (48, -48): (0.0, "Sea4", None)}
+    land, water, miss = classify(grid)
+    assert miss == {hole} and water == {(48, -48)}, (miss, water)   # NOT the MISS -- the fix
     assert set(land) == {(16, -16)}, land
-    assert nearest(28, -32, holes) == 4.0              # the disc scan sees a hole
+    assert nearest(28, -32, miss) == 4.0 <= WATER_MAX, "a hole 4u away disqualifies"
     assert nearest(28, -32, water) == 25.61            # hypot(20, 16), the only sea sample
-    lg_land, lg_water, lg_h, lg_u = classify(grid, covered, legacy=True)
-    assert lg_water == {inside, outside, (48, -48)}, lg_water   # the defect, reproduced
-    assert (lg_h, lg_u) == (set(), set())
-    print("selftest OK -- hole/uncovered split live; legacy water reproduces the defect")
+    lg_land, lg_water, lg_miss = classify(grid, legacy=True)
+    assert lg_water == {hole, (48, -48)}, lg_water     # the defect, reproduced
+    assert lg_miss == {hole}, lg_miss                  # legacy still REPORTS it, as it did
+    print("selftest OK -- sweep re-scope + miss-is-not-sea live; legacy reproduces the defect")
 
 
 def main():
@@ -297,7 +348,8 @@ def main():
     ap.add_argument("--src", default=None,
                     help="snapshot dir of .ff9mesh files (default: the live install)")
     ap.add_argument("--legacy-water", action="store_true",
-                    help="reproduce the pre-2026-08-27 defect (MISS counted as water); A/B only")
+                    help="restore the WHOLE pre-2026-08-27 probe -- bbox sweep AND MISS counted "
+                         "as water -- so it reproduces the archived run; A/B only")
     ap.add_argument("--out", default=None, help="output json path (default: the standard one)")
     ap.add_argument("--selftest", action="store_true",
                     help="run the classifier self-test and exit")
@@ -313,18 +365,23 @@ def main():
     for name, blocks in ISLANDS.items():
         r = scan(name, blocks, args.src, args.legacy_water)
         report[name] = r
-        print(f"\n=== {name}: land={r['n_land']} water={r['n_water']} miss={r['n_miss']} "
-              f"(hole={r['n_hole']} uncovered={r['n_uncovered']}) "
-              f"apron-candidates={r['n_candidates']}"
-              + (f" [{r['n_hole_rejected']} rejected on a hole]" if r["n_hole_rejected"] else ""))
-        if r["blocks_uncovered"]:
-            print("    !! bbox blocks with NO mesh loaded (never measured): "
-                  f"{r['blocks_uncovered']}")
+        print(f"\n=== {name}: sweep={r['sweep']} samples={r['n_samples']} "
+              f"land={r['n_land']} water={r['n_water']} miss={r['n_miss']} "
+              f"unmeasured={r['n_unmeasured']} apron-candidates={r['n_candidates']}"
+              + (f" [{r['n_miss_rejected']} rejected on a hole]" if r["n_miss_rejected"] else ""))
+        if r["blocks_no_mesh"]:
+            print(f"    !! DECLARED blocks that loaded NO mesh: {r['blocks_no_mesh']}")
+        if not args.legacy_water and r["n_miss"]:
+            print(f"    !! GATE FAIL -- {r['n_miss']} MISS inside the island's own blocks; a "
+                  f"miss is a stranding spot / void render. First few: {r['miss_xz'][:6]}")
+        if r["blocks_outside_list"]:
+            print("    bbox blocks outside the island's list, never queried: "
+                  f"{r['blocks_outside_list']}")
         seen = []
         for c in r["candidates"]:
             if all(math.hypot(c["x"] - s["x"], c["z"] - s["z"]) > 40 for s in seen):
                 seen.append(c)
-                ud = "" if c["uncovered_dist"] is None else f" unmeasured@{c['uncovered_dist']}u"
+                ud = "" if c["unmeasured_dist"] is None else f" unmeasured@{c['unmeasured_dist']}u"
                 print(f"   apron ({c['x']:.0f},{c['z']:.0f}) y={c['y']:.2f} topo={c['topo']} "
                       f"mesh={c['mesh']} water@{c['water_dist']}u relief={c['relief']}{ud}")
             if len(seen) >= 6:
