@@ -1,6 +1,22 @@
 --- a/Assembly-CSharp/Global/Hono/HonoInputManager.cs
 +++ b/Assembly-CSharp/Global/Hono/HonoInputManager.cs
-@@ -885,8 +885,17 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+@@ -568,6 +568,15 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+ 
+     public Boolean CheckPersistentDirectionInput(Control key)
+     {
++        // [ff9mapkit s83] Harness input must read as a KEYBOARD, not as an analog stick. This method
++        // is the engine's "is a physical direction key down" probe (raw GetAsyncKeyState), and
++        // FieldMapActorController derives `isStickMovement` from it. With UseAbsoluteOrientation=3
++        // -- walkpath-oriented for keys, absolute for sticks -- a harness that answered false here
++        // would still move, but along the STICK orientation model, so a scenario would walk in a
++        // different direction than the same press does by hand. Answering truthfully about which
++        // direction the virtual controller holds keeps the two identical.
++        if (Memoria.Harness.HarnessAgent.IsHeld(key))
++            return true;
+         if (!HonoInputManager.ApplicationIsActivated())
+             return false;
+         if (Application.isEditor)
+@@ -885,8 +894,17 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
          }
      }
  
@@ -18,7 +34,7 @@
          Int32 indexInt = (Int32)index;
          if (indexInt >= this.KeyName.Length || indexInt < 0)
              return this.GetDirectionKey(index);
-@@ -897,6 +906,8 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+@@ -897,6 +915,8 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
  
      public Boolean IsInputDown(Control index)
      {
@@ -27,7 +43,7 @@
          Int32 indexInt = (Int32)index;
          if (indexInt >= this.KeyName.Length || index < 0)
              return this.GetDirectionKeyDown(index);
-@@ -907,6 +918,8 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+@@ -907,6 +927,8 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
  
      public Boolean IsInputUp(Control index)
      {
@@ -36,6 +52,29 @@
          Int32 indexInt = (Int32)index;
          if (indexInt >= this.KeyName.Length || indexInt < 0)
              return this.GetDirectionKeyUp(index);
+@@ -915,8 +937,22 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+         return this.isInputUp[indexInt];
+     }
+ 
++    // [ff9mapkit s83] The harness must also drive the ANALOG AXIS, not just the key booleans.
++    //
++    // Hooking IsInput alone was not enough and the failure was maximally confusing: with
++    // [AnalogControl] Enabled=1 (the shipped default), FieldMapActorController.MovePC computes
++    // `analogVector = GetAxis()` and then ends with
++    //     if (analogVector.magnitude <= stickThreshold) actualMoveVec = Vector3.zero;
++    // A real keyboard feeds UnityEngine's own Horizontal/Vertical axes, so a human walks. Harness
++    // input never touched them, so the axis stayed (0,0): `movingUp` was true, `ccSMoveKey` was true,
++    // the actor even ROTATED (that block is gated on movingUp, not on the move vector) -- and the
++    // character never translated. The engine agreed the key was down at every point a diagnostic
++    // could ask, while the one value that mattered was quietly zeroed.
+     public Vector2 GetAxis()
+     {
++        Vector2 harness;
++        if (Memoria.Harness.HarnessAgent.TryGetAxis(out harness))
++            return harness;
+         return this.AxisValue();
+     }
+ 
 --- a/Assembly-CSharp/Global/TitleUI.cs
 +++ b/Assembly-CSharp/Global/TitleUI.cs
 @@ -954,6 +954,17 @@ public class TitleUI : UIScene
@@ -149,7 +188,7 @@ diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/M
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,839 @@
+@@ -0,0 +1,872 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -227,6 +266,39 @@ new file mode 100644
 +        {
 +            Int32 i = (Int32)c;
 +            return Active && i >= 0 && i < ControlCount && Time.frameCount == _upFrame[i];
++        }
++
++        /// <summary>
++        /// The analog axis the harness is currently "pushing", synthesised from the held directions.
++        /// Returns false when the harness holds no direction, so real input passes through untouched.
++        /// </summary>
++        /// <remarks>
++        /// This exists because hooking the key booleans alone produced a character who turned to face
++        /// the right way and then stood still. With [AnalogControl] Enabled=1, MovePC zeroes the move
++        /// vector whenever the axis is under the stick threshold, and the axis comes from Unity's own
++        /// input -- which a physical keyboard feeds and an injected press does not. Reporting a full
++        /// unit vector (rather than a ramp) also makes harness movement deterministic: the same hold
++        /// for the same frame count covers the same distance on every run, which is what lets a
++        /// scenario assert on a position at all.
++        /// </remarks>
++        public static Boolean TryGetAxis(out Vector2 axis)
++        {
++            axis = Vector2.zero;
++            if (!Active)
++                return false;
++            if (IsHeld(Control.Up))
++                axis.y += 1f;
++            if (IsHeld(Control.Down))
++                axis.y -= 1f;
++            if (IsHeld(Control.Left))
++                axis.x -= 1f;
++            if (IsHeld(Control.Right))
++                axis.x += 1f;
++            if (axis.x == 0f && axis.y == 0f)
++                return false;
++            if (axis.sqrMagnitude > 1f)
++                axis.Normalize();
++            return true;
 +        }
 +
 +        // ---- request queue ---------------------------------------------------------------------

@@ -35,29 +35,40 @@ behavioural claim cost a human playtest, and "it built" kept getting mistaken fo
 - **Artifacts** — `.harness-runs/<stamp>-<label>/` with `report.json`, `events.jsonl`,
   `state-final.json`, `Memoria.log`, `shots/*.png`.
 
-### ⚠ OPEN — the character does not translate
+### ★ RESOLVED 2026-08-27 — the character walks
 
-With `Up` held for 150 frames on **4010, 4011, 4012, 4013, 30416 and 30801**, position never changes
-and successive frames differ only by idle animation. The engine says it received and acted on the
-press (`key_up=true`, `move_key=true`, `dash_inh=0`, `control=true`, `floor=0`, `tri=0`).
+`hold up 120` moved Zidane **1014 units** across bench 30801 (z -837 → +177), owner-witnessed live and
+confirmed in the before/after frames the harness captured itself. The arc has no open question.
 
-Ruled out: window focus (tested foregrounded — no difference), the analog/stick branch (`axis_x/y` are
-0, so the digital branch runs), and the driver (`held` matches what was scheduled, every frame).
+**Root cause — and it is a lesson, not a typo.** With `[AnalogControl] Enabled=1` (the shipped default
+in this install) `FieldMapActorController.MovePC` reads `analogVector = GetAxis()` and ends with
 
-**Not yet verified: whether a REAL keyboard press walks the character on these same fields right now.**
-The owner expects it does, but could not test at the time — so this is an expectation, not evidence,
-and the arc must not be closed on it. That one check is the next action and it splits the outcome:
+```csharp
+if (analogVector.magnitude <= stickThreshold) actualMoveVec = Vector3.zero;
+```
 
-- *Keyboard walks* → real and virtual input diverge somewhere past the movement decision. Suspect the
-  apply/collision step, or a consumer reading `CheckPersistentDirectionInput` (raw `GetAsyncKeyState`,
-  which the hook deliberately does not cover) rather than `IsInput`.
-- *Keyboard does not walk either* → the harness is fully correct and this is a property of these test
-  rooms or the current build (no walkmesh under the spawn, or a debug-warp arrival whose field script
-  never finishes handing over). Record the harness as proven; file the movement question separately.
+`GetAxis()` returns **Unity's own** Horizontal/Vertical axes. A physical keyboard feeds them; an
+injected press does not. So the axis stayed `(0,0)` and the move vector was zeroed **downstream of
+every signal we were measuring**: `movingUp` true, `ccSMoveKey` true, `GetUserControl()` true,
+`dash_inh` 0, and the actor even *rotated*, because the rotation block is gated on `movingUp` rather
+than on the move vector. Six different fields therefore read as "not walkable", and the harness
+looked correct at every point a probe could ask.
 
-A secondary possibility either way: `PosObj.pos` may not be the record ordinary walking updates, making
-this a *readout* bug rather than a movement one. The screenshots argue against it — he visibly stays put
-— but on a static bench that is not conclusive.
+**The general law, worth carrying beyond this arc:** *hooking the accessor a diagnostic reads proves
+nothing about the value that decides the outcome.* Every instrument we had agreed the press landed.
+The instruments were all upstream of the one assignment that mattered.
+
+**The fix** (both inert unless armed, so real play is untouched):
+
+| Hook | Why |
+|---|---|
+| `HonoInputManager.GetAxis` → `HarnessAgent.TryGetAxis` | Synthesises a unit vector from held directions; falls through to the real axis when the harness holds nothing, so a human still drives an idle session. |
+| `HonoInputManager.CheckPersistentDirectionInput` | The engine's raw `GetAsyncKeyState` "is a direction key physically down" probe. `FieldMapActorController` derives `isStickMovement` from it, and with `UseAbsoluteOrientation=3` (walkpath for keys, absolute for sticks) answering false would still move the character — but along the **stick** orientation model, so a scenario would walk a different direction than the same press does by hand. |
+
+**What caught it, and what did not.** The smoke test asserted the press was *received* — `key_up`,
+`move_key` — and every one of those assertions was true while the character stood perfectly still.
+The acceptance test that now guards this (`scenarios/walk_check.py`) asserts the one thing a
+half-wired input path cannot fake: **the position changed.** Prefer that shape of assertion.
 
 ---
 
@@ -66,8 +77,11 @@ this a *readout* bug rather than a movement one. The screenshots argue against i
 `Assembly-CSharp` is deployed with s83 (both arches, verified). **Inert without `ff9harness/arm`**, so
 ordinary play is unaffected — that gating is what makes it safe on an install shared by ~26 worktrees.
 
-Pre-build backups, newest last: `20260827-103835`, `20260827-111002`, `20260827-111541`.
-Revert with `py tools/restore_memoria_dll.py <label>`.
+Pre-build backups, newest last: `20260827-103835`, `20260827-111002`, `20260827-111541`,
+**`20260827-181321`** (pre-axis-fix). Revert with `py tools/restore_memoria_dll.py <label>`.
+
+The patch file is regenerated and gated: `git apply -R --check` is clean against the live tree, so
+`s83-harness-agent.patch` is an exact description of what is deployed.
 
 ---
 
@@ -94,17 +108,33 @@ Revert with `py tools/restore_memoria_dll.py <label>`.
    position or movement assertions silently compare against `None`.
 7. **The Bash tool's shell mangles backslash escapes and raw bytes in inline scripts.** Write the
    script to a file and run the file. → [[feedback-no-powershell-text-roundtrips]] (same family).
+8. **Hooking the key booleans does not drive the character** — `[AnalogControl]` zeroes the move
+   vector from `GetAxis()`, which is Unity's own axis and not on the `IsInput` path. See the
+   resolution above; the transferable form is *the accessor a diagnostic reads is not the value that
+   decides the outcome.*
+9. **Settle ~10s on the title before New Game.** Memoria is still loading when the title appears, and
+   starting during that window makes the opening cutscene run badly choppy (owner-observed). Now the
+   default in `Session.newgame`; `settle=0` opts out.
+10. **New Game lands in a CUTSCENE, not in control.** `newgame()` therefore waits for a *field*, not
+    for control — requiring control there hung every scenario whose intent was "get in-game, then warp
+    to the thing under test". `playable=True` opts back in.
 
 ---
 
 ## Next actions
 
-1. **Resolve the movement question** with the keyboard A/B above. Everything else waits on it, because
-   until it is answered the harness's most-used verb is unproven.
-2. Point the smoke test at a genuinely walkable field once one is identified.
+The core loop is proven end to end. What is left is coverage and ergonomics, not feasibility.
+
+1. **Act on the input-bypass audit** — an adversarial sweep of world / battle / menus / field / title
+   for the *same class* of bug the axis turned out to be (a consumer reading input around the hooks).
+   Movement is proven on a field; nothing yet proves the harness can drive a battle or the overworld,
+   and the axis bug is a standing warning that "the press was received" does not mean "the action
+   happened".
+2. **Assert on dialogue for real** — the state channel already carries `Dialog.Phrase` and
+   `ChoicePhrases`. The chest at 30810 (`expect_text("Potion")`) is the obvious first scenario, and it
+   exercises the narrative axis rather than the physical one.
 3. `Session.quit()` helper — disarming cancels the agent's pending queue, so a bare
    `send("quit", wait=False)` followed by teardown drops the step. Harmless today (the launched-game
    path waits on the process first) but a sharp edge.
-4. Record a real scenario as a regression test once movement is settled — the chest at 30810 is the
-   obvious first one (`expect_text("Potion")`).
-5. Consider a nightly-gate lane for scenarios, separate from the offline suite.
+4. Consider a nightly-gate lane for scenarios, separate from the offline suite — noting that scenarios
+   need the real install and are therefore not a fit for the ordinary worktree gate.
