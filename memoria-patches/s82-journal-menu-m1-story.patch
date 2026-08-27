@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..3dd7413 100644
+index 1d90b6f..2b56682 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
-@@ -1,38 +1,76 @@
+@@ -1,38 +1,84 @@
  using Assets.Sources.Scripts.UI.Common;
  using Memoria;
 +using Memoria.Assets;
@@ -51,7 +51,15 @@ index 1d90b6f..3dd7413 100644
  {
 +    private const String ListGroupButton = "Journal.List";
 +    private const String DetailGroupButton = "Journal.Detail";
-+    private static readonly String[] TabNames = { "STORY", "SIDE QUESTS" };   // M4 appends RECORDS
++    private static readonly String[] TabNames = { "STORY", "SIDE QUESTS", "RECORDS" };
++    // the RECORDS groups are PRESENTATION (three fixed panes of aggregate rows), not walkthrough
++    // sections -- their counter rows still come from the kit's C records (rec.* ids)
++    private static readonly String[][] RecordGroups =
++    {
++        new String[] { "rec.tetra", "Tetra Master" },
++        new String[] { "rec.party", "Party" },
++        new String[] { "rec.meta", "Combat & Meta" },
++    };
 +
      public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
      {
@@ -97,7 +105,7 @@ index 1d90b6f..3dd7413 100644
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
-@@ -40,6 +78,13 @@ public class JournalUI : UIScene
+@@ -40,6 +86,13 @@ public class JournalUI : UIScene
      {
          if (base.OnKeyCancel(go))
          {
@@ -111,7 +119,7 @@ index 1d90b6f..3dd7413 100644
              FF9Sfx.FF9SFX_Play(101);
              this.Hide(delegate
              {
-@@ -51,12 +96,379 @@ public class JournalUI : UIScene
+@@ -51,12 +104,411 @@ public class JournalUI : UIScene
          return true;
      }
  
@@ -196,6 +204,13 @@ index 1d90b6f..3dd7413 100644
 +
 +    private List<JournalRegistry.Section> SectionsForTab()
 +    {
++        if (this.currentTab == 2)
++        {
++            List<JournalRegistry.Section> recs = new List<JournalRegistry.Section>();
++            foreach (String[] g in RecordGroups)
++                recs.Add(new JournalRegistry.Section { Id = g[0], Title = g[1], Enter = 0, Leave = 0 });
++            return recs;
++        }
 +        return this.currentTab == 1 ? JournalRegistry.SideSections() : JournalRegistry.MainSections();
 +    }
 +
@@ -206,6 +221,8 @@ index 1d90b6f..3dd7413 100644
 +        // clock has passed it.
 +        if (index < 0 || index >= secs.Count)
 +            return false;
++        if (this.currentTab == 2)
++            return true;                                   // records are always open -- no spoiler axis
 +        if (this.currentTab == 0)
 +            return index <= CurrentSectionIndex(secs);
 +        return FF9StateSystem.EventState.ScenarioCounter >= secs[index].Enter;
@@ -366,6 +383,26 @@ index 1d90b6f..3dd7413 100644
 +                try { return ev.GetSysvar(c.A); }
 +                catch (Exception err) { Log.Error(err); return -1; }
 +            }
++            // the RECORDS kinds (M4): the ENGINE'S OWN statics, so every number is the engine's
++            // computation -- the aggregate-row equivalent of LAW 5
++            case "u16":
++                return geg[c.A] | (geg[c.A + 1] << 8);
++            case "gil":
++                return (Int32)FF9StateSystem.Common.FF9.party.gil;
++            case "keyitems":
++                return FF9StateSystem.Common.FF9.rare_item_obtained.Count;
++            case "playtime":
++                return (Int32)FF9StateSystem.Settings.time;    // seconds; the cell formats h/m
++            case "cards_all":
++                return QuadMistDatabase.MiniGame_GetAllCardCount();
++            case "cards_kinds":
++                return QuadMistDatabase.MiniGame_GetCardKindCount();
++            case "cards_points":
++                return QuadMistDatabase.MiniGame_GetPlayerPoints();
++            case "cards_level":
++                return QuadMistDatabase.MiniGame_GetCollectorLevel();
++            case "cards_wins":
++                return QuadMistDatabase.MiniGame_GetWinCount();
 +            default:
 +                return -1;
 +        }
@@ -382,9 +419,12 @@ index 1d90b6f..3dd7413 100644
 +            UILabel cLabel = item.GetChild(0).GetComponent<UILabel>();
 +            item.GetChild(1).gameObject.SetActive(false);
 +            cLabel.gameObject.SetActive(true);
-+            cLabel.rawText = crow.Counter.Denom > 0
-+                ? $"{crow.Counter.Label}   {crow.Value}/{crow.Counter.Denom}"
-+                : $"{crow.Counter.Label}   {crow.Value}";
++            if (crow.Counter.Kind == "playtime")
++                cLabel.rawText = $"{crow.Counter.Label}   {crow.Value / 3600}h{crow.Value % 3600 / 60:00}m";
++            else
++                cLabel.rawText = crow.Counter.Denom > 0
++                    ? $"{crow.Counter.Label}   {crow.Value}/{crow.Counter.Denom}"
++                    : $"{crow.Counter.Label}   {crow.Value}";
 +            cLabel.color = FF9TextTool.White;
 +            ButtonGroupState cBtn = item.GetComponent<ButtonGroupState>();
 +            if (cBtn != null)
@@ -495,7 +535,7 @@ index 1d90b6f..3dd7413 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +481,10 @@ public class JournalUI : UIScene
+@@ -69,10 +521,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -508,7 +548,7 @@ index 1d90b6f..3dd7413 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +492,259 @@ public class JournalUI : UIScene
+@@ -80,29 +532,259 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -791,7 +831,7 @@ index 1d90b6f..3dd7413 100644
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +757,7 @@ public class JournalUI : UIScene
+@@ -115,7 +797,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -800,7 +840,7 @@ index 1d90b6f..3dd7413 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +783,266 @@ public class JournalUI : UIScene
+@@ -141,6 +823,266 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
