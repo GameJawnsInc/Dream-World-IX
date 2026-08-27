@@ -414,7 +414,9 @@ encounter, environment, marker, and minimap commands are stock-engine)*
 | `world-mirror` | Mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree (+ pin free-ride donor parts) — run after any custom-ocean deploy. |
 | `world-water` | Synthesize graded open-ocean water (shallow→deep bands) on sea cells. |
 | `world-entrance` | Author a whole custom overworld entrance: trigger func + event tiles + optional building (`--cell`, `--field`, `--building`). |
-| `world-encounters` / `world-encounter-rate` | Inspect/re-table the overworld encounter table / retune its frequency. |
+| `world-encounters` | Inspect / re-table the overworld encounter table (which monsters spawn where). |
+| `world-encounter-frequency` | Retune the ORDINARY overworld encounter rate (the per-zone `ENCRATE` ladder); `--zone Z`, `--list`. |
+| `world-encounter-rate` | Retune `w_frameEventBattleProb` — the Ragtime Mouse's spawn probability, *not* the encounter rate. |
 | `world-environment` | Author overworld weather/effects (Memoria `Environment.txt`). |
 | `world-extract` / `world-locate` / `world-retarget` | Extract a block's mesh / decode entrance dispatch / edit tile ids. |
 | `world-mesh-export` / `-build` / `-trim` | OBJ round-trip for block meshes (Blender surgery, buildings, floor-apron trim). |

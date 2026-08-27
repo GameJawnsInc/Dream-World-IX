@@ -5601,6 +5601,89 @@ def _cmd_world_encounter_rate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_encounter_frequency(args: argparse.Namespace) -> int:
+    """Retune the ORDINARY overworld encounter rate -- the per-ZONE ENCRATE (0x57) ladder in the world
+    dispatchers, which feeds ProcessEncount's step accumulator. This is the real rate lever; its sibling
+    world-encounter-rate moves the Ragtime Mouse instead. No DLL (a plain .eb value rewrite, stacking on
+    world-entrance / world-encounter-rate); RELAUNCH or re-enter the overworld to apply."""
+    from pathlib import Path
+    from . import config                  # the local import IS the seam tests pin (module-level names bypass it)
+    from .world import encounter as EC
+    from .world import entrance as WE
+    from .world import worldpack as WP
+    zones = sorted({int(z) for z in (args.zone or [])}) or None
+    modes = [m for m in (args.multiplier, args.set_freq, args.peaceful or None) if m is not None]
+
+    if args.list:                                                  # inspect, no edit
+        try:
+            alld = WE.load_all_dispatchers(args.game)
+        except (ValueError, ConfigError, FileNotFoundError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        data = alld["evt_world_world00"]["us"]
+        if args.mod_folder:                                        # show the DEPLOYED values if present
+            try:
+                root = config.find_mod_root(config.find_game_path(args.game), args.mod_folder)
+                p = Path(root) / EC._WORLD_EB_SUBDIR / "us" / "EVT_WORLD_WORLD00.eb.bytes"
+                if p.is_file():
+                    data = p.read_bytes()
+                    print(f"(showing the DEPLOYED override {p})")
+            except (ValueError, ConfigError, FileNotFoundError):
+                pass
+        try:
+            cur = {w["zone"]: w["value"] for w in EC.freq_writes(data) if w["kind"] == "zone"}
+        except EC.EncrateStructureError as e:
+            print(f"world-encounter-frequency --list: {e}", file=sys.stderr)
+            return 2
+        stock = {w["zone"]: w["value"] for w in EC.freq_writes(alld["evt_world_world00"]["us"])
+                 if w["kind"] == "zone"}
+        print("the per-ZONE ENCRATE ladder (EVT_WORLD_WORLD00; all 9 free-roam dispatchers ship it identically)")
+        print("  encounter frequency goes as sqrt(encratio) -- so 4x the value is 2x the battles")
+        print(f"  {'zone':>4}  {'encratio':>8}  {'vs stock':>8}   areas (the debug menu's 'area' field)")
+        for z in range(EC.ZONE_COUNT):
+            v, s0 = cur.get(z), stock.get(z)
+            rel = f"{(v / s0) ** 0.5:.2f}x" if v and s0 else ("off" if v == 0 else "-")
+            print(f"  {z:4d}  {v:8d}  {rel:>8}   {WP.zone_areas(z)}")
+        print("  target one with --zone Z (repeatable); read the walked tile's area off the ~ debug menu")
+        return 0
+
+    if len(modes) != 1:
+        print("world-encounter-frequency: give exactly one of --multiplier / --set / --peaceful "
+              "(or --list to inspect)", file=sys.stderr)
+        return 2
+    if not args.mod_folder:
+        print("world-encounter-frequency: --mod-folder is required to deploy", file=sys.stderr)
+        return 2
+    langs = None if args.lang == "all" else [args.lang]
+    try:
+        summary = EC.deploy_encounter_frequency(
+            mod_folder=args.mod_folder, game=args.game, zones=zones,
+            multiplier=args.multiplier, set_freq=args.set_freq, peaceful=args.peaceful,
+            langs=langs, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would retune" if args.dry_run else "retuned"
+    scope = "all zones" if zones is None else f"zone(s) {', '.join(map(str, zones))}"
+    print(f"{verb} the ORDINARY overworld encounter rate ({summary['mode']}, {scope}) across "
+          f"{len(summary['dispatchers'])} dispatcher(s)")
+    for d in summary["dispatchers"]:
+        ws = d.get("writes") or []
+        moved = [w for w in ws if w["from"] != w["to"]]
+        shown = ", ".join(f"{'imm' if w['kind'] == 'immediate' else 'z' + str(w['zone'])}"
+                          f" {w['from']}->{w['to']}" for w in moved[:6])
+        more = f" (+{len(moved) - 6} more)" if len(moved) > 6 else ""
+        print(f"  {d['name']}: {len(ws)} write(s), {len(moved)} changed{':' if moved else ''} {shown}{more}")
+    if summary["skipped_no_writes"]:
+        print(f"  skipped (cutscene states, no ENCRATE): {', '.join(summary['skipped_no_writes'])}")
+    if not args.dry_run:
+        lang_names = sorted({Path(p).parent.name for p in summary["written"]})
+        print(f"  wrote {len(summary['written'])} .eb file(s) [{', '.join(lang_names)}]")
+        print("  RELAUNCH the game (or re-enter the overworld) to apply. The mod folder must be in "
+              "Memoria.ini [Mod] FolderNames.")
+    return 0
+
+
 _FRIENDLY_NAMES = ("Mu", "Ghost", "Ladybug", "Yeti", "Nymph", "Jabberwock", "Feather Circle", "Garuda", "Yan")
 
 
@@ -9574,6 +9657,34 @@ def build_parser() -> argparse.ArgumentParser:
     wer.add_argument("--dry-run", action="store_true",
                      help="print the per-dispatcher before->after probabilities, write nothing")
     wer.set_defaults(func=_cmd_world_encounter_rate)
+
+    wef = sub.add_parser("world-encounter-frequency",
+                         help="retune the ORDINARY overworld encounter rate: the per-ZONE ENCRATE (0x57) "
+                              "ladder the world dispatchers feed to ProcessEncount. This is the REAL rate "
+                              "lever (world-encounter-rate moves the Ragtime Mouse). No DLL; relaunch to apply.")
+    wef.add_argument("--mod-folder",
+                     help="the FolderNames mod folder to write into (e.g. FF9CustomMap); required to deploy")
+    _gf = wef.add_mutually_exclusive_group()
+    _gf.add_argument("--multiplier", type=float, metavar="F",
+                     help="encounter-FREQUENCY multiplier: 2.0 = twice as many battles, 0.5 = half. NOTE the "
+                          "engine accumulates, so frequency goes as sqrt(encratio) -- the verb applies F**2 "
+                          "for you. Preserves the game's relative danger; idempotent across re-runs")
+    _gf.add_argument("--set", dest="set_freq", type=int, metavar="N",
+                     help="force an absolute encratio (0-255) everywhere; higher = MORE battles. Stock runs "
+                          "11-32 by zone; 0 disables ordinary encounters")
+    _gf.add_argument("--peaceful", action="store_true",
+                     help="encratio 0 -- genuinely no ordinary overworld battles (pair with "
+                          "`world-encounter-rate --peaceful` to also retire the Ragtime Mouse)")
+    wef.add_argument("--zone", type=int, action="append", metavar="Z",
+                     help="restrict the edit to zone Z (0-24), repeatable; skips the standalone immediates. "
+                          "Use --list to see the zone->areas map")
+    wef.add_argument("--list", action="store_true",
+                     help="print the current per-zone ladder (+ each zone's areas) and exit; writes nothing")
+    wef.add_argument("--lang", default="all",
+                     help="language to retune (default: all 7; or a single us/uk/jp/es/fr/gr/it)")
+    wef.add_argument("--dry-run", action="store_true",
+                     help="print the per-dispatcher before->after values, write nothing")
+    wef.set_defaults(func=_cmd_world_encounter_frequency)
 
     wet = sub.add_parser("world-encounters",
                          help="inspect / re-table the overworld random-encounter TABLE (discmr.img): which battle "

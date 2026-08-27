@@ -248,7 +248,7 @@ Each cost real rounds. Full record in the linked study/memory; do not re-litigat
   genuine stock arrangement quilts on a ~31-cell blob. **SUPERSEDED at real scale** by the true mesh carry.
 - **THE TOPOGRAPH 36-38 ENCOUNTER LAW** — falsified in-game TWICE. `case 205`/`w_frameEventBattleProb` is the
   RAGTIME MOUSE; ordinary encounters are `ProcessEncount` + a per-ZONE `ENCRATE` ladder, and safety is an AREA
-  table hole, not a topograph gate. `world-encounter-rate` is a misnomer. → `ff9mapkit/docs/OVERWORLD_ENGINE.md`
+  table hole, not a topograph gate. `world-encounter-rate` is a misnomer — the real lever is `world-encounter-frequency`.
 - **A canyon ISLAND** — off-language by THE WALL-CONTEXT LAW (canyon's red band is never open-sea coastal).
   Now guarded at both chokepoints.
 - **Mixed-biome as a thin desert ribbon along a line** — **THE RIBBON FALLACY**. Stock's ecotone is the

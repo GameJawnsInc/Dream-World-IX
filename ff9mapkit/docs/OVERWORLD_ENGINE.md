@@ -994,7 +994,7 @@ This is what fires normal overworld battles. Nothing in it looks at topograph 36
   (`DoEventCode.cs:994`). Each free-roam dispatcher carries a **per-ZONE ladder**: a 26-case switch on GET-sysvar
   **207** (= `w_worldArea2Zone(m_GetIDArea(...))`, `ff9.cs:4258`) that assigns a frequency, then one
   `SetRandomBattleFrequency`. In `WORLD00` the values run 11–32 (zone 0 → 12, zone 2 → 11, zone 21 → 32 …).
-  **This is the real encounter-rate lever and the kit does not author it yet.**
+  **This is the real encounter-rate lever** — authored by `world-encounter-frequency` (below).
 - **The monsters** — `SelectScene` (`EventEngine.cs:190`) → `w_worldGetBattleScenePtr` (`ff9.cs:9234`), the
   zone × topograph × fog table above, resolved off the walked tile's AREA bits. A table hole = no encounter,
   which is how kit land authors a safe road — note that hole is **our `s60` patch**; stock fell back to the zone
@@ -1061,7 +1061,7 @@ nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battle
 | Lever | Cost | Notes |
 |---|---|---|
 | **Ragtime Mouse *probability*** | ★ **BUILT** (`world-encounter-rate`) — free, no DLL/codec | rewrites the world `.eb` SET-sysvar case-26 writes (`w_frameEventBattleProb`) — same surface as `world-entrance`. ⚠ despite the verb name this is **not** the encounter rate; see below. |
-| **Encounter *rate*** (the real one) | **NOT BUILT** — would be free, no DLL/codec | the per-ZONE `ENCRATE` (`0x57`) ladder in each free-roam dispatcher, switched on GET-sysvar 207. Same `.eb` surface as the above, but a different opcode and a computed (not immediate) argument in most dispatchers. |
+| **Encounter *rate*** (the real one) | ★ **BUILT** (`world-encounter-frequency`) — free, no DLL/codec | rewrites the per-ZONE `ENCRATE` (`0x57`) ladder in each free-roam dispatcher, switched on GET-sysvar 207. Same `.eb` surface as the above, but a different opcode, a computed (not immediate) argument, and per-zone targeting. See below. |
 | **Per-vehicle encounter on/off** | free | `TransportControls.csv` col 12 (`CsvParser.Boolean`), already patched by `WorldConfiguration.PatchWorldCHRControl`. ⚠ the two airships hold **22/23** in that Boolean column — unexplained (open q). |
 | **Re-table which monsters spawn where** | ★ **BUILT** (`world-encounters`) — no DLL | edits `EncountData.scene[]`/`pattern`/`pad` in place + deploys a whole-file `discmr.img` mod override (`AssetManager.LoadBytes` honors it). See below. |
 | **Clean CSV authoring seam** | small DLL patch | a `Data/World/WorldEncounters.csv` + `PatchWorldEncounter()` mirroring the existing 3 world patchers (`DataResources.cs` exposes only TransportControls/WeatherColors/Environment today; no encounter hook). s23–s33-class change. |
@@ -1077,7 +1077,7 @@ the kit rewrites today.
 > ⚠ **The verb name is a misnomer, kept for compatibility.** It writes `w_frameEventBattleProb`, whose only engine
 > reader is `case 205` = the Ragtime Mouse (Path B above). It does **not** change how often ordinary overworld
 > battles fire, and `--peaceful` does **not** give an encounter-free overworld. The real rate lever is the per-zone
-> `ENCRATE` ladder (Path A), which the kit does not author yet.
+> `ENCRATE` ladder (Path A) — use **`world-encounter-frequency`** for that.
 
 `ff9mapkit world-encounter-rate --mod-folder <mod> [--multiplier F | --set PROB | --peaceful]` (`world/encounter.py`).
 It rewrites every immediate `RunWorldCode(26, value)` write in the world dispatchers' `.eb` — probed empirically as
@@ -1095,6 +1095,47 @@ which is consistent — at `prob 231` the Mouse rolls ~1/232 *per frame* in fore
 But the test could not tell Ragtime Mouse from ordinary encounters, so it proves the immediate rewrite reaches the
 engine, **not** that this knob is the encounter rate. The 2026-07-26 R4 playtest settles the other half: ordinary
 battles fired at topograph 16/41, which `case 205` can never reach.
+
+### `world-encounter-frequency` — retune the ORDINARY encounter rate (no DLL)
+
+`ff9mapkit world-encounter-frequency --mod-folder <mod> [--multiplier F | --set N | --peaceful] [--zone Z ...]`
+(`world/encounter.py`). This is the **real** rate lever — Path A above. It rewrites the per-ZONE `ENCRATE`
+(`0x57`) ladder that every free-roam dispatcher feeds to `ProcessEncount`.
+
+**The shipping ladder** (probed across all 13 dispatchers x all 7 languages): each of the 9 free-roam states
+carries exactly ONE 25-arm ladder — a contiguous `SWITCH` on GET-sysvar **207** (the zone) whose arms each do
+`<instvar> = const(N)`, followed by a single `SetRandomBattleFrequency({<instvar>})`. **Every dispatcher and
+every language ships the identical 25-zone vector**
+`[12,16,11,14,16,14,16,14,16,16,24,12,16,16,16,11,16,16,16,14,16,16,16,32,16]`; `WORLD05` alone carries one
+extra *immediate* `SetRandomBattleFrequency(11)` (entry 15 tag 1, a player-setup sequence). The switch's
+DEFAULT arm targets the `ENCRATE` itself, so an out-of-range zone reuses the previous frame's value.
+
+**⚠ The multiplier is QUADRATIC, and the verb does the squaring for you.** `ProcessEncount` *accumulates*
+(`_encountBase += encratio` per step tick; battle when `random8() < _encountBase>>3`), so the distance between
+battles falls as `1/sqrt(encratio)` — measured over 200k simulated battles per point, `encratio * M**2`
+delivers frequency `M` to within ~3% across M in 0.25..4. So `--multiplier 2.0` writes `16 -> 64`, not `16 -> 32`.
+`--set N` forces an absolute `encratio`; **higher = MORE battles**, the opposite sense from
+`world-encounter-rate`'s probability denominator.
+
+**`encratio` is a Byte in both the ladder target and the opcode cast, so 256 truncates to 0 = encounters
+silently OFF.** Every value is clamped to 0..255, and a `--multiplier` result floors at **1**, never 0 — only
+`--peaceful` means zero, and it means it properly (`ENCRATE 0` zeroes `_encountBase`, and the `ProcessEncount`
+call site requires `encratio > 0`). Pair `world-encounter-frequency --peaceful` with
+`world-encounter-rate --peaceful` for a genuinely battle-free overworld.
+
+`--zone Z` (repeatable) scopes the edit to one zone's arm — the surgical lever for making just the kit's own
+land safe or dangerous (the southern ring's safe-road stamp puts kit ground on **area 14 -> zone 6**).
+`--zone Z --peaceful` is therefore a much cheaper safe road than re-stamping AREA bits across the terrain
+— but it silences **every area that maps to that zone**, so read `--list`'s areas column first: a zone the
+kit shares with stock land would go quiet too. (The AREA-stamp/table-hole route stays the per-tile lever.)
+`--list` prints the current ladder with each zone's areas and its ratio vs stock, reading the deployed
+override when `--mod-folder` is given. Deploy is a per-language `.eb` shadow that STACKS on any
+`world-entrance` / `world-encounter-rate` edit; `--multiplier` stays idempotent across re-runs by always
+deriving from the pristine dispatcher. RELAUNCH / re-enter the overworld to apply.
+
+**Structure gate:** an expression-valued `ENCRATE` whose ladder is not the shipping shape (wrong switch
+selector, wrong arm variable, wrong arm count) raises `EncrateStructureError` rather than being silently
+mis-patched — a dispatcher another tool has restructured is refused, not guessed at.
 
 ### `world-encounters` — re-table which monsters spawn where (no DLL)
 
