@@ -152,6 +152,21 @@ def test_a_game_that_never_publishes_state_times_out_and_names_the_patch(game):
         s.start()
 
 
+def test_a_failed_start_still_disarms_the_shared_install(game):
+    """A start() that raises must not leave `arm` behind for the next person's game to pick up."""
+    class Dead:
+        def poll(self):
+            return None
+
+    s = Session(game_path=game, run_dir=game / "run", pid_probe=lambda: [],
+                launcher=lambda exe: Dead(), boot_timeout=0.5, verbose=False)
+    with pytest.raises(HarnessError):
+        with s:
+            pass
+    assert not s.channel.armed
+    assert (game / "run" / "report.json").exists(), "a failed start must still leave a report"
+
+
 def test_a_game_that_dies_mid_run_is_reported_not_waited_on(game):
     fake = FakeGame(game)
     with session(game, fake) as g:

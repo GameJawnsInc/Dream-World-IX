@@ -47,12 +47,41 @@ RUNS = REPO / ".harness-runs"
 #: start pays Steam, the Memoria patcher and the p0data mount before a single frame renders.
 BOOT_TIMEOUT = 240.0
 
+#: Window size for a harness launch. Deliberately modest: the harness reads state and captures frames
+#: from inside the engine, so a big window buys nothing and costs GPU, boot time and your screen.
+DEFAULT_SIZE = (1280, 720)
 
-def ff9_pids() -> list[int]:
-    """PIDs of any running FF9. Uses tasklist rather than psutil, which is not a kit dependency."""
+
+def launch_args(width: int, height: int, monitor: int = 0) -> list[str]:
+    """The arguments the Memoria launcher's Play button passes to FF9.exe.
+
+    THIS IS WHY THE HARNESS DOES NOT CLICK PLAY. Started bare, ``FF9.exe`` hands off to
+    ``FF9_Launcher.exe`` and exits 0 -- so a naive launch looks like an instant crash while a WPF
+    launcher window sits there waiting for a human, and after a DLL update it also stacks a changelog
+    dialog in front. ``-runbylauncher`` is the flag that suppresses the handoff; the rest mirror
+    ``UiLauncherPlayButton.StartGameProcess`` so the game gets the display setup it expects.
+
+    Both of those gates are launcher-side WPF, so skipping the launcher removes both at once -- no GUI
+    automation, nothing to go stale when the launcher is restyled.
+
+    Windowed on purpose (``-screen-fullscreen 0``): exclusive fullscreen is what makes the external
+    PrintWindow capture return an all-black frame, and a windowed game leaves the machine usable. This
+    is a command-line argument only -- nothing in the user's saved display settings is touched.
+    """
+    return [
+        "-runbylauncher", "-single-instance",
+        "-monitor", str(monitor),
+        "-screen-width", str(width),
+        "-screen-height", str(height),
+        "-screen-fullscreen", "0",
+    ]
+
+
+def _pids_of(image: str) -> list[int]:
+    """PIDs of a running image. Uses tasklist rather than psutil, which is not a kit dependency."""
     try:
         out = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq FF9.exe", "/NH", "/FO", "CSV"],
+            ["tasklist", "/FI", f"IMAGENAME eq {image}", "/NH", "/FO", "CSV"],
             capture_output=True, text=True, timeout=20,
         ).stdout
     except (OSError, subprocess.SubprocessError):
@@ -60,12 +89,21 @@ def ff9_pids() -> list[int]:
     pids = []
     for line in out.splitlines():
         parts = [p.strip('" ') for p in line.split('","')]
-        if len(parts) >= 2 and parts[0].lower().startswith("ff9"):
+        if len(parts) >= 2 and parts[0].lower() == image.lower():
             try:
                 pids.append(int(parts[1]))
             except ValueError:
                 pass
     return pids
+
+
+def ff9_pids() -> list[int]:
+    """PIDs of any running FF9 game process (not the launcher)."""
+    return _pids_of("FF9.exe")
+
+
+def _launcher_running() -> bool:
+    return bool(_pids_of("FF9_Launcher.exe"))
 
 
 class Session:
@@ -81,9 +119,11 @@ class Session:
         run_dir: str | os.PathLike | None = None,
         boot_timeout: float = BOOT_TIMEOUT,
         verbose: bool = True,
+        window_size: tuple[int, int] = DEFAULT_SIZE,
         pid_probe=None,
         launcher=None,
     ):
+        self.window_size = window_size
         # ``pid_probe`` / ``launcher`` are the test seam. They exist so the offline suite can drive a
         # protocol stand-in without ever resolving, launching or killing the real shared install --
         # the same "pin the path through a seam, never read the real file" rule the deploy tooling
@@ -105,7 +145,14 @@ class Session:
 
     # -- lifecycle ------------------------------------------------------------------------------
     def __enter__(self) -> "Session":
-        self.start()
+        try:
+            self.start()
+        except BaseException:
+            # A failed start must still tear down. Without this, an exception in start() means
+            # __exit__ never runs and the `arm` file is left behind on an install shared by every
+            # other worktree -- so the next person's game silently boots with the harness live.
+            self.stop(failed=True)
+            raise
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -135,8 +182,14 @@ class Session:
             else:
                 if not exe.exists():
                     raise HarnessError(f"no FF9.exe at {exe}")
-                self._log(f"launching {exe}")
-                self.proc = subprocess.Popen([str(exe)], cwd=str(exe.parent))
+                args = launch_args(*self.window_size)
+                self._log(f"launching {exe} {' '.join(args)}")
+                # CWD is the GAME ROOT, not x64. UiLauncherPlayButton.StartGameProcess never sets a
+                # WorkingDirectory, so the game inherits the launcher's -- the root, where Memoria.ini,
+                # FontList and the mod folders live. Launching from x64 instead gets much further than
+                # you would expect and then dies inside EncryptFontManager.SetDefaultFont, because the
+                # font lookup is relative to the working directory. Memoria.log lands here too.
+                self.proc = subprocess.Popen([str(exe), *args], cwd=str(self.game_path))
             self._launched = True
         else:
             self._log(f"attaching to pid {running[0]}")
@@ -148,8 +201,12 @@ class Session:
         deadline = time.time() + self.boot_timeout
         while time.time() < deadline:
             if self.proc is not None and self.proc.poll() is not None:
+                extra = ""
+                if self.proc.returncode == 0 and _launcher_running():
+                    extra = ("FF9_Launcher is up, so the game handed off to it instead of starting -- "
+                             "the -runbylauncher argument did not reach it. ")
                 raise HarnessError(
-                    f"the game exited during boot (code {self.proc.returncode}). "
+                    f"the game exited during boot (code {self.proc.returncode}). {extra}"
                     f"{self._log_hint()}"
                 )
             st = self.channel.state()
@@ -173,6 +230,12 @@ class Session:
                 except (subprocess.TimeoutExpired, HarnessError):
                     self._log("quit did not land -- terminating")
                     self.proc.kill()
+        except Exception as err:
+            # Deliberately broad. Whatever goes wrong while shutting the game down, the `finally`
+            # below MUST still run: it is the only thing that removes `arm` from a shared install.
+            # Leaving the harness armed because a kill misbehaved would hand the next session's game
+            # a live harness it never asked for.
+            self._log(f"teardown: could not stop the game cleanly ({err})")
         finally:
             self.channel.collect(self.run_dir)
             self._collect_log()
@@ -181,13 +244,19 @@ class Session:
             self._log(f"artifacts in {self.run_dir}")
 
     def _collect_log(self) -> None:
-        for candidate in (self.game_path / "x64" / "Memoria.log", self.game_path / "Memoria.log"):
-            if candidate.exists():
-                try:
-                    shutil.copy2(candidate, self.run_dir / "Memoria.log")
-                except OSError:
-                    pass
-                return
+        # Memoria.log is written relative to the working directory, so it lands at the game root for a
+        # normal (and harness) launch but in x64/ for anything started from there. Take the NEWEST of
+        # the two rather than a fixed preference -- picking the stale one silently hands you the wrong
+        # session's log at exactly the moment you need the right one.
+        found = [p for p in (self.game_path / "Memoria.log", self.game_path / "x64" / "Memoria.log")
+                 if p.exists()]
+        if not found:
+            return
+        newest = max(found, key=lambda p: p.stat().st_mtime)
+        try:
+            shutil.copy2(newest, self.run_dir / "Memoria.log")
+        except OSError:
+            pass
 
     def _log_hint(self) -> str:
         return f"Check {self.run_dir / 'Memoria.log'} once the run ends."
@@ -252,9 +321,14 @@ class Session:
         entry script hands control over, and a scenario that starts walking too early silently drops
         its input on the floor and then fails somewhere unrelated.
         """
+        # `control` alone is NOT enough. It reads EventEngine.GetUserControl(), a global flag that can
+        # already be true while GetControlChar() still returns null a few frames into a field load --
+        # so a scenario that measures the player's position at that moment gets None and any
+        # movement assertion silently compares against nothing. Require a KNOWN position too.
         return self.wait_for(
-            lambda s: s.ui_state == "FieldHUD" and s.control and not s.fading,
-            timeout=timeout, what="the player to have control on a field",
+            lambda s: (s.ui_state == "FieldHUD" and s.control and not s.fading
+                       and s.player_x is not None),
+            timeout=timeout, what="the player to have control at a known position on a field",
         )
 
     # -- acting ---------------------------------------------------------------------------------

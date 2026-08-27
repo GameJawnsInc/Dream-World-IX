@@ -56,6 +56,22 @@
      private void OnNewGameButtonClick()
      {
          AutoSplitterPipe.SignalGameStart();
+--- a/Assembly-CSharp/Global/Bundle/BundleSceneSelector.cs
++++ b/Assembly-CSharp/Global/Bundle/BundleSceneSelector.cs
+@@ -23,7 +23,12 @@ public class BundleSceneSelector : MonoBehaviour
+             fileInfo.Delete();
+         }
+ 
+-        if (SteamSdkWrapper.SteamAPIRestartAppIfNecessary())
++        // [ff9mapkit s83] An armed test-harness run starts the game process itself and drives it
++        // unattended, so it cannot go through the relaunch-via-Steam handoff: that call quits this
++        // process and asks Steam to start FF9_Launcher.exe, which then waits for a human to click
++        // Play. Gated on the harness arm file, so a normal launch is completely unaffected -- Steam,
++        // the launcher and the overlay all behave exactly as before.
++        if (!Memoria.Harness.HarnessAgent.ArmFileExists() && SteamSdkWrapper.SteamAPIRestartAppIfNecessary())
+         {
+             Application.Quit();
+             return;
 --- a/Assembly-CSharp/Assembly-CSharp.csproj
 +++ b/Assembly-CSharp/Assembly-CSharp.csproj
 @@ -1378,6 +1378,7 @@
@@ -133,7 +149,7 @@ diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/M
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,794 @@
+@@ -0,0 +1,839 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -242,6 +258,36 @@ new file mode 100644
 +        // every scene change: title -> field -> battle -> world all keep the same queue and the same
 +        // held buttons.
 +        // ------------------------------------------------------------------------------------------
++        // Is a harness run armed? Answered WITHOUT the agent existing, because the earliest caller runs
++        // in BundleSceneSelector.Awake -- before any scene, let alone our MonoBehaviour. Same gate as
++        // everything else here: no arm file, no behaviour change anywhere.
++        public static Boolean ArmFileExists()
++        {
++            try
++            {
++                EnsurePaths();
++                return File.Exists(Path.Combine(_dir, "arm"));
++            }
++            catch (Exception)
++            {
++                return false;
++            }
++        }
++
++        // ONE place that resolves the channel paths, because there are now two entry points into this
++        // class and they raced: ArmFileExists (called from BundleSceneSelector.Awake, before any scene)
++        // used to assign only _dir, so PollArm's own `if (_dir == null)` block never ran and _shotDir
++        // stayed null -- Directory.CreateDirectory(null) threw on the first arm and the agent disarmed
++        // itself before publishing a single state. Two lazy initialisers over one piece of state, where
++        // whichever runs first silently starves the other.
++        private static void EnsurePaths()
++        {
++            if (_dir != null)
++                return;
++            _dir = Path.GetFullPath(Path.Combine(Path.Combine(Application.dataPath, ".."), "ff9harness"));
++            _shotDir = Path.Combine(_dir, "shots");
++        }
++
 +        public static void Ensure()
 +        {
 +            if (_instance != null)
@@ -281,11 +327,7 @@ new file mode 100644
 +        // relaunch. Twice a second is far below noise -- File.Exists on a warm directory is microseconds.
 +        private void PollArm()
 +        {
-+            if (_dir == null)
-+            {
-+                _dir = Path.GetFullPath(Path.Combine(Path.Combine(Application.dataPath, ".."), "ff9harness"));
-+                _shotDir = Path.Combine(_dir, "shots");
-+            }
++            EnsurePaths();
 +            if (Time.frameCount - _armPollFrame < 30)
 +                return;
 +            _armPollFrame = Time.frameCount;
@@ -712,12 +754,31 @@ new file mode 100644
 +            Bool(sb, "control", Try(() => PersistenSingleton<EventEngine>.Instance.GetUserControl(), false));
 +            sb.Append("},");
 +
++            AppendInput(sb); sb.Append(",");
 +            AppendDialog(sb); sb.Append(",");
 +            AppendWatch(sb); sb.Append(",");
 +            AppendHeld(sb);
 +            sb.Append("}");
 +
 +            WriteAtomic(Path.Combine(_dir, "state.json"), sb.ToString());
++        }
++
++        // What the ENGINE thinks the input is, as opposed to what the harness believes it scheduled.
++        // Publishing both sides is what makes an input failure diagnosable instead of a guessing game:
++        // `held` is the agent's own view, `key_*` is the value the movement code actually reads through
++        // UIKeyTrigger, and `move_key` is whether the field actor controller decided to move at all.
++        // If held is set and key_up is false, the injection point is wrong; if both are true and the
++        // character still does not move, the break is downstream of input entirely.
++        private static void AppendInput(StringBuilder sb)
++        {
++            sb.Append("\"input\":{");
++            Bool(sb, "key_up", Try(() => UIManager.Input.GetKey(Control.Up), false)); sb.Append(",");
++            Bool(sb, "key_confirm", Try(() => UIManager.Input.GetKey(Control.Confirm), false)); sb.Append(",");
++            Bool(sb, "move_key", Try(() => FieldMapActorController.ccSMoveKey, false)); sb.Append(",");
++            Num(sb, "dash_inh", Try(() => (Int32)PersistenSingleton<EventEngine>.Instance.GetDashInh(), -1)); sb.Append(",");
++            Num(sb, "axis_x", Try(() => PersistenSingleton<HonoInputManager>.Instance.GetAxis().x, Single.NaN)); sb.Append(",");
++            Num(sb, "axis_y", Try(() => PersistenSingleton<HonoInputManager>.Instance.GetAxis().y, Single.NaN));
++            sb.Append("}");
 +        }
 +
 +        // The on-screen text. This is the assertion that was flatly impossible before -- a scenario can

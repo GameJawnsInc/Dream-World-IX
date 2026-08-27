@@ -202,9 +202,7 @@ class Channel:
         """Queue ``steps`` in the game. Returns the sequence number to wait for."""
         self._seq += 1
         body = "\n".join([f"seq {self._seq}", *steps]) + "\n"
-        tmp = self.dir / "req.txt.tmp"
-        tmp.write_text(body, encoding="utf-8")
-        os.replace(tmp, self.dir / "req.txt")
+        _write_atomic(self.dir / "req.txt", body)
         return self._seq
 
     # -- game -> driver ---------------------------------------------------------------------
@@ -218,7 +216,12 @@ class Channel:
         path = self.dir / "state.json"
         for attempt in range(retries):
             try:
-                return State(json.loads(path.read_text(encoding="utf-8")))
+                # utf-8-SIG, not utf-8: .NET's File.WriteAllText with an explicit Encoding.UTF8
+                # emits a BOM, and json.loads rejects the leading ﻿ outright. The symptom was
+                # perfect: the agent published correct state every frame and the driver reported
+                # "the agent never published state" for 90 seconds. Read tolerantly here rather than
+                # relying on the engine being BOM-free, so an older deployed DLL still works.
+                return State(json.loads(path.read_text(encoding="utf-8-sig")))
             except FileNotFoundError:
                 return None
             except (ValueError, OSError):
@@ -232,7 +235,7 @@ class Channel:
         if not path.exists():
             return []
         out = []
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -257,6 +260,28 @@ class Channel:
             shots.mkdir(exist_ok=True)
             for png in self.shots.glob("*.png"):
                 shutil.copy2(png, shots / png.name)
+
+
+def _write_atomic(path: Path, text: str, attempts: int = 8) -> None:
+    """Replace ``path`` atomically, surviving the Windows sharing violation.
+
+    ``os.replace`` fails with ERROR_ACCESS_DENIED whenever the agent happens to have the target open
+    at that instant. This is the mirror image of the race the agent's own ``WriteAtomic`` handles for
+    ``state.json``, and it is not theoretical -- it killed a probe partway through the second field it
+    was testing. Retry briefly, then fall back to a direct write: the agent already returns from a
+    torn read and re-polls two frames later, and a partial file fails its ``seq`` parse and is
+    ignored, so the worst case is one wasted poll rather than a dead run.
+    """
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(0.004 * (attempt + 1))
+    path.write_text(text, encoding="utf-8")
+    _unlink(tmp)
 
 
 def _unlink(path: Path) -> None:

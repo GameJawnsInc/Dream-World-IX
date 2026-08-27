@@ -48,11 +48,20 @@ def smoke(g: Session, field: int | None) -> None:
     print(f"[smoke] agent is publishing: {st!r}")
     g.check(st.frame > 0, "the agent publishes a frame counter", f"frame={st.frame}")
 
+    # A freshly launched game reports ui_state "Initial" for several seconds -- through the splash and
+    # the boot logos -- before it is anywhere you can act on. Settle first; acting on "Initial" is how
+    # you get a warp refused for not being on a field.
+    st = g.wait_for(lambda s: s.ui_state in ("Title", "FieldHUD"), timeout=180,
+                    what="the game to reach the title screen or a field")
+    print(f"[smoke] settled at ui_state={st.ui_state}")
+
     if st.ui_state == "Title":
         print("[smoke] at the title -- starting a new game")
-        g.newgame()
-    else:
-        print(f"[smoke] already in game (ui_state={st.ui_state})")
+        g.wait_for(lambda s: s.ui_state == "Title", timeout=60, what="the title menu")
+        g.send("newgame")
+        # New Game runs into the opening, which holds control for a long time -- wait only for a field
+        # to exist, not for the player to be free.
+        g.wait_for(lambda s: s.ui_state == "FieldHUD", timeout=180, what="the opening to reach a field")
 
     if field is not None:
         print(f"[smoke] warping to field {field}")
@@ -68,9 +77,13 @@ def smoke(g: Session, field: int | None) -> None:
     g.walk("up", 40)
     after = g.state
     moved = _distance(before, after)
+    # On failure, report what the ENGINE saw as well as what we asked for -- `held` is the harness's
+    # own view, `input` is the value the movement code actually read. That distinction is the whole
+    # difference between "injection is wrong" and "injection is fine, movement is blocked".
+    diag = after.raw.get("input", {})
     g.check(moved > 0.5, "a virtual button press moved the character",
             f"moved {moved:.2f}u from ({_n(before.player_x)},{_n(before.player_z)}) "
-            f"to ({_n(after.player_x)},{_n(after.player_z)})")
+            f"to ({_n(after.player_x)},{_n(after.player_z)}); engine input={diag}")
 
     shot = g.shot("smoke")
     g.check(shot.stat().st_size > 1000, "captured a frame from inside the engine",
