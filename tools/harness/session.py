@@ -145,6 +145,7 @@ class Session:
         self.proc: subprocess.Popen | None = None
         self._launched = False
         self.checks: list[dict] = []
+        self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.run_dir = Path(run_dir) if run_dir else RUNS / f"{stamp}-{label}"
 
@@ -361,6 +362,146 @@ class Session:
     def wait_frames(self, frames: int) -> None:
         self.send(f"wait {int(frames)}")
 
+    # -- going somewhere ------------------------------------------------------------------------
+    # `walk(direction, frames)` is a poor primitive and measurement says so: on the 30801 bench the
+    # character runs at 30 units/frame, so a 75-frame hold "should" cover 2250 units -- and covered
+    # 1014, because he reached the edge of the walkmesh and stopped. Open-loop frame counts encode a
+    # distance nobody measured, saturate silently against geometry, and bake in a constant that is
+    # wrong on the next field. Everything below is closed-loop against the published position.
+
+    #: World units per frame, measured on 30801 (studies/test-harness/scenarios/calibrate_movement.py).
+    #: Used only to SIZE a burst; every move is still verified against the real position afterwards, so
+    #: a field where these are wrong costs an extra iteration rather than a wrong answer.
+    RUN_SPEED = 30.0
+    WALK_SPEED = 15.0
+
+    def distance_to(self, x: float, z: float) -> float:
+        st = self.state
+        if st.player_x is None:
+            raise HarnessError("no player position published -- not on a field?")
+        return ((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5
+
+    def calibrate_axes(self, *, probe: int = 4, recalibrate: bool = False) -> dict:
+        """Discover which BUTTON moves the character which way in WORLD space, on this field.
+
+        This cannot be hard-coded. FF9 fields are viewed by a fixed camera that is frequently yawed,
+        and movement is expressed in screen space (`FF9StateSystem.Field.twist`), so "up" is +z on one
+        field, -x on another, and something diagonal on a third. A `walk_to` that assumed a mapping
+        would work on the bench and quietly walk the wrong way in real rooms.
+
+        So: press each axis briefly, measure the actual world displacement, and keep the basis. If a
+        probe barely moves -- the usual cause is standing against a wall -- it retries the opposite
+        direction and negates, which is why this is a probe and not a single press.
+        """
+        st = self.state
+        key = st.field_id
+        if not recalibrate and key in self._axes:
+            return self._axes[key]
+
+        basis = {}
+        for name, (fwd, back) in (("v", ("up", "down")), ("h", ("right", "left"))):
+            vec = self._probe_axis(fwd, probe)
+            if vec is None:
+                vec = self._probe_axis(back, probe)
+                if vec is not None:
+                    vec = (-vec[0], -vec[1])
+            if vec is None:
+                raise HarnessError(
+                    f"could not calibrate the {name} axis on field {key}: neither {fwd} nor {back} "
+                    f"moved the character. Is he boxed in, or is control withheld?"
+                )
+            basis[name] = vec
+
+        # A probe can be DEFLECTED rather than blocked -- walk into an NPC at an angle and the engine
+        # slides the character along the collision instead of stopping him, so the measured vector is
+        # real movement pointing the wrong way. That produces a skewed basis that still "works" and
+        # sends every later walk_to off at an angle. Two screen axes should be close to perpendicular,
+        # so a large dot product means a probe was pushed and the basis must not be trusted silently.
+        skew = abs(basis["v"][0] * basis["h"][0] + basis["v"][1] * basis["h"][1])
+        if skew > 0.35:
+            raise HarnessError(
+                f"axis calibration on field {key} looks deflected: up={_vec(basis['v'])} "
+                f"right={_vec(basis['h'])} are not perpendicular (|dot|={skew:.2f}). Something "
+                f"(an NPC, a wall) pushed a probe. Move to clearer ground and recalibrate."
+            )
+
+        self._axes[key] = basis
+        self._log(f"axes on field {key}: up={_vec(basis['v'])} right={_vec(basis['h'])} "
+                  f"(perpendicularity |dot|={skew:.2f})")
+        return basis
+
+    def _probe_axis(self, direction: str, frames: int):
+        """Hold one direction briefly; return the unit world vector it produced, or None if it stalled."""
+        before = self.state
+        self.walk(direction, frames)
+        self.wait_frames(6)
+        after = self.state
+        if before.player_x is None or after.player_x is None:
+            return None
+        dx, dz = after.player_x - before.player_x, after.player_z - before.player_z
+        mag = (dx * dx + dz * dz) ** 0.5
+        if mag < self.RUN_SPEED * 0.5:      # less than half a frame of travel: treat as blocked
+            return None
+        return (dx / mag, dz / mag)
+
+    def walk_to(self, x: float, z: float, *, tolerance: float = 40.0, max_bursts: int = 24,
+                strict: bool = True) -> bool:
+        """Walk to a world (x, z), steering on the published position. Returns whether it arrived.
+
+        Moves one axis at a time rather than solving a diagonal: the engine's diagonal is a single
+        normalised vector split across both axes, so treating them independently converges in the same
+        number of round trips without the trigonometry, and each leg is independently verifiable.
+
+        The last leg deliberately drops to walk speed (Cancel held). At 30 units/frame a single run
+        frame overshoots any tolerance tighter than ~32 units, so a run-only approach oscillates around
+        the target forever and then fails on max_bursts.
+
+        Gives up early when a burst produces no progress -- that is a wall or a walkmesh edge, and
+        retrying it 24 times just turns a clear failure into a slow one.
+        """
+        basis = self.calibrate_axes()
+        stalls = 0
+        for _ in range(max_bursts):
+            st = self.state
+            if st.player_x is None:
+                raise HarnessError("lost the player position mid-walk")
+            dx, dz = x - st.player_x, z - st.player_z
+            remaining = (dx * dx + dz * dz) ** 0.5
+            if remaining <= tolerance:
+                return True
+
+            # Project the remaining offset onto each measured axis, and drive the bigger one.
+            along_v = dx * basis["v"][0] + dz * basis["v"][1]
+            along_h = dx * basis["h"][0] + dz * basis["h"][1]
+            if abs(along_v) >= abs(along_h):
+                direction, need = ("up" if along_v > 0 else "down"), abs(along_v)
+            else:
+                direction, need = ("right" if along_h > 0 else "left"), abs(along_h)
+
+            slow = need < self.RUN_SPEED * 3
+            speed = self.WALK_SPEED if slow else self.RUN_SPEED
+            frames = max(1, min(45, int(need / speed)))
+            steps = [f"hold {direction} {frames}"]
+            if slow:
+                steps.insert(0, f"hold cancel {frames}")
+            self.send(*steps, f"wait {frames + 4}")
+
+            after = self.state
+            moved = ((after.player_x - st.player_x) ** 2 + (after.player_z - st.player_z) ** 2) ** 0.5
+            stalls = stalls + 1 if moved < 1.0 else 0
+            if stalls >= 2:
+                break
+
+        arrived = self.distance_to(x, z) <= tolerance
+        if not arrived and strict:
+            st = self.state
+            raise HarnessError(
+                f"could not reach ({x}, {z}): stopped at ({st.player_x}, {st.player_z}), "
+                f"{self.distance_to(x, z):.0f} units away. A wall, a walkmesh edge, or an "
+                f"unreachable target."
+            )
+        return arrived
+
     def newgame(self, *, timeout: float = 120.0, playable: bool = False,
                 settle: float = TITLE_SETTLE) -> State:
         """Title screen -> New Game -> in-game.
@@ -491,6 +632,10 @@ def _button(name: str) -> str:
     if key not in BUTTONS:
         raise HarnessError(f"unknown button {name!r}; known: {', '.join(sorted(BUTTONS))}")
     return key
+
+
+def _vec(v) -> str:
+    return f"({v[0]:+.2f}, {v[1]:+.2f})"
 
 
 def _sanitize(name: str) -> str:
