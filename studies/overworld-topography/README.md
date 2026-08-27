@@ -1496,9 +1496,62 @@ through the `--src` seam reproduces the live disc-9 numbers exactly; (B) appendi
 a PROTECTED file flips it 25/1 → 24/2 PROTECTED/DIVERGED; (C) removing the ledger flips all 395
 to UNPROTECTED. The classifier genuinely depends on both the bytes and the ledger.
 
-**Why this is the cheap fix.** Arming it is a *backfill*, not a new gate — one pass over the mod
-tree writing an `"via": "adopt"` entry per unledgered file. It mints no new gate surface, adds no
-new refusal semantics, and re-points an already-shipped, already-tested mechanism at the content
-it was designed to protect. Per THE DEFECT FOLLOWS THE AUTHORSHIP, that is strictly preferable to
-authoring another occupancy gate. **Owner decision first**, though: adopting stamps "we own this"
-on bytes whose provenance is genuinely unknown, which is a claim, not a measurement.
+**⚠ CORRECTION (same day, after an adversarial pass): a backfill is NOT the fix, and would make
+this hazard WORSE.** The obvious move — one pass stamping an `"via": "adopt"` row per unledgered
+file — was refuted. Adopting converts *"unknown provenance, so an overwrite is at least
+unexamined"* into *"kit-owned, therefore an overwrite is legitimate"*: the refusal fires only on
+bytes matching **no** row, so giving every file a row makes every subsequent overwrite pass the
+gate silently. It is strictly more surface than the real fix and catches strictly less. If an adopt
+pass is ever wanted for provenance reasons, its rows must be tagged `"via": "adopt"` **and the
+refusal must treat an adopt row as REFUSE-not-permit** — a semantics change, not a backfill.
+
+**The ledger is good for ATTRIBUTION, not occupancy.** The occupancy hazard belongs to a different
+mechanism entirely — THE MOD-OVERWRITE GATE, next section. Two real fixes came out of this: the
+disc mirror now ledgers (`66436348`, which buys attribution — the mirror still writes without a
+backup), and the mint lane now has a genuine occupancy gate.
+
+## THE MOD-OVERWRITE GATE, BACK-PORTED (★ 2026-08-27) — a fix that existed here for six weeks
+
+The Aldermarch finding has a root cause sharper than "the gate reads the stock tree", and the repo
+had already written it down. `transplant.py`'s `_mod_overwrite_gate` docstring:
+
+> **THE MOD-OVERWRITE GATE (2026-07-15, the dunes-islet incident): the real-target gate reads STOCK
+> data only, so a target cell already holding a PRIOR MOD DEPLOY (a minted islet, an older
+> transplant) sailed straight through and was silently overwritten.**
+
+And `island.py`'s own comment above THE OPEN-OCEAN TARGET LAW says it is *"the world-transplant
+gate, **ported here 2026-07-12**"*. So the mint lane copied the gate **three days before the fix**,
+and the fix was never propagated back. Same class, same file family, unfixed for six weeks — which
+is exactly why `world-island` at the recorded Aldermarch centre reads all 19 footprint blocks as
+"free" while six of them hold the owner-confirmed R4 bench on both discs.
+
+**What was NOT done, and why.** The obvious move — port `_mod_overwrite_gate` itself — was killed
+on measurement. It has a donor hatch: a cell whose `Donor.txt` names this deploy's own donor counts
+as a re-deploy and passes. `island.py`'s `DEFAULT_DONOR = (0,0)` and all six Aldermarch collision
+blocks carry `Donor.txt = 0,0`, so the gate would have returned **ok** on the very case it was
+meant to catch — donor identity is not deploy identity. Its file scan also lacks the extension
+filter, so it counts parked `.bak-<ts>` files as occupancy.
+
+**What was done.** `fuse.py`'s `_existing_overrides` was the better reader (it carries the
+extension filter, audit rec 6) but was wired at exactly one call site. It is now
+`mesh.existing_overrides`, living beside the write seam so there is **one** occupancy reader in the
+kit rather than one per verb, and `island.landmass` gates on it before any write, with
+`allow_overwrite` / `--allow-overwrite` as the deliberate hatch. `fuse`'s `[[island]]` runner now
+threads that flag through too — it was calling `I.landmass` directly and bypassing compose's own
+occupancy check entirely.
+
+**Verified statically, no game launch.** Five new tests in `test_world_island.py`, all hermetic
+(tmp game root, no install, no templates — occupancy is a filesystem question): the refusal with
+stock stubbed to *free*, which is the blind spot the law cannot see; the `allow_overwrite` waiver;
+a regression pin that parked `.bak-*` files do **not** trip the gate; that the gate reads the
+**write** disc, not the read disc (a row on the wrong disc would look populated and protect
+nothing); and that `fuse` and `island` share one reader object so they cannot drift apart again.
+Non-vacuity proven the house way — disabling the gate turns exactly the two refusal tests red.
+Also fixed `match=r"REAL world block.*(3, 1)"` in the pre-existing test: unescaped parens are a
+regex **group**, so a message that lost its parens passed.
+
+**Still open — the test that owns the law is mocked.** `test_landmass_refuses_real_world_blocks`
+monkeypatches `_real_block_parts` with a stub, so it proves the plumbing and can never observe what
+that function actually reads. That is why the stock-blindness survived six weeks of green suites.
+The new tests cover the occupancy half; an install-gated test driving the real `_real_block_parts`
+against a known stock-occupied block is the remaining piece.

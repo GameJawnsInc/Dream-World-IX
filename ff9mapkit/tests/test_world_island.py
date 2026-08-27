@@ -445,7 +445,7 @@ def test_landmass_refuses_real_world_blocks(monkeypatch):
     monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: _synth_plane())
     monkeypatch.setattr(I, "_real_block_parts",
                         lambda blk, **k: {"sea3": 2, "sea5": 16} if blk == (3, 1) else {})
-    with pytest.raises(ValueError, match=r"REAL world block.*(3, 1)"):
+    with pytest.raises(ValueError, match=r"REAL world block.*\(3, 1\)"):
         I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True)
     assert not called                                    # refused BEFORE any file was written
 
@@ -626,3 +626,91 @@ def test_census_refuses_the_registration_order_exception_blocks():
         P.census([("Terrain", shrine)])
     with pytest.raises(ValueError, match="[Vv]olcano"):
         P.census([("VolcanoCrater1", _bm([(_UP, GRASS)]))])
+
+
+# ---- THE MOD-OVERWRITE GATE (back-ported from world-transplant, 2026-07-15) -------------------------
+
+def _mod_tree(tmp_path, *, cell=(3, 1), disc=1, names=("Terrain.ff9mesh", "Sea4.ff9mesh", "Donor.txt")):
+    """A tmp game root whose mod folder already holds deployed overrides at ``cell``."""
+    bx, by = cell
+    d = tmp_path / "MOD" / "FF9_Data" / "WorldMap" / f"Disc{disc}" / "0_1" / f"r{by}"
+    d.mkdir(parents=True, exist_ok=True)
+    for n in names:
+        (d / f"Block[{bx}][{by}] {n}").write_bytes(b"PRIOR-DEPLOY")
+    return d
+
+
+def _stub_writes(monkeypatch, called):
+    monkeypatch.setattr(M, "deploy_override", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: _synth_plane())
+    # stock says the footprint is FREE -- which is precisely the blind spot: _real_block_parts
+    # reads the REAL game tree (transplant.world_tris), never the mod folder.
+    monkeypatch.setattr(I, "_real_block_parts", lambda blk, **k: {})
+
+
+def test_landmass_refuses_a_footprint_another_deploy_already_owns(tmp_path, monkeypatch):
+    """THE DEFECT THIS CLOSES. The OPEN-OCEAN TARGET LAW above passes here -- stock genuinely has
+    nothing at (3,1) -- and the mint would still have overwritten another deploy's files. That is
+    the 2026-07-15 dunes-islet incident, fixed then in ``transplant._mod_overwrite_gate`` and never
+    propagated to this lane, which had copied the pre-fix shape on 2026-07-12. Live cost measured
+    2026-08-27: the recorded Aldermarch mint's 19 blocks all read 'free' while six held the
+    owner-confirmed R4 bench on both discs."""
+    import pytest
+    called = []
+    _stub_writes(monkeypatch, called)
+    _mod_tree(tmp_path)
+    with pytest.raises(ValueError, match="already holds 3 deployed override file"):
+        I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True, game=tmp_path)
+    assert not called                                    # refused BEFORE any file was written
+
+
+def test_landmass_allow_overwrite_waives_the_mod_gate(tmp_path, monkeypatch):
+    """The hatch is deliberate and must still work -- a guard rail, not a wall."""
+    called = []
+    _stub_writes(monkeypatch, called)
+    _mod_tree(tmp_path)
+    s = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True,
+                   game=tmp_path, dry_run=True, allow_overwrite=True)
+    assert s["report"]["clean"]
+
+
+def test_mod_overwrite_gate_ignores_parked_bak_files(tmp_path, monkeypatch):
+    """REGRESSION PIN. ``deploy_override`` parks ``<name>.bak-<ts>`` beside a file it overwrites, so an
+    occupancy read using a bare ``startswith`` would count backups as deployed content and refuse
+    forever after the first legitimate re-deploy. ``mesh.existing_overrides`` carries the extension
+    filter (audit rec 6); ``transplant._mod_overwrite_gate``'s own copy still does not, which is why
+    THAT reader was not the one promoted."""
+    called = []
+    _stub_writes(monkeypatch, called)
+    _mod_tree(tmp_path, names=("Terrain.ff9mesh.bak-20260101-000000",))
+    s = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True,
+                   game=tmp_path, dry_run=True)
+    assert s["report"]["clean"]                          # backups alone must NOT trip the gate
+
+
+def test_mod_overwrite_gate_reads_the_WRITE_disc_not_the_read_disc(tmp_path, monkeypatch):
+    """``target_disc`` (Path D's sentinel namespace) is where the bytes LAND, so that is the tree the
+    gate must scan. Occupancy on the read disc is irrelevant and must not refuse."""
+    import pytest
+    called = []
+    _stub_writes(monkeypatch, called)
+    _mod_tree(tmp_path, disc=1)                          # occupied on the READ disc only
+    s = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True,
+                   game=tmp_path, dry_run=True, target_disc=9)
+    assert s["report"]["clean"]
+
+    _mod_tree(tmp_path, disc=9)                          # now occupy the WRITE disc
+    with pytest.raises(ValueError, match="on disc 9"):
+        I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True,
+                   game=tmp_path, target_disc=9)
+
+
+def test_one_occupancy_reader_in_the_kit(tmp_path):
+    """``fuse`` and ``island`` must not drift apart again -- the whole defect was two copies of one
+    idea, one of which got fixed."""
+    from ff9mapkit.world import fuse as F
+    assert F._existing_overrides is M.existing_overrides
+    _mod_tree(tmp_path)
+    hits = M.existing_overrides([(3, 1)], "MOD", disc=1, lod="0_1", game=tmp_path)
+    assert len(hits) == 3 and all("Block[3][1] " in h for h in hits)

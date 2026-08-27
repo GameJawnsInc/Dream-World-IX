@@ -4698,7 +4698,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
                   beach=beach, disc=args.disc, game=args.game, dry_run=args.dry_run,
                   skip_mirror=args.skip_mirror, target_disc=args.target_disc,
                   all_sea_target=args.all_sea_target,
-                  coastnav=not args.skip_coastnav, coastnav_policy=args.coastnav_policy)
+                  coastnav=not args.skip_coastnav, coastnav_policy=args.coastnav_policy,
+                  allow_overwrite=args.allow_overwrite)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -9118,6 +9119,11 @@ def build_parser() -> argparse.ArgumentParser:
                               "undulation (local prominence still = world-hill/world-forest/world-mountain). "
                               "Needs the custom engine; re-enter the world.")
     wis.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wis.add_argument("--allow-overwrite", action="store_true",
+                     help="deploy even though the footprint already holds another deploy's override files. "
+                          "OFF by default: THE MOD-OVERWRITE GATE (back-ported from world-transplant's "
+                          "2026-07-15 dunes-islet fix) refuses rather than silently replacing content this "
+                          "mint did not write -- the stock open-ocean law cannot see a prior mod deploy.")
     wis.add_argument("--target-disc", type=int, default=None,
                      help="deploy the produced overrides into THIS disc's namespace instead of --disc's. --disc "
                           "stays the READ disc (which stock tree real bytes are borrowed from; only 1 and 4 exist). "

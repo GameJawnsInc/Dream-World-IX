@@ -948,7 +948,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
              beach=None, donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1",
              game=None, dry_run: bool = False, skip_mirror: bool = False,
              target_disc: int | None = None, all_sea_target: bool = False,
-             coastnav: bool = True, coastnav_policy: str = "land-anywhere") -> dict:
+             coastnav: bool = True, coastnav_policy: str = "land-anywhere",
+             allow_overwrite: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
@@ -998,6 +999,26 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
             f"deploy there (a sea-only prefab has no Terrain transform to override; a land "
             f"block would be shredded). Shift --center or change --seed/--radius until every "
             f"touched block is empty open ocean.")
+
+    # THE MOD-OVERWRITE GATE, back-ported. The law above probes the STOCK tree, which answers
+    # "does the REAL game ship assets here" -- a different question from "is this target free".
+    # `transplant._mod_overwrite_gate` closed exactly this hole on 2026-07-15 (the dunes-islet
+    # incident: a target already holding a PRIOR MOD DEPLOY sailed through and was silently
+    # overwritten), but this lane had copied the pre-fix shape three days earlier (see "ported
+    # here 2026-07-12" above) and the fix was never propagated. Measured cost: a `world-island`
+    # at the recorded Aldermarch centre passes the stock law with all 19 footprint blocks
+    # "free" while six of them hold the owner-confirmed R4 bench, on both discs.
+    wdisc = disc if target_disc is None else int(target_disc)
+    try:
+        clash = M.existing_overrides(sorted(built["blocks"]), mod_folder, disc=wdisc, lod=lod, game=game)
+    except Exception:
+        clash = []                               # no install resolvable: nothing to hit
+    if clash and not allow_overwrite:
+        raise ValueError(
+            f"landmass footprint already holds {len(clash)} deployed override file(s) in "
+            f"{mod_folder} on disc {wdisc} -- refusing to overwrite another deploy's content. "
+            f"First few: {clash[:6]}. Re-site the island, or pass allow_overwrite=True "
+            f"(--allow-overwrite) if you really mean to replace what is there.")
     plane = _sea_plane(disc, game)
     report = verify_landmass(built, sea_plane=plane, land_height=land_height)
     if not report["clean"]:

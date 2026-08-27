@@ -239,6 +239,35 @@ def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: i
     return dest
 
 
+def existing_overrides(cells, mod_folder: str, *, disc: int, lod: str = "0_1", game=None) -> list:
+    """Override files ALREADY DEPLOYED at any of ``cells`` (block ``(x, y)`` tuples), as sorted paths.
+
+    THE MOD-TREE OCCUPANCY READ. Every "is this target free?" gate in the world lane must ask THIS,
+    not the stock tree: :func:`~ff9mapkit.world.transplant.world_tris` and friends answer "does the
+    REAL game ship assets here", which is a different question and cannot see a prior mod deploy.
+    That confusion is a named, dated incident -- THE MOD-OVERWRITE GATE (2026-07-15, the dunes-islet
+    incident, ``transplant._mod_overwrite_gate``) -- and the fix was never propagated to the writers
+    that had already copied the stock-only shape (``island.landmass`` says so itself: "the
+    world-transplant gate, ported here 2026-07-12", i.e. three days before the fix).
+
+    Lives here, beside :func:`deploy_override`, so there is ONE occupancy reader in the kit rather
+    than one per verb. Moved verbatim from ``fuse._existing_overrides`` (which had the correct
+    extension filter); ``fuse`` keeps calling it under its old private name."""
+    game_path = config.find_game_path(game)
+    hits = []
+    for (x, y) in cells:
+        d = game_path / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{disc}" / lod / f"r{y}"
+        if not d.is_dir():
+            continue
+        prefix = f"Block[{x}][{y}] "
+        # extension filter (audit rec 6): the write seam parks `.bak-<ts>` copies beside a
+        # deployed file, and a bare startswith would count them as deployed overrides --
+        # tripping this gate forever after the first legitimate re-deploy.
+        hits.extend(str(p) for p in sorted(d.iterdir())
+                    if p.name.startswith(prefix) and p.suffix in (".ff9mesh", ".txt"))
+    return hits
+
+
 #: the world lane's append-only deploy ledger, one JSON line per deploy_override write,
 #: living at <game>/<mod_folder>/.ff9world.jsonl. JSONL, not JSON: 18+ concurrent sessions
 #: share this install, and append-only single lines avoid the read-modify-write race.

@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-island` could silently overwrite another deploy's content (THE MOD-OVERWRITE GATE, back-ported)
+- `world-transplant` closed this hole on 2026-07-15 (`_mod_overwrite_gate`, the dunes-islet
+  incident: *"the real-target gate reads STOCK data only, so a target cell already holding a PRIOR
+  MOD DEPLOY sailed straight through and was silently overwritten"*). `island.landmass` had copied
+  the pre-fix shape three days earlier — its own comment says *"the world-transplant gate, ported
+  here 2026-07-12"* — and the fix was never propagated. THE OPEN-OCEAN TARGET LAW probes the STOCK
+  tree, which answers a different question from *"is this target free"*, so a mint whose footprint
+  is stock-open-ocean passed while already holding deployed content.
+- **One occupancy reader now.** `fuse._existing_overrides` (the copy carrying the correct
+  `.ff9mesh`/`.txt` extension filter, audit rec 6) is promoted to **`mesh.existing_overrides`**,
+  beside the write seam. `island.landmass` gates on it before any write, with `allow_overwrite` /
+  **`--allow-overwrite`** as the deliberate hatch; `fuse`'s `[[island]]` runner threads the flag
+  through (it called `landmass` directly and bypassed compose's occupancy check entirely).
+  `transplant._mod_overwrite_gate` was deliberately NOT the one promoted: its donor hatch passes
+  any cell whose `Donor.txt` names this deploy's donor, and with `DEFAULT_DONOR = (0,0)` that
+  fails open on the mint lane, on exactly the case it should catch.
+- Five hermetic tests (tmp game root; no install or templates needed — occupancy is a filesystem
+  question), including the refusal with stock stubbed *free*, the `.bak-<ts>` regression pin, and
+  write-disc-vs-read-disc. Non-vacuity proven by disabling the gate: exactly the two refusal tests
+  go red. Also escaped `match=r"REAL world block.*(3, 1)"` in the pre-existing test — unescaped
+  parens are a regex group, so a message that lost its parens still passed.
+
 ### Fixed — the disc mirror never ledgered, so THE OWNERSHIP REFUSAL protected nothing on disc 4
 - `discmirror.mirror` wrote both the mirrored copies and the free-ride pins with raw
   `write_bytes` / `write_ff9mesh`, never through `deploy_override` and never calling

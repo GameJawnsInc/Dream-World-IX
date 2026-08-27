@@ -30,6 +30,7 @@ from pathlib import Path
 from .. import config
 from . import transplant as TR
 from .transplant import OPEN_WATER_PARTS
+from . import mesh as M
 
 
 def _rect(summary) -> tuple:
@@ -111,22 +112,10 @@ def _shared_borders(summaries) -> list:
 _OPPOSITE = {"E": "W", "S": "N"}
 
 
-def _existing_overrides(cells, mod_folder: str, *, disc: int, lod: str, game=None) -> list:
-    """Override files already deployed at any of ``cells`` (block ``(x, y)`` tuples)."""
-    game_path = config.find_game_path(game)
-    hits = []
-    for (x, y) in cells:
-        d = game_path / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{disc}" / lod / f"r{y}"
-        if not d.is_dir():
-            continue
-        prefix = f"Block[{x}][{y}] "
-        # extension filter (audit rec 6): the write seam parks `.bak-<ts>` copies beside a
-        # deployed file, and a bare startswith would count them as deployed overrides --
-        # tripping this gate forever after the first legitimate re-deploy.
-        hits.extend(str(p) for p in sorted(d.iterdir())
-                    if p.name.startswith(prefix) and p.suffix in (".ff9mesh", ".txt"))
-    return hits
-
+#: THE MOD-TREE OCCUPANCY READ now lives beside the write seam so every world writer shares
+#: ONE reader (see :func:`ff9mapkit.world.mesh.existing_overrides`). Kept as a module-local
+#: name so this file's call site and its tests read unchanged.
+_existing_overrides = M.existing_overrides
 
 def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1", game=None,
                 allow_overwrite: bool = False, dry_run: bool = False,
@@ -361,9 +350,12 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             kw["cell"] = tuple(int(v) for v in row["cell"])
         else:
             raise ValueError("[[island]] needs center=[wx,wz] or cell=[bx,by]")
+        # allow_overwrite must reach the mint too: compose's own existing-overrides check
+        # (:func:`_existing_overrides`, called from `fuse_layout`) covers the TRANSPLANT tier
+        # only, so without this an [[island]] row bypassed the occupancy gate entirely.
         return I.landmass(mod_folder, disc=disc, lod=lod, game=game, dry_run=dry_run,
                           skip_mirror=skip_mirror, target_disc=target_disc,
-                          all_sea_target=all_sea_target, **kw)
+                          all_sea_target=all_sea_target, allow_overwrite=allow_overwrite, **kw)
 
     def _relief_runner(table, row):
         from . import interior as IN
