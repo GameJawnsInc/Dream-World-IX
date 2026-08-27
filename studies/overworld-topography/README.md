@@ -1348,33 +1348,57 @@ Larkspur: **(9,8), (9,10), (11,10)** — 3 × 256 = **768**. The arithmetic repr
 counts exactly. So a MISS here is ground the probe never *measured* (an unmodded block; stock
 ocean, most likely — but the probe never reads the stock map and cannot claim it).
 
-**The fix, and the deliberate half of it.** MISS is excluded from `water` in both cases, then
-split: **UNCOVERED** (outside every block that contributed a mesh — out of scope, recorded, does
-*not* disqualify) vs **HOLE** (a MISS *inside* a block that did load — a real stranding spot /
-void render, which the placement census gates at a hard zero, so it **disqualifies** any
-candidate within the 24u admission envelope). Blanket-disqualifying on any MISS would have
-thrown away every Tidefall and Larkspur candidate over an artifact of the bbox sweep — a
-different wrong answer, not a safer one. Every MISS in this island set is UNCOVERED, so the hole
-arm never fires here; `--selftest` exercises it on a synthetic grid so it is not a check that
-cannot fail. The JSON now records miss **coordinates** (`hole_xz` / `uncovered_xz`) and
-`blocks_uncovered`, not just `n_miss` — the archived run could not be audited after the fact
-because only the count was kept. Each admitted candidate carries `uncovered_dist`.
+**The fix is in two parts, and the first removes the ambiguity rather than managing it.**
+
+1. **The sweep is scoped to the island's own blocks.** The lattice is still laid over the
+   bounding box, but only points inside the **closed** span of a block that actually loaded are
+   queried — closed, because a block's mesh reaches its own edge verts, so the coastal rim is
+   measured by the block behind it. The probe no longer asks a question it cannot answer, and
+   **MISS recovers its census meaning**: a MISS is now a *real* hole, and `n_miss` is a hard-zero
+   gate that prints a `GATE FAIL` line if one ever appears.
+2. **MISS is excluded from `water`**, and a MISS within the 24u admission envelope
+   **disqualifies** the candidate — a dock is exactly where the boat hull and the landing apron
+   meet.
+
+Bounding-box points **outside** the island's blocks are **unmeasured**: never queried, never
+water, and they do *not* disqualify — the probe's own blindness is not evidence of a defect on
+the ground. Treating them as one would have thrown away every Tidefall and Larkspur candidate
+over an artifact of the old sweep. The JSON records `miss_xz`, `unmeasured_xz`,
+`blocks_outside_list` and `blocks_no_mesh` (declared but nothing loaded — a data defect), not
+just a count; the archived run could not be audited after the fact because only the count was
+kept. Each admitted candidate carries `unmeasured_dist`. Both arms are silent on the real island
+set, so `--selftest` exercises the re-scope and the disqualify path on synthetic input — neither
+is a check that cannot fail.
 
 **Re-derivation — A/B against one pinned snapshot** (`--src`, the seam added to
-`design_sandreach_probe.py` in `35388a8d`; snapshot + both runs archived under
-`backups/world-design.dockscan-refix.20260827/`). `--legacy-water` reproduces the archive exactly
-(Tidefall 561/1056/136 · Larkspur 366/2035/141 · Grimhorn 589/1812/210 · Sandreach 116/973/0), so
-the install had not drifted under these blocks and the diff is the fix alone.
+`design_sandreach_probe.py` in `35388a8d`; snapshot + all runs archived under
+`backups/world-design.dockscan-refix.20260827/`). `--legacy-water` restores the *whole* pre-fix
+probe — bbox sweep, MISS-as-water, no disqualify test — and reproduces the archive on every count
+(Tidefall 561/1056/**256**/136 · Larkspur 366/2035/**768**/141 · Grimhorn 589/1812/0/210 ·
+Sandreach 116/973/0/0) and on every candidate's identity, order, `water_dist`, `relief` and `y`.
+
+⚠ **One real drift, fully explained.** Four samples read `topo` **59** where the archive read
+0/17: (48,−1160) Ashvale · (420,−1224) Tidefall · (1204,−1184) Grimhorn · (700,−608) Larkspur.
+Those are exactly the four **R2 quay beacon anchors** (`southern-ring/REVERT.md:1211,1307,1373`),
+deployed 2026-07-26 — the day *after* the archive — and topo 59 is their terrain-hull collision
+class. None is one of the four grafted dock coords. This is precisely the drift `--src` exists to
+pin, and it is the reason a raw re-run against the live install is not a comparison.
 
 **THE DEFECT WAS REAL BUT INERT ON THIS DATA.** Water falls by exactly the miss count (Tidefall
 1056 → 800, Larkspur 2035 → 1267) and **not one candidate moves** — 0 added, 0 dropped, 0
-`water_dist` changed, on all five islands. Falsified directly rather than inferred: re-running
-the admission test against the *uncovered* samples **alone** admits **0** candidates on Tidefall
-and **0** on Larkspur. 14 candidates (5 Tidefall, 9 Larkspur) do sit within 24u of an unmeasured
-block, but each also has real sea within 12u.
+`water_dist` changed, on all five islands, under the classifier fix *and* under the re-scoped
+sweep. Falsified directly rather than inferred: re-running the admission test against the
+unmeasured samples **alone** admits **0** candidates on Tidefall and **0** on Larkspur. A handful
+(5 Tidefall, 8 Larkspur) do sit within 24u of unmeasured ground, but each also has real sea
+within 12u.
+
+**The re-scope's payoff is the gate, not the verdict.** It drops 256 wasted ground queries on
+Tidefall and 768 on Larkspur and leaves the candidate list on all five islands **identical** — a
+fix to how the measurement is constructed, not to what it concludes. What it buys is that
+**`n_miss` is now 0 on all five islands** and means what the placement census means by it.
 
 **All four grafted dock coordinates SURVIVE**, each on real sea at 12u: **(272,−1168)** Ashvale ·
-**(412,−1224)** Tidefall · **(1204,−1192)** Grimhorn · **(700,−616)** Larkspur (`uncovered_dist`
+**(412,−1224)** Tidefall · **(1204,−1192)** Grimhorn · **(700,−616)** Larkspur (`unmeasured_dist`
 29.12u). Independently of this probe, (412,−1224) was already found unbuildable in play — the
 ring's R2 moved that trigger to **(420,−1232)** because the beacon hull crossed the (6,19)/(6,18)
 seam (`southern-ring/DESIGN.md:44-45`); that verdict stands and is unaffected.
@@ -1386,7 +1410,9 @@ cleanest statement of what the defect was: measuring *nothing at all*, the old c
 Ashvale **5265 samples of open ocean**, the fixed one calls it 0 water and 5265 unmeasured.
 
 ⚠ **Two limits that remain, so a COUNT from this probe is still not a siting fact.** (1) The scan
-reads only the mod folder, never the stock map, so the uncovered blocks stay unmeasured by
-construction — re-scoping the sweep to the island's actual block list, or loading stock, is a
-separate change. (2) `candidates` is still capped at 400; `n_candidates` now carries the true
-total (Ashvale: **562** real, 400 listed), which the archived run did not record at all.
+reads only the mod folder, never the stock map, so ground outside an island's own blocks stays
+unmeasured **by construction** — almost certainly stock ocean, but "almost certainly" is not a
+measurement, which is why it is reported separately rather than folded into water. Loading the
+stock map is a separate change. (2) `candidates` is still capped at 400; `n_candidates` now
+carries the true total (Ashvale: **562** real, 400 listed), which the archived run did not record
+at all.
