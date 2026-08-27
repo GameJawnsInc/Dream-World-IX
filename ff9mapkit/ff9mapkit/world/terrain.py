@@ -176,15 +176,18 @@ _DIRS = [(-1, 0), (1, 0), (0, 1), (0, -1)]
 
 
 def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", game=None,
-          dry_run: bool = False, skip_mirror: bool = False, target_disc: int | None = None) -> dict:
+          dry_run: bool = False, skip_mirror: bool = False, target_disc: int | None = None,
+          allow_overwrite: bool = False) -> dict:
     """FAITHFUL coast: reclaim each ``(x, y)`` in ``cells`` as a VERBATIM copy of the real coastal ``donor``=(dx, dy)
     block -- copy the donor's Terrain mesh (real land shape + shore rim + real UVs + walkable topographs) to the cell's
     Terrain override, AND write a ``Donor.txt`` sidecar naming the donor so the engine's per-cell divert loads that
     real coastal block prefab (its animated Beach/Sea/foam sub-meshes render on the cell). Unlike :func:`reclaim` (which
     SYNTHESIZES a stylized grass/sand island), this carries a genuine FF9 coastline -- the north-star "recreate from
     real bytes". A continent is assembled from real coast pieces (:func:`ff9mapkit.world.extract.list_coastal_donors`
-    lists them). Requires the CUSTOM engine (per-cell coastal-donor s34). Auto-mirrors the written overrides to Disc4
-    (``skip_mirror=True`` opts out). Apply via the world-scene reload (no relaunch)."""
+    lists them). Requires the CUSTOM engine (per-cell coastal-donor s34). REFUSES a target that already
+    holds another deploy's override files (THE MOD-OVERWRITE GATE; ``allow_overwrite=True`` /
+    ``--allow-overwrite`` waives it). Auto-mirrors the written overrides to Disc4 (``skip_mirror=True``
+    opts out). Apply via the world-scene reload (no relaunch)."""
     import dataclasses
     from . import extract as X, mesh as M
     dx, dy = donor
@@ -197,6 +200,11 @@ def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", gam
     donor_bm = X.read_block(dx, dy, disc=disc, lod=lod, part="terrain", game=game)   # real coast terrain (raises if not land)
     summary = {"op": "coast", "donor": [dx, dy], "disc": disc, "dry_run": dry_run, "cells": []}
     _ctarget = disc if target_disc is None else int(target_disc)
+    # THE MOD-OVERWRITE GATE. A carry writes DONOR bytes -- it reads nothing from the mod tree -- so a
+    # target already holding another deploy's override is silently replaced. `_ctarget` (not `disc`) is
+    # the WRITE namespace; gating the read disc would look populated and protect nothing (s74).
+    M.mod_overwrite_gate(cells, mod_folder, disc=_ctarget, lod=lod, game=game,
+                         allow_overwrite=allow_overwrite, what="coast target cell(s)")
     written = []
     for (bx, by) in cells:
         # verts are block-LOCAL (localPosition 0), so relocation is just re-tagging x/y/name; deploy_override +
@@ -310,7 +318,8 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
             height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
             shore_topo: int | None = None, shore_frac: float | None = None, rim_run: float | None = None,
             game=None, dry_run: bool = False, skip_mirror: bool = False,
-            target_disc: int | None = None, all_sea_target: bool = False) -> dict:
+            target_disc: int | None = None, all_sea_target: bool = False,
+            allow_overwrite: bool = False) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -337,7 +346,9 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
 
     Requires the CUSTOM engine: the shipped ``s34`` divert routes a sea cell carrying such an override onto a land
     donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of ``SeaBlockPrefab`` -- a stock sea cell
-    short-circuits before the override can fire, so on stock Memoria this is a no-op. A LONE reclaimed cell is an
+    short-circuits before the override can fire, so on stock Memoria this is a no-op. REFUSES a target that
+    already holds another deploy's override files (THE MOD-OVERWRITE GATE; ``allow_overwrite=True`` /
+    ``--allow-overwrite`` waives it). A LONE reclaimed cell is an
     ISLAND (surrounding stock sea non-walkable on foot); build a contiguous BRIDGE of cells from the coast for an
     on-foot-reachable landmass, or reach a lone cell via the debug menu (~)->World->Teleport. Auto-mirrors the written overrides to
     Disc4 (``skip_mirror=True`` opts out). RELAUNCH (or exit+re-enter) to load."""
@@ -363,6 +374,11 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     # THE READ/WRITE DISC SPLIT: `disc` is the READ disc (palette + real-land probe); `target` is where the
     # overrides are DEPLOYED. Equal unless a synthetic world (s74) is the target.
     target = disc if target_disc is None else int(target_disc)
+    # THE MOD-OVERWRITE GATE. reclaim SYNTHESIZES its mesh and reads nothing from the mod tree, so a
+    # cell another deploy already owns is silently replaced. `target` (not `disc`) is the WRITE disc;
+    # "0_1" literal because this verb has no lod knob and its deploy_override call takes that default.
+    M.mod_overwrite_gate(cells, mod_folder, disc=target, lod="0_1", game=game,
+                         allow_overwrite=allow_overwrite, what="reclaim target cell(s)")
     reclaimed = set(cells)
     land = set()
     if profile in ("island", "cliff") and not all_sea_target:

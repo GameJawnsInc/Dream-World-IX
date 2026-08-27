@@ -2516,6 +2516,19 @@ def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_
     rtarget = disc if target_disc is None else int(target_disc)   # THE READ/WRITE DISC SPLIT
     out = []
     span = [tuple(b) for b in res["report"]["blocks"]]
+    # THE MOD-OVERWRITE GATE, as a WARN ROW -- deliberately NOT a refusal. The interior verbs
+    # reshape an ALREADY-DEPLOYED kit island (`read_deployed_blocks` refuses when the mod tree is
+    # EMPTY), so occupancy at a span block is the normal case and a refusal would be a wall, not a
+    # guard rail -- the same reason `terrain.reshape` and `transplant.morph_in_place` are ungated.
+    # The hazard worth NAMING is narrower and real: this writer replaces every ENSEMBLE_PART with
+    # carried content OR A HIDDEN BLANK, and it never reads those parts back, so a prior deploy's
+    # Object (e.g. a `world-entrance` building) at a span block is erased without a word.
+    prior = M.existing_overrides(span, mod_folder, disc=rtarget, lod=lod, game=game,
+                                 parts=ENSEMBLE_PARTS)
+    if prior:
+        log(f"!! WARNING: {len(prior)} {'/'.join(ENSEMBLE_PARTS)} override(s) already deployed on "
+            f"the span -- this deploy REPLACES each with carried content or a hidden blank "
+            f"(a prior building/falls/river at these blocks is erased): {prior[:6]}")
     for blk in span:
         bx, by = blk
         for part in ENSEMBLE_PARTS:
@@ -2554,6 +2567,11 @@ def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
     # against Disc1 while writing Disc9 would defeat the converge check AND back up the wrong file.
     gp = Path(config.find_game_path(game))
     root = gp / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{rtarget}" / lod
+    # NO MOD-OVERWRITE GATE HERE, and that is the measured answer, not an oversight. Every block in
+    # `changed` came from `read_deployed_blocks` -- this writer READS the deployed Terrain override
+    # and writes the morphed bytes back -- so an occupancy gate would fire on 100% of legitimate runs
+    # (and a warn row would be 100% vacuous). The byte-compare converge below is the real guard: a
+    # block whose bytes do not change is not written at all.
     out = []
     with tempfile.TemporaryDirectory(prefix="ff9_interior_") as tmpdir:
         tmp = Path(tmpdir)

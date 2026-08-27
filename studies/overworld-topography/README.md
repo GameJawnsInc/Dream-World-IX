@@ -1555,3 +1555,74 @@ monkeypatches `_real_block_parts` with a stub, so it proves the plumbing and can
 that function actually reads. That is why the stock-blindness survived six weeks of green suites.
 The new tests cover the occupancy half; an install-gated test driving the real `_real_block_parts`
 against a known stock-occupied block is the remaining piece.
+
+## THE GATE, EXTENDED TO THE WHOLE LANE (★ 2026-08-27) — and the half that must NOT be a refusal
+
+The back-port above fixed one lane. An audit of all **14 write-capable entry points in `world/`**
+found only three gating on the mod tree at all (`transplant.transplant_region`,
+`fuse.compose_layout`, and now `island.landmass`). Extending the gate to the rest turned up a
+distinction the original framing did not have, and it is the load-bearing result of this pass.
+
+**THE READS-THE-MOD-TREE TEST.** A writer that **SYNTHESIZES or CARRIES** its bytes consults the mod
+tree nowhere, so a target another deploy owns is replaced without a word — that is the dunes-islet /
+Aldermarch defect, and it wants a **refusal**. A writer that **READS the deployed override and writes
+it back** overwrites an already-deployed cell *by design, on every legitimate run* — there a refusal
+is a wall, not a guard rail. The audit note that opened this task read *"each reads only the stock
+tree or nothing"*; that is true of four of the eight named writers and false of the other four, and
+the four it is false about are exactly the four that must not refuse.
+
+| writer | reads the mod tree? | verdict |
+|---|---|---|
+| `terrain.reclaim` | no — synthesizes | **REFUSE** + `--allow-overwrite` |
+| `terrain.coast` | no — carries donor bytes | **REFUSE** + `--allow-overwrite` |
+| `water.water` / `deploy_verbatim` / `reproduce` | no | **REFUSE** + `--allow-overwrite` |
+| `water.deploy_island_sea` | no | **REFUSE**, scoped to the SEA parts |
+| `interior.deploy_mountain_parts` | yes (`read_deployed_blocks`) | **WARN ROW** |
+| `interior.deploy_changed` | yes (`read_deployed_blocks`) | **nothing** — a warn would be vacuous |
+| `entrance.author_entrance` | yes (`read_block_stacked`) | **WARN ROW** on `--fresh` |
+| `entrance.extend_nameplate_band` | yes, and writes `.eb`, not block overrides | **out of scope** |
+
+Three of those rows are worth their own sentence.
+
+- **`deploy_island_sea` is the one place whole-cell scope is wrong.** It lays sea *around* an island
+  whose LAND `Terrain` the caller itself just wrote on those very cells, so an unscoped read refuses
+  on the deploy's own co-tenant. `mesh.existing_overrides` therefore gained an optional `parts=`
+  scope — narrowing THE one reader rather than minting a second one at the call site that needs it.
+- **The interior warn is not the obvious one.** "You are editing a deployed cell" would fire on 100%
+  of runs. The real hazard is narrower: `deploy_mountain_parts` writes carried content **or a hidden
+  blank** for every `ENSEMBLE_PART` and never reads those parts back, so a prior deploy's `Object` —
+  a `world-entrance` building on a span block — is erased in silence. That is what the warn names.
+- **`extend_nameplate_band` has no cells.** It splices func-0xB in the dispatcher `.eb.bytes`, and it
+  already carries a *better-fitted* guard than occupancy: idempotent skip, backup, and an outright
+  refusal of any arm section matching neither the stock nor the extended template. Nothing to add.
+
+**One gate now, not one per verb.** The refusal moved into `mesh.mod_overwrite_gate`, beside
+`existing_overrides` and the write seam; `island.landmass`'s inline copy calls it. Seven call sites,
+one implementation — the hole survived six weeks precisely because each lane owned its own copy.
+
+**Two mechanical rules the gate has to obey, both pinned by tests.** It runs over the WHOLE cell list
+at the public entry, never per-cell inside the deploy loop (`water._deploy_ocean_cell` deploys one
+cell at a time; refusing at cell 3 of 5 leaves a half-deploy). And it reads the **write** disc —
+`target_disc`, engine patch s74 — because a gate on the read disc looks populated and protects
+nothing.
+
+**Verified statically, no game launch.** 23 hermetic tests in
+`ff9mapkit/tests/test_world_mod_overwrite_gate.py` (tmp game root; no install, no templates), plus an
+install-gated pin that `author_entrance` actually *calls* its note — the c39ea162 lesson was that a
+helper proven alone and never proven CALLED is the same shape of nothing. Non-vacuity the house way:
+each gate disabled in turn turns exactly its own tests red, nine for nine, and both `parts=` scopes
+likewise. Domain green: 886 passed / 6 skipped across `tests/test_world*.py` + `test_discmirror*.py`
++ `test_navimap_worldmap.py` + `test_cli*.py`.
+
+**One pre-existing test was re-scoped, not loosened.**
+`test_discmirror_auto.test_hermeticity_mocked_deploy_calls_never_touch_a_real_install` asserted that
+a writes-mocked `water()` never resolves `config.find_game_path` — a proxy for "no mirror pass ran".
+The occupancy gate is a legitimate new READ of that root, so the bar is now stated in two halves:
+with the gate stubbed the original ZERO-resolutions law holds verbatim, and with it live there is
+EXACTLY ONE and still no mutation. (An audit's scope is part of its calibration: a gate that predates
+a new degree of freedom scores it against assumptions it never made.)
+
+**Still open.** `terrain.reshape` and `transplant.morph_in_place` remain deliberately ungated and
+un-warned. They are in the same in-place class as the interior verbs, but neither blanks a part it
+did not read, so there is no analogue of the `ENSEMBLE_PART` hazard to name — if one is ever found,
+the warn belongs there too, never a refusal.

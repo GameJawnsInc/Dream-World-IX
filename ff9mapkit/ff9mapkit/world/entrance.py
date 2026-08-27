@@ -732,6 +732,31 @@ def _capped_flatten_radius(requested: float, building, summary: dict) -> float:
     return requested
 
 
+def fresh_discard_note(mod_folder: str, bx: int, by: int, *, disc: int = 1, lod: str = "0_1",
+                       game=None) -> dict:
+    """THE MOD-OVERWRITE GATE for ``--fresh``, as a WARN ROW -- ``{}`` when there is nothing to say.
+
+    Deliberately NOT a refusal, in either mode. Without ``fresh``, :func:`author_entrance` READS the
+    deployed override (:func:`read_block_stacked`) and stamps its event tiles onto it, so writing an
+    already-deployed cell is the proven loop -- an entrance on a kit island -- exactly as for
+    ``terrain.reshape``. With ``fresh`` it re-reads PRISTINE p0data and throws the deployed bytes
+    away, but that IS what ``--fresh`` is for ("use when RE-doing a block"), so a refusal would fire
+    on the documented case too. What the operator cannot see is WHAT gets discarded: ``--fresh`` on a
+    cell ANOTHER deploy owns silently reverts that deploy's terrain/building to stock. So: name it.
+
+    Scoped to ``Terrain``/``Object`` -- the two parts this verb re-reads and re-writes. A ``Donor.txt``
+    or a sea layer at the same cell survives ``--fresh`` untouched and is not being discarded."""
+    discards = M.existing_overrides([(bx, by)], mod_folder, disc=disc, lod=lod, game=game,
+                                    parts=("Terrain", "Object"))
+    if not discards:
+        return {}
+    return {"fresh_discards": discards,
+            "fresh_warning": (f"--fresh re-reads block ({bx},{by}) from PRISTINE p0data, DISCARDING "
+                              f"the {len(discards)} deployed override(s) already there -- another "
+                              f"deploy's terrain/building at this cell reverts to stock: "
+                              f"{discards[:6]}")}
+
+
 def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_field=None,
                     event: int = 1, disc: int = 1, lod: str = "0_1",
                     trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
@@ -963,7 +988,10 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         summary["trigger_only"] = True
         return summary
 
-    # (2) event tile(s) on the cell's terrain block (+ optional flatten pad under the building), stacked
+    # (2) event tile(s) on the cell's terrain block (+ optional flatten pad under the building), stacked.
+    # THE MOD-OVERWRITE GATE lands here as a WARN ROW, not a refusal -- rationale in the helper.
+    if fresh:
+        summary.update(fresh_discard_note(mod_folder, bx, by, disc=disc, lod=lod, game=game))
     ter = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="terrain", game=game, fresh=fresh)
     try:                                                    # WARN if the cell is a poor spot (river/cliff or a town)
         _stock_obj = W.read_block(bx, by, disc=disc, lod=lod, part="object", game=game)

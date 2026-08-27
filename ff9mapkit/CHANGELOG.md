@@ -5,6 +5,42 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE MOD-OVERWRITE GATE extended to the rest of the world lane
+- The back-port to `world-island` (below) closed one lane; an audit of all 14 write-capable entry
+  points in `world/` found only `transplant.transplant_region`, `fuse.compose_layout` and
+  `island.landmass` gating on the MOD tree at all. The rest split cleanly in two, and the split is
+  **measured, not stylistic** — it turns on whether the writer reads the mod tree.
+- **REFUSAL + `--allow-overwrite`, for the writers that read NOTHING from the mod tree** (so a
+  target another deploy owns is silently replaced): `world-reclaim` (`terrain.reclaim`),
+  `world-coast` (`terrain.coast`), `world-water` in all three modes (`water.water` /
+  `deploy_verbatim` / `reproduce`), and `water.deploy_island_sea`. The gate runs over the WHOLE
+  cell list at each public entry, never per-cell inside the deploy loop — refusing at cell 3 of 5
+  would leave a half-deploy. It reads the **write** disc (`target_disc`, engine patch s74), because
+  a gate on the read disc looks populated and protects nothing.
+- **WARN ROW, never a refusal, for the IN-PLACE editors** — `interior.deploy_mountain_parts` and
+  `entrance.author_entrance --fresh`. These READ the deployed override and write it back
+  (`read_deployed_blocks` literally refuses when the mod tree is EMPTY), so occupancy is the normal
+  case and a refusal would be a wall rather than a guard rail — the same reason `terrain.reshape`
+  and `transplant.morph_in_place` stay ungated. What each warn names is the part a refusal could
+  never have caught: `deploy_mountain_parts` replaces every `ENSEMBLE_PART` with carried content
+  **or a hidden blank** and never reads those parts back, so a prior deploy's `Object` (a
+  `world-entrance` building) at a span block was erased silently; `--fresh` re-reads pristine
+  p0data, so on a cell another deploy owns it reverts that deploy's terrain/building to stock.
+  `interior.deploy_changed` gets neither, recorded at the call site: every block it writes came
+  from `read_deployed_blocks`, so even a warn would be 100% vacuous.
+- **Still one reader, now one gate.** `mesh.existing_overrides` gains an optional `parts=` scope
+  (used only where a writer legitimately shares a cell with another layer — `deploy_island_sea`
+  lays sea around an island whose `Terrain` the caller itself just wrote), and the refusal itself
+  moves into `mesh.mod_overwrite_gate` beside it; `island.landmass`'s inline copy now calls that.
+  Seven call sites, one implementation — the hole survived six weeks because each lane had its own.
+- 23 hermetic tests in `tests/test_world_mod_overwrite_gate.py` (tmp game root; no install or
+  templates — occupancy is a filesystem question) plus an install-gated pin that
+  `author_entrance` actually CALLS its note. Non-vacuity proven the house way: each gate disabled
+  in turn turns exactly its own tests red, nine for nine, including both `parts=` scopes.
+- Re-scoped (not loosened) `test_hermeticity_mocked_deploy_calls_never_touch_a_real_install`: the
+  writer gained a legitimate new READ, so the bar is now stated in two halves — with the gate
+  stubbed the original ZERO-resolutions law holds verbatim, and with it live there is exactly one.
+
 ### Fixed — `world-island` could silently overwrite another deploy's content (THE MOD-OVERWRITE GATE, back-ported)
 - `world-transplant` closed this hole on 2026-07-15 (`_mod_overwrite_gate`, the dunes-islet
   incident: *"the real-target gate reads STOCK data only, so a target cell already holding a PRIOR
