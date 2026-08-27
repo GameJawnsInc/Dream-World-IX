@@ -113,8 +113,10 @@ def test_repoint_switch_case_guards_a_synthetic_switch():
               if i.is_switch and D.decode_switch(i))
     e2 = next(e for e in si.edges if e.value == 2)
     assert out[e2.target:e2.target + len(handler)] == handler
-    # repointing case 2 again is now a LIVE case -> raises
-    with pytest.raises(ValueError):
+    # repointing case 2 again is now a LIVE case -> raises. match= matters: "case not in the switch"
+    # and "handler reloffset out of range" are ValueErrors from the same helper, so a bare raises()
+    # here would go green on a parse failure that never reached the dead-case guard at all.
+    with pytest.raises(ValueError, match="case 2 is LIVE"):
         E.repoint_switch_case(out, 1, 1, 2, handler, switch_base=2)
 
 
@@ -217,11 +219,13 @@ def test_dead_case_guard_raises_on_a_mapped_case():
     real entrance."""
     b = EN.load_world_dispatchers()["evt_world_world09"]
     handler = EN.nameplate_handler(FIELD, CASE)
-    with pytest.raises(ValueError):
+    # against REAL dispatcher bytes, so the sibling failures ("has no case 17", a template-shape
+    # refusal) are live possibilities -- match= is what makes this the DEAD-CASE guard's test.
+    with pytest.raises(ValueError, match="case 17 is already mapped"):
         EN._repoint_dead_case(b, 17, handler)
     # the generic helper guards it too
     from ff9mapkit.eb import edit as E
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="case 17 is LIVE"):
         E.repoint_switch_case(b, 1, 1, 17, handler, switch_base=2)
 
 
@@ -252,10 +256,15 @@ def test_author_entrance_surgery_summary():
 
 @needs_game
 def test_author_entrance_surgery_rejects_bad_combinations():
-    for kw in ({"field": 300}, {"case": 4}, {"prompt": True}, {"nameplate": True}):
-        with pytest.raises(ValueError):
+    # each combination has its OWN refusal; without match= an unrelated early raise (a missing
+    # dispatcher, an OBJ path check) would satisfy all five and the combination guards could be gone.
+    for kw, why in (({"field": 300}, "drop field/case"),
+                    ({"case": 4}, "drop field/case"),
+                    ({"prompt": True}, "drop prompt/nameplate"),
+                    ({"nameplate": True}, "drop prompt/nameplate")):
+        with pytest.raises(ValueError, match=why):
             EN.author_entrance(cell=(7, 36), mod_folder="X", direct_field=FIELD, nameplate_name="W",
                                trigger_only=True, dry_run=True, **kw)
     # nameplate_name needs a custom destination
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="nameplate_name requires direct_field"):
         EN.author_entrance(cell=(7, 36), mod_folder="X", nameplate_name="W", trigger_only=True, dry_run=True)

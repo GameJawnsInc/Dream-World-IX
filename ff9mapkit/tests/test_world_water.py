@@ -55,13 +55,15 @@ def test_water_dry_run_writes_nothing(monkeypatch):
 
 def test_water_validates_grid_and_args(monkeypatch):
     _capture(monkeypatch)
-    with pytest.raises(ValueError):
+    # the cell and donor messages differ by ONE word, so a guard that checked cells twice would
+    # satisfy a bare raises() on both lines -- match= is what tells them apart.
+    with pytest.raises(ValueError, match=r"^cell \(3,20\) out of the"):
         W.water("MOD", cells=[(3, 20)], dry_run=True)          # cell off the 24x20 grid
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^donor \(24,4\) out of the"):
         W.water("MOD", cells=[(3, 17)], donor=(24, 4), dry_run=True)   # donor off-grid
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="give at least one cell"):
         W.water("MOD", cells=[], dry_run=True)                 # no cells
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="deep_dir must be one of N/S/E/W"):
         W.water("MOD", cells=[(3, 17)], deep_dir="X", dry_run=True)    # bad direction
 
 
@@ -178,9 +180,9 @@ def test_deploy_verbatim_dry_run_and_validation(monkeypatch):
     overrides, sidecars = _capture(monkeypatch)
     s = W.deploy_verbatim("MOD", cells=[(3, 17)], dry_run=True)
     assert s["dry_run"] is True and s["cells"] and overrides == [] and sidecars == []
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^cell \(3,20\) out of the"):
         W.deploy_verbatim("MOD", cells=[(3, 20)], dry_run=True)     # cell off-grid
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^donor \(24,4\) out of the"):
         W.deploy_verbatim("MOD", cells=[(3, 17)], donor=(24, 4), dry_run=True)   # donor off-grid
 
 
@@ -258,9 +260,9 @@ def test_reproduce_dry_run_and_validation(monkeypatch):
     overrides, sidecars = _capture(monkeypatch)
     s = W.reproduce("MOD", cells=[(3, 17)], dry_run=True)
     assert s["dry_run"] is True and s["cells"] and overrides == [] and sidecars == []
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^cell \(3,20\) out of the"):
         W.reproduce("MOD", cells=[(3, 20)], dry_run=True)          # cell off-grid
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^donor \(24,4\) out of the"):
         W.reproduce("MOD", cells=[(3, 17)], donor=(24, 4), dry_run=True)   # donor off-grid
 
 

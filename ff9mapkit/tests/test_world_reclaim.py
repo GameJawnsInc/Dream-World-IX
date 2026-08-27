@@ -190,9 +190,9 @@ def test_reclaim_dry_run_and_dispatch(monkeypatch):
 
 def test_reclaim_rejects_out_of_grid(monkeypatch):
     monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^cell \(2,20\) out of the"):
         T.reclaim("MOD", cells=[(2, 20)], dry_run=True)      # y=20 is outside the 24x20 grid
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^cell \(24,5\) out of the"):
         T.reclaim("MOD", cells=[(24, 5)], dry_run=True)      # x=24 outside
 
 

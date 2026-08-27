@@ -17,6 +17,7 @@ construction so the DEAD-RELIEF frame bug cannot recur; off by default => byte-i
 from __future__ import annotations
 
 import math
+import warnings
 
 import pytest
 
@@ -434,19 +435,89 @@ def test_landmass_dry_run_writes_nothing(monkeypatch):
     assert not called and s["report"]["clean"]
 
 
-def test_landmass_refuses_real_world_blocks(monkeypatch):
-    """THE OPEN-OCEAN TARGET LAW: a footprint block with real per-block mesh assets refuses the
-    whole deploy -- on a sea-only real block the Terrain override has no transform to bind to,
-    so the fragment silently never renders in-game (the (6,17) canvas incident, 2026-07-12)."""
-    import pytest
+def test_landmass_open_ocean_refusal_path_writes_nothing(monkeypatch):
+    """THE REFUSAL PLUMBING ONLY -- deliberately NOT the law. ``_real_block_parts`` is stubbed here,
+    so this test can only observe that a non-empty occupancy report raises, names the offending
+    block, and does so BEFORE the first write. It CANNOT observe what the real oracle reads, and
+    for six weeks it was the whole coverage of THE OPEN-OCEAN TARGET LAW while that oracle probed
+    the stock tree and nothing else (the mod-overwrite hole, closed 2026-08-27). The law itself is
+    pinned against real bytes by ``test_landmass_refuses_the_real_sea_only_incident_block`` below --
+    keep BOTH: this one runs with no install, that one is the oracle."""
     called = []
     monkeypatch.setattr(M, "deploy_override", lambda *a, **k: called.append(a))
     monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: called.append(a))
     monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: _synth_plane())
     monkeypatch.setattr(I, "_real_block_parts",
                         lambda blk, **k: {"sea3": 2, "sea5": 16} if blk == (3, 1) else {})
-    with pytest.raises(ValueError, match=r"REAL world block.*\(3, 1\)"):
+    with pytest.raises(ValueError, match=r"REAL world block\(s\).*\(3, 1\).*sea3"):
         I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True)
+    assert not called                                    # refused BEFORE any file was written
+
+
+# ---- THE OPEN-OCEAN TARGET LAW, driven against the REAL stock tree (install-gated) ------------------
+
+#: The (6,17) canvas incident's OWN block -- SEA-ONLY in stock (it loads its own prefab, which has no
+#: ``Terrain`` transform for a loose override to bind to, so an island fragment deployed there silently
+#: never renders). Exactly the shape the law exists to refuse, and the shape the stub above imitates.
+INCIDENT_BLOCK = (6, 17)
+#: A block stock genuinely leaves as open ocean -- the CALIBRATION half. Without it a ``_real_block_parts``
+#: that reported occupancy for everything would satisfy the refusal assertion and make the law useless.
+FREE_BLOCK = (3, 1)
+
+
+def _stock_tree_ready() -> str:
+    """``""`` when the real disc tree is readable, else WHY it is not (the skip reason)."""
+    from ff9mapkit import config
+    try:
+        if not (config.find_game_path(None) / "StreamingAssets").is_dir():
+            return "no StreamingAssets under the resolved FF9 install"
+    except Exception as e:                               # noqa: BLE001 -- any resolution failure is a skip
+        return f"the FF9 install did not resolve ({type(e).__name__}: {e})"
+    return ""
+
+
+def test_real_block_parts_reads_the_stock_tree_not_the_mod_folder():
+    """THE ORACLE, CALIBRATED. ``_real_block_parts`` is the only thing THE OPEN-OCEAN TARGET LAW
+    consults, and it reads ``transplant.world_tris`` against the STOCK disc tree -- never a mod
+    folder. Pin BOTH directions on real bytes: the incident block reports its sea-only prefab, the
+    free block reports nothing. A reader that answered the same for both would leave the law green
+    and unarmed, which is precisely how the mod-overwrite hole survived six weeks of suites."""
+    why = _stock_tree_ready()
+    if why:
+        warnings.warn(
+            "THE OPEN-OCEAN TARGET LAW WENT UNVERIFIED in this run: " + why + ". This is the "
+            "WORKTREE SKIP TRAP -- a green run here says nothing about the law. Re-run in the MAIN "
+            "repo (C:/gd/Dream-World-IX/ff9mapkit), where the install resolves.", UserWarning)
+        pytest.skip("stock disc tree unreadable -- " + why + " (see the warnings summary)")
+    occ = I._real_block_parts(INCIDENT_BLOCK)
+    assert occ, f"{INCIDENT_BLOCK} must read as an OCCUPIED real block; got {occ!r}"
+    assert "terrain" not in occ, f"{INCIDENT_BLOCK} is the SEA-ONLY incident block; got {occ!r}"
+    assert {"sea3", "sea4", "sea5"} <= set(occ), occ
+    assert I._real_block_parts(FREE_BLOCK) == {}, "the calibration block must read as true open ocean"
+
+
+def test_landmass_refuses_the_real_sea_only_incident_block(monkeypatch):
+    """THE LAW ITSELF, no stub on the oracle: a radius-20 mint centred on the (6,17) incident block
+    stays inside that one block, and ``landmass`` must refuse it from what the REAL stock tree says
+    -- naming the block and its sea-only parts -- before a single file is written."""
+    why = _stock_tree_ready()
+    if why:
+        warnings.warn(
+            "THE OPEN-OCEAN TARGET LAW WENT UNVERIFIED in this run: " + why + ". This is the "
+            "WORKTREE SKIP TRAP -- a green run here says nothing about the law. Re-run in the MAIN "
+            "repo (C:/gd/Dream-World-IX/ff9mapkit), where the install resolves.", UserWarning)
+        pytest.skip("stock disc tree unreadable -- " + why + " (see the warnings summary)")
+    called = []
+    monkeypatch.setattr(M, "deploy_override", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: _synth_plane())
+    # the footprint must be the ONE block, or the assertion below stops naming what it thinks it names
+    built = I.build_landmass(center=(I.BLOCK * INCIDENT_BLOCK[0] + I.BLOCK / 2,
+                                     -I.BLOCK * INCIDENT_BLOCK[1] - I.BLOCK / 2),
+                             base_radius=20.0, seed=5.0, stamps=None)
+    assert sorted(built["blocks"]) == [INCIDENT_BLOCK]
+    with pytest.raises(ValueError, match=r"REAL world block\(s\).*\(6, 17\).*sea4"):
+        I.landmass("MOD", cell=INCIDENT_BLOCK, base_radius=20.0, seed=5.0, flat=True)
     assert not called                                    # refused BEFORE any file was written
 
 

@@ -56,9 +56,9 @@ def test_coast_dry_run_writes_nothing(monkeypatch):
 
 def test_coast_validates_grid(monkeypatch):
     monkeypatch.setattr(X, "read_block", lambda dx, dy, **k: _fake_block(dx, dy))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^cell \(2,20\) out of the"):
         T.coast("MOD", cells=[(2, 20)], donor=(18, 15), dry_run=True)   # cell off-grid
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"^donor \(24,15\) out of the"):
         T.coast("MOD", cells=[(2, 17)], donor=(24, 15), dry_run=True)   # donor off-grid
 
 

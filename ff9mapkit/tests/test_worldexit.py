@@ -182,7 +182,7 @@ def test_entrance_func_body_nameplate():
     tail = list(D.iter_code(named, 0, len(named)))
     assert tail[-1].off + tail[-1].length == len(named) and named[-1] == 0x04
     # nameplate requires prompt
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="nameplate=True requires prompt=True"):
         entrance_func_body_direct(6500, nameplate=True, dispatchers=disp)
 
 
@@ -267,9 +267,9 @@ def test_entrance_func_body_virgin_case_nameplate():
     assert tail[-1].off + tail[-1].length == len(named) and named[-1] == 0x04
     # 65+ is now THE EXTENDED BAND (its own reserved words); the vehicle trio + 156+ still refuse
     assert explored_set_expr(65)                              # word 2006 bit 0 -- valid since the extension
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="case 91 is a vehicle HUD case"):
         explored_set_expr(91)                                 # the vehicle HUD trio
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="case 156 out of the nameplate range"):
         explored_set_expr(156)                                # Byte[24] would wrap
 
 

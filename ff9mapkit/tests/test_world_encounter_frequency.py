@@ -79,14 +79,12 @@ def test_transform_freq_clamps_to_the_byte_and_never_silently_disables():
 
 
 def test_transform_freq_rejects_bad_modes():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="give exactly one of multiplier / set_freq / peaceful"):
         EC.transform_freq(16)                                   # no mode
-    with pytest.raises(ValueError):
-        EC.transform_freq(16, multiplier=0)
-    with pytest.raises(ValueError):
-        EC.transform_freq(16, multiplier=-2)
-    with pytest.raises(ValueError):
-        EC.transform_freq(16, multiplier=True)                  # bool is not a multiplier
+    # the three below must all fail on the VALUE, never fall through to the no-mode guard above
+    for bad in (0, -2, True):                                   # 0 / negative / bool-is-not-a-number
+        with pytest.raises(ValueError, match="multiplier must be a positive number"):
+            EC.transform_freq(16, multiplier=bad)
     for kw in ({"multiplier": 2.0, "set_freq": 20}, {}, {"multiplier": 2.0, "peaceful": True}):
         with pytest.raises(ValueError):
             EC._validate_freq_mode(kw.get("multiplier"), kw.get("set_freq"), kw.get("peaceful", False))
@@ -133,14 +131,16 @@ def test_freq_writes_finds_every_zone_arm_and_the_immediate():
 
 
 @pytest.mark.parametrize("kwargs, why", [
-    ({"selector": 193}, "switch selector is the topograph, not the zone"),
-    ({"arm_var": "Map.Byte[7]"}, "arms assign a different variable than the ENCRATE reads"),
-    ({"vals": [12, 16, 11]}, "ladder does not have 25 arms"),
+    ({"selector": 193}, r"switch selector is .*, not B_SYSVAR\[207\] \(the zone\)"),
+    ({"arm_var": "Map.Byte[7]"}, r"zone \d+ arm is .*, not a single `.*` write"),
+    ({"vals": [12, 16, 11]}, r"ladder has 3 arms, expected 25"),
 ])
 def test_structure_gate_refuses_a_deformed_ladder(kwargs, why):
     """A rule that is not enforced at the call site is not enforced. A dispatcher some other tool has
-    restructured must RAISE, not be silently mis-patched."""
-    with pytest.raises(EC.EncrateStructureError):
+    restructured must RAISE, not be silently mis-patched -- and must raise for THE DEFORMATION IT WAS
+    HANDED. ``why`` was documentation until it became the match: the gate has eight distinct refusals
+    sharing one exception class, so a bare raises() passed even if every case tripped the same one."""
+    with pytest.raises(EC.EncrateStructureError, match=why):
         list(EC.freq_writes(_ladder_eb(**kwargs)))
 
 

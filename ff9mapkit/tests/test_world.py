@@ -600,9 +600,9 @@ def test_entrance_resolve_destination():
     from ff9mapkit.world import entrance as EN
     assert EN.resolve_destination(field=300)["case"] == 4          # Ice Cavern <- case 4
     assert EN.resolve_destination(case=4)["field"] == 300
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="no overworld dispatch case leads to field 999999"):
         EN.resolve_destination(field=999999)                       # unreachable -> actionable error
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="EITHER field=<id> OR case=<n>, not both"):
         EN.resolve_destination(field=300, case=4)                  # not both
 
 

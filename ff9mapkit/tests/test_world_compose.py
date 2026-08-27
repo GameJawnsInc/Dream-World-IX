@@ -183,11 +183,14 @@ def test_a_malformed_tweak_fails_at_the_call_site_by_name(monkeypatch):
     assert "NotATweak" in str(e.value) and "emit" in str(e.value) and "gate" in str(e.value)
     from tests.test_world_transplant import _fake_world, _island_donor  # reuse the harness
     monkeypatch.setattr(TR, "world_tris", _fake_world(_island_donor()))
-    with pytest.raises(TypeError):
+    # match= is load-bearing: without it ANY TypeError from these three entry points (a signature
+    # slip, a bad kwarg) reads as "the protocol check fired", which is the one thing being asserted.
+    named = r"tweak #0 \(NotATweak\) does not satisfy the Tweak protocol"
+    with pytest.raises(TypeError, match=named):
         TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True,
                       tweaks=[NotATweak()])
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match=named):
         TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1), dry_run=True,
                              tweaks=[NotATweak()])
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match=named):
         TR.morph_in_place("MOD", cell=(1, 1), tweaks=[NotATweak()], dry_run=True)

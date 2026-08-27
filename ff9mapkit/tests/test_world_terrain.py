@@ -71,13 +71,15 @@ def test_reshape_dry_run_writes_nothing(monkeypatch):
 
 def test_reshape_validation(monkeypatch):
     _stub(monkeypatch)
-    with pytest.raises(ValueError):                                                        # no shape
+    # each guard is asserted BY ITS OWN MESSAGE: all four are bare ValueErrors, so without match=
+    # one guard swallowing another's case (or firing first) reads as four passing assertions.
+    with pytest.raises(ValueError, match="give exactly one shape"):                        # no shape
         T.reshape("MOD", radius=8, amount=6)
-    with pytest.raises(ValueError):                                                        # both shapes
+    with pytest.raises(ValueError, match="give exactly one shape"):                        # both shapes
         T.reshape("MOD", at=(1, -1), seg=((1, -1), (2, -2)), radius=8, amount=6)
-    with pytest.raises(ValueError):                                                        # no op
+    with pytest.raises(ValueError, match="give an op"):                                    # no op
         T.reshape("MOD", at=(1, -1), radius=8)
-    with pytest.raises(ValueError):                                                        # ridge + flatten
+    with pytest.raises(ValueError, match="flatten is radial"):                             # ridge + flatten
         T.reshape("MOD", seg=((1, -1), (2, -2)), radius=8, flatten=True)
 
 

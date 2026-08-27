@@ -98,9 +98,9 @@ def test_apply_config_set_and_remap():
     assert s2["sets"][0]["count"] == WP.ENCOUNT_COUNT
     assert all(r.scene == [359, 359, 359, 359] for r in d2.encounters)
     # a matcher-less or no-match set raises
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"\[\[set\]\] #0 needs a matcher"):
         WP.apply_config(d, {"set": [{"scene": [0, 0, 0, 0]}]})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"\[\[set\]\] #0 matched no records"):
         WP.apply_config(d, {"set": [{"topograph": 99, "scene": [0, 0, 0, 0]}]})
 
 

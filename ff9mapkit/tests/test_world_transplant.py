@@ -1156,7 +1156,7 @@ def test_chain_row_inserts_boundary_composition():
     assert [tw.line for tw in tws] == [100.0, 112.0]
     assert [st["plane"] for st in tws[0]._bnd] == [104.0, 128.0]
     assert [st["plane"] for st in tws[1]._bnd] == [132.0]      # 104 < 108: not owed
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="lies west of the cut line"):
         TR.RowInsert("sea4", line=100.0, boundaries=[(96.0, -128.0, -64.0)])
 
 
@@ -1241,7 +1241,9 @@ def test_row_insert_z_inverse_and_chain():
     assert sorted(tws[1].gate()["boundary_fills"]) == ["-132"]   # -92 not owed; -128 rides -4
     inv = TR._tweak_inverse_z(tws)
     assert inv(-112.0) == -104.0                               # both cuts undone, south-to-north
-    with pytest.raises(ValueError):
+    # RowInsertZ delegates to RowInsert through the z->x adapter, so "north" surfaces as the
+    # adapter's "west" -- pinned here so a future direct implementation cannot quietly change it.
+    with pytest.raises(ValueError, match="lies west of the cut line"):
         TR.RowInsertZ("sea4", line=-96.0, boundaries=[(-90.0, 64.0, 128.0)])  # north of the cut
 
 
