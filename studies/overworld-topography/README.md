@@ -1345,30 +1345,45 @@ island's blocks, but `scan` sweeps their bounding **rectangle**, and these block
 rectangles. Tidefall's bbox holds 6 blocks against a 5-block list; the odd one out, **(8,18)**,
 has no override in the mod folder, so nothing loads and all 16×16 = **256** of its samples MISS.
 Larkspur: **(9,8), (9,10), (11,10)** — 3 × 256 = **768**. The arithmetic reproduces both archived
-counts exactly. So a MISS here is ground the probe never *measured* (an unmodded block; stock
-ocean, most likely — but the probe never reads the stock map and cannot claim it).
+counts exactly. So a MISS here was never a hole in deployed geometry — it was ground the probe
+declined to *measure*, because it read only the mod folder's overrides and an unmodded block has
+none. (Part 3 below goes and measures it. It is all ocean — but that is a finding, not the
+assumption the old code was making.)
 
-**The fix is in two parts, and the first removes the ambiguity rather than managing it.**
+**The fix is in three parts, and the last removes the blind spot entirely.**
 
 1. **The sweep is scoped to the island's own blocks.** The lattice is still laid over the
-   bounding box, but only points inside the **closed** span of a block that actually loaded are
-   queried — closed, because a block's mesh reaches its own edge verts, so the coastal rim is
-   measured by the block behind it. The probe no longer asks a question it cannot answer, and
-   **MISS recovers its census meaning**: a MISS is now a *real* hole, and `n_miss` is a hard-zero
-   gate that prints a `GATE FAIL` line if one ever appears.
+   bounding box, but only points inside the **closed** span of a block that loaded are queried —
+   closed, because a block's mesh reaches its own edge verts, so the coastal rim is measured by
+   the block behind it. The probe no longer asks a question it cannot answer, and **MISS recovers
+   its census meaning**: a MISS is a *real* hole, and `n_miss` is a hard-zero gate that prints a
+   `GATE FAIL` line if one ever appears.
 2. **MISS is excluded from `water`**, and a MISS within the 24u admission envelope
    **disqualifies** the candidate — a dock is exactly where the boat hull and the landing apron
    meet.
+3. **The stock map is composed underneath** (`load_world_meshlist`, default on; `--no-stock`
+   opts out). The mod folder holds only *overrides*, so reading it alone left every un-overridden
+   block blank. Layered the way the engine layers a cell — the loose override if present, else
+   **the game's own asset for that block**, else the shared **`SeaBlockPrefab`** for a cell with
+   no assets at all (stood up with the game's one full-cell deep Sea4 plane, hole-filled, exactly
+   as `island._sea_plane` does) — there is nothing left for the probe to be blind to.
+   **`n_unmeasured` is 0 on all five islands.**
 
-Bounding-box points **outside** the island's blocks are **unmeasured**: never queried, never
-water, and they do *not* disqualify — the probe's own blindness is not evidence of a defect on
-the ground. Treating them as one would have thrown away every Tidefall and Larkspur candidate
-over an artifact of the old sweep. The JSON records `miss_xz`, `unmeasured_xz`,
-`blocks_outside_list` and `blocks_no_mesh` (declared but nothing loaded — a data defect), not
-just a count; the archived run could not be audited after the fact because only the count was
-kept. Each admitted candidate carries `unmeasured_dist`. Both arms are silent on the real island
-set, so `--selftest` exercises the re-scope and the disqualify path on synthetic input — neither
-is a check that cannot fail.
+The `unmeasured` class survives for `--no-stock` runs: never queried, never water, never
+disqualifying — the probe's own blindness is not evidence of a defect on the ground. The JSON
+records `miss_xz`, `unmeasured_xz`, the per-block provenance (`blocks_mod` / `blocks_stock` /
+`blocks_open_ocean`) and `blocks_no_mod_override` (a declared island block whose own override is
+missing — a data defect), not just counts; the archived run could not be audited after the fact
+because only the count was kept.
+
+**What proves the layering is the right way up**, two ways. Composing stock underneath leaves
+`n_land` byte-identical on all five islands (3064 / 561 / 116 / 589 / 366) — if a stock sea part
+were winning over a mod `Terrain` override anywhere, the land count would collapse. And run
+against an **empty** mod folder with only the stock layer, all five footprints read **0 land /
+100% water / 0 candidates**: every one of these islands is deployed onto true open ocean, so
+every square of island land in a real run comes from the override layer and stock never wins over
+it. Parts 1–2 are silent on real data (`n_miss` is 0 everywhere), so `--selftest` exercises them
+on synthetic input; part 3 fires on real data and is pinned by those two measurements.
 
 **Re-derivation — A/B against one pinned snapshot** (`--src`, the seam added to
 `design_sandreach_probe.py` in `35388a8d`; snapshot + all runs archived under
@@ -1392,10 +1407,22 @@ unmeasured samples **alone** admits **0** candidates on Tidefall and **0** on La
 (5 Tidefall, 8 Larkspur) do sit within 24u of unmeasured ground, but each also has real sea
 within 12u.
 
-**The re-scope's payoff is the gate, not the verdict.** It drops 256 wasted ground queries on
-Tidefall and 768 on Larkspur and leaves the candidate list on all five islands **identical** — a
-fix to how the measurement is constructed, not to what it concludes. What it buys is that
-**`n_miss` is now 0 on all five islands** and means what the placement census means by it.
+**The re-scope and the stock layer are payoffs in gates, not in verdicts.** Scoping the sweep
+left the candidate list on all five islands **identical**; composing stock underneath left it
+identical **again**, and restored the full bbox as measured ground. Both fix how the measurement
+is *constructed*, not what it concludes. What they buy is two gates that now mean something:
+**`n_miss` is 0** on all five islands (and means what the placement census means by it), and
+**`n_unmeasured` is 0** — there is no longer any ground the probe declines to look at.
+
+**And the measured answer to what the holes were: all 1024 of them ARE ocean.** (8,18) has real
+stock ocean geometry — Sea3 (6 tris) + Sea4 (474) + Sea5 (32), tiling the cell exactly; (9,8),
+(9,10) and (11,10) have *no* stock assets at all and are true open ocean off the shared
+`SeaBlockPrefab`. With that layer composed, Tidefall's water returns to exactly **1056** and
+Larkspur's to exactly **2035** — the archive's own numbers. ⚠ **So the pre-fix probe's assumption
+was factually right, and that is the least reassuring possible outcome:** it was still an
+assumption, it could just as easily have sat over stock *land*, and in that case every dock
+candidate it admitted on their strength would have been fiction. The numbers are unchanged; what
+changed is that they are now measured, and the probe can no longer be right by luck.
 
 **All four grafted dock coordinates SURVIVE**, each on real sea at 12u: **(272,−1168)** Ashvale ·
 **(412,−1224)** Tidefall · **(1204,−1192)** Grimhorn · **(700,−616)** Larkspur (`unmeasured_dist`
@@ -1403,16 +1430,17 @@ fix to how the measurement is constructed, not to what it concludes. What it buy
 ring's R2 moved that trigger to **(420,−1232)** because the beacon hull crossed the (6,19)/(6,18)
 seam (`southern-ring/DESIGN.md:44-45`); that verdict stands and is unaffected.
 
-**Seam verified both ways, as `design_sandreach_probe.py`'s was.** A default (live install) run is
-byte-identical to the snapshot run apart from the recorded `_source`; and an **empty** `--src` dir
-does not silently fall back — it reports every sample unmeasured. That empty-dir case is also the
-cleanest statement of what the defect was: measuring *nothing at all*, the old classifier calls
-Ashvale **5265 samples of open ocean**, the fixed one calls it 0 water and 5265 unmeasured.
+**Seam verified, as `design_sandreach_probe.py`'s was.** A default (live install) run is
+byte-identical to the snapshot run apart from the recorded `_source`, and an **empty** `--src` dir
+does not silently fall back to the live install — with `--no-stock` it reports every sample
+unmeasured, and with the stock layer on it reports the base game (all ocean, per above). Note the
+seam pins the **mod** bytes only; the stock layer comes from the game's own assets, which no kit
+path writes, so it does not drift.
 
-⚠ **Two limits that remain, so a COUNT from this probe is still not a siting fact.** (1) The scan
-reads only the mod folder, never the stock map, so ground outside an island's own blocks stays
-unmeasured **by construction** — almost certainly stock ocean, but "almost certainly" is not a
-measurement, which is why it is reported separately rather than folded into water. Loading the
-stock map is a separate change. (2) `candidates` is still capped at 400; `n_candidates` now
-carries the true total (Ashvale: **562** real, 400 listed), which the archived run did not record
-at all.
+⚠ **What remains.** (1) **One layering case is not modelled**, because it does not arise on this
+island set: a cell carrying a `Donor.txt` divert takes its un-overridden parts from the **donor's**
+prefab, not its own. Measured here, every stock part under every mod-overridden block *is*
+overridden, so nothing free-rides and the question never comes up — but it would on an island that
+leaves parts un-overridden, and `load_world_meshlist` says so at the call site. (2) `candidates`
+is still capped at 400; `n_candidates` carries the true total (Ashvale: **562** real, 400 listed),
+which the archived run did not record at all.
