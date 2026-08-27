@@ -5570,9 +5570,11 @@ def _cmd_world_rename_markers(args: argparse.Namespace) -> int:
 
 
 def _cmd_world_encounter_rate(args: argparse.Namespace) -> int:
-    """Retune the overworld random-encounter FREQUENCY: rewrite the world dispatchers' RunWorldCode(26) writes
-    (w_frameEventBattleProb) per-language into the mod folder. No DLL (a plain .eb immediate rewrite, stacking on
-    world-entrance); RELAUNCH or re-enter the overworld to apply."""
+    """Retune w_frameEventBattleProb -- the RAGTIME MOUSE spawn probability, NOT the ordinary encounter rate
+    (case 205 is its only engine reader; ordinary battles run through ProcessEncount + the per-zone ENCRATE
+    ladder, which the kit does not author yet -- see world/encounter.py). Rewrites the world dispatchers'
+    RunWorldCode(26) writes per-language into the mod folder. No DLL (a plain .eb immediate rewrite, stacking
+    on world-entrance); RELAUNCH or re-enter the overworld to apply."""
     from pathlib import Path
     from .world import encounter as EC
     langs = None if args.lang == "all" else [args.lang]
@@ -5585,7 +5587,8 @@ def _cmd_world_encounter_rate(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     verb = "would retune" if args.dry_run else "retuned"
-    print(f"{verb} overworld encounter rate ({summary['mode']}) across {len(summary['dispatchers'])} dispatcher(s)")
+    print(f"{verb} the Ragtime Mouse probability ({summary['mode']}) across "
+          f"{len(summary['dispatchers'])} dispatcher(s) -- ordinary encounters are NOT affected")
     for d in summary["dispatchers"]:
         for w in (d.get("writes") or []):
             beat = "Main_Init" if w["tag"] == 0 else "Main_Reinit" if w["tag"] == 10 else f"tag{w['tag']}"
@@ -9550,24 +9553,26 @@ def build_parser() -> argparse.ArgumentParser:
     wrm.set_defaults(func=_cmd_world_rename_markers)
 
     wer = sub.add_parser("world-encounter-rate",
-                         help="retune the overworld random-encounter FREQUENCY: rewrite the world dispatchers' "
-                              "RunWorldCode(26) rate writes (w_frameEventBattleProb) per-language into a mod folder. "
-                              "No DLL (a plain .eb immediate rewrite); relaunch to apply.")
+                         help="retune w_frameEventBattleProb -- the RAGTIME MOUSE spawn probability, NOT the "
+                              "ordinary encounter rate: rewrite the world dispatchers' RunWorldCode(26) writes "
+                              "per-language into a mod folder. No DLL (a plain .eb immediate rewrite); relaunch "
+                              "to apply.")
     wer.add_argument("--mod-folder", required=True,
                      help="the FolderNames mod folder to write into (e.g. FF9CustomMap)")
     _grp = wer.add_mutually_exclusive_group(required=True)
     _grp.add_argument("--multiplier", type=float, metavar="F",
-                      help="encounter-FREQUENCY multiplier: 2.0 = twice as many encounters, 0.5 = half "
-                           "(scales the game's own per-zone rates, preserving their relative danger; idempotent)")
+                      help="frequency multiplier: 2.0 = the Ragtime Mouse appears twice as often, 0.5 = half "
+                           "(scales the shipped 231/365 probabilities, preserving their ratio; idempotent)")
     _grp.add_argument("--set", dest="set_prob", type=int, metavar="PROB",
-                      help="force an absolute w_frameEventBattleProb everywhere (advanced; p = 1/(PROB+1), so lower "
-                           "= more encounters). e.g. 231 = the vanilla standard rate")
+                      help="force an absolute w_frameEventBattleProb everywhere (advanced; p = 1/(PROB+1), so "
+                           "lower = a more frequent Mouse). e.g. 231 = the vanilla standard value")
     _grp.add_argument("--peaceful", action="store_true",
-                      help="a near-encounter-free overworld (prob = 65535 -> p = 1/65536)")
+                      help="the Ragtime Mouse ~never appears (prob = 65535 -> p = 1/65536). This does NOT make "
+                           "the overworld encounter-free -- ordinary random battles are untouched")
     wer.add_argument("--lang", default="all",
                      help="language to retune (default: all 7; or a single us/uk/jp/es/fr/gr/it)")
     wer.add_argument("--dry-run", action="store_true",
-                     help="print the per-dispatcher before->after rates, write nothing")
+                     help="print the per-dispatcher before->after probabilities, write nothing")
     wer.set_defaults(func=_cmd_world_encounter_rate)
 
     wet = sub.add_parser("world-encounters",
