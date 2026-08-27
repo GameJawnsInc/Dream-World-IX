@@ -22,7 +22,14 @@ sweeps. It governs the battle command cursor and target cursor, the field dialog
 the title menu itself. Its terminal read is `UnityXInput/Input.cs:309`, which special-cases
 `Horizontal`/`Vertical` to physical keys before falling through to the XInput stick.
 
-So the harness can currently open a menu (`Menu`/`Confirm`/`Cancel` all route through `IsInput`) but
+**★ FIXED 2026-08-27** — `UnityXInput.Input.GetAxisRaw` now consults
+`HarnessAgent.TryGetNavigationAxis` for the two navigation axes. Proven in-game: from the main menu,
+three `press down` moved the cursor Item → Ability → Equip → Status and one `press up` returned it to
+Equip — exactly one step per press, both directions
+(`studies/test-harness/scenarios/menu_nav.py`). Battle cursors and dialogue choices ride the same
+site and are expected to follow, but are **not yet separately proven in-game**.
+
+The gap it closed: the harness could open a menu (`Menu`/`Confirm`/`Cancel` all route through `IsInput`) but
 **cannot move the cursor inside one**, and cannot pick a dialogue choice. That is the single biggest
 gap, and hooking `GetAxisRaw` for the two navigation axes closes all four subsystems at once.
 

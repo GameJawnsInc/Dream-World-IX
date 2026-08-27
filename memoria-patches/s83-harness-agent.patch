@@ -111,6 +111,29 @@
          {
              Application.Quit();
              return;
+--- a/Assembly-CSharp/UnityXInput/Input.cs
++++ b/Assembly-CSharp/UnityXInput/Input.cs
+@@ -296,8 +296,20 @@ namespace UnityXInput
+             return (axis == 0f) ? Input.GetXAxis(axisName) : axis;
+         }
+ 
++        // [ff9mapkit s83] THE NGUI NAVIGATION HOOK -- one site, four subsystems.
++        //
++        // UICamera.GetDirection reads this for "Horizontal"/"Vertical", and that is the cursor-movement
++        // path for EVERY NGUI surface: the battle command and target cursors, the field dialogue-choice
++        // highlight (every Yes/No the game asks), every menu cursor (item/ability/equip/config/shop/
++        // save/load), and the title menu. None of it goes through HonoInputManager.IsInput, so before
++        // this hook the harness could OPEN a menu and never move inside it. Found by an adversarial
++        // audit for the same class of bug as the analog-axis one -- see
++        // studies/test-harness/INPUT-COVERAGE.md.
+         public static Single GetAxisRaw(String axisName)
+         {
++            Single harnessAxis;
++            if (Memoria.Harness.HarnessAgent.TryGetNavigationAxis(axisName, out harnessAxis))
++                return harnessAxis;
+             Single axisRaw = 0f;
+             if (axisName == "Horizontal")
+             {
 --- a/Assembly-CSharp/Assembly-CSharp.csproj
 +++ b/Assembly-CSharp/Assembly-CSharp.csproj
 @@ -1378,6 +1378,7 @@
@@ -188,7 +211,7 @@ diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/M
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,872 @@
+@@ -0,0 +1,908 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -299,6 +322,42 @@ new file mode 100644
 +            if (axis.sqrMagnitude > 1f)
 +                axis.Normalize();
 +            return true;
++        }
++
++        /// <summary>
++        /// The NGUI navigation axis ("Horizontal" / "Vertical") the harness is pushing. False when the
++        /// harness holds no relevant direction, or for any other axis name, so real input is untouched.
++        /// </summary>
++        /// <remarks>
++        /// Separate from <see cref="TryGetAxis"/> on purpose. That one feeds the FIELD movement vector
++        /// and is normalised, so a diagonal is ~0.707 on each component -- correct for walking, wrong
++        /// here, where NGUI thresholds the raw value to decide whether the cursor steps at all. This one
++        /// reports a full +/-1 per axis.
++        /// </remarks>
++        public static Boolean TryGetNavigationAxis(String axisName, out Single value)
++        {
++            value = 0f;
++            if (!Active)
++                return false;
++            if (axisName == "Horizontal")
++            {
++                if (IsHeld(Control.Left))
++                    value -= 1f;
++                if (IsHeld(Control.Right))
++                    value += 1f;
++            }
++            else if (axisName == "Vertical")
++            {
++                if (IsHeld(Control.Up))
++                    value += 1f;
++                if (IsHeld(Control.Down))
++                    value -= 1f;
++            }
++            else
++            {
++                return false;
++            }
++            return value != 0f;
 +        }
 +
 +        // ---- request queue ---------------------------------------------------------------------
