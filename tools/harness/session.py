@@ -47,6 +47,11 @@ RUNS = REPO / ".harness-runs"
 #: start pays Steam, the Memoria patcher and the p0data mount before a single frame renders.
 BOOT_TIMEOUT = 240.0
 
+#: Seconds to hold on the title screen before starting a new game. The title appears while Memoria is
+#: still loading, and starting during that window makes the opening cutscene stutter badly -- owner
+#: -observed. Costs nothing on a scenario that warps away, so it is the default rather than a flag.
+TITLE_SETTLE = 10.0
+
 #: Window size for a harness launch. Deliberately modest: the harness reads state and captures frames
 #: from inside the engine, so a big window buys nothing and costs GPU, boot time and your screen.
 DEFAULT_SIZE = (1280, 720)
@@ -284,6 +289,13 @@ class Session:
             f"steps {list(steps)} were not acknowledged within {timeout:.0f}s (last state: {last!r})"
         )
 
+    def _sleep_alive(self, seconds: float) -> None:
+        """Sleep, but keep noticing if the game dies -- a plain sleep turns a crash into a timeout."""
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            self._assert_alive()
+            time.sleep(min(0.25, max(0.0, deadline - time.time())))
+
     def _assert_alive(self) -> None:
         if self.proc is not None and self.proc.poll() is not None:
             raise HarnessError(
@@ -349,11 +361,29 @@ class Session:
     def wait_frames(self, frames: int) -> None:
         self.send(f"wait {int(frames)}")
 
-    def newgame(self, *, timeout: float = 120.0) -> State:
-        """Title screen -> New Game -> control on a field."""
+    def newgame(self, *, timeout: float = 120.0, playable: bool = False,
+                settle: float = TITLE_SETTLE) -> State:
+        """Title screen -> New Game -> in-game.
+
+        Waits for a FIELD to be up, NOT for control. New Game lands in the opening cutscene (stock
+        field 70 unless a campaign has re-wired the override), where control is deliberately withheld
+        for minutes -- so requiring it here hangs every scenario whose actual intent is "get in-game,
+        then warp to the thing I am testing". Pass ``playable=True`` only when the scenario really
+        does mean to play from the opening.
+
+        ``settle`` holds on the title screen before starting. Memoria is still loading when the title
+        first appears, and starting a new game during that window makes the opening cutscene run
+        badly choppy -- which a scenario asserting on cutscene timing would then blame on itself.
+        The wait costs nothing on a run that warps away immediately, so it is on by default.
+        """
         self.wait_for(lambda s: s.ui_state == "Title", timeout=timeout, what="the title screen")
+        if settle > 0:
+            self._log(f"settling {settle:.0f}s on the title (Memoria is still loading)")
+            self._sleep_alive(settle)
         self.send("newgame")
-        return self.wait_playable(timeout=timeout)
+        st = self.wait_for(lambda s: s.ui_state == "FieldHUD" and s.field_id > 0,
+                           timeout=timeout, what="New Game to reach a field")
+        return self.wait_playable(timeout=timeout) if playable else st
 
     def warp(self, field: int, *, entrance: int | None = None, scenario: int | None = None,
              timeout: float = 60.0) -> State:

@@ -1,0 +1,32 @@
+27.08.2026 18:01:10 |M| [WindowManager] Moving window to (157,51) with size (1606,929) on monitor 0
+27.08.2026 18:01:12 |M| [SteamSdkWrapper] Initialized: True
+27.08.2026 18:01:12 |M| [KeyBinding] Succesfully parsed movement key bindings (W, A, S, D)
+27.08.2026 18:01:12 |M| [KeyBinding] Succesfully parsed pause key bindings (Backspace)
+27.08.2026 18:01:12 |M| [KeyBinding] Succesfully parsed help key bindings (Alpha1)
+27.08.2026 18:01:12 |M| [FontInterceptor] Dynamic font initialization.
+27.08.2026 18:01:12 |M| [FontInterceptor] Pass through {Configuration.Font.Enabled = 0}.
+27.08.2026 18:01:12 |M| [Initialization] Memoria version: 2026-08-27
+27.08.2026 18:01:12 |M| [Initialization] OS version: Microsoft Windows NT 10.0.26200.0
+27.08.2026 18:01:12 |M| [Initialization] Mods: 'FF9CustomMap' 'FF9CustomMap-world' 'MoguriMain' 'MoguriVideo' 'FF9CustomMap-schema' 'FF9CustomMap-msgs' 
+27.08.2026 18:01:12 |M| [PathD s72] WorldScene 9013 -> EVT_WORLD_WORLD13 (mes 68)
+27.08.2026 18:01:12 |M| [DataPatchers] Initialized
+27.08.2026 18:01:12 |M| [FontInterceptor] Loading font [Original: TBUDGoStd-Bold (UnityEngine.Font)]
+27.08.2026 18:01:13 |M| [SaXAudio] Initialized
+27.08.2026 18:01:14 |M| [UIRoot] Changing a clip region of the UI root.
+27.08.2026 18:01:14 |M| [WindowProc] Windows procedure registered
+27.08.2026 18:01:14 |M| [GameLoopManager] RaiseStartEvent
+27.08.2026 18:01:17 |M| Updating text localization [English(US)]
+27.08.2026 18:01:17 |M| InitializeItemText
+27.08.2026 18:01:17 |M| InitializeImportantItemText
+27.08.2026 18:01:17 |M| InitializeAbilityText
+27.08.2026 18:01:17 |M| InitializeCommandText
+27.08.2026 18:01:17 |M| InitializeLocationText
+27.08.2026 18:01:17 |M| InitializeEtcText
+27.08.2026 18:01:17 |M| InitializeCharacterNamesText
+27.08.2026 18:01:17 |M| Total text update time: 0.12s
+27.08.2026 18:01:17 |M| [AudioResourceExporter] Pass through {Configuration.Export.Audio = 0}.
+27.08.2026 18:01:19 |M| [SteamSdkWrapper] Request stats: True
+27.08.2026 18:01:20 |M| [NetSync] config enabled=False role=host field=0 guestSlots=2 ghostAs=auto relay=ws://127.0.0.1:49201 code=ff9-0CA62LRC
+27.08.2026 18:01:20 |M| [AssetManager] Memoria asset not found: CommonAsset/EventEngine/EventAnimation/EVT_TEST30801.txt
+27.08.2026 18:01:24 |M| [ControllerWatcher] Couldn't connect device
+27.08.2026 18:02:45 |M| [ff9mk harness] ARMED -- channel at C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX\x64\ff9harness
