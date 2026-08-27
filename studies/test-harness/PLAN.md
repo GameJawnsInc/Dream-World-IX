@@ -85,6 +85,10 @@ sizes a burst; correctness never depends on it being right.
 | `advance()` | Pages a conversation, returning every distinct page. **Stops at a choice** rather than blundering through it. |
 | `prompt()` / `options()` / `select(i)` / `choose(i)` | Choice handling. `select` is split from `choose` so cursor movement is assertable — confirming destroys the evidence. |
 | `warp(id)` | Refuses an unregistered id up front (see below). |
+| `expect_field_change()` / `cross(x,z)` / `find_transitions()` | Field transitions, including sweeping for an **invisible** gateway. ⚠ A successful crossing is **not yet proven** — see below. |
+| `wait_control()` / `watch_cutscene()` | Sits through a withheld-control sequence, advancing boxes, returning the transcript. ★ Proven on 30601 (~9.8s, 5 pages, twice). |
+| `recon` / `recon_all` scenarios | Visit fields and photograph them. One launch amortised across every bench. |
+| `diagnose()` | Explains a hang from the engine log instead of from driver symptoms. |
 
 ### Measured constants (30801 bench)
 
@@ -107,6 +111,35 @@ sizes a burst; correctness never depends on it being right.
    than `count` (a 15-option menu published 13 phrases), so **`count` is authoritative**.
 3. **A box is open before it has words.** `ActiveDialogList` carries the dialog before `Phrase` is
    assigned, so a probe stopping at `open` reads an empty string.
+
+### ⚠ Gateways: the verbs exist, a crossing is UNPROVEN
+
+`find_transitions` sweeps outward on eight bearings to locate an invisible trigger. On **both** 30820
+(ROOM_A) and 4010 (ROOM1) the sweep ended with the game hung and no state published; the run had to
+be terminated. **The cause is not established** — the archived engine log for the 4010 run ends
+normally with no exception. Do not repeat the earlier mistake of assuming these benches have broken
+exits; that claim came from a stale log (below) and has not been re-earned.
+
+What this did establish: `walk_to` must treat *leaving the field* as a normal outcome. The first
+version raised on a lost position and then did arithmetic on `None` anyway, so a probe that
+successfully found a gateway crashed the run instead of reporting it.
+
+### Three of my own tools lied, and each is now fixed
+
+1. **`diagnose()` read a stale log.** `Memoria.log` is written relative to the working directory, so
+   both the game root and `x64/` hold one and either may be hours old. Reading them in a fixed order
+   made it report a `NullReferenceException` from **eight hours earlier** as the cause of a live hang.
+   It now takes the newest, refuses to speak from a log older than 5 minutes, and names the file it
+   read. `_collect_log` already did the right thing, which is exactly why the archived log disagreed
+   with the diagnosis and gave the game away.
+2. **`--field` was silently ignored for scenarios.** `play.py` called `scenario.run(g)` and dropped
+   the flag. Nothing was ever mis-tested — the values I passed happened to match the module defaults —
+   but the flag was lying about what had been exercised. It is now passed when `run()` accepts it, and
+   says so when it does not.
+3. **`watch_cutscene` was non-deterministic.** Control flickers true for a moment as a field loads,
+   before the script takes it away, and a single sample was enough to return early: the same verb on
+   the same bench produced **0 pages on one run and 5 on the next**. It now requires the end
+   condition to *hold* for ~1s. Two consecutive runs since: 5 pages, ~9.8s, both.
 
 ### On flattering tests
 

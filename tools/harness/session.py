@@ -251,17 +251,11 @@ class Session:
             self._log(f"artifacts in {self.run_dir}")
 
     def _collect_log(self) -> None:
-        # Memoria.log is written relative to the working directory, so it lands at the game root for a
-        # normal (and harness) launch but in x64/ for anything started from there. Take the NEWEST of
-        # the two rather than a fixed preference -- picking the stale one silently hands you the wrong
-        # session's log at exactly the moment you need the right one.
-        found = [p for p in (self.game_path / "Memoria.log", self.game_path / "x64" / "Memoria.log")
-                 if p.exists()]
-        if not found:
+        log = self.engine_log()
+        if log is None:
             return
-        newest = max(found, key=lambda p: p.stat().st_mtime)
         try:
-            shutil.copy2(newest, self.run_dir / "Memoria.log")
+            shutil.copy2(log, self.run_dir / "Memoria.log")
         except OSError:
             pass
 
@@ -305,11 +299,68 @@ class Session:
             )
 
     # -- observing ------------------------------------------------------------------------------
+    #: Engine log lines that explain a hang far better than any driver-side symptom can.
+    _LOG_MARKERS = (
+        ("invalidFieldMapID",
+         "the engine tried to load an INVALID field id -- a gateway or warp points at a "
+         "destination that is not deployed. That hangs the game on a black screen."),
+        ("Cannot load the field",
+         "the engine failed to load a field."),
+        ("NullReferenceException",
+         "the engine threw a NullReferenceException."),
+    )
+
+    def engine_log(self) -> Path | None:
+        """The engine log for THIS run -- the most recently written one.
+
+        `Memoria.Prime.Log` opens `Memoria.log` by RELATIVE name, so it lands in whatever working
+        directory the process was given: the game root for a launcher-style start, `x64/` for others.
+        Both files exist on this install and one of them is usually stale by hours. Picking by a fixed
+        order rather than by mtime is not a style question -- it made `diagnose()` report a
+        NullReferenceException from a run eight hours earlier as the cause of a live hang, which is
+        worse than saying nothing. Newest wins, and this is the one `_collect_log` archives too.
+        """
+        candidates = [p for p in (self.game_path / "Memoria.log",
+                                  self.game_path / "x64" / "Memoria.log") if p.exists()]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda p: p.stat().st_mtime)
+
+    def diagnose(self, lines: int = 60, *, max_age: float = 300.0) -> str | None:
+        """Explain a hang from the engine's own log, rather than from driver-side symptoms.
+
+        A driver only ever sees "state stopped arriving", which looks identical whether the game
+        crashed, black-screened on a bad warp, or was merely slow -- the least useful of those to be
+        told. The log usually says what happened one line earlier.
+
+        Refuses to speak from a STALE log: a marker older than `max_age` describes some previous run,
+        and a confidently wrong diagnosis costs more than none at all.
+        """
+        log = self.engine_log()
+        if log is None:
+            return None
+        try:
+            if time.time() - log.stat().st_mtime > max_age:
+                return None
+            tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
+        except OSError:
+            return None
+        for marker, explanation in self._LOG_MARKERS:
+            if any(marker in line for line in tail):
+                return f"{explanation} (from {log})"
+        return None
+
     @property
     def state(self) -> State:
         st = self.channel.state()
         if st is None:
-            raise HarnessError("no state published -- is the agent still armed?")
+            self._assert_alive()          # a dead game should say so, not blame the arming
+            hint = self.diagnose()
+            raise HarnessError(
+                "no state published" + (f" -- {hint}" if hint else
+                                        " -- the agent is armed but stopped publishing; the game may "
+                                        "be hung. Check Memoria.log in the run directory.")
+            )
         return st
 
     def wait_for(self, predicate, *, timeout: float = 20.0, what: str = "condition") -> State:
@@ -461,11 +512,17 @@ class Session:
         retrying it 24 times just turns a clear failure into a slow one.
         """
         basis = self.calibrate_axes()
+        field = self.state.field_id
         stalls = 0
         for _ in range(max_bursts):
             st = self.state
-            if st.player_x is None:
-                raise HarnessError("lost the player position mid-walk")
+            # Walking somewhere can END the field: step into a gateway and the destination is
+            # loading, so there is no position to steer by. The first version treated that as an
+            # error and then did arithmetic on None anyway, so a probe that successfully found a
+            # gateway crashed the run instead of reporting it. Leaving the field is a legitimate
+            # outcome of walking -- stop cleanly and let the caller notice.
+            if st.field_id != field or st.player_x is None:
+                return False
             dx, dz = x - st.player_x, z - st.player_z
             remaining = (dx * dx + dz * dz) ** 0.5
             if remaining <= tolerance:
@@ -488,11 +545,16 @@ class Session:
             self.send(*steps, f"wait {frames + 4}")
 
             after = self.state
+            if after.field_id != field or after.player_x is None:
+                return False          # the burst carried us out of the field -- see above
             moved = ((after.player_x - st.player_x) ** 2 + (after.player_z - st.player_z) ** 2) ** 0.5
             stalls = stalls + 1 if moved < 1.0 else 0
             if stalls >= 2:
                 break
 
+        final = self.state
+        if final.field_id != field or final.player_x is None:
+            return False
         arrived = self.distance_to(x, z) <= tolerance
         if not arrived and strict:
             st = self.state
@@ -580,6 +642,127 @@ class Session:
     def teleport(self, x: float, z: float) -> None:
         """Overworld teleport (world units)."""
         self.send(f"teleport {x} {z}")
+
+    # -- crossing between fields ----------------------------------------------------------------
+    # Gateways are the most common mechanic in this project and the hardest to eyeball: a trigger is
+    # an invisible region, so "is the gateway where I think it is" has historically been a question
+    # only a human walking into it could answer.
+
+    def expect_field_change(self, *, timeout: float = 25.0, was: int | None = None) -> int:
+        """Wait for the field id to change and return the new one.
+
+        Waits for the destination to be PLAYABLE, not merely for the id to flip. The id changes the
+        moment the engine accepts the transition, while the destination is still black -- and a
+        scenario that continued there would issue its next steps into a loading screen.
+        """
+        was = self.state.field_id if was is None else was
+        self.wait_for(lambda s: s.field_id != was and s.field_id > 0,
+                      timeout=timeout, what=f"the field to change from {was}")
+        return self.wait_playable(timeout=timeout).field_id
+
+    def cross(self, x: float, z: float, *, expect: int | None = None,
+              timeout: float = 20.0) -> int | None:
+        """Walk to (x, z) and report the field it put us on, or None if we stayed put.
+
+        Returns rather than raises on "nothing happened": when probing for an invisible trigger, not
+        crossing is the ordinary outcome and the caller wants to keep looking, not handle an
+        exception. Pass `expect` to assert a specific destination.
+        """
+        origin = self.state.field_id
+        self.walk_to(x, z, tolerance=45.0, strict=False)
+        try:
+            landed = self.expect_field_change(timeout=timeout, was=origin)
+        except HarnessError:
+            return None
+        if expect is not None and landed != expect:
+            raise HarnessError(f"crossing at ({x}, {z}) led to field {landed}, expected {expect}")
+        return landed
+
+    def find_transitions(self, *, radius: float = 420.0, back_to: int | None = None,
+                         bearings: int = 8, timeout: float = 15.0) -> list[dict]:
+        """Walk outward on several bearings and report every spot that changed the field.
+
+        Locating an invisible trigger otherwise means asking a human to walk into it. After each
+        crossing it warps back and resumes, so one call maps the whole perimeter rather than stopping
+        at the first exit found.
+        """
+        import math
+
+        home_field = self.state.field_id if back_to is None else back_to
+        st = self.state
+        hx, hz = st.player_x, st.player_z
+        found: list[dict] = []
+
+        for i in range(bearings):
+            angle = 2 * math.pi * i / bearings
+            tx, tz = hx + radius * math.sin(angle), hz + radius * math.cos(angle)
+            landed = self.cross(tx, tz, timeout=timeout)
+            if landed is not None:
+                found.append({"bearing": round(math.degrees(angle)), "toward": [round(tx), round(tz)],
+                              "field": landed})
+                self._log(f"transition on bearing {round(math.degrees(angle))}deg -> field {landed}")
+                self.warp(home_field)
+                self.wait_frames(45)
+                st = self.state
+                hx, hz = st.player_x, st.player_z
+            else:
+                self.walk_to(hx, hz, tolerance=60, strict=False)
+        return found
+
+    # -- cutscenes ------------------------------------------------------------------------------
+
+    def wait_control(self, *, timeout: float = 60.0) -> State:
+        """Wait until the player has control again. The end of a cutscene, expressed as a condition."""
+        return self.wait_for(lambda s: s.control and s.player_x is not None and not s.fading,
+                             timeout=timeout, what="control to return to the player")
+
+    def watch_cutscene(self, *, timeout: float = 90.0, advance_boxes: bool = True,
+                       settle: float = 1.0) -> list[str]:
+        """Sit through a cutscene, collecting its dialogue, until control returns.
+
+        A cutscene is exactly the state a naive harness hangs in: control is withheld, so every
+        movement verb silently does nothing and the run dies on an unrelated timeout much later.
+        This makes waiting explicit and brings back the transcript, which is the part worth
+        asserting on -- by the time control returns the text is gone from the state channel.
+
+        Advances text boxes by default, since many scripted scenes will not proceed without a
+        Confirm; pass advance_boxes=False to watch a self-playing scene without touching it.
+        """
+        pages: list[str] = []
+        deadline = time.time() + timeout
+        # Require the "it's over" condition to HOLD, not merely to occur. Control flickers true for a
+        # moment as a field loads, before its script takes it away again -- so a single sample was
+        # enough to return early with an empty transcript. The same bench, same verb, produced 0
+        # pages on one run and 5 on the next until this was added. A flaky verb is worse than a
+        # missing one, because it teaches you to distrust real results.
+        settle_polls = int(settle / 0.05) or 1
+        calm = 0
+        while time.time() < deadline:
+            self._assert_alive()
+            st = self.channel.state()
+            if st is None:
+                time.sleep(0.05)
+                continue
+            if st.dialog_open and st.text.strip():
+                calm = 0
+                text = st.text
+                if not pages or pages[-1] != text:
+                    pages.append(text)
+                if advance_boxes and not st.choice:
+                    self.press("confirm", 3)
+                    self.wait_frames(8)
+                    continue
+            if st.control and st.player_x is not None and not st.fading and not st.dialog_open:
+                calm += 1
+                if calm >= settle_polls:
+                    return pages
+            else:
+                calm = 0
+            time.sleep(0.05)
+        raise HarnessError(
+            f"control never returned within {timeout:.0f}s -- the cutscene is still running, waiting "
+            f"on input this did not send, or has soft-locked. Collected {len(pages)} page(s) so far."
+        )
 
     # -- talking to things ----------------------------------------------------------------------
     # The narrative axis. These are closed-loop for the same reason movement is: dialogue timing is

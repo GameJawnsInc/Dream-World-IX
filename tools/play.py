@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import inspect
 import sys
 import time
 from pathlib import Path
@@ -35,6 +36,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import HarnessError, Session, ff9_pids                  # noqa: E402
+
+
+def _accepts_field(fn) -> bool:
+    """Whether a scenario's run() takes a field argument beyond the session."""
+    try:
+        params = list(inspect.signature(fn).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    positional = [p for p in params
+                  if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    return len(positional) >= 2 or any(p.kind == p.VAR_POSITIONAL for p in params)
 
 
 def smoke(g: Session, field: int | None) -> None:
@@ -116,7 +128,9 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("scenario", nargs="?", help="a Python file exposing run(g)")
     ap.add_argument("--smoke", action="store_true", help="run the built-in harness self-test")
-    ap.add_argument("--field", type=int, default=None, help="warp here first (smoke test)")
+    ap.add_argument("--field", type=int, default=None,
+                    help="field to run against: warped to by --smoke, and passed to a scenario's "
+                         "run(g, field) when it accepts one")
     ap.add_argument("--attach", action="store_true",
                     help="drive the FF9 that is ALREADY running instead of launching one")
     ap.add_argument("--keep-open", action="store_true",
@@ -143,7 +157,17 @@ def main(argv=None) -> int:
             if args.smoke:
                 smoke(g, args.field)
             if scenario is not None:
-                scenario.run(g)
+                # Pass --field through when the scenario takes it. It used to be dropped silently,
+                # so `--field N` on a scenario did nothing at all and the run used the module default
+                # -- the results were not wrong, but the flag was lying about what had been tested.
+                if args.field is not None and _accepts_field(scenario.run):
+                    scenario.run(g, args.field)
+                elif args.field is not None:
+                    print(f"[play] NOTE: {label} takes no field argument -- ignoring --field "
+                          f"{args.field}")
+                    scenario.run(g)
+                else:
+                    scenario.run(g)
             passed, checks, run_dir = g.passed, list(g.checks), g.run_dir
     except HarnessError as err:
         print(f"\n!!! harness error: {err}", file=sys.stderr)
