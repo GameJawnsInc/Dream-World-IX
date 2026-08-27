@@ -960,37 +960,76 @@ Byte   pad;        // 1 B — hasFog = (pad & 1); (pad >> 1) = reserved
 (355 × 10 = 3550 B. Two other plausible strides — 6 and 12 — are wrong: 6 is a miscount, 12 is the C# managed
 `sizeof` with struct alignment. The **binary stride is 10**.)
 
-**Record selection — `w_worldGetBattleScenePtr()` (`ff9.cs:9079`):** it is keyed by **zone × topograph × fog**, not
+**Record selection — `w_worldGetBattleScenePtr()` (`ff9.cs:9234`):** it is keyed by **zone × topograph × fog**, not
 a flat area lookup:
 1. `zoneId = w_worldArea2Zone(area)` (`w_worldAreaZone[]` LUT); the table is sliced per zone by the CSR array
    `w_worldZoneInfo[zoneId .. zoneId+1]` (a `Byte[26]`, built at load from `w_worldZoneFigure[zone]*2`, `ff9.cs:8666-8675`).
 2. Within the slice, pick the record whose **`(pattern>>2) == m_GetIDTopograph(actor)` AND `(pad&1) == w_frameFog`**
-   (`ff9.cs:9093`). So the *same* terrain gives a different monster set with mist up vs down.
+   (`ff9.cs:9248`). So the *same* terrain gives a different monster set with mist up vs down.
 3. **Disc-4 alternate band:** if `w_frameDisc==4 && i<100`, it returns `w_frameBattleScenePtr[i + 254]` instead
-   (`ff9.cs:9095-9100`) — the disc-4 monster re-table lives +254 records up in the same array.
+   (`ff9.cs:9250-9255`) — the disc-4 monster re-table lives +254 records up in the same array.
 
-### The per-frame trigger — `.eb`-driven
+### The per-frame trigger — TWO separate paths
 
-> ⚠ **Correction (in-game 2026-07-02):** `case 205` below is a world-`.eb` sysvar and its `w_frameEventBattleProb`
-> denominator IS the proven *rate* lever — but its `topograph∈[36,38]` clause is **not** "the only tiles that fire."
-> Battles were observed on other topographs; the operative trigger is the EventEngine step-accumulator
-> `ProcessEncount` (`EventEngine.ProcessEvents.cs:462`). Read the clause below as *one* gate, not the whole story.
+> **★ SETTLED 2026-08-27** (full source decode + all 13 dispatchers disassembled). Two mechanisms were conflated
+> here for a year. `case 205` / `w_frameEventBattleProb` is **the Ragtime Mouse**, not the encounter rate. The
+> ordinary random encounter is `ProcessEncount` + a per-zone `ENCRATE` ladder, and it has **no topograph 36–38
+> clause anywhere**. The earlier "gated on topograph 36–38" reading was falsified in-game twice (2026-07-02 and
+> again on 2026-07-26, when Lizard Man / Sand Scorpion / Axe Beak / Ironite were fought on open grass at
+> topograph 16/41) and had already survived one correction cycle — do not reintroduce it.
 
-The trigger is **polled by the world `.eb`** as GET-sysvar **case 205** (`ff9.cs:4235`), i.e. it lives in the 13
-world dispatchers, not a hidden native loop. Fires (returns 1) only when **all** hold:
+#### Path A — the ORDINARY random encounter (native, step-accumulated)
 
-- `w_frameEncountEnable` (armed from `w_frameEncountMask` when the vehicle's `encount` flag is set, the player is
-  moving, topograph≠52, and no title banner — `ff9.cs:5380`),
-- `w_moveCHRControl_Move` (position changed this frame),
-- **topograph ∈ [36,38]** (the encounter-eligible land band),
+This is what fires normal overworld battles. Nothing in it looks at topograph 36–38.
+
+- **The roll** — `EventEngine.ProcessEncount` (`EventEngine.ProcessEvents.cs:490`):
+  `_encountBase += encratio; if (random8() < _encountBase >> 3) …`, guarded by `usercontrol != 0` and
+  `_encountTimer > Configuration.Battle.EncounterInterval`. Its call site (`ProcessEvents.cs:283`) additionally
+  requires `hasMoved`, the control object, `_moveKey`, and `encratio > 0`.
+- **`_moveKey` on the world map** — at `gMode == 3` it IS `ff9.w_frameEncountEnable` (`ProcessEvents.cs:68`).
+  That flag is cleared every frame by `w_movementUpdate` (`ff9.cs:5153`) and re-armed by `w_movementControl`
+  (`ff9.cs:5535`) when the vehicle's `encount` flag is set, the player moved, **topograph ≠ 52**, and no title
+  banner. **`≠ 52` is the only terrain clause on this whole path.**
+- **The rate** — the `ENCRATE` opcode **`0x57`** (`SetRandomBattleFrequency`) → `_context.encratio`
+  (`DoEventCode.cs:994`). Each free-roam dispatcher carries a **per-ZONE ladder**: a 26-case switch on GET-sysvar
+  **207** (= `w_worldArea2Zone(m_GetIDArea(...))`, `ff9.cs:4258`) that assigns a frequency, then one
+  `SetRandomBattleFrequency`. In `WORLD00` the values run 11–32 (zone 0 → 12, zone 2 → 11, zone 21 → 32 …).
+  **This is the real encounter-rate lever and the kit does not author it yet.**
+- **The monsters** — `SelectScene` (`EventEngine.cs:190`) → `w_worldGetBattleScenePtr` (`ff9.cs:9234`), the
+  zone × topograph × fog table above, resolved off the walked tile's AREA bits. A table hole = no encounter,
+  which is how kit land authors a safe road — note that hole is **our `s60` patch**; stock fell back to the zone
+  slice's last record.
+
+#### Path B — `case 205` = the RAGTIME MOUSE (script-polled)
+
+GET-sysvar **case 205** (`ff9.cs:4243-4258`) is polled by the world `.eb` — it lives in the dispatchers, not a
+native loop. It returns 1 only when **all** hold:
+
+- `w_frameEncountEnable` and `w_moveCHRControl_Move` (position changed this frame),
+- **topograph ∈ [36,38]**,
 - `w_frameCounter > 400` (post-load settle), and the HUD is not FullMap,
 - the RNG roll hits: `((random8()<<8 | random8()) % (w_frameEventBattleProb+1)) == 1` → **per-frame p = 1 / (w_frameEventBattleProb+1)**.
 - Short-circuit above all of it: `FF9StateSystem.Settings.IsNoEncounter` → always 0.
 
-**The rate is authorable with NO DLL and NO codec:** `w_frameEventBattleProb` is a `UInt16` (`ff9.cs:10088`) set
-by the world `.eb` via **SET-sysvar case 26** (`ff9.cs:3920`). Each dispatcher pokes it as you cross regions — so
-editing the world `.eb`'s case-26 writes (the same surface `world-entrance` already authors) re-tunes the
-overworld encounter rate per zone. Danger-level = *just this denominator*.
+Disassembled across all 9 free-roam dispatchers, case 205 has exactly **one** consumer each, and it is always the
+same shape — the forest special:
+
+```
+if (sysvar 205)
+  if (!GLOB.Bit[1608] && !GLOB.Bit[1609])       # (WORLD08/09 add a scenario-counter window)
+    switch (sysvar 193 = topograph)             # 36 -> nothing | 37 -> Battle(0,942) | 38 -> Battle(0,941)
+                                                # 941/942 = BSC_WM_9900/9901 = RAGTIME MOUSE
+```
+
+`Battle` is `ENCOUNT` `0x2A` → `SetBattleScene(id)` with `isRandomEncounter = false`: a **fixed** scene, not a
+table roll. So `w_frameEventBattleProb` — whose only engine reader is `ff9.cs:4254` — sets how often the Ragtime
+Mouse turns up in forest, and nothing else. It is a `UInt16` (`ff9.cs:10258`) written by the world `.eb` via
+SET-sysvar **case 26** (`ff9.cs:3930`).
+
+#### The other topograph 36–38 tests (not encounters)
+
+`ff9.cs:6193` is the forest dust SPS effect; `EventCollision.cs:333/338/343` are `IsChocoboFlyingOverForest` /
+`IsChocoboWalkingOrFlyingInForestArea` / `IsChocoboWalkingInForestArea` — Chocobo Hot & Cold. None gate a battle.
 
 ### Special / friendly encounters (`sworldEncountSpecial`)
 
@@ -1021,46 +1060,57 @@ nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battle
 
 | Lever | Cost | Notes |
 |---|---|---|
-| **Encounter *rate*** | ★ **BUILT** (`world-encounter-rate`) — free, no DLL/codec | rewrites the world `.eb` SET-sysvar case-26 writes (`w_frameEventBattleProb`) — same surface as `world-entrance`. See below. |
+| **Ragtime Mouse *probability*** | ★ **BUILT** (`world-encounter-rate`) — free, no DLL/codec | rewrites the world `.eb` SET-sysvar case-26 writes (`w_frameEventBattleProb`) — same surface as `world-entrance`. ⚠ despite the verb name this is **not** the encounter rate; see below. |
+| **Encounter *rate*** (the real one) | **NOT BUILT** — would be free, no DLL/codec | the per-ZONE `ENCRATE` (`0x57`) ladder in each free-roam dispatcher, switched on GET-sysvar 207. Same `.eb` surface as the above, but a different opcode and a computed (not immediate) argument in most dispatchers. |
 | **Per-vehicle encounter on/off** | free | `TransportControls.csv` col 12 (`CsvParser.Boolean`), already patched by `WorldConfiguration.PatchWorldCHRControl`. ⚠ the two airships hold **22/23** in that Boolean column — unexplained (open q). |
 | **Re-table which monsters spawn where** | ★ **BUILT** (`world-encounters`) — no DLL | edits `EncountData.scene[]`/`pattern`/`pad` in place + deploys a whole-file `discmr.img` mod override (`AssetManager.LoadBytes` honors it). See below. |
 | **Clean CSV authoring seam** | small DLL patch | a `Data/World/WorldEncounters.csv` + `PatchWorldEncounter()` mirroring the existing 3 world patchers (`DataResources.cs` exposes only TransportControls/WeatherColors/Environment today; no encounter hook). s23–s33-class change. |
 | **Friendly/special-zone authoring** | research | via event-globals 194/198 + the 9 special records; blocked on the open questions. |
 
 **Correction:** re-tabling monsters is *not* impossible without a DLL — the `.img` loads
-through the mod-override path, so a whole-file repack works; only a *targeted patch* needs the engine seam. And the
-encounter *rate* is already free via the world `.eb`.
+through the mod-override path, so a whole-file repack works; only a *targeted patch* needs the engine seam. The
+encounter *rate* is likewise free via the world `.eb` — but through the `ENCRATE` ladder, not the case-26 writes
+the kit rewrites today.
 
-### `world-encounter-rate` — retune the encounter rate (no DLL)
+### `world-encounter-rate` — retune the Ragtime Mouse probability (no DLL)
+
+> ⚠ **The verb name is a misnomer, kept for compatibility.** It writes `w_frameEventBattleProb`, whose only engine
+> reader is `case 205` = the Ragtime Mouse (Path B above). It does **not** change how often ordinary overworld
+> battles fire, and `--peaceful` does **not** give an encounter-free overworld. The real rate lever is the per-zone
+> `ENCRATE` ladder (Path A), which the kit does not author yet.
 
 `ff9mapkit world-encounter-rate --mod-folder <mod> [--multiplier F | --set PROB | --peaceful]` (`world/encounter.py`).
 It rewrites every immediate `RunWorldCode(26, value)` write in the world dispatchers' `.eb` — probed empirically as
 **exactly 18 writes**: the 9 free-roam states (9000/02/03/05/07/08/09/10/11) each carry 2 (entry-0 tag-0 `Main_Init` +
-entry-0 tag-10 `Main_Reinit`); the 4 cutscene states carry none. The game ships only two danger values, `prob 231`
-(p=1/232, standard) and `prob 365` (p=1/366, the gentler disc-1 `Main_Init` rate that normalizes to 232 after the first
-battle). `--multiplier` is an encounter-**frequency** scale (2.0 = twice as many; it divides the period `prob+1`,
-preserving the game's relative danger and staying idempotent by always deriving from the pristine dispatcher);
-`--set` forces an absolute `w_frameEventBattleProb`; `--peaceful` sets `0xFFFF` (≈no encounters). Deploy is a
+entry-0 tag-10 `Main_Reinit`); the 4 cutscene states carry none. The game ships only two values, `prob 231`
+(p=1/232, standard) and `prob 365` (p=1/366, the gentler disc-1 `Main_Init` value that normalizes to 232 after the first
+battle). `--multiplier` is a **frequency** scale (2.0 = the Mouse appears twice as often; it divides the period
+`prob+1`, preserving the shipped ratio and staying idempotent by always deriving from the pristine dispatcher);
+`--set` forces an absolute `w_frameEventBattleProb`; `--peaceful` sets `0xFFFF` (the Mouse ~never appears). Deploy is a
 per-language `.eb` shadow (the writes are language-identical in count, JP at different offsets) that STACKS on any
 `world-entrance` edit (reads the mod-folder override if present). RELAUNCH / re-enter the overworld to apply.
-Proven in-game.
+
+**On "proven in-game" (2026-07-02):** that playtest reported "a very noticeable difference walking the overworld",
+which is consistent — at `prob 231` the Mouse rolls ~1/232 *per frame* in forest, so retuning it is very visible.
+But the test could not tell Ragtime Mouse from ordinary encounters, so it proves the immediate rewrite reaches the
+engine, **not** that this knob is the encounter rate. The 2026-07-26 R4 playtest settles the other half: ordinary
+battles fired at topograph 16/41, which `case 205` can never reach.
 
 ### `world-encounters` — re-table which monsters spawn where (no DLL)
 
 **★ Confirmed in-game 2026-07-02:** setting **all 355 records** to one scene (`[[set]] all = true`) made every
 overworld battle the identical fight (scene 359 = Mist-Continent Pythons/Goblins on the forest BG), everywhere on
 the map — so the `discmr.img` override *loads* and the codec is byte-correct. **Targeting lesson (the thing that
-can fool a first test):** record SELECTION is **zone-slice-primary** — `w_worldGetBattleScenePtr` (`ff9.cs:9079`)
+can fool a first test):** record SELECTION is **zone-slice-primary** — `w_worldGetBattleScenePtr` (`ff9.cs:9234`)
 scans only the current *area*'s slice of the table (`w_worldZoneInfo[zone..zone+1]`), matches `topograph` + `fog`
 within it, and **falls back to the slice's last record** when nothing matches. So a `topograph=`-only edit can miss
 the record that actually fires (its zone had no topograph match → the fallback record, a different topograph, fired).
 Use `all = true` for a uniform overworld, target a specific record `index`, or — the proper surgical lever — scope
 by **`area`/`zone`** (below). Also note the operative encounter TRIGGER is the
-EventEngine step-accumulator `ProcessEncount` (`EventEngine.ProcessEvents.cs:462`: `_encountBase += encratio` →
+EventEngine step-accumulator `ProcessEncount` (`EventEngine.ProcessEvents.cs:490`: `_encountBase += encratio` →
 `random8() < _encountBase>>3` → `SelectScene`→`w_worldGetBattleScenePtr`), **not** the `case 205` topograph-36–38
-gate (a plausible but incorrect candidate: that gate is a separate world-`.eb` sysvar path; empirically battles fire on other
-topographs too). The *rate* lever (`w_frameEventBattleProb`) is still real + proven — just don't read the
-`case 205` topograph clause as "the only tiles that fire."
+gate — that gate is a separate world-`.eb` sysvar path whose only consumer is the Ragtime Mouse (see
+"The per-frame trigger — TWO separate paths" above). `w_frameEventBattleProb` moves the Mouse, not the rate.
 
 `ff9mapkit world-encounters --list [--all] [--disc 1|4]` inspects the table; `--config <toml> --mod-folder <mod>
 [--disc N] [--dry-run]` edits + deploys (`world/worldpack.py`). The `Discmr` codec parses the two-layer container

@@ -66,7 +66,14 @@
 All in-game proven, detailed in memory `project-ff9-overworld-worlds` + OVERWORLD_ENGINE.md:
 
 - `world-encounter-rate` — rewrites the world `.eb`'s `w_frameEventBattleProb` writes (multiplier / set /
-  peaceful), per-language, no DLL.
+  peaceful), per-language, no DLL. **⚠ MISNOMER — this is the RAGTIME MOUSE probability, NOT the encounter
+  rate** (settled 2026-08-27): `w_frameEventBattleProb`'s only engine reader is `case 205` (`ff9.cs:4243-4258`),
+  and every free-roam dispatcher spends case 205 on exactly one thing — `Battle(0,941/942)` = `BSC_WM_9900/9901`
+  = Ragtime Mouse, on topograph 37/38. `--peaceful` does NOT make the overworld encounter-free.
+- **The ordinary encounter rate is a different path with NO topograph 36-38 clause** — `ProcessEncount`
+  (`EventEngine.ProcessEvents.cs:490`, a step accumulator on `_context.encratio`) fed by a **per-ZONE `ENCRATE`
+  (`0x57`) ladder** switched on sysvar 207, with monsters from the zone×topograph×fog table. **Not authored by
+  the kit yet.** The safe-road lever for kit land is the AREA stamp (a table hole), not topograph.
 - `world-encounters` — edits the 355-record `discmr.img` encounter table (record selection is
   ZONE-slice-primary; target by `area`/`zone`, read `area` off the debug menu; disc 1 and disc 4 have separate tables;
   RELAUNCH to apply).

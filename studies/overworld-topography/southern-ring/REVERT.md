@@ -2506,6 +2506,12 @@ Run 2026-07-26 ("go R4"). The rung as ratified: carve_forest per THE TOPOGRAPH 3
   battle — plus the case-205 sysvar and 3 EventCollision gates all requiring topo 36-38. Open
   ground is the safe road by construction; the rate lever (case-26 `w_frameEventBattleProb`,
   probs 231/365) is live in all 9 dispatchers.
+  > ⚠ **CORRECTED 2026-08-27.** Only the first clause survives. The case-205 sysvar's sole consumer in
+  > every dispatcher is the RAGTIME MOUSE (`Battle(0,941/942)` = `BSC_WM_9900/9901`), and the 3
+  > `EventCollision` topo-36-38 tests are Chocobo Hot & Cold checks — neither gates an ordinary encounter,
+  > so neither makes open ground safe. Ordinary battles run `ProcessEncount`
+  > (`EventEngine.ProcessEvents.cs:490`) off a per-ZONE `ENCRATE` ladder, with **no topograph clause** but
+  > `topograph != 52`. `w_frameEventBattleProb` is the Mouse's probability, not the encounter rate.
 
 ## 25.2 THE SMALL-HOST LIMIT — the ring's own islands refuse v1 carves (measured, recorded)
 
