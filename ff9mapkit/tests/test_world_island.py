@@ -750,8 +750,9 @@ def test_mod_overwrite_gate_ignores_parked_bak_files(tmp_path, monkeypatch):
     """REGRESSION PIN. ``deploy_override`` parks ``<name>.bak-<ts>`` beside a file it overwrites, so an
     occupancy read using a bare ``startswith`` would count backups as deployed content and refuse
     forever after the first legitimate re-deploy. ``mesh.existing_overrides`` carries the extension
-    filter (audit rec 6); ``transplant._mod_overwrite_gate``'s own copy still does not, which is why
-    THAT reader was not the one promoted."""
+    filter (audit rec 6); ``transplant._mod_overwrite_gate``'s own copy did not, which is why THAT
+    reader was not the one promoted -- and why the gate itself was promoted onto this one on
+    2026-08-27 (pinned by ``test_transplant_mod_overwrite_gate_ignores_parked_bak_files``)."""
     called = []
     _stub_writes(monkeypatch, called)
     _mod_tree(tmp_path, names=("Terrain.ff9mesh.bak-20260101-000000",))
@@ -777,11 +778,20 @@ def test_mod_overwrite_gate_reads_the_WRITE_disc_not_the_read_disc(tmp_path, mon
                    game=tmp_path, target_disc=9)
 
 
-def test_one_occupancy_reader_in_the_kit(tmp_path):
-    """``fuse`` and ``island`` must not drift apart again -- the whole defect was two copies of one
-    idea, one of which got fixed."""
-    from ff9mapkit.world import fuse as F
+def test_one_occupancy_reader_in_the_kit(tmp_path, monkeypatch):
+    """``fuse``, ``island`` and ``transplant`` must not drift apart again -- the whole defect was
+    THREE copies of one idea, only one of which got fixed. ``fuse`` and ``island`` call the shared
+    reader by name; ``transplant``'s gate wraps it (it owns a ``Donor.txt`` re-deploy waiver the
+    others have no use for), so pin the wrapper by making the shared reader observable and proving
+    the gate goes through it -- a private ``iterdir`` copy would never touch this sentinel."""
+    from ff9mapkit.world import fuse as F, transplant as TR
     assert F._existing_overrides is M.existing_overrides
     _mod_tree(tmp_path)
     hits = M.existing_overrides([(3, 1)], "MOD", disc=1, lod="0_1", game=tmp_path)
     assert len(hits) == 3 and all("Block[3][1] " in h for h in hits)
+    asked = []
+    monkeypatch.setattr(M, "existing_overrides",
+                        lambda cells, mod, **kw: asked.append((sorted(cells), mod, kw)) or [])
+    g = TR._mod_overwrite_gate("MOD", {(3, 1): (7, 17)}, disc=1, game=tmp_path)
+    assert asked == [([(3, 1)], "MOD", {"disc": 1, "lod": "0_1", "game": tmp_path})]
+    assert g["ok"] is True and g["existing"] == 0    # the sentinel said "free", so the gate must too
