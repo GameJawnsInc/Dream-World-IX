@@ -70,10 +70,15 @@ All in-game proven, detailed in memory `project-ff9-overworld-worlds` + OVERWORL
   rate** (settled 2026-08-27): `w_frameEventBattleProb`'s only engine reader is `case 205` (`ff9.cs:4243-4258`),
   and every free-roam dispatcher spends case 205 on exactly one thing — `Battle(0,941/942)` = `BSC_WM_9900/9901`
   = Ragtime Mouse, on topograph 37/38. `--peaceful` does NOT make the overworld encounter-free.
-- **The ordinary encounter rate is a different path with NO topograph 36-38 clause** — `ProcessEncount`
-  (`EventEngine.ProcessEvents.cs:490`, a step accumulator on `_context.encratio`) fed by a **per-ZONE `ENCRATE`
-  (`0x57`) ladder** switched on sysvar 207, with monsters from the zone×topograph×fog table. **Not authored by
-  the kit yet.** The safe-road lever for kit land is the AREA stamp (a table hole), not topograph.
+- `world-encounter-frequency` — **the REAL encounter-rate lever**: rewrites the per-ZONE `ENCRATE` (`0x57`)
+  ladder (switched on sysvar 207) that `ProcessEncount` (`EventEngine.ProcessEvents.cs:490`) accumulates;
+  monsters still come from the zone×topograph×fog table. Per-language, no DLL. `--zone Z` scopes it to one
+  zone (kit land's safe-road stamp = area 14 → **zone 6**); `--list` prints the ladder + each zone's areas.
+  ⚠ **the multiplier is QUADRATIC** — frequency goes as `sqrt(encratio)`, so the verb writes `F**2` for you
+  (`--multiplier 2.0` → `16→64`); `--set` is inverted vs its sibling (**higher = MORE battles**); `encratio`
+  is a **Byte**, so everything clamps to 0..255 (256 would truncate to 0 = silently off) and `--multiplier`
+  floors at 1 — only `--peaceful` means zero.
+- The safe-road lever for kit land is still the AREA stamp (author a table hole), not topograph.
 - `world-encounters` — edits the 355-record `discmr.img` encounter table (record selection is
   ZONE-slice-primary; target by `area`/`zone`, read `area` off the debug menu; disc 1 and disc 4 have separate tables;
   RELAUNCH to apply).

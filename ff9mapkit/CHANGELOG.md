@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-encounter-frequency`: the REAL overworld encounter-rate lever
+- **`world-encounter-frequency`** retunes the ordinary overworld encounter rate by rewriting the
+  per-ZONE `ENCRATE` (`0x57`) ladder each free-roam dispatcher feeds to `ProcessEncount`'s step
+  accumulator. `--multiplier` / `--set` / `--peaceful`, `--zone Z` for one zone, `--list` to print
+  the ladder with each zone's areas. Per-language `.eb` shadow, no DLL, stacks on `world-entrance`
+  and `world-encounter-rate`; relaunch to apply.
+- **The multiplier is quadratic and the verb squares it for you** — the engine accumulates, so
+  encounter frequency goes as `sqrt(encratio)`; `--multiplier 2.0` writes `16 -> 64`. `encratio` is
+  a Byte in both the ladder target and the opcode cast, so every value clamps to 0..255 (256 would
+  truncate to 0 = encounters silently off) and a `--multiplier` result floors at 1 — only
+  `--peaceful` means zero.
+- A **structure gate** refuses a dispatcher whose ladder is not the shipping shape (wrong switch
+  selector / arm variable / arm count) with `EncrateStructureError`, rather than mis-patching it.
+
+### Fixed — `world-encounter-rate` is the RAGTIME MOUSE, not the encounter rate
+- Docstrings, CLI help and printed output corrected across the kit and docs. `w_frameEventBattleProb`'s
+  only engine reader is `w_frameGetParameter` case 205, and every free-roam dispatcher spends case 205
+  on exactly one thing: the story-gated `Battle(0,941/942)` = `BSC_WM_9900/9901` = Ragtime Mouse, on
+  topograph 37/38. The verb's behaviour is unchanged and its name is kept for compatibility, but
+  `--peaceful` does **not** make the overworld encounter-free — use `world-encounter-frequency` for that.
+
 ### Added — the full-fidelity walkthrough catalog: first section + the checklist surface
 - **`data/journal_catalog.toml`** (shipped package data) opens the completion journal's second
   layer: the ENTRY catalog the frozen schema defines (one row per obtainable thing, keyed on the

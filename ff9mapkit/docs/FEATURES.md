@@ -149,7 +149,7 @@ and marker commands are stock-engine.
 | Interior topography on a deployed island: carry a real forest canopy (`world-forest`), raise a real-language grass hill (`world-hill`), carry a real rock massif with its object-aperture plugs (`world-mountain`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Mirror custom overworld land into the disc-4 asset tree (`world-mirror`) — run after any custom-ocean deploy | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Author a custom overworld entrance — trigger + tiles + optional Blender building (`world-entrance`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
-| Overworld encounters: re-table + retune frequency (`world-encounters`, `world-encounter-rate`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Overworld encounters: re-table monsters (`world-encounters`), retune the rate (`world-encounter-frequency`), retune the Ragtime Mouse (`world-encounter-rate`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Atlas texturing: extract / catalog / reskin / add tiles; minimap marker renames | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 
 ## Multiplayer (experimental)

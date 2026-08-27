@@ -270,7 +270,7 @@ _CAUTION_VERBS = {
     "world-terrain", "world-reclaim", "world-coast", "world-transplant", "world-island",
     "world-forest", "world-hill", "world-mountain", "world-water", "world-atlas-add-tile",
     "world-entrance", "world-fuse", "world-environment", "world-minimap",
-    "world-rename-markers", "world-encounter-rate", "world-encounters",
+    "world-rename-markers", "world-encounter-rate", "world-encounter-frequency", "world-encounters",
     "deploy-campaign", "newgame",
 }
 
@@ -648,7 +648,8 @@ caution, not refused (writes by default -- pass --dry-run to preview safely unde
   world-deploy, world-retarget, world-mesh-build, world-atlas-reskin, world-terrain, world-reclaim,
   world-coast, world-transplant, world-island, world-forest, world-hill, world-mountain, world-water,
   world-atlas-add-tile, world-entrance, world-fuse, world-environment, world-minimap,
-  world-rename-markers, world-encounter-rate, world-encounters, deploy-campaign, newgame
+  world-rename-markers, world-encounter-rate, world-encounter-frequency, world-encounters,
+  deploy-campaign, newgame
 
 mechanism (between every pair of iterations):
   1. save the loaded UnityPy envs out of ff9mapkit.extract._STREAM_ENV_CACHE (guarded: a harvest
