@@ -34,38 +34,55 @@ So a MISS here was not a hole in deployed geometry -- it was ground the probe ne
 measured (an unmodded block; stock ocean, most likely, but the probe does not read
 the stock map and cannot claim it). Two very different things wore the same "MISS".
 
-THE FIX IS IN TWO PARTS, and the first removes the ambiguity rather than managing it:
+THE FIX IS IN THREE PARTS, and the last one removes the blind spot entirely:
 
   1. THE SWEEP IS SCOPED TO THE ISLAND'S OWN BLOCKS (`sweep_domain`). The lattice is
      still laid over the bounding box, but only points inside the CLOSED span of a
-     block that actually loaded are queried -- closed, because a block's mesh reaches
-     its own edge verts, so the rim is measured by the block behind it. The probe now
-     never asks a question it cannot answer, and MISS recovers its census meaning:
-     a MISS is a REAL hole, and `n_miss` is a hard-zero gate ("a miss ANYWHERE is a
-     stranding spot (land) or a vehicle wall + void render (water)"). It prints a
-     GATE FAIL line if one ever appears.
+     block that loaded are queried -- closed, because a block's mesh reaches its own
+     edge verts, so the rim is measured by the block behind it. The probe never asks
+     a question it cannot answer, and MISS recovers its census meaning: a MISS is a
+     REAL hole, and `n_miss` is a hard-zero gate ("a miss ANYWHERE is a stranding
+     spot (land) or a vehicle wall + void render (water)"). Prints GATE FAIL if one
+     ever appears.
   2. MISS IS EXCLUDED FROM `water`, and because a dock is exactly where the boat hull
      and the landing apron meet, a MISS within the 24u admission envelope
      DISQUALIFIES the candidate outright.
+  3. THE STOCK MAP IS COMPOSED UNDERNEATH (`load_world_meshlist`, on by default; see
+     its docstring for the layering). The mod folder holds only OVERRIDES, so reading
+     it alone left every un-overridden block blank. Layered the way the engine layers
+     a cell -- override if present, else the game's own asset for that block, else the
+     shared `SeaBlockPrefab` for a cell with no assets at all -- there is nothing left
+     for the probe to be blind to: `n_unmeasured` is 0 on all five islands.
 
-Bounding-box points OUTSIDE the island's blocks are UNMEASURED: never queried, never
-water, never land, and they DO NOT disqualify -- the probe's own blindness is not
-evidence of a defect on the ground. They are recorded as `unmeasured_xz`, and every
-admitted candidate carries `unmeasured_dist`, so "this dock sits Nu from ground the
-probe never looked at" is visible instead of invisible. Treating them as a defect
-would have thrown away every Tidefall and Larkspur candidate over an artifact of the
-old sweep -- a different wrong answer, not a safer one.
+`unmeasured` remains as a class for `--no-stock` runs: never queried, never water,
+never land, never disqualifying -- the probe's own blindness is not evidence of a
+defect on the ground. It is recorded as `unmeasured_xz` with `unmeasured_dist` on each
+admitted candidate. Treating it as a defect would have thrown away every Tidefall and
+Larkspur candidate over an artifact of the old sweep -- a different wrong answer, not
+a safer one.
 
-Both arms are silent on the real island set (after the re-scope `n_miss` is 0 on all
-five islands), so `--selftest` exercises the re-scope and the disqualify path on
-synthetic input -- neither is a check that cannot fail.
+WHAT PROVES THE LAYERING IS RIGHT WAY UP, two ways. Composing stock underneath leaves
+`n_land` byte-identical on all five islands (3064 / 561 / 116 / 589 / 366) -- if a
+stock sea part were winning over a mod Terrain override anywhere, the land count would
+collapse. And run against an EMPTY mod folder with only the stock layer, all five
+footprints read 0 land / 100% water / 0 candidates: every one of these islands is
+deployed onto true open ocean, so every square of island land in a real run comes from
+the override layer and stock never wins over it.
+
+Parts 1 and 2 are silent on the real island set (`n_miss` is 0 everywhere), so
+`--selftest` exercises the re-scope and the disqualify path on synthetic input --
+neither is a check that cannot fail. Part 3 fires on real data (4 blocks) and is
+checked by the land-count identity above.
 
 THE SOURCE SEAM: `--src DIR` points the loader at a snapshot directory instead of
 the live install, so a result is reproducible after the shared install drifts (same
 law as the deploy-target seam in the brief -- pin the path through a seam, never
 read the real file). A snapshot dir holds the files flat; the install nests them
-under r<by>/. `--legacy-water` restores the WHOLE pre-fix probe -- bbox sweep, MISS
-counted as water, no disqualify test -- so it reproduces the archived run; A/B only.
+under r<by>/. It pins the MOD bytes only; the stock layer comes from the game's own
+assets, which no kit path writes, so it does not drift. `--no-stock` reads the mod
+folder alone (the un-overridden ground goes back to UNMEASURED), and `--legacy-water`
+restores the WHOLE pre-fix probe -- mod folder only, bbox sweep, MISS counted as
+water, no disqualify test -- so it reproduces the archived run; A/B only.
 
 --------------------------------------------------------------------------------
 RE-RUN VERDICT (2026-08-27, A/B against ONE pinned snapshot of the live install)
@@ -83,20 +100,30 @@ Larkspur. Those are exactly the four R2 QUAY BEACON anchors (REVERT.md:1211, 130
 collision class. None of them is one of the four grafted dock coords. This is the
 drift `--src` exists to pin.
 
-THE DEFECT WAS REAL BUT INERT ON THIS DATA. Water drops by exactly the miss count
-(Tidefall 1056 -> 800, Larkspur 2035 -> 1267) and NOT ONE candidate moved: 0 added,
-0 dropped, 0 water_dist changed, on every island -- true of the classifier fix alone
-AND of the re-scoped sweep. Falsified directly rather than inferred: re-running the
+THE DEFECT WAS REAL BUT INERT ON THIS DATA. At the mod-only stage water drops by
+exactly the miss count (Tidefall 1056 -> 800, Larkspur 2035 -> 1267) and NOT ONE
+candidate moved: 0 added, 0 dropped, 0 water_dist changed, on every island -- true of
+the classifier fix alone, of the re-scoped sweep, and of the composed stock layer that
+puts those counts back. Falsified directly rather than inferred: re-running the
 admission test against the unmeasured samples ALONE admits 0 candidates on Tidefall
 and 0 on Larkspur, so nothing was ever holding a hole up as its reason to exist.
 A handful of candidates (5 Tidefall, 8 Larkspur) do sit within 24u of unmeasured
 ground, but each also has real sea within 12u; they now carry `unmeasured_dist`.
 
-THE RE-SCOPE. Scoping the sweep to each island's own blocks drops 256 wasted ground
-queries on Tidefall and 768 on Larkspur, and leaves the candidate list on all five
-islands IDENTICAL -- it is a fix to how the measurement is constructed, not to what
-it concludes. Its payoff is the gate: `n_miss` is now **0 on all five islands**, and
-it means what the census means by it.
+THE RE-SCOPE + THE STOCK LAYER. Scoping the sweep to each island's own blocks left
+the candidate list on all five islands IDENTICAL; composing the stock map underneath
+then left it IDENTICAL again, and restored the full bbox as measured ground. Both are
+fixes to how the measurement is CONSTRUCTED, not to what it concludes. Their payoff
+is the two gates: `n_miss` is 0 on all five islands and means what the census means
+by it, and `n_unmeasured` is 0 -- there is no longer any ground the probe declines to
+look at.
+
+AND THE MEASURED ANSWER TO WHAT THE HOLES WERE: all 1024 of them ARE ocean. With the
+stock layer composed, Tidefall's water returns to exactly 1056 and Larkspur's to
+exactly 2035 -- the archive's own numbers. The pre-fix probe's ASSUMPTION was right;
+it was still an assumption, and it could just as easily have sat over stock LAND, in
+which case the dock candidates it admitted would have been fictional. It is now a
+measurement, and the probe can no longer be right by luck.
 
 All four dock coordinates grafted into the composed-world design SURVIVE, each
 backed by real sea at 12u: (272,-1168) Ashvale, (412,-1224) Tidefall, (1204,-1192)
@@ -105,13 +132,16 @@ Grimhorn, (700,-616) Larkspur (unmeasured_dist 29.12u). Independently of this pr
 trigger to (420,-1232) because the beacon hull crossed the (6,19)/(6,18) seam
 (southern-ring/DESIGN.md:44-45).
 
-STILL TRUE, and worth knowing before trusting a candidate COUNT: the probe reads only
-the mod folder and never the stock map, so ground outside an island's own blocks stays
-unmeasured by construction -- it is almost certainly stock ocean, but "almost
-certainly" is not a measurement, which is the whole point of reporting it separately.
-`n_candidates` is the true total; the `candidates` list is still capped at 400
-(Ashvale: 562 real, 400 listed -- the archived run recorded only the capped list,
-with no total).
+THE ONE LAYERING CASE NOT MODELLED, because it does not arise on this island set: a
+cell carrying a `Donor.txt` divert takes its un-overridden parts from the DONOR's
+prefab, not its own. Measured here, every stock part under every mod-overridden block
+IS overridden, so nothing free-rides and the question never comes up -- but it would
+on an island that leaves parts un-overridden. `load_world_meshlist` says so at the
+call site.
+
+Remaining, and worth knowing before trusting a candidate COUNT: `n_candidates` is the
+true total, but the `candidates` list is still capped at 400 (Ashvale: 562 real, 400
+listed -- the archived run recorded only the capped list, with no total).
 """
 import argparse
 import json
@@ -152,26 +182,83 @@ def mesh_root(src=None):
     return gp / "FF9CustomMap-world" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1", False
 
 
-def load_world_meshlist(blocks, src=None):
-    """(meshlist, covered) -- one world-frame meshlist: every part of every block, in
-    registration order, verts translated into world coordinates. `covered` is the set of
-    (bx, by) that contributed at least one part; anything outside it was never measured."""
+def sea_block_prefab():
+    """A fresh block-local copy of the shared `SeaBlockPrefab` stand-in: the game's only full-cell
+    deep Sea4 plane, hole-filled (`island._sea_plane`). Fresh per call because the caller
+    translates its verts into world coordinates in place."""
+    from ff9mapkit.world.island import _sea_plane
+    return _sea_plane(1)
+
+
+def stock_part(bx, by, part):
+    """Block (bx, by)'s STOCK `part` sub-mesh, or None if the real game ships no such asset --
+    the same missing-mesh idiom `transplant.world_tris` uses. `extract.read_block` hands back a
+    COPY off its memo, so the world-frame translation below may mutate it safely."""
+    from ff9mapkit.world import extract as X
+    try:
+        bm = X.read_block(bx, by, disc=1, lod="0_1", part=part.lower())
+    except ValueError as e:
+        if "mesh not found" in str(e):
+            return None
+        raise
+    return bm if bm.verts else None
+
+
+def load_world_meshlist(blocks, src=None, stock=True):
+    """(meshlist, covered, provenance) -- one world-frame meshlist: every part of every block in
+    the island's bounding box, in registration order, verts translated into world coordinates.
+
+    THE STOCK FALLBACK (`stock`, on by default). The mod folder holds only OVERRIDES, so reading
+    it alone leaves every un-overridden block blank and the probe called that MISS. Composed the
+    way the engine composes a cell, a part is the loose override if one exists, else the real
+    game's own asset for that block -- and a cell with NO per-block assets at all is true open
+    ocean, which renders from the shared `SeaBlockPrefab` whose only transform is `Sea4`
+    (`island._real_block_parts`, `transplant.effective_prefab_arm`). That last case is stood up
+    with the game's one full-cell deep Sea4 plane, hole-filled, exactly as `island._sea_plane`
+    does -- the plane is itself missing a quad at home, and an unfilled hole is a void render AND
+    an invisible vehicle wall.
+
+    NOT MODELLED, because it does not arise here: a cell carrying a `Donor.txt` divert takes its
+    un-overridden parts from the DONOR's prefab, not its own. Measured on this island set, every
+    stock part under every mod-overridden block IS overridden, so no part free-rides and the
+    question never comes up. It WOULD matter on an island whose blocks leave parts un-overridden.
+    """
     root, flat = mesh_root(src)
-    out, covered = [], set()
-    for part in PARTS:
-        for (bx, by) in blocks:
+    xs = [bx for bx, _ in blocks]
+    zs = [by for _, by in blocks]
+    bbox = [(bx, by) for bx in range(min(xs), max(xs) + 1)
+            for by in range(min(zs), max(zs) + 1)]
+    per_part = {p: [] for p in PARTS}
+    from_mod, from_stock, open_ocean = set(), set(), set()
+    for (bx, by) in bbox:
+        for part in PARTS:
             name = f"Block[{bx}][{by}] {part}.ff9mesh"
             p = root / name if flat else root / f"r{by}" / name
-            if not p.exists():
+            if p.exists():
+                bm = M.blockmesh_from_ff9mesh(p, disc=1, x=bx, y=by, lod="0_1",
+                                              part=part.lower())
+                from_mod.add((bx, by))
+            elif stock:
+                bm = stock_part(bx, by, part)
+                if bm is None:
+                    continue
+                from_stock.add((bx, by))
+            else:
                 continue
-            bm = M.blockmesh_from_ff9mesh(p, disc=1, x=bx, y=by, lod="0_1",
-                                          part=part.lower())
+            per_part[part].append((bx, by, bm))
+        if stock and (bx, by) not in from_mod and (bx, by) not in from_stock:
+            per_part["Sea4"].append((bx, by, sea_block_prefab()))   # true open ocean
+            open_ocean.add((bx, by))
+    out = []
+    for part in PARTS:
+        for (bx, by, bm) in per_part[part]:
             for k in range(bm.vcount):
                 v = bm.verts[k]
                 bm.verts[k] = (v[0] + BLOCK * bx, v[1], v[2] - BLOCK * by)
             out.append((part, bm))
-            covered.add((bx, by))
-    return out, covered
+    covered = from_mod | from_stock | open_ocean
+    return out, covered, dict(mod=sorted(from_mod), stock=sorted(from_stock),
+                              open_ocean=sorted(open_ocean))
 
 
 def in_covered(covered, x, z, eps=1e-6):
@@ -252,8 +339,8 @@ def sweep_domain(blocks, covered, legacy=False):
     return probe, unmeasured
 
 
-def scan(name, blocks, src=None, legacy=False):
-    ml, covered = load_world_meshlist(blocks, src)
+def scan(name, blocks, src=None, legacy=False, stock=True):
+    ml, covered, prov = load_world_meshlist(blocks, src, stock)
     xs = [bx for bx, _ in blocks]
     zs = [by for _, by in blocks]
     probe, unmeasured = sweep_domain(blocks, covered, legacy)
@@ -300,10 +387,14 @@ def scan(name, blocks, src=None, legacy=False):
                       for by in range(min(zs), max(zs) + 1))
     return dict(
         sweep="bbox (legacy)" if legacy else "island blocks",
+        source_layers="mod overrides over stock" if stock else "mod overrides only",
         blocks=sorted(blocks),
         blocks_covered=sorted(covered),
-        blocks_no_mesh=sorted(set(blocks) - covered),   # declared but nothing loaded: a defect
-        blocks_outside_list=sorted(bbox_blocks - covered),
+        blocks_mod=prov["mod"], blocks_stock=prov["stock"],
+        blocks_open_ocean=prov["open_ocean"],           # no assets at all -> shared SeaBlockPrefab
+        # a DECLARED island block with no override of its own is a data defect, stock or not
+        blocks_no_mod_override=sorted(set(blocks) - set(map(tuple, prov["mod"]))),
+        blocks_outside_list=sorted(bbox_blocks - set(blocks)),   # in the bbox, not on the list
         n_samples=len(grid), n_land=len(land), n_water=len(water),
         # in "island blocks" scope every MISS is a real hole -- the census gate is n_miss == 0
         n_miss=len(miss), n_miss_rejected=n_miss_rejected,
@@ -348,8 +439,11 @@ def main():
     ap.add_argument("--src", default=None,
                     help="snapshot dir of .ff9mesh files (default: the live install)")
     ap.add_argument("--legacy-water", action="store_true",
-                    help="restore the WHOLE pre-2026-08-27 probe -- bbox sweep AND MISS counted "
-                         "as water -- so it reproduces the archived run; A/B only")
+                    help="restore the WHOLE pre-2026-08-27 probe -- mod folder only, bbox sweep, "
+                         "MISS counted as water -- so it reproduces the archived run; A/B only")
+    ap.add_argument("--no-stock", action="store_true",
+                    help="read only the mod folder; do not compose the real game's own block "
+                         "assets underneath. Leaves un-overridden ground UNMEASURED.")
     ap.add_argument("--out", default=None, help="output json path (default: the standard one)")
     ap.add_argument("--selftest", action="store_true",
                     help="run the classifier self-test and exit")
@@ -358,25 +452,30 @@ def main():
         selftest()
         return
 
+    stock = not (args.no_stock or args.legacy_water)
     source = ("snapshot:" + str(args.src)) if args.src else "live install"
-    print("source: " + source
-          + ("   [LEGACY WATER -- MISS counted as water]" if args.legacy_water else ""))
-    report = {"_source": source, "_legacy_water": bool(args.legacy_water)}
+    print(f"source: {source} + {'stock game assets' if stock else 'NO stock (mod folder only)'}"
+          + ("   [LEGACY -- the whole pre-fix probe]" if args.legacy_water else ""))
+    report = {"_source": source, "_legacy_water": bool(args.legacy_water), "_stock": stock}
     for name, blocks in ISLANDS.items():
-        r = scan(name, blocks, args.src, args.legacy_water)
+        r = scan(name, blocks, args.src, args.legacy_water, stock)
         report[name] = r
         print(f"\n=== {name}: sweep={r['sweep']} samples={r['n_samples']} "
               f"land={r['n_land']} water={r['n_water']} miss={r['n_miss']} "
               f"unmeasured={r['n_unmeasured']} apron-candidates={r['n_candidates']}"
               + (f" [{r['n_miss_rejected']} rejected on a hole]" if r["n_miss_rejected"] else ""))
-        if r["blocks_no_mesh"]:
-            print(f"    !! DECLARED blocks that loaded NO mesh: {r['blocks_no_mesh']}")
+        if r["blocks_no_mod_override"]:
+            print("    DECLARED island blocks with no override of their own: "
+                  f"{r['blocks_no_mod_override']}")
+        if r["blocks_stock"] or r["blocks_open_ocean"]:
+            print(f"    filled from stock: {r['blocks_stock']}   open ocean (shared "
+                  f"SeaBlockPrefab): {r['blocks_open_ocean']}")
         if not args.legacy_water and r["n_miss"]:
-            print(f"    !! GATE FAIL -- {r['n_miss']} MISS inside the island's own blocks; a "
-                  f"miss is a stranding spot / void render. First few: {r['miss_xz'][:6]}")
-        if r["blocks_outside_list"]:
-            print("    bbox blocks outside the island's list, never queried: "
-                  f"{r['blocks_outside_list']}")
+            print(f"    !! GATE FAIL -- {r['n_miss']} MISS in measured ground; a miss is a "
+                  f"stranding spot / void render. First few: {r['miss_xz'][:6]}")
+        if r["n_unmeasured"]:
+            print(f"    !! {r['n_unmeasured']} samples UNMEASURED "
+                  f"(blocks {r['blocks_outside_list']}) -- run without --no-stock")
         seen = []
         for c in r["candidates"]:
             if all(math.hypot(c["x"] - s["x"], c["z"] - s["z"]) > 40 for s in seen):
