@@ -401,6 +401,26 @@ def side_counters() -> tuple:
     )
 
 
+def records_counters() -> tuple:
+    """The RECORDS tab's aggregate rows (M4) -- same C-record grammar, but the kinds beyond the
+    geg five call the ENGINE'S OWN statics (QuadMistDatabase.MiniGame_Get*, party.gil,
+    rare_item_obtained.Count, Settings.time), so every number is the engine's own computation --
+    the aggregate-row equivalent of LAW 5. The rec.* pseudo-section ids are the DLL's three
+    Records groups, not walkthrough sections."""
+    from . import journal as _J
+    return (
+        ("rec.tetra", "Cards held",  "cards_all",    0, 0, 0, 0),
+        ("rec.tetra", "Card kinds",  "cards_kinds",  0, 0, 0, _J.CARD_KINDS_MAX),
+        ("rec.tetra", "Coll. points", "cards_points", 0, 0, 0, _J.COLLECTOR_POINTS_MAX),
+        ("rec.tetra", "Coll. level", "cards_level",  0, 0, 0, _J.COLLECTOR_LEVEL_MAX),
+        ("rec.tetra", "Wins",        "cards_wins",   0, 0, 0, 0),
+        ("rec.party", "Gil",         "gil",          0, 0, 0, 0),
+        ("rec.party", "Key items",   "keyitems",     0, 0, 0, 0),
+        ("rec.meta",  "Play time",   "playtime",     0, 0, 0, 0),
+        ("rec.meta",  "Last entrance", "u16",        _J.FIELD_ENTRANCE_OFF, 0, 0, 0),
+    )
+
+
 def _tsv(*cells) -> str:
     out = []
     for c in cells:
@@ -442,7 +462,7 @@ def render_patch(*, catalog=None) -> str:
                       mc, mf, e.verify, e.title, e.detail))
     for d in deferred:
         L.append(_tsv("D", d.bit, d.why))
-    for c in side_counters():
+    for c in side_counters() + records_counters():
         L.append(_tsv("C", *c))
     return "\n".join(L) + "\n"
 

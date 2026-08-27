@@ -268,7 +268,11 @@ def test_side_counters_agree_with_the_journal_readers():
 def test_side_counter_records_ride_the_patch():
     body = JC.render_patch()
     rows = [ln.split("\t") for ln in body.splitlines() if ln.startswith("C\t")]
-    assert len(rows) == len(JC.side_counters())
+    assert len(rows) == len(JC.side_counters()) + len(JC.records_counters())
+    engine_kinds = ("cards_all", "cards_kinds", "cards_points", "cards_level", "cards_wins",
+                    "gil", "keyitems", "playtime", "u16")
     for r in rows:
         assert len(r) == len(JC.PATCH_COUNTER_COLS), r
-        assert r[3] in ("byte", "bit", "bitcount", "field", "sysvar")
+        assert r[3] in ("byte", "bit", "bitcount", "field", "sysvar") + engine_kinds
+    # the RECORDS rows target the three pseudo-groups the DLL renders as its third tab (M4)
+    assert {r[1] for r in rows if r[1].startswith("rec.")} == {"rec.tetra", "rec.party", "rec.meta"}
