@@ -72,6 +72,57 @@ half-wired input path cannot fake: **the position changed.** Prefer that shape o
 
 ---
 
+## The action library (calibrated in-game 2026-08-27)
+
+Verbs are **closed-loop on published state**, never on frame counts. The calibration below is what
+sizes a burst; correctness never depends on it being right.
+
+| Verb | Notes |
+|---|---|
+| `walk_to(x, z)` | Steers on position. One axis at a time; walk speed for the final approach; gives up after two no-progress bursts. |
+| `calibrate_axes()` | Probes which button moves which way in world space, per field, and rejects a deflected basis. |
+| `interact()` | Confirm, then report the dialogue or `None`. Silence is a legitimate observation, not an error. |
+| `advance()` | Pages a conversation, returning every distinct page. **Stops at a choice** rather than blundering through it. |
+| `prompt()` / `options()` / `select(i)` / `choose(i)` | Choice handling. `select` is split from `choose` so cursor movement is assertable — confirming destroys the evidence. |
+| `warp(id)` | Refuses an unregistered id up front (see below). |
+
+### Measured constants (30801 bench)
+
+- **Run 30.0 units/frame; walk 15.0** — so **Cancel is the WALK modifier**, running is the default.
+- Diagonal 29.6, not 42 — the synthetic axis is normalised, as intended.
+- **Movement saturates against the walkmesh edge:** a 75-frame hold covered 1014 units where 30 u/frame
+  implies 2250. This is why `walk(direction, frames)` is a bad primitive and `walk_to` exists.
+
+### Three traps these runs surfaced
+
+1. **Warping to an unregistered id black-screens the game** on a null `.eb`, and reaches the driver as
+   a generic timeout blaming *control* or *position*. `warp` now reads the live `DictionaryPatch.txt`
+   files and refuses first. Ids are a global namespace shared with every other worktree's deploys, so
+   yesterday's bench may simply not be there today. Currently registered: **4010–4013, 30416, 30801**.
+2. **The choice-option off-by-one.** `Dialog.ChoicePhrases` prepends the whole pre-choice header as
+   element 0 while `SelectChoice` counts only selectable lines from zero. Asking for index 3 against
+   the raw array — which reads "Minigames" — left the cursor on **Tetra Master**. For a story scenario
+   that is the difference between testing a branch and testing a different one. `options()` now drops
+   the header so its indices are the ones `select()` lands on. `ChoicePhrases` can also be *shorter*
+   than `count` (a 15-option menu published 13 phrases), so **`count` is authoritative**.
+3. **A box is open before it has words.** `ActiveDialogList` carries the dialog before `Phrase` is
+   assigned, so a probe stopping at `open` reads an empty string.
+
+### On flattering tests
+
+The first `walk_to` acceptance run scored **0.0u on every leg** and was discarded rather than
+celebrated: the offsets were +300 and the run speed is exactly 30, so every leg divided evenly and
+landed dead-on in a single burst. It could not have detected a convergence bug. Re-run with offsets
+coprime to both 30 and 15 it lands 13.0 / 35.4 / 27.2 units out — the loop actually closing. Likewise
+`talk_check` first passed on "something answered" while one responder returned an open box and zero
+pages; asserting per-responder turned that shrug into a real diagnosis.
+
+★ The choice work also **closes the last gap left open by the NGUI hook**: dialogue choices were
+previously only *expected* to work by sharing a code path with the menu cursor. `select(3)` landing on
+"Tetra Master", confirmed in the captured frame, proves it directly.
+
+---
+
 ## Engine deployment state
 
 `Assembly-CSharp` is deployed with s83 (both arches, verified). **Inert without `ff9harness/arm`**, so

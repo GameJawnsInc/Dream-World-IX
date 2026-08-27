@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -526,10 +527,44 @@ class Session:
                            timeout=timeout, what="New Game to reach a field")
         return self.wait_playable(timeout=timeout) if playable else st
 
+    def registered_fields(self) -> dict[int, str]:
+        """Every field id currently registered by a deployed mod folder, id -> scene name.
+
+        Read from the `DictionaryPatch.txt` of each mod folder, which CLAUDE.md is emphatic is the
+        only truth about what is deployed -- it changes as other worktrees deploy, so it is read live
+        rather than cached across runs.
+        """
+        found: dict[int, str] = {}
+        for patch in sorted(self.game_path.glob("*/DictionaryPatch.txt")):
+            try:
+                text = patch.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+(\S+)", text, re.MULTILINE):
+                found[int(m.group(1))] = m.group(2)
+        return found
+
     def warp(self, field: int, *, entrance: int | None = None, scenario: int | None = None,
-             timeout: float = 60.0) -> State:
-        """Warp to a field and wait until it is actually playable."""
-        self.send(f"warp {int(field)} {entrance if entrance is not None else -1} "
+             timeout: float = 60.0, check_registered: bool = True) -> State:
+        """Warp to a field and wait until it is actually playable.
+
+        Refuses an UNREGISTERED id up front. Warping to one is not a harmless no-op: the engine sets
+        `fldMapNo`, finds a null `.eb`, and hangs on a black screen with the game unrecoverable --
+        which reaches the driver as a generic 60-second timeout whose message points at control or
+        position rather than at the actual mistake. Since ids are a global namespace shared with
+        every other worktree's deploys, the id you tested yesterday may simply not be there today.
+        """
+        field = int(field)
+        if check_registered:
+            available = self.registered_fields()
+            if available and field not in available:
+                raise HarnessError(
+                    f"field {field} is not registered by any deployed mod folder, so warping there "
+                    f"would black-screen the game on a null .eb. Deploy it first "
+                    f"(`py tools/deploy_field.py <toml> --id {field}`), or use one of: "
+                    f"{', '.join(str(i) for i in sorted(available))}."
+                )
+        self.send(f"warp {field} {entrance if entrance is not None else -1} "
                   f"{scenario if scenario is not None else -1}")
         self.wait_for(lambda s: s.field_id == int(field), timeout=timeout,
                       what=f"field {field} to load")
@@ -545,6 +580,136 @@ class Session:
     def teleport(self, x: float, z: float) -> None:
         """Overworld teleport (world units)."""
         self.send(f"teleport {x} {z}")
+
+    # -- talking to things ----------------------------------------------------------------------
+    # The narrative axis. These are closed-loop for the same reason movement is: dialogue timing is
+    # not a constant. A box appears when the field script decides to show it, pages when the text
+    # finishes typing out, and a choice is only selectable once `IsChoiceReady`. Pressing Confirm on
+    # a fixed schedule either misses a page or eats two.
+
+    def wait_dialogue(self, *, timeout: float = 10.0, want_text: bool = True) -> State:
+        """Wait for a dialogue box to open -- and, by default, for it to actually SAY something.
+
+        `open` and `has text` are separate moments. The box is constructed and registered in
+        `ActiveDialogList` before its `Phrase` is assigned, so a probe that stops at `open` reads an
+        empty string. That is not hypothetical: it cost a page of a real NPC's dialogue on the first
+        run of talk_check, where one mage reported a box and no words. If the text never arrives the
+        open box is still returned -- a genuinely wordless window is a legitimate thing to observe.
+        """
+        st = self.wait_for(lambda s: s.dialog_open, timeout=timeout, what="a dialogue box to open")
+        if not want_text or st.text.strip():
+            return st
+        try:
+            return self.wait_for(lambda s: s.dialog_open and bool(s.text.strip()),
+                                 timeout=2.0, what="the dialogue box to have text")
+        except HarnessError:
+            return st
+
+    def interact(self, *, timeout: float = 6.0, frames: int = 4) -> State | None:
+        """Press Confirm and report the dialogue it opened, or None if nothing responded.
+
+        Returns rather than raises on silence: "I pressed Confirm here and nothing happened" is a
+        legitimate and common finding for a scenario probing where a trigger actually is.
+        """
+        self.press("confirm", frames)
+        try:
+            return self.wait_dialogue(timeout=timeout)
+        except HarnessError:
+            return None
+
+    def read(self) -> str:
+        """Whatever dialogue is on screen right now, as one string."""
+        return self.state.text
+
+    def advance(self, *, max_pages: int = 30, timeout: float = 10.0) -> list[str]:
+        """Page through an open dialogue to its end, returning every DISTINCT page seen.
+
+        Collecting the pages is the point: a scenario asserting on a conversation wants the whole
+        thing, and by the time the box closes the text is gone from the state channel forever. Stops
+        at a choice rather than blundering through it -- picking an option is `choose`'s job, and a
+        Confirm here would silently take whichever option happened to be highlighted.
+        """
+        pages: list[str] = []
+        for _ in range(max_pages):
+            st = self.state
+            if not st.dialog_open:
+                break
+            if st.choice:
+                break
+            # Let the page's text land before capturing it -- see wait_dialogue. Without this the
+            # loop can photograph the gap between a box being registered and its Phrase being set,
+            # record nothing, and then press Confirm through the words it was sent to read.
+            if not st.text.strip():
+                st = self.wait_dialogue(timeout=2.0)
+                if not st.dialog_open:
+                    break
+            text = st.text
+            if text.strip() and (not pages or pages[-1] != text):
+                pages.append(text)
+            self.press("confirm", 3)
+            self.wait_frames(10)
+        return pages
+
+    def prompt(self, *, timeout: float = 10.0) -> str:
+        """The question above an open choice -- everything before the first selectable line."""
+        st = self.wait_for(lambda s: s.choice is not None, timeout=timeout,
+                           what="a choice dialogue to be ready")
+        raw = list(st.choice.get("options", []))
+        return raw[0] if raw else ""
+
+    def options(self, *, timeout: float = 10.0) -> list[str]:
+        """The SELECTABLE options, indexed to match :meth:`select` / :meth:`choose`.
+
+        ⚠ There is an off-by-one in the engine's raw array and it silently picks the wrong branch.
+        `Dialog.ChoicePhrases` prepends the whole pre-choice header block as element 0
+        (`phrases.Add(ParsedText.Substring(0, newLinePos))`), while `SelectChoice` counts only the
+        selectable lines from zero. Caught in-game: asking for index 3 against the raw array, which
+        reads "Minigames" there, left the cursor sitting on "Tetra Master". This drops the header so
+        `options()[i]` is genuinely the option `select(i)` lands on.
+
+        ⚠ It can also be SHORTER than `choice["count"]` -- the observed 15-option menu published only
+        13 phrases, because ChoicePhrases is built from the currently parsed text. Treat `count` as
+        authoritative for how many options exist and this list as the names of the ones visible.
+        """
+        st = self.wait_for(lambda s: s.choice is not None, timeout=timeout,
+                           what="a choice dialogue to be ready")
+        raw = list(st.choice.get("options", []))
+        return raw[1:] if len(raw) > 1 else raw
+
+    def select(self, index: int, *, timeout: float = 10.0) -> int:
+        """Move the choice cursor to `index` WITHOUT confirming. Returns where it ended up.
+
+        Split from `choose` so cursor movement can be asserted on its own -- confirming an option
+        navigates away, which destroys the evidence of whether the cursor ever got there. Steers on
+        the engine's own `SelectChoice` rather than counting keypresses: a cursor that wraps, starts
+        somewhere unexpected, or refuses to move cannot then silently pick the wrong option, which
+        for a story scenario is the difference between testing a branch and testing the other one.
+        """
+        st = self.wait_for(lambda s: s.choice is not None, timeout=timeout,
+                           what="a choice dialogue to be ready")
+        count = int(st.choice.get("count", 0))
+        if not 0 <= index < count:
+            raise HarnessError(f"choice index {index} out of range (the dialogue offers {count})")
+
+        for _ in range(count * 2 + 6):
+            st = self.state
+            if st.choice is None:
+                raise HarnessError("the choice dialogue closed while selecting")
+            current = int(st.choice.get("selected", 0))
+            if current == index:
+                return current
+            self.press("down" if current < index else "up", 4)
+            self.wait_frames(8)
+        raise HarnessError(
+            f"could not move the choice cursor to option {index}; it stopped at "
+            f"{self.state.choice.get('selected') if self.state.choice else 'none'}"
+        )
+
+    def choose(self, index: int, *, timeout: float = 10.0) -> None:
+        """Select option `index` in an open choice dialogue and confirm it."""
+        self.select(index, timeout=timeout)
+        self.press("confirm", 4)
+        self.wait_frames(12)
 
     def flag(self, bit: int, value: bool = True) -> None:
         self.send(f"flag {int(bit)} {1 if value else 0}")
