@@ -125,14 +125,19 @@ The patch file is regenerated and gated: `git apply -R --check` is clean against
 
 The core loop is proven end to end. What is left is coverage and ergonomics, not feasibility.
 
-1. **Act on the input-bypass audit** — an adversarial sweep of world / battle / menus / field / title
-   for the *same class* of bug the axis turned out to be (a consumer reading input around the hooks).
-   Movement is proven on a field; nothing yet proves the harness can drive a battle or the overworld,
-   and the axis bug is a standing warning that "the press was received" does not mean "the action
-   happened".
-2. **Assert on dialogue for real** — the state channel already carries `Dialog.Phrase` and
-   `ChoicePhrases`. The chest at 30810 (`expect_text("Potion")`) is the obvious first scenario, and it
-   exercises the narrative axis rather than the physical one.
+The audit is **done** ([`INPUT-COVERAGE.md`](INPUT-COVERAGE.md), 22 confirmed / 6 refuted) and its
+headline is **fixed** — NGUI navigation now works, so the harness can drive a menu.
+
+1. **Assert on dialogue for real** — the state channel already carries `Dialog.Phrase` and
+   `ChoicePhrases`, and the choice cursor now moves. The chest at 30810 (`expect_text("Potion")`) is
+   the obvious first scenario; it exercises the narrative axis rather than the physical one, and it
+   would separately prove the dialogue-choice half of the NGUI hook, which is currently only *expected*
+   to work by sharing a code path with the menu cursor.
+2. **World vehicles have no throttle** (`ff9.cs:6652`) and the overworld free-camera reads the raw
+   right stick. Fix if an overworld scenario needs it — note camera yaw is not cosmetic there, it
+   feeds `w_moveCHRControl_RotTrue` and changes which way a harness-driven walk goes.
+3. **Publish the highlighted-widget name** in the state channel, so `menu_nav.py` can self-assert
+   instead of leaving the verdict to be read off screenshots.
 3. `Session.quit()` helper — disarming cancels the agent's pending queue, so a bare
    `send("quit", wait=False)` followed by teardown drops the step. Harmless today (the launched-game
    path waits on the process first) but a sharp edge.
