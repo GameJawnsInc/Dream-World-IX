@@ -9,6 +9,7 @@ test reproduces the in-game-proven donor (7,17) ROT-90 configuration ("it holds"
 from __future__ import annotations
 
 import math
+import warnings
 
 import pytest
 
@@ -276,9 +277,15 @@ def test_transplant_refuses_deploy_when_not_clean(monkeypatch):
     assert s["clean"] is False and s["deployed"] == [] and deployed == []
 
 
-def test_transplant_refuses_real_target_cell(monkeypatch):
-    """The target must be OPEN OCEAN: a cell with real block data is part of the game's world,
-    and overriding it replaces real continent geometry (the (5,2)/(6,2) incident)."""
+def test_transplant_real_target_refusal_plumbing_only(monkeypatch):
+    """THE REFUSAL PLUMBING ONLY -- deliberately NOT the law it used to claim. ``world_tris`` is
+    replaced by ``_fake_world`` here, so all this can observe is that a non-empty occupancy report
+    raises, names the offending cell, and that ``allow_real_target`` still waives it. It can NEVER
+    observe what the real oracle reads -- ``transplant.world_tris`` against the STOCK disc tree --
+    and for six weeks that was the WHOLE coverage of THE OPEN-OCEAN TARGET LAW here. That is the
+    exact shape that let the sibling lane's mod-overwrite hole survive green suite after green
+    suite. The law itself is pinned against real bytes by the install-gated tests below -- keep
+    BOTH: this one runs with no install, those are the oracle."""
     blocks = _island_donor()
     blocks[(4, 2, "terrain")] = _quad(256.0, 320.0, -192.0, -128.0)   # the TARGET is real land
     monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
@@ -287,6 +294,129 @@ def test_transplant_refuses_real_target_cell(monkeypatch):
     s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8,
                       allow_real_target=True)
     assert s["clean"] is True                       # explicit expert override still works
+
+
+# ---- THE OPEN-OCEAN TARGET LAW, driven against the REAL stock tree (install-gated) ----------------
+
+#: The (6,17) canvas incident's own block -- SEA-ONLY in stock: it loads its OWN prefab, which has no
+#: ``Terrain`` transform for a loose override to bind to, so carried land deployed there silently
+#: never renders. Occupied, and therefore exactly what the law exists to refuse.
+REAL_SEA_ONLY_BLOCK = (6, 17)
+#: Real LAND -- the (5,2)/(6,2) incident class: overriding it replaces shipping continent geometry.
+#: It is ``TR.PROVEN_DONOR`` itself, which is why it is the donor everywhere else in this file.
+REAL_LAND_BLOCK = (7, 17)
+#: Blocks stock genuinely leaves as open ocean -- THE CALIBRATION HALF. Without these an oracle that
+#: reported occupancy for every block would satisfy every refusal assertion above while leaving the
+#: law green and completely unarmed.
+FREE_BLOCKS = ((3, 1), (4, 2))
+
+
+def _stock_tree_why() -> str:
+    """Empty when the real disc tree is readable, else WHY it is not (the skip reason)."""
+    from ff9mapkit import config
+    try:
+        if not (config.find_game_path(None) / "StreamingAssets").is_dir():
+            return "no StreamingAssets under the resolved FF9 install"
+    except Exception as e:                           # noqa: BLE001 -- any resolution failure is a skip
+        return f"the FF9 install did not resolve ({type(e).__name__}: {e})"
+    return ""
+
+
+def _need_stock_tree() -> None:
+    """Skip LOUDLY. A silent skip is THE WORKTREE SKIP TRAP: a fresh worktree has no readable stock
+    tree, every slice below drops out, and the run still prints green -- which is how an unarmed law
+    reaches a playtest. ``warnings.warn`` puts it in the warnings summary of even a ``-q`` run."""
+    why = _stock_tree_why()
+    if why:
+        warnings.warn(
+            "THE OPEN-OCEAN TARGET LAW WENT UNVERIFIED in this run: " + why + ". This is the "
+            "WORKTREE SKIP TRAP -- a green run here says nothing about the law. Re-run in the MAIN "
+            "repo (C:/gd/Dream-World-IX/ff9mapkit), where the install resolves.", UserWarning)
+        pytest.skip("stock disc tree unreadable -- " + why + " (see the warnings summary)")
+
+
+def _stock_parts(blk, *, disc: int = 1) -> dict:
+    """What the gate's own oracle reports for ``blk``: {part: tri_count}, empty parts dropped."""
+    return {p: n for p in TR.PARTS
+            if (n := len(TR.world_tris(blk[0], blk[1], p, disc=disc, lod="0_1")))}
+
+
+def test_world_tris_is_the_target_gate_oracle_and_is_calibrated():
+    """THE ORACLE, CALIBRATED. ``world_tris`` against the STOCK disc tree is the only thing the
+    open-ocean target gate consults -- it reads the shipped bundles and can never see a mod folder.
+    Pin BOTH directions on real bytes (probed 2026-08-27, disc 1): the sea-only incident block and
+    the real land block report their stock parts, the free blocks report nothing at all."""
+    _need_stock_tree()
+    sea = _stock_parts(REAL_SEA_ONLY_BLOCK)
+    assert sea == {"sea3": 2, "sea4": 494, "sea5": 16}, sea
+    assert "terrain" not in sea                      # the sea-only prefab has no Terrain transform
+    land = _stock_parts(REAL_LAND_BLOCK)
+    assert land["terrain"] == 117 and land["beach1"] == 14, land
+    assert set(land) == set(TR.PARTS), land          # a full real coastal block: every part present
+    for blk in FREE_BLOCKS:
+        assert _stock_parts(blk) == {}, f"{blk} must read as true open ocean"
+
+
+def test_transplant_refuses_a_real_target_from_the_stock_tree(monkeypatch):
+    """THE LAW ITSELF, no stub on the oracle. Both occupied classes must refuse from what the REAL
+    stock tree says -- naming the cell and the parts found -- before a single file is written; and a
+    free target must NOT refuse, or an oracle that answered "occupied" for everything would pass the
+    refusal half while making the verb useless."""
+    _need_stock_tree()
+    wrote = []
+    monkeypatch.setattr(M, "deploy_override", lambda *a, **k: wrote.append(a))
+    monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: wrote.append(a))
+    # SEA-ONLY: occupied, no terrain -- carried land deployed here would silently never render
+    with pytest.raises(ValueError, match=r"cell \(6,17\) is a REAL world block.*'sea4': 494"):
+        TR.transplant("UNUSED", cell=REAL_SEA_ONLY_BLOCK, donor=TR.PROVEN_DONOR, rot=90)
+    # REAL LAND: overriding it shreds shipping continent geometry
+    with pytest.raises(ValueError, match=r"cell \(7,17\) is a REAL world block.*'terrain': 117"):
+        TR.transplant("UNUSED", cell=REAL_LAND_BLOCK, donor=(8, 17))
+    assert not wrote                                 # refused BEFORE any file was written
+    # CALIBRATION: the free cell must sail through the gate and actually carry
+    s = TR.transplant("UNUSED", cell=(4, 2), donor=TR.PROVEN_DONOR, rot=90, dry_run=True)
+    assert s["carried"]["terrain"] > 0
+
+
+def test_transplant_region_refuses_a_real_block_inside_the_target_rect(monkeypatch):
+    """THE TWIN GATE on the region verb, which scans EVERY target cell, not just the anchor. The
+    (5,17)+2x1 rect is built for that: its anchor is genuinely free and only its second cell is
+    real, so an anchor-only check would sail straight through -- the refusal must name (6,17)."""
+    _need_stock_tree()
+    assert _stock_parts((5, 17)) == {}                # the anchor is genuinely free ...
+    assert _stock_parts(REAL_SEA_ONLY_BLOCK)          # ... and the second cell genuinely is not
+    wrote = []
+    monkeypatch.setattr(M, "deploy_override", lambda *a, **k: wrote.append(a))
+    monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: wrote.append(a))
+    with pytest.raises(ValueError, match=r"cell \(6,17\) is a REAL world block.*'sea4': 494"):
+        TR.transplant_region("UNUSED", cell=(5, 17), donor=TR.PROVEN_DONOR, size=(2, 1))
+    assert not wrote
+    # CALIBRATION: an all-free target rect must NOT refuse
+    s = TR.transplant_region("UNUSED", cell=(3, 1), donor=TR.PROVEN_DONOR, size=(2, 1),
+                             shift=(0.0, 0.0), dry_run=True)
+    assert s["carried"]["terrain"] > 0
+
+
+def test_transplant_mod_overwrite_gate_ignores_parked_bak_files(tmp_path):
+    """REGRESSION PIN for the 2026-08-27 promotion. ``deploy_override`` parks ``<name>.bak-<ts>``
+    beside every file it overwrites, and this gate's own private listing had no extension filter --
+    so once a deploy here was reverted (meshes and ``Donor.txt`` removed, the backups left behind)
+    the leftovers still read as occupied with no donor left to waive them, and the cell refused
+    every later transplant FOREVER. The listing now delegates to ``mesh.existing_overrides``, THE
+    one reader in the kit, which carries the filter."""
+    d = tmp_path / "MOD" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r1"
+    d.mkdir(parents=True)
+    (d / "Block[3][1] Terrain.ff9mesh.bak-20260101-000000").write_bytes(b"PARKED")
+    g = TR._mod_overwrite_gate("MOD", {(3, 1): (7, 17)}, disc=1, game=tmp_path)
+    assert g["ok"] is True and g["existing"] == 0     # backups alone must NOT trip the gate
+    # ... while a REAL deployed override at the same cell still refuses, and the bak is not counted
+    (d / "Block[3][1] Terrain.ff9mesh").write_bytes(b"DEPLOYED")
+    g2 = TR._mod_overwrite_gate("MOD", {(3, 1): (7, 17)}, disc=1, game=tmp_path)
+    assert g2["ok"] is False and "(3,1) 1 files donor=?" in g2["existing"]
+    # ... and the Donor.txt re-deploy waiver, the whole point of this gate, is untouched
+    (d / "Block[3][1] Donor.txt").write_text("7,17", encoding="utf-8")
+    g3 = TR._mod_overwrite_gate("MOD", {(3, 1): (7, 17)}, disc=1, game=tmp_path)
+    assert g3["ok"] is True and g3["redeploys"] == 1
 
 
 def test_transplant_rejects_ocean_donor_and_bad_grid(monkeypatch):

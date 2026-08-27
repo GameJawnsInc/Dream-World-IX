@@ -2538,8 +2538,18 @@ def _mod_overwrite_gate(mod_folder, cell_donors, *, disc, lod="0_1", game=None,
     tree; existing files REFUSE unless the cell's ``Donor.txt`` names this deploy's OWN
     sidecar donor (= a re-deploy/iteration of the same transplant -- the proven loop).
     ``cell_donors`` maps world cell ``(bx, by)`` -> the sidecar donor to be written.
-    ``allow`` (the --allow-mod-overwrite flag) waives the gate deliberately."""
+    ``allow`` (the --allow-mod-overwrite flag) waives the gate deliberately.
+
+    The occupancy READ is :func:`~ff9mapkit.world.mesh.existing_overrides` -- THE one reader in
+    the kit (promoted 2026-08-27). This gate carried a private copy of that listing for six
+    weeks and the copy had no extension filter, while :func:`~ff9mapkit.world.mesh.deploy_override`
+    parks a ``<name>.bak-<ts>`` beside every file it overwrites. So after a deploy here was
+    reverted -- meshes and ``Donor.txt`` removed, the parked backups left behind -- the leftovers
+    still read as "occupied" with no ``Donor.txt`` left to waive them, and the cell refused every
+    later transplant FOREVER. Only the ``Donor.txt`` re-deploy waiver is local to this gate; the
+    listing is not, and must not drift from the reader the other world writers ask."""
     from .. import config
+    from . import mesh as M
     hits = []
     redeploys = 0
     try:
@@ -2550,8 +2560,7 @@ def _mod_overwrite_gate(mod_folder, cell_donors, *, disc, lod="0_1", game=None,
         for (cx, cy), (sdx, sdy) in sorted(cell_donors.items()):
             rdir = root / f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{cy}"
             prefix = f"Block[{cx}][{cy}] "
-            existing = sorted(p.name for p in rdir.iterdir()
-                              if p.name.startswith(prefix)) if rdir.is_dir() else []
+            existing = M.existing_overrides([(cx, cy)], mod_folder, disc=disc, lod=lod, game=game)
             if not existing:
                 continue
             dt = rdir / f"{prefix}Donor.txt"
