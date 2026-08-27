@@ -1252,8 +1252,15 @@ tracked siblings `continent_site_scan.py:30`, `canvas_render.py:31`, and `contin
 do — so it is not runnable until `canvas_census.py` (which writes that sidecar, line 427) has run
 in the same tree. That is stage ordering, not a defect. **Identity acceptance:** re-run against
 the archived forbidden set, it reproduces the archived `design_band_sweep.json` byte-for-byte.
-Headline: the only large free pocket in the band is **G4 east flank, r_max 96 at (1440,−1184) =
-block (22,18)**; every other gap tops out at r_max 32–40.
+As archived it reports the band's only large free pocket as **G4 east flank, r_max 96 at
+(1440,−1184) = block (22,18)**, every other gap topping out at r_max 32–40.
+
+⚠ **Those numbers are STALE, and the probe is only as fresh as its input.** `_forbidden_blocks.json`
+is not a stock fact — `canvas_census.py:263-264` folds in a LIVE scan of the shared install, so the
+archived sidecar is a 2026-07-25 snapshot of a tree that 18+ worktrees write to. Since then the ring
+deployed **Lamplight into block (22,18)** — the very block G4's r_max 96 was measured at. Verified
+live 2026-08-27: (22,18) now carries a full `Beach1 Object Sea1 Sea2 Sea3 Sea4 Sea5 Terrain`
+override set. **Re-run `canvas_census.py` first; never reuse an archived sweep as a siting fact.**
 
 **`design_sandreach_probe.py`** — diagnosed why `design_dock_scan.py` reported Sandreach (blocks
 (11,18),(11,19),(12,18),(12,19)) as 116 land samples but **zero** dock aprons. **★ ANSWERED, and
@@ -1278,3 +1285,43 @@ EFFECTIVE-PREFAB ORACLE LAW** those aux overrides would not bind even if the fil
 The bench was evidently re-deployed by a later plain island/transplant pass. Not a mystery, and
 not a data-loss finding — but the ensemble carry must be **re-run** if the horseshoe's river/falls
 system is wanted at that site.
+
+## THE ALDERMARCH MINT COMMAND IS UNSAFE TO RUN AS RECORDED (★ 2026-08-27)
+
+`continent_layout.json` records an un-run mint for Design B's Aldermarch continent:
+
+    world-island --center 176,-176 --radius 96 --lobes 3 --seed 31 --ground grass --height 3.2 --patches 3
+
+**Do not run it at that centre.** Re-validated 2026-08-27:
+
+* **The lane is fine.** All 7 flags still exist unrenamed (`cli.py:9027` parser, `_cmd_world_island`
+  at `:4661`), and a from-scratch multi-lobe GRASS `world-island` is *not* a falsified lane —
+  `SYNTHESIS-RECONSIDERED.md` (2026-07-29) puts this verb in its PASSES column by name, and it was
+  playtest-confirmed twice AFTER the design round (R3 Lamplight r44; the R4 bench, a 3-lobe mint).
+  None of the §8 falsifications reach it: **THE LADDER MINT** binds `--beach` only (not passed, and
+  the CLI now banners it at `cli.py:4676-4683`); the **dunes size class** binds the dunes family and
+  is a floor this 19-block mint is far above; **from-scratch massif SYNTHESIS** is answered by the
+  layout's own `world-mountain --donor` carries, which are the prescribed replacement.
+* **The SITE is dead.** 6 of the mint's 19 footprint blocks — **(1,1) (1,2) (1,3) (2,1) (2,2)
+  (2,3)** — are already occupied on **both** Disc1 and Disc4 by the owner-confirmed **R4 bench
+  island** (`REVERT.md` §25.3, built 2026-07-26, one day after the design round). Verified live: 8
+  override files per block per disc.
+* **⚠ And no gate would stop you.** THE OPEN-OCEAN TARGET LAW (`island.py:979-1000`) tests
+  `_real_block_parts` (`island.py:930-942`), whose docstring is explicit that it reads *"The REAL
+  game's per-block mesh assets"* — via `transplant.world_tris` against the **stock** disc tree. It
+  never looks at the mod folder. All 19 blocks are stock-open-ocean, so the gate passes, and
+  `island.py:1013-1046` then writes Terrain + a Sea4 cut + blanking stubs + `Donor.txt` per
+  footprint block, unconditionally, no backup, auto-mirrored to Disc4 — silently overwriting the R4
+  bench's carved canopy, hill displacement, Sea4 cut and coast-nav classes. That is a direct breach
+  of **THE ACCEPTED-CONTENT ADDITIVE CONTRACT**, the round's one checkable respect-mechanism.
+  (`canvas_census.py:50-66 NAMED_BENCHES` has also drifted — it does not list the R4 bench blocks;
+  a re-run catches them only via its live scan.)
+
+**Status: SUPERSEDED, not merely stale.** The judge shelved Aldermarch the same day it was drawn,
+conditional on two unblocks that are both **still unmet** — THE SEAM-WRAP GAP (`island.py:186-214`
+`_split_at_borders` still computes `bx0` with no modulo and no wrap branch) and a coast-smoothness
+recalibration that does not exist anywhere in the repo. The owner question that would ratify it
+(`open_questions_for_the_owner[3]`) was never answered, and `aldermarch` / `(48,-240)` return zero
+hits repo-wide. Reviving it means: re-run `canvas_census.py` against today's install, RE-SITE, add
+the required `--mod-folder` (the recorded string is design notation, never a copy-paste line), and
+get owner ratification first.
