@@ -391,9 +391,12 @@ def test_transplant_region_refuses_a_real_block_inside_the_target_rect(monkeypat
     with pytest.raises(ValueError, match=r"cell \(6,17\) is a REAL world block.*'sea4': 494"):
         TR.transplant_region("UNUSED", cell=(5, 17), donor=TR.PROVEN_DONOR, size=(2, 1))
     assert not wrote
-    # CALIBRATION: an all-free target rect must NOT refuse
+    # CALIBRATION: an all-free target rect must NOT refuse. The assertion stays deliberately
+    # narrow -- "past the gate and carrying" -- because THIS law is not the downstream gates'
+    # business and must not go red for their reasons: a green gate suite is a regression
+    # harness, not an oracle.
     s = TR.transplant_region("UNUSED", cell=(3, 1), donor=TR.PROVEN_DONOR, size=(2, 1),
-                             shift=(0.0, 0.0), dry_run=True)
+                             shift=(0.0, 0.0), land_margin=0.0, dry_run=True)
     assert s["carried"]["terrain"] > 0
 
 
