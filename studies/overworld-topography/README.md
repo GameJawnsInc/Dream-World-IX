@@ -1236,3 +1236,45 @@ Object/Terrain (f1+f2) + the WaterShrine effect + Sea3/4/5 (f1) + Sea3_2/4_2/5_2
 
 The **disc-4 mirror** (`discmirror.py`) is part-agnostic (regex `[a-z0-9]+`, whole-donor
 free-ride pin) → it would carry beach2/sea6 faithfully; the mirror is **not** a gap.
+
+## THE COMPOSED-WORLD DESIGN PROBES (★ CLOSED 2026-08-27 — the two stragglers, finished)
+
+Commit `87711d26` shipped the composed-world design round's pipeline (`canvas_census.py`,
+`continent_{site_scan,rank,verify,layout,render}.py`, `design_dock_scan.py`) but left **two
+probes untracked** — the only two untracked `.py` in this directory, never committed on any
+branch. Both are now finished and tracked, and both were verified against the archived
+2026-07-25 output before landing.
+
+**`design_band_sweep.py`** — free-radius sweep of the SOUTHERN ARCHIPELAGO BAND, reporting per
+named gap (G1 strait / G2 shoal / G3 open reach / G4 east flank / G5 north shelf) the best
+mintable centre + `r_max`. It reads `out/world-design/_forbidden_blocks.json`, exactly as its
+tracked siblings `continent_site_scan.py:30`, `canvas_render.py:31`, and `continent_render.py:57`
+do — so it is not runnable until `canvas_census.py` (which writes that sidecar, line 427) has run
+in the same tree. That is stage ordering, not a defect. **Identity acceptance:** re-run against
+the archived forbidden set, it reproduces the archived `design_band_sweep.json` byte-for-byte.
+Headline: the only large free pocket in the band is **G4 east flank, r_max 96 at (1440,−1184) =
+block (22,18)**; every other gap tops out at r_max 32–40.
+
+**`design_sandreach_probe.py`** — diagnosed why `design_dock_scan.py` reported Sandreach (blocks
+(11,18),(11,19),(12,18),(12,19)) as 116 land samples but **zero** dock aprons. **★ ANSWERED, and
+the zero was correct:** land topo is `{17: 88, 58: 17, 34: 7, 32: 4}` over a bbox of only
+124u × 56u with y 0.25–6.49 — a steep crag, not a landable shore. Only **2** full 8u pads exist
+and both carry ~5u of relief. Three independent blockers: topo 17 is highland, which **THE
+BAKED-TERRAIN LAW** makes a hand-painted mural with no tile language (so **THE BAKED-TERRAIN
+REFUSAL** means a dock apron cannot be morphed in either); topo 58 is the cliff lip, which **THE
+ENGINE FOOT-WALK TABLE** lists as foot-ILLEGAL; and no pad meets the low-relief admission.
+Given a `--src` source seam (snapshot dir vs the live install) so the answer survives install
+drift — verified both ways: the seam reproduces the live numbers exactly, and an empty snapshot
+dir yields 1089 MISS rather than silently falling back.
+
+**En route — the judgment's horseshoe open question, ANSWERED.** `design_judgment.json` flagged
+that the horseshoe/crag bench at (18-20,17-19) had no Falls/River/RiverJoint files and every
+`Donor.txt` reading `0,0`. Re-checked live 2026-08-27: **still true**, across all 11 deployed
+blocks (18-21,17-19), which carry only `Beach1 Object Sea1 Sea2 Sea3 Sea4 Sea5 Terrain`. So the
+live bench is **NOT** the 2026-07-15 ENSEMBLE CARRY described above — that one deploys the aux
+water parts *and* a `Donor.txt` divert to a part-carrying donor ((5,15) has all five transforms).
+With `Donor.txt` = `0,0` the divert points at a block that has no such transforms, so per **THE
+EFFECTIVE-PREFAB ORACLE LAW** those aux overrides would not bind even if the files were restored.
+The bench was evidently re-deployed by a later plain island/transplant pass. Not a mystery, and
+not a data-loss finding — but the ensemble carry must be **re-run** if the horseshoe's river/falls
+system is wanted at that site.
