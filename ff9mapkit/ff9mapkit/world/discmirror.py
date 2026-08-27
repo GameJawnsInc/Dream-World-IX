@@ -254,6 +254,16 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
             if not dry_run:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 dst.write_bytes(p.read_bytes())
+                # A mirrored file is a DEPLOYED override we own, but it is written HERE rather
+                # than through deploy_override -- so without this it never enters the ledger and
+                # THE OWNERSHIP REFUSAL (mesh.py:368) stays in its permissive `if shas` branch
+                # for the whole destination disc, permanently. Same reasoning as the coastnav
+                # stamp's own mirror ledger call (coastnav.py:398). Meshes only: Donor.txt is a
+                # sidecar, not a cell+part the refusal ever consults.
+                m = _BLOCK_RE.match(name)
+                if m and m.group(4) == "ff9mesh":
+                    M.record_ledger_write(dst, cell=blk, part=m.group(3),
+                                          write_disc=dst_disc, read_disc=src_disc)
             out["mirrored"].append(dst)
         # ---- THE FREE-RIDE PIN ----------------------------------------------------------
         sidecar = files.get(f"Block[{blk[0]}][{blk[1]}] Donor.txt")
@@ -277,6 +287,9 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
             if not dry_run:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 M.write_ff9mesh(pinned, dst)
+                # the pinned free-ride part is equally ours and equally invisible to the ledger
+                M.record_ledger_write(dst, cell=blk, part=part_name,
+                                      write_disc=dst_disc, read_disc=src_disc)
             out["pinned"].append(dst)
             log(f"  PIN {blk} <- donor ({dx},{dy}) {part_name} "
                 f"({len(bm.tris)} tris, source-disc bytes)")

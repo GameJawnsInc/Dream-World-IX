@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the disc mirror never ledgered, so THE OWNERSHIP REFUSAL protected nothing on disc 4
+- `discmirror.mirror` wrote both the mirrored copies and the free-ride pins with raw
+  `write_bytes` / `write_ff9mesh`, never through `deploy_override` and never calling
+  `record_ledger_write`. Every mirrored file therefore stayed absent from `.ff9world.jsonl`, and
+  THE OWNERSHIP REFUSAL (`mesh.deploy_override`) is permissive by design when a cell+part has **no**
+  ledger row at all (`if shas and cur_sha not in shas`). Net effect: the refusal — the kit's one
+  guard against 18+ concurrent sessions overwriting each other's deployed world content — was
+  disarmed for the entire destination disc, and stayed that way, because the ledger is write-side
+  only and has no adopt/backfill path. Measured on the live install before the fix: **Disc4 held 438
+  deployed overrides and 0 ledger rows.** Both write sites now `record_ledger_write` with
+  `write_disc` = the destination and `read_disc` = the source (mirroring the pattern `coastnav`
+  already used for its own mirror write). Sidecars are excluded — `Donor.txt` is not a cell+part the
+  refusal consults. Dry runs still write nothing.
+- Tested behaviourally, not by asserting a line exists: a foreign edit to a mirrored disc-4 override
+  is now REFUSED by the next `deploy_override` at that cell+part, `force_overwrite` still overrides,
+  and a negative control with the ledger removed shows the same edit being silently overwritten —
+  the pre-fix behaviour. Audit instrument: `studies/overworld-topography/ledger_coverage_audit.py`.
+
 ### Added — `world-encounter-frequency`: the REAL overworld encounter-rate lever
 - **`world-encounter-frequency`** retunes the ordinary overworld encounter rate by rewriting the
   per-ZONE `ENCRATE` (`0x57`) ladder each free-roam dispatcher feeds to `ProcessEncount`'s step

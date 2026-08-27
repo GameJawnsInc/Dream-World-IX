@@ -517,3 +517,102 @@ def test_mirror_logs_pin_and_summary_lines(tmp_path, monkeypatch):
     assert any("SKIP" in m and "(4, 5)" in m for m in logged)
     summary = logged[-1]
     assert f"mirrored {len(result['mirrored'])}" in summary and f"pinned {len(result['pinned'])}" in summary
+
+
+# --------------------------------------------------------------------------- THE MIRROR LEDGER
+
+def _ledger_rows(tmp_path):
+    p = tmp_path / MOD / M.LEDGER_NAME
+    if not p.is_file():
+        return []
+    import json
+    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+
+def test_mirror_ledgers_every_copied_mesh(tmp_path, monkeypatch):
+    """A mirrored file is a DEPLOYED override we own, but it is written by ``mirror`` rather than by
+    ``deploy_override`` -- so before this it never entered the ledger, and THE OWNERSHIP REFUSAL
+    (mesh.py:368 ``if shas and ...``) stayed in its permissive branch for the WHOLE destination disc,
+    permanently. Measured on the live install at the time: Disc4 had 438 deployed overrides and 0
+    ledger entries."""
+    result, _src, _dst = _run_mirror(tmp_path, monkeypatch)
+    rows = _ledger_rows(tmp_path)
+    mirrored_meshes = [p for p in result["mirrored"] if p.name.endswith(".ff9mesh")]
+    assert mirrored_meshes, "fixture mirrored no meshes -- the test would pass vacuously"
+    keyed = {(tuple(r["cell"]), r["part"], r["write_disc"]) for r in rows}
+    for p in mirrored_meshes:
+        m = DM._BLOCK_RE.match(p.name)
+        cell = (int(m.group(1)), int(m.group(2)))
+        assert (cell, m.group(3), 4) in keyed, f"{p.name} mirrored but not ledgered"
+
+
+def test_mirror_ledgers_the_destination_disc_not_the_source(tmp_path, monkeypatch):
+    """``write_disc`` must be the DESTINATION (4). ``_ledger_shas`` filters on it, so a row written
+    under disc 1 would never be consulted by a disc-4 deploy -- the ledger would look populated and
+    still protect nothing."""
+    _run_mirror(tmp_path, monkeypatch)
+    rows = _ledger_rows(tmp_path)
+    assert rows, "no ledger rows written"
+    assert {r["write_disc"] for r in rows} == {4}
+    assert {r["read_disc"] for r in rows} == {1}
+
+
+def test_mirror_does_not_ledger_the_donor_sidecar(tmp_path, monkeypatch):
+    """Donor.txt is a sidecar, not a cell+part the refusal ever consults -- ledgering it would put a
+    non-mesh row in a table keyed for meshes."""
+    _run_mirror(tmp_path, monkeypatch)
+    assert all(r["part"] != "Donor" for r in _ledger_rows(tmp_path))
+
+
+def test_mirror_ledgers_the_free_ride_pin(tmp_path, monkeypatch):
+    result, _src, _dst = _run_mirror(tmp_path, monkeypatch)
+    assert result["pinned"], "fixture pinned nothing -- the test would pass vacuously"
+    keyed = {(tuple(r["cell"]), r["part"], r["write_disc"]) for r in _ledger_rows(tmp_path)}
+    for p in result["pinned"]:
+        m = DM._BLOCK_RE.match(p.name)
+        cell = (int(m.group(1)), int(m.group(2)))
+        assert (cell, m.group(3), 4) in keyed, f"{p.name} pinned but not ledgered"
+
+
+def test_mirror_dry_run_writes_no_ledger(tmp_path, monkeypatch):
+    """The determinism guard's twin: a dry run must leave the ledger untouched as well as the tree."""
+    _run_mirror(tmp_path, monkeypatch, dry_run=True)
+    assert _ledger_rows(tmp_path) == []
+
+
+def test_mirror_ledger_ARMS_the_ownership_refusal_on_disc4(tmp_path, monkeypatch):
+    """THE POINT OF THE FIX, tested behaviourally rather than by asserting a line exists.
+
+    A foreign edit to a mirrored disc-4 override must now be REFUSED by the next deploy_override at
+    that cell+part. Before the mirror ledgered, that cell had no rows at all, so ``if shas`` was
+    False and the foreign bytes were overwritten without challenge."""
+    _run_mirror(tmp_path, monkeypatch)
+    dst = tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r9" / "Block[8][9] Terrain.ff9mesh"
+    assert dst.is_file()
+    assert any(tuple(r["cell"]) == (8, 9) and r["part"] == "Terrain" and r["write_disc"] == 4
+               for r in _ledger_rows(tmp_path)), "precondition: the mirror must have ledgered (8,9)"
+
+    dst.write_bytes(b"SOMEONE-ELSES-BYTES")            # a hand edit / another session
+
+    bm = _mk_blockmesh("Block[8][9] Terrain", disc=1, x=8, y=9, verts=_TRI_A)
+    with pytest.raises(ValueError, match="match no ledger entry"):
+        M.deploy_override(bm, mod_folder=MOD, disc=4, part="Terrain")
+    assert dst.read_bytes() == b"SOMEONE-ELSES-BYTES", "refused write must not have landed"
+
+    # and the escape hatch still works, so the refusal is a guard rail and not a wall
+    M.deploy_override(bm, mod_folder=MOD, disc=4, part="Terrain", force_overwrite=True)
+    assert dst.read_bytes() != b"SOMEONE-ELSES-BYTES"
+
+
+def test_unledgered_mirror_would_NOT_refuse(tmp_path, monkeypatch):
+    """The negative control that gives the test above its meaning: with the ledger absent, the very
+    same foreign edit is overwritten silently. This is the pre-fix behaviour, and it is what the
+    live install was doing for all 438 of its disc-4 overrides."""
+    _run_mirror(tmp_path, monkeypatch)
+    (tmp_path / MOD / M.LEDGER_NAME).unlink()          # simulate the pre-fix, unledgered mirror
+    dst = tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r9" / "Block[8][9] Terrain.ff9mesh"
+    dst.write_bytes(b"SOMEONE-ELSES-BYTES")
+
+    bm = _mk_blockmesh("Block[8][9] Terrain", disc=1, x=8, y=9, verts=_TRI_A)
+    M.deploy_override(bm, mod_folder=MOD, disc=4, part="Terrain")   # no refusal
+    assert dst.read_bytes() != b"SOMEONE-ELSES-BYTES"
