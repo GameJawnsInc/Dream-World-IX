@@ -1306,16 +1306,21 @@ system is wanted at that site.
   (2,3)** — are already occupied on **both** Disc1 and Disc4 by the owner-confirmed **R4 bench
   island** (`REVERT.md` §25.3, built 2026-07-26, one day after the design round). Verified live: 8
   override files per block per disc.
-* **⚠ And no gate would stop you.** THE OPEN-OCEAN TARGET LAW (`island.py:979-1000`) tests
+* **⚠ And the siting gate cannot see it.** THE OPEN-OCEAN TARGET LAW (`island.py:979-1000`) tests
   `_real_block_parts` (`island.py:930-942`), whose docstring is explicit that it reads *"The REAL
   game's per-block mesh assets"* — via `transplant.world_tris` against the **stock** disc tree. It
   never looks at the mod folder. All 19 blocks are stock-open-ocean, so the gate passes, and
-  `island.py:1013-1046` then writes Terrain + a Sea4 cut + blanking stubs + `Donor.txt` per
-  footprint block, unconditionally, no backup, auto-mirrored to Disc4 — silently overwriting the R4
-  bench's carved canopy, hill displacement, Sea4 cut and coast-nav classes. That is a direct breach
-  of **THE ACCEPTED-CONTENT ADDITIVE CONTRACT**, the round's one checkable respect-mechanism.
-  (`canvas_census.py:50-66 NAMED_BENCHES` has also drifted — it does not list the R4 bench blocks;
-  a re-run catches them only via its live scan.)
+  `island.py:1013-1046` writes Terrain + a Sea4 cut + blanking stubs + `Donor.txt` per footprint
+  block, auto-mirrored to Disc4 — over the R4 bench's carved canopy, hill displacement, Sea4 cut
+  and coast-nav classes. That is a breach of **THE ACCEPTED-CONTENT ADDITIVE CONTRACT**, the
+  round's one checkable respect-mechanism. (`canvas_census.py:50-66 NAMED_BENCHES` has also
+  drifted — it does not list the R4 bench blocks; a re-run catches them only via its live scan.)
+* **The SECOND gate would not stop it either — but not for the reason the first one fails.**
+  `mesh.deploy_override` (`mesh.py:328-380`) does carry a real safety net: THE DEPLOY LEDGER + THE
+  OWNERSHIP REFUSAL, and `backup=True` is the default, so differing bytes ARE parked as
+  `<name>.bak-<ts>` before any overwrite. **The overwrite is therefore recoverable, not silent** —
+  an earlier revision of this section said "unconditionally, no backup", which was wrong.
+  The refusal itself is disarmed here by its own bootstrap clause — see the next section.
 
 **Status: SUPERSEDED, not merely stale.** The judge shelved Aldermarch the same day it was drawn,
 conditional on two unblocks that are both **still unmet** — THE SEAM-WRAP GAP (`island.py:186-214`
@@ -1444,3 +1449,56 @@ overridden, so nothing free-rides and the question never comes up — but it wou
 leaves parts un-overridden, and `load_world_meshlist` says so at the call site. (2) `candidates`
 is still capped at 400; `n_candidates` carries the true total (Ashvale: **562** real, 400 listed),
 which the archived run did not record at all.
+## THE LEDGER COVERAGE HOLE (★ 2026-08-27 — `ledger_coverage_audit.py`)
+
+Chasing "what would have stopped the Aldermarch overwrite" turned up a better answer than a new
+gate: **the mechanism already exists, and it is 98% unarmed.**
+
+`mesh.deploy_override` (`ff9mapkit/ff9mapkit/world/mesh.py:328-380`) carries THE DEPLOY LEDGER +
+THE OWNERSHIP REFUSAL (audit rec 6) — every write appends a line to `<mod>/.ff9world.jsonl`, and
+before overwriting DIFFERING bytes it refuses when the on-disk sha256 matches no ledger entry for
+that cell+part+write_disc. It is well built, `backup=True` parks `.bak-<ts>` first, and it has
+fired for real (the rec-16 compose smoke — island mint → coastnav stamp → re-mint refused *our own*
+bytes as foreign, which is why `record_ledger_write` exists).
+
+**The hole is its bootstrap clause**, `mesh.py:368`:
+
+    if shas and cur_sha not in shas and not force_overwrite ...
+
+`if shas` makes a cell+part with **no** ledger entry permissive — and the ledger is write-side
+only. There is no adopt/backfill path anywhere in the kit (`grep adopt|backfill` over `world/` +
+`cli.py` returns nothing), so it can never learn about content it did not itself write. Anything
+deployed before the ledger shipped, or by any writer that bypasses `deploy_override`, is invisible
+to it **permanently**. That is not a bootstrap window; it is a standing hole the size of the
+pre-existing install.
+
+Measured live 2026-08-27 on `FF9CustomMap-world`:
+
+| write-disc | overrides | PROTECTED | DIVERGED | UNPROTECTED |
+|---|---|---|---|---|
+| Disc1 | 437 | 0 | 0 | **437** |
+| Disc4 | 438 | 0 | 0 | **438** |
+| Disc9 | 395 | 25 | 1 | 369 |
+| **total** | **1270** | **25 (2.0%)** | 1 | **1244 (98.0%)** |
+
+The ledger holds 113 lines / 26 keys, **all `write_disc: 9`**, all kit 1.0.0b17. So the refusal
+protects 25 files on the Path D sentinel disc and **nothing at all on the real discs** — every
+owner-confirmed playtested island included. Plus **177 `Block[X][Y] Donor.txt` sidecars are
+outside the ledger's scope entirely** (`deploy_donor_sidecar` never ledgers), and those are
+load-bearing: Donor.txt picks which real coastal prefab the s34 divert renders.
+
+One row is **DIVERGED** right now — Disc9 (2,17) Terrain, 1 ledger entry, sha matching none. The
+refusal would fire there today. That is the non-ledgered-in-place-writer class the
+`record_ledger_write` helper was added to close, so it is worth finding which writer did it.
+
+**Calibration (the instrument can fail).** Three controls, all passing: (A) a verbatim snapshot
+through the `--src` seam reproduces the live disc-9 numbers exactly; (B) appending **one byte** to
+a PROTECTED file flips it 25/1 → 24/2 PROTECTED/DIVERGED; (C) removing the ledger flips all 395
+to UNPROTECTED. The classifier genuinely depends on both the bytes and the ledger.
+
+**Why this is the cheap fix.** Arming it is a *backfill*, not a new gate — one pass over the mod
+tree writing an `"via": "adopt"` entry per unledgered file. It mints no new gate surface, adds no
+new refusal semantics, and re-points an already-shipped, already-tested mechanism at the content
+it was designed to protect. Per THE DEFECT FOLLOWS THE AUTHORSHIP, that is strictly preferable to
+authoring another occupancy gate. **Owner decision first**, though: adopting stamps "we own this"
+on bytes whose provenance is genuinely unknown, which is a claim, not a measurement.
