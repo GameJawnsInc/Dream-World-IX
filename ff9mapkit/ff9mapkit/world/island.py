@@ -1009,16 +1009,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     # at the recorded Aldermarch centre passes the stock law with all 19 footprint blocks
     # "free" while six of them hold the owner-confirmed R4 bench, on both discs.
     wdisc = disc if target_disc is None else int(target_disc)
-    try:
-        clash = M.existing_overrides(sorted(built["blocks"]), mod_folder, disc=wdisc, lod=lod, game=game)
-    except Exception:
-        clash = []                               # no install resolvable: nothing to hit
-    if clash and not allow_overwrite:
-        raise ValueError(
-            f"landmass footprint already holds {len(clash)} deployed override file(s) in "
-            f"{mod_folder} on disc {wdisc} -- refusing to overwrite another deploy's content. "
-            f"First few: {clash[:6]}. Re-site the island, or pass allow_overwrite=True "
-            f"(--allow-overwrite) if you really mean to replace what is there.")
+    M.mod_overwrite_gate(sorted(built["blocks"]), mod_folder, disc=wdisc, lod=lod, game=game,
+                         allow_overwrite=allow_overwrite, what="landmass footprint")
     plane = _sea_plane(disc, game)
     report = verify_landmass(built, sea_plane=plane, land_height=land_height)
     if not report["clean"]:

@@ -239,7 +239,8 @@ def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: i
     return dest
 
 
-def existing_overrides(cells, mod_folder: str, *, disc: int, lod: str = "0_1", game=None) -> list:
+def existing_overrides(cells, mod_folder: str, *, disc: int, lod: str = "0_1", game=None,
+                       parts=None) -> list:
     """Override files ALREADY DEPLOYED at any of ``cells`` (block ``(x, y)`` tuples), as sorted paths.
 
     THE MOD-TREE OCCUPANCY READ. Every "is this target free?" gate in the world lane must ask THIS,
@@ -252,8 +253,16 @@ def existing_overrides(cells, mod_folder: str, *, disc: int, lod: str = "0_1", g
 
     Lives here, beside :func:`deploy_override`, so there is ONE occupancy reader in the kit rather
     than one per verb. Moved verbatim from ``fuse._existing_overrides`` (which had the correct
-    extension filter); ``fuse`` keeps calling it under its old private name."""
+    extension filter); ``fuse`` keeps calling it under its old private name.
+
+    ``parts`` optionally restricts the read to those layer names (``"Terrain"``, ``"Sea4"``,
+    ``"Object"``, ``"Donor"`` for the sidecar). Default ``None`` = every part, the behaviour
+    ``island``/``fuse`` were built against. Scope it only when a writer legitimately SHARES a cell
+    with another deploy's other layers -- ``water.deploy_island_sea`` lays sea sub-meshes around an
+    island whose ``Terrain`` the caller itself just wrote, so a whole-cell read there would refuse
+    on its own co-tenant."""
     game_path = config.find_game_path(game)
+    want = None if parts is None else {str(n) for n in parts}
     hits = []
     for (x, y) in cells:
         d = game_path / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{disc}" / lod / f"r{y}"
@@ -263,9 +272,45 @@ def existing_overrides(cells, mod_folder: str, *, disc: int, lod: str = "0_1", g
         # extension filter (audit rec 6): the write seam parks `.bak-<ts>` copies beside a
         # deployed file, and a bare startswith would count them as deployed overrides --
         # tripping this gate forever after the first legitimate re-deploy.
-        hits.extend(str(p) for p in sorted(d.iterdir())
-                    if p.name.startswith(prefix) and p.suffix in (".ff9mesh", ".txt"))
+        for p in sorted(d.iterdir()):
+            if not (p.name.startswith(prefix) and p.suffix in (".ff9mesh", ".txt")):
+                continue
+            if want is not None and p.name[len(prefix):len(p.name) - len(p.suffix)] not in want:
+                continue
+            hits.append(str(p))
     return hits
+
+
+def mod_overwrite_gate(cells, mod_folder: str, *, disc: int, lod: str = "0_1", game=None,
+                       allow_overwrite: bool = False, what: str = "target footprint",
+                       parts=None) -> list:
+    """THE MOD-OVERWRITE GATE. Refuse to write over override files another deploy already owns at
+    ``cells``, unless ``allow_overwrite``. Returns the clash list (empty = clear) so a caller can
+    report it. ``disc`` MUST be the **write** disc: with Path D's ``target_disc`` (engine patch s74)
+    the read and write namespaces differ, and a gate reading the wrong one looks populated and
+    protects nothing.
+
+    ONE GATE, not one per verb. The 2026-07-15 dunes-islet incident and the 2026-08-27 Aldermarch
+    finding are the same defect twice: a stock-tree probe ("does the REAL game ship assets here")
+    standing in for an occupancy question ("is this target free"), fixed in one lane and never
+    propagated because each lane had its own copy. Callers pass ``what`` for the message noun.
+
+    ⚠ ONLY for a writer that SYNTHESIZES or CARRIES its bytes -- one that reads nothing from the mod
+    tree. A writer that READS the deployed override and writes it back (``terrain.reshape``,
+    ``transplant.morph_in_place``, the ``interior`` relief verbs, ``entrance.author_entrance``)
+    overwrites an already-deployed cell BY DESIGN and on every legitimate run; a refusal there is a
+    wall, not a guard rail. Warn there instead."""
+    try:
+        clash = existing_overrides(cells, mod_folder, disc=disc, lod=lod, game=game, parts=parts)
+    except Exception:                            # noqa: BLE001 -- no install resolvable: nothing to hit
+        return []
+    if clash and not allow_overwrite:
+        raise ValueError(
+            f"{what} already holds {len(clash)} deployed override file(s) in {mod_folder} on disc "
+            f"{disc} -- refusing to overwrite another deploy's content. First few: {clash[:6]}. "
+            f"Re-site the target, or pass allow_overwrite=True (--allow-overwrite) if you really "
+            f"mean to replace what is there.")
+    return clash
 
 
 #: the world lane's append-only deploy ledger, one JSON line per deploy_override write,

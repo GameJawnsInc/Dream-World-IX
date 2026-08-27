@@ -314,7 +314,13 @@ def test_hermeticity_mocked_deploy_calls_never_touch_a_real_install(tmp_path, mo
     genuine mirror pass against whatever install find_game_path resolves to on the machine running the
     test. Prove the fix directly: with the deploy calls mocked out, water.water()'s own ``written`` list is
     nothing but MagicMocks, so auto_mirror must drop all of them and never call find_game_path at all -- a
-    tmp 'real install' that ALREADY carries Disc1 overrides is left completely byte-for-byte untouched."""
+    tmp 'real install' that ALREADY carries Disc1 overrides is left completely byte-for-byte untouched.
+
+    RE-SCOPED 2026-08-27, when the writer gained a legitimate new READ (an audit's scope is part of its
+    calibration): ``water`` now asks THE MOD-OVERWRITE GATE whether the target already holds another
+    deploy's overrides, and that read must resolve the install root. So the bar is now stated in two
+    halves rather than loosened: with the gate ALSO stubbed the original law holds verbatim (ZERO
+    resolutions), and with the gate live there is EXACTLY ONE -- the read -- and still no mutation."""
     real_root = tmp_path / "the_developers_real_install"
     pre_dir = real_root / MOD / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r7"
     pre_dir.mkdir(parents=True)
@@ -332,11 +338,16 @@ def test_hermeticity_mocked_deploy_calls_never_touch_a_real_install(tmp_path, mo
     monkeypatch.setattr(M, "deploy_override", MagicMock())
     monkeypatch.setattr(M, "deploy_donor_sidecar", MagicMock())
 
-    WT.water(MOD, cells=[(5, 5)], donor=(15, 4))                # a REAL water() call; only the writes are mocked
-
+    with monkeypatch.context() as mp:                           # half 1: gate stubbed -> the ORIGINAL law
+        mp.setattr(M, "existing_overrides", lambda *a, **k: [])
+        WT.water(MOD, cells=[(5, 5)], donor=(15, 4))            # a REAL water() call; only the writes are mocked
     assert calls == []                                          # find_game_path NEVER called: not by water()
                                                                  # (its own deploy calls are mocked out) and not
                                                                  # by auto_mirror (nothing survived filtering)
+
+    WT.water(MOD, cells=[(5, 5)], donor=(15, 4))                # half 2: the occupancy gate live
+    assert calls == [None]                                      # EXACTLY ONE resolution -- the gate's read. Two
+                                                                 # would mean auto_mirror re-resolved it again.
     assert pre_file.read_bytes() == pre_bytes                   # the pre-existing real override is UNTOUCHED
     assert not (real_root / MOD / "FF9_Data" / "WorldMap" / "Disc4").exists()   # no mirror pass ever ran
 

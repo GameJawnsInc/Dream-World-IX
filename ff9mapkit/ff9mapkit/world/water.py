@@ -293,6 +293,19 @@ def adjacency_violations(grid) -> int:
                if 0 <= i + di < G and 0 <= j + dj < G and {grid[i][j], grid[i + di][j + dj]} == {"sea3", "sea4"})
 
 
+def _gate(cells, mod_folder: str, *, disc: int, lod: str, game, allow_overwrite: bool, what: str,
+          parts=None) -> None:
+    """THE MOD-OVERWRITE GATE for this module's public writers, over the WHOLE cell list before the
+    first write (a per-cell gate inside the deploy loop would half-deploy). Every water verb either
+    SYNTHESIZES its meshes or carries a real block's -- none of them reads the mod tree -- so a target
+    already holding another deploy's override is silently replaced without this. ``disc`` is both the
+    read and the write disc here: no water verb takes ``target_disc``, and ``deploy_override`` writes
+    at ``bm.disc``, which every mesh built below is stamped with from this same ``disc``."""
+    from . import mesh as M
+    M.mod_overwrite_gate(cells, mod_folder, disc=disc, lod=lod, game=game,
+                         allow_overwrite=allow_overwrite, what=what, parts=parts)
+
+
 def _deploy_ocean_cell(mod_folder: str, bx: int, by: int, *, sea: dict, donor, disc: int, lod: str, height: float,
                        game, dry_run: bool) -> tuple:
     """Deploy ONE cell's ocean, the shape shared by :func:`water` (synthesized Sea meshes) and :func:`deploy_verbatim`
@@ -301,6 +314,10 @@ def _deploy_ocean_cell(mod_folder: str, bx: int, by: int, *, sea: dict, donor, d
     ``Sea3``/``Sea5``/``Sea4`` meshes from ``sea`` (a ``part -> BlockMesh`` map; a missing part is BLANKED), blanked
     ``Sea1``/``Sea2``, and the ``Donor.txt`` naming the deep-ocean ``donor``. Returns ``(parts, written)`` -- the
     ``part -> BlockMesh`` deployed, and the list of Paths actually written (empty on ``dry_run``)."""
+    # THE MOD-OVERWRITE GATE is NOT here: this writes ONE cell inside a caller's loop, so refusing at
+    # cell 3 of 5 would leave a half-deploy. It runs over the WHOLE `cells` list at each public entry
+    # (:func:`water`, :func:`deploy_verbatim`, :func:`reproduce`) instead -- a new caller must gate
+    # there too (:func:`ff9mapkit.world.mesh.mod_overwrite_gate`).
     from . import mesh as M
     parts = {"Terrain": M.flat_block_mesh(disc=disc, x=bx, y=by, seg=8, topograph=WATER_TOPOGRAPH, height=height, lod=lod)}
     for name in LADDER:
@@ -331,7 +348,8 @@ def _deploy_bands(mod_folder: str, bx: int, by: int, bands: dict, *, donor, disc
 
 def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | None = None, shallows: float = 0.05,
           threshold: float = 1.0, span: float = 2.0, noise: float = 0.5, seed=0, disc: int = 1, lod: str = "0_1",
-          height: float = WATER_Y, game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
+          height: float = WATER_Y, game=None, dry_run: bool = False, skip_mirror: bool = False,
+          allow_overwrite: bool = False) -> dict:
     """Synthesize faithful ocean water on each sea cell in ``cells`` (``(x, y)`` grid coords, 0..23 x 0..19).
 
     ``depth`` is a caller-supplied ``depth(world_x, world_z) -> float`` (higher = deeper). When ``None``, the built-in
@@ -344,8 +362,10 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | 
     ocean), the ``Sea3``/``Sea5``/``Sea4`` water sub-meshes, blanked ``Sea1``/``Sea2``, and a ``Donor.txt`` naming the
     real deep-ocean ``donor`` block whose base sea prefab supplies the rest.
 
-    Requires the CUSTOM engine (the s34 sea->land divert); a stock sea cell short-circuits to ``SeaBlockPrefab`` before
-    the override fires. RELAUNCH (or exit+re-enter the overworld) to load; reach a lone cell via the debug menu (~) -> World -> Teleport.
+    REFUSES a target that already holds another deploy's override files (THE MOD-OVERWRITE GATE;
+    ``allow_overwrite=True`` / ``--allow-overwrite`` waives it). Requires the CUSTOM engine (the s34
+    sea->land divert); a stock sea cell short-circuits to ``SeaBlockPrefab`` before the override fires.
+    RELAUNCH (or exit+re-enter the overworld) to load; reach a lone cell via the debug menu (~) -> World -> Teleport.
     Returns a summary; deploys nothing when ``dry_run``. A real deploy auto-mirrors the written overrides to Disc4
     (``skip_mirror=True`` opts out)."""
     cells = [tuple(c) for c in cells]
@@ -360,6 +380,7 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | 
     if depth is None:
         depth = (default_depth_field(cells, deep_dir=deep_dir, span=span, noise=noise) if deep_dir
                  else open_ocean_depth_field(cells, shallows=shallows, noise=noise, threshold=threshold))
+    _gate(cells, mod_folder, disc=disc, lod=lod, game=game, allow_overwrite=allow_overwrite, what="water")
     summary = {"op": "water", "mode": deep_dir or "open", "donor": [dx, dy], "disc": disc, "deep_dir": deep_dir,
                "threshold": threshold, "dry_run": dry_run, "cells": []}
     written = []
@@ -376,15 +397,22 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | 
 
 
 def deploy_island_sea(mod_folder: str, *, cells, donor=(15, 4), disc: int = 1, lod: str = "0_1", seed=0,
-                      game=None, dry_run: bool = False) -> dict:
+                      game=None, dry_run: bool = False, allow_overwrite: bool = False) -> dict:
     """Deploy DEEP open-ocean sea sub-meshes (``Sea4`` at ``Y=0``) + blanked ``Sea1``/``Sea2`` + a ``Donor.txt`` AROUND a
     synthesized island, WITHOUT a ``Terrain`` override -- the caller keeps its own LAND Terrain (e.g. a reclaim blob
     island). A lone reclaimed island whose land does NOT fill the cell needs a sea surface in the cell's water area,
     because the s34 divert removes the stock cell sea (a full-cell reclaim never needed this: it WAS the whole cell).
     The island's land Terrain stays the s34 gate + walkmesh; this adds only the water RENDER around it. Deep-only
-    (open ocean) for now -- shore shallows/foam hugging the curved coast are a later increment. Returns a summary."""
+    (open ocean) for now -- shore shallows/foam hugging the curved coast are a later increment. REFUSES a cell whose
+    SEA parts another deploy already owns (THE MOD-OVERWRITE GATE, scoped past the caller's own land ``Terrain``;
+    ``allow_overwrite=True`` waives it). Returns a summary."""
     from . import mesh as M
     cells = [tuple(c) for c in cells]
+    # THE MOD-OVERWRITE GATE, scoped to the SEA parts (+ the sidecar) this writes. Whole-cell scope would
+    # be wrong here and only here: the caller keeps its own LAND `Terrain` on these very cells, so an
+    # unscoped read would refuse on this deploy's own co-tenant rather than on another deploy's water.
+    _gate(cells, mod_folder, disc=disc, lod=lod, game=game, allow_overwrite=allow_overwrite,
+          what="island-sea target cell(s)", parts=(*LADDER, *BLANK, "Donor"))
     depth = open_ocean_depth_field(cells, shallows=0.0)                 # uniform deep -> all Sea4
     summary = {"op": "island_sea", "donor": list(donor), "disc": disc, "cells": []}
     for (bx, by) in cells:
@@ -406,12 +434,14 @@ def deploy_island_sea(mod_folder: str, *, cells, donor=(15, 4), disc: int = 1, l
 
 def deploy_verbatim(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), disc: int = 1, lod: str = "0_1",
                     height: float = WATER_Y, game=None, dry_run: bool = False,
-                    skip_mirror: bool = False) -> dict:
+                    skip_mirror: bool = False, allow_overwrite: bool = False) -> dict:
     """Deploy a REAL open-ocean block's water sub-meshes VERBATIM onto each target cell -- the NORTH-STAR A/B reference
     for validating :func:`water`. Copies ``source``=(bx, by)'s real ``Sea3``/``Sea4``/``Sea5`` meshes UNCHANGED (only
     relocated to the cell), then deploys them through the EXACT same shape as :func:`water` (flat submerged Terrain gate
     + blanked Sea1/Sea2 + donor sidecar) -- so a side-by-side at the same cell isolates the SYNTHESIS quality from the
-    deploy pipeline (a byte-copy of a real block is proven to render faithfully in-game). ``source`` defaults to block
+    deploy pipeline (a byte-copy of a real block is proven to render faithfully in-game). REFUSES a target
+    that already holds another deploy's override files (THE MOD-OVERWRITE GATE; ``allow_overwrite=True`` /
+    ``--allow-overwrite`` waives it). ``source`` defaults to block
     (8,4), the byte-proven reference the synthesizer was validated 17/17 against. Requires the game install (reads the
     real block) + the custom engine (s34). Returns a summary; deploys nothing when ``dry_run``. A real deploy
     auto-mirrors the written overrides to Disc4 (``skip_mirror=True`` opts out)."""
@@ -435,6 +465,8 @@ def deploy_verbatim(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), dis
             src[name] = None
     if not any(src.values()):
         raise ValueError(f"source block ({sx},{sy}) has no Sea3/Sea4/Sea5 sub-mesh -- pick an OPEN-OCEAN block")
+    _gate(cells, mod_folder, disc=disc, lod=lod, game=game, allow_overwrite=allow_overwrite,
+          what="water-verbatim")
     summary = {"op": "water-verbatim", "source": [sx, sy], "donor": [dx, dy], "disc": disc,
                "dry_run": dry_run, "cells": []}
     written = []
@@ -625,12 +657,14 @@ def arrangement_from_block(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1",
 
 def reproduce(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), seed=0, disc: int = 1, lod: str = "0_1",
               height: float = WATER_Y, game=None, dry_run: bool = False,
-              skip_mirror: bool = False) -> dict:
+              skip_mirror: bool = False, allow_overwrite: bool = False) -> dict:
     """Reproduce a REAL block's shallow/deep arrangement with SYNTHESIZED tiles onto each target cell -- the in-game
     fidelity proof for :func:`water`. Reads ``source``=(bx, by)'s per-cell shade layout (:func:`arrangement_from_block`)
     and regenerates it through the synth's tile-selection + mains anti-tiling, so it lands the SAME layout as the real
     block but drawn with synthesized tiles. Deploy it beside :func:`deploy_verbatim` of the same block: they should look
-    alike (the offline 17/17 shape-match, made visible). Requires the game install + the custom engine (s34). Returns a
+    alike (the offline 17/17 shape-match, made visible). REFUSES a target that already holds another
+    deploy's override files (THE MOD-OVERWRITE GATE; ``allow_overwrite=True`` / ``--allow-overwrite``
+    waives it). Requires the game install + the custom engine (s34). Returns a
     summary; deploys nothing when ``dry_run``. A real deploy auto-mirrors the written overrides to Disc4
     (``skip_mirror=True`` opts out)."""
     cells = [tuple(c) for c in cells]
@@ -643,6 +677,8 @@ def reproduce(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), seed=0, d
     dx, dy = donor
     if not (0 <= dx < GRID_X and 0 <= dy < GRID_Y):
         raise ValueError(f"donor ({dx},{dy}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    _gate(cells, mod_folder, disc=disc, lod=lod, game=game, allow_overwrite=allow_overwrite,
+          what="water-reproduce")
     grid, sea5tile = arrangement_from_block(sx, sy, disc=disc, lod=lod, game=game, seed=seed)
     summary = {"op": "water-reproduce", "source": [sx, sy], "donor": [dx, dy], "disc": disc,
                "dry_run": dry_run, "cells": []}

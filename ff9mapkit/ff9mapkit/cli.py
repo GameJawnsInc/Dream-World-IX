@@ -4216,7 +4216,7 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
                             topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
                             shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run,
                             skip_mirror=args.skip_mirror, target_disc=args.target_disc,
-                            all_sea_target=args.all_sea_target)
+                            all_sea_target=args.all_sea_target, allow_overwrite=args.allow_overwrite)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4266,7 +4266,8 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
             pass
         summary = T.coast(args.mod_folder, cells=cells, donor=(dx, dy), disc=args.disc, game=args.game,
                           dry_run=args.dry_run, skip_mirror=args.skip_mirror,
-                          target_disc=getattr(args, "target_disc", None))
+                          target_disc=getattr(args, "target_disc", None),
+                          allow_overwrite=args.allow_overwrite)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4948,17 +4949,17 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
             sx, sy = (int(v) for v in args.verbatim.split(","))
             summary = W.deploy_verbatim(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy),
                                         disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run,
-                                        skip_mirror=args.skip_mirror)
+                                        skip_mirror=args.skip_mirror, allow_overwrite=args.allow_overwrite)
         elif args.reproduce:
             sx, sy = (int(v) for v in args.reproduce.split(","))
             summary = W.reproduce(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy), seed=args.seed,
                                   disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run,
-                                  skip_mirror=args.skip_mirror)
+                                  skip_mirror=args.skip_mirror, allow_overwrite=args.allow_overwrite)
         else:
             summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep, shallows=args.shallows,
                               threshold=args.threshold, span=args.span, noise=args.noise, seed=args.seed,
                               disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run,
-                              skip_mirror=args.skip_mirror)
+                              skip_mirror=args.skip_mirror, allow_overwrite=args.allow_overwrite)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -5177,6 +5178,8 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
                       f"{' (applied)' if b.get('textured') else ' (nothing to stamp -- OBJ already has UVs)'}")
     for note in info.get("notes", []):
         print(f"  note: {note}")
+    if info.get("fresh_warning"):
+        print(f"  !! WARNING: {info['fresh_warning']}", file=sys.stderr)
     if info.get("warning"):
         print(f"  WARNING: {info['warning']}", file=sys.stderr)
     if info["backups"]:
@@ -8762,6 +8765,11 @@ def build_parser() -> argparse.ArgumentParser:
     wrc.add_argument("--dry-run", action="store_true", help="report the cells it would reclaim, write nothing")
     wrc.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wrc.add_argument("--allow-overwrite", action="store_true",
+                     help="deploy even though the target cell(s) already hold another deploy's override "
+                          "files. OFF by default: THE MOD-OVERWRITE GATE (world-transplant's 2026-07-15 "
+                          "dunes-islet fix) refuses rather than silently replacing content this verb did "
+                          "not write -- a stock-tree probe cannot see a prior mod deploy.")
     wrc.set_defaults(func=_cmd_world_reclaim)
 
     wct = sub.add_parser("world-coast",
@@ -8778,6 +8786,11 @@ def build_parser() -> argparse.ArgumentParser:
     wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
     wct.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wct.add_argument("--allow-overwrite", action="store_true",
+                     help="deploy even though the target cell(s) already hold another deploy's override "
+                          "files. OFF by default: THE MOD-OVERWRITE GATE (world-transplant's 2026-07-15 "
+                          "dunes-islet fix) refuses rather than silently replacing content this verb did "
+                          "not write -- a stock-tree probe cannot see a prior mod deploy.")
     wct.set_defaults(func=_cmd_world_coast)
 
     wrr = sub.add_parser("world-rim-retile", help=(
@@ -9357,6 +9370,11 @@ def build_parser() -> argparse.ArgumentParser:
     wwt.add_argument("--dry-run", action="store_true", help="report the cells it would fill, write nothing")
     wwt.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wwt.add_argument("--allow-overwrite", action="store_true",
+                     help="deploy even though the target cell(s) already hold another deploy's override "
+                          "files. OFF by default: THE MOD-OVERWRITE GATE (world-transplant's 2026-07-15 "
+                          "dunes-islet fix) refuses rather than silently replacing content this verb did "
+                          "not write -- a stock-tree probe cannot see a prior mod deploy.")
     wwt.set_defaults(func=_cmd_world_water)
 
     wat = sub.add_parser("world-atlas-add-tile",
