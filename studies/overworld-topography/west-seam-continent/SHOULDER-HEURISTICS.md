@@ -88,6 +88,23 @@ verifier's re-derivations) are unaffected and stand; the census's own "stretch" 
 chords of BENCHED profiles and must never be read as face angles. THE LAW: measure a face's angle
 from its triangles, never from ring-radius chords.
 
+## ADDENDUM 2 — THE PROFILE LAW (the owner's take-7 correction, measured)
+
+The owner, closing the arc: the offline render matches in-game — the instrument gap was judging a
+3D shape from one view, and authoring the base from the GROUND side ("you made the flat ground into
+rock walls") instead of continuing the mountain's own slope. Stock mountains climb in a specific
+range; the takes did not. `envelope_profile.py` (study dir) measures it: from each rock-grass
+contact march horizontally uphill; **A1** = envelope angle over 0–8u, **A2** over 8–16u, **kink**
+= A1−A2. **STOCK (n=926 feet): A1 p25–p75 = 42.3–52.7°, floor p05 = 33.1°, kink centered +1.5°**
+— the base course continues (or slightly steepens, convex-toe) the face above; a splayed skirt or
+a wall-over-flat are both extreme-tail events. The R4 massif's owner-passed faces measure
+IDENTICAL to Daguerreo home (A1 p50 49.0 vs 49.5); the failed SW window was the massif's only
+out-of-law zone, in both tails at once (mid-arc 21–36° skirts under a 38–42° face, kink −20..−11;
+window-edge 52–56° walls over 13° flat body, kink +36..+43). THE LAW: author a foot by EXTENDING
+the local face plane to the lawn (A1 in the face's own band, |kink| within stock's −6..+18); where
+the body above is flat, build no wall — retreat the contact. Per-tri angles cannot see any of
+this: the window's triangles individually matched stock's distribution in every take.
+
 What is actually off on the arc vs the owner-passed north face: (a) the apron's 1.1-1.9u grass
 bulge at the foot (the original knoll verdict's subject; H4+H6 say stock stands steep rock BARE on
 flat lawn); (b) THE DOUBLED FRINGE — the arc's chart carries foot/fringe rows (10-11) at the lawn

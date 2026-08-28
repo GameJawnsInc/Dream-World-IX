@@ -260,11 +260,22 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > constraints from the verdicts: (1) THE NO-KINK LAW -- any base/contact course must CONTINUE the
 > local face plane's slope to the ground, never chord steeply down; (2) no uniform single-tile
 > bands; (3) all prior classes (apron shapes, conform, strips, steepen, re-charts) falsified.
-> NEXT MEASUREMENT APPROACH (not built): stop trusting the offline eye + byte stats as the gate --
-> they passed all eight takes. Gate on GAME-RENDERER pixels instead: the in-game test harness
-> (project-ff9-test-harness) + game_snap to (a) capture the REAL Daguerreo SW face in-game from the
-> approach camera as the target, (b) capture our arc identically, (c) THE PEER GATE (overhang-
-> context memory): compare against the owner-passed north face from tangent-relative cameras.
+> POST-MORTEM CORRECTED BY THE OWNER (next day): the renderer was never the gap ("the render looks
+> like the site in-game") -- the gap was DIMENSIONALITY: judging from one view instead of the 3D
+> shape, and authoring the base from the GROUND side (aprons/banks/courses = flat ground stood up
+> into rock walls) instead of continuing the mountain's own slope down. Stock mountains climb in a
+> specific range; the takes did not. BUILT + FIRST-RUN VERIFIED: `envelope_profile.py` (THE PROFILE
+> INSTRUMENT) -- from each rock-grass contact, march horizontally uphill, A1 = envelope angle over
+> 0-8u, A2 over 8-16u, A3 over 8-24u, kink = A1-A2. Results: STOCK feet (n=926) A1 p25-p75 =
+> 42.3-52.7 deg, floor p05 33.1, kink centered +1.5 (base continues or slightly steepens the face
+> -- convex toe, NEVER a splayed skirt); this massif's OWNER-PASSED faces (n=54) A1 p50 49.0 ==
+> Daguerreo home (p50 49.5) -- the carry is lawful everywhere untouched; THE FAILED WINDOW (n=7) is
+> the massif's ONLY out-of-law zone, in BOTH tails: mid-arc bases 21-36 deg flaring SHALLOWER than
+> the 38-42 deg face above (kink -20..-11), window edges 52-56 deg walls over 13 deg near-flat body
+> (kink +36..+43 -- flat ground made into a wall). THE GATE FOR ANY NEXT ATTEMPT: every authored
+> foot station must satisfy A1 within the local face family's band AND |kink| inside stock's
+> p25-p75 (-6..+18) -- i.e. author the base by EXTENDING each local face plane to the lawn; where
+> the body above is flat, no wall may exist at all (the contact retreats instead).
 > Deployed state left at take 7; reverts: fringe-realign-pre.* (paint), r4-take4-pre.* (any take),
 > r4-pre.20260828-103332 (pre-massif host). Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
