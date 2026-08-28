@@ -206,15 +206,24 @@ class Channel:
         return self._seq
 
     # -- game -> driver ---------------------------------------------------------------------
-    def state(self, retries: int = 4) -> State | None:
+    def state(self, retries: int = 4, *, lock_budget: float = 1.0) -> State | None:
         """Latest published state, or ``None`` if the agent has not written one yet.
 
         Retries on a parse failure: the agent replaces the file atomically, but a virus scanner or a
         slow filesystem can still hand back a torn read, and a 1-in-500 flake would discredit every
         assertion built on top of this.
+
+        ⚠ A Windows SHARING VIOLATION is not "no state" and must not be reported as one. The agent
+        replaces this file ~30 times a second and a poller can easily collide with the replace; the
+        engine side already tolerates that in both directions. Treating the resulting PermissionError
+        as absence made the driver declare a perfectly healthy game dead, and that false verdict was
+        then repeated as "walking out of the room hangs the game" -- a bug attributed to the game
+        that lived entirely in the driver. Locks get their own, much longer, budget.
         """
         path = self.dir / "state.json"
-        for attempt in range(retries):
+        deadline = time.time() + lock_budget
+        attempt = 0
+        while True:
             try:
                 # utf-8-SIG, not utf-8: .NET's File.WriteAllText with an explicit Encoding.UTF8
                 # emits a BOM, and json.loads rejects the leading ﻿ outright. The symptom was
@@ -224,11 +233,18 @@ class Channel:
                 return State(json.loads(path.read_text(encoding="utf-8-sig")))
             except FileNotFoundError:
                 return None
+            except PermissionError:
+                # The agent holds the file for the duration of its replace. Wait it out: at ~30
+                # publishes/sec the window is sub-millisecond, so anything that outlasts the budget
+                # is a real problem rather than a collision.
+                if time.time() >= deadline:
+                    return None
+                time.sleep(0.005)
             except (ValueError, OSError):
-                if attempt == retries - 1:
+                attempt += 1
+                if attempt >= retries:
                     return None
                 time.sleep(0.01)
-        return None
 
     def events(self) -> list[dict]:
         path = self.dir / "events.jsonl"

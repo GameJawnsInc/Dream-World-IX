@@ -299,16 +299,21 @@ class Session:
             )
 
     # -- observing ------------------------------------------------------------------------------
-    #: Engine log lines that explain a hang far better than any driver-side symptom can.
+    #: Engine log lines that explain a failure better than any driver-side symptom can.
+    #:
+    #: ⚠ Every marker here must be something that does NOT happen in normal play. `invalidFieldMapID`
+    #: was in this list and had to be removed: the engine emits it during an ordinary New Game boot,
+    #: so it matched on every run and confidently blamed a bad warp for whatever had actually gone
+    #: wrong. A marker that fires routinely is worse than no marker at all.
     _LOG_MARKERS = (
-        ("invalidFieldMapID",
-         "the engine tried to load an INVALID field id -- a gateway or warp points at a "
-         "destination that is not deployed. That hangs the game on a black screen."),
-        ("Cannot load the field",
-         "the engine failed to load a field."),
-        ("NullReferenceException",
-         "the engine threw a NullReferenceException."),
+        ("NullReferenceException", "the engine threw a NullReferenceException"),
+        ("Cannot load the field", "the engine failed to load a field"),
+        ("[ff9mk harness] disarmed after an unhandled error",
+         "the harness agent disarmed itself after an internal error"),
     )
+
+    #: `dd.MM.yyyy HH:mm:ss |L| message`
+    _LOG_TS = re.compile(r"^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2}) \|")
 
     def engine_log(self) -> Path | None:
         """The engine log for THIS run -- the most recently written one.
@@ -326,7 +331,8 @@ class Session:
             return None
         return max(candidates, key=lambda p: p.stat().st_mtime)
 
-    def diagnose(self, lines: int = 60, *, max_age: float = 300.0) -> str | None:
+    def diagnose(self, lines: int = 60, *, max_age: float = 300.0,
+                 window: float = 30.0) -> str | None:
         """Explain a hang from the engine's own log, rather than from driver-side symptoms.
 
         A driver only ever sees "state stopped arriving", which looks identical whether the game
@@ -345,8 +351,24 @@ class Session:
             tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
         except OSError:
             return None
+        # Only lines from the last `window` seconds may explain a failure happening NOW. Without
+        # this a marker from earlier in the same run -- boot noise, a previous scenario step -- gets
+        # offered as the cause of something minutes later.
+        cutoff = _dt.datetime.now() - _dt.timedelta(seconds=window)
+        recent = []
+        for line in tail:
+            m = self._LOG_TS.match(line)
+            if m:
+                d, mo, y, hh, mm, ss = (int(g) for g in m.groups())
+                try:
+                    if _dt.datetime(y, mo, d, hh, mm, ss) < cutoff:
+                        continue
+                except ValueError:
+                    pass
+            recent.append(line)
+
         for marker, explanation in self._LOG_MARKERS:
-            if any(marker in line for line in tail):
+            if any(marker in line for line in recent):
                 return f"{explanation} (from {log})"
         return None
 

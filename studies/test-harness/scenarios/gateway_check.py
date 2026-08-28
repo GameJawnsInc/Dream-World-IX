@@ -25,7 +25,11 @@ def run(g, field: int = FIELD):
     print(f"[gate] room {home.field_id} ({home.field_name}) arrival {home.pos}")
     g.shot("gate-00-room")
 
-    found = g.find_transitions(radius=430.0, back_to=field)
+    # Reach far enough to actually touch the walls. A 430 sweep found nothing here and looked like
+    # "no gateway", but the character demonstrably walks ~900 units north before the mesh stops him,
+    # so the probe was simply turning round inside the room. Overshooting is free -- walk_to stalls
+    # harmlessly against the edge -- while undershooting silently reports the wrong answer.
+    found = g.find_transitions(radius=950.0, back_to=field)
     for f in found:
         print(f"[gate] bearing {f['bearing']:>3}deg toward {f['toward']} -> field {f['field']}")
 

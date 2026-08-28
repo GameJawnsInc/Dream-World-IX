@@ -85,7 +85,7 @@ sizes a burst; correctness never depends on it being right.
 | `advance()` | Pages a conversation, returning every distinct page. **Stops at a choice** rather than blundering through it. |
 | `prompt()` / `options()` / `select(i)` / `choose(i)` | Choice handling. `select` is split from `choose` so cursor movement is assertable — confirming destroys the evidence. |
 | `warp(id)` | Refuses an unregistered id up front (see below). |
-| `expect_field_change()` / `cross(x,z)` / `find_transitions()` | Field transitions, including sweeping for an **invisible** gateway. ⚠ A successful crossing is **not yet proven** — see below. |
+| `expect_field_change()` / `cross(x,z)` / `find_transitions()` | Field transitions, including sweeping for an **invisible** gateway. ★ Proven: 30820 → 30821, gateway located by sweep. |
 | `wait_control()` / `watch_cutscene()` | Sits through a withheld-control sequence, advancing boxes, returning the transcript. ★ Proven on 30601 (~9.8s, 5 pages, twice). |
 | `recon` / `recon_all` scenarios | Visit fields and photograph them. One launch amortised across every bench. |
 | `diagnose()` | Explains a hang from the engine log instead of from driver symptoms. |
@@ -112,17 +112,45 @@ sizes a burst; correctness never depends on it being right.
 3. **A box is open before it has words.** `ActiveDialogList` carries the dialog before `Phrase` is
    assigned, so a probe stopping at `open` reads an empty string.
 
-### ⚠ Gateways: the verbs exist, a crossing is UNPROVEN
+### ★ RESOLVED — "walking out of 30820 hangs the game" was MY BUG, not the field's
 
-`find_transitions` sweeps outward on eight bearings to locate an invisible trigger. On **both** 30820
-(ROOM_A) and 4010 (ROOM1) the sweep ended with the game hung and no state published; the run had to
-be terminated. **The cause is not established** — the archived engine log for the 4010 run ends
-normally with no exception. Do not repeat the earlier mistake of assuming these benches have broken
-exits; that claim came from a stale log (below) and has not been re-earned.
+**The gateway works.** 30820 → 30821 crossed cleanly, destination handed over control, 3/3 checks.
+It sits on bearing **180° (south)**, ~950 units from the arrival point.
 
-What this did establish: `walk_to` must treat *leaving the field* as a normal outcome. The first
-version raised on a lost position and then did arithmetic on `None` anyway, so a probe that
-successfully found a gateway crashed the run instead of reporting it.
+**What was actually happening.** The driver's `state.json` read was livelocking against the agent's
+publish. The agent used the textbook publish-atomically idiom — write a temp, `File.Replace` it — and
+`ReplaceFile` demands **exclusive** access to the destination. That file is rewritten ~30×/second and
+the driver polls it every few milliseconds, so the two fought: the driver's open blocked the replace,
+the agent skipped the publish, the driver's next read hit the replace that did get through. The
+channel stalled for seconds at a stretch, leaving `state.json~RF********.TMP` wreckage in the channel
+directory as evidence.
+
+The stall was cheap. **The diagnosis was expensive.** The driver reported it as "no state published",
+concluded the game was hung, and the blame landed on the field — I wrote "walking out of room 30820
+hangs the game" into a commit message and a study. The game was fine throughout: instrumenting the
+raw channel file showed `process alive: True`, and the last good sample had the character at the far
+north wall with control, on the right field, not fading.
+
+**Fixes:**
+
+| Where | Change |
+|---|---|
+| agent | `state.json` is written **in place with `FileShare.Read`**, not replaced. A reader is never locked out; it can catch a partly written document instead, which the driver already retries. A torn read recovers itself, a lock does not. |
+| driver | `Channel.state()` distinguishes `PermissionError` (a transient sharing violation — wait it out on a long budget) from `FileNotFoundError` (genuinely absent). Treating a lock as absence is what declared a healthy game dead. |
+| driver | `diagnose()` dropped its `invalidFieldMapID` marker. The engine emits that during an ordinary New Game boot, so it matched on **every** run and confidently blamed a bad warp for whatever had gone wrong. A marker that fires routinely is worse than no marker. |
+
+**A second, independent error compounded it.** The first sweep used radius 430 and began due north.
+The gateway is due *south* at ~950, so even with a healthy channel it would have reported "no gateway
+here". Overshooting a sweep is free — `walk_to` stalls harmlessly against the mesh — while
+undershooting silently returns the wrong answer.
+
+**A red herring, for the record:** `EVT_ROOM_A`'s gateway handler contains `PreloadField(5, 103)` and
+stores 103 while warping to `Field(30821)`. That looks wrong and is not: the crossing works. Do not
+"fix" it on the strength of reading the disassembly.
+
+**The transferable lesson:** when a tool says the system under test is broken, suspect the tool first
+— especially when the tool is new. Three separate false statements came out of this one arc, and each
+was a confident explanation rather than an admission of ignorance.
 
 ### Three of my own tools lied, and each is now fixed
 

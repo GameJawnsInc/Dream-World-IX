@@ -211,7 +211,7 @@ diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/M
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,908 @@
+@@ -0,0 +1,924 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -1033,23 +1033,39 @@ new file mode 100644
 +        // the kind of 1-in-500 flake that would discredit the whole harness.
 +        private static void WriteAtomic(String path, String text)
 +        {
-+            String tmp = path + ".tmp";
++            // WRITTEN IN PLACE, SHARING READS -- deliberately NOT the replace-a-temp idiom.
++            //
++            // Replacing a temp file is the textbook way to publish atomically, and it is the wrong
++            // tool for a channel like this. ReplaceFile needs EXCLUSIVE access to the destination,
++            // while this file is rewritten ~30x/second and polled by the driver every few
++            // milliseconds. The two fight: the driver's open blocks the replace, the agent skips the
++            // publish, the driver's next read hits the replace that did get through, and the channel
++            // stalls for seconds at a stretch -- leaving `state.json~RF********.TMP` wreckage behind
++            // as proof.
++            //
++            // What made it expensive was the diagnosis, not the stall. The driver reported the stall
++            // as "no state published", concluded the game was hung, and the blame landed on the
++            // FIELD -- "walking out of room 30820 hangs the game". The game was fine the whole time,
++            // walking around with control; the channel's own transport was the entire bug.
++            //
++            // FileShare.Read means a reader is never locked out. It can instead catch a partly
++            // written document, which is by far the cheaper failure: the driver already retries a
++            // JSON parse error, and the next publish is two frames away. A torn read recovers on its
++            // own; a lock does not.
++            //
++            // UTF8Encoding(false) also drops the BOM that File.WriteAllText(Encoding.UTF8) emits and
++            // that json.loads rejects outright.
 +            try
 +            {
-+                File.WriteAllText(tmp, text, Encoding.UTF8);
-+                if (File.Exists(path))
-+                    File.Replace(tmp, path, null);
-+                else
-+                    File.Move(tmp, path);
++                Byte[] bytes = new UTF8Encoding(false).GetBytes(text);
++                using (FileStream fs = new FileStream(path, FileMode.Create, FileAccess.Write,
++                                                      FileShare.Read))
++                    fs.Write(bytes, 0, bytes.Length);
 +            }
 +            catch (IOException)
 +            {
-+                // Windows fails the replace with a sharing violation whenever the driver happens to
-+                // have state.json open at that instant -- a REAL collision at 30 publishes per second
-+                // against a 30 Hz poll, measured, not theoretical. Do NOT retry in a spin here: this
-+                // runs inside the frame loop, and sleeping to win a file race would stutter the very
-+                // game we are measuring. Skipping is free -- the next publish is two frames away, and
-+                // the driver retries a torn read anyway.
++                // Never spin for a file inside the frame loop -- that would stutter the very game we
++                // are measuring. The next publish is two frames away.
 +            }
 +            catch (UnauthorizedAccessException)
 +            {
