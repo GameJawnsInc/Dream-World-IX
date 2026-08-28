@@ -1670,3 +1670,23 @@ same class at r69).
 studies side); the ocean-severance flood-fill re-check; large-radius mint robustness; owner
 ratification (the design's open question 4, still unanswered); and the first in-game seam-walk
 playtest — no seam-straddling LAND has ever been playtested, only sailed wrapwater.
+
+## THE SEAM BENCH ISLET — DEPLOYED, AWAITING THE SEAM-WALK PLAYTEST (2026-08-27)
+
+The first seam-straddling landmass ever deployed: `world-island --mod-folder FF9CustomMap-world
+--center 8,-240 --radius 20 --seed 5 --flat` — wrapped blocks **(23,3) (23,4) (0,3) (0,4)**,
+36 files, coastnav stamped (beach=756 / standoff-belt=168 / keel=204 — the toroidal `_tdx` belt
+spanning the seam), Disc4 mirrored. Three WARN-default texture rows (the standard Rung-F review
+class), zero FAILs. **This is also the first deploy born with 100% ledger protection**: 76 rows
+covering every mesh on both discs *and* all 8 `Donor` sidecars.
+
+**Offline verification, all green:** Disc1/Disc4 byte parity 36/36; the shared boundary profiles
+of block 23 (local x=64) and block 0 (local x=0) are set-identical at both rows; and the offline
+seam walk — the placement simulator marched 81 samples across x 1504→48 at z=−240 — reads
+continuous topo-0 Terrain at y=3.200 with **zero MISS** straight through the seam.
+
+**Revert:** delete the 36 `Block[23|0][3|4] *` files under `FF9CustomMap-world/FF9_Data/WorldMap/
+Disc{1,4}/0_1/r{3,4}/` (ledger rows are append-only and harmless to leave).
+
+Playtest still owns the verdict — no seam-straddling LAND has ever been walked in-game, and the
+gate suite is a regression harness, not an oracle.
