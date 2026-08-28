@@ -959,3 +959,94 @@ def test_census_gate_raises_on_stacked_walkable_sheets(monkeypatch):
     IN.census_gate({(0, 0): lawn}, baseline={(0, 0): lawn})
     with pytest.raises(ValueError, match="stacked walkable sheets"):
         IN.census_gate({(0, 0): stacked}, baseline={(0, 0): lawn})
+
+
+# ---- the foot-course window (the spur-graft class, R4 take-5) --------------------------------
+
+
+def _r10_saddle_donor(cx=24.0, cz=-24.0, half=4.0, apex=5.0):
+    """The saddle-rim pyramid dressed in a REAL row-10 tile (col 6 of the rock chart):
+    adjacent side faces pair into 4-vert quads whose uv extent is ~one full tile, so
+    the foot-course exemplar harvest finds them; the saddle base ring keeps the apron
+    field genuinely nonuniform (the flat-window exclusion is observable)."""
+    puA, pvA = IN.ROCK_CHART_PHASE
+    u0, u1 = puA + 6 * 0.0625, puA + 7 * 0.0625
+    v0, v1 = pvA + 10 * 0.03125, pvA + 11 * 0.03125
+    hs = (0.0, 0.6, 0.0, 0.5)
+    c00 = ((cx - half, hs[0], cz - half), u0)
+    c10 = ((cx + half, hs[1], cz - half), u1)
+    c11 = ((cx + half, hs[2], cz + half), u0)
+    c01 = ((cx - half, hs[3], cz + half), u1)
+    top = ((cx, apex, cz), (u0 + u1) / 2)
+    pos, nrm, uv, tan, flat, t_out = [], [], [], [], [], []
+    for a, b in ((c10, c00), (c11, c10), (c01, c11), (c00, c01)):
+        base = len(pos)
+        for (p, pu), pv in ((a, v1), (b, v1), (top, v0 + 0.001)):
+            pos.append(list(p))
+            nrm.append([0.0, 1.0, 0.0])
+            uv.append([pu, pv])
+            tan.append([MASSIF_DONOR, 0.0, 0.0, 1.0])
+            flat.append(len(pos) - 1)
+        t_out.append([base, base + 1, base + 2])
+    return BlockMesh(name="Block[0][0] Terrain", disc=1, x=0, y=0, lod="0_1",
+                     vcount=len(pos), stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                     flat_index=flat, tris=t_out, raw_vbuf=b"", raw_ibuf=b"", use32=True,
+                     submeshes=[])
+
+
+def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
+    puA, pvA = IN.ROCK_CHART_PHASE
+    u0, u1 = puA + 6 * 0.0625, puA + 7 * 0.0625
+    v0, v1 = pvA + 10 * 0.03125, pvA + 11 * 0.03125
+    _patch_donor(monkeypatch, _r10_saddle_donor())
+
+    # BASELINE (no window): the saddle rim lifts the apron grass above the bench plane
+    soup0 = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    res0 = IN.carve_mountain(soup0, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                             log=lambda *a: None)
+    bm0 = res0["changed"][(0, 0)]
+    g0 = [p[1] for p, t4 in zip(bm0.chan_arrays[CH_POS], bm0.chan_arrays[CH_TAN])
+          if t4[0] == GRASS]
+    assert max(g0) > 3.2 + 1e-6, "baseline sanity: the saddle rim must lift the apron"
+    assert res0["report"]["foot_tris"] == 0
+
+    # THE WINDOW covers the whole block: no lift anywhere, every zip tri emits as rock
+    soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    res = IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                            foot_course_rects=[(0.0, -64.0, 64.0, 0.0)],
+                            log=lambda *a: None)
+    r = res["report"]
+    assert r["foot_tris"] == r["zip_tris"] > 0
+    bm = res["changed"][(0, 0)]
+    grass_y = [p[1] for p, t4 in zip(bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN])
+               if t4[0] == GRASS]
+    assert max(grass_y) == pytest.approx(3.2, abs=1e-9), "window ground must stay flat"
+    # every topo-49 vert (carried faces AND the foot course) samples inside the tile
+    rock = [(p, u2) for p, u2, t4 in zip(bm.chan_arrays[CH_POS], bm.chan_arrays[CH_UV],
+                                         bm.chan_arrays[CH_TAN]) if t4[0] == MASSIF]
+    assert len(rock) == (4 + r["zip_tris"]) * 3
+    for p, u2 in rock:
+        assert u0 - 1e-6 <= u2[0] <= u1 + 1e-6 and v0 - 1e-6 <= u2[1] <= v1 + 1e-6
+    # fringe pinning: foot verts at bench ground sample the exemplar's fringe edge (the
+    # harvest's v_bot = the donor pair's two lowest verts = v1 exactly)
+    foot_ground = [u2 for p, u2 in rock if abs(p[1] - 3.2) < 1e-6]
+    assert foot_ground and all(u2[1] == pytest.approx(v1, abs=1e-9) for u2 in foot_ground)
+
+    # refusal: a window that catches no zip tri
+    soup2 = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    with pytest.raises(ValueError, match="no zip tri landed"):
+        IN.carve_mountain(soup2, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                          foot_course_rects=[(200.0, -260.0, 220.0, -240.0)],
+                          log=lambda *a: None)
+
+
+def test_carve_mountain_foot_course_needs_exemplars(monkeypatch, tmp_path):
+    # a donor with no row-10 full-tile quads (the plain pyramid's flat _MAIN_U uvs)
+    _patch_donor(monkeypatch, _pyramid_donor())
+    soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    with pytest.raises(ValueError, match="no row-10 exemplar"):
+        IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                          foot_course_rects=[(0.0, -64.0, 64.0, 0.0)],
+                          log=lambda *a: None)

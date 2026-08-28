@@ -99,6 +99,9 @@ MTN_ZIP_NY_MIN = 0.83            # the zip winding ENVELOPE (~34 deg -- admits t
 #                                  steeper banks (the horseshoe's falls outlet: 2/137)
 MTN_ZIP_NY_FLOOR = 0.5           # the hard per-tri floor (~60 deg) for those banks
 MTN_ZIP_BANK_MAX = 2             # max zip tris allowed between FLOOR and ENVELOPE
+MTN_FOOT_NY_FLOOR = 0.25         # foot-course tris are DELIBERATELY steep rock (blocked
+#                                  topo 49, exempt from the grass zip envelope); below
+#                                  ~75 deg they are slivers, refuse
 MTN_ROCK_RIGID = 0.035           # THE ROCK-RIGID GATE: max carried-edge length drift
 MTN_APRON_SLOPE = 29.5           # the grass apron's slope envelope (deg)
 # The terrain atlas's rock-band UV phase (u, v) -- measured by daguerreo_massif_anatomy.py
@@ -1298,7 +1301,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                    rock_topos=MOUNTAIN_ROCK_TOPOS, alcove="auto", clear=MTN_CLEAR,
                    scan_band=None, gblend=MTN_GBLEND, search_radius=10, search_step=2,
                    scan_cutoff=60, ground: str = "grass", disc: int = 1, game=None,
-                   max_apron_lift=None, log=print) -> dict:
+                   max_apron_lift=None, foot_course_rects=None, log=print) -> dict:
     """Carry a REAL rock massif (largest ``rock_topos`` component + enclosed raised tris
     + optional alcove floor + Object-aperture plugs) verbatim onto the island at
     ``center`` (exact placement, rotation 0) or the best lawful placement scanned around
@@ -1680,6 +1683,26 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 _pr = rot_pt(detilt_p(_p), ROT)
                 _conform_ring_pts.append((_pr[0] + DX, _pr[1] + DY, _pr[2] + DZ))
         rim_nodes = [(x, z, min(hy, cap_y)) for (x, z, hy) in rim_nodes]
+    # THE FOOT-COURSE WINDOW (2026-08-28, R4 take-5): inside a window rect the ground
+    # stays FLAT (its rim nodes leave the apron field; outside contributions still
+    # feather smoothly across the window edge) and the zip annulus there emits as a
+    # synthetic ROCK FOOT COURSE (below) instead of a grass bank -- the spur-graft
+    # class (massif_spur.py, in-game proven), for a donor arc whose high foot has
+    # nothing below it (its home context hid the base). ``None`` = legacy bytes.
+    fc_rects = None
+    if foot_course_rects:
+        fc_rects = [(min(r[0], r[2]), min(r[1], r[3]), max(r[0], r[2]), max(r[1], r[3]))
+                    for r in foot_course_rects]
+
+    def _in_fc(x, z):
+        return fc_rects is not None and any(
+            r[0] <= x <= r[2] and r[1] <= z <= r[3] for r in fc_rects)
+
+    lift_nodes = rim_nodes
+    if fc_rects:
+        lift_nodes = [n for n in rim_nodes if not _in_fc(n[0], n[1])]
+        log(f"foot-course window: {len(rim_nodes) - len(lift_nodes)} of "
+            f"{len(rim_nodes)} rim nodes held flat (no apron)")
     # positions touched by ANY non-plain tri: the lift must be EXACTLY zero there --
     # worldmap meshes don't share vertex entries (welds = coincident positions), so a
     # lift applied to the grass-side entry but not the coast-side twin SPLITS the weld
@@ -1692,7 +1715,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         """Pure-Y apron field: 0 far away -> (rim height - ground) at the rim."""
         wsum = hsum = 0.0
         dmin2 = 1e18
-        for (nx2, nz2, hy) in rim_nodes:
+        for (nx2, nz2, hy) in lift_nodes:
             dd2 = (px - nx2) ** 2 + (pz - nz2) ** 2
             dmin2 = min(dmin2, dd2)
             if dd2 > gblend * gblend:
@@ -2175,6 +2198,80 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                         for k in range(3))
         new_parents.append((corners, idall, "mountain"))
     new_parents.extend(plug_parents)
+    # THE FOOT COURSE (the spur-graft class, massif_spur.py in-game proven): inside a
+    # window rect the zip emits as synthetic ROCK instead of grass. Harvest r10 exemplar
+    # tiles from the donor's own foot course (edge-paired full-tile quads at chart row
+    # 10, cols 6-9) and parameterize the hole chain by arc for the u sawtooth.
+    fc_ex = {}
+    fc_cols = []
+    fc_SH = None
+    fc_hole_keys = set()
+    if fc_rects:
+        puA, pvA = ROCK_CHART_PHASE
+        _e2t = defaultdict(list)
+        for t in blob:
+            _ks = [kk3(carried[t][k]) for k in range(3)]
+            for _a2, _b2 in ((0, 1), (1, 2), (2, 0)):
+                _e = (_ks[_a2], _ks[_b2]) if _ks[_a2] < _ks[_b2] else (_ks[_b2], _ks[_a2])
+                _e2t[_e].append(t)
+        _seenq = set()
+        for _e, _ts in _e2t.items():
+            if len(_ts) != 2 or _ts[0] in _seenq or _ts[1] in _seenq:
+                continue
+            _vs4 = {kk3(v) for _t2 in _ts for v in carried[_t2]}
+            if len(_vs4) != 4:
+                continue
+            _uvm = {}
+            for _t2 in _ts:
+                _tri = dtri[_t2]
+                for k in range(3):
+                    _uvm[kk3(carried[_t2][k])] = (dU[_tri[k]][0], dU[_tri[k]][1])
+            _us = [u2[0] for u2 in _uvm.values()]
+            _vs2 = [u2[1] for u2 in _uvm.values()]
+            if not (0.05 < max(_us) - min(_us) <= 0.0625 + 1e-4
+                    and 0.025 < max(_vs2) - min(_vs2) <= 0.03125 + 1e-4):
+                continue
+            _row = round((min(_vs2) - pvA) / 0.03125)
+            _col = round((min(_us) - puA) / 0.0625)
+            if _row != 10 or _col not in (6, 7, 8, 9) or _col in fc_ex:
+                continue
+            _p4 = sorted(_vs4, key=lambda p: p[1])
+            fc_ex[_col] = (min(_us), max(_us),
+                           (_uvm[_p4[0]][1] + _uvm[_p4[1]][1]) / 2,
+                           (_uvm[_p4[2]][1] + _uvm[_p4[3]][1]) / 2)
+            _seenq.update(_ts)
+        if not fc_ex:
+            raise ValueError("foot-course window set but the donor has no row-10 "
+                             "exemplar quads (cols 6-9) to tile the course from")
+        fc_cols = sorted(fc_ex)
+        fc_SH = [0.0]
+        for _i2 in range(1, len(H)):
+            fc_SH.append(fc_SH[-1] + math.hypot(H[_i2][0] - H[_i2 - 1][0],
+                                                H[_i2][2] - H[_i2 - 1][2]))
+        fc_STOT = fc_SH[-1] + math.hypot(H[0][0] - H[-1][0], H[0][2] - H[-1][2])
+        fc_hole_keys = {kk3(p) for p in H}
+
+        def fc_s_of(px2, pz2):
+            """Continuous arc parameter: project onto the hole ring's SEGMENTS --
+            nearest-VERTEX snap collapses a one-hole tri's whole u-extent to a
+            single texel column (the measured take-5c smear class)."""
+            best_d, best_s = 1e18, 0.0
+            for _i3 in range(len(H)):
+                _j3 = (_i3 + 1) % len(H)
+                _ax, _az = H[_i3][0], H[_i3][2]
+                _ex, _ez = H[_j3][0] - _ax, H[_j3][2] - _az
+                _L2 = _ex * _ex + _ez * _ez
+                _tt = 0.0 if _L2 < 1e-12 else max(0.0, min(1.0, (
+                    (px2 - _ax) * _ex + (pz2 - _az) * _ez) / _L2))
+                _dd = (px2 - _ax - _tt * _ex) ** 2 + (pz2 - _az - _tt * _ez) ** 2
+                if _dd < best_d:
+                    best_d = _dd
+                    best_s = fc_SH[_i3] + _tt * math.sqrt(_L2)
+            return best_s
+        log(f"foot course: exemplar cols {fc_cols}; window rects {fc_rects}")
+    ID_FOOT = float(X.encode_id(topograph=49))
+    fc_n = 0
+    fc_ny_min = 1.0
     zip_rise = 0.0
     zip_ny_min = 1.0
     zip_ny_low = 0
@@ -2182,10 +2279,55 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         a, b, c = (np.asarray(p, dtype=float) for p in tri3)
         nrm = np.cross(b - a, c - a)
         nl = float(np.linalg.norm(nrm)) or 1.0
-        zip_ny_low += (abs(float(nrm[1])) / nl) < MTN_ZIP_NY_MIN
-        zip_ny_min = min(zip_ny_min, abs(float(nrm[1])) / nl)
+        is_foot = _in_fc(float(a[0] + b[0] + c[0]) / 3, float(a[2] + b[2] + c[2]) / 3)
+        if is_foot:
+            fc_n += 1
+            fc_ny_min = min(fc_ny_min, abs(float(nrm[1])) / nl)
+        else:
+            zip_ny_low += (abs(float(nrm[1])) / nl) < MTN_ZIP_NY_MIN
+            zip_ny_min = min(zip_ny_min, abs(float(nrm[1])) / nl)
         zip_rise = max(zip_rise, float(max(p[1] for p in tri3) - min(p[1] for p in tri3)))
         order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
+        if is_foot:
+            # r10 tile band -- fringe edge pinned at the hole (lawn) verts (the
+            # foot-transition law: tile bottom edge ON the boundary), the FULL tile
+            # spanning the course height (the spur's proven mapping -- a partial
+            # window at natural density samples only the painted fringe zone and
+            # smears green), u chained along the hole chain in ~4.6u windows, cols
+            # cycling (the sawtooth; THE COL-FREEDOM LAW), one window per tri.
+            _cx3 = float(a[0] + b[0] + c[0]) / 3
+            _cz3 = float(a[2] + b[2] + c[2]) / 3
+            _w = int(fc_s_of(_cx3, _cz3) / 4.6)
+            _u0, _u1, _vb, _vt = fc_ex[fc_cols[_w % len(fc_cols)]]
+            # ONE TILE PER QUAD IN BOTH AXES (the synth round-2 law): the tri's OWN
+            # s-extent spans the full tile width -- a fixed window grid clamps long
+            # DP chords and freezes texels into horizontal streaks
+            _svs = [fc_s_of(p[0], p[2]) for p in tri3]
+            if max(_svs) - min(_svs) > fc_STOT / 2:        # the ring's s=0 cut
+                _svs = [s2 + fc_STOT if s2 < fc_STOT / 2 else s2 for s2 in _svs]
+            _smap = dict(zip((kk3(p) for p in tri3), _svs))
+            _s0, _s1 = min(_svs), max(_svs)
+            _hys = [p[1] for p in tri3 if kk3(p) in fc_hole_keys]
+            _ylow = min(_hys) if _hys else min(p[1] for p in tri3)
+            # |deviation| from the lawn line: an ASCENDING course shades fringe->rock
+            # upward, a FREE-BASE dip shades fringe->rock DOWNWARD the same way (a
+            # signed fraction collapses the dip to all-fringe = a dark smear)
+            _yspan = max((abs(p[1] - _ylow) for p in tri3
+                          if kk3(p) not in fc_hole_keys), default=0.0)
+            corners = []
+            for pnt in order:
+                key = kk3(pnt)
+                n3 = pos_nrm.get(key) or rim_nrm.get(key, [0.0, 1.0, 0.0])
+                _su = max(0.0, min(1.0, (_smap[key] - _s0) / max(0.5, _s1 - _s0)))
+                if key in fc_hole_keys:
+                    _v = _vb
+                else:
+                    _v = _vb + max(0.0, min(1.0, abs(float(pnt[1]) - _ylow)
+                                            / max(0.8, _yspan))) * (_vt - _vb)
+                corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]),
+                                _u0 + _su * (_u1 - _u0), _v, *n3))
+            new_parents.append((tuple(corners), ID_FOOT, "foot"))
+            continue
         cell = cell_of(float(a[0] + b[0] + c[0]) / 3, float(a[2] + b[2] + c[2]) / 3)
         q, o = decode_cell(cell)
         # plain positional mains, UNCLAMPED -- the mesa/forest-proven form
@@ -2209,7 +2351,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         a, b, c = (np.asarray(p[:3]) for p in corners)
         if np.cross(b - a, c - a)[1] < 0:
             down += 1
-        if fam != "zip":
+        if fam not in ("zip", "foot"):
             continue                                       # verbatim rock/plug edges are stock-given
         for pq in ((a, b), (b, c), (c, a)):
             maxe = max(maxe, float(np.linalg.norm(pq[0] - pq[1])))
@@ -2338,7 +2480,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     log(f"gates: down={down} maxEdge={maxe:.1f} nearMiss={nm // 2} "
         f"annulusOnce={len(inner_once)} zipRise={zip_rise:.2f} zipNyMin={zip_ny_min:.2f} "
         f"(below-envelope {zip_ny_low}/{len(zip_tris)}) "
-        f"rockRigid={worst_rig * 100:.1f}% apronSlope={g_worst:.1f}deg")
+        + (f"footCourse={fc_n} fcNyMin={fc_ny_min:.2f} " if fc_n else "")
+        + f"rockRigid={worst_rig * 100:.1f}% apronSlope={g_worst:.1f}deg")
     if down or nm or inner_once or maxe >= MTN_MAX_EDGE:
         raise ValueError("mountain geometry gate failed (down/near-miss/annulus-crack/edge)")
     if zip_rise > MTN_ZIP_RISE or zip_ny_min < MTN_ZIP_NY_FLOOR \
@@ -2347,6 +2490,12 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                          f"ny min {zip_ny_min:.2f} < floor {MTN_ZIP_NY_FLOOR}, or "
                          f"{zip_ny_low} banks below {MTN_ZIP_NY_MIN} > "
                          f"{MTN_ZIP_BANK_MAX} allowed)")
+    if fc_n and fc_ny_min < MTN_FOOT_NY_FLOOR:
+        raise ValueError(f"foot-course tri steeper than the sliver floor "
+                         f"(ny {fc_ny_min:.2f} < {MTN_FOOT_NY_FLOOR})")
+    if fc_rects and not fc_n:
+        raise ValueError("foot-course window set but no zip tri landed inside it -- "
+                         "check the rect against the printed placement")
     if worst_rig >= MTN_ROCK_RIGID:
         raise ValueError("carried rock deformed beyond the de-tilt affine")
     if g_worst > MTN_APRON_SLOPE:
@@ -2529,7 +2678,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     return {"changed": changed, "center": (TX, TZ), "rot": ROT, "drop": drop,
             "changed_parts": changed_parts, "donor_ref": donor_ref,
             "report": {"blob_tris": len(blob), "dropped": len(drop),
-                       "zip_tris": len(zip_tris), "plugs": len(plug_parents),
+                       "zip_tris": len(zip_tris), "foot_tris": fc_n,
+                       "plugs": len(plug_parents),
                        "ensemble_tris": n_ens_tris,
                        "rot_deg": ROT * 90, "blocks": [list(b) for b in span],
                        "peak_y": round(float(

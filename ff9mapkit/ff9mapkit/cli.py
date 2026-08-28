@@ -4875,7 +4875,17 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
                                          disc=args.disc, game=args.game,
                                          target_disc=args.target_disc)
         soup = IN.soup_from_blocks(blocks)
+        fc_rects = None
+        if args.foot_course:
+            fc_rects = []
+            for spec in args.foot_course:
+                parts = [float(x) for x in spec.split(",")]
+                if len(parts) != 4:
+                    raise SystemExit(f"--foot-course wants X0,Z0,X1,Z1 (got {spec!r})")
+                fc_rects.append(tuple(parts))
         res = IN.carve_mountain(soup, max_apron_lift=args.max_apron_lift,
+                                gblend=args.gblend if args.gblend is not None else IN.MTN_GBLEND,
+                                foot_course_rects=fc_rects,
                                 center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
                                 ground=args.ground, disc=args.disc, game=args.game)
@@ -9306,6 +9316,18 @@ def build_parser() -> argparse.ArgumentParser:
                           "crease instead of minting a grass knoll against mid-wall (the R4 west-seam "
                           "defect). DOWN-only; aperture/ensemble columns exempt. Default: no cap (the "
                           "frozen identity baselines' behavior).")
+    wmt.add_argument("--foot-course", action="append", default=None, metavar="X0,Z0,X1,Z1",
+                     help="world rect (repeatable) where the massif gets a synthetic ROCK "
+                          "FOOT COURSE instead of a grass apron: rim nodes inside the rect "
+                          "leave the apron field (the lawn stays flat) and the zip annulus "
+                          "there emits as blocked topo-49 r10-tile rock, fringe pinned at "
+                          "the lawn line (the spur-graft class, in-game proven). For a "
+                          "donor arc whose high foot has nothing below it.")
+    wmt.add_argument("--gblend", type=float, default=None, metavar="U",
+                     help="ground-apron blend reach in units (default 12.0, the proven hill-at-scale "
+                          "value): how far out from the rigid rim the grass apron spreads its rise. "
+                          "Wider = a broader, gentler bank into the foot (a high donor foot over flat "
+                          "host lawn wants ~20-26 so the rise reads as a foothill, not a knoll).")
     wmt.add_argument("--reach", type=float, default=96.0,
                      help="deployed-block load window around the point in units (default 96)")
     wmt.add_argument("--ground", choices=_ground_choices(), default="grass",

@@ -214,7 +214,22 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > (bottom wall row stretches, uv kept per the corner-role law; dips untouched per THE FREE-BASE
 > LAW). Re-carve take 3: same placement, zipRise 1.88 / zipNyMin 0.66 (both better), junctions
 > above cap anywhere: 0; stamp+probe a–e green; seam weld rows 4–9 set-identical; parity 261/261;
-> walks 97/97 ×3. **★ RE-DEPLOYED, awaiting the arc re-walk.** Original deploy note: All gates CLEAN on
+> walks 97/97 ×3. **Take 3 REJECTED in the arc re-walk** ("still there"; then "the cliff face is
+> basically parallel with the ground and walkable" — the conform's flat shelf). The knoll is the
+> donor's mossy LOW-ANGLE flank: at home a forest hides it and its ground rolls (the overhang-context
+> class); here it stands bare over flat lawn. Take 4 (broad apron `--gblend 26`, no cap): REJECTED on
+> sight — "no new wall, just grass + no transition + 1px seams" (the ramp = S5's off-language class;
+> the hairlines = apron T-junction differential lift → fixed on master, THE T-JUNCTION LERP LAW).
+> A UV-only ground strip (foot-course paint on flat lawn) also REJECTED ("walkable") and reverted.
+> **Take 5 = THE FOOT-COURSE WINDOW** (`world-mountain --foot-course 1415,-489,1440,-462`, new verb
+> option, the spur-graft class as a carve option): the arc's rim nodes leave the apron field (the
+> lawn stays flat) and the zip annulus there emits as blocked topo-49 rock — r10 exemplar tiles
+> harvested from the donor's own foot course, fringe pinned at the lawn line, one full tile per tri
+> in both axes, continuous segment-arc u (nearest-vertex snap froze u to one texel column —
+> offline-eye-caught + measured), |dev| v so FREE-BASE dips shade rock downward. footCourse=14
+> fcNyMin=0.60 (~53°); grass-zip envelope cleaner than every prior take (0/143 banks); stamp+probe
+> a–e green; parity 306/306; seam weld set-identical; hermetic tests 30 green (2 new).
+> **★ DEPLOYED (take 5), awaiting the arc re-walk.** Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
 > `--near`), 9 blocks, 713 donor tris + 143 zip + THE ENSEMBLE CARRY (122 Falls/River/RiverJoint/
 > Object tris on span (22,7)-(23,8), `Donor.txt` → (5,15)), peak y 30.87, rock rigidity 0.8%,
