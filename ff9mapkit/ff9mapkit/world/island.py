@@ -897,6 +897,25 @@ def _xz_inside(cover, x, z) -> bool:
     return False
 
 
+def _sea4_override(plane, bx, by, cut_cells, under, wbx):
+    """The block's Sea4 override: the cut plane, or -- when the land footprint consumed the WHOLE
+    plane -- a hidden blanking stub.
+
+    THE INTERIOR-BLOCK SEA (found by the first continent-scale mint, r144 at (1520,-464),
+    2026-08-28): every prior mint (r20..r72) kept some sea in every footprint block, so
+    ``_cut_plane`` never came back empty and the 0-vert mesh sailed into ``write_ff9mesh``'s
+    loader-range refusal mid-deploy, stranding a partial write. A fully-interior land block's
+    correct sea is NONE -- but the file must still exist: the cell's ``Donor.txt`` diverts it to
+    the donor prefab, and an UN-overridden part FREE-RIDES that donor's own geometry verbatim
+    (the free-ride trap), which here would render the donor's real sea beneath our land. The
+    blanking stub is exactly how ``HIDDEN_PARTS`` already suppresses the donor's other parts."""
+    from . import mesh as M
+    sea = _cut_plane(plane, bx, by, cut_cells, under, label_x=wbx)
+    if sea.vcount == 0:
+        return M.hidden_block_mesh(name=f"Block[{wbx}][{by}] Sea4", disc=plane.disc, x=wbx, y=by)
+    return sea
+
+
 def _cut_plane(plane, bx, by, cut_cells, under=None, label_x=None):
     """The block's full-cell Sea4 plane MINUS the beach-claimed lattice cells (the ladder owns them:
     undropped deep tiles under new bands are off-language) and MINUS everything under ``under``'s
@@ -1073,7 +1092,7 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
             written.append(M.deploy_override(bmw, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Terrain"))
             # THE SEA4-UNDER-LAND LAW -- the land footprint is cut from the plane on EVERY land block,
             # beach or cliff (see _cut_plane). Leaving it whole makes the island boat-permeable.
-            sea = _cut_plane(plane, bx, by, bch["sea4_cut"] if is_bch else frozenset(), bm, label_x=wbx)
+            sea = _sea4_override(plane, bx, by, bch["sea4_cut"] if is_bch else frozenset(), bm, wbx)
             written.append(M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Sea4"))
             if is_bch:
                 # the beach block: real ladder parts + the beach-bearing divert donor

@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE INTERIOR-BLOCK SEA: a continent-scale mint crashed mid-deploy on its first fully-interior block
+- Found by the first r144 mint (the ratified west-seam continent at (1520,−464)): a block whose
+  land footprint covers the WHOLE cell leaves `_cut_plane` with nothing — and the 0-vertex Sea4
+  sailed into `write_ff9mesh`'s loader-range refusal MID-DEPLOY, stranding a 55-file partial write
+  (recovered via the deploy ledger's own rows). Every prior mint (r20–r72) kept some sea in every
+  footprint block, so the branch had never executed: a mint below ~r91 structurally cannot produce
+  a fully-interior block (64·√2⁄2 ≈ 45.3u half-diagonal).
+- The correct sea for such a block is NONE — but the file must still exist: the cell's `Donor.txt`
+  diverts it to the donor prefab, and an un-overridden part FREE-RIDES that donor's own sea
+  verbatim under our land. New `island._sea4_override` returns the cut plane, or the standard
+  `hidden_block_mesh` blanking stub when the cut consumed everything — the same mechanism
+  `HIDDEN_PARTS` already uses. Three hermetic tests (stub shape + far-below-world placement, the
+  coastal case keeps the genuine cut plane, the stub carries the WRAPPED label on a seam-side
+  block); non-vacuity proven by disabling the branch.
+
 ### Added — THE SEAM-WRAP GAP closed: `world-island` can mint across the x-seam
 - The overworld is an x-torus (`WMWorld.Wrap` shifts the whole world in 64u steps mod 1536; block
   identity is only ever the wrapped `InitialX` in [0,24), and a `Block[-1]`/`Block[24]` override

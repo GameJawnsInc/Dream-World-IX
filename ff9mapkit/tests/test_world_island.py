@@ -795,3 +795,47 @@ def test_one_occupancy_reader_in_the_kit(tmp_path, monkeypatch):
     g = TR._mod_overwrite_gate("MOD", {(3, 1): (7, 17)}, disc=1, game=tmp_path)
     assert asked == [([(3, 1)], "MOD", {"disc": 1, "lod": "0_1", "game": tmp_path})]
     assert g["ok"] is True and g["existing"] == 0    # the sentinel said "free", so the gate must too
+
+
+# ---- THE INTERIOR-BLOCK SEA (the first continent-scale mint's crash, 2026-08-28) ---------------
+
+def _full_cover_land(x=3, y=1):
+    """A Terrain mesh whose block-LOCAL XZ footprint covers the WHOLE 64u cell (two triangles with
+    1u overhang) -- the fully-interior case every mint below ~r91 structurally cannot produce
+    (64*sqrt(2)/2 = 45.3u half-diagonal; the r144 continent at (1520,-464) was the first to hit
+    it, and it crashed the deploy loop mid-write)."""
+    A, B = -1.0, 65.0
+    return _bm([(((A, 3.2, B), (B, 3.2, B), (B, 3.2, A - 66.0)), 0),
+                (((A, 3.2, B), (B, 3.2, A - 66.0), (A, 3.2, A - 66.0)), 0)],
+               name="Block[3][1] Terrain", x=x, y=y)
+
+
+def test_sea4_override_emits_hidden_stub_when_land_consumes_the_plane():
+    """The empty cut must become a BLANKING STUB -- not a 0-vert mesh (write_ff9mesh's loader-range
+    contract refuses vcount 0 MID-DEPLOY, stranding a partial write: the r144 mint's actual
+    failure, 55 debris files) and not an omitted file (the cell's Donor.txt diverts to the donor
+    prefab, and an un-overridden part FREE-RIDES the donor's own sea verbatim under our land)."""
+    sea = I._sea4_override(_synth_plane(), 3, 1, frozenset(), _full_cover_land(), 3)
+    assert sea.vcount == 3 and len(sea.tris) == 1          # the hidden stub's shape
+    assert sea.name == "Block[3][1] Sea4"
+    assert all(v[1] <= -79.0 for v in sea.chan_arrays[CH_POS])   # far below the world: renders nothing
+
+
+def test_sea4_override_keeps_the_cut_plane_when_sea_remains():
+    """A coastal block (land covers only part of the cell) keeps the genuine cut plane -- the stub
+    replaces a FULLY consumed one only."""
+    plane = _synth_plane()
+    small = _bm([(((0.0, 3.2, 0.0), (8.0, 3.2, 0.0), (0.0, 3.2, -8.0)), 0)],
+                name="Block[3][1] Terrain", x=3, y=1)
+    sea = I._sea4_override(plane, 3, 1, frozenset(), small, 3)
+    full = I._cut_plane(plane, 3, 1, frozenset(), None, label_x=3)
+    assert len(sea.tris) > 1                                # genuinely the plane, not a stub
+    assert len(sea.tris) >= len(full.tris) - 4              # only the land corner's tris dropped
+    assert any(v[1] > -1.0 for v in sea.chan_arrays[CH_POS])
+
+
+def test_sea4_override_stub_carries_the_wrapped_label():
+    """On a seam-side block the stub must carry the WRAPPED label (the engine probes it), exactly
+    like every other deployed part -- unwrapped col 24 deploys as Block[0]."""
+    sea = I._sea4_override(_synth_plane(), 24, 1, frozenset(), _full_cover_land(x=24), 0)
+    assert sea.name == "Block[0][1] Sea4" and sea.x == 0
