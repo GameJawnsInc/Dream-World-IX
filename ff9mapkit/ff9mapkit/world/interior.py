@@ -88,6 +88,10 @@ MOUNTAIN_ROCK_TOPOS = frozenset({49})
 UAHO_ALCOVE = ((31.0, 40.5), (-38.5, -30.5), 4.5)
 MTN_CLEAR = 2.5                  # annulus clearance around the carried rim
 MTN_GBLEND = 12.0                # ground-apron blend reach (the proven hill-at-scale value)
+MTN_TJ_TOL = 0.05                # T-junction colinearity tolerance (covers kk3/split lerp
+#                                  exactness AND the few-cm off-line slop of real lattices --
+#                                  the R4 slivers passed the 29.5deg slope gate, so their
+#                                  T-verts sat a few cm off the host line)
 MTN_MAX_EDGE = 9.0               # max new-tri edge length
 MTN_ZIP_RISE = 2.34              # zip-tri vertical span ceiling (engine step 2.34375)
 MTN_ZIP_NY_MIN = 0.83            # the zip winding ENVELOPE (~34 deg -- admits the Uaho
@@ -1679,9 +1683,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     # positions touched by ANY non-plain tri: the lift must be EXACTLY zero there --
     # worldmap meshes don't share vertex entries (welds = coincident positions), so a
     # lift applied to the grass-side entry but not the coast-side twin SPLITS the weld
-    nonplain_pos = np.array(sorted({(kk3(gpos[i])[0], kk3(gpos[i])[2])
-                                    for tdx, tri in enumerate(gtris) if not plain[tdx]
-                                    for i in tri}))
+    nonplain_xz = {(kk3(gpos[i])[0], kk3(gpos[i])[2])
+                   for tdx, tri in enumerate(gtris) if not plain[tdx]
+                   for i in tri}
+    nonplain_pos = np.array(sorted(nonplain_xz))
 
     def ground_lift(px, pz, py, dnp):
         """Pure-Y apron field: 0 far away -> (rim height - ground) at the rim."""
@@ -1731,6 +1736,92 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             dnp = float(np.sqrt(((nonplain_pos - np.array([k[0], k[2]])) ** 2)
                                 .sum(axis=1).min()))
             cand[k] = ground_lift(k[0], k[2], gpos[i][1], dnp)
+
+    # THE T-JUNCTION LERP LAW (the R4 west-seam hairlines at --gblend 26): the bench
+    # lattice holds T-verts -- a position lying colinear INSIDE a neighboring tri's edge
+    # (split_borders8 border splits, mixed tessellation; the mint-hole patch seals the
+    # 2-split kind with a degenerate sliver tri). The host edge's surface moves LINEARLY
+    # between its endpoints' lifts while the T-vert's own IDW lift is nonlinear in
+    # position, so at wide gblend the difference opens a sub-pixel slit and tips the
+    # sliver toward vertical (the hairline-tear class, GROUND-JUNCTION SYNTHESIS).
+    # Constrain each T-vert's lift to its host edge's own lerp so the vert stays ON the
+    # deformed edge. Applied to the per-POSITION map, so every coincident entry still
+    # moves together (the weld law); positions touched by non-plain tris keep their
+    # exact-zero lift (the coast weld outranks the edge); a lattice with no T-verts in
+    # reach writes nothing -- the frozen identity baselines replay byte-identical.
+    tj_host = {}                                           # T-vert key -> (L2, ka, kb, t)
+    if rim_nodes and cand:
+        tj_pad = gblend + MTN_TJ_TOL
+        tj_x0 = min(n[0] for n in rim_nodes) - tj_pad
+        tj_x1 = max(n[0] for n in rim_nodes) + tj_pad
+        tj_z0 = min(n[1] for n in rim_nodes) - tj_pad
+        tj_z1 = max(n[1] for n in rim_nodes) + tj_pad
+        tj_cell = 8.0
+        tj_grid = defaultdict(list)
+        for k in cand:
+            if tj_x0 <= k[0] <= tj_x1 and tj_z0 <= k[2] <= tj_z1 \
+                    and (k[0], k[2]) not in nonplain_xz:
+                tj_grid[(math.floor(k[0] / tj_cell),
+                         math.floor(k[2] / tj_cell))].append(k)
+        tj_seen = set()
+        for tdx, tri in enumerate(gtris):
+            if not plain[tdx]:
+                continue
+            if max(gpos[i][0] for i in tri) < tj_x0 or \
+                    min(gpos[i][0] for i in tri) > tj_x1 or \
+                    max(gpos[i][2] for i in tri) < tj_z0 or \
+                    min(gpos[i][2] for i in tri) > tj_z1:
+                continue
+            ks = [kk3(gpos[i]) for i in tri]
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                e = (ks[a], ks[b]) if ks[a] < ks[b] else (ks[b], ks[a])
+                if e[0] == e[1] or e in tj_seen:
+                    continue
+                tj_seen.add(e)
+                ka, kb = e
+                ex, ey, ez = kb[0] - ka[0], kb[1] - ka[1], kb[2] - ka[2]
+                L2 = ex * ex + ey * ey + ez * ez
+                if L2 < 1e-9:
+                    continue
+                for gx in range(int(math.floor((min(ka[0], kb[0]) - MTN_TJ_TOL) / tj_cell)),
+                                int(math.floor((max(ka[0], kb[0]) + MTN_TJ_TOL) / tj_cell)) + 1):
+                    for gz in range(int(math.floor((min(ka[2], kb[2]) - MTN_TJ_TOL) / tj_cell)),
+                                    int(math.floor((max(ka[2], kb[2]) + MTN_TJ_TOL) / tj_cell)) + 1):
+                        for p in tj_grid.get((gx, gz), ()):
+                            if p == ka or p == kb:
+                                continue
+                            t = ((p[0] - ka[0]) * ex + (p[1] - ka[1]) * ey
+                                 + (p[2] - ka[2]) * ez) / L2
+                            if t <= 0.0 or t >= 1.0:
+                                continue
+                            qx = ka[0] + t * ex - p[0]
+                            qy = ka[1] + t * ey - p[1]
+                            qz = ka[2] + t * ez - p[2]
+                            if qx * qx + qy * qy + qz * qz > MTN_TJ_TOL * MTN_TJ_TOL:
+                                continue
+                            # a hair off a CORNER is a weld twin, not a T-vert
+                            if min((p[0] - ka[0]) ** 2 + (p[1] - ka[1]) ** 2
+                                   + (p[2] - ka[2]) ** 2,
+                                   (p[0] - kb[0]) ** 2 + (p[1] - kb[1]) ** 2
+                                   + (p[2] - kb[2]) ** 2) < 0.01:
+                                continue
+                            hit = (L2, ka, kb, t)
+                            cur = tj_host.get(p)
+                            if cur is None or hit[:3] < cur[:3]:  # tightest host wins
+                                tj_host[p] = hit
+    if tj_host:
+        for _ in range(8):                                 # chained T-verts: fixpoint
+            tj_delta = 0.0
+            for p in sorted(tj_host):
+                L2, ka, kb, t = tj_host[p]
+                la, lb = cand[ka], cand[kb]
+                nv = la + t * (lb - la)
+                tj_delta = max(tj_delta, abs(nv - cand[p]))
+                cand[p] = nv
+            if tj_delta < 1e-12:
+                break
+        log(f"apron T-junction lerp: {len(tj_host)} T-vert position(s) pinned to "
+            f"their host edge")
     lift_of = {}
     lift_max = 0.0
     for i in range(len(gpos)):

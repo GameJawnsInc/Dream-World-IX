@@ -21,6 +21,8 @@ fresh-mint dent-tolerance TRACK B). The rest covers the hermetic machinery:
   * carve_mountain end-to-end on a synthetic donor pyramid + mains-grid bench (the donor
     read is monkeypatched -- no game bytes): rigid carry, hole+zip accounting, the
     rock-probe, and the no-rock / footprint / in-block / double-carry refusals
+  * THE T-JUNCTION LERP LAW: a saddle-rim donor over a T-vert lattice bench -- the ground
+    apron pins each T-vert's lift to its host edge's lerp (the R4 hairline-slit class)
   * read_deployed_blocks against a temp game dir (found / not-found semantics)
 """
 from __future__ import annotations
@@ -366,6 +368,84 @@ def test_carve_mountain_multiblock_span(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="needs deployed Terrain overrides"):
         IN.carve_mountain(soup2, near=(64.0, -128.0), donor=[(0, 0), (1, 0)],
                           alcove=None, game=tmp_path, log=lambda *a: None)
+
+
+def _saddle_pyramid_donor(cx=24.0, cz=-24.0, half=4.0, apex=5.0):
+    """The rigid-carry pyramid with a PURE-SADDLE base ring (heights 0.0/0.6/0.0/0.5:
+    no planar component, so de-tilt keeps the +-0.28u residual): the apron lift field
+    around the carried rim is genuinely nonuniform."""
+    hs = (0.0, 0.6, 0.0, 0.5)
+    c00 = (cx - half, hs[0], cz - half)
+    c10 = (cx + half, hs[1], cz - half)
+    c11 = (cx + half, hs[2], cz + half)
+    c01 = (cx - half, hs[3], cz + half)
+    top = (cx, apex, cz)
+    tris = []
+    for a, b in ((c10, c00), (c11, c10), (c01, c11), (c00, c01)):
+        tris.append(((a, b, top), MASSIF_DONOR, _MAIN_U))
+    return _bm(tris, name="Block[0][0] Terrain", x=0, y=0)
+
+
+def _with_mains_uv(bm, tris):
+    """Rewrite each GRASS tri's corner UVs to its centroid cell's exact mains map
+    (quad (0,0), ori 0) so the mint-hole patch can decode every cell."""
+    uv = bm.chan_arrays[CH_UV]
+    for t_i, (corners, idall, _u) in enumerate(tris):
+        if idall != GRASS:
+            continue
+        cx = sum(c[0] for c in corners) / 3.0
+        cz = sum(c[2] for c in corners) / 3.0
+        cell = (math.floor(cx / 4.0), math.floor(cz / 4.0))
+        for k, c in enumerate(corners):
+            uv[bm.tris[t_i][k]] = list(G.mains_uv(c[0], c[2], cell, (0, 0), 0))
+    return bm
+
+
+def _tjunction_bench(y=3.2, n=13, cell=4.0):
+    """``_mountain_bench`` but with cells (9,5)+(9,6) merged into ONE coarse 4x8 quad:
+    the fine neighbour columns' verts at z=-24 become lattice T-verts lying inside the
+    quad's 8u west/east edges (1mm off the host line, as real lattices ship -- the
+    mint-hole patch seals each colinear 3-cycle with a near-degenerate sliver, exactly
+    the R4 continent class). Mains UVs are the real per-cell map so those cells decode."""
+    tv = {(36.0, -24.0): 36.001, (40.0, -24.0): 40.001}
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            if (i, j) in ((9, 5), (9, 6)):
+                continue
+            x0, x1 = i * cell, (i + 1) * cell
+            z0, z1 = -j * cell, -(j + 1) * cell
+            for c in (((x0, y, z0), (x1, y, z0), (x0, y, z1)),
+                      ((x1, y, z0), (x1, y, z1), (x0, y, z1))):
+                c = tuple((tv.get((p[0], p[2]), p[0]), p[1], p[2]) for p in c)
+                tris.append((c, GRASS, _MAIN_U))
+    tris.append((((36.0, y, -20.0), (40.0, y, -20.0), (36.0, y, -28.0)), GRASS, _MAIN_U))
+    tris.append((((40.0, y, -20.0), (40.0, y, -28.0), (36.0, y, -28.0)), GRASS, _MAIN_U))
+    tris.append((((54.0, y, -54.0), (58.0, y, -54.0), (54.0, y, -58.0)), ROCK, 0.9))
+    return _with_mains_uv(_bm(tris), tris)
+
+
+def test_carve_mountain_pins_tjunction_verts_to_the_host_edge(monkeypatch, tmp_path):
+    """THE T-JUNCTION LERP LAW (the R4 west-seam hairlines): a lattice T-vert -- a
+    position lying colinear inside a neighboring tri's edge -- must land ON the deformed
+    host edge, not at its own IDW lift; the nonlinearity difference is the hairline-slit
+    class. Before the law, this exact carve REFUSED at the apron-slope gate (the
+    mint-hole sliver tipped 86deg toward vertical -- the in-game 1px seam)."""
+    _patch_donor(monkeypatch, _saddle_pyramid_donor())
+    soup = IN.soup_from_blocks({(0, 0): _tjunction_bench()})
+    logs = []
+    res = IN.carve_mountain(soup, center=(26.0, -26.0), alcove=None, gblend=18.0,
+                            game=tmp_path,
+                            log=lambda *a: logs.append(" ".join(map(str, a))))
+    assert any(s.startswith("apron T-junction lerp: 2 ") for s in logs)
+    bm = res["changed"][(0, 0)]
+    yat = {(round(v[0], 3), round(v[2], 3)): v[1] for v in bm.chan_arrays[CH_POS]}
+    for x in (36.0, 40.0):
+        ya, yt, yb = yat[(x, -20.0)], yat[(x + 0.001, -24.0)], yat[(x, -28.0)]
+        # the field really lifted and really is nonuniform here (no vacuous pass)
+        assert abs(ya - 3.2) > 5e-3 and abs(yb - 3.2) > 5e-3 and abs(ya - yb) > 1e-3
+        # THE LAW: the T-vert sits exactly on the deformed host edge (t = 1/2)
+        assert abs(yt - (ya + yb) / 2.0) < 1e-9
 
 
 def test_ground_uv_desert_translation():
