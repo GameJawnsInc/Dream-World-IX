@@ -91,7 +91,7 @@ worktree-parked backup dies with the worktree). Revert = restore the copy. `worl
 
 ---
 
-### R1 — THE BASE CONTINENT ★ deployed, playtest pending
+### R1 — THE BASE CONTINENT ★★ PLAYTEST CONFIRMED (owner, 2026-08-28: "good")
 
 **Verb lines:** none (deployed; command recorded above, all flags verified `cli.py:9127-9213`).
 
