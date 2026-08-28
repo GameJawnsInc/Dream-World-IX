@@ -76,3 +76,24 @@ apron bulge (t0/t1) and broad bank (t4): solved the non-problem H4 · conform sh
 walkable flat rock shelf (H3 violation) · UV strip: paint on flat ground (H3) · foot course alone
 (t5): one course can't fix an 11u shallow run (H3) · face steepen (t6): form destruction, the
 rock-rigid law's own domain. The heuristics above explain every verdict after the fact.
+
+## ADDENDUM — THE ARC WAS NEVER SHALLOW (the instrument correction, same day)
+
+Per-tri measurement of the deployed arc window (all families, 2u height bands): grass lawn (3 deg)
+-> rock49 at p50 45-59 deg CONTINUOUSLY from y 3 to 14 -> the flat bowl terrace at 15. Zero rock
+tris under 33 deg. Every "16-24 deg shoulder" figure in this file's framing (and takes 4-6's
+premises) came from ONE instrument error: rise over RADIAL run across a curving arc — a steep wall
+meandering +-5u in radius reads as a shallow chord. The census's per-tri STOCK numbers (H1, H2, the
+verifier's re-derivations) are unaffected and stand; the census's own "stretch" slopes are composite
+chords of BENCHED profiles and must never be read as face angles. THE LAW: measure a face's angle
+from its triangles, never from ring-radius chords.
+
+What is actually off on the arc vs the owner-passed north face: (a) the apron's 1.1-1.9u grass
+bulge at the foot (the original knoll verdict's subject; H4+H6 say stock stands steep rock BARE on
+flat lawn); (b) THE DOUBLED FRINGE — the arc's chart carries foot/fringe rows (10-11) at the lawn
+contact AND again mid-face (the owner's "mid-cliff ground-to-cliff transition tile"), where the
+north face runs one fringe course then the pale ascending ladder. The heuristics-licensed build:
+kill the apron in the window (the take-5 flat-window mechanism, without the ground rock course) +
+re-align the chart so fringe rows appear only at real contacts (the ladder law), pale courses
+between. Takes 4-6 are falsified at the premise level; the steepen lever carries a falsification
+note in its own right.
