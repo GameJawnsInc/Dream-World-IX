@@ -87,8 +87,33 @@ sizes a burst; correctness never depends on it being right.
 | `warp(id)` | Refuses an unregistered id up front (see below). |
 | `expect_field_change()` / `cross(x,z)` / `find_transitions()` | Field transitions, including sweeping for an **invisible** gateway. ★ Proven: 30820 → 30821, gateway located by sweep. |
 | `wait_control()` / `watch_cutscene()` | Sits through a withheld-control sequence, advancing boxes, returning the transcript. ★ Proven on 30601 (~9.8s, 5 pages, twice). |
+| `open_menu()` / `menu_labels()` / `menu_pick(label)` | Menus driven **by name**, verified against the engine's published highlight. ★ Proven: read the full main menu and picked "Status". |
+| `flag(n)` / `poke(i, v)` / `watch(*n)` / `expect_flag(n)` | `gEventGlobal` story state. ★ Proven: set/clear round trip, neighbours untouched, byte↔bit agreement, survives a field reload. |
 | `recon` / `recon_all` scenarios | Visit fields and photograph them. One launch amortised across every bench. |
 | `diagnose()` | Explains a hang from the engine log instead of from driver symptoms. |
+
+### Menus and story flags (added 2026-08-27)
+
+**Menus are driven by LABEL, never by keypress count.** The agent publishes the highlighted widget
+(`UICamera.selectedObject`, falling back to `hoveredObject`) and the `UILabel` text under it, so
+`menu_pick("Status")` moves until the engine itself says "Status" is highlighted. Counting presses is
+what let the dialogue-choice off-by-one pick the wrong option, and menus are worse — entries get
+reordered by content and hidden by story state, so "three downs" means different things on different
+saves. Read back live on 30801: `Item, Ability, Equip, Status, Order, Card, Form Party, Journal,
+Config`.
+
+⚠ **`ui_state` does not change for menu SUB-screens.** Confirming "Status" enters character select and
+`ui_state` stays `MainMenu`; the tell is `menu_label` becoming a character-name token (`[ZDNE]`).
+Assert on the highlight, not on `ui_state`, inside a menu.
+
+**Story flags round-trip correctly.** `flag`/`poke`/`watch` were written in the first build and never
+exercised until now. Proven on a fresh game: bits start clear, set and clear round-trip, **neighbours
+in the same byte stay untouched** (the check that actually proves the bit math rather than "something
+changed"), a raw byte poke of `0b10000101` decodes to exactly flags 8712/8714/8719 — confirming
+`gEventGlobal[n >> 3]` bit `n & 7` — and the values survive a field reload.
+
+⚠ Allocate from **8712** up. 8512-8711 is stock read-mail payload written a whole byte at a time by
+ordinary play, and 8376-8511 is the MOGNET lock band; either is a live save-corrupter.
 
 ### Measured constants (30801 bench)
 

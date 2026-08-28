@@ -211,7 +211,7 @@ diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/M
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,924 @@
+@@ -0,0 +1,972 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -887,6 +887,7 @@ new file mode 100644
 +
 +            AppendInput(sb); sb.Append(",");
 +            AppendDialog(sb); sb.Append(",");
++            AppendMenu(sb); sb.Append(",");
 +            AppendWatch(sb); sb.Append(",");
 +            AppendHeld(sb);
 +            sb.Append("}");
@@ -956,6 +957,53 @@ new file mode 100644
 +                sb.Append("\"open\":false,\"count\":0,\"texts\":[],\"choice\":null");
 +            }
 +            sb.Append("}");
++        }
++
++        // WHAT IS HIGHLIGHTED. Without this a scenario can move a menu cursor but has no idea where it
++        // landed, so picking "Status" means counting keypresses and hoping -- the same blind-indexing
++        // that already produced a real off-by-one on dialogue choices (asking for option 3 and landing
++        // on the 4th). Publishing the label turns menu navigation into "press down until it says the
++        // thing I want", which is verifiable and survives someone reordering the menu.
++        //
++        // `selectedObject` is NGUI's keyboard/controller focus; `hoveredObject` is what the pointer is
++        // over. Both are reported because FF9 drives some screens through one and some through the
++        // other, and a scenario that assumed either would work only half the time.
++        private void AppendMenu(StringBuilder sb)
++        {
++            sb.Append("\"menu\":{");
++            try
++            {
++                GameObject sel = UICamera.selectedObject;
++                GameObject hov = UICamera.hoveredObject;
++                Str(sb, "selected", sel == null ? null : sel.name); sb.Append(",");
++                Str(sb, "hovered", hov == null ? null : hov.name); sb.Append(",");
++                Str(sb, "label", LabelOf(sel) ?? LabelOf(hov));
++            }
++            catch (Exception)
++            {
++                sb.Append("\"selected\":null,\"hovered\":null,\"label\":null");
++            }
++            sb.Append("}");
++        }
++
++        /// <summary>The visible text of a menu widget: its own UILabel, else the first one beneath it.</summary>
++        private static String LabelOf(GameObject go)
++        {
++            if (go == null)
++                return null;
++            try
++            {
++                UILabel own = go.GetComponent<UILabel>();
++                if (own != null && !String.IsNullOrEmpty(own.rawText))
++                    return own.rawText;
++                foreach (UILabel child in go.GetComponentsInChildren<UILabel>(true))
++                    if (child != null && !String.IsNullOrEmpty(child.rawText))
++                        return child.rawText;
++            }
++            catch (Exception)
++            {
++            }
++            return null;
 +        }
 +
 +        private void AppendWatch(StringBuilder sb)

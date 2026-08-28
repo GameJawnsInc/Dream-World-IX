@@ -152,6 +152,23 @@ class State:
     def held(self) -> list[str]:
         return list(self.raw.get("held", []))
 
+    # -- what is highlighted ----------------------------------------------------------------
+    @property
+    def menu_label(self) -> str | None:
+        """Visible text of the highlighted menu entry, e.g. ``"Status"``.
+
+        The thing that makes menu navigation assertable rather than blind. Without it, picking an
+        entry means counting keypresses -- which is exactly how the dialogue-choice off-by-one
+        silently selected the wrong option.
+        """
+        return self.raw.get("menu", {}).get("label")
+
+    @property
+    def menu_selected(self) -> str | None:
+        """Name of the focused GameObject (NGUI keyboard focus, else pointer hover)."""
+        menu = self.raw.get("menu", {})
+        return menu.get("selected") or menu.get("hovered")
+
     def flag(self, bit: int) -> bool | None:
         """A watched ``gEventGlobal`` bit. ``None`` unless the scenario called ``watch(bit)`` first."""
         return self.raw.get("flags", {}).get(str(bit))

@@ -786,6 +786,84 @@ class Session:
             f"on input this did not send, or has soft-locked. Collected {len(pages)} page(s) so far."
         )
 
+    # -- menus ----------------------------------------------------------------------------------
+    # Driven by LABEL, never by keypress count. Counting is how the dialogue-choice off-by-one
+    # silently picked the wrong option, and a menu is worse: entries are reordered by content changes
+    # and hidden by story state, so "three downs from the top" means different things on different
+    # saves.
+
+    def open_menu(self, *, timeout: float = 15.0) -> State:
+        """Open the field main menu."""
+        if self.state.ui_state == "MainMenu":
+            return self.state
+        self.press("menu", 6)
+        return self.wait_for(lambda s: s.ui_state == "MainMenu", timeout=timeout,
+                             what="the main menu to open")
+
+    def close_menu(self, *, timeout: float = 15.0) -> State:
+        """Back out to the field."""
+        for _ in range(4):
+            if self.state.ui_state == "FieldHUD":
+                return self.state
+            self.press("cancel", 6)
+            self.wait_frames(25)
+        return self.wait_for(lambda s: s.ui_state == "FieldHUD", timeout=timeout,
+                             what="the menu to close")
+
+    def menu_labels(self, *, direction: str = "down", max_steps: int = 30) -> list[str]:
+        """Walk the highlighted entry around the menu, collecting the labels it lands on.
+
+        Discovery rather than assumption: it reports what this menu actually offers on this save,
+        which is also the error message worth having when `menu_pick` cannot find something.
+        """
+        seen: list[str] = []
+        for _ in range(max_steps):
+            label = self.state.menu_label
+            if label:
+                if label in seen:
+                    break                     # wrapped around
+                seen.append(label)
+            self.press(direction, 4)
+            self.wait_frames(10)
+        return seen
+
+    def menu_pick(self, label: str, *, direction: str = "down", max_steps: int = 30,
+                  confirm: bool = True) -> str:
+        """Move the highlight onto `label` (case-insensitive) and confirm it.
+
+        Verifies against the engine's own published highlight at every step, so a cursor that wraps,
+        refuses to move, or starts somewhere unexpected fails loudly instead of confirming whatever
+        happened to be under it.
+        """
+        want = label.strip().lower()
+        seen: list[str] = []
+        stuck = 0
+        for _ in range(max_steps):
+            current = self.state.menu_label
+            if current and current.strip().lower() == want:
+                if confirm:
+                    self.press("confirm", 4)
+                    self.wait_frames(25)
+                return current
+            if current:
+                if seen and seen[-1] == current:
+                    stuck += 1
+                    if stuck >= 3:
+                        raise HarnessError(
+                            f"the menu highlight stopped moving on {current!r} while looking for "
+                            f"{label!r}; seen so far: {seen}"
+                        )
+                else:
+                    stuck = 0
+                    if current in seen:
+                        raise HarnessError(
+                            f"{label!r} is not in this menu -- went all the way round and saw {seen}"
+                        )
+                    seen.append(current)
+            self.press(direction, 4)
+            self.wait_frames(10)
+        raise HarnessError(f"gave up looking for {label!r} after {max_steps} steps; saw {seen}")
+
     # -- talking to things ----------------------------------------------------------------------
     # The narrative axis. These are closed-loop for the same reason movement is: dialogue timing is
     # not a constant. A box appears when the field script decides to show it, pages when the text
