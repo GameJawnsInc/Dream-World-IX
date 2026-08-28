@@ -1050,3 +1050,34 @@ def test_carve_mountain_foot_course_needs_exemplars(monkeypatch, tmp_path):
         IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
                           foot_course_rects=[(0.0, -64.0, 64.0, 0.0)],
                           log=lambda *a: None)
+
+
+def test_carve_mountain_foot_course_steepen(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _r10_saddle_donor())
+
+    def base_radius(res):
+        cx2, cz2 = res["center"]
+        bm = res["changed"][(0, 0)]
+        pos, tan = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN]
+        r = 0.0
+        for tri in bm.tris:
+            if tan[tri[0]][0] != MASSIF or not any(pos[i][1] > 6.0 for i in tri):
+                continue                                   # only the carried pyramid faces
+            for i in tri:
+                if pos[i][1] < 5.0:
+                    r = max(r, math.hypot(pos[i][0] - cx2, pos[i][2] - cz2))
+        return r
+
+    soup0 = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    res0 = IN.carve_mountain(soup0, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                             foot_course_rects=[(0.0, -64.0, 64.0, 0.0)],
+                             log=lambda *a: None)
+    soup1 = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    res1 = IN.carve_mountain(soup1, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                             foot_course_rects=[(0.0, -64.0, 64.0, 0.0, 2.0)],
+                             log=lambda *a: None)
+    assert res0["center"] == res1["center"]
+    # the pull drags the base toward the centre (full at lawn height); the apex, near
+    # TOP, barely moves -- the face steepens
+    assert base_radius(res0) - base_radius(res1) > 1.2
+    assert res1["report"]["peak_y"] == pytest.approx(res0["report"]["peak_y"], abs=1e-6)

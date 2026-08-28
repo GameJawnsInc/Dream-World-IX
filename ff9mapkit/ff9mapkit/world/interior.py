@@ -1645,9 +1645,71 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     ground_med = float(np.median(near_ys))
     DY = ground_med - rim_med
 
+    # THE FOOT-COURSE WINDOW (2026-08-28, R4 takes 5-6): inside a window rect the
+    # ground stays FLAT (its rim nodes leave the apron field; outside contributions
+    # feather smoothly), the zip annulus emits as a synthetic ROCK FOOT COURSE (the
+    # spur-graft class, massif_spur.py in-game proven), and an optional PULL steepens
+    # the carried flank -- horizontal displacement toward the massif centre, full at
+    # lawn height fading to zero at TOP. A donor face can be low-angle because its
+    # HOME context hides it (forest at the base, rolling foothill); torn onto a flat
+    # lawn it reads as walkable ground. The steepen is a DELIBERATE, gated, window-
+    # scoped exception to THE ROCK-RIGID LAW, applied as a pure function of world
+    # position at EVERY donor-to-world transform site (carried verts, rim nodes,
+    # rim_poly, plugs, conform ring, ensemble aux) so welds and downstream geometry
+    # (hole, zip, apron) stay consistent by construction. Spec per rect:
+    # (x0,z0,x1,z1[,pull[,top]]). ``None`` = byte-identical legacy behavior.
+    fc_rects = None
+    fc_specs = []
+    if foot_course_rects:
+        fc_rects = []
+        for _r in foot_course_rects:
+            _rc = (min(_r[0], _r[2]), min(_r[1], _r[3]),
+                   max(_r[0], _r[2]), max(_r[1], _r[3]))
+            fc_rects.append(_rc)
+            # feather only the INNER edges (the ones the massif centre lies beyond --
+            # carried rock continues across them and must blend); an outer edge faces
+            # open lawn where the rock terminates, and feathering it just starves the
+            # pull (a ~25u window with 12u feather on all four edges has no core)
+            _inner = (TX < _rc[0], TZ < _rc[1], TX > _rc[2], TZ > _rc[3] or TZ == _rc[3])
+            fc_specs.append((_rc, float(_r[4]) if len(_r) > 4 else 0.0,
+                             float(_r[5]) if len(_r) > 5 else ground_med + 12.0, _inner))
+
+    def _in_fc(x, z):
+        return fc_rects is not None and any(
+            r[0] <= x <= r[2] and r[1] <= z <= r[3] for r in fc_rects)
+
+    fc_steep_moved = set()
+
+    def _fc_steep(w):
+        best = 0.0
+        for _rc, _pull, _top, _inner in fc_specs:
+            if _pull <= 0.0 or w[1] >= _top or not (
+                    _rc[0] <= w[0] <= _rc[2] and _rc[1] <= w[2] <= _rc[3]):
+                continue
+            # feather over 12u: the pull gradient must stay under ~0.7u per plan-u or
+            # it exceeds shallow tris' own extent at the window ends and folds them
+            _eds = [e for e, on in zip((w[0] - _rc[0], w[2] - _rc[1],
+                                        _rc[2] - w[0], _rc[3] - w[2]), _inner) if on]
+            _g = max(0.0, min(1.0, min(_eds) / 12.0)) if _eds else 1.0
+            _f = max(0.0, min(1.0, (_top - w[1]) / max(1e-6, _top - ground_med)))
+            best = max(best, _pull * _f * _g)
+        if best <= 1e-9:
+            return w
+        _dx, _dz = TX - w[0], TZ - w[2]
+        _L = math.hypot(_dx, _dz) or 1.0
+        out = [w[0] + best * _dx / _L, w[1], w[2] + best * _dz / _L]
+        fc_steep_moved.add((round(out[0], 3), round(out[2], 3)))
+        return out
+
     def carry_vert(i):
         pr = rot_pt(dV2[i], ROT)
-        return [pr[0] + DX, pr[1] + DY, pr[2] + DZ]
+        return _fc_steep([pr[0] + DX, pr[1] + DY, pr[2] + DZ])
+
+    if any(s[1] > 0 for s in fc_specs):
+        # the footprint must match the steepened rim or the hole/zip span the OLD one
+        rim_poly = [(_w2[0], _w2[2]) for _w2 in (
+            _fc_steep([pr[0] + DX, pr[1] + DY, pr[2] + DZ])
+            for pr in (rot_pt(detilt_p(q), ROT) for q in rim))]
 
     # NOTE: rim_nodes iterates rim_set (a set) -- CPython's set order is deterministic
     # for identical insertion sequences of identical (numeric-tuple) values, and the
@@ -1656,7 +1718,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     rim_nodes = []                                         # (x, z, RIGID rim height)
     for p in rim_set:
         pr = rot_pt(detilt_p(p), ROT)
-        rim_nodes.append((pr[0] + DX, pr[2] + DZ, pr[1] + DY))
+        _w2 = _fc_steep([pr[0] + DX, pr[1] + DY, pr[2] + DZ])
+        rim_nodes.append((_w2[0], _w2[2], _w2[1]))
     log(f"rigid rim heights: [{min(n[2] for n in rim_nodes):.2f},"
         f"{max(n[2] for n in rim_nodes):.2f}] vs ground med {ground_med:.2f} "
         f"(the grass apron absorbs the difference over {gblend}u)")
@@ -1681,23 +1744,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         for _r in list(apertures or []) + list(ensemble_apertures or []):
             for _p in _r:
                 _pr = rot_pt(detilt_p(_p), ROT)
-                _conform_ring_pts.append((_pr[0] + DX, _pr[1] + DY, _pr[2] + DZ))
+                _conform_ring_pts.append(tuple(_fc_steep(
+                    [_pr[0] + DX, _pr[1] + DY, _pr[2] + DZ])))
         rim_nodes = [(x, z, min(hy, cap_y)) for (x, z, hy) in rim_nodes]
-    # THE FOOT-COURSE WINDOW (2026-08-28, R4 take-5): inside a window rect the ground
-    # stays FLAT (its rim nodes leave the apron field; outside contributions still
-    # feather smoothly across the window edge) and the zip annulus there emits as a
-    # synthetic ROCK FOOT COURSE (below) instead of a grass bank -- the spur-graft
-    # class (massif_spur.py, in-game proven), for a donor arc whose high foot has
-    # nothing below it (its home context hid the base). ``None`` = legacy bytes.
-    fc_rects = None
-    if foot_course_rects:
-        fc_rects = [(min(r[0], r[2]), min(r[1], r[3]), max(r[0], r[2]), max(r[1], r[3]))
-                    for r in foot_course_rects]
-
-    def _in_fc(x, z):
-        return fc_rects is not None and any(
-            r[0] <= x <= r[2] and r[1] <= z <= r[3] for r in fc_rects)
-
     lift_nodes = rim_nodes
     if fc_rects:
         lift_nodes = [n for n in rim_nodes if not _in_fc(n[0], n[1])]
@@ -1970,7 +2019,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
 
         def carry_pt(p):
             pr = rot_pt(detilt_p(p), ROT)
-            return [pr[0] + DX, pr[1] + DY, pr[2] + DZ]
+            return _fc_steep([pr[0] + DX, pr[1] + DY, pr[2] + DZ])
 
         collar = [t for t in blob if dtopo[t] in ROCK
                   and any(kk3(dV[i]) in ap_pts for i in dtri[t])]
@@ -2458,13 +2507,15 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     for e in inner_once[:6]:
         log(f"  NEW ONCE EDGE: {e[0]} -- {e[1]}")
     worst_rig = 0.0                                        # THE ROCK-RIGID GATE
+    _rig_exempt = adj_xz | fc_steep_moved
     for t in list(blob) + list(sweep):
         tri = dtri[t]
         for a, b in ((0, 1), (1, 2), (2, 0)):
-            if adj_xz and (
-                    (round(carried[t][a][0], 3), round(carried[t][a][2], 3)) in adj_xz
-                    or (round(carried[t][b][0], 3), round(carried[t][b][2], 3)) in adj_xz):
-                continue                                   # the deliberate high-foot conform
+            if _rig_exempt and (
+                    (round(carried[t][a][0], 3), round(carried[t][a][2], 3)) in _rig_exempt
+                    or (round(carried[t][b][0], 3),
+                        round(carried[t][b][2], 3)) in _rig_exempt):
+                continue                         # the deliberate conform / face steepen
             d0 = float(np.linalg.norm(dV[tri[a]] - dV[tri[b]]))
             if d0 > 0.05:
                 worst_rig = max(worst_rig,
@@ -2532,11 +2583,27 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     if nm_ != "Terrain" or tp not in ROCK:
         raise ValueError(f"carried peak grounds on {nm_} topo {tp}, want carried rock")
     r_out = max(math.hypot(px - TX, pz - TZ) for (px, pz) in rim_poly) + 4.0
-    gy2, nm2, _, tp2 = P.place(_wml, TX - r_out, TZ)
-    log(f"ground probe west of the rim: y={gy2:.2f} {nm2} topo {tp2}")
-    if nm2 != "Terrain" or tp2 != g_topo:
-        raise ValueError(f"west ground probe grounds on {nm2} topo {tp2}, want plain "
-                         f"ground topo {g_topo}")
+    _probe_pt = (TX - r_out, TZ)
+    if fc_rects:
+        # a foot-course window puts lawful ROCK just outside the rim -- probe the
+        # nearest surround point outside every window (span-bounded); a window set
+        # covering the whole surround leaves nothing to check
+        _cands = [(TX + rr * math.cos(th), TZ + rr * math.sin(th))
+                  for rr in (r_out, r_out + 2.0, r_out + 4.0, r_out + 6.0)
+                  for th in (math.pi, 0.0, math.pi / 2, -math.pi / 2,
+                             3 * math.pi / 4, -3 * math.pi / 4, math.pi / 4,
+                             -math.pi / 4)]
+        _probe_pt = next((c for c in _cands if not _in_fc(c[0], c[1])
+                          and SPX0 + 1.0 < c[0] < SPX1 - 1.0
+                          and SPZ0 + 1.0 < c[1] < SPZ1 - 1.0), None)
+    if _probe_pt is None:
+        log("plain-ground probe SKIPPED (foot-course windows cover the surround)")
+    else:
+        gy2, nm2, _, tp2 = P.place(_wml, _probe_pt[0], _probe_pt[1])
+        log(f"ground probe outside the rim: y={gy2:.2f} {nm2} topo {tp2}")
+        if nm2 != "Terrain" or tp2 != g_topo:
+            raise ValueError(f"outside-rim ground probe grounds on {nm2} topo {tp2}, "
+                             f"want plain ground topo {g_topo}")
 
     _atlas_gate_mountain(new_parents, game=game, log=log)
 
@@ -2604,7 +2671,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                         for i in ptri[t]:
                             if i not in tv:
                                 pr = rot_pt(detilt_p(pV[i]), ROT)
-                                tv[i] = (pr[0] + DX, pr[1] + DY, pr[2] + DZ)
+                                tv[i] = tuple(_fc_steep(
+                                    [pr[0] + DX, pr[1] + DY, pr[2] + DZ]))
                                 _nk = kk3(tv[i])
                                 if _nk in rim_adjust:      # the high-foot conform's weld
                                     tv[i] = (tv[i][0], rim_adjust[_nk], tv[i][2])

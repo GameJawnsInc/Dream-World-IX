@@ -4880,8 +4880,9 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
             fc_rects = []
             for spec in args.foot_course:
                 parts = [float(x) for x in spec.split(",")]
-                if len(parts) != 4:
-                    raise SystemExit(f"--foot-course wants X0,Z0,X1,Z1 (got {spec!r})")
+                if len(parts) not in (4, 5, 6):
+                    raise SystemExit(f"--foot-course wants X0,Z0,X1,Z1[,PULL[,TOP]] "
+                                     f"(got {spec!r})")
                 fc_rects.append(tuple(parts))
         res = IN.carve_mountain(soup, max_apron_lift=args.max_apron_lift,
                                 gblend=args.gblend if args.gblend is not None else IN.MTN_GBLEND,
@@ -9316,13 +9317,17 @@ def build_parser() -> argparse.ArgumentParser:
                           "crease instead of minting a grass knoll against mid-wall (the R4 west-seam "
                           "defect). DOWN-only; aperture/ensemble columns exempt. Default: no cap (the "
                           "frozen identity baselines' behavior).")
-    wmt.add_argument("--foot-course", action="append", default=None, metavar="X0,Z0,X1,Z1",
+    wmt.add_argument("--foot-course", action="append", default=None,
+                     metavar="X0,Z0,X1,Z1[,PULL[,TOP]]",
                      help="world rect (repeatable) where the massif gets a synthetic ROCK "
                           "FOOT COURSE instead of a grass apron: rim nodes inside the rect "
                           "leave the apron field (the lawn stays flat) and the zip annulus "
                           "there emits as blocked topo-49 r10-tile rock, fringe pinned at "
-                          "the lawn line (the spur-graft class, in-game proven). For a "
-                          "donor arc whose high foot has nothing below it.")
+                          "the lawn line (the spur-graft class, in-game proven). Optional "
+                          "PULL steepens the carried flank inside the rect: horizontal pull "
+                          "toward the massif centre in units, full at lawn height fading to "
+                          "zero at TOP (default lawn+12) -- for a donor face that is "
+                          "low-angle because its home context hides it.")
     wmt.add_argument("--gblend", type=float, default=None, metavar="U",
                      help="ground-apron blend reach in units (default 12.0, the proven hill-at-scale "
                           "value): how far out from the rigid rim the grass apron spreads its rise. "

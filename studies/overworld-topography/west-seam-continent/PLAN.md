@@ -229,7 +229,17 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > offline-eye-caught + measured), |dev| v so FREE-BASE dips shade rock downward. footCourse=14
 > fcNyMin=0.60 (~53°); grass-zip envelope cleaner than every prior take (0/143 banks); stamp+probe
 > a–e green; parity 306/306; seam weld set-identical; hermetic tests 30 green (2 new).
-> **★ DEPLOYED (take 5), awaiting the arc re-walk.** Original deploy note: All gates CLEAN on
+> Take 5 walked: "still flat" -- the foot course is 1-2u; the FLANK ABOVE is the flat thing
+> (measured: 27.7 deg least-squares over 14.5u plan run -- stock walls run ~51 deg median).
+> **Take 6 = THE FACE STEEPEN**: `--foot-course` grew an optional PULL (X0,Z0,X1,Z1[,PULL[,TOP]]) --
+> a window-scoped, gated exception to ROCK-RIGID: horizontal pull toward the massif centre, full at
+> lawn height fading to zero at TOP (lawn+12), applied as a pure function of world position at every
+> donor-to-world transform site so rim/hole/zip/welds derive consistently. Fold safety: 12u feather
+> on INNER edges only (all-edge feather starved the pull -- a 25u window has no core; outer edges
+> face open lawn), pull gradient <= ~0.7/u (down-winding gate finds the ceiling: PULL 8 folds 15
+> tris, 6 folds none). Deployed PULL=6: central chord 27.7 -> 45.5 deg, footCourse=17 fcNyMin=0.52,
+> all gates green, stamp+probe a-e, parity 306/306, seam weld OK, tests 31 green.
+> **★ DEPLOYED (take 6), awaiting the arc re-walk.** Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
 > `--near`), 9 blocks, 713 donor tris + 143 zip + THE ENSEMBLE CARRY (122 Falls/River/RiverJoint/
 > Object tris on span (22,7)-(23,8), `Donor.txt` → (5,15)), peak y 30.87, rock rigidity 0.8%,
