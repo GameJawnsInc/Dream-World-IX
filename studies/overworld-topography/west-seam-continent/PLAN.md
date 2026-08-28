@@ -108,7 +108,10 @@ overrides (the mint is additive over open ocean; the MOD-OVERWRITE GATE protecte
 
 ### R2 — THE LANDING + THE NAME (east bay; WARN-independent)
 
-> **★ DEPLOYED 2026-08-28 (awaiting THE ONE RELAUNCH + the cold-start playtest).** Execution
+> **★★ PLAYTEST CONFIRMED 2026-08-28 (owner, cold start): all seven checks good** — ferry row,
+> voyage, west-facing arrival, "?"→Confirm→interior, walk-out, on-foot state + the Farshore plate +
+> the world map (owner notes the map "might still be offset" — investigated below), save/reload.
+> Original deploy note: Execution
 > errata vs the recipe below, found by the drafting pass and applied: (1) the WORLD11 departure
 > director's port table is positional with LAST-ROW DEFAULT, so `depart_code 5` had to land in the
 > director BEFORE the hall — `rung3c_origin_departure.py` gained the port-5 rows (anchor tag 67;
