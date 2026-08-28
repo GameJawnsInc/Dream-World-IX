@@ -1,0 +1,102 @@
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+index fb7641b..7c37f32 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -93,7 +93,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+     private String _batchName = "";
+     private struct FlagBatch { public String Name; public String Ops; }
+     private readonly List<FlagBatch> _batches = new List<FlagBatch>();
+-    // One parsed batch op. Kind: 0 = bit (Value 0/1), 1 = byte (0-255), 2 = 16-bit word LE (0-65535).
++    // One parsed batch op. Kind: 0 = bit (Value 0/1), 1 = byte (0-255), 2 = 16-bit word LE (0-65535),
++    // 3 = key item by important id (Value 1 grant / 0 remove) -- so a preset can carry e.g. the World Map.
+     private struct FlagOp { public Int32 Kind; public Int32 Index; public Int32 Value; }
+     private String _itemText = "236";       // a Potion, by default
+     private String _itemCountText = "1";
+@@ -1047,7 +1048,11 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         if (GUILayout.Button("Save preset", _button, GUILayout.Width(108f)))
+             SaveBatchPreset();
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("Ops: 1520 sets a bit, !1423 (or 1423=0) clears it, b191=5 writes a byte, w0=7200 writes a 16-bit word. Space/comma separated.", _hint);
++        GUILayout.Label("Ops: 1520 sets a bit, !1423 (or 1423=0) clears it, b191=5 writes a byte, w0=7200 writes a 16-bit word, k9 grants key item 9 (World Map; !k9 removes). Space/comma separated.", _hint);
++        // [ff9mapkit] One BUILT-IN preset: the map key items (8 Continental, 9 World) gate the Select
++        // large-map view, so a scratch-bench save can check it without an offline `ff9mapkit keyitem` edit.
++        if (GUILayout.Button("* World map key items (k8 k9)", _row))
++            ApplyFlagBatch("k8 k9");
+         for (Int32 i = 0; i < _batches.Count; i++)
+         {
+             FlagBatch fb = _batches[i];
+@@ -2332,7 +2337,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+     // [ff9mapkit] Parse a whole batch string into ops -- PURELY syntactic, no game state touched. Tokens are
+     // space/comma separated, case-insensitive:  <n> / <n>=1  set bit n  ·  !<n> / <n>=0  clear bit n  ·
+-    // b<i>=<v>  write byte i (0-255)  ·  w<i>=<v>  write the 16-bit LE word at byte i (0-65535).
++    // b<i>=<v>  write byte i (0-255)  ·  w<i>=<v>  write the 16-bit LE word at byte i (0-65535)  ·
++    // k<i> / !k<i>  grant/remove key item i by IMPORTANT id (8 Continental Map, 9 World Map; == item 256+i).
+     // Returns false + a message naming the FIRST bad token; the caller applies nothing on failure.
+     private static Boolean TryParseFlagOps(String text, List<FlagOp> ops, out String err)
+     {
+@@ -2346,9 +2352,10 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             if (body.StartsWith("!", StringComparison.Ordinal)) { negate = true; body = body.Substring(1); }
+             if (body.StartsWith("b", StringComparison.Ordinal)) { kind = 1; body = body.Substring(1); }
+             else if (body.StartsWith("w", StringComparison.Ordinal)) { kind = 2; body = body.Substring(1); }
+-            if (negate && kind != 0)
++            else if (body.StartsWith("k", StringComparison.Ordinal)) { kind = 3; body = body.Substring(1); }
++            if (negate && kind != 0 && kind != 3)
+             {
+-                err = "'" + raw + "': ! only applies to a bit op";
++                err = "'" + raw + "': ! only applies to a bit or key-item op";
+                 return false;
+             }
+             String idxPart = body, valPart = null;
+@@ -2363,17 +2370,22 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             {
+                 // Name the grammar in the error: the user-hit failure was typing an op NAME ("word:1060=0"),
+                 // which parses as 'w' + junk -- a bare "bad index" gave no way to discover the real syntax.
+-                err = "'" + raw + "': bad index. ops: <n> set bit, !<n> clear bit, b<i>=<v> byte, w<i>=<v> word";
++                err = "'" + raw + "': bad index. ops: <n> set bit, !<n> clear bit, b<i>=<v> byte, w<i>=<v> word, k<i> key item";
++                return false;
++            }
++            if (kind == 3 && idx > 255)
++            {
++                err = "'" + raw + "': key item id must be 0-255 (8 Continental Map, 9 World Map)";
+                 return false;
+             }
+             if (valPart == null)
+-                val = kind == 0 ? (negate ? 0 : 1) : -1;
++                val = kind == 0 || kind == 3 ? (negate ? 0 : 1) : -1;
+             else if (!Int32.TryParse(valPart, out val) || (negate && val != 0))
+             {
+                 err = "'" + raw + "': bad value";
+                 return false;
+             }
+-            Int32 max = kind == 0 ? 1 : (kind == 1 ? 255 : 65535);
++            Int32 max = kind == 0 || kind == 3 ? 1 : (kind == 1 ? 255 : 65535);
+             if (val < 0 || val > max)
+             {
+                 err = "'" + raw + "': value must be 0-" + max + (kind == 0 ? " (bits: use b<i>=<v> for bytes)" : "");
+@@ -2408,6 +2420,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         }
+         foreach (FlagOp op in ops)
+         {
++            if (op.Kind == 3)                            // key items live in rare_item_obtained, not gEventGlobal
++                continue;
+             Int32 last = op.Kind == 0 ? (op.Index >> 3) : (op.Kind == 1 ? op.Index : op.Index + 1);
+             if (last >= g.Length)
+             {
+@@ -2424,11 +2438,15 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             }
+             else if (op.Kind == 1)
+                 g[op.Index] = (Byte)op.Value;
+-            else
++            else if (op.Kind == 2)
+             {
+                 g[op.Index] = (Byte)(op.Value & 0xFF);
+                 g[op.Index + 1] = (Byte)(op.Value >> 8);
+             }
++            else if (op.Value != 0)                      // key item: the same state the ITEMADD (0x48) grant path writes
++                ff9item.FF9Item_AddImportant(op.Index);
++            else
++                ff9item.FF9Item_RemoveImportant(op.Index);
+         }
+         SaveBatches();                                   // remember the live text that worked
+         _status = "batch: " + ops.Count + " op" + (ops.Count == 1 ? "" : "s") + " applied";
