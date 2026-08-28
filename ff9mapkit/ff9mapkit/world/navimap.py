@@ -390,7 +390,13 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
         bm = M.blockmesh_from_ff9mesh(p, disc=rtarget, x=bx, y=by, lod=lod, part="terrain")
         ox, oz = 64.0 * bx, -64.0 * by
         for tri in bm.tris:
-            pts = [to_px(bm.verts[i][0] + ox, bm.verts[i][2] + oz) for i in tri]
+            # the block ORIGIN is already a wrapped label (<=1472), so wx = ox + local stays in
+            # [0,1536] and needs NO further fold -- to_px's per-vertex _wrap_world would fold a
+            # vert at exactly x=1536 to 0 and smear a seam block's polygon across the whole
+            # chart. x=1536 maps to the art rect's right edge; a seam landmass then draws split
+            # at the chart edges, which is exactly how the engine's own minimap unrolls a torus.
+            pts = [(x0 + ((bm.verts[i][0] + ox) / ext_x) * (x1 - x0),
+                    y0 + ((-(bm.verts[i][2] + oz)) / ext_z) * (y1 - y0)) for i in tri]
             polys.append(pts)
             n_tris += 1
     for pts in polys:                       # rim pass: a 1px outline under the fills

@@ -1635,3 +1635,38 @@ a new degree of freedom scores it against assumptions it never made.)
 un-warned. They are in the same in-place class as the interior verbs, but neither blanks a part it
 did not read, so there is no analogue of the `ENSEMBLE_PART` hazard to name — if one is ever found,
 the warn belongs there too, never a refusal.
+
+## THE SEAM-WRAP GAP CLOSED (★ 2026-08-27) — the composed-world arc's named unblock
+
+`world-island` can now mint across the x-seam. Ground truth first, from the Memoria source: the
+overworld is an x-torus — `WMWorld.Wrap` shifts the whole world in 64u steps (blocks AND actors,
+net-zero), block identity is only ever the wrapped `InitialX` ∈ [0,24), adjacency is screen-slot
+based, and **nothing anywhere special-cases columns 23|0** — so a seam-straddling landmass is
+engine-legal, walkable and raycast-able. (z wraps identically engine-side; edged-z stays kit
+policy.) A `Block[-1]`/`Block[24]` file is DEAD — the engine can never build that lookup key.
+
+**The rule the fix enforces:** anything reasoning about the mint's own geometry runs UNWRAPPED
+(build, verify, texgates, sea-plan adjacency, the census — a seam landmass is contiguous only in
+that frame); anything touching the install/engine namespace runs WRAPPED (the OPEN-OCEAN and
+MOD-OVERWRITE gates — both passed VACUOUSLY on unwrapped seam keys, the dunes-class hole, engine
+edition — plus every deploy/sidecar/stamp/mirror identity). The wrap point is the deploy stage of
+`landmass()`; block-locals against the unwrapped key are bit-identical to the wrapped frame
+because 24·64 = the 1536u world width. Centres canonicalize mod 1536 (cx and cx+1536 name one
+site but mint different relief/mains phases). Coastnav distances went toroidal (`_tdx` = the
+engine's own `ff9.PosDiff` shape) — the standoff belt was silently blind across the seam for ANY
+coast within 18u of columns 0/23, a latent bug independent of minting. `rimretile` + the interior
+relief verbs refuse seam-spanning inputs loudly (toroidalizing them = a follow-on rung).
+
+**Proven:** 15 hermetic tests (break-it: disabling the wrap point turns exactly the three
+wrap-dependent tests red) + an end-to-end dry-run on the live install — an r20 islet at (8,−240)
+builds/verifies clean and reports wrapped blocks {23,0}×{3,4}. En route, the r96 seed-137 attempt
+reached block (1,1) and **THE MOD-OVERWRITE GATE refused it live, naming the R4 bench's 36
+files** — its first production catch. The recorded seed-31 r96 command still trips `grass_over_8u`
+(the known large-radius mint-robustness gap, a separate rung; the horseshoe study recorded the
+same class at r69).
+
+**Still open for the (48,−240) continent:** the canvas tooling's offseam cap (`canvas_census.py`
+`free_space_sweep`) must be lifted so seam sites become visible to siting (the arc's next step,
+studies side); the ocean-severance flood-fill re-check; large-radius mint robustness; owner
+ratification (the design's open question 4, still unanswered); and the first in-game seam-walk
+playtest — no seam-straddling LAND has ever been playtested, only sailed wrapwater.

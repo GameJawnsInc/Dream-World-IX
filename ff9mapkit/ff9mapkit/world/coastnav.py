@@ -229,8 +229,8 @@ def _cell_grounds(loader, bx, by):
         x += STEP_G
     lows, highs = [], []
     for gx, gz, gy in raw:
-        near_hi = any(abs(gx - px) <= LOCALE_R and abs(gz - pz) <= LOCALE_R
-                      and math.hypot(gx - px, gz - pz) <= LOCALE_R and py >= LOCALE_HIGH_Y
+        near_hi = any(abs(_tdx(gx, px)) <= LOCALE_R and abs(gz - pz) <= LOCALE_R
+                      and math.hypot(_tdx(gx, px), gz - pz) <= LOCALE_R and py >= LOCALE_HIGH_Y
                       for px, pz, py in raw)
         (highs if near_hi else lows).append((gx, gz))
     return lows, highs
@@ -254,15 +254,23 @@ def _tri_dist2d(px, pz, a, b, c):
     return best
 
 
+def _tdx(a, b):
+    """Toroidal x-delta on the 1536u world: the SHORTEST signed a-b, exactly the engine's own
+    ff9.PosDiff. Ground points are stored folded (x % WORLD_W), so a plain ``a - b`` across the
+    x-seam reads ~1534u where the engine walks 2u -- which silently blinded the standoff belt,
+    the locale classifier and the fringe test for any coast within 18u of columns 0/23."""
+    return (a - b + WORLD_W / 2.0) % WORLD_W - WORLD_W / 2.0
+
+
 def _locale_of(px, pz, lows, highs):
     """LOCALE of the ground nearest a probe point: True=high / False=low / None if none near."""
     px %= WORLD_W
     best_d, best_cls = 7.0, None
     for cls, pts in ((True, highs), (False, lows)):
         for gx, gz in pts:
-            if abs(px - gx) >= best_d or abs(pz - gz) >= best_d:
+            if abs(_tdx(px, gx)) >= best_d or abs(pz - gz) >= best_d:
                 continue
-            d = math.hypot(px - gx, pz - gz)
+            d = math.hypot(_tdx(px, gx), pz - gz)
             if d < best_d:
                 best_d, best_cls = d, cls
     return best_cls
@@ -351,13 +359,18 @@ def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-any
                         return True if g[2] >= HIGH_Y else bool(_locale_of(px, pz, lows, highs))
                     cls = KEEL if any(is_high(*gr) for gr in grounded) else BEACH
                 else:
-                    ta, tb, tc = [((verts[vi][0] + ox) % WORLD_W, verts[vi][2] + oz) for vi in tri]
                     cxm = cx % WORLD_W
+                    # bring each tri vert into the probe's OWN frame (cxm + shortest delta):
+                    # a per-vertex fold would tear a seam-spanning tri into a 1536u sliver,
+                    # and plain deltas read ~1534u where the engine walks 2u
+                    ta, tb, tc = [(cxm + _tdx((verts[vi][0] + ox) % WORLD_W, cxm),
+                                   verts[vi][2] + oz) for vi in tri]
                     reach = BELT_R + max(math.hypot(cxm - p[0], cz - p[1]) for p in (ta, tb, tc))
-                    hug = any(math.hypot(cxm - gx, cz - gz) <= reach
-                              and _tri_dist2d(gx, gz, ta, tb, tc) <= BELT_R for gx, gz in highs)
-                    near_low = any(math.hypot(cxm - gx, cz - gz) <= FRINGE_R for gx, gz in lows)
-                    near_high = any(math.hypot(cxm - gx, cz - gz) <= FRINGE_R for gx, gz in highs)
+                    hug = any(math.hypot(_tdx(cxm, gx), cz - gz) <= reach
+                              and _tri_dist2d(cxm + _tdx(gx, cxm), gz, ta, tb, tc) <= BELT_R
+                              for gx, gz in highs)
+                    near_low = any(math.hypot(_tdx(cxm, gx), cz - gz) <= FRINGE_R for gx, gz in lows)
+                    near_high = any(math.hypot(_tdx(cxm, gx), cz - gz) <= FRINGE_R for gx, gz in highs)
                     if hug:
                         cls = BELT
                     elif policy == "cliffs-refuse" and near_high and not near_low:

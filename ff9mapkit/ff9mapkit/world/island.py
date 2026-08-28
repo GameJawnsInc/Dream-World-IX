@@ -556,20 +556,36 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
 
     by_block = _split_at_borders(parent)
 
-    # THE GRID-BOUNDS GATE (2026-07-21, the dunes off-grid incident): the engine's world is a
-    # FIXED 24x20 block grid (mesh.GRID_COLS/ROWS <- WMWorld.BuildBlockArray new WMBlock[24,20]);
-    # a landmass whose footprint spills off the map streams NOTHING there, so those per-block
-    # overrides are dead files -- and the OPEN-OCEAN TARGET check in landmass() is VACUOUSLY TRUE
-    # off the edge (no mesh assets, because there is no map), so it can't catch this. Refuse here,
-    # before building a single BlockMesh, naming every off-grid block.
-    off_grid = sorted(blk for blk in by_block if not M.block_in_grid(blk[0], blk[1]))
-    if off_grid:
+    # THE GRID-BOUNDS GATE, seam-aware since 2026-08-27 (was: 2026-07-21, the dunes off-grid
+    # incident). ROWS stay EDGED: overrides on rows outside 0..19 are dead files and every census
+    # there is vacuously clean -- the dunes refusal is unchanged. COLUMNS now WRAP: the engine's
+    # world is an x-torus (WMWorld.Wrap shifts the whole world in 64u steps mod 1536; block
+    # identity is only ever the wrapped InitialX in [0,24)), so an unwrapped column -1 is a lawful
+    # mint into column 23 -- THE SEAM-WRAP GAP the composed-world judge named as the unblock for
+    # the (48,-240) pocket. Keys stay UNWRAPPED through build+verify (texgates' world-coord
+    # round-trip, sea-plan adjacency-by-key-increment, and the census centre check all need the
+    # continuous frame); the label wraps once, at the deploy stage in landmass(). The engine
+    # invariant that remains: exactly ONE Terrain mesh per wrapped cell, so two distinct unwrapped
+    # columns colliding on one wrapped label (footprint >= 24 columns = the whole 1536u world)
+    # must refuse.
+    off_rows = sorted(blk for blk in by_block if not (0 <= blk[1] < M.GRID_ROWS))
+    if off_rows:
         raise ValueError(
             f"landmass footprint {sorted(by_block)} spills OFF the {M.GRID_COLS}x{M.GRID_ROWS} "
-            f"overworld block grid at {off_grid} (cols 0..{M.GRID_COLS - 1}, rows 0..{M.GRID_ROWS - 1}; "
-            f"world x 0..{M.GRID_WORLD_X_MAX}, z 0..{M.GRID_WORLD_Z_MIN}). The engine never streams "
-            f"off-grid cells. Shift center=({cx:.0f},{cz:.0f}) / base_radius={base_radius} so every "
-            f"touched block is on the map.")
+            f"overworld block grid at rows {sorted({b[1] for b in off_rows})} (rows 0..{M.GRID_ROWS - 1}; "
+            f"world z 0..{M.GRID_WORLD_Z_MIN}). The engine never streams off-grid rows (z wraps "
+            f"engine-side, but edged-z is kit policy). Shift center=({cx:.0f},{cz:.0f}) / "
+            f"base_radius={base_radius} so every touched block is on the map.")
+    label_owner = {}
+    for ublk in sorted(by_block):
+        lab = (M.wrap_block_col(ublk[0]), ublk[1])
+        prev = label_owner.setdefault(lab, ublk)
+        if prev != ublk:
+            raise ValueError(
+                f"landmass footprint wraps onto itself: unwrapped columns {prev[0]} and "
+                f"{ublk[0]} both land on wrapped cell {lab} -- the footprint spans >= "
+                f"{M.GRID_COLS} columns (the whole 1536u world). One Terrain mesh per cell is "
+                f"an engine invariant (WMWorldPrefabMaker); shrink base_radius={base_radius}.")
 
     # per-block BlockMesh in block-LOCAL coordinates, with globally-smoothed welded normals
     gpos, gtris, gmeta = [], [], []                      # the split soup, still in world coords
@@ -826,11 +842,13 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
 
 # --------------------------------------------------------------------------- deploy
 
-def _part_blockmesh(part, blk, tris, disc):
+def _part_blockmesh(part, blk, tris, disc, label_x=None):
     """World-frame ``[(pos, nrm, uv, tan) x3]`` tris -> a block-local BlockMesh
-    (the beach's Sea1/Sea2/Sea5/Beach1 parts)."""
+    (the beach's Sea1/Sea2/Sea5/Beach1 parts). ``blk`` is the UNWRAPPED key the local conversion
+    runs against; ``label_x`` (default: ``blk[0]``) is the wrapped column the identity carries."""
     from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
     bx, by = blk
+    lx = bx if label_x is None else label_x
     pos, nrm, uv, tan, flat, tidx = [], [], [], [], [], []
     for t3 in tris:
         base = len(pos)
@@ -841,7 +859,7 @@ def _part_blockmesh(part, blk, tris, disc):
             tan.append(list(t4))
             flat.append(len(pos) - 1)
         tidx.append([base, base + 1, base + 2])
-    return BlockMesh(name=f"Block[{bx}][{by}] {part}", disc=disc, x=bx, y=by, lod="0_1",
+    return BlockMesh(name=f"Block[{lx}][{by}] {part}", disc=disc, x=lx, y=by, lod="0_1",
                      vcount=len(pos), stride=48,
                      channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
                      chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
@@ -879,7 +897,7 @@ def _xz_inside(cover, x, z) -> bool:
     return False
 
 
-def _cut_plane(plane, bx, by, cut_cells, under=None):
+def _cut_plane(plane, bx, by, cut_cells, under=None, label_x=None):
     """The block's full-cell Sea4 plane MINUS the beach-claimed lattice cells (the ladder owns them:
     undropped deep tiles under new bands are off-language) and MINUS everything under ``under``'s
     footprint.
@@ -915,7 +933,11 @@ def _cut_plane(plane, bx, by, cut_cells, under=None):
             tan.append(list(ca[CH_TAN][j]))
             flat.append(len(pos) - 1)
         tidx.append([base, base + 1, base + 2])
-    return dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4",
+    # THE DUAL FRAME (seam wrap): the cut-cell reconstruction above needs the UNWRAPPED column
+    # (cxw must land in the same continuous frame as the beach's sea4_cut cells), while the
+    # returned identity must carry the WRAPPED label the engine can actually probe.
+    lx = bx if label_x is None else label_x
+    return dataclasses.replace(plane, x=lx, y=by, name=f"Block[{lx}][{by}] Sea4",
                                vcount=len(pos),
                                chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
                                flat_index=flat, tris=tidx, raw_vbuf=b"", raw_ibuf=b"")
@@ -972,6 +994,11 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         if cell is None:
             raise ValueError("give center=(wx, wz) or cell=(bx, by)")
         center = (BLOCK * cell[0] + BLOCK / 2, -BLOCK * cell[1] - BLOCK / 2)
+    # canonicalize the centre into [0,1536): cx and cx+1536 name the SAME physical site, but the
+    # relief noise field and the mains RNG run over UNWRAPPED coords, so they would mint
+    # DIFFERENT terrain -- one canonical frame keeps a re-run reproducible from the recorded
+    # summary (the summary's center is this canonical value).
+    center = (center[0] % (BLOCK * M.GRID_COLS), center[1])
     built = build_landmass(center=center, base_radius=base_radius, seed=seed, lobes=lobes,
                            land_height=land_height, rim_run=rim_run, n_patches=n_patches,
                            stamps=None if flat else "auto",
@@ -991,7 +1018,12 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     # DELIBERATELY NOT keyed on ``target_disc != disc``: in s75 CLONE mode the synthetic grid's IsSea
     # flags ARE the stock flags this probe measures, so the law stays exactly correct there and must keep
     # running. Folding the skip into the retarget would fail-OPEN on precisely the mode that needs it.
-    occupied = {} if all_sea_target else {blk: occ for blk in sorted(built["blocks"])
+    # THE SEAM WRAP: both install-probing gates below MUST see the WRAPPED labels -- the real
+    # map and the mod tree are keyed on them, and probing an unwrapped (-1, y) returns [] /
+    # scans a filename that cannot exist, making both gates VACUOUSLY green on exactly the
+    # seam-side blocks (the dunes-class hole, engine edition).
+    wlabels = sorted({(M.wrap_block_col(bx), by) for (bx, by) in built["blocks"]})
+    occupied = {} if all_sea_target else {blk: occ for blk in wlabels
                                           if (occ := _real_block_parts(blk, disc=disc, lod=lod, game=game))}
     if occupied:
         raise ValueError(
@@ -1009,7 +1041,7 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     # at the recorded Aldermarch centre passes the stock law with all 19 footprint blocks
     # "free" while six of them hold the owner-confirmed R4 bench, on both discs.
     wdisc = disc if target_disc is None else int(target_disc)
-    M.mod_overwrite_gate(sorted(built["blocks"]), mod_folder, disc=wdisc, lod=lod, game=game,
+    M.mod_overwrite_gate(wlabels, mod_folder, disc=wdisc, lod=lod, game=game,
                          allow_overwrite=allow_overwrite, what="landmass footprint")
     plane = _sea_plane(disc, game)
     report = verify_landmass(built, sea_plane=plane, land_height=land_height)
@@ -1026,26 +1058,35 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     written = []
     for blk, bm in sorted(built["blocks"].items()):
         bx, by = blk
-        entry = {"block": [bx, by], "verts": bm.vcount, "tris": len(bm.tris)}
+        # THE SEAM WRAP POINT. Geometry was built AND verified in continuous unwrapped world
+        # coords (block-locals were computed against the unwrapped key, and 24*64 = the 1536u
+        # world width, so the wrapped block's local frame is bit-identical); the engine's
+        # namespace holds only wrapped labels (InitialX in [0,24) -- a Block[-1]/Block[24] file
+        # is DEAD, never probed). Everything from here down that names, writes, stamps or
+        # mirrors uses wbx; everything that reasons about the mint's own geometry (is_bch, the
+        # sea4 cut cells) stays on the unwrapped key.
+        wbx = M.wrap_block_col(bx)
+        entry = {"block": [wbx, by], "verts": bm.vcount, "tris": len(bm.tris)}
         is_bch = bch is not None and tuple(bch["block"]) == blk
         if not dry_run:
-            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Terrain"))
+            bmw = bm if wbx == bx else dataclasses.replace(bm, x=wbx, name=f"Block[{wbx}][{by}] Terrain")
+            written.append(M.deploy_override(bmw, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Terrain"))
             # THE SEA4-UNDER-LAND LAW -- the land footprint is cut from the plane on EVERY land block,
             # beach or cliff (see _cut_plane). Leaving it whole makes the island boat-permeable.
-            sea = _cut_plane(plane, bx, by, bch["sea4_cut"] if is_bch else frozenset(), bm)
+            sea = _cut_plane(plane, bx, by, bch["sea4_cut"] if is_bch else frozenset(), bm, label_x=wbx)
             written.append(M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Sea4"))
             if is_bch:
                 # the beach block: real ladder parts + the beach-bearing divert donor
                 for part, key in (("Sea1", "sea1"), ("Sea2", "wash"),
                                   ("Sea5", "sea5"), ("Beach1", "foam")):
-                    written.append(M.deploy_override(_part_blockmesh(part, blk, bch[key], disc),
+                    written.append(M.deploy_override(_part_blockmesh(part, blk, bch[key], disc, label_x=wbx),
                                                      mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
                 for part in ("Object", "Sea3"):
-                    written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
-                                                                         disc=disc, x=bx, y=by),
+                    written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{wbx}][{by}] {part}",
+                                                                         disc=disc, x=wbx, y=by),
                                                      mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
                 written.append(M.deploy_donor_sidecar(bch["pins_from"][0], bch["pins_from"][1],
-                                                      mod_folder=mod_folder, disc=target, x=bx, y=by,
+                                                      mod_folder=mod_folder, disc=target, x=wbx, y=by,
                                                       lod=lod, game=game))
                 entry["beach"] = {"tris": {k: len(bch[k]) for k in
                                            ("foam", "wash", "sea1", "sea5")},
@@ -1053,11 +1094,11 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
                                   "divert": list(bch["pins_from"])}
             else:
                 for part in HIDDEN_PARTS:
-                    written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
-                                                                         disc=disc, x=bx, y=by),
+                    written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{wbx}][{by}] {part}",
+                                                                         disc=disc, x=wbx, y=by),
                                                      mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
                 written.append(M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=target,
-                                                      x=bx, y=by, lod=lod, game=game))
+                                                      x=wbx, y=by, lod=lod, game=game))
         summary["blocks"].append(entry)
     if not dry_run and summary["blocks"]:
         if coastnav:

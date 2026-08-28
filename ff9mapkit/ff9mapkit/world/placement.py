@@ -121,7 +121,10 @@ def check_order_exceptions(meshlist):
             raise ValueError(f"registration-order exception: {name!r} -- the engine splices "
                              "Volcano* parts BEFORE Beach1; this simulator does not model it")
         bx, by = getattr(bm, "x", None), getattr(bm, "y", None)
-        if bx is not None and by is not None and by * GRID_COLS + bx == WATER_SHRINE_BLOCK:
+        # the Number arithmetic is defined on the WRAPPED label (the engine's InitialX in
+        # [0,24)); an unwrapped seam-build key like (-21,10) or (27,8) would otherwise
+        # false-fire 219 and abort a lawful census
+        if bx is not None and by is not None and by * GRID_COLS + (bx % GRID_COLS) == WATER_SHRINE_BLOCK:
             raise ValueError(f"registration-order exception: block ({bx},{by}) is the Water "
                              "Shrine (Number 219) -- the engine scans only Object/Terrain/"
                              "Sea3/Sea4/Sea5 there; this simulator does not model it")

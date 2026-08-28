@@ -40,6 +40,17 @@ def block_in_grid(x: int, y: int) -> bool:
     return 0 <= x < GRID_COLS and 0 <= y < GRID_ROWS
 
 
+def wrap_block_col(bx: int) -> int:
+    """The engine's block-column label for an UNWRAPPED column index: ``bx % 24``. The overworld
+    is an x-torus (``WMWorld.Wrap`` shifts the whole world in 64u steps mod 1536; block identity
+    is only ever the wrapped ``InitialX`` in [0,24), and a ``Block[24][y]``/``Block[-1][y]`` file
+    is DEAD -- the engine can never build that lookup key). Build/verify geometry stays in
+    CONTINUOUS unwrapped coordinates; this is the label conversion applied once, at the install
+    boundary. Rows do NOT get this: z also wraps engine-side, but edged-z is kit policy -- the
+    row-bounds refusal (the dunes incident) stays."""
+    return bx % GRID_COLS
+
+
 def require_block_in_grid(x: int, y: int, *, context: str = "") -> None:
     """Raise ``ValueError`` if block ``(x, y)`` is off the engine's fixed 24x20 overworld grid.
     The belt-and-braces gate at the lowest write layer (:func:`deploy_override` /

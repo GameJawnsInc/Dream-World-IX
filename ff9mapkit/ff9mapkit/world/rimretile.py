@@ -211,6 +211,22 @@ def _grids(cells):
     return shade, water
 
 
+def _refuse_seam_span(cells):
+    """The rim fold is seam-blind by construction: ``_neighbour`` steps ``bx +- 1`` with no
+    modulo, so at the interior 23|0 boundary BOTH sides read the missing neighbour as the
+    generic deep-ocean ring, and the frame detection inverts for a footprint like {22,23,0,1}.
+    Toroidalizing the fold is a follow-on rung; until then a seam-spanning cell set refuses
+    loudly instead of silently retiling against a phantom ocean. Guards plan_rim (the write
+    lane) AND unpaintable_slivers (the audit -- a wrong audit is how gates lie)."""
+    cols = {c[0] for c in cells}
+    if 0 in cols and 23 in cols:
+        raise ValueError(
+            "cell set spans the wrapped column seam 23|0: rim folding steps bx+-1 linearly and "
+            "would treat the interior seam as open-ocean frame on both sides. Retile each side "
+            "of the seam separately, or make _neighbour/on_frame toroidal first (THE SEAM-WRAP "
+            "arc, 2026-08-27 -- the world-island mint lane is wrap-aware; this verb is not yet).")
+
+
 def plan_rim(cells) -> dict:
     """``{(bx,by): {(i,j): (target_part, deepset)}}`` for every shallow quad that NEEDS
     re-tiling: an outer-frame quad (the original cropped-rim class -- an unshifted carry
@@ -219,6 +235,7 @@ def plan_rim(cells) -> dict:
     sea5 whose encoded deep-set mismatches its geometric one. THE CROP-SEAM WIDENING
     (2026-08-04): a cluster-SHIFTED carry lands its crop lines MID-CELL, where the
     frame-only audit never looked -- measured on the composed dot pair's channel."""
+    _refuse_seam_span(cells)
     island = list(cells)
     shade, water = _grids(cells)
     xs = sorted({c[0] for c in island})
@@ -461,6 +478,7 @@ def unpaintable_slivers(cells) -> list:
     (repartition it to ``Sea4``), not to fold a tile onto it. Returns
     ``[((bx, by, i, j), geometric_deepset), ...]``.
     """
+    _refuse_seam_span(cells)
     island = list(cells)
     shade, water = _grids(cells)
     out = []

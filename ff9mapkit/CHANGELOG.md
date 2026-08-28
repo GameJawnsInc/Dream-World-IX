@@ -5,6 +5,36 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE SEAM-WRAP GAP closed: `world-island` can mint across the x-seam
+- The overworld is an x-torus (`WMWorld.Wrap` shifts the whole world in 64u steps mod 1536; block
+  identity is only ever the wrapped `InitialX` in [0,24), and a `Block[-1]`/`Block[24]` override
+  is a DEAD file the engine can never probe). `island._split_at_borders` had no wrap, so a mint
+  straddling x=0/1536 refused at the grid gate — the judged composed-world design's named unblock
+  for the (48,−240) pocket (164.7u free radius; any r≥49 mint there crosses the seam).
+- **The fix shape:** geometry is built AND verified in CONTINUOUS unwrapped world coordinates
+  (texgates' world-coord round-trip, sea-plan adjacency and the placement census all need that
+  frame); the LABEL wraps exactly once, at the deploy stage (`mesh.wrap_block_col`). The
+  grid gate now refuses off-grid ROWS only (edged-z stays kit policy; the dunes refusal is
+  unchanged) plus a new label-collision refusal (a footprint ≥ 24 columns). Both install-probing
+  gates (OPEN-OCEAN, MOD-OVERWRITE) probe the WRAPPED labels — on unwrapped seam keys both passed
+  VACUOUSLY. `_cut_plane`/`_part_blockmesh` take a dual frame (unwrapped column for the cut-cell
+  and local math, wrapped label for the identity). Centres canonicalize mod 1536 — cx and cx+1536
+  name the same site but would otherwise mint different relief/mains phases.
+- **Instrument fixes riding along:** coastnav's locale/standoff-belt/fringe distances are now
+  toroidal (`_tdx`, the engine's own `ff9.PosDiff` shape — a plain delta across the seam read
+  ~1534u where the engine walks 2u, silently blinding the belt for any coast within 18u of
+  columns 0/23); the placement census's Water-Shrine check wraps its column (unwrapped seam keys
+  could false-fire Number 219 and abort a lawful census); `world-minimap` projects seam blocks
+  from the wrapped block origin instead of folding per vertex (which smeared a seam polygon
+  across the whole chart). `rimretile` and the interior relief verbs (`world-mountain`/`forest`/
+  `hill`) are seam-blind by construction and now REFUSE seam-spanning inputs loudly (they
+  silently read phantom ocean / partial islands before); toroidalizing them is a follow-on rung.
+- End-to-end (dry-run, live install): an r20 islet at (8,−240) builds, verifies clean, and
+  reports wrapped deploy blocks {23,0}×{3,4} with hard gates green. En route the r96 seed-137
+  attempt reached block (1,1) and **THE MOD-OVERWRITE GATE refused it live, naming the R4
+  bench's 36 files** — the gate's first production catch, on exactly the defect class it was
+  built for. In-game seam-walk playtest still pending — the mint itself was not deployed.
+
 ### Fixed — `Donor.txt` gets the same guard as the meshes (ledger + backup + ownership refusal)
 - `deploy_donor_sidecar` was a bare `write_text`: no ledger row, no backup, no refusal — on 177
   live load-bearing files, while every mesh beside them had all three. The sidecar picks which

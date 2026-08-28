@@ -175,6 +175,15 @@ def read_deployed_blocks(mod_folder: str, *, near, reach: float, disc: int = 1,
     wx, wz = near
     bx0, bx1 = int(math.floor((wx - reach) / BLOCK)), int(math.floor((wx + reach) / BLOCK))
     by0, by1 = int(math.floor(-(wz + reach) / BLOCK)), int(math.floor(-(wz - reach) / BLOCK))
+    if bx0 < 0 or bx1 > 23:
+        raise ValueError(
+            f"the read window near ({wx:.0f},{wz:.0f}) reach {reach:.0f} crosses the world "
+            f"x-seam (x=0/1536): the interior verbs probe Block[{bx0}..{bx1}] paths linearly "
+            f"and rebuild world coordinates from labels*64, so a seam-straddling island would "
+            f"read back PARTIAL (the off-range files do not exist -- silently skipped) and "
+            f"then as two discontiguous clumps. Seam-aware interior relief is a follow-on "
+            f"rung (THE SEAM-WRAP arc, 2026-08-27 -- the world-island mint lane is wrap-aware; "
+            f"these verbs are not yet); reshape each side with a window inside one wrapped span.")
     out = {}
     for bx in range(bx0, bx1 + 1):
         for by in range(by0, by1 + 1):
