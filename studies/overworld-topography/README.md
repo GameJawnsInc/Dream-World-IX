@@ -1755,3 +1755,33 @@ which was always the plan ("keep the islet" = until the continent lands).
 (1520,−464), or hold for more choice; (2) if more choice is wanted first, the next rung is the
 **r120+ mint-robustness rung** (the >8u fill refinement's next pass), which would widen the 1/20
 yield. No world geometry was built or deployed this round — dry-runs and in-memory builds only.
+
+## THE WEST-SEAM CONTINENT — BASE MINT DEPLOYED (2026-08-28, R1 of the ladder)
+
+The ratified continent is live: `world-island --mod-folder FF9CustomMap-world --center 1520,-464
+--radius 144 --lobes 3 --seed 9 --flat` — **26 blocks, wrapped cols {21,22,23,0,1} × rows 4-9,
+64,315 u² = 1.57× Aldermarch, straddling the x-seam as first-class land.** Flat by design;
+interior relief is the next rung. Coastnav land-anywhere (beach=4011 / standoff=969 / keel=1578).
+4 WARN-default texture/sea rows at the west coast cells, 0 FAIL — the standard in-game review
+class.
+
+**The seam bench islet was retired first** (its cells (23,4)/(0,4) sit inside the footprint, and
+replacing half a landmass shreds it — land never knits). Byte snapshot + manifest:
+`backups/seam-islet.retired.20260828/` (72 files, live-verified 72/72 before deletion; regenerate
+with its README's one command). The mint then ran on genuinely free ocean with **no gate waivers**.
+
+**En route, a real kit bug — THE INTERIOR-BLOCK SEA.** The first mint attempt crashed mid-deploy:
+a fully-interior land block's Sea4 cut comes back EMPTY, and the 0-vert mesh hit `write_ff9mesh`'s
+loader-range refusal, stranding a 55-file partial write (recovered via the deploy ledger's own
+rows — its first real forensic use). No prior mint could hit this: below ~r91 a fully-interior
+block is structurally impossible. Fixed as `island._sea4_override` (empty cut → the standard
+blanking stub; omitting the file would free-ride the donor's own sea under our land), three
+hermetic tests, break-it-proven.
+
+**Offline verification, all green:** Disc1/Disc4 parity 234/234 · seam weld profiles set-identical
+at all six rows · offline seam walks at z=−380/−464/−540: **97/97 Terrain, 0 MISS, y-span 0.0000**
+straight through x=1536→0 · interior blocks carry the 176-byte Sea4 stubs · ledger: 542 rows, all
+9 parts, both discs, 62 Donor sidecars.
+
+**R1 playtest pending** (the owner walks the continent + crosses the seam on land); the full rung
+ladder → `west-seam-continent/PLAN.md`.
