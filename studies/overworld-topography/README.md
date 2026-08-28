@@ -1688,5 +1688,23 @@ continuous topo-0 Terrain at y=3.200 with **zero MISS** straight through the sea
 **Revert:** delete the 36 `Block[23|0][3|4] *` files under `FF9CustomMap-world/FF9_Data/WorldMap/
 Disc{1,4}/0_1/r{3,4}/` (ledger rows are append-only and harmless to leave).
 
-Playtest still owns the verdict — no seam-straddling LAND has ever been walked in-game, and the
-gate suite is a regression harness, not an oracle.
+**★ PLAYTEST CONFIRMED (2026-08-27, same day).** The owner's verdict, point by point: teleport
+good · **the position-readout jump at the seam with NO visible seam or stutter** — the core claim
+proven in play · walked at multiple angles · boat navigable all the way around (the toroidal
+standoff belt holds through the seam) · the large-map check was skipped (the test save lacks the
+world-map key item — a debug-preset chip is filed) · one minor visible UV line on the wall.
+
+**The UV line is NOT a seam defect — proven by A/B.** Rebuilding the identical mint (r20 seed 5)
+at a +768u non-seam centre reproduces the *same three* texture WARNs at exactly the
+translation-corresponding cells ((−1,−64)→(191,−64) = +192 cells): the blemish is inherent to this
+seed's outline crossing a block border, and would appear at any centre. The wrap machinery adds
+nothing.
+
+**No-disembark is EXPECTED, not a defect**: the landing gate demands class 53 and "a cliff-ringed
+island cannot be disembarked on" (`coastnav.py:87,379`) — this islet has no low shore by design;
+the owner boarded by airship, correctly. A landable seam island would take the live beach lane
+(`world-transplant --beach-mint`), a separate rung.
+
+**Verdict: THE SEAM-WRAP GAP IS CLOSED IN PLAY.** The (48,−240) pocket is now genuinely mintable
+pending the owner's ratification of the Aldermarch question, the offseam-cap lift in the siting
+tools, and the r96 robustness rung.
