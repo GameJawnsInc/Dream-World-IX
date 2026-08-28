@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE HIGH-FOOT CONFORM: `world-mountain --max-apron-lift` retires the grass knoll
+- Owner-filed on the west-seam continent's R4 rim walk: on a high-foot donor arc (foot 4.3–5.1
+  over a 3.2 plateau) the apron faithfully LIFTED grass to meet the rigid rim — minting a grass
+  knoll pressed against mid-wall with no grass–mountain transition, while low-foot arcs (buried
+  bases, THE FREE-BASE LAW) read fine. New opt-in `--max-apron-lift U`: the apron rises at most U;
+  any carried-boundary column still higher CONFORMS DOWN to the capped grass — the bottom wall
+  row stretches with uv kept (THE WALL V CORNER-ROLE LAW: V is a corner assignment, never f(y)),
+  so flat host ground meets the wall at the crease, as the donor's own home reads.
+- Selection runs on the CARRIED floats' own once-edges (blob + sweep = the true rock-meets-grass
+  boundary); two earlier cuts are recorded in the study log — a `rim_set`-keyed map missed
+  sweep-extra boundary verts, and an XZ-only aperture exemption was spuriously triggered by the
+  falls mouth 15–29u OVERHEAD (now 3D: within 4u AND 3u vertically). Aux ensemble verts ride the
+  same map so the falls-outlet weld stays byte-coincident; conformed columns are exempt from the
+  rock-rigid gate (the stretch is deliberate); DOWN-only (dips keep the proven mechanism).
+  Default None = byte-identical legacy behavior (the frozen island-E/Uaho identity baselines).
+- Measured on the re-carve (cap 0.75): 13 columns conformed (max drop 1.13u), zipRise 2.13→1.88,
+  zipNyMin 0.59→0.66, all gates clean, junction verts above the cap anywhere on the massif: 0.
+
 ### Fixed — THE INTERIOR-BLOCK SEA: a continent-scale mint crashed mid-deploy on its first fully-interior block
 - Found by the first r144 mint (the ratified west-seam continent at (1520,−464)): a block whose
   land footprint covers the WHOLE cell leaves `_cut_plane` with nothing — and the 0-vertex Sea4

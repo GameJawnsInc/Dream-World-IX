@@ -205,7 +205,16 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 
 ### R4 — THE FIRST MASSIF: the horseshoe ensemble (west span; GATED on the R1 WARN verdict)
 
-> **★ DEPLOYED 2026-08-28 (hot — re-enter the world; awaiting the rim walk).** All gates CLEAN on
+> **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
+> the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**
+> Byte forensics: that arc is the donor's HIGH-FOOT arc (foot 4.3–5.1 vs the 3.2 plateau) flanked by
+> the ring's deepest dip (1.4); the apron faithfully lifted grass to the rim — the knoll — burying
+> the transition. Fix = THE HIGH-FOOT CONFORM (`world-mountain --max-apron-lift 0.75`, see the kit
+> CHANGELOG): the apron rises ≤0.75 and 13 boundary columns conformed DOWN to the capped grass
+> (bottom wall row stretches, uv kept per the corner-role law; dips untouched per THE FREE-BASE
+> LAW). Re-carve take 3: same placement, zipRise 1.88 / zipNyMin 0.66 (both better), junctions
+> above cap anywhere: 0; stamp+probe a–e green; seam weld rows 4–9 set-identical; parity 261/261;
+> walks 97/97 ×3. **★ RE-DEPLOYED, awaiting the arc re-walk.** Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
 > `--near`), 9 blocks, 713 donor tris + 143 zip + THE ENSEMBLE CARRY (122 Falls/River/RiverJoint/
 > Object tris on span (22,7)-(23,8), `Donor.txt` → (5,15)), peak y 30.87, rock rigidity 0.8%,

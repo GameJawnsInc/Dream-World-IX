@@ -4875,7 +4875,8 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
                                          disc=args.disc, game=args.game,
                                          target_disc=args.target_disc)
         soup = IN.soup_from_blocks(blocks)
-        res = IN.carve_mountain(soup, center=(wx, wz) if exact else None,
+        res = IN.carve_mountain(soup, max_apron_lift=args.max_apron_lift,
+                                center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
                                 ground=args.ground, disc=args.disc, game=args.game)
         # parts= (audit rec 11): census the REAL carried ensemble overrides, not hidden
@@ -9298,6 +9299,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "multi-block span automatically). The qualified-donor catalog is "
                           "`ff9mapkit world-donors --class massif`; a NEW donor needs its own anatomy "
                           "pass first (studies/overworld-topography/README.md).")
+    wmt.add_argument("--max-apron-lift", type=float, default=None, metavar="U",
+                     help="cap the grass apron's rise toward a high donor foot at U units; outer-rim "
+                          "columns still higher CONFORM DOWN (the carried bottom wall row stretches, uv "
+                          "kept -- THE WALL V CORNER-ROLE LAW) so flat host ground meets the wall at the "
+                          "crease instead of minting a grass knoll against mid-wall (the R4 west-seam "
+                          "defect). DOWN-only; aperture/ensemble columns exempt. Default: no cap (the "
+                          "frozen identity baselines' behavior).")
     wmt.add_argument("--reach", type=float, default=96.0,
                      help="deployed-block load window around the point in units (default 96)")
     wmt.add_argument("--ground", choices=_ground_choices(), default="grass",

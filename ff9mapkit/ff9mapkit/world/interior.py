@@ -1294,7 +1294,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                    rock_topos=MOUNTAIN_ROCK_TOPOS, alcove="auto", clear=MTN_CLEAR,
                    scan_band=None, gblend=MTN_GBLEND, search_radius=10, search_step=2,
                    scan_cutoff=60, ground: str = "grass", disc: int = 1, game=None,
-                   log=print) -> dict:
+                   max_apron_lift=None, log=print) -> dict:
     """Carry a REAL rock massif (largest ``rock_topos`` component + enclosed raised tris
     + optional alcove floor + Object-aperture plugs) verbatim onto the island at
     ``center`` (exact placement, rotation 0) or the best lawful placement scanned around
@@ -1653,6 +1653,29 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     log(f"rigid rim heights: [{min(n[2] for n in rim_nodes):.2f},"
         f"{max(n[2] for n in rim_nodes):.2f}] vs ground med {ground_med:.2f} "
         f"(the grass apron absorbs the difference over {gblend}u)")
+    # THE HIGH-FOOT CONFORM (2026-08-28, the R4 knoll): with ``max_apron_lift`` set, the
+    # apron chases a high donor foot only this far; any outer-rim column still higher
+    # CONFORMS DOWN to the capped grass instead -- the carried bottom wall row stretches
+    # (uv untouched: THE WALL V CORNER-ROLE LAW -- V is a corner assignment, never f(y);
+    # density varies freely), which is how the donor's own home reads there (level ground
+    # meets the wall at the crease). Lifting instead minted a grass KNOLL pressed against
+    # mid-wall with no transition (the owner-filed R4 defect on the (1418..1433,-469..-485)
+    # arc, foot 4.3-5.1 over a 3.2 plateau). DOWN-ONLY: a LOW foot keeps its dip --
+    # burying a base is stock-lawful (THE FREE-BASE LAW), and the owner passed those arcs.
+    # Columns within 4u of an aperture/ensemble ring are EXEMPT (the falls-outlet weld
+    # stays byte-coincident; the aux verts are ALSO adjusted through the same map, so the
+    # exemption is belt and braces). ``None`` = byte-identical legacy behavior (the
+    # frozen island-E/Uaho identity baselines).
+    rim_adjust = {}
+    adj_xz = set()
+    _conform_ring_pts = []
+    if max_apron_lift is not None:
+        cap_y = ground_med + float(max_apron_lift)
+        for _r in list(apertures or []) + list(ensemble_apertures or []):
+            for _p in _r:
+                _pr = rot_pt(detilt_p(_p), ROT)
+                _conform_ring_pts.append((_pr[0] + DX, _pr[1] + DY, _pr[2] + DZ))
+        rim_nodes = [(x, z, min(hy, cap_y)) for (x, z, hy) in rim_nodes]
     # positions touched by ANY non-plain tri: the lift must be EXACTLY zero there --
     # worldmap meshes don't share vertex entries (welds = coincident positions), so a
     # lift applied to the grass-side entry but not the coast-side twin SPLITS the weld
@@ -1755,6 +1778,34 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     carried = {t: [carry_vert(i) for i in dtri[t]] for t in blob}
     for t in sweep:                                        # verbatim extras, outside the
         carried[t] = [carry_vert(i) for i in dtri[t]]      # ring accounting
+    if max_apron_lift is not None:
+        # THE HIGH-FOOT CONFORM's selection runs on the CARRIED floats themselves (a
+        # rim_set-keyed first cut missed sweep-extra boundary verts AND risked float-path
+        # divergence vs carry_vert): every vert on a ONCE-EDGE of the full carried set
+        # (blob + sweep = the true rock-meets-grass boundary) sitting in (cap, cap+3]
+        # pulls down to the cap, unless a real aperture/ensemble ring point sits within
+        # 4u AND 3u vertically (the falls-outlet weld; its aux verts also ride the map).
+        _once = Counter()
+        for _t, _ps in carried.items():
+            for _a, _b in ((0, 1), (1, 2), (2, 0)):
+                _once[tuple(sorted((kk3(_ps[_a]), kk3(_ps[_b]))))] += 1
+        _bound = {k for e, n in _once.items() if n == 1 for k in e}
+        for _k in _bound:
+            if cap_y + 1e-6 < _k[1] <= cap_y + 3.0 and not any(
+                    (_k[0] - _a) ** 2 + (_k[2] - _c) ** 2 <= 16.0 and abs(_k[1] - _b) <= 3.0
+                    for _a, _b, _c in _conform_ring_pts):
+                rim_adjust[_k] = cap_y
+                adj_xz.add((_k[0], _k[2]))
+        if rim_adjust:
+            log(f"high-foot conform: {len(rim_adjust)} boundary column(s) above cap "
+                f"{cap_y:.2f} pull DOWN (max drop "
+                f"{max(k[1] - cap_y for k in rim_adjust):.2f}u); apron lift capped at "
+                f"{float(max_apron_lift):.2f}u")
+        for _t, _ps in carried.items():
+            for _v in _ps:
+                _nk = kk3(_v)
+                if _nk in rim_adjust:
+                    _v[1] = rim_adjust[_nk]
     c_edge = Counter()
     c_float = {}
     for t in blob:
@@ -2177,6 +2228,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     for t in list(blob) + list(sweep):
         tri = dtri[t]
         for a, b in ((0, 1), (1, 2), (2, 0)):
+            if adj_xz and (
+                    (round(carried[t][a][0], 3), round(carried[t][a][2], 3)) in adj_xz
+                    or (round(carried[t][b][0], 3), round(carried[t][b][2], 3)) in adj_xz):
+                continue                                   # the deliberate high-foot conform
             d0 = float(np.linalg.norm(dV[tri[a]] - dV[tri[b]]))
             if d0 > 0.05:
                 worst_rig = max(worst_rig,
@@ -2310,6 +2365,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                             if i not in tv:
                                 pr = rot_pt(detilt_p(pV[i]), ROT)
                                 tv[i] = (pr[0] + DX, pr[1] + DY, pr[2] + DZ)
+                                _nk = kk3(tv[i])
+                                if _nk in rim_adjust:      # the high-foot conform's weld
+                                    tv[i] = (tv[i][0], rim_adjust[_nk], tv[i][2])
                                 if not (SPX0 - 1.0 < tv[i][0] < SPX1 + 1.0 and
                                         SPZ0 - 1.0 < tv[i][2] < SPZ1 + 1.0):
                                     raise ValueError(f"ensemble {part} vert leaves the "
