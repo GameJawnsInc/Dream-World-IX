@@ -186,10 +186,15 @@ def free_space_sweep(forbidden: set, step: float = 16.0, pad: float = 8.0):
 
     rows = []
     for cx in np.arange(step / 2, WORLD_W, step):
-        offseam = min(cx, WORLD_W - cx)
+        # THE OFFSEAM CAP IS LIFTED (2026-08-27). It existed because island._split_at_borders
+        # could not wrap bx, so no mint could cross x=0/1536; the seam-wrap fix closed that and
+        # the r20 bench islet playtest CONFIRMED the seam is walkable land (owner: position jump
+        # with no visible seam or stutter; the boat's toroidal standoff belt holds through it).
+        # nearest_forbidden was already toroidal in x -- the cap was the only x constraint. The
+        # z edges stay: rows 0..19 are the engine's hard grid.
         for cz in np.arange(-step / 2, -WORLD_H, -step):
             edge = min(abs(cz), abs(-WORLD_H - cz))
-            cap = min(offseam, edge)
+            cap = edge
             if cap < 20.0:
                 continue
             clr = nearest_forbidden(float(cx), float(cz))
@@ -260,9 +265,23 @@ def band_of(i: int) -> str:
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="the world-design canvas census")
+    ap.add_argument("--exclude-cells", default=None, metavar="BX,BY;BX,BY;...",
+                    help="treat these deployed cells as FREE in the written _forbidden_blocks.json "
+                         "(recorded under its 'excluded' key). For planning a build that REPLACES "
+                         "our own scratch content -- e.g. the r20 seam bench islet inside the "
+                         "ratified (48,-240) pocket. The live-census section stays honest either "
+                         "way; only the sidecar the siting pipeline consumes is filtered.")
+    args = ap.parse_args()
+    excluded = set()
+    if args.exclude_cells:
+        excluded = {tuple(int(v) for v in c.split(",")) for c in args.exclude_cells.split(";") if c}
     game = CFG.find_game_path(None)
     live_root = Path(game) / "FF9CustomMap-world"
     print("game:", game)
+    if excluded:
+        print("EXCLUDED from the forbidden sidecar (ours, replaceable):", sorted(excluded))
 
     # ---------- (1) LIVE CENSUS ----------
     by_disc = live_blocks_fresh(live_root)
@@ -297,7 +316,7 @@ def main():
 
     # ---------- (2) FREE SPACE ----------
     stock_land, stock_occ = gather_stock_cached(game)
-    forbidden = disc1 | ALL_NAMED | set(stock_occ)
+    forbidden = (disc1 | ALL_NAMED | set(stock_occ)) - excluded
     print(f"stock prefab-occupied {len(stock_occ)}  live {len(disc1)}  "
           f"named-extra {len(ALL_NAMED - disc1 - set(stock_occ))}  forbidden total {len(forbidden)}")
     classes, all_rows = free_space_sweep(forbidden)
@@ -425,8 +444,9 @@ def main():
     # stash the raw sweep rows for the renderer (not part of the design-facing json)
     (OUT_DIR / "_free_sweep_rows.json").write_text(json.dumps(all_rows))
     (OUT_DIR / "_forbidden_blocks.json").write_text(json.dumps(dict(
-        stock_occ=[list(b) for b in sorted(stock_occ)], live=[list(b) for b in sorted(disc1)],
-        named=[list(b) for b in sorted(ALL_NAMED)],
+        stock_occ=[list(b) for b in sorted(set(stock_occ) - excluded)], live=[list(b) for b in sorted(disc1 - excluded)],
+        named=[list(b) for b in sorted(set(ALL_NAMED) - excluded)],
+        excluded=[list(b) for b in sorted(excluded)],
         clusters=[dict(label=c["label"], blocks=c["blocks"]) for c in cluster_detail])))
     return 0
 

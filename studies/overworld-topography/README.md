@@ -1708,3 +1708,50 @@ the owner boarded by airship, correctly. A landable seam island would take the l
 **Verdict: THE SEAM-WRAP GAP IS CLOSED IN PLAY.** The (48,−240) pocket is now genuinely mintable
 pending the owner's ratification of the Aldermarch question, the offseam-cap lift in the siting
 tools, and the r96 robustness rung.
+
+## THE OFFSEAM-CAP LIFT (★ 2026-08-27) — and the ratified pocket is already gone
+
+The owner ratified the (48,−240) pocket and ordered the offseam-cap lift. The lift is done; the
+fresh census it enabled then falsified the ratification's own premise. Both halves below.
+
+**The lift.** Four sites, each dated at the change: `canvas_census.py` `free_space_sweep` no
+longer caps `r_max` by distance-to-seam (`nearest_forbidden` was already toroidal — the cap was
+the only x constraint); `continent_rank.py` drops its x-seam land margin (z edges stay hard);
+`continent_verify.py` `fine_blocks` wraps `bx % 24` so a seam-straddling footprint verifies
+instead of refusing as off-grid; `design_band_sweep.py` `rmax()` likewise. `continent_site_scan.py`
+needed NOTHING — it was built fully toroidal in July (`wrapx`/`dx_wrap`/±W/2) and the constraint
+was only ever re-imposed downstream. ⚠ The band sweep's archived byte-identity acceptance (see
+its section above) covered the PRE-lift tool; the lifted tool intentionally supersedes it.
+`canvas_census.py` also gained `--exclude-cells BX,BY;…`: the honest live census is unchanged, but
+the `_forbidden_blocks.json` sidecar the siting pipeline consumes can treat named OUR-OWN cells as
+free, recording them under its `excluded` key — the convention for planning a build that replaces
+our own scratch content (the seam bench islet).
+
+**THE RATIFIED POCKET NO LONGER EXISTS.** Fresh census, live install, islet excluded: (48,−240)
+scores `r_max` **16.0u** against the July judgment's 164.7u. The consumer is the **R4 bench
+island** (owner-confirmed, `REVERT.md` §25.3, built 2026-07-26 — one day AFTER the judgment
+measured that pocket), whose block (1,3) sits 16u east. The stale-artifact law caught the
+ratification itself; this is the Aldermarch dead-site class again, and the census re-run the
+audit mandated is what caught it.
+
+**The pocket moved west across the seam.** The lifted census finds the r132 class went **0 sites
+(July) → 22** (islet-excluded planning state), topped by the seam-adjacent west shelf. Full
+pipeline re-run (site scan → rank → fine verify): **20 seam-crossing candidates survive the fine
+footprint test** — every one impossible to even score before the lift.
+
+**But only ONE is buildable today.** Sweeping all 20 through the real `build_landmass` +
+`verify_landmass` battery: **19/20 refuse on `grass_over_8u`** (the known large-radius seed
+sensitivity — now quantified: ~5% seed yield at r120–144) and one passes clean:
+
+    world-island --center 1520,-464 --radius 144 --lobes 3 --seed 9   # 64,315 u², 26 blocks
+
+— **1.57× Aldermarch**, footprint wrapped cols {21–23, 0–1} × rows 4–9, genuinely seam-straddling.
+Its CLI dry-run also proved THE MOD-OVERWRITE GATE in the wild: it REFUSED over the bench islet's
+own deployed blocks (the footprint overlaps 2 of the islet's 4 cells), exactly as designed —
+building this continent means consciously replacing that part of the islet (`--allow-overwrite`),
+which was always the plan ("keep the islet" = until the continent lands).
+
+**Owner decisions now open:** (1) re-ratify the target — the one buildable candidate at
+(1520,−464), or hold for more choice; (2) if more choice is wanted first, the next rung is the
+**r120+ mint-robustness rung** (the >8u fill refinement's next pass), which would widen the 1/20
+yield. No world geometry was built or deployed this round — dry-runs and in-memory builds only.

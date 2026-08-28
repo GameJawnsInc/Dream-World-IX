@@ -35,10 +35,12 @@ def fine_blocks(cx, cz, R, lobes, seed, margin=MARGIN):
         ct, st = math.cos(th), math.sin(th)
         while d <= r:
             x, z = cx + d * ct, cz + d * st
-            blocks.add((int(math.floor(x / BLOCK)), int(math.floor(-z / BLOCK))))
+            blocks.add((int(math.floor(x / BLOCK)) % 24, int(math.floor(-z / BLOCK))))
             d += 1.0
         x, z = cx + r * ct, cz + r * st
-        blocks.add((int(math.floor(x / BLOCK)), int(math.floor(-z / BLOCK))))
+        # bx wraps mod 24 (the seam-wrap fix, playtest-proven 2026-08-27); by stays raw so the
+        # z-range check below still refuses genuine off-grid rows.
+        blocks.add((int(math.floor(x / BLOCK)) % 24, int(math.floor(-z / BLOCK))))
     return blocks
 
 
@@ -48,7 +50,7 @@ ok = []
 for h in rank["top"]:
     cx, cz = h["center"]
     blks = fine_blocks(cx, cz, h["radius"], h["lobes"], h["seed"])
-    bad = sorted(b for b in blks if b in C.FORBIDDEN or not (0 <= b[1] < 20) or not (0 <= b[0] < 24))
+    bad = sorted(b for b in blks if b in C.FORBIDDEN or not (0 <= b[1] < 20))
     status = "CLEAN" if not bad else f"REFUSED {bad}"
     print(f"area={h['area_u2']:6d} R={int(h['radius']):3d} lobes={h['lobes']} seed={h['seed']:3d} "
           f"c={h['center']} blocks={len(blks):3d} medturn={h['shape']['med_turn']:5.2f}  {status}")

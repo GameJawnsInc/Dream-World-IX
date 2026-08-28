@@ -41,9 +41,9 @@ def nearest_forbidden(cx, cz):
 
 
 def rmax(cx, cz):
-    offseam = min(cx, WORLD_W - cx)
+    # offseam cap LIFTED 2026-08-27 (seam-wrap fix, playtest-proven); z edges remain hard.
     edge = min(abs(cz), abs(-WORLD_H - cz))
-    return min(nearest_forbidden(cx, cz), offseam, edge)
+    return min(nearest_forbidden(cx, cz), edge)
 
 
 # named gaps: (label, bx range inclusive, by range inclusive)

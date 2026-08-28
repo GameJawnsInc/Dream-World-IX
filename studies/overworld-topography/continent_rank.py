@@ -6,7 +6,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "stu
 import continent_site_scan as C
 from ff9mapkit.world import mesh as M
 
-MARGIN = 12.0   # keep land this far off the z=0 / z=-1280 world edges and the x=0/1536 seam
+MARGIN = 12.0   # keep land this far off the z=0 / z=-1280 world edges. The x=0/1536 SEAM
+                # margin is LIFTED (2026-08-27): the seam-wrap fix + the r20 bench islet playtest
+                # proved the seam is walkable land, so continent land may cross it freely.
 
 
 def shape_of(cx, cz, R, lobes, seed):
@@ -24,10 +26,8 @@ for R in (96.0, 108.0, 120.0, 132.0, 144.0):
             for s in range(C.NSEED):
                 radii, rmx, rmn = C.PROF[(lobes, s)]
                 rmax = R * rmx
-                if cx - rmax < MARGIN or cx + rmax > 1536.0 - MARGIN:
-                    continue
                 if cz + rmax > -MARGIN or cz - rmax < -1280.0 + MARGIN:
-                    continue
+                    continue                             # z edges only; x wraps (see MARGIN note)
                 h = C.evaluate(cx, cz, clr, near, R, lobes, s)
                 if not h:
                     continue
