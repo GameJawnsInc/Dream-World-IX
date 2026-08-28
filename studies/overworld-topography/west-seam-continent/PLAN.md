@@ -110,7 +110,10 @@ overrides (the mint is additive over open ocean; the MOD-OVERWRITE GATE protecte
 
 > **★★ PLAYTEST CONFIRMED 2026-08-28 (owner, cold start): all seven checks good** — ferry row,
 > voyage, west-facing arrival, "?"→Confirm→interior, walk-out, on-foot state + the Farshore plate +
-> the world map (owner notes the map "might still be offset" — investigated below), save/reload.
+> the world map (the owner's "might still be offset" hunch was MEASURED: both spans'
+> drawn pixels sit inside their expected engine-projection rects to the pixel — west X[1078,1219]
+> vs expected [1073,1219], east X[51,132] vs [51,148]; no offset. The odd look is the continent
+> correctly SPLIT across the chart's left/right edges — torus behavior, like the marker jump), save/reload.
 > Original deploy note: Execution
 > errata vs the recipe below, found by the drafting pass and applied: (1) the WORLD11 departure
 > director's port table is positional with LAST-ROW DEFAULT, so `depart_code 5` had to land in the
@@ -171,6 +174,12 @@ entry, re-run).
 ---
 
 ### R3 — THE SAFE ROAD (the area-policy stamp; hot, WARN-independent)
+
+> **★ DEPLOYED 2026-08-28 (hot — re-enter the world; awaiting the fauna playtest).**
+> `stamp_area_policy.py` + `probe_area14.py` shipped beside this plan: 50,964 open-ground verts →
+> area 14 across all 52 files (both discs), 36 event verts (the R2 entrance) byte-identical,
+> canopy rule armed for R6, idempotent (second run: 0), every write ledgered, pre-stamp backup in
+> `backups/west-seam-continent/`. Probe: ALL CHECKS PASS (a–e).
 
 **The one new script of this plan** — an R4b-class precedent clone (southern-ring REVERT.md §26.2;
 deliberately not a kit verb yet): `west-seam-continent/stamp_area_policy.py`. Rule, per Terrain
