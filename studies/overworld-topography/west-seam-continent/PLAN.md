@@ -175,7 +175,8 @@ entry, re-run).
 
 ### R3 — THE SAFE ROAD (the area-policy stamp; hot, WARN-independent)
 
-> **★ DEPLOYED 2026-08-28 (hot — re-enter the world; awaiting the fauna playtest).**
+> **★★ PLAYTEST CONFIRMED 2026-08-28 (owner): open grass silent everywhere, the stock control
+> spot normal.** THE TABLE IS THE LAW, proven on the continent. Deploy note:
 > `stamp_area_policy.py` + `probe_area14.py` shipped beside this plan: 50,964 open-ground verts →
 > area 14 across all 52 files (both discs), 36 event verts (the R2 entrance) byte-identical,
 > canopy rule armed for R6, idempotent (second run: 0), every write ledgered, pre-stamp backup in
@@ -203,6 +204,18 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 ---
 
 ### R4 — THE FIRST MASSIF: the horseshoe ensemble (west span; GATED on the R1 WARN verdict)
+
+> **★ DEPLOYED 2026-08-28 (hot — re-enter the world; awaiting the rim walk).** All gates CLEAN on
+> the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
+> `--near`), 9 blocks, 713 donor tris + 143 zip + THE ENSEMBLE CARRY (122 Falls/River/RiverJoint/
+> Object tris on span (22,7)-(23,8), `Donor.txt` → (5,15)), peak y 30.87, rock rigidity 0.8%,
+> census MISS=0. Safe-road stamp re-run (+6,318 verts; the donor's 6 stock canopy-fleck verts
+> correctly kept area 0), probe a–e green. **The seam weld survives the carve** — col-23 rows 4-9
+> frame sets still set-identical to col 0; walks 97/97 at three latitudes; disc parity clean on
+> every real override (the 18 diffs are Disc1-only `.bak` parkings, invisible by design).
+> **R5 CONSEQUENCE: re-aim uaho.** The slide shrank the mutual gap to (1488,−392) to ~74.7u vs
+> 82.3 required — exactly the pre-registered hazard. Start the R5 `--near` at ~(1492,−380) (d≈87)
+> and let the verb's own gates seat it.
 
 Largest donor first — it has the tightest margins and every later seat re-aims around its printed
 placement. Seat verified against the measured clearance field: (1452,-468) clear 96.8 vs need 72.3;
