@@ -964,20 +964,26 @@ def test_census_gate_raises_on_stacked_walkable_sheets(monkeypatch):
 # ---- the foot-course window (the spur-graft class, R4 take-5) --------------------------------
 
 
-def _r10_saddle_donor(cx=24.0, cz=-24.0, half=4.0, apex=5.0):
+def _r10_saddle_donor(cx=24.0, cz=-24.0, half=2.5, apex=6.0, ax=1.5, az=1.5,
+                      hs=(0.0, 0.6, 0.0, 0.5)):
     """The saddle-rim pyramid dressed in a REAL row-10 tile (col 6 of the rock chart):
     adjacent side faces pair into 4-vert quads whose uv extent is ~one full tile, so
     the foot-course exemplar harvest finds them; the saddle base ring keeps the apron
-    field genuinely nonuniform (the flat-window exclusion is observable)."""
+    field genuinely nonuniform (the flat-window exclusion is observable) while staying
+    near-planar (a warped base ring trips the de-tilt rigidity gate). The rise for THE
+    PROFILE LAW predicate comes from the APEX: at half=2.5 the apex sits within the
+    predicate's 6u reach of the near zip tris (-> rock foot course there) and out of
+    reach of the far ones (-> gentle grass) -- OFF-CENTER by (ax, az), because a
+    centered apex is equidistant from every zip tri and the split is all-or-nothing;
+    pass a low ``apex`` to test the gate."""
     puA, pvA = IN.ROCK_CHART_PHASE
     u0, u1 = puA + 6 * 0.0625, puA + 7 * 0.0625
     v0, v1 = pvA + 10 * 0.03125, pvA + 11 * 0.03125
-    hs = (0.0, 0.6, 0.0, 0.5)
     c00 = ((cx - half, hs[0], cz - half), u0)
     c10 = ((cx + half, hs[1], cz - half), u1)
     c11 = ((cx + half, hs[2], cz + half), u0)
     c01 = ((cx - half, hs[3], cz + half), u1)
-    top = ((cx, apex, cz), (u0 + u1) / 2)
+    top = ((cx + ax, apex, cz + az), (u0 + u1) / 2)
     pos, nrm, uv, tan, flat, t_out = [], [], [], [], [], []
     for a, b in ((c10, c00), (c11, c10), (c01, c11), (c00, c01)):
         base = len(pos)
@@ -1000,11 +1006,10 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
     puA, pvA = IN.ROCK_CHART_PHASE
     u0, u1 = puA + 6 * 0.0625, puA + 7 * 0.0625
     v0, v1 = pvA + 10 * 0.03125, pvA + 11 * 0.03125
-    _patch_donor(monkeypatch, _r10_saddle_donor())
-
     # BASELINE (no window): the saddle rim lifts the apron grass above the bench plane
+    _patch_donor(monkeypatch, _r10_saddle_donor())
     soup0 = IN.soup_from_blocks({(0, 0): _mountain_bench()})
-    res0 = IN.carve_mountain(soup0, near=(26.0, -26.0), alcove=None, game=tmp_path,
+    res0 = IN.carve_mountain(soup0, center=(22.0, -24.0), alcove=None, game=tmp_path,
                              log=lambda *a: None)
     bm0 = res0["changed"][(0, 0)]
     g0 = [p[1] for p, t4 in zip(bm0.chan_arrays[CH_POS], bm0.chan_arrays[CH_TAN])
@@ -1014,19 +1019,26 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
 
     # THE WINDOW covers the whole block: no lift anywhere, every zip tri emits as rock
     soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
-    res = IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
+    res = IN.carve_mountain(soup, center=(22.0, -24.0), alcove=None, game=tmp_path,
                             foot_course_rects=[(0.0, -64.0, 64.0, 0.0)],
                             log=lambda *a: None)
     r = res["report"]
-    assert r["foot_tris"] == r["zip_tris"] > 0
+    # rock only near the risen corner (THE PROFILE LAW predicate); the no-rise arcs
+    # of the same window stay grass
+    assert 0 < r["foot_tris"] < r["zip_tris"]
+    # THE PROFILE LAW tight hole: inside the window the drop test uses MTN_FC_CLEAR
+    # instead of the standard clearance, so the contact hugs the rim footprint
+    assert r["dropped"] < res0["report"]["dropped"]
     bm = res["changed"][(0, 0)]
     grass_y = [p[1] for p, t4 in zip(bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN])
                if t4[0] == GRASS]
-    assert max(grass_y) == pytest.approx(3.2, abs=1e-9), "window ground must stay flat"
+    # no apron lift anywhere (the baseline lifted above 3.2); the only grass above
+    # the bench plane is the zip riding the no-rise rim corners (max carried 4.2)
+    assert max(grass_y) <= 3.6 + 1e-6, "window ground must stay flat (no apron lift)"
     # every topo-49 vert (carried faces AND the foot course) samples inside the tile
     rock = [(p, u2) for p, u2, t4 in zip(bm.chan_arrays[CH_POS], bm.chan_arrays[CH_UV],
                                          bm.chan_arrays[CH_TAN]) if t4[0] == MASSIF]
-    assert len(rock) == (4 + r["zip_tris"]) * 3
+    assert len(rock) == (4 + r["foot_tris"]) * 3
     for p, u2 in rock:
         assert u0 - 1e-6 <= u2[0] <= u1 + 1e-6 and v0 - 1e-6 <= u2[1] <= v1 + 1e-6
     # fringe pinning: foot verts at bench ground sample the exemplar's fringe edge (the
@@ -1036,9 +1048,21 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
 
     # refusal: a window that catches no zip tri
     soup2 = IN.soup_from_blocks({(0, 0): _mountain_bench()})
-    with pytest.raises(ValueError, match="no zip tri landed"):
-        IN.carve_mountain(soup2, near=(26.0, -26.0), alcove=None, game=tmp_path,
+    with pytest.raises(ValueError, match="no rock foot course emitted"):
+        IN.carve_mountain(soup2, center=(22.0, -24.0), alcove=None, game=tmp_path,
                           foot_course_rects=[(200.0, -260.0, 220.0, -240.0)],
+                          log=lambda *a: None)
+
+
+def test_carve_mountain_foot_course_relief_gate(monkeypatch, tmp_path):
+    # THE PROFILE LAW relief gate: a rim parked at lawn height everywhere (the flat
+    # saddle) does not rise, so the window refuses to paint rock on the flat lawn --
+    # the owner-filed "stretches of rock on the ground" defect class
+    _patch_donor(monkeypatch, _r10_saddle_donor(apex=1.2))
+    soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    with pytest.raises(ValueError, match="no rock foot course emitted"):
+        IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                          foot_course_rects=[(0.0, -64.0, 64.0, 0.0)],
                           log=lambda *a: None)
 
 

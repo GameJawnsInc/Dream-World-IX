@@ -99,6 +99,11 @@ MTN_ZIP_NY_MIN = 0.83            # the zip winding ENVELOPE (~34 deg -- admits t
 #                                  steeper banks (the horseshoe's falls outlet: 2/137)
 MTN_ZIP_NY_FLOOR = 0.5           # the hard per-tri floor (~60 deg) for those banks
 MTN_ZIP_BANK_MAX = 2             # max zip tris allowed between FLOOR and ENVELOPE
+MTN_FC_CLEAR = 0.75              # window hole clearance: the contact hugs the rim so the
+#                                  toe CONTINUES the face (THE PROFILE LAW, R4 take 8)
+MTN_FC_MIN_RISE = 2.5            # a rock foot course exists only where the CARRIED massif
+#                                  rises this far above the lawn within 6u -- else the
+#                                  mountain has ended there and the contact is grass
 MTN_FOOT_NY_FLOOR = 0.25         # foot-course tris are DELIBERATELY steep rock (blocked
 #                                  topo 49, exempt from the grass zip envelope); below
 #                                  ~75 deg they are slivers, refuse
@@ -1723,6 +1728,32 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     log(f"rigid rim heights: [{min(n[2] for n in rim_nodes):.2f},"
         f"{max(n[2] for n in rim_nodes):.2f}] vs ground med {ground_med:.2f} "
         f"(the grass apron absorbs the difference over {gblend}u)")
+
+    # THE PROFILE LAW predicate (R4 take 8): a rock foot course exists only where the
+    # CARRIED massif actually rises -- the per-tri zip rise cannot tell a lawful toe
+    # (tall face one course in, rim edge barely above lawn) from a CURB standing over
+    # nothing (the taper arms), so the test is the carried heightfield itself: max
+    # carried-vert height within 6u of the query, against lawn + MTN_FC_MIN_RISE.
+    # Governs BOTH the tight hole cut and the rock-vs-grass zip emission, so the two
+    # stay consistent by construction.
+    _fc_rock_here = None
+    if fc_rects:
+        _fcg = defaultdict(list)
+        for _t in blob:
+            for _i in dtri[_t]:
+                _w3 = carry_vert(_i)
+                _fcg[(math.floor(_w3[0] / 6.0), math.floor(_w3[2] / 6.0))].append(
+                    (_w3[0], _w3[1], _w3[2]))
+
+        def _fc_rock_here(x, z):
+            _cx6, _cz6 = math.floor(x / 6.0), math.floor(z / 6.0)
+            for _gx in (_cx6 - 1, _cx6, _cx6 + 1):
+                for _gz in (_cz6 - 1, _cz6, _cz6 + 1):
+                    for _w3 in _fcg.get((_gx, _gz), ()):
+                        if (x - _w3[0]) ** 2 + (z - _w3[2]) ** 2 <= 36.0 \
+                                and _w3[1] - ground_med >= MTN_FC_MIN_RISE:
+                            return True
+            return False
     # THE HIGH-FOOT CONFORM (2026-08-28, the R4 knoll): with ``max_apron_lift`` set, the
     # apron chases a high donor foot only this far; any outer-rim column still higher
     # CONFORMS DOWN to the capped grass instead -- the carried bottom wall row stretches
@@ -1749,7 +1780,12 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         rim_nodes = [(x, z, min(hy, cap_y)) for (x, z, hy) in rim_nodes]
     lift_nodes = rim_nodes
     if fc_rects:
-        lift_nodes = [n for n in rim_nodes if not _in_fc(n[0], n[1])]
+        # held flat only where the massif truly rises (THE PROFILE LAW predicate):
+        # a taper arm's low slab inside the window rejoins the apron field and gets
+        # its lawful FREE-BASE burial (rolling ground over a low carried foot, the
+        # owner-passed idiom) instead of poking bare out of a flat lawn
+        lift_nodes = [n for n in rim_nodes
+                      if not _in_fc(n[0], n[1]) or not _fc_rock_here(n[0], n[1])]
         log(f"foot-course window: {len(rim_nodes) - len(lift_nodes)} of "
             f"{len(rim_nodes)} rim nodes held flat (no apron)")
     # positions touched by ANY non-plain tri: the lift must be EXACTLY zero there --
@@ -1907,11 +1943,23 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         f"max {lift_max:.2f}u)")
 
     # ---- 3b. hole carve (on the LIFTED bench; the drop test is plan-only) ---------------
+    # THE PROFILE LAW (R4 take 8): inside a foot-course window, where the massif truly
+    # rises, the hole hugs the rim -- stock's base course CONTINUES the face above it
+    # down to the lawn (926 stock feet: first-8u climb p25-p75 = 42-53 deg, kink
+    # centered +1.5), while the standard clear plus the 4u ground tessellation parks
+    # the contact ~6.7u out and the toe reads as a 21-36 deg walkable skirt under a
+    # 55-61 deg face (the owner-rejected shape, takes 0-7). Where the massif does NOT
+    # rise (taper arms, shallow benches) the standard clear stays, so the grass zip
+    # has room to ramp gently instead of minting a steep grass lip.
     drop = set()
     for tdx, tri in enumerate(gtris):
         for i in tri:
+            _cl = MTN_FC_CLEAR if (
+                _fc_rock_here is not None
+                and _in_fc(gpos[i][0], gpos[i][2])
+                and _fc_rock_here(gpos[i][0], gpos[i][2])) else clear
             if pip(gpos[i][0], gpos[i][2], rim_poly) or \
-                    near_poly(gpos[i][0], gpos[i][2], rim_poly, clear):
+                    near_poly(gpos[i][0], gpos[i][2], rim_poly, _cl):
                 drop.add(tdx)
                 break
     fams = Counter(gtopo[t] for t in drop)
@@ -2328,14 +2376,26 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         a, b, c = (np.asarray(p, dtype=float) for p in tri3)
         nrm = np.cross(b - a, c - a)
         nl = float(np.linalg.norm(nrm)) or 1.0
-        is_foot = _in_fc(float(a[0] + b[0] + c[0]) / 3, float(a[2] + b[2] + c[2]) / 3)
+        _cx0 = float(a[0] + b[0] + c[0]) / 3
+        _cz0 = float(a[2] + b[2] + c[2]) / 3
+        # THE PROFILE LAW relief gate: rock only where the carried massif rises (the
+        # _fc_rock_here predicate, shared with the tight hole cut). Where it does not
+        # -- taper arms, shallow benches -- a rock course is rock paint on flat
+        # ground or a CURB standing over nothing (both owner-filed defect classes);
+        # the contact retreats to grass there and the wider hole gives it room to
+        # ramp gently.
+        is_foot = _in_fc(_cx0, _cz0) and _fc_rock_here(_cx0, _cz0)
         if is_foot:
             fc_n += 1
             fc_ny_min = min(fc_ny_min, abs(float(nrm[1])) / nl)
         else:
             zip_ny_low += (abs(float(nrm[1])) / nl) < MTN_ZIP_NY_MIN
             zip_ny_min = min(zip_ny_min, abs(float(nrm[1])) / nl)
-        zip_rise = max(zip_rise, float(max(p[1] for p in tri3) - min(p[1] for p in tri3)))
+            # rise gated on the GRASS zip only: the engine-step ceiling protects
+            # walkable grass; a foot-course toe deliberately spans the face's rise
+            # in one course (its own fc_ny floor gates the winding)
+            zip_rise = max(zip_rise,
+                           float(max(p[1] for p in tri3) - min(p[1] for p in tri3)))
         order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
         if is_foot:
             # r10 tile band -- fringe edge pinned at the hole (lawn) verts (the
@@ -2545,8 +2605,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         raise ValueError(f"foot-course tri steeper than the sliver floor "
                          f"(ny {fc_ny_min:.2f} < {MTN_FOOT_NY_FLOOR})")
     if fc_rects and not fc_n:
-        raise ValueError("foot-course window set but no zip tri landed inside it -- "
-                         "check the rect against the printed placement")
+        raise ValueError("foot-course window set but no rock foot course emitted -- "
+                         "either the rect misses the zip (check it against the printed "
+                         "placement) or the rim inside it sits at lawn height everywhere "
+                         "(THE PROFILE LAW relief gate: a mountain that does not rise "
+                         "gets no rock course)")
     if worst_rig >= MTN_ROCK_RIGID:
         raise ValueError("carried rock deformed beyond the de-tilt affine")
     if g_worst > MTN_APRON_SLOPE:

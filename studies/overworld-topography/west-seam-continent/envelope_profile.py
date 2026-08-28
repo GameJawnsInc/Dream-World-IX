@@ -17,6 +17,7 @@ Corpora: all stock disc-1 land blocks (census cache) / the deployed R4 massif
 split into the FAILED SW-arc window vs THE REST (contains owner-passed faces).
 """
 import math
+import os
 import pickle
 import struct
 import sys
@@ -26,7 +27,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
-WM = GAME / "FF9CustomMap-world" / "FF9_Data" / "WorldMap"
+# FF9MK_WM points the site-side measurement at a bench mirror instead of the live mod
+WM = Path(os.environ.get("FF9MK_WM",
+                         str(GAME / "FF9CustomMap-world" / "FF9_Data" / "WorldMap")))
 CACHE = HERE / "stock_tris.pkl"                    # rebuilt from the install if absent
 WINDOW = (1412.0, -492.0, 1442.0, -460.0)         # the failed SW-arc window
 SITE_BLOCKS = [(21, 5), (22, 5), (23, 5), (21, 6), (22, 6), (23, 6),

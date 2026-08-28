@@ -276,6 +276,24 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > foot station must satisfy A1 within the local face family's band AND |kink| inside stock's
 > p25-p75 (-6..+18) -- i.e. author the base by EXTENDING each local face plane to the lawn; where
 > the body above is flat, no wall may exist at all (the contact retreats instead).
+> **Take 8 = THE PROFILE-LAW BASE (owner: "go"), DEPLOYED, playtest pending.** One predicate now
+> governs the whole fc window (`_fc_rock_here`: the CARRIED massif rises >= 2.5u within 6u):
+> (a) where it rises, the hole HUGS the rim (MTN_FC_CLEAR 0.75) so the rock toe continues the
+> face's own 55-61 deg plane to the lawn instead of skirting at the tessellation-quantized 6.7u;
+> (b) where it does not (taper arms, the SE shallow bench), the zip emits GRASS -- no rock paint
+> on flat ground, no sub-course curbs -- and those rim nodes rejoin the apron field for the lawful
+> free-base burial; (c) foot tris leave the grass zip-rise gate (they keep their own ny floor --
+> a toe deliberately spans the face's rise in one course). NO fringe realign: the chart stays
+> verbatim donor -- vindicated by measurement (the owner-passed faces carry 46 r6c4-7 tufty tris
+> themselves; the take-6 complaint was filed under broken geometry). Built through an OFFLINE
+> BENCH (absolute `--mod-folder` at a scratch mirror of r4-pre + `profile_base_measure.py`) --
+> three iterations before any live write. Measured result: the mid-arc base A1 21-36 -> 45-56 deg
+> (stock band 42-53), profile-NN to donor home 1.2-1.8 (was 2.5-3.9; passed-face range max 4.1);
+> the two steep stations stay at NN 0.27-0.40. Residuals, documented not fixed: the SE CARRIED
+> shallow bench (A1 21-37, donor-verbatim -- its home dressing is a welded forest, R6's budget)
+> and the NW low slab poking 0.3-1.4u over an already-low lawn (carried, free-base class).
+> Live deploy identical to the bench byte-for-byte; parity 9/9 carved terrains, stamp + probes
+> a-e green, col23-col0 seam frame-identical rows 4-9. Revert: r4-take4-pre.20260828-173726.
 > Deployed state left at take 7; reverts: fringe-realign-pre.* (paint), r4-take4-pre.* (any take),
 > r4-pre.20260828-103332 (pre-massif host). Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the

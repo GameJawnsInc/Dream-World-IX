@@ -5,7 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Fixed — THE HIGH-FOOT CONFORM: `world-mountain --max-apron-lift` retires the grass knoll
+### Changed — THE PROFILE LAW: `world-mountain --foot-course` builds a base that continues the face
+- Owner-filed across eight rejected takes on the R4 west-seam arc, closed by a 926-foot stock
+  census: stock's base course CONTINUES the face above it to the ground (first-8u climb p25–p75
+  = 42–53°, kink centered +1.5°) — while the window's old geometry parked the contact at the
+  tessellation-quantized ~6.7u and the toe read as a 21–36° walkable skirt under a 55–61° face.
+  One predicate now governs the window (the carried massif rises ≥ 2.5u within 6u): where it
+  rises, the hole HUGS the rim (clearance 0.75u) so the rock toe spans the face's own angle;
+  where it does not, the zip emits GRASS (no rock paint on flat ground, no sub-course curbs —
+  "a mountain that does not rise gets no rock course") and those rim nodes rejoin the apron
+  field for the lawful free-base burial. Foot tris leave the grass zip-rise gate (deliberately
+  steep rock, gated by their own winding floor). A window whose rim never rises now refuses
+  with the relief-gate message instead of painting rock on the lawn.
 - Owner-filed on the west-seam continent's R4 rim walk: on a high-foot donor arc (foot 4.3–5.1
   over a 3.2 plateau) the apron faithfully LIFTED grass to meet the rigid rim — minting a grass
   knoll pressed against mid-wall with no grass–mountain transition, while low-foot arcs (buried
