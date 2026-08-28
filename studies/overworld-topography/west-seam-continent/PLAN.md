@@ -239,7 +239,20 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > face open lawn), pull gradient <= ~0.7/u (down-winding gate finds the ceiling: PULL 8 folds 15
 > tris, 6 folds none). Deployed PULL=6: central chord 27.7 -> 45.5 deg, footCourse=17 fcNyMin=0.52,
 > all gates green, stamp+probe a-e, parity 306/306, seam weld OK, tests 31 green.
-> **★ DEPLOYED (take 6), awaiting the arc re-walk.** Original deploy note: All gates CLEAN on
+> Take 6 walked: rejected (poorly shaped faces = the rock-rigid law's own failure class; retired).
+> THE SHOULDER HEURISTICS study (6-agent census, SHOULDER-HEURISTICS.md) + its addendum then
+> corrected the model: the arc was NEVER shallow (55 deg per-tri; every shallow figure was a
+> radial-chord instrument error). The real deltas vs the passed north face: the apron bulge + THE
+> DOUBLED FRINGE (green tufty r6c4-7 transition course mid-silhouette, lawful only against a
+> VISIBLE grass contact -- the bowl terrace above is hidden from the lawn).
+> **Take 7 = flat window + THE FRINGE RE-ALIGN**: re-carve with `--foot-course 1415,-489,1440,-462`
+> (no pull -- flat lawn to the wall, rock contact course) + `fringe_realign.py` (the 20 r6c4-7 tris
+> -> r7c6-9 pale rock, whole-tile translation CLAMPED into the measured PAINTED extent inset 0.75
+> texel -- the offline eye caught both gutter classes pre-deploy: grid-edge clamp still lands in
+> Moguri's inset transparent margin; the eye itself needed the alpha-aware sampler to tell true
+> gutter hits (magenta) from its own edge-bilinear bleed). Ladder now 10 -> 9 -> 7, fringe only at
+> the lawn. Stamp+probe a-e green, parity 306/306, seam weld OK.
+> **★ DEPLOYED (take 7), awaiting the arc re-walk.** Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
 > `--near`), 9 blocks, 713 donor tris + 143 zip + THE ENSEMBLE CARRY (122 Falls/River/RiverJoint/
 > Object tris on span (22,7)-(23,8), `Donor.txt` → (5,15)), peak y 30.87, rock rigidity 0.8%,
