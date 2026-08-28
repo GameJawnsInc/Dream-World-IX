@@ -1487,9 +1487,18 @@ owner-confirmed playtested island included. Plus **177 `Block[X][Y] Donor.txt` s
 outside the ledger's scope entirely** (`deploy_donor_sidecar` never ledgers), and those are
 load-bearing: Donor.txt picks which real coastal prefab the s34 divert renders.
 
-One row is **DIVERGED** right now — Disc9 (2,17) Terrain, 1 ledger entry, sha matching none. The
-refusal would fire there today. That is the non-ledgered-in-place-writer class the
-`record_ledger_write` helper was added to close, so it is worth finding which writer did it.
+One row was **DIVERGED** when this audit first ran — Disc9 (2,17) Terrain, 1 ledger entry, sha
+matching none — exactly the non-ledgered-in-place-writer class `record_ledger_write` exists to
+close. **★ TRACED AND HEALED 2026-08-27** (full forensics → `studies/path-d-new-world/grow/
+batch1-junction/TRIANGLE.md`): the writer was `fix_triangle.py`, commit `0d87d33d`, 2026-08-05
+12:36 — the one-tri desert→grass uv retile at the 9013 exit seam, written 84 minutes after
+`arm_tiles.py`'s ledgered arm of the same file. Proven by byte-exact REPRODUCTION, not inference:
+pre-arm backup → re-run `arm_tiles` (offline seam) → the ledgered armed sha → re-run the patched
+`fix_triangle` → the live sha, bit-for-bit. The script wrote raw (`write_bytes` after parking a
+backup in the MAIN repo's `backups/`, which is why the install held no `.bak`) and simply omitted
+the ledger call — a helper born at 00:42 that same morning. `fix_triangle.py` now ledgers its
+writes, and the three proven-provenance rows (Disc9 + both twins) were appended: the audit reads
+**DIVERGED 0**, and (2,17) is the first PROTECTED cell on the real discs.
 
 **Calibration (the instrument can fail).** Three controls, all passing: (A) a verbatim snapshot
 through the `--src` seam reproduces the live disc-9 numbers exactly; (B) appending **one byte** to

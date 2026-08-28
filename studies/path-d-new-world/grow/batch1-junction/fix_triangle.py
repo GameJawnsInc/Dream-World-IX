@@ -69,16 +69,21 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import re
 import shutil
 import struct
 import sys
 from pathlib import Path
 
-KIT = Path(r"C:\gd\Dream-World-IX\.claude\worktrees\path-d-rung-6-handoff-e2535a\ff9mapkit")
+# the repo's own kit, derived from this file's location -- the original hardcoded the authoring
+# WORKTREE's ff9mapkit path, which evaporates when that worktree is pruned (the worktree-parked
+# trap, in code-path form)
+KIT = Path(__file__).resolve().parents[4] / "ff9mapkit"
 if str(KIT) not in sys.path:
     sys.path.insert(0, str(KIT))
 
 from ff9mapkit.world import grassland as GL                       # noqa: E402
+from ff9mapkit.world import mesh as WM                            # noqa: E402
 from ff9mapkit.world.extract import BLOCK_SIZE, decode_id         # noqa: E402
 from ff9mapkit.world.mesh import read_ff9mesh                     # noqa: E402
 from ff9mapkit.world.orphangate import DEFAULT_REDRESS_SEED       # noqa: E402
@@ -313,6 +318,19 @@ def main() -> None:
     print(f"\nbacked up -> {bak}")
     p["path"].write_bytes(after)
     print(f"WROTE {p['path']} ({len(after)} bytes)")
+    # THE LEDGER LAW (learned the hard way -- this very script's 2026-08-05 run left the ONLY
+    # DIVERGED row in the install's ledger): an in-place rewrite of a DEPLOYED override must
+    # record_ledger_write, or the next deploy_override at this cell+part refuses OUR OWN bytes
+    # as foreign (mesh.py's rec-16 class; same call coastnav/rimretile make). Guarded so a
+    # --file pointing at a loose copy outside a mod tree ledgers nothing.
+    m = re.search(r"Disc(\d+)[/\\][^/\\]+[/\\]r\d+[/\\]Block\[(\d+)\]\[(\d+)\] Terrain\.ff9mesh$",
+                  str(p["path"]))
+    if m and "FF9_Data" in p["path"].parts:
+        WM.record_ledger_write(p["path"], cell=(int(m.group(2)), int(m.group(3))),
+                               part="Terrain", write_disc=int(m.group(1)))
+        print(f"  ledgered (disc {m.group(1)}) -- the ownership refusal now knows these bytes")
+    else:
+        print("  NOT ledgered: --file is outside a mod tree's FF9_Data/WorldMap layout")
     d = read_ff9mesh(p["path"])
     print("  new uvs:", [tuple(round(c, 6) for c in d["uvs"][vi]) for vi in p["tri_verts"]])
     print("  idall  :", [int(round(d["tangents"][vi][0])) for vi in p["tri_verts"]])

@@ -42,3 +42,31 @@ In-game: loose-mesh hot reload — `~ → World → Reload overworld on state` (
 
 Extend the orphan gate with the mains-rect-orphan predicate (tri wearing family A's mains
 rect while its topo says family B) so this class is caught offline at generation time.
+
+## ADDENDUM — THE DIVERGED LEDGER ROW, TRACED TO THIS FIX (2026-08-27)
+
+The world-deploy ledger audit (`studies/overworld-topography/ledger_coverage_audit.py`) found
+exactly one **DIVERGED** row in the shared install: Disc9 (2,17) Terrain — on-disk sha matching no
+ledger entry, meaning the ownership refusal would have rejected *our own bytes* as foreign on the
+next deploy there. The trace, proven by byte-exact reproduction at every link:
+
+| utc (2026-08-05) | state | sha256 (12) | evidence |
+|---|---|---|---|
+| before 15:12 | pre-arm bench | `d69be6fd7940` | `Block[2][17] Terrain.ff9mesh.bak-20260805-111214` (parked by `deploy_override`); md5 = `armed_manifest.json`'s `from_md5` |
+| 15:12:14 | `arm_tiles.py --cell 4,35 --center 144,-1136 --radius 14 --event 1` | `f97133fa1192` | the ledger row (argv recorded); **reconstructed offline from the backup + that argv → byte-identical** |
+| 16:36:34 | **`fix_triangle.py --write` — this fix** (commit `0d87d33d`, 12:37 local) | `f339c7dcfa8a` | pre-fix bytes parked as `backups/…20260805-123634` (sha = the armed state); **the patched script re-run on the reconstructed armed state reproduces the live sha bit-for-bit** |
+
+The delta is this document's own subject: tri 521's three uvs, translated by exactly
+`(−0.65332, +0.09863)` — the desert-mains delta in reverse — positions/normals/tangents (all 103
+armed event bits included) byte-identical. The twins were fixed 13/14 s later
+(`…123647`/`…123648`; both still carry `4f89a566a5ff` today, untouched since).
+
+**Why it diverged:** this script wrote raw (`write_bytes`, backup to the main repo's `backups/` —
+hence no `.bak-<ts>` beside the install file) and omitted `record_ledger_write`, a helper born at
+00:42 that same morning (`504b0adc`). Exactly the rec-16 class the helper exists for.
+
+**Remediation:** the script now calls `record_ledger_write` after every write (guarded for
+off-tree `--file` targets), its `KIT` path no longer points into a prunable worktree, and the
+three proven-provenance rows were appended to the live ledger — the audit now reads DIVERGED 0,
+with (2,17) the first PROTECTED cell on Disc1/Disc4. This is **not** the refused bulk-adopt: each
+row's bytes are tied to this commit by reproduction, not assumption.
