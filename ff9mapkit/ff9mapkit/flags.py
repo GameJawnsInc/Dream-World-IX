@@ -118,7 +118,7 @@ KIT_WORLD_FLAG_BASE = 14976                    # named standing world-content fl
                                                # 1872-1875); a future named world flag needs a NEW band
 FERRY_DEPART_BYTE = 1872                       # scene-ladder rung 2: the ferry-departure port code
                                                # (bits 14976-14983 = the band's first byte; 0 = none,
-                                               # 1-4 = Ashvale/Tidefall/Grimhorn/Larkspur -- written by
+                                               # 1-4 = Ashvale/Tidefall/Grimhorn/Larkspur, 5 = the west-seam continent (East Bay) -- written by
                                                # the hall's ferry arms, consumed+cleared by WORLD11's
                                                # departure director; studies/overworld-topography/
                                                # scene-ladder/rung2a_departure.py)

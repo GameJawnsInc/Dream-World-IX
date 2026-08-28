@@ -108,6 +108,20 @@ overrides (the mint is additive over open ocean; the MOD-OVERWRITE GATE protecte
 
 ### R2 — THE LANDING + THE NAME (east bay; WARN-independent)
 
+> **★ DEPLOYED 2026-08-28 (awaiting THE ONE RELAUNCH + the cold-start playtest).** Execution
+> errata vs the recipe below, found by the drafting pass and applied: (1) the WORLD11 departure
+> director's port table is positional with LAST-ROW DEFAULT, so `depart_code 5` had to land in the
+> director BEFORE the hall — `rung3c_origin_departure.py` gained the port-5 rows (anchor tag 67;
+> 65/66 are HIDE/SHOW) and was `--deploy`ed first; the East Bay arrival lane was probed all-wet,
+> with the eye at (134.5,−448) because the stock (2,6) sea sheet has a margin hole at the idiom's
+> −452. (2) The ferry row was folded into the ONE 6601 deploy (not a pre-flight re-deploy plus a
+> second). (3) The bare `world-entrance` ran dry-run only; `rebuild_quay_marker.sh eastbay` was
+> the single real entrance+beacon deploy. (4) THE ONE LANDING POINT is **(68,−444) face 64**
+> (west/inland, the Larkspur idiom) — ferry row, director shore snap, and the 6603 walk-out all
+> land there. (5) The old `probe_quay_beacon.py` dies on a July backup path for Ashvale before
+> reaching eastbay — East Bay was byte-verified directly (beacon 42,140 B on both discs
+> identical; 'Farshore' in the deployed 68.mes; 6601+6603 + both MessageFiles registered).
+
 The player route: New Game/hub → Lantern Hall → ferry → the continent's shore. One relaunch.
 
 **Pre-flight (mandatory, the install is shared by 18+ sessions):**
@@ -136,7 +150,7 @@ sh studies/overworld-topography/southern-ring/rebuild_quay_marker.sh <newsite>
 #    landing shore; redeploy 6601. The kit emits key-35 + both position blocks (worldexit idiom).
 
 # 5. the map + the name registry
-py -m ffmapkit world-minimap --mod-folder FF9CustomMap-world        # note Memoria.ini FolderNames AND Priorities order
+py -m ff9mapkit world-minimap --mod-folder FF9CustomMap-world        # note Memoria.ini FolderNames AND Priorities order
 py -m ff9mapkit world-rename-markers ../studies/overworld-topography/southern-ring/marker_renames.toml --mod-folder FF9CustomMap-world
 ```
 (Add the case-62 entry to `marker_renames.toml` — the registry is merge-idempotent; never rebuild it.)

@@ -55,7 +55,7 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 
 SITE="${1:-}"
 if [ -z "$SITE" ]; then
-  echo "usage: $0 <ashvale|tidefall|grimhorn|larkspur|lamplight>" >&2
+  echo "usage: $0 <ashvale|tidefall|grimhorn|larkspur|lamplight|eastbay>" >&2
   exit 2
 fi
 
@@ -96,6 +96,13 @@ case "$SITE" in
             FIELD=6601; NAME="Larkspur"; CASE=68 ;;
   lamplight) CELL="44 36"; TRIG="1424 -1168";  AT="1424 -1160.425";  OBJ="quay_beacon_lamplight.obj"
             FIELD=6602; NAME="Lamplight"; CASE=61 ;;
+  # eastbay (R2, west-seam continent): VIRGIN case 62 -> the continent's own plate; door warps the
+  # East Bay landing interior (6603, BG-borrow of 1659). NAME is OWNER-RENAME ("Farshore" is a
+  # placeholder, not a naming decision). Block (1,6) is MINTED, not reclaimed, but its Donor.txt
+  # names (0,0) like every quay block, so the 4078 rule above applies unchanged (verified bytes).
+  # Southern limit: trigger north -440.0 -> cz >= -436.25, uses -436.2; AT = bbox centre = cz - 0.225.
+  eastbay)  CELL="2 13";   TRIG="80 -444";     AT="80 -436.425";     OBJ="quay_beacon_eastbay.obj"
+            FIELD=6603; NAME="Farshore"; CASE=62 ;;
   *) echo "unknown site: $SITE" >&2; exit 2 ;;
 esac
 

@@ -156,6 +156,18 @@ SITES = {
     "lamplight": Site("Lamplight", (1424.0, -1160.2), 3.20,
                      (1420.0, 1428.0, -1172.0, -1164.0), (1436.0, -1168.0), _blk(22, 18), 192,
                      (44, 36), (1424.0, -1168.0)),
+    # R2, west-seam continent -- the East Bay landing (PLAN R2): the continent's nameplate on VIRGIN
+    # case 62 (locId 61), door warps Field(6603). Site.name is the SITE ("Eastbay"), deliberately NOT
+    # the plate name, so the obj filename survives the owner's rename of the continent (the plate name
+    # "Farshore" [OWNER-RENAME] lives only in rebuild_quay_marker.sh NAME= and marker_renames.toml).
+    # Block (1,6) is a MINTED cell (world-island, seed 9) -- not reclaimed -- but its Donor.txt names
+    # (0,0) all the same (verified deployed bytes), so the form1/AddWalkMeshForm1 trap and the
+    # mandatory --building-idall 4078 apply identically. Flat plateau y 3.20. Southern limit: trigger
+    # north edge -440.0 + 1.0 hull clearance + 2.30 + 0.45 steps => cz >= -436.25, uses -436.2
+    # (the Ashvale derivation verbatim). Inland is WEST: arrive 12u west of the trigger, face 64.
+    "eastbay": Site("Eastbay", (80.0, -436.2), 3.20,
+                    (76.0, 84.0, -448.0, -440.0), (68.0, -444.0), _blk(1, 6), 64,
+                    (2, 13), (80.0, -444.0)),
 }
 
 def obj_path(site):

@@ -1,0 +1,56 @@
+# landing.field.toml -- THE FARSHORE LANDING (OWNER-RENAME): the shore room behind the East Bay
+# quay beacon on the west-seam continent (R2).
+#
+# BG-borrows Iifa Tree/Seashore (field 1659, IFTR_MAP559_IF_CST_0, area 31) -- the game's own
+# wide wild beach: engine-side art/walkmesh/camera; only OUR .eb ships. 1659 is a cutscene-only
+# field (Brahne's death); its one stock SetRegion quad [[-230,-1887],[160,-1887],[209,-1055],
+# [-31,-845]] is vestigial and sits ~249u OFF the walkmesh, so the walk-out quad below is that
+# trigger's own boundary segment (553,-554)->(156,-2742) widened +-300u to straddle the mesh edge
+# (probed: 305u-deep walkable band inside the quad at every latitude).
+#
+# Deploy (from the repo root; needs a RELAUNCH -- first-time FieldScene/MessageFile registration):
+#   py tools/deploy_field.py studies/overworld-topography/west-seam-continent/landing.field.toml \
+#       --id 6603 --name FARSHORE --mod-folder FF9CustomMap-world
+
+[field]
+id = 6603
+name = "FARSHORE"                    # OWNER-RENAME (placeholder, not a naming decision)
+text_block = 6603                    # the field's OWN id -- NEVER a real block (shadow trap)
+borrow_bg = "IFTR_MAP559_IF_CST_0"   # Iifa Tree/Seashore (field 1659), area 31 (>= 10)
+area = 31
+hide_area_title = true               # the borrowed room's "Iifa Tree" card is not this place
+
+[camera]
+borrow = "camera_landing.bgx"        # field 1659's real camera (`extract-field 1659`, copied in
+                                     # beside this toml; gitignored -- game-derived bytes)
+entry_settle = "auto"
+
+# field 1659's REAL walkmesh, for offline content validation ONLY -- NEVER shipped: the engine
+# runs the borrowed room's own mesh. Gitignored -- game-derived bytes.
+[walkmesh]
+reference = "walkmesh_landing.bgi"
+
+[player]
+spawn = [900, -1400]                 # 193u clear inside the door quad's on-mesh edge (probed)
+face = 192                           # east = into the room, away from the exit (west = screen-left)
+
+# The keeper of the landing -- one moogle, one line. The way home is the shore you came in by.
+[[npc]]
+name = "Mogdrift"
+pos = [1600, -700]                   # up-beach of the spawn, 990u clear (probed)
+face = 32                            # south-west, toward the arriving player
+model = 220
+dialogue = "Kupo... nothing out here but wind and gulls and a whole lot of sand nobody's named yet. Watch your footprints -- they're the first ones, kupo!"
+
+# =====================================================================================
+# THE DOOR -- the shore walk-off, seated on 1659's own vestigial-trigger boundary
+# =====================================================================================
+# Lands beside the beacon at THE ONE LANDING POINT (68,-444) f64 -- 12u WEST (inland) of the
+# case-62 trigger (80,-444), 8u clear of its 8u rect, facing west AWAY from the tiles (the
+# Larkspur idiom: east coast, inland = west). The 6601 [[ferry]] row and the WORLD11 director's
+# port-5 shore snap land at THIS SAME point -- ferry, theater, and door alike.
+[[gateway]]
+zone = [[285, -352], [875, -460], [424, -2944], [-166, -2836]]
+to = "worldmap"
+arrive = [68.0, -444.0]
+arrive_face = 64

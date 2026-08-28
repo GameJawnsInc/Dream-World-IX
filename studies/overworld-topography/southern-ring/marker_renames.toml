@@ -19,6 +19,12 @@ to = "Lantern Quay" # pass (cases 65-68) no tile summons it: kept as the ferry N
 locid = 60          # split[61] -- VIRGIN case 61: the ring's ONE named landmark (R3),
 to = "Lamplight"    # self-summon lane, no switch surgery.
 
+[[marker_rename]]
+locid = 61          # split[62] -- VIRGIN case 62: the west-seam continent's nameplate (R2 East Bay
+to = "Farshore"     # landing -> field 6603). OWNER-RENAME: "Farshore" is a placeholder pending the
+                    # owner's name for the continent -- replace here, in rebuild_quay_marker.sh
+                    # (NAME=), and re-run world-rename-markers + rebuild_quay_marker.sh eastbay.
+
 # THE PER-QUAY NAMES (cases 65-68, the EXTENDED band's first consumers): each quay's trigger is the
 # virgin self-summon form warping Field(6601) -- the hall -- exactly as the shared case did, but the
 # plate reads the island's own name and each island keeps its own explored bit (word 2006 bits 0-3).

@@ -117,6 +117,11 @@ PORTS = [
     (62, 432.0, -1232.0, 192, 3.2),  # 2 Tidefall
     (63, 1214.0, -1192.0, 192, 3.2), # 3 Grimhorn (desert ground)
     (64, 688.0, -616.0, 64, 3.23),   # 4 Larkspur (west = inland)
+    # 5 the west-seam continent's East Bay (R2): tag 67 -- 65/66 are HIDE/SHOW_TAG; shore snap =
+    # THE ONE LANDING POINT (68,-444) f64 shared with the 6601 ferry row and the 6603 walk-out.
+    # Ground probed 3.200 on the deployed R1 mint. As the LAST row this is also the switch
+    # DEFAULT arm (was Larkspur) -- every real code 1-5 has an explicit-or-default arm either way.
+    (67, 68.0, -444.0, 64, 3.2),     # 5 East Bay (west = inland)
 ]
 
 # Per-port ARRIVAL theater (rung 3 v2, unchanged): anchor tag, approach(x,z), dock(x,z),
@@ -126,6 +131,11 @@ ARRIVE = [
     (62, (374.0, -1232.0), (394.0, -1232.0), 192, 192, (366.0, -1224.0)),
     (63, (1162.0, -1192.0), (1182.0, -1192.0), 192, 192, (1154.0, -1184.0)),
     (64, (746.5, -616.0), (726.5, -616.0), 64, 64, (754.5, -624.0)),
+    # 5 East Bay: the Larkspur lane translated (dock = shore+38.5u seaward, approach = dock+20);
+    # eye = dock+28 out, 4u abeam -- (134.5,-448), not the idiom's -452: the stock (2,6) sea4
+    # sheet has a margin hole at (134.5,-452) (probed MISS; -448 probes Sea4 topo 57 on the
+    # deployed+stock composition). Lane dock->approach probed all-wet at z=-444.
+    (67, (126.5, -444.0), (106.5, -444.0), 64, 64, (134.5, -448.0)),
 ]
 
 # Per-port DEPARTURE theater (3c, probe_departure_lanes.py all-wet): anchor tag, dock(x,z),
