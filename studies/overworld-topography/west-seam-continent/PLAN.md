@@ -252,7 +252,21 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > Moguri's inset transparent margin; the eye itself needed the alpha-aware sampler to tell true
 > gutter hits (magenta) from its own edge-bilinear bleed). Ladder now 10 -> 9 -> 7, fringe only at
 > the lawn. Stamp+probe a-e green, parity 306/306, seam weld OK.
-> **★ DEPLOYED (take 7), awaiting the arc re-walk.** Original deploy note: All gates CLEAN on
+> Take 7 walked: REJECTED -- (a) the uniform pale r7 course reads as top-to-bottom BANDING (a
+> whole-tile stripe is too clean; stock mixes within bands); (b) the base still bad: the minted
+> contact course drops steeply to the lawn instead of continuing the face's own slope.
+> **THE ARC IS PARKED (owner: wrap up, measure a different way).** Eight takes, eight rejections;
+> the full falsification record: SHOULDER-HEURISTICS.md + the ledger below. Standing design
+> constraints from the verdicts: (1) THE NO-KINK LAW -- any base/contact course must CONTINUE the
+> local face plane's slope to the ground, never chord steeply down; (2) no uniform single-tile
+> bands; (3) all prior classes (apron shapes, conform, strips, steepen, re-charts) falsified.
+> NEXT MEASUREMENT APPROACH (not built): stop trusting the offline eye + byte stats as the gate --
+> they passed all eight takes. Gate on GAME-RENDERER pixels instead: the in-game test harness
+> (project-ff9-test-harness) + game_snap to (a) capture the REAL Daguerreo SW face in-game from the
+> approach camera as the target, (b) capture our arc identically, (c) THE PEER GATE (overhang-
+> context memory): compare against the owner-passed north face from tangent-relative cameras.
+> Deployed state left at take 7; reverts: fringe-realign-pre.* (paint), r4-take4-pre.* (any take),
+> r4-pre.20260828-103332 (pre-massif host). Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
 > `--near`), 9 blocks, 713 donor tris + 143 zip + THE ENSEMBLE CARRY (122 Falls/River/RiverJoint/
 > Object tris on span (22,7)-(23,8), `Donor.txt` → (5,15)), peak y 30.87, rock rigidity 0.8%,
