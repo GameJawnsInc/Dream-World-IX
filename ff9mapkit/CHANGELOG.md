@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `Donor.txt` gets the same guard as the meshes (ledger + backup + ownership refusal)
+- `deploy_donor_sidecar` was a bare `write_text`: no ledger row, no backup, no refusal — on 177
+  live load-bearing files, while every mesh beside them had all three. The sidecar picks which
+  real coastal prefab the s34 divert renders, so a foreign overwrite silently changes a cell's
+  whole coastal look. It now carries `deploy_override`'s exact contract under ledger part
+  `"Donor"`: refuse a differing overwrite whose bytes match no ledger row (`force_overwrite` /
+  `$FF9_WORLD_FORCE_OVERWRITE` overrides; empty ledger stays bootstrap-permissive), park
+  `.bak-<ts>` first, ledger every write. Identical re-points take no backup and never refuse —
+  the deploy loops re-run their sidecar writes on every deploy. All 8 call sites unchanged.
+- The disc mirror now ledgers mirrored sidecars as part `"Donor"` too (a deliberate flip of the
+  earlier "meshes only" pin, which predated the sidecar refusal) — without it a mirrored Disc4
+  sidecar would leave the new refusal in its permissive branch on the whole destination disc.
+
 ### Fixed — THE MOD-OVERWRITE GATE extended to the rest of the world lane
 - The back-port to `world-island` (below) closed one lane; an audit of all 14 write-capable entry
   points in `world/` found only `transplant.transplant_region`, `fuse.compose_layout` and

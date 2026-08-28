@@ -228,14 +228,48 @@ def donor_sidecar_relpath(disc: int, x: int, y: int, lod: str = "0_1") -> str:
 
 
 def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: int, x: int, y: int,
-                         lod: str = "0_1", game=None) -> Path:
+                         lod: str = "0_1", game=None, backup: bool = True,
+                         force_overwrite: bool = False) -> Path:
     """Write the per-cell donor sidecar for reclaimed cell ``(x, y)``: a one-line ``"dx,dy"`` naming the real coastal
     donor block whose beach/sea/foam sub-meshes the engine should render on this cell. Deployed next to the cell's
-    ``Terrain.ff9mesh`` override; the engine's ``TryReadDonorPath`` searches the stacked ``FolderNames`` for it."""
+    ``Terrain.ff9mesh`` override; the engine's ``TryReadDonorPath`` searches the stacked ``FolderNames`` for it.
+
+    THE SIDECAR IS LOAD-BEARING AND GETS THE SAME GUARD AS THE MESHES (2026-08-27). ``Donor.txt``
+    picks the real prefab the s34 divert renders, so a foreign overwrite silently changes a cell's
+    whole coastal look -- and until now this was a bare ``write_text``: no ledger, no backup, no
+    refusal, on 177 live files while every mesh beside them had all three. Same contract as
+    :func:`deploy_override`, ledger part ``"Donor"``: before overwriting a DIFFERING payload, if
+    the ledger has rows for this cell's sidecar and the on-disk bytes match none, another session
+    or a hand edit owns them -- REFUSE (``force_overwrite=True`` / ``$FF9_WORLD_FORCE_OVERWRITE``
+    overrides); an empty/missing ledger stays permissive (the bootstrap case). ``backup=True``
+    parks differing bytes as ``<name>.bak-<ts>`` (a suffix invisible to the disc mirror's block
+    regex and to :func:`existing_overrides`' extension filter). Every write appends a ledger row."""
+    import os
     require_block_in_grid(x, y, context="deploy_donor_sidecar")
     dest = config.find_game_path(game) / mod_folder / donor_sidecar_relpath(disc, x, y, lod)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(f"{donor_x},{donor_y}", encoding="utf-8")
+    payload = f"{donor_x},{donor_y}".encode("utf-8")
+    if dest.exists():
+        cur = dest.read_bytes()
+        if cur != payload:
+            import hashlib
+            mod_root = config.find_game_path(game) / mod_folder
+            shas, last = _ledger_shas(mod_root, disc, x, y, "Donor")
+            cur_sha = hashlib.sha256(cur).hexdigest()
+            if shas and cur_sha not in shas and not force_overwrite \
+                    and not os.environ.get("FF9_WORLD_FORCE_OVERWRITE"):
+                raise ValueError(
+                    f"refusing to overwrite {dest.name}: its bytes match no ledger entry -- "
+                    f"another session or a hand edit owns them (last ledger write: "
+                    f"{(last or {}).get('utc')} argv={(last or {}).get('argv')}). "
+                    "Pass force_overwrite=True / set FF9_WORLD_FORCE_OVERWRITE to proceed.")
+            if backup:
+                import shutil
+                from datetime import datetime
+                ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+                shutil.copyfile(dest, dest.with_name(dest.name + f".bak-{ts}"))
+    dest.write_bytes(payload)
+    record_ledger_write(dest, cell=(x, y), part="Donor", write_disc=disc)
     return dest
 
 

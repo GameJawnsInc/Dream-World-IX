@@ -212,3 +212,70 @@ def test_shared_header_parser_is_the_one_owner():
     from ff9mapkit.workspace import worldscan as WS
     assert "read_ff9mesh_header" in inspect.getsource(CN._parse_header)
     assert "read_ff9mesh_header" in inspect.getsource(WS)
+
+
+# --------------------------------------------------------------- THE DONOR SIDECAR'S OWN GUARD
+
+def _sidecar(tmp, donor=(7, 17), cell=(5, 7), **kw):
+    return M.deploy_donor_sidecar(donor[0], donor[1], mod_folder="TestMod", disc=1,
+                                  x=cell[0], y=cell[1], game=tmp, **kw)
+
+
+def test_sidecar_write_ledgers_part_Donor(tmp_path):
+    """Every sidecar write appends a row keyed part="Donor" on the WRITE disc -- until 2026-08-27
+    deploy_donor_sidecar was a bare write_text with no ledger, no backup, no refusal, on 177 live
+    load-bearing files (Donor.txt picks the s34 divert's render prefab)."""
+    p = _sidecar(tmp_path)
+    assert p.read_text(encoding="utf-8") == "7,17"
+    rows = _ledger_lines(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["cell"] == [5, 7] and rows[0]["part"] == "Donor" and rows[0]["write_disc"] == 1
+    assert rows[0]["sha256"] == hashlib.sha256(b"7,17").hexdigest()
+
+
+def test_sidecar_foreign_bytes_refuse_and_force_overrides(tmp_path):
+    """THE OWNERSHIP REFUSAL, sidecar edition: a hand edit / another session's differing payload
+    with no matching ledger row refuses BEFORE the damage; the hatch stays explicit."""
+    p = _sidecar(tmp_path)
+    p.write_text("9,9", encoding="utf-8")                 # foreign: matches no ledger row
+    with pytest.raises(ValueError, match="match(es)? no ledger entry"):
+        _sidecar(tmp_path, donor=(3, 13))
+    assert p.read_text(encoding="utf-8") == "9,9"         # refused write must not have landed
+    p2 = _sidecar(tmp_path, donor=(3, 13), force_overwrite=True)
+    assert p2.read_text(encoding="utf-8") == "3,13"
+
+
+def test_sidecar_own_redeploy_backs_up_and_passes(tmp_path):
+    """A legitimate re-point (prior payload IS ledgered) succeeds and parks the old payload as
+    .bak-<ts> -- a name invisible to the disc mirror's block regex and to existing_overrides'
+    extension filter, so backups never masquerade as occupancy."""
+    _sidecar(tmp_path, donor=(7, 17))
+    p = _sidecar(tmp_path, donor=(3, 13))
+    assert p.read_text(encoding="utf-8") == "3,13"
+    baks = list(p.parent.glob("*Donor.txt.bak-*"))
+    assert len(baks) == 1 and baks[0].read_text(encoding="utf-8") == "7,17"
+    assert DM._BLOCK_RE.match(baks[0].name) is None
+    hits = M.existing_overrides([(5, 7)], "TestMod", disc=1, lod="0_1", game=tmp_path)
+    assert [h for h in hits if ".bak-" in h] == []
+
+
+def test_sidecar_preledger_tree_is_permissive(tmp_path):
+    """Bootstrap parity with the mesh seam: a pre-existing unledgered sidecar (every pre-2026-08-27
+    world -- 177 live files) must not refuse; the differing overwrite still parks a backup."""
+    dest = tmp_path / "TestMod" / M.donor_sidecar_relpath(1, 5, 7, "0_1")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("9,9", encoding="utf-8")              # unledgered pre-existing payload
+    p = _sidecar(tmp_path, donor=(7, 17))
+    assert p.read_text(encoding="utf-8") == "7,17"
+    baks = list(p.parent.glob("*Donor.txt.bak-*"))
+    assert len(baks) == 1 and baks[0].read_text(encoding="utf-8") == "9,9"
+
+
+def test_sidecar_identical_repoint_takes_no_backup(tmp_path):
+    """Re-writing the SAME payload is not an overwrite: no refusal path, no backup churn (the
+    deploy loops re-run their sidecar writes on every deploy)."""
+    _sidecar(tmp_path)
+    p = _sidecar(tmp_path)
+    assert p.read_text(encoding="utf-8") == "7,17"
+    assert list(p.parent.glob("*Donor.txt.bak-*")) == []
+    assert len(_ledger_lines(tmp_path)) == 2              # every write still ledgers

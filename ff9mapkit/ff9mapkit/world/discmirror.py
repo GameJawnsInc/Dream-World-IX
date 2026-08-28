@@ -255,13 +255,16 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 dst.write_bytes(p.read_bytes())
                 # A mirrored file is a DEPLOYED override we own, but it is written HERE rather
-                # than through deploy_override -- so without this it never enters the ledger and
-                # THE OWNERSHIP REFUSAL (mesh.py:368) stays in its permissive `if shas` branch
-                # for the whole destination disc, permanently. Same reasoning as the coastnav
-                # stamp's own mirror ledger call (coastnav.py:398). Meshes only: Donor.txt is a
-                # sidecar, not a cell+part the refusal ever consults.
+                # than through the deploy seam -- so without this it never enters the ledger and
+                # THE OWNERSHIP REFUSAL stays in its permissive `if shas` branch for the whole
+                # destination disc, permanently. Same reasoning as the coastnav stamp's own
+                # mirror ledger call (coastnav.py:398). Covers BOTH the meshes (deploy_override's
+                # refusal) and the Donor.txt sidecar (deploy_donor_sidecar's refusal, part
+                # "Donor" -- _BLOCK_RE group(3) already reads "Donor" for the .txt form); the
+                # sidecar picks the s34 divert's render prefab, so it is as load-bearing as any
+                # mesh beside it.
                 m = _BLOCK_RE.match(name)
-                if m and m.group(4) == "ff9mesh":
+                if m:
                     M.record_ledger_write(dst, cell=blk, part=m.group(3),
                                           write_disc=dst_disc, read_disc=src_disc)
             out["mirrored"].append(dst)

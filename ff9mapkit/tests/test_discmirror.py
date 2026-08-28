@@ -557,11 +557,20 @@ def test_mirror_ledgers_the_destination_disc_not_the_source(tmp_path, monkeypatc
     assert {r["read_disc"] for r in rows} == {1}
 
 
-def test_mirror_does_not_ledger_the_donor_sidecar(tmp_path, monkeypatch):
-    """Donor.txt is a sidecar, not a cell+part the refusal ever consults -- ledgering it would put a
-    non-mesh row in a table keyed for meshes."""
-    _run_mirror(tmp_path, monkeypatch)
-    assert all(r["part"] != "Donor" for r in _ledger_rows(tmp_path))
+def test_mirror_ledgers_the_donor_sidecar_as_part_Donor(tmp_path, monkeypatch):
+    """DELIBERATE FLIP of the earlier pin ("Donor.txt is not a cell+part the refusal ever
+    consults"): since 2026-08-27 ``deploy_donor_sidecar`` carries its own ownership refusal keyed
+    on ledger part ``"Donor"``, so a mirrored sidecar with no row would leave that refusal in its
+    permissive bootstrap branch on the destination disc -- the same hole the mesh half had. The
+    sidecar picks the s34 divert's render prefab; it is as load-bearing as any mesh beside it."""
+    result, _src, _dst = _run_mirror(tmp_path, monkeypatch)
+    mirrored_sidecars = [p for p in result["mirrored"] if p.name.endswith("Donor.txt")]
+    assert mirrored_sidecars, "fixture mirrored no sidecar -- the test would pass vacuously"
+    keyed = {(tuple(r["cell"]), r["part"], r["write_disc"]) for r in _ledger_rows(tmp_path)}
+    for p in mirrored_sidecars:
+        m = DM._BLOCK_RE.match(p.name)
+        cell = (int(m.group(1)), int(m.group(2)))
+        assert (cell, "Donor", 4) in keyed, f"{p.name} mirrored but not ledgered"
 
 
 def test_mirror_ledgers_the_free_ride_pin(tmp_path, monkeypatch):
