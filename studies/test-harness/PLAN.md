@@ -211,34 +211,61 @@ previously only *expected* to work by sharing a code path with the menu cursor. 
 
 ## Engine deployment state
 
-⚠ **AS OF 2026-08-31 THE SOURCE IS AHEAD OF THE DLL.** The clone carries s83 **rev 2** (protocol 2);
-the deployed `Assembly-CSharp` is still **rev 1** (protocol 1) — sha
-`f77112e38c7a4140e089366050b812ccc4ed592110c6eb4145c5cf6dde5dad30`, both arches identical. Until it is
-rebuilt:
+★★ **s83 rev 2 (protocol 2) is BUILT, DEPLOYED AND PROVEN IN-GAME (2026-08-31).** sha
+`217410de06c089cacf1e72e47274c4710f03dde28651c4f8143de54ede23fc33` — Output == both arches, 0 errors, 186 warnings.
+Pre-build backups: `20260831-144736` (pre-rev2) and **`20260831-150435`** (pre-quitfix). Revert with
+`py tools/restore_memoria_dll.py <label>`.
 
-* `expect_text` asserts against the RAW dialogue source, not what the player reads;
-* `worldwarp` / `teleport` refusals ack CLEAN;
-* **every run still writes the owner's autosave** (the driver's backup + report is the only guard).
+**49/49 in-game checks across ten scenarios**, every one asserting on an OUTCOME rather than on an
+ack:
 
-The driver detects this itself and logs a DEGRADED warning naming each caveat, and `report.json`
-carries `driver_protocol` and `engine_protocol` so a green result cannot be read as unconditional.
-Build with `py tools/build_memoria.py --label pre-s83-rev2` (it enforces the pre-build DLL backup —
-the raw msbuild auto-deploys over the live install with none), then run
-`scenarios/rev2_proof.py` and re-run `save_untouched.py`, which must go from RED to GREEN.
+| Scenario | Result |
+|---|---|
+| `save_untouched` | ★ **RED → GREEN** — all 18 save containers byte-identical after a full `newgame(); warp(); walk` |
+| `rev2_proof` | 12/12 — protocol 2, sandbox path, release-is-inert, bad-watch survivable AND reported, no sticky error, `timescale 0` refused, world-warp refusal quoting the engine, `reset`, menu group |
+| `dialogue_render` | 6/6 — see below |
+| `walk_check` 2/2 · `flag_check` 7/7 · `goto_check` 5/5 · `menu_pick_check` 6/6 · `talk_check` 3/3 · `cutscene_check` 4/4 · `gateway_check` 3/3 | the pre-existing suite, unbroken |
+
+**E4, proven on one box in both forms** — this is what `expect_text` used to match against:
+
+```
+rendered : '== SCRIBE CONTROL ====
+Plain window, no menu...'
+source   : '[STRT=10,1][TAIL=UPR][NTUR]== SCRIBE CONTROL ====
+Plain window, no menu...'
+```
+
+**E5, proven at the exact historical failure point.** The 30801 east responder is the same 15-option
+menu that once published only 13 phrases. `option_index("Tetra Master") → 3`, the engine's own
+`SelectChoice → 3`, and the option there reads `Tetra Master`. Asking for index 3 against the RAW
+array reads "Minigames" — that is the off-by-one, closed against the engine rather than against our
+own arithmetic. (`count=15`, `active=[0..14]`, 13 names: `ChoicePhrases` is still short of `count`,
+so a name lookup can only find options that were published — which fails cleanly rather than wrongly.)
+
+### ⚠ `Application.Quit()` DOES NOT QUIT THIS GAME — found by running it
+
+Every run ended `quit did not land -- terminating`. The step was accepted, executed and **acked** at
+frame 842, and the agent was still publishing 900 frames later. Cause:
+`UIKeyTrigger.OnApplicationQuit` calls `Application.CancelQuit()` unless its private `quitConfirm` is
+set, and pops the in-game "really quit?" dialog instead — which in a harness run nobody answers. The
+fix is the game's own path, `UIKeyTrigger.ConfirmQuit()`: it sets the flag, broadcasts `"OnQuit"` so
+subsystems stand down, and only then quits. **A run is now 23s instead of 38s**, and the harness no
+longer hard-kills the process it opened.
+
+Worth generalising: the driver's message was *accurate the whole time* — it said the quit did not
+land, and it did not. The tool told the truth and nobody read it for four months.
 
 **Inert without `ff9harness/arm`** either way, so ordinary play is unaffected — that gating is what
 makes it safe on an install shared by ~26 worktrees.
 
-Pre-build backups, newest last: `20260827-103835`, `20260827-111002`, `20260827-111541`,
-**`20260827-181321`** (pre-axis-fix). Revert with `py tools/restore_memoria_dll.py <label>`.
-
-The patch file is regenerated and gated **in both directions**: `git apply -R --check` is clean against
-the live tree, AND forward-applying it onto the reconstructed baseline reproduces all 8 files
+The patch file is regenerated and gated **in both directions**: `git apply -R --check` is clean
+against the live tree, AND forward-applying it onto the reconstructed baseline reproduces all 8 files
 byte-exactly — so `s83-harness-agent.patch` is both an exact and a SUFFICIENT description of the
-source. (Reverse alone would pass a patch that was missing a hunk.) ⚠ Two traps in regenerating it:
-capture `diff` as BYTES, or the console locale mojibakes every non-ASCII comment and the patch fails
-its own gate on a line nobody would inspect; and apply with `core.autocrlf=false`, or git rewrites a
-newly created LF file to CRLF and the byte comparison fails on a file the patch described perfectly.
+source. (Reverse alone would pass a patch that was missing a hunk; it did, once, silently dropping
+the `WorldWarp` void→Boolean conversion.) ⚠ Two traps in regenerating it: capture `diff` as BYTES, or
+the console locale mojibakes every non-ASCII comment and the patch fails its own gate on a line
+nobody would inspect; and apply with `core.autocrlf=false`, or git rewrites a newly created LF file
+to CRLF and the byte comparison fails on a file the patch described perfectly.
 
 ---
 
@@ -360,15 +387,12 @@ acked* is precisely what all of these defects could already fake.
 
 ## Next actions
 
-1. **BUILD AND DEPLOY s83 rev2, then run `rev2_proof.py`.** The batch is written, the patch is gated
-   in both directions (reverse-clean on the live tree; forward-apply reproduces all 8 files
-   byte-exactly), and the driver already speaks protocol 2 with a DEGRADED warning against the older
-   DLL. Until the rebuild, `expect_text` is asserting against the raw dialogue SOURCE and every
-   harness run still writes the owner's autosave.
-2. **Assert on dialogue for real, once E4 is live.** A chest bench (`expect_text("Potion")`) exercises
-   the narrative axis rather than the physical one, and separately proves the dialogue-choice half of
-   the NGUI hook, which is still only *expected* to work by sharing a code path with the menu cursor.
-   ⚠ 30810 is not currently registered — check the live `DictionaryPatch.txt` before assuming a bench.
+1. ~~Build and deploy s83 rev2~~ — ★ DONE and proven, see Engine deployment state.
+2. ~~Assert on dialogue for real~~ — ★ DONE (`dialogue_render.py`): E4 and E5 both proven in-game,
+   the latter at the exact index where the historical off-by-one picked the wrong branch. This also
+   closes the last gap the NGUI hook left open — dialogue choices were previously only *expected* to
+   work by sharing a code path with the menu cursor, and `select()` driving the engine's own
+   `SelectChoice` to a named option proves it directly.
 3. **The suite runner** (`play.py --suite`), now that `reset` exists to isolate its members. The reset
    primitive for the rungs above `reset` needs no engine change either: `UIKeyTrigger.SoftResetKeyPSXDown`
    (L1+L2+R1+R2+Start+Select) reads through the hooked `IsInputDown`, and its handler tears down every

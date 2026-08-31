@@ -302,7 +302,7 @@
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,1243 @@
+@@ -0,0 +1,1275 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -989,12 +989,44 @@ new file mode 100644
 +                    // Leave the SHARED install as we found it. A run that crashed with the scale
 +                    // turned up used to hand the next person's game a fast-forward it never asked for.
 +                    Time.timeScale = 1f;
-+                    Application.Quit();
++                    Quit();
 +                    break;
 +
 +                default:
 +                    throw new NotSupportedException("unknown op '" + s.Op + "'");
 +            }
++        }
++
++        /// <summary>Close the game the way the game closes itself.</summary>
++        /// <remarks>
++        /// ⚠ `Application.Quit()` DOES NOT QUIT THIS GAME. `UIKeyTrigger.OnApplicationQuit` calls
++        /// `Application.CancelQuit()` unless its private `quitConfirm` is set, and instead pops the
++        /// in-game "really quit?" dialog -- which, in a harness run, nobody answers. Diagnosed from a
++        /// live run: the `quit` step was accepted, executed and ACKED at frame 842, and the agent was
++        /// still publishing 900 frames later. The driver then waited out its budget and hard-killed
++        /// the process, every single run.
++        ///
++        /// `ConfirmQuit()` is the game's own path: it sets quitConfirm, broadcasts "OnQuit" so the
++        /// subsystems can stand down, and only then quits -- reaching the branch that actually closes
++        /// the window. Falling back to a bare Quit() is deliberate: on a screen with no UIKeyTrigger
++        /// there is nothing to cancel the quit either, so it works there.
++        /// </remarks>
++        private static void Quit()
++        {
++            try
++            {
++                UIKeyTrigger trigger = UnityEngine.Object.FindObjectOfType<UIKeyTrigger>();
++                if (trigger != null)
++                {
++                    trigger.ConfirmQuit();
++                    return;
++                }
++            }
++            catch (Exception err)
++            {
++                Memoria.Prime.Log.Message("[ff9mk harness] ConfirmQuit failed, falling back: " + err);
++            }
++            Application.Quit();
 +        }
 +
 +        private void Block(Int32 frames)
