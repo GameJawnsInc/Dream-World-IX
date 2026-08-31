@@ -44,6 +44,12 @@ ARM_POLL = 30
 RUN_SPEED = 30.0
 WALK_SPEED = 15.0
 
+#: FF9's own soft reset: L1+R1+L2+R2+Start+Select, all reporting IsInputDown on ONE frame.
+#: Modelled with the same-frame requirement intact, because that requirement is the whole reason the
+#: driver has to send all six in a single request -- six separate presses would never overlap, and a
+#: stand-in that accepted them sequentially would let a broken driver pass.
+SOFT_RESET_COMBO = ("l1", "l2", "r1", "r2", "start", "select")
+
 
 class FakeGame:
     """Runs the agent's side of the protocol in a background thread at a simulated frame rate."""
@@ -103,6 +109,11 @@ class FakeGame:
         #: because the driver must VERIFY this rather than trust it -- an unchecked sandbox is a
         #: check that cannot fail, and what it would fail to catch is the owner's overwritten game.
         self.save_sandboxed = True
+        #: `[Control] SoftReset` in Memoria.ini. The ENGINE default is 0; this install has it on.
+        #: False here models the install where the recovery ladder's top rung simply does not exist,
+        #: which the driver must report honestly rather than hang on.
+        self.soft_reset_enabled = True
+        self.soft_resets = 0
         self.gateway: tuple[float, float, float, float, int] | None = None
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
@@ -148,6 +159,7 @@ class FakeGame:
                 if self.armed:
                     self._poll_request()
                     self._drain()
+                    self._check_soft_reset()
                     self._step_world()
                     self._publish()
             except OSError as err:
@@ -400,6 +412,32 @@ class FakeGame:
                 self.field_id = dest
                 self.player = [0.0, 0.0, 0.0]
                 self.control = True
+
+    def _check_soft_reset(self) -> None:
+        """All six buttons reporting a DOWN EDGE on the same frame sends the game to the title.
+
+        The real handler closes every dialog, hides the HUD, disables all button groups and the
+        battle menu, un-pauses, normalises btl_seq and replaces the scene with Title -- which is why
+        it is the only recovery rung that reaches a battle or a stuck menu. What matters for the
+        driver is the observable end state, so that is what this models.
+        """
+        if not self.soft_reset_enabled:
+            return
+        if not all(self.down_at.get(b) == self.frame for b in SOFT_RESET_COMBO):
+            return
+        self.soft_resets += 1
+        self.ui_state = "Title"
+        self.field_id = -1
+        self.control = False
+        self.texts = []
+        self.raw_texts = []
+        self.choice = None
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+        self.menu_entries = []
+        self.player = [0.0, 0.0, 0.0]
+        self.held.clear()
+        self.down_at.clear()
+        self._event("soft_reset")
 
     def _menu_step(self, button: str) -> None:
         if not self.menu_entries:

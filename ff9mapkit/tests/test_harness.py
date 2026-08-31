@@ -28,6 +28,7 @@ sys.path.insert(0, str(REPO / "tools"))
 
 from harness import Channel, HarnessError, Session, State          # noqa: E402
 from harness.fakegame import FakeGame                              # noqa: E402
+from harness.suite import SuiteRunner, load_manifest               # noqa: E402
 
 
 @pytest.fixture
@@ -876,3 +877,241 @@ def test_the_players_saves_are_copied_before_the_game_is_launched(game):
     with session(game, fake) as g:
         boot(g)
     assert (game / "run" / "saves-before" / "SavedData_ww.dat").read_bytes() == b"the owner's game"
+
+
+# ======================================================================================
+# THE SUITE RUNNER
+#
+# Many scenarios, one launch. The value is throughput; the risk is that a shared launch
+# means shared state, so a scenario that leaves the game somewhere odd starts producing
+# failures that belong to the RUNNER and get reported against the game. Every test here
+# guards that boundary.
+# ======================================================================================
+
+
+def _manifest(game, body: str) -> pathlib.Path:
+    path = game / "suite.toml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def _scenario(game, name: str, body: str) -> str:
+    """Write a scenario file under the repo root and return its repo-relative path.
+
+    Manifest paths resolve against the REPO, so the files have to live there. They are removed by
+    the fixture's own cleanup below.
+    """
+    d = REPO / "_suite_test_scenarios"
+    d.mkdir(exist_ok=True)
+    (d / f"{name}.py").write_text(body, encoding="utf-8")
+    return f"_suite_test_scenarios/{name}.py"
+
+
+@pytest.fixture(autouse=True)
+def _clean_scratch_scenarios():
+    yield
+    import shutil as _sh
+    _sh.rmtree(REPO / "_suite_test_scenarios", ignore_errors=True)
+
+
+def test_soft_reset_needs_all_six_buttons_on_one_frame(game):
+    """Six separate presses never overlap -- they must go in ONE request to share a Down edge."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        assert fake.ui_state == "FieldHUD"
+        g.soft_reset()
+        assert fake.soft_resets == 1, "the combo never registered on a single frame"
+        assert g.state.ui_state == "Title"
+
+
+def test_soft_reset_reports_honestly_when_the_engine_has_it_disabled(game):
+    """`[Control] SoftReset` defaults to 0 in the engine. A ladder rung that cannot exist must say so."""
+    fake = FakeGame(game)
+    fake.soft_reset_enabled = False
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="SoftReset"):
+            g.soft_reset(timeout=2.0)
+
+
+def test_restore_baseline_climbs_until_the_precondition_actually_holds(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)                                     # now on a field: NOT the baseline
+        ok, why = g.at_baseline()
+        assert not ok and "Title" in why
+        ok, why = g.restore_baseline()
+        assert ok, why
+        assert g.state.ui_state == "Title"
+
+
+def test_a_scenario_that_cannot_be_given_a_baseline_is_poisoned_not_failed(game):
+    """It never ran, so it cannot have failed -- and blaming the game for the runner's own
+    inability to clean up is the exact mistake this arc keeps making."""
+    fake = FakeGame(game)
+    fake.soft_reset_enabled = False                 # the ladder cannot reach the title
+    rel = _scenario(game, "never_runs", "def run(g):\n    g.check(True, 'ran')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\n')
+    with session(game, fake) as g:
+        boot(g)                                     # leave it off the baseline on purpose
+        meta, scenarios = load_manifest(path, REPO)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+    assert [r["verdict"] for r in results] == ["poisoned"]
+    assert not runner.passed
+    assert "never ran" in results[0]["detail"]
+
+
+def test_a_scenario_that_records_no_checks_is_proved_nothing(game):
+    fake = FakeGame(game)
+    rel = _scenario(game, "asserts_nothing", "def run(g):\n    g.newgame(settle=0)\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, REPO)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+    assert results[0]["verdict"] == "proved-nothing"
+    assert not runner.passed
+
+
+def test_a_raising_scenario_is_an_error_and_the_next_one_still_runs(game):
+    """The point of a suite is that one bad member does not cost the rest of the launch."""
+    fake = FakeGame(game)
+    bad = _scenario(game, "explodes", "def run(g):\n    g.newgame(settle=0)\n    raise ValueError('boom')\n")
+    good = _scenario(game, "fine", "def run(g):\n    g.newgame(settle=0)\n    g.check(True, 'still ran')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{bad}"\n\n[[scenario]]\npath="{good}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, REPO)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+    assert [r["verdict"] for r in results] == ["error", "pass"]
+    assert "boom" in results[0]["detail"]
+    assert "traceback" in results[0]
+
+
+def test_every_scenario_gets_a_clean_baseline_not_the_previous_ones_leftovers(game):
+    """The second scenario calls newgame(), which REQUIRES the title -- so if the runner did not
+    restore, it would fail with 'not at the title screen' and the failure would look like the
+    game's."""
+    fake = FakeGame(game)
+    a = _scenario(game, "leaves_a_field", "def run(g):\n    g.newgame(settle=0)\n    g.warp(30810)\n    g.check(True, 'a')\n")
+    b = _scenario(game, "needs_the_title", "def run(g):\n    g.newgame(settle=0)\n    g.check(True, 'b')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{a}"\n\n[[scenario]]\npath="{b}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, REPO)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+    assert [r["verdict"] for r in results] == ["pass", "pass"]
+    assert runner.passed
+    assert fake.soft_resets >= 1, "the runner never actually restored anything"
+
+
+def test_a_held_button_does_not_leak_into_the_next_scenario(game):
+    """`hold` is non-blocking and frame-counted, so a scenario that ends mid-hold leaves a button
+    DOWN -- and the next scenario would be driven by it."""
+    fake = FakeGame(game)
+    a = _scenario(game, "ends_mid_hold",
+                  "def run(g):\n    g.newgame(settle=0)\n    g.warp(30810)\n"
+                  "    g.send('hold up 600', wait=False)\n    g.check(True, 'held')\n")
+    b = _scenario(game, "expects_stillness",
+                  "def run(g):\n    g.check(not g.state.held, 'no button is held on entry', str(g.state.held))\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{a}"\n\n[[scenario]]\npath="{b}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, REPO)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+    assert [r["verdict"] for r in results] == ["pass", "pass"], results
+
+
+def test_shots_are_namespaced_per_scenario(game):
+    """Two scenarios both capturing "before" would otherwise overwrite each other in the one
+    channel directory -- and the evidence lost is always the failing run's."""
+    fake = FakeGame(game)
+    a = _scenario(game, "shooter_a", "def run(g):\n    g.newgame(settle=0)\n    g.shot('before')\n    g.check(True, 'a')\n")
+    b = _scenario(game, "shooter_b", "def run(g):\n    g.newgame(settle=0)\n    g.shot('before')\n    g.check(True, 'b')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{a}"\n\n[[scenario]]\npath="{b}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, REPO)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        runner.run()
+        run_dir = runner.run_dir
+    names = sorted(p.name for p in (run_dir).rglob("*.png"))
+    assert any(n.startswith("01-shooter_a") for n in names), names
+    assert any(n.startswith("02-shooter_b") for n in names), names
+
+
+def test_the_first_failure_of_a_scenario_is_photographed(game):
+    """In a suite, re-running to see what the screen looked like costs the whole suite."""
+    fake = FakeGame(game)
+    rel = _scenario(game, "fails_once",
+                    "def run(g):\n    g.newgame(settle=0)\n"
+                    "    g.check(False, 'first')\n    g.check(False, 'second')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, REPO)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+        run_dir = runner.run_dir
+    assert results[0]["verdict"] == "fail"
+    # Scoped to the scenario's OWN directory: the session-level collect keeps a flat copy of every
+    # shot too, so an unscoped glob counts the same image twice.
+    shots = [p.name for p in (run_dir / "01-fails_once" / "shots").glob("*.png")]
+    assert shots == ["01-fails_once-FAILED.png"], (
+        f"expected exactly one failure shot -- only the FIRST failure is worth photographing, "
+        f"and the second check must not add another. Got {shots}")
+
+
+def test_each_check_carries_the_state_it_was_made_in(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.check(True, "something")
+        row = g.checks[-1]
+    assert "state" in row and row["state"]["ui_state"] == "FieldHUD"
+
+
+def test_a_manifest_pointing_at_a_missing_scenario_is_refused(game):
+    """A suite that silently skips a member reports a smaller pass than it claims."""
+    path = _manifest(game, '[suite]\nname="t"\n\n[[scenario]]\npath="does/not/exist.py"\n')
+    with pytest.raises(HarnessError, match="does not exist"):
+        load_manifest(path, REPO)
+
+
+def test_an_empty_manifest_is_refused(game):
+    path = _manifest(game, '[suite]\nname="t"\n')
+    with pytest.raises(HarnessError, match="lists no"):
+        load_manifest(path, REPO)
+
+
+def test_the_suite_report_tallies_every_verdict(game):
+    fake = FakeGame(game)
+    ok = _scenario(game, "rep_ok", "def run(g):\n    g.newgame(settle=0)\n    g.check(True, 'x')\n")
+    bad = _scenario(game, "rep_bad", "def run(g):\n    g.newgame(settle=0)\n    g.check(False, 'y')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{ok}"\n\n[[scenario]]\npath="{bad}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, REPO)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        runner.run()
+        run_dir = runner.run_dir
+    report = json.loads((run_dir / "suite.json").read_text(encoding="utf-8"))
+    assert report["tally"]["pass"] == 1 and report["tally"]["fail"] == 1
+    assert report["passed"] is False
+    assert len(report["scenarios"]) == 2
+
+
+def test_newgame_settles_on_the_cold_title_only(game):
+    """The settle exists because Memoria is still LOADING the first time the title appears.
+
+    On a re-entry the game is loaded and the wait is pure dead time -- once per scenario, which in a
+    ten-member suite is a minute and a half of nothing.
+    """
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        assert g._booted_once is False
+        g.newgame(settle=0)
+        assert g._booted_once is True
+        g.soft_reset()
+        started = time.time()
+        g.newgame()                       # no explicit settle: must NOT pay the cold-title wait
+        assert time.time() - started < 5.0

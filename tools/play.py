@@ -36,6 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import HarnessError, Session, ff9_pids                  # noqa: E402
+from harness.suite import SuiteRunner, load_manifest                 # noqa: E402
 
 
 def _accepts_field(fn) -> bool:
@@ -168,11 +169,47 @@ def load_scenario(path: Path):
     return mod
 
 
+def run_suite(args) -> int:
+    """Run a whole manifest through one launch.
+
+    Exit code is 0 only when EVERY scenario passed. `poisoned` (never ran, the runner could not give
+    it a clean baseline) and `proved-nothing` (ran, asserted nothing) are both non-zero on purpose --
+    they are the two outcomes a suite could most easily launder into a green number.
+    """
+    repo = Path(__file__).resolve().parents[1]
+    manifest = Path(args.suite)
+    meta, scenarios = load_manifest(manifest, repo)
+    label = args.label or meta.get("name") or manifest.stem
+
+    started = time.time()
+    try:
+        with Session(label=f"suite-{label}", game_path=args.game, attach=args.attach,
+                     keep_open=args.keep_open, boot_timeout=args.timeout) as g:
+            runner = SuiteRunner(g, scenarios, meta=meta)
+            runner.run()
+            passed, summary, run_dir = runner.passed, runner.summary(), runner.run_dir
+    except HarnessError as err:
+        print(f"\n!!! harness error: {err}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\n!!! interrupted", file=sys.stderr)
+        return 130
+
+    print(f"\n{'-' * 72}")
+    print(f"suite {label}: {time.time() - started:.0f}s")
+    print(summary)
+    print(f"artifacts: {run_dir}")
+    return 0 if passed else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("scenario", nargs="?", help="a Python file exposing run(g)")
     ap.add_argument("--smoke", action="store_true", help="run the built-in harness self-test")
+    ap.add_argument("--suite", default=None,
+                    help="a suite manifest (TOML): run every scenario in it through ONE launch, "
+                         "restoring a verified baseline between each")
     ap.add_argument("--field", type=int, default=None,
                     help="field to run against: warped to by --smoke, and passed to a scenario's "
                          "run(g, field) when it accepts one")
@@ -185,8 +222,13 @@ def main(argv=None) -> int:
     ap.add_argument("--timeout", type=float, default=240.0, help="seconds to wait for the agent")
     args = ap.parse_args(argv)
 
-    if not args.smoke and not args.scenario:
-        ap.error("give a scenario file, or --smoke")
+    if not args.smoke and not args.scenario and not args.suite:
+        ap.error("give a scenario file, --suite <manifest.toml>, or --smoke")
+    if args.suite and (args.scenario or args.smoke):
+        ap.error("--suite runs its own list; do not combine it with a scenario or --smoke")
+
+    if args.suite:
+        return run_suite(args)
 
     label = args.label or ("smoke" if args.smoke else Path(args.scenario).stem)
     scenario = load_scenario(Path(args.scenario)) if args.scenario else None

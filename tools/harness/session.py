@@ -194,6 +194,17 @@ class Session:
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         self._last_error: str | None = None   # the agent's error latch as of the last successful ack
         self.engine_protocol: int | None = None   # what the DEPLOYED engine speaks, once it answers
+        #: Prefix stamped onto every screenshot name. A suite sets it per scenario, because two
+        #: scenarios both capturing "walk-before" otherwise overwrite each other's evidence in the
+        #: one channel directory -- and the evidence you lose is always the failing run's.
+        self.shot_prefix = ""
+        #: Whether this session has ever reached a field. The title settle exists because Memoria is
+        #: still LOADING the first time the title appears; on a re-entry (after a soft reset) it is
+        #: pure dead time, and in a suite it is dead time once per scenario.
+        self._booted_once = False
+        #: One automatic screenshot per scenario, at its FIRST failure -- the moment worth seeing.
+        self._shot_on_failure = True
+        self._failure_shot_taken = False
         stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.run_dir = Path(run_dir) if run_dir else RUNS / f"{stamp}-{label}"
 
@@ -994,7 +1005,7 @@ class Session:
         return arrived
 
     def newgame(self, *, timeout: float = 120.0, playable: bool = False,
-                settle: float = TITLE_SETTLE) -> State:
+                settle: float | None = None) -> State:
         """Title screen -> New Game -> in-game.
 
         Waits for a FIELD to be up, NOT for control. New Game lands in the opening cutscene (stock
@@ -1006,8 +1017,14 @@ class Session:
         ``settle`` holds on the title screen before starting. Memoria is still loading when the title
         first appears, and starting a new game during that window makes the opening cutscene run
         badly choppy -- which a scenario asserting on cutscene timing would then blame on itself.
-        The wait costs nothing on a run that warps away immediately, so it is on by default.
+
+        ⚠ That reason applies to the FIRST title only. Coming back to the title later -- which is
+        exactly what a suite does between scenarios -- the game is fully loaded and the wait is pure
+        dead time, once per scenario. So the default is the settle on a cold title and nothing on a
+        re-entry. Pass an explicit number to override either way.
         """
+        if settle is None:
+            settle = 0.0 if self._booted_once else TITLE_SETTLE
         self.wait_for(lambda s: s.ui_state == "Title", timeout=timeout, what="the title screen")
         if settle > 0:
             self._log(f"settling {settle:.0f}s on the title (Memoria is still loading)")
@@ -1015,6 +1032,7 @@ class Session:
         self.send("newgame")
         st = self.wait_for(lambda s: s.ui_state == "FieldHUD" and s.field_id > 0,
                            timeout=timeout, what="New Game to reach a field")
+        self._booted_once = True
         return self.wait_playable(timeout=timeout) if playable else st
 
     def registered_fields(self) -> tuple[dict[int, str], list[Path]]:
@@ -1700,7 +1718,7 @@ class Session:
         request line is split on whitespace, so ``shot("after chest")`` reached the agent as
         ``after``, and the wait then blamed the in-engine capture for a name the driver mangled.
         """
-        name = _sanitize(name)
+        name = _sanitize(f"{self.shot_prefix}-{name}" if self.shot_prefix else name)
         self.send(f"shot {name}")
         path = self.channel.shots / f"{name}.png"
         deadline = time.time() + 10
@@ -1729,6 +1747,114 @@ class Session:
             self.unwatch()
             self.timescale(1.0)
 
+    # -- isolation between scenarios ------------------------------------------------------------
+    # A suite runs many scenarios through ONE launch, which is only worth doing if a scenario that
+    # leaves the game in a menu, mid-battle, mid-dialogue or on a black screen cannot poison the
+    # next one. Everything here is about reaching a KNOWN state and then PROVING we reached it.
+
+    #: The six buttons FF9's own soft reset watches (L1+L2+R1+R2+Start+Select).
+    SOFT_RESET_BUTTONS = ("l1", "l2", "r1", "r2", "start", "select")
+
+    def soft_reset(self, *, timeout: float = 45.0, frames: int = 8) -> State:
+        """Return to the title screen from ANYWHERE, using the game's own soft reset.
+
+        This is the only recovery rung that reaches a battle, a stuck menu or a black screen --
+        `warp` refuses outside FieldHUD and `reset` only clears the harness's own state. FF9's
+        handler closes every dialog, hides the HUD, disables all button groups and the battle menu,
+        un-pauses, normalises `btl_seq`, and replaces the scene with Title.
+
+        ⚠ ALL SIX BUTTONS MUST REPORT `IsInputDown` ON THE SAME FRAME, which is why they go in ONE
+        request: every step of a request is drained in a single pass, so all six are scheduled with
+        the same `_downFrame` and their Down edges coincide. Six separate `press` calls would never
+        overlap, and the reset would simply never fire.
+
+        ⚠ It is gated on `[Control] SoftReset` in Memoria.ini -- 1 on this install, but the ENGINE
+        default is 0. So this asserts on the outcome (the title screen actually arriving) rather
+        than returning and letting the caller assume it worked.
+        """
+        self.reset_agent()
+        steps = [f"hold {b} {frames}" for b in self.SOFT_RESET_BUTTONS]
+        self.send(*steps, f"wait {frames + 4}")
+        try:
+            st = self.wait_for(lambda s: s.ui_state == "Title", timeout=timeout,
+                               what="the soft reset to return to the title screen")
+        except HarnessError as err:
+            raise HarnessError(
+                f"the soft reset did not reach the title. Either `[Control] SoftReset` is 0 in "
+                f"Memoria.ini (the engine default -- this needs it on), or the game is no longer "
+                f"responding to input at all. ({err})"
+            ) from err
+        self._sleep_alive(0.5)          # let the scene transition finish before anyone acts on it
+        return st
+
+    def at_baseline(self) -> tuple[bool, str]:
+        """Is the game in the state a scenario is entitled to assume? Returns ``(ok, why)``.
+
+        The baseline is the TITLE SCREEN, because every scenario in this arc opens with `newgame()`
+        and that verb requires it. Checked rather than assumed: the entire point of a ladder is that
+        each rung is verified.
+        """
+        st = self.channel.state()
+        if st is None:
+            return False, f"no state published -- {self.channel.classify()}"
+        if st.armed is False:
+            return False, "the agent has disarmed"
+        if st.raw.get("faulted"):
+            return False, f"the agent faulted: {st.error}"
+        if st.ui_state != "Title":
+            return False, f"ui_state is {st.ui_state!r}, not Title"
+        if st.held:
+            return False, f"buttons still held: {st.held}"
+        if st.dialog_open:
+            return False, "a dialogue box is still open"
+        try:
+            scale = float(st.raw.get("timescale", 1.0))
+        except (TypeError, ValueError):
+            scale = 1.0
+        if abs(scale - 1.0) > 0.01:
+            return False, f"timescale is {scale}, not 1.0"
+        return True, "at the title, idle"
+
+    def restore_baseline(self) -> tuple[bool, str]:
+        """Climb the recovery ladder until :meth:`at_baseline` agrees, one rung at a time.
+
+        Every rung is followed by a RE-CHECK of the precondition rather than an assumption that it
+        worked, and it escalates exactly one rung on failure.
+
+        The caller decides what happens when the ladder runs out, and the right answer is to VOID
+        the next scenario rather than fail it: a scenario that never ran cannot have failed, and
+        recording it as a failure would be the harness blaming the game for its own inability to
+        clean up. Given this arc's history, the runner's default must be to blame itself.
+        """
+        ok, why = self.at_baseline()
+        if ok:
+            return True, "already at the baseline"
+
+        rungs = [
+            ("release the harness's own state", self.reset_agent),
+            ("soft reset to the title", self.soft_reset),
+        ]
+        for name, rung in rungs:
+            try:
+                rung()
+            except HarnessError as err:
+                self._log(f"  restore: {name} failed ({err})")
+                continue
+            ok, why = self.at_baseline()
+            if ok:
+                return True, f"restored by: {name}"
+        return False, f"the ladder did not restore the baseline: {why}"
+
+    def begin_scenario(self, label: str) -> None:
+        """Start a fresh scenario on this session: clear checks, namespace its screenshots."""
+        self.checks = []
+        self.shot_prefix = label
+        self._failure_shot_taken = False
+        # A basis is per-field AND per-scenario: the previous scenario may have left the character
+        # somewhere its probes were deflected, and a cached bad basis steers every later walk.
+        self._axes.clear()
+        self.note(f"scenario {label}")
+
     def quit(self, *, timeout: float = 15.0) -> None:
         """Ask the game to exit, and wait for it.
 
@@ -1748,9 +1874,31 @@ class Session:
 
     # -- asserting ------------------------------------------------------------------------------
     def check(self, ok: bool, description: str, detail: str = "") -> bool:
-        """Record a pass/fail. Non-fatal -- the run continues so one scenario reports every failure."""
-        self.checks.append({"ok": bool(ok), "what": description, "detail": detail})
+        """Record a pass/fail. Non-fatal -- the run continues so one scenario reports every failure.
+
+        Every check carries a snapshot of the game AT THE MOMENT IT WAS MADE, and the first failure
+        of a scenario is photographed automatically. Both exist for one reason: inside a suite,
+        re-running to find out what the screen looked like costs the whole suite.
+        """
+        row = {"ok": bool(ok), "what": description, "detail": detail}
+        try:
+            st = self.channel.state()
+            if st is not None:
+                row["state"] = {
+                    "frame": st.frame, "ui_state": st.ui_state, "field": st.field_id,
+                    "pos": [st.player_x, st.player_z], "control": st.control,
+                    "dialog": st.dialog_open, "held": st.held,
+                }
+        except Exception:                              # never let bookkeeping break a check
+            pass
+        self.checks.append(row)
         self._log(f"  {'PASS' if ok else 'FAIL'}  {description}" + (f"  [{detail}]" if detail else ""))
+        if not ok and self._shot_on_failure and not self._failure_shot_taken:
+            self._failure_shot_taken = True
+            try:
+                self.shot("FAILED")
+            except Exception as err:
+                self._log(f"  (could not photograph the failure: {err})")
         return bool(ok)
 
     def expect(self, predicate, description: str, *, timeout: float = 10.0) -> bool:

@@ -80,6 +80,84 @@ Two defences now:
 
 ---
 
+## Running a suite
+
+One launch, many scenarios. The overhead a harness pays is almost all fixed -- a cold boot, the title
+settle, the New Game cutscene -- and paying it once instead of ten times is most of what makes the
+harness usable day to day. Measured on the core suite: **ten scenarios in 264s, against 519s run
+one at a time.**
+
+```bash
+py tools/play.py --suite studies/test-harness/suites/core.toml
+```
+
+A manifest is TOML, and paths resolve against the repo root so it reads like the command line you
+would otherwise have typed:
+
+```toml
+[suite]
+name = "core"
+field = 30801                 # default bench; a scenario entry can override it
+
+[[scenario]]
+path = "studies/test-harness/scenarios/walk_check.py"
+
+[[scenario]]
+path = "studies/test-harness/scenarios/cutscene_check.py"
+field = 30601
+```
+
+### The isolation contract
+
+Sharing a launch means sharing state, so the runner's real job is making sure a scenario that leaves
+the game in a menu, mid-battle or on a black screen cannot poison whatever runs next.
+
+**The baseline is the TITLE SCREEN** — not "a field", not "wherever the last one finished" — because
+every scenario opens with `newgame()`, and that verb requires it.
+
+The ladder, one rung at a time, **each followed by re-checking the precondition rather than assuming
+the rung worked**:
+
+| Rung | What it does |
+|---|---|
+| `reset` | releases every held button, clears the watch list, restores timescale |
+| soft reset | FF9's own L1+L2+R1+R2+Start+Select — closes every dialog, disables all button groups and the battle menu, un-pauses, normalises `btl_seq`, and replaces the scene with Title |
+
+The soft reset is the only rung that reaches a **battle** or a **black screen**; `warp` refuses
+outside `FieldHUD`. Two things about it worth knowing:
+
+- **All six buttons must report `IsInputDown` on the same frame**, which is why they go in one
+  request — every step of a request drains in a single pass, so their Down edges coincide. Six
+  separate presses would never overlap and the reset would simply never fire.
+- It is gated on `[Control] SoftReset` in `Memoria.ini` (1 on this install; the **engine** default is
+  0), so `soft_reset()` asserts the title actually arrived and raises naming that setting otherwise.
+
+### Verdicts, and the two that exist to stop the suite lying
+
+| Verdict | Means |
+|---|---|
+| `pass` | ran, recorded checks, all passed |
+| `fail` | ran, at least one check failed |
+| `error` | raised — the next scenario still runs |
+| **`poisoned`** | **never ran**: the runner could not give it a clean baseline |
+| **`proved-nothing`** | ran and recorded no checks |
+
+`poisoned` is the important one. A scenario that never ran cannot have failed, and recording it as a
+failure would be the harness blaming the game for its own inability to clean up — the exact mistake
+this arc has already made three times. Neither `poisoned` nor `proved-nothing` counts toward a pass,
+and the exit code is 0 only when every member passed.
+
+### What you get back
+
+`.harness-runs/<stamp>-suite-<name>/` with a `suite.json` tally, and **one directory per scenario**
+holding its own `report.json` and screenshots. Shots are namespaced by scenario, so two scenarios
+both capturing `"before"` no longer overwrite each other — and the evidence you lose that way is
+always the failing run's. Every check carries a snapshot of the game as it was when the check was
+made, and **the first failure of each scenario is photographed automatically**, because re-running to
+see what the screen looked like costs the whole suite.
+
+---
+
 ## What the driver refuses to tell you
 
 A harness that reports confidently and wrongly is worse than no harness, and this one did it three
