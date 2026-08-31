@@ -68,6 +68,11 @@ MAX_FIELD_ID = 32767
 PLAYER_SAVE_DIR = Path(os.path.expandvars(
     r"%USERPROFILE%\AppData\LocalLow\SquareEnix\FINAL FANTASY IX\Steam\EncryptedSavedData"))
 
+#: The game's render rate, used ONLY to convert a frame-counted hold into the wall-clock window a
+#: real-seconds engine threshold needs. Everything else in this driver is measured in frames or
+#: closed-loop on state; this is the one place the two units have to meet.
+FRAMES_PER_SECOND = 60.0
+
 #: A published document this recent counts as a LIVE game talking. The agent republishes ~30x/second,
 #: so anything older is a photograph -- and a photograph satisfies most predicates just as well as a
 #: running game does.
@@ -1656,6 +1661,241 @@ class Session:
     #: gEventGlobal is Byte[2048], so bits run 0 .. 16383. See [[project-ff9-story-flags]] for the
     #: SAFE allocation band (8712+) -- this is only the physical range.
     MAX_FLAG_BIT = 2048 * 8 - 1
+
+    # -- battle -----------------------------------------------------------------------------------
+    # The pillar the state channel was dark on. Everything here closes its loop on published state,
+    # and every wait is anchored to `battle_epoch` -- because `btl_result` is 0 both DURING a battle
+    # and BEFORE any battle has ever run, so it cannot tell those apart on its own.
+
+    def start_battle(self, scene: int, *, group: int = -1, timeout: float = 60.0) -> State:
+        """Boot a real battle from a field and wait until it is actually running.
+
+        ⚠ Not the diorama. `NetSyncDiorama.Boot` is the cheap way to put a battle scene on screen and
+        it sets `isDebug`, under which the battle CAN NEVER END -- so every result or reward
+        assertion against it is vacuous. This uses the field's own encounter transition.
+        """
+        st = self.state
+        if st.ui_state != "FieldHUD":
+            raise HarnessError(
+                f"start_battle needs a field to leave FROM (ui_state={st.ui_state!r}); the engine "
+                f"routes the transition by the FIELD's nextMode."
+            )
+        before = st.battle_epoch
+        self.send(f"battle {int(scene)} {int(group)}")
+        return self.wait_battle(timeout=timeout, after_epoch=before)
+
+    def wait_battle(self, *, timeout: float = 60.0, after_epoch: int | None = None) -> State:
+        """Wait until a battle is genuinely up.
+
+        Anchored on the epoch ADVANCING rather than on `active`, because `active` is also true for a
+        diorama and because a stale battle scene would satisfy it. `after_epoch` defaults to whatever
+        the epoch is now, which makes the common "trigger something, then wait" shape correct.
+        """
+        base = self.state.battle_epoch if after_epoch is None else after_epoch
+        # ⚠ REQUIRE THE UNITS. `active` goes true while `btl_list` is still being built, so a wait
+        # that stopped there handed the scenario an empty roster -- measured: the first live run
+        # reported "0 party + 0 enemy" from a battle that seconds later had a full list and moving
+        # ATB gauges. A battle nobody can see the combatants in is not yet a battle worth returning.
+        st = self.wait_for(
+            lambda s: s.in_battle and s.battle_epoch > base and s.units(),
+            timeout=timeout,
+            what=f"a real battle to start with its units listed (epoch past {base}; "
+                 f"a diorama does not count)")
+        self._log(f"battle {st.battle.get('scene')} up: epoch {base} -> {st.battle_epoch}, "
+                  f"{len(st.units())} unit(s)")
+        return st
+
+    def wait_battle_over(self, *, timeout: float = 180.0) -> int:
+        """Wait for the battle to END and return its result code.
+
+        ⚠ It waits for the battle to stop being active AND for a non-zero result, because
+        `btl_result` is 0 for the whole battle. A scenario that polled the result alone would read
+        "in-progress" as an answer.
+        """
+        st = self.state
+        if st.battle.get("debug"):
+            raise HarnessError(
+                "this battle is running with isDebug set (a diorama). Under isDebug the engine "
+                "suppresses the auto-end, so it can never finish -- waiting for a result here would "
+                "hang, and asserting one would be green having observed nothing."
+            )
+        # ANCHOR ON THE EPOCH. `result` is published always -- it has to be, since it is the answer
+        # only after the fight -- so a bare "result != 0" would also be satisfied by the PREVIOUS
+        # battle's result the instant this one starts. Requiring the epoch to still be the one we
+        # are watching is what ties the answer to the question.
+        epoch = st.battle_epoch
+        st = self.wait_for(
+            lambda s: s.battle_result != 0 and s.battle_epoch == epoch,
+            timeout=timeout,
+            what=f"battle {epoch} to reach a result")
+        self._log(f"battle {epoch} result: {st.battle_result_name} ({st.battle_result})")
+        return st.battle_result
+
+    def expect_battle_result(self, kind: str, *, timeout: float = 180.0) -> bool:
+        """Assert how the battle ended, by name ('victory', 'defeat', 'escape', ...)."""
+        wanted = [k for k, v in State.BATTLE_RESULTS.items() if v == kind]
+        if not wanted:
+            raise HarnessError(f"unknown battle result {kind!r}; "
+                               f"known: {sorted(set(State.BATTLE_RESULTS.values()))}")
+        try:
+            got = self.wait_battle_over(timeout=timeout)
+        except HarnessError as err:
+            return self.check(False, f"the battle ended in {kind}", str(err))
+        return self.check(got in wanted, f"the battle ended in {kind}",
+                          f"got {State.BATTLE_RESULTS.get(got, got)} ({got})")
+
+    def battle_pick(self, label: str, *, direction: str = "down", max_steps: int = 24,
+                    confirm: bool = True) -> str:
+        """Move the battle cursor onto `label` and confirm it -- BY NAME, never by press count.
+
+        Asserted against the engine's own `ButtonGroupState.ActiveButton`, which is the value
+        `BattleHUD.OnKeyConfirm` actually consumes -- not `UICamera.selectedObject`, which is the
+        accessor a diagnostic reads. `UIKeyTrigger` prefers ActiveButton and only falls back to the
+        selected object, so publishing the fallback was this arc's own law still live in the code.
+        """
+        want = label.strip().lower()
+        seen: list[str] = []
+        for _ in range(max_steps):
+            cursor = self.state.battle_cursor
+            current = (cursor.get("label") or "").strip()
+            if current and current.lower() == want:
+                if confirm:
+                    self.press("confirm", 4)
+                    self.wait_frames(14)
+                return current
+            if current and (not seen or seen[-1] != current):
+                if current in seen:
+                    raise HarnessError(
+                        f"{label!r} is not on this battle cursor -- went round and saw {seen} "
+                        f"(group={cursor.get('group')!r})")
+                seen.append(current)
+            self.press(direction, 4)
+            self.wait_frames(10)
+        raise HarnessError(f"gave up looking for {label!r} on the battle cursor after {max_steps} "
+                           f"steps; saw {seen}")
+
+    def battle_act(self, command: str = "Attack", *, timeout: float = 30.0) -> bool:
+        """Take one turn: pick a command by NAME, then confirm a target. Closed-loop throughout.
+
+        The cursor path is the ONLY one available for a solo battle. `SendNetCommand` -- the exact,
+        deterministic entry point -- opens with `if (playerIndex == CurrentPlayerIndex) return false;`
+        because it exists to replay a REMOTE co-op player's command; it deliberately refuses the slot
+        whose local menu is open, which in a one-character fight is always the slot you want.
+
+        So this steers, but never blindly: it waits for the command group, picks by name against the
+        engine's own `ButtonGroupState.ActiveButton`, then waits for the TARGET group before
+        confirming. Blind double-taps do not work -- measured: two confirms 16 frames apart left the
+        cursor sitting in `Battle.Command` while the enemy chewed through Zidane's HP.
+        """
+        try:
+            self.wait_for(lambda s: (s.battle_cursor.get("group") or "") == "Battle.Command",
+                          timeout=timeout, what="the battle command menu")
+        except HarnessError:
+            return False
+        try:
+            self.battle_pick(command)
+        except HarnessError as err:
+            self._log(f"  battle_act: could not pick {command!r} ({err})")
+            return False
+        # Target selection is its own NGUI group. Waiting for it is what makes the second confirm
+        # land on a target rather than re-opening the command list.
+        try:
+            self.wait_for(lambda s: (s.battle_cursor.get("group") or "").startswith("Battle.")
+                          and (s.battle_cursor.get("group") or "") != "Battle.Command",
+                          timeout=8.0, what="the target cursor")
+        except HarnessError:
+            # Some commands need no target and resolve straight away; that is not a failure.
+            return True
+        self.press("confirm", 4)
+        self.wait_frames(20)
+        return True
+
+    def battle_command(self, slot: int, command: int, *, sub: int = 0, target: int = 0,
+                       cursor: int = 0) -> None:
+        """Issue an exact command, bypassing the cursor entirely.
+
+        The difference between testing a damage formula and testing NGUI navigation. Goes through
+        `BattleHUD.SendNetCommand`, which is the same entry point co-op uses to replay a remote
+        player's command -- the game's own path rather than a second implementation of one.
+        """
+        self.send(f"battlecmd {int(slot)} {int(command)} {int(sub)} {int(target)} {int(cursor)}")
+
+    def flee(self, *, hold: int = 120, timeout: float = 30.0) -> bool:
+        """Hold L1+R1 to run away, and report whether the engine actually accepted it.
+
+        ⚠ The threshold is REAL seconds, not frames: `BattleHUD` counts `_runCounter > 1.0` of
+        wall-clock, so a frame-count hold is only long enough by accident and would be wrong under a
+        changed timescale. Both bumpers also have to be down together, so they go in ONE request --
+        a request's steps drain in a single pass and share a `_downFrame`.
+        """
+        st = self.state
+        if not st.in_battle:
+            raise HarnessError("flee() needs a real battle in progress")
+        # ⚠ REFUSE A NO-ESCAPE SCENE INSTEAD OF HOLDING FOREVER. `btl_escape_key` is set before
+        # CheckEscape looks at the flag, so the character plays the running animation the whole time
+        # and nothing about the screen says it is futile -- owner-observed. Holding here is not a
+        # slow escape, it is no escape, and reporting "flee failed" would blame the battle for a
+        # rule the scene declared up front.
+        if st.can_escape is False:
+            raise HarnessError(
+                f"battle scene {st.battle.get('scene')} forbids running "
+                f"(btl_scene.Info.Runaway is false), so CheckEscape shows \"Cannot escape!\" and "
+                f"never rolls. The character WILL play the running animation regardless -- that is "
+                f"btl_escape_key, which is set before the flag is tested. Win, lose, or use a "
+                f"different scene."
+            )
+        # ⚠ SUSTAIN THE HOLD. The threshold is `_runCounter > 1.0` in REAL seconds and the counter
+        # RESETS to zero the moment either bumper comes up, so a single fixed-length hold that
+        # expires mid-wait quietly stops trying while the driver keeps waiting. Re-issue it in
+        # chunks for as long as we are prepared to wait.
+        # ⚠ THE RE-ISSUE MUST OVERLAP THE HOLD, and the arithmetic has to use the real frame rate.
+        # The first cut held `chunk` frames and then waited `chunk / 30` SECONDS -- but the game runs
+        # at ~60fps, so it held for ~3s and waited ~6s, leaving the bumpers UP for half of every
+        # cycle. `_runCounter` resets to zero the instant either one comes up, so the 1.0s threshold
+        # was almost never reached: the character plays the running animation (btl_escape_key is set
+        # before the counter is even tested) while the roll that would actually free him never fires.
+        # Owner-observed as "the flee animation for a couple of seconds, then nothing".
+        deadline = time.time() + timeout
+        chunk = max(60, int(hold))                       # frames
+        window = max(0.4, chunk / FRAMES_PER_SECOND * 0.4)   # re-issue well before it lapses
+        seen_key = False
+        menu_blocked = 0
+        while time.time() < deadline:
+            self.send(f"hold l1 {chunk}", f"hold r1 {chunk}", wait=False)
+            try:
+                self.wait_for(lambda s: s.battle_result != 0 or not s.in_battle,
+                              timeout=min(window, max(0.4, deadline - time.time())),
+                              what="the escape to be accepted")
+                break
+            except HarnessError:
+                self._assert_alive()
+                probe = self.channel.state()
+                if probe is not None:
+                    seen_key = seen_key or bool(probe.battle.get("escape_held"))
+                    if (probe.battle.get("turn", {}).get("slot", -1) or -1) >= 0:
+                        menu_blocked += 1
+
+        if self.state.battle_result == 4:
+            return True
+
+        # ⚠ THE DEADLOCK, MEASURED. In WAIT ATB mode (`cfg.atb == 1`, FF9's default)
+        # `BattleHUD.IsNativeEnableAtb()` returns false while a command submenu is open -- and
+        # `btl_sys.CheckEscape` only rolls when it is true. So with a turn pending the escape can
+        # NEVER fire: the menu is waiting for input, and the roll is waiting for the ATB that the
+        # menu froze. Meanwhile `btl_escape_key` is set before any of that is tested, so the
+        # character plays the running animation the whole time and the screen never says why.
+        # Traced live with scenarios/flee_probe.py: escape_held 1, turn.slot 0,
+        # cursor 'Battle.Command', result 0, for as long as you care to hold.
+        if seen_key and menu_blocked:
+            raise HarnessError(
+                f"the escape never rolled although the engine saw the hold. A command menu was open "
+                f"for {menu_blocked} of the attempts, and in WAIT ATB mode the ATB -- which "
+                f"CheckEscape requires -- is frozen while a submenu is up. Issue a command first "
+                f"(battle_command / battle_pick) so the turn resolves, then flee; or flee before a "
+                f"turn comes up. The running animation is not evidence of progress: btl_escape_key "
+                f"is set before the gate is even tested."
+            )
+        return False
 
     def flag(self, bit: int, value: bool = True) -> None:
         self._check_flag_bit(bit, "flag")

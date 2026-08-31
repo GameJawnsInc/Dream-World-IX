@@ -41,7 +41,9 @@ from pathlib import Path
 #: 1 -- the original s83 channel.
 #: 2 -- ``texts`` is the RENDERED dialogue (was the raw source), the choice publishes its index
 #:      space, and the agent reports ``armed`` / ``error_seq`` / ``debug_status``.
-PROTOCOL = 2
+#: 3 -- the ``battle`` block: units, ATB, result, rewards, the command cursor; ``battle`` and
+#:      ``battlecmd`` verbs.
+PROTOCOL = 3
 
 #: The agent polls the arm file every 30 frames (HarnessAgent.PollArm). A delete+create inside one
 #: window is INVISIBLE to it -- ``armed == Active``, early return, no reset of seq/ack, no button
@@ -301,6 +303,105 @@ class State:
         ``None`` on an engine that does not publish it.
         """
         return self.raw.get("menu", {}).get("group")
+
+    # -- the battle ---------------------------------------------------------------------------
+    #: ``btl_result``. ⚠ 0 is AMBIGUOUS: it is the value during a battle AND before any battle has
+    #: ever run this session, because the engine resets it at battle START and never clears it after.
+    #: It is only meaningful joined to :attr:`battle_epoch`.
+    BATTLE_RESULTS = {
+        0: "in-progress", 1: "victory", 2: "victory-no-pose", 3: "defeat",
+        4: "escape", 5: "interruption", 6: "gameover", 7: "enemy-flee",
+    }
+
+    @property
+    def battle(self) -> dict:
+        return self.raw.get("battle", {})
+
+    @property
+    def in_battle(self) -> bool:
+        """A REAL battle: on the battle scene and not the diorama.
+
+        ⚠ ``IsBattleScene()`` is also true for "BattleMapDebug" and "SpecialEffectDebugRoom". Those
+        run with ``isDebug``, under which the battle can never END -- so a result or reward assertion
+        there is green-having-observed-nothing, and they must not read as "in a battle".
+        """
+        b = self.battle
+        return bool(b.get("active")) and not b.get("debug")
+
+    @property
+    def battle_epoch(self) -> int:
+        """``party.battle_no`` -- monotonic and save-persistent, so only DELTAS mean anything.
+
+        It is the one unambiguous "a battle started" edge the engine offers; every other field is
+        either stale between battles or ambiguous during one.
+        """
+        return int(self.battle.get("epoch", -1))
+
+    @property
+    def battle_result(self) -> int:
+        return int(self.battle.get("result", 0))
+
+    @property
+    def battle_result_name(self) -> str:
+        return self.BATTLE_RESULTS.get(self.battle_result, f"unknown({self.battle_result})")
+
+    @property
+    def battle_phase(self) -> int:
+        """⚠ STALE OUTSIDE A BATTLE -- nothing resets it, so on a field it is the last fight's."""
+        return int(self.battle.get("phase", -1))
+
+    @property
+    def battle_cursor(self) -> dict:
+        """The battle command/target cursor. Rides the same NGUI focus the menu does."""
+        menu = self.raw.get("menu", {})
+        return {"group": menu.get("group"), "button": menu.get("button"),
+                "label": menu.get("button_label") or menu.get("label")}
+
+    def units(self, *, player: bool | None = None, alive: bool | None = None) -> list[dict]:
+        """Every combatant, optionally filtered. Empty outside a battle.
+
+        ⚠ Each unit carries HP TWICE. ``hp``/``hp_max`` are the LOGICAL values the HUD shows;
+        ``hp_raw``/``hp_max_raw`` are ``cur.hp``/``max.hp``, which is what the AI script reads as
+        B_MEMBER (36)/(35). They differ by 10000 for an enemy flagged FLG_NON_DYING_BOSS when
+        ``[Battle] CustomBattleFlagsMeaning = 1``, so an assertion about "the" HP is right about one
+        of them and wrong about the other depending on the enemy.
+
+        ⚠ ``alive`` is the Death STATUS BIT, not ``hp == 0``: a unit under a DeathChanger effect sits
+        at 0 HP alive, and the HUD's own liveness test is the status.
+        """
+        out = list(self.battle.get("units", []))
+        if player is not None:
+            out = [u for u in out if bool(u.get("player")) is player]
+        if alive is not None:
+            out = [u for u in out if bool(u.get("alive")) is alive]
+        return out
+
+    @property
+    def battle_message(self) -> str | None:
+        """The on-screen battle message, e.g. "Cannot escape!". ``None`` when none is showing.
+
+        ⚠ Transient. Messages expire on a tick counter and the channel publishes every other frame,
+        so a miss means NOT OBSERVED, never "not shown".
+        """
+        return self.battle.get("message")
+
+    @property
+    def can_escape(self) -> bool | None:
+        """Whether this battle scene permits running at all (``btl_scene.Info.Runaway``).
+
+        When false the engine still sets ``btl_escape_key`` -- so the character plays the running
+        animation indefinitely -- and ``CheckEscape`` shows "Cannot escape!" without ever rolling.
+        Holding the bumpers there is not a slow escape; it is no escape.
+        """
+        info = self.battle.get("scene_info")
+        return None if info is None else bool(info.get("runaway"))
+
+    def unit(self, name: str) -> dict | None:
+        want = name.strip().lower()
+        for u in self.battle.get("units", []):
+            if (u.get("name") or "").strip().lower() == want:
+                return u
+        return None
 
     def flag(self, bit: int) -> bool | None:
         """A watched ``gEventGlobal`` bit. ``None`` unless the scenario called ``watch(bit)`` first."""
