@@ -206,11 +206,45 @@ absent, so a plausible wrong answer is the default failure here:
 - `phase`, `units` and `turn` are published **only inside a battle**. The engine leaves them holding
   the last fight's contents, and a full historical battle reported on a field is worse than nothing.
 
-WARNING: **the harness can SEE a battle; it cannot yet reliably PLAY one.** Fleeing cannot roll while
-a command menu is open (in Wait ATB mode the menu freezes the gauge `CheckEscape` requires - while the
-running animation plays regardless, because `btl_escape_key` is set before that gate), and
-`SendNetCommand` refuses the slot whose local menu is open because it exists to replay remote co-op
-commands. See `studies/test-harness/PLAN.md`.
+---
+
+## Playing a battle
+
+```python
+g.start_battle(306)
+slot = g.wait_turn()                  # the game's own "your move" -- who it is asking
+menu = g.menus(slot)                  # what that character can do, BY NAME
+g.act("Attack", slot=slot)            # or "Fire", or "Potion": commands, abilities and items
+g.fight()                             # ...or just play the whole thing out
+g.expect_battle_result("victory")
+g.flee()                              # or leave, if the scene allows it
+```
+
+Names come from the engine (`FF9TextTool`, resolved through the character's preset, trance state and
+equipment), so nothing here keeps a table that can drift. `act()` resolves a name in three places in
+order - the command list, the ability list (its parent command is inferred), then the inventory -
+and picks a legal target for the ability's own target type unless you name one.
+
+WARNING: **`act()` tests the battle logic, not the HUD.** Nothing in it presses a button: it commits
+through `BattleHUD.SendNetCommand`, the same entry point co-op uses. A scenario that must prove the
+menu itself works wants `battle_act()`, which steers the cursor.
+
+WARNING: **`menus()` is a request, and its answer is a snapshot.** Collecting it writes the HUD's
+ability cache, so it is not part of every state sample - an instrument may not mutate what it
+observes thirty times a second. It carries `slot` and `epoch`; `state.menu_is_for(slot)` is what
+tells you the answer is about this battle rather than the last one.
+
+WARNING: **wait for `turn_slot`, never for `turn_slot_raw`.** `CurrentPlayerIndex` is reset by
+`InitialBattle()`, which runs *later* than the battle scene goes live - so through the opening
+camera of the second battle in a session the raw field still holds the previous fight's slot. Acting
+on it froze a fight solid: no HUD, no ATB, the intro camera held for four minutes. `turn_slot` is
+published through the engine's own `FF9BMenu_IsEnable()` gate and is safe; the raw one is kept only
+so that window is diagnosable.
+
+Fleeing is a **dice roll**, not a duration: `200 / avgEnemyLevel * avgPlayerLevel / 16` percent per
+unbroken second of holding, integer division throughout. `flee()` returning False is usually
+variance. It raises - rather than returning False - if the engine never saw the hold at all, because
+that is a different fault entirely.
 
 ---
 

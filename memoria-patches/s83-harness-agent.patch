@@ -368,7 +368,7 @@
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,1499 @@
+@@ -0,0 +1,1790 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -409,7 +409,7 @@ new file mode 100644
 +{
 +    public sealed class HarnessAgent : MonoBehaviour
 +    {
-+        public const Int32 ProtocolVersion = 3;
++        public const Int32 ProtocolVersion = 4;
 +
 +        // ---- arming ----------------------------------------------------------------------------
 +        // Read by the HonoInputManager hooks on EVERY key query of every frame, so it is a plain static
@@ -531,6 +531,13 @@ new file mode 100644
 +
 +        private readonly Queue<Step> _queue = new Queue<Step>();
 +        private readonly List<Int32> _watch = new List<Int32>();   // gEventGlobal bit indices published in state
++        // The last `menus` collection: what one party slot can do. Flat Int32 tuples exactly as
++        // BattleHUD.CollectNetMenus fills them -- commands in 4s, abilities in 6s, items in 4s.
++        private readonly List<Int32> _menuCommands = new List<Int32>();
++        private readonly List<Int32> _menuAbilities = new List<Int32>();
++        private readonly List<Int32> _menuItems = new List<Int32>();
++        private Int32 _menuSlot = -1;       // -1 = never collected, or the last collection threw
++        private Int32 _menuEpoch = -1;      // which battle it describes; a stale read must be visible
 +        private Int64 _seq = -1;            // last request sequence ACCEPTED
 +        private Int64 _ack = -1;            // last request sequence COMPLETED (queue drained)
 +        private Boolean _pendingAck;        // a request is accepted but not yet fully completed
@@ -680,6 +687,7 @@ new file mode 100644
 +                _watch.Clear();
 +                _note = "";
 +                _stateEvery = 2;
++                ForgetMenus();
 +                Time.timeScale = 1f;
 +                RedirectSaves(true);
 +                Event("armed", "protocol", ProtocolVersion.ToString(CultureInfo.InvariantCulture));
@@ -892,7 +900,9 @@ new file mode 100644
 +                case "hold":
 +                {
 +                    Control c = ParseControl(s.Args.Length > 0 ? s.Args[0] : "");
-+                    Schedule(c, Math.Max(1, Arg(s, 1, 30)));
++                    // Extend, not Schedule: a re-issued hold must not punch a one-frame hole in a
++                    // press the driver believes is continuous. See Extend for what that cost.
++                    Extend(c, Math.Max(1, Arg(s, 1, 30)));
 +                    break;
 +                }
 +
@@ -961,10 +971,88 @@ new file mode 100644
 +                    BattleHUD hud = Try(() => UIManager.Battle);
 +                    if (hud == null)
 +                        throw new InvalidOperationException("battlecmd: no battle HUD (not in a battle?)");
-+                    if (!hud.SendNetCommand(Arg(s, 0, 0), (Memoria.Data.BattleCommandId)Arg(s, 1, 0), Arg(s, 2, 0),
++                    Int32 slot = Arg(s, 0, 0);
++                    // ⚠ THE LOCAL SLOT IS THE ENTIRE FIGHT, and SendNetCommand refuses it. It opens
++                    // with `if (playerIndex == CurrentPlayerIndex) return false;` -- correctly, for
++                    // what it was built for: it replays a REMOTE co-op player's command and must lose
++                    // a race against the menu that slot has open locally. In a solo battle that is
++                    // always the one slot you want, which is exactly what left this harness able to
++                    // SEE a battle and unable to PLAY one.
++                    //
++                    // The key is the UI's own post-commit teardown, and it is public. SetIdle() is
++                    // what OnTargetConfirm calls the instant a command is sent (BattleHUD.Unity.cs:
++                    // "if (commandSent) { SetTargetVisibility(false); SetIdle(); }"): it closes the
++                    // command/target/item/ability panels and sets CurrentPlayerIndex = -1. Running it
++                    // FIRST hands the slot back, so the call below races nothing -- and the menu had
++                    // to close regardless, or it would sit open over a slot whose turn is already
++                    // spent, freezing the gauges in WAIT ATB mode.
++                    //
++                    // If SendNetCommand still refuses, the slot is NOT added to InputFinishList, so
++                    // the HUD re-opens its menu on the next Update: the failure heals instead of
++                    // stranding the fight with a closed menu and no queued command.
++                    // ⚠ REFUSE A BATTLE THAT IS NOT ASKING. SendNetCommand will happily queue a
++                    // command on a unit whose battle is still in its opening camera -- and doing so
++                    // FREEZES the fight, which is how this guard was earned. _commandEnable is the
++                    // engine's own gate for "the command phase is live".
++                    if (!Try(() => hud.FF9BMenu_IsEnable(), false))
++                        throw new InvalidOperationException(
++                            "battlecmd: the battle is not asking for commands yet (the intro is " +
++                            "still running, or the fight is already over). Wait for turn.enabled.");
++                    if (hud.CurrentPlayerIndex == slot)
++                        hud.SetIdle();
++                    if (!hud.SendNetCommand(slot, (Memoria.Data.BattleCommandId)Arg(s, 1, 0), Arg(s, 2, 0),
 +                                            (UInt16)Arg(s, 3, 0), (UInt32)Arg(s, 4, 0)))
-+                        throw new InvalidOperationException("battlecmd: the HUD refused the command");
++                        throw new InvalidOperationException(
++                            "battlecmd: the HUD refused the command for slot " + slot + " -- " +
++                            DescribeSlotRefusal(slot));
 +                    Block(2);
++                    break;
++                }
++
++                // What this character can actually DO, resolved by the engine instead of read off
++                // the on-screen buttons. CollectNetMenus is the co-op menu mirror (s37): the list the
++                // HUD would draw, already filtered for unlearned abilities, MP, silence, and items
++                // with no battle effect.
++                //
++                // ⚠ DELIBERATELY A VERB, NOT PART OF EVERY PUBLISH. CollectNetMenus calls
++                // SetAbilityAp, which WRITES the HUD's ability-detail cache. A publisher running it
++                // thirty times a second would be mutating the game it exists to observe -- the one
++                // thing an instrument may never do. So it is collected when a scenario asks, and
++                // stamped with the slot and battle epoch it describes, which is what makes a stale
++                // read VISIBLE rather than a confident answer about a fight that already ended.
++                case "menus":
++                {
++                    BattleHUD menuHud = Try(() => UIManager.Battle);
++                    if (menuHud == null)
++                        throw new InvalidOperationException("menus: no battle HUD (not in a battle?)");
++                    Int32 menuSlot = Arg(s, 0, -1);
++                    if (menuSlot < 0 || menuSlot >= 32)
++                        throw new ArgumentOutOfRangeException("slot", "menus needs a party slot (0-31)");
++                    // ⚠ CollectNetMenus indexes _abilityDetailDict UNGUARDED, and that dict is empty
++                    // until InitialBattle's ManageAbility has run. Asking during the battle intro is
++                    // an ordinary "too early", not a fault -- but without this it arrives as a bare
++                    // KeyNotFoundException and disarms the agent mid-scenario.
++                    // ⚠ AND THE SAME GATE HERE, BEFORE NetMenusReady -- which cannot catch this on
++                    // its own. It is `_abilityDetailDict.ContainsKey(slot)`, and InitialBattle
++                    // clears that dictionary's VALUES while leaving its KEYS, so from the second
++                    // battle of a session onward it answers true from the very first frame.
++                    if (!Try(() => menuHud.FF9BMenu_IsEnable(), false))
++                        throw new InvalidOperationException(
++                            "menus: the battle is not asking for commands yet (the intro is still " +
++                            "running, or the fight is already over). Wait for turn.enabled.");
++                    if (!menuHud.NetMenusReady(menuSlot))
++                        throw new InvalidOperationException(
++                            "menus: slot " + menuSlot + " has no ability detail yet (the battle is " +
++                            "still initialising, or the slot holds no party member)");
++                    _menuCommands.Clear();
++                    _menuAbilities.Clear();
++                    _menuItems.Clear();
++                    _menuSlot = -1;
++                    menuHud.CollectNetMenus(menuSlot, _menuCommands, _menuAbilities, _menuItems);
++                    // Stamped only once the collection SUCCEEDED. A throw part-way through would
++                    // otherwise leave a half-filled list labelled with the slot it failed on.
++                    _menuSlot = menuSlot;
++                    _menuEpoch = Try(() => (Int32)FF9StateSystem.Common.FF9.party.battle_no, -1);
 +                    break;
 +                }
 +
@@ -1065,6 +1153,7 @@ new file mode 100644
 +                    _lastError = null;
 +                    _errorSeq = -1;
 +                    _stateEvery = 2;
++                    ForgetMenus();
 +                    Time.timeScale = 1f;
 +                    Event("reset");
 +                    Block(2);
@@ -1129,13 +1218,51 @@ new file mode 100644
 +        }
 +
 +        // Schedule a virtual press starting NEXT frame -- see the FRAME MODEL note at the top of the file.
-+        private static void Schedule(Control c, Int32 frames)
++        private static Int32 Index(Control c)
 +        {
 +            Int32 i = (Int32)c;
 +            if (i < 0 || i >= ControlCount)
 +                throw new ArgumentOutOfRangeException("button");
++            return i;
++        }
++
++        private static void Schedule(Control c, Int32 frames)
++        {
++            Int32 i = Index(c);
 +            _downFrame[i] = Time.frameCount + 1;
 +            _upFrame[i] = _downFrame[i] + frames;
++        }
++
++        /// <summary>Hold a button, LENGTHENING a hold already in progress instead of restarting it.</summary>
++        /// <remarks>
++        /// ⚠ RE-ISSUING A HOLD USED TO DROP THE BUTTON FOR EXACTLY ONE FRAME, and that hole is why
++        /// this harness could not run away from a fight. Schedule sets _downFrame = frameCount + 1,
++        /// so on the frame the second hold arrives IsHeld is false -- an invisible up/down edge in
++        /// the middle of what the driver believes is one continuous press. Nothing that SAMPLES the
++        /// button notices; anything counting CONTINUOUS held time restarts from zero.
++        ///
++        /// BattleHUD.Update accumulates _runCounter while both bumpers are down and only calls
++        /// btl_sys.CheckEscape(TRUE) -- the call that actually rolls -- once it passes 1.0 REAL
++        /// seconds, resetting to zero the instant either bumper lifts. The driver re-issued its hold
++        /// every 0.8s, so the counter never reached 1.0 and the escape NEVER ROLLED ONCE, while
++        /// btl_escape_key (set before the counter is even tested) kept the character running on
++        /// screen throughout. Owner-observed as "the flee animation for a couple of seconds but he
++        /// didn't actually leave". The failure was then written up as an ATB deadlock. It was this.
++        ///
++        /// Extending never shortens a hold in progress, so overlapping requests compose: the button
++        /// is down from the first request until the last one's window ends, with no seam.
++        /// </remarks>
++        private static void Extend(Control c, Int32 frames)
++        {
++            Int32 i = Index(c);
++            Int32 f = Time.frameCount;
++            if (f >= _downFrame[i] && f < _upFrame[i])
++                _upFrame[i] = Math.Max(_upFrame[i], f + frames);
++            else
++            {
++                _downFrame[i] = f + 1;
++                _upFrame[i] = _downFrame[i] + frames;
++            }
 +        }
 +
 +        private static Int32 Arg(Step s, Int32 i, Int32 fallback)
@@ -1557,14 +1684,49 @@ new file mode 100644
 +                    return box != null && box.activeSelf ? LabelOf(box) : null;
 +                })); sb.Append(",");
 +                Num(sb, "escape_held", Try(() => (Int32)FF9StateSystem.Battle.FF9Battle.btl_escape_key, 0)); sb.Append(",");
++                // ⚠ escape_held IS NOT PROGRESS. btl_escape_key is set the moment both bumpers are
++                // down, BEFORE any gate, and it is what makes the character play the running
++                // animation -- so it reports that the input arrived and nothing whatever about the
++                // outcome. Reading it as progress is how a flee that never once rolled looked, on
++                // screen and in the state file, exactly like a flee that was working.
++                //
++                // `escaping` is the real edge: btl_cmd.SetCommand raises cmd_status bit 0 when it
++                // queues SysEscape and DequeueCommand clears it, so this is true exactly while the
++                // party is actually leaving. Between the two lies a DICE ROLL, once per real second
++                // of unbroken holding: 200 / avgEnemyLevel * avgPlayerLevel / 16 percent, integer
++                // division throughout (BattleCalculator.cs:358) -- single digits against a levelled
++                // enemy. A flee that has not fired yet is unlucky, not blocked.
++                Bool(sb, "escaping", Try(() => (FF9StateSystem.Battle.FF9Battle.cmd_status & 1) != 0, false)); sb.Append(",");
 +
 +                // Whose turn the HUD is waiting on. -1 whenever no command menu is open, which is
 +                // the ordinary state between turns rather than a fault.
++                //
++                // ⚠ PUBLISHED THROUGH A GATE, AND THE GATE IS THE WHOLE POINT. CurrentPlayerIndex,
++                // ReadyQueue and InputFinishList are reset by BattleHUD.InitialBattle() -- which
++                // runs LATER than SceneDirector.IsBattleScene() goes true. So for the length of the
++                // opening camera of the SECOND battle in a session, all three still hold the
++                // PREVIOUS fight's contents, and `slot` reads as a perfectly plausible "your move"
++                // for a battle that is not asking anyone anything. A harness that believed it
++                // injected a command into a battle mid-intro and FROZE the fight: no HUD, no ATB,
++                // the intro camera held for four minutes. Caught by the suite; both standalone runs
++                // were the first battle of their session, where the stale value happens to be -1.
++                //
++                // FF9BMenu_IsEnable() is _commandEnable, which battle.cs sets true once the intro
++                // finishes and false again at PHASE_MENU_OFF. It is the engine's own "I am asking
++                // for commands now", and it is the only one of these that is not stale.
++                Boolean asking = Try(() => UIManager.Battle != null && UIManager.Battle.FF9BMenu_IsEnable(), false);
++                Int32 rawSlot = Try(() => UIManager.Battle == null ? -1 : UIManager.Battle.CurrentPlayerIndex, -1);
 +                sb.Append("\"turn\":{");
-+                Num(sb, "slot", Try(() => UIManager.Battle == null ? -1 : UIManager.Battle.CurrentPlayerIndex, -1)); sb.Append(",");
-+                AppendIntList(sb, "ready", Try(() => UIManager.Battle == null ? null : UIManager.Battle.ReadyQueue)); sb.Append(",");
-+                AppendIntList(sb, "done", Try(() => UIManager.Battle == null ? null : UIManager.Battle.InputFinishList));
++                Bool(sb, "enabled", asking); sb.Append(",");
++                Num(sb, "slot", asking ? rawSlot : -1); sb.Append(",");
++                // The ungated value, kept for diagnosis exactly as hp/hp_raw and name/name_raw are:
++                // when the two disagree you are looking at the stale window itself.
++                Num(sb, "slot_raw", rawSlot); sb.Append(",");
++                AppendIntList(sb, "ready", asking ? Try(() => UIManager.Battle == null ? null : UIManager.Battle.ReadyQueue) : null); sb.Append(",");
++                AppendIntList(sb, "done", asking ? Try(() => UIManager.Battle == null ? null : UIManager.Battle.InputFinishList) : null);
 +                sb.Append("},");
++
++                AppendBattleMenu(sb); sb.Append(",");
 +
 +                AppendUnits(sb);
 +            }
@@ -1574,6 +1736,135 @@ new file mode 100644
 +                return;
 +            }
 +            outer.Append("\"battle\":{").Append(sb).Append("}");
++        }
++
++        /// <summary>Why SendNetCommand said no -- its own three tests, named.</summary>
++        /// <remarks>
++        /// A bare "the HUD refused the command" is the shape of failure this whole arc exists to
++        /// stamp out: it is true, useless, and indistinguishable between "you aimed at an enemy
++        /// slot", "that character already acted" and "the battle is over". Each branch here is one
++        /// of the conditions SendNetCommand actually tests, read back in the same order.
++        /// </remarks>
++        private static String DescribeSlotRefusal(Int32 slot)
++        {
++            try
++            {
++                if (UIManager.Battle != null && UIManager.Battle.CurrentPlayerIndex == slot)
++                    return "the HUD still owns this slot (SetIdle did not release it)";
++                Memoria.BattleUnit unit = FF9StateSystem.Battle.FF9Battle.GetUnit(slot);
++                if (unit == null || unit.Data == null)
++                    return "there is no unit in slot " + slot;
++                if (!unit.IsPlayer)
++                    return "slot " + slot + " is an ENEMY; only party slots take commands";
++                CMD_DATA cmd = unit.Data.cmd[0];
++                if (cmd == null)
++                    return "the unit has no command slot";
++                if (btl_cmd.CheckUsingCommand(cmd))
++                    return "a command is already in flight for this slot -- its turn is spent, " +
++                           "wait for the next one rather than re-sending";
++                return "the engine declined for none of the reasons it documents";
++            }
++            catch (Exception err)
++            {
++                return "could not tell why: " + err.Message;
++            }
++        }
++
++        /// <summary>Drop the last `menus` collection, so nothing answers about a stale battle.</summary>
++        private void ForgetMenus()
++        {
++            _menuCommands.Clear();
++            _menuAbilities.Clear();
++            _menuItems.Clear();
++            _menuSlot = -1;
++            _menuEpoch = -1;
++        }
++
++        /// <summary>What one party slot can do, as of the last `menus` request.</summary>
++        /// <remarks>
++        /// Names are resolved HERE, not by the driver. A command's label depends on the character's
++        /// preset, trance state and equipment (BattleCommandHelper.Patch), so any table the driver
++        /// kept would be a second and eventually wrong copy of a decision the engine already makes.
++        ///
++        /// `sub` is the argument battlecmd needs and the easiest one to get wrong. For a
++        /// single-ability command (Attack, Defend, Focus...) it is the PATCHED active ability -- what
++        /// SendAutoAttackCommand passes; for an Ability command it is 0 here, because the caller
++        /// picks one out of `abilities`; for Item it is the item id.
++        ///
++        /// ⚠ `offered` IS NOT `usable`. CollectNetMenus returns only the menus it filters -- Attack,
++        /// Ability1, Ability2 -- so Defend / Item / Change are resolved separately and are always
++        /// offered. A command with offered=false is one the HUD would not draw at all (no learned
++        /// abilities, a monster-transform menu): sending it anyway is a lie about what the player
++        /// could have done.
++        /// </remarks>
++        private void AppendBattleMenu(StringBuilder outer)
++        {
++            outer.Append("\"menu\":{");
++            Num(outer, "slot", _menuSlot); outer.Append(",");
++            // Which battle the collection describes. `menus` is a request, so what sits here is
++            // always a snapshot; the epoch is what makes "this is the LAST fight's menu" something a
++            // scenario can see instead of something it silently believes.
++            Num(outer, "epoch", _menuEpoch); outer.Append(",");
++            BattleHUD hud = Try(() => UIManager.Battle);
++            outer.Append("\"commands\":[");
++            Int32 written = 0;
++            // Attack, Defend, Ability1, Ability2, Item, Change -- the six a player can pick from.
++            for (Int32 menu = 0; _menuSlot >= 0 && hud != null && menu <= 5; menu++)
++            {
++                Memoria.Data.BattleCommandId id = Try(
++                    () => hud.NetCommandForMenu(_menuSlot, menu), Memoria.Data.BattleCommandId.None);
++                if (id == Memoria.Data.BattleCommandId.None)
++                    continue;
++                Int32 at = -1;
++                for (Int32 i = 0; i + 3 < _menuCommands.Count; i += 4)
++                    if (_menuCommands[i] == menu) { at = i; break; }
++                Boolean ability = Try(() => hud.NetMenuIsAbilityType(id), false);
++                if (written++ > 0) outer.Append(",");
++                outer.Append("{");
++                Num(outer, "menu", menu); outer.Append(",");
++                Num(outer, "id", (Int32)id); outer.Append(",");
++                Num(outer, "type", at >= 0 ? _menuCommands[at + 2] : (ability ? 1 : -1)); outer.Append(",");
++                // targetInfo packs ForDead into bit 7 (CollectNetMenus). -1 where the HUD does not
++                // report one: Defend and Change take no target, and an Item's target comes from the
++                // item, not from the command.
++                Num(outer, "target", at >= 0 ? (_menuCommands[at + 3] & 0x7F) : -1); outer.Append(",");
++                Bool(outer, "for_dead", at >= 0 && (_menuCommands[at + 3] & 0x80) != 0); outer.Append(",");
++                Num(outer, "sub", ability ? 0 : Try(() => hud.NetFirstAbilitySub(_menuSlot, id), 0)); outer.Append(",");
++                Bool(outer, "offered", at >= 0 || menu == 1 || menu == 4 || menu == 5); outer.Append(",");
++                Str(outer, "name", StripTags(Try(() => global::Assets.Sources.Scripts.UI.Common.FF9TextTool.CommandName(id))));
++                outer.Append("}");
++            }
++            outer.Append("],\"abilities\":[");
++            for (Int32 i = 0; i + 5 < _menuAbilities.Count; i += 6)
++            {
++                if (i > 0) outer.Append(",");
++                Memoria.Data.BattleAbilityId aid = (Memoria.Data.BattleAbilityId)_menuAbilities[i + 1];
++                outer.Append("{");
++                Num(outer, "menu", _menuAbilities[i]); outer.Append(",");
++                Num(outer, "sub", _menuAbilities[i + 1]); outer.Append(",");
++                Num(outer, "mp", _menuAbilities[i + 2]); outer.Append(",");
++                // ⚠ enabled=false means LEARNED BUT NOT CASTABLE RIGHT NOW (no MP, silenced). The
++                // HUD greys it; it is still in the list. Unlearned abilities are absent entirely.
++                Bool(outer, "enabled", _menuAbilities[i + 3] != 0); outer.Append(",");
++                Num(outer, "target", _menuAbilities[i + 4]); outer.Append(",");
++                Bool(outer, "for_dead", _menuAbilities[i + 5] != 0); outer.Append(",");
++                Str(outer, "name", StripTags(Try(() => global::Assets.Sources.Scripts.UI.Common.FF9TextTool.ActionAbilityName(aid))));
++                outer.Append("}");
++            }
++            outer.Append("],\"items\":[");
++            for (Int32 i = 0; i + 3 < _menuItems.Count; i += 4)
++            {
++                if (i > 0) outer.Append(",");
++                Memoria.Data.RegularItem item = (Memoria.Data.RegularItem)_menuItems[i];
++                outer.Append("{");
++                Num(outer, "sub", _menuItems[i]); outer.Append(",");
++                Num(outer, "count", _menuItems[i + 1]); outer.Append(",");
++                Num(outer, "target", _menuItems[i + 2]); outer.Append(",");
++                Bool(outer, "for_dead", _menuItems[i + 3] != 0); outer.Append(",");
++                Str(outer, "name", StripTags(Try(() => global::Assets.Sources.Scripts.UI.Common.FF9TextTool.ItemName(item))));
++                outer.Append("}");
++            }
++            outer.Append("]}");
 +        }
 +
 +        private static void AppendIntList(StringBuilder sb, String key, List<Int32> values)

@@ -1,5 +1,19 @@
 """WHY does holding L1+R1 not always escape? An instrument, not an assertion.
 
+⚠ ANSWERED, AND NOT BY THE HYPOTHESIS BELOW. This probe pointed at `IsNativeEnableAtb()` and it was
+the wrong suspect: in WAIT mode that method returns true whenever the active group is the TOP-LEVEL
+`Battle.Command` list, which is exactly what this probe's own trace recorded. The gate was open the
+whole time.
+
+The cause was the probe's own driver. It re-issued `hold l1/r1` every iteration, and re-issuing a
+hold used to restart `_downFrame` at `frameCount + 1` -- dropping the button for the single frame
+each request landed on. `BattleHUD._runCounter` counts UNBROKEN seconds and resets to zero the
+instant either bumper lifts, so the 1.0s threshold was never crossed and `CheckEscape(true)` was
+never called. The instrument was holding the thing it was measuring open. s83 rev4 extends a live
+hold instead of restarting it, and `scenarios/flee_check.py` now escapes in-game with a command menu
+open. Kept as the record of how the wrong answer was reached.
+
+
 The escape worked once and then failed twice with the bumpers demonstrably held, so something other
 than the hold decides it. `btl_sys.CheckEscape` has exactly two gates:
 

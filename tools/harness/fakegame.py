@@ -32,10 +32,12 @@ import time
 import zlib
 from pathlib import Path
 
-#: Must match the DRIVER's protocol: this stand-in models the agent AS SPECIFIED, and
-#: publishing an older version would make every offline run exercise the DEGRADED path instead
-#: of the real one -- a suite permanently in a compatibility mode it is not meant to be testing.
-PROTOCOL = 3
+#: IMPORTED, not restated. This stand-in models the agent AS SPECIFIED, so publishing an older
+#: version would put every offline run in the DEGRADED path instead of the real one -- a suite
+#: permanently in a compatibility mode it is not meant to be testing. It was a second literal
+#: until rev 4, and a second literal is a skew waiting for someone to bump only one of them: that
+#: is exactly what happened, and 23 tests failed reporting the wrong cause.
+from .channel import PROTOCOL
 
 #: The real agent polls req.txt every 2 frames while idle and every 10 while a queue is running, and
 #: the arm file every 30. Modelled because the driver's "do not overwrite an unaccepted request" gate
@@ -63,6 +65,12 @@ class FakeGame:
         self.dir = Path(game_path) / "x64" / "ff9harness"
         self.shots = self.dir / "shots"
         self.fps = fps
+        #: The protocol this stand-in claims to speak, or None to follow the module constant. A
+        #: dial so a test can put an OLDER engine on the wire -- otherwise the driver's "rebuild
+        #: the DLL" refusal is a guard that can never fire, which is the same shape as no guard.
+        #: ⚠ None rather than a snapshot: the module constant is also monkeypatched by a test, and
+        #: a value captured here at construction would silently ignore that.
+        self.protocol: int | None = None
         self.mode = mode
         self.resets_on_arm = resets_on_arm
         #: Screen-to-world yaw, in degrees. FF9 fields are viewed by a fixed camera that is
@@ -132,6 +140,49 @@ class FakeGame:
         self.battle_units: list[dict] = []
         self.battle_bonus = {"exp": 0, "gil": 0, "ap": 0, "items": 0}
         self.battle_commands: list[list[int]] = []
+        #: Whose command menu is open -- BattleHUD.CurrentPlayerIndex. -1 between turns.
+        self.battle_turn = -1
+        self.battle_ready: list[int] = []
+        self.battle_done: list[int] = []
+        #: The last `menus` collection. ⚠ DELIBERATELY NOT CLEARED BETWEEN BATTLES, like the engine's
+        #: own fields: a driver that trusts it without checking the stamp must be able to be caught.
+        self.battle_menu: dict = {"slot": -1, "epoch": -1, "commands": [], "abilities": [],
+                                  "items": []}
+        #: cmd_status bit 0 -- a SysEscape command is queued and the party is leaving.
+        self.escaping = False
+        #: BattleHUD._runCounter: UNBROKEN real seconds with both bumpers down. Resets to 0 the
+        #: instant either lifts, which is the whole reason a re-issued hold used to be fatal.
+        self.run_counter = 0.0
+        #: The per-roll escape chance, as a fraction. The engine computes it from levels; here it is
+        #: a dial so a test can have a flee that always lands AND one that never does.
+        self.escape_rate = 1.0
+        #: When true the bumpers are held but the battle never sees them -- an input path that is
+        #: not connected, as opposed to a roll that has not landed. flee() must tell them apart.
+        self.deaf_bumpers = False
+        #: btl_scene.Info.Runaway -- whether this scene permits running at all.
+        self.scene_runaway = True
+        #: ATB gained per frame, per side. ⚠ ZERO BY DEFAULT: a stand-in whose gauges fill on their
+        #: own would make every battle test race a clock it did not ask for -- and the enemy would
+        #: chew through the party in the middle of an assertion about HP. A test that wants turns
+        #: turns them on, which also makes the turn machinery an explicit part of what it tests.
+        self.atb_gain = 0
+        self.enemy_hit = 90
+        #: Frames between committing a command and its RESOLUTION -- when the damage lands and the
+        #: slot leaves ready/done and can be asked again (btl_cmd dequeues, then
+        #: InputFinishList.Remove). Without this a slot that acted once never acted again and no
+        #: fight could be played out. A test that needs the "its turn is spent" refusal pins it
+        #: high, so the refusal never races the resolution.
+        self.cmd_resolve_frames = 45
+        self.battle_pending: list[list] = []
+        #: FF9BMenu_IsEnable(): the command phase is live. False through the opening camera and
+        #: again once the fight is over -- which is exactly when everything else in the turn block
+        #: is holding the LAST battle's contents.
+        self.commands_enabled = False
+        #: Frames of opening camera before InitialBattle() runs. ⚠ NOT ZERO BY DEFAULT: the stale
+        #: window is the whole point, and a stand-in with no intro could not reproduce the freeze
+        #: that a stale `turn.slot` caused in a real second battle.
+        self.battle_intro_frames = 30
+        self._intro_until = 0
         self.gateway: tuple[float, float, float, float, int] | None = None
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
@@ -179,6 +230,7 @@ class FakeGame:
                     self._drain()
                     self._check_soft_reset()
                     self._step_world()
+                    self._step_battle()
                     self._publish()
             except OSError as err:
                 # Mirrors the agent's own try/catch. Without this a single transient sharing
@@ -295,7 +347,7 @@ class FakeGame:
             self._block(num(1, 2) + 2)
             self._menu_step(args[0])
         elif op == "hold":
-            self._schedule(args[0], max(1, num(1, 30)))
+            self._extend(args[0], max(1, num(1, 30)))
         elif op == "release":
             self.held.pop(args[0], None)
             self.down_at.pop(args[0], None)
@@ -320,8 +372,12 @@ class FakeGame:
         elif op == "battlecmd":
             if not self.battle_active:
                 raise RuntimeError("battlecmd: no battle HUD (not in a battle?)")
-            self.battle_commands.append([num(i, 0) for i in range(5)])
+            self._battle_command(num(0, 0), num(1, 0), num(2, 0), num(3, 0), num(4, 0))
             self._block(2)
+        elif op == "menus":
+            if not self.battle_active:
+                raise RuntimeError("menus: no battle HUD (not in a battle?)")
+            self._collect_menus(num(0, -1))
         elif op == "worldwarp":
             if self.ui_state != "WorldHUD":
                 raise RuntimeError("world warp: overworld only")
@@ -385,6 +441,19 @@ class FakeGame:
     def _schedule(self, button: str, frames: int) -> None:
         self.down_at[button] = self.frame + 1
         self.held[button] = self.frame + 1 + frames
+
+    def _extend(self, button: str, frames: int) -> None:
+        """Lengthen a hold in progress instead of restarting it (HarnessAgent.Extend).
+
+        ⚠ THE ONE-FRAME HOLE THIS AVOIDS IS NOT COSMETIC. Restarting sets down_at to frame + 1, so
+        on the frame the second hold arrives the button reads UP -- invisible to anything sampling
+        it, fatal to anything counting unbroken held time. In the real engine that is
+        BattleHUD._runCounter, and a flee re-issued every 0.8s therefore never rolled once.
+        """
+        if self._is_held(button):
+            self.held[button] = max(self.held[button], self.frame + frames)
+        else:
+            self._schedule(button, frames)
 
     # -- the simulated world -------------------------------------------------------------------
     def _is_held(self, button: str) -> bool:
@@ -510,7 +579,7 @@ class FakeGame:
         if not self.has_position:
             px = py = pz = None
         doc = {
-            "v": PROTOCOL, "frame": self.frame, "seq": self.seq, "ack": self.ack,
+            "v": PROTOCOL if self.protocol is None else self.protocol, "frame": self.frame, "seq": self.seq, "ack": self.ack,
             "queue": len(self.queue),
             "busy": bool(self.queue) or self.frame < self.block_until,
             "armed": self.armed,
@@ -576,8 +645,25 @@ class FakeGame:
             return doc
         doc.update({
             "phase": 4,
-            "escape_held": 0,
-            "turn": {"slot": -1, "ready": [], "done": []},
+            # ⚠ escape_held says the BUMPERS ARE DOWN and nothing more -- it is set before every
+            # gate. `escaping` is the queued SysEscape, i.e. the roll actually landed. A stand-in
+            # that conflated them could not catch a driver that waits on the wrong one.
+            "escape_held": 0 if self.deaf_bumpers else
+                           (1 if (self._is_held("l1") and self._is_held("r1")) else 0),
+            "escaping": self.escaping,
+            # ⚠ btl_scene.Info. `runaway` false means CheckEscape shows "Cannot escape!" and NEVER
+            # rolls -- while btl_escape_key still runs the animation. Modelled because the driver
+            # refuses that scene up front, and an unmodelled block makes that a guard nothing fires.
+            "scene_info": {"runaway": self.scene_runaway, "no_gameover": False,
+                           "preemptive": False, "back_attack": False},
+            # ⚠ GATED, exactly as the agent publishes it. `slot_raw` is the ungated value, which
+            # during the intro is the PREVIOUS battle's -- and acting on it froze a real fight.
+            "turn": {"enabled": self.commands_enabled,
+                     "slot": self.battle_turn if self.commands_enabled else -1,
+                     "slot_raw": self.battle_turn,
+                     "ready": list(self.battle_ready) if self.commands_enabled else [],
+                     "done": list(self.battle_done) if self.commands_enabled else []},
+            "menu": dict(self.battle_menu),
             "units": [dict(u) for u in self.battle_units],
         })
         return doc
@@ -592,6 +678,19 @@ class FakeGame:
         self.battle_scene = scene
         self.ui_state = "BattleHUD"
         self.battle_bonus = {"exp": 0, "gil": 0, "ap": 0, "items": 0}
+        # ⚠ battle_turn / ready / done are deliberately NOT cleared here. In the engine they are
+        # reset by BattleHUD.InitialBattle(), which runs LATER than the battle scene goes live --
+        # so through the opening camera they still hold the PREVIOUS fight's contents. That window
+        # is what published a plausible "your move" for a battle that was not asking, and a
+        # stand-in that tidied up here could not reproduce it. _step_battle clears them when the
+        # intro ends, which is where the engine clears them too.
+        self.commands_enabled = False
+        self._intro_until = self.frame + self.battle_intro_frames
+        self.battle_pending = []
+        self.escaping = False
+        self.run_counter = 0.0
+        # ⚠ battle_menu is deliberately NOT cleared here either, for the same reason: a driver that
+        # reads the menu without checking its epoch stamp has to be catchable.
         self.battle_units = units if units is not None else [
             # hp/hp_max are the LOGICAL values the HUD shows; hp_raw/hp_max_raw are cur.hp/max.hp,
             # what the AI reads as B_MEMBER (36)/(35). The enemy below carries the 10000 offset a
@@ -609,6 +708,198 @@ class FakeGame:
              "level": 9, "status": "0"},
         ]
 
+    #: What the stand-in's party can do. Shapes and TRAPS, not real FF9 ids: an Ability command
+    #: that is a sub-menu rather than a move (type 1), an ability that is learned but not castable
+    #: (enabled false), an item that targets the dead, and a command the HUD would not draw
+    #: (offered false) -- each of which the driver has to refuse for its own distinct reason.
+    MENU_COMMANDS = [
+        {"menu": 0, "id": 1, "type": 0, "target": 2, "for_dead": False, "sub": 176,
+         "offered": True, "name": "Attack"},
+        {"menu": 1, "id": 2, "type": 4, "target": -1, "for_dead": False, "sub": 177,
+         "offered": True, "name": "Defend"},
+        {"menu": 2, "id": 4, "type": 1, "target": -1, "for_dead": False, "sub": 0,
+         "offered": True, "name": "Blk Mag"},
+        {"menu": 3, "id": 5, "type": 1, "target": -1, "for_dead": False, "sub": 0,
+         "offered": False, "name": "Swd Art"},
+        {"menu": 4, "id": 8, "type": 2, "target": -1, "for_dead": False, "sub": 0,
+         "offered": True, "name": "Item"},
+    ]
+    MENU_ABILITIES = [
+        {"menu": 2, "sub": 20, "mp": 6, "enabled": True, "target": 2, "for_dead": False,
+         "name": "Fire"},
+        {"menu": 2, "sub": 21, "mp": 6, "enabled": False, "target": 2, "for_dead": False,
+         "name": "Blizzard"},
+        # TargetType.AllEnemy: the engine's cursor for this is the GROUP, so a single target id
+        # would be a command the UI could never have produced.
+        {"menu": 2, "sub": 22, "mp": 18, "enabled": True, "target": 8, "for_dead": False,
+         "name": "Meteor"},
+    ]
+    MENU_ITEMS = [
+        {"sub": 1, "count": 9, "target": 1, "for_dead": False, "name": "Potion"},
+        {"sub": 2, "count": 2, "target": 1, "for_dead": True, "name": "Phoenix Down"},
+    ]
+
+    def _collect_menus(self, slot: int) -> None:
+        """The `menus` verb: refuse what the engine refuses, then stamp what it collected."""
+        if not self.commands_enabled:
+            raise RuntimeError("menus: the battle is not asking for commands yet")
+        if slot < 0 or slot >= 32:
+            raise RuntimeError("menus needs a party slot (0-31)")
+        unit = next((u for u in self.battle_units if u["slot"] == slot), None)
+        # ⚠ CollectNetMenus indexes _abilityDetailDict unguarded, so a slot with no party member --
+        # or one asked during the battle intro -- throws in the engine. Modelled as the refusal the
+        # agent turns it into, because a scenario has to be able to hit it.
+        if unit is None or not unit.get("player"):
+            raise RuntimeError(f"menus: slot {slot} has no ability detail yet")
+        self.battle_menu = {
+            "slot": slot, "epoch": self.battle_epoch,
+            "commands": [dict(c) for c in self.MENU_COMMANDS],
+            "abilities": [dict(a) for a in self.MENU_ABILITIES],
+            "items": [dict(i) for i in self.MENU_ITEMS],
+        }
+
+    def _battle_command(self, slot: int, cmd: int, sub: int, tar_id: int, cursor: int) -> None:
+        """Commit a command for a slot -- with the engine's own refusals, then its effect.
+
+        ⚠ THE REFUSALS ARE THE POINT. SendNetCommand returns false for an enemy slot and for a slot
+        whose turn is already spent, and a stand-in that accepted everything would let a driver bug
+        through that the real engine rejects. What it does NOT model is the local-slot refusal:
+        that one the agent now dissolves with SetIdle() before calling, so from here the slot is
+        already free.
+        """
+        # ⚠ The guard that would have saved a frozen fight: a command queued on a battle still in
+        # its opening camera wedges it solid -- no HUD, no ATB, the intro camera held indefinitely.
+        if not self.commands_enabled:
+            raise RuntimeError("battlecmd: the battle is not asking for commands yet")
+        unit = next((u for u in self.battle_units if u["slot"] == slot), None)
+        if unit is None:
+            raise RuntimeError(f"battlecmd: the HUD refused the command for slot {slot} -- "
+                               f"there is no unit in slot {slot}")
+        if not unit.get("player"):
+            raise RuntimeError(f"battlecmd: the HUD refused the command for slot {slot} -- "
+                               f"slot {slot} is an ENEMY; only party slots take commands")
+        if slot in self.battle_done:
+            raise RuntimeError(f"battlecmd: the HUD refused the command for slot {slot} -- "
+                               f"a command is already in flight for this slot")
+        self.battle_commands.append([slot, cmd, sub, tar_id, cursor])
+        self.battle_done.append(slot)
+        if self.battle_turn == slot:
+            self.battle_turn = -1           # SetIdle: the HUD stops asking
+        unit["atb"] = 0
+        self.battle_pending.append([self.frame + self.cmd_resolve_frames, slot, cmd, tar_id])
+
+    def _resolve_commands(self) -> None:
+        """Execute the commands whose time has come, then hand their slots back.
+
+        The delay is not decoration: between committing and resolving, the slot sits in
+        InputFinishList and the engine REFUSES a second command for it. Collapsing the two would
+        make the stand-in accept something the real game rejects.
+        """
+        for entry in [e for e in self.battle_pending if e[0] <= self.frame]:
+            self.battle_pending.remove(entry)
+            _, slot, cmd, tar_id = entry
+            # Only Attack and Fire do damage here; Defend and items resolve harmlessly. That is
+            # enough for a fight to actually END, which is what makes fight() testable at all.
+            if cmd in (1, 4):
+                damage = 260 if cmd == 1 else 400
+                for target in self.battle_units:
+                    if tar_id & target["id"] and target["alive"]:
+                        target["hp"] = max(0, target["hp"] - damage)
+                        target["hp_raw"] = max(0, target["hp_raw"] - damage)
+                        if target["hp"] == 0:
+                            target["alive"] = False
+                            target["targetable"] = False
+            if slot in self.battle_done:
+                self.battle_done.remove(slot)
+            if slot in self.battle_ready:
+                self.battle_ready.remove(slot)
+        self._settle_battle()
+
+    def _settle_battle(self) -> None:
+        """End the fight when one side is gone. ⚠ Never under isDebug -- the diorama cannot end."""
+        if not self.battle_active or self.battle_debug:
+            return
+        if not [u for u in self.battle_units if not u["player"] and u["alive"]]:
+            self.end_battle(1)
+        elif not [u for u in self.battle_units if u["player"] and u["alive"]]:
+            self.end_battle(3)
+
+    def _step_battle(self) -> None:
+        """One frame of battle: gauges fill, the HUD asks somebody, enemies act, escapes roll."""
+        if not self.battle_active:
+            return
+
+        # InitialBattle(): the opening camera ends, the HUD resets its turn bookkeeping, and only
+        # THEN does the battle start asking for commands.
+        if not self.commands_enabled and self.frame >= self._intro_until:
+            self.battle_turn = -1
+            self.battle_ready = []
+            self.battle_done = []
+            self.commands_enabled = True
+        # ⚠ NOTHING RUNS DURING THE INTRO -- not the gauges, not the enemies, not the escape roll.
+        # battle.cs gates BattleMainLoop on btl_phase, and BattleHUD.Update returns early while
+        # _commandEnable is false, so the bumpers cannot even set btl_escape_key there. A stand-in
+        # that ran combat through its own intro would let the party die before the fight began.
+        if not self.commands_enabled:
+            return
+
+        # -- the escape roll. _runCounter counts UNBROKEN real seconds; either bumper lifting
+        # resets it to zero, which is the defect class this whole model exists to preserve.
+        if not self.deaf_bumpers and self._is_held("l1") and self._is_held("r1"):
+            self.run_counter += 1.0 / self.fps
+            if self.run_counter > 1.0:
+                self.run_counter = 0.0
+                if self._roll() < self.escape_rate:
+                    self.escaping = True
+        else:
+            self.run_counter = 0.0
+        if self.escaping:
+            self.end_battle(4)
+            self.escaping = False
+            return
+
+        self._resolve_commands()
+        if not self.battle_active:
+            return
+        # A character who goes down mid-prompt stops being asked -- the HUD's own
+        # _unconsciousStateList / RemovePlayerFromAction. Without this the turn would stay pinned
+        # to a corpse and every later wait would time out against it.
+        if self.battle_turn >= 0:
+            asked = next((u for u in self.battle_units if u["slot"] == self.battle_turn), None)
+            if asked is None or not asked["alive"]:
+                self.battle_turn = -1
+
+        for unit in self.battle_units:
+            if not unit["alive"]:
+                continue
+            unit["atb"] = min(unit["atb_max"], unit["atb"] + self.atb_gain)
+            ready = unit["atb"] >= unit["atb_max"]
+            if unit["player"]:
+                if ready and unit["slot"] not in self.battle_ready \
+                        and unit["slot"] not in self.battle_done and unit.get("can_act", True):
+                    self.battle_ready.append(unit["slot"])
+            elif ready:
+                unit["atb"] = 0
+                victim = next((u for u in self.battle_units if u["player"] and u["alive"]), None)
+                if victim is not None:
+                    victim["hp"] = max(0, victim["hp"] - self.enemy_hit)
+                    victim["hp_raw"] = max(0, victim["hp_raw"] - self.enemy_hit)
+                    if victim["hp"] == 0:
+                        victim["alive"] = False
+
+        # The HUD asks the first ready slot that has not answered -- BattleHUD.UpdatePlayer.
+        if self.battle_turn < 0:
+            for slot in list(self.battle_ready):
+                if slot not in self.battle_done:
+                    self.battle_turn = slot
+                    break
+        self._settle_battle()
+
+    def _roll(self) -> float:
+        """A deterministic pseudo-roll, so a suite does not depend on the clock."""
+        self._roll_state = (getattr(self, "_roll_state", 12345) * 1103515245 + 12345) & 0x7FFFFFFF
+        return self._roll_state / float(0x7FFFFFFF)
+
     def end_battle(self, result: int = 1, *, exp: int = 120, gil: int = 88) -> None:
         """Finish the battle. ⚠ Refuses under isDebug, exactly as the engine's auto-end does."""
         if self.battle_debug:
@@ -616,6 +907,9 @@ class FakeGame:
         self.battle_result = result
         self.battle_bonus = {"exp": exp, "gil": gil, "ap": 3, "items": 1}
         self.battle_active = False
+        # ⚠ commands_enabled goes false at PHASE_MENU_OFF, but battle_turn does NOT get cleared --
+        # the engine leaves it for InitialBattle. That is the stale value the next battle inherits.
+        self.commands_enabled = False
         self.ui_state = "FieldHUD"
 
     # -- test conveniences ---------------------------------------------------------------------

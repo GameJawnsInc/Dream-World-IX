@@ -43,7 +43,12 @@ from pathlib import Path
 #:      space, and the agent reports ``armed`` / ``error_seq`` / ``debug_status``.
 #: 3 -- the ``battle`` block: units, ATB, result, rewards, the command cursor; ``battle`` and
 #:      ``battlecmd`` verbs.
-PROTOCOL = 3
+#: 4 -- the battle can be PLAYED, not only watched: ``battle.menu`` (what a slot can do, by name,
+#:      with the exact arguments to command it), ``battle.escaping`` (the escape rolled AND won,
+#:      as opposed to ``escape_held``, which only means the bumpers are down), the ``menus`` verb,
+#:      ``battlecmd`` accepted for the LOCAL slot, and a re-issued ``hold`` that no longer drops a
+#:      frame between the old window and the new one.
+PROTOCOL = 4
 
 #: The agent polls the arm file every 30 frames (HarnessAgent.PollArm). A delete+create inside one
 #: window is INVISIBLE to it -- ``armed == Active``, early return, no reset of seq/ack, no button
@@ -386,6 +391,100 @@ class State:
         return self.battle.get("message")
 
     @property
+    def escaping(self) -> bool:
+        """The escape ROLLED AND WON: a ``SysEscape`` command is queued (``cmd_status`` bit 0).
+
+        ⚠ THIS IS THE ONE TO WAIT ON, not ``escape_held``. ``btl_escape_key`` is set the instant
+        both bumpers are down -- before every gate -- and it is what makes the character play the
+        running animation. So it reports that the input arrived and nothing whatever about the
+        outcome, which is how a flee that never once rolled looked, on screen and in this file,
+        exactly like one that was working.
+
+        Between held and escaping lies a dice roll, once per real second of UNBROKEN holding:
+        ``200 / avgEnemyLevel * avgPlayerLevel / 16`` percent, integer division throughout. Single
+        digits against a levelled enemy. A flee still going is unlucky, not stuck.
+        """
+        return bool(self.battle.get("escaping", False))
+
+    @property
+    def turn_slot(self) -> int:
+        """The party slot whose command menu is OPEN -- who the game is waiting on. -1 when none.
+
+        ``BattleHUD.CurrentPlayerIndex``, which the HUD sets in ``SwitchPlayer`` for the first ready
+        slot that has not yet given a command. The HUD serialises input, so there is at most one,
+        and -1 is the ordinary state between turns rather than a fault.
+
+        ⚠ ALREADY GATED ON :attr:`commands_enabled` BY THE AGENT, and it has to be. The raw field is
+        reset by ``InitialBattle()``, which runs LATER than the battle scene goes live -- so through
+        the opening camera of the SECOND battle in a session it still holds the PREVIOUS fight's
+        slot. Acting on that injected a command into a battle mid-intro and froze it solid. The
+        ungated value is :attr:`turn_slot_raw`, for telling that window apart from a real turn.
+        """
+        return int(self.battle.get("turn", {}).get("slot", -1))
+
+    @property
+    def turn_slot_raw(self) -> int:
+        """``CurrentPlayerIndex`` UNGATED -- stale between battles. For diagnosis, never for acting."""
+        return int(self.battle.get("turn", {}).get("slot_raw", -1))
+
+    @property
+    def commands_enabled(self) -> bool:
+        """``FF9BMenu_IsEnable()``: the battle's command phase is live and it is asking for input.
+
+        False through the opening camera and again from ``PHASE_MENU_OFF``, which is exactly when
+        every other field in the turn block is holding the last fight's contents.
+        """
+        return bool(self.battle.get("turn", {}).get("enabled", False))
+
+    @property
+    def ready_slots(self) -> list[int]:
+        """Slots with a full ATB that have not yet committed a command (``ready`` minus ``done``).
+
+        Supplementary to :attr:`turn_slot`, which is the one the HUD is actually asking. A slot can
+        be ready and unasked because another slot's menu is up.
+        """
+        turn = self.battle.get("turn", {})
+        done = set(turn.get("done") or [])
+        return [int(s) for s in (turn.get("ready") or []) if int(s) not in done]
+
+    @property
+    def battle_menu(self) -> dict:
+        """What one party slot can do, as of the last ``menus`` request.
+
+        ⚠ A SNAPSHOT, NOT A LIVE VIEW. ``menus`` is a request because collecting it writes the HUD's
+        ability cache, and an instrument that mutates the game 30 times a second to observe it is
+        not an instrument. So this answers about whenever it was last asked -- which is why it
+        carries ``slot`` and ``epoch``. Use :meth:`menu_is_for` rather than trusting it.
+        """
+        return self.battle.get("menu", {})
+
+    def menu_is_for(self, slot: int) -> bool:
+        """Is the published menu THIS slot's, in THIS battle?"""
+        menu = self.battle_menu
+        return (int(menu.get("slot", -1)) == int(slot)
+                and int(menu.get("epoch", -2)) == self.battle_epoch
+                and self.battle_epoch >= 0)
+
+    def command(self, name: str) -> dict | None:
+        """A command from the published menu, by the name the player would read.
+
+        ⚠ ``offered`` is not ``usable``: a command with ``offered`` false is one the HUD would not
+        draw at all (an ability command with nothing learned, a monster-transform menu). It is
+        returned anyway, because a scenario asking why something is missing deserves the entry
+        rather than a bare None -- but sending it is a claim about a move the player never had.
+        """
+        return _by_name(self.battle_menu.get("commands"), name)
+
+    def ability(self, name: str) -> dict | None:
+        """A learned ability from the published menu. ``enabled`` false = learned but not castable
+        right now (no MP, silenced); the HUD greys it and still lists it."""
+        return _by_name(self.battle_menu.get("abilities"), name)
+
+    def item(self, name: str) -> dict | None:
+        """A battle-usable inventory item from the published menu."""
+        return _by_name(self.battle_menu.get("items"), name)
+
+    @property
     def can_escape(self) -> bool | None:
         """Whether this battle scene permits running at all (``btl_scene.Info.Runaway``).
 
@@ -665,6 +764,26 @@ class Channel:
             shots.mkdir(exist_ok=True)
             for png in self.shots.glob("*.png"):
                 shutil.copy2(png, shots / png.name)
+
+
+def _by_name(rows, name: str) -> dict | None:
+    """Find a menu row by its displayed name, tolerantly.
+
+    Exact case-insensitive match first, then a unique prefix. The prefix arm exists because FF9's
+    own labels are abbreviated and inconsistent about it ("Wht Mag", "Swd Art"), and a scenario
+    that has to spell those exactly is a scenario that breaks on a localisation change. An AMBIGUOUS
+    prefix returns None rather than guessing -- picking one of two plausible commands silently is
+    the exact failure mode this driver exists to refuse.
+    """
+    want = (name or "").strip().lower()
+    if not want:
+        return None
+    rows = list(rows or [])
+    for row in rows:
+        if (row.get("name") or "").strip().lower() == want:
+            return row
+    hits = [r for r in rows if (r.get("name") or "").strip().lower().startswith(want)]
+    return hits[0] if len(hits) == 1 else None
 
 
 def _write_atomic(path: Path, text: str, attempts: int = 8) -> None:

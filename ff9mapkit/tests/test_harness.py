@@ -1499,6 +1499,9 @@ def test_battle_command_goes_through_the_engines_own_entry_point(game):
         boot(g)
         g.warp(30810)
         g.start_battle(105)
+        # Past the opening camera first: a command injected during the intro is refused (and in the
+        # real engine, before that refusal existed, it froze the fight).
+        published(g, lambda s: s.commands_enabled)
         g.battle_command(0, 4, sub=1, target=16, cursor=2)
         published(g, lambda s: True)
         assert fake.battle_commands == [[0, 4, 1, 16, 2]]
@@ -1523,3 +1526,484 @@ def test_start_battle_needs_a_field_to_leave_from(game):
         published(g, lambda s: s.ui_state == "MainMenu")
         with pytest.raises(HarnessError, match="needs a field"):
             g.start_battle(105)
+
+
+# ---------------------------------------------------------------------------------------------
+# PLAYING a battle (s83 rev 4). Everything above observes one; these take turns in it.
+# ---------------------------------------------------------------------------------------------
+
+
+def _fighting(game, fake, *, turns=True):
+    """A session standing in a real battle, PAST the opening camera, gauges optionally running.
+
+    ⚠ The wait for `commands_enabled` is not politeness. Through the intro the engine has not yet
+    run InitialBattle(), so CurrentPlayerIndex and the ready/done lists still hold the PREVIOUS
+    fight's contents -- and a command injected there freezes the battle solid. Every test that
+    takes a turn has to start after that window, the same as every scenario does.
+    """
+    g = session(game, fake)
+    g.__enter__()
+    boot(g)
+    g.warp(30810)
+    g.start_battle(105)
+    if turns:
+        fake.atb_gain = 400
+    published(g, lambda s: s.commands_enabled)
+    return g
+
+
+def test_a_reissued_hold_never_drops_the_button(game):
+    """THE DEFECT THAT COST THIS ARC A FLEE. Scheduling a hold set _downFrame = frameCount + 1, so
+    re-issuing one while it was already down made the button read UP for exactly one frame. Nothing
+    SAMPLING the button notices; anything counting UNBROKEN held time restarts from zero -- and
+    BattleHUD._runCounter, which gates the escape roll, is exactly that. Held every 0.8s against a
+    1.0s threshold, the roll never fired once while the character ran on screen the whole time.
+
+    Both behaviours are exercised here so the fix is pinned by a contrast rather than by an
+    assertion that would also pass if _extend were quietly reverted to _schedule."""
+    fake = FakeGame(game)
+    fake.frame = 100
+    fake._schedule("l1", 60)
+    fake.frame = 130
+    assert fake._is_held("l1")
+
+    fake._extend("l1", 60)
+    assert fake._is_held("l1"), "extending a live hold must not drop the frame it arrives on"
+    assert fake.held["l1"] == 190, "and it must LENGTHEN the window, not shorten it"
+
+    fake._schedule("l1", 60)
+    assert not fake._is_held("l1"), (
+        "the old behaviour, kept as the contrast: restarting a hold in progress un-presses the "
+        "button for the frame the request lands on")
+
+
+def test_extending_a_hold_never_shortens_it(game):
+    """Overlapping holds must COMPOSE. A shorter re-issue that truncated a longer one would end a
+    press early, which reads as the game ignoring input rather than as the driver cutting it off."""
+    fake = FakeGame(game)
+    fake.frame = 10
+    fake._extend("r1", 600)
+    fake.frame = 20
+    fake._extend("r1", 5)
+    assert fake.held["r1"] == 611
+
+
+def test_flee_holds_through_the_roll_and_reports_the_escape(game):
+    fake = FakeGame(game)
+    fake.escape_rate = 1.0
+    g = _fighting(game, fake, turns=False)
+    try:
+        assert g.flee(timeout=10.0) is True
+        published(g, lambda s: s.battle_result != 0)
+        assert g.state.battle_result_name == "escape"
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_flee_reports_bad_luck_as_bad_luck(game):
+    """A roll that does not land is VARIANCE, not a defect: the rate is single digits per second
+    against a levelled enemy. Returning False (rather than raising) is what lets a scenario decide
+    whether to keep trying, and it must not be confused with the input never arriving."""
+    fake = FakeGame(game)
+    fake.escape_rate = 0.0
+    g = _fighting(game, fake, turns=False)
+    try:
+        assert g.flee(timeout=3.0) is False
+        assert g.state.in_battle, "a failed roll leaves you in the fight, not out of it"
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_flee_raises_when_the_engine_never_saw_the_hold(game):
+    """The other failure, which looks identical from outside and means something else entirely: the
+    bumpers are down and btl_escape_key never goes high, so the input is not reaching BattleHUD at
+    all. Reporting that as an unlucky roll would send the next reader looking at the dice."""
+    fake = FakeGame(game)
+    fake.escape_rate = 1.0
+    fake.deaf_bumpers = True
+    g = _fighting(game, fake, turns=False)
+    try:
+        with pytest.raises(HarnessError, match="never went high|not reaching"):
+            g.flee(timeout=2.0)
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_flee_releases_the_bumpers_even_when_it_fails(game):
+    """`hold` is non-blocking, so a bumper left down leaks into whatever runs next -- and these two
+    in particular keep the party trying to run in the NEXT scenario's battle."""
+    fake = FakeGame(game)
+    fake.escape_rate = 0.0
+    g = _fighting(game, fake, turns=False)
+    try:
+        g.flee(timeout=2.0)
+        published(g, lambda s: not s.battle.get("escape_held"))
+        assert not fake._is_held("l1") and not fake._is_held("r1")
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_flee_refuses_a_scene_that_forbids_running(game):
+    """btl_escape_key is set BEFORE Runaway is tested, so the character plays the running animation
+    indefinitely and nothing on screen says it is futile. Holding there is not a slow escape, it is
+    no escape -- and returning False would blame the dice for a rule the scene declared up front."""
+    fake = FakeGame(game)
+    fake.scene_runaway = False
+    g = _fighting(game, fake, turns=False)
+    try:
+        published(g, lambda s: s.can_escape is False)
+        with pytest.raises(HarnessError, match="forbids running"):
+            g.flee(timeout=2.0)
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_menus_publishes_what_the_character_can_do(game):
+    fake = FakeGame(game)
+    g = _fighting(game, fake, turns=False)
+    try:
+        menu = g.menus(0)
+        assert menu["slot"] == 0 and menu["epoch"] == fake.battle_epoch
+        names = [c["name"] for c in menu["commands"]]
+        assert "Attack" in names and "Item" in names
+        assert g.state.command("Attack")["sub"] == 176
+        assert g.state.ability("Fire")["mp"] == 6
+        assert g.state.item("Potion")["count"] == 9
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_a_menu_from_the_previous_battle_is_not_this_battle_s(game):
+    """The engine leaves its battle fields holding the LAST fight's contents, and the stand-in does
+    the same on purpose. Without the epoch stamp a driver would answer questions about a fight that
+    already ended -- confidently, and with a complete, plausible menu."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake, turns=False)
+    try:
+        g.menus(0)
+        assert g.state.menu_is_for(0)
+        fake.end_battle(1)
+        published(g, lambda s: not s.in_battle)
+        fake.start_battle(106)
+        published(g, lambda s: s.in_battle and s.battle_epoch == fake.battle_epoch)
+        assert not g.state.menu_is_for(0), (
+            "the stale menu is still published -- what makes it safe is that it no longer claims "
+            "to be about this battle")
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_menus_refuses_a_slot_with_no_party_member(game):
+    """CollectNetMenus indexes _abilityDetailDict unguarded, so this is a KeyNotFoundException in
+    the engine -- which would disarm the agent mid-scenario instead of failing one step."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake, turns=False)
+    try:
+        with pytest.raises(HarnessError, match="ability detail|no party"):
+            g.menus(4)          # the enemy slot
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_menus_without_a_slot_needs_someone_to_be_asked(game):
+    fake = FakeGame(game)
+    g = _fighting(game, fake, turns=False)
+    try:
+        with pytest.raises(HarnessError, match="asking nobody|turn"):
+            g.menus()
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_commits_the_named_command_with_the_engines_own_arguments(game):
+    """By NAME, and the arguments come from the engine's own resolution -- a table kept here would
+    be a second copy of a decision that depends on preset, trance and equipment."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        rec = g.act("Attack", slot=0)
+        assert fake.battle_commands[-1] == [0, 1, 176, 16, 0], fake.battle_commands
+        assert rec["target"] == "Masked Man"
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_resolves_an_ability_to_its_parent_command(game):
+    """"Fire" is not a command -- it lives under one. Making the caller find the parent is how a
+    scenario ends up hard-coding a command id that is wrong for a tranced character."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        g.act("Fire", slot=0)
+        assert fake.battle_commands[-1] == [0, 4, 20, 16, 0]
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_refuses_an_ability_that_is_learned_but_not_castable(game):
+    """enabled=false is LEARNED BUT GREYED (no MP, silenced). Committing it would exercise a path
+    the player cannot reach, and pass."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        with pytest.raises(HarnessError, match="not castable"):
+            g.act("Blizzard", slot=0)
+        assert not fake.battle_commands
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_refuses_a_submenu_as_though_it_were_a_move(game):
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        with pytest.raises(HarnessError, match="sub-menu"):
+            g.act("Blk Mag", slot=0)
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_refuses_a_command_the_hud_would_not_draw(game):
+    """offered=false is a command that resolves for the character and that the player never sees --
+    an ability command with nothing learned. Sending it is a claim about a move nobody had."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        with pytest.raises(HarnessError, match="would not draw"):
+            g.act("Swd Art", slot=0)
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_names_what_is_available_when_the_move_is_unknown(game):
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        with pytest.raises(HarnessError, match="Attack"):
+            g.act("Ultima", slot=0)
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_targets_a_named_combatant(game):
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        g.act("Attack", slot=0, target="Vivi")
+        assert fake.battle_commands[-1][3] == 2, "Vivi's btl_id bit, not her slot index"
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_aims_a_forced_group_ability_at_the_whole_side(game):
+    """TargetType.AllEnemy has no single-target form in the UI: the cursor IS the group. Passing one
+    bit would be a command the player could not have produced."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        rec = g.act("Meteor", slot=0)
+        assert rec["cursor"] == 2 and rec["target_id"] == 16
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_aims_a_revival_item_at_a_fallen_ally(game):
+    """for_dead flips the whole target rule: the living ally a Potion wants is the wrong answer for
+    a Phoenix Down, and picking the default would waste the turn on someone standing up."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        published(g, lambda s: s.in_battle)
+        for u in fake.battle_units:
+            if u["name"] == "Vivi":
+                u["alive"] = False
+        published(g, lambda s: any(not u["alive"] for u in s.units(player=True)))
+        rec = g.act("Phoenix Down", slot=0)
+        assert rec["target_id"] == 2 and "Vivi" in rec["target"]
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_is_closed_loop_on_the_turn_being_taken(game):
+    """"The step acked" only means the engine did not throw. What matters is that the HUD stopped
+    asking this slot -- which is what SendNetCommand achieves by adding it to InputFinishList, and
+    what would NOT happen if the command had been refused."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake)
+    try:
+        # ⚠ PINNED so the assertion cannot race the stand-in's own resolution: the slot leaves
+        # InputFinishList when its command executes, and this is about it being IN there.
+        fake.cmd_resolve_frames = 10 ** 9
+        slot = g.wait_turn(timeout=10.0)
+        g.act("Attack", slot=slot)
+        assert slot in g.state.battle.get("turn", {}).get("done", [])
+        assert g.state.turn_slot != slot
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_act_refuses_a_slot_whose_turn_is_already_spent(game):
+    """The engine's own refusal, surfaced with its reason instead of a bare "the HUD refused"."""
+    fake = FakeGame(game)
+    fake.cmd_resolve_frames = 10 ** 9      # the refusal must not race the resolution
+    g = _fighting(game, fake)
+    try:
+        g.act("Attack", slot=0)
+        with pytest.raises(HarnessError, match="already in flight|turn is spent"):
+            g.act("Attack", slot=0)
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_wait_turn_raises_when_the_battle_ends_first(game):
+    """Returning -1 would let a caller press on and command a slot in a fight that is over."""
+    fake = FakeGame(game)
+    g = _fighting(game, fake, turns=False)
+    try:
+        fake.end_battle(1)
+        with pytest.raises(HarnessError, match="ended before"):
+            g.wait_turn(timeout=4.0)
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_fight_plays_a_battle_through_to_a_result(game):
+    fake = FakeGame(game)
+    fake.enemy_hit = 0                 # the enemy is not the thing under test here
+    g = _fighting(game, fake)
+    try:
+        assert g.fight(timeout=60.0, finish=False) == 1
+        assert g.state.battle_result_name == "victory"
+        assert len(fake.battle_commands) >= 4, "1200 HP at 260 a hit is five turns, not one"
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_fight_takes_the_loss_as_readily_as_the_win(game):
+    """A harness that can only report victories is a harness that will one day report a victory it
+    did not see. The result is read, not assumed."""
+    fake = FakeGame(game)
+    fake.enemy_hit = 5000
+    g = _fighting(game, fake)
+    try:
+        assert g.fight(timeout=60.0, finish=False) == 3
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_fight_refuses_the_diorama_instead_of_timing_out_in_it(game):
+    """Under isDebug the engine suppresses the auto-end, so the fight can never finish. Playing it
+    out would burn the whole timeout and prove nothing at all."""
+    fake = FakeGame(game)
+    g = session(game, fake)
+    with g:
+        boot(g)
+        g.warp(30810)
+        fake.start_battle(105, debug=True)
+        published(g, lambda s: s.battle.get("debug"))
+        with pytest.raises(HarnessError, match="isDebug|diorama"):
+            g.fight(timeout=5.0)
+
+
+def test_fight_reports_a_stalemate_rather_than_grinding_on(game):
+    fake = FakeGame(game)
+    fake.enemy_hit = 0
+    g = _fighting(game, fake)
+    try:
+        with pytest.raises(HarnessError, match="took 2 turns without reaching"):
+            g.fight(timeout=60.0, max_turns=2)
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_a_custom_policy_chooses_the_move(game):
+    fake = FakeGame(game)
+    fake.enemy_hit = 0
+    g = _fighting(game, fake)
+    try:
+        g.fight(policy=lambda st, slot: {"command": "Fire"}, timeout=60.0, finish=False)
+        assert all(c[1] == 4 for c in fake.battle_commands), fake.battle_commands
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_the_play_verbs_refuse_an_older_engine(game):
+    """A DLL predating rev 4 has no `menus` verb and refuses battlecmd for the local slot, so every
+    one of these would fail somewhere deep with a message about the battle. Named at the door."""
+    fake = FakeGame(game)
+    fake.protocol = 3
+    g = _fighting(game, fake, turns=False)
+    try:
+        published(g, lambda s: s.protocol == 3)
+        for call in (lambda: g.menus(0), lambda: g.act("Attack", slot=0), lambda: g.fight()):
+            with pytest.raises(HarnessError, match="needs protocol 4"):
+                call()
+    finally:
+        g.__exit__(None, None, None)
+
+
+def test_the_turn_slot_is_not_believed_during_the_opening_camera(game):
+    """THE STALE TURN, and the most expensive bug in this revision.
+
+    CurrentPlayerIndex, ReadyQueue and InputFinishList are reset by BattleHUD.InitialBattle(), which
+    runs LATER than the battle scene goes live. So through the opening camera of the SECOND battle
+    in a session all three still hold the PREVIOUS fight's contents -- and `turn.slot` publishes a
+    completely plausible "your move" for a battle that is asking nobody anything.
+
+    The harness believed it, called menus (which passed: NetMenusReady is a ContainsKey, and
+    InitialBattle clears that dictionary's VALUES but not its KEYS), and injected a command into a
+    battle mid-intro. The fight FROZE -- no HUD, no ATB, the intro camera held for four minutes.
+    Two standalone runs were green beforehand, because their battle was the FIRST of the session,
+    where the stale value happens to be -1. Only the suite, which runs a battle scenario after
+    another battle scenario, could see it.
+    """
+    fake = FakeGame(game)
+    fake.battle_intro_frames = 10 ** 9          # hold the session inside the stale window
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(105)
+        published(g, lambda s: s.in_battle)
+        fake.battle_turn = 0                    # what the previous fight left behind
+        published(g, lambda s: s.turn_slot_raw == 0)
+
+        st = g.state
+        assert st.commands_enabled is False
+        assert st.turn_slot == -1, "the gated value must not offer a turn the battle is not offering"
+        assert st.turn_slot_raw == 0, "and the ungated one is kept, so the window is diagnosable"
+        assert st.ready_slots == []
+
+
+def test_the_play_verbs_refuse_a_battle_that_is_not_asking(game):
+    """Each of them, because each was a way into the frozen fight: wait_turn believed the stale
+    slot, menus passed on a stale dictionary key, and battlecmd queued the command that wedged it."""
+    fake = FakeGame(game)
+    fake.battle_intro_frames = 10 ** 9
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(105)
+        fake.battle_turn = 0
+        published(g, lambda s: s.turn_slot_raw == 0)
+
+        with pytest.raises(HarnessError, match="not asking"):
+            g.menus(0)
+        with pytest.raises(HarnessError, match="not asking"):
+            g.battle_command(0, 1, sub=176, target=16)
+        with pytest.raises(HarnessError, match="a party member to be asked"):
+            g.wait_turn(timeout=2.0)
+
+
+def test_the_command_phase_opens_and_then_the_turn_is_real(game):
+    """The other half: once InitialBattle has run, the same fields ARE the answer."""
+    fake = FakeGame(game)
+    fake.battle_intro_frames = 30
+    fake.atb_gain = 400
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(105)
+        slot = g.wait_turn(timeout=10.0)
+        assert slot == 0 and g.state.commands_enabled
+        g.act("Attack", slot=slot)
+        assert fake.battle_commands

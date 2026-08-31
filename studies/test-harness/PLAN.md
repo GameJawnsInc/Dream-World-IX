@@ -550,26 +550,139 @@ it by `nextMode`: 1 → a field, **2 → a battle**. So `battle <sceneId> [group
 sequence rather than minting a second copy of a transition. Deliberately NOT the diorama, whose
 `isDebug` makes the fight unable to end.
 
-### ⚠ STILL OPEN: driving a battle to a RESULT
+### ★ CLOSED: driving a battle to a RESULT (s83 rev 4)
 
-Not proven, and the scenario says so rather than asserting something weaker to look finished. Two
-obstacles, both **measured** rather than reasoned:
+Proven in-game: `scenarios/battle_play.py` **9/9** — one Attack against BSC_EF_R004 dropped the
+Goblin, the turn loop retargeted to Fang on its own, and the fight ended in victory paying
+`exp 46 / gil 178 / ap 1`. `scenarios/flee_check.py` **4/4** — the party ran away, `result=escape`.
+Both are core-suite members.
 
-1. **Fleeing cannot work while a command menu is open.** `btl_sys.CheckEscape` only rolls when
-   `BattleHUD.IsNativeEnableAtb()` is true, and in WAIT ATB mode (`cfg.atb == 1`, the default) that
-   is false while a submenu is up. The menu waits for input; the roll waits for the ATB the menu
-   froze. Meanwhile `btl_escape_key` is set *before* any of it is tested, so the character plays the
-   running animation the entire time — which is exactly what the owner reported watching:
-   *"zidane did the flee animation for a couple seconds but didn't actually leave the fight."*
-   Traced sample-by-sample in `scenarios/flee_probe.py`: `escape_held 1`, `turn.slot 0`,
-   cursor `Battle.Command`, `result 0`, indefinitely.
-2. **`SendNetCommand` refuses the local slot.** The exact, deterministic command path opens with
-   `if (playerIndex == CurrentPlayerIndex) return false;` — it exists to replay a REMOTE co-op
-   player's command and declines the slot whose local menu is open, which in a solo battle is always
-   the one you want. So the cursor is the only route, and `battle_act` (pick by name, wait for the
-   target group, confirm) does not yet reliably commit a turn.
+Two obstacles were named when this was still open. **One of them was wrong, and the correction
+matters more than the fix.**
 
-The honest framing: the harness can now **see** a battle in full detail. It cannot yet **play** one.
+1. ~~**Fleeing cannot work while a command menu is open.**~~ **FALSE.** The claim was that
+   `btl_sys.CheckEscape` needs `BattleHUD.IsNativeEnableAtb()` and that WAIT ATB mode
+   (`cfg.atb == 1`, the default) returns false while a menu is up. Read the method again:
+
+   ```csharp
+   return CurrentPlayerIndex == -1 || ButtonGroupState.ActiveGroup == CommandGroupButton
+                                   || ButtonGroupState.ActiveGroup == String.Empty;
+   ```
+
+   `CommandGroupButton` is `"Battle.Command"` — the TOP-LEVEL command list, which is exactly where
+   `flee_probe.py`'s own trace found the cursor. **The gate was open the entire time.** Only a
+   SUBMENU (target / ability / item panel) freezes the gauge. `flee_check.py` now asserts this by
+   measurement rather than argument: it waits for a turn, records `turn.slot 0` with the cursor on
+   `Battle.Command`, and escapes from there.
+
+   **The real cause was the DRIVER, and the instrument was holding the fault open.** `flee()`
+   re-issued its hold every 0.8s, and `HarnessAgent.Schedule` set `_downFrame = frameCount + 1` — so
+   the button read UP for the one frame each re-issue landed on. `BattleHUD._runCounter` counts
+   UNBROKEN real seconds and resets to zero the instant either bumper lifts, so a 1.0s threshold was
+   never crossed and `CheckEscape(true)` was **never called once**. `btl_escape_key` is set before
+   the counter is even tested, which is why the character ran on screen throughout — exactly what
+   the owner reported: *"zidane did the flee animation for a couple seconds but didn't actually
+   leave the fight."* rev 4 adds `Extend`, which lengthens a live hold instead of restarting it.
+
+   ⚠ The general lesson is bigger than the flee: **a one-frame hole is invisible to anything that
+   SAMPLES a button and fatal to anything that counts continuous time with it.** Every other press
+   in the suite is short enough that the hole never showed, which is why `flee_check.py` is worth
+   its runtime — it is the only check on continuous input.
+
+2. **`SendNetCommand` refuses the local slot.** This one was real. It opens with
+   `if (playerIndex == CurrentPlayerIndex) return false;` because it exists to replay a REMOTE co-op
+   player's command and must lose a race against the menu that slot has open. **The key was the
+   UI's own post-commit teardown**: `SetIdle()` is public, and it is what `OnTargetConfirm` calls
+   the instant a command is sent — it closes the panels and sets `CurrentPlayerIndex = -1`. Calling
+   it first hands the slot back, so nothing is racing. And the menu had to close anyway, or it would
+   sit open over a slot whose turn is spent. If `SendNetCommand` still refuses, the slot is *not*
+   added to `InputFinishList`, so the HUD re-opens its menu: the failure heals.
+
+   ⚠ **This is why the whole revision touches ONE file.** Every seam it needed — `SetIdle`,
+   `SendNetCommand`, `CollectNetMenus`, `NetCommandForMenu`, `NetFirstAbilitySub`, `NetMenusReady` —
+   was already public, most of it built for co-op in s37. No hunk lands in `BattleHUD.*`, so s83 and
+   s37 never meet and there is nothing to conflict-forensics later.
+
+### ⚠ THE STALE TURN — the expensive one, and the suite is what found it
+
+`turn.slot` is `BattleHUD.CurrentPlayerIndex`, and like everything else in this subsystem it is
+**stale rather than absent** between battles. `InitialBattle()` resets it — along with `ReadyQueue`
+and `InputFinishList` — and **`InitialBattle` runs later than `SceneDirector.IsBattleScene()` goes
+true.** So through the opening camera of the *second* battle in a session, all three still hold the
+previous fight's contents, and the channel published a completely plausible *"your move"* for a
+battle that was asking nobody anything.
+
+The harness believed it. `menus` then passed too, because `NetMenusReady` is
+`_abilityDetailDict.ContainsKey(slot)` and `InitialBattle` clears that dictionary's **values** while
+leaving its **keys** — so from the second battle onward it answers true from the very first frame.
+`battlecmd` queued a command into a battle still in its intro, and the fight **froze solid**: no
+HUD, no ATB, the opening camera held for four minutes while `Time.frameCount` kept climbing.
+
+**Two standalone runs were green before this, at 9/9 and 4/4.** Their battle was the *first* of its
+session, where the stale value happens to be `-1`. Only the suite — which runs `battle_play` right
+after `battle_check` — could produce a second battle, and it went red on the first try.
+
+⚠ **This is the arc's own law landing on the arc.** *A green gate is a regression harness, not an
+oracle*: both scenarios asserted on outcomes, both were honest, and both were structurally unable to
+see this. What found it was not a better assertion but a different **ordering**. A battle scenario
+that never follows another battle scenario is testing a case the game will rarely be in.
+
+The gate is `FF9BMenu_IsEnable()` — `_commandEnable`, which `battle.cs` sets true once the intro
+finishes and false again at `PHASE_MENU_OFF`. It is the engine's own *"I am asking for commands
+now"*, and it is the only field in that block that is not stale. Now:
+
+* `turn.slot`, `turn.ready` and `turn.done` are published **through** it (`-1` / empty otherwise),
+  with the ungated `turn.slot_raw` kept alongside for diagnosis — the same rendered-vs-raw split as
+  `hp`/`hp_raw` and `name`/`name_raw`, in a third place.
+* `battlecmd` **and** `menus` refuse outright when the battle is not asking, each naming why.
+* The stand-in models the window: `start_battle` deliberately does **not** clear the turn state, and
+  an `battle_intro_frames` delay stands in for `InitialBattle`. A fake that tidied up on entry could
+  never have reproduced the freeze, so three offline regressions now hold it.
+
+The harness can now see a battle **and** play one.
+
+### ⚠ KNOWN FLAKE, NOT INTRODUCED HERE: `gateway_check` axis calibration on 30820
+
+Intermittent. The calibrated basis and a later burst disagree — *"holding up moved 24u along
+(-4,-24), which projects only -24u onto the calibrated axis (+0.00, +1.00)"* — and `walk_to`
+**discards the basis and refuses**, which is the guard working exactly as designed: it is the fix
+for the older failure where a wall-measured basis was cached and every later move was steered along
+the wall while the report blamed the destination.
+
+Not caused by the rev 4 work, and the evidence is in the runs rather than in an argument: the
+`Extend` change was already deployed in the suite run where `gateway_check` **passed** (139.7s,
+3/3), and it errored in the next one. `Extend` can only ever *lengthen* a hold, so it cannot produce
+the observed **sign flip** either. Room 30820 is tight, and whether the sweep drives into a wall
+before it finds the gateway depends on where the character happens to start.
+
+Left as-is: the honest verdict on a bench the scenario cannot reliably calibrate on is a refusal,
+not a steered-along-a-wall pass. Fixing it means giving that scenario clearer ground to calibrate
+from, which is scenario work rather than harness work.
+
+### What playing one looks like
+
+```python
+g.start_battle(306)
+slot = g.wait_turn()                     # BattleHUD.CurrentPlayerIndex -- the game's own "your move"
+menu = g.menus(slot)                     # what this character can do, BY NAME
+g.act("Attack", slot=slot)               # or "Fire", or "Potion" -- commands, abilities and items
+g.fight()                                # ...or just play the whole thing out
+g.expect_battle_result("victory")
+```
+
+⚠ **`menus` is a REQUEST, not a field of every state sample.** `CollectNetMenus` calls
+`SetAbilityAp`, which WRITES the HUD's ability-detail cache — a publisher running it thirty times a
+second would be mutating the game it exists to observe. The cost is that the answer is a snapshot,
+so it carries `slot` and `epoch` and `State.menu_is_for(slot)` is what makes a stale read visible.
+
+⚠ **`act()` tests the battle logic, NOT the HUD.** Nothing in it presses a button. A scenario that
+must prove the menu itself works wants `battle_act()`, which steers the cursor.
+
+⚠ **The turn count is recorded (`g.last_fight["turns"]`) because a result does not imply a loop.**
+The first live run of `battle_play.py` reported a clean victory having taken **zero** turns — the
+single Attack issued by hand had already killed the only enemy, and the multi-turn path went
+untested behind a fully green report. The scenario now uses a two-enemy encounter and asserts the
+count. Same shape as the arc's own law: a gate can be green and wrong in the same number.
 
 ---
 

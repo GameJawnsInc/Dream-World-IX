@@ -73,9 +73,22 @@ path = "studies/test-harness/scenarios/menu_pick_check.py"
 # -- battle -----------------------------------------------------------------------------------
 # The pillar the state channel was 100% dark on until s83 rev3. Asserts OBSERVABILITY only: the
 # start edge, the unit roster, live ATB, the command cursor, and the scene's own no-escape flag.
-# Driving a battle to a RESULT is a separate capability and is NOT yet proven -- see PLAN.md.
 [[scenario]]
 path = "studies/test-harness/scenarios/battle_check.py"
+
+# And PLAYING one (s83 rev4): whose turn it is, what that character can do by name, a command that
+# is actually EXECUTED (asserted on the enemy's HP falling, never on an ack), and the turn loop
+# carrying the fight to a result. Deliberately a two-enemy encounter -- against a lone 33 HP Goblin
+# the first Attack ended it and fight() reported a green victory having taken ZERO turns.
+[[scenario]]
+path = "studies/test-harness/scenarios/battle_play.py"
+
+# Running away, which needs a hold with no seam in it. ⚠ THE SLOWEST MEMBER'S WORST CASE: the roll
+# is a few percent per held second and this is willing to wait through three 60s windows, so it can
+# cost three minutes on a bad night. It earns that by being the only check on continuous input --
+# every other press in this suite is short enough that a one-frame hole in it would go unnoticed.
+[[scenario]]
+path = "studies/test-harness/scenarios/flee_check.py"
 
 # -- withheld control and field transitions ---------------------------------------------------
 # A scripted scene: the state a naive harness hangs in, made into a condition with a transcript.
