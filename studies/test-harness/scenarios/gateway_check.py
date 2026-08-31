@@ -43,10 +43,12 @@ def run(g, field: int = FIELD):
     target = found[0]
     g.warp(field)
     g.wait_frames(45)
-    dest = g.cross(target["toward"][0], target["toward"][1], expect=target["field"])
+    record = g.cross(target["toward"][0], target["toward"][1], expect=target["field"])
+    dest = record["landed"]
     g.shot("gate-01-destination")
     st = g.state
     g.check(dest == target["field"], "crossed the gateway to the expected field",
-            f"landed on {dest} ({st.field_name}) at {st.pos}")
+            f"landed on {dest} ({st.field_name}) at {st.pos}; walked "
+            f"{record['travelled']:.0f}u, reached-target={record['reached']}")
     g.check(st.control, "the destination handed over control", repr(st))
     print(f"[gate] crossed into {dest} ({st.field_name}) at {st.pos}")

@@ -26,6 +26,7 @@ than racing it, and it only ever kills a process this session launched itself.
 """
 from __future__ import annotations
 
+import atexit
 import datetime as _dt
 import os
 import re
@@ -39,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ff9mapkit"))
 
 from ff9mapkit.config import find_game_path                      # noqa: E402
 
-from .channel import BUTTONS, Channel, HarnessError, State        # noqa: E402
+from .channel import BUTTONS, PROTOCOL, Channel, HarnessError, State   # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 RUNS = REPO / ".harness-runs"
@@ -56,6 +57,40 @@ TITLE_SETTLE = 10.0
 #: Window size for a harness launch. Deliberately modest: the harness reads state and captures frames
 #: from inside the engine, so a big window buys nothing and costs GPU, boot time and your screen.
 DEFAULT_SIZE = (1280, 720)
+
+#: Highest legal field id. `fldMapNo` is Int16, so anything above this wraps to a different (possibly
+#: REAL) field, and a wait for the id you asked for can never be satisfied.
+MAX_FIELD_ID = 32767
+
+#: A published document this recent counts as a LIVE game talking. The agent republishes ~30x/second,
+#: so anything older is a photograph -- and a photograph satisfies most predicates just as well as a
+#: running game does.
+LIVE_WITHIN = 2.0
+
+#: Stock FF9 field ids, read once from reference/field-manifest.tsv. `DictionaryPatch.txt` lists only
+#: MOD registrations, so a membership test against it alone refuses all ~674 shipping rooms with a
+#: false claim about a null `.eb`.
+_STOCK_FIELDS: set[int] | None = None
+
+
+def stock_field_ids() -> set[int]:
+    """Field ids the base game ships, so the warp guard does not refuse a real room."""
+    global _STOCK_FIELDS
+    if _STOCK_FIELDS is not None:
+        return _STOCK_FIELDS
+    found: set[int] = set()
+    # `<hw-export>.txt \t <field id> \t <name>` -- no header row. The HW index is NOT the field id,
+    # which is why only column 1 is read.
+    manifest = REPO / "reference" / "field-manifest.tsv"
+    try:
+        for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+            cols = line.split("\t")
+            if len(cols) >= 2 and cols[1].strip().isdigit():
+                found.add(int(cols[1].strip()))
+    except OSError:
+        pass
+    _STOCK_FIELDS = found
+    return found
 
 
 def launch_args(width: int, height: int, monitor: int = 0) -> list[str]:
@@ -142,11 +177,12 @@ class Session:
         self.keep_open = keep_open
         self.boot_timeout = boot_timeout
         self.verbose = verbose
-        self.channel = Channel(self.game_path)
+        self.channel = Channel(self.game_path, label=label)
         self.proc: subprocess.Popen | None = None
         self._launched = False
         self.checks: list[dict] = []
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
+        self._last_error: str | None = None   # the agent's error latch as of the last successful ack
         stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.run_dir = Path(run_dir) if run_dir else RUNS / f"{stamp}-{label}"
 
@@ -177,8 +213,18 @@ class Session:
         if not running and self.attach:
             raise HarnessError("attach=True but no FF9 process is running.")
 
+        # Refuse a shared channel BEFORE touching it: reset() deletes events.jsonl and every PNG, so
+        # doing it while another live run owns the arm destroys their evidence, not just ours.
+        self.channel.claim()
         self.channel.reset()
-        self.channel.arm()
+        # A game that is already up must OBSERVE the disarm before the re-arm, or the agent never
+        # resets its sequence numbers and every step we send is discarded as stale while acking
+        # instantly. With nothing running there is no observer, so the wait is skipped.
+        self.channel.arm(force_cycle=bool(running))
+        # The arm file gates a shared install: if this process dies without running stop(), the next
+        # session's game silently boots with the harness live. __exit__ is not enough -- a bare
+        # sys.exit or an unhandled raise outside the with-block skips it.
+        atexit.register(self._atexit_disarm)
         self._log(f"channel {self.channel.dir}")
 
         if not running:
@@ -202,6 +248,39 @@ class Session:
             self._log(f"attaching to pid {running[0]}")
 
         self._await_agent()
+        self._adopt_agent()
+
+    def _adopt_agent(self) -> None:
+        """Reconcile the driver's sequence counter and protocol with the agent that actually answered.
+
+        Two failure modes, both of which have exactly one symptom -- a step that acks without running:
+
+        1. The agent kept a HIGH ``_seq`` from a previous run (a lost arm-cycle race, or a future
+           engine that does not reset). Our counter restarts at 0, so every request we write is
+           discarded as stale while its published ``ack`` satisfies our wait instantly. Starting
+           above the agent's own counter makes that unreachable regardless of what it did on arm.
+        2. The deployed DLL is OLDER than this driver. Every ``State`` accessor degrades a missing
+           section to a sentinel, so a version skew reads as game data rather than as a mismatch.
+        """
+        st = self.channel.state()
+        if st is None:
+            return
+        if st.protocol is not None and st.protocol != PROTOCOL:
+            raise HarnessError(
+                f"protocol mismatch: this driver speaks {PROTOCOL}, the deployed engine speaks "
+                f"{st.protocol}. Rebuild the DLL (memoria-patch s83) or check out the matching "
+                f"driver -- a skew reads as game data, not as an error."
+            )
+        if st.seq > 0:
+            self._log(f"the agent is at seq {st.seq} (it did not reset on arm) -- continuing above it")
+            self.channel.seed_seq(st.seq)
+        self._last_error = st.error
+
+    def _atexit_disarm(self) -> None:
+        try:
+            self.channel.disarm()
+        except Exception:
+            pass
 
     def _await_agent(self) -> None:
         """Block until the in-game agent publishes its first state."""
@@ -244,10 +323,20 @@ class Session:
             # a live harness it never asked for.
             self._log(f"teardown: could not stop the game cleanly ({err})")
         finally:
-            self.channel.collect(self.run_dir)
-            self._collect_log()
-            self.channel.disarm()
-            self._write_report(failed)
+            # DISARM FIRST. Everything else here is bookkeeping that can fail -- a locked PNG, a full
+            # disk, an unwritable run dir -- and any of those raising used to skip the disarm and
+            # leave a shared install armed for the next worktree's game. Artifacts are worth less
+            # than the gate.
+            try:
+                self.channel.disarm()
+            finally:
+                for step in (lambda: self.channel.collect(self.run_dir),
+                             self._collect_log,
+                             lambda: self._write_report(failed)):
+                    try:
+                        step()
+                    except Exception as err:                       # noqa: BLE001 - see above
+                        self._log(f"teardown: {step} failed ({err})")
             self._log(f"artifacts in {self.run_dir}")
 
     def _collect_log(self) -> None:
@@ -265,25 +354,54 @@ class Session:
     # -- sending --------------------------------------------------------------------------------
     def send(self, *steps: str, wait: bool = True, timeout: float = 60.0) -> None:
         """Queue raw protocol steps and (by default) block until the game has finished them."""
-        seq = self.channel.send(list(steps))
+        seq = self.channel.send(list(steps), alive=self._assert_alive)
         if not wait:
             return
         self._await_ack(seq, timeout, steps)
 
     def _await_ack(self, seq: int, timeout: float, steps) -> None:
+        """Wait for the agent to finish OUR request -- proven by its own receipt, not by a number.
+
+        ⚠ ``ack`` alone is not proof. It is a single counter on a component that outlives every
+        scene, and after a leaked arm file it still carries a dead run's value; every step then
+        "succeeds" in milliseconds having done nothing, and the first verb that measures the world
+        reports a confident falsehood about the game. Requiring the published ``seq`` to have reached
+        ours as well means the agent has demonstrably ACCEPTED this request, not merely finished
+        something.
+        """
         deadline = time.time() + timeout
         last: State | None = None
         while time.time() < deadline:
             self._assert_alive()
             last = self.channel.state()
-            if last is not None and last.ack >= seq and not last.busy:
-                if last.error:
-                    raise HarnessError(f"the game refused a step: {last.error} (steps={list(steps)})")
+            if last is not None and last.seq >= seq and last.ack >= seq and not last.busy:
+                self._raise_if_this_step_failed(last, seq, steps)
+                self._last_error = last.error
                 return
             time.sleep(0.02)
         raise HarnessError(
-            f"steps {list(steps)} were not acknowledged within {timeout:.0f}s (last state: {last!r})"
+            f"steps {list(steps)} were not acknowledged within {timeout:.0f}s "
+            f"({self.channel.classify()}; last state: {last!r})"
         )
+
+    def _raise_if_this_step_failed(self, st: State, seq: int, steps) -> None:
+        """Blame THIS step only for an error THIS step caused.
+
+        ⚠ The agent's error is a LATCH: it is set on any refusal and cleared only when the harness
+        re-arms. So the first refused step used to make every later healthy step raise, quoting a
+        stale message against an innocent request -- which is how one bad warp turned into a sweep
+        reporting every remaining field as unreachable. Prefer the agent's own ``error_seq`` stamp
+        where it publishes one; otherwise fall back to "the message changed since our last good ack",
+        which is exact for every case except an identical error repeating.
+        """
+        if not st.error:
+            return
+        if st.error_seq is not None:
+            if st.error_seq >= seq:
+                raise HarnessError(f"the game refused a step: {st.error} (steps={list(steps)})")
+            return
+        if st.error != self._last_error:
+            raise HarnessError(f"the game refused a step: {st.error} (steps={list(steps)})")
 
     def _sleep_alive(self, seconds: float) -> None:
         """Sleep, but keep noticing if the game dies -- a plain sleep turns a crash into a timeout."""
@@ -379,27 +497,113 @@ class Session:
             self._assert_alive()          # a dead game should say so, not blame the arming
             hint = self.diagnose()
             raise HarnessError(
-                "no state published" + (f" -- {hint}" if hint else
-                                        " -- the agent is armed but stopped publishing; the game may "
-                                        "be hung. Check Memoria.log in the run directory.")
+                f"no state published -- {self.channel.classify()}"
+                + (f" -- {hint}" if hint else "")
             )
         return st
 
     def wait_for(self, predicate, *, timeout: float = 20.0, what: str = "condition") -> State:
-        """Poll until ``predicate(state)`` is true. Raises with the last state seen on timeout."""
+        """Poll until ``predicate(state)`` is true. Raises with the last state seen on timeout.
+
+        Two things this refuses to do, both of which produced durable false verdicts about the game:
+
+        **It will not honour a predicate against a FROZEN channel.** The last ``state.json`` a hung
+        or crashed agent left behind still satisfies most predicates, so a wait can "succeed"
+        against a game that stopped publishing minutes ago -- and the run then reports on a
+        photograph. A sample only counts once the agent's frame counter has moved.
+
+        **It will not report a broken predicate as a broken game.** A predicate that raises on every
+        single sample used to be swallowed silently and time out with the game-condition message,
+        which ``expect()`` then wrote into report.json as a failure of the game. The distinction is
+        named in the error.
+        """
         deadline = time.time() + timeout
         last: State | None = None
+        base_frame: int | None = None
+        fresh = 0                 # samples whose frame counter had advanced since we started
+        evaluated = 0             # samples on which the predicate ran to completion
+        raised: Exception | None = None
         while time.time() < deadline:
             self._assert_alive()
             last = self.channel.state()
             if last is not None:
+                if base_frame is None:
+                    base_frame = last.frame
+                elif last.frame > base_frame:
+                    fresh += 1
                 try:
-                    if predicate(last):
-                        return last
-                except Exception:            # a predicate reading a field that is null right now
-                    pass
+                    ok = bool(predicate(last))
+                    evaluated += 1
+                except (TypeError, KeyError, AttributeError, IndexError, ValueError) as err:
+                    # A predicate reading a field that is legitimately null right now. Counted, not
+                    # ignored: if it is EVERY sample, the predicate is the bug.
+                    raised, ok = err, False
+                # Liveness, two ways. A frame that advanced is proof outright; failing that, a
+                # document the agent wrote moments ago is good enough. What this rejects is the
+                # photograph a hung agent left behind -- valid JSON that satisfies the predicate and
+                # has not moved in minutes. Honouring a fresh first sample keeps a genuinely
+                # transient condition (a box that opens and closes) observable.
+                if ok and (fresh > 0 or (last.age is not None and last.age <= LIVE_WITHIN)
+                           or last.age is None):
+                    return last
             time.sleep(0.03)
-        raise HarnessError(f"timed out after {timeout:.0f}s waiting for {what} (last state: {last!r})")
+
+        if evaluated == 0 and raised is not None:
+            raise HarnessError(
+                f"the predicate for {what} raised on all samples and never returned a verdict: "
+                f"{raised!r}. This is a broken assertion, not a game failure."
+            )
+        if last is None:
+            raise HarnessError(
+                f"timed out after {timeout:.0f}s waiting for {what}: the agent published nothing at "
+                f"all -- {self.channel.classify()}"
+            )
+        if fresh == 0:
+            hint = self.diagnose()
+            raise HarnessError(
+                f"timed out after {timeout:.0f}s waiting for {what}, and the agent's frame counter "
+                f"never moved off {base_frame} -- the channel is frozen, so this says nothing about "
+                f"the condition. {self.channel.classify()}" + (f" -- {hint}" if hint else "")
+            )
+        raise HarnessError(
+            f"timed out after {timeout:.0f}s waiting for {what} over {fresh} live samples "
+            f"(last state: {last!r})"
+        )
+
+    #: How long a "the player is free" condition must HOLD before it is believed. Control flickers
+    #: true for a moment as a field loads, before the entry script takes it away again -- a single
+    #: sample made `watch_cutscene` return 0 pages on one run and 5 on the next.
+    SETTLE = 1.0
+
+    def _wait_settled(self, predicate, *, timeout: float, what: str, settle: float | None = None) -> State:
+        """Wait for a condition to hold CONTINUOUSLY for ``settle`` seconds.
+
+        Factored out because the load-flicker fix was applied to ``watch_cutscene`` and not to its
+        sibling ``wait_control``, which is exactly the shape of divergence that makes one verb
+        trustworthy and the other quietly flaky. One implementation, two callers.
+        """
+        settle = self.SETTLE if settle is None else settle
+        deadline = time.time() + timeout
+        held_since: float | None = None
+        last: State | None = None
+        while time.time() < deadline:
+            last = self.wait_for(predicate, timeout=max(0.5, deadline - time.time()), what=what)
+            held_since = time.time() if held_since is None else held_since
+            time.sleep(0.05)
+            probe = self.channel.state()
+            try:
+                still = probe is not None and bool(predicate(probe))
+            except (TypeError, KeyError, AttributeError, IndexError, ValueError):
+                still = False
+            if not still:
+                held_since = None
+                continue
+            if time.time() - held_since >= settle:
+                return probe
+        raise HarnessError(
+            f"timed out after {timeout:.0f}s waiting for {what} to hold for {settle:.1f}s "
+            f"(last state: {last!r})"
+        )
 
     def wait_playable(self, *, timeout: float = 60.0) -> State:
         """Wait until the player actually has control on a field -- not merely 'the field loaded'.
@@ -417,6 +621,37 @@ class Session:
                        and s.player_x is not None),
             timeout=timeout, what="the player to have control at a known position on a field",
         )
+
+    def wait_world(self, *, timeout: float = 90.0) -> State:
+        """Wait until the player is standing on the OVERWORLD with control.
+
+        Separate from :meth:`wait_playable` because the two map types publish different coordinate
+        spaces through the same key -- see :meth:`_require_field`.
+        """
+        return self.wait_for(
+            lambda s: (s.ui_state == "WorldHUD" and not s.fading
+                       and s.world_x is not None and s.world_z is not None),
+            timeout=timeout, what="the player to be standing on the world map",
+        )
+
+    def _require_field(self, verb: str) -> State:
+        """Refuse a FIELD verb when the game is not on a field.
+
+        ⚠ `player.x/z` does NOT go null on the overworld -- `GetControlChar()` returns the world
+        actor and its `pos[]` is `RealPosition * 256`. So the movement verbs do not fail loudly
+        there; they converge in a space 256x off, and `_probe_axis`'s "did it move" floor can never
+        trip. A confident wrong number is the worst outcome available, so the guard is on the map
+        type rather than on a null.
+        """
+        st = self.state
+        if st.ui_state != "FieldHUD":
+            where = "the world map" if st.ui_state == "WorldHUD" else f"ui_state={st.ui_state!r}"
+            raise HarnessError(
+                f"{verb} is a FIELD verb and the game is on {where}. Field positions are in field "
+                f"units; the overworld publishes world.x/world.z in world units (player.* there is "
+                f"the same value x256). Use the world verbs, or warp to a field first."
+            )
+        return st
 
     # -- acting ---------------------------------------------------------------------------------
     def press(self, button: str, frames: int = 2) -> None:
@@ -449,8 +684,13 @@ class Session:
     RUN_SPEED = 30.0
     WALK_SPEED = 15.0
 
+    #: A probe that covers less than this fraction of what was COMMANDED did not measure free
+    #: movement. An absolute floor cannot tell "he walked 40 units freely" from "he was pushed 40
+    #: units along a wall while 900 were asked for".
+    PROBE_MIN_FRACTION = 0.35
+
     def distance_to(self, x: float, z: float) -> float:
-        st = self.state
+        st = self._require_field("distance_to")
         if st.player_x is None:
             raise HarnessError("no player position published -- not on a field?")
         return ((st.player_x - x) ** 2 + (st.player_z - z) ** 2) ** 0.5
@@ -467,30 +707,51 @@ class Session:
         probe barely moves -- the usual cause is standing against a wall -- it retries the opposite
         direction and negates, which is why this is a probe and not a single press.
         """
-        st = self.state
+        st = self._require_field("calibrate_axes")
         key = st.field_id
         if not recalibrate and key in self._axes:
             return self._axes[key]
 
-        basis = {}
+        # Probe BOTH directions of each axis and cross-check them. A single probe cannot tell free
+        # movement from a slide: pressed into a wall at an angle the engine keeps the character
+        # moving, just not where he was sent, and the resulting unit vector is a perfectly
+        # well-formed lie. The opposite press is the control -- free movement is antiparallel and of
+        # similar length; a slide is neither.
+        basis, detail = {}, {}
         for name, (fwd, back) in (("v", ("up", "down")), ("h", ("right", "left"))):
-            vec = self._probe_axis(fwd, probe)
-            if vec is None:
-                vec = self._probe_axis(back, probe)
-                if vec is not None:
-                    vec = (-vec[0], -vec[1])
-            if vec is None:
+            a = self._probe_axis(fwd, probe)
+            b = self._probe_axis(back, probe)
+            if a is None and b is None:
                 raise HarnessError(
                     f"could not calibrate the {name} axis on field {key}: neither {fwd} nor {back} "
-                    f"moved the character. Is he boxed in, or is control withheld?"
+                    f"moved the character more than {self.PROBE_MIN_FRACTION:.0%} of the "
+                    f"{probe * self.RUN_SPEED:.0f} units commanded. Is he boxed in, or is control "
+                    f"withheld?"
                 )
+            if a is not None and b is not None:
+                anti = -(a[0][0] * b[0][0] + a[0][1] * b[0][1])      # +1 when truly opposite
+                ratio = min(a[1], b[1]) / max(a[1], b[1])
+                if anti < 0.85 or ratio < 0.5:
+                    raise HarnessError(
+                        f"the {name} axis on field {key} is not a free axis: {fwd} measured "
+                        f"{_vec(a[0])} over {a[1]:.0f}u and {back} measured {_vec(b[0])} over "
+                        f"{b[1]:.0f}u (antiparallel={anti:+.2f}, length ratio={ratio:.2f}). The "
+                        f"character is sliding along something rather than walking. Move to clearer "
+                        f"ground and recalibrate."
+                    )
+                vec, reach = a[0], min(a[1], b[1])
+            elif a is not None:
+                vec, reach = a[0], a[1]
+            else:
+                vec, reach = (-b[0][0], -b[0][1]), b[1]
             basis[name] = vec
+            detail[name] = reach
 
-        # A probe can be DEFLECTED rather than blocked -- walk into an NPC at an angle and the engine
-        # slides the character along the collision instead of stopping him, so the measured vector is
-        # real movement pointing the wrong way. That produces a skewed basis that still "works" and
-        # sends every later walk_to off at an angle. Two screen axes should be close to perpendicular,
-        # so a large dot product means a probe was pushed and the basis must not be trusted silently.
+        # Two screen axes should be close to perpendicular. ⚠ This test is computed from UNIT
+        # vectors, so it is identically zero under any rigid rotation and CANNOT by itself falsify a
+        # deflected probe -- which is why the antiparallel/length cross-check above exists. It is
+        # kept because it does catch the remaining case: two axes that were each deflected onto the
+        # same wall.
         skew = abs(basis["v"][0] * basis["h"][0] + basis["v"][1] * basis["h"][1])
         if skew > 0.35:
             raise HarnessError(
@@ -500,23 +761,34 @@ class Session:
             )
 
         self._axes[key] = basis
-        self._log(f"axes on field {key}: up={_vec(basis['v'])} right={_vec(basis['h'])} "
-                  f"(perpendicularity |dot|={skew:.2f})")
+        self._log(f"axes on field {key}: up={_vec(basis['v'])} ({detail['v']:.0f}u) "
+                  f"right={_vec(basis['h'])} ({detail['h']:.0f}u) |dot|={skew:.2f}")
         return basis
 
     def _probe_axis(self, direction: str, frames: int):
-        """Hold one direction briefly; return the unit world vector it produced, or None if it stalled."""
+        """Hold one direction briefly; return ``((ux, uz), magnitude)``, or None if it did not move.
+
+        "Did not move" is judged against what was COMMANDED, not against an absolute floor. The old
+        15-unit floor accepted a character shoved a few units sideways by a wall as a real
+        measurement of that axis, cached the resulting basis, and then steered every later walk_to
+        along the wall -- reporting the field as unreachable.
+        """
         before = self.state
         self.walk(direction, frames)
         self.wait_frames(6)
         after = self.state
         if before.player_x is None or after.player_x is None:
             return None
+        if after.field_id != before.field_id:
+            raise HarnessError(
+                f"probing {direction} left field {before.field_id} for {after.field_id} -- the probe "
+                f"walked into a gateway. Calibrate somewhere with room around the character."
+            )
         dx, dz = after.player_x - before.player_x, after.player_z - before.player_z
         mag = (dx * dx + dz * dz) ** 0.5
-        if mag < self.RUN_SPEED * 0.5:      # less than half a frame of travel: treat as blocked
+        if mag < frames * self.RUN_SPEED * self.PROBE_MIN_FRACTION:
             return None
-        return (dx / mag, dz / mag)
+        return ((dx / mag, dz / mag), mag)
 
     def walk_to(self, x: float, z: float, *, tolerance: float = 40.0, max_bursts: int = 24,
                 strict: bool = True) -> bool:
@@ -533,6 +805,14 @@ class Session:
         Gives up early when a burst produces no progress -- that is a wall or a walkmesh edge, and
         retrying it 24 times just turns a clear failure into a slow one.
         """
+        # A tolerance under one WALK frame cannot be aimed for -- the smallest correction the engine
+        # can make is one frame of travel, so the loop oscillates around the target and then fails on
+        # max_bursts, reporting the field unreachable when the request was impossible.
+        if tolerance < self.WALK_SPEED:
+            raise HarnessError(
+                f"tolerance {tolerance} is below the physical floor: one walk frame covers "
+                f"{self.WALK_SPEED} units, so nothing closer than that can be aimed for."
+            )
         basis = self.calibrate_axes()
         field = self.state.field_id
         stalls = 0
@@ -555,8 +835,10 @@ class Session:
             along_h = dx * basis["h"][0] + dz * basis["h"][1]
             if abs(along_v) >= abs(along_h):
                 direction, need = ("up" if along_v > 0 else "down"), abs(along_v)
+                axis, sign = basis["v"], (1.0 if along_v > 0 else -1.0)
             else:
                 direction, need = ("right" if along_h > 0 else "left"), abs(along_h)
+                axis, sign = basis["h"], (1.0 if along_h > 0 else -1.0)
 
             slow = need < self.RUN_SPEED * 3
             speed = self.WALK_SPEED if slow else self.RUN_SPEED
@@ -569,21 +851,48 @@ class Session:
             after = self.state
             if after.field_id != field or after.player_x is None:
                 return False          # the burst carried us out of the field -- see above
-            moved = ((after.player_x - st.player_x) ** 2 + (after.player_z - st.player_z) ** 2) ** 0.5
-            stalls = stalls + 1 if moved < 1.0 else 0
+            mx, mz = after.player_x - st.player_x, after.player_z - st.player_z
+            moved = (mx * mx + mz * mz) ** 0.5
+
+            # THE BASIS CONSISTENCY CHECK. Calibration can be fooled -- a character pressed into a
+            # wall keeps moving, just not where he was sent, and the resulting basis is a well-formed
+            # lie that no static test on two unit vectors can catch. What a bad basis cannot fake is
+            # agreement over time: if a burst covers a real distance in a direction that does not
+            # project onto the axis it was sent along, the basis is wrong and every later burst is
+            # steering by it. Say so, and throw the basis away, instead of grinding out max_bursts
+            # and then blaming the field's geometry.
+            if moved >= self.WALK_SPEED:
+                projected = (mx * axis[0] + mz * axis[1]) * sign
+                if projected < 0.35 * moved:
+                    self._axes.pop(field, None)
+                    raise HarnessError(
+                        f"the axis basis for field {field} disagrees with what the game did: "
+                        f"holding {direction} moved {moved:.0f}u along ({mx:+.0f},{mz:+.0f}), which "
+                        f"projects only {projected:.0f}u onto the calibrated axis {_vec(axis)}. The "
+                        f"basis was probably measured against a wall; it has been discarded. "
+                        f"Recalibrate from open ground."
+                    )
+
+            # An overshoot counts as a stall. Without it, a loop that steps past the target and back
+            # again shows progress every time and burns all 24 bursts before failing.
+            left = (x - after.player_x) * axis[0] + (z - after.player_z) * axis[1]
+            overshot = left * sign < 0 and abs(left) > tolerance
+            stalls = stalls + 1 if (moved < 1.0 or overshot) else 0
             if stalls >= 2:
                 break
 
+        # ONE final sample decides the verdict, the reported position AND the reported distance.
+        # Taking three (as this used to) lets the message describe a position the verdict was not
+        # computed from -- and on a character still settling they genuinely differ.
         final = self.state
         if final.field_id != field or final.player_x is None:
             return False
-        arrived = self.distance_to(x, z) <= tolerance
+        gap = ((final.player_x - x) ** 2 + (final.player_z - z) ** 2) ** 0.5
+        arrived = gap <= tolerance
         if not arrived and strict:
-            st = self.state
             raise HarnessError(
-                f"could not reach ({x}, {z}): stopped at ({st.player_x}, {st.player_z}), "
-                f"{self.distance_to(x, z):.0f} units away. A wall, a walkmesh edge, or an "
-                f"unreachable target."
+                f"could not reach ({x}, {z}): stopped at ({final.player_x}, {final.player_z}), "
+                f"{gap:.0f} units away. A wall, a walkmesh edge, or an unreachable target."
             )
         return arrived
 
@@ -611,22 +920,73 @@ class Session:
                            timeout=timeout, what="New Game to reach a field")
         return self.wait_playable(timeout=timeout) if playable else st
 
-    def registered_fields(self) -> dict[int, str]:
-        """Every field id currently registered by a deployed mod folder, id -> scene name.
+    def registered_fields(self) -> tuple[dict[int, str], list[Path]]:
+        """Mod-registered field ids (id -> scene name) AND the patch files actually read.
 
         Read from the `DictionaryPatch.txt` of each mod folder, which CLAUDE.md is emphatic is the
         only truth about what is deployed -- it changes as other worktrees deploy, so it is read live
         rather than cached across runs.
+
+        ⚠ Returns the file list too, because "nothing is registered" and "I could not read the
+        registrations" are different facts and the caller must not merge them. A guard that treats an
+        empty answer as permission disables itself in precisely the situation where it is least able
+        to be sure.
+
+        The directive is `FieldScene <id> <area> <NAME> ...` -- the second column is the AREA index,
+        not the name, which is why group 3 is taken.
         """
         found: dict[int, str] = {}
+        read: list[Path] = []
         for patch in sorted(self.game_path.glob("*/DictionaryPatch.txt")):
             try:
                 text = patch.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+(\S+)", text, re.MULTILINE):
-                found[int(m.group(1))] = m.group(2)
-        return found
+            read.append(patch)
+            for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+(\d+)\s+(\S+)", text, re.MULTILINE):
+                found[int(m.group(1))] = m.group(3)
+            # Tolerate a two-column form rather than dropping the id entirely.
+            for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+([A-Za-z_]\S*)", text, re.MULTILINE):
+                found.setdefault(int(m.group(1)), m.group(2))
+        return found, read
+
+    def _check_field_id(self, field: int, verb: str, check_registered: bool) -> None:
+        """Refuse a destination the engine cannot reach, and say which kind of unreachable it is.
+
+        Warping to an unregistered id is not a harmless no-op: the engine sets `fldMapNo`, finds a
+        null `.eb`, and hangs on a black screen with the game unrecoverable -- which reaches the
+        driver as a generic timeout whose message points at control or position rather than at the
+        actual mistake.
+        """
+        if not 0 <= field <= MAX_FIELD_ID:
+            raise HarnessError(
+                f"{verb}: field id {field} is out of range. `fldMapNo` is Int16, so anything above "
+                f"{MAX_FIELD_ID} wraps onto a DIFFERENT (possibly real) field and the wait for the "
+                f"id you asked for can never be satisfied."
+            )
+        if not check_registered:
+            return
+        available, read = self.registered_fields()
+        if not read:
+            raise HarnessError(
+                f"{verb}: no DictionaryPatch.txt could be read under {self.game_path}, so whether "
+                f"field {field} is deployed is unknown. Refusing rather than risking the null-.eb "
+                f"black screen -- pass check_registered=False to override."
+            )
+        if field in available:
+            return
+        # ⚠ DictionaryPatch lists only MOD registrations. Every one of FF9's ~674 shipping rooms is
+        # registered by the base game and appears in none of these files, so a membership test
+        # against them alone would refuse a real field with a false claim about a null `.eb`.
+        if field in stock_field_ids():
+            return
+        raise HarnessError(
+            f"{verb}: field {field} is neither a stock FF9 field nor listed in any deployed "
+            f"DictionaryPatch.txt ({', '.join(p.parent.name for p in read)}), so warping there "
+            f"would black-screen the game on a null .eb. Deploy it first "
+            f"(`py tools/deploy_field.py <toml> --id {field}`), or use one of: "
+            f"{', '.join(str(i) for i in sorted(available))}."
+        )
 
     def warp(self, field: int, *, entrance: int | None = None, scenario: int | None = None,
              timeout: float = 60.0, check_registered: bool = True) -> State:
@@ -639,31 +999,61 @@ class Session:
         every other worktree's deploys, the id you tested yesterday may simply not be there today.
         """
         field = int(field)
-        if check_registered:
-            available = self.registered_fields()
-            if available and field not in available:
-                raise HarnessError(
-                    f"field {field} is not registered by any deployed mod folder, so warping there "
-                    f"would black-screen the game on a null .eb. Deploy it first "
-                    f"(`py tools/deploy_field.py <toml> --id {field}`), or use one of: "
-                    f"{', '.join(str(i) for i in sorted(available))}."
-                )
+        self._check_field_id(field, "warp", check_registered)
         self.send(f"warp {field} {entrance if entrance is not None else -1} "
                   f"{scenario if scenario is not None else -1}")
         self.wait_for(lambda s: s.field_id == int(field), timeout=timeout,
                       what=f"field {field} to load")
         return self.wait_playable(timeout=timeout)
 
-    def world_warp(self, field: int, *, entrance: int | None = None,
-                   scenario: int | None = None, timeout: float = 60.0) -> State:
-        self.send(f"worldwarp {int(field)} {entrance if entrance is not None else -1} "
-                  f"{scenario if scenario is not None else -1}")
-        return self.wait_for(lambda s: s.field_id == int(field), timeout=timeout,
-                             what=f"field {field} to load from the world map")
+    def world_warp(self, field: int, *, entrance: int | None = None, scenario: int | None = None,
+                   timeout: float = 60.0, check_registered: bool = True) -> State:
+        """Enter a field FROM the overworld. Same guards as :meth:`warp`, and it waits for control.
 
-    def teleport(self, x: float, z: float) -> None:
-        """Overworld teleport (world units)."""
+        ⚠ The engine refuses this outright when the game is not on an overworld -- and until the
+        agent reports refusals, that refusal ACKS CLEAN. The wait that follows then times out
+        blaming a destination the engine never attempted, so the guard is here on the driver side.
+        """
+        field = int(field)
+        self._check_field_id(field, "world_warp", check_registered)
+        st = self.state
+        if st.ui_state != "WorldHUD":
+            raise HarnessError(
+                f"world_warp enters a field FROM the overworld and the game is on "
+                f"ui_state={st.ui_state!r}. The engine would refuse this silently; use warp() on a "
+                f"field."
+            )
+        self.send(f"worldwarp {field} {entrance if entrance is not None else -1} "
+                  f"{scenario if scenario is not None else -1}")
+        self.wait_for(lambda s: s.field_id == field, timeout=timeout,
+                      what=f"field {field} to load from the world map")
+        return self.wait_playable(timeout=timeout)
+
+    def teleport(self, x: float, z: float, *, verify: bool = True,
+                 timeout: float = 10.0) -> State:
+        """Overworld teleport (world units), verified against the position that resulted.
+
+        ⚠ The engine has several refusal paths here -- not in world mode, outside the 24x20 grid --
+        and each one currently ACKS CLEAN while doing nothing. A scenario that teleported, walked and
+        then recorded a placement verdict about the map would be describing wherever it already was.
+        So this asserts on the OUTCOME: the published world position moved to where it was sent.
+        """
+        st = self.state
+        if st.ui_state != "WorldHUD":
+            raise HarnessError(
+                f"teleport is an OVERWORLD verb and the game is on ui_state={st.ui_state!r}. The "
+                f"engine would refuse it silently and the run would go on believing it moved."
+            )
         self.send(f"teleport {x} {z}")
+        if not verify:
+            return self.state
+        return self.wait_for(
+            lambda s: (s.world_x is not None
+                       and ((s.world_x - x) ** 2 + (s.world_z - z) ** 2) ** 0.5 < 64.0),
+            timeout=timeout,
+            what=f"the world position to become ({x}, {z}) -- if it did not, the engine refused the "
+                 f"teleport (outside the grid, or not in world mode)",
+        )
 
     # -- crossing between fields ----------------------------------------------------------------
     # Gateways are the most common mechanic in this project and the hardest to eyeball: a trigger is
@@ -676,67 +1066,132 @@ class Session:
         Waits for the destination to be PLAYABLE, not merely for the id to flip. The id changes the
         moment the engine accepts the transition, while the destination is still black -- and a
         scenario that continued there would issue its next steps into a loading screen.
+
+        ⚠ The two waits are deliberately NOT merged, and callers must not swallow them together.
+        "The field never changed" and "the field changed but the destination never handed over
+        control" are opposite findings: the first means there is no gateway here, the second means
+        there is one and it leads somewhere broken. Collapsing them reported a working gateway as a
+        missing one.
         """
         was = self.state.field_id if was is None else was
         self.wait_for(lambda s: s.field_id != was and s.field_id > 0,
                       timeout=timeout, what=f"the field to change from {was}")
-        return self.wait_playable(timeout=timeout).field_id
+        landed = self.state.field_id
+        try:
+            return self.wait_playable(timeout=timeout).field_id
+        except HarnessError as err:
+            raise HarnessError(
+                f"crossing from {was} reached field {landed}, but it never became playable within "
+                f"{timeout:.0f}s -- the gateway WORKS and the destination is the problem. ({err})"
+            ) from err
 
     def cross(self, x: float, z: float, *, expect: int | None = None,
-              timeout: float = 20.0) -> int | None:
-        """Walk to (x, z) and report the field it put us on, or None if we stayed put.
+              timeout: float = 20.0) -> dict:
+        """Walk to (x, z) and report what happened, as a record rather than a bare id.
 
-        Returns rather than raises on "nothing happened": when probing for an invisible trigger, not
-        crossing is the ordinary outcome and the caller wants to keep looking, not handle an
-        exception. Pass `expect` to assert a specific destination.
+        Returns ``{"landed": id|None, "from": id, "reached": bool, "travelled": units}``. It returns
+        rather than raises on "nothing happened": when probing for an invisible trigger, not crossing
+        is the ordinary outcome and the caller wants to keep looking. ``travelled`` and ``reached``
+        are what stop a sweep that never actually got near the target from being read as evidence
+        that nothing is there.
+
+        Pass `expect` to assert a specific destination.
         """
-        origin = self.state.field_id
-        self.walk_to(x, z, tolerance=45.0, strict=False)
+        st = self.state
+        origin, ox, oz = st.field_id, st.player_x, st.player_z
+        reached = self.walk_to(x, z, tolerance=45.0, strict=False)
+        after = self.state
+        travelled = 0.0
+        if None not in (ox, oz, after.player_x, after.player_z) and after.field_id == origin:
+            travelled = ((after.player_x - ox) ** 2 + (after.player_z - oz) ** 2) ** 0.5
+        record = {"from": origin, "landed": None, "reached": bool(reached),
+                  "travelled": round(travelled, 1), "toward": [round(x), round(z)]}
         try:
-            landed = self.expect_field_change(timeout=timeout, was=origin)
-        except HarnessError:
-            return None
-        if expect is not None and landed != expect:
-            raise HarnessError(f"crossing at ({x}, {z}) led to field {landed}, expected {expect}")
-        return landed
+            record["landed"] = self.expect_field_change(timeout=timeout, was=origin)
+        except HarnessError as err:
+            # Only "the field never changed" is an ordinary negative. A destination that loaded and
+            # then failed to hand over control is a real finding and must not be swallowed as one.
+            if "never became playable" in str(err):
+                raise
+            # Re-read: a crossing can land after the wait expired.
+            now = self.state.field_id
+            if now != origin and now > 0:
+                record["landed"] = now
+        if expect is not None and record["landed"] != expect:
+            raise HarnessError(f"crossing at ({x}, {z}) led to field {record['landed']}, "
+                               f"expected {expect}")
+        return record
 
-    def find_transitions(self, *, radius: float = 420.0, back_to: int | None = None,
+    def find_transitions(self, *, radius: float = 1200.0, back_to: int | None = None,
                          bearings: int = 8, timeout: float = 15.0) -> list[dict]:
         """Walk outward on several bearings and report every spot that changed the field.
 
         Locating an invisible trigger otherwise means asking a human to walk into it. After each
         crossing it warps back and resumes, so one call maps the whole perimeter rather than stopping
         at the first exit found.
+
+        ⚠ OVERSHOOTING IS FREE, UNDERSHOOTING LIES. `walk_to` stalls harmlessly against the mesh, so
+        aiming past the wall costs nothing -- while a radius shorter than the gateway's distance
+        returns "no transition here" having never been near it. The only gateway this verb has ever
+        found sat at ~950 units against a shipped default of 420. Hence the default is now well past
+        any bench.
+
+        It also refuses to return a confident empty list: a leg that neither arrived nor covered a
+        meaningful fraction of the radius did not test its bearing, and saying so is the difference
+        between "there is no gateway" and "I did not look".
         """
         import math
 
         home_field = self.state.field_id if back_to is None else back_to
-        st = self.state
+        st = self._require_field("find_transitions")
         hx, hz = st.player_x, st.player_z
+        if hx is None or hz is None:
+            raise HarnessError("find_transitions needs a known player position to sweep from")
+        home = (hx, hz)
         found: list[dict] = []
+        unswept: list[str] = []
 
         for i in range(bearings):
             angle = 2 * math.pi * i / bearings
-            tx, tz = hx + radius * math.sin(angle), hz + radius * math.cos(angle)
-            landed = self.cross(tx, tz, timeout=timeout)
-            if landed is not None:
-                found.append({"bearing": round(math.degrees(angle)), "toward": [round(tx), round(tz)],
-                              "field": landed})
-                self._log(f"transition on bearing {round(math.degrees(angle))}deg -> field {landed}")
+            bearing = round(math.degrees(angle))
+            tx, tz = home[0] + radius * math.sin(angle), home[1] + radius * math.cos(angle)
+            record = self.cross(tx, tz, timeout=timeout)
+            if record["landed"] is not None:
+                found.append({"bearing": bearing, "toward": record["toward"],
+                              "field": record["landed"], "travelled": record["travelled"]})
+                self._log(f"transition on bearing {bearing}deg -> field {record['landed']}")
                 self.warp(home_field)
                 self.wait_frames(45)
-                st = self.state
-                hx, hz = st.player_x, st.player_z
+                # The home point is FROZEN at the sweep's start: re-reading it after each warp made
+                # every later bearing radiate from wherever the arrival happened to be, so the
+                # sweep silently stopped being a circle.
+                self.walk_to(home[0], home[1], tolerance=60, strict=False)
             else:
-                self.walk_to(hx, hz, tolerance=60, strict=False)
+                if not record["reached"] and record["travelled"] < 0.5 * radius:
+                    unswept.append(f"{bearing}deg (covered {record['travelled']:.0f} of {radius:.0f}u)")
+                self.walk_to(home[0], home[1], tolerance=60, strict=False)
+
+        if not found and unswept:
+            raise HarnessError(
+                f"the sweep of field {home_field} found no transitions, but {len(unswept)} of "
+                f"{bearings} bearings were never actually walked: {'; '.join(unswept)}. That is 'I "
+                f"did not look', not 'there is nothing here' -- move to open ground or lower the "
+                f"radius."
+            )
         return found
 
     # -- cutscenes ------------------------------------------------------------------------------
 
-    def wait_control(self, *, timeout: float = 60.0) -> State:
-        """Wait until the player has control again. The end of a cutscene, expressed as a condition."""
-        return self.wait_for(lambda s: s.control and s.player_x is not None and not s.fading,
-                             timeout=timeout, what="control to return to the player")
+    def wait_control(self, *, timeout: float = 60.0, settle: float | None = None) -> State:
+        """Wait until the player has control again. The end of a cutscene, expressed as a condition.
+
+        ⚠ Control FLICKERS true for a moment as a field loads, before the script takes it away --
+        so this requires the condition to hold, exactly as `watch_cutscene` does. The two used to
+        differ, and the sibling without the settle returned the instant a cutscene began.
+        """
+        return self._wait_settled(
+            lambda s: s.control and s.player_x is not None and not s.fading and not s.dialog_open,
+            timeout=timeout, what="control to return to the player", settle=settle)
 
     def watch_cutscene(self, *, timeout: float = 90.0, advance_boxes: bool = True,
                        settle: float = 1.0) -> list[str]:
@@ -759,12 +1214,16 @@ class Session:
         # missing one, because it teaches you to distrust real results.
         settle_polls = int(settle / 0.05) or 1
         calm = 0
+        samples = 0                      # documents read at all
+        frames: set[int] = set()         # distinct agent frames -- proof the game was RUNNING
         while time.time() < deadline:
             self._assert_alive()
             st = self.channel.state()
             if st is None:
                 time.sleep(0.05)
                 continue
+            samples += 1
+            frames.add(st.frame)
             if st.dialog_open and st.text.strip():
                 calm = 0
                 text = st.text
@@ -781,9 +1240,27 @@ class Session:
             else:
                 calm = 0
             time.sleep(0.05)
+        # SOFT-LOCK IS THE MOST EXPENSIVE VERDICT THIS TOOL CAN EMIT, so it is reserved for the one
+        # case that earns it: we watched a demonstrably LIVE game withhold control. A frozen channel
+        # produces the identical symptom and used to produce the identical accusation -- which is
+        # how "walking out of room 30820 hangs the game" got written into a commit and a study about
+        # a game that was fine the whole time.
+        if samples == 0:
+            raise HarnessError(
+                f"watch_cutscene saw no state at all in {timeout:.0f}s -- {self.channel.classify()}. "
+                f"This says nothing about the cutscene."
+            )
+        if len(frames) <= 1:
+            hint = self.diagnose()
+            raise HarnessError(
+                f"watch_cutscene read {samples} samples in {timeout:.0f}s and the agent's frame "
+                f"counter never moved off {next(iter(frames))} -- the channel is frozen, so this is "
+                f"NOT a soft-lock finding. {self.channel.classify()}" + (f" -- {hint}" if hint else "")
+            )
         raise HarnessError(
-            f"control never returned within {timeout:.0f}s -- the cutscene is still running, waiting "
-            f"on input this did not send, or has soft-locked. Collected {len(pages)} page(s) so far."
+            f"control never returned within {timeout:.0f}s across {len(frames)} live frames -- the "
+            f"cutscene is still running, waiting on input this did not send, or has soft-locked. "
+            f"Collected {len(pages)} page(s) so far."
         )
 
     # -- menus ----------------------------------------------------------------------------------
@@ -815,7 +1292,22 @@ class Session:
 
         Discovery rather than assumption: it reports what this menu actually offers on this save,
         which is also the error message worth having when `menu_pick` cannot find something.
+
+        ⚠ It refuses to press blind. With no menu open there is no highlight to publish, so the old
+        loop pumped 30 direction presses into whatever screen was live -- on a FieldHUD that WALKS
+        THE CHARACTER, moving the thing under test -- and then returned an empty list that read as
+        "this menu has no entries".
         """
+        if not self.state.menu_label:
+            try:
+                self.wait_for(lambda s: bool(s.menu_label), timeout=2.0,
+                              what="a highlighted menu entry to be published")
+            except HarnessError as err:
+                raise HarnessError(
+                    f"no menu entry is highlighted (ui_state={self.state.ui_state!r}), so there is "
+                    f"nothing to walk. Open a menu first -- pressing directions here would drive "
+                    f"whatever screen IS live. ({err})"
+                ) from err
         seen: list[str] = []
         for _ in range(max_steps):
             label = self.state.menu_label
@@ -889,11 +1381,22 @@ class Session:
             return st
 
     def interact(self, *, timeout: float = 6.0, frames: int = 4) -> State | None:
-        """Press Confirm and report the dialogue it opened, or None if nothing responded.
+        """Press Confirm and report the dialogue THIS press opened, or None if nothing responded.
 
         Returns rather than raises on silence: "I pressed Confirm here and nothing happened" is a
         legitimate and common finding for a scenario probing where a trigger actually is.
+
+        ⚠ It refuses to credit a box that was ALREADY open. `wait_dialogue` is satisfied instantly by
+        a leftover window from the previous step, so a probe of an inert spot used to return the
+        previous NPC's dialogue and read as "this responded" -- attributing content to the wrong
+        object, which is worse than finding nothing.
         """
+        before = self.state
+        if before.dialog_open:
+            raise HarnessError(
+                f"a dialogue box is already open ({before.text[:60]!r}); interact() cannot tell what "
+                f"a new press opened. Page it out with advance() first."
+            )
         self.press("confirm", frames)
         try:
             return self.wait_dialogue(timeout=timeout)
@@ -957,7 +1460,44 @@ class Session:
         st = self.wait_for(lambda s: s.choice is not None, timeout=timeout,
                            what="a choice dialogue to be ready")
         raw = list(st.choice.get("options", []))
-        return raw[1:] if len(raw) > 1 else raw
+        names = raw[1:] if len(raw) > 1 else raw
+        count = int(st.choice.get("count", 0))
+        active = st.choice.get("active")
+        if active is None and len(names) != count:
+            # ⚠ THE INDEX SPACES HAVE DIVERGED AND NOTHING HERE CAN RECONCILE THEM. A choice line
+            # disabled by the field script is physically REMOVED from the parsed text (so it is
+            # absent from these names) while `SelectChoice` still counts the ABSOLUTE list including
+            # it. So names[i] is not the option select(i) lands on, and a scenario would confirm a
+            # different story branch than the one it named -- and report green for a branch it never
+            # tested. Refuse rather than guess; the engine has to publish the mapping.
+            raise HarnessError(
+                f"this dialogue offers {count} selectable options but published {len(names)} names "
+                f"{names!r}, so the name list and the cursor index are different index spaces (some "
+                f"lines are disabled by the script). Nothing driver-side can map between them. Use "
+                f"select() with an ABSOLUTE index and assert on the resulting branch, or rebuild the "
+                f"engine so the choice publishes its active indexes."
+            )
+        return names
+
+    def option_index(self, name: str, *, timeout: float = 10.0) -> int:
+        """The ABSOLUTE cursor index of the option reading ``name`` -- what ``select`` wants.
+
+        Named lookup exists for the same reason `menu_pick` does: an index counted by a human from a
+        screenshot is the single most reliable way to test the wrong branch.
+        """
+        st = self.wait_for(lambda s: s.choice is not None, timeout=timeout,
+                           what="a choice dialogue to be ready")
+        names = self.options(timeout=timeout)
+        want = name.strip().lower()
+        matches = [i for i, n in enumerate(names) if n.strip().lower() == want]
+        if not matches:
+            raise HarnessError(f"no option reads {name!r}; this dialogue offers {names!r}")
+        if len(matches) > 1:
+            raise HarnessError(f"{name!r} appears {len(matches)} times in {names!r} -- ambiguous")
+        active = st.choice.get("active")
+        if active:
+            return int(active[matches[0]])
+        return matches[0]
 
     def select(self, index: int, *, timeout: float = 10.0) -> int:
         """Move the choice cursor to `index` WITHOUT confirming. Returns where it ended up.
@@ -994,7 +1534,12 @@ class Session:
         self.press("confirm", 4)
         self.wait_frames(12)
 
+    #: gEventGlobal is Byte[2048], so bits run 0 .. 16383. See [[project-ff9-story-flags]] for the
+    #: SAFE allocation band (8712+) -- this is only the physical range.
+    MAX_FLAG_BIT = 2048 * 8 - 1
+
     def flag(self, bit: int, value: bool = True) -> None:
+        self._check_flag_bit(bit, "flag")
         self.send(f"flag {int(bit)} {1 if value else 0}")
 
     def poke(self, index: int, value: int) -> None:
@@ -1003,22 +1548,64 @@ class Session:
 
     def watch(self, *bits: int) -> None:
         """Publish these story-flag bits in every subsequent state sample."""
+        for bit in bits:
+            self._check_flag_bit(bit, "watch")
         self.send("watch " + " ".join(str(int(b)) for b in bits))
+
+    def unwatch(self) -> None:
+        """Stop publishing watched bits -- part of resetting between scenarios."""
+        self.send("unwatch")
+
+    def _check_flag_bit(self, bit: int, verb: str) -> None:
+        # ⚠ A NEGATIVE BIT CORRUPTS THE STATE CHANNEL, not just this call. The agent's bound test is
+        # `(n >> 3) < length`, and -1 >> 3 is -1 in C# too, so it passes -- then the array read
+        # throws AFTER the key's comma is already in the document buffer, the catch does not roll
+        # back, and every state.json from then on is invalid JSON. The driver reads that as "the
+        # agent never published state" and concludes the deployed engine is unpatched. Refuse here.
+        if not 0 <= int(bit) <= self.MAX_FLAG_BIT:
+            raise HarnessError(
+                f"{verb}: story-flag bit {bit} is outside gEventGlobal (0..{self.MAX_FLAG_BIT}). "
+                f"Allocate from 8712 up -- 8512-8711 is stock read-mail payload and 8376-8511 is the "
+                f"MOGNET lock band."
+            )
 
     def control(self, enabled: bool = True) -> None:
         self.send(f"control {1 if enabled else 0}")
 
     def timescale(self, scale: float) -> None:
-        """Speed the game up (or slow it down) -- a long walk need not cost real seconds."""
+        """Speed the game up (or slow it down) -- a long walk need not cost real seconds.
+
+        ⚠ NOT zero. At `Time.timeScale == 0` the engine runs zero LOGICAL ticks while the agent's
+        frame-count scheduling keeps advancing on render frames: presses open and close, waits
+        elapse, every step acks -- against a game that executed nothing. Nothing about that is
+        distinguishable from success.
+        """
+        scale = float(scale)
+        if scale <= 0.0:
+            raise HarnessError(
+                "timescale 0 pauses the game's logic while the harness keeps counting render "
+                "frames, so every step would ack having done nothing. Use a small positive scale."
+            )
         self.send(f"timescale {scale}")
+
+    def state_every(self, frames: int) -> None:
+        """Frames between state publications. Lower = finer traces, higher = less overhead."""
+        self.send(f"stateevery {max(1, int(frames))}")
 
     def note(self, text: str) -> None:
         self.send("note " + text.replace("\n", " "))
 
     def shot(self, name: str) -> Path:
-        """Capture a frame from inside the engine. Returns the PNG path once it is on disk."""
+        """Capture a frame from inside the engine. Returns the PNG path once it is on disk.
+
+        The name is sanitised BEFORE it is sent, so the file the agent writes and the file this
+        polls for are the same one. They used to diverge on any name containing a space -- the
+        request line is split on whitespace, so ``shot("after chest")`` reached the agent as
+        ``after``, and the wait then blamed the in-engine capture for a name the driver mangled.
+        """
+        name = _sanitize(name)
         self.send(f"shot {name}")
-        path = self.channel.shots / f"{_sanitize(name)}.png"
+        path = self.channel.shots / f"{name}.png"
         deadline = time.time() + 10
         while time.time() < deadline:
             if path.exists() and path.stat().st_size > 0:
@@ -1026,6 +1613,41 @@ class Session:
                 return path
             time.sleep(0.05)
         raise HarnessError(f"the screenshot {name} never appeared at {path}")
+
+    def reset_agent(self) -> None:
+        """Release every held button and clear the agent's per-run scratch state.
+
+        The isolation primitive. ``hold`` is non-blocking and frame-counted, so a scenario that
+        raises mid-hold leaves a button DOWN into whatever runs next -- and the agent only clears
+        buttons on an arm transition. Falls back to explicit releases on an engine without the verb.
+        """
+        try:
+            self.send("reset")
+        except HarnessError:
+            for button in ("up", "down", "left", "right", "confirm", "cancel", "menu", "special"):
+                try:
+                    self.send(f"release {button}")
+                except HarnessError:
+                    pass
+            self.unwatch()
+            self.timescale(1.0)
+
+    def quit(self, *, timeout: float = 15.0) -> None:
+        """Ask the game to exit, and wait for it.
+
+        ⚠ Never fire-and-forget. Disarming clears the agent's queue, so a bare non-blocking ``quit``
+        followed by teardown can have its step discarded before the agent ever runs it -- leaving a
+        game running that the run believes it closed.
+        """
+        self.send("quit", wait=False)
+        if self.proc is None:
+            return
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.proc.poll() is not None:
+                return
+            time.sleep(0.1)
+        raise HarnessError(f"the game did not exit within {timeout:.0f}s of a quit request")
 
     # -- asserting ------------------------------------------------------------------------------
     def check(self, ok: bool, description: str, detail: str = "") -> bool:
@@ -1046,26 +1668,63 @@ class Session:
         return self.expect(lambda s: s.field_id == int(field), f"on field {field}", timeout=timeout)
 
     def expect_text(self, fragment: str, *, timeout: float = 10.0) -> bool:
-        return self.expect(lambda s: fragment.lower() in s.text.lower(),
+        """Assert that the dialogue on screen contains ``fragment``.
+
+        ⚠ An empty fragment is refused. ``"" in anything`` is true, so ``expect_text("")`` passed
+        with no dialogue on screen at all -- an assertion that cannot fail is worse than no
+        assertion, because it goes into report.json as evidence.
+        """
+        if not fragment or not fragment.strip():
+            raise HarnessError("expect_text needs a non-empty fragment: '' matches everything, "
+                               "including an empty screen.")
+        needle = fragment.lower()
+        return self.expect(lambda s: s.dialog_open and needle in s.text.lower(),
                            f"dialogue contains {fragment!r}", timeout=timeout)
 
     def expect_flag(self, bit: int, value: bool = True, *, timeout: float = 10.0) -> bool:
+        """Assert a watched story-flag bit.
+
+        ⚠ An UNWATCHED bit publishes nothing, and ``None is False`` is False -- so asking about a
+        bit nobody watched recorded ``FAIL flag N is False`` for a flag that genuinely was False.
+        The bit is auto-watched here rather than mis-reported.
+        """
+        self._check_flag_bit(bit, "expect_flag")
+        if self.state.flag(bit) is None:
+            self.watch(bit)
+            try:
+                self.wait_for(lambda s: s.flag(bit) is not None, timeout=3.0,
+                              what=f"flag {bit} to start being published")
+            except HarnessError as err:
+                return self.check(False, f"flag {bit} is {value}",
+                                  f"the agent never published bit {bit} after watch() ({err})")
         return self.expect(lambda s: s.flag(bit) is value,
                            f"flag {bit} is {value}", timeout=timeout)
 
     @property
     def passed(self) -> bool:
-        return all(c["ok"] for c in self.checks)
+        """Whether every recorded check passed. ⚠ A run with NO checks has not passed anything."""
+        return bool(self.checks) and all(c["ok"] for c in self.checks)
 
     def _write_report(self, failed: bool) -> None:
         import json
+        # THREE outcomes, not two. A run that recorded nothing proved nothing, and calling that
+        # "passed": true is the purest form of the failure this whole audit is about -- play.py
+        # already refuses to call it a pass, and report.json used to say the opposite.
+        if failed:
+            verdict = "fail"
+        elif not self.checks:
+            verdict = "proved-nothing"
+        else:
+            verdict = "pass" if self.passed else "fail"
         report = {
             "label": self.label,
             "when": _dt.datetime.now().isoformat(timespec="seconds"),
             "game_path": str(self.game_path),
             "attached": self.attach,
             "raised": failed,
-            "passed": self.passed and not failed,
+            "verdict": verdict,
+            "checks_recorded": len(self.checks),
+            "passed": verdict == "pass",
             "checks": self.checks,
         }
         (self.run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

@@ -10,8 +10,10 @@ with every other worktree's deploys, changes from day to day.
 
 def run(g, field: int | None = None):
     g.note("recon_all")
-    available = sorted(g.registered_fields())
+    registered, patches = g.registered_fields()
+    available = sorted(registered)
     print(f"[recon] registered: {available}")
+    print(f"[recon] read from: {[str(p) for p in patches]}")
 
     g.newgame()
     visited = []
