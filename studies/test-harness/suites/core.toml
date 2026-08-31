@@ -1,0 +1,83 @@
+# The core harness regression suite -- one launch, every mechanism this arc has proven.
+#
+#     py tools/play.py --suite studies/test-harness/suites/core.toml
+#
+# ORDERING IS DELIBERATE, cheapest-and-most-fundamental first. If the harness itself is broken, the
+# first two scenarios say so in under a minute, and everything after them would only be reporting
+# consequences of the same fault. `rev2_proof` in particular gates the protocol and the save
+# sandbox, so a red there means nothing later should be believed.
+#
+# ⚠ A GREEN SUITE IS A REGRESSION HARNESS, NOT AN ORACLE. It says these mechanisms still behave as
+# they did when each was proven. It says nothing about anything it was not told to look at, and
+# nothing about whether any of it feels right -- that judgment stays with the human.
+#
+# ⚠ Bench ids are a GLOBAL namespace shared with every other worktree's deploys, so a bench that
+# exists today may not exist tomorrow. The runner refuses to start when a manifest points at a
+# missing scenario FILE; a missing bench FIELD surfaces as that scenario's own failure, with warp()
+# naming what is actually registered.
+
+[suite]
+name = "core"
+description = "The harness's own regression suite: channel, movement, flags, dialogue, menus, transitions."
+field = 30801                      # the default bench; per-scenario `field` overrides it
+
+# -- the harness itself ---------------------------------------------------------------------
+# Protocol version, the save sandbox, and the nine defensive fixes in the s83 rev2 batch. Every
+# check here asserts on an outcome rather than on an ack, because "the step acked" is exactly what
+# those defects could already fake.
+[[scenario]]
+path = "studies/test-harness/scenarios/rev2_proof.py"
+
+# Does a run leave the owner's save alone? Cheap, and the one failure that costs somebody something
+# other than a re-run.
+[[scenario]]
+path = "studies/test-harness/scenarios/save_untouched.py"
+
+# The recovery ladder's own reach, measured rather than assumed: the soft reset works from a field
+# and is SWALLOWED inside a menu, which is why the ladder closes open UI first. If the engine ever
+# changes here, the suite that depends on the ladder is the right place to find out.
+[[scenario]]
+path = "studies/test-harness/scenarios/soft_reset_reach.py"
+
+# -- the physical axis ----------------------------------------------------------------------
+# The acceptance test for injected input: it asserts the POSITION CHANGED, which is the one thing a
+# half-wired input path cannot fake. The analog-axis bug passed every "was the press received" probe
+# while the character stood still.
+[[scenario]]
+path = "studies/test-harness/scenarios/walk_check.py"
+
+# Closed-loop steering, which is what makes walk(direction, frames) unnecessary.
+[[scenario]]
+path = "studies/test-harness/scenarios/goto_check.py"
+
+# -- state ------------------------------------------------------------------------------------
+# gEventGlobal round-trip, including the check that actually proves the bit math rather than
+# "something changed": the neighbouring bits in the same byte stay untouched.
+[[scenario]]
+path = "studies/test-harness/scenarios/flag_check.py"
+
+# -- the narrative axis -----------------------------------------------------------------------
+# Rendered dialogue vs its source, and the choice index space at the exact point the historical
+# off-by-one picked the wrong branch.
+[[scenario]]
+path = "studies/test-harness/scenarios/dialogue_render.py"
+
+# Can the harness hold a conversation at all -- probing for the interactable rather than assuming it.
+[[scenario]]
+path = "studies/test-harness/scenarios/talk_check.py"
+
+# Menus driven BY NAME against the engine's own published highlight, never by keypress count.
+[[scenario]]
+path = "studies/test-harness/scenarios/menu_pick_check.py"
+
+# -- withheld control and field transitions ---------------------------------------------------
+# A scripted scene: the state a naive harness hangs in, made into a condition with a transcript.
+[[scenario]]
+path = "studies/test-harness/scenarios/cutscene_check.py"
+field = 30601
+
+# Finding an invisible gateway by sweeping, then crossing it deliberately. The slowest member by far
+# (the sweep warps home between bearings), so it goes last.
+[[scenario]]
+path = "studies/test-harness/scenarios/gateway_check.py"
+field = 30820

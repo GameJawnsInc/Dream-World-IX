@@ -32,7 +32,10 @@ import time
 import zlib
 from pathlib import Path
 
-PROTOCOL = 1
+#: Must match the DRIVER's protocol: this stand-in models the agent AS SPECIFIED, and
+#: publishing an older version would make every offline run exercise the DEGRADED path instead
+#: of the real one -- a suite permanently in a compatibility mode it is not meant to be testing.
+PROTOCOL = 2
 
 #: The real agent polls req.txt every 2 frames while idle and every 10 while a queue is running, and
 #: the arm file every 30. Modelled because the driver's "do not overwrite an unaccepted request" gate
@@ -43,6 +46,12 @@ ARM_POLL = 30
 
 RUN_SPEED = 30.0
 WALK_SPEED = 15.0
+
+#: FF9's own soft reset: L1+R1+L2+R2+Start+Select, all reporting IsInputDown on ONE frame.
+#: Modelled with the same-frame requirement intact, because that requirement is the whole reason the
+#: driver has to send all six in a single request -- six separate presses would never overlap, and a
+#: stand-in that accepted them sequentially would let a broken driver pass.
+SOFT_RESET_COMBO = ("l1", "l2", "r1", "r2", "start", "select")
 
 
 class FakeGame:
@@ -103,6 +112,11 @@ class FakeGame:
         #: because the driver must VERIFY this rather than trust it -- an unchecked sandbox is a
         #: check that cannot fail, and what it would fail to catch is the owner's overwritten game.
         self.save_sandboxed = True
+        #: `[Control] SoftReset` in Memoria.ini. The ENGINE default is 0; this install has it on.
+        #: False here models the install where the recovery ladder's top rung simply does not exist,
+        #: which the driver must report honestly rather than hang on.
+        self.soft_reset_enabled = True
+        self.soft_resets = 0
         self.gateway: tuple[float, float, float, float, int] | None = None
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
@@ -148,6 +162,7 @@ class FakeGame:
                 if self.armed:
                     self._poll_request()
                     self._drain()
+                    self._check_soft_reset()
                     self._step_world()
                     self._publish()
             except OSError as err:
@@ -401,7 +416,51 @@ class FakeGame:
                 self.player = [0.0, 0.0, 0.0]
                 self.control = True
 
+    def _check_soft_reset(self) -> None:
+        """All six buttons reporting a DOWN EDGE on the same frame sends the game to the title.
+
+        The real handler closes every dialog, hides the HUD, disables all button groups and the
+        battle menu, un-pauses, normalises btl_seq and replaces the scene with Title -- which is why
+        it is the only recovery rung that reaches a battle or a stuck menu. What matters for the
+        driver is the observable end state, so that is what this models.
+        """
+        if not self.soft_reset_enabled:
+            return
+        if not all(self.down_at.get(b) == self.frame for b in SOFT_RESET_COMBO):
+            return
+        # ⚠ A MENU SWALLOWS THE COMBO, and the stand-in has to swallow it too. `UIKeyTrigger.Update`
+        # runs `if (HandleMenuControlKeyPressCustomInput()) return;` before the soft-reset check, and
+        # that handler consumes Control.Select unconditionally. MEASURED in-game
+        # (scenarios/soft_reset_reach.py): from a field YES, from an open MainMenu NO. A stand-in
+        # more forgiving than the engine is worse than none -- it certifies a ladder that cannot
+        # actually climb.
+        if self.ui_state not in ("FieldHUD", "WorldHUD"):
+            return
+        self.soft_resets += 1
+        self.ui_state = "Title"
+        self.field_id = -1
+        self.control = False
+        self.texts = []
+        self.raw_texts = []
+        self.choice = None
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+        self.menu_entries = []
+        self.player = [0.0, 0.0, 0.0]
+        # ⚠ NOT held.clear(). FF9's handler does not release the player's buttons, and a stand-in
+        # that did would make `reset_agent` -- the thing that actually releases them -- untestable:
+        # it could be reduced to a no-op with every test still green.
+        self._event("soft_reset")
+
     def _menu_step(self, button: str) -> None:
+        # Cancel backs a screen OUT. Modelled because the close-UI recovery rung is built on it: the
+        # soft-reset combo is swallowed inside a menu, so Cancel is the only way out of one, and a
+        # stand-in whose menus could not be left would certify a ladder that cannot climb.
+        if button in ("cancel", "back", "b") and self.ui_state == "MainMenu":
+            self.ui_state = "FieldHUD"
+            self.menu_entries = []
+            self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+            self.control = True
+            return
         if not self.menu_entries:
             return
         if button == "down":

@@ -385,6 +385,127 @@ acked* is precisely what all of these defects could already fake.
 
 ---
 
+## ★★ THE SUITE RUNNER (2026-08-31) — ten scenarios, one launch
+
+**264s for the core suite, against 519s run one at a time**, and the cheap members dropped hardest
+(`walk_check` 37s → 8.2s). The overhead a harness pays is almost all fixed — cold boot, title settle,
+New Game — and it was being paid once per question.
+
+`py tools/play.py --suite studies/test-harness/suites/core.toml` · manifest is TOML, paths resolve
+against the repo root · **10/10 on the first live run**, with the soft reset firing before every
+scenario.
+
+### The baseline is the TITLE SCREEN
+
+Not "a field", not "wherever the last one finished". Every scenario in this arc opens with
+`newgame()`, and that verb requires the title — so anything else is not a baseline, it is a scenario
+about to fail for a reason that has nothing to do with what it tests.
+
+The ladder is `reset` → `close_ui` → soft reset, **each rung followed by re-checking the precondition
+rather than by assuming the rung worked**. Facts about the soft reset, verified in source before
+being designed around — and one of them corrected afterwards by measurement:
+
+- `UIKeyTrigger.SoftResetKeyPSXDown` reads `HonoInputManager.IsInputDown` and
+  `UIManager.Input.GetKey` — both hooked — so the harness can drive it with **no engine change**.
+- ⚠ **All six buttons must report `IsInputDown` on the SAME FRAME.** They go in one request, because
+  every step of a request drains in a single pass and so shares a `_downFrame`. Six separate `press`
+  calls would never overlap and the reset would never fire. (This is also a nice incidental proof of
+  the agent's absolute-frame scheduling guarantee.)
+- ⚠ It is gated on `[Control] SoftReset`, which is **1 on this install and 0 by engine default** —
+  checked against the live `Memoria.ini`, not assumed from the recon. `soft_reset()` asserts the
+  title actually arrived and names that setting when it does not.
+
+### ⚠ THE CLAIM I GOT WRONG: the soft reset does NOT escape a menu
+
+The first version of this said it "reaches a battle, a stuck menu or a black screen". An adversarial
+audit disputed it, and reading the engine gave two contradictory answers —
+`UIKeyTrigger.Update` runs `if (HandleMenuControlKeyPressCustomInput()) return;` **before** the
+soft-reset check and that handler consumes `Control.Select` unconditionally (`:688`, while the
+neighbouring Pause branch at `:681` **is** guarded with `&& !SoftResetKeyPSXForPause`), which says it
+should be swallowed everywhere; and yet the live suite had soft-reset out of a field ten times.
+
+So it was measured rather than argued — which is the entire point of having a harness.
+`scenarios/soft_reset_reach.py`: **from a FIELD yes, from an open MainMenu no.**
+
+A menu is where a scenario is most likely to end, and `warp` also refuses outside `FieldHUD`, so the
+ladder as designed would have **poisoned every scenario after one that left a menu open**. The
+`close_ui` rung (press Cancel until the game is on a field, the world map or the title) exists solely
+because of this, and it goes BEFORE the soft reset. The reach scenario is now a suite member that
+asserts the measurement in both directions, so an engine change reports itself instead of silently
+re-opening the hole.
+
+**The generalisable part:** two readings of the same source disagreed, and the tool built to settle
+exactly that kind of question was sitting right there. Reading harder would have picked one of the
+two wrong answers with confidence.
+
+### `poisoned` is the verdict that matters
+
+Five outcomes: `pass` · `fail` · `error` · **`poisoned`** (never ran — no clean baseline) ·
+**`proved-nothing`** (ran, asserted nothing). Neither of the last two counts toward a pass.
+
+A scenario that never ran cannot have failed, and recording it as a failure would be the harness
+blaming the game for its own inability to clean up — which is precisely the mistake this arc has
+already made three times. **Given that history the runner's default has to be to blame itself.**
+
+### Diagnosability, because a re-run now costs the whole suite
+
+One directory per scenario with its own `report.json` and screenshots; shots namespaced per scenario
+(two members both capturing `"before"` used to overwrite each other, and the evidence lost that way
+is always the failing run's); every check carries a snapshot of the game as it was when the check was
+made; and the **first** failure of each scenario is photographed automatically.
+
+Also: `newgame()`'s 10-second title settle is now paid only on a COLD title. Its reason is that
+Memoria is still loading when the title first appears — on a re-entry after a soft reset the game is
+loaded and the wait was pure dead time, once per scenario.
+
+---
+
+### The runner's own audit: 35 confirmed, two high
+
+New surface mints defects — this arc's own law — so the runner got the same treatment as the driver:
+three adversarial readers, three skeptics defaulting to "not a defect". **35 confirmed, and the two
+high ones were both real.**
+
+1. **`report.json` claimed a failed suite passed.** `Session._write_report` derives its verdict from
+   `self.checks`, which `begin_scenario` rebinds per scenario — so under a suite it described only
+   the LAST member and stamped a whole-run verdict on it, under the exact filename this tool
+   documents as the run's report. A ten-scenario suite whose first nine failed wrote
+   `"passed": true`. Reproduced by the skeptic before it was believed. Under a suite that file now
+   carries no verdict and points at `suite.json`.
+2. **The suite's own tests destroyed each other under `-n 6`** — they wrote scenario files into one
+   shared repo directory and `rmtree`'d it in an autouse fixture. Serially fine; the nightly gate
+   runs exactly `-n 6`. Now pinned to `tmp_path` through `load_manifest`'s root argument — the same
+   "pin the path through a seam" rule the deploy tooling learned the hard way. Verified: **85 tests
+   green serially AND under `-n 6`.**
+
+The lie-class mediums, each now guarded by a test that names what to break to see it go red:
+
+- `at_baseline` had **no freshness test**, so the one rung whose entire job is verification was a
+  check that could not fail — a hung agent's last document saying Title certified the baseline, the
+  scenario ran against a corpse, and it was filed `error`: the runner blaming the game for the
+  runner's own dead channel.
+- `begin_scenario` did a **blocking send outside the per-scenario guard**, so a dead game took the
+  whole run with it: remaining scenarios got no verdict at all — not even `poisoned` — and
+  `suite.json` was never written.
+- A scenario that **failed checks and then raised** was filed `error` with zero fails in the tally,
+  so real findings were invisible to anyone reading the summary.
+- `reset_agent`, documented as *the isolation primitive*, was **only ever reached as a recovery
+  rung** — so on the happy path held buttons and a stale watch list carried into the next member.
+- The driver's `_last_error` **survived `begin_scenario`**, so one scenario's refusal could raise
+  against the next scenario's first innocent step.
+- `_collect` built its directory and glob from the **raw** label while `shot()` sanitises, so a label
+  with a space or a colon silently collected nothing — and what went uncollected was the failing
+  scenario's evidence.
+- The stand-in was **laxer than the engine**: its soft reset cleared held buttons (FF9's does not,
+  which made `reset_agent` reducible to a no-op with every test still green) and fired from a menu
+  (which certified a ladder that cannot climb). It also published protocol 1 against a driver
+  speaking 2, so every offline run was silently exercising the degraded path.
+
+A manifest's per-scenario `timeout` was parsed, stored and **never read**; rather than ship config
+that implies a hang guard, unknown manifest keys are now refused outright.
+
+---
+
 ## Next actions
 
 1. ~~Build and deploy s83 rev2~~ — ★ DONE and proven, see Engine deployment state.
@@ -393,12 +514,7 @@ acked* is precisely what all of these defects could already fake.
    closes the last gap the NGUI hook left open — dialogue choices were previously only *expected* to
    work by sharing a code path with the menu cursor, and `select()` driving the engine's own
    `SelectChoice` to a named option proves it directly.
-3. **The suite runner** (`play.py --suite`), now that `reset` exists to isolate its members. The reset
-   primitive for the rungs above `reset` needs no engine change either: `UIKeyTrigger.SoftResetKeyPSXDown`
-   (L1+L2+R1+R2+Start+Select) reads through the hooked `IsInputDown`, and its handler tears down every
-   dialog and replaces the scene with Title — the only recovery from a battle or a black screen, neither
-   of which `warp` can touch. A scenario that runs on an unrestored state must be reported `poisoned`,
-   never `fail`: given this arc's history the runner's default must be to blame itself.
+3. ~~The suite runner~~ — ★ DONE and proven live, see below.
 4. **Artifacts that make a failure diagnosable without a re-run:** a driver-side `steps.jsonl` (wall
    clock, seq, the literal steps, ack latency), a rolling ring buffer of the last N states flushed on
    failure (`state-final.json` is captured after `quit`, which is the wrong moment), an automatic
