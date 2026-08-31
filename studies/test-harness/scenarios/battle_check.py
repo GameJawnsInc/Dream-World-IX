@@ -30,7 +30,10 @@ SCENE = 67
 def run(g, field: int = FIELD):
     g.note("battle observability: the s83 rev3 block")
     st = g.state
-    g.check(st.protocol == 3, "the deployed engine speaks protocol 3",
+    # >= 3, not == 3. This scenario proves the rev3 BLOCK and every later revision keeps it; an
+    # equality check here goes red on rev4 for a block that is perfectly intact, which is a test
+    # failing for a reason that has nothing to do with what it tests. rev2_proof learned this first.
+    g.check((st.protocol or 0) >= 3, "the deployed engine speaks protocol 3 or later",
             f"published v={st.protocol}")
 
     g.newgame()
@@ -118,19 +121,24 @@ def run(g, field: int = FIELD):
 
     # ---- watch a fight actually happen ---------------------------------------------------------
     # ⚠ THIS SCENARIO ASSERTS OBSERVABILITY, NOT CONTROL, and the distinction is deliberate rather
-    # than a retreat. Driving a battle to a RESULT is a separate capability that is NOT yet proven --
-    # see studies/test-harness/PLAN.md. Two real mechanisms stand in the way, both found by running
-    # this and recorded so nobody re-derives them:
+    # than a retreat: it is the half that must keep working whether or not anyone takes a turn.
+    # PLAYING a battle is a separate capability, proven separately in scenarios/battle_play.py and
+    # scenarios/flee_check.py (s83 rev4).
     #
-    #   * FLEEING cannot work while a command menu is open. `btl_sys.CheckEscape` only rolls when
-    #     `BattleHUD.IsNativeEnableAtb()` is true, and in WAIT ATB mode (cfg.atb == 1, the default)
-    #     that is false while a submenu is up -- the menu waits for input and the roll waits for the
-    #     ATB the menu froze. `btl_escape_key` is set BEFORE any of it is tested, so the character
-    #     plays the running animation throughout, which is what an owner watching it sees.
-    #   * `SendNetCommand`, the exact deterministic path, opens with
-    #     `if (playerIndex == CurrentPlayerIndex) return false;` -- it exists to replay a REMOTE
-    #     co-op player's command and refuses the slot whose local menu is open, which in a solo
-    #     battle is always the one you want.
+    # ⚠ THIS COMMENT USED TO NAME TWO OBSTACLES AND ONE OF THEM WAS WRONG. It said fleeing could not
+    # work while a command menu was open, because `btl_sys.CheckEscape` needs
+    # `BattleHUD.IsNativeEnableAtb()` and WAIT ATB mode freezes the gauge while a menu is up. Read
+    # again: in WAIT mode that method returns
+    # `CurrentPlayerIndex == -1 || ActiveGroup == "Battle.Command" || ActiveGroup == ""`, so the
+    # TOP-LEVEL command list -- which is precisely where the trace found the cursor -- leaves it
+    # ENABLED. Only a SUBMENU freezes it. flee_check.py now escapes in-game with `turn.slot 0` and
+    # the cursor on `Battle.Command`, which settles it by measurement.
+    # The real cause was the DRIVER: it re-issued its hold every 0.8s against a 1.0-second threshold
+    # of UNBROKEN holding, and re-issuing restarted `_downFrame` at `frameCount + 1` -- dropping the
+    # button for the one frame each request landed on, and resetting `_runCounter` every time. The
+    # roll was never reached at all. The other obstacle was real: `SendNetCommand` opens with
+    # `if (playerIndex == CurrentPlayerIndex) return false;` and refuses the local slot, which the
+    # agent now dissolves by calling the public `SetIdle()` first.
     #
     # What a fight DOES give this scenario for free is the strongest observability assertion
     # available: the channel tracking live combat state as it changes. HP moving is something no

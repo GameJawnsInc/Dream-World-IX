@@ -197,6 +197,9 @@ class Session:
         self.proc: subprocess.Popen | None = None
         self._launched = False
         self.checks: list[dict] = []
+        #: What the last fight() actually did -- turns taken, result, the epoch it fought.
+        #: None until one runs. See fight() for why the TURN COUNT is worth keeping.
+        self.last_fight: dict | None = None
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         self._last_error: str | None = None   # the agent's error latch as of the last successful ack
         self.engine_protocol: int | None = None   # what the DEPLOYED engine speaks, once it answers
@@ -1820,22 +1823,35 @@ class Session:
         """
         self.send(f"battlecmd {int(slot)} {int(command)} {int(sub)} {int(target)} {int(cursor)}")
 
-    def flee(self, *, hold: int = 120, timeout: float = 30.0) -> bool:
-        """Hold L1+R1 to run away, and report whether the engine actually accepted it.
+    def flee(self, *, timeout: float = 60.0) -> bool:
+        """Hold L1+R1 to run away, and report whether the party actually LEFT.
 
-        ⚠ The threshold is REAL seconds, not frames: `BattleHUD` counts `_runCounter > 1.0` of
-        wall-clock, so a frame-count hold is only long enough by accident and would be wrong under a
-        changed timescale. Both bumpers also have to be down together, so they go in ONE request --
-        a request's steps drain in a single pass and share a `_downFrame`.
+        ⚠ FLEEING IS A DICE ROLL, not a duration. ``BattleHUD.Update`` counts UNBROKEN real seconds
+        with both bumpers down and calls ``btl_sys.CheckEscape(true)`` -- the call that rolls --
+        once per second past 1.0, resetting the counter the instant either bumper lifts. The roll
+        is ``200 / avgEnemyLevel * avgPlayerLevel / 16`` percent with integer division throughout
+        (BattleCalculator.cs:358): single digits against a levelled enemy. So this holds for the
+        whole window and reports what happened; a False is usually variance, not a defect.
+
+        ⚠ IT ISSUES ONE HOLD AND DOES NOT RE-ISSUE. That is not a style choice. Until s83 rev 4 a
+        re-issued hold punched a one-frame hole in the press (``Schedule`` restarted ``_downFrame``
+        at ``frameCount + 1``), the counter reset in that hole, and a flee re-issued every 0.8s
+        never rolled ONCE -- while ``btl_escape_key``, set before the counter is even tested, kept
+        the character running on screen the entire time. That is what the owner saw and reported as
+        "the flee animation for a couple of seconds but he didn't actually leave". The engine now
+        extends rather than restarts; issuing one hold means this verb is correct on both.
+
+        Waits on ``escaping`` -- the queued ``SysEscape`` command -- as well as the result, because
+        the result only lands once the party has finished leaving.
         """
         st = self.state
         if not st.in_battle:
             raise HarnessError("flee() needs a real battle in progress")
         # ⚠ REFUSE A NO-ESCAPE SCENE INSTEAD OF HOLDING FOREVER. `btl_escape_key` is set before
-        # CheckEscape looks at the flag, so the character plays the running animation the whole time
-        # and nothing about the screen says it is futile -- owner-observed. Holding here is not a
-        # slow escape, it is no escape, and reporting "flee failed" would blame the battle for a
-        # rule the scene declared up front.
+        # CheckEscape looks at the flag, so the character plays the running animation the whole
+        # time and nothing on screen says it is futile -- owner-observed. Holding here is not a
+        # slow escape, it is no escape, and returning False would blame the dice for a rule the
+        # scene declared up front.
         if st.can_escape is False:
             raise HarnessError(
                 f"battle scene {st.battle.get('scene')} forbids running "
@@ -1844,58 +1860,359 @@ class Session:
                 f"btl_escape_key, which is set before the flag is tested. Win, lose, or use a "
                 f"different scene."
             )
-        # ⚠ SUSTAIN THE HOLD. The threshold is `_runCounter > 1.0` in REAL seconds and the counter
-        # RESETS to zero the moment either bumper comes up, so a single fixed-length hold that
-        # expires mid-wait quietly stops trying while the driver keeps waiting. Re-issue it in
-        # chunks for as long as we are prepared to wait.
-        # ⚠ THE RE-ISSUE MUST OVERLAP THE HOLD, and the arithmetic has to use the real frame rate.
-        # The first cut held `chunk` frames and then waited `chunk / 30` SECONDS -- but the game runs
-        # at ~60fps, so it held for ~3s and waited ~6s, leaving the bumpers UP for half of every
-        # cycle. `_runCounter` resets to zero the instant either one comes up, so the 1.0s threshold
-        # was almost never reached: the character plays the running animation (btl_escape_key is set
-        # before the counter is even tested) while the roll that would actually free him never fires.
-        # Owner-observed as "the flee animation for a couple of seconds, then nothing".
-        deadline = time.time() + timeout
-        chunk = max(60, int(hold))                       # frames
-        window = max(0.4, chunk / FRAMES_PER_SECOND * 0.4)   # re-issue well before it lapses
-        seen_key = False
-        menu_blocked = 0
-        while time.time() < deadline:
-            self.send(f"hold l1 {chunk}", f"hold r1 {chunk}", wait=False)
-            try:
-                self.wait_for(lambda s: s.battle_result != 0 or not s.in_battle,
-                              timeout=min(window, max(0.4, deadline - time.time())),
-                              what="the escape to be accepted")
-                break
-            except HarnessError:
-                self._assert_alive()
-                probe = self.channel.state()
-                if probe is not None:
-                    seen_key = seen_key or bool(probe.battle.get("escape_held"))
-                    if (probe.battle.get("turn", {}).get("slot", -1) or -1) >= 0:
-                        menu_blocked += 1
+        # One hold covering the whole window, plus a margin so it cannot lapse just before the
+        # deadline. Both bumpers go in ONE request: a request's steps drain in a single pass and
+        # share a _downFrame, and CheckEscape needs them down together.
+        frames = int(timeout * FRAMES_PER_SECOND) + 120
+        self.send(f"hold l1 {frames}", f"hold r1 {frames}", wait=False)
+        escaped = False
+        # ⚠ SAMPLED DURING THE HOLD, NOT AFTER IT. The first cut read escape_held from a snapshot
+        # taken once the bumpers had already been released, where it is 0 by definition -- so every
+        # unlucky roll came back as "the engine never saw the hold", which is a completely different
+        # fault and would have sent the next reader to the input layer. The predicate runs on every
+        # sample, which is the only place the value means anything.
+        seen_held = []
 
-        if self.state.battle_result == 4:
-            return True
+        def done(s):
+            if s.battle.get("escape_held"):
+                seen_held.append(True)
+            return s.escaping or s.battle_result != 0 or not s.in_battle
 
-        # ⚠ THE DEADLOCK, MEASURED. In WAIT ATB mode (`cfg.atb == 1`, FF9's default)
-        # `BattleHUD.IsNativeEnableAtb()` returns false while a command submenu is open -- and
-        # `btl_sys.CheckEscape` only rolls when it is true. So with a turn pending the escape can
-        # NEVER fire: the menu is waiting for input, and the roll is waiting for the ATB that the
-        # menu froze. Meanwhile `btl_escape_key` is set before any of that is tested, so the
-        # character plays the running animation the whole time and the screen never says why.
-        # Traced live with scenarios/flee_probe.py: escape_held 1, turn.slot 0,
-        # cursor 'Battle.Command', result 0, for as long as you care to hold.
-        if seen_key and menu_blocked:
+        try:
+            self.wait_for(done, timeout=timeout,
+                          what="the escape to roll (a few percent per second)")
+            escaped = True
+        except HarnessError:
+            escaped = False
+        finally:
+            # ⚠ ALWAYS RELEASE. `hold` is non-blocking, so a bumper left down leaks into whatever
+            # runs next -- and these two in particular keep the party running.
+            self.send("release l1", "release r1")
+        st = self.state
+        if not escaped:
+            held = bool(seen_held)
+            self._log(
+                f"  flee: no roll landed in {timeout:.0f}s "
+                f"(escape_held={held}; the engine {'saw' if held else 'NEVER SAW'} the hold)")
+            # An engine that never set escape_held is a real fault -- the input is not arriving --
+            # and it must not be reported as bad luck.
+            if not held:
+                raise HarnessError(
+                    "the bumpers were held for the whole window and btl_escape_key never went high, "
+                    "so the input is not reaching BattleHUD.Update at all. That is not the dice: "
+                    "check that the agent is armed and that this is a battle, not the diorama.")
+            return False
+        self._log(f"  flee: escaping={st.escaping} result={st.battle_result_name}")
+        return True
+
+    # ---- PLAYING a battle -----------------------------------------------------------------
+    # Everything above this line OBSERVES a battle. These take turns in one.
+
+    #: The protocol that made a battle playable rather than merely visible.
+    PLAY_PROTOCOL = 4
+
+    #: TargetType values that mean "an ally" (Memoria.Data.TargetType).
+    _ALLY_TARGETS = {1, 4, 7, 10}
+    #: ...and the ones the engine forces onto a whole side, where a single id is not a legal answer.
+    _GROUP_TARGETS = {6: 3, 7: 1, 8: 2, 12: 3}      # TargetType -> CursorGroup
+
+    def _require_play_protocol(self, verb: str) -> None:
+        proto = self.state.protocol or 0
+        if proto < self.PLAY_PROTOCOL:
             raise HarnessError(
-                f"the escape never rolled although the engine saw the hold. A command menu was open "
-                f"for {menu_blocked} of the attempts, and in WAIT ATB mode the ATB -- which "
-                f"CheckEscape requires -- is frozen while a submenu is up. Issue a command first "
-                f"(battle_command / battle_pick) so the turn resolves, then flee; or flee before a "
-                f"turn comes up. The running animation is not evidence of progress: btl_escape_key "
-                f"is set before the gate is even tested."
-            )
-        return False
+                f"{verb} needs protocol {self.PLAY_PROTOCOL}; the deployed engine speaks {proto}. "
+                f"Rebuild and redeploy the DLL (py tools/build_memoria.py) and RELAUNCH the game -- "
+                f"an engine change is not picked up by ~ Reload field.")
+
+    def menus(self, slot: int | None = None, *, timeout: float = 10.0) -> dict:
+        """Collect what one party slot can DO, and return it.
+
+        A REQUEST, not a field of every state sample, because collecting it writes the HUD's
+        ability-detail cache (``CollectNetMenus`` -> ``SetAbilityAp``) -- and an instrument that
+        mutates the game thirty times a second in order to observe it is not an instrument. The
+        cost is that the answer is a snapshot, so this waits for one stamped with THIS slot and
+        THIS battle rather than trusting whatever is published.
+        """
+        self._require_play_protocol("menus()")
+        st = self.state
+        if not st.in_battle:
+            raise HarnessError("menus() needs a real battle in progress")
+        if slot is None:
+            slot = st.turn_slot
+            if slot < 0:
+                raise HarnessError(
+                    "menus() without a slot reads whoever the game is currently asking, and it is "
+                    "asking nobody (turn.slot is -1). Wait for a turn first, or name a slot.")
+        self.send(f"menus {int(slot)}")
+        st = self.wait_for(lambda s: s.menu_is_for(int(slot)), timeout=timeout,
+                           what=f"the command menu for slot {slot} to be published")
+        return st.battle_menu
+
+    def wait_turn(self, *, timeout: float = 90.0) -> int:
+        """Wait until the game asks a party member for a command, and return that slot.
+
+        ``turn.slot`` is ``BattleHUD.CurrentPlayerIndex``, which the HUD sets in ``SwitchPlayer``
+        for the first ready slot that has not committed a command. It is the game's own "your move"
+        -- not a guess assembled from ATB values.
+
+        Raises rather than returning a sentinel if the battle ends while waiting, because a caller
+        that gets -1 back tends to press on and command a slot in a fight that is over.
+        """
+        # ⚠ `turn_slot` is already gated on the command phase by the agent, so this cannot fire
+        # on the stale slot the previous battle left behind -- the failure that froze a fight.
+        st = self.wait_for(
+            lambda s: s.turn_slot >= 0 or s.battle_result != 0 or not s.in_battle,
+            timeout=timeout, what="a party member to be asked for a command")
+        if st.turn_slot < 0:
+            raise HarnessError(
+                f"the battle ended before anyone was asked for a command "
+                f"(result={st.battle_result_name}, in_battle={st.in_battle})")
+        return st.turn_slot
+
+    def act(self, command: str = "Attack", *, slot: int | None = None,
+            target: str | int | None = None, timeout: float = 20.0) -> dict:
+        """Take ONE turn: commit ``command`` for ``slot`` against ``target``, BY NAME throughout.
+
+        This is the deterministic path -- it commits through ``BattleHUD.SendNetCommand``, the same
+        entry point co-op uses to replay a command, after ``SetIdle()`` hands the slot back from the
+        local menu. It tests the battle logic, NOT the HUD: nothing here presses a button, so a
+        scenario that must prove the menu itself works wants :meth:`battle_act` instead.
+
+        ``command`` is matched against the published menu in three places, in order: the command
+        list ("Attack", "Defend", "Steal"), the ability list ("Fire", "Cure" -- the parent command
+        is inferred), and the item list ("Potion"). The names are the engine's own, resolved from
+        the character's preset, trance state and equipment, so no table here can drift out of date.
+        """
+        self._require_play_protocol("act()")
+        if slot is None:
+            slot = self.wait_turn()
+        slot = int(slot)
+        menu = self.menus(slot)
+        st = self.state
+        cmd, sub, ttype, for_dead, what = self._resolve_command(st, menu, command, slot)
+        tar_id, cursor, tname = self._resolve_target(st, slot, target, ttype, for_dead)
+        self._log(f"  act: slot {slot} {what} -> {tname} "
+                  f"(cmd={cmd} sub={sub} tar=0x{tar_id:x} cursor={cursor})")
+        self.send(f"battlecmd {slot} {cmd} {sub} {tar_id} {cursor}")
+        # ⚠ CLOSED-LOOP ON THE OUTCOME, NOT THE ACK. The step acking only means the engine did not
+        # throw; what matters is that the HUD stopped asking this slot, which is what SendNetCommand
+        # achieves by adding it to InputFinishList. If the command had been refused, the slot would
+        # NOT be in that list and the HUD would re-open its menu -- so this wait is exactly the
+        # difference between "a command was sent" and "the turn was taken".
+        self.wait_for(lambda s: s.turn_slot != slot or s.battle_result != 0 or not s.in_battle,
+                      timeout=timeout,
+                      what=f"slot {slot} to stop being asked for a command")
+        return {"slot": slot, "command": what, "id": cmd, "sub": sub,
+                "target": tname, "target_id": tar_id, "cursor": cursor}
+
+    def _resolve_command(self, st, menu: dict, name: str, slot: int):
+        """Name -> (commandId, sub, targetType, forDead, label). Raises with the real menu on a miss."""
+        row = st.command(name)
+        if row is not None:
+            # ⚠ `offered` FIRST. A command can be both a sub-menu and one the HUD would not draw --
+            # an ability command with nothing learned is precisely that -- and "the HUD would not
+            # draw it" is the answer that stops the reader hunting for abilities that do not exist.
+            if not row.get("offered", True):
+                raise HarnessError(
+                    f"{name!r} resolves for this character but the HUD would not draw it "
+                    f"(no learned abilities, or a menu outside the ordinary six). Commanding it "
+                    f"would be a claim about a move the player never had.")
+            if int(row.get("type", -1)) == 1:
+                subs = [a.get("name") for a in menu.get("abilities", [])
+                        if a.get("menu") == row.get("menu")]
+                raise HarnessError(
+                    f"{name!r} is a sub-menu, not a move: name the ability itself. "
+                    f"It offers {subs or 'nothing this character has learned'}.")
+            return (int(row["id"]), int(row["sub"]), int(row.get("target", -1)),
+                    bool(row.get("for_dead")), row.get("name") or name)
+
+        ab = st.ability(name)
+        if ab is not None:
+            parent = next((c for c in menu.get("commands", [])
+                           if c.get("menu") == ab.get("menu")), None)
+            if parent is None:
+                raise HarnessError(
+                    f"{name!r} is in menu {ab.get('menu')} but no command claims that menu; the "
+                    f"published menu is inconsistent, which should not happen -- re-run `menus`.")
+            if not ab.get("enabled", True):
+                raise HarnessError(
+                    f"{name!r} is learned but not castable right now (no MP, silenced, or its "
+                    f"supporting ability is off). The HUD greys it; committing it anyway would "
+                    f"test a path the player cannot reach.")
+            return (int(parent["id"]), int(ab["sub"]), int(ab.get("target", -1)),
+                    bool(ab.get("for_dead")), f"{parent.get('name')}/{ab.get('name') or name}")
+
+        it = st.item(name)
+        if it is not None:
+            parent = next((c for c in menu.get("commands", []) if c.get("menu") == 4), None)
+            if parent is None:
+                raise HarnessError(f"{name!r} is in the inventory but this character has no Item "
+                                   f"command in battle.")
+            return (int(parent["id"]), int(it["sub"]), int(it.get("target", -1)),
+                    bool(it.get("for_dead")), f"{parent.get('name')}/{it.get('name') or name}")
+
+        raise HarnessError(
+            f"slot {slot} has no move called {name!r}. Commands: "
+            f"{[c.get('name') for c in menu.get('commands', []) if c.get('offered')]}; "
+            f"abilities: {[a.get('name') for a in menu.get('abilities', [])]}; "
+            f"items: {[i.get('name') for i in menu.get('items', [])]}.")
+
+    def _resolve_target(self, st, slot: int, target, ttype: int, for_dead: bool):
+        """Pick who this lands on, and the cursor group that makes it legal.
+
+        ``tar_id`` is a BITMASK of ``btl_id``s, not an index -- each unit's ``id`` is already the
+        single bit for its slot, so a group target is those bits OR'd together.
+        """
+        units = st.units()
+        me = next((u for u in units if int(u.get("slot", -1)) == slot), None)
+
+        if isinstance(target, str):
+            hit = st.unit(target)
+            if hit is None:
+                raise HarnessError(
+                    f"no combatant called {target!r}; this battle has "
+                    f"{[u.get('name') for u in units]}")
+            return int(hit["id"]), 0, hit.get("name") or target
+        if isinstance(target, int):
+            hit = next((u for u in units if int(u.get("slot", -1)) == target), None)
+            if hit is None:
+                raise HarnessError(f"no combatant in slot {target}")
+            return int(hit["id"]), 0, f"slot {target} ({hit.get('name')})"
+
+        # ⚠ A FORCED-GROUP ABILITY CANNOT TAKE ONE TARGET. The engine's own cursor for TargetType
+        # All/AllAlly/AllEnemy/Everyone is the group, and passing a single bit would be a command
+        # the UI could never produce.
+        if ttype in self._GROUP_TARGETS:
+            want_player = ttype in (7,)
+            side = [u for u in units
+                    if u.get("alive") and u.get("targetable")
+                    and (ttype in (6, 12) or bool(u.get("player")) is want_player)]
+            if not side:
+                raise HarnessError("nothing alive and targetable to aim a group command at")
+            mask = 0
+            for u in side:
+                mask |= int(u["id"])
+            return mask, self._GROUP_TARGETS[ttype], f"all ({len(side)})"
+
+        if for_dead:
+            dead = [u for u in units if u.get("player") and not u.get("alive")]
+            if dead:
+                return int(dead[0]["id"]), 0, dead[0].get("name") or "a fallen ally"
+
+        if ttype in self._ALLY_TARGETS:
+            hurt = sorted((u for u in units if u.get("player") and u.get("alive")),
+                          key=lambda u: (int(u.get("hp", 0)) * 1000) // max(1, int(u.get("hp_max", 1))))
+            if hurt:
+                return int(hurt[0]["id"]), 0, hurt[0].get("name") or "an ally"
+        if ttype < 0:
+            # Defend and Change take no target; the UI passes the caster's own id.
+            if me is not None:
+                return int(me["id"]), 0, "self"
+
+        foes = [u for u in units
+                if not u.get("player") and u.get("alive") and u.get("targetable")]
+        if foes:
+            return int(foes[0]["id"]), 0, foes[0].get("name") or "an enemy"
+        if me is not None:
+            return int(me["id"]), 0, "self (nothing hostile left standing)"
+        raise HarnessError("no legal target: the unit list is empty")
+
+    def fight(self, *, command: str = "Attack", target: str | int | None = None,
+              policy=None, timeout: float = 300.0, max_turns: int = 120,
+              finish: bool = True) -> int:
+        """Play the battle through to a RESULT, and return the result code.
+
+        The default policy is the same one a bored player uses: attack the first enemy left
+        standing, every turn. Pass ``policy(state, slot) -> dict`` for anything else; return
+        ``None`` from it to pass this prompt back to the loop (it will be asked again).
+
+        ⚠ It refuses the diorama outright rather than timing out inside it: under ``isDebug`` the
+        engine suppresses the auto-end, so that fight can NEVER finish and every turn taken there
+        proves nothing about a result.
+        """
+        self._require_play_protocol("fight()")
+        st = self.state
+        # ⚠ THE DIORAMA CHECK COMES FIRST, and that ordering is the whole point: `in_battle` is
+        # already false for a diorama by design, so a debug check placed below it can never run.
+        # The generic "call start_battle first" would then be the answer to standing inside a
+        # battle scene that simply cannot end -- true, and pointing at the wrong thing entirely.
+        if st.battle.get("debug"):
+            raise HarnessError(
+                "this battle is running with isDebug set (a diorama). The engine suppresses the "
+                "auto-end there, so it can never reach a result -- playing it out would time out "
+                "having proved nothing.")
+        if not st.in_battle:
+            raise HarnessError("fight() needs a real battle in progress; call start_battle first")
+        epoch = st.battle_epoch
+        deadline = time.time() + timeout
+        turns = 0
+        while time.time() < deadline:
+            self._assert_alive()
+            st = self.state
+            if st.battle_epoch == epoch and (st.battle_result != 0 or not st.in_battle):
+                break
+            if st.turn_slot < 0:
+                # Nobody is being asked: the enemies are acting, or an animation is playing. Not a
+                # failure -- wait for the next prompt or for the fight to end.
+                try:
+                    self.wait_for(
+                        lambda s: s.turn_slot >= 0 or s.battle_result != 0 or not s.in_battle,
+                        timeout=min(10.0, max(0.5, deadline - time.time())),
+                        what="the next turn or an outcome")
+                except HarnessError:
+                    pass
+                continue
+            if turns >= max_turns:
+                raise HarnessError(
+                    f"took {turns} turns without reaching a result. Either the party cannot hurt "
+                    f"this enemy or something is healing it faster than {command!r} lands -- the "
+                    f"roster is in the last state snapshot.")
+            slot = st.turn_slot
+            choice = {"command": command, "target": target}
+            if policy is not None:
+                picked = policy(st, slot)
+                if picked is None:
+                    self.wait_frames(10)
+                    continue
+                choice = dict(choice, **picked)
+            self.act(choice["command"], slot=slot, target=choice.get("target"))
+            turns += 1
+        result = self.state.battle_result
+        # ⚠ RECORDED, because "it ended in victory" does not say the loop ever ran. The first live
+        # run of this verb reported a clean victory having taken ZERO turns -- the single Attack
+        # issued beforehand had already killed the only enemy, so the multi-turn path was untested
+        # while the report looked complete. A scenario that means to exercise the loop asserts on
+        # this; without it there is nothing to assert on.
+        self.last_fight = {"turns": turns, "result": result,
+                           "name": State.BATTLE_RESULTS.get(result, str(result)),
+                           "epoch": epoch}
+        self._log(f"fight: {turns} turn(s) -> {State.BATTLE_RESULTS.get(result, result)}")
+        if result == 0:
+            raise HarnessError(
+                f"the battle did not reach a result within {timeout:.0f}s ({turns} turn(s) taken)")
+        if finish:
+            self.leave_battle()
+        return result
+
+    def leave_battle(self, *, timeout: float = 90.0) -> str:
+        """Get past the battle-result screen and back to whatever comes after the fight.
+
+        The result screen wants a confirm (sometimes several: spoils, level-ups, learned abilities),
+        and a defeat goes to the Game Over menu instead, which no amount of confirming leaves. Both
+        outcomes are reported rather than one of them hanging.
+        """
+        st = self.state
+        for _ in range(40):
+            self._assert_alive()
+            st = self.state
+            if not st.in_battle and st.ui_state not in ("BattleHUD", "BattleResult"):
+                break
+            self.press("confirm", 4)
+            self.wait_frames(20)
+        st = self.state
+        self._log(f"  leave_battle: ui={st.ui_state} field={st.field_id} "
+                  f"result={st.battle_result_name}")
+        return st.ui_state
 
     def flag(self, bit: int, value: bool = True) -> None:
         self._check_flag_bit(bit, "flag")
