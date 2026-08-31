@@ -290,3 +290,6 @@ examples/stolen-ember/dist/
 
 # derived-from-install geometry sidecars (provenance: never commit game-derived bytes)
 studies/**/stock_tris.pkl
+
+# in-game harness runs (frames, events, Memoria.log, report.json) -- tools/play.py writes here
+/.harness-runs/
