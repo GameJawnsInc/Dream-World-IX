@@ -211,14 +211,34 @@ previously only *expected* to work by sharing a code path with the menu cursor. 
 
 ## Engine deployment state
 
-`Assembly-CSharp` is deployed with s83 (both arches, verified). **Inert without `ff9harness/arm`**, so
-ordinary play is unaffected — that gating is what makes it safe on an install shared by ~26 worktrees.
+⚠ **AS OF 2026-08-31 THE SOURCE IS AHEAD OF THE DLL.** The clone carries s83 **rev 2** (protocol 2);
+the deployed `Assembly-CSharp` is still **rev 1** (protocol 1) — sha
+`f77112e38c7a4140e089366050b812ccc4ed592110c6eb4145c5cf6dde5dad30`, both arches identical. Until it is
+rebuilt:
+
+* `expect_text` asserts against the RAW dialogue source, not what the player reads;
+* `worldwarp` / `teleport` refusals ack CLEAN;
+* **every run still writes the owner's autosave** (the driver's backup + report is the only guard).
+
+The driver detects this itself and logs a DEGRADED warning naming each caveat, and `report.json`
+carries `driver_protocol` and `engine_protocol` so a green result cannot be read as unconditional.
+Build with `py tools/build_memoria.py --label pre-s83-rev2` (it enforces the pre-build DLL backup —
+the raw msbuild auto-deploys over the live install with none), then run
+`scenarios/rev2_proof.py` and re-run `save_untouched.py`, which must go from RED to GREEN.
+
+**Inert without `ff9harness/arm`** either way, so ordinary play is unaffected — that gating is what
+makes it safe on an install shared by ~26 worktrees.
 
 Pre-build backups, newest last: `20260827-103835`, `20260827-111002`, `20260827-111541`,
 **`20260827-181321`** (pre-axis-fix). Revert with `py tools/restore_memoria_dll.py <label>`.
 
-The patch file is regenerated and gated: `git apply -R --check` is clean against the live tree, so
-`s83-harness-agent.patch` is an exact description of what is deployed.
+The patch file is regenerated and gated **in both directions**: `git apply -R --check` is clean against
+the live tree, AND forward-applying it onto the reconstructed baseline reproduces all 8 files
+byte-exactly — so `s83-harness-agent.patch` is both an exact and a SUFFICIENT description of the
+source. (Reverse alone would pass a patch that was missing a hunk.) ⚠ Two traps in regenerating it:
+capture `diff` as BYTES, or the console locale mojibakes every non-ASCII comment and the patch fails
+its own gate on a line nobody would inspect; and apply with `core.autocrlf=false`, or git rewrites a
+newly created LF file to CRLF and the byte comparison fails on a file the patch described perfectly.
 
 ---
 
@@ -258,25 +278,117 @@ The patch file is regenerated and gated: `git apply -R --check` is clean against
 
 ---
 
+## ★★ 2026-08-31 — THE AUDIT ROUND: the harness was the liar
+
+The core loop was proven. The **reporting layer was not**, and that is the half that matters, because
+a harness exists to make statements about the game.
+
+An adversarial audit — four readers over the driver and engine halves, then four skeptics whose job
+was to REFUTE each finding and who defaulted to "not a defect" — produced **51 confirmed defects, 21
+refuted**. Eight of them produce a *silent green* or a *fabricated cause*, and most are reachable from
+the documented, recommended usage in one line.
+
+**The decisive discovery is one omission.** The agent has always published `seq` — its receipt for the
+request it ACCEPTED — and the driver read only `ack`. So an agent left armed by a hard-killed run keeps
+a dead run's counters, discards every new request as stale, and publishes an ack that satisfies the
+wait instantly. Every step becomes a no-op reported as success, and the first verb that measures the
+world says something confident and false about the game. That single reading turned three of the four
+highest-severity findings from engine problems into driver-only fixes.
+
+### What it cost the owner, and how we know
+
+`scenarios/save_untouched.py` asked the one question nobody had asked: **does a harness run write the
+player's save?** It does. An ordinary `newgame(); warp(30801); walk` — the opening every scenario in
+this arc shares — changed both live containers, `SavedData_ww.dat` and
+`SavedData_ww_Memoria_Autosave.dat`. `EventEngine` autosaves on ordinary field entry, gated only by
+`Configuration.SaveFile.DisableAutoSave`, which reads 0 on this install.
+
+Scope, measured the same way: **the autosave slot only** — all 17 manual Memoria slot sidecars were
+byte-identical afterwards. The pre-run main container is at `backups/SavedData_ww.dat.20260831-140714`.
+
+Two defences, because one of them needs a rebuilt DLL:
+
+| Layer | What it does |
+|---|---|
+| driver (shipped) | copies the live containers into `<run>/saves-before/` before the game is even launched, reports at teardown if any moved, and **refuses to run** when the engine says it did not sandbox |
+| engine (s83 rev2) | redirects `SharedDataBytesStorage.MetaData` into `ff9harness/save/` while armed, and PUBLISHES the path so the driver can verify rather than trust |
+
+The general form is worth keeping: **a sandbox that is assumed is a check that cannot fail**, and what
+it fails to catch here is somebody's game.
+
+### The driver fixes (shipped, no rebuild)
+
+Each one is a way the tool could lie. `req.txt` is one last-write-wins slot, so the documented
+`hold()` + `wait_frames()` pairing destroyed the first request invisibly — the survivor's ack answered
+for it. The agent's error is a latch cleared only on re-arm, so one refusal made every later healthy
+step raise on a stale message. `wait_for` swallowed every predicate exception and then timed out with
+the GAME-condition message, which `expect()` wrote into `report.json` as a failure of the game. A
+frozen agent's last `state.json` satisfies most predicates, so waits could pass against a game that
+stopped publishing — the shape behind the "walking out of 30820 hangs the game" verdict. The warp guard
+failed OPEN whenever it could not read the registrations, read the AREA column as the scene name, and
+refused all ~674 stock fields. `_probe_axis` measured "did it move" against an absolute floor, so a
+character SLIDING along a wall passed — and the perpendicularity test is computed from unit vectors,
+so it is identically zero under any rotation and cannot falsify the failure it was written for.
+`cross()` swallowed both of `expect_field_change`'s waits, so a gateway that WORKED but led somewhere
+slow was reported as no gateway. `expect_text("")` passed against an empty screen. `report.json` said
+`"passed": true` for a run that recorded zero checks.
+
+**The stand-in grew to match**, because none of that was testable before: it now models the arm
+transition (including the no-op re-arm that caused the headline), the agent's real request-poll
+cadence, a walkmesh with run/walk speeds and a YAWED basis, a wall-slide mode, a frozen-frame mode,
+control-without-position, menus, and choices with disabled indexes. **16 → 59 offline tests, ~60s**,
+every one written so reverting its fix turns it red.
+
+### The engine batch (s83 rev2 — built? see Engine deployment state)
+
+E1 per-request error latch + `error_seq` · E2 `release` cannot press · E3 no partial section reaches
+`state.json` · E4 `texts` is the RENDERED dialogue, source kept as `phrase_raw` · E5 the choice
+publishes its index space · E6 refusals throw and `debug_status` is published · E7 `timescale` floor +
+restore · E8 `armed`/disarm document/fault latch · E9 the `reset` verb · E10 menu `group` +
+`ButtonGroupState.ActiveButton` · E11 the save sandbox.
+
+Left out on purpose: the whole battle state block and a `battle <sceneId>` verb (ten times the
+surface, two crash-class reads in the obvious implementation, and the stand-in does not model the
+existing menu/input sections yet — the defect follows the authorship), a `noencounter` booster, and
+driving `Block` off a logical-tick counter.
+
+Acceptance: `scenarios/rev2_proof.py`, every check on an OUTCOME — the character did not move, the
+channel is still parseable, the position is unchanged, the group label changed — because *the step
+acked* is precisely what all of these defects could already fake.
+
+---
+
 ## Next actions
 
-The core loop is proven end to end. What is left is coverage and ergonomics, not feasibility.
-
-The audit is **done** ([`INPUT-COVERAGE.md`](INPUT-COVERAGE.md), 22 confirmed / 6 refuted) and its
-headline is **fixed** — NGUI navigation now works, so the harness can drive a menu.
-
-1. **Assert on dialogue for real** — the state channel already carries `Dialog.Phrase` and
-   `ChoicePhrases`, and the choice cursor now moves. The chest at 30810 (`expect_text("Potion")`) is
-   the obvious first scenario; it exercises the narrative axis rather than the physical one, and it
-   would separately prove the dialogue-choice half of the NGUI hook, which is currently only *expected*
-   to work by sharing a code path with the menu cursor.
-2. **World vehicles have no throttle** (`ff9.cs:6652`) and the overworld free-camera reads the raw
-   right stick. Fix if an overworld scenario needs it — note camera yaw is not cosmetic there, it
-   feeds `w_moveCHRControl_RotTrue` and changes which way a harness-driven walk goes.
-3. **Publish the highlighted-widget name** in the state channel, so `menu_nav.py` can self-assert
-   instead of leaving the verdict to be read off screenshots.
-3. `Session.quit()` helper — disarming cancels the agent's pending queue, so a bare
-   `send("quit", wait=False)` followed by teardown drops the step. Harmless today (the launched-game
-   path waits on the process first) but a sharp edge.
-4. Consider a nightly-gate lane for scenarios, separate from the offline suite — noting that scenarios
-   need the real install and are therefore not a fit for the ordinary worktree gate.
+1. **BUILD AND DEPLOY s83 rev2, then run `rev2_proof.py`.** The batch is written, the patch is gated
+   in both directions (reverse-clean on the live tree; forward-apply reproduces all 8 files
+   byte-exactly), and the driver already speaks protocol 2 with a DEGRADED warning against the older
+   DLL. Until the rebuild, `expect_text` is asserting against the raw dialogue SOURCE and every
+   harness run still writes the owner's autosave.
+2. **Assert on dialogue for real, once E4 is live.** A chest bench (`expect_text("Potion")`) exercises
+   the narrative axis rather than the physical one, and separately proves the dialogue-choice half of
+   the NGUI hook, which is still only *expected* to work by sharing a code path with the menu cursor.
+   ⚠ 30810 is not currently registered — check the live `DictionaryPatch.txt` before assuming a bench.
+3. **The suite runner** (`play.py --suite`), now that `reset` exists to isolate its members. The reset
+   primitive for the rungs above `reset` needs no engine change either: `UIKeyTrigger.SoftResetKeyPSXDown`
+   (L1+L2+R1+R2+Start+Select) reads through the hooked `IsInputDown`, and its handler tears down every
+   dialog and replaces the scene with Title — the only recovery from a battle or a black screen, neither
+   of which `warp` can touch. A scenario that runs on an unrestored state must be reported `poisoned`,
+   never `fail`: given this arc's history the runner's default must be to blame itself.
+4. **Artifacts that make a failure diagnosable without a re-run:** a driver-side `steps.jsonl` (wall
+   clock, seq, the literal steps, ack latency), a rolling ring buffer of the last N states flushed on
+   failure (`state-final.json` is captured after `quit`, which is the wrong moment), an automatic
+   screenshot on every failed check, and `env.json` (registered fields, deployed DLL sha, engine
+   protocol, `[AnalogControl]`, `[Cheats]`). Namespace `shots/` per scenario — two scenarios both
+   using `"walk-before"` currently overwrite each other's evidence.
+5. **The battle block, as its own batch**, after the stand-in models the existing `menu`/`input`
+   sections. Battles are a first-class pillar and the state channel is 100% dark on them; the recon is
+   in the audit output. ⚠ `isDebug` makes a diorama battle unable to end by design, so a result
+   assertion there is green-having-observed-nothing.
+6. **World vehicles have no throttle** (`ff9.cs:6652`) and the overworld free-camera reads the raw
+   right stick. Fix if an overworld scenario needs it — and note the recon REFUTED the premise that
+   the harness cannot walk on foot there; the field verbs simply refused to admit which coordinate
+   space they were in, which is now guarded rather than assumed.
+7. **A nightly lane for scenarios is explicitly NOT next.** A gate that counts scenario passes over a
+   driver that until today acked dropped steps would have laundered those lies into a ledger. Ship the
+   runner and the artifacts first.

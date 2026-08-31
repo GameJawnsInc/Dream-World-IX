@@ -1,6 +1,6 @@
 --- a/Assembly-CSharp/Global/Hono/HonoInputManager.cs
 +++ b/Assembly-CSharp/Global/Hono/HonoInputManager.cs
-@@ -568,6 +568,15 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+@@ -568,6 +568,15 @@
  
      public Boolean CheckPersistentDirectionInput(Control key)
      {
@@ -16,7 +16,7 @@
          if (!HonoInputManager.ApplicationIsActivated())
              return false;
          if (Application.isEditor)
-@@ -885,8 +894,17 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+@@ -885,8 +894,17 @@
          }
      }
  
@@ -34,7 +34,7 @@
          Int32 indexInt = (Int32)index;
          if (indexInt >= this.KeyName.Length || indexInt < 0)
              return this.GetDirectionKey(index);
-@@ -897,6 +915,8 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+@@ -897,6 +915,8 @@
  
      public Boolean IsInputDown(Control index)
      {
@@ -43,7 +43,7 @@
          Int32 indexInt = (Int32)index;
          if (indexInt >= this.KeyName.Length || index < 0)
              return this.GetDirectionKeyDown(index);
-@@ -907,6 +927,8 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+@@ -907,6 +927,8 @@
  
      public Boolean IsInputUp(Control index)
      {
@@ -52,7 +52,7 @@
          Int32 indexInt = (Int32)index;
          if (indexInt >= this.KeyName.Length || indexInt < 0)
              return this.GetDirectionKeyUp(index);
-@@ -915,8 +937,22 @@ public class HonoInputManager : PersistenSingleton<HonoInputManager>
+@@ -915,8 +937,22 @@
          return this.isInputUp[indexInt];
      }
  
@@ -77,7 +77,7 @@
  
 --- a/Assembly-CSharp/Global/TitleUI.cs
 +++ b/Assembly-CSharp/Global/TitleUI.cs
-@@ -954,6 +954,17 @@ public class TitleUI : UIScene
+@@ -954,6 +954,17 @@
          }
      }
  
@@ -97,7 +97,7 @@
          AutoSplitterPipe.SignalGameStart();
 --- a/Assembly-CSharp/Global/Bundle/BundleSceneSelector.cs
 +++ b/Assembly-CSharp/Global/Bundle/BundleSceneSelector.cs
-@@ -23,7 +23,12 @@ public class BundleSceneSelector : MonoBehaviour
+@@ -23,7 +23,12 @@
              fileInfo.Delete();
          }
  
@@ -113,7 +113,7 @@
              return;
 --- a/Assembly-CSharp/UnityXInput/Input.cs
 +++ b/Assembly-CSharp/UnityXInput/Input.cs
-@@ -296,8 +296,20 @@ namespace UnityXInput
+@@ -296,8 +296,20 @@
              return (axis == 0f) ? Input.GetXAxis(axisName) : axis;
          }
  
@@ -160,7 +160,7 @@
              if (UnityXInput.Input.GetAxis("Mouse X") < 1.0 / 1000.0 && UnityXInput.Input.GetAxis("Mouse Y") < 1.0 / 1000.0)
 --- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -454,6 +454,46 @@
+@@ -455,6 +455,46 @@
          _instance = go.AddComponent<Ff9mkDebugMenu>();
      }
  
@@ -183,18 +183,18 @@
 +        return _instance.Warp(mapNo, false);
 +    }
 +
-+    public static void HarnessWorldWarp(Int32 mapNo, Int32 entrance, Int32 scenario)
++    public static Boolean HarnessWorldWarp(Int32 mapNo, Int32 entrance, Int32 scenario)
 +    {
 +        Ensure();
 +        _instance._entranceText = entrance >= 0 ? entrance.ToString() : "";
 +        _instance._scenarioText = scenario >= 0 ? scenario.ToString() : "";
-+        _instance.WorldWarp(mapNo);
++        return _instance.WorldWarp(mapNo);
 +    }
 +
-+    public static void HarnessWorldTeleport(Single wx, Single wz)
++    public static Boolean HarnessWorldTeleport(Single wx, Single wz)
 +    {
 +        Ensure();
-+        _instance.WorldTeleportTo(wx, wz);
++        return _instance.WorldTeleportTo(wx, wz);
 +    }
 +
 +    // The one-line status the menu shows a human, surfaced so a failed harness action explains itself
@@ -207,11 +207,102 @@
      // Open/close the menu, PAUSING field input while open (save the current user-control state, disable
      // it, restore on a plain close) so the d-pad + the Use(!)/action button don't drive the field behind
      // the popup. A warp/reload action instead closes the menu directly -- the field transition itself
-diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -1696,7 +1736,7 @@
+     }
+ 
+     // The overworld teleport core (parameterized), shared by the World-tab X,Z box and a pinned overworld SPOT favorite.
+-    private void WorldTeleportTo(Single wx, Single wz)
++    private Boolean WorldTeleportTo(Single wx, Single wz)
+     {
+         try
+         {
+@@ -1704,20 +1744,20 @@
+             if (w == null || !w.Settings.WrapWorld || FF9StateSystem.World.IsBeeScene)
+             {
+                 _status = "teleport: only on the wrapping overworld";
+-                return;
++                return false;
+             }
+             WMActor a = ff9.w_moveActorPtr;
+             if (a == (UnityEngine.Object)null || a == ff9.w_moveDummyCharacter)
+             {
+                 _status = "teleport: no controlled actor";
+-                return;
++                return false;
+             }
+             EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+             PosObj po = ee.GetControlChar();
+             if (po == null || po.pos == null || po.pos.Length < 3)
+             {
+                 _status = "teleport: no controlled PosObj";
+-                return;
++                return false;
+             }
+             Single cy = a.RealPosition.y;                        // keep current height; movement/InitSlice re-grounds Y
+             Int32 px = (Int32)(wx * 256f), py = (Int32)(cy * 256f), pz = (Int32)(wz * 256f);
+@@ -1725,7 +1765,7 @@
+             if (bx < 0 || bx >= 24 || bz < 0 || bz >= 20)
+             {
+                 _status = "teleport: (" + (Int32)wx + ", " + (Int32)wz + ") is outside the 24x20 grid (x 0..1535, z 0..-1279)";
+-                return;
++                return false;
+             }
+             // Engine's own overworld reposition: writes the PosObj record (pos + lastx/y/z) AND the wmActor transform.
+             ee.SetActorPosition(po, (Single)px, (Single)py, (Single)pz);
+@@ -1750,10 +1790,12 @@
+             // that our write comes from OnGUI at an arbitrary phase vs the tick.)
+             Memoria.SmoothFrameUpdater_World.Skip = 2;
+             _status = "teleported to world (" + (Int32)wx + ", " + (Int32)wz + ")";
++            return true;
+         }
+         catch (Exception err)
+         {
+             _status = "teleport failed: " + err.Message;
++            return false;
+         }
+     }
+ 
+@@ -1777,20 +1819,20 @@
+     // when the player is FROZEN -- which is why this doubles as the escape from a stuck overworld. FieldEntrance /
+     // ScenarioCounter are seeded exactly like the field Warp tab. (Mirror of the field warp, which uses the field
+     // buffer + attr|=8u; the world loop tests attr & 0x3001 and the field loop tests attr & 15, hence the different bit.)
+-    private void WorldWarp(Int32 mapNo)
++    private Boolean WorldWarp(Int32 mapNo)
+     {
+         try
+         {
+             if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.WorldHUD)
+             {
+                 _status = "world warp: overworld only";
+-                return;
++                return false;
+             }
+             FF9StateSystem sys = PersistenSingleton<FF9StateSystem>.Instance;
+             if (sys.mode != 3)                                   // SetNextMap routes by mode; must be WORLD (3)
+             {
+                 _status = "world warp: not in world mode (" + sys.mode + ")";
+-                return;
++                return false;
+             }
+             if (Int32.TryParse(_entranceText, out Int32 entr) && entr >= 0)
+                 FF9StateSystem.EventState.FieldEntrance = entr;  // arrive as if through a chosen door (blank = leave as-is)
+@@ -1808,10 +1850,12 @@
+             _controlHeld = false;
+             _open = false;                                       // the transition takes over; the field .eb re-enables control
+             NoteRecent(mapNo);
++            return true;
+         }
+         catch (Exception err)
+         {
+             _status = "world warp failed: " + err.Message;
++            return false;
+         }
+     }
+ 
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,972 @@
+@@ -0,0 +1,1243 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -252,7 +343,7 @@ new file mode 100644
 +{
 +    public sealed class HarnessAgent : MonoBehaviour
 +    {
-+        public const Int32 ProtocolVersion = 1;
++        public const Int32 ProtocolVersion = 2;
 +
 +        // ---- arming ----------------------------------------------------------------------------
 +        // Read by the HonoInputManager hooks on EVERY key query of every frame, so it is a plain static
@@ -262,6 +353,11 @@ new file mode 100644
 +        private static HarnessAgent _instance;
 +        private static String _dir;             // <game>/x64/ff9harness
 +        private static String _shotDir;
++        private static String _saveDir;         // <game>/x64/ff9harness/save -- the sandbox
++        // The player's REAL save paths, stashed while the sandbox is in force.
++        private static String _realSaveFilePath;
++        private static String _realSaveDirPath;
++        private static Boolean _saveRedirected;
 +
 +        // ---- virtual controller ----------------------------------------------------------------
 +        // Absolute frame numbers, one slot per Control (the enum has 16 members). A button is HELD on
@@ -379,6 +475,14 @@ new file mode 100644
 +        private Int32 _stateFrame;
 +        private Int32 _stateEvery = 2;      // frames between state writes; `stateevery N` tunes it
 +        private String _lastError;
++        // WHICH REQUEST the error belongs to. The latch alone made one refusal poison every later
++        // step: the driver saw a non-null error on a healthy ack and raised, quoting a stale message
++        // against an innocent request -- which turned one bad warp into a sweep reporting every
++        // remaining field as unreachable. Stamped here, cleared per request in PollRequest.
++        private Int64 _errorSeq = -1;
++        // Latched when Update's catch fires. A fault must be TERMINAL, not something that heals
++        // itself 30 frames later having wiped the error that explained it.
++        private Boolean _faulted;
 +        private String _note = "";
 +        private Int32 _shotsTaken;
 +        private Int32 _shotsPending;
@@ -417,6 +521,7 @@ new file mode 100644
 +                return;
 +            _dir = Path.GetFullPath(Path.Combine(Path.Combine(Application.dataPath, ".."), "ff9harness"));
 +            _shotDir = Path.Combine(_dir, "shots");
++            _saveDir = Path.Combine(_dir, "save");
 +        }
 +
 +        public static void Ensure()
@@ -439,6 +544,13 @@ new file mode 100644
 +                PollArm();
 +                if (!Active)
 +                    return;
++                // RETRY THE SANDBOX until it takes. The arm transition can land before
++                // SharedDataBytesStorage has resolved its paths (the statics are set from a type
++                // initialiser, on first touch), and a one-shot redirect that silently no-ops in that
++                // window leaves the very autosave this exists to prevent pointed at the player's
++                // file. One bool test per frame is nothing; a missed redirect is their save.
++                if (!_saveRedirected)
++                    RedirectSaves(true);
 +                PollRequest();
 +                DrainQueue();
 +                PublishState(false);
@@ -447,10 +559,21 @@ new file mode 100644
 +            {
 +                // The harness must never be able to crash the game it is testing: a malformed request
 +                // line or a locked file becomes a reported error and a disarm, not a dead frame loop.
++                //
++                // ⚠ AND IT MUST STAY DOWN. Before the latch, a fault disarmed, discarded the in-flight
++                // request, released every held button mid-action -- and then re-armed within 30 frames
++                // because the arm file was still there, wiping the very error that explained it. The
++                // driver saw a perfectly healthy-looking state and reported "steps were not
++                // acknowledged", blaming the game for the agent's own crash.
 +                _lastError = err.Message;
++                _errorSeq = _seq;
++                _faulted = true;
 +                Active = false;
 +                ClearAllButtons();
-+                Memoria.Prime.Log.Message("[ff9mk harness] disarmed after an unhandled error: " + err);
++                Time.timeScale = 1f;
++                try { RedirectSaves(false); } catch (Exception) { }
++                try { PublishState(true); } catch (Exception) { }
++                Memoria.Prime.Log.Message("[ff9mk harness] FAULTED and disarmed: " + err);
 +            }
 +        }
 +
@@ -467,6 +590,11 @@ new file mode 100644
 +            if (armed == Active)
 +                return;
 +
++            // A FAULTED agent does not come back on its own. Re-arming here would be a silent
++            // self-heal that erases the diagnosis; the driver must disarm and re-arm deliberately.
++            if (armed && _faulted)
++                return;
++
 +            Active = armed;
 +            _queue.Clear();
 +            ClearAllButtons();
@@ -475,17 +603,93 @@ new file mode 100644
 +                Directory.CreateDirectory(_shotDir);
 +                _seq = -1;
 +                _ack = -1;
++                _errorSeq = -1;
 +                _pendingAck = false;
 +                _blockUntilFrame = 0;
 +                _lastError = null;
 +                _shotsTaken = 0;
 +                _shotsPending = 0;
++                // Per-run scratch that used to survive a re-arm. A stale watch list keeps publishing
++                // the previous run's bits, and a stale note mislabels this run's events.
++                _watch.Clear();
++                _note = "";
++                _stateEvery = 2;
++                Time.timeScale = 1f;
++                RedirectSaves(true);
 +                Event("armed", "protocol", ProtocolVersion.ToString(CultureInfo.InvariantCulture));
 +                Memoria.Prime.Log.Message("[ff9mk harness] ARMED -- channel at " + _dir);
 +            }
 +            else
 +            {
++                // PUBLISH ONE LAST DOCUMENT SAYING SO. Otherwise the file left on disk describes a
++                // live game, and "disarmed", "hung" and "merely slow" are indistinguishable to the
++                // driver -- which is how a healthy game got reported as hung.
++                Time.timeScale = 1f;
++                RedirectSaves(false);
++                Event("disarmed");
++                // Active is already false here, which is the point: this final document publishes
++                // "armed": false. Forcing it true to "make the publish work" would have made the one
++                // signal that distinguishes a clean stand-down from a hang say the opposite.
++                try { PublishState(true); } catch (Exception) { }
 +                Memoria.Prime.Log.Message("[ff9mk harness] disarmed");
++            }
++        }
++
++        // ------------------------------------------------------------------------------------------
++        // THE SAVE SANDBOX. While armed, the game's save containers live in the channel directory
++        // instead of the player's save folder.
++        //
++        // WHY, MEASURED RATHER THAN ASSUMED: `EventEngine` autosaves on ordinary field entry, gated
++        // only by `Configuration.SaveFile.DisableAutoSave` (0 on this install). A scenario's opening
++        // is `newgame()` then `warp()`, so every harness run was stamping a scenario-zero autosave
++        // over the player's file. Confirmed in-game on 2026-08-31 -- both SavedData_ww.dat and
++        // SavedData_ww_Memoria_Autosave.dat changed across a single run
++        // (studies/test-harness/scenarios/save_untouched.py). Manual slots were untouched; the
++        // autosave was not.
++        //
++        // Redirecting FilePath moves BOTH containers, because the Memoria sidecar path is derived
++        // from it (MetaData.GetMemoriaExtraSaveFilePath). The sandbox starts EMPTY, which is a
++        // second benefit: an armed run cannot accidentally load, and therefore cannot accidentally
++        // resave, the player's game.
++        //
++        // The path is PUBLISHED in state.json so the driver can VERIFY the redirect instead of
++        // trusting it. A sandbox nobody checked is a check that cannot fail.
++        private static void RedirectSaves(Boolean on)
++        {
++            try
++            {
++                if (on)
++                {
++                    if (_saveRedirected)
++                        return;
++                    String real = SharedDataBytesStorage.MetaData.FilePath;
++                    if (String.IsNullOrEmpty(real))
++                        return;                 // paths not resolved yet; the next arm will catch it
++                    _realSaveFilePath = real;
++                    _realSaveDirPath = SharedDataBytesStorage.MetaData.DirPath;
++                    Directory.CreateDirectory(_saveDir);
++                    SharedDataBytesStorage.MetaData.DirPath = _saveDir;
++                    SharedDataBytesStorage.MetaData.FilePath =
++                        Path.Combine(_saveDir, Path.GetFileName(real));
++                    _saveRedirected = true;
++                    Memoria.Prime.Log.Message("[ff9mk harness] saves sandboxed to " + _saveDir
++                                              + " (real: " + _realSaveDirPath + ")");
++                }
++                else
++                {
++                    if (!_saveRedirected)
++                        return;
++                    SharedDataBytesStorage.MetaData.FilePath = _realSaveFilePath;
++                    SharedDataBytesStorage.MetaData.DirPath = _realSaveDirPath;
++                    _saveRedirected = false;
++                    Memoria.Prime.Log.Message("[ff9mk harness] saves restored to " + _realSaveDirPath);
++                }
++            }
++            catch (Exception err)
++            {
++                // A failed redirect must not be silent -- it means the next autosave lands on the
++                // player's file, which is the entire thing this exists to prevent.
++                Memoria.Prime.Log.Message("[ff9mk harness] SAVE SANDBOX FAILED: " + err);
 +            }
 +        }
 +
@@ -541,6 +745,9 @@ new file mode 100644
 +                return;
 +
 +            _seq = seq;
++            // Per-REQUEST, not per-run: see the _errorSeq comment. The driver can then attribute a
++            // refusal to the step that caused it instead of to whatever ran next.
++            _lastError = null;
 +            Int32 added = 0;
 +            for (Int32 i = 1; i < lines.Length; i++)
 +            {
@@ -575,6 +782,7 @@ new file mode 100644
 +                catch (Exception err)
 +                {
 +                    _lastError = s.Op + ": " + err.Message;
++                    _errorSeq = _seq;
 +                    Event("error", "op", s.Op, "message", err.Message);
 +                }
 +            }
@@ -625,9 +833,22 @@ new file mode 100644
 +                case "release":
 +                {
 +                    Int32 i = (Int32)ParseControl(s.Args.Length > 0 ? s.Args[0] : "");
-+                    // Land the release on the NEXT frame so a consumer that already sampled this frame
-+                    // still sees a consistent held state; _upFrame in the past would never report Up.
-+                    _upFrame[i] = Time.frameCount + 1;
++                    // ⚠ A RELEASE MUST NEVER PRESS. Writing _upFrame alone made IsHeld true for one
++                    // frame on a button that was NOT down (ClearAllButtons leaves _downFrame at -1, so
++                    // `f >= -1 && f < f+1` holds) -- a defensive release injected a phantom press, a
++                    // phantom Up edge, and on a menu a phantom cursor step. A verb whose whole purpose
++                    // is to stop input must not be able to produce any.
++                    if (Time.frameCount >= _downFrame[i] && Time.frameCount < _upFrame[i])
++                    {
++                        // Land it on the NEXT frame so a consumer that already sampled this frame still
++                        // sees a consistent held state; _upFrame in the past would never report Up.
++                        _upFrame[i] = Time.frameCount + 1;
++                    }
++                    else
++                    {
++                        _downFrame[i] = -1;
++                        _upFrame[i] = -1;
++                    }
 +                    break;
 +                }
 +
@@ -637,13 +858,21 @@ new file mode 100644
 +                    Block(2);
 +                    break;
 +
++                // ⚠ THESE USED TO ACK CLEAN WHILE DOING NOTHING. Between them the debug menu has
++                // seven refusal paths ("world warp: overworld only", "not in world mode", "teleport:
++                // outside the 24x20 grid" ...), and every one of them returned silently. The driver
++                // then timed out blaming a destination the engine never attempted, or asserted on an
++                // untouched position and wrote a placement verdict about the map. The menu's own
++                // status line already said what was wrong; nothing was reading it.
 +                case "worldwarp":
-+                    Ff9mkDebugMenu.HarnessWorldWarp(Arg(s, 0, -1), Arg(s, 1, -1), Arg(s, 2, -1));
++                    if (!Ff9mkDebugMenu.HarnessWorldWarp(Arg(s, 0, -1), Arg(s, 1, -1), Arg(s, 2, -1)))
++                        throw new InvalidOperationException(Ff9mkDebugMenu.HarnessStatus ?? "world warp refused");
 +                    Block(2);
 +                    break;
 +
 +                case "teleport":
-+                    Ff9mkDebugMenu.HarnessWorldTeleport(ArgF(s, 0, 0f), ArgF(s, 1, 0f));
++                    if (!Ff9mkDebugMenu.HarnessWorldTeleport(ArgF(s, 0, 0f), ArgF(s, 1, 0f)))
++                        throw new InvalidOperationException(Ff9mkDebugMenu.HarnessStatus ?? "teleport refused");
 +                    Block(2);
 +                    break;
 +
@@ -687,7 +916,18 @@ new file mode 100644
 +                    foreach (String a in s.Args)
 +                    {
 +                        Int32 n;
-+                        if (Int32.TryParse(a, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) && !_watch.Contains(n))
++                        if (!Int32.TryParse(a, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
++                            continue;
++                        // ⚠ THE BOUND TEST MUST BE ON n, NOT ON n >> 3. In C# -1 >> 3 is -1, so a
++                        // negative bit passed the old `(n >> 3) < Length` check, then threw on the
++                        // array read AFTER its key and comma were already in the document buffer. The
++                        // catch does not roll back, so every state.json from then on was invalid JSON
++                        // -- and the driver reads unparseable state as "the agent never published",
++                        // i.e. "this engine predates s83", about a perfectly healthy game. A re-arm
++                        // did not clear it. This was the worst self-inflicted wound in the agent.
++                        if (n < 0 || (n >> 3) >= FF9StateSystem.EventState.gEventGlobal.Length)
++                            throw new ArgumentOutOfRangeException("watch", "bit " + n + " is out of range");
++                        if (!_watch.Contains(n))
 +                            _watch.Add(n);
 +                    }
 +                    break;
@@ -697,8 +937,19 @@ new file mode 100644
 +                    break;
 +
 +                case "timescale":
-+                    Time.timeScale = Mathf.Clamp(ArgF(s, 0, 1f), 0f, 8f);
++                {
++                    // ⚠ NOT ZERO. At timeScale 0 the engine runs no LOGICAL ticks -- HonoBehaviorSystem
++                    // stops stepping, a pending warp can never service -- while Block(), IsHeld() and
++                    // the ack all keep advancing on RENDER frames. Presses open and close, waits
++                    // elapse, every step acks, against a game that executed nothing. Nothing about
++                    // that is distinguishable from success, which makes it the most dangerous value
++                    // the verb could accept.
++                    Single scale = ArgF(s, 0, 1f);
++                    if (scale < 0.1f || scale > 8f)
++                        throw new ArgumentOutOfRangeException("timescale", "must be 0.1 .. 8 (got " + scale + ")");
++                    Time.timeScale = scale;
 +                    break;
++                }
 +
 +                case "stateevery":
 +                    _stateEvery = Math.Max(1, Arg(s, 0, 2));
@@ -710,6 +961,23 @@ new file mode 100644
 +                    Block(2);
 +                    break;
 +
++                // THE ISOLATION PRIMITIVE. `hold` is non-blocking and frame-counted, so a scenario
++                // that raises mid-hold leaves a button DOWN into whatever runs next -- and buttons
++                // were only ever cleared on an arm transition, which is a whole disarm/re-arm cycle.
++                // Without this, running two scenarios in one launch means the first one's leftovers
++                // steering the second, and a suite that cannot isolate its members cannot be believed.
++                case "reset":
++                    ClearAllButtons();
++                    _watch.Clear();
++                    _note = "";
++                    _lastError = null;
++                    _errorSeq = -1;
++                    _stateEvery = 2;
++                    Time.timeScale = 1f;
++                    Event("reset");
++                    Block(2);
++                    break;
++
 +                case "note":
 +                    _note = String.Join(" ", s.Args);
 +                    Event("note", "text", _note);
@@ -718,6 +986,9 @@ new file mode 100644
 +                case "quit":
 +                    Event("quit");
 +                    FlushEvents();
++                    // Leave the SHARED install as we found it. A run that crashed with the scale
++                    // turned up used to hand the next person's game a fast-forward it never asked for.
++                    Time.timeScale = 1f;
 +                    Application.Quit();
 +                    break;
 +
@@ -810,6 +1081,7 @@ new file mode 100644
 +            catch (Exception err)
 +            {
 +                _lastError = "shot: " + err.Message;
++                _errorSeq = _seq;
 +                Event("error", "op", "shot", "message", err.Message);
 +            }
 +            _shotsPending = Math.Max(0, _shotsPending - 1);
@@ -845,8 +1117,19 @@ new file mode 100644
 +            Bool(sb, "busy", _queue.Count > 0 || _shotsPending > 0 || Time.frameCount < _blockUntilFrame); sb.Append(",");
 +            Num(sb, "shots", _shotsTaken); sb.Append(",");
 +            Num(sb, "timescale", Time.timeScale); sb.Append(",");
++            // `armed` is what makes "the agent stood down" distinguishable from "the game hung" --
++            // the two produce an identical silence on the driver side, and the driver used to guess.
++            Bool(sb, "armed", Active); sb.Append(",");
++            Bool(sb, "faulted", _faulted); sb.Append(",");
 +            Str(sb, "note", _note); sb.Append(",");
 +            Str(sb, "error", _lastError); sb.Append(",");
++            Num(sb, "error_seq", _errorSeq); sb.Append(",");
++            // The debug menu's own one-line status: why a refused engine action refused.
++            Str(sb, "debug_status", Try(() => Ff9mkDebugMenu.HarnessStatus)); sb.Append(",");
++            // Where saves are ACTUALLY going right now. Published so the driver can assert the
++            // sandbox is in force before it does anything that could write one.
++            Str(sb, "save_path", Try(() => SharedDataBytesStorage.MetaData.FilePath)); sb.Append(",");
++            Bool(sb, "save_sandboxed", _saveRedirected); sb.Append(",");
 +
 +            Str(sb, "ui_state", Try(() => PersistenSingleton<UIManager>.Instance.State.ToString())); sb.Append(",");
 +            Str(sb, "scene", Try(() => PersistenSingleton<SceneDirector>.Instance.CurrentScene)); sb.Append(",");
@@ -915,9 +1198,16 @@ new file mode 100644
 +
 +        // The on-screen text. This is the assertion that was flatly impossible before -- a scenario can
 +        // now say "after talking to the NPC the box reads <line>" and have it MEAN something.
-+        private void AppendDialog(StringBuilder sb)
++        //
++        // ⚠ EVERY SECTION IS BUILT INTO ITS OWN BUFFER AND APPENDED ONLY ON SUCCESS. The old shape
++        // wrote directly into the shared document and its catch did not roll back, so a read that
++        // threw halfway left a key and its comma behind and the whole state.json became invalid JSON
++        // -- which the driver reads as "the agent never published", i.e. "this engine predates s83",
++        // about a game that is running perfectly. One failed subsystem must cost one null section,
++        // never the document.
++        private void AppendDialog(StringBuilder outer)
 +        {
-+            sb.Append("\"dialog\":{");
++            StringBuilder sb = new StringBuilder(512);
 +            try
 +            {
 +                DialogManager dm = PersistenSingleton<UIManager>.Instance.Dialogs;
@@ -925,7 +1215,21 @@ new file mode 100644
 +                Int32 n = active == null ? 0 : active.Count;
 +                Bool(sb, "open", n > 0); sb.Append(",");
 +                Num(sb, "count", n); sb.Append(",");
++                // ⚠ RENDERED, NOT SOURCE. `Dialog.Phrase` is `CurrentParser.InitialText` -- the raw
++                // sub-page source, tags and all ([STRT=..], [TIME=..], constants) and BEFORE variable
++                // substitution. A scenario asserting on it is matching against a string the player
++                // never sees: a false RED on ordinary dialogue, and a possible false GREEN when the
++                // words it looked for happen to sit inside a tag parameter. `ParsedText` is what is
++                // actually drawn. The source is kept alongside as `phrase_raw`, because when the two
++                // disagree that difference is the evidence.
 +                sb.Append("\"texts\":[");
++                for (Int32 i = 0; i < n; i++)
++                {
++                    if (i > 0) sb.Append(",");
++                    sb.Append(Quote(Rendered(active[i])));
++                }
++                sb.Append("],");
++                sb.Append("\"phrase_raw\":[");
 +                for (Int32 i = 0; i < n; i++)
 +                {
 +                    if (i > 0) sb.Append(",");
@@ -942,6 +1246,28 @@ new file mode 100644
 +                    sb.Append("\"choice\":{");
 +                    Num(sb, "selected", choice.SelectChoice); sb.Append(",");
 +                    Num(sb, "count", choice.ChoiceNumber); sb.Append(",");
++                    // ⚠ THE INDEX SPACE, WHICH NOTHING OUTSIDE THE ENGINE CAN RECONSTRUCT. A choice
++                    // line disabled by the field script is physically REMOVED from the parsed text,
++                    // so it is absent from ChoicePhrases -- while SelectChoice still counts the
++                    // ABSOLUTE list including it. Without this mapping `options()[i]` is not the
++                    // option `select(i)` lands on, and a story scenario confirms a branch it never
++                    // named while reporting green for the branch it thinks it tested.
++                    sb.Append("\"active\":[");
++                    List<Int32> act = choice.ActiveIndexes;
++                    for (Int32 i = 0; act != null && i < act.Count; i++)
++                    {
++                        if (i > 0) sb.Append(",");
++                        sb.Append(act[i].ToString(CultureInfo.InvariantCulture));
++                    }
++                    sb.Append("],");
++                    sb.Append("\"disabled\":[");
++                    List<Int32> dis = choice.DisableIndexes;
++                    for (Int32 i = 0; dis != null && i < dis.Count; i++)
++                    {
++                        if (i > 0) sb.Append(",");
++                        sb.Append(dis[i].ToString(CultureInfo.InvariantCulture));
++                    }
++                    sb.Append("],");
 +                    sb.Append("\"options\":[");
 +                    String[] opts = choice.ChoicePhrases;
 +                    for (Int32 i = 0; opts != null && i < opts.Length; i++)
@@ -954,9 +1280,26 @@ new file mode 100644
 +            }
 +            catch (Exception)
 +            {
-+                sb.Append("\"open\":false,\"count\":0,\"texts\":[],\"choice\":null");
++                outer.Append("\"dialog\":{\"open\":false,\"count\":0,\"texts\":[],\"phrase_raw\":[],\"choice\":null}");
++                return;
 +            }
-+            sb.Append("}");
++            outer.Append("\"dialog\":{").Append(sb).Append("}");
++        }
++
++        /// <summary>What the box actually draws, falling back to the source when no parser exists yet.</summary>
++        private static String Rendered(Dialog d)
++        {
++            if (d == null)
++                return null;
++            try
++            {
++                if (d.CurrentParser != null && !String.IsNullOrEmpty(d.CurrentParser.ParsedText))
++                    return d.CurrentParser.ParsedText;
++            }
++            catch (Exception)
++            {
++            }
++            return d.Phrase;
 +        }
 +
 +        // WHAT IS HIGHLIGHTED. Without this a scenario can move a menu cursor but has no idea where it
@@ -968,22 +1311,35 @@ new file mode 100644
 +        // `selectedObject` is NGUI's keyboard/controller focus; `hoveredObject` is what the pointer is
 +        // over. Both are reported because FF9 drives some screens through one and some through the
 +        // other, and a scenario that assumed either would work only half the time.
-+        private void AppendMenu(StringBuilder sb)
++        private void AppendMenu(StringBuilder outer)
 +        {
-+            sb.Append("\"menu\":{");
++            StringBuilder sb = new StringBuilder(256);
 +            try
 +            {
 +                GameObject sel = UICamera.selectedObject;
 +                GameObject hov = UICamera.hoveredObject;
 +                Str(sb, "selected", sel == null ? null : sel.name); sb.Append(",");
 +                Str(sb, "hovered", hov == null ? null : hov.name); sb.Append(",");
-+                Str(sb, "label", LabelOf(sel) ?? LabelOf(hov));
++                Str(sb, "label", LabelOf(sel) ?? LabelOf(hov)); sb.Append(",");
++                // THE SUB-SCREEN TELL. `ui_state` does NOT move for a menu sub-screen -- confirming
++                // "Status" enters character select while ui_state stays MainMenu -- so nothing
++                // published could verify that a menu was actually entered or LEFT. That second half
++                // is the rung a between-scenario recovery ladder cannot skip.
++                Str(sb, "group", Try(() => ButtonGroupState.ActiveGroup)); sb.Append(",");
++                // And the button the engine itself decides on: UIKeyTrigger reads
++                // ButtonGroupState.ActiveButton FIRST and only falls back to UICamera.selectedObject
++                // when it is null -- the harness was publishing the fallback. Both are reported so a
++                // scenario can OBSERVE that they agree instead of assuming it.
++                GameObject act = Try(() => ButtonGroupState.ActiveButton);
++                Str(sb, "button", act == null ? null : act.name); sb.Append(",");
++                Str(sb, "button_label", LabelOf(act));
 +            }
 +            catch (Exception)
 +            {
-+                sb.Append("\"selected\":null,\"hovered\":null,\"label\":null");
++                outer.Append("\"menu\":{\"selected\":null,\"hovered\":null,\"label\":null,\"group\":null,\"button\":null,\"button_label\":null}");
++                return;
 +            }
-+            sb.Append("}");
++            outer.Append("\"menu\":{").Append(sb).Append("}");
 +        }
 +
 +        /// <summary>The visible text of a menu widget: its own UILabel, else the first one beneath it.</summary>
@@ -1006,24 +1362,30 @@ new file mode 100644
 +            return null;
 +        }
 +
-+        private void AppendWatch(StringBuilder sb)
++        private void AppendWatch(StringBuilder outer)
 +        {
-+            sb.Append("\"flags\":{");
++            StringBuilder sb = new StringBuilder(128);
 +            try
 +            {
 +                Byte[] g = FF9StateSystem.EventState.gEventGlobal;
 +                for (Int32 i = 0; i < _watch.Count; i++)
 +                {
 +                    Int32 n = _watch[i];
-+                    if (i > 0) sb.Append(",");
-+                    Boolean set = (n >> 3) < g.Length && (g[n >> 3] & (1 << (n & 7))) != 0;
++                    // Belt and braces behind the `watch` verb's own guard: the bound must be tested on
++                    // n itself, because -1 >> 3 is -1 and would sail through a shifted comparison.
++                    if (n < 0 || (n >> 3) >= g.Length)
++                        continue;
++                    if (sb.Length > 0) sb.Append(",");
++                    Boolean set = (g[n >> 3] & (1 << (n & 7))) != 0;
 +                    Bool(sb, n.ToString(CultureInfo.InvariantCulture), set);
 +                }
 +            }
 +            catch (Exception)
 +            {
++                outer.Append("\"flags\":{}");
++                return;
 +            }
-+            sb.Append("}");
++            outer.Append("\"flags\":{").Append(sb).Append("}");
 +        }
 +
 +        private static void AppendHeld(StringBuilder sb)

@@ -55,6 +55,54 @@ is what makes this safe on an install shared by many concurrent worktrees and by
 actually plays this game. The driver creates `arm` on start and removes it on teardown, **including
 when the scenario raises**.
 
+⚠ **Arming is a TRANSITION, not a file that exists.** The agent compares the file against its own flag
+and returns early when they agree, so writing over an existing `arm` changes nothing on its side: the
+sequence numbers are not reset, held buttons are not released, the error latch is not cleared. A run
+that inherits a leaked arm therefore has every request discarded as stale *while the stale ack answers
+its waits* — every step a silent no-op reported as success. The driver deletes, waits out the agent's
+30-frame poll, then creates, and it will not start at all while another **live** run owns the arm (the
+file carries the owner's pid).
+
+### It does not touch your save
+
+⚠ **It used to.** Measured on 2026-08-31: an ordinary `newgame(); warp()` — the opening every scenario
+shares — rewrote both live save containers, because `EventEngine` autosaves on ordinary field entry and
+`DisableAutoSave` is 0 on this install. Manual slots survived; the autosave did not.
+
+Two defences now:
+
+- **The engine sandboxes** (`s83` rev 2): while armed, saves go to `ff9harness/save/` instead of your
+  save folder, and the path is published so the driver can check it. `Session.start()` **refuses to
+  run** if the engine says it did not redirect. A sandbox that is trusted rather than verified is a
+  check that cannot fail.
+- **The driver backs up** the live containers into `<run>/saves-before/` before the game is launched,
+  on every engine version, and tells you at teardown if any of them moved.
+
+---
+
+## What the driver refuses to tell you
+
+A harness that reports confidently and wrongly is worse than no harness, and this one did it three
+times before the defects were found. So a number of verbs now decline rather than guess. If one of
+these fires, it is telling you it *cannot know* — not that the game is broken.
+
+| It refuses | Because |
+|---|---|
+| a step whose request the agent never accepted | `req.txt` is one last-write-wins slot; overwriting it destroys the previous request invisibly |
+| a predicate that raised on every sample | that is a broken assertion, not a failed game condition |
+| a wait satisfied only by a frozen channel | a hung agent's last `state.json` satisfies most predicates |
+| `warp` when no `DictionaryPatch.txt` can be read | "nothing is registered" and "I could not read the registrations" are different facts |
+| an axis basis measured against a wall | the character keeps *moving* when he slides, so "did it move" cannot catch it |
+| `expect_text("")` | `"" in anything` is true — it passed against an empty screen |
+| `timescale 0` | the engine runs no logical ticks while every step still acks |
+| a field verb on the overworld | `player.x` there is the same value ×256 — a different space, not a null |
+| `menu_labels()` with no menu open | those 30 direction presses would drive the field instead, walking the character under test |
+| a second run while another live one owns the arm | they would delete each other's artifacts and overwrite each other's requests |
+
+`report.json` has three verdicts, not two: `pass`, `fail`, and **`proved-nothing`** for a run that
+recorded no checks. It also records `driver_protocol` and `engine_protocol`, because a green run
+against an older channel is green *under caveats*.
+
 ---
 
 ## Running one

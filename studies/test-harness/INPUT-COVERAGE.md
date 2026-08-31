@@ -8,6 +8,14 @@ handed to an independent agent whose job was to **refute** it by reading the cod
 
 **22 confirmed, 6 refuted.**
 
+> ⚠ 2026-08-31 — the OVERWORLD section below is partly WRONG, and the correction is the same shape as
+> the law at the top of this file. A recon pass refuted three of its four premises: `w_movementHumanOperation`
+> does NOT read the pad directly, so **the harness can already walk on foot on the overworld**. What
+> actually failed there was the DRIVER, which steered on `player.x` — not null on the world map but the
+> same value ×256, a different coordinate space — and therefore converged on confident wrong numbers
+> instead of failing. The field verbs now refuse off-field. The vehicle-throttle and camera-yaw entries
+> stand. Re-verify a claim here before acting on it.
+
 > Read this before concluding the harness is broken. If a scenario cannot drive something, check
 > here first — the honest answer may be that the hooks do not reach it yet.
 
