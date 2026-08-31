@@ -99,6 +99,10 @@ class FakeGame:
         self.note = ""
         self.shots_taken = 0
         self.walkmesh = walkmesh
+        #: Whether the agent has redirected its save path away from the player's folder. Modelled
+        #: because the driver must VERIFY this rather than trust it -- an unchecked sandbox is a
+        #: check that cannot fail, and what it would fail to catch is the owner's overwritten game.
+        self.save_sandboxed = True
         self.gateway: tuple[float, float, float, float, int] | None = None
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
@@ -429,6 +433,8 @@ class FakeGame:
             "shots": self.shots_taken, "timescale": 1.0, "note": self.note,
             "error": self.error, "error_seq": self.error_seq,
             "debug_status": None,
+            "save_path": str(self.dir / "save" / "SavedData_ww.dat"),
+            "save_sandboxed": self.save_sandboxed,
             "ui_state": self.ui_state, "scene": "FieldMap", "fading": False,
             "sys_mode": 1, "scenario": 0,
             "field": {"id": self.field_id, "name": f"FBG_FAKE_{self.field_id}"},

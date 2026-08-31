@@ -35,7 +35,13 @@ import shutil
 import time
 from pathlib import Path
 
-PROTOCOL = 1
+#: The wire version this driver speaks. Bumped with every change to what ``state.json`` MEANS, not
+#: merely to what it contains.
+#:
+#: 1 -- the original s83 channel.
+#: 2 -- ``texts`` is the RENDERED dialogue (was the raw source), the choice publishes its index
+#:      space, and the agent reports ``armed`` / ``error_seq`` / ``debug_status``.
+PROTOCOL = 2
 
 #: The agent polls the arm file every 30 frames (HarnessAgent.PollArm). A delete+create inside one
 #: window is INVISIBLE to it -- ``armed == Active``, early return, no reset of seq/ack, no button

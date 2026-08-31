@@ -88,6 +88,9 @@ def session(game_path, fake, **kw):
     return Session(
         game_path=game_path,
         run_dir=game_path / "run",
+        # ⚠ Pinned through the seam. The real one is the OWNER'S SAVE FOLDER on a shared machine;
+        # a test that read it would copy 3 MB per case and, worse, teach the suite to touch it.
+        save_dir=game_path / "player-saves",
         pid_probe=lambda: [],
         launcher=lambda exe: fake.start(),
         boot_timeout=15.0,
@@ -847,3 +850,29 @@ def test_classify_names_the_reason_state_is_absent(game):
     (ch.dir / "state.json").write_text(json.dumps({"frame": 1}), encoding="utf-8")
     os.utime(ch.dir / "state.json", (time.time() - 600, time.time() - 600))
     assert ch.classify().startswith("STALE")
+
+
+def test_a_run_refuses_to_start_when_the_engine_will_not_sandbox_saves(game):
+    """MEASURED 2026-08-31: an ordinary newgame()+warp() rewrote the owner's save containers.
+
+    EventEngine autosaves on field entry and DisableAutoSave is 0 on this install, so the opening
+    every scenario shares was stamping a scenario-zero autosave over a real player's game. The
+    engine now redirects its save path while armed -- and the driver must CHECK that, because a
+    sandbox nobody verified is exactly the kind of guard that silently stops working.
+    """
+    fake = FakeGame(game)
+    fake.save_sandboxed = False
+    with pytest.raises(HarnessError, match="did NOT redirect its save path"):
+        with session(game, fake):
+            pass
+
+
+def test_the_players_saves_are_copied_before_the_game_is_launched(game):
+    """Belt to the sandbox's braces, and it works on an engine too old to have one."""
+    saves = game / "player-saves"
+    saves.mkdir()
+    (saves / "SavedData_ww.dat").write_bytes(b"the owner's game")
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+    assert (game / "run" / "saves-before" / "SavedData_ww.dat").read_bytes() == b"the owner's game"

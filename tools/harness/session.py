@@ -62,6 +62,11 @@ DEFAULT_SIZE = (1280, 720)
 #: REAL) field, and a wait for the id you asked for can never be satisfied.
 MAX_FIELD_ID = 32767
 
+#: Where FF9 (Steam) keeps the player's saves. Unity's persistentDataPath under LocalLow. The
+#: harness never writes here -- it BACKS IT UP and then asserts the engine sandboxed away from it.
+PLAYER_SAVE_DIR = Path(os.path.expandvars(
+    r"%USERPROFILE%\AppData\LocalLow\SquareEnix\FINAL FANTASY IX\Steam\EncryptedSavedData"))
+
 #: A published document this recent counts as a LIVE game talking. The agent republishes ~30x/second,
 #: so anything older is a photograph -- and a photograph satisfies most predicates just as well as a
 #: running game does.
@@ -163,6 +168,7 @@ class Session:
         window_size: tuple[int, int] = DEFAULT_SIZE,
         pid_probe=None,
         launcher=None,
+        save_dir: str | os.PathLike | None = None,
     ):
         self.window_size = window_size
         # ``pid_probe`` / ``launcher`` are the test seam. They exist so the offline suite can drive a
@@ -171,6 +177,10 @@ class Session:
         # learned the hard way. Production leaves both None.
         self._pid_probe = pid_probe or ff9_pids
         self._launcher = launcher
+        # The player's save folder is a REAL path on a shared machine, so the tests must pin it the
+        # same way they pin the game path -- through a seam, never by reading the real thing. The
+        # deploy tooling learned this the hard way when a pinned id leaked into the owner's GUI.
+        self.save_dir = Path(save_dir) if save_dir else PLAYER_SAVE_DIR
         self.label = label
         self.game_path = Path(game_path) if game_path else find_game_path()
         self.attach = attach
@@ -183,6 +193,7 @@ class Session:
         self.checks: list[dict] = []
         self._axes: dict[int, dict] = {}      # field id -> measured button->world basis
         self._last_error: str | None = None   # the agent's error latch as of the last successful ack
+        self.engine_protocol: int | None = None   # what the DEPLOYED engine speaks, once it answers
         stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.run_dir = Path(run_dir) if run_dir else RUNS / f"{stamp}-{label}"
 
@@ -213,6 +224,7 @@ class Session:
         if not running and self.attach:
             raise HarnessError("attach=True but no FF9 process is running.")
 
+        self._backup_player_saves()
         # Refuse a shared channel BEFORE touching it: reset() deletes events.jsonl and every PNG, so
         # doing it while another live run owns the arm destroys their evidence, not just ours.
         self.channel.claim()
@@ -249,6 +261,7 @@ class Session:
 
         self._await_agent()
         self._adopt_agent()
+        self._assert_save_sandbox()
 
     def _adopt_agent(self) -> None:
         """Reconcile the driver's sequence counter and protocol with the agent that actually answered.
@@ -261,20 +274,100 @@ class Session:
            above the agent's own counter makes that unreachable regardless of what it did on arm.
         2. The deployed DLL is OLDER than this driver. Every ``State`` accessor degrades a missing
            section to a sentinel, so a version skew reads as game data rather than as a mismatch.
+           An older engine is DEGRADED but usable, so it warns rather than refusing -- and the
+           degradation is recorded in the report, because "we ran against an engine that publishes
+           the raw dialogue source" is exactly the kind of caveat a green result must carry. A
+           NEWER engine is refused outright: this driver does not know what its keys mean.
         """
         st = self.channel.state()
         if st is None:
             return
-        if st.protocol is not None and st.protocol != PROTOCOL:
+        self.engine_protocol = st.protocol
+        if st.protocol is not None and st.protocol > PROTOCOL:
             raise HarnessError(
                 f"protocol mismatch: this driver speaks {PROTOCOL}, the deployed engine speaks "
-                f"{st.protocol}. Rebuild the DLL (memoria-patch s83) or check out the matching "
-                f"driver -- a skew reads as game data, not as an error."
+                f"{st.protocol}. Update the driver -- reading a newer channel by guesswork is how a "
+                f"skew turns into game data."
+            )
+        if st.protocol is not None and st.protocol < PROTOCOL:
+            self._log(
+                f"!! the deployed engine speaks protocol {st.protocol}, this driver speaks "
+                f"{PROTOCOL}. Running DEGRADED: dialogue `texts` is the raw SOURCE (tags and "
+                f"un-substituted variables), the choice index space is unpublished, and refusals of "
+                f"worldwarp/teleport ack clean. Rebuild the DLL before trusting a text assertion."
             )
         if st.seq > 0:
             self._log(f"the agent is at seq {st.seq} (it did not reset on arm) -- continuing above it")
             self.channel.seed_seq(st.seq)
         self._last_error = st.error
+
+    # -- the player's saves ---------------------------------------------------------------------
+    # ⚠ MEASURED, NOT SUSPECTED. On 2026-08-31 `scenarios/save_untouched.py` showed that an ordinary
+    # `newgame(); warp()` -- the opening of EVERY scenario -- changed both of the owner's live save
+    # containers, because EventEngine autosaves on field entry and DisableAutoSave is 0 here. Manual
+    # slots survived; the autosave did not. Two defences, because one of them needs a rebuilt DLL:
+    #   1. back the containers up before the game is even launched (always, cheap, driver-only), and
+    #   2. assert the engine redirected its save path into the channel (protocol >= 2).
+
+    def _backup_player_saves(self) -> int:
+        """Copy the live save containers into the run directory before anything can touch them."""
+        if not self.save_dir.is_dir():
+            return 0
+        dest = self.run_dir / "saves-before"
+        n = 0
+        for path in sorted(self.save_dir.glob("SavedData_ww*.dat")):
+            try:
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dest / path.name)
+                n += 1
+            except OSError as err:
+                self._log(f"could not back up {path.name}: {err}")
+        if n:
+            self._log(f"backed up {n} save container(s) to {dest}")
+        return n
+
+    def _changed_player_saves(self) -> list[str]:
+        """Which of the backed-up containers the run moved. Empty is the only acceptable answer."""
+        import filecmp
+
+        dest = self.run_dir / "saves-before"
+        if not dest.is_dir():
+            return []
+        moved = []
+        for backup in sorted(dest.glob("*.dat")):
+            live = self.save_dir / backup.name
+            try:
+                if not live.exists() or not filecmp.cmp(backup, live, shallow=False):
+                    moved.append(backup.name)
+            except OSError:
+                pass
+        return moved
+
+    def _assert_save_sandbox(self) -> None:
+        """Verify the engine moved its save path off the player's file -- never assume it.
+
+        A sandbox that is trusted rather than checked is a check that cannot fail, and the thing it
+        would fail to catch is silently overwriting the owner's game.
+        """
+        st = self.channel.state()
+        if st is None:
+            return
+        sandboxed = st.raw.get("save_sandboxed")
+        if sandboxed is None:
+            self._log("!! this engine does not sandbox saves (protocol < 2): an autosave on field "
+                      f"entry WILL write {self.save_dir}. A copy is in {self.run_dir / 'saves-before'}.")
+            return
+        if not sandboxed:
+            try:
+                st = self.wait_for(lambda s: s.raw.get("save_sandboxed") is True, timeout=5.0,
+                                   what="the engine to sandbox its save path")
+            except HarnessError as err:
+                raise HarnessError(
+                    f"the engine did NOT redirect its save path, so an autosave on field entry "
+                    f"would overwrite the player's game in {self.save_dir}. Refusing to run. "
+                    f"({err})"
+                ) from err
+        self._log(f"saves sandboxed to {st.raw.get('save_path')}")
 
     def _atexit_disarm(self) -> None:
         try:
@@ -337,6 +430,10 @@ class Session:
                         step()
                     except Exception as err:                       # noqa: BLE001 - see above
                         self._log(f"teardown: {step} failed ({err})")
+            moved = self._changed_player_saves()
+            if moved:
+                self._log("!! THIS RUN CHANGED THE PLAYER'S SAVE: " + ", ".join(moved)
+                          + f" -- the pre-run copies are in {self.run_dir / 'saves-before'}")
             self._log(f"artifacts in {self.run_dir}")
 
     def _collect_log(self) -> None:
@@ -1723,6 +1820,11 @@ class Session:
             "attached": self.attach,
             "raised": failed,
             "verdict": verdict,
+            # The engine that was actually driven. A green run against an OLDER channel is green
+            # under caveats (raw dialogue source, no choice index space, silent world refusals), and
+            # a report that does not say so invites the result to be read as unconditional.
+            "driver_protocol": PROTOCOL,
+            "engine_protocol": self.engine_protocol,
             "checks_recorded": len(self.checks),
             "passed": verdict == "pass",
             "checks": self.checks,
