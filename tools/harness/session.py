@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import atexit
 import datetime as _dt
+import json
 import os
 import re
 import shutil
@@ -205,6 +206,9 @@ class Session:
         #: One automatic screenshot per scenario, at its FIRST failure -- the moment worth seeing.
         self._shot_on_failure = True
         self._failure_shot_taken = False
+        #: Set by SuiteRunner. When true, `self.checks` belongs to ONE MEMBER of a suite, so a
+        #: whole-run verdict computed from it would describe the last scenario and label it the run.
+        self._suite_owned = False
         stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.run_dir = Path(run_dir) if run_dir else RUNS / f"{stamp}-{label}"
 
@@ -1758,10 +1762,20 @@ class Session:
     def soft_reset(self, *, timeout: float = 45.0, frames: int = 8) -> State:
         """Return to the title screen from ANYWHERE, using the game's own soft reset.
 
-        This is the only recovery rung that reaches a battle, a stuck menu or a black screen --
-        `warp` refuses outside FieldHUD and `reset` only clears the harness's own state. FF9's
-        handler closes every dialog, hides the HUD, disables all button groups and the battle menu,
-        un-pauses, normalises `btl_seq`, and replaces the scene with Title.
+        FF9's handler closes every dialog, hides the HUD, disables all button groups and the battle
+        menu, un-pauses, normalises `btl_seq`, and replaces the scene with Title.
+
+        ⚠ IT DOES NOT ESCAPE AN OPEN MENU, and that was measured rather than reasoned. An earlier
+        version of this docstring claimed it reached "a battle, a stuck menu or a black screen"; the
+        engine says otherwise and so does the game. `UIKeyTrigger.Update` runs
+        `if (HandleMenuControlKeyPressCustomInput()) return;` BEFORE the soft-reset check, and that
+        handler consumes `Control.Select` unconditionally (`:688`) -- note the neighbouring Pause
+        branch (`:681`) IS guarded with `&& !SoftResetKeyPSXForPause`, so the authors protected the
+        combo from one branch and not the other. Measured with
+        `scenarios/soft_reset_reach.py`: from a FIELD, YES; from an open MainMenu, NO.
+
+        That is why :meth:`restore_baseline` closes open UI FIRST. Nothing about a ladder works if a
+        rung's reach is assumed.
 
         ⚠ ALL SIX BUTTONS MUST REPORT `IsInputDown` ON THE SAME FRAME, which is why they go in ONE
         request: every step of a request is drained in a single pass, so all six are scheduled with
@@ -1772,7 +1786,6 @@ class Session:
         default is 0. So this asserts on the outcome (the title screen actually arriving) rather
         than returning and letting the caller assume it worked.
         """
-        self.reset_agent()
         steps = [f"hold {b} {frames}" for b in self.SOFT_RESET_BUTTONS]
         self.send(*steps, f"wait {frames + 4}")
         try:
@@ -1787,6 +1800,30 @@ class Session:
         self._sleep_alive(0.5)          # let the scene transition finish before anyone acts on it
         return st
 
+    def close_ui(self, *, attempts: int = 6, timeout: float = 20.0) -> State:
+        """Back out of whatever is open until the game is on a field or the world map.
+
+        THE RUNG THE SOFT RESET CANNOT BE. `UIKeyTrigger` swallows the soft-reset combo inside any
+        menu (measured -- see :meth:`soft_reset`), and a scenario is far more likely to end in a menu
+        or a dialogue than anywhere else, so a ladder without this step would poison every scenario
+        after one that left the menu open. `warp` is no help either: it refuses outside FieldHUD.
+
+        Cancel is the right key precisely BECAUSE the menu handler consumes it -- that is what backs
+        a screen out. It stops as soon as the game is somewhere a soft reset works from.
+        """
+        for _ in range(attempts):
+            st = self.channel.state()
+            if st is None:
+                break
+            if st.ui_state in ("FieldHUD", "WorldHUD", "Title") and not st.dialog_open:
+                return st
+            self.press("cancel", 4)
+            self.wait_frames(12)
+        return self.wait_for(
+            lambda s: s.ui_state in ("FieldHUD", "WorldHUD", "Title") and not s.dialog_open,
+            timeout=timeout,
+            what="the open menu or dialogue to close so a soft reset can be delivered")
+
     def at_baseline(self) -> tuple[bool, str]:
         """Is the game in the state a scenario is entitled to assume? Returns ``(ok, why)``.
 
@@ -1797,10 +1834,19 @@ class Session:
         st = self.channel.state()
         if st is None:
             return False, f"no state published -- {self.channel.classify()}"
-        if st.armed is False:
-            return False, "the agent has disarmed"
+        # ⚠ FRESHNESS FIRST. Every predicate below is satisfied just as well by the last document a
+        # HUNG agent left behind, so without this the one rung whose entire job is verification is a
+        # check that cannot fail: a dead game whose final state happened to say Title was certified
+        # "at the title, idle", the scenario was launched against a corpse, and it was then filed as
+        # `error` -- the runner blaming the game for the runner's own dead channel.
+        if st.age is not None and st.age > LIVE_WITHIN:
+            return False, f"the newest state is {st.age:.1f}s old -- {self.channel.classify()}"
+        # Fault before disarm: a faulted agent also disarms itself, so testing `armed` first reported
+        # every fault as a plain stand-down and threw away the error that explained it.
         if st.raw.get("faulted"):
             return False, f"the agent faulted: {st.error}"
+        if st.armed is False:
+            return False, "the agent has disarmed"
         if st.ui_state != "Title":
             return False, f"ui_state is {st.ui_state!r}, not Title"
         if st.held:
@@ -1832,27 +1878,46 @@ class Session:
 
         rungs = [
             ("release the harness's own state", self.reset_agent),
+            # ⚠ BEFORE the soft reset, not after: the combo is swallowed inside any menu, so this is
+            # the only rung that can get out of one -- and a menu is where scenarios end.
+            ("close whatever UI is open", self.close_ui),
             ("soft reset to the title", self.soft_reset),
         ]
+        troubles = []
         for name, rung in rungs:
             try:
                 rung()
             except HarnessError as err:
+                # Keep it: when the ladder runs out, THIS is the diagnosis. Reporting only the final
+                # at_baseline complaint describes the symptom and discards the cause.
+                troubles.append(f"{name}: {err}")
                 self._log(f"  restore: {name} failed ({err})")
                 continue
             ok, why = self.at_baseline()
             if ok:
                 return True, f"restored by: {name}"
-        return False, f"the ladder did not restore the baseline: {why}"
+        detail = f"the ladder did not restore the baseline: {why}"
+        if troubles:
+            detail += " | rung failures: " + " ;; ".join(troubles)
+        return False, detail
 
     def begin_scenario(self, label: str) -> None:
         """Start a fresh scenario on this session: clear checks, namespace its screenshots."""
         self.checks = []
         self.shot_prefix = label
         self._failure_shot_taken = False
+        # ⚠ The agent's error latch is per-request on the engine side, but the DRIVER also keeps the
+        # last one it saw to attribute blame. Carried across a scenario boundary it makes one
+        # scenario's refusal raise against the next scenario's first innocent step.
+        self._last_error = None
         # A basis is per-field AND per-scenario: the previous scenario may have left the character
         # somewhere its probes were deflected, and a cached bad basis steers every later walk.
         self._axes.clear()
+        # `reset_agent` is documented as the isolation primitive and was only ever reached as a
+        # RECOVERY rung -- so on the happy path (the previous scenario ended tidily) held buttons,
+        # a stale watch list and a changed timescale carried straight into the next member. Run it
+        # unconditionally: that is what makes it a primitive rather than a fallback.
+        self.reset_agent()
         self.note(f"scenario {label}")
 
     def quit(self, *, timeout: float = 15.0) -> None:
@@ -1952,6 +2017,28 @@ class Session:
 
     def _write_report(self, failed: bool) -> None:
         import json
+        # ⚠ UNDER A SUITE THIS FILE MUST NOT CARRY A VERDICT. `self.checks` is rebound per scenario
+        # by `begin_scenario`, so a whole-run verdict computed from it describes only the LAST member
+        # -- and a ten-scenario suite whose first nine failed wrote `"passed": true` under the exact
+        # filename this tool documents as the run's report. suite.json is the authority there; this
+        # points at it rather than contradicting it.
+        if self._suite_owned:
+            report = {
+                "label": self.label,
+                "when": _dt.datetime.now().isoformat(timespec="seconds"),
+                "game_path": str(self.game_path),
+                "attached": self.attach,
+                "raised": failed,
+                "verdict": "see suite.json",
+                "note": ("this run was a SUITE -- per-scenario verdicts are in suite.json and in each "
+                         "<NN>-<name>/report.json. The session's own check list belongs to whichever "
+                         "scenario ran last and is deliberately not scored here."),
+                "driver_protocol": PROTOCOL,
+                "engine_protocol": self.engine_protocol,
+            }
+            (self.run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+            return
+
         # THREE outcomes, not two. A run that recorded nothing proved nothing, and calling that
         # "passed": true is the purest form of the failure this whole audit is about -- play.py
         # already refuses to call it a pass, and report.json used to say the opposite.

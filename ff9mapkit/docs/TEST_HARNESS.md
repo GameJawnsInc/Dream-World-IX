@@ -121,10 +121,23 @@ the rung worked**:
 | Rung | What it does |
 |---|---|
 | `reset` | releases every held button, clears the watch list, restores timescale |
+| `close_ui` | presses Cancel until the game is on a field, the world map, or the title |
 | soft reset | FF9's own L1+L2+R1+R2+Start+Select — closes every dialog, disables all button groups and the battle menu, un-pauses, normalises `btl_seq`, and replaces the scene with Title |
 
-The soft reset is the only rung that reaches a **battle** or a **black screen**; `warp` refuses
-outside `FieldHUD`. Two things about it worth knowing:
+**Why `close_ui` comes first, and how we know.** An earlier version of this page said the soft reset
+"reaches a battle, a stuck menu or a black screen". That was wrong about menus.
+`UIKeyTrigger.Update` runs `if (HandleMenuControlKeyPressCustomInput()) return;` **before** the
+soft-reset check, and that handler consumes `Control.Select` unconditionally — note the neighbouring
+Pause branch *is* guarded with `&& !SoftResetKeyPSXForPause`, so the engine authors protected the
+combo from one branch and not the other.
+
+Reading the code gave two answers, so it was measured instead
+(`scenarios/soft_reset_reach.py`): **from a field YES, from an open MainMenu NO.** A menu is where a
+scenario is most likely to end and `warp` also refuses outside `FieldHUD`, so without the `close_ui`
+rung the ladder would have poisoned every scenario after one that left a menu open. That scenario is
+now in the suite and asserts the measurement, so an engine change reports itself.
+
+Two more things worth knowing:
 
 - **All six buttons must report `IsInputDown` on the same frame**, which is why they go in one
   request — every step of a request drains in a single pass, so their Down edges coincide. Six
@@ -146,6 +159,11 @@ outside `FieldHUD`. Two things about it worth knowing:
 failure would be the harness blaming the game for its own inability to clean up — the exact mistake
 this arc has already made three times. Neither `poisoned` nor `proved-nothing` counts toward a pass,
 and the exit code is 0 only when every member passed.
+
+⚠ Under a suite the run-level `report.json` carries **no verdict** — it points at `suite.json`
+instead. It is written from the session's check list, which belongs to whichever scenario ran last,
+so scoring it would describe one member and label it the run. (It did exactly that until an audit
+caught it: a ten-scenario suite whose first nine failed wrote `"passed": true`.)
 
 ### What you get back
 

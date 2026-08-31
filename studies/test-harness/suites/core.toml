@@ -33,6 +33,12 @@ path = "studies/test-harness/scenarios/rev2_proof.py"
 [[scenario]]
 path = "studies/test-harness/scenarios/save_untouched.py"
 
+# The recovery ladder's own reach, measured rather than assumed: the soft reset works from a field
+# and is SWALLOWED inside a menu, which is why the ladder closes open UI first. If the engine ever
+# changes here, the suite that depends on the ladder is the right place to find out.
+[[scenario]]
+path = "studies/test-harness/scenarios/soft_reset_reach.py"
+
 # -- the physical axis ----------------------------------------------------------------------
 # The acceptance test for injected input: it asserts the POSITION CHANGED, which is the one thing a
 # half-wired input path cannot fake. The analog-axis bug passed every "was the press received" probe

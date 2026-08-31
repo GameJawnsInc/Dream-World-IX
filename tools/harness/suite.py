@@ -51,14 +51,12 @@ VERDICTS = ("pass", "fail", "error", "poisoned", "proved-nothing")
 class Scenario:
     """One entry in a suite manifest."""
 
-    __slots__ = ("path", "field", "label", "timeout")
+    __slots__ = ("path", "field", "label")
 
-    def __init__(self, path: Path, field: int | None = None, label: str | None = None,
-                 timeout: float | None = None):
+    def __init__(self, path: Path, field: int | None = None, label: str | None = None):
         self.path = Path(path)
         self.field = field
         self.label = label or self.path.stem
-        self.timeout = timeout
 
     def __repr__(self) -> str:
         return f"<Scenario {self.label} field={self.field}>"
@@ -97,8 +95,18 @@ def load_manifest(path: Path, repo: Path) -> tuple[dict, list[Scenario]]:
             raise HarnessError(f"{path}: [[scenario]] #{i + 1} points at {resolved}, which does not "
                                f"exist. Refusing to start -- a suite that silently skips a member "
                                f"reports a smaller pass than it claims.")
+        # ⚠ NO per-scenario `timeout` key. One was accepted and stored and never read, which is
+        # worse than not offering it: a manifest author would reasonably read it as a hang guard and
+        # get none. A real one needs the scenario to run somewhere it can be interrupted; until that
+        # exists, an unknown key is refused rather than silently ignored.
+        unknown = set(row) - {"path", "field", "label"}
+        if unknown:
+            raise HarnessError(
+                f"{path}: [[scenario]] #{i + 1} has unknown key(s) {sorted(unknown)}. Refusing rather "
+                f"than ignoring them -- a key that is silently dropped reads as a setting that works."
+            )
         scenarios.append(Scenario(resolved, field=row.get("field", default_field),
-                                  label=row.get("label"), timeout=row.get("timeout")))
+                                  label=row.get("label")))
     return meta, scenarios
 
 
@@ -133,6 +141,9 @@ class SuiteRunner:
         self.run_dir = Path(run_dir) if run_dir else session.run_dir
         self.verbose = verbose
         self.results: list[dict] = []
+        # The session's own report.json shares this directory with suite.json. Tell it so, or it
+        # scores the LAST member's checks and publishes them as the run's verdict.
+        session._suite_owned = True
 
     # -- reporting ----------------------------------------------------------------------------
     def _log(self, msg: str) -> None:
@@ -151,10 +162,38 @@ class SuiteRunner:
 
     # -- the loop -----------------------------------------------------------------------------
     def run(self) -> list[dict]:
+        """Every scenario gets a verdict, and the report is always written.
+
+        ⚠ Both halves are load-bearing. An exception escaping the loop used to drop the current
+        scenario's row, leave every later one with NO verdict at all -- not even `poisoned` -- and
+        skip `suite.json` entirely, so the last machine-readable word about a suite that died at
+        member 2 of 10 was a single PASS. The design's own rule is that a scenario the runner cannot
+        serve is voided, never dropped; that rule has to survive the runner's own failures too.
+        """
         total = len(self.scenarios)
         self._log(f"{total} scenario(s), one launch")
-        for index, scenario in enumerate(self.scenarios, start=1):
-            self.results.append(self._run_one(index, total, scenario))
+        # The game spends several seconds in "Initial" after launch -- before anything a baseline
+        # check could be true of. Waiting here keeps the first scenario from being measured against
+        # a booting game and escalated to a soft reset that cannot land yet.
+        try:
+            self.session.wait_for(lambda s: s.ui_state in ("Title", "FieldHUD", "WorldHUD"),
+                                  timeout=180, what="the game to finish booting")
+        except HarnessError as err:
+            self._log(f"the game never finished booting: {err}")
+        try:
+            for index, scenario in enumerate(self.scenarios, start=1):
+                self.results.append(self._run_one(index, total, scenario))
+        except BaseException as err:                       # noqa: BLE001 - see the docstring
+            done = len(self.results)
+            for index, scenario in enumerate(self.scenarios[done:], start=done + 1):
+                self.results.append({
+                    "index": index, "label": scenario.label, "path": str(scenario.path),
+                    "field": scenario.field, "verdict": "poisoned", "checks": [], "seconds": 0.0,
+                    "detail": f"the suite aborted before this scenario ran: {err}",
+                })
+            self._log(f"the suite aborted after {done} scenario(s): {err}")
+            self._write_report()
+            raise
         self._write_report()
         return self.results
 
@@ -182,8 +221,10 @@ class SuiteRunner:
         self._log(f"    baseline: {why}")
 
         # ---- run it ---------------------------------------------------------------------------
-        self.session.begin_scenario(label)
         try:
+            # ⚠ INSIDE the guard. begin_scenario does a BLOCKING send (its note()), so against a game
+            # that has died it raises -- and out here that exception escaped the whole run.
+            self.session.begin_scenario(label)
             module = load_scenario_module(scenario.path)
             run = module.run
             if scenario.field is not None and _accepts_field(run):
@@ -195,11 +236,11 @@ class SuiteRunner:
                 run(self.session)
         except HarnessError as err:
             row["verdict"] = "error"
-            row["detail"] = str(err)
+            row["detail"] = self._raised_detail(str(err))
             self._log(f"    ERROR -- {err}")
         except Exception as err:                                  # noqa: BLE001 - a scenario is code
             row["verdict"] = "error"
-            row["detail"] = f"{type(err).__name__}: {err}"
+            row["detail"] = self._raised_detail(f"{type(err).__name__}: {err}")
             row["traceback"] = traceback.format_exc()
             self._log(f"    ERROR -- {type(err).__name__}: {err}")
         else:
@@ -218,6 +259,20 @@ class SuiteRunner:
         self._log(f"    {row['verdict'].upper()} in {row['seconds']}s -- {row['detail']}")
         return row
 
+    def _raised_detail(self, message: str) -> str:
+        """Describe a raise WITHOUT losing the checks that already failed before it.
+
+        A scenario that recorded three failures and then raised is `error`, and `error` alone reads
+        as "it blew up" -- the tally shows zero fails and the three real findings are invisible in
+        the summary. They are still in `checks`, but a reader who trusts the tally never opens it.
+        """
+        failed = [c for c in self.session.checks if not c["ok"]]
+        if failed:
+            return (f"raised after {len(failed)} check(s) had already FAILED "
+                    f"({'; '.join(c['what'] for c in failed[:3])}"
+                    f"{' ...' if len(failed) > 3 else ''}): {message}")
+        return message
+
     def _collect(self, label: str, row: dict) -> None:
         """Give every scenario its own artifact directory.
 
@@ -225,7 +280,14 @@ class SuiteRunner:
         the shared channel directory by name -- which is what stops two scenarios that both captured
         "walk-before" from overwriting each other's evidence.
         """
-        dest = self.run_dir / label
+        # ⚠ SANITISE THE DIRECTORY NAME TOO, not just the glob. A label like "walk: north" is an
+        # illegal Windows path component, so this raised OSError, the except swallowed it, and the
+        # scenario silently lost its whole artifact directory -- including the automatic screenshot
+        # of its first failure.
+        safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in label)
+        dest = self.run_dir / safe
+        row.setdefault("shots", [])
+        row.setdefault("collect_error", None)
         try:
             dest.mkdir(parents=True, exist_ok=True)
             shots = self.session.channel.shots
@@ -233,13 +295,20 @@ class SuiteRunner:
             if shots.is_dir():
                 import shutil
                 out = dest / "shots"
-                for png in sorted(shots.glob(f"{label}-*.png")):
+                # ⚠ The SANITISED label: `shot()` rewrites the name it sends (a space or a colon
+                # is illegal in a filename and would also split the request line), so globbing the
+                # raw label silently collects nothing for any label that needed sanitising -- and
+                # what goes uncollected is the failing scenario's evidence.
+                for png in sorted(shots.glob(f"{safe}-*.png")):
                     out.mkdir(exist_ok=True)
                     shutil.copy2(png, out / png.name)
                     moved.append(png.name)
             row["shots"] = moved
             (dest / "report.json").write_text(json.dumps(row, indent=2), encoding="utf-8")
         except OSError as err:
+            # Record it: a reader comparing two scenarios cannot otherwise tell "captured nothing"
+            # from "the evidence could not be written down".
+            row["collect_error"] = str(err)
             self._log(f"    (could not collect artifacts: {err})")
 
     def _write_report(self) -> None:

@@ -32,7 +32,10 @@ import time
 import zlib
 from pathlib import Path
 
-PROTOCOL = 1
+#: Must match the DRIVER's protocol: this stand-in models the agent AS SPECIFIED, and
+#: publishing an older version would make every offline run exercise the DEGRADED path instead
+#: of the real one -- a suite permanently in a compatibility mode it is not meant to be testing.
+PROTOCOL = 2
 
 #: The real agent polls req.txt every 2 frames while idle and every 10 while a queue is running, and
 #: the arm file every 30. Modelled because the driver's "do not overwrite an unaccepted request" gate
@@ -425,6 +428,14 @@ class FakeGame:
             return
         if not all(self.down_at.get(b) == self.frame for b in SOFT_RESET_COMBO):
             return
+        # ⚠ A MENU SWALLOWS THE COMBO, and the stand-in has to swallow it too. `UIKeyTrigger.Update`
+        # runs `if (HandleMenuControlKeyPressCustomInput()) return;` before the soft-reset check, and
+        # that handler consumes Control.Select unconditionally. MEASURED in-game
+        # (scenarios/soft_reset_reach.py): from a field YES, from an open MainMenu NO. A stand-in
+        # more forgiving than the engine is worse than none -- it certifies a ladder that cannot
+        # actually climb.
+        if self.ui_state not in ("FieldHUD", "WorldHUD"):
+            return
         self.soft_resets += 1
         self.ui_state = "Title"
         self.field_id = -1
@@ -435,11 +446,21 @@ class FakeGame:
         self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
         self.menu_entries = []
         self.player = [0.0, 0.0, 0.0]
-        self.held.clear()
-        self.down_at.clear()
+        # ⚠ NOT held.clear(). FF9's handler does not release the player's buttons, and a stand-in
+        # that did would make `reset_agent` -- the thing that actually releases them -- untestable:
+        # it could be reduced to a no-op with every test still green.
         self._event("soft_reset")
 
     def _menu_step(self, button: str) -> None:
+        # Cancel backs a screen OUT. Modelled because the close-UI recovery rung is built on it: the
+        # soft-reset combo is swallowed inside a menu, so Cancel is the only way out of one, and a
+        # stand-in whose menus could not be left would certify a ladder that cannot climb.
+        if button in ("cancel", "back", "b") and self.ui_state == "MainMenu":
+            self.ui_state = "FieldHUD"
+            self.menu_entries = []
+            self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+            self.control = True
+            return
         if not self.menu_entries:
             return
         if button == "down":
