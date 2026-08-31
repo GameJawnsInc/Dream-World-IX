@@ -160,7 +160,7 @@
              if (UnityXInput.Input.GetAxis("Mouse X") < 1.0 / 1000.0 && UnityXInput.Input.GetAxis("Mouse Y") < 1.0 / 1000.0)
 --- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -455,6 +455,46 @@
+@@ -455,6 +455,112 @@
          _instance = go.AddComponent<Ff9mkDebugMenu>();
      }
  
@@ -197,6 +197,72 @@
 +        return _instance.WorldTeleportTo(wx, wz);
 +    }
 +
++    // [ff9mapkit s83 rev3] Start a REAL battle from a field, the way the game's own scripts do.
++    //
++    // WHY NOT THE DIORAMA. `NetSyncDiorama.Boot` is public, proven and already wired to this menu --
++    // and it sets `FF9StateSystem.Battle.isDebug = true`, under which the battle CAN NEVER END
++    // (NetSyncDiorama.cs:156-160). Every victory / defeat / reward assertion in that state is
++    // green-having-observed-nothing, so it is the wrong substrate for a test harness even though it
++    // is the cheap one. This boots a battle that can finish.
++    //
++    // WHAT IT MIRRORS. The .eb ENCOUNT2 opcode (0x8C, "BattleEx") does exactly this much:
++    // set `btlSubMapNo` (the enemy group, -1 = the scene's random pick), `SetBattleScene(id)`,
++    // clear `isRandomEncounter`, and return 3 -- whereupon `HonoluluFieldMain` case 3 sets
++    // `nextMode = 2`, clears `isDebug` and `mappingBattleIDWithMapList`, backs up the field's PosObj
++    // data so the return trip restores it, and requests the transition with `attr |= 8u`. We cannot
++    // make `ServiceEvents()` return 3 from outside, so those writes are performed here -- every one
++    // of them a plain assignment to a public member, and `SetBattleScene` itself is reachable as its
++    // public twin `SetNextMap`.
++    public static Boolean HarnessBattle(Int32 sceneId, Int32 group)
++    {
++        Ensure();
++        return _instance.StartBattle(sceneId, group);
++    }
++
++    private Boolean StartBattle(Int32 sceneId, Int32 group)
++    {
++        try
++        {
++            if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
++            {
++                _status = "battle: field only";
++                return false;
++            }
++            FF9StateSystem sys = PersistenSingleton<FF9StateSystem>.Instance;
++            if (sys.mode != 1)                                   // FF9ChangeMap routes by mode; must be FIELD
++            {
++                _status = "battle: not in field mode (" + sys.mode + ")";
++                return false;
++            }
++            if (sceneId < 0 || sceneId > Int16.MaxValue)         // nextMapNo is Int16; a bigger id wraps
++            {
++                _status = "battle: scene " + sceneId + " is outside 0.." + Int16.MaxValue;
++                return false;
++            }
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            FF9StateSystem.Common.FF9.btlSubMapNo = (SByte)group;   // -1 = let the scene pick its group
++            ee.SetNextMap(sceneId);                                 // == the private SetBattleScene
++            FF9StateSystem.Battle.isRandomEncounter = false;
++            FF9StateSystem.Battle.isDebug = false;                  // it must be able to END
++            FF9StateSystem.Battle.mappingBattleIDWithMapList = false;
++            FF9StateSystem.Field.FF9Field.loc.map.nextMode = 2;     // 1 field / 2 battle / 3 world
++            ee.BackupPosObjData();                                  // so the return trip restores the field
++            KillCountdown();                                        // don't carry a field timer into a fight
++            sys.attr |= 8u;                                         // request the transition
++            _controlHeld = false;
++            _open = false;
++            NoteRecent(sceneId);
++            _status = "starting battle " + sceneId
++                      + (group >= 0 ? " group " + group : " (random group)") + " ...";
++            return true;
++        }
++        catch (Exception err)
++        {
++            _status = "battle failed: " + err.Message;
++            return false;
++        }
++    }
++
 +    // The one-line status the menu shows a human, surfaced so a failed harness action explains itself
 +    // in state.json instead of silently doing nothing.
 +    public static String HarnessStatus
@@ -207,7 +273,7 @@
      // Open/close the menu, PAUSING field input while open (save the current user-control state, disable
      // it, restore on a plain close) so the d-pad + the Use(!)/action button don't drive the field behind
      // the popup. A warp/reload action instead closes the menu directly -- the field transition itself
-@@ -1696,7 +1736,7 @@
+@@ -1696,7 +1802,7 @@
      }
  
      // The overworld teleport core (parameterized), shared by the World-tab X,Z box and a pinned overworld SPOT favorite.
@@ -216,7 +282,7 @@
      {
          try
          {
-@@ -1704,20 +1744,20 @@
+@@ -1704,20 +1810,20 @@
              if (w == null || !w.Settings.WrapWorld || FF9StateSystem.World.IsBeeScene)
              {
                  _status = "teleport: only on the wrapping overworld";
@@ -240,7 +306,7 @@
              }
              Single cy = a.RealPosition.y;                        // keep current height; movement/InitSlice re-grounds Y
              Int32 px = (Int32)(wx * 256f), py = (Int32)(cy * 256f), pz = (Int32)(wz * 256f);
-@@ -1725,7 +1765,7 @@
+@@ -1725,7 +1831,7 @@
              if (bx < 0 || bx >= 24 || bz < 0 || bz >= 20)
              {
                  _status = "teleport: (" + (Int32)wx + ", " + (Int32)wz + ") is outside the 24x20 grid (x 0..1535, z 0..-1279)";
@@ -249,7 +315,7 @@
              }
              // Engine's own overworld reposition: writes the PosObj record (pos + lastx/y/z) AND the wmActor transform.
              ee.SetActorPosition(po, (Single)px, (Single)py, (Single)pz);
-@@ -1750,10 +1790,12 @@
+@@ -1750,10 +1856,12 @@
              // that our write comes from OnGUI at an arbitrary phase vs the tick.)
              Memoria.SmoothFrameUpdater_World.Skip = 2;
              _status = "teleported to world (" + (Int32)wx + ", " + (Int32)wz + ")";
@@ -262,7 +328,7 @@
          }
      }
  
-@@ -1777,20 +1819,20 @@
+@@ -1777,20 +1885,20 @@
      // when the player is FROZEN -- which is why this doubles as the escape from a stuck overworld. FieldEntrance /
      // ScenarioCounter are seeded exactly like the field Warp tab. (Mirror of the field warp, which uses the field
      // buffer + attr|=8u; the world loop tests attr & 0x3001 and the field loop tests attr & 15, hence the different bit.)
@@ -286,7 +352,7 @@
              }
              if (Int32.TryParse(_entranceText, out Int32 entr) && entr >= 0)
                  FF9StateSystem.EventState.FieldEntrance = entr;  // arrive as if through a chosen door (blank = leave as-is)
-@@ -1808,10 +1850,12 @@
+@@ -1808,10 +1916,12 @@
              _controlHeld = false;
              _open = false;                                       // the transition takes over; the field .eb re-enables control
              NoteRecent(mapNo);
@@ -302,7 +368,7 @@
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -0,0 +1,1275 @@
+@@ -0,0 +1,1499 @@
 +using System;
 +using System.Collections;
 +using System.Collections.Generic;
@@ -343,7 +409,7 @@ new file mode 100644
 +{
 +    public sealed class HarnessAgent : MonoBehaviour
 +    {
-+        public const Int32 ProtocolVersion = 2;
++        public const Int32 ProtocolVersion = 3;
 +
 +        // ---- arming ----------------------------------------------------------------------------
 +        // Read by the HonoInputManager hooks on EVERY key query of every frame, so it is a plain static
@@ -876,6 +942,32 @@ new file mode 100644
 +                    Block(2);
 +                    break;
 +
++                // ---- BATTLE -------------------------------------------------------------------
++                // Boot a REAL battle from a field. Deliberately not the diorama: that sets
++                // isDebug, under which the battle can never END, so every result or reward
++                // assertion there is green-having-observed-nothing.
++                case "battle":
++                    if (!Ff9mkDebugMenu.HarnessBattle(Arg(s, 0, -1), Arg(s, 1, -1)))
++                        throw new InvalidOperationException(Ff9mkDebugMenu.HarnessStatus ?? "battle refused");
++                    Block(2);
++                    break;
++
++                // Issue an exact command instead of steering a cursor -- the difference between
++                // testing a damage formula and testing NGUI navigation. This is the same entry
++                // point co-op uses to replay a remote player's command, so it is the game's own
++                // path rather than a second implementation of one.
++                case "battlecmd":
++                {
++                    BattleHUD hud = Try(() => UIManager.Battle);
++                    if (hud == null)
++                        throw new InvalidOperationException("battlecmd: no battle HUD (not in a battle?)");
++                    if (!hud.SendNetCommand(Arg(s, 0, 0), (Memoria.Data.BattleCommandId)Arg(s, 1, 0), Arg(s, 2, 0),
++                                            (UInt16)Arg(s, 3, 0), (UInt32)Arg(s, 4, 0)))
++                        throw new InvalidOperationException("battlecmd: the HUD refused the command");
++                    Block(2);
++                    break;
++                }
++
 +                case "newgame":
 +                {
 +                    TitleUI title = UnityEngine.Object.FindObjectOfType<TitleUI>();
@@ -1203,6 +1295,7 @@ new file mode 100644
 +            AppendInput(sb); sb.Append(",");
 +            AppendDialog(sb); sb.Append(",");
 +            AppendMenu(sb); sb.Append(",");
++            AppendBattle(sb); sb.Append(",");
 +            AppendWatch(sb); sb.Append(",");
 +            AppendHeld(sb);
 +            sb.Append("}");
@@ -1392,6 +1485,203 @@ new file mode 100644
 +            {
 +            }
 +            return null;
++        }
++
++        // ------------------------------------------------------------------------------------------
++        // BATTLE. The pillar the state channel was completely dark on -- no HP, no ATB, no result --
++        // so every claim about a battle cost a human playtest.
++        //
++        // ⚠ THE SECTION IS ONLY BUILT INSIDE A BATTLE. Every value in FF9Battle is STALE rather than
++        // absent afterwards: btl_phase still reads 6 or 8 from the last fight, battleMapIndex is the
++        // last scene, btl_bonus is the last rewards, and btl_result keeps whatever it ended with.
++        // Publishing them on a field would hand a scenario a full, plausible, entirely historical
++        // battle -- the most expensive kind of wrong answer this channel can give.
++        private void AppendBattle(StringBuilder outer)
++        {
++            StringBuilder sb = new StringBuilder(768);
++            try
++            {
++                Boolean active = Try(() => SceneDirector.IsBattleScene(), false);
++                // `epoch` is party.battle_no, incremented once in battle.InitBattle. It is
++                // save-persistent and never reset, so only DELTAS mean anything -- but that makes it
++                // the one unambiguous "a battle started" edge, which no other field provides:
++                // btl_result is 0 both during a battle and before any has ever run.
++                Int32 epoch = Try(() => (Int32)FF9StateSystem.Common.FF9.party.battle_no, -1);
++                Bool(sb, "active", active); sb.Append(",");
++                Num(sb, "epoch", epoch); sb.Append(",");
++                // IsBattleScene() is ALSO true for "BattleMapDebug" and "SpecialEffectDebugRoom" --
++                // the diorama, which is not a real battle and cannot end. A scenario must refuse
++                // result assertions while this is set rather than merely noting it.
++                Bool(sb, "debug", Try(() => FF9StateSystem.Battle.isDebug, false)); sb.Append(",");
++                // ---- LAST-BATTLE values: published ALWAYS, and safe only because `epoch` is too.
++                // These are the ones a scenario needs AFTER the fight -- how it ended and what it
++                // paid -- so gating them on `active` would delete them at the exact moment they
++                // become the answer. They ARE stale between battles; `epoch` is what says which
++                // battle they belong to, and every driver wait is anchored to it.
++                Num(sb, "result", Try(() => (Int32)FF9StateSystem.Common.FF9.btl_result, -1)); sb.Append(",");
++                Num(sb, "scene", Try(() => (Int32)FF9StateSystem.Battle.battleMapIndex, -1)); sb.Append(",");
++                sb.Append("\"bonus\":{");
++                Num(sb, "exp", Try(() => (Int32)battle.btl_bonus.exp, 0)); sb.Append(",");
++                Num(sb, "gil", Try(() => (Int32)battle.btl_bonus.gil, 0)); sb.Append(",");
++                Num(sb, "ap", Try(() => (Int32)battle.btl_bonus.ap, 0)); sb.Append(",");
++                Num(sb, "items", Try(() => battle.btl_bonus.item == null ? 0 : battle.btl_bonus.item.Count, 0));
++                sb.Append("}");
++                if (!active)
++                {
++                    // ---- MID-BATTLE ONLY below. phase, units, turn and escape_held are concepts
++                    // with no meaning outside a fight, and the engine leaves every one of them
++                    // holding the PREVIOUS battle's contents rather than clearing them -- so on a
++                    // field they would hand a scenario a complete, plausible, historical battle.
++                    outer.Append("\"battle\":{").Append(sb).Append("}");
++                    return;
++                }
++                sb.Append(",");
++                Num(sb, "phase", Try(() => (Int32)FF9StateSystem.Battle.FF9Battle.btl_phase, -1)); sb.Append(",");
++                // WHY AN ESCAPE CANNOT WORK. `BattleHUD` sets btl_escape_key = 1 -- which is what
++                // plays the running animation -- BEFORE calling btl_sys.CheckEscape, and CheckEscape
++                // shows "Cannot escape!" and returns without ever rolling when this flag is clear.
++                // So on a no-escape scene the character runs on the spot indefinitely and nothing in
++                // the channel said why. Owner-observed on scene 67, 2026-08-31.
++                sb.Append("\"scene_info\":{");
++                Bool(sb, "runaway", Try(() => FF9StateSystem.Battle.FF9Battle.btl_scene.Info.Runaway, false)); sb.Append(",");
++                Bool(sb, "no_gameover", Try(() => FF9StateSystem.Battle.FF9Battle.btl_scene.Info.NoGameOver, false)); sb.Append(",");
++                Bool(sb, "preemptive", Try(() => FF9StateSystem.Battle.FF9Battle.btl_scene.Info.Preemptive, false)); sb.Append(",");
++                Bool(sb, "back_attack", Try(() => FF9StateSystem.Battle.FF9Battle.btl_scene.Info.BackAttack, false));
++                sb.Append("},");
++                // The on-screen battle message ("Cannot escape!", "Preemptive attack!"). ⚠ Transient:
++                // messages expire on a tick counter, so a two-frame publish rate WILL miss short
++                // ones -- a miss is "not observed", never "not shown".
++                Str(sb, "message", Try(() =>
++                {
++                    GameObject box = UIManager.Battle == null ? null : UIManager.Battle.BattleDialogGameObject;
++                    return box != null && box.activeSelf ? LabelOf(box) : null;
++                })); sb.Append(",");
++                Num(sb, "escape_held", Try(() => (Int32)FF9StateSystem.Battle.FF9Battle.btl_escape_key, 0)); sb.Append(",");
++
++                // Whose turn the HUD is waiting on. -1 whenever no command menu is open, which is
++                // the ordinary state between turns rather than a fault.
++                sb.Append("\"turn\":{");
++                Num(sb, "slot", Try(() => UIManager.Battle == null ? -1 : UIManager.Battle.CurrentPlayerIndex, -1)); sb.Append(",");
++                AppendIntList(sb, "ready", Try(() => UIManager.Battle == null ? null : UIManager.Battle.ReadyQueue)); sb.Append(",");
++                AppendIntList(sb, "done", Try(() => UIManager.Battle == null ? null : UIManager.Battle.InputFinishList));
++                sb.Append("},");
++
++                AppendUnits(sb);
++            }
++            catch (Exception)
++            {
++                outer.Append("\"battle\":{\"active\":false,\"epoch\":-1,\"debug\":false}");
++                return;
++            }
++            outer.Append("\"battle\":{").Append(sb).Append("}");
++        }
++
++        private static void AppendIntList(StringBuilder sb, String key, List<Int32> values)
++        {
++            sb.Append(Quote(key)).Append(":[");
++            for (Int32 i = 0; values != null && i < values.Count; i++)
++            {
++                if (i > 0) sb.Append(",");
++                sb.Append(values[i].ToString(CultureInfo.InvariantCulture));
++            }
++            sb.Append("]");
++        }
++
++        /// <summary>Every combatant, party and enemy, walked through the engine's own list.</summary>
++        /// <remarks>
++        /// ⚠ NEVER CALL <c>BattleUnit.GetIndex()</c>. It is <c>while (1 &lt;&lt; index != Data.btl_id)
++        /// ++index;</c> with no bound (BattleUnit.cs:627-635), so a unit whose btl_id is 0 spins
++        /// forever -- inside the state publisher, inside the frame loop, hanging the very game this
++        /// exists to observe. The slot is computed here with a bounded loop instead.
++        ///
++        /// ⚠ HP IS PUBLISHED TWICE ON PURPOSE. <c>CurrentHp</c> is not <c>Data.cur.hp</c>: it routes
++        /// through <c>btl_para.GetLogicalHP</c>, which subtracts 10000 for enemies flagged
++        /// FLG_NON_DYING_BOSS when [Battle] CustomBattleFlagsMeaning is 1. The HUD shows the logical
++        /// value and the AI script reads the raw one, so a scenario asserting on "the" HP would be
++        /// right about one of them and wrong about the other depending on the enemy.
++        ///
++        /// ⚠ DEAD IS A STATUS, NOT ZERO HP. A unit under a DeathChanger effect sits at 0 HP alive
++        /// (btl_sys.cs:138); the HUD's own liveness test is the Death status bit.
++        /// </remarks>
++        private static void AppendUnits(StringBuilder sb)
++        {
++            sb.Append("\"units\":[");
++            try
++            {
++                FF9StateBattleSystem btl = FF9StateSystem.Battle.FF9Battle;
++                Int32 n = 0;
++                foreach (Memoria.BattleUnit unit in btl.EnumerateBattleUnits())
++                {
++                    if (unit == null || unit.Data == null || n >= 32)   // a runaway list must not hang us
++                        break;
++                    if (n > 0) sb.Append(",");
++                    n++;
++                    sb.Append("{");
++                    Num(sb, "slot", SafeSlot(unit.Data.btl_id)); sb.Append(",");
++                    Num(sb, "id", (Int32)unit.Data.btl_id); sb.Append(",");
++                    Bool(sb, "player", Try(() => unit.IsPlayer, false)); sb.Append(",");
++                    // ⚠ THE SAME RENDERED-VS-SOURCE SPLIT AS THE DIALOGUE, in a second place. A
++                    // unit's Name carries FF9's own text-positioning markup -- an enemy came back
++                    // as "[STRT=27,1]Fang[ENDN]" on the first live run. The HUD's UILabel eats the
++                    // tags, so the player reads "Fang"; a scenario matching on the raw string would
++                    // be matching something nobody ever sees. Publish both, as `texts`/`phrase_raw`
++                    // already do.
++                    Str(sb, "name", StripTags(Try(() => unit.Name))); sb.Append(",");
++                    Str(sb, "name_raw", Try(() => unit.Name)); sb.Append(",");
++                    Num(sb, "hp", Try(() => (Int32)unit.CurrentHp, -1)); sb.Append(",");
++                    Num(sb, "hp_max", Try(() => (Int32)unit.MaximumHp, -1)); sb.Append(",");
++                    Num(sb, "hp_raw", Try(() => (Int32)unit.Data.cur.hp, -1)); sb.Append(",");
++                    Num(sb, "hp_max_raw", Try(() => (Int32)unit.Data.max.hp, -1)); sb.Append(",");
++                    Num(sb, "mp", Try(() => (Int32)unit.CurrentMp, -1)); sb.Append(",");
++                    Num(sb, "mp_max", Try(() => (Int32)unit.MaximumMp, -1)); sb.Append(",");
++                    Num(sb, "atb", Try(() => (Int32)unit.CurrentAtb, -1)); sb.Append(",");
++                    Num(sb, "atb_max", Try(() => (Int32)unit.MaximumAtb, -1)); sb.Append(",");
++                    Bool(sb, "can_act", Try(() => unit.CanMove, false)); sb.Append(",");
++                    Bool(sb, "alive", Try(() => !unit.IsUnderStatus(Memoria.Data.BattleStatus.Death), false)); sb.Append(",");
++                    Bool(sb, "targetable", Try(() => unit.IsTargetable, false)); sb.Append(",");
++                    Num(sb, "level", Try(() => (Int32)unit.Level, -1)); sb.Append(",");
++                    // A [Flags] ULONG with a bit at 63 -- published as a decimal STRING so nothing
++                    // downstream has to survive it arriving as a float.
++                    Str(sb, "status", Try(() => ((UInt64)unit.CurrentStatus).ToString(CultureInfo.InvariantCulture)));
++                    sb.Append("}");
++                }
++            }
++            catch (Exception)
++            {
++                // A half-written unit list would be a lie about the battle; an empty one is not.
++            }
++            sb.Append("]");
++        }
++
++        /// <summary>Drop FF9's bracketed text tags, leaving what a UILabel would actually draw.</summary>
++        private static String StripTags(String text)
++        {
++            if (String.IsNullOrEmpty(text) || text.IndexOf('[') < 0)
++                return text;
++            StringBuilder sb = new StringBuilder(text.Length);
++            Int32 depth = 0;
++            foreach (Char c in text)
++            {
++                if (c == '[')
++                    depth++;
++                else if (c == ']')
++                {
++                    if (depth > 0)
++                        depth--;
++                }
++                else if (depth == 0)
++                    sb.Append(c);
++            }
++            return sb.ToString();
++        }
++
++        /// <summary>The 0-based slot for a btl_id bitmask, WITHOUT the engine's unbounded loop.</summary>
++        private static Int32 SafeSlot(Int32 btlId)
++        {
++            for (Int32 i = 0; i < 32; i++)
++                if ((1 << i) == btlId)
++                    return i;
++            return -1;
 +        }
 +
 +        private void AppendWatch(StringBuilder outer)

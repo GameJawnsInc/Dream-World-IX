@@ -24,7 +24,11 @@ def run(g, field: int = FIELD):
     g.note("s83 rev2 acceptance")
     st = g.state
     proto = st.protocol
-    g.check(proto == 2, "the deployed engine speaks protocol 2",
+    # >= 2, not == 2. This scenario proves the rev2 BATCH, and every later revision keeps it -- a
+    # protocol equality check here would go red on rev3 for a batch that is perfectly intact, which
+    # is a test failing for a reason that has nothing to do with what it tests.
+    g.check(proto is not None and proto >= 2,
+            "the deployed engine speaks protocol 2 or later",
             f"published v={proto} (1 = the pre-batch DLL is still deployed)")
 
     # ---- E11: the save sandbox ------------------------------------------------------------

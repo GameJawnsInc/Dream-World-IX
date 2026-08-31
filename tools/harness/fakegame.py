@@ -35,7 +35,7 @@ from pathlib import Path
 #: Must match the DRIVER's protocol: this stand-in models the agent AS SPECIFIED, and
 #: publishing an older version would make every offline run exercise the DEGRADED path instead
 #: of the real one -- a suite permanently in a compatibility mode it is not meant to be testing.
-PROTOCOL = 2
+PROTOCOL = 3
 
 #: The real agent polls req.txt every 2 frames while idle and every 10 while a queue is running, and
 #: the arm file every 30. Modelled because the driver's "do not overwrite an unaccepted request" gate
@@ -117,6 +117,21 @@ class FakeGame:
         #: which the driver must report honestly rather than hang on.
         self.soft_reset_enabled = True
         self.soft_resets = 0
+        # -- battle ----------------------------------------------------------------------------
+        #: `party.battle_no`: monotonic, save-persistent, never reset. The ONE unambiguous "a battle
+        #: started" edge -- modelled as such because every driver wait is anchored to it.
+        self.battle_epoch = 7
+        self.battle_active = False
+        #: The diorama property that makes a whole class of assertion vacuous: under isDebug the
+        #: engine suppresses the auto-end, so the battle CANNOT finish. The driver must refuse to
+        #: wait for a result here rather than hang, and this is what lets a test prove it does.
+        self.battle_debug = False
+        #: btl_result. ⚠ 0 both DURING a battle and BEFORE any has run -- the ambiguity is the point.
+        self.battle_result = 0
+        self.battle_scene = -1
+        self.battle_units: list[dict] = []
+        self.battle_bonus = {"exp": 0, "gil": 0, "ap": 0, "items": 0}
+        self.battle_commands: list[list[int]] = []
         self.gateway: tuple[float, float, float, float, int] | None = None
         #: every op the fake ever executed, so a test can assert a step was DELIVERED rather than
         #: inferring it from a state that several other ops could also have produced.
@@ -297,6 +312,16 @@ class FakeGame:
             self.control = True
             self.player = [0.0, 0.0, 0.0]
             self._block(3)
+        elif op == "battle":
+            if self.ui_state != "FieldHUD":
+                raise RuntimeError("battle: field only")
+            self.start_battle(num(0, -1), group=num(1, -1))
+            self._block(3)
+        elif op == "battlecmd":
+            if not self.battle_active:
+                raise RuntimeError("battlecmd: no battle HUD (not in a battle?)")
+            self.battle_commands.append([num(i, 0) for i in range(5)])
+            self._block(2)
         elif op == "worldwarp":
             if self.ui_state != "WorldHUD":
                 raise RuntimeError("world warp: overworld only")
@@ -507,6 +532,7 @@ class FakeGame:
                        "texts": self.texts, "phrase_raw": self.raw_texts or self.texts,
                        "choice": self.choice},
             "menu": dict(self.menu),
+            "battle": self._battle_doc(),
             "flags": {str(b): bool(self.flags.get(b, False)) for b in self.watch},
             "held": held,
         }
@@ -533,6 +559,64 @@ class FakeGame:
         (self.shots / f"{safe}.png").write_bytes(png)
         self.shots_taken += 1
         self._event("shot", name=name)
+
+    # -- battle --------------------------------------------------------------------------------
+    def _battle_doc(self) -> dict:
+        # Outside a battle only the three cheap facts are published, exactly as the agent does --
+        # because every OTHER value in FF9Battle is STALE rather than absent afterwards, and
+        # publishing them on a field would hand a scenario a plausible, entirely historical battle.
+        # `result`, `scene` and `bonus` ride alongside `epoch` and are published ALWAYS: they are
+        # what a scenario needs AFTER the fight, and the epoch is what says which fight they belong
+        # to. Everything below them is a mid-battle concept the engine leaves holding the previous
+        # battle's contents, so publishing it on a field would be a plausible historical lie.
+        doc = {"active": self.battle_active, "epoch": self.battle_epoch, "debug": self.battle_debug,
+               "result": self.battle_result, "scene": self.battle_scene,
+               "bonus": dict(self.battle_bonus)}
+        if not self.battle_active:
+            return doc
+        doc.update({
+            "phase": 4,
+            "escape_held": 0,
+            "turn": {"slot": -1, "ready": [], "done": []},
+            "units": [dict(u) for u in self.battle_units],
+        })
+        return doc
+
+    def start_battle(self, scene: int, *, group: int = -1, debug: bool = False,
+                     units: list[dict] | None = None) -> None:
+        """Stand a battle up, advancing the epoch the way battle.InitBattle does."""
+        self.battle_epoch += 1
+        self.battle_active = True
+        self.battle_debug = debug
+        self.battle_result = 0                    # reset at START, which is why 0 is ambiguous
+        self.battle_scene = scene
+        self.ui_state = "BattleHUD"
+        self.battle_bonus = {"exp": 0, "gil": 0, "ap": 0, "items": 0}
+        self.battle_units = units if units is not None else [
+            # hp/hp_max are the LOGICAL values the HUD shows; hp_raw/hp_max_raw are cur.hp/max.hp,
+            # what the AI reads as B_MEMBER (36)/(35). The enemy below carries the 10000 offset a
+            # FLG_NON_DYING_BOSS gets under CustomBattleFlagsMeaning=1, so a test asserting on "the"
+            # HP has to choose -- which is the whole reason both are published.
+            {"slot": 0, "id": 1, "player": True, "name": "Zidane", "hp": 420, "hp_max": 600,
+             "hp_raw": 420, "hp_max_raw": 600, "mp": 30, "mp_max": 40, "atb": 0, "atb_max": 6000,
+             "can_act": True, "alive": True, "targetable": True, "level": 5, "status": "0"},
+            {"slot": 1, "id": 2, "player": True, "name": "Vivi", "hp": 0, "hp_max": 380,
+             "hp_raw": 0, "hp_max_raw": 380, "mp": 12, "mp_max": 20, "atb": 0, "atb_max": 6000,
+             "can_act": False, "alive": True, "targetable": True, "level": 4, "status": "0"},
+            {"slot": 4, "id": 16, "player": False, "name": "Masked Man", "hp": 1200,
+             "hp_max": 1200, "hp_raw": 11200, "hp_max_raw": 11200, "mp": 0, "mp_max": 0,
+             "atb": 3000, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True,
+             "level": 9, "status": "0"},
+        ]
+
+    def end_battle(self, result: int = 1, *, exp: int = 120, gil: int = 88) -> None:
+        """Finish the battle. ⚠ Refuses under isDebug, exactly as the engine's auto-end does."""
+        if self.battle_debug:
+            return
+        self.battle_result = result
+        self.battle_bonus = {"exp": exp, "gil": gil, "ap": 3, "items": 1}
+        self.battle_active = False
+        self.ui_state = "FieldHUD"
 
     # -- test conveniences ---------------------------------------------------------------------
     def say(self, *pages: str, raw: str | None = None) -> None:

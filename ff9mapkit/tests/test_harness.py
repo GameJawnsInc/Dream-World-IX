@@ -1331,3 +1331,195 @@ def test_collect_finds_shots_written_under_a_sanitised_label(game):
         runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
         results = runner.run()
     assert results[0]["shots"], "the scenario's screenshot was never collected"
+
+
+# ======================================================================================
+# THE BATTLE BLOCK
+#
+# The pillar the state channel was 100% dark on. It was deliberately deferred out of the
+# s83 rev2 batch for one reason: "adding a battle block without extending the stand-in
+# reproduces the existing menu lane's defect at ten times the surface" -- a green offline
+# suite that observed nothing. The stand-in models a battle now, so these can fail.
+#
+# The through-line is that almost every battle value is AMBIGUOUS or STALE rather than
+# absent, which makes a plausible wrong answer the default failure mode here.
+# ======================================================================================
+
+
+def test_battle_state_is_dark_outside_a_battle(game):
+    """Every value in FF9Battle is STALE, not absent, after a fight: btl_phase still reads the last
+    one's, battleMapIndex is the last scene, btl_bonus is the last rewards. Publishing them on a
+    field hands a scenario a complete, plausible, entirely historical battle. Break it by making the
+    agent emit the full block unconditionally."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        st = g.state
+        assert st.in_battle is False
+        assert st.units() == []
+        # The MID-BATTLE keys are the ones that must be absent. result/scene/bonus ride alongside
+        # epoch and are published always -- they are the answer only AFTER the fight, and the epoch
+        # is what says which fight they belong to.
+        assert "units" not in st.battle and "phase" not in st.battle and "turn" not in st.battle
+        assert st.battle_epoch > 0, "the epoch is published always -- it is the start EDGE"
+        assert "result" in st.battle and "bonus" in st.battle
+
+
+def test_a_battle_is_recognised_by_its_epoch_not_by_its_result(game):
+    """btl_result is 0 DURING a battle and BEFORE any has ever run. Only the epoch disambiguates."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        before = g.state.battle_epoch
+        assert g.state.battle_result == 0, "0 before any battle -- indistinguishable from in-progress"
+        st = g.start_battle(105)
+        assert st.in_battle and st.battle_epoch == before + 1
+        assert st.battle_result == 0, "still 0 DURING the battle -- this is the ambiguity"
+        assert st.battle.get("scene") == 105
+
+
+def test_wait_battle_does_not_accept_a_diorama(game):
+    """IsBattleScene() is also true for BattleMapDebug and SpecialEffectDebugRoom, which run under
+    isDebug -- where the engine suppresses the auto-end and the battle CAN NEVER FINISH. Counting
+    that as "in a battle" is how a result assertion becomes vacuous. Break it by dropping the
+    `not b.get("debug")` term from State.in_battle."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        fake.start_battle(105, debug=True)
+        published(g, lambda s: s.battle.get("active") is True)
+        assert g.state.battle.get("active") is True
+        assert g.state.in_battle is False, "a diorama must not read as a real battle"
+
+
+def test_waiting_for_a_result_in_a_diorama_is_refused_rather_than_hung(game):
+    """Under isDebug the battle cannot end, so this wait could never succeed. Refusing is the honest
+    answer; hanging until a timeout would report it as the game failing to finish a fight."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        fake.start_battle(105, debug=True)
+        published(g, lambda s: s.battle.get("debug") is True)
+        with pytest.raises(HarnessError, match="isDebug"):
+            g.wait_battle_over(timeout=2.0)
+
+
+def test_units_carry_both_the_logical_and_the_raw_hp(game):
+    """CurrentHp is NOT Data.cur.hp -- it routes through btl_para.GetLogicalHP, which subtracts
+    10000 for a FLG_NON_DYING_BOSS enemy under [Battle] CustomBattleFlagsMeaning = 1. The HUD shows
+    the logical value; the AI script reads the raw one as B_MEMBER (36)/(35). An assertion on "the"
+    HP is right about one and wrong about the other depending on the enemy."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        st = g.start_battle(105)
+        boss = st.unit("Masked Man")
+        assert boss is not None
+        assert boss["hp"] == 1200 and boss["hp_raw"] == 11200, boss
+        zidane = st.unit("Zidane")
+        assert zidane["hp"] == zidane["hp_raw"], "an ordinary unit's two HPs agree"
+
+
+def test_alive_is_the_death_status_not_zero_hp(game):
+    """A unit under a DeathChanger effect sits at 0 HP ALIVE, and the HUD's own liveness test is the
+    status bit. Break it by publishing `cur.hp != 0` as `alive`."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        st = g.start_battle(105)
+        vivi = st.unit("Vivi")
+        assert vivi["hp"] == 0 and vivi["alive"] is True, vivi
+        assert len(st.units(alive=True)) == 3
+        assert st.units(player=True) and len(st.units(player=False)) == 1
+
+
+def test_expect_battle_result_names_what_it_got(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(105)
+
+        def finish():
+            time.sleep(0.3)
+            fake.end_battle(result=1)
+
+        threading.Thread(target=finish, daemon=True).start()
+        assert g.expect_battle_result("victory", timeout=10.0) is True
+        assert g.state.battle_epoch > 0
+    assert g.checks[-1]["ok"] is True
+
+
+def test_a_wrong_battle_result_fails_with_the_name_of_the_real_one(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(105)
+
+        def finish():
+            time.sleep(0.3)
+            fake.end_battle(result=3)          # defeat
+
+        threading.Thread(target=finish, daemon=True).start()
+        assert g.expect_battle_result("victory", timeout=10.0) is False
+    assert "defeat" in g.checks[-1]["detail"]
+
+
+def test_an_unknown_result_name_is_refused_locally(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="unknown battle result"):
+            g.expect_battle_result("triumph")
+
+
+def test_the_rewards_are_readable_after_a_victory(game):
+    """btl_bonus is zeroed at battle START, not at the end, so after a victory it IS that victory's
+    haul -- but on a field it is the LAST battle's, which is why it is only published in a battle."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(105)
+        assert g.state.battle["bonus"]["exp"] == 0
+        fake.battle_bonus = {"exp": 120, "gil": 88, "ap": 3, "items": 1}
+        published(g, lambda s: s.battle.get("bonus", {}).get("exp") == 120)
+        assert g.state.battle["bonus"]["gil"] == 88
+
+
+def test_battle_command_goes_through_the_engines_own_entry_point(game):
+    """The deterministic path: issue an exact command instead of steering a cursor -- the difference
+    between testing a damage formula and testing NGUI navigation."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(105)
+        g.battle_command(0, 4, sub=1, target=16, cursor=2)
+        published(g, lambda s: True)
+        assert fake.battle_commands == [[0, 4, 1, 16, 2]]
+
+
+def test_battle_command_outside_a_battle_is_refused(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        with pytest.raises(HarnessError, match="no battle HUD|refused"):
+            g.battle_command(0, 4)
+
+
+def test_start_battle_needs_a_field_to_leave_from(game):
+    """The engine routes the transition by the FIELD's nextMode, so this is refused before it can
+    become a silent no-op followed by a timeout blaming the battle scene."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        fake.ui_state = "MainMenu"
+        published(g, lambda s: s.ui_state == "MainMenu")
+        with pytest.raises(HarnessError, match="needs a field"):
+            g.start_battle(105)

@@ -211,7 +211,10 @@ previously only *expected* to work by sharing a code path with the menu cursor. 
 
 ## Engine deployment state
 
-★★ **s83 rev 2 (protocol 2) is BUILT, DEPLOYED AND PROVEN IN-GAME (2026-08-31).** sha
+★★ **s83 rev 3 (protocol 3) is BUILT, DEPLOYED AND PROVEN IN-GAME (2026-08-31).** rev 2 below;
+rev 3 adds the BATTLE block.
+
+★★ **s83 rev 2 (protocol 2) proven the same day.** sha
 `217410de06c089cacf1e72e47274c4710f03dde28651c4f8143de54ede23fc33` — Output == both arches, 0 errors, 186 warnings.
 Pre-build backups: `20260831-144736` (pre-rev2) and **`20260831-150435`** (pre-quitfix). Revert with
 `py tools/restore_memoria_dll.py <label>`.
@@ -506,6 +509,70 @@ that implies a hang guard, unknown manifest keys are now refused outright.
 
 ---
 
+## ★★ THE BATTLE BLOCK (2026-08-31, s83 rev 3 / protocol 3)
+
+The pillar the state channel was **100% dark** on. `sys_mode`, `scene` and `ui_state` carried a
+coarse "something battle-ish is happening" and nothing else — no HP, no ATB, no roster, no result —
+so every behavioural claim about a battle cost a human playtest.
+
+It was deliberately deferred out of rev 2 with a stated precondition: *"adding a battle block without
+extending the stand-in reproduces the existing menu lane's defect at ten times the surface."* The
+stand-in models menus, input, choices, a soft reset and now a battle, so that precondition is met.
+
+`scenarios/battle_check.py` — **14/14 in-game**, and it is a member of the core suite.
+
+### What it publishes, and the trap each field carries
+
+Almost everything in `FF9Battle` is **ambiguous or stale rather than absent**, which makes a
+plausible wrong answer the default failure mode here rather than a blank.
+
+| Published | The trap it is written around |
+|---|---|
+| `epoch` (`party.battle_no`) | The ONLY unambiguous "a battle started" edge. Monotonic and save-persistent, so only DELTAS mean anything — and every driver wait is anchored to it. |
+| `result` | **0 both DURING a battle and BEFORE any has ever run**, and it persists afterwards. Meaningless without the epoch. |
+| `active` + `debug` | `IsBattleScene()` is also true for the DIORAMA, which runs under `isDebug` where the engine suppresses the auto-end — a battle that can never finish. `in_battle` excludes it, so a result assertion there cannot be vacuously green. |
+| `units[].hp` **and** `hp_raw` | `CurrentHp` is NOT `Data.cur.hp`: it routes through `btl_para.GetLogicalHP`, which subtracts 10000 for a `FLG_NON_DYING_BOSS` enemy under `CustomBattleFlagsMeaning = 1`. The HUD shows one, the AI script reads the other as B_MEMBER (36)/(35). "The" HP is a wrong question. |
+| `units[].alive` | The Death STATUS BIT, not `hp == 0` — a unit under a DeathChanger effect sits at 0 HP alive, and the HUD's own liveness test is the status. |
+| `units[].name` **and** `name_raw` | The same rendered-vs-source split the dialogue needed, found again: an enemy came back as `[STRT=27,1]Fang[ENDN]`. A UILabel eats the tags, so matching the raw string matches something nobody sees. |
+| `scene_info.runaway` | Whether the scene permits running at all. See the escape mechanism below. |
+| `phase` / `units` / `turn` | **Mid-battle only.** The engine leaves every one of them holding the previous fight's contents, so publishing them on a field would hand a scenario a complete, plausible, entirely historical battle. |
+
+⚠ **NEVER call `BattleUnit.GetIndex()`.** It is `while (1 << index != Data.btl_id) ++index;` with no
+bound, so a unit whose `btl_id` is 0 spins forever — inside the state publisher, inside the frame
+loop, hanging the very game the harness exists to observe. The slot is computed with a bounded loop.
+
+### The boot verb is the warp adapter with one constant changed
+
+`SetBattleScene` — what the `.eb` ENCOUNT/ENCOUNT2 opcodes call — is `private void
+SetBattleScene(n) => FF9ChangeMap(n)`, and `SetNextMap` is the public method with the same body. In
+field mode `FF9ChangeMap` writes `FF9Field.loc.map.nextMapNo`, and `ff9ShutdownStateFieldMap` routes
+it by `nextMode`: 1 → a field, **2 → a battle**. So `battle <sceneId> [group]` reuses the proven warp
+sequence rather than minting a second copy of a transition. Deliberately NOT the diorama, whose
+`isDebug` makes the fight unable to end.
+
+### ⚠ STILL OPEN: driving a battle to a RESULT
+
+Not proven, and the scenario says so rather than asserting something weaker to look finished. Two
+obstacles, both **measured** rather than reasoned:
+
+1. **Fleeing cannot work while a command menu is open.** `btl_sys.CheckEscape` only rolls when
+   `BattleHUD.IsNativeEnableAtb()` is true, and in WAIT ATB mode (`cfg.atb == 1`, the default) that
+   is false while a submenu is up. The menu waits for input; the roll waits for the ATB the menu
+   froze. Meanwhile `btl_escape_key` is set *before* any of it is tested, so the character plays the
+   running animation the entire time — which is exactly what the owner reported watching:
+   *"zidane did the flee animation for a couple seconds but didn't actually leave the fight."*
+   Traced sample-by-sample in `scenarios/flee_probe.py`: `escape_held 1`, `turn.slot 0`,
+   cursor `Battle.Command`, `result 0`, indefinitely.
+2. **`SendNetCommand` refuses the local slot.** The exact, deterministic command path opens with
+   `if (playerIndex == CurrentPlayerIndex) return false;` — it exists to replay a REMOTE co-op
+   player's command and declines the slot whose local menu is open, which in a solo battle is always
+   the one you want. So the cursor is the only route, and `battle_act` (pick by name, wait for the
+   target group, confirm) does not yet reliably commit a turn.
+
+The honest framing: the harness can now **see** a battle in full detail. It cannot yet **play** one.
+
+---
+
 ## Next actions
 
 1. ~~Build and deploy s83 rev2~~ — ★ DONE and proven, see Engine deployment state.
@@ -521,10 +588,9 @@ that implies a hang guard, unknown manifest keys are now refused outright.
    screenshot on every failed check, and `env.json` (registered fields, deployed DLL sha, engine
    protocol, `[AnalogControl]`, `[Cheats]`). Namespace `shots/` per scenario — two scenarios both
    using `"walk-before"` currently overwrite each other's evidence.
-5. **The battle block, as its own batch**, after the stand-in models the existing `menu`/`input`
-   sections. Battles are a first-class pillar and the state channel is 100% dark on them; the recon is
-   in the audit output. ⚠ `isDebug` makes a diorama battle unable to end by design, so a result
-   assertion there is green-having-observed-nothing.
+5. ~~The battle block~~ — ★ DONE for OBSERVABILITY (see below). **Still open: DRIVING a battle to a
+   result**, which is a different capability and is not proven. Two measured obstacles are recorded
+   below; neither is a mystery any more, but neither is solved.
 6. **World vehicles have no throttle** (`ff9.cs:6652`) and the overworld free-camera reads the raw
    right stick. Fix if an overworld scenario needs it — and note the recon REFUTED the premise that
    the harness cannot walk on foot there; the field verbs simply refused to admit which coordinate

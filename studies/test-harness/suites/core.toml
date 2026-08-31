@@ -70,6 +70,13 @@ path = "studies/test-harness/scenarios/talk_check.py"
 [[scenario]]
 path = "studies/test-harness/scenarios/menu_pick_check.py"
 
+# -- battle -----------------------------------------------------------------------------------
+# The pillar the state channel was 100% dark on until s83 rev3. Asserts OBSERVABILITY only: the
+# start edge, the unit roster, live ATB, the command cursor, and the scene's own no-escape flag.
+# Driving a battle to a RESULT is a separate capability and is NOT yet proven -- see PLAN.md.
+[[scenario]]
+path = "studies/test-harness/scenarios/battle_check.py"
+
 # -- withheld control and field transitions ---------------------------------------------------
 # A scripted scene: the state a naive harness hangs in, made into a condition with a transcript.
 [[scenario]]

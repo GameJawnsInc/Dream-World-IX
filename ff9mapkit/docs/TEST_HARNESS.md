@@ -176,6 +176,44 @@ see what the screen looked like costs the whole suite.
 
 ---
 
+## Battles
+
+The state channel was completely dark on battles until `s83` rev 3. It now publishes the roster, HP,
+MP, ATB, statuses, the command cursor, the rewards and the result:
+
+```python
+g.start_battle(67)                     # a REAL battle, not the diorama
+for u in g.state.units(player=False):
+    print(u["name"], u["hp"], "/", u["hp_max"])
+g.expect_battle_result("victory")
+```
+
+**The traps are the design.** Almost every value the engine keeps is ambiguous or stale rather than
+absent, so a plausible wrong answer is the default failure here:
+
+- `battle_result` is **0 both during a battle and before any has ever run**, and it persists after
+  one. Everything is anchored to `battle_epoch` (`party.battle_no`), the only unambiguous start edge.
+- `IsBattleScene()` is true for the **diorama** too, which runs under `isDebug` where the engine
+  suppresses the auto-end - a fight that can never finish. `in_battle` excludes it, and
+  `wait_battle_over()` refuses outright rather than hanging.
+- Each unit carries HP **twice**: `hp`/`hp_max` are the logical values the HUD shows, `hp_raw`/
+  `hp_max_raw` are what the AI script reads. They differ by 10000 for a non-dying boss. Asking for
+  "the" HP is asking the wrong question.
+- `alive` is the **Death status bit**, not `hp == 0` - a unit under a DeathChanger effect sits at 0
+  HP alive.
+- `name` is rendered and `name_raw` is the source, because enemy names carry markup
+  (`[STRT=27,1]Fang[ENDN]`).
+- `phase`, `units` and `turn` are published **only inside a battle**. The engine leaves them holding
+  the last fight's contents, and a full historical battle reported on a field is worse than nothing.
+
+WARNING: **the harness can SEE a battle; it cannot yet reliably PLAY one.** Fleeing cannot roll while
+a command menu is open (in Wait ATB mode the menu freezes the gauge `CheckEscape` requires - while the
+running animation plays regardless, because `btl_escape_key` is set before that gate), and
+`SendNetCommand` refuses the slot whose local menu is open because it exists to replay remote co-op
+commands. See `studies/test-harness/PLAN.md`.
+
+---
+
 ## What the driver refuses to tell you
 
 A harness that reports confidently and wrongly is worse than no harness, and this one did it three
