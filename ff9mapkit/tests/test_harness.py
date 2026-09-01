@@ -2007,3 +2007,167 @@ def test_the_command_phase_opens_and_then_the_turn_is_real(game):
         assert slot == 0 and g.state.commands_enabled
         g.act("Attack", slot=slot)
         assert fake.battle_commands
+
+
+# ---------------------------------------------------------------------------------------------
+# THE MOVEMENT TAIL and the wall retry -- the gateway_check flake.
+#
+# Measured in-game on 30801, each case from a known open spot: a hold covers what it commanded give
+# or take ONE frame, and nothing is still moving by `wait frames + 4`. But on 30820 a burst was
+# still credited with 114 units of movement in a direction it had not pressed, because the previous
+# burst had not finished when it started -- and walk_to concluded the axis BASIS was wrong. That is
+# a confident, well-argued verdict about the wrong thing, and it made the scenario fail on some runs
+# and pass on others depending on where the character happened to arrive.
+# ---------------------------------------------------------------------------------------------
+
+
+def test_settle_waits_for_the_character_to_actually_stop(game):
+    """Every displacement this driver measures is a difference of two positions, and it is only
+    attributable to the burst between them if the character is stationary at both ends."""
+    fake = FakeGame(game)
+    fake.coast_frames = 8               # an exaggerated tail, to make the window visible
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.wait_frames(20)
+        settled = g.settle()
+        before = (settled.player_x, settled.player_z)
+
+        # A hold whose tail outlives the wait it is given.
+        g.send("hold up 4", "wait 6")
+        rushed = g.state                # what the old code would have measured
+        rested = g.settle()
+        assert rested.player_z > rushed.player_z, (
+            "the stand-in's tail is not being modelled; without it this test proves nothing")
+        # And once settled, it stays settled.
+        assert g.settle().player_z == rested.player_z
+        assert rested.player_z > before[1]
+
+
+def test_the_basis_verdict_only_judges_a_burst_that_is_evidence(game):
+    """THE RULE, fed the numbers the GAME produced. Both of these were real bursts on 30820, and the
+    old test (an absolute `moved >= 15`) called both of them evidence about the axis basis:
+
+        down  f=31 cmd=930 moved=960.0 proj=+960.0  (60,-777) -> (60,-1737)
+        left  f=1  cmd= 30 moved=114.0 proj=  -0.0  (60,-1737) -> (60,-1851)
+
+    One frame of `left` credited with 114 units of pure -z -- the tail of the `down` before it. And
+    at the other end, 24 units of push-out when 1350 were commanded, which is a character pressed
+    into a wall. Neither says anything about the basis, and treating them as though they did is what
+    made gateway_check fail on some runs and pass on others.
+
+    ⚠ Tested here rather than through walk_to on purpose. Reproducing these numbers through a
+    simulated walk depends on where the stand-in character happens to be, and three attempts at
+    that passed against a deliberately broken build -- proving nothing while looking thorough."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        # TOO MUCH: 114 units on 30 commanded. The tail of the previous burst.
+        assert not g._burst_is_evidence(114.0, 30.0)
+        # TOO LITTLE: 24 units on 1350 commanded. Pressed into a wall.
+        assert not g._burst_is_evidence(24.0, 1350.0)
+        # Below the floor entirely -- a nudge, not a move.
+        assert not g._burst_is_evidence(4.0, 900.0)
+
+        # A GENUINELY WRONG BASIS still gets judged: the character walks freely, so he covers very
+        # nearly what was commanded. This is the case the guard exists for and must keep catching.
+        assert g._burst_is_evidence(1150.0, 1200.0)
+        assert g._burst_is_evidence(900.0, 930.0)
+        # And the +/-1 frame the engine actually varies by (measured on 30801) stays evidence.
+        assert g._burst_is_evidence(60.0, 30.0), "run f=1 covers 60u; that is normal, not a tail"
+        assert g._burst_is_evidence(450.0, 465.0)
+
+
+def test_a_wall_does_not_get_the_basis_discarded(game):
+    """The integration side of the same rule: drive hard into a wall and the basis must survive.
+    A discarded basis is not a small thing -- every later walk on that field recalibrates, and the
+    scenario ends up reporting the field as unreachable."""
+    fake = FakeGame(game, walkmesh=(-600.0, -600.0, 600.0, 200.0))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.wait_frames(20)
+        g.calibrate_axes()
+        assert g.walk_to(0.0, 1500.0, tolerance=45.0, strict=False) is False
+        assert 30810 in g._axes, "a wall is not evidence that the basis is wrong"
+
+
+def test_walk_to_gives_up_on_a_target_it_keeps_missing(game):
+    """Pins the overshoot stall: a loop that steps past the target and back again shows movement
+    every time, and without counting that as a stall it burns all 24 bursts before failing.
+
+    ⚠ This guards EXISTING behaviour. A `progress < 1.0` stall was written alongside it and then
+    REMOVED: the burst trace showed the overshoot rule already breaks this oscillation, nothing in
+    the stand-in could make the new rule fire, and an unverifiable rule inside a steering loop is
+    exactly the speculative surface this arc keeps paying for.
+
+    Asserted on the REQUEST COUNT rather than on wall-clock: a timing assertion would pass or fail
+    with the machine rather than with the rule under test."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.wait_frames(20)
+        g.calibrate_axes()
+        fake.coast_frames = 10          # every burst overshoots by ~300u; the target is unhittable
+        before = fake.seq
+        assert g.walk_to(0.0, 300.0, tolerance=45.0, strict=False) is False
+        spent = fake.seq - before
+        assert spent < 14, (
+            f"took {spent} requests to give up on an unreachable target -- with two stalls it "
+            f"should be a handful, and 24 bursts is the old behaviour")
+
+
+def test_calibration_backs_away_from_a_wall_instead_of_refusing(game):
+    """THE OTHER HALF OF THE FLAKE, seen on 30801 as
+
+        the h axis is not a free axis: right measured (+1.00,+0.00) over 60u and
+        left measured (-1.00,+0.00) over 180u (antiparallel=+1.00, length ratio=0.33)
+
+    antiparallel=+1.00 means the two probes agree PERFECTLY about which world direction the axis is.
+    All the length ratio says is that one side ran out of room -- a fact about where the character
+    is standing, not about the field, and one that varies between runs. Backing off and measuring
+    again is what a person would do."""
+    fake = FakeGame(game, walkmesh=(-600.0, -600.0, 600.0, 600.0))
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.wait_frames(20)
+        # Stand him 50 units from the east wall: `right` measures 50 of the 120 commanded (over the
+        # 35% probe floor, so it is not simply discarded) while `left` measures the full 120.
+        # ratio 0.42 -- the old code refused here.
+        fake.player = [550.0, 0.0, 0.0]
+        published(g, lambda s: s.player_x is not None and s.player_x > 500)
+        basis = g.calibrate_axes()
+        assert basis["h"][0] > 0.9, f"backed off and measured the axis anyway: {basis}"
+        assert basis["v"][1] > 0.9 or basis["v"][1] < -0.9
+
+
+def test_calibration_still_refuses_ground_that_no_retry_can_fix(game):
+    """The refusal is kept for what it was written for. In wall_slide mode EVERY press is projected
+    onto one fixed direction, so the character always moves and never where he was sent -- backing
+    off changes nothing, and a basis measured there is a well-formed lie."""
+    fake = FakeGame(game, mode="wall_slide")
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.wait_frames(20)
+        with pytest.raises(HarnessError, match="not a free axis|deflected|could not calibrate"):
+            g.calibrate_axes(recalibrate=True)
+
+
+def test_backing_off_refuses_to_leave_the_field(game):
+    """Calibration that walked into a gateway would cache the NEXT room's basis under this room's
+    id -- a wrong answer with no symptom at all until something steered by it."""
+    fake = FakeGame(game, walkmesh=(-600.0, -600.0, 600.0, 600.0))
+    # A gateway band just west of the calibration spot -- exactly where a character pinned against
+    # the east wall backs off to. The `left` probe (120u) stops short of it; the 240u back-off
+    # crosses it.
+    fake.gateway = (150.0, -600.0, 350.0, 600.0, 30821)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.wait_frames(20)
+        fake.player = [550.0, 0.0, 0.0]
+        published(g, lambda s: s.player_x is not None and s.player_x > 500)
+        with pytest.raises(HarnessError, match="left the field|gateway"):
+            g.calibrate_axes(recalibrate=True)

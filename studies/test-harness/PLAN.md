@@ -641,23 +641,87 @@ now"*, and it is the only field in that block that is not stale. Now:
 
 The harness can now see a battle **and** play one.
 
-### ⚠ KNOWN FLAKE, NOT INTRODUCED HERE: `gateway_check` axis calibration on 30820
+### ★ FIXED: the `gateway_check` calibration flake — and it was the MEASUREMENT, not the basis
 
-Intermittent. The calibrated basis and a later burst disagree — *"holding up moved 24u along
-(-4,-24), which projects only -24u onto the calibrated axis (+0.00, +1.00)"* — and `walk_to`
-**discards the basis and refuses**, which is the guard working exactly as designed: it is the fix
-for the older failure where a wall-measured basis was cached and every later move was steered along
-the wall while the report blamed the destination.
+The failure, intermittent across runs:
 
-Not caused by the rev 4 work, and the evidence is in the runs rather than in an argument: the
-`Extend` change was already deployed in the suite run where `gateway_check` **passed** (139.7s,
-3/3), and it errored in the next one. `Extend` can only ever *lengthen* a hold, so it cannot produce
-the observed **sign flip** either. Room 30820 is tight, and whether the sweep drives into a wall
-before it finds the gateway depends on where the character happens to start.
+    the axis basis for field 30820 disagrees with what the game did: holding up moved 24u along
+    (-4,-24), which projects only -24u onto the calibrated axis (+0.00, +1.00). The basis was
+    probably measured against a wall; it has been discarded.
 
-Left as-is: the honest verdict on a bench the scenario cannot reliably calibrate on is a refusal,
-not a steered-along-a-wall pass. Fixing it means giving that scenario clearer ground to calibrate
-from, which is scenario work rather than harness work.
+**Two wrong answers came first, and both were plausible.** *"He is against a wall at the spawn"* —
+falsified by walking it: from the arrival point `up` covers a clean **+1014u**. *"The engine coasts
+about three frames past the hold"* — falsified by measuring each case from a known open spot:
+
+    run  f=1  commanded=  30  settled=  60   (+1 frame)
+    run  f=4  commanded= 120  settled= 120   ( 0)
+    run  f=31 commanded= 930  settled= 900   (-1 frame)
+    walk f=1  commanded=  15  settled=  30   (+1 frame)
+
+...and the tail remaining after `wait(frames + 4)` is **zero** in every case. The pipeline error is
+about one frame either way.
+
+**What it actually was.** Mapping the room with a burst-by-burst trace caught it on bearing 180:
+
+    down  f=31 cmd=930 moved=960.0 proj=+960.0  (60,-777) -> (60,-1737)
+    left  f=1  cmd= 30 moved=114.0 proj=  -0.0  (60,-1737) -> (60,-1851)   <-- the guard fired here
+
+One frame of `left` was credited with **114 units of pure -z**. The character was still finishing
+the `down` before it, and `walk_to` measured across a window that contained the tail of a burst it
+did not issue. It then concluded the axis **basis** was wrong — a confident, well-argued verdict
+about entirely the wrong thing — and threw away a basis that was correct. Whether it fired at all
+depended on how a nudge compared to a fixed 15-unit floor, which is why the same scenario passed and
+failed on alternate runs.
+
+**The fixes**, each proven by breaking it and watching its test go red:
+
+* **`settle()`** — every displacement is now measured between two states in which the character is
+  demonstrably stationary, so it is attributable to the burst that caused it. Used by both
+  `walk_to` and `_probe_axis`. It polls the state file, so it costs no round trip and returns
+  immediately when nothing is moving.
+* **`_burst_is_evidence(moved, commanded)`** — the basis verdict now requires a burst whose
+  movement is *consistent with what was asked*. Too little (24u of 1350) is a BLOCKED character;
+  too much (114u of 30) is a contaminated window. Neither says anything about the basis. ⚠ The old
+  test was an absolute `moved >= 15` — **the very mistake `_probe_axis` had already fixed once**,
+  sitting unnoticed at a second site. When a rule is worth writing down, grep for where else it
+  belongs.
+* **`calibrate_axes` backs off and re-measures** instead of refusing where it stands. The other
+  half of the flake, seen on 30801 as `right measured 60u / left measured 180u, ratio 0.33` — with
+  `antiparallel=+1.00`, meaning both probes agreed *perfectly* about the axis and one had simply run
+  out of room. Where the character is standing is not a property of the field. The refusal is kept
+  for ground no retry can fix (a genuine slide), and `_back_off` refuses to leave the field, because
+  a calibration that wandered through a gateway would cache the next room's basis under this one's
+  id — wrong with no symptom until something steered by it.
+* **`find_transitions` re-homes before every bearing.** A leg that stranded the character handed the
+  next bearing a different origin, silently; three southward bearings once reported "covered 0 of
+  950u" from a corner that has no south. Walking back is not the same as arriving, so it now checks
+  and warps if walking will not do it — and a short leg's record carries the position it started
+  from, because "covered 0 from home" and "covered 0 from a corner" are different findings.
+
+⚠ **A `progress < 1.0` stall was written alongside these and then REMOVED.** The burst trace showed
+the existing overshoot rule already breaks the oscillation it was meant to catch, and nothing in the
+stand-in could make it fire. An unverifiable rule inside a steering loop is exactly the speculative
+surface this arc keeps paying for — *the defect follows the authorship*.
+
+⚠ **AND THE REGRESSIONS THEMSELVES NEEDED PROVING.** Written against a deliberately broken build,
+**four of the first five passed anyway**: `walk_to` reached each test target in ONE burst, so there
+was never a previous burst to be contaminated by, and the stand-in's hard clamp makes a blocked
+burst move exactly zero, which the old rule caught too. They looked thorough and tested nothing. The
+rule was pulled out into a pure helper and fed the numbers the game actually produced; every guard
+in this section is now confirmed red against a broken build
+(`scratchpad/prove_tests_fail.py` was the harness for that).
+
+**Measured after the fix:** the basis error is gone, and `gateway_check` passed **6 consecutive
+standalone runs** plus the full suite — where the **whole 14-scenario core suite is green for the
+first time**, `gateway_check` included. Before the fix the same scenario failed roughly one run in
+three.
+
+⚠ That is a measurement, not a guarantee. A flake's cure is a claim about a distribution, and six
+runs bound it loosely. What makes it more than luck is that the mechanism was found and each part
+of the fix is pinned by a test confirmed red against a deliberately broken build — if it comes
+back, it will be something else, and the leg-start logging in `find_transitions` is there so the
+next report says which.
+
 
 ### What playing one looks like
 

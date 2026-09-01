@@ -116,6 +116,15 @@ class FakeGame:
         self.note = ""
         self.shots_taken = 0
         self.walkmesh = walkmesh
+        #: Frames the character keeps moving after the direction is released. ⚠ NOT ZERO, and the
+        #: value is measured rather than chosen: on bench 30801 a hold covers what it commanded give
+        #: or take ONE frame (`hold down 1` moves 60 units at run speed, `hold down 31` moves 900),
+        #: so the engine's input pipeline runs about a frame behind. A stand-in that stopped dead on
+        #: release could not reproduce that at all -- and the pathological case, where the tail lands
+        #: inside the NEXT burst's measurement window and is attributed to the direction pressed
+        #: there, is what a test raises this to reproduce.
+        self.coast_frames = 1
+        self._coast = None                  # (vx, vz, frames_left)
         #: Whether the agent has redirected its save path away from the player's folder. Modelled
         #: because the driver must VERIFY this rather than trust it -- an unchecked sandbox is a
         #: check that cannot fail, and what it would fail to catch is the owner's overwritten game.
@@ -478,6 +487,16 @@ class FakeGame:
         if self._is_held("left"):
             vx -= 1.0
         if vx == 0.0 and vz == 0.0:
+            # Nothing held -- but the engine is still applying the last movement it sampled.
+            if not self._coast:
+                return
+            vx, vz, left = self._coast
+            self._coast = (vx, vz, left - 1) if left > 1 else None
+            x = self.player[0] + vx
+            z = self.player[2] + vz
+            x0, z0, x1, z1 = self.walkmesh
+            self.player[0] = min(max(x, x0), x1)
+            self.player[2] = min(max(z, z0), z1)
             return
         mag = (vx * vx + vz * vz) ** 0.5
         vx, vz = vx / mag, vz / mag
@@ -502,6 +521,9 @@ class FakeGame:
         x0, z0, x1, z1 = self.walkmesh
         self.player[0] = min(max(x, x0), x1)
         self.player[2] = min(max(z, z0), z1)
+        # Arm the tail with the velocity actually applied this frame.
+        self._coast = ((vx * speed, vz * speed, self.coast_frames)
+                       if self.coast_frames > 0 else None)
 
         if self.gateway is not None:
             gx0, gz0, gx1, gz1, dest = self.gateway

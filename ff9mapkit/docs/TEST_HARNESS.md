@@ -248,6 +248,31 @@ that is a different fault entirely.
 
 ---
 
+## Walking, and why every measurement settles first
+
+`walk_to(x, z)` steers on the published position rather than counting frames, and it calibrates
+which button moves the character which way in world space (`calibrate_axes`) because FF9 fields are
+viewed by a yawed camera - "up" is +z on one field and -x on the next.
+
+WARNING: **a displacement only means something if the character was stationary at both ends.** The
+engine's movement runs about a frame behind the input, so the tail of one burst lands in the next
+one's measurement window. Measured on 30820, one frame of `left` was credited with 114 units of pure
+-z - the previous `down` still finishing - and `walk_to` concluded the axis basis was wrong and
+discarded a perfectly correct one. `Session.settle()` is what closes that window, and every
+measurement here goes through it.
+
+For the same reason the basis verdict only judges a burst whose movement is *consistent with what
+was commanded*: far too little means the character is blocked (24 units when 1350 were asked), far
+too much means the window was contaminated (114 when 30 were asked). Neither is evidence about the
+basis.
+
+Calibration will step away from a wall and re-measure rather than refuse where it stands - being
+against a wall is a fact about where the character is, not about the field, and it varies between
+runs. It still refuses ground no retry can fix, and it refuses to walk through a gateway while
+backing off, since that would cache the next room's basis under this room's id.
+
+---
+
 ## What the driver refuses to tell you
 
 A harness that reports confidently and wrongly is worse than no harness, and this one did it three
