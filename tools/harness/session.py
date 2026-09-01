@@ -809,6 +809,64 @@ class Session:
     #: units along a wall while 900 were asked for".
     PROBE_MIN_FRACTION = 0.35
 
+    def _burst_is_evidence(self, moved: float, commanded: float) -> bool:
+        """Is this burst's displacement attributable to THIS burst, and worth judging a basis on?
+
+        ⚠ THE OLD TEST WAS `moved >= 15`, an absolute floor, and it is how a wall came to be
+        reported as a broken axis calibration -- intermittently, because the distance the engine
+        nudges a blocked character straddles it. Judged against the COMMAND instead, in both
+        directions, with the numbers that came out of the game:
+
+        * **TOO LITTLE** -- 24 units moved when 1350 were commanded (30820, pressed into a wall).
+          He is BLOCKED, not mis-steered. This is the same law ``_probe_axis`` already applies, and
+          the same mistake it already fixed once, found here at a second site.
+        * **TOO MUCH** -- 114 units moved when 30 were commanded (30820, one frame of ``left``
+          credited with the tail of the previous ``down``). Movement that exceeds the command by
+          four frames was not all caused by this burst, so it says nothing about the direction this
+          burst pressed. ``walk_to`` concluded the BASIS was wrong: a well-argued verdict about
+          entirely the wrong thing, and the reason gateway_check failed on some runs and not others.
+
+        A basis that is genuinely wrong sends the character walking FREELY in the wrong direction,
+        so he covers very nearly what was commanded and still fails the projection test that
+        follows. The tolerance above the command is two frames of run: measured on 30801, a hold
+        covers what it asked for give or take ONE frame at either speed.
+        """
+        if moved < self.WALK_SPEED:
+            return False
+        return (self.PROBE_MIN_FRACTION * commanded <= moved
+                <= commanded + 2 * self.RUN_SPEED)
+
+    #: How many times to step away from whatever is in the way and re-measure an axis before
+    #: refusing. Calibrating with your back to a wall is a fact about the arrival position, not
+    #: about the field, and the arrival position varies between runs -- which is exactly the shape
+    #: of an intermittent failure.
+    CALIBRATE_ATTEMPTS = 3
+    #: Frames of clearance to walk when backing off. ~240 units: further than a probe (120) so the
+    #: retry is measuring somewhere genuinely different, short enough not to cross a room.
+    CLEARANCE_FRAMES = 8
+
+    def _back_off(self, direction: str, field: int) -> bool:
+        """Walk a little way in ``direction`` to find clearer ground. False if it got us nowhere.
+
+        ⚠ IT REFUSES TO LEAVE THE FIELD. Backing off can walk into a gateway, and a calibration that
+        silently continued in the NEXT room would cache that room's basis under this room's id --
+        a wrong answer with no symptom until something steered by it.
+        """
+        before = self.settle()
+        self.walk(direction, self.CLEARANCE_FRAMES)
+        after = self.settle()
+        if after.field_id != field or after.player_x is None:
+            raise HarnessError(
+                f"backing off {direction} to calibrate field {field} left the field "
+                f"(now {after.field_id}). There is a gateway right next to the calibration spot; "
+                f"calibrate somewhere with room around the character."
+            )
+        if before.player_x is None:
+            return False
+        moved = ((after.player_x - before.player_x) ** 2
+                 + (after.player_z - before.player_z) ** 2) ** 0.5
+        return moved > self.WALK_SPEED
+
     def distance_to(self, x: float, z: float) -> float:
         st = self._require_field("distance_to")
         if st.player_x is None:
@@ -839,31 +897,56 @@ class Session:
         # similar length; a slide is neither.
         basis, detail = {}, {}
         for name, (fwd, back) in (("v", ("up", "down")), ("h", ("right", "left"))):
-            a = self._probe_axis(fwd, probe)
-            b = self._probe_axis(back, probe)
-            if a is None and b is None:
-                raise HarnessError(
-                    f"could not calibrate the {name} axis on field {key}: neither {fwd} nor {back} "
-                    f"moved the character more than {self.PROBE_MIN_FRACTION:.0%} of the "
-                    f"{probe * self.RUN_SPEED:.0f} units commanded. Is he boxed in, or is control "
-                    f"withheld?"
-                )
-            if a is not None and b is not None:
+            vec = reach = None
+            trouble = ""
+            for attempt in range(self.CALIBRATE_ATTEMPTS):
+                last_try = attempt == self.CALIBRATE_ATTEMPTS - 1
+                a = self._probe_axis(fwd, probe)
+                b = self._probe_axis(back, probe)
+                if a is None and b is None:
+                    raise HarnessError(
+                        f"could not calibrate the {name} axis on field {key}: neither {fwd} nor "
+                        f"{back} moved the character more than {self.PROBE_MIN_FRACTION:.0%} of the "
+                        f"{probe * self.RUN_SPEED:.0f} units commanded. Is he boxed in, or is "
+                        f"control withheld?"
+                    )
+                if a is None or b is None:
+                    # One side is entirely blocked. The other still measured the axis, so the
+                    # DIRECTION is known -- but a measurement taken with your back to a wall is
+                    # worth re-taking from clear ground before it is cached for the whole field.
+                    free_name, free = (back, b) if a is None else (fwd, a)
+                    if not last_try and self._back_off(free_name, key):
+                        trouble = f"{fwd if a is None else back} was blocked"
+                        continue
+                    vec = free[0] if a is not None else (-free[0][0], -free[0][1])
+                    reach = free[1]
+                    break
+
                 anti = -(a[0][0] * b[0][0] + a[0][1] * b[0][1])      # +1 when truly opposite
                 ratio = min(a[1], b[1]) / max(a[1], b[1])
-                if anti < 0.85 or ratio < 0.5:
-                    raise HarnessError(
-                        f"the {name} axis on field {key} is not a free axis: {fwd} measured "
-                        f"{_vec(a[0])} over {a[1]:.0f}u and {back} measured {_vec(b[0])} over "
-                        f"{b[1]:.0f}u (antiparallel={anti:+.2f}, length ratio={ratio:.2f}). The "
-                        f"character is sliding along something rather than walking. Move to clearer "
-                        f"ground and recalibrate."
-                    )
-                vec, reach = a[0], min(a[1], b[1])
-            elif a is not None:
-                vec, reach = a[0], a[1]
-            else:
-                vec, reach = (-b[0][0], -b[0][1]), b[1]
+                roomier = fwd if a[1] >= b[1] else back
+                if anti >= 0.85 and ratio >= 0.5:
+                    vec, reach = a[0], min(a[1], b[1])
+                    break
+
+                # ⚠ RETRY BEFORE REFUSING, and the reason is that this refusal is about WHERE THE
+                # CHARACTER IS STANDING, not about the field. `ratio` low with `anti` at +1.00 means
+                # the two probes agree perfectly on the axis and one of them ran out of room -- a
+                # false negative, and a coin-flip one, since the arrival position varies. Backing
+                # off along the roomier direction and re-measuring is what a person would do.
+                trouble = (f"{fwd} measured {_vec(a[0])} over {a[1]:.0f}u and {back} measured "
+                           f"{_vec(b[0])} over {b[1]:.0f}u (antiparallel={anti:+.2f}, length "
+                           f"ratio={ratio:.2f})")
+                if not last_try and self._back_off(roomier, key):
+                    continue
+                raise HarnessError(
+                    f"the {name} axis on field {key} is not a free axis: {trouble}. The character "
+                    f"is sliding along something rather than walking, and backing off along "
+                    f"{roomier} did not find clearer ground in "
+                    f"{self.CALIBRATE_ATTEMPTS} attempts. Calibrate from open ground."
+                )
+            if trouble:
+                self._log(f"  calibrate {name}: retried after {trouble}")
             basis[name] = vec
             detail[name] = reach
 
@@ -885,6 +968,60 @@ class Session:
                   f"right={_vec(basis['h'])} ({detail['h']:.0f}u) |dot|={skew:.2f}")
         return basis
 
+    #: How long to wait for the character to come to rest before measuring a displacement, and
+    #: how still he has to be. Two consecutive samples within half a unit is the engine's own
+    #: resolution -- the published position is exact, not interpolated.
+    SETTLE_TIMEOUT = 3.0
+    SETTLE_SAMPLES = 2
+    SETTLE_EPSILON = 0.5
+
+    def settle(self, *, timeout: float | None = None) -> State:
+        """Wait until the published position stops changing, and return that state.
+
+        ⚠ A HOLD OF N FRAMES DOES NOT PRODUCE EXACTLY N FRAMES OF MOVEMENT, and every displacement
+        this driver measures used to assume it did. Measured on bench 30801: ``hold down 31``
+        commands 930 units and covers **1020** -- the engine samples input on one frame and applies
+        movement on a later one, so travel continues for several frames after the button is up.
+
+        That tail does not vanish; it lands in the NEXT measurement window and is attributed to
+        whatever was pressed there. On 30820 it produced this, one frame of `left` covering 114
+        units of pure -z::
+
+            down  f=31 cmd=930 moved=960.0 proj=+960.0  (60,-777) -> (60,-1737)
+            left  f=1  cmd= 30 moved=114.0 proj=  -0.0  (60,-1737) -> (60,-1851)
+
+        `walk_to` concluded the axis BASIS was wrong -- a confident, well-argued verdict about the
+        wrong thing, which is what made `gateway_check` fail on some runs and pass on others.
+
+        Polls the state file directly, so settling costs no round trip to the game. Returns the last
+        state seen even if it never settles: something legitimately moving (a platform, a scripted
+        walk) is not this method's business to refuse, and the callers all have their own verdicts.
+        """
+        deadline = time.time() + (self.SETTLE_TIMEOUT if timeout is None else timeout)
+        last: State | None = None
+        still = 0
+        while time.time() < deadline:
+            self._assert_alive()
+            st = self.channel.state()
+            if st is None:
+                time.sleep(0.02)
+                continue
+            if (last is not None and st.player_x is not None and last.player_x is not None
+                    and abs(st.player_x - last.player_x) <= self.SETTLE_EPSILON
+                    and abs(st.player_z - last.player_z) <= self.SETTLE_EPSILON
+                    and st.frame > last.frame):
+                still += 1
+                if still >= self.SETTLE_SAMPLES:
+                    return st
+            elif last is None or st.frame > last.frame:
+                still = 0
+            last = st
+            time.sleep(0.02)
+        if last is not None:
+            self._log(f"  settle: the character was still moving after "
+                      f"{self.SETTLE_TIMEOUT:.0f}s at {last.pos}")
+        return last if last is not None else self.state
+
     def _probe_axis(self, direction: str, frames: int):
         """Hold one direction briefly; return ``((ux, uz), magnitude)``, or None if it did not move.
 
@@ -893,10 +1030,13 @@ class Session:
         measurement of that axis, cached the resulting basis, and then steered every later walk_to
         along the wall -- reporting the field as unreachable.
         """
-        before = self.state
+        # ⚠ BOTH ENDS SETTLED. The old code waited a flat 6 frames, which is a guess at the
+        # engine's movement tail -- and the tail is not a constant: `hold down 31` covers 1020 units
+        # for 930 commanded, and on 30820 it ran ~5 frames past the hold. A probe that measures
+        # during the tail reports a length that is part its own and part the previous probe's.
+        before = self.settle()
         self.walk(direction, frames)
-        self.wait_frames(6)
-        after = self.state
+        after = self.settle()
         if before.player_x is None or after.player_x is None:
             return None
         if after.field_id != before.field_id:
@@ -937,7 +1077,10 @@ class Session:
         field = self.state.field_id
         stalls = 0
         for _ in range(max_bursts):
-            st = self.state
+            # ⚠ SETTLED, so this burst's displacement is this burst's. The engine's movement runs a
+            # few frames behind the input, so the previous burst is often still carrying the
+            # character when the next one is issued -- see settle().
+            st = self.settle()
             # Walking somewhere can END the field: step into a gateway and the destination is
             # loading, so there is no position to steer by. The first version treated that as an
             # error and then did arithmetic on None anyway, so a probe that successfully found a
@@ -968,7 +1111,7 @@ class Session:
                 steps.insert(0, f"hold cancel {frames}")
             self.send(*steps, f"wait {frames + 4}")
 
-            after = self.state
+            after = self.settle()
             if after.field_id != field or after.player_x is None:
                 return False          # the burst carried us out of the field -- see above
             mx, mz = after.player_x - st.player_x, after.player_z - st.player_z
@@ -981,7 +1124,7 @@ class Session:
             # project onto the axis it was sent along, the basis is wrong and every later burst is
             # steering by it. Say so, and throw the basis away, instead of grinding out max_bursts
             # and then blaming the field's geometry.
-            if moved >= self.WALK_SPEED:
+            if self._burst_is_evidence(moved, frames * speed):
                 projected = (mx * axis[0] + mz * axis[1]) * sign
                 if projected < 0.35 * moved:
                     self._axes.pop(field, None)
@@ -1281,7 +1424,17 @@ class Session:
         for i in range(bearings):
             angle = 2 * math.pi * i / bearings
             bearing = round(math.degrees(angle))
+            # ⚠ EVERY BEARING MUST RADIATE FROM HOME, and walking back is not the same as arriving.
+            # A leg that strands the character -- in a corner, against a wall -- used to hand the
+            # next bearing a different origin, silently, and the sweep stopped being a circle. Three
+            # southward bearings once reported "covered 0 of 950u" from a corner that has no south.
+            self._resume_sweep(home, home_field)
             tx, tz = home[0] + radius * math.sin(angle), home[1] + radius * math.cos(angle)
+            # WHERE THE LEG STARTS IS HALF THE STORY. A bearing that reports "covered 0 units" is
+            # useless without knowing whether the character was at home or stuck in a corner from
+            # the previous leg -- and the sweep only radiates from `home` if he actually got back.
+            start = self.state
+            self._log(f"  bearing {bearing}deg from {start.pos} toward ({tx:.0f},{tz:.0f})")
             record = self.cross(tx, tz, timeout=timeout)
             if record["landed"] is not None:
                 found.append({"bearing": bearing, "toward": record["toward"],
@@ -1289,14 +1442,12 @@ class Session:
                 self._log(f"transition on bearing {bearing}deg -> field {record['landed']}")
                 self.warp(home_field)
                 self.wait_frames(45)
-                # The home point is FROZEN at the sweep's start: re-reading it after each warp made
-                # every later bearing radiate from wherever the arrival happened to be, so the
-                # sweep silently stopped being a circle.
-                self.walk_to(home[0], home[1], tolerance=60, strict=False)
-            else:
-                if not record["reached"] and record["travelled"] < 0.5 * radius:
-                    unswept.append(f"{bearing}deg (covered {record['travelled']:.0f} of {radius:.0f}u)")
-                self.walk_to(home[0], home[1], tolerance=60, strict=False)
+            elif not record["reached"] and record["travelled"] < 0.5 * radius:
+                # ⚠ THE START POSITION IS PART OF THE FINDING. "Covered 0 of 950" from home means
+                # the bearing is walled; the same words from a corner mean the previous leg left
+                # him there, which is a different problem with a different fix.
+                unswept.append(f"{bearing}deg (covered {record['travelled']:.0f} of "
+                               f"{radius:.0f}u, from {start.pos})")
 
         if not found and unswept:
             raise HarnessError(
@@ -1306,6 +1457,38 @@ class Session:
                 f"radius."
             )
         return found
+
+    def _resume_sweep(self, home: tuple[float, float], field: int) -> bool:
+        """Get the character back to the sweep's origin, warping if walking will not do it.
+
+        ⚠ The home point is FROZEN at the sweep's start and is never re-read: re-reading it after a
+        warp made every later bearing radiate from wherever the arrival happened to be. This puts
+        the CHARACTER back at that fixed point, which is the other half of the same requirement.
+
+        Returns whether he is near enough for the next bearing to mean anything. It does not raise:
+        a sweep that cannot re-home is still allowed to report what it did see, and the per-bearing
+        record now carries the start position so the report says which kind of nothing it found.
+        """
+        for attempt in range(2):
+            st = self.state
+            if st.field_id == field and st.player_x is not None:
+                if ((st.player_x - home[0]) ** 2 + (st.player_z - home[1]) ** 2) ** 0.5 <= 120.0:
+                    return True
+                self.walk_to(home[0], home[1], tolerance=60, strict=False)
+                st = self.state
+                if (st.player_x is not None and st.field_id == field
+                        and ((st.player_x - home[0]) ** 2
+                             + (st.player_z - home[1]) ** 2) ** 0.5 <= 120.0):
+                    return True
+            if attempt == 0:
+                # Walking did not do it -- a wall, a corner, or we are not even in the room any
+                # more. The warp is the reset that always works.
+                self._log(f"  sweep: could not walk back to {home}; warping to {field}")
+                self.warp(field)
+                self.wait_frames(45)
+        st = self.state
+        self._log(f"  sweep: still not home after warping -- at {st.pos}, wanted {home}")
+        return False
 
     # -- cutscenes ------------------------------------------------------------------------------
 
