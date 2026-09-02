@@ -407,6 +407,8 @@ latch    = 7174
 gil      = 47
 th       = 1
 source   = "treasure_join v2 bit 7174 -- Prima Vista/Cargo Room, fields [50, 51]"
+missable = { close_sc = 2020, confidence = "derived" }   # the ship is destroyed in the crash and
+                                                          # the wreck is a different field band (59-67)
 verify   = "playtested"     # owner, New Game 2026-08-26: the mark flipped OK on the live pickup
 
 [[entry]]
@@ -419,6 +421,8 @@ latch    = 7175
 item     = 236            # Potion (runtime-resolved in-game)
 th       = 1
 source   = "treasure_join v2 bit 7175 -- Prima Vista/Cargo Room, fields [50, 51]"
+missable = { close_sc = 2020, confidence = "derived" }   # the ship is destroyed in the crash and
+                                                          # the wreck is a different field band (59-67)
 verify   = "playtested"     # owner, New Game 2026-08-26: the mark flipped OK on the live pickup
 
 [[entry]]
@@ -431,6 +435,8 @@ latch    = 7171
 item     = 249            # PhoenixPinion (runtime-resolved in-game)
 th       = 1
 source   = "treasure_join v2 bit 7171 -- Prima Vista/Engine Roo, fields [57]"
+missable = { close_sc = 2020, confidence = "derived" }   # the ship is destroyed in the crash and
+                                                          # the wreck is a different field band (59-67)
 
 [[entry]]
 id       = "treasure.b7172"
@@ -442,6 +448,8 @@ latch    = 7172
 item     = 240            # PhoenixDown (runtime-resolved in-game)
 th       = 1
 source   = "treasure_join v2 bit 7172 -- Prima Vista/Engine Roo, fields [57]"
+missable = { close_sc = 2020, confidence = "derived" }   # the ship is destroyed in the crash and
+                                                          # the wreck is a different field band (59-67)
 
 [[entry]]
 id       = "treasure.b7186"
@@ -530,6 +538,9 @@ latch    = 7215
 item     = 236            # Potion (runtime-resolved in-game)
 th       = 1
 source   = "treasure_join v2 bit 7215 -- Alexandria/Main Street, fields [100]"
+# NO missable column: field 100 is the only writer, but whether the disc-1 Main Street is ever
+# re-entered later is a scenario-dispatch question grep cannot settle (the disc-3 twin 1850
+# does NOT write 7215). An unknown window renders no verdict -- LAW 4.
 
 [[entry]]
 id       = "treasure.b7184"
@@ -640,6 +651,8 @@ latch    = 7189
 gil      = 63
 th       = 1
 source   = "treasure_join v2 bit 7189 -- Alexandria/Rooftop, fields [116]"
+missable = { close_sc = 2020, confidence = "derived" }   # field 116 is the rooftop chase only -- no later
+                                                          # field writes this bit (atlas: fields [116])
 
 [[entry]]
 id       = "treasure.b7190"
@@ -651,6 +664,8 @@ latch    = 7190
 gil      = 92
 th       = 1
 source   = "treasure_join v2 bit 7190 -- Alexandria/Rooftop, fields [116]"
+missable = { close_sc = 2020, confidence = "derived" }   # field 116 is the rooftop chase only -- no later
+                                                          # field writes this bit (atlas: fields [116])
 
 [[entry]]
 id       = "treasure.b7191"
@@ -662,6 +677,8 @@ latch    = 7191
 gil      = 29
 th       = 1
 source   = "treasure_join v2 bit 7191 -- Alexandria/Rooftop, fields [116]"
+missable = { close_sc = 2020, confidence = "derived" }   # field 116 is the rooftop chase only -- no later
+                                                          # field writes this bit (atlas: fields [116])
 
 [[entry]]
 id       = "treasure.b7205"

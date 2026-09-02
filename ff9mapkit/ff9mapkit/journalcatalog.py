@@ -274,6 +274,15 @@ def lint_catalog(sections, entries, deferred=()) -> list:
                              f"{CONFIDENCES}")
             if conf != "none" and not isinstance(e.missable.get("close_sc"), int):
                 probs.append(f"entry {e.id}: LAW 4 -- missable.close_sc must be an int SC anchor")
+            elif conf != "none":
+                # the window must close AFTER its own section opens -- a close_sc at or below
+                # sc_enter would render every row of the section as missed the moment it is
+                # reached (the worst failure mode, from a typo)
+                close = e.missable["close_sc"]
+                sec = sec_by_id.get(e.section)
+                if sec is not None and not sec.side and close <= sec.sc_enter:
+                    probs.append(f"entry {e.id}: LAW 4 -- missable.close_sc {close} is not after "
+                                 f"the section opens ({sec.sc_enter})")
         # LAW 5 -- id-keyed display names resolve at runtime.
         for label, iid in (("item", e.item), ("inventory", e.inventory)):
             if iid is None:
@@ -359,6 +368,29 @@ def entries_for(section_id: str, *, catalog=None) -> tuple:
     """The section's entries in authored (walkthrough) order."""
     sections, entries, _deferred = catalog if catalog is not None else load_catalog()
     return tuple(e for e in entries if e.section == section_id)
+
+
+#: LAW 4's verdict vocabulary -- the ONLY two strings a renderer may print, keyed by confidence.
+#: ``owner`` = playthrough-confirmed, so the verdict may be absolute; ``derived`` = a window the
+#: census/room-visit structure implies but nobody watched close, so the text HEDGES; ``none`` (or
+#: no column) renders nothing. The in-game JournalUI.MissableVerdict is this function in C#.
+MISSABLE_TEXT = {"owner": "PERMANENTLY MISSED", "derived": "Window likely closed"}
+
+
+def missable_verdict(entry, scenario_counter: int, collected: bool) -> str:
+    """The verdict text for one row at one story-clock position, or ``""`` for no verdict.
+
+    A collected row never carries a verdict (the window closing is moot); an uncollected row
+    carries one only once the clock is AT or PAST its ``close_sc`` and its confidence is in
+    :data:`MISSABLE_TEXT`. ScenarioCounter is not strictly monotone (7 real fields decrement
+    it), which is one more reason the derived text says *likely*."""
+    if collected or not entry.missable:
+        return ""
+    conf = entry.missable.get("confidence")
+    close = entry.missable.get("close_sc")
+    if conf not in MISSABLE_TEXT or not isinstance(close, int):
+        return ""
+    return MISSABLE_TEXT[conf] if scenario_counter >= close else ""
 
 
 #: The ``JournalPatch.txt`` record grammar (v1). TAB-separated, one record per line, a leading
