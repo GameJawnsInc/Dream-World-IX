@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..f124fb5 100644
+index 1d90b6f..13c435f 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
 @@ -1,38 +1,85 @@
@@ -120,7 +120,7 @@ index 1d90b6f..f124fb5 100644
              FF9Sfx.FF9SFX_Play(101);
              this.Hide(delegate
              {
-@@ -51,12 +105,472 @@ public class JournalUI : UIScene
+@@ -51,12 +105,436 @@ public class JournalUI : UIScene
          return true;
      }
  
@@ -538,49 +538,13 @@ index 1d90b6f..f124fb5 100644
 +        if (isInit)
 +            this.DisplayWindowBackground(item.gameObject, null);   // the row wears the CURRENT
 +        ButtonGroupState button = item.GetComponent<ButtonGroupState>();   // grey/blue window atlas
-+        UILabel fitLabel = item.GetChild(0).GetComponent<UILabel>();
-+        if (isInit && fitLabel != null)
-+        {
-+            // M5 fix: a title + tally longer than the row shrinks to fit (the stock overflow the
-+            // NOW banner uses) instead of clipping at the row edge -- the owner's screenshot cut
-+            // "13/30" to "1" and "Festival of the Hunt" to "the H"
-+            // pivot-agnostic: keep the BAKED left edge (the donor label is not Left-pivoted --
-+            // widening it in place grew leftward and spilled the text past the row; the second
-+            // screenshot), re-anchor Left there, and run the width to the row's right margin
-+            Vector3 lp = fitLabel.transform.localPosition;
-+            Single leftEdge = lp.x - fitLabel.width * fitLabel.pivotOffset.x;
-+            fitLabel.pivot = UIWidget.Pivot.Left;
-+            fitLabel.alignment = NGUIText.Alignment.Left;
-+            fitLabel.transform.localPosition = new Vector3(leftEdge, lp.y, lp.z);
-+            fitLabel.width = (Int32)(745f / 2f - 20f - leftEdge);
-+            fitLabel.overflowMethod = UILabel.Overflow.ShrinkContent;
-+        }
-+        if (button != null && button.Help != null)
-+            button.Help.Enable = false;
 +        UILabel nameLabel = item.GetChild(0).GetComponent<UILabel>();
 +        // the KeyItemDetailHUD cell: child 1 = the New!-icon pair -- the Journal repurposes NOTHING
 +        // there in M1; keep it off
 +        GameObject newIconGo = item.GetChild(1).gameObject;
 +        newIconGo.SetActive(false);
 +        nameLabel.gameObject.SetActive(true);
-+        // M5: a reached section with an authored checklist shows its tally ON THE ROW (the
-+        // ratified sketch's per-row completed-tally); counters-only and unauthored sections stay
-+        // a bare title -- a "0/0" would read as a bug
-+        String rowText = "????";
-+        if (reached)
-+        {
-+            rowText = row.Section.Title;
-+            List<JournalRegistry.Entry> tally = JournalRegistry.EntriesFor(row.Section.Id);
-+            if (tally.Count > 0)
-+            {
-+                Int32 got = 0;
-+                foreach (JournalRegistry.Entry e in tally)
-+                    if (LatchSet(e.Latch))
-+                        got++;
-+                rowText = $"{row.Section.Title}   {got}/{tally.Count}";
-+            }
-+        }
-+        nameLabel.rawText = rowText;
++        nameLabel.rawText = reached ? row.Section.Title : "????";
 +        nameLabel.color = current ? FF9TextTool.Yellow : (reached ? FF9TextTool.White : FF9TextTool.Gray);
 +    }
 +
@@ -597,7 +561,7 @@ index 1d90b6f..f124fb5 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +583,10 @@ public class JournalUI : UIScene
+@@ -69,10 +547,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -610,7 +574,7 @@ index 1d90b6f..f124fb5 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +594,259 @@ public class JournalUI : UIScene
+@@ -80,29 +558,259 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -893,7 +857,7 @@ index 1d90b6f..f124fb5 100644
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +859,7 @@ public class JournalUI : UIScene
+@@ -115,7 +823,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -902,7 +866,7 @@ index 1d90b6f..f124fb5 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +885,272 @@ public class JournalUI : UIScene
+@@ -141,6 +849,272 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
