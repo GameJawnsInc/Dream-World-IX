@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..002846f 100644
+index 1d90b6f..93fcfa4 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
 @@ -1,38 +1,85 @@
@@ -120,7 +120,7 @@ index 1d90b6f..002846f 100644
              FF9Sfx.FF9SFX_Play(101);
              this.Hide(delegate
              {
-@@ -51,12 +105,455 @@ public class JournalUI : UIScene
+@@ -51,12 +105,464 @@ public class JournalUI : UIScene
          return true;
      }
  
@@ -538,6 +538,15 @@ index 1d90b6f..002846f 100644
 +        if (isInit)
 +            this.DisplayWindowBackground(item.gameObject, null);   // the row wears the CURRENT
 +        ButtonGroupState button = item.GetComponent<ButtonGroupState>();   // grey/blue window atlas
++        UILabel fitLabel = item.GetChild(0).GetComponent<UILabel>();
++        if (isInit && fitLabel != null)
++        {
++            // M5 fix: a title + tally longer than the row shrinks to fit (the stock overflow the
++            // NOW banner uses) instead of clipping at the row edge -- the owner's screenshot cut
++            // "13/30" to "1" and "Festival of the Hunt" to "the H"
++            fitLabel.width = (Int32)(745f - 90f);
++            fitLabel.overflowMethod = UILabel.Overflow.ShrinkContent;
++        }
 +        if (button != null && button.Help != null)
 +            button.Help.Enable = false;
 +        UILabel nameLabel = item.GetChild(0).GetComponent<UILabel>();
@@ -580,7 +589,7 @@ index 1d90b6f..002846f 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +566,10 @@ public class JournalUI : UIScene
+@@ -69,10 +575,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -593,7 +602,7 @@ index 1d90b6f..002846f 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +577,293 @@ public class JournalUI : UIScene
+@@ -80,29 +586,259 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -757,40 +766,6 @@ index 1d90b6f..002846f 100644
 +            this.sectionHeaderLabel.transform.localPosition = new Vector3(
 +                clipCX - capPanelGo.transform.localPosition.x - dressW / 2f + 40f, capLp.y, capLp.z);
 +            this.sectionHeaderLabel.rawText = TabNames[0];
-+            // M5: THE TAB HINT -- the stock category-rail idiom (ShopUI's NavigateCharacter
-+            // tooltip): FF9UIDataTool.ButtonGameObject draws the LIVE binding (the pad's L1/R1
-+            // glyph with a controller, the keyboard key without), seated either side of the tab
-+            // name, so the three tabs are discoverable without a manual. Isolated: a glyph
-+            // failure logs and leaves the rail as it was.
-+            try
-+            {
-+                Vector3 seat = this.sectionHeaderLabel.transform.localPosition;
-+                this.sectionHeaderLabel.transform.localPosition = new Vector3(seat.x + 70f, seat.y, seat.z);
-+                GameObject l1 = FF9UIDataTool.ButtonGameObject(Control.LeftBumper, true, String.Empty);
-+                GameObject r1 = FF9UIDataTool.ButtonGameObject(Control.RightBumper, true, String.Empty);
-+                FF9UIDataTool.TakeBitmapOwnership(l1);
-+                FF9UIDataTool.TakeBitmapOwnership(r1);
-+                foreach (GameObject icon in new GameObject[] { l1, r1 })
-+                {
-+                    icon.name = "Journal Tab Hint";
-+                    icon.layer = capPanelGo.layer;
-+                    icon.transform.parent = capPanelGo.transform;
-+                    icon.transform.localScale = Vector3.one;
-+                    UIWidget iconWidget = icon.GetComponent<UIWidget>();
-+                    if (iconWidget != null)
-+                    {
-+                        iconWidget.SetAnchor((GameObject)null);
-+                        iconWidget.depth = this.sectionHeaderLabel.depth + 1;
-+                    }
-+                    icon.SetActive(true);
-+                }
-+                l1.transform.localPosition = new Vector3(seat.x + 20f, seat.y, seat.z);
-+                r1.transform.localPosition = new Vector3(seat.x + dressW - 110f, seat.y, seat.z);
-+            }
-+            catch (Exception err)
-+            {
-+                Log.Error(err);
-+            }
 +        }
 +        listRoot.SetActive(true);
 +
@@ -910,7 +885,7 @@ index 1d90b6f..002846f 100644
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +876,7 @@ public class JournalUI : UIScene
+@@ -115,7 +851,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -919,7 +894,7 @@ index 1d90b6f..002846f 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +902,272 @@ public class JournalUI : UIScene
+@@ -141,6 +877,272 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
