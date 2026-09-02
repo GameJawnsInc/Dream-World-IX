@@ -204,6 +204,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   33-bit 3818 class ships as data so the lint runs install-free; missable-confidence gating;
   runtime name resolution; measured text budgets; exclusive-group structure; crosscheck rows
   never ship text).
+- **The missable column (LAW 4).** `journalcatalog.missable_verdict(entry, sc, collected)` is the
+  renderer half of the law -- the ONLY two verdict strings, keyed by confidence (`owner` =
+  "PERMANENTLY MISSED", `derived` = "Window likely closed", anything else renders nothing), and
+  the in-game Journal's `MissableVerdict` is the same function. The lint additionally refuses a
+  `close_sc` at or before its own section's enter. The first seven derived rows ship: the
+  Prima Vista's cargo-hold/engine-room and the Alexandria rooftop pickups -- the rows whose latch
+  bit is written ONLY by an opening-visit room (atlas `fields`); the 24 rows a disc-3 twin room
+  also writes are not missable, and one unknown row carries no column rather than a guess.
 - **The checklist page** (`journalfield.checklist_pages`/`render_checklist`/`lint_checklists`):
   the catalog's in-game surface. Per entry, slot *s* publishes `Global.Bit[<latch>]` and
   `[TEXT=marks,s]` renders `--`/`OK`; an item row publishes its **unified item id** into slot

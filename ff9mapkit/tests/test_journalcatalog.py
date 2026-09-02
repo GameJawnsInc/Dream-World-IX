@@ -102,6 +102,41 @@ def test_law4_missing_close_sc_refused():
     assert any("close_sc" in p for p in JC.lint_catalog((), (e,)))
 
 
+def test_law4_close_before_the_section_opens_refused():
+    sec = JC.Section(id="d1.prima-vista", disc=1, title="PV", sc_enter=1000, sc_leave=2020)
+    e = _entry(missable={"close_sc": 1000, "confidence": "derived"})
+    assert any("LAW 4" in p and "not after" in p for p in JC.lint_catalog((sec,), (e,)))
+
+
+def test_missable_verdict_gates_on_confidence_and_the_clock():
+    """LAW 4's renderer half, all states: the same function the DLL mirrors."""
+    derived = _entry(missable={"close_sc": 2020, "confidence": "derived"})
+    owner = _entry(missable={"close_sc": 2020, "confidence": "owner"})
+    none = _entry(missable={"close_sc": 2020, "confidence": "none"})
+    plain = _entry()
+    assert JC.missable_verdict(derived, 2019, False) == ""          # window still open
+    assert JC.missable_verdict(derived, 2020, False) == "Window likely closed"
+    assert JC.missable_verdict(owner, 9000, False) == "PERMANENTLY MISSED"
+    assert JC.missable_verdict(owner, 9000, True) == ""             # collected: moot
+    assert JC.missable_verdict(none, 9000, False) == ""
+    assert JC.missable_verdict(plain, 9000, False) == ""
+    assert set(JC.MISSABLE_TEXT) == {"owner", "derived"}            # the ONLY two strings
+
+
+def test_shipped_missables_are_exactly_the_single_visit_rooms(catalog):
+    """The M5 derivation, pinned: a row is derived-missable iff every field that writes its
+    bit is an opening-only room (the ship interior 50/51/57, the rooftop 116 -- atlas
+    `fields`), closing at the section's own leave. The 24 rows whose bit is ALSO written by
+    a disc-3 twin room (1850-1865) are not missable; the Main-Street-100 row (7215) is
+    unknown and carries NO column -- never a confident guess."""
+    pv = JC.entries_for("d1.prima-vista", catalog=catalog)
+    missable = {e.latch: e.missable for e in pv if e.missable}
+    assert set(missable) == {7174, 7175, 7171, 7172, 7189, 7190, 7191}
+    assert all(m == {"close_sc": 2020, "confidence": "derived"} for m in missable.values())
+    assert next(e for e in pv if e.latch == 7215).missable is None
+    assert not any(e.missable and e.missable.get("confidence") == "owner" for e in pv)
+
+
 def test_law5_baked_stock_name_refused():
     e = _entry(item=236, title="Potion")     # 236 IS the Potion -- the title bakes the stock name
     assert any("LAW 5" in p for p in JC.lint_catalog((), (e,)))
@@ -207,6 +242,9 @@ def test_render_patch_round_trips_the_catalog(catalog):
     assert e0[4] == "7174" and e0[11] == "47" and e0[10] == "-"     # gil row: no item id
     e1 = next(r for r in kinds["E"] if r[1] == "treasure.b7171")
     assert e1[10] == "249" and e1[11] == "-"             # LAW 5: the id ships, never the name
+    assert e0[13] == "2020" and e0[14] == "derived"      # M5: the missable column rides cols 13/14
+    e2 = next(r for r in kinds["E"] if r[1] == "treasure.b7186")
+    assert e2[13] == "-" and e2[14] == "-"               # a non-missable row ships the sentinel
     assert JC.render_patch() == JC.render_patch()        # deterministic -- diffs stay reviewable
 
 

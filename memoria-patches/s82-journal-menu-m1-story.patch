@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
-index 1d90b6f..2b56682 100644
+index 1d90b6f..002846f 100644
 --- a/Assembly-CSharp/Global/JournalUI.cs
 +++ b/Assembly-CSharp/Global/JournalUI.cs
-@@ -1,38 +1,84 @@
+@@ -1,38 +1,85 @@
  using Assets.Sources.Scripts.UI.Common;
  using Memoria;
 +using Memoria.Assets;
@@ -33,8 +33,9 @@ index 1d90b6f..2b56682 100644
 +// from ScenarioCounter over the walkthrough spine's section anchors -- the same ladder the kit's
 +// offline `journal report` and the bench's `.eb` expression compute, all three generated from ONE
 +// catalog) and the scrollable section list (the s45 KeyItemListPanel recipe, verbatim mechanics).
-+// Data comes from JournalRegistry (the mod-shipped `JournalPatch.txt`, JSON, emitted by the kit
-+// from data/journal_catalog.toml at every deploy) -- THE DLL NEVER BAKES CATALOG CONTENT, so the
++// Data comes from JournalRegistry (the mod-shipped `JournalPatch.txt`, TAB-separated records --
++// NEVER JSON, the M1 Newtonsoft law -- emitted by the kit from data/journal_catalog.toml at every
++// deploy) -- THE DLL NEVER BAKES CATALOG CONTENT, so the
 +// catalog's prose project iterates with zero engine rebuilds. M2 adds the per-section entry
 +// checklist (live latch marks) in a right-hand detail pane.
  //
@@ -105,7 +106,7 @@ index 1d90b6f..2b56682 100644
          PersistenSingleton<UIManager>.Instance.MainMenuScene.StartSubmenuTweenIn();
      }
  
-@@ -40,6 +86,13 @@ public class JournalUI : UIScene
+@@ -40,6 +87,13 @@ public class JournalUI : UIScene
      {
          if (base.OnKeyCancel(go))
          {
@@ -119,7 +120,7 @@ index 1d90b6f..2b56682 100644
              FF9Sfx.FF9SFX_Play(101);
              this.Hide(delegate
              {
-@@ -51,12 +104,411 @@ public class JournalUI : UIScene
+@@ -51,12 +105,455 @@ public class JournalUI : UIScene
          return true;
      }
  
@@ -408,6 +409,25 @@ index 1d90b6f..2b56682 100644
 +        }
 +    }
 +
++    // LAW 4 (SCHEMA.md): the verdict text gates on the catalog's CONFIDENCE column. "PERMANENTLY
++    // MISSED" only at owner confidence (playthrough-confirmed); a derived window renders the
++    // hedged "Window likely closed"; anything else renders NO verdict. A wrong confident verdict
++    // is the feature's worst failure mode -- the kit's journalcatalog.missable_verdict() is this
++    // same function, and its test pins every state. ScenarioCounter is not strictly monotone
++    // (7 real fields decrement it): one more reason the derived text says "likely".
++    private static String MissableVerdict(JournalRegistry.Entry e, Boolean got)
++    {
++        if (got || e.MissableClose < 0 || String.IsNullOrEmpty(e.MissableConf))
++            return String.Empty;
++        if (FF9StateSystem.EventState.ScenarioCounter < e.MissableClose)
++            return String.Empty;
++        if (e.MissableConf == "owner")
++            return "PERMANENTLY MISSED";
++        if (e.MissableConf == "derived")
++            return "Window likely closed";
++        return String.Empty;
++    }
++
 +    private void PopulateDetailCell(Transform item, ListDataTypeBase data, Int32 index, Boolean isInit)
 +    {
 +        if (isInit)
@@ -446,16 +466,24 @@ index 1d90b6f..2b56682 100644
 +        GameObject newIconGo = item.GetChild(1).gameObject;
 +        newIconGo.SetActive(false);
 +        nameLabel.gameObject.SetActive(true);
++        String verdict = MissableVerdict(e, got);
 +        nameLabel.rawText = (got ? "OK  " : "--  ") + name;
-+        nameLabel.color = got ? FF9TextTool.White : FF9TextTool.Gray;
++        // M5: a closed-window uncollected row wears the stock warning colour; the verdict TEXT
++        // rides the help bubble ahead of the locator prose (the colour alone is not a claim)
++        nameLabel.color = got ? FF9TextTool.White
++                        : verdict.Length > 0 ? FF9TextTool.Red
++                        : FF9TextTool.Gray;
 +        // the locator prose rides the stock help bubble on cursor rest (HelpDetail.Text takes
 +        // raw text) -- the walkthrough's own words, shown only inside the checklist
++        String help = verdict.Length == 0 ? e.Detail
++                    : String.IsNullOrEmpty(e.Detail) ? verdict
++                    : verdict + " -- " + e.Detail;
 +        ButtonGroupState button = item.GetComponent<ButtonGroupState>();
 +        if (button != null)
 +            button.Help = new ButtonGroupState.HelpDetail
 +            {
-+                Enable = !String.IsNullOrEmpty(e.Detail),
-+                Text = e.Detail,
++                Enable = !String.IsNullOrEmpty(help),
++                Text = help,
 +                Tail = true,
 +            };
 +    }
@@ -518,7 +546,24 @@ index 1d90b6f..2b56682 100644
 +        GameObject newIconGo = item.GetChild(1).gameObject;
 +        newIconGo.SetActive(false);
 +        nameLabel.gameObject.SetActive(true);
-+        nameLabel.rawText = reached ? row.Section.Title : "????";
++        // M5: a reached section with an authored checklist shows its tally ON THE ROW (the
++        // ratified sketch's per-row completed-tally); counters-only and unauthored sections stay
++        // a bare title -- a "0/0" would read as a bug
++        String rowText = "????";
++        if (reached)
++        {
++            rowText = row.Section.Title;
++            List<JournalRegistry.Entry> tally = JournalRegistry.EntriesFor(row.Section.Id);
++            if (tally.Count > 0)
++            {
++                Int32 got = 0;
++                foreach (JournalRegistry.Entry e in tally)
++                    if (LatchSet(e.Latch))
++                        got++;
++                rowText = $"{row.Section.Title}   {got}/{tally.Count}";
++            }
++        }
++        nameLabel.rawText = rowText;
 +        nameLabel.color = current ? FF9TextTool.Yellow : (reached ? FF9TextTool.White : FF9TextTool.Gray);
 +    }
 +
@@ -535,7 +580,7 @@ index 1d90b6f..2b56682 100644
          MainMenuUI menu = PersistenSingleton<UIManager>.Instance.MainMenuScene;
  
          // the stock full-screen menu backdrop (MainMenuUI child 4, GOMenuBackground-sized)
-@@ -69,10 +521,10 @@ public class JournalUI : UIScene
+@@ -69,10 +566,10 @@ public class JournalUI : UIScene
              bgWidget.SetAnchor((GameObject)null);
          UISprite bgSprite = bgGo.GetComponent<UISprite>();
          if (bgSprite != null && bgSprite.atlas != null && bgSprite.atlas.GetSprite("item_bg") != null)
@@ -548,7 +593,7 @@ index 1d90b6f..2b56682 100644
          GameObject fadeGo = UnityEngine.Object.Instantiate(menu.ScreenFadeGameObject);
          fadeGo.name = "Journal Fade";
          fadeGo.transform.parent = base.transform;
-@@ -80,29 +532,259 @@ public class JournalUI : UIScene
+@@ -80,29 +577,293 @@ public class JournalUI : UIScene
          fadeGo.transform.localScale = Vector3.one;
          base.FadingComponent = fadeGo.GetComponent<HonoFading>();
  
@@ -712,6 +757,40 @@ index 1d90b6f..2b56682 100644
 +            this.sectionHeaderLabel.transform.localPosition = new Vector3(
 +                clipCX - capPanelGo.transform.localPosition.x - dressW / 2f + 40f, capLp.y, capLp.z);
 +            this.sectionHeaderLabel.rawText = TabNames[0];
++            // M5: THE TAB HINT -- the stock category-rail idiom (ShopUI's NavigateCharacter
++            // tooltip): FF9UIDataTool.ButtonGameObject draws the LIVE binding (the pad's L1/R1
++            // glyph with a controller, the keyboard key without), seated either side of the tab
++            // name, so the three tabs are discoverable without a manual. Isolated: a glyph
++            // failure logs and leaves the rail as it was.
++            try
++            {
++                Vector3 seat = this.sectionHeaderLabel.transform.localPosition;
++                this.sectionHeaderLabel.transform.localPosition = new Vector3(seat.x + 70f, seat.y, seat.z);
++                GameObject l1 = FF9UIDataTool.ButtonGameObject(Control.LeftBumper, true, String.Empty);
++                GameObject r1 = FF9UIDataTool.ButtonGameObject(Control.RightBumper, true, String.Empty);
++                FF9UIDataTool.TakeBitmapOwnership(l1);
++                FF9UIDataTool.TakeBitmapOwnership(r1);
++                foreach (GameObject icon in new GameObject[] { l1, r1 })
++                {
++                    icon.name = "Journal Tab Hint";
++                    icon.layer = capPanelGo.layer;
++                    icon.transform.parent = capPanelGo.transform;
++                    icon.transform.localScale = Vector3.one;
++                    UIWidget iconWidget = icon.GetComponent<UIWidget>();
++                    if (iconWidget != null)
++                    {
++                        iconWidget.SetAnchor((GameObject)null);
++                        iconWidget.depth = this.sectionHeaderLabel.depth + 1;
++                    }
++                    icon.SetActive(true);
++                }
++                l1.transform.localPosition = new Vector3(seat.x + 20f, seat.y, seat.z);
++                r1.transform.localPosition = new Vector3(seat.x + dressW - 110f, seat.y, seat.z);
++            }
++            catch (Exception err)
++            {
++                Log.Error(err);
++            }
 +        }
 +        listRoot.SetActive(true);
 +
@@ -831,7 +910,7 @@ index 1d90b6f..2b56682 100644
      private GameObject BuildFramedPane(MainMenuUI menu, String name, Single x, Single y, Single w, Single h, Boolean bordered, out UILabel caption)
      {
          GameObject paneGo = UnityEngine.Object.Instantiate(menu.GenericInfoPanel);
-@@ -115,7 +797,7 @@ public class JournalUI : UIScene
+@@ -115,7 +876,7 @@ public class JournalUI : UIScene
          frameGo.transform.localScale = Vector3.one;
          UILocalize frameLoc = frameGo.GetComponentInChildren<UILocalize>();
          if (frameLoc != null)
@@ -840,7 +919,7 @@ index 1d90b6f..2b56682 100644
          caption = frameGo.GetComponentInChildren<UILabel>();
          caption.fontSize = 34;
          if (!bordered)
-@@ -141,6 +823,266 @@ public class JournalUI : UIScene
+@@ -141,6 +902,272 @@ public class JournalUI : UIScene
          paneGo.SetActive(true);
          return paneGo;
      }
@@ -849,7 +928,7 @@ index 1d90b6f..2b56682 100644
 +    [NonSerialized] private UIWidget listClipWidget;
 +    [NonSerialized] private UILabel nowLabel;
 +    [NonSerialized] private Int32 currentIndex;
-+    [NonSerialized] private Int32 currentTab;              // 0 STORY / 1 SIDE QUESTS (M4: RECORDS)
++    [NonSerialized] private Int32 currentTab;              // 0 STORY / 1 SIDE QUESTS / 2 RECORDS
 +    [NonSerialized] private UILabel sectionHeaderLabel;
 +    [NonSerialized] private RecycleListPopulator detailPopulator;
 +    [NonSerialized] private UIWidget detailClipWidget;
@@ -875,7 +954,8 @@ index 1d90b6f..2b56682 100644
 +}
 +
 +// The mod-shipped Journal catalog: each mod folder may carry a root-level `JournalPatch.txt`
-+// (JSON; the FolklorePatch/DictionaryPatch idiom -- read via TryFindAssetInModOnDisc, low->high,
++// (TAB-separated records, never JSON -- the M1 Newtonsoft law; the FolklorePatch/DictionaryPatch
++// idiom -- read via TryFindAssetInModOnDisc, low->high,
 +// a higher folder's copy REPLACES the whole document: the catalog is one coherent unit, never a
 +// per-id merge). Emitted by the kit from data/journal_catalog.toml at every deploy
 +// (ff9mapkit.journalcatalog.render_patch), so the DLL never bakes catalog content.
@@ -903,6 +983,8 @@ index 1d90b6f..2b56682 100644
 +        public Int32 Item = -1;                            // unified item id (LAW 5: name resolves live)
 +        public Int32 Gil = -1;
 +        public Int32 Th;
++        public Int32 MissableClose = -1;                   // LAW 4: the SC anchor the window closes at
++        public String MissableConf = String.Empty;         // derived | owner | "" (no verdict)
 +        public String Verify;
 +        public String Title;
 +        public String Detail;
@@ -993,6 +1075,9 @@ index 1d90b6f..2b56682 100644
 +                            e.Gil = gil;
 +                        if (Int32.TryParse(tok[12], out Int32 th))
 +                            e.Th = th;
++                        if (Int32.TryParse(tok[13], out Int32 mClose))
++                            e.MissableClose = mClose;
++                        e.MissableConf = tok[14] == "-" ? String.Empty : tok[14];
 +                        parsedEntries.Add(e);
 +                    }
 +                    else if (tok[0] == "B" && tok.Length >= 4)
