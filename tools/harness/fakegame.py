@@ -1004,8 +1004,20 @@ class FakeGame:
                 self.texts = self.texts[1:]
                 self.raw_texts = self.raw_texts[1:] if self.raw_texts else []
             ns.update(applied_seq=seq, pending=None, suppress=False, align_win=-1, align_text=-1)
+        elif sub == "talk":
+            # F3.1: the guest-side replay of a host's press-fired talk, by object uid (solo bench).
+            if not ns["instance"]:
+                raise RuntimeError("netsync talk: no co-op client in this process (netsync selftest 1 first)")
+            if not ns["selftest"]:
+                raise RuntimeError(f"netsync talk: role is '{ns['role']}' -- the bench needs the selftest role")
+            if not ns["bench"]:
+                raise RuntimeError("netsync talk: the field-gate bench is OFF (netsync bench 1)")
+            uid = int(args[1]) if len(args) > 1 else -1
+            if not 0 <= uid <= 0xFFFF:
+                raise RuntimeError(f"netsync talk: uid {uid} is outside 0..65535")
+            ns["last_talk_uid"] = uid
         else:
-            raise RuntimeError(f"netsync: unknown sub-verb '{sub}' (selftest|bench|l1|advance|choice|unmatched)")
+            raise RuntimeError(f"netsync: unknown sub-verb '{sub}' (selftest|bench|l1|advance|choice|unmatched|talk)")
 
     def _release_netsync(self) -> None:
         ns = self.netsync

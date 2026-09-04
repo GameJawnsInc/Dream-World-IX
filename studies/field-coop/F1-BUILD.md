@@ -539,3 +539,36 @@ The replay is a tool now: `tools/memoria_stack_replay.py`. Live DLL `a2d69edd057
 **Still OPEN:** the 8 two-machine boxes (+ the L3 pad) — a real link is the only way to exercise the
 host tap (`EmitDialogAdvanceIfHost`) and the FIFO transport; the solo bench fabricates frames past
 both. Finding (A) — the S3 first-advance race — is a two-machine feel question, unchanged.
+
+## ★ F3.1 THE TALK RELAY — built + solo-proven 2026-09-04 (wire v13); the two-machine run found the gap
+
+**The gap (Dali 350, desktop host + laptop guest, the first F3 two-machine attempt):** the host talked
+to an NPC; on the laptop the NPC never turned and no window opened. An NPC talk is PRESS-FIRED
+(tag 3): `EventCollision.CheckNPCInput` makes the player the NPC's listener (that is the facing) and
+calls `Request(obj, 1, 3)`. A following guest can never start one — the F1 spectator gate returns
+before Request, and the L1 pin holds its control — and L1's host flag rises only once a WINDOW is
+visible, so nothing ever told the guest "the host started talking to object 12". The guest's copy
+never began, and every F3 frame the host emitted for it sat unmatched until the 8 s timeout. L1 was
+designed around tread-fired scenes (co-location makes the guest's own trigger fire); the census counts
+6,579 talk-placed windows (23%), and the package README had pointed the session at exactly those.
+
+**The relay:** state-lane section 6 `[field u16][uid u16][nonce u8]`. HOST: `EmitTalkStartIfHost` at
+the Request accept in BOTH collision funnels (NPC talks, chests, save moogles, shops; tag-8 card
+challenges deliberately excluded), pushed out-of-band like the intent and riding the frame for 2 s
+(a late joiner must not replay a stale start). GUEST: `ServiceTalkFollow`, ahead of the L1 pin in the
+client tick — same field, fresh nonce, FieldHUD → `SnapToHost`, become the listener,
+`Request(obj, 1, 3)` on its own copy. Host-driven by construction, so it never touches the spectator
+gate; defers (nonce unmarked) off-field / mid-menu / mid-battle. Wire v12→v13.
+
+**Solo proof** (`scenarios/coop_talk_relay.py`, 10/10, `.harness-runs/20260904-182300`): a local talk
+published the NPC's uid as `player.listener` (3); from 270 units away `netsync talk 3` opened the SAME
+window the local talk had, with the listener set; the section round-tripped the real codec; an unknown
+uid was declined once and opened nothing. Captured as `s85-netsync-talk-relay.patch` (15 hunks, 5
+files, stack-top), gated both ways by `tools/memoria_stack_replay.py`; live DLL `e9c856267d78cace…`,
+pre-build backup `20260904-182113`; laptop package `Desktop\FF9Coop-laptop-update-20260904` (v13 —
+both machines). Two session facts worth keeping: `coop host` puts the SHARED Memoria.ini into a live
+session, so the harness's `netsync selftest` refuses until `coop off`; and the laptop's checkout
+predated the `coop` verb (its older py launcher also rejected the `pythonw` shebang — fixed).
+
+**Still OPEN:** the two-machine run with the relay in place — box 0 of the package README (the host
+tap and the section on the wire), then the F3 boxes 1–9.

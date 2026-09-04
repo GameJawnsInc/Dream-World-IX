@@ -53,6 +53,7 @@ BOM = b"\xef\xbb\xbf"
 DEFAULT_FILES = [
     "Assembly-CSharp/Global/Dialog/Dialog.cs",
     "Assembly-CSharp/Global/Dialog/DialogManager.cs",
+    "Assembly-CSharp/Global/Event/EventCollision.cs",
     "Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs",
     "Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs",
     "Assembly-CSharp/Global/Hono/HonoInputManager.cs",

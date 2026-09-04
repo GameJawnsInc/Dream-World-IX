@@ -215,6 +215,9 @@ previously only *expected* to work by sharing a code path with the menu cursor. 
 verbs + state block; `scenarios/coop_dialogue_lockstep.py` 40/40 (the F3 co-op solo benches, run for
 the first time ever). Live sha `a2d69edd057d982f…`, pre-build backup `20260904-163811`. The patch is
 regenerated with `tools/memoria_stack_replay.py` and byte-gated both ways (see its README row).
+Rebuilt the same evening for F3.1 (the talk relay): `netsync talk <uid>` + `player.listener`,
+protocol still 5 (additive); `scenarios/coop_talk_relay.py` 10/10; live sha `e9c856267d78cace…`, backup
+`20260904-182113`.
 
 ★★ **s83 rev 3 (protocol 3) is BUILT, DEPLOYED AND PROVEN IN-GAME (2026-08-31).** rev 2 below;
 rev 3 adds the BATTLE block.

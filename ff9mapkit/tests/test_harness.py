@@ -2247,3 +2247,20 @@ def test_netsync_refuses_an_engine_that_predates_the_verbs(game):
         boot(g)
         with pytest.raises(HarnessError, match="protocol 4"):
             g.netsync("bench", 1)
+
+
+def test_netsync_talk_is_gated_like_the_other_benches(game):
+    """The talk relay's solo bench replays a host's press-fired start by object uid; it needs the
+    same selftest + bench-lever gates, and a bad uid is refused with the engine's reason."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.netsync("selftest", 1)
+        with pytest.raises(HarnessError, match="field-gate bench is OFF"):
+            g.netsync("talk", 3)
+        g.netsync("bench", 1)
+        with pytest.raises(HarnessError, match="outside 0..65535"):
+            g.netsync("talk", 70000)
+        g.netsync("talk", 3)
+        st = published(g, lambda s: s.netsync is not None and s.netsync.get("last_talk_uid") == 3)
+        assert st.netsync["last_talk_uid"] == 3
