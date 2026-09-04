@@ -1,4 +1,4 @@
-#!/usr/bin/env pythonw
+#!/usr/bin/env python3
 """Double-click launcher for the Dream World IX **Workspace** -- the modern PySide6 shell.
 
 A single dockable window whose left rail is the journey > campaign > field > object hierarchy, with a

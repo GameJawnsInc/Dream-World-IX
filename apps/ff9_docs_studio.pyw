@@ -1,4 +1,4 @@
-#!/usr/bin/env pythonw
+#!/usr/bin/env python3
 """Double-click launcher for **Docs Studio** -- the standalone manager for the Dream World IX
 Manual (docsite/). Create, edit, and reorganize the Manual's pages; run the build gates, the
 docsite tests, the screenshot jobs, a local preview server, and (confirm-first) the live deploy.

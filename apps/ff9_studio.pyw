@@ -1,4 +1,4 @@
-#!/usr/bin/env pythonw
+#!/usr/bin/env python3
 """Dream World IX -- the front door. Opens the **Workspace**: ONE window for every tool.
 
 Double-click this (windowless via pythonw) to launch the modern PySide6 Workspace -- a single dockable
