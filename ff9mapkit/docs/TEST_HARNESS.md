@@ -261,6 +261,8 @@ g.netsync("l1", 1)            # the host-event flag the L2 lockstep engages unde
 g.netsync("advance")          # inject one host ADVANCE frame against the frontmost open window
 g.netsync("choice", 3)        # inject a CHOICE frame forcing index 3, then confirm
 g.netsync("unmatched")        # a frame no window can match -- the DialogWaitMs timeout proof
+g.netsync("talk", 3)          # replay a host's press-fired talk on this copy, by NPC uid (F3.1)
+g.state.raw["player"]["listener"]   # the uid the player's LAST talk targeted -- how to learn one
 g.state.netsync               # the lockstep observables: suppress, pending, align_win/text, wait_ms...
 ```
 

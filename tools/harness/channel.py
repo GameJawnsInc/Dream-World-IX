@@ -52,6 +52,8 @@ from pathlib import Path
 #:      under lockstep, a HELD frame and its timeout clock, whether local input is suppressed) and
 #:      the ``netsync`` verb family -- ``selftest``/``bench``/``l1``/``advance``/``choice``/
 #:      ``unmatched`` -- so the F1-F3 solo benches run unattended instead of behind IMGUI buttons.
+#:      (Additive, same version: ``player.listener`` and the ``netsync talk <uid>`` sub-verb --
+#:      the F3.1 talk-relay bench.)
 PROTOCOL = 5
 
 #: The agent polls the arm file every 30 frames (HarnessAgent.PollArm). A delete+create inside one
