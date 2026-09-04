@@ -2171,3 +2171,79 @@ def test_backing_off_refuses_to_leave_the_field(game):
         published(g, lambda s: s.player_x is not None and s.player_x > 500)
         with pytest.raises(HarnessError, match="left the field|gateway"):
             g.calibrate_axes(recalibrate=True)
+
+
+# --------------------------------------------------------------------------- co-op (netsync) benches
+
+
+def test_state_maps_the_netsync_block_and_tells_absent_from_off():
+    """`netsync` is None on an engine that does not publish it -- NOT an empty dict. "The engine
+    predates the verbs" and "co-op is disabled" are different facts, and a lockstep assertion that
+    read an absent section as a disengaged client would be green against the wrong engine."""
+    old = State({"frame": 1, "ack": 0, "busy": False})
+    assert old.netsync is None and old.lockstep_pending is None and old.lockstep_suppressed is False
+    st = State({"frame": 1, "ack": 0, "busy": False,
+                "netsync": {"enabled": True, "role": "selftest", "selftest": True, "forced": True,
+                            "bench": True, "l1": True, "suppress": True, "align_win": 3,
+                            "align_text": 41, "applied_seq": 0, "wait_armed": True, "wait_ms": 120,
+                            "wait_limit_ms": 8000,
+                            "pending": {"field": 30801, "win": 15, "text": 65535, "kind": 0,
+                                        "index": 255, "seq": 1}}})
+    assert st.netsync["role"] == "selftest" and st.lockstep_suppressed is True
+    assert st.lockstep_pending == {"field": 30801, "win": 15, "text": 65535, "kind": 0,
+                                   "index": 255, "seq": 1}
+
+
+def test_netsync_verbs_carry_the_engines_refusal(game):
+    """The bench verbs are gated (selftest role, the field-gate lever, the L1 flag) and every
+    refusal must reach the scenario with the engine's own reason, attached to THIS step -- a bench
+    that acked a refused injection would report lockstep green having injected nothing."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        with pytest.raises(HarnessError, match="needs the selftest role"):
+            g.netsync("bench", 1)
+        st = g.netsync("selftest", 1)
+        assert st.netsync["selftest"] and st.netsync["forced"] and st.netsync["instance"]
+        fake.say("A line the lockstep will page.")
+        published(g, lambda s: s.dialog_open)
+        with pytest.raises(HarnessError, match="field-gate bench is OFF"):
+            g.netsync("advance")
+        g.netsync("bench", 1)
+        with pytest.raises(HarnessError, match="L1 host-event flag is OFF"):
+            g.netsync("advance")
+        g.netsync("l1", 1)
+        g.netsync("advance")
+        st = published(g, lambda s: not s.dialog_open)
+        assert st.netsync["applied_seq"] == 0 and st.lockstep_pending is None
+        with pytest.raises(HarnessError, match="no dialogue window is open"):
+            g.netsync("advance")
+        st = g.netsync("unmatched")
+        assert st.lockstep_pending is not None and st.lockstep_pending["win"] == 15
+        assert st.netsync["wait_armed"] and not st.lockstep_suppressed
+
+
+def test_reset_releases_a_forced_selftest_so_it_cannot_leak_to_the_next_scenario(game):
+    """The override is process-local, and the next scenario -- or, on a leaked run, the next PLAYER
+    -- must not inherit a ghost, a bench gate or an L1 pin. So `reset` is a release point."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.netsync("selftest", 1)
+        g.netsync("bench", 1)
+        g.netsync("l1", 1)
+        g.send("reset")
+        st = published(g, lambda s: s.netsync is not None and not s.netsync["forced"])
+        assert not st.netsync["enabled"] and not st.netsync["bench"] and not st.netsync["l1"]
+
+
+def test_netsync_refuses_an_engine_that_predates_the_verbs(game):
+    """An older agent answers `unknown op` only AFTER the step is sent; the driver names the
+    rebuild it needs before spending the step."""
+    fake = FakeGame(game)
+    fake.protocol = 4
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="protocol 4"):
+            g.netsync("bench", 1)

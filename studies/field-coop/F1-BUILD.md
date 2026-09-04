@@ -478,3 +478,64 @@ carried forward from F1:
 **Status: F3 is BUILT + DEPLOYED + ADVERSARIALLY REVIEWED, 2026-07-23.** Solo bench and two-machine
 proof are both PENDING — F3 patch capture (in-game proof) is the next milestone before the round can
 be marked proven.
+
+## ★ F3 SOLO BENCH 2026-09-04 — 40/40, run UNATTENDED by the harness; F3 CAPTURED as `s84`
+
+The three solo recipes above were designed as ~ debug-menu buttons (IMGUI) and had never been run.
+s83 **rev 5** (protocol 4→5) adds a `netsync` verb family to the harness agent that calls the SAME
+static bench entry points the buttons call, plus a `netsync` state block (the L2 observables: the
+window under lockstep, a HELD frame and its timeout clock, `suppress`), so the benches run as a
+scenario: `studies/test-harness/scenarios/coop_dialogue_lockstep.py`
+(`py tools/play.py studies/test-harness/scenarios/coop_dialogue_lockstep.py --field 30801`).
+**`netsync selftest 1` forces the selftest role for the launched PROCESS only** — Memoria.ini is never
+touched (the shared install), and the override is released on disarm, fault and `reset` (proven: the
+final section leaves L1 pinning control, sends `reset`, and control comes back with co-op disabled).
+
+**Run 4 (`.harness-runs/20260904-170049-coop_dialogue_lockstep`): 40 checks, 40 passed**, every one
+an OUTCOME, never an ack:
+- **B1 advance:** the west window's transcript paged by injected frames == the transcript paged by the
+  player's own Confirm, page for page (one inject = exactly one page — B6's "never two page-skips" IS
+  the equality); one `dialog lockstep: advanced win` line per inject; frame consumed, suppress released,
+  no window left under lockstep after the close.
+- **B2 choice:** `netsync choice 3` (= `Tetra Master`, the index the engine's own `SelectChoice` reports
+  for that name) closes the menu and leads to the SAME window a local `choose(3)` leads to; the log
+  carries `choice win 1 -> index 3`. **B2b out-of-range:** index 55 of 15 is refused by
+  `TrySetCurrentChoice`, logged ONCE (`out of range ... local default`), and the menu still closes on
+  the local default — the guest is not wedged.
+- **B5 unmatched:** the win-15/text-0xFFFF frame is HELD with the timeout armed; `suppress` stays false
+  (S3); the player's own Confirm still pages the window while it is held and does NOT consume the
+  frame; the hold releases after **8.1 s** (DialogWaitMs 8000) with exactly one
+  `timed out -- local advance restored` line; clock disarmed, local input restored.
+- **L1:** with a window open, L1 ON does NOT take control (pin-only-if-the-guest-still-had-control);
+  once the scene ends the pin takes it; L1 OFF releases it.
+
+**Two findings, neither an engine defect:**
+1. **`[NFOC]`/`[TIME]` windows must never be injected into.** They set `Dialog.ignoreInputFlag`, so
+   `OnKeyConfirm` never Hides them — and the host tap lives inside the Hide branch, so a real host
+   never emits for one. Run 1 fabricated a frame for the journal bench's polled status page
+   (`[NTUR][NFOC]` + a `B_KEYON` poll + a script `CloseWindow`): the apply "succeeded", the page stayed
+   open, and the lockstep held `suppress` for as long as it did. On a real link the frame cannot exist;
+   the bench now refuses to fabricate one and pages such windows out LOCALLY (for a polled page that IS
+   the script's close). Worth carrying: the guest-side apply does not check `ignoreInputFlag`, so the
+   only thing between a mis-authored frame and a held `suppress` is the host tap's placement — the
+   engage gate (host flag fall / ~2 s staleness) and the window's own close remain the escapes.
+2. **A still-typewriting window eats the first Confirm as a fast-forward** (`AdvanceProgressToMax`)
+   and closes on the second. Run 3 pressed once and blamed the hold. The injected path never sees this:
+   its apply fast-forwards, HOLDS the frame, and re-applies next tick (B6, as designed).
+
+**Capture (2026-09-04):** F3 is now `memoria-patches/s84-netsync-dialogue-lockstep.patch` — 28 hunks,
+6 files (`Dialog.cs` · `UIKeyTrigger.cs` · `Ff9mkDebugMenu.cs` · `NetSyncSocket.cs` · `NetSyncRelay.cs`
+· `NetSyncClient.cs`), its only deletions the v11→v12 wire lines. Numbering is capture order; its STACK
+POSITION is right after `s57` (s83's DebugMenu/UIKeyTrigger hunks were captured from a tree that already
+carried F3). `s83-harness-agent.patch` regenerated for rev 5 (19 hunks, 9 sections; `NetSyncClient.cs`
+joins its set for the bench entry points). Gates: the full live stack (dead s12/s18/s21/s59 skipped —
+applying the dead s21 is what made s22/s37/s44 look fuzzy) replays base→s57→s84→s58…s83 at ZERO fuzz
+under `git apply --binary` and reproduces all 18 netsync/harness/dialog files byte-exactly; `s84` lands
+on the s57 snapshot and `s83` on its baseline under both `git apply --check` and `patch -p1 -F0
+--dry-run`; `git apply -R --check` of `s83` on live is clean and the cascade live −s83 −s84 is clean.
+The replay is a tool now: `tools/memoria_stack_replay.py`. Live DLL `a2d69edd057d982f…`, pre-build backup
+`20260904-163811`.
+
+**Still OPEN:** the 8 two-machine boxes (+ the L3 pad) — a real link is the only way to exercise the
+host tap (`EmitDialogAdvanceIfHost`) and the FIFO transport; the solo bench fabricates frames past
+both. Finding (A) — the S3 first-advance race — is a two-machine feel question, unchanged.
