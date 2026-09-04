@@ -248,6 +248,38 @@ that is a different fault entirely.
 
 ---
 
+## Co-op benches
+
+The co-op client's solo benches (the F1 field gates, the F2 intent + L1 co-location, the F3 dialogue
+lockstep) live behind IMGUI buttons in the ~ menu, which no injected controller input can press. The
+`netsync` verbs call the same static entry points the buttons call:
+
+```python
+g.netsync("selftest", 1)      # force the selftest role for THIS process; Memoria.ini is never touched
+g.netsync("bench", 1)         # the F1 field-gate lever (no talks/chests/gateways for a "following guest")
+g.netsync("l1", 1)            # the host-event flag the L2 lockstep engages under (snap + pin)
+g.netsync("advance")          # inject one host ADVANCE frame against the frontmost open window
+g.netsync("choice", 3)        # inject a CHOICE frame forcing index 3, then confirm
+g.netsync("unmatched")        # a frame no window can match -- the DialogWaitMs timeout proof
+g.state.netsync               # the lockstep observables: suppress, pending, align_win/text, wait_ms...
+```
+
+Every refusal carries the engine's reason (no window open, the bench lever off, the L1 flag off, a
+live host/client session). The override is process-local and released on disarm, fault and `reset`,
+so a leaked run cannot hand the next player a ghost beside the character or a frozen one.
+
+WARNING: **never inject into a `[NFOC]` or `[TIME]` window.** Those set `Dialog.ignoreInputFlag`, so
+`OnKeyConfirm` never closes them -- and since the host's tap lives inside that close, a real host never
+emits a frame for one. A fabricated frame "applies", the window stays open, and the lockstep holds
+`suppress` for as long as it does. Page such windows out with the player's own Confirm, which for a
+polled page is the script's own close. `State.raw_texts` shows the tags.
+
+WARNING: **a still-typewriting window eats the first Confirm as a fast-forward** and closes on the
+next. Press the way a player presses -- repeatedly, checking the state between presses -- rather than
+once. (The injected path never sees this: its apply fast-forwards, holds the frame, and re-applies.)
+
+`scenarios/coop_dialogue_lockstep.py` is the F3 acceptance test: 40 checks, every one an outcome.
+
 ## Walking, and why every measurement settles first
 
 `walk_to(x, z)` steers on the published position rather than counting frames, and it calibrates

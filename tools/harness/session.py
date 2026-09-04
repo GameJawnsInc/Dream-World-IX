@@ -317,7 +317,8 @@ class Session:
                 f"!! the deployed engine speaks protocol {st.protocol}, this driver speaks "
                 f"{PROTOCOL}. Running DEGRADED: dialogue `texts` is the raw SOURCE (tags and "
                 f"un-substituted variables), the choice index space is unpublished, and refusals of "
-                f"worldwarp/teleport ack clean. Rebuild the DLL before trusting a text assertion."
+                f"worldwarp/teleport ack clean; below 5 the co-op `netsync` block and verbs are "
+                f"absent. Rebuild the DLL before trusting a text assertion."
             )
         if st.seq > 0:
             self._log(f"the agent is at seq {st.seq} (it did not reset on arm) -- continuing above it")
@@ -2414,6 +2415,31 @@ class Session:
     def unwatch(self) -> None:
         """Stop publishing watched bits -- part of resetting between scenarios."""
         self.send("unwatch")
+
+    # -- co-op (netsync) benches ------------------------------------------------------------
+    #: The protocol that turned the ~ menu's IMGUI bench buttons into verbs.
+    NETSYNC_PROTOCOL = 5
+
+    def netsync(self, sub: str, *args, timeout: float = 20.0) -> State:
+        """Drive the co-op client's solo benches -- the ~ menu's IMGUI buttons, as verbs.
+
+        ``selftest 1|0`` forces the selftest role for THIS process (Memoria.ini untouched; released
+        on disarm, fault and ``reset``), ``bench 1|0`` is the F1 field-gate lever, ``l1 1|0`` the
+        host-event flag the L2 lockstep engages under, ``advance`` / ``choice <index>`` inject one
+        host frame against the frontmost open window, and ``unmatched`` a frame no window can match
+        (the DialogWaitMs timeout proof). Returns a fresh state so the caller can read ``netsync``
+        straight after.
+
+        Refuses on an engine that predates the verbs: an older agent answers ``unknown op`` only
+        AFTER the step is sent, which is a worse message and a wasted step.
+        """
+        if self.engine_protocol is not None and self.engine_protocol < self.NETSYNC_PROTOCOL:
+            raise HarnessError(
+                f"netsync: the deployed engine speaks protocol {self.engine_protocol}; the co-op "
+                f"bench verbs need protocol {self.NETSYNC_PROTOCOL} (s83 rev 5). Rebuild the DLL."
+            )
+        self.send("netsync " + " ".join([str(sub), *(str(a) for a in args)]), timeout=timeout)
+        return self.state
 
     def _check_flag_bit(self, bit: int, verb: str) -> None:
         # ⚠ A NEGATIVE BIT CORRUPTS THE STATE CHANNEL, not just this call. The agent's bound test is

@@ -115,6 +115,17 @@ class FakeGame:
         self.error: str | None = None
         self.note = ""
         self.shots_taken = 0
+        #: The co-op client's observables, at the engine's "nothing" sentinels. The stand-in models
+        #: the GATES and the state block -- what each `netsync` verb refuses, what it publishes
+        #: afterwards, and that `reset`/disarm release the override -- not the lockstep itself.
+        self.netsync: dict = {
+            "enabled": False, "role": "host", "instance": False, "selftest": False, "forced": False,
+            "bench": False, "l1": False, "l1_pinned": False, "l1_forced_control": False,
+            "suppress": False, "align_win": -1, "align_text": -1, "applied_seq": -1,
+            "wait_armed": False, "wait_ms": -1, "wait_limit_ms": 8000, "pending": None,
+        }
+        self._lockstep_seq = 0
+        self._wait_since_frame = 0
         self.walkmesh = walkmesh
         #: Frames the character keeps moving after the direction is released. ⚠ NOT ZERO, and the
         #: value is measured rather than chosen: on bench 30801 a hold covers what it commanded give
@@ -281,6 +292,7 @@ class FakeGame:
                 self.note = ""
             self._event("armed", protocol=PROTOCOL)
         else:
+            self._release_netsync()            # the override is process-local: it dies with the run
             self._publish(force=True)          # a final document that says it stood down
             self._event("disarmed")
 
@@ -428,6 +440,7 @@ class FakeGame:
             self.note = ""
             self.error = None
             self.state_every = 2
+            self._release_netsync()
             self._block(2)
         elif op == "timescale":
             if real(0, 1.0) <= 0.0:
@@ -439,6 +452,9 @@ class FakeGame:
             self._block(2)
         elif op == "note":
             self.note = " ".join(args)
+        elif op == "netsync":
+            self._netsync(args)
+            self._block(2)
         elif op == "quit":
             self.returncode = 0
         else:
@@ -625,6 +641,7 @@ class FakeGame:
             "menu": dict(self.menu),
             "battle": self._battle_doc(),
             "flags": {str(b): bool(self.flags.get(b, False)) for b in self.watch},
+            "netsync": self._netsync_doc(),
             "held": held,
         }
         _publish_atomic(self.dir / "state.json", json.dumps(doc))
@@ -935,6 +952,78 @@ class FakeGame:
         self.ui_state = "FieldHUD"
 
     # -- test conveniences ---------------------------------------------------------------------
+    # -- co-op (netsync) benches ---------------------------------------------------------------
+    def _netsync(self, args: list[str]) -> None:
+        """The agent's `netsync` verb: the same gates, the same refusal texts, the same state."""
+        sub = args[0].lower() if args else ""
+        ns = self.netsync
+        flag = (args[1] if len(args) > 1 else "1") != "0"
+        if sub == "selftest":
+            if flag:
+                if ns["enabled"] and ns["role"] != "selftest":
+                    raise RuntimeError(f"netsync selftest: co-op is configured live (role={ns['role']}) "
+                                       f"-- refusing to override a real session")
+                ns.update(enabled=True, role="selftest", instance=True, selftest=True, forced=True)
+            else:
+                self._release_netsync()
+        elif sub in ("bench", "l1"):
+            if not ns["selftest"]:
+                raise RuntimeError(f"netsync {sub}: needs the selftest role (netsync selftest 1)")
+            ns[sub] = flag
+            if sub == "l1" and not flag:
+                ns["l1_pinned"] = False
+                ns["l1_forced_control"] = False
+        elif sub in ("advance", "choice", "unmatched"):
+            if sub != "unmatched" and not (self.texts or self.choice is not None):
+                raise RuntimeError(f"netsync {sub}: no dialogue window is open")
+            if not ns["instance"]:
+                raise RuntimeError("netsync: no co-op client in this process (netsync selftest 1 first)")
+            if not ns["selftest"]:
+                raise RuntimeError(f"netsync: role is '{ns['role']}' -- the dialog bench needs the selftest role")
+            if not ns["bench"]:
+                raise RuntimeError("netsync: the field-gate bench is OFF (netsync bench 1)")
+            if not ns["l1"]:
+                raise RuntimeError("netsync: the L1 host-event flag is OFF (netsync l1 1) -- L2 engages only under L1")
+            seq = self._lockstep_seq
+            self._lockstep_seq = (seq + 1) & 0xFF
+            if sub == "unmatched":
+                ns["pending"] = {"field": self.field_id, "win": 15, "text": 0xFFFF,
+                                 "kind": 0, "index": 0xFF, "seq": seq}
+                ns["wait_armed"] = True
+                self._wait_since_frame = self.frame
+                return
+            if sub == "choice":
+                idx = int(args[1]) if len(args) > 1 else -1
+                if idx < 0:
+                    raise RuntimeError("netsync choice: needs a choice index")
+                self.choice = None
+                self.menu_entries = []
+            # MATCHED: the engine drives the window's own OnKeyConfirm -- one page turns, the frame
+            # is consumed, and with the window closed nothing is left under lockstep.
+            if self.texts:
+                self.texts = self.texts[1:]
+                self.raw_texts = self.raw_texts[1:] if self.raw_texts else []
+            ns.update(applied_seq=seq, pending=None, suppress=False, align_win=-1, align_text=-1)
+        else:
+            raise RuntimeError(f"netsync: unknown sub-verb '{sub}' (selftest|bench|l1|advance|choice|unmatched)")
+
+    def _release_netsync(self) -> None:
+        ns = self.netsync
+        if not ns["forced"]:
+            return                      # a session the harness did not force is left alone
+        ns.update(enabled=False, role="selftest", instance=True, selftest=False, forced=False,
+                  bench=False, l1=False, l1_pinned=False, l1_forced_control=False, suppress=False,
+                  align_win=-1, align_text=-1, applied_seq=-1, wait_armed=False, wait_ms=-1,
+                  pending=None)
+
+    def _netsync_doc(self) -> dict:
+        ns = self.netsync
+        if ns["wait_armed"]:
+            ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
+            if ns["wait_ms"] > ns["wait_limit_ms"]:
+                ns.update(pending=None, wait_armed=False, wait_ms=-1)
+        return dict(ns, pending=None if ns["pending"] is None else dict(ns["pending"]))
+
     def say(self, *pages: str, raw: str | None = None) -> None:
         """Put a dialogue box on screen. ``raw`` models the untagged SOURCE the engine also carries."""
         self.texts = list(pages)

@@ -48,7 +48,11 @@ from pathlib import Path
 #:      as opposed to ``escape_held``, which only means the bumpers are down), the ``menus`` verb,
 #:      ``battlecmd`` accepted for the LOCAL slot, and a re-issued ``hold`` that no longer drops a
 #:      frame between the old window and the new one.
-PROTOCOL = 4
+#: 5 -- the ``netsync`` block (the co-op client + the F3 dialogue-lockstep observables: the window
+#:      under lockstep, a HELD frame and its timeout clock, whether local input is suppressed) and
+#:      the ``netsync`` verb family -- ``selftest``/``bench``/``l1``/``advance``/``choice``/
+#:      ``unmatched`` -- so the F1-F3 solo benches run unattended instead of behind IMGUI buttons.
+PROTOCOL = 5
 
 #: The agent polls the arm file every 30 frames (HarnessAgent.PollArm). A delete+create inside one
 #: window is INVISIBLE to it -- ``armed == Active``, early return, no reset of seq/ack, no button
@@ -281,6 +285,29 @@ class State:
     @property
     def held(self) -> list[str]:
         return list(self.raw.get("held", []))
+
+    # -- co-op (netsync) --------------------------------------------------------------------
+    @property
+    def netsync(self) -> dict | None:
+        """The co-op client's observables (agent >= protocol 5), or None on an engine without them.
+
+        ``None`` rather than ``{}`` on purpose: "the engine does not publish this" and "co-op is
+        off" are different facts, and a scenario asserting on lockstep state must be able to tell
+        them apart instead of reading an absent section as a disengaged client.
+        """
+        return self.raw.get("netsync")
+
+    @property
+    def lockstep_pending(self) -> dict | None:
+        """The dialogue frame HELD in the guest's one-slot holder (field/win/text/kind/index/seq)."""
+        ns = self.netsync
+        return None if ns is None else ns.get("pending")
+
+    @property
+    def lockstep_suppressed(self) -> bool:
+        """Whether the guest's own Confirm/Cancel are being swallowed by the lockstep right now."""
+        ns = self.netsync
+        return bool(ns.get("suppress", False)) if ns else False
 
     # -- what is highlighted ----------------------------------------------------------------
     @property

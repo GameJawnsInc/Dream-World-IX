@@ -211,6 +211,11 @@ previously only *expected* to work by sharing a code path with the menu cursor. 
 
 ## Engine deployment state
 
+★★ **s83 rev 5 (protocol 5) is BUILT, DEPLOYED AND PROVEN IN-GAME (2026-09-04)** — the `netsync`
+verbs + state block; `scenarios/coop_dialogue_lockstep.py` 40/40 (the F3 co-op solo benches, run for
+the first time ever). Live sha `a2d69edd057d982f…`, pre-build backup `20260904-163811`. The patch is
+regenerated with `tools/memoria_stack_replay.py` and byte-gated both ways (see its README row).
+
 ★★ **s83 rev 3 (protocol 3) is BUILT, DEPLOYED AND PROVEN IN-GAME (2026-08-31).** rev 2 below;
 rev 3 adds the BATTLE block.
 
@@ -775,3 +780,7 @@ count. Same shape as the arc's own law: a gate can be green and wrong in the sam
 7. **A nightly lane for scenarios is explicitly NOT next.** A gate that counts scenario passes over a
    driver that until today acked dropped steps would have laundered those lies into a ledger. Ship the
    runner and the artifacts first.
+8. **Co-op two-machine boxes.** The F3 solo benches are green under rev 5's `netsync` verbs; what
+   remains needs a REAL link — the host tap (`EmitDialogAdvanceIfHost`) and the FIFO transport, which
+   the solo bench fabricates frames past. A two-process harness on one machine (host + client over
+   loopback, two channel directories) is the shape that would make those unattended too.
