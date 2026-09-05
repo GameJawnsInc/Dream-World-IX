@@ -1039,25 +1039,39 @@ def test_shots_are_namespaced_per_scenario(game):
     assert any(n.startswith("02-shooter_b") for n in names), names
 
 
-def test_the_first_failure_of_a_scenario_is_photographed(game):
-    """In a suite, re-running to see what the screen looked like costs the whole suite."""
+def test_failure_evidence_is_capped_per_scenario(game):
+    """In a suite, re-running to see what the screen looked like costs the whole suite -- so every
+    failed check gets the ring flushed and a photograph, up to a cap: a scenario failing forty checks
+    does not need forty pictures of the same screen. The cap resets per member. Break: restore the
+    one-shot bool, drop the cap, or stop resetting the counter in bind_artifacts."""
     fake = FakeGame(game)
-    rel = _scenario(game, "fails_once",
+    rel = _scenario(game, "fails_a_lot",
                     "def run(g):\n    g.newgame(settle=0)\n"
-                    "    g.check(False, 'first')\n    g.check(False, 'second')\n")
-    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\n')
+                    + "".join(f"    g.check(False, 'f{i}')\n    g.wait_frames(2)\n" for i in range(5)))
+    rel2 = _scenario(game, "fails_again",
+                     "def run(g):\n    g.newgame(settle=0)\n    g.check(False, 'g')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\n\n'
+                           f'[[scenario]]\npath="{rel2}"\n')
     with session(game, fake) as g:
         meta, scenarios = load_manifest(path, game)
         runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
         results = runner.run()
         run_dir = runner.run_dir
-    assert results[0]["verdict"] == "fail"
+    assert [r["verdict"] for r in results] == ["fail", "fail"]
     # Scoped to the scenario's OWN directory: the session-level collect keeps a flat copy of every
     # shot too, so an unscoped glob counts the same image twice.
-    shots = [p.name for p in (run_dir / "01-fails_once" / "shots").glob("*.png")]
-    assert shots == ["01-fails_once-FAILED.png"], (
-        f"expected exactly one failure shot -- only the FIRST failure is worth photographing, "
-        f"and the second check must not add another. Got {shots}")
+    first = run_dir / "01-fails_a_lot"
+    shots = sorted(p.name for p in (first / "shots").glob("*.png"))
+    assert shots == [f"01-fails_a_lot-FAILED-{k}.png" for k in (1, 2, 3)], shots
+    assert sorted(p.name for p in first.glob("states-*.jsonl")) == [
+        f"states-FAILED-{k}.jsonl" for k in (1, 2, 3)]
+    checks = results[0]["checks"]
+    assert checks[2]["shot"] == "01-fails_a_lot-FAILED-3.png"
+    assert checks[3]["shot"] is None and "cap" in checks[3]["shot_skipped"]
+    assert checks[4]["states"] is None
+    # The second member starts its own count.
+    assert (run_dir / "02-fails_again" / "shots" / "02-fails_again-FAILED-1.png").exists()
+    assert results[1]["states"] == ["states-FAILED-1.jsonl"]
 
 
 def test_each_check_carries_the_state_it_was_made_in(game):
@@ -2513,3 +2527,472 @@ def test_battle_act_confirms_a_target_and_the_command_lands(game):
         published(g, lambda s: next(u for u in s.units(player=False))["hp"] < before, timeout=6.0)
     finally:
         g.stop()
+
+
+# ======================================================================================
+# THE DIAGNOSABILITY ARTIFACTS (PLAN.md next-action 4)
+#
+# A failed check used to leave one screenshot and a state-final.json captured AFTER quit.
+# Now: steps.jsonl (every request, with when the agent accepted it and when it finished),
+# a ring of the last ~10 s of state flushed on failure and always once before quit, evidence
+# on every failed check under a cap, and env.json (which DLL, which registrations, which
+# ini values). Each writer may fail; none may raise into the run -- and each test names what
+# to break to see it red.
+# ======================================================================================
+
+import hashlib                                                     # noqa: E402
+
+from harness import PROTOCOL                                       # noqa: E402
+from harness import artifacts as _art                              # noqa: E402
+from harness import session as _sess                               # noqa: E402
+from harness.artifacts import StateRing, read_memoria_ini           # noqa: E402
+
+
+def _rows(path: pathlib.Path) -> list[dict]:
+    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+
+def _dead_launcher():
+    class Dead:
+        returncode = None
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+    return Dead()
+
+
+def test_the_state_ring_dedupes_on_frame_and_keeps_only_the_last_n(tmp_path):
+    """Break: drop the `!=` test (every poll of the same document is kept) or use a list."""
+    ring = StateRing(3)
+    kept = [ring.push(State({"frame": f})) for f in (1, 1, 2, 3, 4)]
+    assert kept == [True, False, True, True, True]
+    assert ring.frames() == [2, 3, 4]
+    assert ring.dump(tmp_path / "s.jsonl") == 3
+    assert [r["state"]["frame"] for r in _rows(tmp_path / "s.jsonl")] == [2, 3, 4]
+
+
+def test_memoria_ini_is_read_the_way_the_engine_does(tmp_path):
+    """LAST wins (Memoria's IniFile.Init is a plain dictionary assignment per line, and it re-enters
+    a repeated section), the stock file's BOM and tab-indented `;` blocks are tolerated, and a junk
+    line costs nothing. Break: take the first match, or parse with a strict configparser."""
+    ini = tmp_path / "Memoria.ini"
+    ini.write_text('﻿[Mod]\n\t; the launcher rewrites this\nFolderNames = "A", "B"\n'
+                   '[AnalogControl]\nEnabled = 0\n[Cheats]\nSpeedMode = 1\nthis line is junk\n'
+                   '[AnalogControl]\nEnabled = 1\n[Control]\nSoftReset = 1\nKeyBindings = "W"\n',
+                   encoding="utf-8")
+    doc = read_memoria_ini(ini)
+    assert doc["AnalogControl"]["Enabled"] == "1"
+    assert doc["Cheats"] == {"SpeedMode": "1"}
+    assert doc["Control"] == {"SoftReset": "1"}          # only the keys asked for
+    assert doc["mod_folders"] == ["A", "B"]
+    assert read_memoria_ini(tmp_path / "missing.ini") is None
+
+
+def test_a_broken_ring_observer_cannot_turn_a_healthy_read_into_no_state(game):
+    """Break: remove the try/except around the observer in Channel.state()."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        def raiser(st):
+            raise RuntimeError("boom")
+        g.channel.observer = raiser
+        assert g.state is not None
+        g.wait_for(lambda s: s.frame > 0, timeout=5)
+
+
+def test_the_ring_is_fed_by_the_reads_a_wait_already_makes(game):
+    """No thread, no extra poll: every frame in the ring came through Channel.state(). Break: feed
+    the ring from a timer thread, or read the file a second time inside push()."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        threads = threading.active_count()
+        seen: list[int] = []
+        real = g.channel.state
+
+        def spy(*a, **k):
+            st = real(*a, **k)
+            if st is not None:
+                seen.append(st.frame)
+            return st
+
+        g.channel.state = spy
+        boot(g)
+        g.wait_frames(10)
+        assert len(g._ring) > 0
+        assert set(g._ring.frames()) <= set(seen)
+        assert threading.active_count() == threads
+
+
+def test_the_state_ring_is_bounded(game):
+    """Break: ignore maxlen."""
+    fake = FakeGame(game)
+    with session(game, fake, state_ring=5) as g:
+        boot(g)
+        g.wait_frames(60)
+        g.check(False, "x")
+    rows = _rows(game / "run" / "states-FAILED-1.jsonl")
+    frames = [r["state"]["frame"] for r in rows]
+    assert len(rows) == 5 and frames == sorted(frames)
+
+
+def test_every_send_is_logged_with_accept_and_ack_latency(game):
+    """Break: delete the finally-ledger in send(), or the accept_ms stamp in _await_ack."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.press("confirm", 2)
+        g.hold("up", 10)
+        g.wait_frames(12)
+    rows = [r for r in _rows(game / "run" / "steps.jsonl") if r["kind"] == "step"]
+    press = next(r for r in rows if r["steps"] == ["press confirm 2"])
+    assert press["awaited"] and press["accept_ms"] is not None and press["ack_ms"] is not None
+    assert press["ack_ms"] >= press["accept_ms"] >= 0
+    assert press["frame"] is not None and press["error"] is None and press["phase"] == "run"
+    hold = next(r for r in rows if r["steps"] == ["hold up 10"])
+    assert hold["awaited"] is False and hold["accept_ms"] is None and hold["ack_ms"] is None
+    seqs = [r["seq"] for r in rows]
+    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+
+
+def test_a_step_that_never_lands_is_the_row_with_no_ack(game):
+    """A frozen agent never reads req.txt: the row has NO accept and NO ack, and the error names
+    the timeout. Break: write the row before _await_ack without updating it."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        fake.mode = "frozen"
+        with pytest.raises(HarnessError, match="not acknowledged"):
+            g.send("wait 1", timeout=1.0)
+        fake.mode = "normal"
+    row = next(r for r in _rows(game / "run" / "steps.jsonl") if r.get("steps") == ["wait 1"])
+    assert row["accept_ms"] is None and row["ack_ms"] is None
+    assert "not acknowledged" in row["error"]
+
+
+def test_a_refused_step_is_logged_with_its_error(game):
+    """Break: remove send()'s try/except/finally."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        with pytest.raises(HarnessError, match="refused"):
+            g.send("flag -1 1")
+    row = next(r for r in _rows(game / "run" / "steps.jsonl") if r.get("steps") == ["flag -1 1"])
+    assert row["seq"] is not None and "refused" in row["error"]
+
+
+def test_a_failing_step_log_does_not_fail_the_step(game, monkeypatch):
+    """Break: let StepLog.append raise, or stop counting drops."""
+    fake = FakeGame(game)
+    monkeypatch.setattr(_art.StepLog, "append", lambda self, path, row: False)
+    with session(game, fake) as g:
+        boot(g)
+        g.press("confirm", 2)
+        dropped = g._steps_dropped
+    assert dropped > 0
+    rep = json.loads((game / "run" / "report.json").read_text(encoding="utf-8"))
+    # >=: the teardown's own quit row is dropped too, after the number above was read.
+    assert rep["steps_dropped"] >= dropped and rep["steps_recorded"] == 0
+
+
+def test_a_failed_check_flushes_the_ring_before_it_photographs(game):
+    """The ring's newest sample IS the check's snapshot. Break: remove the flush, move it below the
+    shot (whose ack pushes newer frames in), or take the snapshot after it."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.check(True, "fine")
+        assert not list((game / "run").glob("states-*.jsonl"))
+        g.check(False, "bad")
+        row = g.checks[-1]
+    rows = _rows(game / "run" / "states-FAILED-1.jsonl")
+    frames = [r["state"]["frame"] for r in rows]
+    assert frames == sorted(frames) and frames[-1] == row["state"]["frame"]
+    assert row["states"] == "states-FAILED-1.jsonl" and row["shot"] == "FAILED-1.png"
+    assert (game / "run" / "shots" / "FAILED-1.png").exists()
+
+
+def test_a_failed_check_against_a_hung_game_is_not_photographed_and_returns_fast(game):
+    """A stale channel means the shot would wait out the whole ack timeout for a picture of
+    nothing new. Break: remove the age > LIVE_WITHIN gate in evidence()."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        fake.mode = "frozen"
+        time.sleep(2.5)
+        t0 = time.time()
+        g.check(False, "bad")
+        elapsed = time.time() - t0
+        row = g.checks[-1]
+        fake.mode = "normal"
+    assert elapsed < 2.0, elapsed
+    assert row["shot"] is None and "stale" in row["shot_skipped"]
+    assert (game / "run" / "states-FAILED-1.jsonl").exists()
+
+
+def test_two_failures_on_the_same_frame_share_one_photograph(game):
+    """Break: drop _last_failure_frame."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.check(False, "a")
+        first = g.checks[-1]
+        same = State(dict(g.channel.state().raw, frame=g._last_failure_frame), mtime=time.time())
+        real = g.channel.state
+        g.channel.state = lambda *a, **k: same
+        try:
+            g.check(False, "b")
+        finally:
+            g.channel.state = real
+        second = g.checks[-1]
+    assert first["shot"] == "FAILED-1.png"
+    assert second["shot"] is None and "same frame" in second["shot_skipped"]
+    assert second["states"] == "states-FAILED-2.jsonl"
+
+
+def test_report_json_links_the_evidence(game):
+    """Every check row says which request it followed and where its evidence is. Break: drop the
+    seq stamp or the artifacts block."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.press("confirm", 2)
+        g.check(False, "bad")
+    rep = json.loads((game / "run" / "report.json").read_text(encoding="utf-8"))
+    c = rep["checks"][0]
+    steps = [r for r in _rows(game / "run" / "steps.jsonl") if r["kind"] == "step"]
+    assert next(r for r in steps if r["seq"] == c["seq"])["steps"] == ["press confirm 2"]
+    assert c["at"] and (game / "run" / "shots" / c["shot"]).exists()
+    assert (game / "run" / c["states"]).exists()
+    assert rep["artifacts"]["steps"] == "steps.jsonl"
+    assert "states-FAILED-1.jsonl" in rep["artifacts"]["states"]
+    assert "states-final.jsonl" in rep["artifacts"]["states"]
+    checks = [r for r in _rows(game / "run" / "steps.jsonl") if r["kind"] == "check"]
+    assert checks[0]["what"] == "bad" and checks[0]["shot"] == "FAILED-1.png"
+
+
+def test_env_json_is_written_before_the_agent_answers_and_amended_after(game):
+    """A run that dies in boot still documents the install it died against, with the DLL hashed
+    before the game opened it; a run that boots adds the engine's own facts. Break: move the first
+    write after _await_agent, or drop the second."""
+    dll = game / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
+    dll.parent.mkdir(parents=True)
+    dll.write_bytes(b"not really a dll")
+    (game / "Memoria.ini").write_text('[AnalogControl]\nEnabled = 1\n[Mod]\nFolderNames = "FF9CustomMap"\n',
+                                      encoding="utf-8")
+    s = Session(game_path=game, run_dir=game / "run", save_dir=game / "player-saves",
+                pid_probe=lambda: [], launcher=lambda exe: _dead_launcher(),
+                boot_timeout=0.5, verbose=False)
+    with pytest.raises(HarnessError):
+        with s:
+            pass
+    env = json.loads((game / "run" / "env.json").read_text(encoding="utf-8"))
+    assert env["engine"]["protocol"] is None and env["engine"]["boot_seconds"] is None
+    assert env["engine"]["assembly_csharp"]["sha256"] == hashlib.sha256(b"not really a dll").hexdigest()
+    assert env["memoria_ini"]["present"] and env["memoria_ini"]["AnalogControl"]["Enabled"] == "1"
+    assert env["memoria_ini"]["mod_folders"] == ["FF9CustomMap"]
+    assert env["registrations"]["FF9CustomMap"]["30810"] == "CHEST_ROOM"
+    assert env["driver"]["protocol"] == PROTOCOL and env["errors"] == {}
+
+    fake = FakeGame(game)
+    s2 = Session(game_path=game, run_dir=game / "run2", save_dir=game / "player-saves",
+                 pid_probe=lambda: [], launcher=lambda exe: fake.start(),
+                 boot_timeout=15.0, verbose=False)
+    with s2:
+        pass
+    env2 = json.loads((game / "run2" / "env.json").read_text(encoding="utf-8"))
+    assert env2["engine"]["protocol"] == PROTOCOL
+    assert env2["engine"]["boot_seconds"] is not None and env2["engine"]["first_state"]
+    assert env2["window"]["requested"] == [1280, 720]
+
+
+def test_env_json_tolerates_a_bare_install_and_a_missing_git(game, monkeypatch):
+    """A DIRECTORY where the DLL should be, no ini, no git: every probe answers null with a named
+    error where it could not look, and the run boots anyway. Break: remove any per-probe guard, or
+    write a failed probe as absent."""
+    (game / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll").mkdir(parents=True)
+
+    def no_git(*a, **k):
+        raise OSError("no git here")
+
+    monkeypatch.setattr(_art.subprocess, "run", no_git)
+    _art._GIT_CACHE.clear()
+    fake = FakeGame(game)
+    try:
+        with session(game, fake, repo_root=game) as g:
+            boot(g)
+    finally:
+        _art._GIT_CACHE.clear()
+    env = json.loads((game / "run" / "env.json").read_text(encoding="utf-8"))
+    assert env["memoria_ini"]["present"] is False
+    assert env["engine"]["assembly_csharp"]["sha256"] is None
+    assert env["engine"]["assembly_csharp"]["exists"] is False
+    assert env["driver"]["git_head"] is None and "git_head" in env["errors"]
+
+
+def test_env_json_never_fails_the_run(game, monkeypatch):
+    """Break: remove the guard in write_env."""
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(_sess, "build_env", boom)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.check(True, "x")
+    assert not (game / "run" / "env.json").exists()
+    assert (game / "run" / "report.json").exists()
+    assert not g.channel.armed
+
+
+def test_under_a_suite_env_json_lists_the_manifest_and_every_member(game):
+    """Break: drop write_env(suite=) in run(), or meta['manifest'] in load_manifest."""
+    fake = FakeGame(game)
+    rel = _scenario(game, "m1", "def run(g):\n    g.newgame(settle=0)\n    g.check(True, 'ok')\n")
+    path = _manifest(game, f'[suite]\nname="t"\nfield=30810\n\n[[scenario]]\npath="{rel}"\n'
+                           f'deploy="x/y.toml"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, game)
+        SuiteRunner(g, scenarios, meta=meta, verbose=False).run()
+    env = json.loads((game / "run" / "env.json").read_text(encoding="utf-8"))
+    assert env["suite"]["name"] == "t" and env["suite"]["manifest"] == str(path)
+    assert env["suite"]["scenarios"] == [{"index": 1, "label": "m1", "path": str(scenarios[0].path),
+                                          "field": 30810, "deploy": "x/y.toml"}]
+    assert env["driver"]["protocol"] == PROTOCOL            # the merge kept the non-suite keys
+
+
+def test_suite_artifacts_land_in_the_members_own_directory(game):
+    """A member's steps -- INCLUDING its baseline ladder -- its check rows and its rings live under
+    <run>/<NN>-<label>/; the run-level ledger keeps the whole timeline and the quit row. Break:
+    drop bind_artifacts from _run_one (the ladder lands under the previous member), or
+    unbind_artifacts from run() (the quit row lands under the last one)."""
+    fake = FakeGame(game)
+    a = _scenario(game, "first", "def run(g):\n    g.newgame(settle=0)\n    g.check(True, 'ok')\n")
+    b = _scenario(game, "second",
+                  "def run(g):\n    g.newgame(settle=0)\n    g.press('confirm', 2)\n    g.check(False, 'bad')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{a}"\n\n[[scenario]]\npath="{b}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, game)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+        run_dir = runner.run_dir
+    d2 = run_dir / "02-second"
+    rows = _rows(d2 / "steps.jsonl")
+    assert rows and all(r.get("scenario") == "02-second" for r in rows)
+    assert any(r.get("phase") == "baseline" for r in rows if r["kind"] == "step")
+    assert any(r["kind"] == "check" and r["what"] == "bad" for r in rows)
+    assert (d2 / "states-FAILED-1.jsonl").exists()
+    assert not list((run_dir / "01-first").glob("states-*.jsonl"))
+    assert results[1]["states"] == ["states-FAILED-1.jsonl"] and results[1]["steps_recorded"] == len(rows)
+    top = _rows(run_dir / "steps.jsonl")
+    assert {r.get("scenario") for r in top} >= {"01-first", "02-second", None}
+    assert any(r.get("steps") == ["quit"] and r.get("scenario") is None for r in top)
+    assert (run_dir / "states-final.jsonl").exists()
+
+
+def test_a_raise_out_of_a_scenario_flushes_the_ring_before_the_ladder_runs(game):
+    """The ring is the game as it was WHEN the scenario raised -- not after the next member's
+    ladder rolled the moment out. Break: move the flush after _collect or below restore_baseline."""
+    fake = FakeGame(game)
+    rel = _scenario(game, "boom", "from harness import HarnessError\n"
+                                  "def run(g):\n    g.newgame(settle=0)\n    raise HarnessError('kaboom')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, game)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+        run_dir = runner.run_dir
+    assert results[0]["verdict"] == "error"
+    rows = _rows(run_dir / "01-boom" / "states-ERROR.jsonl")
+    assert rows and rows[-1]["state"]["ui_state"] == "FieldHUD"
+    assert results[0]["capture"]["shot"] == "01-boom-ERROR.png"
+    assert (run_dir / "01-boom" / "shots" / "01-boom-ERROR.png").exists()
+
+
+def test_a_poisoned_scenario_flushes_the_states_the_ladder_could_not_restore(game):
+    """begin_scenario never ran, and the member still has its evidence: the ladder's own steps and
+    the ring of the game it could not clean up. Break: bind_artifacts below restore_baseline."""
+    fake = FakeGame(game)
+    fake.soft_reset_enabled = False
+    rel = _scenario(game, "never_runs", "def run(g):\n    g.check(True, 'ran')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\n')
+    with session(game, fake) as g:
+        boot(g)
+        meta, scenarios = load_manifest(path, game)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+        run_dir = runner.run_dir
+    assert results[0]["verdict"] == "poisoned"
+    assert results[0]["states"] == ["states-POISONED.jsonl"]
+    assert (run_dir / "01-never_runs" / "states-POISONED.jsonl").exists()
+    rows = _rows(run_dir / "01-never_runs" / "steps.jsonl")
+    assert rows and all(r.get("phase") == "baseline" for r in rows if r["kind"] == "step")
+
+
+def test_a_non_pass_member_always_leaves_a_ring(game):
+    """A proved-nothing member is the one verdict that would otherwise have nothing to read.
+    Break: drop the verdict != pass rule in _run_one."""
+    fake = FakeGame(game)
+    nothing = _scenario(game, "nothing", "def run(g):\n    g.newgame(settle=0)\n")
+    passes = _scenario(game, "passes", "def run(g):\n    g.newgame(settle=0)\n    g.check(True, 'ok')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{nothing}"\n\n'
+                           f'[[scenario]]\npath="{passes}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, game)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        results = runner.run()
+        run_dir = runner.run_dir
+    assert [r["verdict"] for r in results] == ["proved-nothing", "pass"]
+    assert (run_dir / "01-nothing" / "states-END.jsonl").exists()
+    assert not list((run_dir / "02-passes").glob("states-*.jsonl"))
+
+
+def test_a_dead_game_does_not_stall_the_error_capture(game):
+    """A raise against a game that has exited must not spend the shot timeout on it. Break: remove
+    the exited-process gate in evidence()."""
+    fake = FakeGame(game)
+    rel = _scenario(game, "dies", "def run(g):\n    g.newgame(settle=0)\n"
+                                  "    g.proc.returncode = 3\n    raise RuntimeError('the game died')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\n')
+    with session(game, fake) as g:
+        meta, scenarios = load_manifest(path, game)
+        runner = SuiteRunner(g, scenarios, meta=meta, verbose=False)
+        t0 = time.time()
+        results = runner.run()
+        elapsed = time.time() - t0
+    assert results[0]["verdict"] == "error"
+    assert results[0]["capture"]["shot"] is None and "exited" in results[0]["capture"]["shot_skipped"]
+    assert results[0]["capture"]["states"] == "states-ERROR.jsonl"
+    assert elapsed < 5.0, elapsed
+
+
+def test_the_ring_is_flushed_at_stop_and_a_failing_flush_never_skips_the_disarm(game, monkeypatch):
+    """states-final.jsonl is the game BEFORE quit (state-final.json is after); and the flush sits in
+    the teardown ladder, so a disk that refuses it cannot leave the shared install armed. Break:
+    drop the ladder step (a), or move the flush above the disarm outside the per-step try (b)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.wait_frames(10)
+    rows = _rows(game / "run" / "states-final.jsonl")
+    frames = [r["state"]["frame"] for r in rows]
+    assert rows and frames == sorted(frames) and all(r["state"]["armed"] for r in rows)
+    final = json.loads((game / "run" / "state-final.json").read_text(encoding="utf-8-sig"))
+    assert frames[-1] <= final["frame"]
+
+    def refuse(self, tag):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Session, "flush_states", refuse)
+    fake2 = FakeGame(game)
+    s = Session(game_path=game, run_dir=game / "run2", save_dir=game / "player-saves",
+                pid_probe=lambda: [], launcher=lambda exe: fake2.start(), boot_timeout=15.0,
+                verbose=False)
+    s.start()
+    s.stop(failed=True)
+    assert not s.channel.armed
+    assert (game / "run2" / "report.json").exists()

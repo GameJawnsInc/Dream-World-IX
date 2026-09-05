@@ -87,6 +87,7 @@ def load_manifest(path: Path, repo: Path) -> tuple[dict, list[Scenario]]:
         raise HarnessError(f"{path} is not valid TOML: {err}") from err
 
     meta = dict(doc.get("suite", {}))
+    meta.setdefault("manifest", str(path))
     default_field = meta.get("field")
     rows = doc.get("scenario", [])
     if not rows:
@@ -246,6 +247,12 @@ class SuiteRunner:
         """
         total = len(self.scenarios)
         self._log(f"{total} scenario(s), one launch")
+        self.session.write_env(suite={
+            "name": self.meta.get("name"), "description": self.meta.get("description"),
+            "manifest": self.meta.get("manifest"),
+            "scenarios": [{"index": i, "label": sc.label, "path": str(sc.path), "field": sc.field,
+                           "deploy": sc.deploy} for i, sc in enumerate(self.scenarios, start=1)],
+        })
         # The game spends several seconds in "Initial" after launch -- before anything a baseline
         # check could be true of. Waiting here keeps the first scenario from being measured against
         # a booting game and escalated to a soft reset that cannot land yet.
@@ -268,6 +275,9 @@ class SuiteRunner:
             self._log(f"the suite aborted after {done} scenario(s): {err}")
             self._write_report()
             raise
+        finally:
+            # The quit row and the final ring belong to the RUN, not to whichever member ran last.
+            self.session.unbind_artifacts()
         self._write_report()
         return self.results
 
@@ -279,6 +289,9 @@ class SuiteRunner:
             "field": scenario.field, "verdict": "error", "checks": [], "detail": "",
         }
         self._log(f"[{index}/{total}] {scenario.label}")
+        # BEFORE the ladder: its steps, and the ring of a baseline it could not restore, are this
+        # member's evidence -- filed under it, not under the previous member or the run.
+        self.session.bind_artifacts(label, phase="baseline")
 
         # ---- the precondition, verified ------------------------------------------------------
         try:
@@ -291,6 +304,9 @@ class SuiteRunner:
             row["detail"] = (f"the baseline could not be restored, so this scenario never ran: {why}")
             row["seconds"] = round(time.time() - started, 1)
             self._log(f"    POISONED -- {why}")
+            # What the game looked like while the ladder failed -- the ring is the only witness.
+            path = self.session.flush_states("POISONED")
+            row["states"] = [path.name] if path is not None else []
             return row
         self._log(f"    baseline: {why}")
 
@@ -309,10 +325,14 @@ class SuiteRunner:
                               f"ignoring field {scenario.field}")
                 run(self.session)
         except HarnessError as err:
+            # The ring FIRST -- before the detail, before collect, before the next member's ladder
+            # polls the moment out of it -- and a photograph if the game is still alive to take one.
+            row["capture"] = self.session.evidence("ERROR")
             row["verdict"] = "error"
             row["detail"] = self._raised_detail(str(err))
             self._log(f"    ERROR -- {err}")
         except Exception as err:                                  # noqa: BLE001 - a scenario is code
+            row["capture"] = self.session.evidence("ERROR")
             row["verdict"] = "error"
             row["detail"] = self._raised_detail(f"{type(err).__name__}: {err}")
             row["traceback"] = traceback.format_exc()
@@ -329,6 +349,10 @@ class SuiteRunner:
 
         row["checks"] = list(self.session.checks)
         row["seconds"] = round(time.time() - started, 1)
+        # Every non-pass member leaves at least one ring: a proved-nothing member, or a fail whose
+        # evidence was switched off, would otherwise be the one verdict with nothing to read.
+        if row["verdict"] != "pass" and self.session._evidence == 0 and not row.get("capture"):
+            self.session.flush_states("END")
         self._collect(label, row)
         self._log(f"    {row['verdict'].upper()} in {row['seconds']}s -- {row['detail']}")
         return row
@@ -358,8 +382,8 @@ class SuiteRunner:
         # illegal Windows path component, so this raised OSError, the except swallowed it, and the
         # scenario silently lost its whole artifact directory -- including the automatic screenshot
         # of its first failure.
-        safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in label)
-        dest = self.run_dir / safe
+        dest = self.session.scenario_dir_for(label)
+        safe = dest.name
         row.setdefault("shots", [])
         row.setdefault("collect_error", None)
         try:
@@ -378,6 +402,13 @@ class SuiteRunner:
                     shutil.copy2(png, out / png.name)
                     moved.append(png.name)
             row["shots"] = moved
+            try:
+                row["states"] = sorted(p.name for p in dest.glob("states-*.jsonl"))
+                steps = dest / "steps.jsonl"
+                row["steps_recorded"] = (sum(1 for _ in steps.open(encoding="utf-8"))
+                                         if steps.exists() else 0)
+            except Exception as err:                              # noqa: BLE001 - never cost the shots
+                row["collect_error"] = f"artifact index: {err}"
             (dest / "report.json").write_text(json.dumps(row, indent=2), encoding="utf-8")
         except OSError as err:
             # Record it: a reader comparing two scenarios cannot otherwise tell "captured nothing"

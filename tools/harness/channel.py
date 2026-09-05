@@ -573,6 +573,16 @@ class Channel:
         self.owner_pid = os.getpid() if owner_pid is None else int(owner_pid)
         self._seq = 0
         self._armed_by_us = False
+        #: Called with every State this channel successfully reads -- the ONE feed for the state
+        #: ring. Every wait, ack and check already polls through :meth:`state`, so recording here
+        #: costs no extra read and no thread. Wrapped: a broken observer must never turn a healthy
+        #: read into "no state published".
+        self.observer = None
+
+    @property
+    def seq(self) -> int:
+        """The sequence number of the last request this driver wrote (0 before any)."""
+        return self._seq
 
     # -- lifecycle --------------------------------------------------------------------------
     def reset(self) -> None:
@@ -734,7 +744,14 @@ class Channel:
                     mtime = path.stat().st_mtime
                 except OSError:
                     mtime = None
-                return State(json.loads(body), mtime=mtime)
+                st = State(json.loads(body), mtime=mtime)
+                obs = self.observer
+                if obs is not None:
+                    try:
+                        obs(st)
+                    except Exception:                      # noqa: BLE001 - an artifact, not the read
+                        pass
+                return st
             except FileNotFoundError:
                 return None
             except PermissionError:

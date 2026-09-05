@@ -174,6 +174,32 @@ always the failing run's. Every check carries a snapshot of the game as it was w
 made, and **the first failure of each scenario is photographed automatically**, because re-running to
 see what the screen looked like costs the whole suite.
 
+### Reading a failed run without re-running it
+
+A run directory carries enough to answer "what was the game doing when this failed" and "which
+step never landed" on its own:
+
+| File | What it is |
+|---|---|
+| `steps.jsonl` | One row per request: the literal steps, `accept_ms` (the agent read it) and `ack_ms` (it finished). **`accept_ms` null on an awaited row = the agent never read the request; `ack_ms` null = it read it and never finished.** Refusals and timeouts leave their row too (`error`). Check rows (`kind: check`) sit in the same timeline with the `seq` they followed. |
+| `states-FAILED-<k>.jsonl` | The last ~10 s of published state (300 distinct frames) as it was when check *k* failed — flushed **before** the screenshot, so its newest row is the check's own snapshot. |
+| `shots/FAILED-<k>.png` | The screen at that failure. |
+| `states-final.jsonl` | The ring as it stood **before** `quit`. (`state-final.json` is the agent's last document, written *after* the quit was accepted — the wrong moment, and kept only for compatibility.) |
+| `env.json` | The install the run happened on: the sha256 of the `Assembly-CSharp.dll` actually driven, every mod folder's registrations, the `Memoria.ini` values that change what a result means (`[AnalogControl] Enabled`, `[Cheats]`, `[Control] SoftReset`, `[SaveFile] DisableAutoSave`, FolderNames), the driver's git head, and — under a suite — the manifest and member list. A probe that could not answer writes `null` **and** a named entry in `errors`, so "could not read" is never "not set". |
+
+Evidence is **capped at three failed checks per scenario**; later failed checks say so on their
+row (`shot_skipped`). A shot is also skipped, with the reason, when the channel is stale (a hung
+game would cost the whole ack timeout for a picture of nothing new), when the game has exited, or
+when the frame is the one already photographed. The ring is flushed regardless.
+
+Under a suite each member's directory (`<NN>-<label>/`) holds its own `steps.jsonl` slice — including
+the recovery ladder's steps, tagged `phase: baseline` — its rings (`states-FAILED-k`, `states-ERROR`
+for a raise, `states-POISONED` for a baseline the ladder could not restore, `states-END` for a
+non-pass member with no other evidence) and its shots, while the run-level `steps.jsonl` keeps the
+whole timeline. Every writer here is allowed to fail and none can fail the run: a dropped ledger
+row is counted in `report.json` (`steps_dropped`), and the artifact steps sit *after* the disarm in
+the teardown ladder, so a full disk cannot leave the shared install armed.
+
 ### Before the launch: the bench preflight
 
 Bench ids are a global namespace shared with every other worktree's deploys, and a campaign deploy
