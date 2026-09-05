@@ -174,6 +174,38 @@ always the failing run's. Every check carries a snapshot of the game as it was w
 made, and **the first failure of each scenario is photographed automatically**, because re-running to
 see what the screen looked like costs the whole suite.
 
+### Before the launch: the bench preflight
+
+Bench ids are a global namespace shared with every other worktree's deploys, and a campaign deploy
+wholesale-replaces a mod folder — so a bench that ran yesterday can be gone today. Rather than find
+that out four minutes into a boot, one `warp()` refusal at a time, `--suite` first reads **every**
+`<mod folder>/DictionaryPatch.txt` under the install and prints, per bench the manifest needs, which
+folder serves it:
+
+```
+bench preflight -- 4 mod folder(s) read: FF9CustomMap, FF9CustomMap-msgs, FF9CustomMap-schema, FF9CustomMap-world
+   30601  FF9CustomMap-msgs (TEST30601)                     <- cutscene_check
+   30801  FF9CustomMap (TEST30801)                          <- rev2_proof, save_untouched, ...
+   30820  FF9CustomMap-schema (ROOM_A)                      <- gateway_check
+```
+
+That last column is the one people get wrong: a bench "missing" from the folder you happened to grep
+is usually served by another lane's folder, and the harness reads them all. A bench no folder
+registers (and that is not a stock field) makes the run **refuse before launching**, naming the
+command that puts it back when the manifest carries a `deploy =` hint:
+
+```toml
+[[scenario]]
+path = "studies/test-harness/scenarios/cutscene_check.py"
+field = 30601
+deploy = "studies/messages/bench/winstyle.field.toml"    # -> py tools/deploy_field.py <it> --id 30601
+```
+
+Pass `--allow-missing-benches` to run the rest anyway; those members then `error` at their warp,
+which is honest but slower. The preflight also flags an id registered by **two** folders: EventDB is
+global across stacked folders, so one of them loads the wrong `.eb` — the classic black screen — and
+which wins is `Memoria.ini` FolderNames order, which the preflight does not read.
+
 ---
 
 ## Battles

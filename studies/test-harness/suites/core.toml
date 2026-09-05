@@ -21,12 +21,19 @@ name = "core"
 description = "The harness's own regression suite: channel, movement, flags, dialogue, menus, transitions."
 field = 30801                      # the default bench; per-scenario `field` overrides it
 
+# `deploy =` on a member names the field.toml that rebuilds its bench, so the PREFLIGHT (run before
+# the launch, over every mod folder's DictionaryPatch.txt) can print the exact command when a bench
+# has been wiped by another lane's deploy. The default bench 30801 is the completion-journal
+# dashboard (studies/completion-journal/bench/journal_dash.field.toml --id 30801); 30601 is the
+# messages winstyle bench; 30820/30821 (ROOM_A/ROOM_B) have NO source toml in this checkout.
+
 # -- the harness itself ---------------------------------------------------------------------
 # Protocol version, the save sandbox, and the nine defensive fixes in the s83 rev2 batch. Every
 # check here asserts on an outcome rather than on an ack, because "the step acked" is exactly what
 # those defects could already fake.
 [[scenario]]
 path = "studies/test-harness/scenarios/rev2_proof.py"
+deploy = "studies/completion-journal/bench/journal_dash.field.toml"
 
 # Does a run leave the owner's save alone? Cheap, and the one failure that costs somebody something
 # other than a re-run.
@@ -83,6 +90,13 @@ path = "studies/test-harness/scenarios/battle_check.py"
 [[scenario]]
 path = "studies/test-harness/scenarios/battle_play.py"
 
+# And the HUD itself: battle_play commits through SendNetCommand and never presses a button, so
+# the battle CURSOR path (the NGUI navigation hook reaching BattleHUD, battle_pick/battle_act) was
+# an unproven verb with a confident docstring. Asserted on the cursor label changing and on the
+# enemy's HP falling after a command confirmed through the cursor -- never on an ack.
+[[scenario]]
+path = "studies/test-harness/scenarios/battle_hud_check.py"
+
 # Running away, which needs a hold with no seam in it. ⚠ THE SLOWEST MEMBER'S WORST CASE: the roll
 # is a few percent per held second and this is willing to wait through three 60s windows, so it can
 # cost three minutes on a bad night. It earns that by being the only check on continuous input --
@@ -95,6 +109,7 @@ path = "studies/test-harness/scenarios/flee_check.py"
 [[scenario]]
 path = "studies/test-harness/scenarios/cutscene_check.py"
 field = 30601
+deploy = "studies/messages/bench/winstyle.field.toml"
 
 # Finding an invisible gateway by sweeping, then crossing it deliberately. The slowest member by far
 # (the sweep warps home between bearings), so it goes last.

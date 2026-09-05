@@ -2264,3 +2264,101 @@ def test_netsync_talk_is_gated_like_the_other_benches(game):
         g.netsync("talk", 3)
         st = published(g, lambda s: s.netsync is not None and s.netsync.get("last_talk_uid") == 3)
         assert st.netsync["last_talk_uid"] == 3
+
+
+# ======================================================================================
+# THE BENCH PREFLIGHT
+#
+# Bench ids are a global namespace another lane's deploy can wipe, and the harness reads EVERY
+# mod folder's DictionaryPatch.txt. The preflight answers "is every bench this manifest needs
+# deployed, and which folder serves it" BEFORE a four-minute boot -- and it was written the day
+# a two-folder grep concluded two benches were gone when two other folders served them.
+# ======================================================================================
+
+from harness.suite import preflight_benches, render_preflight      # noqa: E402
+
+
+def _other_folder(game, name: str, body: str) -> None:
+    d = game / name
+    d.mkdir(exist_ok=True)
+    (d / "DictionaryPatch.txt").write_text(body, encoding="utf-8")
+
+
+def test_preflight_names_the_folder_serving_each_bench(game):
+    """Which folder serves an id is the fact a 'the bench is gone' diagnosis keeps getting wrong."""
+    _other_folder(game, "FF9CustomMap-msgs", "FieldScene 30601 11 TEST30601 TEST30601 30601\n")
+    rel = _scenario(game, "cs", "def run(g):\n    g.check(True, 'x')\n")
+    path = _manifest(game, f'[suite]\nname="t"\nfield=30820\n\n[[scenario]]\npath="{rel}"\n'
+                           f'\n[[scenario]]\npath="{rel}"\nfield=30601\nlabel="other"\n')
+    _, scenarios = load_manifest(path, game)
+    pre = preflight_benches(game, scenarios, stock=set())
+    assert pre["missing"] == [] and pre["collisions"] == []
+    assert pre["benches"][30820]["folders"] == [("FF9CustomMap", "ROOM_A")]
+    assert pre["benches"][30601]["folders"] == [("FF9CustomMap-msgs", "TEST30601")]
+    assert pre["benches"][30601]["scenarios"] == ["other"]
+    text = render_preflight(pre)
+    assert "FF9CustomMap-msgs (TEST30601)" in text and "<- other" in text
+    assert sorted(pre["read"]) == ["FF9CustomMap", "FF9CustomMap-msgs"]
+
+
+def test_preflight_reports_a_bench_no_folder_registers_with_its_deploy_command(game):
+    """The answer used to arrive four minutes in, one warp() refusal at a time; now it arrives
+    before the launch, with the command that puts the bench back."""
+    rel = _scenario(game, "gone", "def run(g):\n    g.check(True, 'x')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\nfield=30999\n'
+                           f'deploy="studies/x/bench.field.toml"\n')
+    _, scenarios = load_manifest(path, game)
+    assert scenarios[0].deploy == "studies/x/bench.field.toml"
+    pre = preflight_benches(game, scenarios, stock=set())
+    assert pre["missing"] == [30999]
+    text = render_preflight(pre)
+    assert "MISSING" in text
+    assert "py tools/deploy_field.py studies/x/bench.field.toml --id 30999" in text
+
+
+def test_preflight_says_when_a_missing_bench_has_no_known_source(game):
+    """A missing bench with no `deploy =` hint is a bench this checkout cannot rebuild -- say so,
+    rather than printing a command that does not exist."""
+    rel = _scenario(game, "gone", "def run(g):\n    g.check(True, 'x')\n")
+    path = _manifest(game, f'[suite]\nname="t"\n\n[[scenario]]\npath="{rel}"\nfield=30999\n')
+    _, scenarios = load_manifest(path, game)
+    pre = preflight_benches(game, scenarios, stock=set())
+    text = render_preflight(pre)
+    assert "cannot be rebuilt from this checkout" in text
+    assert "deploy_field.py" not in text
+
+
+def test_preflight_flags_an_id_two_folders_register(game):
+    """EventDB is global across stacked folders: the same id in two of them is the classic
+    null-.eb black screen, and which side wins is FolderNames order the preflight cannot see."""
+    _other_folder(game, "FF9CustomMap-schema", "FieldScene 30820 11 ROOM_A_TOO ROOM_A_TOO 30820\n")
+    rel = _scenario(game, "cs", "def run(g):\n    g.check(True, 'x')\n")
+    path = _manifest(game, f'[suite]\nname="t"\nfield=30820\n\n[[scenario]]\npath="{rel}"\n')
+    _, scenarios = load_manifest(path, game)
+    pre = preflight_benches(game, scenarios, stock=set())
+    assert pre["collisions"] == [30820] and pre["missing"] == []
+    assert "COLLISION" in render_preflight(pre)
+
+
+def test_preflight_treats_a_stock_field_as_deployed(game):
+    """The ~674 shipping rooms are registered by the base game and appear in no patch file."""
+    rel = _scenario(game, "cs", "def run(g):\n    g.check(True, 'x')\n")
+    path = _manifest(game, f'[suite]\nname="t"\nfield=1650\n\n[[scenario]]\npath="{rel}"\n')
+    _, scenarios = load_manifest(path, game)
+    pre = preflight_benches(game, scenarios, stock={1650})
+    assert pre["missing"] == [] and pre["benches"][1650]["stock"]
+    assert "stock FF9 field" in render_preflight(pre)
+    # And WITHOUT the stock set it is missing -- the seam is what makes the test able to fail.
+    assert preflight_benches(game, scenarios, stock=set())["missing"] == [1650]
+
+
+def test_preflight_reads_nothing_when_no_folder_can_be_read(game):
+    """'Nothing registered' and 'could not look' are different facts -- the report carries the
+    list of folders it actually read so the caller can tell them apart."""
+    (game / "FF9CustomMap" / "DictionaryPatch.txt").unlink()
+    rel = _scenario(game, "cs", "def run(g):\n    g.check(True, 'x')\n")
+    path = _manifest(game, f'[suite]\nname="t"\nfield=30820\n\n[[scenario]]\npath="{rel}"\n')
+    _, scenarios = load_manifest(path, game)
+    pre = preflight_benches(game, scenarios, stock=set())
+    assert pre["read"] == [] and pre["missing"] == [30820]
+    assert "no DictionaryPatch.txt under the install" in render_preflight(pre)

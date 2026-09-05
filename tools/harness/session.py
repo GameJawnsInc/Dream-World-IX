@@ -104,6 +104,35 @@ def stock_field_ids() -> set[int]:
     return found
 
 
+def scan_registrations(game_path: Path) -> list[tuple[Path, list[tuple[int, str]]]]:
+    """Every `FieldScene` registration, PER MOD FOLDER, in the order the files sort.
+
+    One entry per readable ``<mod folder>/DictionaryPatch.txt``: ``(patch_path, [(id, name), ...])``.
+    Kept per folder rather than flattened because WHICH folder serves an id is a fact worth having:
+    ids are a GLOBAL namespace (EventDB is shared across every stacked folder), so the same id in two
+    folders is the classic null-``.eb`` black screen, and a bench that "vanished" is usually one that
+    another lane's folder still serves. A folder that cannot be read is simply absent from the list --
+    the caller decides whether an empty answer means "nothing registered" or "could not look".
+
+    The directive is ``FieldScene <id> <area> <NAME> ...`` -- the second column is the AREA index,
+    not the name, which is why the name is the third field.
+    """
+    out: list[tuple[Path, list[tuple[int, str]]]] = []
+    for patch in sorted(Path(game_path).glob("*/DictionaryPatch.txt")):
+        try:
+            text = patch.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rows: dict[int, str] = {}
+        for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+(\d+)\s+(\S+)", text, re.MULTILINE):
+            rows[int(m.group(1))] = m.group(3)
+        # Tolerate a two-column form rather than dropping the id entirely.
+        for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+([A-Za-z_]\S*)", text, re.MULTILINE):
+            rows.setdefault(int(m.group(1)), m.group(2))
+        out.append((patch, sorted(rows.items())))
+    return out
+
+
 def launch_args(width: int, height: int, monitor: int = 0) -> list[str]:
     """The arguments the Memoria launcher's Play button passes to FF9.exe.
 
@@ -1208,17 +1237,10 @@ class Session:
         """
         found: dict[int, str] = {}
         read: list[Path] = []
-        for patch in sorted(self.game_path.glob("*/DictionaryPatch.txt")):
-            try:
-                text = patch.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
+        for patch, rows in scan_registrations(self.game_path):
             read.append(patch)
-            for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+(\d+)\s+(\S+)", text, re.MULTILINE):
-                found[int(m.group(1))] = m.group(3)
-            # Tolerate a two-column form rather than dropping the id entirely.
-            for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+([A-Za-z_]\S*)", text, re.MULTILINE):
-                found.setdefault(int(m.group(1)), m.group(2))
+            for fid, name in rows:
+                found.setdefault(fid, name)
         return found, read
 
     def _check_field_id(self, field: int, verb: str, check_registered: bool) -> None:

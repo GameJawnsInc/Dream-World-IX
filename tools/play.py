@@ -36,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import HarnessError, Session, ff9_pids                  # noqa: E402
-from harness.suite import SuiteRunner, load_manifest                 # noqa: E402
+from harness.suite import SuiteRunner, load_manifest, preflight_benches, render_preflight  # noqa: E402
 
 
 def _accepts_field(fn) -> bool:
@@ -181,6 +181,20 @@ def run_suite(args) -> int:
     meta, scenarios = load_manifest(manifest, repo)
     label = args.label or meta.get("name") or manifest.stem
 
+    # BEFORE the launch, not four minutes into it. Bench ids are a global namespace another lane's
+    # deploy can wipe, and the harness reads EVERY mod folder's DictionaryPatch -- so this is where
+    # "which folder serves 30820" and "30601 is gone, here is the command" get answered, instead of
+    # one warp() refusal at a time with a booted game idling behind them.
+    from harness.session import find_game_path                              # noqa: E402
+    game_path = Path(args.game) if args.game else find_game_path()
+    pre = preflight_benches(game_path, scenarios)
+    print(render_preflight(pre))
+    if pre["missing"] and not args.allow_missing_benches:
+        print(f"\n!!! {len(pre['missing'])} bench(es) are not deployed: {pre['missing']}. Deploy "
+              f"them, or pass --allow-missing-benches to run the rest (those members will ERROR "
+              f"at their warp).", file=sys.stderr)
+        return 2
+
     started = time.time()
     try:
         with Session(label=f"suite-{label}", game_path=args.game, attach=args.attach,
@@ -210,6 +224,10 @@ def main(argv=None) -> int:
     ap.add_argument("--suite", default=None,
                     help="a suite manifest (TOML): run every scenario in it through ONE launch, "
                          "restoring a verified baseline between each")
+    ap.add_argument("--allow-missing-benches", action="store_true",
+                    help="with --suite: run even when the preflight finds a bench field no mod "
+                         "folder registers (those members error at their warp instead of the "
+                         "suite refusing up front)")
     ap.add_argument("--field", type=int, default=None,
                     help="field to run against: warped to by --smoke, and passed to a scenario's "
                          "run(g, field) when it accepts one")
