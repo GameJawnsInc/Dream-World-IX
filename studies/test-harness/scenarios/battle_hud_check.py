@@ -72,37 +72,57 @@ def run(g, field: int = FIELD):
                 f"label stayed {first!r}: {err}")
 
     # ---- battle_pick parks the cursor on a NAMED command, verified against ActiveButton ----------
+    # ⚠ The cursor is now BELOW Attack (the `down` above moved it), and the first live run proved
+    # the command list is a two-column grid that does not wrap: a one-direction walk saw
+    # `Steal -> Item -> Item...` and never Attack. battle_pick searches both ways and both columns.
+    picked = False
     try:
         landed = g.battle_pick("Attack", confirm=False)
         now = _cursor(g.state)
-        g.check(now[1].strip().lower() == "attack" and now[0] == "Battle.Command",
-                "battle_pick parks the cursor on 'Attack' by the engine's own ActiveButton",
-                f"returned {landed!r}; cursor now group={now[0]!r} label={now[1]!r}")
+        picked = g.check(now[1].strip().lower() == "attack" and now[0] == "Battle.Command",
+                         "battle_pick parks the cursor on 'Attack' by the engine's own ActiveButton "
+                         "(reached from BELOW it)",
+                         f"returned {landed!r}; cursor now group={now[0]!r} label={now[1]!r}")
     except Exception as err:
-        g.check(False, "battle_pick parks the cursor on 'Attack' by the engine's own ActiveButton",
-                str(err))
+        g.check(False, "battle_pick parks the cursor on 'Attack' by the engine's own ActiveButton "
+                       "(reached from BELOW it)", str(err))
 
-    # ---- confirming through the HUD opens the target group, and the command is EXECUTED ---------
+    # ---- confirming through the HUD opens the TARGET group, and the command is EXECUTED ----------
+    # ⚠ THE GROUP MUST BE Battle.Target EXACTLY. Battle.Ability and Battle.Item are submenus, and
+    # the first cut accepted "any group but the command list" -- which passed with the ITEM LIST
+    # open (the screenshot showed Potion highlighted) and then confirmed a Potion instead of an
+    # enemy. And nothing is confirmed at all unless the pick landed: confirming whatever happens
+    # to be highlighted is not a test of Attack.
+    what_target = "confirming Attack through the HUD opens the Battle.Target group"
+    what_landed = "a command confirmed through the HUD cursor is EXECUTED (enemy HP fell)"
     before = _enemy_hp(g.state)
-    g.press("confirm", 4)
-    try:
-        tgt = g.wait_for(lambda s: _cursor(s)[0].startswith("Battle.") and _cursor(s)[0] != "Battle.Command",
-                         timeout=8.0, what="the target cursor group to open after confirming Attack")
-        g.check(True, "confirming Attack through the HUD opens the target group",
-                f"group={_cursor(tgt)[0]!r} label={_cursor(tgt)[1]!r}")
-        g.shot("hud-01-target")
-    except Exception as err:
-        g.check(False, "confirming Attack through the HUD opens the target group", str(err))
-    g.press("confirm", 4)
-    try:
-        st = g.wait_for(lambda s: _enemy_hp(s) < before or s.battle_result != 0,
-                        timeout=45.0, what="the enemy to take the damage ordered through the HUD")
-        g.check(_enemy_hp(st) < before,
-                "a command confirmed through the HUD cursor is EXECUTED (enemy HP fell)",
-                f"enemy HP {before} -> {_enemy_hp(st)}; result={st.battle_result_name}")
-    except Exception as err:
-        g.check(False, "a command confirmed through the HUD cursor is EXECUTED (enemy HP fell)",
-                f"enemy HP still {before}: {err}")
+    if not picked:
+        g.check(False, what_target, "not attempted: the cursor never reached Attack")
+        g.check(False, what_landed, "not attempted: the cursor never reached Attack, so confirming "
+                                    "would have committed whatever was highlighted")
+    else:
+        g.press("confirm", 4)
+        on_target = False
+        try:
+            tgt = g.wait_for(lambda s: _cursor(s)[0] in (g.BATTLE_TARGET_GROUP,) + g.BATTLE_SUBMENU_GROUPS,
+                             timeout=8.0, what="a cursor group to follow the Attack confirm")
+            on_target = g.check(_cursor(tgt)[0] == g.BATTLE_TARGET_GROUP, what_target,
+                                f"group={_cursor(tgt)[0]!r} label={_cursor(tgt)[1]!r}")
+            g.shot("hud-01-target")
+        except Exception as err:
+            g.check(False, what_target, str(err))
+        if on_target:
+            g.press("confirm", 4)
+            try:
+                st = g.wait_for(lambda s: _enemy_hp(s) < before or s.battle_result != 0,
+                                timeout=45.0, what="the enemy to take the damage ordered through the HUD")
+                g.check(_enemy_hp(st) < before, what_landed,
+                        f"enemy HP {before} -> {_enemy_hp(st)}; result={st.battle_result_name}")
+            except Exception as err:
+                g.check(False, what_landed, f"enemy HP still {before}: {err}")
+        else:
+            g.press("cancel", 4)             # back out of whatever submenu opened instead
+            g.check(False, what_landed, "not attempted: the target cursor never opened")
     g.shot("hud-02-after-attack")
 
     # ---- play the rest out so the next member does not inherit a live battle -------------------

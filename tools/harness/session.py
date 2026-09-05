@@ -1953,6 +1953,15 @@ class Session:
         return self.check(got in wanted, f"the battle ended in {kind}",
                           f"got {State.BATTLE_RESULTS.get(got, got)} ({got})")
 
+    #: The battle HUD's NGUI groups, from `BattleHUD.Const.cs`. Three of them can be open after a
+    #: command is confirmed and only ONE of them is a target cursor: `Battle.Ability` and
+    #: `Battle.Item` are SUBMENUS. A predicate that accepted "any group but the command list" as
+    #: the target cursor confirmed a Potion when it meant to confirm an enemy -- measured live
+    #: 2026-09-04 (scenarios/battle_hud_check.py, the screenshot shows the item list open).
+    BATTLE_COMMAND_GROUP = "Battle.Command"
+    BATTLE_TARGET_GROUP = "Battle.Target"
+    BATTLE_SUBMENU_GROUPS = ("Battle.Ability", "Battle.Item")
+
     def battle_pick(self, label: str, *, direction: str = "down", max_steps: int = 24,
                     confirm: bool = True) -> str:
         """Move the battle cursor onto `label` and confirm it -- BY NAME, never by press count.
@@ -1961,43 +1970,105 @@ class Session:
         `BattleHUD.OnKeyConfirm` actually consumes -- not `UICamera.selectedObject`, which is the
         accessor a diagnostic reads. `UIKeyTrigger` prefers ActiveButton and only falls back to the
         selected object, so publishing the fallback was this arc's own law still live in the code.
+
+        ⚠ THE COMMAND LIST IS A TWO-COLUMN GRID THAT DOES NOT WRAP. Measured live 2026-09-04: from
+        `Steal`, twenty-four `down` presses saw `Steal -> Item` and then `Item` forever, and never
+        `Attack`, which sits one row ABOVE the start point. The field main menu wraps, so the walk
+        `menu_pick` uses -- one direction until the labels repeat -- is exactly wrong here: it can
+        neither reach an entry above the cursor nor visit the right-hand column (Defend / Skill /
+        Change) at all. So this searches the way a thumb does: `direction` to the edge, the other
+        way to the other edge, then the neighbouring column, and it reads "the label stopped
+        moving" as the edge rather than as a fault.
         """
         want = label.strip().lower()
+        opposite = {"down": "up", "up": "down"}.get(direction, "up")
         seen: list[str] = []
-        for _ in range(max_steps):
-            cursor = self.state.battle_cursor
-            current = (cursor.get("label") or "").strip()
-            if current and current.lower() == want:
-                if confirm:
-                    self.press("confirm", 4)
-                    self.wait_frames(14)
-                return current
-            if current and (not seen or seen[-1] != current):
-                if current in seen:
-                    raise HarnessError(
-                        f"{label!r} is not on this battle cursor -- went round and saw {seen} "
-                        f"(group={cursor.get('group')!r})")
-                seen.append(current)
-            self.press(direction, 4)
+        steps = 0
+
+        def cursor() -> tuple[str, str]:
+            c = self.state.battle_cursor
+            return (c.get("group") or ""), (c.get("label") or "").strip()
+
+        def nudge(button: str) -> bool:
+            """One press; True if the label moved."""
+            nonlocal steps
+            _, before = cursor()
+            self.press(button, 4)
             self.wait_frames(10)
-        raise HarnessError(f"gave up looking for {label!r} on the battle cursor after {max_steps} "
-                           f"steps; saw {seen}")
+            steps += 1
+            _, after = cursor()
+            return after != before
+
+        def walk(button: str) -> bool:
+            """Press `button` until the label stops changing. True if `want` was reached."""
+            stalls = 0
+            while steps < max_steps:
+                group, cur = cursor()
+                if group != self.BATTLE_COMMAND_GROUP:
+                    # A closed cursor is not an edge of the grid. The list closes when the turn
+                    # passes (the character went down, the fight ended) -- pressing on into
+                    # nothing would read as "walked both columns, saw []".
+                    st = self.state
+                    why = ("the battle is over" if not st.in_battle
+                           else f"the cursor is in {group!r} on {cur!r}" if group
+                           else "no command list is open (turn.slot is "
+                                f"{st.turn_slot}, result={st.battle_result_name})")
+                    raise HarnessError(
+                        f"battle_pick needs the command list ({self.BATTLE_COMMAND_GROUP}) open: "
+                        f"{why}. Wait for a turn first.")
+                if cur and cur.lower() == want:
+                    return True
+                if cur and cur not in seen:
+                    seen.append(cur)
+                if nudge(button):
+                    stalls = 0
+                else:
+                    # A press that moved nothing is the EDGE of the grid, not a fault -- two in a
+                    # row, so a press swallowed by a HUD animation does not end the walk early.
+                    stalls += 1
+                    if stalls >= 2:
+                        return False
+            return False
+
+        found = False
+        for column in (None, "right", "left"):
+            if steps >= max_steps:
+                break
+            if column is not None and not nudge(column):
+                continue                       # no column that way
+            if walk(direction) or walk(opposite):
+                found = True
+                break
+        if not found:
+            group, cur = cursor()
+            if cur and cur.lower() == want:
+                found = True
+        if not found:
+            raise HarnessError(
+                f"{label!r} is not on the battle command list -- walked both columns in {steps} "
+                f"press(es) and saw {seen} (cursor now on {cursor()[1]!r})")
+        current = cursor()[1]
+        if confirm:
+            self.press("confirm", 4)
+            self.wait_frames(14)
+        return current
 
     def battle_act(self, command: str = "Attack", *, timeout: float = 30.0) -> bool:
-        """Take one turn: pick a command by NAME, then confirm a target. Closed-loop throughout.
+        """Take one turn THROUGH THE HUD: pick a command by NAME, then confirm a target.
 
-        The cursor path is the ONLY one available for a solo battle. `SendNetCommand` -- the exact,
-        deterministic entry point -- opens with `if (playerIndex == CurrentPlayerIndex) return false;`
-        because it exists to replay a REMOTE co-op player's command; it deliberately refuses the slot
-        whose local menu is open, which in a one-character fight is always the slot you want.
-
-        So this steers, but never blindly: it waits for the command group, picks by name against the
-        engine's own `ButtonGroupState.ActiveButton`, then waits for the TARGET group before
+        This is the path that proves the menu itself works -- nothing in :meth:`act` presses a
+        button. It steers, but never blindly: it waits for the command group, picks by name against
+        the engine's own `ButtonGroupState.ActiveButton`, then waits for the TARGET group before
         confirming. Blind double-taps do not work -- measured: two confirms 16 frames apart left the
         cursor sitting in `Battle.Command` while the enemy chewed through Zidane's HP.
+
+        ⚠ IT DRIVES ONE-STEP COMMANDS ONLY (Attack, Steal, Defend, Change). A command that opens the
+        Ability or Item SUBMENU is refused rather than confirmed: the first cut treated "any group
+        that is not the command list" as the target cursor and cheerfully confirmed a Potion. Cast
+        an ability or use an item by name with :meth:`act`, or walk the submenu yourself.
         """
         try:
-            self.wait_for(lambda s: (s.battle_cursor.get("group") or "") == "Battle.Command",
+            self.wait_for(lambda s: (s.battle_cursor.get("group") or "") == self.BATTLE_COMMAND_GROUP,
                           timeout=timeout, what="the battle command menu")
         except HarnessError:
             return False
@@ -2007,14 +2078,23 @@ class Session:
             self._log(f"  battle_act: could not pick {command!r} ({err})")
             return False
         # Target selection is its own NGUI group. Waiting for it is what makes the second confirm
-        # land on a target rather than re-opening the command list.
+        # land on a target rather than re-opening the command list -- and it has to be THAT group,
+        # not merely "something other than the command list".
+        after = (self.BATTLE_TARGET_GROUP,) + self.BATTLE_SUBMENU_GROUPS
         try:
-            self.wait_for(lambda s: (s.battle_cursor.get("group") or "").startswith("Battle.")
-                          and (s.battle_cursor.get("group") or "") != "Battle.Command",
-                          timeout=8.0, what="the target cursor")
+            st = self.wait_for(lambda s: (s.battle_cursor.get("group") or "") in after,
+                               timeout=8.0, what="the target cursor")
         except HarnessError:
             # Some commands need no target and resolve straight away; that is not a failure.
             return True
+        group = st.battle_cursor.get("group")
+        if group in self.BATTLE_SUBMENU_GROUPS:
+            self.press("cancel", 4)
+            self.wait_frames(10)
+            raise HarnessError(
+                f"{command!r} opens the {group} submenu, not a target cursor. battle_act drives "
+                f"one-step commands; use act({command!r}...) with the ability or item name, or walk "
+                f"the submenu with battle_pick. (Backed out of it with Cancel.)")
         self.press("confirm", 4)
         self.wait_frames(20)
         return True

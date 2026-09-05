@@ -2362,3 +2362,99 @@ def test_preflight_reads_nothing_when_no_folder_can_be_read(game):
     pre = preflight_benches(game, scenarios, stock=set())
     assert pre["read"] == [] and pre["missing"] == [30820]
     assert "no DictionaryPatch.txt under the install" in render_preflight(pre)
+
+
+# ======================================================================================
+# THE BATTLE HUD CURSOR
+#
+# battle_pick / battle_act steer the HUD by name against the engine's own ActiveButton. Their
+# first live run (scenarios/battle_hud_check.py, 2026-09-04) found two facts the docstrings had
+# assumed away: the command list is a two-column grid that does NOT wrap, so a one-direction
+# walk cannot reach an entry above the cursor or the right-hand column at all; and the Ability /
+# Item SUBMENUS are distinct NGUI groups from the target cursor -- "any group but the command
+# list" confirmed a Potion. The stand-in now lays its grid out the same way.
+# ======================================================================================
+
+
+def _hud_turn(game):
+    """A fake battle past its intro with the command cursor open on slot 0."""
+    fake = FakeGame(game)
+    fake.atb_gain = 400
+    # ⚠ A harmless enemy. Walking a grid is a dozen presses at ten frames each, and at this ATB rate
+    # a 90-damage enemy kills the party mid-walk -- the cursor then vanishes and the test fails for
+    # a reason that has nothing to do with the cursor.
+    fake.enemy_hit = 0
+    g = session(game, fake)
+    g.start()
+    boot(g)
+    g.warp(30810)
+    g.start_battle(105)
+    g.wait_turn()
+    published(g, lambda s: s.battle_cursor.get("group") == "Battle.Command")
+    return fake, g
+
+
+def test_battle_pick_reaches_a_command_above_the_cursor(game):
+    """From `Item` (bottom of the left column) a down-only walk sees Item forever and never Attack.
+    Break: make battle_pick walk `direction` only, and this goes red with 'not on the battle
+    command list ... saw [Item]'."""
+    fake, g = _hud_turn(game)
+    try:
+        g.press("down", 4); g.press("down", 4)
+        published(g, lambda s: s.battle_cursor.get("label") == "Item")
+        assert g.battle_pick("Attack", confirm=False) == "Attack"
+        st = published(g, lambda s: s.battle_cursor.get("label") == "Attack")
+        assert st.battle_cursor["group"] == "Battle.Command"
+    finally:
+        g.stop()
+
+
+def test_battle_pick_finds_a_command_in_the_other_column(game):
+    """`Skill` lives in the right-hand column; up/down alone never visits it."""
+    fake, g = _hud_turn(game)
+    try:
+        assert g.battle_pick("Skill", confirm=False) == "Skill"
+        published(g, lambda s: s.battle_cursor.get("label") == "Skill")
+    finally:
+        g.stop()
+
+
+def test_battle_pick_names_what_it_saw_when_the_command_is_not_there(game):
+    fake, g = _hud_turn(game)
+    try:
+        with pytest.raises(HarnessError, match="not on the battle command list") as err:
+            g.battle_pick("Summon", confirm=False)
+        # Both columns were walked before giving up, and the message says what IS there.
+        assert "Attack" in str(err.value) and "Skill" in str(err.value)
+    finally:
+        g.stop()
+
+
+def test_battle_act_refuses_a_submenu_as_the_target_cursor(game):
+    """Confirming `Item` opens Battle.Item, not Battle.Target. The first cut confirmed straight
+    through it -- a Potion, not an enemy. Break: accept any group but the command list, and this
+    goes red because no HarnessError is raised (and fake.battle_commands gains an item command)."""
+    fake, g = _hud_turn(game)
+    try:
+        with pytest.raises(HarnessError, match="submenu"):
+            g.battle_act("Item")
+        assert fake.battle_commands == [], fake.battle_commands
+        # And it backed out: the command list is open again, not the item list.
+        published(g, lambda s: s.battle_cursor.get("group") == "Battle.Command")
+    finally:
+        g.stop()
+
+
+def test_battle_act_confirms_a_target_and_the_command_lands(game):
+    """The positive path: pick Attack, wait for Battle.Target EXACTLY, confirm -- and the command
+    reaches the engine's queue with the enemy's id, then its HP falls."""
+    fake, g = _hud_turn(game)
+    try:
+        foe = next(u for u in fake.battle_units if not u["player"])
+        before = foe["hp"]
+        assert g.battle_act("Attack") is True
+        published(g, lambda s: bool(fake.battle_commands))
+        assert fake.battle_commands[0][:2] == [0, 1] and fake.battle_commands[0][3] == foe["id"]
+        published(g, lambda s: next(u for u in s.units(player=False))["hp"] < before, timeout=6.0)
+    finally:
+        g.stop()

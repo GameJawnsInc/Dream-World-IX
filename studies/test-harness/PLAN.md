@@ -11,7 +11,7 @@ behavioural claim cost a human playtest, and "it built" kept getting mistaken fo
 |---|---|
 | Agent (engine) | `memoria-patches/s83-harness-agent.patch` → `Memoria/Harness/HarnessAgent.cs` |
 | Driver (Python) | `tools/harness/` + `tools/play.py` |
-| Offline tests | `ff9mapkit/tests/test_harness.py` (16, ~6s, no game needed) |
+| Offline tests | `ff9mapkit/tests/test_harness.py` (~150, ~4 min -- the count grows with every fix; no game needed) |
 
 ---
 
