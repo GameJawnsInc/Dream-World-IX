@@ -583,7 +583,94 @@ class FakeGame:
         # it could be reduced to a no-op with every test still green.
         self._event("soft_reset")
 
+    # -- the battle HUD's cursor ---------------------------------------------------------------
+    #: The command list as the HUD lays it out: a TWO-COLUMN grid that does NOT wrap vertically.
+    #: Measured live 2026-09-04 -- from `Steal`, `down` reaches `Item` and then moves nothing, and
+    #: `Attack` (one row up) is never seen by a one-direction walk. A stand-in whose battle menu
+    #: wrapped, or had one column, would certify a battle_pick that cannot find half the commands.
+    BATTLE_GRID = [["Attack", "Defend"], ["Steal", "Skill"], ["Item", "Change"]]
+    #: What each command opens on confirm (BattleHUD.Const.cs group names). `Attack`/`Steal` go to
+    #: the target cursor; `Skill` and `Item` open SUBMENUS -- distinct groups a driver must not
+    #: mistake for the target cursor (the first cut confirmed a Potion that way).
+    BATTLE_OPENS = {"Attack": "Battle.Target", "Steal": "Battle.Target", "Skill": "Battle.Ability",
+                    "Item": "Battle.Item"}
+    BATTLE_SUBMENU_ROWS = {"Battle.Item": ["Potion", "Hi-Potion"], "Battle.Ability": ["Flee"]}
+
+    def _open_battle_cursor(self) -> None:
+        self._grid_pos = [0, 0]
+        self._battle_pending_cmd = None
+        self._sub_index = 0
+        self._set_battle_cursor("Battle.Command", self.BATTLE_GRID[0][0])
+
+    def _close_battle_cursor(self) -> None:
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": None,
+                     "button": None, "button_label": None}
+
+    def _set_battle_cursor(self, group: str, label: str) -> None:
+        self.menu = {"selected": f"btn_{label}", "hovered": None, "label": label, "group": group,
+                     "button": f"btn_{label}", "button_label": label}
+
+    def _battle_menu_step(self, button: str) -> None:
+        group = self.menu.get("group")
+        if group == "Battle.Command":
+            r, c = self._grid_pos
+            if button == "down":
+                r = min(r + 1, len(self.BATTLE_GRID) - 1)        # clamp: no wrap
+            elif button == "up":
+                r = max(r - 1, 0)
+            elif button == "right":
+                c = min(c + 1, len(self.BATTLE_GRID[0]) - 1)
+            elif button == "left":
+                c = max(c - 1, 0)
+            elif button in ("confirm", "ok"):
+                label = self.BATTLE_GRID[r][c]
+                opens = self.BATTLE_OPENS.get(label)
+                if opens is None:
+                    # Defend / Change: no target, committed straight away.
+                    self._battle_command(self.battle_turn, 2, 177, 0, 0)
+                    self._close_battle_cursor()
+                    return
+                self._battle_pending_cmd = label
+                self._sub_index = 0
+                if opens == "Battle.Target":
+                    foe = next((u for u in self.battle_units
+                                if not u["player"] and u["alive"] and u["targetable"]), None)
+                    self._set_battle_cursor(opens, foe["name"] if foe else "nobody")
+                else:
+                    self._set_battle_cursor(opens, self.BATTLE_SUBMENU_ROWS[opens][0])
+                return
+            self._grid_pos = [r, c]
+            self._set_battle_cursor("Battle.Command", self.BATTLE_GRID[r][c])
+            return
+        if group in ("Battle.Item", "Battle.Ability"):
+            rows = self.BATTLE_SUBMENU_ROWS[group]
+            if button in ("cancel", "back", "b"):
+                self._set_battle_cursor("Battle.Command", self.BATTLE_GRID[self._grid_pos[0]][self._grid_pos[1]])
+            elif button == "down":
+                self._sub_index = min(self._sub_index + 1, len(rows) - 1)
+                self._set_battle_cursor(group, rows[self._sub_index])
+            elif button == "up":
+                self._sub_index = max(self._sub_index - 1, 0)
+                self._set_battle_cursor(group, rows[self._sub_index])
+            elif button in ("confirm", "ok"):
+                # Picking an item/ability then opens the target cursor, as the HUD does.
+                foe = next((u for u in self.battle_units if not u["player"] and u["alive"]), None)
+                self._set_battle_cursor("Battle.Target", foe["name"] if foe else "nobody")
+            return
+        if group == "Battle.Target":
+            if button in ("cancel", "back", "b"):
+                self._set_battle_cursor("Battle.Command", self.BATTLE_GRID[self._grid_pos[0]][self._grid_pos[1]])
+            elif button in ("confirm", "ok"):
+                foe = next((u for u in self.battle_units
+                            if not u["player"] and u["alive"] and u["targetable"]), None)
+                cmd = {"Attack": (1, 176), "Steal": (3, 178)}.get(self._battle_pending_cmd, (8, 1))
+                self._battle_command(self.battle_turn, cmd[0], cmd[1], foe["id"] if foe else 0, 0)
+                self._close_battle_cursor()
+
     def _menu_step(self, button: str) -> None:
+        if str(self.menu.get("group") or "").startswith("Battle."):
+            self._battle_menu_step(button)
+            return
         # Cancel backs a screen OUT. Modelled because the close-UI recovery rung is built on it: the
         # soft-reset combo is swallowed inside a menu, so Cancel is the only way out of one, and a
         # stand-in whose menus could not be left would certify a ladder that cannot climb.
@@ -824,6 +911,7 @@ class FakeGame:
         self.battle_done.append(slot)
         if self.battle_turn == slot:
             self.battle_turn = -1           # SetIdle: the HUD stops asking
+            self._close_battle_cursor()
         unit["atb"] = 0
         self.battle_pending.append([self.frame + self.cmd_resolve_frames, slot, cmd, tar_id])
 
@@ -907,6 +995,7 @@ class FakeGame:
             asked = next((u for u in self.battle_units if u["slot"] == self.battle_turn), None)
             if asked is None or not asked["alive"]:
                 self.battle_turn = -1
+                self._close_battle_cursor()
 
         for unit in self.battle_units:
             if not unit["alive"]:
@@ -931,6 +1020,7 @@ class FakeGame:
             for slot in list(self.battle_ready):
                 if slot not in self.battle_done:
                     self.battle_turn = slot
+                    self._open_battle_cursor()        # the command list opens on that slot
                     break
         self._settle_battle()
 
@@ -946,6 +1036,7 @@ class FakeGame:
         self.battle_result = result
         self.battle_bonus = {"exp": exp, "gil": gil, "ap": 3, "items": 1}
         self.battle_active = False
+        self._close_battle_cursor()
         # ⚠ commands_enabled goes false at PHASE_MENU_OFF, but battle_turn does NOT get cleared --
         # the engine leaves it for InitialBattle. That is the stale value the next battle inherits.
         self.commands_enabled = False

@@ -35,7 +35,9 @@ the title menu itself. Its terminal read is `UnityXInput/Input.cs:309`, which sp
 three `press down` moved the cursor Item → Ability → Equip → Status and one `press up` returned it to
 Equip — exactly one step per press, both directions
 (`studies/test-harness/scenarios/menu_nav.py`). Battle cursors and dialogue choices ride the same
-site and are expected to follow, but are **not yet separately proven in-game**.
+site. ★ Both since proven separately: dialogue choices by `scenarios/dialogue_render.py` (E5, `select()`
+landing on a named option) and the battle command/target cursor by `scenarios/battle_hud_check.py`
+(the label changes after an injected press; a command confirmed through the cursor lands damage).
 
 The gap it closed: the harness could open a menu (`Menu`/`Confirm`/`Cancel` all route through `IsInput`) but
 **cannot move the cursor inside one**, and cannot pick a dialogue choice. That is the single biggest

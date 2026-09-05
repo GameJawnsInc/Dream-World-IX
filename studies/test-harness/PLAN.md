@@ -11,7 +11,7 @@ behavioural claim cost a human playtest, and "it built" kept getting mistaken fo
 |---|---|
 | Agent (engine) | `memoria-patches/s83-harness-agent.patch` → `Memoria/Harness/HarnessAgent.cs` |
 | Driver (Python) | `tools/harness/` + `tools/play.py` |
-| Offline tests | `ff9mapkit/tests/test_harness.py` (16, ~6s, no game needed) |
+| Offline tests | `ff9mapkit/tests/test_harness.py` (~150, ~4 min -- the count grows with every fix; no game needed) |
 
 ---
 
@@ -731,6 +731,52 @@ back, it will be something else, and the leg-start logging in `find_transitions`
 next report says which.
 
 
+### ★ 2026-09-04 — the preflight, the HUD proof, and THE ARTIFACT LAYER
+
+**The bench preflight** (`play.py --suite`, before the launch). A two-folder grep concluded 30601 and
+30820 were gone; a deploy of 30601 then reported an ID COLLISION because `FF9CustomMap-msgs` had
+served it all along, and 30820/30821 live in `FF9CustomMap-schema`. The harness read every folder;
+the human did not. `preflight_benches()` now scans every `<mod folder>/DictionaryPatch.txt` and prints,
+per bench, which folder serves it — refusing before launch when none does, with the deploy command
+when the manifest carries a `deploy =` hint (30801 ← `journal_dash.field.toml`, 30601 ← `winstyle`;
+**30820/30821 have no source toml in this checkout**), and flagging an id two folders register.
+
+**The battle HUD, proven — and the first live run of `battle_pick` found two defects** in a verb no
+scenario had ever called (`scenarios/battle_hud_check.py`, now a core member; 5/5 live):
+- the command list is a **two-column grid that does not wrap** (from `Steal`, 24 `down` presses saw
+  `Item` forever and never `Attack`, one row up) — `battle_pick` now walks to both edges and the
+  neighbouring column, and refuses when no list is open;
+- `Battle.Ability` / `Battle.Item` are **submenus, not the target cursor** — `battle_act` accepted "any
+  group but the command list" and the screenshot showed the item list open on Potion. It now waits
+  for `Battle.Target` exactly and refuses a submenu. The target label is published raw
+  (`[STRT=33,1]Goblin[ENDN]`).
+The stand-in lays its grid out the same way; five tests pin both, each confirmed red.
+
+**Three more, from reading the code:** `flee()` returned True on ANY battle end (a wipe was "the
+party actually left"); `last_fight` survived `begin_scenario` (battle_play's turn-loop check could
+pass on the previous member's fight); `pid_alive` could never see ERROR_ACCESS_DENIED (`ctypes.
+get_last_error()` is always 0 through the plain `windll`), so a live run this user cannot open read
+as dead and had its arm adopted. Each pinned, each test confirmed red against the old code.
+
+**The core suite replayed live at protocol 5** for the first time since rev 5: 14/15, the one fail
+being the new HUD member on its first run (above).
+
+**THE ARTIFACT LAYER** (next-action 4, designed by a judged three-way lane, ~750 lines, 25 tests):
+`tools/harness/artifacts.py` (pure: `StateRing`, `StepLog`, `read_memoria_ini` — LAST wins, as the
+engine — `sha256_file`, `git_head`, `build_env`); `Channel.observer` feeds the ring from the reads
+every wait already makes (no thread, no extra poll; a broken observer cannot cost a read);
+`steps.jsonl` rows carry `accept_ms` (the agent read it) and `ack_ms` (it finished) — a null accept
+on an awaited row is a request the agent never read; `states-FAILED-k.jsonl` is flushed BEFORE the
+shot so its newest row is the check's own snapshot; evidence capped at 3 per scenario with the skip
+reason on the row (cap / stale channel / game exited / same frame); `states-final.jsonl` is the ring
+before `quit` (`state-final.json` was captured after it — the wrong moment); `env.json` written
+before the launch (a dead boot still documents the install; the DLL hashed before the game opens it)
+and rewritten once the engine answers. Under a suite the runner binds a member's directory BEFORE
+its recovery ladder, so the ladder's steps (`phase: baseline`) and a POISONED ring belong to the
+member they were spent on; a raise flushes `states-ERROR` before anything else can roll the moment
+out; every non-pass member leaves at least one ring. Every writer may fail and none may raise into
+the run: the artifact steps sit after the disarm in the teardown ladder.
+
 ### What playing one looks like
 
 ```python
@@ -767,12 +813,11 @@ count. Same shape as the arc's own law: a gate can be green and wrong in the sam
    work by sharing a code path with the menu cursor, and `select()` driving the engine's own
    `SelectChoice` to a named option proves it directly.
 3. ~~The suite runner~~ — ★ DONE and proven live, see below.
-4. **Artifacts that make a failure diagnosable without a re-run:** a driver-side `steps.jsonl` (wall
-   clock, seq, the literal steps, ack latency), a rolling ring buffer of the last N states flushed on
-   failure (`state-final.json` is captured after `quit`, which is the wrong moment), an automatic
-   screenshot on every failed check, and `env.json` (registered fields, deployed DLL sha, engine
-   protocol, `[AnalogControl]`, `[Cheats]`). Namespace `shots/` per scenario — two scenarios both
-   using `"walk-before"` currently overwrite each other's evidence.
+4. ~~**Artifacts that make a failure diagnosable without a re-run**~~ — ★ DONE (2026-09-04, see
+   "THE ARTIFACT LAYER" below): `steps.jsonl` with the accept/ack split, a 300-frame state ring
+   flushed on every failed check (before the shot) and always once before `quit`, evidence capped
+   at 3 per scenario with the skip reason on the row, `env.json` (DLL sha, per-folder registrations,
+   the ini values the engine obeys, git head, the suite manifest). Shots were already namespaced.
 5. ~~The battle block~~ — ★ DONE for OBSERVABILITY (see below). **Still open: DRIVING a battle to a
    result**, which is a different capability and is not proven. Two measured obstacles are recorded
    below; neither is a mystery any more, but neither is solved.

@@ -79,13 +79,29 @@ def pid_alive(pid: int) -> bool:
     """
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
     try:
-        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+        handle = _kernel32().OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
     except (OSError, AttributeError):
         return True                       # cannot tell -> assume alive, never steal another run's arm
     if handle:
-        ctypes.windll.kernel32.CloseHandle(handle)
+        _kernel32().CloseHandle(handle)
         return True
-    return ctypes.get_last_error() == 5    # ERROR_ACCESS_DENIED -> it exists, we just cannot look
+    # ERROR_ACCESS_DENIED -> it exists, we just cannot look. ⚠ `ctypes.get_last_error()` only
+    # carries a value for a library opened with `use_last_error=True`; read through the plain
+    # `ctypes.windll.kernel32` it is always 0, so this branch could never fire and a live process
+    # this user may not open -- another account's driver, an elevated game -- read as DEAD, and its
+    # arm was adopted. A liveness probe that cannot say "alive but not mine" is the wrong shape here.
+    return ctypes.get_last_error() == 5
+
+
+_K32 = None
+
+
+def _kernel32():
+    """kernel32 opened with the last-error capture that `ctypes.get_last_error()` reads from."""
+    global _K32
+    if _K32 is None:
+        _K32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    return _K32
 
 
 #: Names accepted for the virtual controller. Mirrors ParseControl in HarnessAgent.cs -- kept here as
@@ -557,6 +573,16 @@ class Channel:
         self.owner_pid = os.getpid() if owner_pid is None else int(owner_pid)
         self._seq = 0
         self._armed_by_us = False
+        #: Called with every State this channel successfully reads -- the ONE feed for the state
+        #: ring. Every wait, ack and check already polls through :meth:`state`, so recording here
+        #: costs no extra read and no thread. Wrapped: a broken observer must never turn a healthy
+        #: read into "no state published".
+        self.observer = None
+
+    @property
+    def seq(self) -> int:
+        """The sequence number of the last request this driver wrote (0 before any)."""
+        return self._seq
 
     # -- lifecycle --------------------------------------------------------------------------
     def reset(self) -> None:
@@ -718,7 +744,14 @@ class Channel:
                     mtime = path.stat().st_mtime
                 except OSError:
                     mtime = None
-                return State(json.loads(body), mtime=mtime)
+                st = State(json.loads(body), mtime=mtime)
+                obs = self.observer
+                if obs is not None:
+                    try:
+                        obs(st)
+                    except Exception:                      # noqa: BLE001 - an artifact, not the read
+                        pass
+                return st
             except FileNotFoundError:
                 return None
             except PermissionError:

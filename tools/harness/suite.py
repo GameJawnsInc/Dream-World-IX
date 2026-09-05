@@ -42,6 +42,7 @@ except ModuleNotFoundError:                       # pragma: no cover - Python < 
     tomllib = None
 
 from .channel import HarnessError
+from .session import scan_registrations, stock_field_ids
 
 #: Verdicts a scenario can end with. `poisoned` and `proved-nothing` are the two that exist to stop
 #: the suite laundering its own problems into claims about the game.
@@ -51,12 +52,18 @@ VERDICTS = ("pass", "fail", "error", "poisoned", "proved-nothing")
 class Scenario:
     """One entry in a suite manifest."""
 
-    __slots__ = ("path", "field", "label")
+    __slots__ = ("path", "field", "label", "deploy")
 
-    def __init__(self, path: Path, field: int | None = None, label: str | None = None):
+    def __init__(self, path: Path, field: int | None = None, label: str | None = None,
+                 deploy: str | None = None):
         self.path = Path(path)
         self.field = field
         self.label = label or self.path.stem
+        #: The field.toml that deploys `field`, relative to the repo root -- so a bench that has
+        #: vanished from the shared install can be put back with one printed command instead of an
+        #: archaeology session. Optional: not every bench is reproducible from this repo, and the
+        #: preflight says so rather than pretending.
+        self.deploy = deploy
 
     def __repr__(self) -> str:
         return f"<Scenario {self.label} field={self.field}>"
@@ -80,6 +87,7 @@ def load_manifest(path: Path, repo: Path) -> tuple[dict, list[Scenario]]:
         raise HarnessError(f"{path} is not valid TOML: {err}") from err
 
     meta = dict(doc.get("suite", {}))
+    meta.setdefault("manifest", str(path))
     default_field = meta.get("field")
     rows = doc.get("scenario", [])
     if not rows:
@@ -99,15 +107,82 @@ def load_manifest(path: Path, repo: Path) -> tuple[dict, list[Scenario]]:
         # worse than not offering it: a manifest author would reasonably read it as a hang guard and
         # get none. A real one needs the scenario to run somewhere it can be interrupted; until that
         # exists, an unknown key is refused rather than silently ignored.
-        unknown = set(row) - {"path", "field", "label"}
+        unknown = set(row) - {"path", "field", "label", "deploy"}
         if unknown:
             raise HarnessError(
                 f"{path}: [[scenario]] #{i + 1} has unknown key(s) {sorted(unknown)}. Refusing rather "
                 f"than ignoring them -- a key that is silently dropped reads as a setting that works."
             )
         scenarios.append(Scenario(resolved, field=row.get("field", default_field),
-                                  label=row.get("label")))
+                                  label=row.get("label"), deploy=row.get("deploy")))
     return meta, scenarios
+
+
+def preflight_benches(game_path: Path, scenarios: list[Scenario], *, stock=None) -> dict:
+    """Is every bench this manifest needs actually DEPLOYED -- answered before the game is launched.
+
+    WHY. Bench ids are a global namespace shared with every other worktree's deploys, and a
+    `deploy_campaign` wholesale-replaces a mod folder, so a bench that ran yesterday can be gone
+    today. Without this the answer arrives ~4 minutes into the run, one member at a time, as
+    `warp()` refusals -- and the most common wrong diagnosis ("the bench is gone") is made from a
+    grep of ONE folder when the harness reads them all. This reads every ``<mod folder>/
+    DictionaryPatch.txt`` and says, per bench, WHICH folder serves it.
+
+    Returns ``{"read": [folder names], "benches": {id: {...}}, "missing": [ids], "collisions": [ids]}``.
+    A bench is `missing` when no folder registers it and it is not a stock field. A `collision` is
+    an id registered by two folders: EventDB is global, so one of them loads the WRONG `.eb` -- the
+    classic black screen -- and which one wins depends on Memoria.ini FolderNames order, which this
+    does not read. Stock fields (the ~674 shipping rooms) are registered by the base game and appear
+    in no patch file, so they are never missing.
+    """
+    stock = stock_field_ids() if stock is None else stock
+    scans = scan_registrations(Path(game_path))
+    read = [patch.parent.name for patch, _ in scans]
+    where: dict[int, list[tuple[str, str]]] = {}
+    for patch, rows in scans:
+        for fid, name in rows:
+            where.setdefault(fid, []).append((patch.parent.name, name))
+    benches: dict[int, dict] = {}
+    for sc in scenarios:
+        if sc.field is None:
+            continue
+        fid = int(sc.field)
+        row = benches.setdefault(fid, {"folders": list(where.get(fid, [])), "stock": fid in stock,
+                                       "deploy": None, "scenarios": []})
+        row["scenarios"].append(sc.label)
+        if sc.deploy and not row["deploy"]:
+            row["deploy"] = sc.deploy
+    missing = sorted(f for f, r in benches.items() if not r["folders"] and not r["stock"])
+    collisions = sorted(f for f, r in benches.items() if len(r["folders"]) > 1)
+    return {"read": read, "benches": benches, "missing": missing, "collisions": collisions}
+
+
+def render_preflight(report: dict) -> str:
+    """The preflight as the lines a human (or the next agent) needs, deploy commands included."""
+    lines = [f"bench preflight -- {len(report['read'])} mod folder(s) read: "
+             f"{', '.join(report['read']) or '(none -- no DictionaryPatch.txt under the install)'}"]
+    for fid in sorted(report["benches"]):
+        row = report["benches"][fid]
+        users = ", ".join(row["scenarios"])
+        if row["folders"]:
+            served = "; ".join(f"{folder} ({name})" for folder, name in row["folders"])
+        elif row["stock"]:
+            served = "stock FF9 field (registered by the base game)"
+        else:
+            served = "MISSING -- no folder registers it"
+        lines.append(f"  {fid:>6}  {served:<48}  <- {users}")
+        if not row["folders"] and not row["stock"]:
+            if row["deploy"]:
+                lines.append(f"          deploy it: py tools/deploy_field.py {row['deploy']} --id {fid}")
+            else:
+                lines.append("          no `deploy =` hint in the manifest, and no known source toml -- "
+                             "this bench cannot be rebuilt from this checkout")
+    for fid in report["collisions"]:
+        folders = " AND ".join(f for f, _ in report["benches"][fid]["folders"])
+        lines.append(f"  !! COLLISION: {fid} is registered by {folders}. EventDB is GLOBAL across "
+                     f"stacked folders, so one side loads the WRONG .eb (null .eb -> black screen); "
+                     f"which wins is Memoria.ini FolderNames order.")
+    return "\n".join(lines)
 
 
 def load_scenario_module(path: Path):
@@ -172,6 +247,12 @@ class SuiteRunner:
         """
         total = len(self.scenarios)
         self._log(f"{total} scenario(s), one launch")
+        self.session.write_env(suite={
+            "name": self.meta.get("name"), "description": self.meta.get("description"),
+            "manifest": self.meta.get("manifest"),
+            "scenarios": [{"index": i, "label": sc.label, "path": str(sc.path), "field": sc.field,
+                           "deploy": sc.deploy} for i, sc in enumerate(self.scenarios, start=1)],
+        })
         # The game spends several seconds in "Initial" after launch -- before anything a baseline
         # check could be true of. Waiting here keeps the first scenario from being measured against
         # a booting game and escalated to a soft reset that cannot land yet.
@@ -194,6 +275,9 @@ class SuiteRunner:
             self._log(f"the suite aborted after {done} scenario(s): {err}")
             self._write_report()
             raise
+        finally:
+            # The quit row and the final ring belong to the RUN, not to whichever member ran last.
+            self.session.unbind_artifacts()
         self._write_report()
         return self.results
 
@@ -205,6 +289,9 @@ class SuiteRunner:
             "field": scenario.field, "verdict": "error", "checks": [], "detail": "",
         }
         self._log(f"[{index}/{total}] {scenario.label}")
+        # BEFORE the ladder: its steps, and the ring of a baseline it could not restore, are this
+        # member's evidence -- filed under it, not under the previous member or the run.
+        self.session.bind_artifacts(label, phase="baseline")
 
         # ---- the precondition, verified ------------------------------------------------------
         try:
@@ -217,6 +304,9 @@ class SuiteRunner:
             row["detail"] = (f"the baseline could not be restored, so this scenario never ran: {why}")
             row["seconds"] = round(time.time() - started, 1)
             self._log(f"    POISONED -- {why}")
+            # What the game looked like while the ladder failed -- the ring is the only witness.
+            path = self.session.flush_states("POISONED")
+            row["states"] = [path.name] if path is not None else []
             return row
         self._log(f"    baseline: {why}")
 
@@ -235,10 +325,14 @@ class SuiteRunner:
                               f"ignoring field {scenario.field}")
                 run(self.session)
         except HarnessError as err:
+            # The ring FIRST -- before the detail, before collect, before the next member's ladder
+            # polls the moment out of it -- and a photograph if the game is still alive to take one.
+            row["capture"] = self.session.evidence("ERROR")
             row["verdict"] = "error"
             row["detail"] = self._raised_detail(str(err))
             self._log(f"    ERROR -- {err}")
         except Exception as err:                                  # noqa: BLE001 - a scenario is code
+            row["capture"] = self.session.evidence("ERROR")
             row["verdict"] = "error"
             row["detail"] = self._raised_detail(f"{type(err).__name__}: {err}")
             row["traceback"] = traceback.format_exc()
@@ -255,6 +349,10 @@ class SuiteRunner:
 
         row["checks"] = list(self.session.checks)
         row["seconds"] = round(time.time() - started, 1)
+        # Every non-pass member leaves at least one ring: a proved-nothing member, or a fail whose
+        # evidence was switched off, would otherwise be the one verdict with nothing to read.
+        if row["verdict"] != "pass" and self.session._evidence == 0 and not row.get("capture"):
+            self.session.flush_states("END")
         self._collect(label, row)
         self._log(f"    {row['verdict'].upper()} in {row['seconds']}s -- {row['detail']}")
         return row
@@ -284,8 +382,8 @@ class SuiteRunner:
         # illegal Windows path component, so this raised OSError, the except swallowed it, and the
         # scenario silently lost its whole artifact directory -- including the automatic screenshot
         # of its first failure.
-        safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in label)
-        dest = self.run_dir / safe
+        dest = self.session.scenario_dir_for(label)
+        safe = dest.name
         row.setdefault("shots", [])
         row.setdefault("collect_error", None)
         try:
@@ -304,6 +402,13 @@ class SuiteRunner:
                     shutil.copy2(png, out / png.name)
                     moved.append(png.name)
             row["shots"] = moved
+            try:
+                row["states"] = sorted(p.name for p in dest.glob("states-*.jsonl"))
+                steps = dest / "steps.jsonl"
+                row["steps_recorded"] = (sum(1 for _ in steps.open(encoding="utf-8"))
+                                         if steps.exists() else 0)
+            except Exception as err:                              # noqa: BLE001 - never cost the shots
+                row["collect_error"] = f"artifact index: {err}"
             (dest / "report.json").write_text(json.dumps(row, indent=2), encoding="utf-8")
         except OSError as err:
             # Record it: a reader comparing two scenarios cannot otherwise tell "captured nothing"

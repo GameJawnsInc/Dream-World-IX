@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ff9mapkit"))
 
 from ff9mapkit.config import find_game_path                      # noqa: E402
 
+from .artifacts import STATE_RING, StateRing, StepLog, build_env         # noqa: E402
 from .channel import BUTTONS, PROTOCOL, Channel, HarnessError, State   # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
@@ -102,6 +103,35 @@ def stock_field_ids() -> set[int]:
         pass
     _STOCK_FIELDS = found
     return found
+
+
+def scan_registrations(game_path: Path) -> list[tuple[Path, list[tuple[int, str]]]]:
+    """Every `FieldScene` registration, PER MOD FOLDER, in the order the files sort.
+
+    One entry per readable ``<mod folder>/DictionaryPatch.txt``: ``(patch_path, [(id, name), ...])``.
+    Kept per folder rather than flattened because WHICH folder serves an id is a fact worth having:
+    ids are a GLOBAL namespace (EventDB is shared across every stacked folder), so the same id in two
+    folders is the classic null-``.eb`` black screen, and a bench that "vanished" is usually one that
+    another lane's folder still serves. A folder that cannot be read is simply absent from the list --
+    the caller decides whether an empty answer means "nothing registered" or "could not look".
+
+    The directive is ``FieldScene <id> <area> <NAME> ...`` -- the second column is the AREA index,
+    not the name, which is why the name is the third field.
+    """
+    out: list[tuple[Path, list[tuple[int, str]]]] = []
+    for patch in sorted(Path(game_path).glob("*/DictionaryPatch.txt")):
+        try:
+            text = patch.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rows: dict[int, str] = {}
+        for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+(\d+)\s+(\S+)", text, re.MULTILINE):
+            rows[int(m.group(1))] = m.group(3)
+        # Tolerate a two-column form rather than dropping the id entirely.
+        for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+([A-Za-z_]\S*)", text, re.MULTILINE):
+            rows.setdefault(int(m.group(1)), m.group(2))
+        out.append((patch, sorted(rows.items())))
+    return out
 
 
 def launch_args(width: int, height: int, monitor: int = 0) -> list[str]:
@@ -175,6 +205,8 @@ class Session:
         pid_probe=None,
         launcher=None,
         save_dir: str | os.PathLike | None = None,
+        state_ring: int = STATE_RING,
+        repo_root: str | os.PathLike | None = None,
     ):
         self.window_size = window_size
         # ``pid_probe`` / ``launcher`` are the test seam. They exist so the offline suite can drive a
@@ -211,9 +243,29 @@ class Session:
         #: still LOADING the first time the title appears; on a re-entry (after a soft reset) it is
         #: pure dead time, and in a suite it is dead time once per scenario.
         self._booted_once = False
-        #: One automatic screenshot per scenario, at its FIRST failure -- the moment worth seeing.
+        #: Automatic evidence on a failed check -- the state ring flushed and a screenshot -- capped
+        #: per scenario (FAILURE_EVIDENCE_CAP), because re-running to see the moment costs the suite.
         self._shot_on_failure = True
-        self._failure_shot_taken = False
+        self._evidence = 0
+        self._last_failure_frame: int | None = None
+        #: The last ~10 s of published state, fed by the reads every wait already makes (the
+        #: channel's observer) -- no thread, no extra poll. Flushed to states-<tag>.jsonl on failure
+        #: and always once at stop, BEFORE quit, which is the moment state-final.json gets wrong.
+        self._ring = StateRing(state_ring)
+        self.channel.observer = self._ring.push
+        #: steps.jsonl -- every request with its accept/ack latency. Drops are counted, never raised.
+        self._steps = StepLog()
+        self._steps_logged = 0
+        self._steps_dropped = 0
+        #: Where a suite member's artifacts land (bound by the runner BEFORE its baseline ladder, so
+        #: the ladder's steps and a POISONED ring belong to the member they were spent on).
+        self.scenario_dir: Path | None = None
+        self._phase = "run"
+        self._env_extra: dict = {}
+        self.repo_root = Path(repo_root) if repo_root else REPO
+        self._boot_started: float | None = None
+        self._boot_seconds: float | None = None
+        self._first_state: str | None = None
         #: Set by SuiteRunner. When true, `self.checks` belongs to ONE MEMBER of a suite, so a
         #: whole-run verdict computed from it would describe the last scenario and label it the run.
         self._suite_owned = False
@@ -238,6 +290,9 @@ class Session:
 
     def start(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
+        # FIRST, before the pid probe, the claim, the arm and the launch: a run that dies in boot
+        # still documents the install it died against, and the DLL is hashed before the game opens it.
+        self.write_env()
         running = self._pid_probe()
         if running and not self.attach:
             raise HarnessError(
@@ -262,6 +317,7 @@ class Session:
         atexit.register(self._atexit_disarm)
         self._log(f"channel {self.channel.dir}")
 
+        self._boot_started = time.time()
         if not running:
             exe = self.game_path / "x64" / "FF9.exe"
             if self._launcher is not None:
@@ -284,6 +340,8 @@ class Session:
 
         self._await_agent()
         self._adopt_agent()
+        self._boot_seconds = round(time.time() - self._boot_started, 1)
+        self.write_env()                      # now with the engine's protocol and first state
         self._assert_save_sandbox()
 
     def _adopt_agent(self) -> None:
@@ -414,6 +472,7 @@ class Session:
                 )
             st = self.channel.state()
             if st is not None:
+                self._first_state = repr(st)
                 self._log(f"agent up after {self.boot_timeout - (deadline - time.time()):.0f}s -- {st!r}")
                 return
             time.sleep(0.25)
@@ -447,8 +506,11 @@ class Session:
             try:
                 self.channel.disarm()
             finally:
+                # The ring's content is the game BEFORE `quit` (nothing polls after it), which is
+                # exactly the moment state-final.json -- captured after -- gets wrong.
                 for step in (lambda: self.channel.collect(self.run_dir),
                              self._collect_log,
+                             lambda: self.flush_states("final"),
                              lambda: self._write_report(failed)):
                     try:
                         step()
@@ -474,13 +536,32 @@ class Session:
 
     # -- sending --------------------------------------------------------------------------------
     def send(self, *steps: str, wait: bool = True, timeout: float = 60.0) -> None:
-        """Queue raw protocol steps and (by default) block until the game has finished them."""
-        seq = self.channel.send(list(steps), alive=self._assert_alive)
-        if not wait:
-            return
-        self._await_ack(seq, timeout, steps)
+        """Queue raw protocol steps and (by default) block until the game has finished them.
 
-    def _await_ack(self, seq: int, timeout: float, steps) -> None:
+        Every request leaves a row in ``steps.jsonl`` -- the literal steps, when the agent ACCEPTED
+        it (``accept_ms``) and when it FINISHED it (``ack_ms``) -- written in a ``finally`` so a
+        refusal, a timeout and a dead game all leave their row too. A row with ``accept_ms`` null
+        is a request the agent never read; one with ``ack_ms`` null is one it read and never
+        finished. That distinction used to cost a re-run.
+        """
+        row = {
+            "kind": "step", "t": time.time(),
+            "at": _dt.datetime.now().isoformat(timespec="milliseconds"),
+            "scenario": self.scenario_dir.name if self.scenario_dir is not None else None,
+            "phase": self._phase, "seq": None, "steps": list(steps), "awaited": bool(wait),
+            "accept_ms": None, "ack_ms": None, "frame": None, "error": None,
+        }
+        try:
+            row["seq"] = self.channel.send(list(steps), alive=self._assert_alive)
+            if wait:
+                self._await_ack(row["seq"], timeout, steps, row=row)
+        except HarnessError as err:
+            row["error"] = str(err)
+            raise
+        finally:
+            self._ledger(row)
+
+    def _await_ack(self, seq: int, timeout: float, steps, row: dict | None = None) -> State:
         """Wait for the agent to finish OUR request -- proven by its own receipt, not by a number.
 
         ⚠ ``ack`` alone is not proof. It is a single counter on a component that outlives every
@@ -490,15 +571,24 @@ class Session:
         ours as well means the agent has demonstrably ACCEPTED this request, not merely finished
         something.
         """
-        deadline = time.time() + timeout
+        sent = time.time()
+        deadline = sent + timeout
         last: State | None = None
+        accepted = False
         while time.time() < deadline:
             self._assert_alive()
             last = self.channel.state()
+            if last is not None and not accepted and last.seq >= seq:
+                accepted = True
+                if row is not None:
+                    row["accept_ms"] = round((time.time() - sent) * 1000, 1)
             if last is not None and last.seq >= seq and last.ack >= seq and not last.busy:
+                if row is not None:
+                    row["ack_ms"] = round((time.time() - sent) * 1000, 1)
+                    row["frame"] = last.frame
                 self._raise_if_this_step_failed(last, seq, steps)
                 self._last_error = last.error
-                return
+                return last
             time.sleep(0.02)
         raise HarnessError(
             f"steps {list(steps)} were not acknowledged within {timeout:.0f}s "
@@ -1208,17 +1298,10 @@ class Session:
         """
         found: dict[int, str] = {}
         read: list[Path] = []
-        for patch in sorted(self.game_path.glob("*/DictionaryPatch.txt")):
-            try:
-                text = patch.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
+        for patch, rows in scan_registrations(self.game_path):
             read.append(patch)
-            for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+(\d+)\s+(\S+)", text, re.MULTILINE):
-                found[int(m.group(1))] = m.group(3)
-            # Tolerate a two-column form rather than dropping the id entirely.
-            for m in re.finditer(r"^\s*FieldScene\s+(\d+)\s+([A-Za-z_]\S*)", text, re.MULTILINE):
-                found.setdefault(int(m.group(1)), m.group(2))
+            for fid, name in rows:
+                found.setdefault(fid, name)
         return found, read
 
     def _check_field_id(self, field: int, verb: str, check_registered: bool) -> None:
@@ -1931,6 +2014,15 @@ class Session:
         return self.check(got in wanted, f"the battle ended in {kind}",
                           f"got {State.BATTLE_RESULTS.get(got, got)} ({got})")
 
+    #: The battle HUD's NGUI groups, from `BattleHUD.Const.cs`. Three of them can be open after a
+    #: command is confirmed and only ONE of them is a target cursor: `Battle.Ability` and
+    #: `Battle.Item` are SUBMENUS. A predicate that accepted "any group but the command list" as
+    #: the target cursor confirmed a Potion when it meant to confirm an enemy -- measured live
+    #: 2026-09-04 (scenarios/battle_hud_check.py, the screenshot shows the item list open).
+    BATTLE_COMMAND_GROUP = "Battle.Command"
+    BATTLE_TARGET_GROUP = "Battle.Target"
+    BATTLE_SUBMENU_GROUPS = ("Battle.Ability", "Battle.Item")
+
     def battle_pick(self, label: str, *, direction: str = "down", max_steps: int = 24,
                     confirm: bool = True) -> str:
         """Move the battle cursor onto `label` and confirm it -- BY NAME, never by press count.
@@ -1939,43 +2031,105 @@ class Session:
         `BattleHUD.OnKeyConfirm` actually consumes -- not `UICamera.selectedObject`, which is the
         accessor a diagnostic reads. `UIKeyTrigger` prefers ActiveButton and only falls back to the
         selected object, so publishing the fallback was this arc's own law still live in the code.
+
+        ⚠ THE COMMAND LIST IS A TWO-COLUMN GRID THAT DOES NOT WRAP. Measured live 2026-09-04: from
+        `Steal`, twenty-four `down` presses saw `Steal -> Item` and then `Item` forever, and never
+        `Attack`, which sits one row ABOVE the start point. The field main menu wraps, so the walk
+        `menu_pick` uses -- one direction until the labels repeat -- is exactly wrong here: it can
+        neither reach an entry above the cursor nor visit the right-hand column (Defend / Skill /
+        Change) at all. So this searches the way a thumb does: `direction` to the edge, the other
+        way to the other edge, then the neighbouring column, and it reads "the label stopped
+        moving" as the edge rather than as a fault.
         """
         want = label.strip().lower()
+        opposite = {"down": "up", "up": "down"}.get(direction, "up")
         seen: list[str] = []
-        for _ in range(max_steps):
-            cursor = self.state.battle_cursor
-            current = (cursor.get("label") or "").strip()
-            if current and current.lower() == want:
-                if confirm:
-                    self.press("confirm", 4)
-                    self.wait_frames(14)
-                return current
-            if current and (not seen or seen[-1] != current):
-                if current in seen:
-                    raise HarnessError(
-                        f"{label!r} is not on this battle cursor -- went round and saw {seen} "
-                        f"(group={cursor.get('group')!r})")
-                seen.append(current)
-            self.press(direction, 4)
+        steps = 0
+
+        def cursor() -> tuple[str, str]:
+            c = self.state.battle_cursor
+            return (c.get("group") or ""), (c.get("label") or "").strip()
+
+        def nudge(button: str) -> bool:
+            """One press; True if the label moved."""
+            nonlocal steps
+            _, before = cursor()
+            self.press(button, 4)
             self.wait_frames(10)
-        raise HarnessError(f"gave up looking for {label!r} on the battle cursor after {max_steps} "
-                           f"steps; saw {seen}")
+            steps += 1
+            _, after = cursor()
+            return after != before
+
+        def walk(button: str) -> bool:
+            """Press `button` until the label stops changing. True if `want` was reached."""
+            stalls = 0
+            while steps < max_steps:
+                group, cur = cursor()
+                if group != self.BATTLE_COMMAND_GROUP:
+                    # A closed cursor is not an edge of the grid. The list closes when the turn
+                    # passes (the character went down, the fight ended) -- pressing on into
+                    # nothing would read as "walked both columns, saw []".
+                    st = self.state
+                    why = ("the battle is over" if not st.in_battle
+                           else f"the cursor is in {group!r} on {cur!r}" if group
+                           else "no command list is open (turn.slot is "
+                                f"{st.turn_slot}, result={st.battle_result_name})")
+                    raise HarnessError(
+                        f"battle_pick needs the command list ({self.BATTLE_COMMAND_GROUP}) open: "
+                        f"{why}. Wait for a turn first.")
+                if cur and cur.lower() == want:
+                    return True
+                if cur and cur not in seen:
+                    seen.append(cur)
+                if nudge(button):
+                    stalls = 0
+                else:
+                    # A press that moved nothing is the EDGE of the grid, not a fault -- two in a
+                    # row, so a press swallowed by a HUD animation does not end the walk early.
+                    stalls += 1
+                    if stalls >= 2:
+                        return False
+            return False
+
+        found = False
+        for column in (None, "right", "left"):
+            if steps >= max_steps:
+                break
+            if column is not None and not nudge(column):
+                continue                       # no column that way
+            if walk(direction) or walk(opposite):
+                found = True
+                break
+        if not found:
+            group, cur = cursor()
+            if cur and cur.lower() == want:
+                found = True
+        if not found:
+            raise HarnessError(
+                f"{label!r} is not on the battle command list -- walked both columns in {steps} "
+                f"press(es) and saw {seen} (cursor now on {cursor()[1]!r})")
+        current = cursor()[1]
+        if confirm:
+            self.press("confirm", 4)
+            self.wait_frames(14)
+        return current
 
     def battle_act(self, command: str = "Attack", *, timeout: float = 30.0) -> bool:
-        """Take one turn: pick a command by NAME, then confirm a target. Closed-loop throughout.
+        """Take one turn THROUGH THE HUD: pick a command by NAME, then confirm a target.
 
-        The cursor path is the ONLY one available for a solo battle. `SendNetCommand` -- the exact,
-        deterministic entry point -- opens with `if (playerIndex == CurrentPlayerIndex) return false;`
-        because it exists to replay a REMOTE co-op player's command; it deliberately refuses the slot
-        whose local menu is open, which in a one-character fight is always the slot you want.
-
-        So this steers, but never blindly: it waits for the command group, picks by name against the
-        engine's own `ButtonGroupState.ActiveButton`, then waits for the TARGET group before
+        This is the path that proves the menu itself works -- nothing in :meth:`act` presses a
+        button. It steers, but never blindly: it waits for the command group, picks by name against
+        the engine's own `ButtonGroupState.ActiveButton`, then waits for the TARGET group before
         confirming. Blind double-taps do not work -- measured: two confirms 16 frames apart left the
         cursor sitting in `Battle.Command` while the enemy chewed through Zidane's HP.
+
+        ⚠ IT DRIVES ONE-STEP COMMANDS ONLY (Attack, Steal, Defend, Change). A command that opens the
+        Ability or Item SUBMENU is refused rather than confirmed: the first cut treated "any group
+        that is not the command list" as the target cursor and cheerfully confirmed a Potion. Cast
+        an ability or use an item by name with :meth:`act`, or walk the submenu yourself.
         """
         try:
-            self.wait_for(lambda s: (s.battle_cursor.get("group") or "") == "Battle.Command",
+            self.wait_for(lambda s: (s.battle_cursor.get("group") or "") == self.BATTLE_COMMAND_GROUP,
                           timeout=timeout, what="the battle command menu")
         except HarnessError:
             return False
@@ -1985,14 +2139,23 @@ class Session:
             self._log(f"  battle_act: could not pick {command!r} ({err})")
             return False
         # Target selection is its own NGUI group. Waiting for it is what makes the second confirm
-        # land on a target rather than re-opening the command list.
+        # land on a target rather than re-opening the command list -- and it has to be THAT group,
+        # not merely "something other than the command list".
+        after = (self.BATTLE_TARGET_GROUP,) + self.BATTLE_SUBMENU_GROUPS
         try:
-            self.wait_for(lambda s: (s.battle_cursor.get("group") or "").startswith("Battle.")
-                          and (s.battle_cursor.get("group") or "") != "Battle.Command",
-                          timeout=8.0, what="the target cursor")
+            st = self.wait_for(lambda s: (s.battle_cursor.get("group") or "") in after,
+                               timeout=8.0, what="the target cursor")
         except HarnessError:
             # Some commands need no target and resolve straight away; that is not a failure.
             return True
+        group = st.battle_cursor.get("group")
+        if group in self.BATTLE_SUBMENU_GROUPS:
+            self.press("cancel", 4)
+            self.wait_frames(10)
+            raise HarnessError(
+                f"{command!r} opens the {group} submenu, not a target cursor. battle_act drives "
+                f"one-step commands; use act({command!r}...) with the ability or item name, or walk "
+                f"the submenu with battle_pick. (Backed out of it with Cancel.)")
         self.press("confirm", 4)
         self.wait_frames(20)
         return True
@@ -2062,17 +2225,27 @@ class Session:
                 seen_held.append(True)
             return s.escaping or s.battle_result != 0 or not s.in_battle
 
+        ended: State | None = None
         try:
-            self.wait_for(done, timeout=timeout,
-                          what="the escape to roll (a few percent per second)")
-            escaped = True
+            ended = self.wait_for(done, timeout=timeout,
+                                  what="the escape to roll (a few percent per second)")
         except HarnessError:
-            escaped = False
+            ended = None
         finally:
             # ⚠ ALWAYS RELEASE. `hold` is non-blocking, so a bumper left down leaks into whatever
             # runs next -- and these two in particular keep the party running.
             self.send("release l1", "release r1")
         st = self.state
+        # ⚠ "THE WAIT RETURNED" IS NOT "THE PARTY LEFT". `done` also fires when the battle ends for
+        # ANY reason -- a wipe, an enemy fleeing, a victory landing mid-hold -- and the first cut
+        # returned True on every one of them, reporting a defeat as a successful escape. Only the
+        # queued SysEscape or the escape RESULT is the party actually leaving.
+        escaped = bool(ended is not None and (ended.escaping or st.escaping
+                                              or ended.battle_result == 4 or st.battle_result == 4))
+        if ended is not None and not escaped:
+            self._log(f"  flee: the battle ended before any roll landed -- "
+                      f"result={st.battle_result_name}, not an escape")
+            return False
         if not escaped:
             held = bool(seen_held)
             self._log(
@@ -2480,7 +2653,7 @@ class Session:
     def note(self, text: str) -> None:
         self.send("note " + text.replace("\n", " "))
 
-    def shot(self, name: str) -> Path:
+    def shot(self, name: str, *, timeout: float = 60.0) -> Path:
         """Capture a frame from inside the engine. Returns the PNG path once it is on disk.
 
         The name is sanitised BEFORE it is sent, so the file the agent writes and the file this
@@ -2489,7 +2662,7 @@ class Session:
         ``after``, and the wait then blamed the in-engine capture for a name the driver mangled.
         """
         name = _sanitize(f"{self.shot_prefix}-{name}" if self.shot_prefix else name)
-        self.send(f"shot {name}")
+        self.send(f"shot {name}", timeout=timeout)
         path = self.channel.shots / f"{name}.png"
         deadline = time.time() + 10
         while time.time() < deadline:
@@ -2667,11 +2840,127 @@ class Session:
             detail += " | rung failures: " + " ;; ".join(troubles)
         return False, detail
 
+    # -- artifacts ------------------------------------------------------------------------------
+    # Everything here is allowed to fail and nothing here may raise into the run: an artifact is
+    # worth less than the disarm, less than the verdict, and less than the step it describes.
+
+    #: Failed checks that get the ring flushed AND photographed, per scenario. Beyond it the check
+    #: row says so ("shot_skipped"), because a scenario that fails forty checks does not need forty
+    #: photographs of the same screen and a suite cannot afford them.
+    FAILURE_EVIDENCE_CAP = 3
+    #: A failure shot against a game that is still alive but slow must not cost the default 60 s.
+    SHOT_TIMEOUT_ON_FAILURE = 8.0
+
+    def _artifact_dir(self) -> Path:
+        d = self.scenario_dir if self.scenario_dir is not None else self.run_dir
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def scenario_dir_for(self, label: str) -> Path:
+        """Where a suite member's artifacts live -- ONE sanitiser for the directory, the shot prefix
+        and the collect glob, so a label with a colon in it cannot lose its own evidence."""
+        return self.run_dir / _sanitize(label)
+
+    def bind_artifacts(self, label: str, *, phase: str = "run") -> Path:
+        """Route steps, rings and evidence to a member's own directory from this moment on.
+
+        The runner calls it BEFORE the recovery ladder with ``phase="baseline"``, so the ladder's
+        steps and a POISONED ring land under the member they were spent on -- not under the
+        previous one, and not at the run level where nobody would look.
+        """
+        self.scenario_dir = self.scenario_dir_for(label)
+        self._phase = phase
+        self._evidence = 0
+        self._last_failure_frame = None
+        return self.scenario_dir
+
+    def unbind_artifacts(self) -> None:
+        """Back to run-level routing (the quit row and the final ring belong to the run)."""
+        self.scenario_dir = None
+        self._phase = "run"
+
+    def _ledger(self, row: dict) -> None:
+        ok = self._steps.append(self.run_dir / "steps.jsonl", row)
+        if self.scenario_dir is not None:
+            ok = self._steps.append(self.scenario_dir / "steps.jsonl", row) and ok
+        if ok:
+            self._steps_logged += 1
+            return
+        self._steps_dropped += 1
+        if self._steps_dropped == 1:
+            self._log("!! steps.jsonl could not be written -- the step ledger for this run is incomplete")
+
+    def flush_states(self, tag: str) -> Path | None:
+        """Write the ring (the last ~10 s of published state) as ``states-<tag>.jsonl``. Never raises."""
+        path = self._artifact_dir() / f"states-{_sanitize(tag)}.jsonl"
+        try:
+            n = self._ring.dump(path)
+        except Exception as err:                           # noqa: BLE001 - an artifact, not the run
+            self._log(f"  (could not write {path.name}: {err})")
+            return None
+        self._log(f"  {path.name} ({n} sample(s))")
+        return path
+
+    def evidence(self, tag: str) -> dict:
+        """Flush the ring, then photograph -- under the cap, and only against a LIVE game.
+
+        The ring goes first: a shot's own send/ack polls push newer frames into it, so flushing
+        after the photograph would describe a moment after the failure. The shot is skipped, with
+        the reason on the row, when the cap is reached, the channel is stale (a hung game would
+        cost the whole ack timeout for a picture of nothing new), the game has exited, or the frame
+        is the one already photographed.
+        """
+        out: dict = {"states": None, "shot": None, "shot_skipped": None}
+        if self._evidence >= self.FAILURE_EVIDENCE_CAP:
+            out["shot_skipped"] = f"cap of {self.FAILURE_EVIDENCE_CAP} per scenario reached"
+            return out
+        self._evidence += 1
+        path = self.flush_states(tag)
+        out["states"] = path.name if path is not None else None
+        st = self.channel.state()
+        if st is None or (st.age is not None and st.age > LIVE_WITHIN):
+            out["shot_skipped"] = (f"channel stale"
+                                   f"{'' if st is None else f' ({st.age:.1f}s)'}: {self.channel.classify()}")
+            return out
+        # (An exited game needs no gate of its own: shot() -> send() asserts the process is alive
+        # before writing a request, and that refusal lands in shot_skipped below -- a second gate
+        # here was a check that could not fail, proven by breaking it.)
+        if st.frame == self._last_failure_frame:
+            out["shot_skipped"] = f"same frame ({st.frame}) as the previous failure shot"
+            return out
+        try:
+            shot = self.shot(tag, timeout=self.SHOT_TIMEOUT_ON_FAILURE)
+            out["shot"] = shot.name
+            self._last_failure_frame = st.frame
+        except Exception as err:                           # noqa: BLE001 - see the section comment
+            out["shot_skipped"] = f"could not photograph: {err}"
+        return out
+
+    def write_env(self, **extra) -> Path | None:
+        """Write (or rewrite, merged) ``env.json``. Never raises; says so in the log if it cannot."""
+        self._env_extra.update(extra)
+        try:
+            doc = build_env(self, **self._env_extra)
+            path = self.run_dir / "env.json"
+            path.write_text(json.dumps(doc, indent=2, default=str), encoding="utf-8")
+            return path
+        except Exception as err:                           # noqa: BLE001 - an artifact, not the run
+            self._log(f"env.json not written ({err})")
+            return None
+
+    def _artifact_index(self) -> dict:
+        try:
+            states = sorted(p.name for p in self._artifact_dir().glob("states-*.jsonl"))
+        except Exception:                                  # noqa: BLE001
+            states = []
+        return {"steps": "steps.jsonl", "env": "env.json", "states": states}
+
     def begin_scenario(self, label: str) -> None:
         """Start a fresh scenario on this session: clear checks, namespace its screenshots."""
+        # FIRST, so the reset/note sends below are the new member's first rows, not the old one's last.
+        self.bind_artifacts(label, phase="run")
         self.checks = []
         self.shot_prefix = label
-        self._failure_shot_taken = False
         # ⚠ The agent's error latch is per-request on the engine side, but the DRIVER also keeps the
         # last one it saw to attribute blame. Carried across a scenario boundary it makes one
         # scenario's refusal raise against the next scenario's first innocent step.
@@ -2679,12 +2968,18 @@ class Session:
         # A basis is per-field AND per-scenario: the previous scenario may have left the character
         # somewhere its probes were deflected, and a cached bad basis steers every later walk.
         self._axes.clear()
+        # ⚠ And the last fight's record. battle_play asserts `last_fight["turns"] >= 1`; carried
+        # across the boundary, a member whose fight() raised before recording anything would be
+        # judged on the PREVIOUS member's fight and pass.
+        self.last_fight = None
         # `reset_agent` is documented as the isolation primitive and was only ever reached as a
         # RECOVERY rung -- so on the happy path (the previous scenario ended tidily) held buttons,
         # a stale watch list and a changed timescale carried straight into the next member. Run it
         # unconditionally: that is what makes it a primitive rather than a fallback.
         self.reset_agent()
         self.note(f"scenario {label}")
+        self._ledger({"kind": "scenario", "t": time.time(),
+                      "at": _dt.datetime.now().isoformat(timespec="milliseconds"), "scenario": label})
 
     def quit(self, *, timeout: float = 15.0) -> None:
         """Ask the game to exit, and wait for it.
@@ -2722,14 +3017,20 @@ class Session:
                 }
         except Exception:                              # never let bookkeeping break a check
             pass
+        # Join keys: which request this check followed, and when -- so a reader can find the row in
+        # steps.jsonl and the sample in the ring without matching by order.
+        row["at"] = _dt.datetime.now().isoformat(timespec="milliseconds")
+        row["seq"] = self.channel.seq
         self.checks.append(row)
         self._log(f"  {'PASS' if ok else 'FAIL'}  {description}" + (f"  [{detail}]" if detail else ""))
-        if not ok and self._shot_on_failure and not self._failure_shot_taken:
-            self._failure_shot_taken = True
-            try:
-                self.shot("FAILED")
-            except Exception as err:
-                self._log(f"  (could not photograph the failure: {err})")
+        if not ok and self._shot_on_failure:
+            # The snapshot above is the ring's newest sample; evidence() flushes BEFORE it photographs.
+            row.update(self.evidence(f"FAILED-{self._evidence + 1}"))
+        self._ledger({"kind": "check", "t": time.time(), "at": row["at"],
+                      "scenario": self.scenario_dir.name if self.scenario_dir is not None else None,
+                      "ok": bool(ok), "what": description, "seq": row["seq"],
+                      "frame": (row.get("state") or {}).get("frame"),
+                      "shot": row.get("shot"), "states": row.get("states")})
         return bool(ok)
 
     def expect(self, predicate, description: str, *, timeout: float = 10.0) -> bool:
@@ -2801,6 +3102,9 @@ class Session:
                          "scenario ran last and is deliberately not scored here."),
                 "driver_protocol": PROTOCOL,
                 "engine_protocol": self.engine_protocol,
+                "artifacts": self._artifact_index(),
+                "steps_recorded": self._steps_logged,
+                "steps_dropped": self._steps_dropped,
             }
             (self.run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
             return
@@ -2828,6 +3132,9 @@ class Session:
             "engine_protocol": self.engine_protocol,
             "checks_recorded": len(self.checks),
             "passed": verdict == "pass",
+            "artifacts": self._artifact_index(),
+            "steps_recorded": self._steps_logged,
+            "steps_dropped": self._steps_dropped,
             "checks": self.checks,
         }
         (self.run_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
