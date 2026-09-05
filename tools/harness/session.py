@@ -2164,17 +2164,27 @@ class Session:
                 seen_held.append(True)
             return s.escaping or s.battle_result != 0 or not s.in_battle
 
+        ended: State | None = None
         try:
-            self.wait_for(done, timeout=timeout,
-                          what="the escape to roll (a few percent per second)")
-            escaped = True
+            ended = self.wait_for(done, timeout=timeout,
+                                  what="the escape to roll (a few percent per second)")
         except HarnessError:
-            escaped = False
+            ended = None
         finally:
             # ⚠ ALWAYS RELEASE. `hold` is non-blocking, so a bumper left down leaks into whatever
             # runs next -- and these two in particular keep the party running.
             self.send("release l1", "release r1")
         st = self.state
+        # ⚠ "THE WAIT RETURNED" IS NOT "THE PARTY LEFT". `done` also fires when the battle ends for
+        # ANY reason -- a wipe, an enemy fleeing, a victory landing mid-hold -- and the first cut
+        # returned True on every one of them, reporting a defeat as a successful escape. Only the
+        # queued SysEscape or the escape RESULT is the party actually leaving.
+        escaped = bool(ended is not None and (ended.escaping or st.escaping
+                                              or ended.battle_result == 4 or st.battle_result == 4))
+        if ended is not None and not escaped:
+            self._log(f"  flee: the battle ended before any roll landed -- "
+                      f"result={st.battle_result_name}, not an escape")
+            return False
         if not escaped:
             held = bool(seen_held)
             self._log(
@@ -2781,6 +2791,10 @@ class Session:
         # A basis is per-field AND per-scenario: the previous scenario may have left the character
         # somewhere its probes were deflected, and a cached bad basis steers every later walk.
         self._axes.clear()
+        # ⚠ And the last fight's record. battle_play asserts `last_fight["turns"] >= 1`; carried
+        # across the boundary, a member whose fight() raised before recording anything would be
+        # judged on the PREVIOUS member's fight and pass.
+        self.last_fight = None
         # `reset_agent` is documented as the isolation primitive and was only ever reached as a
         # RECOVERY rung -- so on the happy path (the previous scenario ended tidily) held buttons,
         # a stale watch list and a changed timescale carried straight into the next member. Run it

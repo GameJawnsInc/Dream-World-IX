@@ -259,7 +259,14 @@ and picks a legal target for the ability's own target type unless you name one.
 
 WARNING: **`act()` tests the battle logic, not the HUD.** Nothing in it presses a button: it commits
 through `BattleHUD.SendNetCommand`, the same entry point co-op uses. A scenario that must prove the
-menu itself works wants `battle_act()`, which steers the cursor.
+menu itself works wants `battle_act()`, which steers the cursor — proven live by
+`scenarios/battle_hud_check.py` (a core-suite member), whose first run taught two facts the verbs had
+assumed away: **the command list is a two-column grid that does not wrap** (a one-direction walk from
+`Steal` saw `Item` forever and never `Attack`, one row up — `battle_pick` now walks to both edges and
+the neighbouring column), and **`Battle.Ability` / `Battle.Item` are submenus, not the target cursor**
+(`Battle.Target`) — `battle_act` drives one-step commands (Attack, Steal, Defend, Change) and refuses a
+command that opens a submenu rather than confirming whatever is highlighted in it. The target cursor's
+label is published raw (`[STRT=33,1]Goblin[ENDN]`), so steer targets by unit, not by label.
 
 WARNING: **`menus()` is a request, and its answer is a snapshot.** Collecting it writes the HUD's
 ability cache, so it is not part of every state sample - an instrument may not mutate what it

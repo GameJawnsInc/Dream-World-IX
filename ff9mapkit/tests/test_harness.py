@@ -2445,6 +2445,35 @@ def test_battle_act_refuses_a_submenu_as_the_target_cursor(game):
         g.stop()
 
 
+def test_flee_does_not_call_a_wipe_an_escape(game):
+    """flee()'s wait also returns when the battle ENDS -- for any reason. The first cut returned
+    True on every one of them, so a party wiped out mid-hold was reported as having run away.
+    Break: make flee() return True whenever its wait returns, and this goes red."""
+    fake = FakeGame(game)
+    fake.atb_gain = 400
+    fake.escape_rate = 0.0                     # the dice never land...
+    fake.enemy_hit = 5000                      # ...and the enemy ends the fight in one hit
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        g.start_battle(105)
+        published(g, lambda s: s.commands_enabled)
+        assert g.flee(timeout=6.0) is False
+        st = published(g, lambda s: not s.in_battle)
+        assert st.battle_result_name == "defeat"
+
+
+def test_the_last_fight_record_does_not_carry_into_the_next_scenario(game):
+    """battle_play judges the turn loop on `last_fight["turns"]`; a member whose fight() raised
+    before recording anything must not be judged on the previous member's fight."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.last_fight = {"turns": 3, "result": 1, "name": "victory", "epoch": 8}
+        g.begin_scenario("next")
+        assert g.last_fight is None
+
+
 def test_battle_act_confirms_a_target_and_the_command_lands(game):
     """The positive path: pick Attack, wait for Battle.Target EXACTLY, confirm -- and the command
     reaches the engine's queue with the enemy's id, then its HP falls."""
