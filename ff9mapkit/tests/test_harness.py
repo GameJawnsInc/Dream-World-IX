@@ -2445,6 +2445,32 @@ def test_battle_act_refuses_a_submenu_as_the_target_cursor(game):
         g.stop()
 
 
+def test_pid_alive_reads_access_denied_as_alive(monkeypatch):
+    """OpenProcess failing with ERROR_ACCESS_DENIED means the process EXISTS and is not ours to open.
+    Read through the plain `ctypes.windll.kernel32`, `ctypes.get_last_error()` is always 0, so the
+    branch could never fire and another account's live run had its arm adopted. Break: go back to
+    `ctypes.windll.kernel32`, and the 5 set below is never seen."""
+    import ctypes
+    from harness import channel
+
+    class Stub:
+        def __init__(self, err):
+            self.err = err
+
+        def OpenProcess(self, *a):
+            ctypes.set_last_error(self.err)
+            return 0
+
+    monkeypatch.setattr(channel, "_K32", Stub(5))          # ERROR_ACCESS_DENIED
+    assert channel.pid_alive(424242) is True
+    monkeypatch.setattr(channel, "_K32", Stub(87))         # ERROR_INVALID_PARAMETER: no such pid
+    assert channel.pid_alive(424242) is False
+    # And the real thing: our own pid is alive, a pid nobody has is not.
+    monkeypatch.setattr(channel, "_K32", None)
+    assert channel.pid_alive(os.getpid()) is True
+    assert channel.pid_alive(4000000) is False
+
+
 def test_flee_does_not_call_a_wipe_an_escape(game):
     """flee()'s wait also returns when the battle ENDS -- for any reason. The first cut returned
     True on every one of them, so a party wiped out mid-hold was reported as having run away.

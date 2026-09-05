@@ -79,13 +79,29 @@ def pid_alive(pid: int) -> bool:
     """
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
     try:
-        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+        handle = _kernel32().OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
     except (OSError, AttributeError):
         return True                       # cannot tell -> assume alive, never steal another run's arm
     if handle:
-        ctypes.windll.kernel32.CloseHandle(handle)
+        _kernel32().CloseHandle(handle)
         return True
-    return ctypes.get_last_error() == 5    # ERROR_ACCESS_DENIED -> it exists, we just cannot look
+    # ERROR_ACCESS_DENIED -> it exists, we just cannot look. ⚠ `ctypes.get_last_error()` only
+    # carries a value for a library opened with `use_last_error=True`; read through the plain
+    # `ctypes.windll.kernel32` it is always 0, so this branch could never fire and a live process
+    # this user may not open -- another account's driver, an elevated game -- read as DEAD, and its
+    # arm was adopted. A liveness probe that cannot say "alive but not mine" is the wrong shape here.
+    return ctypes.get_last_error() == 5
+
+
+_K32 = None
+
+
+def _kernel32():
+    """kernel32 opened with the last-error capture that `ctypes.get_last_error()` reads from."""
+    global _K32
+    if _K32 is None:
+        _K32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    return _K32
 
 
 #: Names accepted for the virtual controller. Mirrors ParseControl in HarnessAgent.cs -- kept here as
