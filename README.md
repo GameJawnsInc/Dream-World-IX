@@ -1,22 +1,35 @@
 # Dream World IX
 
-**A toolkit for building brand-new playable *Final Fantasy IX* content — and faithfully forking
-the real game — on the [Memoria engine](https://github.com/Albeoris/Memoria) (Steam/GOG FF9).**
+**A modding toolkit for building *Final Fantasy IX* content (built on [Memoria engine](https://github.com/Albeoris/Memoria)).**
 
-The core: author a complete custom **field** — camera, walkmesh, painted background, NPCs,
-dialogue, gateways, encounters, events, story branching, cutscenes — from a single declarative
-`field.toml`, compiled into a drop-in Memoria mod; or **fork any of FF9's ~674 real fields**.
-Around it: custom **3D battle backgrounds** and battle tuning,
-multi-field **campaigns** and **journeys** (New Game → a selectable arc of forked game slices),
-**items/equipment/shops**, custom **3D character models** (Blender round-trip), **custom playable
-characters**, **overworld** authoring (custom islands and terrain, coastlines, entrances),
-custom **music/SFX**, experimental two-player **co-op**, and save/story-state tooling.
+What can I change?
 
-> **Public beta.** The engine work is in-game proven; expect rough edges in docs and tooling. Bug
-> reports and authoring questions: see [Contributing](CONTRIBUTING.md).
+- Maps and their scripts
+  - Draw 2D backgrounds over 3D floors
+  - make your own campaign
+  - add to/subtract from/edit the original game
+  - control story flags, progression
+  - define cutscene or NPC behavior
+- Models, cameras
+  - edit in Blender or the Dream World IX GUI
+  - edit existing models or add new ones from scratch
+- Battles, rewards
+  - create new or modify existing encounters
+  - support for different enemy AI
+  - create new 3D backgrounds from scratch or reuse/edit existing maps
+- World Map
+  - Create your own landmasses
+  - Create new towns
+  - Create new vehicles
+- 2 Player
+  - experimental, still in development
+  - play with a friend on their campaign
+  - create your own co-op maps
+- Game Modes
+  - Make a roguelike
+  - Make a Tower Defense ('Fort Condor' template included)
 
-The project is **Dream World IX**; the Python package is **`ff9mapkit`** (`pip install ff9mapkit`,
-`import ff9mapkit`).
+And more!
 
 ---
 
