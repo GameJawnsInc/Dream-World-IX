@@ -8011,7 +8011,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="first room field id (default: the plan's own id_base, else .ff9deploy.toml)")
     fp.add_argument("--mod-folder", default=None, dest="mod_folder",
                     help="Memoria mod folder (default: the plan's own, else .ff9deploy.toml / FF9CustomMap)")
-    fp.add_argument("--game", default=None,
+    fp.add_argument("--game", default=argparse.SUPPRESS,
                     help="path to the FF9 install, for the live id pre-flight (default: auto-detect)")
     fp.add_argument("--no-preflight", action="store_true", dest="no_preflight",
                     help="skip reading the live DictionaryPatch stack (offline; ids are then unchecked "
@@ -8223,7 +8223,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="read the first [[summon]] block from this TOML file instead of the flags")
         sp.add_argument("--mod-folder", dest="mod_folder", default="FF9CustomMap",
                         help="mod folder name inside the install (default FF9CustomMap)")
-        sp.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+        sp.add_argument("--game", default=argparse.SUPPRESS,
+                        help="path to the FF9 install (default: auto-detect)")
         sp.add_argument("--dry-run", dest="dry_run", action="store_true",
                         help="stage every artifact under a SCRATCH mirror; the live install is untouched")
 
@@ -9240,7 +9241,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "cliffs-refuse: stock grammar -- 53 fronts BEACHES ONLY, water fronting high walls "
                           "becomes 54, so a cliff-ringed island can be sailed to but not disembarked on.")
     wcn.add_argument("--dry-run", action="store_true", help="report the reclassification without writing")
-    wcn.add_argument("--game", help="path to the FF9 install")
+    wcn.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install")
     wcn.set_defaults(func=_cmd_world_coastnav)
 
     wfo = sub.add_parser("world-forest",
@@ -9669,7 +9670,7 @@ def build_parser() -> argparse.ArgumentParser:
     wlg.add_argument("--disc", type=int, default=None, help="only this write-disc namespace")
     wlg.add_argument("--drift", action="store_true",
                      help="hash every deployed Block*.ff9mesh and report unledgered bytes")
-    wlg.add_argument("--game", default=None, help=argparse.SUPPRESS)
+    wlg.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wlg.set_defaults(func=_cmd_world_ledger)
 
     wrb = sub.add_parser("world-readback",
@@ -9685,7 +9686,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="the FolderNames mod folder whose deployed overrides to reconcile against")
     wrb.add_argument("--disc", type=int, required=True,
                      help="the write-disc namespace the dumped world runs on (9 for Path D)")
-    wrb.add_argument("--game", default=None, help=argparse.SUPPRESS)
+    wrb.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wrb.set_defaults(func=_cmd_world_readback)
 
     wrm = sub.add_parser("world-rename-markers",
