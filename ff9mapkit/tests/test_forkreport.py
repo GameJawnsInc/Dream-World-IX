@@ -42,6 +42,7 @@ def test_scenario_gates_empty_when_none():
 class _I:                                                 # a minimal Instr stand-in for the control-flow walk
     def __init__(self, op, off, length, *args):
         self.op, self.off, self.end, self._a = op, off, off + length, list(args)
+        self.arg_is_expr = [False] * len(args)        # the real Instr surface eb.disasm.jump_target reads
 
     def imm(self, i):
         return self._a[i] if i < len(self._a) else None
@@ -60,9 +61,29 @@ def test_eval_cmp_each_operator():
     assert FR._eval_cmp(2599, (0x18, 2600)) and not FR._eval_cmp(2600, (0x18, 2600))   # <
 
 
-def test_jump_target_forward_and_backward():
-    assert FR._jump_target(_I(FR.JMP_FALSE, 8, 3, 2)) == 8 + 3 + 2          # forward skip 2
-    assert FR._jump_target(_I(FR.JMP_FALSE, 20, 3, 0xFFFC)) == 20 + 3 - 4   # signed i16 backward
+def test_jump_signedness_matches_the_engine():
+    """The walk reads jumps through eb.disasm.jump_target -- the ONE owner of the engine's rule, and the
+    authority test_eb.py names: JMP (0x01) / JMP_IF (0x03) read a SIGNED i16, JMP_IFNOT (0x02) reads its
+    skip UNSIGNED. This file once pinned 0x02 as signed too, so two green tests asserted opposite laws."""
+    from ff9mapkit.eb import disasm as D
+    assert D.jump_target(_I(FR.JMP_FALSE, 8, 3, 2)) == 8 + 3 + 2               # forward skip 2
+    assert D.jump_target(_I(FR.JMP_UNCOND, 20, 3, 0xFFFC)) == 20 + 3 - 4       # 0x01: signed, backward
+    assert D.jump_target(_I(FR.JMP_TRUE, 20, 3, 0xFFFC)) == 20 + 3 - 4         # 0x03: signed, backward
+    assert D.jump_target(_I(FR.JMP_FALSE, 20, 3, 0xFFFC)) == 20 + 3 + 0xFFFC   # 0x02: UNSIGNED, far forward
+
+
+def test_a_far_forward_jmp_ifnot_ends_the_walk():
+    # a 0x02 whose skip reads >= 0x8000 is a ~64KB FORWARD jump to the engine -- past the function, so
+    # nothing after it runs. The old signed reading called it backward and FELL THROUGH into the guarded
+    # body instead ([30]). eblint's 676-field sweep (jump bounds via the same jump_target) proves no
+    # shipping field carries one, so this only ever decided synthetic input -- but the law the walk
+    # encodes must be the engine's, not a second one.
+    instrs = [_I(FR.EXPR_STMT_OP, 0, 8),                  # EXPR SC==2600
+              _I(FR.JMP_FALSE, 8, 3, 0xFFF8),             # taken when SC != 2600 -> target 11 + 0xFFF8
+              _I(FR.INITOBJ_OP, 11, 2, 30)]
+    conds = {0: (0x20, 2600)}
+    assert FR._spawned_slots(instrs, conds, 9999) == []      # taken: the walk ends
+    assert FR._spawned_slots(instrs, conds, 2600) == [30]    # not taken: the body runs
 
 
 def test_spawned_slots_dispatch_chain_per_beat():
