@@ -42,6 +42,7 @@ layer (``content/summon.py``), not this deploy engine. The native read/fork fami
 """
 from __future__ import annotations
 
+import contextlib
 import difflib
 import hashlib
 import json
@@ -1060,8 +1061,9 @@ class _Ledger:
     to a summon deploy. Backups snapshot a pre-existing file before overwrite; a newly-created file records
     ``None`` (revert deletes it)."""
 
-    def __init__(self, backup_dir: Path):
+    def __init__(self, backup_dir: Path, mod_root=None):
         self.backup_dir = Path(backup_dir)
+        self.mod_root = str(mod_root) if mod_root is not None else None   # the revert's folder lock target
         self.stamp = time.strftime("%Y%m%d-%H%M%S")
         self.files: list = []          # (dest, backup|None)
         self.dict_line: "str | None" = None
@@ -1085,11 +1087,17 @@ class _Ledger:
 
     def append_dict_line(self, dp: Path, directive: str) -> bool:
         dp = Path(dp)
-        lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
-        if directive in lines:
-            return False
-        lines.append(directive)
-        fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        dp.parent.mkdir(parents=True, exist_ok=True)      # the lock sidecar needs the folder to exist
+        # LOCKED read->merge->write (fsutil.locked_sidecar -- the same DictionaryPatch.txt.lock every deploy
+        # script holds): the idempotent append still rewrites the whole file from what it READ, so an
+        # unlocked window drops whichever lines a concurrent deploy/revert merged in between. A
+        # FileLockTimeout propagates (the CLI prints and aborts, rc 2).
+        with fsutil.locked_sidecar(dp):
+            lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+            if directive in lines:
+                return False
+            lines.append(directive)
+            fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         self.dict_line, self.dict_path = directive, str(dp)
         return True
 
@@ -1100,7 +1108,10 @@ class _Ledger:
     def revert_plan(self) -> dict:
         return {"files": self.files, "dict_line": self.dict_line, "dict_path": self.dict_path,
                 "ini_path": self.ini_path, "ini_backup": self.ini_backup,
-                "sfxhybrid_section": SFXHYBRID_SECTION}
+                "sfxhybrid_section": SFXHYBRID_SECTION,
+                # the revert imports the kit for its locks (like every generated revert); mod_root None =
+                # a plain ledger (tests) -> no folder lock, sidecars only
+                "kit": str(Path(__file__).resolve().parents[2]), "mod_root": self.mod_root}
 
     def write_revert_script(self, out_dir: Path, name: str) -> Path:
         out_dir = Path(out_dir)
@@ -1117,15 +1128,25 @@ class _Ledger:
 
 
 _REVERT_TEMPLATE = '''#!/usr/bin/env python3
-"""Auto-generated revert for a [[summon]] deploy -- stdlib only (no ff9mapkit import).
+"""Auto-generated revert for a [[summon]] deploy.
 
 Restores each backed-up file, deletes each file this deploy newly created, drops the DictionaryPatch
 line this deploy added, and (hybrid lane) restores the Memoria.ini backup OR neutralizes [SfxHybrid].
-Idempotent: safe to run more than once."""
-import json, shutil
+Idempotent: safe to run more than once. Imports the kit for its locks (as the field and battle reverts
+do): the whole mutation runs under the mod folder's .ff9lock and each registry rewrite under that file's
+sidecar, so a concurrent deploy can neither lose this revert's write nor have its own lost to it."""
+import contextlib, json, shutil, sys
 from pathlib import Path
 
 PLAN = json.loads(__PLAN__)
+sys.path.insert(0, PLAN["kit"])
+from ff9mapkit.fsutil import atomic_write_text, locked_mod_folder, locked_sidecar  # noqa: E402
+
+# FOLDER LOCK (M8, folder THEN sidecar) -- an ExitStack so the flat script stays flat; a timeout
+# PROPAGATES and fails this revert loudly rather than mutating unlocked.
+_fl = contextlib.ExitStack()
+if PLAN.get("mod_root"):
+    _fl.enter_context(locked_mod_folder(Path(PLAN["mod_root"])))
 
 for dest, backup in PLAN["files"]:
     dest = Path(dest)
@@ -1144,31 +1165,34 @@ for dest, backup in PLAN["files"]:
 if PLAN.get("dict_line") and PLAN.get("dict_path"):
     dp = Path(PLAN["dict_path"])
     if dp.exists():
-        kept = [ln for ln in dp.read_text(encoding="utf-8").splitlines() if ln != PLAN["dict_line"]]
-        dp.write_text("\\n".join(kept) + ("\\n" if kept else ""), encoding="utf-8", newline="\\n")
+        with locked_sidecar(dp):
+            kept = [ln for ln in dp.read_text(encoding="utf-8").splitlines() if ln != PLAN["dict_line"]]
+            atomic_write_text(dp, "\\n".join(kept) + ("\\n" if kept else ""), encoding="utf-8", newline="\\n")
         print(f"dropped DictionaryPatch line: {PLAN['dict_line']}")
 
 if PLAN.get("ini_path"):
     ini = Path(PLAN["ini_path"])
     if PLAN.get("ini_backup") and Path(PLAN["ini_backup"]).exists():
-        shutil.copyfile(PLAN["ini_backup"], ini)
+        with locked_sidecar(ini):
+            shutil.copyfile(PLAN["ini_backup"], ini)
         print(f"restored Memoria.ini <- {Path(PLAN['ini_backup']).name}")
     elif ini.exists():
         # no pre-existing backup (the section was freshly added) -> neutralize it in place
-        import re as _re
-        text = ini.read_text(encoding="utf-8", errors="replace")
         sec = PLAN["sfxhybrid_section"]
-        out, in_sec = [], False
-        for line in text.splitlines():
-            t = line.strip()
-            if t.startswith("[") and not (t.startswith(";") or t.startswith("#")):
-                in_sec = t.lower().startswith("[" + sec.lower() + "]")
-            elif in_sec and "=" in line and line.split("=", 1)[0].strip().lower() == "enabled":
-                line = "Enabled = 0"
-            out.append(line)
-        nl = "\\r\\n" if "\\r\\n" in text else "\\n"
-        ini.write_text(nl.join(out), encoding="utf-8")
+        with locked_sidecar(ini):
+            text = ini.read_text(encoding="utf-8", errors="replace")
+            out, in_sec = [], False
+            for line in text.splitlines():
+                t = line.strip()
+                if t.startswith("[") and not (t.startswith(";") or t.startswith("#")):
+                    in_sec = t.lower().startswith("[" + sec.lower() + "]")
+                elif in_sec and "=" in line and line.split("=", 1)[0].strip().lower() == "enabled":
+                    line = "Enabled = 0"
+                out.append(line)
+            nl = "\\r\\n" if "\\r\\n" in text else "\\n"
+            ini.write_text(nl.join(out), encoding="utf-8")
         print(f"neutralized [{sec}] Enabled = 0 in {ini}")
+_fl.close()
 print("summon revert complete.")
 '''
 
@@ -2001,13 +2025,17 @@ def arm_sfxhybrid(game, spec: dict, *, log: bool = False, out=print,
     if not ini.is_file():
         raise SummonDeployError(f"{ini} not found -- is this the FF9 install (and is Memoria set up)?")
     updates = sfxhybrid_updates(spec, log=log)
-    text = ini.read_text(encoding="utf-8", errors="replace")
-    new_text = _coop.update_ini_section(text, SFXHYBRID_SECTION, updates)   # vets every pair (raises pre-backup)
-    dupes = _coop.duplicate_ini_keys(text, SFXHYBRID_SECTION)
-    if dupes:
-        out(f"  ! [{SFXHYBRID_SECTION}] had duplicate keys {dupes} -- rewritten to a single copy each")
-    backup = _coop._backup_ini(ini)
-    fsutil.atomic_write_text(ini, new_text, encoding="utf-8")
+    # LOCKED read->merge->write on the ini (fsutil.locked_sidecar: Memoria.ini.lock beside it, inert to
+    # the engine): the section rewrite re-emits the whole file from what it READ, so an unlocked window
+    # drops whatever another session wrote in between. A FileLockTimeout propagates (CLI prints, rc 2).
+    with fsutil.locked_sidecar(ini):
+        text = ini.read_text(encoding="utf-8", errors="replace")
+        new_text = _coop.update_ini_section(text, SFXHYBRID_SECTION, updates)   # vets every pair (raises pre-backup)
+        dupes = _coop.duplicate_ini_keys(text, SFXHYBRID_SECTION)
+        if dupes:
+            out(f"  ! [{SFXHYBRID_SECTION}] had duplicate keys {dupes} -- rewritten to a single copy each")
+        backup = _coop._backup_ini(ini)
+        fsutil.atomic_write_text(ini, new_text, encoding="utf-8")
     if ledger is not None:
         ledger.record_ini(ini, backup)
     out(f"  Memoria.ini: [{SFXHYBRID_SECTION}] armed (backup: {backup.name})")
@@ -2048,22 +2076,28 @@ def emit_hybrid(spec: dict, mod_root, game, *, work_dir=None, arm: bool = False,
     idempotent), so ``content/summon.py`` can call this with either (it never passes ``arm``)."""
     spec = _resolve_ids(normalize_spec(spec), mod_root, game)
     _preflight_short_sequence(spec)
-    ledger = _Ledger(_backup_root(mod_root, work_dir))
-    mint = _stage_model(spec, mod_root, ledger)
-    seq = _stage_host_seq(spec, mod_root, game, ledger, overlay=False)
-    short = None
-    if spec.get("short_sequence"):
-        # THE HYBRID-LANE SHORT MECHANISM (module comment above short_summon_feature_block): the short is
-        # ALWAYS the authored/overlay shape, never the s58 drive. The primary hybrid lane never stages
-        # clips (the drive supplies all motion from the live donor bones) -- but the SHORT's own manifest
-        # may reference authored clips via [[summon.short_staging.play]], so stage them here too (a no-op,
-        # `[]`, when `clips` isn't an authored-path list -- see authored_clip_paths).
-        _stage_authored_clips(spec, mod_root, ledger)
-        short = _stage_short_seq(spec, mod_root, ledger, full_text=seq["text"])
-        short["overlay_folder"] = _stage_short_overlay_folder(spec, mod_root, ledger)
-        short["ability_features"] = _stage_short_summon_feature(spec, mod_root, ledger)
-    ini_backup = arm_sfxhybrid(game, spec, log=True, out=out, ledger=ledger) if arm else None
-    revert = ledger.write_revert_script(_revert_root(mod_root, work_dir), f"{spec['id']}")
+    ledger = _Ledger(_backup_root(mod_root, work_dir), mod_root=mod_root)
+    # FOLDER lock around the WHOLE live mutation (the staged trees AND the registrations), OUTSIDE the
+    # sidecars (lock order: folder THEN sidecar): a wholesale campaign/journey install cannot hold a
+    # sidecar inside a tree it deletes, so without this the mint + line could land between its snapshot
+    # and rmtree and be silently destroyed. A dry run stages into a scratch mirror nobody co-owns and
+    # takes none. A FileLockTimeout propagates (the CLI prints and aborts, rc 2).
+    with (fsutil.locked_mod_folder(Path(mod_root)) if work_dir is None else contextlib.nullcontext()):
+        mint = _stage_model(spec, mod_root, ledger)
+        seq = _stage_host_seq(spec, mod_root, game, ledger, overlay=False)
+        short = None
+        if spec.get("short_sequence"):
+            # THE HYBRID-LANE SHORT MECHANISM (module comment above short_summon_feature_block): the short
+            # is ALWAYS the authored/overlay shape, never the s58 drive. The primary hybrid lane never
+            # stages clips (the drive supplies all motion from the live donor bones) -- but the SHORT's own
+            # manifest may reference authored clips via [[summon.short_staging.play]], so stage them here
+            # too (a no-op, `[]`, when `clips` isn't an authored-path list -- see authored_clip_paths).
+            _stage_authored_clips(spec, mod_root, ledger)
+            short = _stage_short_seq(spec, mod_root, ledger, full_text=seq["text"])
+            short["overlay_folder"] = _stage_short_overlay_folder(spec, mod_root, ledger)
+            short["ability_features"] = _stage_short_summon_feature(spec, mod_root, ledger)
+        ini_backup = arm_sfxhybrid(game, spec, log=True, out=out, ledger=ledger) if arm else None
+        revert = ledger.write_revert_script(_revert_root(mod_root, work_dir), f"{spec['id']}")
     result = {"lane": "hybrid", "spec": spec, "mint": mint, "seq": seq,
               "arm_manifest": render_sfxhybrid_block(spec, log=True),
               "sfxhybrid_updates": sfxhybrid_updates(spec, log=True),
@@ -2086,16 +2120,22 @@ def emit_overlay(spec: dict, mod_root, game, *, work_dir=None, out=print) -> dic
     spec = _resolve_ids(normalize_spec(spec), mod_root, game)
     _preflight_inputs(spec)
     _preflight_short_sequence(spec)
-    ledger = _Ledger(_backup_root(mod_root, work_dir))
-    mint = _stage_model(spec, mod_root, ledger)
-    seq = _stage_host_seq(spec, mod_root, game, ledger, overlay=True)
-    extras = _stage_overlay_extras(spec, mod_root, game, ledger)
-    short = None
-    if spec.get("short_sequence"):
-        short = _stage_short_seq(spec, mod_root, ledger, full_text=seq["text"])
-        short["overlay_folder"] = _stage_short_overlay_folder(spec, mod_root, ledger)
-        short["ability_features"] = _stage_short_summon_feature(spec, mod_root, ledger)
-    revert = ledger.write_revert_script(_revert_root(mod_root, work_dir), f"{spec['id']}")
+    ledger = _Ledger(_backup_root(mod_root, work_dir), mod_root=mod_root)
+    # FOLDER lock around the WHOLE live mutation (the staged trees AND the registrations), OUTSIDE the
+    # sidecars (lock order: folder THEN sidecar): a wholesale campaign/journey install cannot hold a
+    # sidecar inside a tree it deletes, so without this the mint + line could land between its snapshot
+    # and rmtree and be silently destroyed. A dry run stages into a scratch mirror nobody co-owns and
+    # takes none. A FileLockTimeout propagates (the CLI prints and aborts, rc 2).
+    with (fsutil.locked_mod_folder(Path(mod_root)) if work_dir is None else contextlib.nullcontext()):
+        mint = _stage_model(spec, mod_root, ledger)
+        seq = _stage_host_seq(spec, mod_root, game, ledger, overlay=True)
+        extras = _stage_overlay_extras(spec, mod_root, game, ledger)
+        short = None
+        if spec.get("short_sequence"):
+            short = _stage_short_seq(spec, mod_root, ledger, full_text=seq["text"])
+            short["overlay_folder"] = _stage_short_overlay_folder(spec, mod_root, ledger)
+            short["ability_features"] = _stage_short_summon_feature(spec, mod_root, ledger)
+        revert = ledger.write_revert_script(_revert_root(mod_root, work_dir), f"{spec['id']}")
     result = {"lane": "overlay", "spec": spec, "mint": mint, "seq": seq, "overlay": extras,
               "revert_script": str(revert), "artifacts": _artifact_paths(ledger)}
     if short is not None:

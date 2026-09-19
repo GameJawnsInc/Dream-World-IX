@@ -261,6 +261,8 @@ def _folder_lock_withs(node):
         if isinstance(n, ast.With):
             for i in n.items:
                 c = i.context_expr
+                if isinstance(c, ast.IfExp):          # `lock if live else nullcontext()` still counts
+                    c = c.body
                 if (isinstance(c, ast.Call)
                         and ((isinstance(c.func, ast.Name) and c.func.id == "locked_mod_folder")
                              or (isinstance(c.func, ast.Attribute) and c.func.attr == "locked_mod_folder"))):
@@ -412,3 +414,86 @@ def test_generated_battle_revert_takes_the_folder_lock_and_still_compiles():
         i_enter = src.index("_fl.enter_context(locked_mod_folder(LIVE))")
         assert i_enter < src.index("for rel in CREATED:"), "lock before the first mutation"
         assert src.index("if b.exists()") < src.index("_fl.close()"), "release after the last mutation"
+
+
+# ---------------------------------------------------------------- the summon lane (scout F24)
+
+_SUMMON_SRC = (_PKG / "summons" / "deploy.py").read_text(encoding="utf-8")
+
+
+def _def(tree, name):
+    return next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == name)
+
+
+@pytest.mark.parametrize("func", ["emit_hybrid", "emit_overlay"])
+def test_summon_lane_emitters_hold_the_folder_lock_around_the_whole_emit(func):
+    """summon-deploy AND summon-import dispatch through these two emitters, and every live writer in the
+    tree held the folder lock except them: a mint tree + a registration line landed unlocked, so a
+    wholesale install's snapshot->rmtree could destroy both silently (a registered line whose staged
+    tree is gone is the null-.eb black screen). Each emitter holds the lock ONCE around everything from
+    the first staged file to the revert script -- model-mint --deploy's section, exactly. A dry run
+    stages into a scratch mirror nobody co-owns and takes none."""
+    fn = _def(ast.parse(_SUMMON_SRC), func)
+    withs = _folder_lock_withs(fn)
+    assert len(withs) == 1, f"{func} must hold exactly one folder-lock block"
+    inside = {id(n) for n in ast.walk(withs[0])}
+    def _name(c):
+        return c.func.attr if isinstance(c.func, ast.Attribute) else getattr(c.func, "id", "?")
+    live = [_name(n) for n in ast.walk(fn) if isinstance(n, ast.Call)
+            and (_name(n).startswith("_stage_") or _name(n) in ("arm_sfxhybrid", "write_revert_script"))]
+    assert live, f"{func}: no live mutation found -- the pin is looking at the wrong function"
+    escaped = [_name(n) for n in ast.walk(fn) if isinstance(n, ast.Call) and id(n) not in inside
+               and (_name(n).startswith("_stage_") or _name(n) in ("arm_sfxhybrid", "write_revert_script"))]
+    assert not escaped, f"{func}: live mutation outside the folder lock: {escaped}"
+
+
+@pytest.mark.parametrize("func, target", [("append_dict_line", "atomic_write_text"),
+                                          ("arm_sfxhybrid", "atomic_write_text")],
+                         ids=["DictionaryPatch", "Memoria.ini"])
+def test_summon_registry_rewrites_take_the_sidecar(func, target):
+    """The two read->merge->write registries the summon lane touches -- DictionaryPatch.txt (the ledger's
+    idempotent append) and Memoria.ini (the [SfxHybrid] arm) -- rewrite the whole file from what they
+    READ, so an unlocked window drops whichever lines a concurrent deploy/revert merged in between.
+    Each holds the file's sidecar (fsutil.locked_sidecar) across its window."""
+    fn = _def(ast.parse(_SUMMON_SRC), func)
+    sidecars = [n for n in ast.walk(fn) if isinstance(n, ast.With)
+                and any(isinstance(i.context_expr, ast.Call) and isinstance(i.context_expr.func, ast.Attribute)
+                        and i.context_expr.func.attr == "locked_sidecar" for i in n.items)]
+    assert len(sidecars) == 1, f"{func} must hold exactly one sidecar block"
+    inside = {id(n) for n in ast.walk(sidecars[0])}
+    writes = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+              and n.func.attr == target]
+    assert writes and all(id(w) in inside for w in writes), f"{func}: the {target} escaped the sidecar"
+
+
+def test_generated_summon_revert_takes_the_folder_lock_and_the_sidecars(tmp_path):
+    """revert_summon_<id>.py once said 'stdlib only' and rewrote DictionaryPatch.txt and Memoria.ini with
+    no lock and a bare write_text. Like the field and battle reverts it now imports the kit for its
+    locks: the folder lock is entered before the first mutation (ExitStack, released before the final
+    line), the DP drop and the ini restore/neutralize each sit under that file's sidecar, and the DP
+    rewrite is atomic. Rendered against a tmp mod root and RUN, so the locks are exercised, not just
+    spelled."""
+    import subprocess, sys
+    from ff9mapkit.summons.deploy import _Ledger
+    mod = tmp_path / "MF"; mod.mkdir()
+    led = _Ledger(tmp_path / "bk", mod_root=mod)
+    created = mod / "Models" / "6" / "6201" / "6201.fbx"
+    led.write_bytes(created, b"x")
+    dp = mod / "DictionaryPatch.txt"
+    assert led.append_dict_line(dp, "3DModel 6201 GEO_MON_B0_M201")
+    ini = tmp_path / "Memoria.ini"; ini.write_text("[SfxHybrid]\nEnabled = 1\n", encoding="utf-8")
+    led.record_ini(ini, None)                                 # freshly added section -> neutralize path
+    script = led.write_revert_script(tmp_path / "rev", "6201")
+    src = script.read_text(encoding="utf-8")
+    compile(src, str(script), "exec")
+    i_enter = src.index("enter_context(locked_mod_folder(")
+    assert i_enter < src.index("shutil.copyfile(") and i_enter < src.index(".unlink()"), \
+        "the folder lock must be entered before the first mutation"
+    assert "with locked_sidecar(dp):" in src and src.count("with locked_sidecar(ini):") == 2
+    assert "atomic_write_text(dp," in src and "dp.write_text(" not in src, "the DP drop must be atomic"
+    assert src.rindex("locked_sidecar(") < src.index("_fl.close()") < src.index("summon revert complete")
+    rc = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    assert rc.returncode == 0, rc.stderr
+    assert not created.exists() and "3DModel 6201" not in dp.read_text(encoding="utf-8")
+    assert "Enabled = 0" in ini.read_text(encoding="utf-8")
+    assert (tmp_path / "MF.ff9lock").exists(), "the folder lock was really taken (beside the folder)"

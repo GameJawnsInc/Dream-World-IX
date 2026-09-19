@@ -2599,6 +2599,8 @@ def _cmd_summon_import(args: argparse.Namespace) -> int:
         mod_root = config.find_mod_root(game, args.mod_folder)
         res = sd.stage_import(args.model_file, block, game=str(game), mod_root=mod_root,
                               dry_run=args.dry_run, scale=args.scale)
+    # OSError also covers fsutil.FileLockTimeout: a folder/sidecar lock another session holds aborts
+    # HERE, loudly (rc 2), never proceeds unlocked (the lost-registration black screen)
     except (sd.SummonDeployError, ValueError, FileNotFoundError, OSError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2637,6 +2639,8 @@ def _cmd_summon_deploy(args: argparse.Namespace) -> int:
         game = config.find_game_path(getattr(args, "game", None))
         mod_root = None if args.dry_run else config.find_mod_root(game, args.mod_folder)
         res = sd.deploy(block, game=str(game), mod_root=mod_root, arm=args.arm, dry_run=args.dry_run)
+    # OSError also covers fsutil.FileLockTimeout: a folder/sidecar lock another session holds aborts
+    # HERE, loudly (rc 2), never proceeds unlocked (the lost-registration black screen)
     except (sd.SummonDeployError, ValueError, FileNotFoundError, OSError) as e:
         print(str(e), file=sys.stderr)
         return 2
