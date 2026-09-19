@@ -127,6 +127,8 @@ eb0 = tl.eb_path("us", f"EVT_{name}.eb.bytes").read_bytes()
 s0 = EbScript.from_bytes(eb0); f0 = s0.entry(0).func_by_tag(0)
 scroll = 0x71 in [i.op for i in disasm.iter_code(eb0, f0.abs_start, f0.abs_end)]
 print(f"built {FBG} | {info['dictionary'][0]} | scroll={scroll}")
+for w in info["warnings"]:                # build_mod's lint_logic + placement warnings -- the 'NPC has no
+    print(f"warning: {w}")                # model -> clones the PLAYER' class this script alone discarded
 
 # revert THIS id's prior deploy only (revert_deploy_<id>.py) -- NOT another id's deploy (so deploying
 # 5000 never reverts 4003) and NOT other tools' reverts (e.g. revert_alex_fast_warp.py: the Alexandria

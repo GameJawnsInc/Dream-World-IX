@@ -377,3 +377,17 @@ def test_both_deploy_scripts_state_the_same_folder_order():
     # one expression each, spelled the same way, so the two cannot drift in opposite directions again
     assert 'os.environ.get("FF9_MOD_FOLDER") or _cfg.get("mod_folder") or "FF9CustomMap"' in _SRC
     assert 'os.environ.get("FF9_MOD_FOLDER") or pinned or "FF9CustomMap"' in _BATTLE_SRC
+
+
+# ---- the build's warnings must reach the human from EVERY deploy entry point ------------------------
+def test_deploy_scripts_print_the_builds_warnings_before_touching_the_install():
+    """build_mod returns ``"warnings"`` -- lint_logic's output, the placement warnings, and the "NPC has no
+    model -> it will CLONE THE PLAYER model" class. deploy.py, cli.py's build verb and deploy_battle.py all
+    print it; deploy_field.py -- the dev loop's mandated script -- computed it and threw it away (zero
+    references). It prints them now, in deploy_battle's exact dialect, and BEFORE the prelude revert and
+    every install-touching step, so an aborted deploy still surfaces them."""
+    loop = 'for w in info["warnings"]:'
+    assert loop in _SRC and 'print(f"warning: {w}")' in _SRC
+    assert loop in _BATTLE_SRC and 'print(f"warning: {w}")' in _BATTLE_SRC
+    assert _SRC.index(loop) < _SRC.index('revert_deploy_{FID}.py'), \
+        "warnings must print before the prelude revert -- a deploy that aborts there must still show them"
