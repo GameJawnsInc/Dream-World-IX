@@ -897,7 +897,10 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
             print(f"error: {p}", file=sys.stderr)
         return 1
     units = BT.units(raw)
-    slots = {str(u["npc"]): i + 2 for i, u in enumerate(units)}   # placeholders (build binds real ones)
+    slots: dict[str, int] = {}                     # placeholders (build binds real ones);
+    for u in units:                                # a CLASS row seats one slot per MEMBER,
+        for m in BT.row_members(u):                # exactly as build.py seats the real ones
+            slots.setdefault(m, len(slots) + 2)
     fb = BT.build(raw, npc_slots=slots,
                   npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
                                      if n.get("name") and "dialogue" in n},
