@@ -46,12 +46,15 @@ MAIN = main_repo_root()
 
 
 def _mod_folder_default():
+    """CLI flag > $FF9_MOD_FOLDER > .ff9deploy.toml [mod_folder] > FF9CustomMap -- the SAME order as
+    tools/deploy_field.py and config.resolve_mod_folder. This once read the pin FIRST, so with both set a
+    field landed in the env folder and its BattleScene in the pinned one, silently. The pin is still READ
+    before the env is consulted: a malformed pin aborts whatever else is set (deploy_field's rule too)."""
+    pinned = None
     f = REPO / ".ff9deploy.toml"
     if f.is_file():
         try:
-            mf = tomllib.loads(f.read_text(encoding="utf-8")).get("mod_folder")
-            if mf:
-                return mf
+            pinned = tomllib.loads(f.read_text(encoding="utf-8")).get("mod_folder")
         except Exception as e:
             # a malformed pin must not silently drop this checkout into the SHARED default folder --
             # that clobber is the exact hazard the pin exists to prevent (same rule as deploy_field).
@@ -59,7 +62,7 @@ def _mod_folder_default():
                   f"!! refusing to guess a deploy target -- fix the file, or delete it to accept the "
                   f"shared defaults deliberately.", file=sys.stderr)
             raise SystemExit(2)
-    return os.environ.get("FF9_MOD_FOLDER") or "FF9CustomMap"
+    return os.environ.get("FF9_MOD_FOLDER") or pinned or "FF9CustomMap"
 
 
 def _repoint_encounter(eb: bytes, new_id: int) -> bytes:
