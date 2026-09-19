@@ -686,7 +686,7 @@ def test_siege_stamp_flow_lands_in_the_read_only_view(edoc):
 def test_a_siege_field_renders_its_generated_behavior_read_only(edoc):
     import importlib.util
     from ff9mapkit.workspace import behaviorscan as BS
-    p = (Path(__file__).resolve().parents[1] / "ff9mapkit" / "tests" / "test_siege.py")
+    p = (Path(__file__).resolve().parent / "test_siege.py")
     spec = importlib.util.spec_from_file_location("_siege_fixture", p)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -859,7 +859,7 @@ def test_a_readonly_views_disabled_buttons_say_why(doc):
     import copy
     import importlib.util
     from pathlib import Path
-    p = Path(__file__).resolve().parents[1] / "ff9mapkit" / "tests" / "test_siege.py"
+    p = Path(__file__).resolve().parent / "test_siege.py"
     spec = importlib.util.spec_from_file_location("_siege_fx_tips", p)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

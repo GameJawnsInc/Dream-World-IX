@@ -333,7 +333,7 @@ def test_the_siege_view_simulates_readonly():
     import copy
     import importlib.util
     from pathlib import Path
-    p = Path(__file__).resolve().parents[1] / "ff9mapkit" / "tests" / "test_siege.py"
+    p = Path(__file__).resolve().parent / "test_siege.py"
     spec = importlib.util.spec_from_file_location("_siege_fx_sim", p)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
