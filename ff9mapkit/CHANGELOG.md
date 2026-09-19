@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the summon lane joins the `3DModel` GEO-id collision guard
+- `summon-deploy` / `summon-import` were the one path shipping a `3DModel` line with no guard at
+  all, and their deferred-`id` allocator inferred occupancy from `Models/*/<id>/` folders alone —
+  a weapon mint (`GEO_WEP_*`, type 6) lives under `BattleMap/BattleModel/6/`, so the next id-less
+  summon re-minted its id (two `3DModel <id>` lines; the engine's last writer wins and one side
+  loads the wrong mesh). The allocator now seeds from the folder's own `DictionaryPatch.txt` and
+  skips every id another stacked FolderNames folder registers; a PINNED id that collides gets the
+  same loud-WARN + print-on-crash banner the three other lanes print (once per emit, through the
+  caller's `out`). A dry run stages into a mirror seeded with the live folder's registry, so its
+  receipt reports the id (and the `NEW GEO id` relaunch line) the real deploy would, and
+  `summon-deploy --dry-run` honours `--mod-folder` (it mirrored the default folder).
+  `models.mint.MINT_BAND_END` (32767, the i16 ceiling) names the band's top.
+
 ### Changed — THE PROFILE LAW: `world-mountain --foot-course` builds a base that continues the face
 - Owner-filed across eight rejected takes on the R4 west-seam arc, closed by a 926-foot stock
   census: stock's base course CONTINUES the face above it to the ground (first-8u climb p25–p75

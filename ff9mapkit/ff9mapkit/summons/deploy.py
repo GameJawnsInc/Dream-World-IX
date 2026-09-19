@@ -53,7 +53,7 @@ import shutil
 import time
 from pathlib import Path
 
-from .. import config, fsutil
+from .. import config, deploystack, fsutil
 from ..models import anim as _anim
 from ..models import export as _mexport
 from ..models import mint as _mint
@@ -68,6 +68,7 @@ DEFAULT_PRIVATE_EF = 84                   # Unused_84 (the bench private host; r
 DEFAULT_GROUP = "MON"                     # MON -> ModelType.mon (3)
 DEFAULT_FORM = "B0"                       # battle form token in the minted GEO name (bench: GEO_MON_B0_M201)
 MINT_BAND_START = _mint.MINT_BAND_START   # 6000 -- clear of every real GEO id (real max 5511)
+MINT_BAND_END = _mint.MINT_BAND_END       # 32767 -- the i16 ceiling
 
 #: The 24 stock-ABSENT effect ids -- the private-ef allocation pool. Census: a folder listing of
 #: ``Data/SpecialEffects/ef###`` (ids 0-510) is 487 present / 24 absent, and
@@ -1035,10 +1036,14 @@ def _next_absent_ef(private_ef: int) -> int:
     return higher[0]
 
 
-def alloc_mint_id(mod_root) -> int:
-    """The next free mint GEO id >= 6000 not already present as a ``Models/*/{id}/`` folder in
-    ``mod_root`` (a deterministic default when the block omits ``id``)."""
-    used = set()
+def alloc_mint_id(mod_root, *, avoid=()) -> int:
+    """The next free mint GEO id >= 6000 in ``mod_root`` (a deterministic default when the block omits
+    ``id``): not a ``3DModel`` id its ``DictionaryPatch.txt`` registers (the engine's own list -- a
+    ``GEO_WEP_*`` mint lives under ``BattleMap/BattleModel/6/``, OUTSIDE ``Models/``, and only the registry
+    sees it), not an existing ``Models/*/{id}/`` folder (an unregistered leftover a fresh mint must not
+    adopt), and not in ``avoid`` (the caller's foreign-folder registrations -- :func:`_resolve_ids`)."""
+    used = set(avoid)
+    used.update(deploystack.model_ids_at(mod_root))
     models = Path(mod_root).joinpath(*_mexport._RES, "Models")
     if models.is_dir():
         for type_dir in models.iterdir():
@@ -2074,7 +2079,8 @@ def emit_hybrid(spec: dict, mod_root, game, *, work_dir=None, arm: bool = False,
 
     ``spec`` may be a raw ``[[summon]]`` block OR an already-:func:`normalize_spec`-ed spec (normalize is
     idempotent), so ``content/summon.py`` can call this with either (it never passes ``arm``)."""
-    spec = _resolve_ids(normalize_spec(spec), mod_root, game)
+    spec = _resolve_ids(normalize_spec(spec), mod_root, game, out=out)
+    _warn_model_id_collision(spec, mod_root, game, out)
     _preflight_short_sequence(spec)
     ledger = _Ledger(_backup_root(mod_root, work_dir), mod_root=mod_root)
     # FOLDER lock around the WHOLE live mutation (the staged trees AND the registrations), OUTSIDE the
@@ -2117,7 +2123,8 @@ def emit_overlay(spec: dict, mod_root, game, *, work_dir=None, out=print) -> dic
     + ``FileList.txt``. No ini. Writes a revert script. Returns a manifest dict.
 
     ``spec`` may be a raw ``[[summon]]`` block OR an already-:func:`normalize_spec`-ed spec (idempotent)."""
-    spec = _resolve_ids(normalize_spec(spec), mod_root, game)
+    spec = _resolve_ids(normalize_spec(spec), mod_root, game, out=out)
+    _warn_model_id_collision(spec, mod_root, game, out)
     _preflight_inputs(spec)
     _preflight_short_sequence(spec)
     ledger = _Ledger(_backup_root(mod_root, work_dir), mod_root=mod_root)
@@ -2144,12 +2151,44 @@ def emit_overlay(spec: dict, mod_root, game, *, work_dir=None, out=print) -> dic
     return result
 
 
-def _resolve_ids(spec: dict, mod_root, game) -> dict:
+def _stacked_model_id_collisions(game, folder: str, ids, out) -> list:
+    """Which of ``ids`` ANOTHER Memoria.ini FolderNames folder (beside ``game``) registers as ``3DModel``.
+    FF9BattleDB.GEO is GLOBAL across the stack, so a shared id loads the wrong model with no error. The
+    checker excludes ``folder`` itself and degrades to ``[]`` with no ini. Its own failure degrades to
+    ``[]`` too, but LOUDLY -- the sibling lanes' contract (tools/deploy_field.py, deploy_battle.py,
+    ``model-mint --deploy``): a silently swallowed guard crash would disable this layer forever."""
+    if game is None:            # no install -> no stack: the same silent degrade as no ini (the contract
+        return []               # `_install_has_native_ef` keeps for the emitters' offline game=None shape)
+    try:
+        return deploystack.check_model_id_collisions(game, folder, ids)
+    except Exception as e:
+        out(f"  (3DModel-id guard unavailable -- fix it, model-id collisions are now UNCHECKED: {e})")
+        return []
+
+
+def _warn_model_id_collision(spec: dict, mod_root, game, out) -> None:
+    """The summon lane's copy of the sibling lanes' 3DModel-id guard: a spec's (now fixed) ``id`` that
+    another stacked folder also registers is a loud WARN through ``out``, never an abort (test deploys
+    are iterative). Called ONCE per emit by the two lane emitters -- not by :func:`_resolve_ids`, which
+    :func:`stage_import` runs before dispatching to an emitter that runs it again."""
+    folder = Path(mod_root).name
+    warn = deploystack.model_id_collision_warning(
+        _stacked_model_id_collisions(game, folder, {spec["id"]}, out), folder)
+    if warn:
+        out(f"\n  !! {warn}")
+
+
+def _resolve_ids(spec: dict, mod_root, game, *, out=print) -> dict:
     """Fill a deferred ``id`` / ``name`` / ``private_ef`` (DESIGN sections 1.2/1.3) + validate the private
-    host against the install. Returns a NEW spec dict (the input is not mutated)."""
+    host against the install. Returns a NEW spec dict (the input is not mutated). A deferred ``id`` skips
+    every ``3DModel`` id another stacked FolderNames folder registers (FF9BattleDB.GEO is GLOBAL) on top
+    of :func:`alloc_mint_id`'s own-folder seed; ``out`` only ever carries the guard's crash line. The
+    PINNED-id warning is :func:`_warn_model_id_collision`."""
     spec = dict(spec)
     if spec.get("id") is None:
-        spec["id"] = alloc_mint_id(mod_root)
+        foreign = {c.model_id for c in _stacked_model_id_collisions(
+            game, Path(mod_root).name, range(MINT_BAND_START, MINT_BAND_END + 1), out)}   # the band, one read
+        spec["id"] = alloc_mint_id(mod_root, avoid=foreign)
     if spec.get("name") is None:
         spec["name"] = derive_summon_name(spec["id"], spec.get("group", DEFAULT_GROUP),
                                           spec.get("form", DEFAULT_FORM))
@@ -2205,6 +2244,23 @@ def _artifact_paths(ledger: _Ledger) -> list:
 
 # --------------------------------------------------------------------------- top-level deploy
 
+def _dry_run_mirror(live_root, work_dir) -> Path:
+    """The SCRATCH mirror a dry run stages into: ``work_dir/<live folder name>``, emptied, then seeded with
+    a COPY of the live folder's ``DictionaryPatch.txt``. The name makes the cross-folder checker treat the
+    mirror as the live folder ('self' is excluded); the registry copy makes a deferred ``id`` allocate
+    against the same registrations the real deploy would see -- without it the mirror looked empty and
+    the receipt reported an id the live folder already holds (and 'NEW GEO id' for a plain redeploy).
+    The live side is only ever READ."""
+    mirror = Path(work_dir) / Path(live_root).name
+    if mirror.exists():
+        shutil.rmtree(mirror)
+    dp = Path(live_root) / "DictionaryPatch.txt"
+    if dp.is_file():
+        mirror.mkdir(parents=True)
+        shutil.copyfile(dp, mirror / "DictionaryPatch.txt")
+    return mirror
+
+
 def deploy(block: dict, *, game=None, mod_root=None, arm=False, dry_run=False, out=print) -> dict:
     """The umbrella ``summon-deploy`` entry. Normalizes the block, resolves the install + mod folder,
     dispatches to the lane emitter, and (hybrid + ``arm`` + not ``dry_run``) performs the confirm-first
@@ -2223,9 +2279,7 @@ def deploy(block: dict, *, game=None, mod_root=None, arm=False, dry_run=False, o
     if dry_run:
         from .export import DEFAULT_OUT_DIR
         work_dir = DEFAULT_OUT_DIR / "m2_stage"
-        mod_root = work_dir / Path(mod_root).name
-        if mod_root.exists():
-            shutil.rmtree(mod_root)
+        mod_root = _dry_run_mirror(mod_root, work_dir)
 
     if spec["lane"] == "hybrid":
         result = emit_hybrid(spec, mod_root, game, work_dir=work_dir, arm=(arm and not dry_run), out=out)
@@ -2329,11 +2383,9 @@ def stage_import(user_model, block: dict, *, game=None, mod_root=None, dry_run=F
     if dry_run:
         from .export import DEFAULT_OUT_DIR
         work_dir = DEFAULT_OUT_DIR / "m2_import_stage"
-        mod_root = work_dir / mod_root.name
-        if mod_root.exists():
-            shutil.rmtree(mod_root)
+        mod_root = _dry_run_mirror(mod_root, work_dir)
 
-    spec = _resolve_ids(spec, mod_root, game)      # need the id to name the FBX
+    spec = _resolve_ids(spec, mod_root, game, out=out)      # need the id to name the FBX
     ext = src.suffix.lower()
     emit = emit_hybrid if spec["lane"] == "hybrid" else emit_overlay
     if ext in (".glb", ".gltf"):
@@ -2354,7 +2406,7 @@ def stage_import(user_model, block: dict, *, game=None, mod_root=None, dry_run=F
             if problems:
                 raise SummonDeployError("summon-import rig validation failed:\n  " + "\n  ".join(problems))
             spec["model"] = str(fbx_path)
-            result = emit(spec, mod_root, game, work_dir=work_dir)
+            result = emit(spec, mod_root, game, work_dir=work_dir, out=out)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
     elif ext == ".fbx":
@@ -2371,7 +2423,7 @@ def stage_import(user_model, block: dict, *, game=None, mod_root=None, dry_run=F
         if problems:
             raise SummonDeployError("summon-import model validation failed:\n  " + "\n  ".join(problems))
         spec["model"] = str(src)
-        result = emit(spec, mod_root, game, work_dir=work_dir)
+        result = emit(spec, mod_root, game, work_dir=work_dir, out=out)
     else:
         raise SummonDeployError(f"summon-import takes a .glb/.gltf (Blender) or a .fbx, got {src.suffix!r}")
 

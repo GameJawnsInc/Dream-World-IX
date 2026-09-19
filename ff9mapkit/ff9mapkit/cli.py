@@ -2638,7 +2638,9 @@ def _cmd_summon_deploy(args: argparse.Namespace) -> int:
         return 2
     try:
         game = config.find_game_path(getattr(args, "game", None))
-        mod_root = None if args.dry_run else config.find_mod_root(game, args.mod_folder)
+        # the dry run too: deploy() borrows only the folder's NAME + registry for its scratch mirror, and a
+        # None here mirrored the DEFAULT folder whatever --mod-folder said (a false cross-folder banner)
+        mod_root = config.find_mod_root(game, args.mod_folder)
         res = sd.deploy(block, game=str(game), mod_root=mod_root, arm=args.arm, dry_run=args.dry_run)
     # OSError also covers fsutil.FileLockTimeout: a folder/sidecar lock another session holds aborts
     # HERE, loudly (rc 2), never proceeds unlocked (the lost-registration black screen)
