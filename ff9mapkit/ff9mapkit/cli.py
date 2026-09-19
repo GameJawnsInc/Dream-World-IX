@@ -42,6 +42,7 @@ with an import error, so the installed console script is always runnable.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 
 from . import __version__

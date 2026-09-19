@@ -16,8 +16,12 @@ from __future__ import annotations
 import math
 import struct
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .. import config
+
+if TYPE_CHECKING:                       # the return annotation only; extract is UnityPy-heavy
+    from .extract import BlockMesh
 
 MAGIC = b"F9WM"
 VERSION = 1
