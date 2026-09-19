@@ -216,7 +216,10 @@ def collect_count(kit: Path, log, run_log: Path) -> tuple:
     """``(n, rc)`` -- the collected-test count AND the collect pass's exit code. The rc must reach the
     caller: a collection ERROR (a module that fails to import) leaves a count that clears the floor while
     part of the suite silently isn't in it -- counting alone reads that as healthy."""
-    rc = run([py_exe(), "-m", "pytest", "--collect-only", "-q"], log, cwd=kit, env=child_env(),
+    # Both trees explicitly (pytest ignores testpaths when cwd is not the rootdir); must match the suite
+    # cmd below or the collect floor measures a different set than the run.
+    rc = run([py_exe(), "-m", "pytest", "--collect-only", "-q", ".", str(kit.parent / "docsite")],
+             log, cwd=kit, env=child_env(),
              timeout=1200, tee_to=run_log)
     tail = run_log.read_text(encoding="utf-8", errors="replace")[-4000:]
     m = re.findall(r"(\d+) tests? collected", tail)
@@ -411,6 +414,9 @@ def main() -> int:
         if args.pytest_args:
             import shlex
             cmd += shlex.split(args.pytest_args)
+        else:
+            # A FULL run covers both trees; a narrowed run keeps whatever paths the caller gave it.
+            cmd += [".", str(kit.parent / "docsite")]
         workers = args.workers if args.workers and xdist_available(kit) else 0
         if workers:
             cmd += ["-n", str(workers)]
