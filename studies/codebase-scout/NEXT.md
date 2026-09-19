@@ -13,8 +13,8 @@
   A test that was never red proves nothing (CLAUDE.md §7).
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
-  `Found 109 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **7620** at handoff (this
+  `Found 107 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
+- **Collect**: `pytest --collect-only -q` from the repo root was **7639** after items 1-2 (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates; `Pillow`,
@@ -31,28 +31,22 @@
    lines print; sha256 of the dist before/after `f8b0221` identical.
 4. One summon deploy + revert against a scratch folder → `DictionaryPatch.txt` and
    `Memoria.ini` return to pre-deploy bytes; a second deploy while a lock is held → rc 2.
+5. One id-less `summon-deploy --dry-run` into a folder that already registers a `GEO_WEP` mint
+   (or with `FF9CustomMap-world` registering a `3DModel`) → the receipt's id skips it; the same
+   block pinned to that id → the `3DMODEL ID COLLISION` banner, rc 0.
 
 ## The queue, ranked by value per byte of new surface
 
-### 1. `cli.py:1738` — `import re` (a latent `NameError`)  · tiny · offline
-`_chain_label_fn(game=None)` (`cli.py:1716`) defines a nested `label(fid)` that calls
-`re.sub(r"^fbg_n\d+_", "", folder)`; `cli.py` never imports `re` (module-level or local). It
-fires the first time a chain label is asked for a fid missing from `names` but present in
-`extract.ID_TO_FBG`. Add `import re` at module level; ruff F drops 109 → 108 (the ratchet
-baseline follows on the next green night). Test: call `_chain_label_fn(...)` with a stubbed
-`names`/`ID_TO_FBG` so the nested path executes. The other F821 (`world/mesh.py:1462`
-`"BlockMesh"`) is a string annotation under `from __future__ import annotations` — a doc lie,
-not a crash; fix or leave.
-
-### 2. 9b — `alloc_mint_id` never consults the collision guard  · small · CAN CHANGE THE ID PICKED
-`summons/deploy.py:1037-1054` infers occupancy from `Models/*/{id}/` dir presence. Two holes:
-(a) it never calls `deploystack.check_model_id_collisions` (`deploystack.py:628`; zero
-`deploystack` references under `summons/`), so a cross-folder GEO id collides silently;
-(b) it misses same-folder `GEO_WEP_*` mints because `models/export.model_dir_parts`
-(`export.py:19-25`) routes type-6 to `BattleMap/BattleModel/6/<id>/`, outside `Models/`.
-Fix: seed `used` from `deploystack.model_ids_at(mod_root)` (`deploystack.py:606`, exists) and
-add the loud-warn guard shaped like `tools/deploy_field.py:760-774`. Own commit, own first test
-(none exists for this function). Install side: mint on a folder that already holds a GEO_WEP.
+### Done since handoff (commits `2ccbff6`, `2642e61`) — items 1 and 2
+- **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
+  ruff F 109 → 107. Regression test in `tests/test_chain.py`.
+- **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
+  `_warn_model_id_collision` prints the sibling lanes' banner once per emit; `stage_import` threads
+  `out`; a dry run's mirror is seeded with the live `DictionaryPatch.txt` (`_dry_run_mirror`);
+  `summon-deploy --dry-run` honours `--mod-folder`; `models.mint.MINT_BAND_END`. 14 tests in
+  `tests/test_summon_alloc.py`. An adversarial review of the first cut caught a `stage_import`
+  double banner, a `game=None` crash line, and a dry-run false banner — all fixed there.
+  Install side still owed: mint on a folder that already holds a `GEO_WEP` (item 5 below).
 
 ### 3. 3b — four dry-compile copies → one `BT.placeholder_slots(raw)`  · medium · BYTE-GATED
 Copies: `cli.py:~900` (now build.py-shaped, `setdefault`), `workspace/behaviorscan.py:1288`,
@@ -155,6 +149,13 @@ event/chest). A full `validate()` decomposition mints more surface than it remov
   documented incident on this file lives only in CLAUDE.md §3. Label the slot as
   pinned-and-overridable in the tab; say in `editor/jobs.detect_deploy_target`'s docstring that
   its `field_id` is a human-visible default. `text_block` is honoured by 1 of 8 pin readers.
+- Leftovers from item 2's review: `battle/skinmint.py:30` `_MINT_MAX` and `content/itemdata.py:367`'s
+  literal `32767` are private twins of `models.mint.MINT_BAND_END` — point them at it;
+  `deploystack.model_ids_at` / `dictionary_ids_at` miss a BOM'd first line (`utf-8-sig` fixes both,
+  no kit writer emits one); a dry run still validates `private_ef` against the mirror's EMPTY
+  `ef` tree (`validate_private_ef(for_alloc=True)`), the same infidelity the registry seed just
+  closed for the GEO id; an id-less `[[summon]]` re-mints a fresh id on every redeploy (the
+  allocator sees its own prior mint) — a documented trait, decide whether it should key on name.
 
 ## Refuted — do not re-open without new evidence
 The report's "Considered and rejected" lists 25 findings two adversarial reviewers killed,
