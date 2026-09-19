@@ -228,10 +228,44 @@ def collect_count(kit: Path, log, run_log: Path) -> tuple:
     return n, rc
 
 
-def last_green_collected(state: Path):
-    """The most recent FULL green run's ``collected`` count from ``ledger.jsonl`` (None when there is
-    none). Narrowed/smoke rows and non-green rows are not baselines -- a narrowed run's count reflects
-    its filter, and a red run may have died before collecting everything."""
+def parse_ruff_count(text: str):
+    """The finding count in a ``ruff check`` transcript: ``Found N error(s)`` -> N, ``All checks
+    passed!`` -> 0, and None when ruff itself is absent (``No module named ruff``) or the transcript
+    is unreadable -- the gate then records nothing and never reds a run over a missing linter."""
+    if "No module named ruff" in text:
+        return None
+    m = re.findall(r"Found (\d+) errors?", text)
+    if m:
+        return int(m[-1])
+    if "All checks passed" in text:
+        return 0
+    return None
+
+
+def ruff_f_count(kit: Path, log, run_log: Path):
+    """``ruff check --select F`` over the PACKAGE (ff9mapkit/ff9mapkit), as a count. Pyflakes only --
+    undefined names, unused imports/variables, placeholder-less f-strings -- near pure-signal on 238k
+    lines (the ``[tool.ruff]`` block in pyproject.toml says why style rules stay off). The count is a
+    RATCHET, not a bar: the ledger's last full green is the baseline and only an INCREASE is a verdict
+    (``lint-up``), so the 100-odd findings it was seeded with are frozen, not a to-do list. None when
+    ruff is not installed (the [dev] extra ships it): logged, never a red run."""
+    rc = run([py_exe(), "-m", "ruff", "check", "--select", "F", "--no-cache", "--output-format", "concise",
+              "ff9mapkit"], log, cwd=kit, env=child_env(), timeout=600, tee_to=run_log)
+    text = run_log.read_text(encoding="utf-8", errors="replace")[-4000:]
+    n = parse_ruff_count(text)
+    if n is None:
+        log(f"ruff F: not measured (rc={rc}) -- ruff missing or failed; `py -m pip install ruff` (the "
+            f"[dev] extra). The lint ratchet is skipped this run, never a verdict.")
+    else:
+        log(f"ruff F: {n} findings in ff9mapkit/ff9mapkit (pyflakes)")
+    return n
+
+
+def last_green_field(state: Path, key: str):
+    """The most recent FULL green run's ``key`` from ``ledger.jsonl`` (None when no such row carries
+    it). Narrowed/smoke rows and non-green rows are not baselines -- a narrowed run's count reflects
+    its filter, and a red run may have died before collecting everything. A green row that PREDATES
+    the key is skipped, not read as zero: a ratchet bootstraps from the first run that measured."""
     try:
         lines = (state / "ledger.jsonl").read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -241,9 +275,14 @@ def last_green_collected(state: Path):
             e = json.loads(ln)
         except ValueError:
             continue
-        if e.get("result") == "green" and e.get("mode") == "full" and isinstance(e.get("collected"), int):
-            return e["collected"]
+        if e.get("result") == "green" and e.get("mode") == "full" and isinstance(e.get(key), int):
+            return e[key]
     return None
+
+
+def last_green_collected(state: Path):
+    """The last full green's ``collected`` -- the collect floor's baseline."""
+    return last_green_field(state, "collected")
 
 
 def effective_collect_floor(static_floor: int, state: Path, log) -> int:
@@ -339,6 +378,10 @@ def main() -> int:
     ap.add_argument("--no-dynamic-floor", action="store_true",
                     help="use only the static --collect-floor this run -- the deliberate escape hatch "
                          "after a legitimate suite SHRINK beyond 2%% (say why in the merge message)")
+    ap.add_argument("--no-lint-ratchet", action="store_true",
+                    help="record this run's ruff F count without judging it against the last full "
+                         "green's -- the deliberate escape hatch for a one-run INCREASE (say why in "
+                         "the merge message); the new count becomes the baseline")
     ap.add_argument("--skip-ceiling", type=int, default=32,
                     help="POST-run verdict (audit rec 18): a green run that SKIPPED more than this "
                          "is flagged skip-long (rc 1) -- the collect floor cannot see a module-level "
@@ -405,6 +448,9 @@ def main() -> int:
             log(f"ABORT: only {n} tests collected (< floor {floor}) -- provisioning is "
                 f"incomplete; a run now would be the skip-trap's false green. See nightly_gate.md.")
             return 1
+        # THE LINT RATCHET: pyflakes over the package, measured in every mode (cheap), judged only on
+        # a green full run (below, beside the skip ceiling). None = ruff absent; recorded, never a verdict.
+        entry["ruff_f"] = ruff_f_count(kit, log, log.path.with_suffix(".ruff.log"))
         if args.smoke:
             entry["result"] = "smoke-ok"
             log("smoke OK: worktree + provisioning + collection all healthy.")
@@ -443,6 +489,24 @@ def main() -> int:
                 f"module-level skipif may be silencing a whole family; treat as NOT green "
                 f"(see nightly_gate.md).")
             return 1
+        # THE LINT RATCHET (scout F46): no linter or type checker gated this tree, so a new undefined
+        # name -- a NameError waiting for its code path -- could land green. A from-zero clean run is
+        # not the goal: the last full green's count is the baseline and only an INCREASE is a verdict,
+        # so the pre-existing findings are frozen while every fix lowers the bar for free.
+        # --no-lint-ratchet is the one-run escape hatch for a deliberate increase.
+        if entry["result"] == "green" and isinstance(entry.get("ruff_f"), int):
+            base = last_green_field(state, "ruff_f")
+            entry["ruff_f_baseline"] = base
+            if base is None:
+                log(f"lint ratchet: {entry['ruff_f']} ruff F findings, no baseline yet (this run seeds it)")
+            elif entry["ruff_f"] > base and not args.no_lint_ratchet:
+                entry["result"] = "lint-up"
+                log(f"LINT RATCHET: ruff F findings rose {base} -> {entry['ruff_f']} -- a merge since the "
+                    f"last green added pyflakes findings (read {log.path.with_suffix('.ruff.log')}); "
+                    f"treat as NOT green. --no-lint-ratchet for a deliberate one-run increase.")
+                return 1
+            else:
+                log(f"lint ratchet: {entry['ruff_f']} ruff F findings (baseline {base})")
         log(f"suite done: {entry['result']} ({ {k: v for k, v in entry.items() if k in ('passed', 'failed', 'skipped', 'error')} })")
         return rc
     finally:

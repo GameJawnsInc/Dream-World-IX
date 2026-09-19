@@ -43,10 +43,11 @@ the floor while part of the suite silently isn't in it.
 ```json
 {
   "timestamp": "2026-08-04T04:41:12",
-  "result": "green",            // green | red | error | timeout | collect-short | collect-error | skip-long
+  "result": "green",            // green | red | error | timeout | collect-short | collect-error | skip-long | lint-up
   "mode": "full",
   "sha": "8cbc39e6",            // the master commit that was tested
   "collected": 6947,
+  "ruff_f": 109, "ruff_f_baseline": 109,   // pyflakes findings in the package: a RATCHET (only an increase is a verdict)
   "workers": 6,
   "passed": 6947, "skipped": 15,
   "duration_s": 1130.4,
@@ -216,6 +217,13 @@ Everything is idempotent; re-running any step is safe.
   WHICH tests skipped in the pytest log first. Proven live 2026-08-05: a narrowed run
   (`--pytest-args`, verification only) with `--skip-ceiling 0` flipped the ledger to `skip-long`
   (state restored after).
+- **Lint ratchet** (`--no-lint-ratchet` to bypass for one run): `ruff check --select F` (pyflakes
+  only — undefined names, unused imports/variables; style rules stay off, see `[tool.ruff]` in
+  `ff9mapkit/pyproject.toml`) over the package, recorded as `ruff_f` in every run. A green full run
+  whose count EXCEEDS the last full green's gets the verdict `lint-up` (rc 1) and trips the
+  RED-LEDGER-TRIAGE rule. The count is a ratchet, not a bar: the ~109 findings it was seeded with are
+  frozen, not a to-do list, and every fix lowers the baseline for free. ruff absent → measured as
+  nothing and skipped, never red (the `[dev]` extra installs it).
 - **Paths:** env overrides `FF9_MAIN_REPO` and `FF9_GATE_WORKTREE` (set them in the task's action
   if you move things). State always lives at `<main repo>\.test-gate\`.
 - **Remove:** `py ...\nightly_gate.py --unregister-task`, then optionally
@@ -229,6 +237,10 @@ Everything is idempotent; re-running any step is safe.
 - **`collect-short`** → provisioning regressed (a new gitignored asset class, like the
   stolen-ember sidecars were). Run `--smoke`, read its log; usually `extract-templates` in the
   gate worktree fixes it. Do **not** lower the floor to make it pass.
+- **`lint-up`** → a merge since the last green added a pyflakes finding (the `.ruff.log` beside the
+  run log names it — often an unused import, sometimes an undefined name, which is a `NameError`
+  waiting for its code path). Fix it; do **not** pass `--no-lint-ratchet` to make it pass without
+  reading which finding rose.
 - **Stale lock** (`lock` present, no run live) → the runner detects a dead PID and steals it
   automatically; delete `.test-gate\lock` by hand only if it somehow persists.
 - **`timeout`** → almost always contention (something else was hammering the machine at 04:00),
