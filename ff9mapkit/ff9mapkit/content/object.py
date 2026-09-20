@@ -17,8 +17,6 @@ self-positioning -- the ``needs_d9`` placement. Full recipe + the cross-referenc
 """
 from __future__ import annotations
 
-import struct
-
 from .. import eventscan
 from ..binutils import u16
 from ..eb import EbScript, edit, opcodes
@@ -47,11 +45,7 @@ def carry_bytes(entry_bytes, carry_tags=None) -> bytes:
     if carry_tags is not None:
         keep = set(carry_tags)
         bodies = [(t, body) for t, body in bodies if t in keep]
-    table, pos = b"", len(bodies) * 4
-    for tag, body in bodies:
-        table += struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([etype, len(bodies)]) + table + b"".join(body for _, body in bodies)
+    return _region.pack_entry_funcs(bodies, entry_type=etype)
 
 
 def _loop_warps(entry_bytes) -> bool:
