@@ -14,11 +14,12 @@
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
   `Found 107 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **7641** after items 1-3 (this
+- **Collect**: `pytest --collect-only -q` from the repo root was **8460** after item 4 (PySide6 now importable here; 7644 without it) (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
-- Container facts (do not assume they persist): no game install / templates; `Pillow`,
-  `UnityPy`-less, `pytest-xdist`, `ruff`, `markdown` were pip-installed by hand. `git push`
+- Container facts (do not assume they persist): no game install / templates / `UnityPy`; `Pillow`,
+  `hypothesis`, `pytest-xdist`, `ruff`, `markdown`, `PySide6` (+ apt `libegl1 libgl1 libxkbcommon0
+  libfontconfig1 libdbus-1-3 libxcb-cursor0 …`) were installed by hand. `git push`
   works (the owner granted the App write access mid-session).
 
 ## Install-gated proofs still owed to the owner (batch into one session)
@@ -37,7 +38,7 @@
 
 ## The queue, ranked by value per byte of new surface
 
-### Done since handoff (commits `2ccbff6`, `2642e61`, item 3 below) — items 1-3
+### Done since handoff — items 1-4 (commits `2ccbff6`, `2642e61`, `64d30ae`, and item 4's)
 - **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
   ruff F 109 → 107. Regression test in `tests/test_chain.py`.
 - **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
@@ -54,17 +55,12 @@
   hashes); calibration moved 40 slot dicts + 13 bodies and held every flag. Two tests in
   `tests/test_cli_behavior.py`. Pre-existing red noticed on the way: `test_journalfield.py`'s
   checked-in bench TOML has drifted from its generator (2 tests) — not touched.
+- **4 (2b)** `_isolate_user_config` in `ff9mapkit/conftest.py` wraps `provision._user_dir` (config →
+  tmp, data/cache pass through); the old `_isolate_prefs` is gone; `qt_drain` deliberately stays in
+  `tests/conftest.py` (all users there, no Qt in blender/tests). Three tests, two trees. The container
+  now has PySide6 + GL/xcb libs, so the Qt suite runs headless (`QT_QPA_PLATFORM=offscreen NO_THUMBS=1`):
+  full-suite baseline here = 13 environmental failures (listed in `bcd3ba7`'s commit message), 7647 passed.
 
-
-### 4. 2b — hoist the suite-wide guards above every tree  · small · offline
-`ff9mapkit/tests/conftest.py`'s autouse `_isolate_prefs` (monkeypatches `prefs._path`) and
-`qt_drain` cover `tests/` only; `ff9mapkit/conftest.py` sits above `tests/` AND
-`blender/tests/`. Move them up; re-anchor the guard to the seam `provision._user_dir(sub)` with
-a pass-through for non-config subs (`data`/`cache` are live in CI); the sibling seam
-`update_check._state_path` writes JSON into the real `%LOCALAPPDATA%` and is covered by nobody.
-Do NOT add a shared test-support module — every step must end with FEWER readers of the real
-machine (report §5). Since step 2 moved the 32 files, the remaining beneficiaries are
-`blender/tests/` and that `update_check` seam.
 
 ### 5. F06 + F14 — the entry serializer ×10 and the entry-table splice ×3  · medium · BYTE-EMITTING
 Copies of the type-1 func-table serializer (`<tag:u16><fpos:u16>` × N, then bodies):
