@@ -13,8 +13,8 @@
   A test that was never red proves nothing (CLAUDE.md §7).
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
-  `Found 107 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **8460** after item 4 (PySide6 now importable here; 7644 without it) (this
+  `Found 106 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
+- **Collect**: `pytest --collect-only -q` from the repo root was **8465** after item 5 (PySide6 importable here; ~7649 without it) (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates / `UnityPy`; `Pillow`,
@@ -35,10 +35,13 @@
 5. One id-less `summon-deploy --dry-run` into a folder that already registers a `GEO_WEP` mint
    (or with `FF9CustomMap-world` registering a `3DModel`) → the receipt's id skips it; the same
    block pinned to that id → the `3DMODEL ID COLLISION` banner, rc 0.
+6. Item 5's template-gated files -- `test_content`, `test_ladder`, `test_jump`, `test_platform`,
+   `test_savepoint`, `test_object_graft`, `test_eventscan`, `test_textcarry` -- green, and every
+   bundled example built at `bcd3ba7` and at `ef4ebec`: the dist `.eb`s byte-identical.
 
 ## The queue, ranked by value per byte of new surface
 
-### Done since handoff — items 1-4 (commits `2ccbff6`, `2642e61`, `64d30ae`, and item 4's)
+### Done since handoff — items 1-5
 - **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
   ruff F 109 → 107. Regression test in `tests/test_chain.py`.
 - **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
@@ -60,29 +63,14 @@
   `tests/conftest.py` (all users there, no Qt in blender/tests). Three tests, two trees. The container
   now has PySide6 + GL/xcb libs, so the Qt suite runs headless (`QT_QPA_PLATFORM=offscreen NO_THUMBS=1`):
   full-suite baseline here = 13 environmental failures (listed in `bcd3ba7`'s commit message), 7647 passed.
+- **5 (F06/F14)** five commits `ad4ffa3`…`ef4ebec`: `eb.model.pack_entry` owns the func-table
+  serializer (ELEVEN copies, not ten — `tools/ladder_real.py` carried one too), `region.pack_entry_funcs`
+  is the region-default call (the owner sits in `eb/` because nothing in `eb/` imports `content/` and
+  `ebsrc` must reach it); the u16-fpos guard is on the owner; `reinit.add_reinit` and `ladder_real`
+  splice through `edit.add_function` (an empty entry 0 now raises). Proof without templates: Hypothesis
+  (3000 examples per shape, every old text transcribed verbatim) + a 1070-key snapshot over 40 synthetic
+  ebs, calibrated at every step. `tests/test_pack_entry.py` (4), `test_reinit.py` (+1).
 
-
-### 5. F06 + F14 — the entry serializer ×10 and the entry-table splice ×3  · medium · BYTE-EMITTING
-Copies of the type-1 func-table serializer (`<tag:u16><fpos:u16>` × N, then bodies):
-`content/{shop.py:88, platform.py:200, savepoint.py:673, jump.py:95}` (`_assemble_entry`,
-code-identical; the four docstrings each cite a DIFFERENT sibling as the reference), inlined at
-`ladder.py:439`, `cutscene.py:130`, `object.py:50`, `region.py:414`, hand-unrolled at
-`savepoint.py:1128`, tenth at `eb/ebsrc.py:698-713` — the ONLY copy with the
-`fpos > 0xFFFF` guard. Splice copies: `content/reinit.py:57-80` vs `eb/edit.py:178-212`
-(its docstring says it IS reinit "generalized") vs `tools/ladder_real.py:40-67`.
-Sequence, each its own commit: (1) `ENTRY_TABLE_OFF`/`ENTRY_SLOT_SIZE` (owned at
-`eb/model.py:40-41`) for the bare `128` / `i * 8` in `reinit.py:59/75/77`,
-`eventscan.py:184/375/1029` — no bytes move, grep becomes complete; (2)
-`region.pack_entry_funcs(funcs, *, entry_type=REGION_ENTRY_TYPE)` holding the existing loop
-verbatim, delete the copies (also cleans `platform.py:110`'s `[1:]` slice); (3)
-`object.carry_bytes` last — its docstring promises a byte-for-byte round-trip; (4)
-`reinit.add_reinit` onto `edit.add_function` (pure gain: raises on an empty entry where
-`add_reinit` silently returns a corrupt file); (5) only THEN the fpos guard on the single owner.
-Proof: a throwaway `old(x) == new(x)` differ over every shape, calibrated by deliberately
-perturbing one copy to confirm it goes red, run WHERE TEMPLATES EXIST (a bare worktree
-collects nothing and passes vacuously). Do NOT mint an `EbEntry`/`EntryBuilder` class — the
-whole safety argument is "character-for-character". Leave `battle/ailint.py:52-63` and both
-`eb/edit.py` jump inlines alone (correct, sanctioned).
 
 ### 6. The offline gate that doesn't gate (F10 / F11 / F13)  · medium · mostly offline
 - `_VERBATIM_IGNORED_BLOCKS` (`build.py:3284`) names ONE block; on a verbatim fork `ladder`,
