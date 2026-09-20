@@ -30,6 +30,7 @@ import struct
 
 from ..binutils import set_u16, u16
 from ..eb import EbScript, opcodes
+from ..eb.model import ENTRY_SLOT_SIZE, ENTRY_TABLE_OFF
 from . import region as _region
 
 REINIT_TAG = 10
@@ -56,8 +57,8 @@ def add_reinit(eb_bytes, *, with_fade: bool = True, fade_frames: int = 16,
 
     b = bytearray(eb_bytes)
     entry_count = b[3]
-    off0, sz0 = u16(b, 128), u16(b, 130)
-    es = 128 + off0
+    off0, sz0 = u16(b, ENTRY_TABLE_OFF), u16(b, ENTRY_TABLE_OFF + 2)
+    es = ENTRY_TABLE_OFF + off0
     etype, fc = b[es], b[es + 1]
     fbase = es + 2
     funcs = [[u16(b, fbase + i * 4), u16(b, fbase + i * 4 + 2)] for i in range(fc)]
@@ -72,9 +73,9 @@ def add_reinit(eb_bytes, *, with_fade: bool = True, fade_frames: int = 16,
     growth = len(new_entry) - sz0
 
     out = bytearray(bytes(b[:es]) + bytes(new_entry) + bytes(b[es + sz0:]))
-    set_u16(out, 130, len(new_entry))                          # entry-0 size
+    set_u16(out, ENTRY_TABLE_OFF + 2, len(new_entry))          # entry-0 size
     for i in range(1, entry_count):                             # relocate later entries
-        slot = 128 + i * 8
+        slot = ENTRY_TABLE_OFF + i * ENTRY_SLOT_SIZE
         if u16(out, slot + 2) > 0 and u16(out, slot) > off0:
             set_u16(out, slot, u16(out, slot) + growth)
     return bytes(out)

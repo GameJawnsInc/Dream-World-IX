@@ -23,6 +23,7 @@ import re
 
 from .binutils import u16
 from .eb import EbScript
+from .eb.model import ENTRY_SLOT_SIZE, ENTRY_TABLE_OFF
 
 FIELD_OP = 0x2B            # Field(target)            -- a field transition (the exit)
 WORLDMAP_OP = 0xB6         # WorldMap(loc)            -- leave to the overworld; loc is a WORLD-MAP
@@ -181,7 +182,7 @@ def scan_gateway_entries(eb_bytes) -> list:
                     gated = True                          # a conditional jump on a GLOB save story flag
         if zone is None or not field_ins:
             continue
-        base = 128 + u16(eb.data, 128 + e.index * 8)      # entry start in eb.data
+        base = ENTRY_TABLE_OFF + u16(eb.data, ENTRY_TABLE_OFF + e.index * ENTRY_SLOT_SIZE)   # entry start in eb.data
         ref_ops = {0x07, 0x08, 0x09, 0x10, 0x12, 0x14, 0x43}    # InitCode/Region/Object + RunScript family
         # ref CLASSIFICATION (#3, FORK_FIDELITY.md #2b): a ref-bearing gated door's carryability depends on
         # WHAT it references. "player" (RunScript on uid 250 / a PC entry index) = walk-through choreography
@@ -372,10 +373,10 @@ def _is_climb_func(eb, player_index, tag) -> bool:
 
 
 def _entry_bytes(data, idx) -> bytes:
-    """Raw bytes of entry ``idx`` (its type+func-table+bodies) via the entry table at offset 128."""
-    slot = 128 + idx * 8
+    """Raw bytes of entry ``idx`` (its type+func-table+bodies) via the entry table at ``ENTRY_TABLE_OFF``."""
+    slot = ENTRY_TABLE_OFF + idx * ENTRY_SLOT_SIZE
     off, sz = u16(data, slot), u16(data, slot + 2)
-    return data[128 + off:128 + off + sz]
+    return data[ENTRY_TABLE_OFF + off:ENTRY_TABLE_OFF + off + sz]
 
 
 def _climb_sequences(eb, func) -> dict:
@@ -1026,7 +1027,7 @@ def spawn_settle_mismatch(eb, idx):
         return None
     raw = eb.data[init_mv.off:init_mv.end]                                         # a1 argflags <Xexpr> Y <Zexpr>
     _, ypos = read_expr(raw, 2)                                                    # walk the self X-expr -> Y offset
-    base = 128 + u16(eb.data, 128 + idx * 8)                                       # entry start in eb.data
+    base = ENTRY_TABLE_OFF + u16(eb.data, ENTRY_TABLE_OFF + idx * ENTRY_SLOT_SIZE)   # entry start in eb.data
     return (iy, sy, (init_mv.off - base) + ypos, argsize(0xA1, 1))
 
 
