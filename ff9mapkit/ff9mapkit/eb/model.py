@@ -52,10 +52,14 @@ def pack_entry(entry_type: int, funcs) -> bytes:
     bodies concatenated in table order -- the exact inverse of the per-entry parse in
     :meth:`EbScript.from_bytes`. THE one owner of this layout: the content injectors reach it through
     :func:`ff9mapkit.content.region.pack_entry_funcs`; the ten inlined copies it replaced had drifted to
-    four docstrings each citing a different sibling as "the reference"."""
+    four docstrings each citing a different sibling as "the reference". Raises ``ValueError`` when the
+    bodies push a func's ``fpos`` past u16 (the engine could never find that func) -- the guard only the
+    ``ebsrc`` copy used to carry; the others raised a raw ``struct.error`` there."""
     table = b""
     pos = len(funcs) * 4
     for tag, body in funcs:
+        if pos > 0xFFFF:
+            raise ValueError(f"func table overflows u16 fpos at tag {tag}")
         table += struct.pack("<HH", tag, pos)
         pos += len(body)
     return bytes([entry_type, len(funcs)]) + table + b"".join(b for _, b in funcs)
