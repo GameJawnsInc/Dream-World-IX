@@ -4,7 +4,7 @@ toggle), the first-run READY spine, and the post-deploy Copy-warp receipt.
 
 Every job-state widget is FENCED to the busy window: the Stop button and the clock hide on _set_busy(False),
 and the stall note fires only while a job runs. Prefs are isolated per-test by conftest's autouse
-_isolate_prefs (pins prefs._path at a fresh tmp file), so has_deployed() reads False on construction and
+_isolate_user_config (repoints provision._user_dir("config") at a fresh tmp dir), so has_deployed() reads False on construction and
 these tests can never touch the developer's real prefs.json.
 """
 

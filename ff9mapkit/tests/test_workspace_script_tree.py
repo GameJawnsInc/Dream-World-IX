@@ -10,7 +10,7 @@ Driven over a KIT-AUTHORED synthetic verbatim .eb (raw instruction bytes assembl
 Square-Enix bytes, no install, no extracted templates), so this runs in every worktree -- unlike the
 smoke's ALEX-fixture block, which a fresh worktree skips.
 
-Headless (offscreen), NO_THUMBS; prefs isolated by conftest's autouse ``_isolate_prefs``.
+Headless (offscreen), NO_THUMBS; prefs isolated by the root conftest's autouse ``_isolate_user_config``.
 """
 from __future__ import annotations
 

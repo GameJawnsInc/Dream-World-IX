@@ -10,7 +10,7 @@ mistakes were:
   * a failed deploy must not move the baseline;
   * a snapshot write failure must not break the deploy it decorates.
 
-Prefs are isolated by conftest's autouse _isolate_prefs; the snapshot dir is patched per test so nothing
+Prefs are isolated by the root conftest's autouse _isolate_user_config; the snapshot dir is patched per test so nothing
 here can write the developer's real cache.
 """
 
