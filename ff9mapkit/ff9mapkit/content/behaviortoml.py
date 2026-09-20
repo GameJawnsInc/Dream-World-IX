@@ -167,6 +167,21 @@ def row_members(u: dict) -> list:
     return [str(u.get("npc"))] if u.get("npc") else []
 
 
+def placeholder_slots(raw: dict) -> dict:
+    """npc name -> a PLACEHOLDER entry slot for a dry compile (``lint_flag_bands``, ``behavior compile``,
+    the Workspace scan, :func:`published_flags`, ``siege.resolve_hireable``): one slot per MEMBER of
+    every unit row, TOML order from 2, a name seated once however many rows bind it -- the shape
+    ``build.py`` gives the REAL slots (name -> the injected entry uid). A slot number reaches the
+    compiler only as its unit's uid; the blackboard allocates by NAME in construction order, so the
+    flags a dry compile reads back (``pool_hireable``, ``public_flag``) never depend on it. Every dry
+    lane seats through this one function so the lanes cannot drift apart again."""
+    slots: dict = {}
+    for u in units(raw):
+        for m in row_members(u):
+            slots.setdefault(m, len(slots) + 2)
+    return slots
+
+
 def row_class(u: dict, ui: int) -> str | None:
     """The class name for a ``npcs = [...]`` row (None for a plain unit row):
     the row's ``class = ``, defaulting to ``class<row index>``."""
@@ -210,10 +225,9 @@ def published_flags(raw: dict) -> set:
             for br in u.get("branch", []) or []:
                 if isinstance(br.get("do"), dict):
                     br["do"].pop("route", None)
-        names = [m for u in units(work) for m in row_members(u)]
         txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in announce_lines(work)}
         txids.update({("hud", hi): 890 + hi for hi, _h in hud_lines(work)})
-        fb = build(work, npc_slots={n: i + 2 for i, n in enumerate(names)},
+        fb = build(work, npc_slots=placeholder_slots(work),
                    npc_txids_by_name={n.get("name"): 0 for n in work.get("npc", []) or []},
                    behavior_txids=txids)
         out = set(fb.pool_hireable.values())

@@ -3702,11 +3702,7 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
     if _b.get("public_flags"):
         try:
             from .content import behaviortoml as _bt
-            slots: dict[str, int] = {}
-            for u in _b.get("unit", []) or []:
-                for m in _bt.row_members(u):
-                    slots.setdefault(m, len(slots) + 2)
-            _fb = _bt.build(raw, npc_slots=slots,
+            _fb = _bt.build(raw, npc_slots=_bt.placeholder_slots(raw),
                             npc_txids_by_name={n.get("name"): 0
                                                for n in raw.get("npc", []) or []},
                             behavior_txids={})

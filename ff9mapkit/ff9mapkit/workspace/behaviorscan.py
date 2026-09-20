@@ -1284,11 +1284,7 @@ def dry_compile(toml_path) -> CompileResult:
                 res.problems.append(str(e))
         if res.problems:
             return res
-        units = BT.units(raw)
-        slots = {m: i + 2                          # placeholders (build binds real ones);
-                 for i, m in enumerate(            # a CLASS row seats one slot per MEMBER
-                     m for u in units for m in BT.row_members(u))}
-        fb = BT.build(raw, npc_slots=slots,
+        fb = BT.build(raw, npc_slots=BT.placeholder_slots(raw),      # placeholders (build binds real ones)
                       npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
                                          if n.get("name") and "dialogue" in n},
                       behavior_txids={**{(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},

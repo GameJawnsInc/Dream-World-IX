@@ -769,10 +769,9 @@ def resolve_hireable(raw: dict) -> dict:
         for br in u.get("branch", []) or []:
             if isinstance(br.get("do"), dict):
                 br["do"].pop("route", None)
-    all_units = [m for u in work["behavior"]["unit"] for m in BT.row_members(u)]
     txids = {(ui, bi): 900 + 10 * ui + bi for ui, bi, _ in BT.announce_lines(work)}
     txids.update({("hud", hi): 890 + hi for hi, _h in BT.hud_lines(work)})
-    fb = BT.build(work, npc_slots={n: i + 2 for i, n in enumerate(all_units)},
+    fb = BT.build(work, npc_slots=BT.placeholder_slots(work),
                   npc_txids_by_name={n.get("name"): 0 for n in work.get("npc", [])},
                   behavior_txids=txids)
     return dict(fb.pool_hireable)
