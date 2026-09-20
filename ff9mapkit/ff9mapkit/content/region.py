@@ -31,6 +31,7 @@ from __future__ import annotations
 import struct
 
 from ..eb import EbScript, edit, opcodes
+from ..eb import model as _model
 
 # --- expression var classes (the engine's variable scopes) ---
 # A var token byte = 0xC0 | (VariableType << 2) | VariableSource (EBin.getVarOperation). CRITICAL: the
@@ -393,6 +394,13 @@ def gated_set_region(zone, var_class, idx: int) -> bytes:
     return if_not_block(cond_truthy(var_class, idx), set_region(zone)) + opcodes.RETURN
 
 
+def pack_entry_funcs(funcs, *, entry_type: int = REGION_ENTRY_TYPE) -> bytes:
+    """A type-1 (region) entry from ``[(tag, body), ...]`` -- or any entry type via ``entry_type`` (an NPC
+    object's, a carried entry's own). One call into the layout's owner, :func:`ff9mapkit.eb.model.pack_entry`;
+    every content injector serializes its entries here."""
+    return _model.pack_entry(entry_type, funcs)
+
+
 def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag: int = RANGE_TAG,
                        init_body: bytes | None = None, bubble: bool = False) -> bytes:
     """Assemble a type-1 region entry: Init (tag 0 = SetRegion(zone) + ``init_extra``; return) + a
@@ -411,13 +419,7 @@ def build_region_entry(zone, range_body: bytes, *, init_extra: bytes = b"", tag:
         # (tag 2 IS the trigger there) -- callers gate on tag == INTERACT_TAG.
         funcs = [(0, ib), (RANGE_TAG, MOVEMENT_GATE + opcodes.bubble(1) + opcodes.RETURN),
                  (tag, range_body)]
-    table_len = len(funcs) * 4
-    table = bytearray()
-    pos = table_len
-    for tag, body in funcs:
-        table += struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([REGION_ENTRY_TYPE, len(funcs)]) + bytes(table) + b"".join(b for _, b in funcs)
+    return pack_entry_funcs(funcs)
 
 
 def prepend_range_gate(data, slot: int, gate_bytes: bytes) -> bytes:

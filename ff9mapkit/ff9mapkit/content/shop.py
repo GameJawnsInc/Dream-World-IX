@@ -38,7 +38,6 @@ blocks); the opener is per-field ``.eb``. (memory project-ff9-items-equipment / 
 """
 from __future__ import annotations
 
-import struct
 
 from .. import items as _items
 from ..eb import EbScript, edit, opcodes
@@ -85,17 +84,6 @@ def shop_dispatch(shop_id: int) -> bytes:
             + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 
-def _assemble_entry(funcs) -> bytes:
-    """Assemble a type-1 (region) entry from ``[(tag, body), ...]`` -- the func table (``<tag:u16><fpos:u16>``
-    each) then the concatenated bodies. Same layout as :func:`content.savepoint._assemble_entry`."""
-    table = b""
-    pos = len(funcs) * 4
-    for tag, body in funcs:
-        table += struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
-
-
 def shop_region(zone, shop_id: int, *, bubble: bool = True) -> bytes:
     """A type-1 region entry that opens a shop: Init ``SetRegion(zone)`` / tread (tag 2) ``Bubble(1)`` (the
     floating "!" prompt, if ``bubble``) / action (tag 3) :func:`shop_dispatch`. Both trigger funcs are gated
@@ -104,7 +92,7 @@ def shop_region(zone, shop_id: int, *, bubble: bool = True) -> bytes:
     tread = _region.MOVEMENT_GATE + (opcodes.bubble(1) if bubble else b"") + opcodes.RETURN
     action = _region.MOVEMENT_GATE + shop_dispatch(shop_id)
     funcs = [(0, init), (_region.RANGE_TAG, tread), (_region.INTERACT_TAG, action)]
-    return _assemble_entry(funcs)
+    return _region.pack_entry_funcs(funcs)
 
 
 def inject_shop_region(data, zone, shop_id: int, *, bubble: bool = True, activate: bool = True):

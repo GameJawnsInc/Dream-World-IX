@@ -435,13 +435,7 @@ def ladder_region(zone, climb_tag: int, *, player_uid: int = PLAYER_UID) -> byte
     action = (_region.MOVEMENT_GATE + opcodes.DISABLE_MOVE
               + opcodes.run_script_sync(RUNSCRIPT_LEVEL, player_uid, climb_tag)
               + opcodes.ENABLE_MOVE + opcodes.RETURN)
-    funcs = [(0, init), (_region.RANGE_TAG, tread), (_region.INTERACT_TAG, action)]
-    table = b""
-    pos = len(funcs) * 4
-    for tag, body in funcs:
-        table += struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
+    return _region.pack_entry_funcs([(0, init), (_region.RANGE_TAG, tread), (_region.INTERACT_TAG, action)])
 
 
 def inject_ladder(data, zone, dest=None, *, climb_bytes: bytes | None = None,

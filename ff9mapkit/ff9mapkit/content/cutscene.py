@@ -123,16 +123,10 @@ def forced_ate_region(zone, ate_tag: int = FORCED_ATE_TAG, *, player_uid: int = 
     tick). The func warps away, so control never returns to this region (the destination restores it). The
     trailing RETURN is runtime-unreachable (the sync callee ``Field()``s away, so the call never returns) but
     keeps the body structurally terminated for eblint's reachability check."""
-    import struct as _struct
     init = _region.set_region(zone) + opcodes.RETURN
     tread = (_region.MOVEMENT_GATE + opcodes.DISABLE_MOVE
              + opcodes.run_script_sync(2, int(player_uid), int(ate_tag)) + opcodes.RETURN)
-    funcs = [(0, init), (_region.RANGE_TAG, tread)]
-    table, pos = b"", len(funcs) * 4
-    for tag, body in funcs:
-        table += _struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
+    return _region.pack_entry_funcs([(0, init), (_region.RANGE_TAG, tread)])
 
 
 def inject_forced_ate(data, zone, target: int, *, mode: int = ATE_DEFAULT_MODE,

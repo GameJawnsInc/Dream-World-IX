@@ -107,7 +107,7 @@ def platform_prop_entry(*, model: int, animset: int, pose: int | None, x: int, z
                            _arg(_region.obj_var(PLAYER_UID, 2)), arg_flags=0b111)
     body = _region.if_block(_region.cond_truthy(_region.MAP_BOOL, int(ride_bit)), track) + opcodes.wait(1)
     loop = body + bytes([0x01]) + struct.pack("<h", -(len(body) + 3))     # a permanent per-frame loop
-    return bytes([_npc.NPC_ENTRY_TYPE]) + _assemble_entry([(0, init), (1, loop)])[1:]
+    return _region.pack_entry_funcs([(0, init), (1, loop)], entry_type=_npc.NPC_ENTRY_TYPE)
 
 
 def _ride_bit(bit: int | None, value: int) -> bytes:
@@ -197,17 +197,6 @@ def _carry_land_body(land, *, speed: int, animation: int | None,
     return a.assemble()
 
 
-def _assemble_entry(funcs) -> bytes:
-    """Assemble a type-1 (region) entry from ``[(tag, body), ...]`` (the ladder/jump region layout):
-    the func table (``<tag:u16><fpos:u16>`` x N) then the concatenated bodies."""
-    table = b""
-    pos = len(funcs) * 4
-    for tag, body in funcs:
-        table += struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
-
-
 def carry_body(*, rise: int | None = None, land=None, speed: int = DEFAULT_SPEED,
                duration: int = DEFAULT_DURATION, animation: int | None = None,
                warp_to: int | None = None, warp_entrance: int = 0,
@@ -295,7 +284,7 @@ def platform_region(zone, ride_tag: int, *, trigger: str = "action", bubble: boo
         tread = _region.MOVEMENT_GATE + (opcodes.bubble(1) if bubble else b"") + opcodes.RETURN
         action = _region.MOVEMENT_GATE + dispatch
         funcs = [(0, init), (_region.RANGE_TAG, tread), (_region.INTERACT_TAG, action)]
-    return _assemble_entry(funcs)
+    return _region.pack_entry_funcs(funcs)
 
 
 def inject_platform_model(data, *, model: int, animset: int, pose: int | None, rest,

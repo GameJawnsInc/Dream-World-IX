@@ -33,6 +33,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import struct
+
 from ..binutils import u16
 from . import disasm
 
@@ -42,6 +44,21 @@ ENTRY_SLOT_SIZE = 8
 NAME_OFF = 0x2C                 # 44
 NAME_LEN = 84
 HEADER_LEN = ENTRY_TABLE_OFF    # everything before the entry table (header + name)
+
+
+def pack_entry(entry_type: int, funcs) -> bytes:
+    """Serialize ONE entry from ``[(tag, body), ...]``: ``<type:u8><funcCount:u8>``, the func table
+    (``<tag:u16><fpos:u16>`` per func, ``fpos`` relative to entryStart+2 = the table's own start), then the
+    bodies concatenated in table order -- the exact inverse of the per-entry parse in
+    :meth:`EbScript.from_bytes`. THE one owner of this layout: the content injectors reach it through
+    :func:`ff9mapkit.content.region.pack_entry_funcs`; the ten inlined copies it replaced had drifted to
+    four docstrings each citing a different sibling as "the reference"."""
+    table = b""
+    pos = len(funcs) * 4
+    for tag, body in funcs:
+        table += struct.pack("<HH", tag, pos)
+        pos += len(body)
+    return bytes([entry_type, len(funcs)]) + table + b"".join(b for _, b in funcs)
 
 
 @dataclass(frozen=True)

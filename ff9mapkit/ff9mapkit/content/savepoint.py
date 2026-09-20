@@ -670,17 +670,6 @@ def save_dispatch_prompted(prompt_txid: int, confirm_txid: int, *, latch: bool =
             + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 
-def _assemble_entry(funcs) -> bytes:
-    """Assemble a type-1 (region) entry from ``[(tag, body), ...]`` -- the func table (4 bytes/func:
-    ``<tag:u16><fpos:u16>``) then the concatenated bodies. Same layout as :func:`content.jump`."""
-    table = b""
-    pos = len(funcs) * 4
-    for tag, body in funcs:
-        table += struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
-
-
 def savepoint_region(zone, *, bubble: bool = True, dispatch: bytes | None = None) -> bytes:
     """A type-1 region entry for a save point: Init ``SetRegion(zone)`` / tread (tag 2) ``Bubble(1)`` (the
     floating "!" prompt, if ``bubble``) / action (tag 3) the save dispatch. Both trigger funcs are
@@ -693,7 +682,7 @@ def savepoint_region(zone, *, bubble: bool = True, dispatch: bytes | None = None
     tread = _region.MOVEMENT_GATE + (opcodes.bubble(1) if bubble else b"") + opcodes.RETURN
     action = _region.MOVEMENT_GATE + (dispatch if dispatch is not None else save_dispatch())
     funcs = [(0, init), (_region.RANGE_TAG, tread), (_region.INTERACT_TAG, action)]
-    return _assemble_entry(funcs)
+    return _region.pack_entry_funcs(funcs)
 
 
 def inject_savepoint(data, zone, *, bubble: bool = True, activate: bool = True,
@@ -1124,9 +1113,7 @@ def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None,
     press = cask_trigger_body(index)
     if len(press) < 9:                       # IsActuallyTalkable polls tag3[ip+7/8]; keep it >= 9 bytes
         press += b"\x00" * (9 - len(press))
-    table_len = 2 * 4
-    table = struct.pack("<HH", 0, table_len) + struct.pack("<HH", 3, table_len + len(init))
-    entry = bytes([_npc.NPC_ENTRY_TYPE, 2]) + table + init + press
+    entry = _region.pack_entry_funcs([(0, init), (3, press)], entry_type=_npc.NPC_ENTRY_TYPE)
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band, slot=slot)
     out = edit.activate(out, opcodes.init_object(slot, 0), spawn_wait_n=spawn_wait_n,
                         spawn_wait_occurrence=spawn_wait_occurrence)
