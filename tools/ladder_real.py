@@ -16,14 +16,12 @@ Reversible (backs up EVT_TRENO_RES per lang). Re-enter Treno / ~ to reload. Run:
 """
 import datetime
 import os
-import struct
 import sys
 import shutil
 from pathlib import Path
 
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
-from ff9mapkit.binutils import set_u16, u16                     # noqa: E402
 from ff9mapkit.config import LANGS, ModLayout, find_game_path   # noqa: E402
 from ff9mapkit.eb import EbScript, edit, opcodes                # noqa: E402
 from ff9mapkit.content import region                            # noqa: E402
@@ -38,37 +36,6 @@ RUNSCRIPTSYNC = 0x14
 BUBBLE = 0x68
 
 
-def add_function(eb_bytes, entry_index, tag, body):
-    """Add a function (tag, body) to an existing entry -- generalized from content.reinit.add_reinit:
-    grow the entry's func table by one slot (existing fpos += 4), append the body, relocate later
-    entries' table offsets by the growth."""
-    b = bytearray(eb_bytes)
-    slot = 128 + entry_index * 8
-    off, sz = u16(b, slot), u16(b, slot + 2)
-    es = 128 + off
-    etype, fc = b[es], b[es + 1]
-    fbase = es + 2
-    funcs = [[u16(b, fbase + i * 4), u16(b, fbase + i * 4 + 2)] for i in range(fc)]
-    if any(t == tag for t, _ in funcs):
-        raise ValueError(f"entry {entry_index} already has tag {tag}")
-    code = bytes(b[fbase + fc * 4: es + sz])
-    new_funcs = [[t, fp + 4] for t, fp in funcs] + [[tag, (fc + 1) * 4 + len(code)]]
-    new_entry = bytearray([etype, fc + 1])
-    for t, fp in new_funcs:
-        new_entry += struct.pack("<HH", t, fp)
-    new_entry += code + body
-    growth = len(new_entry) - sz
-    out = bytearray(bytes(b[:es]) + bytes(new_entry) + bytes(b[es + sz:]))
-    set_u16(out, slot + 2, len(new_entry))
-    for i in range(b[3]):
-        if i == entry_index:
-            continue
-        s2 = 128 + i * 8
-        if u16(out, s2 + 2) > 0 and u16(out, s2) > off:
-            set_u16(out, s2, u16(out, s2) + growth)
-    return bytes(out)
-
-
 def build_ladder_region(zone):
     """A 3-function region: init(SetRegion), tread(Bubble prompt), interact(DisableMove+RunScriptSync climb)."""
     init = region.set_region(zone) + opcodes.RETURN
@@ -76,13 +43,7 @@ def build_ladder_region(zone):
     interact = (region.MOVEMENT_GATE + opcodes.DISABLE_MOVE
                 + opcodes.encode(RUNSCRIPTSYNC, 2, PLAYER_UID, CLIMB_TAG)
                 + opcodes.ENABLE_MOVE + opcodes.RETURN)
-    funcs = [(0, init), (2, tread), (3, interact)]
-    table = b""
-    pos = len(funcs) * 4
-    for tag, body in funcs:
-        table += struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([1, len(funcs)]) + table + b"".join(body for _, body in funcs)
+    return region.pack_entry_funcs([(0, init), (2, tread), (3, interact)])   # type 1 = region
 
 
 def main():
@@ -95,7 +56,7 @@ def main():
         p = live.eb_path(L, "EVT_TRENO_RES.eb.bytes")
         data = p.read_bytes()
         shutil.copyfile(p, bk / f"{L}-EVT_TRENO_RES.eb.bytes.preladderreal.{stamp}")
-        data = add_function(data, PLAYER_ENTRY, CLIMB_TAG, climb)        # player climb tag 17
+        data = edit.add_function(data, PLAYER_ENTRY, CLIMB_TAG, climb)   # player climb tag 17
         eb = EbScript.from_bytes(data)
         rslot = eb.first_free_slot()
         data = edit.append_entry(data, rslot, build_ladder_region(LADDER_ZONE))

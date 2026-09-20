@@ -211,3 +211,11 @@ def test_add_reinit_relocates_later_entries_and_skips_empty():
 
     assert out[3] == eb[3] == 4
     assert _clean(out)
+
+
+def test_add_reinit_refuses_an_empty_entry_0():
+    """REGRESSION (scout F14): the inline splice read entry 0's offset/size from an EMPTY slot (0/0) and
+    returned a silently corrupt file. add_reinit now IS eb.edit.add_function's splice, which refuses."""
+    eb = _eb_multi(None, [(0, RET)])
+    with pytest.raises(ValueError, match=r"entry 0 is empty"):
+        R.add_reinit(eb)

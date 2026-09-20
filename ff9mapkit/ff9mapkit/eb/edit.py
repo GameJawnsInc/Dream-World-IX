@@ -179,9 +179,11 @@ def add_function(data, entry_index: int, tag: int, body: bytes) -> bytes:
     """Add a function ``(tag, body)`` to an EXISTING entry.
 
     Grows the entry's function table by one 4-byte slot (existing funcs' ``fpos += 4``), appends the
-    body after the entry's code, and relocates every later entry's table offset by the growth. (The
-    re-layout :mod:`ff9mapkit.content.reinit` does for the after-battle handler, generalized -- used by
-    the ladder primitive to add the player's climb function.) Raises if ``tag`` already exists.
+    body after the entry's code, and relocates every later entry's table offset by the growth. THE one
+    splice: :func:`ff9mapkit.content.reinit.add_reinit` (its un-generalized original, now a call here),
+    the ladder primitive's player climb function and ``tools/ladder_real.py`` all add a function through
+    it. Raises if ``tag`` already exists, and if the entry is EMPTY (the inline copies silently returned
+    a corrupt file there).
     """
     b = bytearray(_as_bytes(data))
     slot = ENTRY_TABLE_OFF + entry_index * ENTRY_SLOT_SIZE
