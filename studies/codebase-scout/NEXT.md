@@ -14,7 +14,7 @@
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
   `Found 107 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **7639** after items 1-2 (this
+- **Collect**: `pytest --collect-only -q` from the repo root was **7641** after items 1-3 (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates; `Pillow`,
@@ -37,7 +37,7 @@
 
 ## The queue, ranked by value per byte of new surface
 
-### Done since handoff (commits `2ccbff6`, `2642e61`) — items 1 and 2
+### Done since handoff (commits `2ccbff6`, `2642e61`, item 3 below) — items 1-3
 - **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
   ruff F 109 → 107. Regression test in `tests/test_chain.py`.
 - **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
@@ -47,16 +47,14 @@
   `tests/test_summon_alloc.py`. An adversarial review of the first cut caught a `stage_import`
   double banner, a `game=None` crash line, and a dry-run false banner — all fixed there.
   Install side still owed: mint on a folder that already holds a `GEO_WEP` (item 5 below).
+- **3 (3b)** `behaviortoml.placeholder_slots` replaces FIVE inline seatings (the queue said four;
+  `build.lint_flag_bands`'s recompute was the fifth, and the "real seating" it cited is that lint,
+  not the build's `_inject_npcs` map). Differ: old vs new IDENTICAL over 93 build calls / 124
+  compiles (raw, slots, whole blackboard, `pool_hireable`, siege choice flags, compiled-body
+  hashes); calibration moved 40 slot dicts + 13 bodies and held every flag. Two tests in
+  `tests/test_cli_behavior.py`. Pre-existing red noticed on the way: `test_journalfield.py`'s
+  checked-in bench TOML has drifted from its generator (2 tests) — not touched.
 
-### 3. 3b — four dry-compile copies → one `BT.placeholder_slots(raw)`  · medium · BYTE-GATED
-Copies: `cli.py:~900` (now build.py-shaped, `setdefault`), `workspace/behaviorscan.py:1288`,
-`content/behaviortoml.py:213-216`, `content/siege.py:772-775` (the last three `enumerate`, no
-dedup); the REAL seating is `build.py:3699-3702` (`row_members` + `setdefault`). Byte-gated
-because `siege.resolve_hireable` runs inside `FieldProject.load` (`build.py:325`) and its map
-lands in emitted `[[choice]] requires_flag` values; the helper must preserve `row_members` order
-and the `900+10*ui+bi` / `890+hi` txid scheme exactly. Gate: an `old(raw) == new(raw)` differ
-over `examples/siege` + every behavior fixture, calibrated by perturbing one copy first.
-`tests/test_cli_behavior.py` already pins CLI == Workspace report text.
 
 ### 4. 2b — hoist the suite-wide guards above every tree  · small · offline
 `ff9mapkit/tests/conftest.py`'s autouse `_isolate_prefs` (monkeypatches `prefs._path`) and
