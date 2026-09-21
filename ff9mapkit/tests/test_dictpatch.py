@@ -234,3 +234,24 @@ def test_battlescene_identity_is_id_keyed_and_kind_scoped():
     dropped = DP.foreign_registrations_dropped(
         ["BattleScene 4003 FIGHT BBG_B013"], ["FieldScene 4003 11 10 GLADE 4003"])
     assert dropped == ["BattleScene 4003 FIGHT BBG_B013"], dropped
+
+
+def test_build_side_patch_readers_tolerate_a_utf8_bom(tmp_path):
+    """The three build.py readers of an EXISTING mod folder's patch files (the foreign-registration report, the
+    foreign-line merge, the foreign fork-donor rows) and deploy's wiped-registration probe all decode the
+    file a human may have re-saved with a BOM -- a BOM'd first line was silently not a registration."""
+    from ff9mapkit import build, deploy
+    from ff9mapkit.config import ModLayout
+    dp = tmp_path / "DictionaryPatch.txt"
+    dp.write_bytes(b"\xef\xbb\xbfFieldScene 30110 11 1860 THEIRS 30110\nFieldScene 4005 11 1860 MINE 4005\n")
+    mine = ["FieldScene 4005 11 1860 MINE 4005"]
+    assert build._foreign_registrations(dp, mine) == ["30110 (THEIRS)"]
+    merged = build._merge_foreign_registrations(dp, mine)
+    assert merged[0] == "FieldScene 30110 11 1860 THEIRS 30110" and merged[-1] == mine[0]
+    fd = tmp_path / "ForkDonorPatch.txt"
+    fd.write_bytes(b"\xef\xbb\xbf8641 600\n9002 3050\n")
+    assert build._foreign_donor_lines(fd, ["9002 3050"]) == ["8641 600"]
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "DictionaryPatch.txt").write_text("FieldScene 4005 11 1860 MINE 4005\n", encoding="utf-8")
+    assert deploy._regs_wiped(ModLayout(tmp_path), dist) == ["FieldScene 30110 11 1860 THEIRS 30110"]

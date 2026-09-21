@@ -205,7 +205,7 @@ def fork_donor_blocks_at(root) -> set:
     p = Path(root) / "ForkDonorPatch.txt"
     if not p.is_file():
         return out
-    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+    for line in p.read_text(encoding="utf-8-sig", errors="ignore").splitlines():   # -sig: a Notepad BOM must not hide line 1
         parts = line.split("#", 1)[0].split()
         if len(parts) < 2:
             continue
@@ -526,7 +526,7 @@ def dictionary_ids_at(root) -> dict:
     p = Path(root) / "DictionaryPatch.txt"
     if not p.is_file():
         return out
-    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+    for line in p.read_text(encoding="utf-8-sig", errors="ignore").splitlines():   # -sig: a Notepad BOM must not hide line 1
         parts = line.split()
         if len(parts) < 2 or parts[0] not in ("FieldScene", "BattleScene"):
             continue
@@ -613,7 +613,7 @@ def model_ids_at(root) -> dict:
     p = Path(root) / "DictionaryPatch.txt"
     if not p.is_file():
         return out
-    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+    for line in p.read_text(encoding="utf-8-sig", errors="ignore").splitlines():   # -sig: a Notepad BOM must not hide line 1
         parts = line.split()
         if len(parts) < 2 or parts[0] != "3DModel":
             continue

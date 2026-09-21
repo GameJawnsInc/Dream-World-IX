@@ -9933,7 +9933,7 @@ def _foreign_registrations(dict_patch, new_lines) -> list:
     fields a wholesale rewrite of that file would unregister. Empty for a fresh/absent file, and empty
     when the build is a superset (a re-build of the same set, or of more)."""
     try:
-        old = dict_patch.read_text(encoding="utf-8").splitlines()
+        old = dict_patch.read_text(encoding="utf-8-sig").splitlines()   # -sig: a Notepad BOM must not hide line 1
     except (OSError, UnicodeDecodeError):
         return []                                        # absent/unreadable -> nothing to lose
 
@@ -9963,7 +9963,7 @@ def _merge_foreign_registrations(dict_patch, new_lines) -> list:
     them rather than duplicating. Foreign lines keep their original relative order, so each
     ``MessageFile`` still precedes the ``FieldScene`` that uses it."""
     try:
-        old = dict_patch.read_text(encoding="utf-8").splitlines()
+        old = dict_patch.read_text(encoding="utf-8-sig").splitlines()   # -sig: a Notepad BOM must not hide line 1
     except (OSError, UnicodeDecodeError):
         return list(new_lines)
     mine_fields, mine_blocks, mine_scenes = set(), set(), set()
@@ -9999,7 +9999,7 @@ def _foreign_donor_lines(fork_donor_patch, new_lines) -> list:
     other's donor mapping and silently switch its fork-gated behaviors off. Comments + blank lines are
     dropped (the header is regenerated); a row this build re-emits is dropped so the new one replaces it."""
     try:
-        old = Path(fork_donor_patch).read_text(encoding="utf-8").splitlines()
+        old = Path(fork_donor_patch).read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeDecodeError):
         return []                                        # absent/unreadable -> nothing to keep
     mine = {ln.split()[0] for ln in new_lines}

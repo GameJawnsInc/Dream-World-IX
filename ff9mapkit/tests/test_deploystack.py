@@ -576,3 +576,22 @@ def test_model_id_collision_warning_text_and_none(tmp_path):
     assert w and "3DMODEL ID COLLISION" in w and "6001" in w and "'B'" in w
     assert "GEO_NPC_F1_THEIRS" in w and "FF9BattleDB.GEO" in w
     assert model_id_collision_warning([], "A") is None       # clear -> no warning
+
+
+# ---- a BOM'd DictionaryPatch / ForkDonorPatch (Notepad's default save) still registers its first line ----
+def test_registry_readers_tolerate_a_utf8_bom(tmp_path):
+    """No kit writer emits a BOM, but a human saving DictionaryPatch.txt from Notepad does -- and a BOM'd
+    first line used to decode as ``\\ufeffFieldScene``, so the FIRST registration in the file was invisible
+    to every collision guard that reads it. ``utf-8-sig`` is a strict superset of ``utf-8`` for reading."""
+    from ff9mapkit.deploystack import fork_donor_blocks_at
+    g = tmp_path / "game"
+    d = g / "A"
+    d.mkdir(parents=True)
+    (d / "DictionaryPatch.txt").write_bytes(
+        b"\xef\xbb\xbfFieldScene 30007 11 TEST30007 TEST30007 741\n3DModel 6001 GEO_NPC_F1_CUS\n")
+    assert dictionary_ids_at(d) == {30007: ("FieldScene", "TEST30007")}
+    (d / "DictionaryPatch.txt").write_bytes(
+        b"\xef\xbb\xbf3DModel 6001 GEO_NPC_F1_CUS\nFieldScene 30007 11 TEST30007 TEST30007 741\n")
+    assert model_ids_at(d) == {6001: "GEO_NPC_F1_CUS"}
+    (d / "ForkDonorPatch.txt").write_bytes(b"\xef\xbb\xbf8641 600\n")
+    assert fork_donor_blocks_at(d) == {22}                    # donor 600 lives on block 22 (Lindblum)

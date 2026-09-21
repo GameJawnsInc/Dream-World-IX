@@ -48,8 +48,8 @@ def _regs_wiped(live, dist_root) -> list:
     dist_dp = Path(dist_root) / "DictionaryPatch.txt"
     if not live_dp.exists():
         return []
-    before = live_dp.read_text(encoding="utf-8").splitlines()
-    after = dist_dp.read_text(encoding="utf-8").splitlines() if dist_dp.exists() else []
+    before = live_dp.read_text(encoding="utf-8-sig").splitlines()          # -sig: a Notepad BOM must not hide line 1
+    after = dist_dp.read_text(encoding="utf-8-sig").splitlines() if dist_dp.exists() else []
     return DP.foreign_registrations_dropped(before, after)
 
 
