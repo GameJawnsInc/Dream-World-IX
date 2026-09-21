@@ -166,7 +166,7 @@ def _worktree_doc(app, monkeypatch, tmp_path):
     if jobs.main_repo_root(wt) != main:
         pytest.skip("this git cannot answer --git-common-dir --path-format=absolute")
     monkeypatch.delenv("FF9_REPO", raising=False)
-    monkeypatch.setattr(builddoc.jobs, "detect_game_mod", lambda: None)
+    monkeypatch.setattr(builddoc.jobs, "detect_game_mod", lambda repo_root=None: None)
     doc = BuildDoc(pick_palette("dark"), wt, run=lambda *a, **k: True, problems=lambda *a, **k: None)
     assert doc.repo == wt and doc.has_tools, "the doc must stay rooted at the checkout it was launched from"
     return doc, main, wt

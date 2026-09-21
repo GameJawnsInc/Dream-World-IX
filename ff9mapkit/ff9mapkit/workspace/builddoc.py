@@ -58,7 +58,7 @@ class BuildDoc(QWidget):
         self._inplace_available = False                 # in-place radio is live (a fork of a real field + dev tools)
         self._inplace_autoselected_for = None            # donor id we last auto-checked In-place FOR (see _sync_inplace)
         self.mod_folder, self.worktree_id = jobs.detect_deploy_target(self.repo)
-        self.game_mod = jobs.detect_game_mod()
+        self.game_mod = jobs.detect_game_mod(self.repo)        # follows THIS checkout's .ff9deploy.toml pin
         self._build_ui()
         self._render_kind()
 

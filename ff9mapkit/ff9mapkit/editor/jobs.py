@@ -106,11 +106,15 @@ def current_newgame_target(mod_folder):
 
 
 # --------------------------------------------------------------------------- install / deploy targets
-def detect_game_mod():
-    """The game's ``FF9CustomMap`` folder, or ``None`` if the install can't be found."""
+def detect_game_mod(repo_root=None):
+    """The mod folder an INSTALL lands in -- ``<game>/<folder>`` -- or ``None`` if the install can't be found.
+    The folder follows the documented order (``$FF9_MOD_FOLDER`` > the checkout's ``.ff9deploy.toml`` >
+    ``FF9CustomMap``), keyed on ``repo_root`` (the tab's checkout; ``None`` = the CWD, like the CLI verbs).
+    It used to be a hardcoded ``FF9CustomMap``: a worktree that pinned its own folder still INSTALLED into
+    the shared default -- the exact collision the pin exists to prevent."""
     try:
         from .. import config
-        return config.find_game_path() / "FF9CustomMap"
+        return config.find_game_path() / config.resolve_mod_folder(start=repo_root)
     except Exception:
         return None
 

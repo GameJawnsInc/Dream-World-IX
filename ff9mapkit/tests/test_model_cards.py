@@ -235,7 +235,7 @@ def test_card_picker_keeps_the_selection_across_a_refill(app, pin_cache):
 @pytest.fixture
 def doc(app, pin_cache, monkeypatch):
     from ff9mapkit.editor import jobs
-    monkeypatch.setattr(jobs, "detect_game_mod", lambda: None)   # never read this machine's install
+    monkeypatch.setattr(jobs, "detect_game_mod", lambda repo_root=None: None)   # never read this machine's install
     svc = _StubThumbs()
     d = ModelsDoc(pick_palette("dark"), ".", run=lambda *a, **k: True, model_thumbs=svc)
     d._svc = svc
@@ -276,7 +276,7 @@ def test_models_tab_memoizes_row_icons(doc, tmp_path):
 
 def test_models_tab_warm_batch_skips_known_absent_ids(app, pin_cache, thumbs_on, monkeypatch):
     from ff9mapkit.editor import jobs
-    monkeypatch.setattr(jobs, "detect_game_mod", lambda: None)
+    monkeypatch.setattr(jobs, "detect_game_mod", lambda repo_root=None: None)
     _write_absent_sidecar(pin_cache, 8)
     svc = _StubThumbs()
     d = ModelsDoc(pick_palette("dark"), ".", run=lambda *a, **k: True, model_thumbs=svc)
@@ -289,7 +289,7 @@ def test_models_tab_warm_startup_defers_the_sidecar_scan(app, pin_cache, thumbs_
     the startup refill must not pay the absent-sidecar sweep (hundreds of small-file reads on a real
     machine) -- the scan belongs to the hide-toggle / cold-render paths, on first NEED."""
     from ff9mapkit.editor import jobs
-    monkeypatch.setattr(jobs, "detect_game_mod", lambda: None)
+    monkeypatch.setattr(jobs, "detect_game_mod", lambda repo_root=None: None)
     _write_absent_sidecar(pin_cache, 8)
 
     class _AllWarm(_StubThumbs):

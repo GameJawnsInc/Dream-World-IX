@@ -644,3 +644,24 @@ def test_the_resolver_module_never_shadows_the_tools_bare_import(tmp_path):
     before = sys.modules.get("repo_root")
     jobs.main_repo_root(tmp_path)
     assert sys.modules.get("repo_root") is before
+
+
+def test_detect_game_mod_follows_the_worktree_pin(tmp_path, monkeypatch):
+    """The Build tab's 'Install to game' and the Models tab's 'Deploy into' target used to be a hardcoded
+    <game>/FF9CustomMap: a worktree that pinned its own folder in .ff9deploy.toml still INSTALLED into the
+    shared default -- the exact collision the pin exists to prevent. The target now follows the documented
+    order (explicit > $FF9_MOD_FOLDER > the checkout's pin > FF9CustomMap), keyed on the repo the tab shows."""
+    from ff9mapkit import config
+    game = tmp_path / "game"
+    game.mkdir()
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: game)
+    monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    repo = tmp_path / "wt"
+    (repo / ".git").mkdir(parents=True)                       # the pin walk stops at the checkout root
+    assert jobs.detect_game_mod(repo) == game / "FF9CustomMap"                    # no pin -> the default
+    (repo / ".ff9deploy.toml").write_text('mod_folder = "FF9CustomMap-ic"\nid = 30004\n', encoding="utf-8")
+    assert jobs.detect_game_mod(repo) == game / "FF9CustomMap-ic"                 # the pin
+    monkeypatch.setenv("FF9_MOD_FOLDER", "FF9CustomMap-env")
+    assert jobs.detect_game_mod(repo) == game / "FF9CustomMap-env"                # the env var beats the pin
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: (_ for _ in ()).throw(config.ConfigError("x")))
+    assert jobs.detect_game_mod(repo) is None                                     # no install -> None, as before
