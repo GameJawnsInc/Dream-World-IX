@@ -14,7 +14,7 @@
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
   `Found 106 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **8499** after item 7 (PySide6 importable here; ~7683 without it) (this
+- **Collect**: `pytest --collect-only -q` from the repo root was **8502** after item 8 (PySide6 importable here; ~7686 without it) (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates / `UnityPy`; `Pillow`,
@@ -50,7 +50,7 @@
 
 ## The queue, ranked by value per byte of new surface
 
-### Done since handoff — items 1-7
+### Done since handoff — items 1-8
 - **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
   ruff F 109 → 107. Regression test in `tests/test_chain.py`.
 - **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
@@ -94,14 +94,12 @@
   `examples` for the rest, no date) and the registry of SIXTEEN tables from THIRTEEN generators (the queue
   said ten/nine). Every generator emits it (required `stamp` keyword); the tables are hand-stamped
   `Memoria@unknown` until regenerated. 28 tests in `tests/test_generated_tables.py`.
+- **8 (F48)** `d1ecf848`: `tests/test_docs_cli_drift.py` -- every verb the 75 hand-written pages name AS A
+  COMMAND (code span / fenced line; prose is not a command) exists among the parser's 140; the docsite's
+  generated per-verb pages already gate the other direction. Clean today (`gui` is named as ABSENT and
+  the test checks that citation). The root-key half is a hard ratchet, not a warning: only `[[folklore]]`
+  is undocumented -- document it and shrink the set.
 
-
-### 8. F48 — docs ↔ CLI drift  · small · offline
-138 verbs, 18+ generated docsite pages, two hand-written TOML specs (`docs/FORMAT.md`,
-`docs/BEHAVIOR.md`), `_fieldschema.py` generated FROM the bundled examples. One test: walk
-`build_parser()`, assert every verb named in `docs/*.md` and `docsite/nav.toml` exists
-(documented ⊆ implemented — that direction only). Second, as a WARNING: every key in
-`_fieldschema.VOCAB['']` appears in `FORMAT.md`.
 
 ### 9. `build.py` — only the twins, never the extraction (F07 / F08)  · small · byte-neutral if careful
 `_verbatim_prop_message_count:5717` and `_verbatim_choice_message_count:5676` are unowned
