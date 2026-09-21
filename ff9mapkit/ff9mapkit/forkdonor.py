@@ -19,7 +19,7 @@ HEADER = "# ff9mapkit fork-fidelity: <forkId> <donorRealId>"
 
 def _rows(text: str) -> list:
     """The data rows of a ForkDonorPatch text -- blank and ``#`` comment lines dropped."""
-    return [ln for ln in (text or "").splitlines()
+    return [ln for ln in (text or "").lstrip("\ufeff").splitlines()     # a BOM read off line 1 is never re-emitted
             if ln.strip() and not ln.lstrip().startswith("#")]
 
 

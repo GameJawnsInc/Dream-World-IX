@@ -391,3 +391,22 @@ def test_deploy_scripts_print_the_builds_warnings_before_touching_the_install():
     assert loop in _BATTLE_SRC and 'print(f"warning: {w}")' in _BATTLE_SRC
     assert _SRC.index(loop) < _SRC.index('revert_deploy_{FID}.py'), \
         "warnings must print before the prelude revert -- a deploy that aborts there must still show them"
+
+
+
+def test_every_tool_side_patch_file_read_decodes_utf8_sig():
+    """The deploy tools read the LIVE DictionaryPatch / BattlePatch / ForkDonorPatch and several of them
+    WRITE BACK what they read (deploy_field's fork-donor merge, deploy_battle's rewrite). A plain-utf-8
+    decode carries a Notepad BOM into a mid-file line -- where no BOM-aware reader ever strips it -- or
+    hides line 1 from the kit's own guards. Same-line pin: a patch-file expression read with a bare
+    ``encoding="utf-8")`` is refused; ``utf-8-sig`` is a strict superset for reading."""
+    import re
+    tools = pathlib.Path(__file__).resolve().parents[2] / "tools"
+    patchy = re.compile(r"dictionary_patch|battle_patch|fork_donor_patch|ForkDonorPatch|DictionaryPatch\.txt|"
+                        r"BattlePatch\.txt|\b_fd[plb]\b|\blive_dp\b|\bdist_dp\b")
+    bad = []
+    for f in sorted(tools.glob("*.py")):
+        for i, ln in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if patchy.search(ln) and 'encoding="utf-8")' in ln and "read_text" in ln:
+                bad.append(f"{f.name}:{i}: {ln.strip()[:100]}")
+    assert not bad, "patch-file reads still decoding plain utf-8 (use utf-8-sig):\n  " + "\n  ".join(bad)

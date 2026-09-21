@@ -1098,7 +1098,7 @@ class _Ledger:
         # unlocked window drops whichever lines a concurrent deploy/revert merged in between. A
         # FileLockTimeout propagates (the CLI prints and aborts, rc 2).
         with fsutil.locked_sidecar(dp):
-            lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+            lines = dp.read_text(encoding="utf-8-sig").splitlines() if dp.exists() else []   # -sig: a Notepad BOM must not hide line 1
             if directive in lines:
                 return False
             lines.append(directive)

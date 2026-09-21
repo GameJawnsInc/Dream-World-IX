@@ -148,7 +148,7 @@ if info["dictionary"]:
         with locked_sidecar(live.dictionary_patch):
             if live.dictionary_patch.exists():
                 shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preBATTLE.{STAMP}")
-                cur = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
+                cur = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
             else:
                 cur = []
             sid = str(proj.scene_id) if proj.is_mint else None
@@ -186,7 +186,7 @@ bp_revert_code = ""
 # block this deploy does not own.
 try:
     with locked_sidecar(live.battle_patch):
-        _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
+        _live_bp_text = live.battle_patch.read_text(encoding="utf-8-sig") if live.battle_patch.exists() else ""
         if info["battle_patch"] or _bp.has_block(_live_bp_text, _bp_owner):
             if live.battle_patch.exists():
                 shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preBATTLE.{STAMP}")
@@ -227,7 +227,7 @@ except FileLockTimeout as _lke:
 # the revert's restore loop handles it)
 if _args.trigger_field is not None and proj.is_mint:
     field_name = None
-    for ln in (live.dictionary_patch.read_text(encoding="utf-8").splitlines()
+    for ln in (live.dictionary_patch.read_text(encoding="utf-8-sig").splitlines()
                if live.dictionary_patch.exists() else []):
         p = ln.split()
         if p[:1] == ["FieldScene"] and p[1:2] == [str(_args.trigger_field)]:

@@ -50,3 +50,13 @@ def test_own_row_matches_exact_first_token():
     assert FD.own_row(text, 300) == "300 100"
     assert FD.own_row(text, 3000) == "3000 200"
     assert FD.own_row(text, 30) is None
+
+
+def test_rows_drop_a_leading_bom_so_a_merge_never_re_emits_it_mid_file():
+    """merge_row/revert_row re-emit every row they read AFTER a regenerated header: a BOM read off line 1
+    and written back at line 2 is where no BOM-aware reader (kit or .NET StreamReader, offset 0 only)
+    will ever strip it -- and `8641` then never matches `\\ufeff8641` (a duplicate row, an un-revertable one)."""
+    assert FD._rows("\ufeff8641 600\n9002 3050\n") == ["8641 600", "9002 3050"]
+    assert FD.own_row("\ufeff8641 600\n", 8641) == "8641 600"
+    merged = FD.merge_row("\ufeff8641 600\n", 9002, 3050)
+    assert "\ufeff" not in merged and "8641 600" in merged.splitlines()

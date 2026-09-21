@@ -583,7 +583,6 @@ def test_registry_readers_tolerate_a_utf8_bom(tmp_path):
     """No kit writer emits a BOM, but a human saving DictionaryPatch.txt from Notepad does -- and a BOM'd
     first line used to decode as ``\\ufeffFieldScene``, so the FIRST registration in the file was invisible
     to every collision guard that reads it. ``utf-8-sig`` is a strict superset of ``utf-8`` for reading."""
-    from ff9mapkit.deploystack import fork_donor_blocks_at
     g = tmp_path / "game"
     d = g / "A"
     d.mkdir(parents=True)
@@ -593,5 +592,6 @@ def test_registry_readers_tolerate_a_utf8_bom(tmp_path):
     (d / "DictionaryPatch.txt").write_bytes(
         b"\xef\xbb\xbf3DModel 6001 GEO_NPC_F1_CUS\nFieldScene 30007 11 TEST30007 TEST30007 741\n")
     assert model_ids_at(d) == {6001: "GEO_NPC_F1_CUS"}
-    (d / "ForkDonorPatch.txt").write_bytes(b"\xef\xbb\xbf8641 600\n")
-    assert fork_donor_blocks_at(d) == {22}                    # donor 600 lives on block 22 (Lindblum)
+    # (fork_donor_blocks_at is NOT asserted here: it consumes column 1 only, so a BOM on column 0 never
+    # reached its output -- the assertion passed on the plain-utf-8 tree too. The BOM'd ForkDonorPatch
+    # case that CAN fail is build._foreign_donor_lines, pinned in test_dictpatch.py.)

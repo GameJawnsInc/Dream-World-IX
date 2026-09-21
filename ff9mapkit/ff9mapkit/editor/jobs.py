@@ -243,7 +243,7 @@ def detect_deployed_fields(mod_folder):
         from .. import config
         dp = config.find_game_path() / mod_folder / "DictionaryPatch.txt"
         if dp.is_file():
-            for ln in dp.read_text(encoding="utf-8").splitlines():
+            for ln in dp.read_text(encoding="utf-8-sig").splitlines():
                 p = ln.split()
                 if p[:1] == ["FieldScene"] and len(p) >= 5:
                     out.append((p[1], p[4]))
@@ -283,7 +283,7 @@ def scan_deployed_reverts(dict_patch, scroll_dir):
     if dict_patch is not None:
         dp = Path(dict_patch)
         try:
-            lines = dp.read_text(encoding="utf-8").splitlines() if dp.is_file() else []
+            lines = dp.read_text(encoding="utf-8-sig").splitlines() if dp.is_file() else []
         except OSError:
             lines = []
         for ln in lines:

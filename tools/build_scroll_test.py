@@ -213,7 +213,7 @@ for L in LANGS:
 # as every deploy script): an unlocked window drops whichever lines a concurrent deploy read past.
 try:
     with locked_sidecar(live.dictionary_patch):
-        dp = live.dictionary_patch.read_text(encoding="utf-8").rstrip("\n").splitlines()
+        dp = live.dictionary_patch.read_text(encoding="utf-8-sig").rstrip("\n").splitlines()
         dp = [ln for ln in dp if not ln.split()[1:2] == [str(FID)]]   # drop any stale 4003 line
         dp.append(info["dictionary"][0])
         atomic_write_text(live.dictionary_patch, "\n".join(dp) + "\n", newline="\n")

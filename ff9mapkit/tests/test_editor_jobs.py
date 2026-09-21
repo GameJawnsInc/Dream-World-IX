@@ -668,3 +668,16 @@ def test_detect_game_mod_follows_the_worktree_pin(tmp_path, monkeypatch):
     assert jobs.detect_game_mod(repo) == game / "FF9CustomMap-env"                # the env var beats the pin
     monkeypatch.setattr(config, "find_game_path", lambda explicit=None: (_ for _ in ()).throw(config.ConfigError("x")))
     assert jobs.detect_game_mod(repo) is None                                     # no install -> None, as before
+
+
+def test_build_tab_registry_readers_tolerate_a_utf8_bom(tmp_path, monkeypatch):
+    """`detect_deployed_fields` (the battle-trigger picker) and `scan_deployed_reverts` (the Deployed-here
+    ledger) read the folder's DictionaryPatch like the guards do -- a BOM'd line 1 used to vanish from both."""
+    from ff9mapkit import config
+    mod = tmp_path / "FF9CustomMap"
+    mod.mkdir()
+    (mod / "DictionaryPatch.txt").write_bytes(b"\xef\xbb\xbfFieldScene 4005 11 1860 MINE 4005\n")
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
+    assert jobs.detect_deployed_fields("FF9CustomMap") == [("4005", "MINE")]
+    rows = jobs.scan_deployed_reverts(mod / "DictionaryPatch.txt", None)
+    assert [(r["id"], r["name"]) for r in rows if r["kind"] == "field"] == [("4005", "MINE")]

@@ -83,7 +83,7 @@ def main():
     except FileLockTimeout as e:
         raise SystemExit(f"!! {e}\n!! NOT rewriting {live.dictionary_patch} -- re-run once the other "
                          f"writer finishes (the pre-install snapshot at {bk} is intact).")
-    print("  DictionaryPatch -> " + live.dictionary_patch.read_text(encoding="utf-8").strip().replace("\n", " | "))
+    print("  DictionaryPatch -> " + live.dictionary_patch.read_text(encoding="utf-8-sig").strip().replace("\n", " | "))
 
     # 5. revert script (full restore from the snapshot)
     rev = REPO / "tools" / "scroll_out" / "revert_tworoom.py"

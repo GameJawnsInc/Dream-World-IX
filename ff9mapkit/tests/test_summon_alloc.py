@@ -299,3 +299,15 @@ def test_a_pinned_name_reuses_the_id_the_folder_registers_under_it(tmp_path):
     _register(game / "A", "3DModel 152 GEO_MON_B0_M201")                  # a real-band line is never adopted
     spec = D._resolve_ids(_spec(name="GEO_MON_B0_M201"), game / "A", game, out=quiet)
     assert spec["id"] == 6000
+
+
+def test_ledger_append_is_idempotent_on_a_bomd_registry(tmp_path):
+    """10j's idempotency promise held only through `deploystack.model_ids_at` (utf-8-sig); `_Ledger
+    .append_dict_line` still decoded plain utf-8 and exact-matched lines, so a Notepad-saved registry whose
+    reused `3DModel` line is line 1 got a DUPLICATE directive and a false 'NEW GEO id -- RELAUNCH'."""
+    dp = tmp_path / "A" / "DictionaryPatch.txt"
+    dp.parent.mkdir()
+    dp.write_bytes(b"\xef\xbb\xbf3DModel 6201 GEO_MON_B0_M201\n")
+    led = D._Ledger(tmp_path / "bk", mod_root=dp.parent)
+    assert led.append_dict_line(dp, "3DModel 6201 GEO_MON_B0_M201") is False
+    assert dp.read_bytes() == b"\xef\xbb\xbf3DModel 6201 GEO_MON_B0_M201\n"     # untouched, BOM and all
