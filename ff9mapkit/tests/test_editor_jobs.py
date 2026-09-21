@@ -148,6 +148,9 @@ def test_deploy_field_argv_runs_the_tool(tmp_path):
     a = jobs.deploy_field_argv(tmp_path, "X.field.toml")
     assert a[0] == sys.executable and a[-1] == "X.field.toml"
     assert a[1].replace("\\", "/").endswith("tools/deploy_field.py")
+    # the Build tab names a slot on its radio; passing it makes the deploy land where the label says
+    # (CLAUDE.md §3: ALWAYS pass --id -- without it the tool re-reads the pin, else the SHARED 4003 sandbox)
+    assert jobs.deploy_field_argv(tmp_path, "X.field.toml", field_id=30004)[-3:] == ["X.field.toml", "--id", "30004"]
 
 
 def test_deploy_campaign_argv_no_warp_by_default(tmp_path):

@@ -7,7 +7,7 @@ for every shell-out (the ``ff9mapkit import ...`` line, the ``tools/deploy_*.py`
 
 The deploy *tools* live at the REPO root (``tools/``), not inside the kit package, so the argv builders
 take ``repo_root`` rather than hardcoding a checkout path. ``detect_game_mod`` / ``detect_deployed_fields``
-go through :mod:`..config` (the install resolver), so they need no repo path.
+go through :mod:`..config` (the install resolver); the former also takes the checkout, for its deploy pin.
 """
 
 from __future__ import annotations
@@ -121,7 +121,12 @@ def detect_game_mod(repo_root=None):
 
 def detect_deploy_target(repo_root):
     """``(mod_folder, field_id)`` from this worktree's ``.ff9deploy.toml``, or sane defaults -- the test
-    slot the field deploy and battle deploy write into."""
+    slot the field deploy and battle deploy write into.
+
+    ``field_id`` is a HUMAN-VISIBLE default: it renames the Build tab's "Test slot NNNN" radio for whoever
+    launches the Workspace from this checkout -- and that is the human. A session that pins ``id`` here
+    retargets the human's tab (CLAUDE.md §3's costliest incident: the owner's next deploy landed in a
+    scratch slot and wiped a room mid-playtest). Pin ``mod_folder``; pass ``--id`` per deploy instead."""
     mod, fid = "FF9CustomMap", None
     f = Path(repo_root) / ".ff9deploy.toml"
     if f.is_file():
@@ -510,9 +515,15 @@ def pack_argv(mod_root, out_zip, *, name=None):
     return a
 
 
-def deploy_field_argv(repo_root, field):
-    """Reversibly deploy a field.toml into this worktree's test slot (``tools/deploy_field.py``)."""
-    return [sys.executable, _tool(repo_root, "deploy_field.py"), str(field)]
+def deploy_field_argv(repo_root, field, *, field_id=None):
+    """Reversibly deploy a field.toml into a test slot (``tools/deploy_field.py``). ``field_id`` is the slot
+    the Build tab LABELS: passing it (``--id``) makes the deploy land where the label says -- CLAUDE.md §3's
+    "always pass --id" reaching the GUI lane. Without it the tool re-reads ``.ff9deploy.toml`` itself, else
+    the SHARED 4003 sandbox, and nags on stderr."""
+    a = [sys.executable, _tool(repo_root, "deploy_field.py"), str(field)]
+    if field_id is not None:
+        a += ["--id", str(int(field_id))]
+    return a
 
 
 def deploy_field_own_id_argv(repo_root, field, field_id, name):

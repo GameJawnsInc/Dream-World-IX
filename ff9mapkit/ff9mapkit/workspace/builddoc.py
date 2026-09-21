@@ -176,7 +176,10 @@ class BuildDoc(QWidget):
         self.rb_inplace.setVisible(False)
         self.tg.addButton(self.rb_inplace)
         self.rb_inplace.toggled.connect(self._update_dest)
-        self.rb_test = QRadioButton(f"Test slot {tid}")
+        # SAY where the number came from: a pin in this checkout's .ff9deploy.toml renames this radio for
+        # whoever launches the Workspace here (CLAUDE.md §3's costliest incident -- a session's scratch pin
+        # became the owner's default slot). A number that is not the one expected must read as a pin.
+        self.rb_test = QRadioButton(f"Test slot {tid}  ({'pinned in .ff9deploy.toml' if self.worktree_id is not None else 'the shared default'})")
         self.rb_test.setChecked(self.has_tools)        # installed copy: no debug-menu dev engine -> default to Install to game
         # label = the folder NAME only; the full path lives in the tooltip. (An unwrappable radio label
         # carrying the whole install path forced the tab's minimum width past the pane -> h-scrolling.)
@@ -985,7 +988,7 @@ class BuildDoc(QWidget):
             if self._confirm_reversible(f"Deploy to test field {tid}",
                              f"Build and deploy this field to the test slot {tid} ({self.mod_folder})? "
                              "It replaces whatever is there now (reversible)."):
-                self._stream(jobs.deploy_field_argv(self.repo, field), cwd=self.repo,
+                self._stream(jobs.deploy_field_argv(self.repo, field, field_id=tid), cwd=self.repo,   # the label's number, explicitly
                              subject=f"Deploy to test field {tid}",
                              ok_headline=f"Deployed to test field {tid} ({self.mod_folder})",
                              ok_next=f"In-game: {reach}.", field_id=tid)
