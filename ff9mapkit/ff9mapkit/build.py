@@ -9946,7 +9946,7 @@ def _foreign_registrations(dict_patch, new_lines) -> list:
         for ln in lines:
             p = ln.split()
             if len(p) >= 5 and p[0] == "FieldScene":
-                out[("FieldScene", p[1])] = p[3]         # FieldScene <id> <area> <?> <name> <block>
+                out[("FieldScene", p[1])] = p[4]         # FieldScene <id> <area> <mapid> <NAME> <block> (the emitter at build_field)
             elif len(p) >= 4 and p[0] == "BattleScene":
                 out[("BattleScene", p[1])] = p[2]        # BattleScene <id> <NAME> <BBG>
         return out
