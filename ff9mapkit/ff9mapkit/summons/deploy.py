@@ -2244,13 +2244,18 @@ def _artifact_paths(ledger: _Ledger) -> list:
 
 # --------------------------------------------------------------------------- top-level deploy
 
+_MIRROR_MARKER = ".dry-run-mirror"      # the one file a mirrored efNNN/ holds: occupancy, never the live bytes
+
+
 def _dry_run_mirror(live_root, work_dir) -> Path:
     """The SCRATCH mirror a dry run stages into: ``work_dir/<live folder name>``, emptied, then seeded with
-    a COPY of the live folder's ``DictionaryPatch.txt``. The name makes the cross-folder checker treat the
-    mirror as the live folder ('self' is excluded); the registry copy makes a deferred ``id`` allocate
-    against the same registrations the real deploy would see -- without it the mirror looked empty and
-    the receipt reported an id the live folder already holds (and 'NEW GEO id' for a plain redeploy).
-    The live side is only ever READ."""
+    a COPY of the live folder's ``DictionaryPatch.txt`` and the NAME of every populated ``efNNN/`` under its
+    effects tree (one zero-byte marker each -- never the live bytes). The name makes the cross-folder
+    checker treat the mirror as the live folder ('self' is excluded); the registry copy makes a deferred
+    ``id`` allocate against the same registrations the real deploy would see; the ef markers make a
+    deferred ``private_ef`` allocate against the same OCCUPANCY (:func:`alloc_private_ef` refuses a
+    populated ``efNNN/``, and an empty mirror tree let a dry run name a host the live folder already
+    holds). The live side is only ever READ."""
     mirror = Path(work_dir) / Path(live_root).name
     if mirror.exists():
         shutil.rmtree(mirror)
@@ -2258,6 +2263,13 @@ def _dry_run_mirror(live_root, work_dir) -> Path:
     if dp.is_file():
         mirror.mkdir(parents=True)
         shutil.copyfile(dp, mirror / "DictionaryPatch.txt")
+    sfx = Path(live_root).joinpath(*_SFX_REL)
+    if sfx.is_dir():
+        for d in sfx.iterdir():
+            if d.is_dir() and d.name.startswith("ef") and any(d.iterdir()):      # populated = occupied
+                m = mirror.joinpath(*_SFX_REL, d.name)
+                m.mkdir(parents=True, exist_ok=True)
+                (m / _MIRROR_MARKER).touch()
     return mirror
 
 

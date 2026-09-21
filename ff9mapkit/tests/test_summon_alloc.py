@@ -242,3 +242,36 @@ def test_cli_summon_deploy_dry_run_honours_mod_folder(tmp_path, monkeypatch):
     assert cli._cmd_summon_deploy(args) == 2
     assert seen["dry_run"] is True
     assert Path(seen["mod_root"]) == (game / "FF9CustomMap-world").resolve()
+
+
+# ---- the dry-run mirror carries the live folder's private-ef OCCUPANCY too ---------------------
+_SFX = D._SFX_REL
+
+
+def test_dry_run_allocates_private_ef_against_the_live_occupancy(tmp_path, monkeypatch):
+    """The mirror seeded only the live DictionaryPatch, so `alloc_private_ef` scanned an EMPTY effects tree
+    and a dry run's receipt could name a private ef the live folder already holds -- the same infidelity
+    the registry seed closed for the GEO id. The mirror now carries each populated live `efNNN/` as a
+    NAME with one marker file (never the bytes), so `validate_private_ef(for_alloc=True)` sees what the
+    real deploy would. The live side is only ever read."""
+    game = _game(tmp_path, folders=("FF9CustomMap", "B"))
+    live = tmp_path / "FF9CustomMap"
+    _register(live, "3DModel 6000 GEO_MON_B0_M000")
+    taken = live.joinpath(*_SFX, "ef018")                      # 18 = the first stock-absent id, ascending
+    taken.mkdir(parents=True)
+    (taken / "PlayerSequence.seq").write_text("Turn: back\r\n", encoding="utf-8")
+    empty = live.joinpath(*_SFX, "ef037")                      # an EMPTY dir is not occupancy (alloc law)
+    empty.mkdir()
+    mirror = D._dry_run_mirror(live, tmp_path / "scratch")
+    assert sorted(p.name for p in mirror.joinpath(*_SFX).iterdir()) == ["ef018"]
+    marker = list(mirror.joinpath(*_SFX, "ef018").iterdir())
+    assert len(marker) == 1 and marker[0].stat().st_size == 0     # a name, not the live bytes
+    spec = D._resolve_ids(_spec(private_ef=None), mirror, game, out=lambda *a, **k: None)
+    assert spec["private_ef"] == 37                            # skipped the LIVE 18, like the real deploy
+    # end to end through deploy(dry_run=True): the receipt says what the live deploy would do
+    from ff9mapkit.summons import export as _sexport
+    monkeypatch.setattr(_sexport, "DEFAULT_OUT_DIR", tmp_path / "scratch2")
+    res = D.deploy(_hybrid_block(tmp_path, game, private_ef=None), game=str(game), mod_root=str(live),
+                   dry_run=True, out=lambda *a, **k: None)
+    assert res["dry_run"] and res["spec"]["private_ef"] == 37
+    assert [p.name for p in taken.iterdir()] == ["PlayerSequence.seq"]      # live ef018 untouched
