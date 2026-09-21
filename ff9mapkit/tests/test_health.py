@@ -171,3 +171,31 @@ def test_health_mod_folder_row_follows_the_documented_folder_order(monkeypatch, 
     mod = next(r for r in rows if r["label"] == "Mod folder")
     assert mod["value"].startswith(str(tmp_path / "FF9CustomMap"))
     assert not any(r["label"] == "Custom battle formula DLL" for r in rows)
+
+
+def test_health_report_start_keys_the_pin_walk_and_the_dialog_passes_its_checkout(monkeypatch, tmp_path):
+    """With no ``start`` the resolver walks up from the CWD -- right for a CLI verb, wrong for the Workspace,
+    which never chdirs: launched from outside the checkout its Setup & Health named the shared default while
+    the Build tab deployed into the pin. ``start=`` keys the walk; the dialog passes its kit dir (the walk
+    climbs to the checkout root, where the pin and the .git marker sit)."""
+    game = tmp_path / "game"
+    (game / "StreamingAssets").mkdir(parents=True)
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: game)
+    monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "ff9mapkit").mkdir()
+    (repo / ".ff9deploy.toml").write_text('mod_folder = "Pinned"\n', encoding="utf-8")
+    mod = next(r for r in health.health_report(start=repo / "ff9mapkit") if r["label"] == "Mod folder")
+    assert mod["value"].startswith(str(game / "Pinned"))
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.setupdialog import SetupHealthDialog
+    QApplication.instance() or QApplication([])
+    seen = []
+    real = health.health_report
+    monkeypatch.setattr(health, "health_report", lambda *a, **k: seen.append(k) or real(*a, **k))
+    SetupHealthDialog(None, pick_palette("dark"), kit_cwd=repo / "ff9mapkit")
+    assert seen and seen[-1].get("start") == str(repo / "ff9mapkit")

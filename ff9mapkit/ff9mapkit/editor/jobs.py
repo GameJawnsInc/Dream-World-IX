@@ -120,22 +120,27 @@ def detect_game_mod(repo_root=None):
 
 
 def detect_deploy_target(repo_root):
-    """``(mod_folder, field_id)`` from this worktree's ``.ff9deploy.toml``, or sane defaults -- the test
-    slot the field deploy and battle deploy write into.
+    """``(mod_folder, field_id)`` for this worktree -- the test slot the field deploy and battle deploy
+    write into. ``mod_folder`` follows :func:`config.resolve_mod_folder`'s documented order keyed on the
+    checkout (``$FF9_MOD_FOLDER`` > ``<repo_root>/.ff9deploy.toml`` > ``FF9CustomMap``) -- the order
+    ``tools/deploy_field.py`` lands in, so the tab never names one folder and deploys into another.
+    ``field_id`` is the pin's ``id`` as an int, or ``None`` when absent, non-numeric or a bool -- never a
+    falsy value a caller's ``or 4003`` would silently turn into the SHARED sandbox under a 'pinned' label.
 
     ``field_id`` is a HUMAN-VISIBLE default: it renames the Build tab's "Test slot NNNN" radio for whoever
     launches the Workspace from this checkout -- and that is the human. A session that pins ``id`` here
     retargets the human's tab (CLAUDE.md §3's costliest incident: the owner's next deploy landed in a
     scratch slot and wiped a room mid-playtest). Pin ``mod_folder``; pass ``--id`` per deploy instead."""
-    mod, fid = "FF9CustomMap", None
+    from .. import config
+    mod, fid = config.resolve_mod_folder(start=repo_root), None      # the ONE folder order (soft on a bad pin)
     f = Path(repo_root) / ".ff9deploy.toml"
     if f.is_file():
         try:
-            d = tomllib.loads(f.read_text(encoding="utf-8"))
-            mod = d.get("mod_folder", mod) or mod
-            fid = d.get("id")
+            raw = tomllib.loads(f.read_text(encoding="utf-8")).get("id")
+            if raw is not None and not isinstance(raw, bool):
+                fid = int(raw)
         except Exception:
-            pass
+            fid = None
     return mod, fid
 
 

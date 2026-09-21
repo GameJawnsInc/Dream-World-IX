@@ -255,7 +255,7 @@ def test_hold_parks_the_fill_until_release(app, pin_cache, thumbs_on, monkeypatc
 @pytest.fixture
 def doc(app, pin_cache, monkeypatch):
     from ff9mapkit.editor import jobs
-    monkeypatch.setattr(jobs, "detect_game_mod", lambda: None)   # never read this machine's install
+    monkeypatch.setattr(jobs, "detect_game_mod", lambda repo_root=None: None)   # never read this machine's install
     svc, anims = _StubThumbs(), _StubAnimFrames()
     d = ModelsDoc(pick_palette("dark"), ".", run=lambda *a, **k: True,
                   model_thumbs=svc, anim_frames=anims)
@@ -428,7 +428,7 @@ def test_previews_off_hides_the_strip_and_keeps_the_list(app, pin_cache, monkeyp
     """NO_THUMBS is the headless/no-install gate: the ids are still browsable (they paste into
     anims=), but nothing renders and the strip does not pretend otherwise."""
     from ff9mapkit.editor import jobs
-    monkeypatch.setattr(jobs, "detect_game_mod", lambda: None)
+    monkeypatch.setattr(jobs, "detect_game_mod", lambda repo_root=None: None)
     anims = _StubAnimFrames()
     d = ModelsDoc(pick_palette("dark"), ".", run=lambda *a, **k: True,
                   model_thumbs=_StubThumbs(), anim_frames=anims)

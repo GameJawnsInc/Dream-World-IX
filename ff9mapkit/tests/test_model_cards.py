@@ -448,3 +448,17 @@ def test_single_kind_picker_rows_drop_the_chip_and_realfield_rows_carry_the_id(a
             "the singular reads as prose too"
     finally:
         dlg.deleteLater()
+
+
+def test_models_tab_keys_its_install_target_on_its_checkout(app, pin_cache, monkeypatch, tmp_path):
+    """The Build tab passes its checkout to detect_game_mod (the pin lives there); the Models tab passed
+    nothing, so the two tabs in ONE Workspace could name different install folders whenever the launch CWD
+    was not the checkout. Both key on the checkout now."""
+    from pathlib import Path
+    from ff9mapkit.editor import jobs
+    seen = []
+    monkeypatch.setattr(jobs, "detect_game_mod", lambda repo_root=None: seen.append(repo_root) or None)
+    kit = tmp_path / "repo" / "ff9mapkit"
+    kit.mkdir(parents=True)
+    ModelsDoc(pick_palette("dark"), str(kit), run=lambda *a, **k: True, model_thumbs=_StubThumbs())
+    assert seen == [Path(kit).parent]

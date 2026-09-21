@@ -169,7 +169,7 @@ class BuildDoc(QWidget):
         box = widgets.section("Build to (field)")
         gv = box.content_layout
         self.tg = QButtonGroup(self)
-        tid = self.worktree_id or 4003
+        tid = 4003 if self.worktree_id is None else self.worktree_id   # 0 is a pin too (the tool refuses it aloud)
         # In-place: only meaningful for a verbatim fork of a REAL field -> hidden until such a project loads
         # (set_field fills the label + shows it). Placed FIRST so it reads as the preferred route for a fork.
         self.rb_inplace = QRadioButton("In-place on the real field")
@@ -618,7 +618,7 @@ class BuildDoc(QWidget):
     def _update_dest(self, *_):
         if self.kind != "field":
             return
-        tid = self.worktree_id or 4003
+        tid = 4003 if self.worktree_id is None else self.worktree_id   # 0 is a pin too (the tool refuses it aloud)
         own = self.field_id if self.field_id is not None else "?"
         # Each branch resolves to a short VALUE LINE (the option's caption above already explains the mode,
         # and the rev tooltip keeps the fine print) -- say each fact exactly once. There is no longer a
@@ -982,7 +982,7 @@ class BuildDoc(QWidget):
         if self.rb_test.isChecked():
             if not self._require_tools("Deploy to test slot"):
                 return
-            tid = self.worktree_id or 4003
+            tid = 4003 if self.worktree_id is None else self.worktree_id   # 0 is a pin too (the tool refuses it aloud)
             reach = ("New Game → walk to the hut door (or ~ → Warp)" if tid == 4003
                      else f"~ → Warp to field {tid}")
             if self._confirm_reversible(f"Deploy to test field {tid}",

@@ -55,11 +55,12 @@ def netsync_generation(game) -> dict:
             "level": "ok" if s37 else "warn"}
 
 
-def health_report(game=None, mod_folder=None) -> list:
+def health_report(game=None, mod_folder=None, *, start=None) -> list:
     """Every check, in reading order. ``game`` (optional) overrides the resolved install path; ``mod_folder``
     (optional) overrides the folder the Mod folder row + the custom-DLL probe read, else the documented order
-    (``$FF9_MOD_FOLDER`` > this checkout's ``.ff9deploy.toml`` > ``FF9CustomMap``) -- the folder a deploy
-    would land in, never a hardcoded default a pinned checkout stopped using."""
+    (``$FF9_MOD_FOLDER`` > the ``.ff9deploy.toml`` found walking up from ``start`` -- the CWD when ``None``,
+    as for a CLI verb; the Workspace passes its kit dir, since it never chdirs > ``FF9CustomMap``) -- the
+    folder a deploy would land in, never a hardcoded default a pinned checkout stopped using."""
     rows = [_row("Kit version", __version__)]
 
     try:
@@ -137,7 +138,7 @@ def health_report(game=None, mod_folder=None) -> list:
 
     try:
         from . import config as _cfg
-        folder = _cfg.resolve_mod_folder(mod_folder)
+        folder = _cfg.resolve_mod_folder(mod_folder, start=start)
         layout = _cfg.ModLayout(Path(game) / folder)
         rows.append(_row("Mod folder", f"{layout.root}"
                          + ("" if layout.root.is_dir() else "  (created on first deploy)")))

@@ -300,10 +300,23 @@ def test_revert_journey_argv_picks_most_recent(tmp_path):
     assert jobs.revert_journey_argv(tmp_path)[-1].replace("\\", "/").endswith("scroll_out/revert_journey.py")
 
 
-def test_detect_deploy_target_reads_pin(tmp_path):
+def test_detect_deploy_target_reads_pin(tmp_path, monkeypatch):
+    """The folder half follows config.resolve_mod_folder's documented order (explicit > $FF9_MOD_FOLDER > the
+    checkout's pin > FF9CustomMap) -- the same order tools/deploy_field.py lands in, so the Build tab never
+    names one folder and deploys into another. The id half is an int or None: a falsy or malformed pin used
+    to read as 'pinned' on the label while `or 4003` sent the deploy to the SHARED sandbox."""
+    monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    (tmp_path / ".git").mkdir()                                            # the pin walk stops here
     assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap", None)   # no file -> defaults
-    (tmp_path / ".ff9deploy.toml").write_text('mod_folder = "FF9CustomMap-ic"\nid = 30004\n', encoding="utf-8")
+    pin = tmp_path / ".ff9deploy.toml"
+    pin.write_text('mod_folder = "FF9CustomMap-ic"\nid = 30004\n', encoding="utf-8")
     assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap-ic", 30004)
+    monkeypatch.setenv("FF9_MOD_FOLDER", "FF9CustomMap-env")
+    assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap-env", 30004)   # env beats the pin, as the tool does
+    monkeypatch.delenv("FF9_MOD_FOLDER")
+    for raw, want in (("0", 0), ('"30005"', 30005), ('"abc"', None), ("true", None), ("30004.0", 30004)):
+        pin.write_text(f'mod_folder = "FF9CustomMap-ic"\nid = {raw}\n', encoding="utf-8")
+        assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap-ic", want), raw
 
 
 # ---- installed-copy deploy: the package CLI argv builders + per-user revert cache --------------------
