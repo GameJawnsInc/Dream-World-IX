@@ -14,7 +14,7 @@
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
   `Found 106 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **8465** after item 5 (PySide6 importable here; ~7649 without it) (this
+- **Collect**: `pytest --collect-only -q` from the repo root was **8471** after item 6 (PySide6 importable here; ~7655 without it) (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates / `UnityPy`; `Pillow`,
@@ -38,10 +38,15 @@
 6. Item 5's template-gated files -- `test_content`, `test_ladder`, `test_jump`, `test_platform`,
    `test_savepoint`, `test_object_graft`, `test_eventscan`, `test_textcarry` -- green, and every
    bundled example built at `bcd3ba7` and at `ef4ebec`: the dist `.eb`s byte-identical.
+7. Item 6's leftovers: the 19 EbScript round-trip tautologies whose tests SKIP here (blank template /
+   fixtures) and the 51 in the six template-gated files (`test_content`, `test_player_graft`,
+   `test_object_graft`, `test_savepoint`, `test_textcarry`, `test_playerswap`) -- convert to
+   `eblint.errors(eblint.lint_eb(out)) == []` where it passes, a structural fact where it does not; and a
+   `[[ladder]]`/`[[jump]]`/`[[platform]]` example built end-to-end so their key paths enter `ENFORCED`.
 
 ## The queue, ranked by value per byte of new surface
 
-### Done since handoff — items 1-5
+### Done since handoff — items 1-6
 - **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
   ruff F 109 → 107. Regression test in `tests/test_chain.py`.
 - **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
@@ -70,27 +75,17 @@
   splice through `edit.add_function` (an empty entry 0 now raises). Proof without templates: Hypothesis
   (3000 examples per shape, every old text transcribed verbatim) + a 1070-key snapshot over 40 synthetic
   ebs, calibrated at every step. `tests/test_pack_entry.py` (4), `test_reinit.py` (+1).
+- **6 (F10/F11/F13)** five commits `611f7f0`…`66899ce4`: the verbatim ignore set names all seven
+  build_script-only blocks (AST census; qte/numeric_input/siege/behavior are REFUSED by validate,
+  shop/synthesis warned, the rest wired on both paths); `LintReport.tagged` is the one print seam (deploy
+  prints `[schema]` again); a `[[ladder]]` with a key outside its 17-key vocabulary is REFUSED with a
+  difflib hint (the harvested lint does not enforce ladder/jump/platform -- no example completes offline);
+  the four `.eb` round-trip tautologies that RUN here assert something (eblint ×3, a structural size check
+  where eblint rightly flags placeholder switch targets); `behaviortoml.dry_compile` owns the seat+build+
+  compile the CLI and Workspace lanes carried, and `lint_all` dry-compiles `[behavior]` after the walkmesh
+  resolve (a 97-flag table on a 96-flag band is now a lint ERROR). Recorder containment: 93/93 calls,
+  124/124 compiles.
 
-
-### 6. The offline gate that doesn't gate (F10 / F11 / F13)  · medium · mostly offline
-- `_VERBATIM_IGNORED_BLOCKS` (`build.py:3284`) names ONE block; on a verbatim fork `ladder`,
-  `platform`, `jump`, `savepoint` (+ `ate`, `object`) build clean and are absent in game — their
-  injectors live inside `build_script` (`6842`, `6895`, `6947`, `7066`), which `build.py:9085`
-  bypasses. Correct the set to exactly those. Do NOT invert it into an allow-list: `sps` is
-  wired at `6248`, `qte`/`numeric_input` are fatal at `2439`/`2468`, `shop`/`synthesis` are
-  warned at `9060-9070`, and `cli.py:1186` exits 1 on any warning — one mislabel breaks every
-  fork's build gate.
-- `LintReport` gets a `tagged` property; `cli.py:1181` and `deploy.py:599` iterate ONE seam
-  (`deploy` prints five of six slots — it drops `unknown`, the typo'd-key check).
-- `navigable = true` typo silently selects a DIFFERENT ladder mechanism (`build.py:1674`
-  branches on `la.get("navigable")`, `1705` catches the fallthrough): make the discriminant
-  explicit.
-- 31 `.eb` "round-trip" assertions reduce to `bytes(x) == x` because `EbScript.to_bytes()` is
-  `return self.data` (`eb/model.py:108-109`); convert the ~20 genuinely bare ones (they sit on
-  the length-changing splice primitives) to `eblint.errors(eblint.lint_eb(out)) == []`.
-- `content/behavior.py` (4,141 lines, 166 `raise BehaviorError`) is never compiled by
-  `build.validate`: call a dry compile from `lint_all` AFTER the walkmesh resolve
-  (~`build.py:4121`), not beside `lint_region_overlaps` at `4111` where no routed plan exists.
 
 ### 7. F47 — generated tables carry no provenance  · small · offline
 Ten `_*.py` tables (~22.7k lines; `_animdb_all.py` alone 14,125) from nine `_regen_*`
