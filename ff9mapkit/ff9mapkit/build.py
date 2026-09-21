@@ -3283,7 +3283,13 @@ def validate(project: FieldProject) -> list[str]:
 # fork -- seated below the donor's party-character band -- by _inject_verbatim_{npcs,gateways,events}.)
 _VERBATIM_IGNORED_BLOCKS = {
     "marker": "[[marker]]",
-}   # NOT here: [music] REPLACES the donor BGM in place; a [[choice]] with `npc =` is wired to that NPC's talk
+    "ladder": "[[ladder]]", "jump": "[[jump]]", "platform": "[[platform]]", "savepoint": "[[savepoint]]",
+    "ate": "[[ate]]", "object": "[[object]]",
+}   # The six content blocks whose injectors are called ONLY from inside build_script (an AST census of every
+    # raw.get("<block>") read in this module, scout F10). Deliberately absent: [[qte]] / [[numeric_input]] /
+    # [siege] / [behavior] (validate() REFUSES them on a verbatim fork), [shop] / [synthesis] (warned in
+    # build_field), and [[sps]] / [encounter] / a cast [cutscene] / the field-load hooks (wired on BOTH paths).
+    # NOT here: [music] REPLACES the donor BGM in place; a [[choice]] with `npc =` is wired to that NPC's talk
     # (a zone [[choice]] with no `npc` is still unwired -- warned separately in lint_logic). A MULTI-ACTOR
     # [cutscene] (actor = [...]) IS wired (a below-band conductor, _inject_verbatim_conductor) -- only a
     # single-actor / narration cutscene stays unwired (warned below in lint_logic).

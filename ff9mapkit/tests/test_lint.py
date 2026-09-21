@@ -158,6 +158,47 @@ def test_lint_warns_synth_content_dropped_on_verbatim_fork(tmp_path):
     assert any("does NOT add random battles" in s for s in w), w                  # encounter: BGM only here
 
 
+def test_lint_warns_every_build_script_only_block_dropped_on_verbatim_fork(tmp_path):
+    """REGRESSION (scout F10): the ignore set named ONE block ([[marker]]) while six more content injectors
+    live only inside build_script -- ladder / jump / platform / savepoint / ate / object -- so authoring any
+    of them on a verbatim fork built clean and did nothing in game. An AST census of every raw.get() read
+    in build.py is the source of the list; the blocks validate() REFUSES on a verbatim fork ([[qte]],
+    [[numeric_input]], [siege], [behavior]) and the ones wired on both paths are deliberately absent."""
+    from ff9mapkit.build import lint_logic
+    body = ('[field]\nid = 4003\nname = "VTEST"\narea = 11\n\n'
+            '[verbatim_eb]\nbin = "donor.bin"\n\n'
+            '[[ladder]]\nzone = [[0,0],[1,0],[1,1]]\nto = [0, 0]\n\n'
+            '[[jump]]\nzone = [[0,0],[1,0],[1,1]]\nto = [0, 0]\n\n'
+            '[[platform]]\nzone = [[0,0],[1,0],[1,1]]\n\n'
+            '[[savepoint]]\nzone = [[0,0],[1,0],[1,1]]\n\n'
+            '[[ate]]\nzone = [[0,0],[1,0],[1,1]]\n\n'
+            '[[object]]\nname = "x"\n')
+    w = lint_logic(_load(tmp_path, body=body))
+    dropped = [s for s in w if "verbatim fork" in s and "ignored -- the field runs the donor" in s]
+    assert len(dropped) == 1, w
+    for lbl in ("[[ladder]]", "[[jump]]", "[[platform]]", "[[savepoint]]", "[[ate]]", "[[object]]"):
+        assert lbl in dropped[0], (lbl, dropped[0])
+
+
+def test_lint_report_tagged_is_the_one_print_seam():
+    """REGRESSION (scout F11): `ff9mapkit lint` and the deploy pre-flight each carried their own tuple of
+    (label, slot) pairs, and the deploy one had dropped `unknown` (the typo'd-key check) -- five of six
+    slots printed. One property owns the order and the labels; both loops iterate it and `warnings` is
+    derived from it, so a slot added to the dataclass is printed everywhere or nowhere."""
+    import dataclasses
+    import inspect
+    from ff9mapkit import cli, deploy
+    from ff9mapkit.build import LintReport
+    rep = LintReport(errors=["e"], logic=["l"], flags=["f"], placement=["p"], camera=["c"], unknown=["u"])
+    advisory = {f.name for f in dataclasses.fields(LintReport) if f.default_factory is list} - {"errors"}
+    assert [tag for tag, _ in rep.tagged] == ["schema", "logic", "flags", "placement", "camera"]
+    assert {id(items) for _, items in rep.tagged} == {id(getattr(rep, s)) for s in advisory}   # every slot, once
+    assert rep.warnings == ["u", "l", "f", "p", "c"]
+    for fn in (cli._cmd_lint, deploy.deploy_field):
+        src = inspect.getsource(fn)
+        assert "rep.tagged" in src and '("logic", rep.logic)' not in src, fn.__name__
+
+
 def test_lint_does_not_warn_supported_blocks_dropped_on_verbatim_fork(tmp_path):
     # [[npc]]/[[gateway]] (seated below the party band) and [music] (REPLACES the donor BGM in place) are NOW
     # supported on a verbatim fork, so none may be reported as dropped -- the regression guard for removing
