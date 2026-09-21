@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the deploy pin reaches the last three folder readers, and the Build tab says where its slot came from
+- `world-ledger` no longer REQUIRES `--mod-folder`: it resolves the folder like every other verb
+  (`--mod-folder` > `$FF9_MOD_FOLDER` > this checkout's `.ff9deploy.toml` > `FF9CustomMap`), so a pinned
+  checkout reads its own ledger. Setup & Health's Mod folder row and its custom battle-formula DLL
+  probe read the same resolved folder instead of a hardcoded `FF9CustomMap`. The Workspace's
+  "Install to game" (Build tab) and "Deploy into" (Models tab) targets follow the checkout's pin too —
+  a pinned worktree used to INSTALL into the shared default, the collision the pin exists to prevent.
+- The Build tab's test-slot radio reads `Test slot 30004  (pinned in .ff9deploy.toml)` or
+  `Test slot 4003  (the shared default)`, and its deploy passes that number as `--id` — the label
+  and the landing slot are one fact, and `tools/deploy_field.py` stops nagging the tab.
+- `gen-hub` refuses a hub id in the engine-reserved world-map hole (9000–9012) up front, through
+  the shared `pack.check_custom_id` validator (its message replaces the hub's own "out of range").
+- A build's "this would unregister field N (…)" refusal names the field's NAME, not its map id.
+- Every reader of an existing `DictionaryPatch.txt` / `ForkDonorPatch.txt` decodes `utf-8-sig`: a
+  file re-saved from Notepad carries a BOM, and its first line was invisible to every collision guard.
+- `summon-deploy --dry-run` allocates a deferred `private_ef` against the LIVE folder's occupancy
+  (the mirror now names each populated `efNNN/`, one empty marker each, never the bytes); a
+  name-pinned, id-less `[[summon]]` redeploys onto the id the folder already registers under that
+  name instead of minting a fresh one every time (a block pinning neither id nor name still re-mints:
+  the default name derives from the id, so it has no key).
+
 ### Fixed — the summon lane joins the `3DModel` GEO-id collision guard
 - `summon-deploy` / `summon-import` were the one path shipping a `3DModel` line with no guard at
   all, and their deferred-`id` allocator inferred occupancy from `Models/*/<id>/` folders alone —

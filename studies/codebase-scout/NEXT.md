@@ -1,12 +1,13 @@
 # Codebase scout — what to chase next
 
 > Handoff for the session that continues [`REPORT.md`](REPORT.md). Everything in the report's
-> "Where to start" (items 1–9) has SHIPPED on `claude/codebase-improvement-scout-t2sag7`
+> "Where to start" (items 1–9) has SHIPPED on `claude/codebase-improvement-scout-t2sag7`, and so has
+> the follow-on queue below (items 1–10)
 > (10 commits, `c8741de`..`f564e93`). This file is the ranked queue that follows, with enough
 > file:line to execute each without re-scouting. Verify a line number before editing — every
 > edit above it shifts the ones below.
 
-## How the last nine landed (keep this rhythm)
+## How the last ten landed (keep this rhythm)
 
 - **Walk the change through before coding**, one piece at a time; the owner approves each.
 - **Calibrate**: write the test first, show it RED on the current tree, then fix, then GREEN.
@@ -14,7 +15,7 @@
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
   `Found 106 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **8503** after item 9 (PySide6 importable here; ~7687 without it) (this
+- **Collect**: `pytest --collect-only -q` from the repo root was **8512** after item 10 (PySide6 importable here; ~7696 without it) (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates / `UnityPy`; `Pillow`,
@@ -47,10 +48,19 @@
    `tools/bake_narrowmap.py`, `_regen_npcparams` / `tools/regen_bone_labels.py` / `tools/extract_attach_poses.py
    --build-kit` against the install, `_regen_fieldschema`) -> every `Memoria@unknown` becomes the clone's
    revision and NOTHING else in any table changes (the free currency check).
+9. Item 10, in the real Workspace on a PINNED checkout: the Build tab's radio reads `Test slot <pin>
+   (pinned in .ff9deploy.toml)` and its deploy's console line carries `--id <pin>` (no "no --id given"
+   nag); "Install to game" names the pinned folder; Setup & Health's Mod folder row names it too.
+   `ff9mapkit world-ledger` with no flag reads the pinned folder's ledger. One live name-pinned
+   `[[summon]]` redeploy keeps its id (no `NEW GEO id -- RELAUNCH`), and a `--dry-run` into a folder
+   whose `ef018/` is populated reports `private_ef` 37.
 
 ## The queue, ranked by value per byte of new surface
 
-### Done since handoff — items 1-9
+EMPTY. Everything the report and this file queued has shipped; what follows is the record. The report's
+"Considered and rejected" section is the only list left, and it is a do-not list.
+
+### Done since handoff — items 1-10
 - **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
   ruff F 109 → 107. Regression test in `tests/test_chain.py`.
 - **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
@@ -105,29 +115,18 @@
   `_verbatim_voiced_props` -- and derives the counts from them; the dead cutscene count and the nested
   `_aslist2` twin are gone. `twins_differ.py` (old copies transcribed verbatim vs the new owners) ALL EQUAL,
   calibration on the prop selector FAILED `['prop_count']`. test_build 51 passed; the extraction is untouched.
+- **10 (F03 / F44 / F40 / F01 leftovers)** `4e702ddc`..`90823638`, one commit per letter: (a) `hub.validate_hub`
+  delegates the id band to `pack.check_custom_id` and so refuses the 9000-9012 hole; (b) the foreign-registration
+  refusal names the field (column 4), not its map id; (c) seven readers of an existing patch file decode
+  `utf-8-sig`; (d) skinmint/itemdata read the band from `models.mint` (differ: 18 probes ALL EQUAL, calibrated
+  with caches cleared -- a same-length same-second rewrite is invisible to the pyc mtime+size check); (e)
+  `world-ledger` resolves its folder like every other verb (the "required" flag made the queue's claim stale);
+  (f) `health_report(mod_folder=None)`; (g) `detect_game_mod(repo_root)` follows the pin -- THE ONE BEHAVIOUR
+  CHANGE: a pinned worktree's Install-to-game now lands in its pin; (h) the test-slot radio names its provenance
+  and the deploy passes `--id`; (i) the dry-run mirror names each populated live `efNNN/`; (j) a name-pinned
+  id-less summon reuses its registered id. Every new test red on the old tree. `text_block`-honoured-by-1-of-8
+  was NOT re-verified and is not claimed.
 
-
-### 10. Small, local, all offline (F03 / F44 / F40 / F01 leftovers)
-- `hub.validate_hub` (`hub.py:241`) lacks the `9000-9012` world-map hole that
-  `workspace/shell.py:3759` already guards — add the `WORLD_ID_LO/HI` branch.
-- `build.py:9884` reads `p[3]` (mapid) as the field name; the emitter at `9127` is
-  `FieldScene <id> <area> <mapid> <name> <block>` → `p[4]`.
-- `_cmd_world_ledger` (`cli.py:~5477`) resolves `find_game_path(args.game) / args.mod_folder`
-  directly and is untested (`test_world_ledger.py` covers the writer only); `health.py:137` and
-  `editor/jobs.py:113` hardcode `FF9CustomMap` → route all three through
-  `config.resolve_mod_folder`.
-- `.ff9deploy.toml`'s `id` key retargets the human's Build-tab "Test slot" radio at
-  `workspace/builddoc.py:172/618/982` (`tid = self.worktree_id or 4003`) — the costliest
-  documented incident on this file lives only in CLAUDE.md §3. Label the slot as
-  pinned-and-overridable in the tab; say in `editor/jobs.detect_deploy_target`'s docstring that
-  its `field_id` is a human-visible default. `text_block` is honoured by 1 of 8 pin readers.
-- Leftovers from item 2's review: `battle/skinmint.py:30` `_MINT_MAX` and `content/itemdata.py:367`'s
-  literal `32767` are private twins of `models.mint.MINT_BAND_END` — point them at it;
-  `deploystack.model_ids_at` / `dictionary_ids_at` miss a BOM'd first line (`utf-8-sig` fixes both,
-  no kit writer emits one); a dry run still validates `private_ef` against the mirror's EMPTY
-  `ef` tree (`validate_private_ef(for_alloc=True)`), the same infidelity the registry seed just
-  closed for the GEO id; an id-less `[[summon]]` re-mints a fresh id on every redeploy (the
-  allocator sees its own prior mint) — a documented trait, decide whether it should key on name.
 
 ## Refuted — do not re-open without new evidence
 The report's "Considered and rejected" lists 25 findings two adversarial reviewers killed,
