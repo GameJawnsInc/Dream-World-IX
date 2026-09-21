@@ -4123,6 +4123,26 @@ def lint_unknown_keys(project: FieldProject) -> list:
         return [f"unknown-key check failed: {type(e).__name__}: {e}"]
 
 
+def lint_behavior_compile(project: FieldProject) -> list[str]:
+    """A ``[behavior]`` table that VALIDATES can still refuse to COMPILE: the compiler's own errors (a
+    blackboard band exhausted, an unroutable auto route, ...) live past :func:`validate`, and until now the
+    first thing that ran the compiler was the build itself. The same dry compile ``behavior compile`` and the
+    Workspace scan run (:func:`behaviortoml.dry_compile`: placeholder slots, zero txids), with the autoroute
+    plan resolved first when the field asks for one -- so this runs AFTER the walkmesh resolve. A refusal is
+    build-blocking (the build would raise there). Never crashes: any failure IS the finding."""
+    raw = project.raw
+    if not _behaviortoml.table(raw) or "verbatim_eb" in raw:      # (verbatim: validate refuses [behavior])
+        return []
+    try:
+        plan = {}
+        if _behaviortoml.wants_autoroute(raw):
+            plan = _behaviortoml.autoroute_plan(raw, behavior_walkmesh(project))
+        _behaviortoml.dry_compile(raw, routed=plan)
+    except Exception as e:                    # noqa: BLE001 -- lint's never-crash contract
+        return [f"[behavior] does not compile: {e}"]
+    return []
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -4169,6 +4189,8 @@ def lint_all(project: FieldProject) -> LintReport:
                 rep.camera.append((f"camera #{ci}: " if len(cams) > 1 else "") + w)
     except Exception:                         # noqa: BLE001 -- the same resolve failure is already an error
         pass                                  # (reported by validate() and/or the geometry block above)
+    if not rep.errors:                        # the compiler's own refusals -- one root cause, reported once
+        rep.errors.extend(lint_behavior_compile(project))
     return rep
 
 

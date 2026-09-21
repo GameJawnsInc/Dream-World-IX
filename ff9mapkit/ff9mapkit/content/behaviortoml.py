@@ -182,6 +182,24 @@ def placeholder_slots(raw: dict) -> dict:
     return slots
 
 
+def dry_compile(raw: dict, *, routed: dict | None = None):
+    """Build + compile a ``[behavior]`` table with PLACEHOLDER slots and ZERO txids -- the offline dry
+    compile behind ``behavior compile``, the Workspace scan and ``ff9mapkit lint`` (the identical block
+    each lane used to carry). ``routed`` is the autoroute plan when the field asks for one
+    (:func:`wants_autoroute` + :func:`autoroute_plan`, which needs a walkmesh only the caller can resolve).
+    Returns ``(FieldBehavior, CompiledBehavior)``; raises exactly what :func:`build` / ``compile`` raise
+    (BehaviorTomlError / behavior.BehaviorError), and BehaviorTomlError when there is no table at all."""
+    fb = build(raw, npc_slots=placeholder_slots(raw),
+               npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
+                                  if n.get("name") and "dialogue" in n},
+               behavior_txids={**{(ui, bi): 0 for ui, bi, _ in announce_lines(raw)},
+                               **{("hud", hi): 0 for hi, _h in hud_lines(raw)}},
+               routed=routed or {})
+    if fb is None:
+        raise BehaviorTomlError("no [behavior] table to compile")
+    return fb, fb.compile()
+
+
 def row_class(u: dict, ui: int) -> str | None:
     """The class name for a ``npcs = [...]`` row (None for a plain unit row):
     the row's ``class = ``, defaulting to ``class<row index>``."""

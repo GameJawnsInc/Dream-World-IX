@@ -252,6 +252,22 @@ def test_validate_accepts_every_documented_ladder_form(tmp_path):
 
 # ---------------------------------------------------------------- lint_all (the unified pass)
 
+def test_lint_all_reports_a_behavior_that_validates_but_cannot_compile(tmp_path):
+    """REGRESSION (scout F13): validate() runs the behavior VALIDATOR, but the compiler's own refusals (166
+    BehaviorError sites -- a blackboard band exhausted, an unroutable auto route, ...) live past it, and the
+    first thing that ran the compiler was the build. lint_all now dry-compiles (placeholder slots, zero
+    txids, after the walkmesh resolve) and reports a refusal as an ERROR, since the build would raise."""
+    names = ", ".join(f'"p{i}"' for i in range(97))                  # the flag band holds 96
+    body = (CLEAN.format(set_flag=200, requires_flag=200)
+            + '\n[[npc]]\nname = "pest"\npos = [0, -700]\n\n'
+            + f'[behavior]\npublic_flags = [{names}]\n\n'
+            + '[[behavior.unit]]\nnpc = "pest"\n\n[[behavior.unit.branch]]\ndo = { hold_post = true }\n')
+    rep = lint_all(_load(tmp_path, body=body))
+    assert any("[behavior] does not compile" in e and "flag band exhausted" in e for e in rep.errors), rep.errors
+    ok = lint_all(_load(tmp_path, body=body.replace(f"[{names}]", '["p0"]')))
+    assert not any("[behavior]" in e for e in ok.errors), ok.errors
+
+
 def test_lint_all_clean_field_is_ok(tmp_path):
     rep = lint_all(_load(tmp_path))
     assert isinstance(rep, LintReport)

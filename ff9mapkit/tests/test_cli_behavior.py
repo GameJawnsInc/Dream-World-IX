@@ -63,16 +63,22 @@ def test_placeholder_slots_seats_one_slot_per_member_once():
 
 
 def test_every_dry_lane_seats_through_placeholder_slots():
-    """Source pin: the five dry lanes call ``placeholder_slots`` and none carries an inline seating any
-    more (the drift this file exists for was three copies disagreeing on per-ROW vs per-MEMBER)."""
+    """Source pin: every dry lane seats through ``placeholder_slots`` -- the three full dry compiles (the
+    CLI, the Workspace scan, lint's compile check) through ``behaviortoml.dry_compile``, which owns the seat
+    + zero-txid build + compile they used to each carry; the three flag-only lanes call the seat directly.
+    None carries an inline seating any more (the drift this file exists for was three copies disagreeing
+    on per-ROW vs per-MEMBER)."""
     import inspect
     from ff9mapkit import build
     from ff9mapkit.content import behaviortoml, siege
     from ff9mapkit.workspace import behaviorscan
-    lanes = {"cli._cmd_behavior": cli._cmd_behavior, "behaviorscan.dry_compile": behaviorscan.dry_compile,
-             "behaviortoml.published_flags": behaviortoml.published_flags,
-             "siege.resolve_hireable": siege.resolve_hireable, "build.lint_flag_bands": build.lint_flag_bands}
-    for name, fn in lanes.items():
+    assert "placeholder_slots(" in inspect.getsource(behaviortoml.dry_compile)
+    through = {"cli._cmd_behavior": cli._cmd_behavior, "behaviorscan.dry_compile": behaviorscan.dry_compile,
+               "build.lint_behavior_compile": build.lint_behavior_compile}
+    direct = {"behaviortoml.published_flags": behaviortoml.published_flags,
+              "siege.resolve_hireable": siege.resolve_hireable, "build.lint_flag_bands": build.lint_flag_bands}
+    for name, fn in {**through, **direct}.items():
         src = inspect.getsource(fn)
-        assert "placeholder_slots(" in src, name
+        assert ("dry_compile(" if name in through else "placeholder_slots(") in src, name
         assert "len(slots) + 2" not in src and "i + 2 for" not in src, f"{name} still seats inline"
+        assert "BT.build(" not in src or name in direct, f"{name} carries its own build+compile"

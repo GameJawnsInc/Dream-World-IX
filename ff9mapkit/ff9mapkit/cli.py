@@ -897,14 +897,8 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
         return 1
-    fb = BT.build(raw, npc_slots=BT.placeholder_slots(raw),          # placeholders (build binds real ones)
-                  npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
-                                     if n.get("name") and "dialogue" in n},
-                  behavior_txids={**{(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},
-                                  **{("hud", hi): 0 for hi, _h in BT.hud_lines(raw)}},
-                  routed=plan)
     try:
-        cb = fb.compile()
+        fb, cb = BT.dry_compile(raw, routed=plan)                    # placeholders (build binds real ones)
     except B.BehaviorError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
