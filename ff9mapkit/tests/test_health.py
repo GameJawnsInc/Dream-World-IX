@@ -50,11 +50,13 @@ def test_health_flags_scripts_dll_engine_drift(monkeypatch, tmp_path):
     monkeypatch.setattr(scriptcompile, "read_engine_stamp", lambda d: {"engine_file_version": "1.1.1.1"})
     monkeypatch.setattr(scriptcompile, "engine_drift_warning",
                         lambda d, game=None: "built against 1.1.1.1, installed is 1.1.2.2")
-    row = next(r for r in health.health_report() if r["label"] == "Custom battle formula DLL")
+    rows = health.health_report(mod_folder="FF9CustomMap")       # explicit: a pinned checkout must not move the probe
+    row = next(r for r in rows if r["label"] == "Custom battle formula DLL")
     assert row["level"] == "warn" and "1.1.1.1" in row["advice"]
 
     monkeypatch.setattr(scriptcompile, "engine_drift_warning", lambda d, game=None: None)
-    row = next(r for r in health.health_report() if r["label"] == "Custom battle formula DLL")
+    rows = health.health_report(mod_folder="FF9CustomMap")
+    row = next(r for r in rows if r["label"] == "Custom battle formula DLL")
     assert row["level"] == "ok" and "1.1.1.1" in row["value"]
 
 
@@ -62,7 +64,7 @@ def test_health_no_scripts_dll_row_when_absent(monkeypatch, tmp_path):
     """No custom battle-formula DLL deployed -> no drift row at all (don't clutter installs without one)."""
     (tmp_path / "StreamingAssets").mkdir()
     monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
-    labels = {r["label"] for r in health.health_report()}
+    labels = {r["label"] for r in health.health_report(mod_folder="FF9CustomMap")}
     assert "Custom battle formula DLL" not in labels
 
 
@@ -144,3 +146,28 @@ def test_setup_dialog_refresh_never_stacks_grids(monkeypatch, tmp_path):
     dlg.refresh()
     kids = [c for c in dlg.grid_host.findChildren(QWidget) if c.parent() is dlg.grid_host]
     assert len(kids) == 1, f"stale report grids still parented: {len(kids)}"
+
+
+def test_health_mod_folder_row_follows_the_documented_folder_order(monkeypatch, tmp_path):
+    """The Mod folder row and the custom-DLL probe read the folder `config.resolve_mod_folder` names
+    (--mod-folder > $FF9_MOD_FOLDER > .ff9deploy.toml > FF9CustomMap), not a hardcoded FF9CustomMap -- a
+    pinned checkout's Setup & Health used to report the shared default folder while every deploy went to
+    the pin. An explicit ``mod_folder`` still wins over the env var."""
+    (tmp_path / "StreamingAssets").mkdir()
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
+    monkeypatch.setenv("FF9_MOD_FOLDER", "Alt")
+    layout = config.ModLayout(tmp_path / "Alt")
+    dll = layout.scripts_dll("Alt")
+    dll.parent.mkdir(parents=True, exist_ok=True)
+    dll.write_bytes(b"MZ")
+    from ff9mapkit.battle import scriptcompile
+    monkeypatch.setattr(scriptcompile, "read_engine_stamp", lambda d: {"engine_file_version": "1.1.1.1"})
+    monkeypatch.setattr(scriptcompile, "engine_drift_warning", lambda d, game=None: None)
+    rows = health.health_report()
+    mod = next(r for r in rows if r["label"] == "Mod folder")
+    assert mod["value"].startswith(str(tmp_path / "Alt"))
+    assert any(r["label"] == "Custom battle formula DLL" for r in rows)     # the probe looked in Alt/
+    rows = health.health_report(mod_folder="FF9CustomMap")                   # explicit beats the env var
+    mod = next(r for r in rows if r["label"] == "Mod folder")
+    assert mod["value"].startswith(str(tmp_path / "FF9CustomMap"))
+    assert not any(r["label"] == "Custom battle formula DLL" for r in rows)
