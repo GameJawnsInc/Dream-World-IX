@@ -82,7 +82,7 @@ def test_multi_fixture_round_trips():
     """Sanity: the hand-built multi-entry fixture parses byte-identically before we rely on it."""
     eb = _multi_fixture()
     s = EbScript.from_bytes(eb)
-    assert s.to_bytes() == eb
+    assert eblint.errors(eblint.lint_eb(eb)) == []                    # (to_bytes() IS .data -- no round trip to assert)
     assert s.entry_count == 4
     assert not s.entry(0).empty and not s.entry(1).empty and s.entry(2).empty and not s.entry(3).empty
 
