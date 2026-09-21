@@ -24,10 +24,10 @@ from __future__ import annotations
 
 import struct
 
+from ..models.mint import MINT_BAND_END as _MINT_MAX, MINT_BAND_START as _MINT_MIN   # the ONE band owner
 from . import scene_data
 
 _GEO_OFF = 30                                    # Geo (i16 model id) inside the 116-byte SB2_MON_PARM
-_MINT_MIN, _MINT_MAX = 6000, 32767               # mint band floor .. i16 ceiling (Geo@30 is signed 16-bit)
 
 
 class SkinError(scene_data.SceneEditError):

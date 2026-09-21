@@ -338,6 +338,7 @@ def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *
     if not specs:
         return weapons, [], [], []
     from .. import catalog as _catalog
+    from ..models import mint as mmint
     out = list(weapons)
     directives, warnings = [], []
     wrow_cache = None
@@ -364,9 +365,10 @@ def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *
             raise ValueError(f"[[weapon]] {b.get('name')!r}: model must be a GEO_WEP name or a mint table "
                              f"{{ id = ..., hue/tint/textures = ... }}, got {type(m).__name__}")
         sid = m.get("id")
-        if not isinstance(sid, int) or isinstance(sid, bool) or not 6000 <= sid <= 32767:
+        if (not isinstance(sid, int) or isinstance(sid, bool)
+                or not mmint.MINT_BAND_START <= sid <= mmint.MINT_BAND_END):        # the ONE band owner
             raise ValueError(f"[[weapon]] {b.get('name')!r}: model.id must be an int in the mint band "
-                             f"6000..32767, got {sid!r}")
+                             f"{mmint.MINT_BAND_START}..{mmint.MINT_BAND_END}, got {sid!r}")
         if sid in seen_ids:
             raise ValueError(f"[[weapon]] model id {sid} used twice -- each mint needs its own id")
         seen_ids.add(sid)
@@ -398,7 +400,6 @@ def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *
 
         from ..models import extract as mextract
         from ..models import fbx_skin as mfbx
-        from ..models import mint as mmint
         from ..models import reskin as mreskin
         from PIL import Image
         model = mextract.read_model(src, game=game)    # a weapon reads via the static 1-bone-rig path
