@@ -14,7 +14,7 @@
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
   `Found 106 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **8502** after item 8 (PySide6 importable here; ~7686 without it) (this
+- **Collect**: `pytest --collect-only -q` from the repo root was **8503** after item 9 (PySide6 importable here; ~7687 without it) (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates / `UnityPy`; `Pillow`,
@@ -50,7 +50,7 @@
 
 ## The queue, ranked by value per byte of new surface
 
-### Done since handoff — items 1-8
+### Done since handoff — items 1-9
 - **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
   ruff F 109 → 107. Regression test in `tests/test_chain.py`.
 - **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
@@ -99,18 +99,13 @@
   generated per-verb pages already gate the other direction. Clean today (`gui` is named as ABSENT and
   the test checks that citation). The root-key half is a hard ratchet, not a warning: only `[[folklore]]`
   is undocumented -- document it and shrink the set.
+- **9 (F07 / F08)** `c0501b6d` + `5dee89a8`: step zero pins the whole verbatim appended-text ladder in one
+  test (`test_text.py`, every rung's txid, counts in lockstep, contiguous 1000..1010); step one gives each
+  block ONE selector -- `_verbatim_voiced_npcs` (voiced, silent), `_verbatim_npc_choices` + `_choice_replies`,
+  `_verbatim_voiced_props` -- and derives the counts from them; the dead cutscene count and the nested
+  `_aslist2` twin are gone. `twins_differ.py` (old copies transcribed verbatim vs the new owners) ALL EQUAL,
+  calibration on the prop selector FAILED `['prop_count']`. test_build 51 passed; the extraction is untouched.
 
-
-### 9. `build.py` — only the twins, never the extraction (F07 / F08)  · small · byte-neutral if careful
-`_verbatim_prop_message_count:5717` and `_verbatim_choice_message_count:5676` are unowned
-predicate twins (drift = silently wrong dialogue in a shipped fork, correct flags, no log);
-`_verbatim_cutscene_message_count:5723-5728` is DEAD (zero callers); `_aslist`:1649 /
-`_aslist2`:1659 are byte-identical two-liners ten lines apart. Step ZERO is a no-install
-characterization test of the full eight-block txid ladder (`FieldProject(raw, tmp_path)` with
-no donor falls back to `CARRY_BASE_TXID` — the report cites `test_text.py:275`,
-`test_logic_add.py:365`). Never reorder a `validate` call (problem ORDER is what the diff
-harness asserts); the `.mes` block order is NOT the injector call order (choice/prop land above
-event/chest). A full `validate()` decomposition mints more surface than it removes — do not.
 
 ### 10. Small, local, all offline (F03 / F44 / F40 / F01 leftovers)
 - `hub.validate_hub` (`hub.py:241`) lacks the `9000-9012` world-map hole that
