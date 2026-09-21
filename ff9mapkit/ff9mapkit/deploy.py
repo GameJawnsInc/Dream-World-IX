@@ -596,8 +596,7 @@ def deploy_field(target, *, game=None, mod_folder=None, apply=False, allow_name_
 
     # --- lint (offline; aborts on structural errors, same gate as `ff9mapkit lint`) ---
     rep = lint_all(proj)
-    for tag, items in (("logic", rep.logic), ("flags", rep.flags),
-                       ("placement", rep.placement), ("camera", rep.camera)):
+    for tag, items in rep.tagged:                  # every advisory slot -- this loop once dropped [schema]
         for w in items:
             out(f"  warn  [{tag}] {w}")
     if rep.errors:

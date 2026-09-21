@@ -3914,8 +3914,16 @@ class LintReport:
     source: str = "?"
 
     @property
+    def tagged(self) -> list:
+        """The advisory slots in print order, each with its label -- THE one seam ``ff9mapkit lint`` and the
+        deploy pre-flight iterate (a slot added to this class is printed by both, or by neither; each loop
+        once carried its own tuple and the deploy one had silently dropped ``unknown``)."""
+        return [("schema", self.unknown), ("logic", self.logic), ("flags", self.flags),
+                ("placement", self.placement), ("camera", self.camera)]
+
+    @property
     def warnings(self) -> list:
-        return self.unknown + self.logic + self.flags + self.placement + self.camera
+        return [w for _tag, items in self.tagged for w in items]
 
     @property
     def ok(self) -> bool:

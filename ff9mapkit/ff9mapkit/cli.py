@@ -1177,8 +1177,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     print(f"lint: {args.field}  [{rep.source}]")
     for p in rep.errors:
         print(f"  ERROR  {p}")
-    for tag, items in (("schema", rep.unknown), ("logic", rep.logic), ("flags", rep.flags),
-                       ("placement", rep.placement), ("camera", rep.camera)):
+    for tag, items in rep.tagged:
         for w in items:
             print(f"  warn  [{tag}] {w}")
     if rep.ok:
