@@ -1236,6 +1236,19 @@ def _validate_summon(project: FieldProject, problems: list) -> None:
     problems += _summon.validate_blocks(project.raw.get("summon", []), base_dir=project.base_dir)
 
 
+#: Every key a ``[[ladder]]`` table may carry: the validator's, build_script's own knobs, and the two retired
+#: ones (refused by name below). A ladder SELECTS its mechanism by which keys are present (navigable /
+#: top+bottom / zone+climb / zone+to), so an unknown key is not "ignored" -- it silently picks another
+#: mechanism -- and the harvested unknown-key lint does not enforce [[ladder]] (no bundled example's ladder
+#: completes the offline pipeline). validate() refuses one, naming the near miss (scout F13).
+_LADDER_KEYS = frozenset({
+    "navigable", "rungs", "bottom", "top", "zone", "top_action", "top_field", "top_worldmap",   # navigable
+    "climb", "to",                                                                               # faithful / one-way
+    "animation", "climb_anim", "face_angle", "steps", "zone_radius",                             # build_script knobs
+    "arc_from", "arc_to",                                                                        # retired (refused)
+})
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -1671,6 +1684,14 @@ def validate(project: FieldProject) -> list[str]:
         from .battle import abilityfeatures as _af                # ability-effect DSL; structural -- AA-by-name id
         problems += _af.validate_blocks(project.raw.get("ability_feature", []))   # resolution defers to build)
     for la in project.raw.get("ladder", []):
+        extra = sorted(set(la) - _LADDER_KEYS)
+        if extra:                                    # THE EXPLICIT DISCRIMINANT: refuse, never fall through
+            for k in extra:
+                near = _difflib.get_close_matches(k, sorted(_LADDER_KEYS), n=1, cutoff=0.6)
+                problems.append(f"[[ladder]] unknown key {k!r}" + (f" (did you mean {near[0]!r}?)" if near else "")
+                                + " -- a ladder's keys select its mechanism (navigable / top+bottom / zone+climb"
+                                " / zone+to), so an unknown one is refused rather than silently picking another")
+            continue
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
             rungs = la.get("rungs")
             if rungs is not None:                    # MULTI-RUNG (bent vine): rungs replace bottom/top

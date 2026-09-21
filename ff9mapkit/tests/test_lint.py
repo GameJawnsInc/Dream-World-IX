@@ -223,6 +223,33 @@ def test_lint_no_verbatim_warning_on_a_synthesized_field(tmp_path):
     assert not any("verbatim fork" in s for s in lint_logic(_load(tmp_path, body=body)))
 
 
+# ---------------------------------------------------------------- validate: the [[ladder]] discriminant
+
+def test_validate_refuses_an_unknown_ladder_key_with_a_hint(tmp_path):
+    """REGRESSION (scout F13): a [[ladder]] selects its MECHANISM by which keys are present (navigable /
+    top+bottom / zone+climb / zone+to), and the harvested key vocabulary does not enforce [[ladder]] (no
+    bundled example's ladder completes the offline pipeline), so `navigible = true` silently fell through
+    to another mechanism or a confusing form error. An unknown key is now a refusal naming the near miss."""
+    from ff9mapkit.build import validate
+    body = (CLEAN.format(set_flag=200, requires_flag=200)
+            + '\n[[ladder]]\nnavigible = true\nrungs = [[0, 0, 0], [0, 0, 100]]\ntop_action = "floor"\n')
+    probs = [p for p in validate(_load(tmp_path, body=body)) if "[[ladder]]" in p]
+    assert probs and "unknown key 'navigible'" in probs[0] and "'navigable'" in probs[0], probs
+
+
+def test_validate_accepts_every_documented_ladder_form(tmp_path):
+    from ff9mapkit.build import validate
+    (tmp_path / "climb.bin").write_bytes(b"\x07")
+    forms = ('[[ladder]]\ntop = [-50, 450]\nbottom = [64, -348]\n',
+             '[[ladder]]\nzone = [[0,0],[100,0],[100,100]]\nclimb = "climb.bin"\n',
+             '[[ladder]]\nzone = [[0,0],[100,0],[100,100]]\nto = [50, 50, -100]\n',
+             '[[ladder]]\nnavigable = true\nbottom = [0, 0, 0]\ntop = [0, 0, 200]\ntop_action = "floor"\n')
+    for form in forms:
+        body = CLEAN.format(set_flag=200, requires_flag=200) + "\n" + form
+        probs = [p for p in validate(_load(tmp_path, body=body)) if "unknown key" in p]
+        assert probs == [], (form, probs)
+
+
 # ---------------------------------------------------------------- lint_all (the unified pass)
 
 def test_lint_all_clean_field_is_ok(tmp_path):
