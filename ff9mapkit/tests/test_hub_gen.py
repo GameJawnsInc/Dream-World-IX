@@ -181,7 +181,9 @@ def test_validate_rejects_missing_borrow_dup_names_bad_ids_and_scenario():
     assert any("borrow_bg is required" in e for e in errors)
 
     errors, _ = hub.validate_hub(_spec(id=70))
-    assert any("id 70 out of range" in e for e in errors)
+    assert any("[hub] id 70 out of the custom band" in e for e in errors)   # pack.check_custom_id's voice
+    errors, _ = hub.validate_hub(_spec(id=9005))
+    assert any("world-map hole" in e for e in errors)      # the shared validator's law, not a fifth private copy
 
     errors, _ = hub.validate_hub(_spec(area=1))
     assert any("area" in e and ">= 10" in e for e in errors)

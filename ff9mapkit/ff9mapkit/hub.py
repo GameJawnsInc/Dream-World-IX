@@ -56,6 +56,7 @@ import os
 import re
 
 from . import deploystack as _deploystack
+from . import pack as _pack
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -238,9 +239,10 @@ def validate_hub(spec: HubSpec) -> "tuple[list, list]":
     if not spec.name or not _NAME_RE.match(spec.name):
         errors.append(f"[hub] name {spec.name!r} must be a non-empty token (A-Z, 0-9, _) -- it becomes "
                       f"EVT_<name> / FBG_N<area>_<name>")
-    if not (4000 <= spec.id <= 32767):
-        errors.append(f"[hub] id {spec.id} out of range -- custom field ids are 4000-32767 (the live "
-                      f"fldMapNo is Int16, so a higher id registers but is unreachable)")
+    try:
+        _pack.check_custom_id(spec.id, what="[hub] id")     # the ONE band validator: 4000-32767 AND the 9000-9012 hole
+    except ValueError as e:
+        errors.append(str(e))
     if spec.area < 10:
         errors.append(f"[hub] area {spec.area} must be >= 10 -- the BG-borrow loader builds 'FBG_N<area>' "
                       f"and reads 2 digits, so single-digit areas black-screen")
