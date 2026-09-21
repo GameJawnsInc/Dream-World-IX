@@ -275,3 +275,27 @@ def test_dry_run_allocates_private_ef_against_the_live_occupancy(tmp_path, monke
                    dry_run=True, out=lambda *a, **k: None)
     assert res["dry_run"] and res["spec"]["private_ef"] == 37
     assert [p.name for p in taken.iterdir()] == ["PlayerSequence.seq"]      # live ef018 untouched
+
+
+# ---- a name-pinned, id-less block redeploys onto the id the folder already registers under that name ----
+
+def test_a_pinned_name_reuses_the_id_the_folder_registers_under_it(tmp_path):
+    """An id-less block used to mint a FRESH id on every redeploy (the allocator sees its own prior mint
+    as taken) -- a documented trait, and unavoidable when the block pins neither id nor name, since the
+    default name derives from the id. But a block that pins ``name`` HAS a stable key: the folder's own
+    ``3DModel <id> <name>`` line. Reuse that id, so a name-pinned redeploy is idempotent (same id, no
+    'NEW GEO id -- RELAUNCH', no orphaned prior mint)."""
+    game = _game(tmp_path)
+    _register(game / "A", "3DModel 6201 GEO_MON_B0_M201", "3DModel 6202 GEO_MON_B0_M202")
+    quiet = lambda *a, **k: None                                          # noqa: E731
+    spec = D._resolve_ids(_spec(name="GEO_MON_B0_M201"), game / "A", game, out=quiet)
+    assert spec["id"] == 6201 and spec["name"] == "GEO_MON_B0_M201"       # the redeploy: the SAME id
+    spec = D._resolve_ids(_spec(name="GEO_MON_B0_M777"), game / "A", game, out=quiet)
+    assert spec["id"] == 6000                                             # an unregistered name: fresh
+    spec = D._resolve_ids(_spec(id=6300, name="GEO_MON_B0_M201"), game / "A", game, out=quiet)
+    assert spec["id"] == 6300                                             # a pinned id still wins
+    spec = D._resolve_ids(_spec(), game / "A", game, out=quiet)
+    assert spec["id"] == 6000 and spec["name"] == "GEO_MON_B0_M000"       # no name pinned: as before
+    _register(game / "A", "3DModel 152 GEO_MON_B0_M201")                  # a real-band line is never adopted
+    spec = D._resolve_ids(_spec(name="GEO_MON_B0_M201"), game / "A", game, out=quiet)
+    assert spec["id"] == 6000

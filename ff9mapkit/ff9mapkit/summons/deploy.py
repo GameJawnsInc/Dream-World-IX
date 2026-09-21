@@ -2180,11 +2180,20 @@ def _warn_model_id_collision(spec: dict, mod_root, game, out) -> None:
 
 def _resolve_ids(spec: dict, mod_root, game, *, out=print) -> dict:
     """Fill a deferred ``id`` / ``name`` / ``private_ef`` (DESIGN sections 1.2/1.3) + validate the private
-    host against the install. Returns a NEW spec dict (the input is not mutated). A deferred ``id`` skips
+    host against the install. Returns a NEW spec dict (the input is not mutated). A deferred ``id`` first
+    reuses the mint-band id this folder already registers under a PINNED ``name`` (a redeploy), else skips
     every ``3DModel`` id another stacked FolderNames folder registers (FF9BattleDB.GEO is GLOBAL) on top
     of :func:`alloc_mint_id`'s own-folder seed; ``out`` only ever carries the guard's crash line. The
     PINNED-id warning is :func:`_warn_model_id_collision`."""
     spec = dict(spec)
+    if spec.get("id") is None and spec.get("name"):
+        # A name-pinned block HAS a stable key: the folder's own `3DModel <id> <name>` line. Reuse that id so
+        # a redeploy is idempotent (same id, no 'NEW GEO id -- RELAUNCH', no orphaned prior mint). Only a
+        # mint-band id is adopted -- a real-band line under that name is somebody else's model. A block that
+        # pins neither id nor name has no key (the default name derives from the id) and still re-mints.
+        mine = {n: i for i, n in deploystack.model_ids_at(mod_root).items() if MINT_BAND_START <= i <= MINT_BAND_END}
+        if spec["name"] in mine:
+            spec["id"] = mine[spec["name"]]
     if spec.get("id") is None:
         foreign = {c.model_id for c in _stacked_model_id_collisions(
             game, Path(mod_root).name, range(MINT_BAND_START, MINT_BAND_END + 1), out)}   # the band, one read
