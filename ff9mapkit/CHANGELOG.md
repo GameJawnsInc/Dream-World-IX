@@ -12,14 +12,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   probe read the same resolved folder instead of a hardcoded `FF9CustomMap`. The Workspace's
   "Install to game" (Build tab) and "Deploy into" (Models tab) targets follow the checkout's pin too —
   a pinned worktree used to INSTALL into the shared default, the collision the pin exists to prevent.
+  All of them key the pin on the checkout the Workspace was launched from, not on its working directory,
+  and the Build tab's test-slot line honours `$FF9_MOD_FOLDER` like `tools/deploy_field.py` does.
 - The Build tab's test-slot radio reads `Test slot 30004  (pinned in .ff9deploy.toml)` or
   `Test slot 4003  (the shared default)`, and its deploy passes that number as `--id` — the label
-  and the landing slot are one fact, and `tools/deploy_field.py` stops nagging the tab.
+  and the landing slot are one fact, and `tools/deploy_field.py` stops nagging the tab. A pin whose
+  `id` is `0` reads as a pin (and is refused by the tool aloud) instead of silently deploying to 4003.
 - `gen-hub` refuses a hub id in the engine-reserved world-map hole (9000–9012) up front, through
   the shared `pack.check_custom_id` validator (its message replaces the hub's own "out of range").
 - A build's "this would unregister field N (…)" refusal names the field's NAME, not its map id.
-- Every reader of an existing `DictionaryPatch.txt` / `ForkDonorPatch.txt` decodes `utf-8-sig`: a
-  file re-saved from Notepad carries a BOM, and its first line was invisible to every collision guard.
+- Every reader of an existing `DictionaryPatch.txt` / `BattlePatch.txt` / `ForkDonorPatch.txt` decodes
+  `utf-8-sig` — the collision guards, the model inventory / anim registry / mint appender, the summon
+  ledger, the Build tab's ledger, the journey merge, and the repo-root deploy tools: a file re-saved from
+  Notepad carries a BOM, its first line was invisible to every guard, and the two tools that write back
+  what they read (`deploy_field.py`'s fork-donor merge, `deploy_battle.py`) re-emitted the BOM mid-file,
+  where nothing ever strips it. The cross-folder collision reports name the colliding field by its NAME,
+  not its borrowed-art map id.
 - `summon-deploy --dry-run` allocates a deferred `private_ef` against the LIVE folder's occupancy
   (the mirror now names each populated `efNNN/`, one empty marker each, never the bytes); a
   name-pinned, id-less `[[summon]]` redeploys onto the id the folder already registers under that

@@ -15,7 +15,7 @@
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
   `Found 106 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **8512** after item 10 (PySide6 importable here; ~7696 without it) (this
+- **Collect**: `pytest --collect-only -q` from the repo root was **8520** after item 10 + its review (PySide6 importable here) (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates / `UnityPy`; `Pillow`,
@@ -53,7 +53,10 @@
    nag); "Install to game" names the pinned folder; Setup & Health's Mod folder row names it too.
    `ff9mapkit world-ledger` with no flag reads the pinned folder's ledger. One live name-pinned
    `[[summon]]` redeploy keeps its id (no `NEW GEO id -- RELAUNCH`), and a `--dry-run` into a folder
-   whose `ef018/` is populated reports `private_ef` 37.
+   whose `ef018/` is populated reports `private_ef` 37. From the review: `py docsite/uiharvest.py --check`
+   green against the committed inventory (the harvest asserts native Qt -- unrunnable here), a re-shot
+   `build-deploy` figure (`docsite/shots.py`; its `rb_test` pin now carries the provenance suffix), and the
+   Qt fence `docsite/tests/test_uiharvest_pins.py` on Windows.
 
 ## The queue, ranked by value per byte of new surface
 
@@ -126,6 +129,15 @@ EMPTY. Everything the report and this file queued has shipped; what follows is t
   and the deploy passes `--id`; (i) the dry-run mirror names each populated live `efNNN/`; (j) a name-pinned
   id-less summon reuses its registered id. Every new test red on the old tree. `text_block`-honoured-by-1-of-8
   was NOT re-verified and is not claimed.
+  **The adversarial review** (five lenses, three refuters per finding, 50 agents) confirmed 14 and killed 1;
+  four fix commits `33481de0`..`c0ccf5cd`: (A) 10c's "every reader" was false -- ten more plain-utf-8 readers
+  of the same files in the model lane, the summon ledger, the Build tab, co-op, the journey concat and the
+  repo-root tools, two of which WRITE BACK what they read (a line-1 BOM re-emitted mid-file, where no reader
+  strips it); a same-line source pin over `tools/*.py` caught four the hand enumeration missed; (B)
+  `dictionary_ids_at` printed the map id as the name in every cross-folder collision report; (C) three GUI
+  folder readers keyed on the launch CWD or ignored `$FF9_MOD_FOLDER` -- one owner now, keyed on the checkout
+  -- and 10h's `id = 0` pin read as pinned while `or 4003` deployed to the shared sandbox; (D) the docsite
+  harvest did not pin the resolver the two new labels read, and the committed inventory was stale.
 
 
 ## Refuted — do not re-open without new evidence
