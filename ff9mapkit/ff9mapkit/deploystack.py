@@ -509,7 +509,7 @@ def name_collision_warning(collisions: list, target_folder: str) -> str | None:
 @dataclass
 class IdCollision:
     """One field/scene id a deploy registers that ANOTHER live FolderNames folder's ``DictionaryPatch.txt``
-    already uses. ``other_kind`` is ``"FieldScene"``/``"BattleScene"``; ``other_name`` is that line's MAPID /
+    already uses. ``other_kind`` is ``"FieldScene"``/``"BattleScene"``; ``other_name`` is that line's field NAME /
     scene name (for the message)."""
     field_id: int
     other_folder: str
@@ -519,9 +519,11 @@ class IdCollision:
 
 def dictionary_ids_at(root) -> dict:
     """Map ``id -> (kind, name)`` for every ``FieldScene``/``BattleScene`` line in a mod/dist root's
-    ``DictionaryPatch.txt`` (``{}`` if absent/unreadable). ``kind`` = the leading token; ``name`` = the MAPID
-    (``FieldScene`` field 3) or scene name (``BattleScene`` field 2). On a duplicate id within one file the last
-    line wins (mirrors the engine's last-writer-wins)."""
+    ``DictionaryPatch.txt`` (``{}`` if absent/unreadable). ``kind`` = the leading token; ``name`` = the field's
+    NAME (``FieldScene`` field 4 -- field 3 is the borrowed-art map id, which the collision reports used to
+    print as if it were a name; a short legacy line falls back to its last column) or the scene name
+    (``BattleScene`` field 2). On a duplicate id within one file the last line wins (mirrors the engine's
+    last-writer-wins)."""
     out: dict = {}
     p = Path(root) / "DictionaryPatch.txt"
     if not p.is_file():
@@ -534,9 +536,12 @@ def dictionary_ids_at(root) -> dict:
             fid = int(parts[1])
         except ValueError:
             continue
-        # the human name sits at a DIFFERENT field by kind: FieldScene <id> <area> <MAPID> <NAME> <txt> (field 3
-        # = MAPID); BattleScene <id> <NAME> <BBG> (field 2 = scene name).
-        name = (parts[3] if len(parts) > 3 else "") if parts[0] == "FieldScene" else (parts[2] if len(parts) > 2 else "")
+        # the human name sits at a DIFFERENT field by kind: FieldScene <id> <area> <MAPID> <NAME> <txt> (field 4
+        # = NAME, the emitter's `project.name`); BattleScene <id> <NAME> <BBG> (field 2 = scene name).
+        if parts[0] == "FieldScene":
+            name = parts[4] if len(parts) > 4 else (parts[3] if len(parts) > 3 else "")
+        else:
+            name = parts[2] if len(parts) > 2 else ""
         out[fid] = (parts[0], name)
     return out
 

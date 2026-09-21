@@ -434,10 +434,14 @@ def _mk_dict(game, folder, lines):
 def test_dictionary_ids_at_parses_field_and_battle(tmp_path):
     g = tmp_path / "game"
     g.mkdir()
-    _mk_dict(g, "A", ["FieldScene 30007 11 TEST30007 TEST30007 741",
-                      "BattleScene 30011 CAMKEYS BBG_B209", "# comment", "garbage", "FieldScene xx bad"])
+    _mk_dict(g, "A", ["FieldScene 30007 11 1860 TEST30007 741",
+                      "BattleScene 30011 CAMKEYS BBG_B209", "# comment", "garbage", "FieldScene xx bad",
+                      "FieldScene 30008 11 LEGACY"])
     ids = dictionary_ids_at(g / "A")
-    assert ids[30007] == ("FieldScene", "TEST30007")        # kind + MAPID
+    # kind + the field's NAME (column 4 -- what the collision reports print and what journey's no-dist
+    # branch fills the same tuple with); column 3 is the borrowed-art map id, never a name
+    assert ids[30007] == ("FieldScene", "TEST30007")
+    assert ids[30008] == ("FieldScene", "LEGACY")            # a short legacy line: the last column it has
     assert ids[30011] == ("BattleScene", "CAMKEYS")         # kind + scene name; non-int / junk lines skipped
     assert dictionary_ids_at(g / "missing") == {}
 
