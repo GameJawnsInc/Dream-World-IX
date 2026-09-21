@@ -14,7 +14,7 @@
 - **One commit per step**, gate summary in the message: which test files, counts, ruff, collect.
 - **Ratchet**: `cd ff9mapkit && python -m ruff check --select F --no-cache ff9mapkit` must stay
   `Found 106 errors` or lower (the nightly gate now judges an INCREASE as `lint-up`).
-- **Collect**: `pytest --collect-only -q` from the repo root was **8471** after item 6 (PySide6 importable here; ~7655 without it) (this
+- **Collect**: `pytest --collect-only -q` from the repo root was **8499** after item 7 (PySide6 importable here; ~7683 without it) (this
   container; `test_forkreport.py` is ignore-collected here — it reads the alex100 fixture and
   the base templates at MODULE level, so it runs only where the install is provisioned).
 - Container facts (do not assume they persist): no game install / templates / `UnityPy`; `Pillow`,
@@ -43,10 +43,14 @@
    `test_object_graft`, `test_savepoint`, `test_textcarry`, `test_playerswap`) -- convert to
    `eblint.errors(eblint.lint_eb(out)) == []` where it passes, a structural fact where it does not; and a
    `[[ladder]]`/`[[jump]]`/`[[platform]]` example built end-to-end so their key paths enter `ENFORCED`.
+8. Item 7: rerun all thirteen generators (`python -m ff9mapkit._regen_*` with `--memoria`, `eb._regen_optables`,
+   `tools/bake_narrowmap.py`, `_regen_npcparams` / `tools/regen_bone_labels.py` / `tools/extract_attach_poses.py
+   --build-kit` against the install, `_regen_fieldschema`) -> every `Memoria@unknown` becomes the clone's
+   revision and NOTHING else in any table changes (the free currency check).
 
 ## The queue, ranked by value per byte of new surface
 
-### Done since handoff — items 1-6
+### Done since handoff — items 1-7
 - **1** `import re` in `cli.py` (+ `world/mesh.py`'s `"BlockMesh"` under `TYPE_CHECKING`): F821 = 0,
   ruff F 109 → 107. Regression test in `tests/test_chain.py`.
 - **2 (9b)** `alloc_mint_id` seeds from `deploystack.model_ids_at` + a foreign-folder `avoid` set;
@@ -85,14 +89,12 @@
   compile the CLI and Workspace lanes carried, and `lint_all` dry-compiles `[behavior]` after the walkmesh
   resolve (a 97-flag table on a 96-flag band is now a lint ERROR). Recorder containment: 93/93 calls,
   124/124 compiles.
+- **7 (F47)** `e78e03d6`: `_regen_stamp.py` owns the `# generated-from: <source> by <generator>` stamp (the
+  line after each table's docstring; `Memoria@<git rev>` for the nine Memoria-derived tables, `install` /
+  `examples` for the rest, no date) and the registry of SIXTEEN tables from THIRTEEN generators (the queue
+  said ten/nine). Every generator emits it (required `stamp` keyword); the tables are hand-stamped
+  `Memoria@unknown` until regenerated. 28 tests in `tests/test_generated_tables.py`.
 
-
-### 7. F47 — generated tables carry no provenance  · small · offline
-Ten `_*.py` tables (~22.7k lines; `_animdb_all.py` alone 14,125) from nine `_regen_*`
-generators; none records the Memoria revision it was read from and no test asserts currency.
-Add a machine-readable header line per file (`# generated-from: Memoria@<sha> by
-_regen_<x>.py on <date>`) and ONE test that parses all ten. Not CI regeneration — that needs a
-Memoria clone in CI, which the provenance gate forbids.
 
 ### 8. F48 — docs ↔ CLI drift  · small · offline
 138 verbs, 18+ generated docsite pages, two hand-written TOML specs (`docs/FORMAT.md`,
