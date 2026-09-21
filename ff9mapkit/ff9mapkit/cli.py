@@ -5468,10 +5468,13 @@ def _cmd_world_ledger(args: argparse.Namespace) -> int:
     Reconciliation, not quality scoring -- it makes no claim about whether the geometry is good."""
     import hashlib
     import json
-    from pathlib import Path
+    from . import config as _config
     from .world import mesh as WM
     try:
-        mod_root = Path(find_game_path(args.game)) / args.mod_folder
+        # the documented folder order (--mod-folder > $FF9_MOD_FOLDER > .ff9deploy.toml > FF9CustomMap): a
+        # pinned checkout reads ITS OWN ledger. Read-only, so opting in costs nothing a deploy verb would pay.
+        folder = _config.resolve_mod_folder(args.mod_folder)
+        mod_root = find_mod_root(find_game_path(args.game), folder)
     except ConfigError as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -5489,7 +5492,7 @@ def _cmd_world_ledger(args: argparse.Namespace) -> int:
     for e in entries:
         last[(e.get("write_disc"), tuple(e.get("cell", ())), e.get("part"))] = e
     print(f"{len(entries)} ledger line(s), {len(last)} distinct (disc, cell, part) target(s) in "
-          f"{args.mod_folder}/{WM.LEDGER_NAME}")
+          f"{folder}/{WM.LEDGER_NAME}")
     for (d, cell, part), e in sorted(last.items()):
         argv = " ".join(e.get("argv") or []) or "(argv unrecorded)"
         print(f"  Disc{d} {cell} {part:8s} {e.get('utc')}  kit {e.get('kit')}  {argv[:80]}")
@@ -9660,8 +9663,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "target, and with --drift every deployed .ff9mesh whose bytes match no "
                               "ledger entry (a hand edit, another session's era, or a pre-ledger "
                               "deploy). Reconciliation, never quality scoring.")
-    wlg.add_argument("--mod-folder", required=True,
-                     help="the FolderNames mod folder whose ledger + WorldMap tree to read")
+    wlg.add_argument("--mod-folder", default=None,
+                     help="the FolderNames mod folder whose ledger + WorldMap tree to read (default: "
+                          "$FF9_MOD_FOLDER, else this checkout's .ff9deploy.toml pin, else FF9CustomMap)")
     wlg.add_argument("--disc", type=int, default=None, help="only this write-disc namespace")
     wlg.add_argument("--drift", action="store_true",
                      help="hash every deployed Block*.ff9mesh and report unledgered bytes")

@@ -279,3 +279,29 @@ def test_sidecar_identical_repoint_takes_no_backup(tmp_path):
     assert p.read_text(encoding="utf-8") == "7,17"
     assert list(p.parent.glob("*Donor.txt.bak-*")) == []
     assert len(_ledger_lines(tmp_path)) == 2              # every write still ledgers
+
+
+# ---- the `world-ledger` verb (the reader) ---------------------------------------------------------------------------
+def test_cli_world_ledger_resolves_the_folder_like_every_other_verb(tmp_path, monkeypatch, capsys):
+    """`world-ledger` used to REQUIRE --mod-folder and join it by hand; every other folder-aware verb resolves
+    through config.resolve_mod_folder (--mod-folder > $FF9_MOD_FOLDER > .ff9deploy.toml > FF9CustomMap), so
+    a pinned checkout reads ITS OWN ledger without retyping the pin. It is a read-only verb, so opting in
+    carries none of the 'changes where it deploys' cost the resolver's docstring warns about."""
+    from ff9mapkit.cli import main
+    M.deploy_override(_bm(), mod_folder="Alt", game=tmp_path)          # a real ledger line + mesh in <game>/Alt
+    monkeypatch.setenv("FF9_MOD_FOLDER", "Alt")
+    assert main(["world-ledger", "--game", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert f"1 ledger line(s), 1 distinct (disc, cell, part) target(s) in Alt/{M.LEDGER_NAME}" in out
+    assert "Disc1 (5, 7) Terrain" in out
+    # --drift hashes every deployed Block*.ff9mesh under the SAME root: a hand-planted file is reported
+    stray = tmp_path / "Alt" / "FF9_Data" / "WorldMap" / "Disc1" / "Block[9][9] Terrain.ff9mesh"
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_bytes(b"not-from-the-kit")
+    assert main(["world-ledger", "--game", str(tmp_path), "--drift"]) == 0
+    out = capsys.readouterr().out
+    assert "drift: 1 deployed file(s) match no ledger entry" in out and "Block[9][9] Terrain.ff9mesh" in out
+    # an explicit --mod-folder still wins over the env var
+    (tmp_path / "Other").mkdir()
+    assert main(["world-ledger", "--game", str(tmp_path), "--mod-folder", "Other"]) == 0
+    assert f"0 ledger line(s), 0 distinct (disc, cell, part) target(s) in Other/{M.LEDGER_NAME}" in capsys.readouterr().out
