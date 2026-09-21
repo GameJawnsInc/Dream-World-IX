@@ -44,12 +44,14 @@ WORLD_A = {
     "rows": [{"kind": "field", "id": "4003", "name": "a", "script": "r.py", "mtime": 0.0}],
     "newgame": 4003,
     "target": ("FF9CustomMap", 30001),
+    "folder": "FF9CustomMap",
 }
 WORLD_B = {
     "rows": [{"kind": "field", "id": str(i), "name": f"f{i}", "script": None, "mtime": None}
              for i in range(4000, 4042)],                       # 42 rows -- a very different count
     "newgame": 9999,
     "target": ("FF9CustomMap-world", 30777),
+    "folder": "FF9CustomMap-zz",                                    # what rb_game / the Mod folder row would paint
 }
 
 
@@ -57,21 +59,23 @@ class _inject_world:
     """Stand in for the LIVE machine: what the ledger / New-Game / deploy-target readers return."""
 
     def __init__(self, world):
+        from ff9mapkit import config
         from ff9mapkit.editor import jobs
-        self.jobs, self.world = jobs, world
+        self.jobs, self.config, self.world = jobs, config, world
         self._orig = (jobs.scan_deployed_reverts, jobs.current_newgame_target,
-                      jobs.detect_deploy_target)
+                      jobs.detect_deploy_target, config.resolve_mod_folder)
 
     def __enter__(self):
         w = self.world
         self.jobs.scan_deployed_reverts = lambda *_a, **_k: [dict(r) for r in w["rows"]]
         self.jobs.current_newgame_target = lambda *_a, **_k: w["newgame"]
         self.jobs.detect_deploy_target = lambda *_a, **_k: w["target"]
+        self.config.resolve_mod_folder = lambda *_a, **_k: w["folder"]
         return self
 
     def __exit__(self, *exc):
         (self.jobs.scan_deployed_reverts, self.jobs.current_newgame_target,
-         self.jobs.detect_deploy_target) = self._orig
+         self.jobs.detect_deploy_target, self.config.resolve_mod_folder) = self._orig
         return False
 
 
@@ -95,6 +99,8 @@ def test_the_injection_actually_reaches_the_labels(surfaces):
         "label -- the fence is measuring nothing; re-check which readers the Build tab paints")
     assert "42 deployed here" in surfaces["unpinned_b"]["build_deploy.dep_hint"]["text"], \
         "the injected 42-row ledger did not reach dep_hint -- the reader moved"
+    assert "FF9CustomMap-zz" in surfaces["unpinned_b"]["build_deploy.rb_game"]["text"], \
+        "the injected mod folder did not reach rb_game -- detect_game_mod no longer reads resolve_mod_folder"
 
 
 def test_inventory_is_stable_across_a_deploy(surfaces):

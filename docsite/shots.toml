@@ -76,7 +76,7 @@ height = 1000         # all four Build-to radios must sit inside the scroll view
 open = "fixture:verbatim-fork"
 used_by = ["ff9mapkit/docs/tutorials/s1-fork-and-deploy.md"]
 pin = [
-  { widget = "build_deploy.rb_test", text = "Test slot 30001" },
+  { widget = "build_deploy.rb_test", text = "Test slot 30001  (pinned in .ff9deploy.toml)" },
   { widget = "build_deploy.rb_game", text = "Install to game: FF9CustomMap" },
   # PIN EVERY PAINTED PATH: the fixture fork lives in this run's scratch dir; both places that
   # paint its path get a neutral one (cosmetic -- signals blocked, state untouched)
