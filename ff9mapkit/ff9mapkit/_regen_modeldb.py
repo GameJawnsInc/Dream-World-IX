@@ -19,6 +19,8 @@ gestures" (verified: model id 8 = ``GEO_MAIN_F0_VIV``, whose (MAIN, VIV) anims a
 from __future__ import annotations
 
 import argparse
+
+from ._regen_stamp import memoria_stamp
 import re
 from pathlib import Path
 
@@ -31,7 +33,7 @@ def parse_table(memoria_root: Path) -> dict:
     return {int(i): name for i, name in _PAIR.findall(src)}
 
 
-def render(table: dict) -> str:
+def render(table: dict, *, stamp: str) -> str:
     header = ('"""Auto-generated FF9 model registry: actor/field model id -> GEO resource name.\n\n'
               "DO NOT EDIT BY HAND. Regenerate with:  python -m ff9mapkit._regen_modeldb --memoria <path>\n"
               "Source: Memoria Assembly-CSharp/Global/ff9/Battle/FF9BattleDB.GEO.cs (GEO, open-source) --\n"
@@ -41,7 +43,7 @@ def render(table: dict) -> str:
               "The token links a model to its animations (ANH_<group>_*_<token>_<action>); see\n"
               "ff9mapkit.catalog.animations_for_model. The model id is the value SetModel() takes.\n"
               '"""\n')
-    lines = [header, "", "MODELS = {"]
+    lines = [header + stamp + "\n", "", "MODELS = {"]
     for mid in sorted(table, key=lambda i: (table[i], i)):   # by name (groups by category), then id
         lines.append(f"    {mid}: {table[mid]!r},")
     lines.append("}")
@@ -54,7 +56,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     table = parse_table(Path(args.memoria))
     target = Path(__file__).with_name("_modeldb.py")
-    target.write_text(render(table), encoding="utf-8", newline="\n")
+    target.write_text(render(table, stamp=memoria_stamp(Path(args.memoria), "_regen_modeldb.py")), encoding="utf-8", newline="\n")
     groups = {}
     for name in table.values():
         groups[name.split("_")[1]] = groups.get(name.split("_")[1], 0) + 1

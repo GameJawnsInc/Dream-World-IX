@@ -5,6 +5,7 @@ game data (it's the same id table Memoria publishes in source; see docs/PROVENAN
 Regenerate from a Memoria checkout by transcribing
 ``Memoria/Assembly-CSharp/Memoria/Data/Battle/RegularItem.cs``.
 """
+# generated-from: Memoria@unknown by hand
 
 from __future__ import annotations
 

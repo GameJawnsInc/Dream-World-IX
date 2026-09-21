@@ -18,6 +18,8 @@ keeps only the field maps.
 from __future__ import annotations
 
 import argparse
+
+from ._regen_stamp import memoria_stamp
 import re
 from pathlib import Path
 
@@ -54,7 +56,7 @@ def parse_tables(memoria_root: Path):
     return table, by_id, len(id_to_fbg), len(id_to_evt)
 
 
-def render(table: dict, by_id: dict) -> str:
+def render(table: dict, by_id: dict, *, stamp: str) -> str:
     header = ('"""Auto-generated FF9 field registry: background folder (FBG) <-> event-script name.\n\n'
               "DO NOT EDIT BY HAND. Regenerate with:  python -m ff9mapkit._regen_fieldtable\n"
               "Source (both keyed by field id, joined here on id):\n"
@@ -67,7 +69,7 @@ def render(table: dict, by_id: dict) -> str:
               "the chain walk + whole-zone fork need (else ~142 of the 818 real fields go missing + their\n"
               "warps leak to the live game).\n"
               '"""\n')
-    lines = [header, "", "FBG_TO_EVT = {"]
+    lines = [header + stamp + "\n", "", "FBG_TO_EVT = {"]
     for fbg in sorted(table):
         fid, evt = table[fbg]
         lines.append(f'    {fbg!r}: [{fid}, {evt!r}],')
@@ -85,7 +87,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     table, by_id, n_fbg, n_evt = parse_tables(Path(args.memoria))
     target = Path(__file__).with_name("_fieldtable.py")
-    target.write_text(render(table, by_id), encoding="utf-8", newline="\n")
+    target.write_text(render(table, by_id, stamp=memoria_stamp(Path(args.memoria), "_regen_fieldtable.py")), encoding="utf-8", newline="\n")
     print(f"wrote {target}  (eventIDToFBGID={n_fbg}, EventDB={n_evt}, folder maps={len(table)}, "
           f"id maps={len(by_id)})")
     return 0

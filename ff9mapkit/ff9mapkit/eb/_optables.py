@@ -8,6 +8,7 @@ Source: Memoria  Assembly-CSharp/Global/Event/Engine/EventEngineUtils.cs (opArgC
   OP_ARG_SIZE[op]   : per-operand byte width (None where unused / variable).
   OP_NAMES[op]      : human-readable mnemonic (cosmetic; missing entries fall back to op_XX).
 """
+# generated-from: Memoria@unknown by eb/_regen_optables.py
 
 OP_ARG_COUNT = [
     0, 1, 1, 1, 0, 1, -1, 2, 2, 2, 0, -1, 0, -1, 0, 0, 3, 0, 3, 0,

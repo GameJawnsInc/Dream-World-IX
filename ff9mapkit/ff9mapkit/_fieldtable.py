@@ -13,6 +13,7 @@ folder-keyed FBG_TO_EVT drops all but one -- the id-keyed FIELD_BY_ID keeps ever
 the chain walk + whole-zone fork need (else ~142 of the 818 real fields go missing + their
 warps leak to the live game).
 """
+# generated-from: Memoria@unknown by _regen_fieldtable.py
 
 
 FBG_TO_EVT = {

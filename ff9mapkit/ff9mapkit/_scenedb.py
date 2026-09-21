@@ -7,6 +7,7 @@ open-source) -- the same id<->name table Memoria publishes; NOT extracted game d
 SCENES['BSC_<region>_<n>'] = encounter_id. A field's encounter points SetRandomBattles at
 these ids; the name encodes the region. Enemy rosters/stats are NOT here (they're in p0data).
 """
+# generated-from: Memoria@unknown by _regen_scenedb.py
 
 
 SCENES = {

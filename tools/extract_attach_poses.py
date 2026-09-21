@@ -21,6 +21,7 @@ from pathlib import Path
 KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit"))
 sys.path.insert(0, KIT)
 from ff9mapkit import catalog as C
+from ff9mapkit._regen_stamp import stamp_line
 from ff9mapkit import extract
 from ff9mapkit.eb import EbScript
 from ff9mapkit.eb.disasm import iter_code
@@ -106,7 +107,7 @@ def build_kit_module():
              "character holds a prop at, the prop's held orientation, and the HOLDER's own holding pose --",
              "harvested from every AttachObject in shipping fields. Powers `[[npc]] holds = \"...\"` (poses",
              "the prop AND the holder). Provenance-clean (numeric ids only, no game bytes).",
-             '"""', "", "HELD_POSES = {"]
+             '"""', stamp_line("install", "tools/extract_attach_poses.py"), "", "HELD_POSES = {"]
     for (c, p), cnt in sorted(pairs.items()):
         (bone, held, cpose), _ = cnt.most_common(1)[0]
         cm, pm = C.model(c), C.model(p)

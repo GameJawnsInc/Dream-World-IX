@@ -18,6 +18,8 @@ _MEMORIA_SRC = os.environ.get("FF9_MEMORIA_SRC")
 DEFAULT_SRC = (Path(_MEMORIA_SRC) / "Assembly-CSharp/Global/Field/Map/NarrowMapList.cs"
                if _MEMORIA_SRC else None)
 OUT = Path(__file__).resolve().parent.parent / "ff9mapkit" / "ff9mapkit" / "_narrowmap_data.py"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ff9mapkit"))
+from ff9mapkit._regen_stamp import memoria_stamp                     # noqa: E402
 
 HEADER = '''"""Field PSX screen-WIDTHS, baked from Memoria NarrowMapList.MapWidthList (provenance-clean: Memoria
 open modding data, like the opcode tables -- ships zero Square-Enix bytes). A field whose real width is
@@ -25,7 +27,8 @@ narrower than widescreen is letterboxed in-game; a forked custom id defaults to 
 LOSES that letterbox masking -- the 'narrow-map' lost-on-mint behavior (the engine NarrowMapList is fldMapNo-
 keyed; see docs/FORK_FIDELITY.md + project-ff9-narrow-map-fork-letterbox). Regenerate with tools/bake_narrowmap.py.
 """
-
+'''
+TAIL = '''
 FORK_DEFAULT_WIDTH = 500   # NarrowMapList.MapWidth() returns this for an unlisted (custom) id
 '''
 
@@ -42,7 +45,8 @@ def main():
     pairs = re.findall(r"\[\s*(\d+)\s*,\s*(\d+)\s*\]", block.group(1))
     widths = {int(a): int(b) for a, b in pairs}
     items = ", ".join(f"{k}: {v}" for k, v in sorted(widths.items()))
-    OUT.write_text(HEADER + "\nWIDTHS = {" + items + "}\n", encoding="utf-8")
+    OUT.write_text(HEADER + memoria_stamp(src.parent, "tools/bake_narrowmap.py") + "\n" + TAIL
+                   + "\nWIDTHS = {" + items + "}\n", encoding="utf-8")
     print(f"wrote {OUT} ({len(widths)} field widths, {min(widths.values())}-{max(widths.values())})")
 
 

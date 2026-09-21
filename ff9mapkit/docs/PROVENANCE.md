@@ -63,6 +63,8 @@ public tables, i.e. the same data Memoria already publishes, *not* extracted fro
 | `_scenedb.py` | battle‑scene name → encounter id (Info Hub `scenes`) | `FF9BattleDB.SceneData` | `python -m ff9mapkit._regen_scenedb` |
 | `_itemdb.py` | item id → name | `RegularItem` (Memoria enum) | — |
 
+Each generated table's second line is a stamp, `# generated-from: <source> by <generator>` -- `Memoria@<git revision>` for a table transcribed from the Memoria source, so a regeneration's `git diff` names exactly which Memoria revision moved it (`install` / `examples` for the tables harvested from your install or from the bundled examples). `tests/test_generated_tables.py` checks every table carries one; `Memoria@unknown` means a table has not been regenerated since the stamps were introduced.
+
 These hold only labels (`GEO_MAIN_F0_VIV`, `ANH_MAIN_F0_VIV_WALK`, `BSC_AC_E031`, …) and numeric ids —
 no model geometry, animation binary, enemy roster, or stats (those live in your install's `p0data`).
 They're committed so the `import` / `animations` / Info Hub (`models` / `scenes` / `catalog`) features

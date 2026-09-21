@@ -8,6 +8,7 @@ FF9TextTool.GetFieldTextFileName / EventEngineUtils.eventIDToMESID). EVENT_ID_TO
 is how `dialogue-import` reads the RIGHT text block for a real field (txids are 0-based
 positions shared by every field, so the block can't be found by txid alone).
 """
+# generated-from: Memoria@unknown by _regen_fieldtext.py
 
 
 EVENT_ID_TO_MES = {

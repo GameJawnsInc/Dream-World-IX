@@ -25,6 +25,7 @@ KIT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ff9mapkit")
 sys.path.insert(0, KIT)
 
 from ff9mapkit._modeldb import MODELS                                    # noqa: E402
+from ff9mapkit._regen_stamp import stamp_line                            # noqa: E402
 from ff9mapkit.models import bone_labels as BL                           # noqa: E402
 from ff9mapkit.models import extract                                     # noqa: E402
 
@@ -91,6 +92,7 @@ def emit(bone_labels, prefab_labels) -> str:
         "names, divergent proportions). Cosmetic display layer ONLY -- nothing binds by label.",
         "Provenance-clean (numeric topology + our own label strings, no game bytes).",
         '"""',
+        stamp_line("install", "tools/regen_bone_labels.py"),
         "",
         "BONE_LABELS = {",
     ]

@@ -15,6 +15,8 @@ for picking/identifying encounter ids by name; enemy rosters/stats are NOT here 
 from __future__ import annotations
 
 import argparse
+
+from ._regen_stamp import memoria_stamp
 import re
 from pathlib import Path
 
@@ -27,7 +29,7 @@ def parse_table(memoria_root: Path) -> dict:
     return {name: int(i) for name, i in _PAIR.findall(src)}
 
 
-def render(table: dict) -> str:
+def render(table: dict, *, stamp: str) -> str:
     header = ('"""Auto-generated FF9 battle-scene registry: scene name -> encounter id.\n\n'
               "DO NOT EDIT BY HAND. Regenerate with:  python -m ff9mapkit._regen_scenedb --memoria <path>\n"
               "Source: Memoria Assembly-CSharp/Global/ff9/Battle/FF9BattleDB.SceneData.cs (SceneData,\n"
@@ -35,7 +37,7 @@ def render(table: dict) -> str:
               "SCENES['BSC_<region>_<n>'] = encounter_id. A field's encounter points SetRandomBattles at\n"
               "these ids; the name encodes the region. Enemy rosters/stats are NOT here (they're in p0data).\n"
               '"""\n')
-    lines = [header, "", "SCENES = {"]
+    lines = [header + stamp + "\n", "", "SCENES = {"]
     for name in sorted(table):
         lines.append(f"    {name!r}: {table[name]},")
     lines.append("}")
@@ -48,7 +50,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     table = parse_table(Path(args.memoria))
     target = Path(__file__).with_name("_scenedb.py")
-    target.write_text(render(table), encoding="utf-8", newline="\n")
+    target.write_text(render(table, stamp=memoria_stamp(Path(args.memoria), "_regen_scenedb.py")), encoding="utf-8", newline="\n")
     print(f"wrote {target}  ({len(table)} battle scenes)")
     return 0
 

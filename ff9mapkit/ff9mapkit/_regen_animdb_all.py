@@ -19,6 +19,8 @@ An anim name encodes model + action: ``ANH_<group>_<form>_<token>_<action>`` -- 
 from __future__ import annotations
 
 import argparse
+
+from ._regen_stamp import memoria_stamp
 import re
 from pathlib import Path
 
@@ -31,7 +33,7 @@ def parse_table(memoria_root: Path) -> dict:
     return {int(i): name for i, name in _PAIR.findall(src)}
 
 
-def render(table: dict) -> str:
+def render(table: dict, *, stamp: str) -> str:
     header = ('"""Auto-generated FULL FF9 animation table: anim id -> name (all model groups).\n\n'
               "DO NOT EDIT BY HAND. Regenerate with:  python -m ff9mapkit._regen_animdb_all --memoria <path>\n"
               "Source: Memoria Assembly-CSharp/Global/ff9/FF9DBAll.Animation.cs (AnimationDB, open-source) --\n"
@@ -40,7 +42,7 @@ def render(table: dict) -> str:
               "8-playable subset used by the build's cutscene path). ff9mapkit.catalog joins these to a\n"
               "model by (group, token) -> the model's gesture list.\n"
               '"""\n')
-    lines = [header, "", "ANIMATIONS = {"]
+    lines = [header + stamp + "\n", "", "ANIMATIONS = {"]
     for anim_id in sorted(table, key=lambda i: (table[i], i)):   # by name (groups by model), then id
         lines.append(f"    {anim_id}: {table[anim_id]!r},")
     lines.append("}")
@@ -53,7 +55,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     table = parse_table(Path(args.memoria))
     target = Path(__file__).with_name("_animdb_all.py")
-    target.write_text(render(table), encoding="utf-8", newline="\n")
+    target.write_text(render(table, stamp=memoria_stamp(Path(args.memoria), "_regen_animdb_all.py")), encoding="utf-8", newline="\n")
     groups = {}
     for name in table.values():
         groups[name.split("_")[1]] = groups.get(name.split("_")[1], 0) + 1

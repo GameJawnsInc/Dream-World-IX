@@ -18,6 +18,8 @@ tokens to ``MAIN_TOKENS`` below.
 from __future__ import annotations
 
 import argparse
+
+from ._regen_stamp import memoria_stamp
 import re
 from pathlib import Path
 
@@ -39,7 +41,7 @@ def parse_table(memoria_root: Path) -> dict:
     return table
 
 
-def render(table: dict) -> str:
+def render(table: dict, *, stamp: str) -> str:
     header = ('"""Auto-generated FF9 main-character animation table: anim id -> name.\n\n'
               "DO NOT EDIT BY HAND. Regenerate with:  python -m ff9mapkit._regen_animdb --memoria <path>\n"
               "Source: Memoria Assembly-CSharp/Global/ff9/FF9DBAll.Animation.cs (AnimationDB, open-source).\n\n"
@@ -47,7 +49,7 @@ def render(table: dict) -> str:
               "TALK_3_1. Limited to the 8 playable characters (the field cutscene presets). The catalog\n"
               "in ff9mapkit.animations turns these into pick-by-name gestures.\n"
               '"""\n')
-    lines = [header, "", "MAIN_ANIMATIONS = {"]
+    lines = [header + stamp + "\n", "", "MAIN_ANIMATIONS = {"]
     for anim_id in sorted(table, key=lambda i: (table[i], i)):   # by name (groups by character), then id
         lines.append(f'    {anim_id}: {table[anim_id]!r},')
     lines.append("}")
@@ -60,7 +62,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     table = parse_table(Path(args.memoria))
     target = Path(__file__).with_name("_animdb.py")
-    target.write_text(render(table), encoding="utf-8", newline="\n")
+    target.write_text(render(table, stamp=memoria_stamp(Path(args.memoria), "_regen_animdb.py")), encoding="utf-8", newline="\n")
     per = {}
     for name in table.values():
         per[name.split("_")[3]] = per.get(name.split("_")[3], 0) + 1

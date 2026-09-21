@@ -10,6 +10,7 @@ Provenance-clean: only the case numbers + field NAMES (transcribed from the open
 no SE bytes. Distinct from the op_binary ``B_CURHP``/``B_MAXHP`` tokens (``_exprtable``), which read a PARTY slot
 via ``GetPlayer`` -- NOT the acting unit's own battle HP. See memory ``project-ff9-battle-ai-members``.
 """
+# generated-from: Memoria@unknown by hand
 from __future__ import annotations
 
 # selector (GetCharacterData case id) -> canonical name. Only the READABLE cases are listed (a few selectors are
