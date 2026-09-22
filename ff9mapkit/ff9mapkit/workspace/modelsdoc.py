@@ -284,7 +284,7 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         _l_dep = QLabel("Deploy into:")
         dep.addWidget(_l_dep)
         from ..editor import jobs
-        gm = jobs.detect_game_mod()
+        gm = jobs.detect_game_mod(Path(self.kit).parent)   # keyed on THIS checkout's pin, like the Build tab
         self.mdl_mod = QLineEdit(str(gm) if gm else "")
         self.mdl_mod.setPlaceholderText("a mod folder, e.g. <game>/FF9CustomMap")
         _l_dep.setBuddy(self.mdl_mod)          # see the buddy note in coopdoc

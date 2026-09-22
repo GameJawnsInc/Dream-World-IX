@@ -276,3 +276,56 @@ def test_received_event_box_is_the_canonical_chest_box(tmp_path):
     body2, _, et2, *_ = build.collect_text(_Stub(raw))    # the synth channel emits the same box
     assert body2.count("Received [ITEM=0]!") == 2 and body2.count("[STRT=69,3]") == 2
     assert set(et2) == {0, 1, 2}
+
+
+def test_the_verbatim_appended_text_ladder_end_to_end(tmp_path):
+    """CHARACTERIZATION (scout F07, step zero): the whole appended-`.mes` ladder a verbatim fork stacks above
+    the donor's text, every rung pinned, on one raw that carries EVERY block. No donor -> the ladder bases at
+    CARRY_BASE_TXID (1000). The order is the txid law (on_entry, logic_add, npc, event, chest, choice, prop,
+    cutscene); each block's ``_verbatim_X_messages`` sums the COUNT functions of every block below it, so a
+    count that drifts from its messages twin shifts every block above it: the `.eb` window ids and the
+    appended lines disagree -- wrong dialogue in a shipped fork, correct flags, no error. This test is the
+    gate for giving each block ONE owner of its selection (the event block's ``_event_shows_text`` pattern)."""
+    raw = {
+        "on_entry": [{"message": "Welcome."}],
+        "logic_add": [{"kind": "show_line", "entry": 0, "tag": 0, "message": "A line."}],
+        "npc": [{"name": "V", "pos": [1, 1], "dialogue": "Hi."},          # voiced -> first
+                {"name": "Silent", "pos": [0, 0]}],                         # default-talk -> its silent line AFTER
+        "event": [{"name": "E", "zone": [[0, 0]] * 4, "message": "Found it."}],
+        "chest": [{"zone": [[0, 0]] * 4, "item": "Potion"}],
+        "choice": [{"npc": "V", "prompt": "Buy?",                            # 1 prompt + 1 reply line
+                    "options": [{"text": "Yes"}, {"text": "No", "reply": "Fine."}]}],
+        "prop": [{"model": "GEO_ACC_F0_LDD", "pos": [2, 2], "dialogue": "A ladder."}],
+        "cutscene": [{"actors": ["V"], "steps": [{"say": "One."}, {"walk": "@player"}, {"say": "Two."}]}],
+    }
+    proj = build.FieldProject(raw, tmp_path)
+    L = ["us"]
+    oe = build._verbatim_on_entry_messages(proj, L)[0]
+    la = build._logic_add_message_plan(proj, L)[0]
+    npc = build._verbatim_npc_messages(proj, L)[0]
+    ev = build._verbatim_event_messages(proj, L)[0]
+    ch = build._verbatim_chest_messages(proj, L)[0]
+    cho = build._verbatim_choice_messages(proj, L)[0]
+    pr = build._verbatim_prop_messages(proj, L)[0]
+    cs = build._verbatim_cutscene_messages(proj, L)[0]
+    assert oe == {0: 1000}
+    assert la == {0: 1001}
+    assert npc == {0: 1002, 1: 1003}
+    assert ev == {0: 1004}
+    assert ch == {0: 1005}
+    assert cho == {0: {"prompt": 1006, "replies": {1: 1007}}}
+    assert pr == {0: 1008}
+    assert cs == [1009, 1010]
+    # the lockstep law, per rung: what a block COUNTS is exactly what it HANDS OUT
+    assert build._on_entry_message_count(proj) == len(oe) == 1
+    assert build._logic_add_message_count(proj) == len(la) == 1
+    assert build._verbatim_npc_message_count(proj) == len(npc) == 2
+    assert build._verbatim_event_message_count(proj) == len(ev) == 1
+    assert build._verbatim_chest_message_count(proj) == len(ch) == 1
+    assert build._verbatim_choice_message_count(proj) == sum(1 + len(c["replies"]) for c in cho.values()) == 2
+    assert build._verbatim_prop_message_count(proj) == len(pr) == 1
+    # the rungs never overlap, and together they are one contiguous window
+    ids = (list(oe.values()) + list(la.values()) + list(npc.values()) + list(ev.values()) + list(ch.values())
+           + [c["prompt"] for c in cho.values()] + [r for c in cho.values() for r in c["replies"].values()]
+           + list(pr.values()) + cs)
+    assert sorted(ids) == list(range(1000, 1011)) and len(set(ids)) == len(ids)

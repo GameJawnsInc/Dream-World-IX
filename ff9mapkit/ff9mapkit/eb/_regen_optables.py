@@ -13,6 +13,8 @@ and ``EventEngine.DoEventCode.cs`` (opcode names) and rewrites ``_optables.py`` 
 from __future__ import annotations
 
 import argparse
+
+from .._regen_stamp import memoria_stamp
 import re
 from pathlib import Path
 
@@ -75,7 +77,7 @@ def parse_tables(memoria_root: Path):
     return op_arg_count, op_arg_size, names
 
 
-def render(op_arg_count, op_arg_size, names) -> str:
+def render(op_arg_count, op_arg_size, names, *, stamp: str) -> str:
     def fmt_count(lst, perline=20):
         rows = []
         for i in range(0, len(lst), perline):
@@ -90,7 +92,7 @@ def render(op_arg_count, op_arg_size, names) -> str:
               "  OP_ARG_SIZE[op]   : per-operand byte width (None where unused / variable).\n"
               "  OP_NAMES[op]      : human-readable mnemonic (cosmetic; missing entries fall back to op_XX).\n"
               '"""\n')
-    out = header + "\n"
+    out = header + stamp + "\n" + "\n"
     out += "OP_ARG_COUNT = [\n" + fmt_count(op_arg_count) + "\n]\n\n"
     out += "OP_ARG_SIZE = [\n" + "\n".join(f"    {x!r}," for x in op_arg_size) + "\n]\n\n"
     out += "OP_NAMES = {\n" + "\n".join(f"    0x{k:02X}: {v!r}," for k, v in sorted(names.items())) + "\n}\n"
@@ -102,7 +104,7 @@ def main(argv=None) -> int:
     ap.add_argument("--memoria", required=True, help="path to a Memoria source checkout")
     args = ap.parse_args(argv)
     counts, sizes, names = parse_tables(Path(args.memoria))
-    text = render(counts, sizes, names)
+    text = render(counts, sizes, names, stamp=memoria_stamp(Path(args.memoria), "eb/_regen_optables.py"))
     target = Path(__file__).with_name("_optables.py")
     target.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {target}  (OP_ARG_COUNT={len(counts)}, OP_ARG_SIZE={len(sizes)}, OP_NAMES={len(names)})")

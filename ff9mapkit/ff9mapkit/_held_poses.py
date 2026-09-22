@@ -5,6 +5,7 @@ character holds a prop at, the prop's held orientation, and the HOLDER's own hol
 harvested from every AttachObject in shipping fields. Powers `[[npc]] holds = "..."` (poses
 the prop AND the holder). Provenance-clean (numeric ids only, no game bytes).
 """
+# generated-from: install by tools/extract_attach_poses.py
 
 HELD_POSES = {
     (8, 222): (16, 10359, 148),  # VIV holds TKT

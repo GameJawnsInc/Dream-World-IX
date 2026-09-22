@@ -1552,3 +1552,19 @@ def test_flash_compiles_stock_add_pair():
                BT.validate(_sfx_raw(do={"flash": True})))
     assert any("flash pause" in p for p in
                BT.validate(_sfx_raw(do={"flash": [255, 255, 255], "pause": 999})))
+
+
+def test_dry_compile_is_the_lanes_build_plus_compile():
+    """The one dry compile `behavior compile`, the Workspace scan and lint share: placeholder slots, zero
+    txids, build, compile -- the identical block each lane used to carry."""
+    fb, cb = BT.dry_compile(POOLED_RAW)
+    fb2 = BT.build(POOLED_RAW, npc_slots=BT.placeholder_slots(POOLED_RAW),
+                   npc_txids_by_name={n.get("name"): 0 for n in POOLED_RAW.get("npc", []) or []
+                                      if n.get("name") and "dialogue" in n},
+                   behavior_txids={**{(ui, bi): 0 for ui, bi, _ in BT.announce_lines(POOLED_RAW)},
+                                   **{("hud", hi): 0 for hi, _h in BT.hud_lines(POOLED_RAW)}})
+    cb2 = fb2.compile()
+    assert cb.report == cb2.report and cb.ticker_body == cb2.ticker_body and cb.main_init == cb2.main_init
+    assert dict(fb.bb._names) == dict(fb2.bb._names)
+    with pytest.raises(BT.BehaviorTomlError, match="no \\[behavior\\] table"):
+        BT.dry_compile({})

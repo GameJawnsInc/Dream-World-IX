@@ -165,3 +165,35 @@ def test_parse_summary_reads_the_final_pytest_line(tmp_path):
     log.write_text("2 failed, 8393 passed, 23 skipped, 1 error in 990.00s\n", encoding="utf-8")
     got = ng.parse_summary(log)
     assert got["failed"] == 2 and got["error"] == 1
+
+
+# ---- the lint ratchet: the pyflakes count is frozen at the last full green; only an INCREASE judges ----
+def test_parse_ruff_count_reads_the_three_transcript_shapes():
+    assert ng.parse_ruff_count("cli.py:1738:16: F821 Undefined name `re`\nFound 109 errors.\n[*] 85 fixable") == 109
+    assert ng.parse_ruff_count("Found 1 error.\n") == 1
+    assert ng.parse_ruff_count("All checks passed!\n") == 0
+    assert ng.parse_ruff_count("/usr/bin/python3: No module named ruff\n") is None   # absent = skipped, never red
+    assert ng.parse_ruff_count("") is None
+
+
+def test_lint_baseline_is_the_last_full_green_that_measured(tmp_path):
+    # rows that PREDATE the field are skipped, not read as 0 -- the ratchet bootstraps from the first
+    # run that measured; narrowed and red rows are not baselines, exactly as for the collect floor
+    _ledger(tmp_path, [
+        {"result": "green", "mode": "full", "collected": 8000},                  # predates ruff_f
+        {"result": "green", "mode": "full", "collected": 8100, "ruff_f": 109},
+        {"result": "green", "mode": "narrowed", "ruff_f": 5},
+        {"result": "red", "mode": "full", "ruff_f": 90},
+    ])
+    assert ng.last_green_field(tmp_path, "ruff_f") == 109
+    assert ng.last_green_field(tmp_path, "nothing") is None
+    assert ng.last_green_collected(tmp_path) == 8100                             # the floor still reads its own
+
+
+def test_main_wires_the_lint_ratchet_and_records_it():
+    # measured in every mode, judged only on a green full run, with the deliberate one-run escape hatch
+    assert 'entry["ruff_f"] = ruff_f_count(' in _SRC
+    assert '"lint-up"' in _SRC
+    assert "no_lint_ratchet" in _SRC
+    assert _SRC.index('"lint-up"') > _SRC.index('"skip-long"'), \
+        "the lint verdict sits beside the skip ceiling, after the suite -- never before it runs"

@@ -12,6 +12,8 @@ updating to a newer Memoria whose registry changed:
 from __future__ import annotations
 
 import argparse
+
+from ._regen_stamp import memoria_stamp
 import re
 from pathlib import Path
 
@@ -35,7 +37,7 @@ def parse_table(memoria_root: Path) -> dict:
     return {int(k): int(v) for k, v in _PAIR.findall(_dict_block(eng, "eventIDToMESID"))}
 
 
-def render(table: dict) -> str:
+def render(table: dict, *, stamp: str) -> str:
     header = ('"""Auto-generated FF9 field text registry: field map-id -> text-block (MES) id.\n\n'
               "DO NOT EDIT BY HAND. Regenerate with:  python -m ff9mapkit._regen_fieldtext\n"
               "Source:  Memoria  Assembly-CSharp/Global/Event/Engine/EventEngineUtils.cs  (eventIDToMESID)\n\n"
@@ -44,7 +46,7 @@ def render(table: dict) -> str:
               "is how `dialogue-import` reads the RIGHT text block for a real field (txids are 0-based\n"
               "positions shared by every field, so the block can't be found by txid alone).\n"
               '"""\n')
-    lines = [header, "", "EVENT_ID_TO_MES = {"]
+    lines = [header + stamp + "\n", "", "EVENT_ID_TO_MES = {"]
     for fid in sorted(table):
         lines.append(f"    {fid}: {table[fid]},")
     lines.append("}")
@@ -57,7 +59,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     table = parse_table(Path(args.memoria))
     target = Path(__file__).with_name("_fieldtext.py")
-    target.write_text(render(table), encoding="utf-8", newline="\n")
+    target.write_text(render(table, stamp=memoria_stamp(Path(args.memoria), "_regen_fieldtext.py")), encoding="utf-8", newline="\n")
     print(f"wrote {target}  (eventIDToMESID entries={len(table)})")
     return 0
 

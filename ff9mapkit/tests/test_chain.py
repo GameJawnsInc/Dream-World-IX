@@ -230,3 +230,17 @@ def test_resolve_chain_seeds_multi():
     import pytest
     with pytest.raises(FileNotFoundError):
         _resolve_chain_seeds("nosuchzone_xyz")
+
+
+# ---- the CLI's label adapter (cli._chain_label_fn) ------------------------------------------
+
+def test_cli_chain_label_falls_back_to_the_fbg_folder(monkeypatch):
+    """REGRESSION: ``_chain_label_fn``'s nested ``label`` strips the ``fbg_nNN_`` prefix with ``re.sub``
+    on the FBG-folder fallback -- the path every id missing from reference/field-manifest.tsv takes,
+    and EVERY id when there is no reference dir at all (an installed wheel). ``cli.py`` never imported
+    ``re``, so the first such label raised NameError and killed the import-chain render."""
+    from ff9mapkit import cli, extract
+    monkeypatch.setattr(extract, "ID_TO_FBG", {999999: "fbg_n99_zzzz_map999_test"})
+    label = cli._chain_label_fn()
+    assert label(999999) == "zzzz_map999_test"      # the prefix strip, not the raw folder
+    assert label(-7) == "?"                          # unknown everywhere -> the placeholder

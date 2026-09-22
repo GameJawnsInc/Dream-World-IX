@@ -83,6 +83,10 @@ def test_ledger_dependent_labels_are_pinned_in_the_committed_inventory():
         f"{n_rows} deployed here · {n_undo} with an undo")
     assert str(U.PINNED_NEWGAME) in build["build_deploy.newgame_status"]["text"]
     assert str(U.PINNED_DEPLOY_TARGET[1] or 4003) in build["build_deploy.rb_test"]["text"]
+    assert "(the shared default)" in build["build_deploy.rb_test"]["text"]     # the pinned target pins no id
+    assert build["build_deploy.rb_game"]["text"] == f"Install to game: {U.PINNED_MOD_FOLDER}"
+    setup = json.loads((B.HERE / "assets" / "ui-inventory.json").read_text(encoding="utf-8"))["surfaces"]["dlg:setup"]
+    assert any(k.startswith(f"C:\\FF9\\{U.PINNED_MOD_FOLDER}") for k in setup), "the Mod folder row moved off the pin"
 
 
 def test_form_inventory_is_fresh_against_the_live_specs():

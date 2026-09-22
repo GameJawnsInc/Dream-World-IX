@@ -20,6 +20,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from ._regen_stamp import stamp_line
+
 # op -> the movement-clip slot it sets (the from-scratch Init's five setters, in ANIM_ORDER)
 _ANIM_OPS = {0x33: "stand", 0x34: "walk", 0x35: "run", 0x7A: "left", 0x7B: "right"}
 _SLOTS = ("stand", "walk", "run", "left", "right")
@@ -86,7 +88,7 @@ def _scan() -> dict:
     return out
 
 
-def _render(params: dict) -> str:
+def _render(params: dict, *, stamp: str) -> str:
     from ._modeldb import MODELS
     L = ['"""Auto-generated per-model NPC OBJECT params -- the canonical (modal) animset / head-focus /',
          "logical-size / movement clips real standing NPCs use, so ``content.npc.build_npc_init`` emits a",
@@ -95,6 +97,7 @@ def _render(params: dict) -> str:
          "DO NOT EDIT BY HAND. Regenerate with:  python -m ff9mapkit._regen_npcparams",
          "Provenance: derived metadata (model ids + small ints), no Square-Enix bytes.",
          '"""',
+         stamp,
          "",
          "NPC_PARAMS = {"]
     for model in sorted(params):
@@ -114,7 +117,7 @@ def _render(params: dict) -> str:
 def main() -> int:
     params = _scan()
     dest = Path(__file__).resolve().parent / "_npcparams.py"
-    dest.write_text(_render(params), encoding="utf-8", newline="\n")
+    dest.write_text(_render(params, stamp=stamp_line("install", "_regen_npcparams.py")), encoding="utf-8", newline="\n")
     print(f"wrote {dest}  ({len(params)} models)")
     return 0
 

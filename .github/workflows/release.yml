@@ -73,7 +73,8 @@ jobs:
         # Install-gated tests (which need a local FF9 install) skip automatically on a bare runner, so
         # this exercises the codec / build / authoring suite. The PySide6 Workspace tests are covered by
         # the app's own `--smoke` check and left out here to keep the runner light.
-        run: python -m pytest -n auto -q
+        # `. ../docsite` -- both trees explicitly: pytest ignores testpaths when run outside the rootdir.
+        run: python -m pytest -n auto -q . ../docsite
 
   version-check:
     name: Tag matches package version

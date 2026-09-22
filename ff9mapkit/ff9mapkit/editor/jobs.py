@@ -7,7 +7,7 @@ for every shell-out (the ``ff9mapkit import ...`` line, the ``tools/deploy_*.py`
 
 The deploy *tools* live at the REPO root (``tools/``), not inside the kit package, so the argv builders
 take ``repo_root`` rather than hardcoding a checkout path. ``detect_game_mod`` / ``detect_deployed_fields``
-go through :mod:`..config` (the install resolver), so they need no repo path.
+go through :mod:`..config` (the install resolver); the former also takes the checkout, for its deploy pin.
 """
 
 from __future__ import annotations
@@ -106,27 +106,41 @@ def current_newgame_target(mod_folder):
 
 
 # --------------------------------------------------------------------------- install / deploy targets
-def detect_game_mod():
-    """The game's ``FF9CustomMap`` folder, or ``None`` if the install can't be found."""
+def detect_game_mod(repo_root=None):
+    """The mod folder an INSTALL lands in -- ``<game>/<folder>`` -- or ``None`` if the install can't be found.
+    The folder follows the documented order (``$FF9_MOD_FOLDER`` > the checkout's ``.ff9deploy.toml`` >
+    ``FF9CustomMap``), keyed on ``repo_root`` (the tab's checkout; ``None`` = the CWD, like the CLI verbs).
+    It used to be a hardcoded ``FF9CustomMap``: a worktree that pinned its own folder still INSTALLED into
+    the shared default -- the exact collision the pin exists to prevent."""
     try:
         from .. import config
-        return config.find_game_path() / "FF9CustomMap"
+        return config.find_game_path() / config.resolve_mod_folder(start=repo_root)
     except Exception:
         return None
 
 
 def detect_deploy_target(repo_root):
-    """``(mod_folder, field_id)`` from this worktree's ``.ff9deploy.toml``, or sane defaults -- the test
-    slot the field deploy and battle deploy write into."""
-    mod, fid = "FF9CustomMap", None
+    """``(mod_folder, field_id)`` for this worktree -- the test slot the field deploy and battle deploy
+    write into. ``mod_folder`` follows :func:`config.resolve_mod_folder`'s documented order keyed on the
+    checkout (``$FF9_MOD_FOLDER`` > ``<repo_root>/.ff9deploy.toml`` > ``FF9CustomMap``) -- the order
+    ``tools/deploy_field.py`` lands in, so the tab never names one folder and deploys into another.
+    ``field_id`` is the pin's ``id`` as an int, or ``None`` when absent, non-numeric or a bool -- never a
+    falsy value a caller's ``or 4003`` would silently turn into the SHARED sandbox under a 'pinned' label.
+
+    ``field_id`` is a HUMAN-VISIBLE default: it renames the Build tab's "Test slot NNNN" radio for whoever
+    launches the Workspace from this checkout -- and that is the human. A session that pins ``id`` here
+    retargets the human's tab (CLAUDE.md §3's costliest incident: the owner's next deploy landed in a
+    scratch slot and wiped a room mid-playtest). Pin ``mod_folder``; pass ``--id`` per deploy instead."""
+    from .. import config
+    mod, fid = config.resolve_mod_folder(start=repo_root), None      # the ONE folder order (soft on a bad pin)
     f = Path(repo_root) / ".ff9deploy.toml"
     if f.is_file():
         try:
-            d = tomllib.loads(f.read_text(encoding="utf-8"))
-            mod = d.get("mod_folder", mod) or mod
-            fid = d.get("id")
+            raw = tomllib.loads(f.read_text(encoding="utf-8")).get("id")
+            if raw is not None and not isinstance(raw, bool):
+                fid = int(raw)
         except Exception:
-            pass
+            fid = None
     return mod, fid
 
 
@@ -234,7 +248,7 @@ def detect_deployed_fields(mod_folder):
         from .. import config
         dp = config.find_game_path() / mod_folder / "DictionaryPatch.txt"
         if dp.is_file():
-            for ln in dp.read_text(encoding="utf-8").splitlines():
+            for ln in dp.read_text(encoding="utf-8-sig").splitlines():
                 p = ln.split()
                 if p[:1] == ["FieldScene"] and len(p) >= 5:
                     out.append((p[1], p[4]))
@@ -274,7 +288,7 @@ def scan_deployed_reverts(dict_patch, scroll_dir):
     if dict_patch is not None:
         dp = Path(dict_patch)
         try:
-            lines = dp.read_text(encoding="utf-8").splitlines() if dp.is_file() else []
+            lines = dp.read_text(encoding="utf-8-sig").splitlines() if dp.is_file() else []
         except OSError:
             lines = []
         for ln in lines:
@@ -506,9 +520,15 @@ def pack_argv(mod_root, out_zip, *, name=None):
     return a
 
 
-def deploy_field_argv(repo_root, field):
-    """Reversibly deploy a field.toml into this worktree's test slot (``tools/deploy_field.py``)."""
-    return [sys.executable, _tool(repo_root, "deploy_field.py"), str(field)]
+def deploy_field_argv(repo_root, field, *, field_id=None):
+    """Reversibly deploy a field.toml into a test slot (``tools/deploy_field.py``). ``field_id`` is the slot
+    the Build tab LABELS: passing it (``--id``) makes the deploy land where the label says -- CLAUDE.md §3's
+    "always pass --id" reaching the GUI lane. Without it the tool re-reads ``.ff9deploy.toml`` itself, else
+    the SHARED 4003 sandbox, and nags on stderr."""
+    a = [sys.executable, _tool(repo_root, "deploy_field.py"), str(field)]
+    if field_id is not None:
+        a += ["--id", str(int(field_id))]
+    return a
 
 
 def deploy_field_own_id_argv(repo_root, field, field_id, name):

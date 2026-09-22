@@ -9,6 +9,7 @@ monster / ACC prop / SUB sub-character / WEP weapon. form: F* field, B* battle, 
 The token links a model to its animations (ANH_<group>_*_<token>_<action>); see
 ff9mapkit.catalog.animations_for_model. The model id is the value SetModel() takes.
 """
+# generated-from: Memoria@unknown by _regen_modeldb.py
 
 
 MODELS = {

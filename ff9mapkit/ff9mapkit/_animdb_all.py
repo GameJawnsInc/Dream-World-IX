@@ -8,6 +8,7 @@ ANIMATIONS[id] = 'ANH_<group>_<form>_<token>_<action>'. Superset of _animdb.py (
 8-playable subset used by the build's cutscene path). ff9mapkit.catalog joins these to a
 model by (group, token) -> the model's gesture list.
 """
+# generated-from: Memoria@unknown by _regen_animdb_all.py
 
 
 ANIMATIONS = {

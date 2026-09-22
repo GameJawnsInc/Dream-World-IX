@@ -42,6 +42,7 @@ with an import error, so the installed console script is always runnable.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 
 from . import __version__
@@ -896,16 +897,8 @@ def _cmd_behavior(args: argparse.Namespace) -> int:
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
         return 1
-    units = BT.units(raw)
-    slots = {str(u["npc"]): i + 2 for i, u in enumerate(units)}   # placeholders (build binds real ones)
-    fb = BT.build(raw, npc_slots=slots,
-                  npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
-                                     if n.get("name") and "dialogue" in n},
-                  behavior_txids={**{(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},
-                                  **{("hud", hi): 0 for hi, _h in BT.hud_lines(raw)}},
-                  routed=plan)
     try:
-        cb = fb.compile()
+        fb, cb = BT.dry_compile(raw, routed=plan)                    # placeholders (build binds real ones)
     except B.BehaviorError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -1178,8 +1171,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     print(f"lint: {args.field}  [{rep.source}]")
     for p in rep.errors:
         print(f"  ERROR  {p}")
-    for tag, items in (("schema", rep.unknown), ("logic", rep.logic), ("flags", rep.flags),
-                       ("placement", rep.placement), ("camera", rep.camera)):
+    for tag, items in rep.tagged:
         for w in items:
             print(f"  warn  [{tag}] {w}")
     if rep.ok:
@@ -2596,6 +2588,8 @@ def _cmd_summon_import(args: argparse.Namespace) -> int:
         mod_root = config.find_mod_root(game, args.mod_folder)
         res = sd.stage_import(args.model_file, block, game=str(game), mod_root=mod_root,
                               dry_run=args.dry_run, scale=args.scale)
+    # OSError also covers fsutil.FileLockTimeout: a folder/sidecar lock another session holds aborts
+    # HERE, loudly (rc 2), never proceeds unlocked (the lost-registration black screen)
     except (sd.SummonDeployError, ValueError, FileNotFoundError, OSError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2632,8 +2626,12 @@ def _cmd_summon_deploy(args: argparse.Namespace) -> int:
         return 2
     try:
         game = config.find_game_path(getattr(args, "game", None))
-        mod_root = None if args.dry_run else config.find_mod_root(game, args.mod_folder)
+        # the dry run too: deploy() borrows only the folder's NAME + registry for its scratch mirror, and a
+        # None here mirrored the DEFAULT folder whatever --mod-folder said (a false cross-folder banner)
+        mod_root = config.find_mod_root(game, args.mod_folder)
         res = sd.deploy(block, game=str(game), mod_root=mod_root, arm=args.arm, dry_run=args.dry_run)
+    # OSError also covers fsutil.FileLockTimeout: a folder/sidecar lock another session holds aborts
+    # HERE, loudly (rc 2), never proceeds unlocked (the lost-registration black screen)
     except (sd.SummonDeployError, ValueError, FileNotFoundError, OSError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -5470,10 +5468,13 @@ def _cmd_world_ledger(args: argparse.Namespace) -> int:
     Reconciliation, not quality scoring -- it makes no claim about whether the geometry is good."""
     import hashlib
     import json
-    from pathlib import Path
+    from . import config as _config
     from .world import mesh as WM
     try:
-        mod_root = Path(find_game_path(args.game)) / args.mod_folder
+        # the documented folder order (--mod-folder > $FF9_MOD_FOLDER > .ff9deploy.toml > FF9CustomMap): a
+        # pinned checkout reads ITS OWN ledger. Read-only, so opting in costs nothing a deploy verb would pay.
+        folder = _config.resolve_mod_folder(args.mod_folder)
+        mod_root = find_mod_root(find_game_path(args.game), folder)
     except ConfigError as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -5491,7 +5492,7 @@ def _cmd_world_ledger(args: argparse.Namespace) -> int:
     for e in entries:
         last[(e.get("write_disc"), tuple(e.get("cell", ())), e.get("part"))] = e
     print(f"{len(entries)} ledger line(s), {len(last)} distinct (disc, cell, part) target(s) in "
-          f"{args.mod_folder}/{WM.LEDGER_NAME}")
+          f"{folder}/{WM.LEDGER_NAME}")
     for (d, cell, part), e in sorted(last.items()):
         argv = " ".join(e.get("argv") or []) or "(argv unrecorded)"
         print(f"  Disc{d} {cell} {part:8s} {e.get('utc')}  kit {e.get('kit')}  {argv[:80]}")
@@ -8008,7 +8009,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="first room field id (default: the plan's own id_base, else .ff9deploy.toml)")
     fp.add_argument("--mod-folder", default=None, dest="mod_folder",
                     help="Memoria mod folder (default: the plan's own, else .ff9deploy.toml / FF9CustomMap)")
-    fp.add_argument("--game", default=None,
+    fp.add_argument("--game", default=argparse.SUPPRESS,
                     help="path to the FF9 install, for the live id pre-flight (default: auto-detect)")
     fp.add_argument("--no-preflight", action="store_true", dest="no_preflight",
                     help="skip reading the live DictionaryPatch stack (offline; ids are then unchecked "
@@ -8220,7 +8221,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="read the first [[summon]] block from this TOML file instead of the flags")
         sp.add_argument("--mod-folder", dest="mod_folder", default="FF9CustomMap",
                         help="mod folder name inside the install (default FF9CustomMap)")
-        sp.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+        sp.add_argument("--game", default=argparse.SUPPRESS,
+                        help="path to the FF9 install (default: auto-detect)")
         sp.add_argument("--dry-run", dest="dry_run", action="store_true",
                         help="stage every artifact under a SCRATCH mirror; the live install is untouched")
 
@@ -9237,7 +9239,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "cliffs-refuse: stock grammar -- 53 fronts BEACHES ONLY, water fronting high walls "
                           "becomes 54, so a cliff-ringed island can be sailed to but not disembarked on.")
     wcn.add_argument("--dry-run", action="store_true", help="report the reclassification without writing")
-    wcn.add_argument("--game", help="path to the FF9 install")
+    wcn.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install")
     wcn.set_defaults(func=_cmd_world_coastnav)
 
     wfo = sub.add_parser("world-forest",
@@ -9661,12 +9663,13 @@ def build_parser() -> argparse.ArgumentParser:
                               "target, and with --drift every deployed .ff9mesh whose bytes match no "
                               "ledger entry (a hand edit, another session's era, or a pre-ledger "
                               "deploy). Reconciliation, never quality scoring.")
-    wlg.add_argument("--mod-folder", required=True,
-                     help="the FolderNames mod folder whose ledger + WorldMap tree to read")
+    wlg.add_argument("--mod-folder", default=None,
+                     help="the FolderNames mod folder whose ledger + WorldMap tree to read (default: "
+                          "$FF9_MOD_FOLDER, else this checkout's .ff9deploy.toml pin, else FF9CustomMap)")
     wlg.add_argument("--disc", type=int, default=None, help="only this write-disc namespace")
     wlg.add_argument("--drift", action="store_true",
                      help="hash every deployed Block*.ff9mesh and report unledgered bytes")
-    wlg.add_argument("--game", default=None, help=argparse.SUPPRESS)
+    wlg.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wlg.set_defaults(func=_cmd_world_ledger)
 
     wrb = sub.add_parser("world-readback",
@@ -9682,7 +9685,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="the FolderNames mod folder whose deployed overrides to reconcile against")
     wrb.add_argument("--disc", type=int, required=True,
                      help="the write-disc namespace the dumped world runs on (9 for Path D)")
-    wrb.add_argument("--game", default=None, help=argparse.SUPPRESS)
+    wrb.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wrb.set_defaults(func=_cmd_world_readback)
 
     wrm = sub.add_parser("world-rename-markers",

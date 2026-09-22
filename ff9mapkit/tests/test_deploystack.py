@@ -434,10 +434,14 @@ def _mk_dict(game, folder, lines):
 def test_dictionary_ids_at_parses_field_and_battle(tmp_path):
     g = tmp_path / "game"
     g.mkdir()
-    _mk_dict(g, "A", ["FieldScene 30007 11 TEST30007 TEST30007 741",
-                      "BattleScene 30011 CAMKEYS BBG_B209", "# comment", "garbage", "FieldScene xx bad"])
+    _mk_dict(g, "A", ["FieldScene 30007 11 1860 TEST30007 741",
+                      "BattleScene 30011 CAMKEYS BBG_B209", "# comment", "garbage", "FieldScene xx bad",
+                      "FieldScene 30008 11 LEGACY"])
     ids = dictionary_ids_at(g / "A")
-    assert ids[30007] == ("FieldScene", "TEST30007")        # kind + MAPID
+    # kind + the field's NAME (column 4 -- what the collision reports print and what journey's no-dist
+    # branch fills the same tuple with); column 3 is the borrowed-art map id, never a name
+    assert ids[30007] == ("FieldScene", "TEST30007")
+    assert ids[30008] == ("FieldScene", "LEGACY")            # a short legacy line: the last column it has
     assert ids[30011] == ("BattleScene", "CAMKEYS")         # kind + scene name; non-int / junk lines skipped
     assert dictionary_ids_at(g / "missing") == {}
 
@@ -576,3 +580,22 @@ def test_model_id_collision_warning_text_and_none(tmp_path):
     assert w and "3DMODEL ID COLLISION" in w and "6001" in w and "'B'" in w
     assert "GEO_NPC_F1_THEIRS" in w and "FF9BattleDB.GEO" in w
     assert model_id_collision_warning([], "A") is None       # clear -> no warning
+
+
+# ---- a BOM'd DictionaryPatch / ForkDonorPatch (Notepad's default save) still registers its first line ----
+def test_registry_readers_tolerate_a_utf8_bom(tmp_path):
+    """No kit writer emits a BOM, but a human saving DictionaryPatch.txt from Notepad does -- and a BOM'd
+    first line used to decode as ``\\ufeffFieldScene``, so the FIRST registration in the file was invisible
+    to every collision guard that reads it. ``utf-8-sig`` is a strict superset of ``utf-8`` for reading."""
+    g = tmp_path / "game"
+    d = g / "A"
+    d.mkdir(parents=True)
+    (d / "DictionaryPatch.txt").write_bytes(
+        b"\xef\xbb\xbfFieldScene 30007 11 TEST30007 TEST30007 741\n3DModel 6001 GEO_NPC_F1_CUS\n")
+    assert dictionary_ids_at(d) == {30007: ("FieldScene", "TEST30007")}
+    (d / "DictionaryPatch.txt").write_bytes(
+        b"\xef\xbb\xbf3DModel 6001 GEO_NPC_F1_CUS\nFieldScene 30007 11 TEST30007 TEST30007 741\n")
+    assert model_ids_at(d) == {6001: "GEO_NPC_F1_CUS"}
+    # (fork_donor_blocks_at is NOT asserted here: it consumes column 1 only, so a BOM on column 0 never
+    # reached its output -- the assertion passed on the plain-utf-8 tree too. The BOM'd ForkDonorPatch
+    # case that CAN fail is build._foreign_donor_lines, pinned in test_dictpatch.py.)

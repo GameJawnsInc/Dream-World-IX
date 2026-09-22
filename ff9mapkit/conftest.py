@@ -112,6 +112,21 @@ def pytest_runtest_call(item):
         raise
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_config(tmp_path, monkeypatch):
+    """Every per-user CONFIG file lands in a per-test tmp dir. ``prefs._path`` (prefs.json),
+    ``update_check._state_path`` (update_check.json) and the Workspace's upgrade script all resolve through
+    the ONE seam ``provision._user_dir("config")``; guarding the seam rather than one caller's name means a
+    test that forgets to isolate its own store can neither read the developer's real theme/recent-projects
+    file nor write a test path (or an update-check consent) into it -- and, sitting in THIS conftest, it
+    covers ``blender/tests/`` as well as ``tests/``. Every OTHER sub passes through untouched: ``data`` and
+    ``cache`` are live on an installed-wheel run (``provision.data_dir`` / ``cache_dir``). A test that wants
+    its own config store just monkeypatches ``prefs._path`` (or this seam) again on top."""
+    real = provision._user_dir
+    monkeypatch.setattr(provision, "_user_dir",
+                        lambda sub: tmp_path / "user-config" if sub == "config" else real(sub))
+
+
 def pytest_configure(config):
     if not provision.templates_present():
         config.issue_config_time_warning(

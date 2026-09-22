@@ -48,8 +48,8 @@ def _regs_wiped(live, dist_root) -> list:
     dist_dp = Path(dist_root) / "DictionaryPatch.txt"
     if not live_dp.exists():
         return []
-    before = live_dp.read_text(encoding="utf-8").splitlines()
-    after = dist_dp.read_text(encoding="utf-8").splitlines() if dist_dp.exists() else []
+    before = live_dp.read_text(encoding="utf-8-sig").splitlines()          # -sig: a Notepad BOM must not hide line 1
+    after = dist_dp.read_text(encoding="utf-8-sig").splitlines() if dist_dp.exists() else []
     return DP.foreign_registrations_dropped(before, after)
 
 
@@ -596,8 +596,7 @@ def deploy_field(target, *, game=None, mod_folder=None, apply=False, allow_name_
 
     # --- lint (offline; aborts on structural errors, same gate as `ff9mapkit lint`) ---
     rep = lint_all(proj)
-    for tag, items in (("logic", rep.logic), ("flags", rep.flags),
-                       ("placement", rep.placement), ("camera", rep.camera)):
+    for tag, items in rep.tagged:                  # every advisory slot -- this loop once dropped [schema]
         for w in items:
             out(f"  warn  [{tag}] {w}")
     if rep.errors:

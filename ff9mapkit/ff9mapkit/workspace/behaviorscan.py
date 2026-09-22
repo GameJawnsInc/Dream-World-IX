@@ -1284,17 +1284,7 @@ def dry_compile(toml_path) -> CompileResult:
                 res.problems.append(str(e))
         if res.problems:
             return res
-        units = BT.units(raw)
-        slots = {m: i + 2                          # placeholders (build binds real ones);
-                 for i, m in enumerate(            # a CLASS row seats one slot per MEMBER
-                     m for u in units for m in BT.row_members(u))}
-        fb = BT.build(raw, npc_slots=slots,
-                      npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", []) or []
-                                         if n.get("name") and "dialogue" in n},
-                      behavior_txids={**{(ui, bi): 0 for ui, bi, _ in BT.announce_lines(raw)},
-                                     **{("hud", hi): 0 for hi, _h in BT.hud_lines(raw)}},
-                      routed=plan)
-        cb = fb.compile()
+        fb, cb = BT.dry_compile(raw, routed=plan)                # placeholders (build binds real ones)
         res.ok = True
         res.report = cb.report
         res.size_text = cb.size_report()

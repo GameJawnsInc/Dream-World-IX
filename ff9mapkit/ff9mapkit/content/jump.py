@@ -27,7 +27,6 @@ Init once, and every grafted arc animates correctly.
 """
 from __future__ import annotations
 
-import struct
 
 from ..eb import EbScript, edit, opcodes
 from . import region as _region
@@ -92,17 +91,6 @@ def jump_arc_body(to, *, via=(), steps=JUMP_STEPS_DEFAULT, sfx: bool = True,
     return body + opcodes.set_pathing(1) + opcodes.RETURN
 
 
-def _assemble_entry(funcs) -> bytes:
-    """Assemble a type-1 (region) entry from ``[(tag, body), ...]`` -- the func table (4 bytes/func:
-    ``<tag:u16><fpos:u16>``) then the concatenated bodies. Same layout as ladder_region."""
-    table = b""
-    pos = len(funcs) * 4
-    for tag, body in funcs:
-        table += struct.pack("<HH", tag, pos)
-        pos += len(body)
-    return bytes([_region.REGION_ENTRY_TYPE, len(funcs)]) + table + b"".join(b for _, b in funcs)
-
-
 def jump_region(zone, jump_tag: int, *, trigger: str = "action", bubble: bool = True,
                 player_uid: int = PLAYER_UID) -> bytes:
     """A type-1 region entry that fires the player's jump arc (func ``jump_tag``).
@@ -126,7 +114,7 @@ def jump_region(zone, jump_tag: int, *, trigger: str = "action", bubble: bool = 
         tread = _region.MOVEMENT_GATE + (opcodes.bubble(1) if bubble else b"") + opcodes.RETURN
         action = _region.MOVEMENT_GATE + dispatch
         funcs = [(0, init), (_region.RANGE_TAG, tread), (_region.INTERACT_TAG, action)]
-    return _assemble_entry(funcs)
+    return _region.pack_entry_funcs(funcs)
 
 
 def ensure_jump_animation(data, anim=JUMP_ANIM_DEFAULT):

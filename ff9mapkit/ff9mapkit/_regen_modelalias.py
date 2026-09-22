@@ -24,6 +24,8 @@ chain from these baked tables. Five pieces are captured:
 from __future__ import annotations
 
 import argparse
+
+from ._regen_stamp import memoria_stamp
 import re
 from pathlib import Path
 
@@ -70,7 +72,7 @@ def parse_tables(memoria_root: Path) -> dict:
             "GEOID_SPECIALS": specials, "SUB_TYPE_GEO_IDS": sub_ids}
 
 
-def render(t: dict) -> str:
+def render(t: dict, *, stamp: str) -> str:
     header = (
         '"""Auto-generated FF9 model-alias registry: the engine\'s model-name -> donor-prefab rename chain.\n'
         "\n"
@@ -90,7 +92,7 @@ def render(t: dict) -> str:
         "the REQUESTED id (resolve_geo); only the GEOMETRY location goes through this chain.\n"
         '"""\n'
     )
-    lines = [header]
+    lines = [header + stamp + "\n"]
 
     def dump(name: str, table: dict, comment: str):
         lines.append(f"# {comment}")
@@ -118,7 +120,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     tables = parse_tables(Path(args.memoria))
     target = Path(__file__).with_name("_modelalias.py")
-    target.write_text(render(tables), encoding="utf-8", newline="\n")
+    target.write_text(render(tables, stamp=memoria_stamp(Path(args.memoria), "_regen_modelalias.py")), encoding="utf-8", newline="\n")
     print(f"wrote {target}  (" + ", ".join(f"{k}={len(v)}" for k, v in tables.items()) + ")")
     return 0
 

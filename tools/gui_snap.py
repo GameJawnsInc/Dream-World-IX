@@ -1007,7 +1007,7 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
     _settle(4)
     if state in ("traced", "contacts", "regions"):
         import importlib.util
-        p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
+        p = REPO / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_trace_fixture", p)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -1074,7 +1074,7 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
         _settle(4)
     elif state in ("fork", "regions"):
         import importlib.util
-        p = REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_imagefield.py"
+        p = REPO / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_place_fixture", p)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -1256,7 +1256,7 @@ def snap_behavior(ctx: _Ctx, state: str) -> None:
         import importlib.util as _ilu
         from ff9mapkit.editor import model as _model
         sp = _ilu.spec_from_file_location(
-            "_siege_fixture", REPO / "ff9mapkit" / "ff9mapkit" / "tests" / "test_siege.py")
+            "_siege_fixture", REPO / "ff9mapkit" / "tests" / "test_siege.py")
         sm = _ilu.module_from_spec(sp)
         sp.loader.exec_module(sm)
         root.mkdir(parents=True, exist_ok=True)

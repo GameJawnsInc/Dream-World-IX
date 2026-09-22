@@ -4,6 +4,7 @@ narrower than widescreen is letterboxed in-game; a forked custom id defaults to 
 so it LOSES that letterbox masking -- the 'narrow-map' lost-on-mint behavior (engine NarrowMapList is
 fldMapNo-keyed; see docs/FORK_FIDELITY.md + project-ff9-narrow-map-fork-letterbox). Regenerate with
 tools/bake_narrowmap.py."""
+# generated-from: Memoria@unknown by tools/bake_narrowmap.py
 
 FORK_DEFAULT_WIDTH = 500   # MapWidth() returns this for an unlisted (custom) id
 

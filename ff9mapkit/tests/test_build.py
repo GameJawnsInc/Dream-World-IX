@@ -1491,11 +1491,11 @@ def test_build_refuses_to_unregister_a_shared_folders_other_fields(tmp_path):
     build.build_mod([proj], out)                                  # same set again: still fine
     # now the folder also carries a FOREIGN field (another session's deploy)
     dp = out / "DictionaryPatch.txt"
-    dp.write_text("MessageFile 30110 MES_DWIX_30110\nFieldScene 30110 11 THEIRS THEIRS 30110\n"
+    dp.write_text("MessageFile 30110 MES_DWIX_30110\nFieldScene 30110 11 1860 THEIRS 30110\n"
                   + dp.read_text(encoding="utf-8"), encoding="utf-8")
     with pytest.raises(build.BuildError) as e:
         build.build_mod([proj], out)
-    assert "30110 (THEIRS)" in str(e.value) and "deploy_field.py" in str(e.value)
+    assert "30110 (THEIRS)" in str(e.value) and "deploy_field.py" in str(e.value)   # the NAME column, not the map id
     assert "FieldScene 30110" in dp.read_text(encoding="utf-8")   # and the file is UNTOUCHED
 
 

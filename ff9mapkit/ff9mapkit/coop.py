@@ -442,7 +442,7 @@ def find_registered_field(game: Path, field_id: int) -> str | None:
     for folder in read_folder_names(text) + [COOP_MOD]:
         dp = game / folder / "DictionaryPatch.txt"
         try:
-            if dp.is_file() and needle in dp.read_text(encoding="utf-8", errors="replace"):
+            if dp.is_file() and needle in dp.read_text(encoding="utf-8-sig", errors="replace"):
                 return folder
         except OSError:
             continue

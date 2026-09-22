@@ -7,6 +7,7 @@ paths where lint's unknown-key check is ON (the path occurred in a corpus item w
 pipeline completed). See ff9mapkit/fieldschema.py; regenerate with
 ``py -m ff9mapkit._regen_fieldschema``.
 """
+# generated-from: examples by _regen_fieldschema.py
 
 VOCAB = {
     '': ('_siege_conflict', '_siege_error', 'ability_feature', 'ability_gem', 'armor', 'ate', 'battle_action', 'battle_attack', 'battle_bgm', 'battle_enemy', 'battle_patch', 'behavior', 'camera', 'camera_zone', 'carry_text', 'character', 'character_param', 'chest', 'chocobo', 'choice', 'command_set', 'coop', 'cutscene', 'deathrules', 'dialogue', 'difficulty', 'encounter', 'equip_bonus', 'equipment', 'event', 'ferry', 'field', 'flag', 'folklore', 'gateway', 'gateway_carry', 'gauge', 'item', 'item_effect', 'item_text', 'jump', 'ladder', 'layers', 'learn', 'leveling', 'logic_add', 'logic_edit', 'lowhp', 'magic_sword_set', 'marker', 'mint', 'music', 'npc', 'numeric_input', 'object', 'on_entry', 'party', 'platform', 'playable', 'player', 'player_func', 'prop', 'qte', 'rebalance', 'save_moogle', 'savepoint', 'scene', 'shop', 'siege', 'sps', 'sps_edit', 'start_inventory', 'startup', 'status', 'status_set', 'summon', 'synthesis', 'synthesis_edit', 'text_table', 'verbatim_eb', 'walkmesh', 'weapon'),

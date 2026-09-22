@@ -115,3 +115,21 @@ def test_revert_refuses_an_outside_path(tmp_path):
     with pytest.raises(ValueError, match="not inside the mod folder"):
         deployed.revert_entry(mod, bad)
     assert outside.exists()
+
+
+def test_model_lane_registry_readers_tolerate_a_utf8_bom(tmp_path):
+    """The kit's own guards (deploystack) decode utf-8-sig; the model lane's readers of the SAME file still
+    decoded plain utf-8, so one BOM'd registry gave two answers inside one run: the collision guard saw a
+    mint the inventory, the anim registry and the strip-on-revert insisted did not exist."""
+    from ff9mapkit.models import anim
+    mod = tmp_path / "mod"
+    mod.mkdir()
+    dp = mod / "DictionaryPatch.txt"
+    dp.write_bytes(b"\xef\xbb\xbf3DModel 7777 GEO_NPC_F9_XYZ\n3DModelAnimation 60001 ANH_NPC_F9_XYZ_IDLE\n")
+    assert deployed.parse_mint_directives(mod) == {7777: "GEO_NPC_F9_XYZ"}
+    assert anim._resolve_minted_model("GEO_NPC_F9_XYZ", mod) == ("GEO_NPC_F9_XYZ", 7777)
+    dp.write_bytes(b"\xef\xbb\xbf3DModelAnimation 60001 ANH_NPC_F9_XYZ_IDLE\n3DModel 7777 GEO_NPC_F9_XYZ\n")
+    assert anim._anim_key_registry(dp) == {60001: "ANH_NPC_F9_XYZ_IDLE"}
+    dp.write_bytes(b"\xef\xbb\xbf3DModel 7777 GEO_NPC_F9_XYZ\n3DModel 8888 GEO_NPC_F9_GONE\n")
+    assert deployed._strip_mint_directive(mod, 7777) is True                # line 1 IS the directive
+    assert dp.read_text(encoding="utf-8").splitlines() == ["3DModel 8888 GEO_NPC_F9_GONE"]

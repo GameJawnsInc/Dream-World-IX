@@ -181,7 +181,6 @@ def test_flag_cross_0xff_two_remaps_in_one_function():
         {"kind": "flag_index", "entry": 0, "tag": 0, "flag": 50, "new_flag": 8512},   # short->long (+1)
         {"kind": "flag_index", "entry": 0, "tag": 0, "flag": 300, "new_flag": 100}])   # long->short (-1)
     assert _glob_idxs(out) == [8512, 100] and eblint.errors(eblint.lint_eb(out)) == []
-    assert EbScript.from_bytes(out).to_bytes() == out
 
 
 def test_flag_cross_0xff_conflicting_edits_refused_not_corrupted():

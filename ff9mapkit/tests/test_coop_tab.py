@@ -102,7 +102,7 @@ def test_no_bare_background_sheet_on_any_widget(app, monkeypatch, tmp_path):
 def coop(app, tmp_path_factory):
     """One Workspace per module; tests read its coop_doc.
 
-    THE FIXTURE PINS ITS OWN PREFS, at MODULE scope. conftest's autouse ``_isolate_prefs`` is
+    THE FIXTURE PINS ITS OWN PREFS, at MODULE scope. The root conftest's autouse ``_isolate_user_config`` is
     FUNCTION-scoped, and pytest builds higher-scoped fixtures first and tears them down last -- so a
     module fixture's construction reads the developer's REAL prefs.json and, worse, its teardown
     ``win.close()`` runs closeEvent -> ``_save_layout`` AFTER the last test's isolation unwound,

@@ -7,6 +7,7 @@ Names encode model + action: ANH_MAIN_F0_VIV_TALK_3_1 -> Vivi ('VIV'), form F0, 
 TALK_3_1. Limited to the 8 playable characters (the field cutscene presets). The catalog
 in ff9mapkit.animations turns these into pick-by-name gestures.
 """
+# generated-from: Memoria@unknown by _regen_animdb.py
 
 
 MAIN_ANIMATIONS = {

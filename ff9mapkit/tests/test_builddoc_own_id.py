@@ -166,7 +166,7 @@ def _worktree_doc(app, monkeypatch, tmp_path):
     if jobs.main_repo_root(wt) != main:
         pytest.skip("this git cannot answer --git-common-dir --path-format=absolute")
     monkeypatch.delenv("FF9_REPO", raising=False)
-    monkeypatch.setattr(builddoc.jobs, "detect_game_mod", lambda: None)
+    monkeypatch.setattr(builddoc.jobs, "detect_game_mod", lambda repo_root=None: None)
     doc = BuildDoc(pick_palette("dark"), wt, run=lambda *a, **k: True, problems=lambda *a, **k: None)
     assert doc.repo == wt and doc.has_tools, "the doc must stay rooted at the checkout it was launched from"
     return doc, main, wt
@@ -212,3 +212,70 @@ def test_the_ledger_hint_never_points_at_a_disabled_revert(app, tmp_path, monkey
                 f"{state}: the hint sends the user to a button this method just disabled"
     assert "Revert selected" in seen["mixed"], "the reachable case must still teach the button"
     assert len(set(seen.values())) == 3, "each situation needs its own message, not a shared near-miss"
+
+
+def _pinned_doc(app, tmp_path, monkeypatch, pin: str | None):
+    """A BuildDoc rooted at a SCRATCH checkout carrying the dev deploy tool (a stub) and, optionally, a
+    .ff9deploy.toml pin -- never this machine's checkout or install."""
+    from ff9mapkit.workspace import builddoc
+    root = tmp_path / ("pinned" if pin else "bare")
+    (root / "tools").mkdir(parents=True)
+    (root / "tools" / "deploy_field.py").write_text("# stub\n", encoding="utf-8")
+    (root / ".git").mkdir()
+    if pin:
+        (root / ".ff9deploy.toml").write_text(pin, encoding="utf-8")
+    monkeypatch.setattr(builddoc.jobs, "detect_game_mod", lambda repo_root=None: None)
+    monkeypatch.delenv("FF9_REPO", raising=False)             # else resolve_dev_repo re-roots the doc at the REAL checkout
+    monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    calls = []
+    doc = BuildDoc(pick_palette("dark"), root, run=lambda argv, **kw: calls.append((argv, kw)) or True,
+                   problems=lambda *a, **k: None)
+    doc._confirm = lambda *a, **k: True
+    doc._confirm_reversible = lambda *a, **k: True
+    doc._calls = calls
+    return doc
+
+
+def test_test_slot_radio_names_where_its_number_came_from(app, tmp_path, monkeypatch):
+    """The 'Test slot NNNN' radio is renamed by whatever `.ff9deploy.toml` sits in the launching checkout
+    -- CLAUDE.md §3's costliest incident: a session pinned a scratch id there and the owner's next deploy
+    silently landed in it, wiping a room mid-playtest. The label now says which it is, so a number that
+    is not the one the human expects reads as a pin, not as the default."""
+    bare = _pinned_doc(app, tmp_path, monkeypatch, None)
+    assert bare.worktree_id is None and bare.rb_test.text().startswith("Test slot 4003")
+    assert "shared default" in bare.rb_test.text()
+    pinned = _pinned_doc(app, tmp_path, monkeypatch, 'mod_folder = "FF9CustomMap-ic"\nid = 30004\n')
+    assert pinned.worktree_id == 30004 and pinned.rb_test.text().startswith("Test slot 30004")
+    assert "pinned in .ff9deploy.toml" in pinned.rb_test.text()
+
+
+def test_test_slot_deploy_passes_the_id_the_radio_shows(app, tmp_path, monkeypatch):
+    """The deploy's argv carries the number on the label (`--id`), so the label and the landing slot are
+    the same fact -- not two readers of the same file agreeing by luck (and the tool's 'no --id given'
+    stderr nag no longer fires for the tab)."""
+    doc = _pinned_doc(app, tmp_path, monkeypatch, 'mod_folder = "FF9CustomMap-ic"\nid = 30004\n')
+    if not doc.has_tools:
+        pytest.skip("the stub tool did not register as dev tools")
+    p = _field(tmp_path)
+    doc.path.setText(str(p))
+    doc.rb_test.setChecked(True)
+    doc._go_field(str(p))
+    argv = [str(x) for x in doc._calls[-1][0]]
+    assert "deploy_field.py" in argv[1] and argv[-2:] == ["--id", "30004"], argv
+
+
+def test_a_falsy_pin_id_is_shown_as_pinned_and_passed_on_not_silently_4003(app, tmp_path, monkeypatch):
+    """`id = 0` in the pin: the label's provenance test (`is not None`) said 'pinned' while the number came
+    from `worktree_id or 4003` -- and with --id now passed, the deploy landed in the SHARED sandbox with a
+    label claiming a pin. Both read the same value now: 'Test slot 0 (pinned…)' and `--id 0`, which
+    tools/deploy_field.py refuses out loud (band check) instead of writing 4003 quietly."""
+    doc = _pinned_doc(app, tmp_path, monkeypatch, 'mod_folder = "FF9CustomMap-ic"\nid = 0\n')
+    assert doc.worktree_id == 0
+    assert doc.rb_test.text().startswith("Test slot 0") and "pinned in .ff9deploy.toml" in doc.rb_test.text()
+    if not doc.has_tools:
+        pytest.skip("the stub tool did not register as dev tools")
+    p = _field(tmp_path)
+    doc.path.setText(str(p))
+    doc.rb_test.setChecked(True)
+    doc._go_field(str(p))
+    assert [str(x) for x in doc._calls[-1][0]][-2:] == ["--id", "0"]

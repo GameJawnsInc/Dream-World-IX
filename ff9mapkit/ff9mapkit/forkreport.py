@@ -27,6 +27,7 @@ from dataclasses import dataclass, field as _dc_field
 
 from . import flags as _flags
 from .eb.model import EbScript
+from .eb import disasm as _disasm
 
 # --- bytecode signals -------------------------------------------------------------------------------
 FIELD_OP = 0x2B            # Field(target) -- a warp; in an object's tag-1 LOOP => a cutscene director/actor
@@ -447,27 +448,20 @@ def _eval_cmp(sc, cond) -> bool:
             0x1A: sc <= const, 0x1B: sc >= const}.get(cmp, False)
 
 
-def _jump_target(ins) -> int:
-    """Absolute byte target of a jump instr (operand is a signed i16 skip distance from the instr end)."""
-    raw = ins.imm(0)
-    if raw is None:
-        return -1
-    return ins.end + (raw - 0x10000 if raw >= 0x8000 else raw)
-
-
 def _spawned_slots(instrs, sc_conds, sc) -> list:
     """Symbolically execute the Main_Init instr list at ``ScenarioCounter == sc``: take a conditional jump
     only when its driving ScenarioCounter comparison is known (else fall through = run the guarded body),
     follow forward jumps (incl. the unconditional 0x01 that steps over an if's else-branch), and return the
     ordered InitObject slots reached. A FORWARD jump lands on the first instr at-or-after the target (so a
-    jump to the function end correctly terminates); a BACKWARD jump is not followed (loop guard). Bounded by
-    a visited set + step cap."""
+    jump to the function end correctly terminates); a BACKWARD jump (a signed-negative 0x01/0x03 -- a 0x02
+    has none: the engine reads its skip UNSIGNED, via eb.disasm.jump_target) is not followed (loop guard).
+    Bounded by a visited set + step cap."""
     offs = [ins.off for ins in instrs]             # ascending (Main_Init in order)
     n = len(instrs)
 
     def _forward(i, ins):                           # next index for a jump from instr i, or fall-through
-        tgt = _jump_target(ins)
-        k = _bisect.bisect_left(offs, tgt) if tgt >= 0 else i + 1
+        tgt = _disasm.jump_target(ins)              # THE engine rule: 0x01/0x03 signed, 0x02 UNSIGNED
+        k = _bisect.bisect_left(offs, tgt) if tgt is not None else i + 1
         return k if k > i else i + 1               # forward only; backward/unknown -> fall through
 
     out, visited, last, i, steps = [], set(), None, 0, 0

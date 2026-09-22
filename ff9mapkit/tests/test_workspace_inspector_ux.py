@@ -9,7 +9,7 @@ encounter -- the call-site law's exhibit. Every tally is now a ``goto:tree:`` li
 tree row (group header for lists, section node for singles, member-row fallback -- never a dead click).
 
 Headless (offscreen), NO_THUMBS -- opening a field must not touch any preview cache; prefs are isolated
-by conftest's autouse ``_isolate_prefs``.
+by the root conftest's autouse ``_isolate_user_config``.
 """
 
 from __future__ import annotations

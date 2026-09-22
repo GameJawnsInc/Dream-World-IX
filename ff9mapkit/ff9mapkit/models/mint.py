@@ -29,6 +29,7 @@ from .. import fsutil
 from . import extract, fbx_skin
 
 MINT_BAND_START = 6000                       # first id clear of every real GEO id (real max = 5511)
+MINT_BAND_END = 32767                        # last: a GEO id is a signed i16 wherever the engine stores one (SB2_MON_PARM Geo@30)
 _GROUP_TYPE = extract._TYPE_INT              # {'acc':1,'main':2,'mon':3,'npc':4,'sub':5,'wep':6}
 
 
@@ -186,7 +187,7 @@ def deploy_mint(source_token: str, new_id: int, mod_folder, new_name=None, *, ga
         # window drops whichever lines a concurrent deploy/revert merged in between. A FileLockTimeout
         # propagates to the caller (the CLI prints and aborts).
         with fsutil.locked_sidecar(dp):
-            lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+            lines = dp.read_text(encoding="utf-8-sig").splitlines() if dp.exists() else []   # -sig: a Notepad BOM must not hide line 1
             if man["directive"] not in lines:
                 lines.append(man["directive"])
                 fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")

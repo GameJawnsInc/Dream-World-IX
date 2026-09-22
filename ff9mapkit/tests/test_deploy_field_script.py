@@ -7,7 +7,10 @@ which of those strips deserve a warning, so a hand-rolled copy that drifts from 
 silent-loss hole (see ``dictpatch.owned_predicate``).
 """
 import ast
+import os
 import pathlib
+import sys
+import tomllib
 
 import pytest
 
@@ -324,3 +327,86 @@ def test_message_file_line_is_carried_into_the_live_dictionary_patch():
     _rev = build_revert_script(kit="k", backup_dir="b", stamp="s", mod_folder="FF9CustomMap", fid=4003,
                                name="TESTROOM", fbg="FBG", text_block=1073, repo="r", mes_blocks=[1073])
     assert "_MES_BLOCKS" in _rev and "text_blocks=_MES_BLOCKS" in _rev
+
+
+# ---- where a battle deploy LANDS must resolve in the same order as a field deploy --------------------
+def _battle_resolver(repo):
+    """``deploy_battle._mod_folder_default`` lifted out of the script (it parses argv at import time), bound
+    to ``repo`` as its running-checkout root -- so the four env/pin combinations resolve WITHOUT touching a
+    game install."""
+    tree = ast.parse(_BATTLE_SRC)
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_mod_folder_default")
+    ns = {"REPO": repo, "os": os, "sys": sys, "tomllib": tomllib, "Path": pathlib.Path}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), "deploy_battle._mod_folder_default", "exec"), ns)
+    return ns["_mod_folder_default"]
+
+
+@pytest.mark.parametrize("pin, env, expect", [
+    (None, None, "FF9CustomMap"),
+    ("MF-pin", None, "MF-pin"),
+    (None, "MF-env", "MF-env"),
+    ("MF-pin", "MF-env", "MF-env"),           # env WINS: the documented order (deploy_field's, config's)
+], ids=["neither", "pin", "env", "both"])
+def test_deploy_battle_resolves_its_folder_in_the_documented_order(tmp_path, monkeypatch, pin, env, expect):
+    """CLI flag > $FF9_MOD_FOLDER > .ff9deploy.toml > FF9CustomMap -- deploy_field.py's comment and code,
+    config.resolve_mod_folder's docstring, and deploy_battle's own ("Mirrors tools/deploy_field.py").
+    deploy_battle read the PIN first, so with both set a field landed in the env folder and its
+    BattleScene in the pinned one, silently -- and --trigger-field then repointed an encounter in one
+    folder at a scene registered in another."""
+    if pin:
+        (tmp_path / ".ff9deploy.toml").write_text(f'mod_folder = "{pin}"\n', encoding="utf-8")
+    if env:
+        monkeypatch.setenv("FF9_MOD_FOLDER", env)
+    else:
+        monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    assert _battle_resolver(tmp_path)() == expect
+
+
+def test_deploy_battle_still_aborts_on_a_malformed_pin_even_with_the_env_set(tmp_path, monkeypatch, capsys):
+    # the pin is READ before the env is consulted (deploy_field's _worktree_cfg runs unconditionally too):
+    # a malformed pin is never silently stepped over, whatever else is set
+    (tmp_path / ".ff9deploy.toml").write_text('mod_folder = = "x"\n', encoding="utf-8")
+    monkeypatch.setenv("FF9_MOD_FOLDER", "MF-env")
+    with pytest.raises(SystemExit) as ei:
+        _battle_resolver(tmp_path)()
+    assert ei.value.code == 2
+    assert "refusing to guess a deploy target" in capsys.readouterr().err
+
+
+def test_both_deploy_scripts_state_the_same_folder_order():
+    # one expression each, spelled the same way, so the two cannot drift in opposite directions again
+    assert 'os.environ.get("FF9_MOD_FOLDER") or _cfg.get("mod_folder") or "FF9CustomMap"' in _SRC
+    assert 'os.environ.get("FF9_MOD_FOLDER") or pinned or "FF9CustomMap"' in _BATTLE_SRC
+
+
+# ---- the build's warnings must reach the human from EVERY deploy entry point ------------------------
+def test_deploy_scripts_print_the_builds_warnings_before_touching_the_install():
+    """build_mod returns ``"warnings"`` -- lint_logic's output, the placement warnings, and the "NPC has no
+    model -> it will CLONE THE PLAYER model" class. deploy.py, cli.py's build verb and deploy_battle.py all
+    print it; deploy_field.py -- the dev loop's mandated script -- computed it and threw it away (zero
+    references). It prints them now, in deploy_battle's exact dialect, and BEFORE the prelude revert and
+    every install-touching step, so an aborted deploy still surfaces them."""
+    loop = 'for w in info["warnings"]:'
+    assert loop in _SRC and 'print(f"warning: {w}")' in _SRC
+    assert loop in _BATTLE_SRC and 'print(f"warning: {w}")' in _BATTLE_SRC
+    assert _SRC.index(loop) < _SRC.index('revert_deploy_{FID}.py'), \
+        "warnings must print before the prelude revert -- a deploy that aborts there must still show them"
+
+
+
+def test_every_tool_side_patch_file_read_decodes_utf8_sig():
+    """The deploy tools read the LIVE DictionaryPatch / BattlePatch / ForkDonorPatch and several of them
+    WRITE BACK what they read (deploy_field's fork-donor merge, deploy_battle's rewrite). A plain-utf-8
+    decode carries a Notepad BOM into a mid-file line -- where no BOM-aware reader ever strips it -- or
+    hides line 1 from the kit's own guards. Same-line pin: a patch-file expression read with a bare
+    ``encoding="utf-8")`` is refused; ``utf-8-sig`` is a strict superset for reading."""
+    import re
+    tools = pathlib.Path(__file__).resolve().parents[2] / "tools"
+    patchy = re.compile(r"dictionary_patch|battle_patch|fork_donor_patch|ForkDonorPatch|DictionaryPatch\.txt|"
+                        r"BattlePatch\.txt|\b_fd[plb]\b|\blive_dp\b|\bdist_dp\b")
+    bad = []
+    for f in sorted(tools.glob("*.py")):
+        for i, ln in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if patchy.search(ln) and 'encoding="utf-8")' in ln and "read_text" in ln:
+                bad.append(f"{f.name}:{i}: {ln.strip()[:100]}")
+    assert not bad, "patch-file reads still decoding plain utf-8 (use utf-8-sig):\n  " + "\n  ".join(bad)

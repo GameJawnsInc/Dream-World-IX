@@ -134,6 +134,18 @@ def test_wheel_package_data_stays_pinned_to_provenance_clean_files():
             f"package-data must never glob {banned!r} -- that is how a wheel bundles FF9 bytes"
 
 
+def test_no_test_tree_is_discovered_as_a_package():
+    """A tests/ directory INSIDE the package is a namespace package to setuptools' default finder and
+    ships in the wheel (1.0.0b19 carried 32 test modules this way, from ff9mapkit/ff9mapkit/tests/).
+    Test trees live BESIDE the package (ff9mapkit/tests/, ff9mapkit/blender/tests/) where the finder's
+    ``include = ["ff9mapkit*"]`` cannot see them."""
+    find = pytest.importorskip("setuptools").find_namespace_packages
+    found = find(where=str(REPO / "ff9mapkit"), include=["ff9mapkit*"])
+    leaked = sorted(p for p in found if p.endswith(".tests") or ".tests." in p)
+    assert not leaked, \
+        f"test tree discovered as a shippable package -- move it beside the package: {leaked}"
+
+
 def test_built_dists_carry_no_game_derived_entries():
     """Scan any locally built dist archives (ff9mapkit/dist/*). data/provenance/ entries are the CLEAN
     mechanism (copy/insert patches + hashes) and are exempt by path."""

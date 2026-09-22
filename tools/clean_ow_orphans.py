@@ -32,7 +32,7 @@ def main() -> int:
         print(f"{OW} not found at {root}; nothing to do.")
         return 0
     # SAFETY: refuse to touch any name that IS registered in -ow's DictionaryPatch (would be a live field).
-    dp = (root / "DictionaryPatch.txt").read_text(encoding="utf-8", errors="ignore") if (root / "DictionaryPatch.txt").is_file() else ""
+    dp = (root / "DictionaryPatch.txt").read_text(encoding="utf-8-sig", errors="ignore") if (root / "DictionaryPatch.txt").is_file() else ""
     registered = {ln.split()[4] for ln in dp.splitlines() if ln.strip() and len(ln.split()) >= 5}
     live = ModLayout(root)
     ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")

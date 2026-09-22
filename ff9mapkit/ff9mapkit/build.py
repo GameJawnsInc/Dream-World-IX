@@ -1236,6 +1236,19 @@ def _validate_summon(project: FieldProject, problems: list) -> None:
     problems += _summon.validate_blocks(project.raw.get("summon", []), base_dir=project.base_dir)
 
 
+#: Every key a ``[[ladder]]`` table may carry: the validator's, build_script's own knobs, and the two retired
+#: ones (refused by name below). A ladder SELECTS its mechanism by which keys are present (navigable /
+#: top+bottom / zone+climb / zone+to), so an unknown key is not "ignored" -- it silently picks another
+#: mechanism -- and the harvested unknown-key lint does not enforce [[ladder]] (no bundled example's ladder
+#: completes the offline pipeline). validate() refuses one, naming the near miss (scout F13).
+_LADDER_KEYS = frozenset({
+    "navigable", "rungs", "bottom", "top", "zone", "top_action", "top_field", "top_worldmap",   # navigable
+    "climb", "to",                                                                               # faithful / one-way
+    "animation", "climb_anim", "face_angle", "steps", "zone_radius",                             # build_script knobs
+    "arc_from", "arc_to",                                                                        # retired (refused)
+})
+
+
 def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
@@ -1644,10 +1657,10 @@ def validate(project: FieldProject) -> list[str]:
     # [[character]] / [[leveling]] / [[ability_gem]] -- player-side balance CSV deltas (structural + range;
     # name->id + base-row read happen at build, which has the install). BaseStats/AbilityGems per-id partial;
     # Leveling whole-file (99 rows).
+    def _aslist(v):
+        return v if isinstance(v, list) else [v]                       # never traceback on a malformed block
     if project.raw.get("character") or project.raw.get("leveling") or project.raw.get("ability_gem"):
         from .battle import characterdelta as _cdelta
-        def _aslist(v):
-            return v if isinstance(v, list) else [v]                   # never traceback on a malformed block
         for q, c in enumerate(_aslist(project.raw.get("character", []))):
             problems += [f"[[character]] #{q}: {p}" for p in _cdelta.validate_character(c)]
         for q, lv in enumerate(_aslist(project.raw.get("leveling", []))):
@@ -1656,11 +1669,9 @@ def validate(project: FieldProject) -> list[str]:
             problems += [f"[[ability_gem]] #{q}: {p}" for p in _cdelta.validate_ability_gem(ag)]
     if project.raw.get("character_param") or project.raw.get("command_set"):
         from .battle import characterdelta as _cdelta
-        def _aslist2(v):
-            return v if isinstance(v, list) else [v]
-        for q, cp in enumerate(_aslist2(project.raw.get("character_param", []))):
+        for q, cp in enumerate(_aslist(project.raw.get("character_param", []))):
             problems += [f"[[character_param]] #{q}: {p}" for p in _cdelta.validate_character_param(cp)]
-        for q, cs in enumerate(_aslist2(project.raw.get("command_set", []))):
+        for q, cs in enumerate(_aslist(project.raw.get("command_set", []))):
             problems += [f"[[command_set]] #{q}: {p}" for p in _cdelta.validate_command_set(cs)]
     if project.raw.get("learn"):
         from .battle import characterdelta as _cdelta
@@ -1671,6 +1682,14 @@ def validate(project: FieldProject) -> list[str]:
         from .battle import abilityfeatures as _af                # ability-effect DSL; structural -- AA-by-name id
         problems += _af.validate_blocks(project.raw.get("ability_feature", []))   # resolution defers to build)
     for la in project.raw.get("ladder", []):
+        extra = sorted(set(la) - _LADDER_KEYS)
+        if extra:                                    # THE EXPLICIT DISCRIMINANT: refuse, never fall through
+            for k in extra:
+                near = _difflib.get_close_matches(k, sorted(_LADDER_KEYS), n=1, cutoff=0.6)
+                problems.append(f"[[ladder]] unknown key {k!r}" + (f" (did you mean {near[0]!r}?)" if near else "")
+                                + " -- a ladder's keys select its mechanism (navigable / top+bottom / zone+climb"
+                                " / zone+to), so an unknown one is refused rather than silently picking another")
+            continue
         if la.get("navigable"):                      # NAVIGABLE (FF9's real ladder mechanism, recreated)
             rungs = la.get("rungs")
             if rungs is not None:                    # MULTI-RUNG (bent vine): rungs replace bottom/top
@@ -3283,7 +3302,13 @@ def validate(project: FieldProject) -> list[str]:
 # fork -- seated below the donor's party-character band -- by _inject_verbatim_{npcs,gateways,events}.)
 _VERBATIM_IGNORED_BLOCKS = {
     "marker": "[[marker]]",
-}   # NOT here: [music] REPLACES the donor BGM in place; a [[choice]] with `npc =` is wired to that NPC's talk
+    "ladder": "[[ladder]]", "jump": "[[jump]]", "platform": "[[platform]]", "savepoint": "[[savepoint]]",
+    "ate": "[[ate]]", "object": "[[object]]",
+}   # The six content blocks whose injectors are called ONLY from inside build_script (an AST census of every
+    # raw.get("<block>") read in this module, scout F10). Deliberately absent: [[qte]] / [[numeric_input]] /
+    # [siege] / [behavior] (validate() REFUSES them on a verbatim fork), [shop] / [synthesis] (warned in
+    # build_field), and [[sps]] / [encounter] / a cast [cutscene] / the field-load hooks (wired on BOTH paths).
+    # NOT here: [music] REPLACES the donor BGM in place; a [[choice]] with `npc =` is wired to that NPC's talk
     # (a zone [[choice]] with no `npc` is still unwired -- warned separately in lint_logic). A MULTI-ACTOR
     # [cutscene] (actor = [...]) IS wired (a below-band conductor, _inject_verbatim_conductor) -- only a
     # single-actor / narration cutscene stays unwired (warned below in lint_logic).
@@ -3702,11 +3727,7 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
     if _b.get("public_flags"):
         try:
             from .content import behaviortoml as _bt
-            slots: dict[str, int] = {}
-            for u in _b.get("unit", []) or []:
-                for m in _bt.row_members(u):
-                    slots.setdefault(m, len(slots) + 2)
-            _fb = _bt.build(raw, npc_slots=slots,
+            _fb = _bt.build(raw, npc_slots=_bt.placeholder_slots(raw),
                             npc_txids_by_name={n.get("name"): 0
                                                for n in raw.get("npc", []) or []},
                             behavior_txids={})
@@ -3912,8 +3933,16 @@ class LintReport:
     source: str = "?"
 
     @property
+    def tagged(self) -> list:
+        """The advisory slots in print order, each with its label -- THE one seam ``ff9mapkit lint`` and the
+        deploy pre-flight iterate (a slot added to this class is printed by both, or by neither; each loop
+        once carried its own tuple and the deploy one had silently dropped ``unknown``)."""
+        return [("schema", self.unknown), ("logic", self.logic), ("flags", self.flags),
+                ("placement", self.placement), ("camera", self.camera)]
+
+    @property
     def warnings(self) -> list:
-        return self.unknown + self.logic + self.flags + self.placement + self.camera
+        return [w for _tag, items in self.tagged for w in items]
 
     @property
     def ok(self) -> bool:
@@ -4092,6 +4121,26 @@ def lint_unknown_keys(project: FieldProject) -> list:
         return [f"unknown-key check failed: {type(e).__name__}: {e}"]
 
 
+def lint_behavior_compile(project: FieldProject) -> list[str]:
+    """A ``[behavior]`` table that VALIDATES can still refuse to COMPILE: the compiler's own errors (a
+    blackboard band exhausted, an unroutable auto route, ...) live past :func:`validate`, and until now the
+    first thing that ran the compiler was the build itself. The same dry compile ``behavior compile`` and the
+    Workspace scan run (:func:`behaviortoml.dry_compile`: placeholder slots, zero txids), with the autoroute
+    plan resolved first when the field asks for one -- so this runs AFTER the walkmesh resolve. A refusal is
+    build-blocking (the build would raise there). Never crashes: any failure IS the finding."""
+    raw = project.raw
+    if not _behaviortoml.table(raw) or "verbatim_eb" in raw:      # (verbatim: validate refuses [behavior])
+        return []
+    try:
+        plan = {}
+        if _behaviortoml.wants_autoroute(raw):
+            plan = _behaviortoml.autoroute_plan(raw, behavior_walkmesh(project))
+        _behaviortoml.dry_compile(raw, routed=plan)
+    except Exception as e:                    # noqa: BLE001 -- lint's never-crash contract
+        return [f"[behavior] does not compile: {e}"]
+    return []
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -4138,6 +4187,8 @@ def lint_all(project: FieldProject) -> LintReport:
                 rep.camera.append((f"camera #{ci}: " if len(cams) > 1 else "") + w)
     except Exception:                         # noqa: BLE001 -- the same resolve failure is already an error
         pass                                  # (reported by validate() and/or the geometry block above)
+    if not rep.errors:                        # the compiler's own refusals -- one root cause, reported once
+        rep.errors.extend(lint_behavior_compile(project))
     return rep
 
 
@@ -5512,12 +5563,24 @@ def _npc_needs_default_talk(project: FieldProject, n: dict) -> bool:
     return not (name and any(ch.get("npc") == name for ch in (project.raw.get("choice") or [])))
 
 
+def _verbatim_voiced_npcs(project: FieldProject) -> tuple[list, list]:
+    """``(voiced, silent)`` -- ``(index, npc)`` lists -- ONE owner of the NPC block's selection, for the
+    messages loop AND the count (the :func:`_event_shows_text` pattern: a count that re-derives its
+    twin's predicate shifts every block above it when they drift). ``voiced`` = has dialogue; ``silent`` = a
+    dialogue-less default-talk NPC (:func:`_npc_needs_default_talk`), appended AFTER the voiced block so an
+    existing fork's voiced txids stay byte-stable. The two are disjoint by construction."""
+    npcs = project.raw.get("npc", []) or []
+    voiced = [(i, n) for i, n in enumerate(npcs) if n.get("dialogue")]
+    silent = [(i, n) for i, n in enumerate(npcs) if _npc_needs_default_talk(project, n)]
+    return voiced, silent
+
+
 def _verbatim_npc_message_count(project: FieldProject) -> int:
-    """How many `.mes` lines the verbatim NPC appended-text block holds -- one per ``[[npc]]`` with
-    dialogue plus one per dialogue-less default-talk NPC (its silent line; the same predicate
-    :func:`_verbatim_npc_messages` allocates by) -- so the ``[[event]]`` block can sit above it."""
-    return sum(1 for n in (project.raw.get("npc", []) or [])
-               if n.get("dialogue") or _npc_needs_default_talk(project, n))
+    """How many `.mes` lines the verbatim NPC appended-text block holds (one per voiced NPC + one per
+    default-talk NPC's silent line -- :func:`_verbatim_voiced_npcs`, the same selection the messages loop
+    walks) -- so the ``[[event]]`` block can sit above it."""
+    voiced, silent = _verbatim_voiced_npcs(project)
+    return len(voiced) + len(silent)
 
 
 def _event_shows_text(ev: dict) -> bool:
@@ -5622,6 +5685,20 @@ def _verbatim_chest_message_count(project: FieldProject) -> int:
     return len(project.raw.get("chest", []) or [])
 
 
+def _verbatim_npc_choices(project: FieldProject) -> list:
+    """``(index, choice)`` for every ``[[choice]]`` attached by ``npc`` to a named ``[[npc]]`` -- ONE owner
+    of the NPC-choice block's selection, for the messages loop AND the count (a zone choice is not wired on
+    verbatim)."""
+    npc_names = {n.get("name") for n in (project.raw.get("npc", []) or []) if n.get("name")}
+    return [(c, ch) for c, ch in enumerate(project.raw.get("choice", []) or []) if ch.get("npc") in npc_names]
+
+
+def _choice_replies(ch: dict) -> list:
+    """``(option index, option)`` for every option carrying a ``reply`` line -- the lines that follow the
+    prompt entry; ONE owner for the messages loop and the count."""
+    return [(oi, o) for oi, o in enumerate(ch.get("options", [])) if o.get("reply")]
+
+
 def _verbatim_choice_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     """For a verbatim fork's NPC-attached ``[[choice]]`` menus: build each choice's PROMPT entry (the
     ``[CHOO]`` prompt + option rows, prefixed with the pre_choose ``[PCHM]``/``[PCHC]`` tag) + each option's
@@ -5631,9 +5708,7 @@ def _verbatim_choice_messages(project: FieldProject, langs) -> tuple[dict, dict]
     "replies": {oi: id}}`` keyed by the index into ``project.raw['choice']`` -- the same shape the synthesize
     path hands to inject_npc. ``({}, {})`` when no NPC choice is present. The script side (pre_choose mask +
     branch) is byte-identical to the synth path; only the TEXT routes through the appended channel here."""
-    choices = project.raw.get("choice", []) or []
-    npc_names = {n.get("name") for n in (project.raw.get("npc", []) or []) if n.get("name")}
-    voiced = [(c, ch) for c, ch in enumerate(choices) if ch.get("npc") in npc_names]
+    voiced = _verbatim_npc_choices(project)                  # the ONE selection the count reads too
     if not voiced:
         return {}, {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
@@ -5658,16 +5733,15 @@ def _verbatim_choice_messages(project: FieldProject, langs) -> tuple[dict, dict]
         tails.append(_text.default_tail(ch))                 # pinned/detached -> tail-less (the geometry law)
         strts.append(tuple(int(v) for v in ch["box"]) if ch.get("box") is not None else None)
         replies = {}
-        for oi, o in enumerate(ch.get("options", [])):
-            if o.get("reply"):
-                line = _text.with_speaker(o.get("speaker"), o["reply"])
-                if wrap is not None:
-                    line = _text.wrap_text(line, wrap)[0]
-                line, strt, tail = _text.dress_window(o, line)
-                replies[oi] = base + len(lines)
-                lines.append(line)
-                tails.append(tail)
-                strts.append(strt)
+        for oi, o in _choice_replies(ch):                    # the ONE reply selection the count reads too
+            line = _text.with_speaker(o.get("speaker"), o["reply"])
+            if wrap is not None:
+                line = _text.wrap_text(line, wrap)[0]
+            line, strt, tail = _text.dress_window(o, line)
+            replies[oi] = base + len(lines)
+            lines.append(line)
+            tails.append(tail)
+            strts.append(strt)
         choice_txids[c] = {"prompt": prompt_txid, "replies": replies}
     suffix, _ = _text.build_mes(lines, start_txid=base, tails=tails, strts=strts)
     return choice_txids, {lang: suffix for lang in langs}
@@ -5676,10 +5750,16 @@ def _verbatim_choice_messages(project: FieldProject, langs) -> tuple[dict, dict]
 def _verbatim_choice_message_count(project: FieldProject) -> int:
     """Number of `.mes` lines the NPC-choice block appends (1 prompt + 1 per option with a ``reply``, per
     NPC-attached choice) -- so a block stacked above it (prop dialogue) sits at a disjoint window."""
-    choices = project.raw.get("choice", []) or []
-    npc_names = {n.get("name") for n in (project.raw.get("npc", []) or []) if n.get("name")}
-    return sum(1 + sum(1 for o in ch.get("options", []) if o.get("reply"))
-               for ch in choices if ch.get("npc") in npc_names)
+    return sum(1 + len(_choice_replies(ch)) for _c, ch in _verbatim_npc_choices(project))
+
+
+def _verbatim_voiced_props(project: FieldProject) -> list:
+    """``(index, prop)`` for every readable ``[[prop]]`` the verbatim channel seats -- has ``dialogue``, a
+    ``pos``, and no ``attach_to`` (what ``_inject_verbatim_props`` actually injects, so no orphan `.mes` line
+    is emitted for a prop that never injects); ONE owner for the messages loop and the count. Keyed by the
+    RAW index (the injector looks up the same one), so a skipped earlier prop can't misalign a later one."""
+    return [(j, p) for j, p in enumerate(project.raw.get("prop", []) or [])
+            if p.get("dialogue") and "pos" in p and p.get("attach_to") is None]
 
 
 def _verbatim_prop_messages(project: FieldProject, langs) -> tuple[dict, dict]:
@@ -5688,11 +5768,7 @@ def _verbatim_prop_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     `.mes` lines to append. The prop's tag-3 ``WindowSync`` resolves into the appended entry, so it reads.
     Returns ``(txid_by_prop_index, suffix_by_lang)`` keyed by the index into ``project.raw['prop']``;
     ``({}, {})`` when no prop carries dialogue. Single-block (the same text for every language)."""
-    # match what _inject_verbatim_props actually seats (it skips a pos-less / attach_to prop), so no orphan
-    # .mes line is emitted for a prop that never injects. Keyed by the RAW index j (the injector looks up the
-    # same j), so a skipped earlier prop can't misalign a later one.
-    voiced = [(j, p) for j, p in enumerate(project.raw.get("prop", []) or [])
-              if p.get("dialogue") and "pos" in p and p.get("attach_to") is None]
+    voiced = _verbatim_voiced_props(project)                 # the ONE selection the count reads too
     if not voiced:
         return {}, {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
@@ -5716,16 +5792,7 @@ def _verbatim_prop_messages(project: FieldProject, langs) -> tuple[dict, dict]:
 
 def _verbatim_prop_message_count(project: FieldProject) -> int:
     """How many readable ``[[prop]]`` dialogue lines the verbatim channel appends (so the cutscene block sits above)."""
-    return sum(1 for p in (project.raw.get("prop", []) or [])
-               if p.get("dialogue") and "pos" in p and p.get("attach_to") is None)
-
-
-def _verbatim_cutscene_message_count(project: FieldProject) -> int:
-    """How many multi-actor conductor ``say`` lines the verbatim channel appends (the LAST appended block)."""
-    cs = _verbatim_conductor_block(project)
-    if cs is None:
-        return 0
-    return len(_cutscene.text_steps(cs.get("steps")))
+    return len(_verbatim_voiced_props(project))
 
 
 def _verbatim_conductor_block(project: FieldProject):
@@ -5904,12 +5971,10 @@ def _verbatim_npc_messages(project: FieldProject, langs) -> tuple[dict, dict]:
     suffix_by_lang)`` keyed by the index into ``project.raw['npc']``; ``({}, {})`` when no ``[[npc]]`` needs a
     line. Single-block (the same text for every language, like the other appenders -- the `.eb` is injected
     once, language-identical)."""
-    npcs = project.raw.get("npc", []) or []
-    voiced = [(i, n) for i, n in enumerate(npcs) if n.get("dialogue")]
     # a dialogue-less DEFAULT-TALK NPC rides the same channel (its own silent line), appended AFTER the
     # voiced block so an existing fork's voiced txids stay byte-stable. The old fallback (txid 500)
     # landed INSIDE the donor's own `.mes` band (real donor text reaches 863) = a random donor line.
-    silent = [(i, n) for i, n in enumerate(npcs) if _npc_needs_default_talk(project, n)]
+    voiced, silent = _verbatim_voiced_npcs(project)          # the ONE selection the count reads too
     if not (voiced or silent):
         return {}, {}
     base = (_appended_txid_base(project, langs) + _on_entry_message_count(project)
@@ -9868,7 +9933,7 @@ def _foreign_registrations(dict_patch, new_lines) -> list:
     fields a wholesale rewrite of that file would unregister. Empty for a fresh/absent file, and empty
     when the build is a superset (a re-build of the same set, or of more)."""
     try:
-        old = dict_patch.read_text(encoding="utf-8").splitlines()
+        old = dict_patch.read_text(encoding="utf-8-sig").splitlines()   # -sig: a Notepad BOM must not hide line 1
     except (OSError, UnicodeDecodeError):
         return []                                        # absent/unreadable -> nothing to lose
 
@@ -9881,7 +9946,7 @@ def _foreign_registrations(dict_patch, new_lines) -> list:
         for ln in lines:
             p = ln.split()
             if len(p) >= 5 and p[0] == "FieldScene":
-                out[("FieldScene", p[1])] = p[3]         # FieldScene <id> <area> <?> <name> <block>
+                out[("FieldScene", p[1])] = p[4]         # FieldScene <id> <area> <mapid> <NAME> <block> (the emitter at build_field)
             elif len(p) >= 4 and p[0] == "BattleScene":
                 out[("BattleScene", p[1])] = p[2]        # BattleScene <id> <NAME> <BBG>
         return out
@@ -9898,7 +9963,7 @@ def _merge_foreign_registrations(dict_patch, new_lines) -> list:
     them rather than duplicating. Foreign lines keep their original relative order, so each
     ``MessageFile`` still precedes the ``FieldScene`` that uses it."""
     try:
-        old = dict_patch.read_text(encoding="utf-8").splitlines()
+        old = dict_patch.read_text(encoding="utf-8-sig").splitlines()   # -sig: a Notepad BOM must not hide line 1
     except (OSError, UnicodeDecodeError):
         return list(new_lines)
     mine_fields, mine_blocks, mine_scenes = set(), set(), set()
@@ -9934,7 +9999,7 @@ def _foreign_donor_lines(fork_donor_patch, new_lines) -> list:
     other's donor mapping and silently switch its fork-gated behaviors off. Comments + blank lines are
     dropped (the header is regenerated); a row this build re-emits is dropped so the new one replaces it."""
     try:
-        old = Path(fork_donor_patch).read_text(encoding="utf-8").splitlines()
+        old = Path(fork_donor_patch).read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeDecodeError):
         return []                                        # absent/unreadable -> nothing to keep
     mine = {ln.split()[0] for ln in new_lines}

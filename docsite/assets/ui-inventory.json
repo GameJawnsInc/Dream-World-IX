@@ -60,7 +60,7 @@
    },
    "build_deploy.rb_test": {
     "kind": "QRadioButton",
-    "text": "Test slot 4003"
+    "text": "Test slot 4003  (the shared default)"
    },
    "build_deploy.rb_game": {
     "kind": "QRadioButton",

@@ -5,6 +5,7 @@ byte-faithful NPC for any GEO_NPC_* / GEO_MON_* model (not just moogles).
 DO NOT EDIT BY HAND. Regenerate with:  python -m ff9mapkit._regen_npcparams
 Provenance: derived metadata (model ids + small ints), no Square-Enix bytes.
 """
+# generated-from: install by _regen_npcparams.py
 
 NPC_PARAMS = {
     10: {  # GEO_NPC_F1_BBA

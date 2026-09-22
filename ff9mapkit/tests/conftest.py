@@ -1,19 +1,12 @@
-"""Shared test fixtures.
+"""Shared test fixtures for the ``tests/`` tree.
 
-The one autouse fixture isolates the per-user PREFS STORE: several GUI tests construct a full
-``Workspace`` whose Home tab reads (and whose open-project paths write) ``prefs.json`` -- without
-isolation the suite would read the developer's real theme/recent-projects file and could write test
-paths into it. Redirected per-test to a tmp file; tests that want their own store just monkeypatch
-``prefs._path`` again on top.
+The per-user config store (prefs.json, update_check.json) is isolated one level UP, by the autouse
+``_isolate_user_config`` in ``ff9mapkit/conftest.py`` -- it guards the one seam every config file resolves
+through and covers ``blender/tests/`` too. What lives here is Qt-only: ``qt_drain``, whose users (and
+whose parked-widget keep-alive) are all in this tree.
 """
 
 import pytest
-
-
-@pytest.fixture(autouse=True)
-def _isolate_prefs(tmp_path, monkeypatch):
-    from ff9mapkit import prefs
-    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
 
 
 @pytest.fixture()

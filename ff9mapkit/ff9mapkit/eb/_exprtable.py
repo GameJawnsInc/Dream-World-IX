@@ -12,6 +12,7 @@ A var token byte (>= 0xC0, the ``B_VAR`` base) encodes (``EBin.expr_varSpec`` / 
   from their own tokens B_OBJSPECA/B_SYSLIST/B_MEMBER). e.g. ``0xC4`` = Global + Bit (a story-flag read, the
   kit's GLOB_BOOL); ``0xC5`` = Map + Bit (the transient MAP_BOOL twin).
 """
+# generated-from: Memoria@unknown by hand
 from __future__ import annotations
 
 # op_binary (EBin.cs): the expression operator token -> mnemonic. 0-127; 0x29/0x5F/0x78-0x7E are the operators

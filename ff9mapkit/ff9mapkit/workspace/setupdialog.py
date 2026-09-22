@@ -103,7 +103,7 @@ class SetupHealthDialog(QDialog):
         g.setHorizontalSpacing(14)
         g.setVerticalSpacing(6)
         col = {"ok": self.pal["success"], "warn": self.pal["warn"], "bad": self.pal["error"]}
-        rows = health.health_report()
+        rows = health.health_report(start=self.kit_cwd)    # the checkout's pin, not the launch CWD's
         for i, r in enumerate(rows):
             mark = QLabel(_GLYPH.get(r["level"], "·"))
             mark.setStyleSheet(f"color:{col.get(r['level'], self.pal['muted'])};font-weight:700;")

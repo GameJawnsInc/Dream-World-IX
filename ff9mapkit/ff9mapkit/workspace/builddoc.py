@@ -58,7 +58,7 @@ class BuildDoc(QWidget):
         self._inplace_available = False                 # in-place radio is live (a fork of a real field + dev tools)
         self._inplace_autoselected_for = None            # donor id we last auto-checked In-place FOR (see _sync_inplace)
         self.mod_folder, self.worktree_id = jobs.detect_deploy_target(self.repo)
-        self.game_mod = jobs.detect_game_mod()
+        self.game_mod = jobs.detect_game_mod(self.repo)        # follows THIS checkout's .ff9deploy.toml pin
         self._build_ui()
         self._render_kind()
 
@@ -169,14 +169,17 @@ class BuildDoc(QWidget):
         box = widgets.section("Build to (field)")
         gv = box.content_layout
         self.tg = QButtonGroup(self)
-        tid = self.worktree_id or 4003
+        tid = 4003 if self.worktree_id is None else self.worktree_id   # 0 is a pin too (the tool refuses it aloud)
         # In-place: only meaningful for a verbatim fork of a REAL field -> hidden until such a project loads
         # (set_field fills the label + shows it). Placed FIRST so it reads as the preferred route for a fork.
         self.rb_inplace = QRadioButton("In-place on the real field")
         self.rb_inplace.setVisible(False)
         self.tg.addButton(self.rb_inplace)
         self.rb_inplace.toggled.connect(self._update_dest)
-        self.rb_test = QRadioButton(f"Test slot {tid}")
+        # SAY where the number came from: a pin in this checkout's .ff9deploy.toml renames this radio for
+        # whoever launches the Workspace here (CLAUDE.md §3's costliest incident -- a session's scratch pin
+        # became the owner's default slot). A number that is not the one expected must read as a pin.
+        self.rb_test = QRadioButton(f"Test slot {tid}  ({'pinned in .ff9deploy.toml' if self.worktree_id is not None else 'the shared default'})")
         self.rb_test.setChecked(self.has_tools)        # installed copy: no debug-menu dev engine -> default to Install to game
         # label = the folder NAME only; the full path lives in the tooltip. (An unwrappable radio label
         # carrying the whole install path forced the tab's minimum width past the pane -> h-scrolling.)
@@ -615,7 +618,7 @@ class BuildDoc(QWidget):
     def _update_dest(self, *_):
         if self.kind != "field":
             return
-        tid = self.worktree_id or 4003
+        tid = 4003 if self.worktree_id is None else self.worktree_id   # 0 is a pin too (the tool refuses it aloud)
         own = self.field_id if self.field_id is not None else "?"
         # Each branch resolves to a short VALUE LINE (the option's caption above already explains the mode,
         # and the rev tooltip keeps the fine print) -- say each fact exactly once. There is no longer a
@@ -979,13 +982,13 @@ class BuildDoc(QWidget):
         if self.rb_test.isChecked():
             if not self._require_tools("Deploy to test slot"):
                 return
-            tid = self.worktree_id or 4003
+            tid = 4003 if self.worktree_id is None else self.worktree_id   # 0 is a pin too (the tool refuses it aloud)
             reach = ("New Game → walk to the hut door (or ~ → Warp)" if tid == 4003
                      else f"~ → Warp to field {tid}")
             if self._confirm_reversible(f"Deploy to test field {tid}",
                              f"Build and deploy this field to the test slot {tid} ({self.mod_folder})? "
                              "It replaces whatever is there now (reversible)."):
-                self._stream(jobs.deploy_field_argv(self.repo, field), cwd=self.repo,
+                self._stream(jobs.deploy_field_argv(self.repo, field, field_id=tid), cwd=self.repo,   # the label's number, explicitly
                              subject=f"Deploy to test field {tid}",
                              ok_headline=f"Deployed to test field {tid} ({self.mod_folder})",
                              ok_next=f"In-game: {reach}.", field_id=tid)

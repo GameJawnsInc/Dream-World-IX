@@ -60,7 +60,7 @@ import re
 from struct import error as struct_error
 
 from . import cmdasm, disasm, edit, exprasm
-from .model import ENTRY_SLOT_SIZE, EbScript, ENTRY_TABLE_OFF
+from .model import ENTRY_SLOT_SIZE, EbScript, ENTRY_TABLE_OFF, pack_entry
 from ..binutils import set_u16, u16
 from ..eventscan import INIT_OPS, PARTY_UIDS, armed_slot
 
@@ -695,9 +695,7 @@ def assemble_source(text: str) -> bytes:
         fc = len(e["funcs"])
         if not 1 <= fc <= 255:
             raise EbSrcError(f"entry {idx}: needs 1..255 .func blocks, has {fc}")
-        table = bytearray()
-        bodies = bytearray()
-        fpos = fc * 4
+        funcs = []
         for tag, body_lines in e["funcs"]:
             body = b""
             if body_lines:
@@ -705,12 +703,11 @@ def assemble_source(text: str) -> bytes:
                     body = cmdasm.assemble_block("\n".join(body_lines))
                 except _BODY_ERRORS as ex:
                     raise EbSrcError(f"entry {idx} tag {tag}: {ex}") from ex
-            if fpos > 0xFFFF:
-                raise EbSrcError(f"entry {idx}: func table overflows u16 fpos at tag {tag}")
-            table += tag.to_bytes(2, "little") + fpos.to_bytes(2, "little")
-            bodies += body
-            fpos += len(body)
-        blobs.append(bytes([e["type"], fc]) + bytes(table) + bytes(bodies))
+            funcs.append((tag, body))
+        try:
+            blobs.append(pack_entry(e["type"], funcs))      # the one serializer -- its u16-fpos guard included
+        except ValueError as ex:
+            raise EbSrcError(f"entry {idx}: {ex}") from ex
 
     if all(b is None for b in blobs):
         raise EbSrcError("a .eb needs at least one non-empty entry (the empty-slot off rule "

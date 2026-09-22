@@ -15,6 +15,7 @@ two names the GEO table never lists; SUB_TYPE_GEO_IDS forces the two mask prefab
 models/5/. Sole reader: ff9mapkit.models.extract.resolve_prefab -- animations and identity keep
 the REQUESTED id (resolve_geo); only the GEOMETRY location goes through this chain.
 """
+# generated-from: Memoria@unknown by _regen_modelalias.py
 
 # ModelFactory.upscaleTable -- requested name -> HD-rename space (CheckUpscale)
 UPSCALE = {

@@ -2010,7 +2010,7 @@ def merge_dists(dist_dirs, *, out, folder_name, entry_dist=None) -> dict:
             continue
         for item in sorted(d.iterdir()):                                              # EVERY top-level item:
             if item.is_file() and _is_patch(item.name):                               #   *Patch.txt -> concatenate
-                txt = item.read_text(encoding="utf-8").rstrip("\n")
+                txt = item.read_text(encoding="utf-8-sig").rstrip("\n")          # -sig: never concatenate a BOM mid-file
                 if txt.strip():
                     parts.setdefault(item.name, []).append(txt)
                 continue

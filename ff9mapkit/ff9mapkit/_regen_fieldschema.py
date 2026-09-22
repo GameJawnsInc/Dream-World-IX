@@ -22,6 +22,8 @@ cannot silently ship a crippled schema).
 from __future__ import annotations
 
 import argparse
+
+from ._regen_stamp import stamp_line
 import contextlib
 import io
 import runpy
@@ -509,12 +511,11 @@ paths where lint's unknown-key check is ON (the path occurred in a corpus item w
 pipeline completed). See ff9mapkit/fieldschema.py; regenerate with
 ``py -m ff9mapkit._regen_fieldschema``.
 """
-
 '''
 
 
-def _emit(vocab: "dict[str, set[str]]", enforced: "set[str]") -> str:
-    lines = [_HEADER + "VOCAB = {"]
+def _emit(vocab: "dict[str, set[str]]", enforced: "set[str]", *, stamp: str) -> str:
+    lines = [_HEADER + stamp + "\n\nVOCAB = {"]
     for p in sorted(vocab):
         keys = sorted(vocab[p])
         if not keys:
@@ -568,7 +569,7 @@ def main(argv=None) -> int:
             print(u, file=sys.stderr)
         return 1
 
-    text = _emit(vocab, enforced)
+    text = _emit(vocab, enforced, stamp=stamp_line("examples", "_regen_fieldschema.py"))
     dest = Path(args.out) if args.out else _DEST
     if args.check:
         current = dest.read_text(encoding="utf-8") if dest.is_file() else ""

@@ -158,6 +158,47 @@ def test_lint_warns_synth_content_dropped_on_verbatim_fork(tmp_path):
     assert any("does NOT add random battles" in s for s in w), w                  # encounter: BGM only here
 
 
+def test_lint_warns_every_build_script_only_block_dropped_on_verbatim_fork(tmp_path):
+    """REGRESSION (scout F10): the ignore set named ONE block ([[marker]]) while six more content injectors
+    live only inside build_script -- ladder / jump / platform / savepoint / ate / object -- so authoring any
+    of them on a verbatim fork built clean and did nothing in game. An AST census of every raw.get() read
+    in build.py is the source of the list; the blocks validate() REFUSES on a verbatim fork ([[qte]],
+    [[numeric_input]], [siege], [behavior]) and the ones wired on both paths are deliberately absent."""
+    from ff9mapkit.build import lint_logic
+    body = ('[field]\nid = 4003\nname = "VTEST"\narea = 11\n\n'
+            '[verbatim_eb]\nbin = "donor.bin"\n\n'
+            '[[ladder]]\nzone = [[0,0],[1,0],[1,1]]\nto = [0, 0]\n\n'
+            '[[jump]]\nzone = [[0,0],[1,0],[1,1]]\nto = [0, 0]\n\n'
+            '[[platform]]\nzone = [[0,0],[1,0],[1,1]]\n\n'
+            '[[savepoint]]\nzone = [[0,0],[1,0],[1,1]]\n\n'
+            '[[ate]]\nzone = [[0,0],[1,0],[1,1]]\n\n'
+            '[[object]]\nname = "x"\n')
+    w = lint_logic(_load(tmp_path, body=body))
+    dropped = [s for s in w if "verbatim fork" in s and "ignored -- the field runs the donor" in s]
+    assert len(dropped) == 1, w
+    for lbl in ("[[ladder]]", "[[jump]]", "[[platform]]", "[[savepoint]]", "[[ate]]", "[[object]]"):
+        assert lbl in dropped[0], (lbl, dropped[0])
+
+
+def test_lint_report_tagged_is_the_one_print_seam():
+    """REGRESSION (scout F11): `ff9mapkit lint` and the deploy pre-flight each carried their own tuple of
+    (label, slot) pairs, and the deploy one had dropped `unknown` (the typo'd-key check) -- five of six
+    slots printed. One property owns the order and the labels; both loops iterate it and `warnings` is
+    derived from it, so a slot added to the dataclass is printed everywhere or nowhere."""
+    import dataclasses
+    import inspect
+    from ff9mapkit import cli, deploy
+    from ff9mapkit.build import LintReport
+    rep = LintReport(errors=["e"], logic=["l"], flags=["f"], placement=["p"], camera=["c"], unknown=["u"])
+    advisory = {f.name for f in dataclasses.fields(LintReport) if f.default_factory is list} - {"errors"}
+    assert [tag for tag, _ in rep.tagged] == ["schema", "logic", "flags", "placement", "camera"]
+    assert {id(items) for _, items in rep.tagged} == {id(getattr(rep, s)) for s in advisory}   # every slot, once
+    assert rep.warnings == ["u", "l", "f", "p", "c"]
+    for fn in (cli._cmd_lint, deploy.deploy_field):
+        src = inspect.getsource(fn)
+        assert "rep.tagged" in src and '("logic", rep.logic)' not in src, fn.__name__
+
+
 def test_lint_does_not_warn_supported_blocks_dropped_on_verbatim_fork(tmp_path):
     # [[npc]]/[[gateway]] (seated below the party band) and [music] (REPLACES the donor BGM in place) are NOW
     # supported on a verbatim fork, so none may be reported as dropped -- the regression guard for removing
@@ -182,7 +223,50 @@ def test_lint_no_verbatim_warning_on_a_synthesized_field(tmp_path):
     assert not any("verbatim fork" in s for s in lint_logic(_load(tmp_path, body=body)))
 
 
+# ---------------------------------------------------------------- validate: the [[ladder]] discriminant
+
+def test_validate_refuses_an_unknown_ladder_key_with_a_hint(tmp_path):
+    """REGRESSION (scout F13): a [[ladder]] selects its MECHANISM by which keys are present (navigable /
+    top+bottom / zone+climb / zone+to), and the harvested key vocabulary does not enforce [[ladder]] (no
+    bundled example's ladder completes the offline pipeline), so `navigible = true` silently fell through
+    to another mechanism or a confusing form error. An unknown key is now a refusal naming the near miss."""
+    from ff9mapkit.build import validate
+    body = (CLEAN.format(set_flag=200, requires_flag=200)
+            + '\n[[ladder]]\nnavigible = true\nrungs = [[0, 0, 0], [0, 0, 100]]\ntop_action = "floor"\n')
+    probs = [p for p in validate(_load(tmp_path, body=body)) if "[[ladder]]" in p]
+    assert probs and "unknown key 'navigible'" in probs[0] and "'navigable'" in probs[0], probs
+
+
+def test_validate_accepts_every_documented_ladder_form(tmp_path):
+    from ff9mapkit.build import validate
+    (tmp_path / "climb.bin").write_bytes(b"\x07")
+    forms = ('[[ladder]]\ntop = [-50, 450]\nbottom = [64, -348]\n',
+             '[[ladder]]\nzone = [[0,0],[100,0],[100,100]]\nclimb = "climb.bin"\n',
+             '[[ladder]]\nzone = [[0,0],[100,0],[100,100]]\nto = [50, 50, -100]\n',
+             '[[ladder]]\nnavigable = true\nbottom = [0, 0, 0]\ntop = [0, 0, 200]\ntop_action = "floor"\n')
+    for form in forms:
+        body = CLEAN.format(set_flag=200, requires_flag=200) + "\n" + form
+        probs = [p for p in validate(_load(tmp_path, body=body)) if "unknown key" in p]
+        assert probs == [], (form, probs)
+
+
 # ---------------------------------------------------------------- lint_all (the unified pass)
+
+def test_lint_all_reports_a_behavior_that_validates_but_cannot_compile(tmp_path):
+    """REGRESSION (scout F13): validate() runs the behavior VALIDATOR, but the compiler's own refusals (166
+    BehaviorError sites -- a blackboard band exhausted, an unroutable auto route, ...) live past it, and the
+    first thing that ran the compiler was the build. lint_all now dry-compiles (placeholder slots, zero
+    txids, after the walkmesh resolve) and reports a refusal as an ERROR, since the build would raise."""
+    names = ", ".join(f'"p{i}"' for i in range(97))                  # the flag band holds 96
+    body = (CLEAN.format(set_flag=200, requires_flag=200)
+            + '\n[[npc]]\nname = "pest"\npos = [0, -700]\n\n'
+            + f'[behavior]\npublic_flags = [{names}]\n\n'
+            + '[[behavior.unit]]\nnpc = "pest"\n\n[[behavior.unit.branch]]\ndo = { hold_post = true }\n')
+    rep = lint_all(_load(tmp_path, body=body))
+    assert any("[behavior] does not compile" in e and "flag band exhausted" in e for e in rep.errors), rep.errors
+    ok = lint_all(_load(tmp_path, body=body.replace(f"[{names}]", '["p0"]')))
+    assert not any("[behavior]" in e for e in ok.errors), ok.errors
+
 
 def test_lint_all_clean_field_is_ok(tmp_path):
     rep = lint_all(_load(tmp_path))

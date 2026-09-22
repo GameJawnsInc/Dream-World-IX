@@ -127,6 +127,8 @@ eb0 = tl.eb_path("us", f"EVT_{name}.eb.bytes").read_bytes()
 s0 = EbScript.from_bytes(eb0); f0 = s0.entry(0).func_by_tag(0)
 scroll = 0x71 in [i.op for i in disasm.iter_code(eb0, f0.abs_start, f0.abs_end)]
 print(f"built {FBG} | {info['dictionary'][0]} | scroll={scroll}")
+for w in info["warnings"]:                # build_mod's lint_logic + placement warnings -- the 'NPC has no
+    print(f"warning: {w}")                # model -> clones the PLAYER' class this script alone discarded
 
 # revert THIS id's prior deploy only (revert_deploy_<id>.py) -- NOT another id's deploy (so deploying
 # 5000 never reverts 4003) and NOT other tools' reverts (e.g. revert_alex_fast_warp.py: the Alexandria
@@ -301,7 +303,7 @@ _dp_owned = _dp.owned_predicate(fid=FID, model_ids=mint_ids, anim_keys=mint_anim
 # process's window. A lock TIMEOUT aborts LOUDLY below -- proceeding unlocked is the one wrong answer.
 try:
     with locked_sidecar(live.dictionary_patch):
-        _dp_before = (live.dictionary_patch.read_text(encoding="utf-8").splitlines()
+        _dp_before = (live.dictionary_patch.read_text(encoding="utf-8-sig").splitlines()
                       if live.dictionary_patch.exists() else [])
         dp = [ln for ln in _dp_before if ln.strip() and not _dp_owned(ln)]
         dp += message_file_lines               # `MessageFile <block>` -- MUST precede the FieldScene line
@@ -364,7 +366,7 @@ if _donor and _donor != FID:
         with locked_sidecar(_fdp):
             if _fdp.exists():
                 shutil.copyfile(_fdp, BK / f"ForkDonorPatch.txt.preDEPLOY.{STAMP}")
-            atomic_write_text(_fdp, _fdon.merge_row(_fdp.read_text(encoding="utf-8") if _fdp.exists() else "",
+            atomic_write_text(_fdp, _fdon.merge_row(_fdp.read_text(encoding="utf-8-sig") if _fdp.exists() else "",
                                                     FID, _donor), newline="\n")
     except FileLockTimeout as _lke:
         print(f"!! {_lke}\n"
@@ -382,8 +384,8 @@ if _donor and _donor != FID:
         '\n_fdb = BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}"'
         '\n_fdl = live.root/"ForkDonorPatch.txt"'
         '\nwith _lsc(_fdl):'
-        '\n    _fdn = _fdm.revert_row(_fdl.read_text(encoding="utf-8") if _fdl.exists() else "",'
-        f'\n                          _fdb.read_text(encoding="utf-8") if _fdb.exists() else "", {FID})'
+        '\n    _fdn = _fdm.revert_row(_fdl.read_text(encoding="utf-8-sig") if _fdl.exists() else "",'
+        f'\n                          _fdb.read_text(encoding="utf-8-sig") if _fdb.exists() else "", {FID})'
         '\n    if _fdn: _awt(_fdl, _fdn, newline="\\n")'
         '\n    elif _fdl.exists(): _fdl.unlink()')
     print(f"  + ForkDonorPatch.txt ({FID} -> donor {_donor}; RELAUNCH to apply -- read at launch, not the menu reload)")
@@ -614,7 +616,7 @@ if any(_l in _STARTUP_CSVS for _l, _, _ in csv_reverts):
 # BGM/repoint lines + a stacked worktree's lines survive) and reversible. The engine skips `//` lines, and
 # BattlePatch is parsed once at startup -> a battle-tuning change needs a RELAUNCH (not just ~ Reload).
 from ff9mapkit.battle import battlepatch as _bp
-_built_block = ([ln for ln in tl.battle_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
+_built_block = ([ln for ln in tl.battle_patch.read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
                 if tl.battle_patch.exists() else [])
 bp_revert_code = ""
 # LOCKED read->merge->write: hold <BattlePatch>.lock across the whole window (own sidecar per target
@@ -626,7 +628,7 @@ bp_revert_code = ""
 # marker, and a false trigger armed a revert for a field that owned no block at all.
 try:
     with locked_sidecar(live.battle_patch):
-        _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
+        _live_bp_text = live.battle_patch.read_text(encoding="utf-8-sig") if live.battle_patch.exists() else ""
         if _built_block or _bp.has_block(_live_bp_text, FID):
             if live.battle_patch.exists():
                 shutil.copyfile(live.battle_patch, BK / f"BattlePatch.txt.preDEPLOY.{STAMP}")
@@ -644,7 +646,7 @@ try:
                 '\nfrom ff9mapkit.fsutil import atomic_write_text as _awt, locked_sidecar as _lsc'
                 '\n_bpb = BK/f"BattlePatch.txt.preDEPLOY.{STAMP}"'
                 '\nwith _lsc(live.battle_patch):'
-                '\n    _bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else "",'
+                '\n    _bpn = _bpm.revert_splice(live.battle_patch.read_text(encoding="utf-8-sig") if live.battle_patch.exists() else "",'
                 f'\n                             _bpb.read_text(encoding="utf-8") if _bpb.exists() else "", {FID})'
                 '\n    if _bpn: _awt(live.battle_patch, _bpn, newline="\\n")'
                 '\n    elif live.battle_patch.exists(): live.battle_patch.unlink()')

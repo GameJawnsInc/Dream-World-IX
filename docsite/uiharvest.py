@@ -77,6 +77,8 @@ PINNED_LEDGER = (
 )
 PINNED_NEWGAME = 4000                        # where the New-Game override reads as pointing
 PINNED_DEPLOY_TARGET = ("FF9CustomMap", None)   # jobs.detect_deploy_target's own default -> slot 4003
+PINNED_MOD_FOLDER = "FF9CustomMap"              # config.resolve_mod_folder: the harvesting checkout's .ff9deploy.toml /
+                                                # $FF9_MOD_FOLDER must never reach rb_game or the Setup dialog's Mod folder row
 PINNED_HEALTH = {"ffmpeg": "C:\\ffmpeg\\bin\\ffmpeg.exe",
                  "PySide6": "present"}       # health's OWN no-__version__ wording; never a version
 # The absolute paths the pins deliberately paint (gui_snap's _pin_setup_state(game=True) resolves the
@@ -94,11 +96,11 @@ class _pin_live_state:
     error, not a quiet no-op)."""
 
     def __init__(self):
-        from ff9mapkit import health
+        from ff9mapkit import config, health
         from ff9mapkit.editor import jobs
-        self.jobs, self.health = jobs, health
+        self.jobs, self.health, self.config = jobs, health, config
         self._orig = (jobs.scan_deployed_reverts, jobs.current_newgame_target,
-                      jobs.detect_deploy_target, health.health_report)
+                      jobs.detect_deploy_target, health.health_report, config.resolve_mod_folder)
 
     def __enter__(self):
         real_report = self._orig[3]
@@ -121,11 +123,12 @@ class _pin_live_state:
         self.jobs.current_newgame_target = lambda *_a, **_k: PINNED_NEWGAME
         self.jobs.detect_deploy_target = lambda *_a, **_k: PINNED_DEPLOY_TARGET
         self.health.health_report = report
+        self.config.resolve_mod_folder = lambda *_a, **_k: PINNED_MOD_FOLDER   # health + detect_game_mod read it lazily
         return self
 
     def __exit__(self, *exc):
         (self.jobs.scan_deployed_reverts, self.jobs.current_newgame_target,
-         self.jobs.detect_deploy_target, self.health.health_report) = self._orig
+         self.jobs.detect_deploy_target, self.health.health_report, self.config.resolve_mod_folder) = self._orig
         return False
 
 

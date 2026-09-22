@@ -611,7 +611,7 @@ def _anim_key_registry(dp: "Path") -> dict:
     """The mod folder's ``3DModelAnimation <key> <name>`` registrations -> {key: name}."""
     reg: dict = {}
     if dp.exists():
-        for ln in dp.read_text(encoding="utf-8").splitlines():
+        for ln in dp.read_text(encoding="utf-8-sig").splitlines():
             parts = ln.split()
             if len(parts) == 3 and parts[0] == "3DModelAnimation" and parts[1].isdigit():
                 reg[int(parts[1])] = parts[2]
@@ -625,7 +625,7 @@ def _resolve_minted_model(token: str, mod_folder) -> tuple:
     dp = Path(mod_folder) / "DictionaryPatch.txt"
     mints: dict = {}
     if dp.exists():
-        for ln in dp.read_text(encoding="utf-8").splitlines():
+        for ln in dp.read_text(encoding="utf-8-sig").splitlines():
             parts = ln.split()
             if len(parts) == 3 and parts[0] == "3DModel" and parts[1].isdigit():
                 mints[int(parts[1])] = parts[2]
@@ -710,7 +710,7 @@ def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | Non
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
             directive = f"3DModelAnimation {k} {anh}"
-            lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+            lines = dp.read_text(encoding="utf-8-sig").splitlines() if dp.exists() else []
             if directive not in lines:
                 # replace, never dup: a duplicate KEY double-Adds in AnimationDB; a duplicate NAME (same clip
                 # re-registered at an explicit new key) leaves a stale name->key row shadowing the new one

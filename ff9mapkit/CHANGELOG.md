@@ -5,6 +5,48 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the deploy pin reaches the last three folder readers, and the Build tab says where its slot came from
+- `world-ledger` no longer REQUIRES `--mod-folder`: it resolves the folder like every other verb
+  (`--mod-folder` > `$FF9_MOD_FOLDER` > this checkout's `.ff9deploy.toml` > `FF9CustomMap`), so a pinned
+  checkout reads its own ledger. Setup & Health's Mod folder row and its custom battle-formula DLL
+  probe read the same resolved folder instead of a hardcoded `FF9CustomMap`. The Workspace's
+  "Install to game" (Build tab) and "Deploy into" (Models tab) targets follow the checkout's pin too —
+  a pinned worktree used to INSTALL into the shared default, the collision the pin exists to prevent.
+  All of them key the pin on the checkout the Workspace was launched from, not on its working directory,
+  and the Build tab's test-slot line honours `$FF9_MOD_FOLDER` like `tools/deploy_field.py` does.
+- The Build tab's test-slot radio reads `Test slot 30004  (pinned in .ff9deploy.toml)` or
+  `Test slot 4003  (the shared default)`, and its deploy passes that number as `--id` — the label
+  and the landing slot are one fact, and `tools/deploy_field.py` stops nagging the tab. A pin whose
+  `id` is `0` reads as a pin (and is refused by the tool aloud) instead of silently deploying to 4003.
+- `gen-hub` refuses a hub id in the engine-reserved world-map hole (9000–9012) up front, through
+  the shared `pack.check_custom_id` validator (its message replaces the hub's own "out of range").
+- A build's "this would unregister field N (…)" refusal names the field's NAME, not its map id.
+- Every reader of an existing `DictionaryPatch.txt` / `BattlePatch.txt` / `ForkDonorPatch.txt` decodes
+  `utf-8-sig` — the collision guards, the model inventory / anim registry / mint appender, the summon
+  ledger, the Build tab's ledger, the journey merge, and the repo-root deploy tools: a file re-saved from
+  Notepad carries a BOM, its first line was invisible to every guard, and the two tools that write back
+  what they read (`deploy_field.py`'s fork-donor merge, `deploy_battle.py`) re-emitted the BOM mid-file,
+  where nothing ever strips it. The cross-folder collision reports name the colliding field by its NAME,
+  not its borrowed-art map id.
+- `summon-deploy --dry-run` allocates a deferred `private_ef` against the LIVE folder's occupancy
+  (the mirror now names each populated `efNNN/`, one empty marker each, never the bytes); a
+  name-pinned, id-less `[[summon]]` redeploys onto the id the folder already registers under that
+  name instead of minting a fresh one every time (a block pinning neither id nor name still re-mints:
+  the default name derives from the id, so it has no key).
+
+### Fixed — the summon lane joins the `3DModel` GEO-id collision guard
+- `summon-deploy` / `summon-import` were the one path shipping a `3DModel` line with no guard at
+  all, and their deferred-`id` allocator inferred occupancy from `Models/*/<id>/` folders alone —
+  a weapon mint (`GEO_WEP_*`, type 6) lives under `BattleMap/BattleModel/6/`, so the next id-less
+  summon re-minted its id (two `3DModel <id>` lines; the engine's last writer wins and one side
+  loads the wrong mesh). The allocator now seeds from the folder's own `DictionaryPatch.txt` and
+  skips every id another stacked FolderNames folder registers; a PINNED id that collides gets the
+  same loud-WARN + print-on-crash banner the three other lanes print (once per emit, through the
+  caller's `out`). A dry run stages into a mirror seeded with the live folder's registry, so its
+  receipt reports the id (and the `NEW GEO id` relaunch line) the real deploy would, and
+  `summon-deploy --dry-run` honours `--mod-folder` (it mirrored the default folder).
+  `models.mint.MINT_BAND_END` (32767, the i16 ceiling) names the band's top.
+
 ### Changed — THE PROFILE LAW: `world-mountain --foot-course` builds a base that continues the face
 - Owner-filed across eight rejected takes on the R4 west-seam arc, closed by a 926-foot stock
   census: stock's base course CONTINUES the face above it to the ground (first-8u climb p25–p75

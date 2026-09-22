@@ -55,8 +55,12 @@ def netsync_generation(game) -> dict:
             "level": "ok" if s37 else "warn"}
 
 
-def health_report(game=None) -> list:
-    """Every check, in reading order. ``game`` (optional) overrides the resolved install path."""
+def health_report(game=None, mod_folder=None, *, start=None) -> list:
+    """Every check, in reading order. ``game`` (optional) overrides the resolved install path; ``mod_folder``
+    (optional) overrides the folder the Mod folder row + the custom-DLL probe read, else the documented order
+    (``$FF9_MOD_FOLDER`` > the ``.ff9deploy.toml`` found walking up from ``start`` -- the CWD when ``None``,
+    as for a CLI verb; the Workspace passes its kit dir, since it never chdirs > ``FF9CustomMap``) -- the
+    folder a deploy would land in, never a hardcoded default a pinned checkout stopped using."""
     rows = [_row("Kit version", __version__)]
 
     try:
@@ -134,13 +138,14 @@ def health_report(game=None) -> list:
 
     try:
         from . import config as _cfg
-        layout = _cfg.ModLayout(Path(game) / "FF9CustomMap")
+        folder = _cfg.resolve_mod_folder(mod_folder, start=start)
+        layout = _cfg.ModLayout(Path(game) / folder)
         rows.append(_row("Mod folder", f"{layout.root}"
                          + ("" if layout.root.is_dir() else "  (created on first deploy)")))
         # a custom battle-formula DLL (the Scripts-DLL channel) is engine-VERSION-COUPLED -> WARN if it was built
         # against a different engine than the one now installed (e.g. after a Memoria update), before the game
         # throws a MissingMemberException at cast (project-ff9-scripts-dll).
-        dll = layout.scripts_dll("FF9CustomMap")
+        dll = layout.scripts_dll(folder)
         if dll.is_file():
             from .battle import scriptcompile as _scomp
             built = (_scomp.read_engine_stamp(dll) or {}).get("engine_file_version")

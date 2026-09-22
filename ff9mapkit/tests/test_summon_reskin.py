@@ -1162,12 +1162,15 @@ def test_with_neither_level_supplying_them_the_ROOT_defaults_are_what_land(verb)
     assert getattr(a, "mod_folder", None) == config.DEFAULT_MOD_FOLDER
 
 
-def test_an_existing_summon_verb_still_clobbers_documented_as_is():
-    """``summon-import``/``summon-deploy`` carry the clobber today.  Retro-fitting them changes where
-    they DEPLOY, which is a separate decision from adding two verbs -- so the behaviour is pinned
-    here as it stands, and this test is the tripwire for the day somebody fixes it deliberately."""
+def test_an_existing_summon_verb_honours_root_game_but_still_clobbers_mod_folder():
+    """``summon-import``/``summon-deploy`` once discarded BOTH root-level flags.  ``--game`` was fixed
+    deliberately (its subparser copy is SUPPRESS-defaulted now, like every other verb's -- see
+    test_cli_game_flag.py): a root ``--game`` is the install the user typed, and honouring it is the
+    only correct reading.  ``--mod-folder`` is NOT fixed: its subparser default is a literal
+    ``FF9CustomMap`` and changing that alters where the verb DEPLOYS, which is a separate decision from
+    the flag mechanism -- so that half stays pinned here as the tripwire for whoever takes it on."""
     a = _parse(["--game", "G:/FF9", "--mod-folder", "FF9CustomMap-XX", "summon-deploy"])
-    assert a.game is None, "summon-deploy still discards a root --game (known, unfixed)"
+    assert a.game == "G:/FF9"
     assert a.mod_folder == "FF9CustomMap", "summon-deploy still discards a root --mod-folder"
 
 

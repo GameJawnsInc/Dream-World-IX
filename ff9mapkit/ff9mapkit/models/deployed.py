@@ -57,7 +57,7 @@ def parse_mint_directives(mod_folder) -> dict:
     out = {}
     if not dp.is_file():
         return out
-    for line in dp.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in dp.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         parts = line.split()
         if len(parts) >= 3 and parts[0] == "3DModel" and parts[1].isdigit():
             out[int(parts[1])] = parts[2]
@@ -115,7 +115,7 @@ def _strip_mint_directive(mod_folder, geo_id: int) -> bool:
     dp = Path(mod_folder) / "DictionaryPatch.txt"
     if not dp.is_file():
         return False
-    lines = dp.read_text(encoding="utf-8", errors="replace").splitlines()
+    lines = dp.read_text(encoding="utf-8-sig", errors="replace").splitlines()
     gone = ["3DModel", str(int(geo_id))]
     keep = [ln for ln in lines if ln.split()[:2] != gone]
     if len(keep) == len(lines):

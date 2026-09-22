@@ -170,7 +170,9 @@ def test_prepend_into_jump_table_field_preserves_table():
     assert op06_after.args == op06_before.args                        # case values/offsets BYTE-identical
     assert op06_after.off == op06_before.off + len(ins)              # shifted by exactly the insert size
     assert raw[f0.abs_start:] == out[f0.abs_start + len(ins):]        # original body is a clean wholesale shift
-    assert eb1.to_bytes() == out                                     # round-trips
+    e0 = eb1.entry(0)                                                # (to_bytes() IS .data -- no round trip to assert;
+    assert e0.abs_start + e0.size == len(out)                        #  the synthetic switch targets are placeholders eblint
+    assert e0.size == EbScript.from_bytes(raw).entry(0).size + len(ins)   #  rightly flags) -- the table's size grew by the insert
 
 
 def test_mid_function_insert_into_jump_table_now_fixes_it():

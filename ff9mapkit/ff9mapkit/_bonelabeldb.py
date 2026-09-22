@@ -6,6 +6,7 @@ PREFAB_LABELS[prefab_id] = sparse per-model diffs vs that consensus (accessory m
 names, divergent proportions). Cosmetic display layer ONLY -- nothing binds by label.
 Provenance-clean (numeric topology + our own label strings, no game bytes).
 """
+# generated-from: install by tools/regen_bone_labels.py
 
 BONE_LABELS = {
     '0>-1,1>0,2>0,3>2,4>3,5>2,6>5':

@@ -293,3 +293,6 @@ studies/**/stock_tris.pkl
 
 # in-game harness runs (frames, events, Memoria.log, report.json) -- tools/play.py writes here
 /.harness-runs/
+
+# ruff's on-disk cache (the nightly gate runs --no-cache; a by-hand `ruff check` writes this)
+.ruff_cache/

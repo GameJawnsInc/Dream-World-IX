@@ -148,6 +148,9 @@ def test_deploy_field_argv_runs_the_tool(tmp_path):
     a = jobs.deploy_field_argv(tmp_path, "X.field.toml")
     assert a[0] == sys.executable and a[-1] == "X.field.toml"
     assert a[1].replace("\\", "/").endswith("tools/deploy_field.py")
+    # the Build tab names a slot on its radio; passing it makes the deploy land where the label says
+    # (CLAUDE.md §3: ALWAYS pass --id -- without it the tool re-reads the pin, else the SHARED 4003 sandbox)
+    assert jobs.deploy_field_argv(tmp_path, "X.field.toml", field_id=30004)[-3:] == ["X.field.toml", "--id", "30004"]
 
 
 def test_deploy_campaign_argv_no_warp_by_default(tmp_path):
@@ -297,10 +300,23 @@ def test_revert_journey_argv_picks_most_recent(tmp_path):
     assert jobs.revert_journey_argv(tmp_path)[-1].replace("\\", "/").endswith("scroll_out/revert_journey.py")
 
 
-def test_detect_deploy_target_reads_pin(tmp_path):
+def test_detect_deploy_target_reads_pin(tmp_path, monkeypatch):
+    """The folder half follows config.resolve_mod_folder's documented order (explicit > $FF9_MOD_FOLDER > the
+    checkout's pin > FF9CustomMap) -- the same order tools/deploy_field.py lands in, so the Build tab never
+    names one folder and deploys into another. The id half is an int or None: a falsy or malformed pin used
+    to read as 'pinned' on the label while `or 4003` sent the deploy to the SHARED sandbox."""
+    monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    (tmp_path / ".git").mkdir()                                            # the pin walk stops here
     assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap", None)   # no file -> defaults
-    (tmp_path / ".ff9deploy.toml").write_text('mod_folder = "FF9CustomMap-ic"\nid = 30004\n', encoding="utf-8")
+    pin = tmp_path / ".ff9deploy.toml"
+    pin.write_text('mod_folder = "FF9CustomMap-ic"\nid = 30004\n', encoding="utf-8")
     assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap-ic", 30004)
+    monkeypatch.setenv("FF9_MOD_FOLDER", "FF9CustomMap-env")
+    assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap-env", 30004)   # env beats the pin, as the tool does
+    monkeypatch.delenv("FF9_MOD_FOLDER")
+    for raw, want in (("0", 0), ('"30005"', 30005), ('"abc"', None), ("true", None), ("30004.0", 30004)):
+        pin.write_text(f'mod_folder = "FF9CustomMap-ic"\nid = {raw}\n', encoding="utf-8")
+        assert jobs.detect_deploy_target(tmp_path) == ("FF9CustomMap-ic", want), raw
 
 
 # ---- installed-copy deploy: the package CLI argv builders + per-user revert cache --------------------
@@ -644,3 +660,37 @@ def test_the_resolver_module_never_shadows_the_tools_bare_import(tmp_path):
     before = sys.modules.get("repo_root")
     jobs.main_repo_root(tmp_path)
     assert sys.modules.get("repo_root") is before
+
+
+def test_detect_game_mod_follows_the_worktree_pin(tmp_path, monkeypatch):
+    """The Build tab's 'Install to game' and the Models tab's 'Deploy into' target used to be a hardcoded
+    <game>/FF9CustomMap: a worktree that pinned its own folder in .ff9deploy.toml still INSTALLED into the
+    shared default -- the exact collision the pin exists to prevent. The target now follows the documented
+    order (explicit > $FF9_MOD_FOLDER > the checkout's pin > FF9CustomMap), keyed on the repo the tab shows."""
+    from ff9mapkit import config
+    game = tmp_path / "game"
+    game.mkdir()
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: game)
+    monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    repo = tmp_path / "wt"
+    (repo / ".git").mkdir(parents=True)                       # the pin walk stops at the checkout root
+    assert jobs.detect_game_mod(repo) == game / "FF9CustomMap"                    # no pin -> the default
+    (repo / ".ff9deploy.toml").write_text('mod_folder = "FF9CustomMap-ic"\nid = 30004\n', encoding="utf-8")
+    assert jobs.detect_game_mod(repo) == game / "FF9CustomMap-ic"                 # the pin
+    monkeypatch.setenv("FF9_MOD_FOLDER", "FF9CustomMap-env")
+    assert jobs.detect_game_mod(repo) == game / "FF9CustomMap-env"                # the env var beats the pin
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: (_ for _ in ()).throw(config.ConfigError("x")))
+    assert jobs.detect_game_mod(repo) is None                                     # no install -> None, as before
+
+
+def test_build_tab_registry_readers_tolerate_a_utf8_bom(tmp_path, monkeypatch):
+    """`detect_deployed_fields` (the battle-trigger picker) and `scan_deployed_reverts` (the Deployed-here
+    ledger) read the folder's DictionaryPatch like the guards do -- a BOM'd line 1 used to vanish from both."""
+    from ff9mapkit import config
+    mod = tmp_path / "FF9CustomMap"
+    mod.mkdir()
+    (mod / "DictionaryPatch.txt").write_bytes(b"\xef\xbb\xbfFieldScene 4005 11 1860 MINE 4005\n")
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
+    assert jobs.detect_deployed_fields("FF9CustomMap") == [("4005", "MINE")]
+    rows = jobs.scan_deployed_reverts(mod / "DictionaryPatch.txt", None)
+    assert [(r["id"], r["name"]) for r in rows if r["kind"] == "field"] == [("4005", "MINE")]

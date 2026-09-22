@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from ff9mapkit import dialogue
+from ff9mapkit import dialogue, eblint
 from ff9mapkit.world import entrance as EN, navimap
 
 
@@ -104,7 +104,7 @@ def test_repoint_switch_case_guards_a_synthetic_switch():
     eb = EbScript.from_bytes(_min_eb(entries={0: {0: bytes([0x04])}, 1: {1: func}}))
     handler = EXPLORED_EXPR + FIELD_6500
     out, info = E.repoint_switch_case(eb.to_bytes(), 1, 1, 2, handler, switch_base=2)
-    assert EbScript.from_bytes(out).to_bytes() == out          # round-trip identity
+    assert eblint.errors(eblint.lint_eb(out)) == []            # a clean .eb (to_bytes() IS .data -- no round trip to assert)
     # case 2 now decodes to the appended handler
     from ff9mapkit.eb import disasm as D
     s = EbScript(out)
