@@ -105,6 +105,79 @@ def read_extra_gEventGlobal(path):
     return base64.b64decode(buf[span[0]:span[1]]) if span else None
 
 
+def _sjson_str(buf: bytes, i: int) -> "tuple[str, int]":
+    """A .NET ``BinaryWriter.Write(string)``: 7-bit-encoded byte length, then UTF-8."""
+    n = shift = 0
+    while True:
+        b = buf[i]
+        i += 1
+        n |= (b & 0x7F) << shift
+        shift += 7
+        if not b & 0x80:
+            break
+    return buf[i:i + n].decode("utf-8"), i + n
+
+
+def _sjson_node(buf: bytes, i: int):
+    """One SimpleJSON binary node at ``i`` -> ``(value, next offset)``. Tags are Int32 LE
+    (``JSONBinaryTag``: 1 Array, 2 Class, 3 string, 4 Int32, 5 double, 6 bool, 7 float)."""
+    tag, = struct.unpack_from("<i", buf, i)
+    i += 4
+    if tag in (1, 2):
+        n, = struct.unpack_from("<i", buf, i)
+        i += 4
+        if tag == 1:
+            out = []
+            for _ in range(n):
+                v, i = _sjson_node(buf, i)
+                out.append(v)
+            return out, i
+        obj = {}
+        for _ in range(n):
+            k, i = _sjson_str(buf, i)
+            obj[k], i = _sjson_node(buf, i)
+        return obj, i
+    if tag == 3:
+        return _sjson_str(buf, i)
+    if tag == 4:
+        return struct.unpack_from("<i", buf, i)[0], i + 4
+    if tag == 5:
+        return struct.unpack_from("<d", buf, i)[0], i + 8
+    if tag == 6:
+        return bool(buf[i]), i + 1
+    if tag == 7:
+        return struct.unpack_from("<f", buf, i)[0], i + 4
+    raise ValueError(f"unknown SimpleJSON binary tag {tag} at offset {i - 4}")
+
+
+def read_extra_tree(path) -> dict | None:
+    """Decode a Memoria extra-save file (``..._Memoria_Autosave.dat`` / ``..._Memoria_{slot}_{save}.dat``)
+    into plain Python, or None if it is absent.
+
+    The file is SimpleJSON's BINARY serialization (``JSONNode.SaveToFile``), unencrypted -- not text. The
+    engine writes it with ``File.OpenWrite``, which does NOT truncate, so a shorter save can leave an older
+    file's tail behind; like ``JSONNode.Deserialize`` this reads exactly one root node and ignores the rest."""
+    try:
+        buf = open(path, "rb").read()
+    except OSError:
+        return None
+    tree, _end = _sjson_node(buf, 0)
+    return tree
+
+
+def read_extra_vectors(path) -> "dict[int, list[int]] | None":
+    """The ``gScriptVector`` store from a Memoria extra-save file -- ``{vector id: [cells]}`` -- or None if
+    the file is absent. This is the ONLY container that carries it: the encrypted main block is written with
+    ``oldSaveFormat`` and never serializes vectors (``JsonParser.cs:580``), so a save whose extra file is
+    lost or rejected (its play time differs from the main block's by more than 1 s) loads with EVERY vector
+    empty. A vector saved with zero cells is dropped on load (``JsonParser.cs:546``)."""
+    tree = read_extra_tree(path)
+    if tree is None:
+        return None
+    rows = (tree.get("20000_Event") or {}).get("gScriptVector") or []
+    return {int(r["id"]): [int(v) for v in r.get("entries", [])] for r in rows}
+
+
 def patch_extra_gEventGlobal(path, blob: bytes) -> bool:
     """Replace the gEventGlobal Base64 in a Memoria extra-save file with ``blob`` (2048 bytes), in place
     (length-stable). Returns True if patched, False if the file has no gEventGlobal field."""
