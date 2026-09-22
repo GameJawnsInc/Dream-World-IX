@@ -2606,25 +2606,44 @@ def test_a_broken_ring_observer_cannot_turn_a_healthy_read_into_no_state(game):
 
 
 def test_the_ring_is_fed_by_the_reads_a_wait_already_makes(game):
-    """No thread, no extra poll: every frame in the ring came through Channel.state(). Break: feed
-    the ring from a timer thread, or read the file a second time inside push()."""
+    """No thread, no extra poll: every document in the ring IS one Channel.state() returned, and
+    while nothing reads, nothing reaches it. Break: feed the ring from a timer thread, or read the
+    file a second time inside push().
+
+    ⚠ The spy goes on BEFORE start(). start() already reads state (_await_agent, _adopt_agent,
+    write_env) and those reads feed the ring too; a spy installed inside the with-block never saw
+    start's last frame, so whenever the stand-in moved on before the first spied read -- routinely
+    under -n 6 -- that frame sat in the ring alone and the test failed a driver that was right.
+    """
     fake = FakeGame(game)
-    with session(game, fake) as g:
+    g = session(game, fake)
+    returned: list[dict] = []      # every document a read handed back, kept alive so id() is unique
+    real = g.channel.state
+
+    def spy(*a, **k):
+        st = real(*a, **k)
+        if st is not None:
+            returned.append(st.raw)
+        return st
+
+    g.channel.state = spy
+    with g:
         threads = threading.active_count()
-        seen: list[int] = []
-        real = g.channel.state
-
-        def spy(*a, **k):
-            st = real(*a, **k)
-            if st is not None:
-                seen.append(st.frame)
-            return st
-
-        g.channel.state = spy
         boot(g)
         g.wait_frames(10)
         assert len(g._ring) > 0
-        assert set(g._ring.frames()) <= set(seen)
+        # By IDENTITY, not by frame: a second read inside push() lands microseconds after the first,
+        # so it almost always parses the same frame and a frame comparison waves it through. Its
+        # document is still a different object.
+        ids = {id(d) for d in returned}
+        assert [raw.get("frame") for *_, raw in g._ring._buf if id(raw) not in ids] == []
+        # The idle window. A timer thread that polls THROUGH Channel.state() passes the check above
+        # (the spy returned its documents too) and, started in start(), is already counted in
+        # `threads`. What it cannot do is leave the ring alone while the driver reads nothing.
+        ring, published = set(g._ring.frames()), fake.publish_frame
+        time.sleep(0.25)
+        assert fake.publish_frame > published          # the stand-in kept publishing: not vacuous
+        assert [f for f in g._ring.frames() if f not in ring] == []   # arrived with nobody reading
         assert threading.active_count() == threads
 
 
