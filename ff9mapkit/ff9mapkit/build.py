@@ -76,8 +76,10 @@ from . import itemstats as _itemstats
 from .content import itemdata as _itemdata
 from . import data as _data
 from .eb import EbScript, opcodes
+from .eb import disasm as _disasm
 from .eb.disasm import iter_code
 from .scene import bgi, bgx, cam, guide
+from . import walkmesh_hotfixes as _walkmesh_hotfixes
 
 
 class BuildError(RuntimeError):
@@ -4528,6 +4530,152 @@ def _borrow_walkmesh(project: FieldProject):
     return bgi.BgiWalkmesh.from_bytes(p.read_bytes()) if p.is_file() else None
 
 
+# THE DONOR-CODE LANES -- every place the build carries DONOR bytecode VERBATIM onto a fork from a sidecar the import
+# wrote next to the toml. ONE list, closed at both ends: every build reader of these bytes goes through
+# _read_donor_code (which refuses an unregistered lane; tests/test_fork_walkmesh_lint.py also fails on a bare
+# `.read_bytes()` anywhere in build.py outside its allowlist), and _donor_code_sites -- the fork walkmesh-literal
+# lint's scan set -- dispatches on every registered lane (an unhandled one raises). So a newly carried lane cannot
+# ship unscanned. ``form``: "eb" = a whole .eb, "entry" = one entry blob (type + func table + bodies), "body" = one
+# function body. ``[verbatim_eb] bin`` is read by content.verbatim.verbatim_eb (the lint calls that same reader).
+@dataclass(frozen=True)
+class _DonorLane:
+    block: str
+    key: str
+    form: str
+
+
+DONOR_CODE_LANES = (
+    _DonorLane("verbatim_eb", "bin", "eb"),            # the donor's WHOLE .eb (content/verbatim.py)
+    _DonorLane("object", "bin", "entry"),              # a carried object entry (its carry_tags subset ships)
+    _DonorLane("object", "seqs", "entry"),             # ...+ the STARTSEQ helper entries it launches (same loader)
+    _DonorLane("player_func", "bin", "body"),          # a donor player func grafted onto the fork player
+    _DonorLane("ladder", "climb", "body"),             # a faithful ladder climb
+    _DonorLane("ladder", "climb.seq", "entry"),        # ...+ its STARTSEQ '<stem>.seq<N>.bin' helper entries
+    _DonorLane("jump", "jump", "body"),                # a faithful jump arc
+    _DonorLane("gateway_carry", "bin", "entry"),       # a story-gated door entry carried verbatim
+    _DonorLane("save_moogle", "director", "body"),     # the save-sequence director (donor entry-0 tag-1)
+)
+_DONOR_LANE_KEYS = frozenset((ln.block, ln.key) for ln in DONOR_CODE_LANES)
+
+
+def _read_donor_code(project: FieldProject, block: str, key: str, ref) -> bytes:
+    """The bytes of a DONOR-CODE sidecar (``DONOR_CODE_LANES``) -- the ONE reader the build's carry code uses, so a
+    lane the fork walkmesh-literal lint does not scan cannot be read without registering it first."""
+    if (block, key) not in _DONOR_LANE_KEYS:
+        raise KeyError(f"internal: donor-code lane [{block}] {key} is not in DONOR_CODE_LANES -- register it so "
+                       f"the fork walkmesh-literal lint (_donor_code_sites) scans the bytes it carries")
+    return project.path(ref).read_bytes()
+
+
+def _graftable_player_safeties(project: FieldProject) -> tuple:
+    """The ``[[player_func]] safety`` values the build GRAFTS (the rest stay refused). Text carry un-refuses "text"
+    player funcs: their window TXIDs are remapped + the words shipped, so the func is graft-safe. Without carry,
+    only "clean" funcs graft (a stray "text" stays refused). "walk" (gesture + scripted-walk ops) is door-lane-only:
+    the import emits it solely for a [[gateway_carry]] player_calls door (#3), so it grafts unconditionally (refusing
+    it would dangle the carried door's RunScript -> the exact softlock the dangling-tag validator exists to block).
+    Shared by build_script and the fork walkmesh-literal lint (which scans only what ships)."""
+    _has_carry = bool(project.raw.get("carry_text", {}).get("bin"))
+    return ("clean", "walk", "text") if _has_carry else ("clean", "walk")
+
+
+def _toml_rows(raw, block) -> list:
+    """The dict rows of a toml block -- an ``[[array]]`` of tables, or a single ``[table]`` as one row."""
+    v = (raw or {}).get(block)
+    if isinstance(v, dict):
+        return [v]
+    return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
+
+
+def _donor_code_sites(project: FieldProject) -> list:
+    """The fork walkmesh-literal lint's SCAN SET: ``[(label, blob, start, end), ...]`` -- every function of donor
+    bytecode this project CARRIES verbatim, one per ``DONOR_CODE_LANES`` lane (dispatched on the registry; an
+    unregistered/unhandled lane raises, so the list and the scan cannot drift). Scans what SHIPS: an object's
+    ``carry_tags`` subset (dropped warp-directors skipped), only graftable player funcs, only the ladder rows the
+    build reads a climb for. A sidecar that cannot be read is skipped -- validate()/the build own that error."""
+    raw = project.raw
+    sites: list = []
+
+    def _read(block, key, ref):
+        try:
+            return _read_donor_code(project, block, key, ref)
+        except OSError:
+            return None
+
+    def _entry(label, blob):
+        for tag, s, e in _object.entry_blob_funcs(blob):
+            sites.append((f"{label} tag {tag}", blob, s, e))
+
+    for lane in DONOR_CODE_LANES:
+        lk = (lane.block, lane.key)
+        rows = _toml_rows(raw, lane.block)
+        if lk == ("verbatim_eb", "bin"):
+            from .content import verbatim as _verbatim
+            spec = rows[0] if rows else {}
+            try:
+                eb = _verbatim.verbatim_eb(project)
+            except OSError:
+                eb = None
+            if eb:
+                for e in EbScript.from_bytes(eb).entries:
+                    for f in e.funcs:
+                        sites.append((f"[verbatim_eb] {spec.get('bin')} entry {e.index} tag {f.tag}",
+                                      eb, f.abs_start, f.abs_end))
+        elif lk == ("object", "bin"):
+            for o in rows:
+                b = _read(*lk, o["bin"]) if o.get("bin") else None
+                kept = _object.carried_object_entry(o, b) if b else None
+                if kept:
+                    _entry(f"[[object]] {o['bin']}", kept)
+        elif lk == ("object", "seqs"):
+            for o in rows:
+                for h in (o.get("seqs") or []):
+                    b = _read(*lk, h["bin"]) if isinstance(h, dict) and h.get("bin") else None
+                    if b:
+                        _entry(f"[[object]] {h['bin']}", b)
+        elif lk == ("player_func", "bin"):
+            ok = _graftable_player_safeties(project)
+            for p in rows:
+                b = _read(*lk, p["bin"]) if p.get("bin") and p.get("safety", "clean") in ok else None
+                if b:
+                    sites.append((f"[[player_func]] {p['bin']}", b, 0, len(b)))
+        elif lk in (("ladder", "climb"), ("ladder", "climb.seq")):
+            for lad in rows:                          # build_script's branch order: only these rows read a climb
+                if lad.get("navigable") or ("top" in lad and "bottom" in lad) or not lad.get("climb"):
+                    continue
+                b = _read("ladder", "climb", lad["climb"])
+                if not b:
+                    continue
+                if lane.key == "climb":
+                    sites.append((f"[[ladder]] {lad['climb']}", b, 0, len(b)))
+                    continue
+                try:
+                    seqs = _ladder_sequences(project, lad["climb"], b) or {}
+                except (OSError, ValueError):
+                    seqs = {}
+                stem = lad["climb"][:-len(".climb.bin")] if lad["climb"].endswith(".climb.bin") else lad["climb"]
+                for ei in sorted(seqs):
+                    _entry(f"[[ladder]] {stem}.seq{ei}.bin", seqs[ei])
+        elif lk == ("jump", "jump"):
+            for jp in rows:
+                b = _read(*lk, jp["jump"]) if jp.get("jump") else None
+                if b:
+                    sites.append((f"[[jump]] {jp['jump']}", b, 0, len(b)))
+        elif lk == ("gateway_carry", "bin"):
+            for gc in rows:
+                b = _read(*lk, gc["bin"]) if gc.get("bin") else None
+                if b:
+                    _entry(f"[[gateway_carry]] {gc['bin']}", b)
+        elif lk == ("save_moogle", "director"):
+            for sm in rows:
+                b = _read(*lk, sm["director"]) if sm.get("director") else None
+                if b:
+                    sites.append((f"[[save_moogle]] {sm['director']}", b, 0, len(b)))
+        else:
+            raise KeyError(f"internal: DONOR_CODE_LANES lane [{lane.block}] {lane.key} has no scan in "
+                           f"_donor_code_sites -- the fork walkmesh-literal lint would skip it")
+    return sites
+
+
 def _ladder_sequences(project: FieldProject, climb_ref, climb_bytes):
     """Load the STARTSEQ-referenced sequence sidecars for a FAITHFUL ladder climb (the concurrent
     helper entries the climb launches, e.g. the SetPitchAngle forward-lean). The climb references them
@@ -4548,7 +4696,7 @@ def _ladder_sequences(project: FieldProject, climb_ref, climb_bytes):
             raise FileNotFoundError(
                 f"[[ladder]] climb launches STARTSEQ entry {ei} but its sidecar {stem}.seq{ei}.bin is "
                 f"missing -- regenerate the fork with `ff9mapkit import`")
-        seqs[ei] = p.read_bytes()
+        seqs[ei] = _read_donor_code(project, "ladder", "climb.seq", f"{stem}.seq{ei}.bin")
     return seqs
 
 
@@ -4721,6 +4869,237 @@ def _validate_walkmesh_geometry(project: FieldProject, wmesh, warnings: list) ->
             f"engine's IsInQuad test (the player can't stand there); fix them in the .obj.")
 
 
+class _WalkIndex:
+    """World-space lookups over one BgiWalkmesh for the fork walkmesh-literal lint. Kept LOCAL (scene/bgi.py owns
+    the engine-facing queries): tri -> floor by MEMBERSHIP (the floorList position -- what B_BGIFLOOR returns and
+    EnablePath indexes), each tri's 3D world centroid, and every tri whose XZ projection holds a point together
+    with its height there (a coarse bbox grid + ``bgi._pt_in_tri_xz``)."""
+
+    def __init__(self, m):
+        self.ntris, self.nfloors = len(m.tris), len(m.floors)
+        wv = m.world_verts()
+        nv = len(wv)
+        self.floor_of: dict = {}
+        for fi, fl in enumerate(m.floors):
+            for t in fl.tri_ndx_list:
+                self.floor_of.setdefault(int(t), fi)
+        self.pts = [((wv[t.vtx[0]], wv[t.vtx[1]], wv[t.vtx[2]])
+                     if all(0 <= int(i) < nv for i in t.vtx) else None) for t in m.tris]
+        live = [p for p in self.pts if p]
+        xs = [v[0] for p in live for v in p] or [0]
+        zs = [v[2] for p in live for v in p] or [0]
+        self.x0, self.z0 = min(xs), min(zs)
+        n = max(1, int(len(live) ** 0.5))
+        self.cs = max(max(xs) - self.x0, max(zs) - self.z0, 1) / n
+        self.grid: dict = {}
+        for ti, p in enumerate(self.pts):
+            if not p:
+                continue
+            i0, i1 = self._cell(min(v[0] for v in p), self.x0), self._cell(max(v[0] for v in p), self.x0)
+            j0, j1 = self._cell(min(v[2] for v in p), self.z0), self._cell(max(v[2] for v in p), self.z0)
+            for i in range(i0, i1 + 1):
+                for j in range(j0, j1 + 1):
+                    self.grid.setdefault((i, j), []).append(ti)
+
+    def _cell(self, v, o):
+        return int((v - o) // self.cs)
+
+    def centroid(self, t):
+        p = self.pts[t] if 0 <= t < self.ntris else None
+        return tuple(sum(v[k] for v in p) / 3.0 for k in range(3)) if p else None
+
+    def at(self, x, z) -> list:
+        """``[(tri, height), ...]`` -- every tri whose XZ projection holds (x, z), with its plane height there."""
+        out = []
+        for ti in self.grid.get((self._cell(x, self.x0), self._cell(z, self.z0)), ()):
+            a, b, c = self.pts[ti]
+            if not bgi._pt_in_tri_xz(x, z, a, b, c):
+                continue
+            den = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+            if den == 0:
+                out.append((ti, float(a[1])))
+                continue
+            wa = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / den
+            wb = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / den
+            out.append((ti, wa * a[1] + wb * b[1] + (1.0 - wa - wb) * c[1]))
+        return out
+
+    def level(self, x, y, z) -> list:
+        """The tris a point at (x, y, z) stands on: those at (x, z) on the LEVEL nearest height ``y`` (ties kept).
+        The level pick is what tells XZ-stacked floors apart (a balcony over the ground floor): swapping two stacked
+        floors' faces keeps every tri id over the same XZ, and only the height says the id changed level."""
+        hits = self.at(x, z)
+        if not hits:
+            return []
+        best = min(abs(h - y) for _t, h in hits)
+        return [t for t, h in hits if abs(h - y) <= best + 1.0]
+
+
+_FORK_WALK_LINES = 12          # the lint's output cap (plus one "... and N more" line)
+
+
+def _lint_fork_walkmesh_ids(project: FieldProject, wmesh, warnings: list) -> None:
+    """THE FORK WALKMESH-LITERAL LINT -- WARN (never rewrite: the verbatim law remaps only ``Field()``) when donor
+    code keys on walkmesh TRIANGLE ids / FLOOR indices as literals and this fork ships a rebuilt walkmesh that moved
+    them. 210 of the 818 stock scripts do (census): ``B_BGIFLOOR``/``B_BGIID`` compares and switches (47 / 1 --
+    field 116's plank loop keys on ``B_PTR(21) B_BGIID``), ``EnablePathTriangle`` 0x9A (91) and ``EnablePath`` 0xCB
+    (109, a floor index) immediates; and the
+    custom engine's own C# hotfixes toggle hard-coded tris on a fork through ``EffectiveFieldId``. Ids are GLOBAL
+    .bgi file order and a floor is its floorList position (walkmesh-sensor rung 0), so an add/delete/reorder of
+    faces, or a floor reassigned, silently re-points every one of them.
+
+    Early-outs, in order: no donor (``donor_field_id``); BG-borrow (the engine runs the real mesh); no donor
+    reference mesh (``[walkmesh] reference`` / the sibling ``walkmesh.bgi`` every import writes -- then a NOTE if
+    donor code reads ids at all); the shipped mesh IS the donor mesh (byte-equal through the codec).
+
+    SCAN SET: donor-derived code only (``_donor_code_sites`` over ``DONOR_CODE_LANES``) + ``[field]
+    walkmesh_tri_toggles`` + the donor's engine hotfix ``fork_tris`` -- never kit emission, so the kit's own floor
+    mirrors cannot false-positive.
+
+    STABILITY (a donor tri keeps its identity; a pure vertex-move reshape passes, an add/delete/reorder fails):
+    tri ``t`` is stable iff it is not a donor tri, or it still exists, sits on the same floor (membership), and
+    is the built triangle a point at donor tri ``t``'s 3D centroid stands on (XZ containment + the nearest level,
+    which tells XZ-stacked floors apart). Floor ``k`` is stable iff it is not a donor floor, or it still exists and
+    every donor floor-``k`` centroid that is still on the mesh stands on built floor ``k`` (and at least one does).
+    One warning per (lane label, kind, subject) whose literals include an unstable id; an advisory per label whose
+    reads are stored/derived (untraceable) when anything moved at all; capped at 12 lines + "... and N more"."""
+    donor = donor_field_id(project.raw)
+    if donor is None or project.field.get("borrow_bg"):
+        return
+    try:
+        ref = _borrow_walkmesh(project)
+    except Exception as e:                            # noqa: BLE001 -- a malformed reference mesh is a finding, not a crash
+        warnings.append(f"fork of {donor}: the donor walkmesh.bgi could not be read ({type(e).__name__}: {e}) -- "
+                        f"cannot verify your walkmesh keeps the donor's triangle/floor ids")
+        return
+    if ref is not None and wmesh.to_bytes() == ref.to_bytes():
+        return                                        # the shipped mesh IS the donor mesh -- every id holds
+
+    # (label, kind, subject, role, literals) for every donor-derived walkmesh-id use
+    uses: list = []
+    try:
+        sites = _donor_code_sites(project)
+    except (ValueError, IndexError, struct.error) as ex:     # a malformed sidecar: its own validator names it
+        warnings.append(f"fork of {donor}: the carried donor code could not be decoded for walkmesh-id reads "
+                        f"({type(ex).__name__}: {ex}) -- not checked")
+        sites = []
+    for label, blob, s, e in sites:
+        try:
+            reads = _disasm.walkmesh_reads(blob, s, e)
+        except (IndexError, ValueError, struct.error) as ex:
+            warnings.append(f"fork of {donor}: {label} could not be decoded for walkmesh-id reads ({ex}) -- "
+                            f"not checked")
+            continue
+        uses += [(label, r.kind, r.subject, r.role, r.literals) for r in reads]
+    tog = [t for t in (project.field.get("walkmesh_tri_toggles") or [])
+           if isinstance(t, (list, tuple)) and t and isinstance(t[0], int) and not isinstance(t[0], bool)]
+    if tog:
+        uses.append(("[field] walkmesh_tri_toggles", "enable", "", "immediate",
+                     tuple(int(t[0]) for t in tog if int(t[0]) >= 0)))
+    hf = _walkmesh_hotfixes.info(donor)
+    if hf is not None and hf.fork_tris:
+        uses.append(("engine hotfix (Memoria C#, fires on forks)", "enable", hf.source, "immediate",
+                     tuple(hf.fork_tris)))
+    if not uses:
+        return
+    if ref is None:
+        warnings.append(f"fork of {donor}: the donor code reads walkmesh ids but no donor walkmesh.bgi sits next to "
+                        f"the toml -- cannot verify your walkmesh keeps them (re-import, or point [walkmesh] "
+                        f"reference at the donor's .bgi)")
+        return
+
+    D, B = _WalkIndex(ref), _WalkIndex(wmesh)
+    tri_memo: dict = {}
+    floor_memo: dict = {}
+
+    def tri_check(t):
+        """None if donor tri ``t`` kept its identity, else the phrase saying where it went."""
+        if t not in tri_memo:
+            c = D.centroid(t)
+            if c is None:
+                why = None                            # not a donor tri -- not this lint's concern
+            elif t >= B.ntris:
+                why = f"tri {t} no longer exists"
+            elif B.floor_of.get(t) == D.floor_of.get(t) and t in B.level(*c):
+                why = None
+            else:
+                bc = B.centroid(t)
+                where = f"({round(bc[0])},{round(bc[2])})" if bc else "(?)"
+                why = f"tri {t} is now the triangle at {where} floor {B.floor_of.get(t)}"
+            tri_memo[t] = why
+        return tri_memo[t]
+
+    def floor_check(k):
+        """None if donor floor ``k`` still covers its donor area, else the phrase saying what changed."""
+        if k not in floor_memo:
+            if not 0 <= k < D.nfloors:
+                why = None                            # not a donor floor
+            elif k >= B.nfloors:
+                why = f"floor {k} no longer exists"
+            else:
+                on_k = moved = 0
+                others: set = set()
+                for t in ref.floors[k].tri_ndx_list:
+                    c = D.centroid(int(t))
+                    lv = B.level(*c) if c else []
+                    if not lv:
+                        continue                      # off the rebuilt mesh: ignored
+                    fls = {B.floor_of.get(u) for u in lv}
+                    if k in fls:
+                        on_k += 1
+                    else:
+                        moved += 1
+                        others |= fls
+                if moved == 0 and on_k > 0:
+                    why = None
+                elif on_k == moved == 0:
+                    why = f"floor {k} no longer covers any of its donor area"
+                else:
+                    why = (f"floor {k} is now elsewhere ({moved} of {moved + on_k} of its donor triangles stand on "
+                           f"floor {sorted(f for f in others if f is not None)})")
+            floor_memo[k] = why
+        return floor_memo[k]
+
+    _TRI_KINDS = ("tri", "enable")
+    groups: dict = {}                                 # (label, kind, subject) -> [literal set, role set]
+    for label, kind, subject, role, lits in uses:
+        g = groups.setdefault((label, kind, subject), [set(), set()])
+        g[0].update(lits)
+        g[1].add(role)
+    lines, advise = [], []
+    any_moved: dict = {}
+
+    def _moved_any(kind):                             # did the rebuild move ANY donor tri / floor at all?
+        tk = kind in _TRI_KINDS
+        if tk not in any_moved:
+            any_moved[tk] = (any(tri_check(t) for t in range(D.ntris)) if tk
+                             else any(floor_check(k) for k in range(D.nfloors)))
+        return any_moved[tk]
+
+    for (label, kind, subject), (lits, roles) in groups.items():
+        noun = "triangle" if kind in _TRI_KINDS else "floor"
+        check = tri_check if kind in _TRI_KINDS else floor_check
+        bad = [w for w in (check(x) for x in sorted(lits)) if w]
+        if bad:
+            verb = "toggles" if kind in ("enable", "floor_enable") else "reads"
+            shown = sorted(lits)
+            keys = (f"{shown[:16]}"[:-1] + ", ...]") if len(shown) > 16 else f"{shown}"
+            moved = "; ".join(bad[:6]) + (f"; +{len(bad) - 6} more" if len(bad) > 6 else "")
+            lines.append(
+                f"fork of {donor}: {label} {verb} the walkmesh {noun}{f' ({subject})' if subject else ''} and keys "
+                f"on {keys}; your rebuilt walkmesh moved them ({moved}) -- the donor logic keyed on them now fires "
+                f"elsewhere (or never). Keep the donor mesh ([walkmesh] bgi = \"walkmesh.bgi\"), or reshape without "
+                f"adding, deleting or reordering faces (the editable OBJ round trip preserves every id).")
+        if roles & {"store", "other"} and _moved_any(kind):
+            advise.append(f"fork of {donor}: {label} stores/derives the walkmesh {noun} -- its uses cannot be "
+                          f"traced; check them by hand")
+    out = lines + list(dict.fromkeys(advise))
+    if len(out) > _FORK_WALK_LINES:
+        out = out[:_FORK_WALK_LINES] + [f"fork of {donor}: ... and {len(out) - _FORK_WALK_LINES} more walkmesh-id "
+                                        f"warning(s)"]
+    warnings.extend(out)
+
+
 def _walkmesh_stats(wmesh, names=None) -> dict:
     """Geometry summary of a BgiWalkmesh for the `walkmesh verify` report. ``names`` (the built-order
     floor names of a ``[walkmesh] obj``, :func:`bgi.obj_floor_names`) labels the floor table.
@@ -4771,6 +5150,7 @@ def verify_walkmesh(project: FieldProject) -> dict:
         _validate_content_placement(project, wmesh, warnings)
         _validate_layer_art(project, camera.range, warnings)
         _validate_walkmesh_geometry(project, wmesh, warnings)
+        _lint_fork_walkmesh_ids(project, wmesh, warnings)      # donor walkmesh-id literals vs a rebuilt mesh
     return {"source": source, **_walkmesh_stats(wmesh, names), "warnings": warnings}
 
 
@@ -7089,7 +7469,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if len(zone) == 4:
             zone = _gw.quad_zone(zone)
         climb_ref = lad.get("climb")
-        climb_bytes = project.path(climb_ref).read_bytes() if climb_ref else None
+        climb_bytes = _read_donor_code(project, "ladder", "climb", climb_ref) if climb_ref else None
         sequences = _ladder_sequences(project, climb_ref, climb_bytes) if climb_bytes else None
         eb, _ = _ladder.inject_ladder(eb, [tuple(p) for p in zone],
                                       None if climb_bytes is not None else lad["to"],
@@ -7112,7 +7492,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             jz = jp["zone"]
             if len(jz) == 4:
                 jz = _gw.quad_zone(jz)
-            jbytes = project.path(jp["jump"]).read_bytes() if jp.get("jump") else None
+            jbytes = _read_donor_code(project, "jump", "jump", jp["jump"]) if jp.get("jump") else None
             eb, _ = _jump.inject_jump(eb, [tuple(p) for p in jz], jbytes, to=jp.get("to"),
                                       via=jp.get("via", ()), steps=jp.get("steps"), jump_tag=jtag,
                                       trigger=jp.get("trigger", "action"), bubble=jp.get("bubble", True))
@@ -7400,17 +7780,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # resulting tag map then drives the object graft's RunScript(player, T) remap. No-op without [[player_func]].
     player_funcs = project.raw.get("player_func", [])
     player_tag_remap = None
-    # text carry un-refuses "text" player funcs: their window TXIDs are remapped + the words shipped, so
-    # the func is graft-safe. Without carry, only "clean" funcs graft (a stray "text" stays refused).
-    # "walk" (gesture + scripted-walk ops) is door-lane-only: the import emits it solely for a
-    # [[gateway_carry]] player_calls door (#3), so it grafts unconditionally (refusing it would dangle
-    # the carried door's RunScript -> the exact softlock the dangling-tag validator exists to block).
-    _has_carry = bool(project.raw.get("carry_text", {}).get("bin"))
-    _graftable = ("clean", "walk", "text") if _has_carry else ("clean", "walk")
+    _graftable = _graftable_player_safeties(project)       # "clean"/"walk" (+ "text" under text carry)
     if player_funcs:
         from .content import player as _player
         pf_specs = [{"donor_tag": int(p["donor_tag"]), "safety": p.get("safety", "clean"),
-                     "body": project.path(p["bin"]).read_bytes(),
+                     "body": _read_donor_code(project, "player_func", "bin", p["bin"]),
                      "donor_init_packs": p.get("donor_init_packs", [])} for p in player_funcs
                     if p.get("safety", "clean") in _graftable]
         fork_tags = _player.PlayerTagAllocator(eb).take("object", len(pf_specs))
@@ -7425,7 +7799,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     object_slot_map = {}
     if objects:
         eb = _object.graft_objects(eb, [dict(o) for o in objects],
-                                   load=lambda ref: project.path(ref).read_bytes(),
+                                   # ONE loader for the entry `bin` AND its `seqs` helpers (both registered lanes)
+                                   load=lambda ref: _read_donor_code(project, "object", "bin", ref),
                                    player_tag_remap=player_tag_remap, out_slot_map=object_slot_map)
         # a grafted player func may TurnTowardObject a CARRIED sibling (the save Moogle's 13/14/15 turn toward
         # the Moogle); now that the object graft placed each sibling at its fork slot, remap those uids (a
@@ -7442,7 +7817,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     for sm in project.raw.get("save_moogle", []):
         d = sm.get("director")
         if d:
-            eb = _savepoint.graft_director(eb, project.path(d).read_bytes())
+            eb = _savepoint.graft_director(eb, _read_donor_code(project, "save_moogle", "director", d))
 
     # #2b (docs/FORK_FIDELITY.md): STORY-GATED doors carried VERBATIM. A real story-gated door is a complex
     # GLOB-flag conditional the declarative inject_gateway can't reproduce; graft the entry whole + retarget
@@ -7458,12 +7833,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # the plain path below, byte-identical.
             dpe = gc.get("donor_player_entry")
             eb, _ = _gw.graft_gateway_entry(
-                eb, project.path(gc["bin"]).read_bytes(), retarget=retarget or None,
+                eb, _read_donor_code(project, "gateway_carry", "bin", gc["bin"]), retarget=retarget or None,
                 donor_entry=gc.get("donor_entry"),
                 donor_player_entry=(tuple(dpe) if isinstance(dpe, list) else dpe),
                 donor2new=object_slot_map or None, player_tag_remap=player_tag_remap)
         else:
-            eb, _ = _gw.graft_gateway_entry(eb, project.path(gc["bin"]).read_bytes(), retarget=retarget or None)
+            eb, _ = _gw.graft_gateway_entry(eb, _read_donor_code(project, "gateway_carry", "bin", gc["bin"]),
+                                            retarget=retarget or None)
 
     # faithful TEXT CARRY (docs/TEXT_CARRY.md): the grafted objects' windows + grafted text player funcs
     # still name the DONOR's .mes txids; remap each to the carried band (>=1000) -- a same-length 2-byte
@@ -9018,6 +9394,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         cutscene_wmesh = wmesh
         _validate_content_placement(project, wmesh, warnings)
         _validate_walkmesh_geometry(project, wmesh, warnings)
+        _lint_fork_walkmesh_ids(project, wmesh, warnings)      # donor walkmesh-id literals vs a rebuilt mesh
         fm = layout.fieldmap_dir(fbg)
         shutil.copyfile(project.path(native_bgs), fm / f"{fbg}.bgs.bytes")
         if project.field.get("atlas"):
@@ -9083,6 +9460,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         # art: warn when a (repainted) layer's PNG aspect won't match its size quad (stretch/misalign).
         _validate_layer_art(project, camera.range, warnings)
         _validate_walkmesh_geometry(project, wmesh, warnings)
+        _lint_fork_walkmesh_ids(project, wmesh, warnings)      # donor walkmesh-id literals vs a rebuilt mesh
         overlays = build_overlays(project, range_wh=tuple(camera.range))
         # [[gauge]] fill-state overlays + their SingleFrame ANIMATION selectors append AFTER the
         # layers (gauge_layout is the shared index authority with the script daemon).

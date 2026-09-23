@@ -27,6 +27,21 @@ _LOOP_TAG = 1             # an object's per-frame LOOP function
 _FIELD_OP = 0x2B          # Field(dest) -- a warp; in an object's LOOP it makes the object a cutscene director
 
 
+def entry_blob_funcs(entry_bytes) -> list:
+    """``[(tag, start, end), ...]`` -- every function of an ENTRY BLOB (the ``[[object]] bin`` sidecar form: type
+    byte + function count + the ``(tag, fpos)`` table + the bodies), in table order, with ``start``/``end``
+    ABSOLUTE offsets into the blob (``fpos`` is relative to entryStart+2 = blob offset 2; a function ends where the
+    next one starts, the last at the blob's end). THE one parse :func:`carry_bytes`, :func:`_loop_warps` and the
+    fork walkmesh-literal lint (``build._lint_fork_walkmesh_ids``) share. ``[]`` for a blob shorter than 2 bytes."""
+    b = bytes(entry_bytes)
+    if len(b) < 2:
+        return []
+    fc = b[1]
+    funcs = [(u16(b, 2 + i * 4), u16(b, 2 + i * 4 + 2)) for i in range(fc)]      # (tag, fpos)
+    return [(tag, 2 + fpos, (2 + funcs[i + 1][1]) if i + 1 < fc else len(b))
+            for i, (tag, fpos) in enumerate(funcs)]
+
+
 def carry_bytes(entry_bytes, carry_tags=None) -> bytes:
     """Return the entry holding only ``carry_tags`` functions (``None`` = the whole entry, verbatim).
 
@@ -35,13 +50,8 @@ def carry_bytes(entry_bytes, carry_tags=None) -> bytes:
     for the new layout). ``carry_tags=None`` (or a superset of the entry's tags) round-trips byte-for-byte.
     """
     b = bytes(entry_bytes)
-    etype, fc = b[0], b[1]
-    funcs = [(u16(b, 2 + i * 4), u16(b, 2 + i * 4 + 2)) for i in range(fc)]      # (tag, fpos)
-    bodies = []
-    for i, (tag, fpos) in enumerate(funcs):
-        start = 2 + fpos                              # fpos is relative to entryStart+2 (= slice offset 2)
-        end = (2 + funcs[i + 1][1]) if i + 1 < fc else len(b)
-        bodies.append((tag, b[start:end]))
+    etype, _fc = b[0], b[1]
+    bodies = [(tag, b[start:end]) for tag, start, end in entry_blob_funcs(b)]
     if carry_tags is not None:
         keep = set(carry_tags)
         bodies = [(t, body) for t, body in bodies if t in keep]
@@ -56,17 +66,22 @@ def _loop_warps(entry_bytes) -> bool:
     ``Field()`` flags it -- phase-switch-only animated props and the save Moogle (no LOOP warp) are unaffected,
     so the proven prop/save-point carries keep working; ``--verbatim`` keeps directors whole regardless."""
     b = bytes(entry_bytes)
-    if len(b) < 2:
-        return False
-    fc = b[1]
-    funcs = [(u16(b, 2 + i * 4), u16(b, 2 + i * 4 + 2)) for i in range(fc)]
-    for i, (tag, fpos) in enumerate(funcs):
+    for tag, start, end in entry_blob_funcs(b):
         if tag != _LOOP_TAG:
             continue
-        start = 2 + fpos
-        end = (2 + funcs[i + 1][1]) if i + 1 < fc else len(b)
         return any(ins.op == _FIELD_OP for ins in iter_code(b, start, end))
     return False
+
+
+def carried_object_entry(spec, raw) -> "bytes | None":
+    """The entry bytes :func:`graft_objects` actually CARRIES for ``spec`` given its sidecar ``raw`` bytes -- the
+    ``carry_tags`` subset (:func:`carry_bytes`) -- or ``None`` when the graft drops the object (a refused spec, or a
+    cutscene WARP-director whose kept loop fires ``Field()``, #13b). One predicate for the graft and the fork
+    walkmesh-literal lint, so the lint scans exactly the bytes that ship."""
+    if spec.get("graft_safety") == "refuse":
+        return None
+    kept = carry_bytes(raw, spec.get("carry_tags"))
+    return None if _loop_warps(kept) else kept
 
 
 def _arg_byte_offset(ins, ai):
@@ -291,7 +306,7 @@ def graft_objects(data, specs, *, load=None, player_tag_remap=None, out_slot_map
         raw = s.get("entry_bytes")
         if raw is None and load is not None and s.get("bin") is not None:
             raw = load(s["bin"])
-        if raw is not None and _loop_warps(carry_bytes(raw, s.get("carry_tags"))):
+        if raw is not None and carried_object_entry(s, raw) is None:     # (refused specs are already gone)
             if out_skipped is not None:
                 out_skipped.append(int(s.get("donor_idx", -1)))
             continue

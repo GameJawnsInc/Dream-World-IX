@@ -50,6 +50,12 @@ class Hotfix:
                   is DELAYED (e.g. 2507's ``DelayedActiveTri`` runs 0.5s after load): the at-load toggle prepend
                   fires BEFORE the field's own props settle onto those tris, snapping them to the wrong floor (the
                   Ipsen chests dropped a level). Reproduce delayed hotfixes via the engine remap, not the prepend.
+    ``fork_tris`` : the subset of ``tris`` the SHIPPED custom engine still toggles on a FORK of this donor -- its
+                  gate reads ``EffectiveFieldId`` (every ``effMapNo`` branch in DoEventCode.cs, the s30 fork walk;
+                  FieldMap.cs 2507 + 2161, s29/s65), so it fires at the fork's id against the FORK's walkmesh. A
+                  gate still on the raw ``fldMapNo`` (FieldMap.cs 2356; all of turnOffTriManually.cs) never fires on
+                  a fork, so its tris are absent here. The fork walkmesh-literal lint
+                  (``build._lint_fork_walkmesh_ids``) checks these ids survive a rebuilt walkmesh.
     """
 
     field_id: int
@@ -60,6 +66,7 @@ class Hotfix:
     toggles: tuple = ()
     tris: tuple = ()
     engine_remapped: bool = False
+    fork_tris: tuple = ()
 
     @property
     def auto(self) -> bool:
@@ -80,10 +87,11 @@ _HOTFIXES = {
                  "floor. The patch extends ~120u around the chest, so it blocks more than the chest's collision "
                  "alone -- the hotfix is NOT redundant. (Confound to avoid: the tri-78 CENTER (39u) coincides "
                  "with the chest collision; test the edge.)",
-                 "FieldMap.cs:112-117", toggles=((78, 0), (79, 0), (80, 0)), tris=(78, 79, 80)),
+                 "FieldMap.cs:112-117", toggles=((78, 0), (79, 0), (80, 0)), tris=(78, 79, 80),
+                 fork_tris=()),                  # raw fldMapNo gate -- the kit toggle prepend is the fork's copy
     2161: Hotfix(2161, "L. Castle/Guest Room (disc 3)", "load_time",
                  "At field load the engine deactivates one triangle (a disc-3 room-layout block). Unconditional.",
-                 "FieldMap.cs:119-122", toggles=((69, 0),), tris=(69,)),
+                 "FieldMap.cs:119-122", toggles=((69, 0),), tris=(69,), fork_tris=(69,)),
     2507: Hotfix(2507, "I. Castle/Stairwell (ladders + stairs)", "load_time",
                  "0.5s AFTER load the engine deactivates four stairwell triangles AND drops every non-player NPC's "
                  "walkmesh collision (DelayedActiveTri). ENGINE-REMAPPED: the s29 fork-donor patch wraps this gate "
@@ -93,26 +101,27 @@ _HOTFIXES = {
                  "FIRST, then removes the tris. An at-load prepend removes them BEFORE the chests place, snapping "
                  "the chests a floor down (★ caught in-game 2026-06-23). So reproduce via the engine remap only.",
                  "FieldMap.cs:139-148", toggles=((174, 0), (175, 0), (177, 0), (178, 0)),
-                 tris=(174, 175, 177, 178), engine_remapped=True),
+                 tris=(174, 175, 177, 178), engine_remapped=True,
+                 fork_tris=(174, 175, 177, 178)),
 
     # --- EVENT-CODE one-shot (locatable trigger; reproducible-but-bespoke; NOT auto-applied) ----------------
     450: Hotfix(450, "Dali/Field (Grandma's initial position)", "event_code",
                 "When Grandma (sid 3) is created at (363, 88) the engine deactivates one triangle. Reproducible "
                 "by splicing EnablePathTriangle(24,0) after that CreateObject in the fork's .eb (bespoke; not "
                 "auto-applied -- a synth fork's spawn/positions may differ).",
-                "DoEventCode.cs:291-292", tris=(24,)),
+                "DoEventCode.cs:291-292", tris=(24,), fork_tris=(24,)),
 
     # --- OPCODE-AUGMENT (the BGIACTIVE 0x9A handler itself has mapNo special-cases) ------------------------
     1753: Hotfix(1753, "(EnablePathTriangle augment)", "opcode_augment",
                  "When the field's own .eb runs EnablePathTriangle(207, x), the engine ALSO toggles triangle "
                  "208 to the same state. A fork keeps the donor's EnablePathTriangle(207,x) but loses the paired "
                  "208 toggle. Reproducible by emitting a paired EnablePathTriangle(208, x) beside it.",
-                 "DoEventCode.cs:2566-2567", tris=(207, 208)),
+                 "DoEventCode.cs:2566-2567", tris=(207, 208), fork_tris=(207, 208)),
     1606: Hotfix(1606, "(EnablePathTriangle augment)", "opcode_augment",
                  "When the field's own .eb runs EnablePathTriangle(107, x), the engine FORCES x = 1 (always "
                  "activate). A fork's EnablePathTriangle(107, 0) would deactivate instead. Reproducible by "
                  "rewriting that toggle's state operand to 1 in the fork's .eb.",
-                 "DoEventCode.cs:2568-2569", tris=(107,)),
+                 "DoEventCode.cs:2568-2569", tris=(107,), fork_tris=(107,)),
 
     # --- DYNAMIC (toggle tracks runtime story/position state; NOT statically reproducible) -----------------
     2803: Hotfix(2803, "Daguerreo/2nd Floor (LibrarianB book quest)", "dynamic",
@@ -121,24 +130,26 @@ _HOTFIXES = {
                  "static prepend can't track the story var. The interaction also depends on Main_Init shared "
                  "helpers (the #14-infeasible quest logic) -- fork in-place on 2803, or accept the book-quest "
                  "geometry is at scenario-zero.",
-                 "DoEventCode.cs:158-162 + turnOffTriManually.cs:39-44", tris=(105, 106)),
+                 "DoEventCode.cs:158-162 + turnOffTriManually.cs:39-44", tris=(105, 106),
+                 fork_tris=(105, 106)),          # the REQSW arm (effMapNo); turnOffTriManually stays raw
     900: Hotfix(900, "Treno/Pub (Steiner_11)", "dynamic",
                 "Triangle 62 is activated when RunScriptAsync(uid 14, level 2, tag 11) fires, and 56/62 are "
                 "deactivated by turnOffTriManually on later beats. Tracks runtime script/manual-var state -> "
                 "not a static toggle; fork in-place for faithful pub geometry.",
-                "DoEventCode.cs:149-150 + turnOffTriManually.cs:14-31", tris=(56, 62)),
+                "DoEventCode.cs:149-150 + turnOffTriManually.cs:14-31", tris=(56, 62),
+                fork_tris=(62,)),                # the REQSWA arm (effMapNo); 56 is turnOffTriManually-only (raw)
     1421: Hotfix(1421, "Fossil Roo/Mining Site (Lindblum_Worker)", "dynamic",
                  "Triangles 109/110 toggle on/off as the worker (sid 5) moves between positions (a moving "
                  "block). Position-driven during play -> not a static toggle.",
-                 "DoEventCode.cs:296-309", tris=(109, 110)),
+                 "DoEventCode.cs:296-309", tris=(109, 110), fork_tris=(109, 110)),
     1900: Hotfix(1900, "(turnOffTriManually, sid 4)", "dynamic",
                  "Triangle 56 is deactivated by turnOffTriManually when an object with sid 4 triggers it. "
                  "Object-driven -> not a static load-time toggle.",
-                 "turnOffTriManually.cs:8-12", tris=(56,)),
+                 "turnOffTriManually.cs:8-12", tris=(56,), fork_tris=()),
     1455: Hotfix(1455, "(turnOffTriManually, sid 5)", "dynamic",
                  "Triangle 16 is deactivated by turnOffTriManually when an object with sid 5 triggers it. "
                  "Object-driven -> not a static load-time toggle.",
-                 "turnOffTriManually.cs:32-36", tris=(16,)),
+                 "turnOffTriManually.cs:32-36", tris=(16,), fork_tris=()),
 }
 
 
