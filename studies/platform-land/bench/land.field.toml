@@ -1,0 +1,41 @@
+# =====================================================================================
+# [[platform]] LAND RIDE -- the byte-offset Map Int16 bench  --  field 30960
+# =====================================================================================
+# The land ride captures the boarding x, z and selfY into MAP Int16 scratch and interpolates the
+# player from there to `land`, parameterised by height. A Map var index is a BYTE OFFSET into
+# EventContext.mapvar (Byte[80]); the ride's old slots 3/4/5/6 overlapped, so the captured x read back
+# corrupt and the ride threw the player sideways. This bench boards on the ground and lands on a deck
+# 200 up, across a gap with no walkmesh, so the ride is the only way over and the whole trajectory is
+# visible to the harness (speed 5 = 40 ride frames).
+#
+#   py tools/deploy_field.py studies/platform-land/bench/land.field.toml --id 30960 --name PLTLAND --text-block 30960
+#   py tools/play.py studies/platform-land/rung0_land.py --label platform-land
+
+[field]
+id = 30960
+name = "PLTLAND"
+area = 11
+title = "Platform land"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "land.walkmesh.obj"
+
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-900, -450]
+
+[[platform]]
+zone = [[-700, -300], [-400, -300], [-400, -600], [-700, -600]]   # board: press Confirm on the ground
+land = [700, -1200, 200]                                          # the deck, 1250 east / 750 south / 200 up
+speed = 5
