@@ -423,6 +423,63 @@ def test_a_freshly_built_campaign_verifies_clean(tmp_path):
     assert rep.clean, rep.render()
 
 
+def _sidecars(plan, root, *names):
+    for m in plan.members:
+        for n in names:
+            (root / m.name / n).write_bytes(b"SE")
+
+
+def test_missing_assets_requires_the_mapconfig_a_member_toml_declares(tmp_path):
+    # Both fork writers emit `[field] mapconfig = "mapconfig.bytes"`, and validate() refuses a build whose
+    # MCF is absent -- so a member whose art is present but whose MCF is not must be reported, or
+    # fetch_assets (which skips a member whose required set is complete) never restores it. A member forked
+    # before the writer emitted the key reads no MCF and must NOT be asked for one.
+    plan = _lint_plan(tmp_path, member_content={"A": 'mapconfig = "mapconfig.bytes"\n'})
+    _sidecars(plan, tmp_path, "camera.bgx", "walkmesh.bgi")
+    assert campaign.missing_assets(plan, tmp_path) == {"A": ["mapconfig.bytes"]}
+    (tmp_path / "A" / "mapconfig.bytes").write_bytes(b"MCF")
+    assert campaign.missing_assets(plan, tmp_path) == {}
+
+
+def test_missing_assets_mapconfig_on_native_and_verbatim_members(tmp_path):
+    members = [campaign.Member(300, 6000, "A", "native", 1, "", "A/A.field.toml", False)]
+    plan = _lint_plan(tmp_path, members=members, member_content={"A": 'mapconfig = "mapconfig.bytes"\n'})
+    _sidecars(plan, tmp_path, "camera.bgx", "walkmesh.bgi", "scene.bgs.bytes", "atlas.png")
+    assert campaign.missing_assets(plan, tmp_path) == {"A": ["mapconfig.bytes"]}
+    plan.verbatim = True
+    assert campaign.missing_assets(plan, tmp_path) == {"A": ["A.verbatim_eb.bin", "mapconfig.bytes"]}
+
+
+@pytest.mark.parametrize("value", ['"../elsewhere.bytes"', '"C:/abs.bytes"', "true", '""'])
+def test_missing_assets_ignores_a_mapconfig_value_no_member_file_can_satisfy(tmp_path, value):
+    # a path out of the member folder is the build's own refusal (FieldProject.path), not a sidecar
+    plan = _lint_plan(tmp_path, member_content={"A": f"mapconfig = {value}\n"})
+    _sidecars(plan, tmp_path, "camera.bgx", "walkmesh.bgi")
+    assert campaign.missing_assets(plan, tmp_path) == {}
+
+
+def test_fetch_assets_restores_a_member_missing_only_its_mapconfig(tmp_path, monkeypatch):
+    plan =_lint_plan(tmp_path, member_content={"A": 'mapconfig = "mapconfig.bytes"\n'})
+    _sidecars(plan, tmp_path, "camera.bgx", "walkmesh.bgi")
+    authored = (tmp_path / "A" / "A.field.toml").read_bytes()
+    calls = []
+
+    def _writer(donor, out_dir, *, name, **kw):                   # stands in for the BG-borrow fork writer
+        calls.append(name)
+        for n, b in (("camera.bgx", b"NEW"), ("walkmesh.bgi", b"NEW"), ("mapconfig.bytes", b"MCF")):
+            (Path(out_dir) / n).write_bytes(b)
+        (Path(out_dir) / f"{name}.field.toml").write_text("[field]\n", encoding="utf-8")
+        return {}, Path(out_dir) / f"{name}.field.toml"
+
+    monkeypatch.setattr(extract, "write_field_project", _writer)
+    written = campaign.fetch_assets(plan, tmp_path)
+    assert calls == ["A"] and written == {"A": ["mapconfig.bytes"]}     # B declares no MCF: left alone
+    assert (tmp_path / "A" / "mapconfig.bytes").read_bytes() == b"MCF"
+    assert (tmp_path / "A" / "camera.bgx").read_bytes() == b"SE"          # present sidecars untouched
+    assert (tmp_path / "A" / "A.field.toml").read_bytes() == authored     # the authored toml too
+    assert campaign.missing_assets(plan, tmp_path) == {}
+
+
 def test_lint_refuses_a_flag_width_below_one(tmp_path):
     """★ At flags_per_field = 0 the window [base+i*K, base+i*K+K-1] degenerates to hi = lo-1: an EMPTY range
     that satisfies every band check while EVERY member sits on the SAME base -- member 2's cutscene
