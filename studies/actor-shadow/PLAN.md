@@ -252,8 +252,10 @@ repo's `.harness-runs/`: `20260923-112310-shadow-rung1-on`, `-112430-shadow-rung
   checkerboard benches and on the 1607 fork (EMPTY included), with and without shadows or an MCF.
 - A plain `import` (BG-borrow) carries objects too and ships no MCF: the same gap. Its walkmesh is the borrowed
   donor's, so the lights would key exactly.
-- `walkmesh.links.toml` seams are keyed on donor floor numbers too (`apply_seams` looks up `(floor, edge)` on the
-  rebuilt mesh), so a renumbering reshape drops them (2 of 14 on the 1607 swap). `obj_built_floor_donors` gives
-  the map that would fix it.
+- CLOSED: `walkmesh.links.toml` seams were keyed on donor floor numbers too, so a renumbering reshape dropped
+  them (2 of 14 on the 1607 swap). The build now re-keys them through the same map as the lights
+  (`build._donor_floor_map` -> `apply_seams(seams, floor_map)`). `census_seam_rekey.py` checked all 674 field
+  walkmeshes: the unedited round-trip is the identity on every one. With the floors reversed, the re-keyed build
+  keeps every one of the 5,983 seams, where the old reconcile dropped 3,756 in 353 walkmeshes. In-game check pending.
 - `deploy_field.py` prints "TEXT OVERWRITES VANILLA" for a fork on its donor's real block even when the build
   ships no `.mes` (an editable fork without text carry). That fork only reads the block.
