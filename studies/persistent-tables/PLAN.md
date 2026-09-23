@@ -106,6 +106,16 @@ Artifacts: `.harness-runs/20260922-20*-rung1-*`. The benches stay deployed at 30
 with `tools/scroll_out/revert_deploy_<id>.py`). Re-running from WRITE needs `pwrite.field.toml` (v1)
 redeployed first — the header check fails loudly otherwise.
 
+### The review round
+
+A 31-agent adversarial review of the feature commit (five lenses, two skeptics per finding) confirmed five
+defects, all fixed in `fix(behavior): the persistent-tables review round`: persistent-id agreement was linted
+inside one campaign only, though a journey's campaigns share one save (now `journey.lint_manifest` (g3));
+the campaign lint crashed on a malformed member table; the BEHAVIOR.md example could not build (now a test
+builds it); two fences were unpinned by tests. The bytecode lens found nothing. The branch's pre-merge
+full-suite run also caught an unrelated red on master (the `[[ladder]]` key allow-list refusing 14 keys
+the build honours), fixed alongside.
+
 ## Next — what this unlocks
 
 The board's ledger family now stands on a proven substrate: the continuity ledger, the fight-writes-the-
