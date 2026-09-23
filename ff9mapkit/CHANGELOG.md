@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — marker renames no longer write world text block 68 with CRLF line endings
+- **The deployed overworld `68.mes` is LF-only again, like stock.** `navimap.deploy_marker_renames` wrote it
+  with a bare text-mode `write_text`, so on Windows every LF became CRLF. That put a `\r` into every world message
+  in all 7 languages (item-get lines, Moguo, Zorn/Thorn, the navigation menus), not only the renamed marker label.
+  The write now goes through `fsutil.atomic_write_text(..., newline="\n")`.
+- Both callers are covered: `world-rename-markers` and the `world-entrance` nameplate surgery, which registers
+  its custom name through the same function.
+- **A CRLF override already on disk heals on the next rename deploy.** The merge branch re-reads the deployed file
+  in universal-newline mode and writes it back LF-only, keeping earlier renames. `tests/test_navimap_rename.py`
+  checks the written bytes (a text read would hide the `\r`), on a fresh deploy and on a seeded CRLF override.
+
 ### Fixed — a reshaped multi-floor walkmesh keeps its cross-floor seams
 - **Deleting or reordering an `o floor_<N>` block no longer strands floors.** The `walkmesh.links.toml` sidecar
   numbers its seams by the donor's floors, and `bgi.build` renumbers `.obj` floors in first-seen order, so a
