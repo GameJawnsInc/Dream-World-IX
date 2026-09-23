@@ -197,6 +197,15 @@ def read_expr(raw: bytes, pos: int) -> tuple[str, int]:
     return "{" + " ".join(ops) + "}", pos
 
 
+def const4_engine_value(u32: int) -> int:
+    """What the engine reads from a B_CONST4's 4 bytes: the low 26 bits, sign-extended (EBin.cs B_CONST4 masks
+    ``& 0x3FFFFFF``, getv reads ``(t0 << 6) >> 6``). The 4 bytes are the ordinary spelling of that value iff
+    ``const4_engine_value(u) & 0xFFFFFFFF == u``; stock also ships two literals that are NOT (0x80000000, which
+    reads 0, and 0x02000000, which reads -2^25), so the two can differ."""
+    w = u32 & 0x3FFFFFF
+    return w - (1 << 26) if w & (1 << 25) else w
+
+
 def pretty_expr(raw: bytes, pos: int) -> tuple[str, int]:
     """Decode an expression token stream to a HUMAN-READABLE form; returns (text, new_pos). Same byte-walk as
     :func:`read_expr` but names each operator via the ``op_binary`` table and decodes a variable token into its
@@ -219,8 +228,12 @@ def pretty_expr(raw: bytes, pos: int) -> tuple[str, int]:
                 break
             continue
         if o == 0x7E:                                       # B_CONST4 -- a 4-byte literal (distinct token so an
-            v = raw[pos] | (raw[pos + 1] << 8) | (raw[pos + 2] << 16) | (raw[pos + 3] << 24); pos += 4
-            out.append(f"const4({v})")                       # assemble() can round-trip it back to B_CONST4)
+            u = raw[pos] | (raw[pos + 1] << 8) | (raw[pos + 2] << 16) | (raw[pos + 3] << 24); pos += 4
+            v = const4_engine_value(u)                      # assemble() can round-trip it back to B_CONST4), printed
+            if v & 0xFFFFFFFF == u:                         # as the value the ENGINE reads -- or, for bytes that are
+                out.append(f"const4({v})")                  # not that value's sign-extended form (stock ships two),
+            else:                                           # as the raw bytes, so the text never claims a value
+                out.append(f"const4raw(0x{u:08X})")         # the engine does not read
         elif o == 0x7D:                                     # B_CONST -- a 2-byte literal
             v = raw[pos] | (raw[pos + 1] << 8); pos += 2
             out.append(f"const({v})")

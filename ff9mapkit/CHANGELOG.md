@@ -25,6 +25,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   streams, counters and HUDs never ran — and said nothing. On a verbatim fork any `[behavior]` block is refused
   by name (it was silently dropped when it had no unit).
 
+### Fixed — a `const4(N)` literal the engine would wrap is refused at build
+- **The expression assembler refuses a `const4(N)` outside -33554432..33554431.** The engine reads a
+  4-byte literal as 26-bit signed, so a wider one wrapped in-game with no error: `const4(40000000)` read
+  as -27108864. It was reachable from `[[behavior.hud]]` `expr:` values, `[[choice]]` values, journal rows
+  and hand-edited `eb-src`. The error names the value the engine would have read.
+- **The disassembler prints a const4 as the value the engine reads.** Negatives print signed
+  (`const4(-40000)`, not `const4(4294927296)`). Stock ships two 4-byte patterns that are not their value's
+  ordinary form: 0x80000000, which reads 0, and 0x02000000, which reads -33554432. These print as
+  `const4raw(0x80000000)`, which reassembles to the same bytes, so `eb-src --verify-all` stays 9753/9753.
+  A `.ebs` written by an earlier version spells negatives unsigned. That spelling is now refused, and the
+  error names the signed value to write.
+
 ### Fixed — the overflow docs, the wander simulator, the branch editor
 - **CalcStack overflow wraps mod 2^26** and stays an integer, measured in-game; the kit's comments and docs
   said it changed the value's class.
