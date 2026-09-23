@@ -25,7 +25,7 @@ Opcode `0x05` + a `0x7F`-terminated RPN stack; var token byte = `0xC0 | (type<<2
 
 ## Flag persistence: GLOB vs MAP
 
-A var's **source** decides persistence: **GLOB (src 0, `0xC4`) = save-backed `gEventGlobal`** (2048 bytes, persists across field reloads + saves) vs **MAP (src 1, `0xC5`) = per-field, WIPED on every field load.** HW naming is INVERTED. `EventContext.mapvar` is only 80 bytes → a high MAP index is out-of-bounds = hard crash. Use GLOB for chests / story flags / cutscene-once; safe band = bit >= 8712 (8512-8711 = stock read-mail payload; 8376-8511 = the Mognet lock band); indices > 0xFF need the long-index token encoding. A `once=true` event/cutscene won't replay for testing once its flag is set → use ~ → Flags → reset (or `once=false` / a fresh New Game). Detail → `references/flags.md`.
+A var's **source** decides persistence: **GLOB (src 0, `0xC4`) = save-backed `gEventGlobal`** (2048 bytes, persists across field reloads + saves) vs **MAP (src 1, `0xC5`) = per-field, WIPED on every field load.** HW naming is INVERTED. `EventContext.mapvar` is only 80 bytes → a high MAP index is out-of-bounds = hard crash. A MAP Int16 index is a **byte offset** (I16[k] = bytes k..k+1), so two live Int16s sit ≥2 apart. Kit Int16s: 0/2/4/6 Init position scratch, 2 ladder, 68 signal guard, 70-76 platform. `tests/test_mapvar_layout.py` checks the layout. Use GLOB for chests / story flags / cutscene-once; safe band = bit >= 8712 (8512-8711 = stock read-mail payload; 8376-8511 = the Mognet lock band); indices > 0xFF need the long-index token encoding. A `once=true` event/cutscene won't replay for testing once its flag is set → use ~ → Flags → reset (or `once=false` / a fresh New Game). Detail → `references/flags.md`.
 
 ## Regions & gateways
 

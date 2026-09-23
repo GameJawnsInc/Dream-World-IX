@@ -25,6 +25,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the floor under the stock-dark cactus reads 1.107 on/control and the holder's feet 1.19: the MCF blobs under
   the cactus and the held cup are gone. Every casting actor reads 1.000.
 
+### Fixed — a `[[platform]]` land ride no longer throws the player sideways
+- **A Map var index is a byte offset, not a slot number.** `EventContext.mapvar` is 80 bytes, and the engine reads
+  an Int16 at index k from bytes k and k+1. The ride kept its state in Int16s at 3, 4, 5 and 6, so they overlapped.
+  Capturing the boarding x, then z, then height left the stored x holding one byte of the height and one of z. The
+  ride starts from that x. Boarding at x = -540, the first ride frame put the player at x = 7203.
+- **The ride state now sits at bytes 70-77** (Int16s at 70, 72, 74 and 76). Those bytes are clear of the object-Init
+  position scratch (0-7), the ladder (2), every kit Map bit band, and nearly every stock script.
+- **The cutscene `wait_signal` guard moves from 3 to 68.** At 3 it shared a byte with the ladder's scratch at 2 and
+  with the Init scratch's y and z.
+- Proven in-game by the harness on bench 30960 (`studies/platform-land/`), an A/B on one scene. With the old layout,
+  the first ride frames match the offline model exactly (7203, 7036, 6869, …). With the fix, every sampled ride
+  frame is within 1 unit of the straight line from the boarding point to the landing (9/9 checks).
+  `tests/test_mapvar_layout.py` checks the declared constants, each emitter's bytes and a whole built field, and it
+  runs the ride on a byte-offset model of `mapvar`. With the old constants patched back in, 10 of its 16 tests fail.
+
 ### Fixed — an authored shadow `intensity` stops at 15, because the engine's blob colour wraps after it
 - **`shadow = { intensity = N }` now takes 0–15, not 0–31**, on `[player]`, `[[npc]]`, `[[prop]]`, `[[chest]]`
   and `[[savepoint]]`. The kit emits `SetShadowAmplifier(intensity << 3)`, and the op's one-byte argument encodes

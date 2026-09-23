@@ -51,6 +51,9 @@ GLOB_UINT16 = 0xDC    # Global + UInt16 -> save-backed 16-bit word. Read via the
 MAP_INT16 = 0xD9      # Map + Int16 -> transient SIGNED 16-bit (wiped per field load). The navigable
                       # ladder's per-frame climb-target scratch (field 706 uses MAP.I16[2]); re-derived
                       # from the player's height every frame so its transient value never matters.
+                      # The index is a BYTE OFFSET (I16[k] = bytes k..k+1), so two live Int16s must sit
+                      # >= 2 apart -- I16[3] and I16[4] share byte 4. tests/test_mapvar_layout.py.
+MAPVAR_BYTES = 80     # EventContext.mapvar = new Byte[80]: every Map var's bytes must land below this
 GLOB_INT16 = 0xD8     # Global + Int16. Idx 2 (D8:2) is the engine's ARRIVAL-ENTRANCE var: set it right
                       # before Field()/WorldMap() and the destination field's player-init switches on it.
 VAR_CLASSES = {"glob_bool": GLOB_BOOL, "map_bool": MAP_BOOL, "glob_uint8": GLOB_UINT8, "glob_byte": GLOB_BYTE}

@@ -1,0 +1,23 @@
+# The [[platform]] land-ride bench (30960): two floors that DO NOT touch. The west "ground" is at height 0;
+# the east "deck" is 200 up. A walkmesh vertex y is the engine's own frame, where up is NEGATIVE (the kit's
+# selfY = -worldY convention: `land = [x, z, 200]` rides to selfY -200), so the deck's verts sit at y = -200.
+# A 400-unit gap (x -200..200) with no triangles and no links: the ONLY way onto the deck is the ride.
+# Footprint matches the walkmesh-sensor bench (x -1220..1220, z -1931..257), so its camera frames it.
+v -1220 0 257
+v -200 0 257
+v -200 0 -837
+v -1220 0 -837
+v -200 0 -1931
+v -1220 0 -1931
+v 200 -200 257
+v 1220 -200 257
+v 1220 -200 -837
+v 200 -200 -837
+v 1220 -200 -1931
+v 200 -200 -1931
+o ground
+f 1 2 3 4
+f 4 3 5 6
+o deck
+f 7 8 9 10
+f 10 9 11 12
