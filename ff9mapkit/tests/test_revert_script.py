@@ -7,6 +7,7 @@ install). Self-contained; no template cache needed.
 from __future__ import annotations
 
 import ast
+import pathlib
 
 import pytest
 
@@ -126,6 +127,92 @@ def test_dictionary_revert_holds_the_sidecar_lock():
     # the mkdir must PRECEDE the lock: after a campaign wipe the mod folder may not exist, and the sidecar
     # lockfile needs the folder as much as the write does -- a crash here would hard-block every redeploy.
     assert src.index("mkdir(parents=True, exist_ok=True)") < src.index("with locked_sidecar(")
+
+
+@pytest.mark.parametrize("payload", PAYLOADS)
+@pytest.mark.parametrize("where", ["lang", "digest"])
+def test_hostile_mes_fresh_entry_is_data_not_code(where, payload):
+    """``mes_fresh`` (lang -> sha256 of a freshly written .mes) is data too: a hostile key or digest must
+    stay a string literal in the rendered dict -- same AST shape as a benign one-entry map."""
+    benign = build_revert_script(**BENIGN, mes_fresh={"us": "ab" * 32})
+    entry = {payload: "ab" * 32} if where == "lang" else {"us": payload}
+    src = build_revert_script(**BENIGN, mes_fresh=entry)
+    _compiles(src)
+    assert _node_count(src) == _node_count(benign)
+    assert payload in _string_constants(src)
+
+
+def _run_revert(tmp_path, *, text_block, backed=(), fresh=None):
+    """Render a field revert against a throwaway game root and RUN it the way the deploy prelude does (a
+    subprocess). ``FF9_GAME_PATH`` points at the tmp game, which exists, so ``find_game_path`` resolves to it
+    and never falls through to auto-detecting the real install. Returns (live layout, a zero-arg runner) so
+    the caller can stage the live .mes files first."""
+    import os, subprocess, sys
+    import ff9mapkit
+    from ff9mapkit.config import ModLayout
+    game, bk, stamp = tmp_path / "game", tmp_path / "bk", "20260923-120000"
+    game.mkdir(); bk.mkdir()
+    for L, data in backed:                            # the deploy's pre-existing-copy backups
+        (bk / f"{L}-{text_block}.mes.preDEPLOY.{stamp}").write_bytes(data)
+    src = build_revert_script(**{**BENIGN, "kit": pathlib.Path(ff9mapkit.__file__).resolve().parents[1],
+                                 "backup_dir": bk, "stamp": stamp, "mod_folder": "MF",
+                                 "text_block": text_block}, mes_fresh=fresh)
+    script = tmp_path / "revert_deploy_4003.py"
+    script.write_text(src, encoding="utf-8")
+    live = ModLayout(game / "MF")
+    return live, lambda: subprocess.run([sys.executable, str(script)], capture_output=True, text=True,
+                                        env={**os.environ, "FF9_GAME_PATH": str(game)})
+
+
+def _sha(b: bytes) -> str:
+    import hashlib
+    return hashlib.sha256(b).hexdigest()
+
+
+def test_revert_deletes_the_mes_it_wrote_fresh_and_nothing_else(tmp_path):
+    """The leak: a deploy that wrote ``field/<block>.mes`` where none stood took no backup, so the revert had
+    nothing to restore and LEFT the file. On a REAL block (1073 = Black Mage Village) that leftover is live
+    content -- FF9TextTool merges every folder's .mes over the base game per txid -- and since every redeploy
+    runs the prior revert as its prelude, it outlived even a redeploy that no longer ships the .mes.
+    Four languages, four outcomes, one run:
+      us -- written fresh, still our bytes           -> DELETED
+      uk -- written fresh, a later deploy rewrote it -> KEPT (theirs now), and said so
+      fr -- pre-existed, backed up                   -> RESTORED from the backup (unchanged path)
+      gr -- never touched by this deploy             -> LEFT ALONE"""
+    ours_us, ours_uk, theirs_uk = b"our us text", b"our uk text", b"a later deploy's uk text"
+    live, run = _run_revert(tmp_path, text_block=1073, backed=[("fr", b"prior fr text")],
+                            fresh={"us": _sha(ours_us), "uk": _sha(ours_uk)})
+    for L, data in (("us", ours_us), ("uk", theirs_uk), ("fr", b"this deploy's fr text"), ("gr", b"foreign gr")):
+        live.mes_path(L, 1073).parent.mkdir(parents=True, exist_ok=True)
+        live.mes_path(L, 1073).write_bytes(data)
+    rc = run()
+    assert rc.returncode == 0, rc.stderr
+    assert not live.mes_path("us", 1073).exists(), "the fresh .mes still holding our bytes must be deleted"
+    assert live.mes_path("uk", 1073).read_bytes() == theirs_uk, "a later deploy's text must survive"
+    assert "kept" in rc.stdout and str(live.mes_path("uk", 1073)) in rc.stdout, "a skipped delete is not silent"
+    assert live.mes_path("fr", 1073).read_bytes() == b"prior fr text", "a backed-up .mes is still restored"
+    assert live.mes_path("gr", 1073).read_bytes() == b"foreign gr", "a .mes this deploy never wrote is untouched"
+
+
+def test_revert_of_a_fresh_mes_tolerates_it_already_being_gone(tmp_path):
+    """The per-id and the generic ``revert_deploy.py`` are the same script, and a campaign install can wipe the
+    folder -- a fresh-listed .mes that is already absent is nothing to do, not a crash (a crash here fails the
+    prelude and hard-blocks every redeploy of the slot)."""
+    live, run = _run_revert(tmp_path, text_block=1073, fresh={"us": _sha(b"gone")})
+    rc = run()
+    assert rc.returncode == 0, rc.stderr
+    assert not live.mes_path("us", 1073).exists()
+
+
+def test_revert_without_mes_fresh_keeps_the_old_behavior(tmp_path):
+    """No ``mes_fresh`` (a deploy that wrote no fresh .mes, or an older caller) must delete nothing -- only
+    the backup restore runs."""
+    live, run = _run_revert(tmp_path, text_block=1073)
+    live.mes_path("us", 1073).parent.mkdir(parents=True, exist_ok=True)
+    live.mes_path("us", 1073).write_bytes(b"not ours to judge")
+    rc = run()
+    assert rc.returncode == 0, rc.stderr
+    assert live.mes_path("us", 1073).read_bytes() == b"not ours to judge"
 
 
 def test_int_fields_are_coerced():

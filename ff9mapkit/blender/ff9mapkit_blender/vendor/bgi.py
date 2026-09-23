@@ -27,6 +27,7 @@ File layout (little-endian; offsets in the header are relative to byte 4):
 
 from __future__ import annotations
 
+import re
 import struct
 from collections import deque
 from dataclasses import dataclass, field
@@ -488,11 +489,16 @@ class BgiWalkmesh:
                 seams.append((fa, a, fo.get(nb), b))
         return seams
 
-    def apply_seams(self, seams):
+    def apply_seams(self, seams, floor_map=None):
         """Link cross-floor neighbors by matching each seam's edge endpoints by WORLD POSITION (this
         mesh already has intra-floor links from `bgi.build`). Sets `nbr` + `edgeClone` on both sides,
         the same convention as `rebuild_neighbors`. Returns (linked, missing, misses) -- a miss means
-        a seam's connecting edge was moved/deleted in the edit. The v2 reconcile."""
+        a seam's connecting edge was moved/deleted in the edit. The v2 reconcile.
+
+        ``floor_map`` ({seam floor: this mesh's floor}) translates seams numbered by the DONOR's floors
+        onto a rebuild that renumbered them (:func:`obj_built_floor_donors`); a seam floor missing from
+        it has no floor here and misses. ``None`` = the seams already use this mesh's numbering. Misses
+        come back as passed in, in the seams' own numbering."""
         wv = self._wv()
         fo = self._tf()
         lut = {}
@@ -502,8 +508,9 @@ class BgiWalkmesh:
         linked = missing = 0
         misses = []
         for (fa, a_edge, fb, b_edge) in seams:
-            ta = lut.get((fa, a_edge))
-            tb = lut.get((fb, b_edge)) if b_edge else None
+            ka, kb = (fa, fb) if floor_map is None else (floor_map.get(fa), floor_map.get(fb))
+            ta = lut.get((ka, a_edge))
+            tb = lut.get((kb, b_edge)) if b_edge else None
             if ta and tb:
                 (ia, sa), (ib, sb) = ta, tb
                 self.tris[ia].nbr[sa] = ib
@@ -1076,6 +1083,30 @@ def load_obj_floors(path):
     """
     verts, faces, floor_ids, _names = _parse_obj(path)
     return verts, faces, floor_ids
+
+
+_DONOR_FLOOR_NAME = re.compile(r"floor_(\d+)$")
+
+
+def obj_built_floor_donors(path) -> list:
+    """Per BUILT floor index (what :func:`build` makes of :func:`load_obj_floors` -- distinct ids in
+    first-seen FACE order, renumbered 0..N-1), the DONOR floor that floor came from, or None when its name
+    says nothing. Both exporters name a floor ``o floor_<donor index>`` (extract's re-export of an imported
+    real field, the Blender add-on's ``mesh_to_ff9_obj``), so the name survives a reshape even when the
+    rebuild renumbers: delete ``floor_1`` of three and ``floor_2`` becomes built floor 1. A single unnamed
+    floor (the flat re-export writes no ``o`` line) is the donor's floor 0. Anything else -- a floor the
+    author added or renamed -- is None. The same numbering as :func:`obj_floor_names`."""
+    _v, _f, floor_ids, names = _parse_obj(path)
+    order = []
+    for fid in floor_ids:
+        if fid not in order:
+            order.append(fid)
+    out = []
+    for fid in order:
+        name = names.get(fid)
+        m = _DONOR_FLOOR_NAME.match(name) if name else None
+        out.append(int(m.group(1)) if m else (0 if name is None and len(order) == 1 else None))
+    return out
 
 
 def obj_floor_names(path) -> list:

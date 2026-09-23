@@ -1000,7 +1000,13 @@ def gate_until_revealed(body: bytes, index: int = 0) -> bytes:
                             opcodes.RETURN) + bytes(body)
 
 
-def build_cask_init(x: int, z: int, *, face: int = 0) -> bytes:
+def cask_model() -> int:
+    """The barrel_pop container's model id -- the kit's ``"cask"`` prop archetype (``GEO_ACC_F0_CSK``, 241)."""
+    from .. import prop_archetypes as _prop_archetypes
+    return _prop_archetypes.resolve("cask")[0]
+
+
+def build_cask_init(x: int, z: int, *, face: int = 0, shadow: bytes = b"") -> bytes:
     """The cask/barrel's Init (tag 0): ``SetModel(241, 93) -> SetStandAnimation(1904) ->
     SetObjectLogicalSize(1, 50, 50) -> SetObjectFlags(37)`` (the task brief's opcode order), with the same
     D9-const + CreateObject + TurnInstant placement boilerplate every from-scratch object Init in this kit
@@ -1008,7 +1014,10 @@ def build_cask_init(x: int, z: int, *, face: int = 0) -> bytes:
     + pose resolve through the kit's own prop-archetype catalog (``"cask"`` / its ``"barrel"``/``"crate"``
     aliases -> ``GEO_ACC_F0_CSK``, model id **241**, pose **1904** -- verified to match the task brief's
     cited bytes exactly), and the accessory animset **93** is the SAME value the ACT's own book/feather
-    props use (:data:`ACT_PROP_ANIMSET`) -- both are ACC props off the ``NPC_PARAMS`` catalog."""
+    props use (:data:`ACT_PROP_ANIMSET`) -- both are ACC props off the ``NPC_PARAMS`` catalog.
+
+    ``shadow`` (:func:`ff9mapkit.content.shadow.init_ops`) goes last, straight into the RETURN (the object
+    Init tail, field 576); ``b""`` (the default) keeps the Init byte-identical."""
     from . import npc as _npc
     from .. import prop_archetypes as _prop_archetypes
     model, pose = _prop_archetypes.resolve("cask")            # (241, 1904) -- GEO_ACC_F0_CSK
@@ -1017,6 +1026,7 @@ def build_cask_init(x: int, z: int, *, face: int = 0) -> bytes:
             opcodes.set_stand_animation(pose),
             opcodes.encode(0x4B, *CASK_LOGICAL_SIZE),
             opcodes.encode(0x93, CASK_FLAGS),
+            bytes(shadow),
             opcodes.RETURN]
     return b"".join(parts)
 
@@ -1101,15 +1111,22 @@ def reveal_menu_cycle(menu_body: bytes, *, index: int = 0) -> bytes:
 
 
 def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None, index: int = 0,
-                reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0):
+                reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
+                shadow=None):
     """Inject the barrel_pop container: a type-2 object, Init (tag 0, :func:`build_cask_init`) + a tag-3
     press handler (:func:`cask_trigger_body`) -- the kit's own "approach + press, one-shot" idiom standing
     in for the donor's tag-2-range + manual-B_KEYON shape (see :func:`content.chest`'s own fidelity note
     for why: the auto-dispatched talk tag is functionally identical and needs no hand-rolled key poll).
-    Returns ``(new_bytes, slot)``."""
+    ``shadow`` is the cask's stock blob shadow (:mod:`ff9mapkit.content.shadow`) as a RESOLVED value -- the
+    build passes the ``[[prop]]`` rule's verdict for the cask model (it casts: 19 of 19 stock casks keep
+    theirs), or false; ``None`` (the default) emits nothing. Returns ``(new_bytes, slot)``."""
     from . import npc as _npc
     from . import object as _object
-    init = build_cask_init(int(x), int(z), face=int(face))
+    shadow_ops = b""
+    if shadow is not None:
+        from . import shadow as _shadow
+        shadow_ops = _shadow.init_ops(cask_model(), shadow)
+    init = build_cask_init(int(x), int(z), face=int(face), shadow=shadow_ops)
     press = cask_trigger_body(index)
     if len(press) < 9:                       # IsActuallyTalkable polls tag3[ip+7/8]; keep it >= 9 bytes
         press += b"\x00" * (9 - len(press))
@@ -1122,7 +1139,7 @@ def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None,
 
 def inject_barrel_pop_reveal(data, *, container_pos, height: int = REVEAL_CONTAINER_HEIGHT,
                              steps=None, sfx=None, container: bool = True,
-                             player_uid: int = PLAYER_UID, index: int = 0):
+                             player_uid: int = PLAYER_UID, index: int = 0, shadow=None):
     """Wire the barrel_pop reveal for ONE save point. When ``container`` (default True), injects the cask
     at ``container_pos`` FIRST -- so it consumes its entry slot before any later ``first_free_slot()``
     prediction (e.g. the ACT's :func:`inject_act_cluster`) runs on this same ``data``, avoiding a slot
@@ -1135,11 +1152,12 @@ def inject_barrel_pop_reveal(data, *, container_pos, height: int = REVEAL_CONTAI
     ``inject_npc(intro=)`` splice runs once, which could pop the moogle out but never stow it again).
 
     ``container=False`` skips the cask; the field author then wires their own trigger to
-    :func:`cask_trigger_body` (docs/SAVEPOINT.md)."""
+    :func:`cask_trigger_body` (docs/SAVEPOINT.md). ``shadow`` goes to :func:`inject_cask` (the cask's own
+    blob shadow, a resolved value; ``None`` = no ops -- the moogle's is the build's ``inject_npc(shadow=)``)."""
     out = data
     cx, cz = (tuple(int(v) for v in container_pos) + (0, 0))[:2]
     if container:
-        out, _ = inject_cask(out, cx, cz, index=index)
+        out, _ = inject_cask(out, cx, cz, index=index, shadow=shadow)
     # The moogle spawns STOWED: hidden, at the container's own spot, collision shrunk away -- so it is
     # neither visible nor walkable-into before the pop. (The earlier build spawned it hidden but at full
     # size, leaving an invisible obstacle in front of the cask.)

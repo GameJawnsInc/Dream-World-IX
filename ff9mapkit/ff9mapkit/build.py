@@ -57,6 +57,7 @@ from .content import reinit as _reinit
 from .content import entry_settle as _entry_settle
 from .content import walkmesh_hotfix as _walkmesh_hotfix
 from .content import savepoint as _savepoint
+from .content import shadow as _shadow
 from .content import shop as _shop
 from .content import summon as _summon
 from .content import synthesis as _synthesis
@@ -75,6 +76,7 @@ from . import items as _items
 from . import itemstats as _itemstats
 from .content import itemdata as _itemdata
 from . import data as _data
+from . import mapconfig as _mapconfig
 from .eb import EbScript, opcodes
 from .eb import disasm as _disasm
 from .eb.disasm import iter_code
@@ -1412,16 +1414,17 @@ def validate(project: FieldProject) -> list[str]:
             problems.append('[field] a native scene needs an atlas too -- add  atlas = "atlas.png"')
         elif not project.path(atl).is_file():
             problems.append(f"[field] atlas not found: {atl}")
-        mc = project.field.get("mapconfig")          # OPTIONAL: the field's 3D-model lighting config
-        if mc and not project.path(mc).is_file():
-            problems.append(f"[field] mapconfig (lighting) not found: {mc}")
         if not (wm.get("bgi") or wm.get("obj")):
             problems.append("[field] a native scene needs a [walkmesh] (bgi or obj)")
+    mc = project.field.get("mapconfig")              # OPTIONAL, any scene: the donor's 3D-model lighting config
+    if mc and not project.path(mc).is_file():
+        problems.append(f"[field] mapconfig (lighting) not found: {mc}")
     for layer in project.raw.get("layers", []):
         if "image" not in layer:
             problems.append("[[layers]] entry missing 'image'")
         elif not project.path(layer["image"]).is_file():
             problems.append(f"[[layers]] image not found: {layer['image']}")
+    problems += _shadow.problems((project.raw.get("player") or {}).get("shadow"), "[player]")
     for i, n in enumerate(project.raw.get("npc", [])):
         if "pos" not in n:
             problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} has no position -- set "
@@ -1442,6 +1445,7 @@ def validate(project: FieldProject) -> list[str]:
         if fc is not None and not (isinstance(fc, int) and not isinstance(fc, bool) and 0 <= fc <= 255):
             problems.append(f"{label} face {fc!r} must be a raw facing byte 0..255 "
                             f"(0=south 64=west 128=north 192=east)")
+        problems += _shadow.problems(n.get("shadow"), label)
         _validate_gate_exclusive(n, label, problems)
         try:                                              # rotating-cast beat window (min inclusive, max exclusive)
             smin, smax = _scenario_window_of(n)
@@ -1599,6 +1603,7 @@ def validate(project: FieldProject) -> list[str]:
     from .content import chest as _chest
     for k, ch in enumerate(project.raw.get("chest", [])):
         _validate_gate_exclusive(ch, f"[[chest]] #{k}", problems)
+        problems += _shadow.problems(ch.get("shadow"), f"[[chest]] #{k}")
         if len(ch.get("pos", []) or []) < 2:
             problems.append(f"[[chest]] #{k} needs a pos = [x, z] (where the chest sits)")
         if ("item" in ch) == ("gil" in ch):
@@ -1642,7 +1647,14 @@ def validate(project: FieldProject) -> list[str]:
                 f"{_flags.CHOICE_SCRATCH_FLOOR}) -- pick an index there (or a named [[flag]]) so it can't "
                 f"collide with FF9's Mognet locks ([{_flags.MOGNET_LOCK_LO}, {_flags.MOGNET_LOCK_HI}]) or other state.")
     for k, p in enumerate(project.raw.get("prop", [])):
-        _validate_gate_exclusive(p, f"[[prop]] {p.get('prop', p.get('name', '#' + str(k)))!r}", problems)
+        _plabel = f"[[prop]] {p.get('prop', p.get('name', '#' + str(k)))!r}"
+        _validate_gate_exclusive(p, _plabel, problems)
+        problems += _shadow.problems(p.get("shadow"), _plabel)
+        if p.get("attach_to") is not None and p.get("shadow") not in (None, False):
+            # a HELD item never casts (content.shadow): stock disables 139 of its 140 held objects, and the
+            # engine takes an attached object's quad height from its bone-local offset (GetShadowCurrentPos)
+            problems.append(f"{_plabel} shadow: a held prop (attach_to) casts no shadow -- stock disables it "
+                            f"on its held items, and the engine mis-places a held item's blob; drop the key")
     for k, co in enumerate(project.raw.get("coop", [])):
         _validate_gate_exclusive(co, f"[[coop]] gate {co.get('name', '#' + str(k))!r}", problems)
         _co_bit = _bit_of(co.get("set_flag")) if isinstance(co, dict) else None
@@ -1925,6 +1937,7 @@ def validate(project: FieldProject) -> list[str]:
                         f"field (each cask/moogle pair needs its own transient MAP state byte + reopen "
                         f"flag, or they cross-talk) -- split them across fields")
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
+        problems += _shadow.problems(sp.get("shadow"), "[[savepoint]]")
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
             problems.append(f"[[savepoint]] zone must have 4 or 5 points (the press area), got {_zone_desc(z)}")
@@ -1939,7 +1952,7 @@ def validate(project: FieldProject) -> list[str]:
                     "save_row", "cancel_row", "yes_row", "no_row", "speaker", "tail", "mognet",
                     "tent", "tent_row", "tent_prompt", "tent_yes", "tent_no", "no_tent",
                     "shop", "shop_row", "party", "party_row", "party_min", "party_locked",
-                    "act", "act_text", "act_hop_to", "menu_pos", *_reveal_keys}
+                    "act", "act_text", "act_hop_to", "menu_pos", "shadow", *_reveal_keys}
         for k in sorted(set(sp) - _sp_keys):
             problems.append(f"[[savepoint]] unknown key {k!r} -- expected one of {', '.join(sorted(_sp_keys))}")
         for k in ("moogle", "bubble", "dialogue", "latch", "tent", "party", "act"):
@@ -4464,10 +4477,25 @@ def _read_links(links_path):
     return seams, d.get("header", {})
 
 
-def _apply_links(mesh, links_path, warnings):
-    """Reconcile cross-floor seams (+ restore header) onto a freshly (re)built multi-floor walkmesh."""
+def _donor_floor_map(obj_path):
+    """``{donor floor: built floor}`` for a reshaped ``walkmesh.obj`` whose rebuild RENUMBERED the donor's
+    floors, or None when it kept every index. ``bgi.build`` numbers floors in first-seen face order, so
+    deleting or reordering an ``o floor_N`` block shifts the floors after it; the ``floor_<donor index>``
+    names both exporters write (:func:`bgi.obj_built_floor_donors`) are what survives. Anything keyed by a
+    donor floor -- the MCF's per-floor lights, the links sidecar's seams -- is re-keyed through this. The
+    unedited round-trip is the identity (None) on every shipping field walkmesh (census: 674 of 674)."""
+    donors = bgi.obj_built_floor_donors(str(obj_path))
+    if all(d == i for i, d in enumerate(donors)):
+        return None
+    return {d: i for i, d in enumerate(donors) if d is not None}
+
+
+def _apply_links(mesh, links_path, warnings, floor_map=None):
+    """Reconcile cross-floor seams (+ restore header) onto a freshly (re)built multi-floor walkmesh.
+    The sidecar numbers its seams by the DONOR's floors; ``floor_map`` (:func:`_donor_floor_map`)
+    translates them onto a rebuild that renumbered those floors."""
     seams, header = _read_links(links_path)
-    linked, missing, misses = mesh.apply_seams(seams)
+    linked, missing, misses = mesh.apply_seams(seams, floor_map)
     if "active_floor" in header:
         mesh.activeFloor = int(header["active_floor"])
     if "active_tri" in header:
@@ -4481,10 +4509,14 @@ def _apply_links(mesh, links_path, warnings):
         mesh.charPos = bgi.Vec3(int(cp[0]), int(cp[1]), int(cp[2]))
     if missing and warnings is not None:
         fa, a_edge, fb, _ = misses[0]
+        known = set(floor_map) if floor_map is not None else set(range(len(mesh.floors)))
+        gone = sorted({f for (a, _e, b, _b) in misses for f in (a, b)} - known)   # its whole floor left the .obj
         warnings.append(
             f"walkmesh: {missing} of {linked + missing} cross-floor seam(s) couldn't be matched "
             f"(a connecting edge was moved/deleted, e.g. floor {fa}<->{fb} near {a_edge[0]}). "
-            f"Re-anchor it in the .obj or restore [walkmesh] bgi (docs/WALKMESH_EDITING.md).")
+            + (f"No `o floor_<N>` in the .obj names donor floor(s) {gone} any more -- deleted or renamed. "
+               if gone else "")
+            + "Re-anchor it in the .obj or restore [walkmesh] bgi (docs/WALKMESH_EDITING.md).")
 
 
 def _png_size(path):
@@ -5215,11 +5247,12 @@ def resolve_walkmesh(project: FieldProject, camera: cam.Cam, warnings=None) -> b
         if mesh.regrouped and warnings is not None:
             warnings.append(_reopened_floors_note(wm["obj"], obj_path, mesh))
         if wm.get("links"):
-            # reconcile the imported field's cross-floor connectivity onto the edited geometry.
-            # rebuild_neighbors links ANY edge whose two triangles share both vertex INDICES, on any
-            # floor -- but stock floors use DISJOINT per-floor vertex sets, so their seams have no
-            # shared indices and only this sidecar re-links them. v2 -- see docs/WALKMESH_EDITING.md.
-            _apply_links(mesh, project.path(wm["links"]), warnings)
+            # reconcile the imported field's cross-floor connectivity onto the edited geometry, its seams
+            # re-keyed through any floor renumbering the reshape caused. rebuild_neighbors links ANY edge whose
+            # two triangles share both vertex INDICES, on any floor -- but stock floors use DISJOINT per-floor
+            # vertex sets, so their seams have no shared indices and only this sidecar re-links them.
+            # v2 -- see docs/WALKMESH_EDITING.md.
+            _apply_links(mesh, project.path(wm["links"]), warnings, _donor_floor_map(obj_path))
         return mesh.to_bytes()
     if wm.get("quad"):
         corners = [(c[0], 0, c[1]) if len(c) == 2 else tuple(c) for c in wm["quad"]]
@@ -6382,7 +6415,7 @@ def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dic
 
 
 def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
-                   reserve_party_band: bool, warnings=None) -> bytes:
+                   reserve_party_band: bool, warnings=None, shadows: bool = False) -> bytes:
     """Inject each authored ``[[chest]]`` (a real openable, savable treasure chest) into the field's ``.eb``.
     Each chest is ONE object whose Init pose is gated on a save-persistent opened-flag (the chest stays open
     across saves) and whose press handler animates the lid, gives the item/gil, shows the Received box, and
@@ -6394,7 +6427,10 @@ def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
     Shared by BOTH paths: ``reserve_party_band=True`` seats each chest BELOW the donor's reserved party-
     character band (the verbatim fork); ``False`` appends it (the synthesize path, which has no such band).
     ``validate()`` guarantees ``pos`` + exactly-one-payload up front, so the defensive guards here only fire
-    on a programmatic caller; ``warnings`` (optional) collects a skipped pos-less chest. Returns new bytes."""
+    on a programmatic caller; ``warnings`` (optional) collects a skipped pos-less chest. ``shadows`` casts
+    each chest's stock blob shadow (``[[chest]] shadow``, :mod:`ff9mapkit.content.shadow`) -- the synthesize
+    path passes :func:`_casts_stock_shadows`; the verbatim path leaves it off, byte-identical. Returns new
+    bytes."""
     chests = project.raw.get("chest", []) or []
     if not chests:
         return eb
@@ -6421,7 +6457,8 @@ def _inject_chests(project: FieldProject, eb: bytes, chest_txids: dict, *,
         eb = _chest.inject_chest(eb, int(pos[0]), int(pos[1]), flag_idx=flag_idx, received_text_id=txid,
                                  model=ch.get("model") or "F0", face=int(ch.get("face", 0)),
                                  gate=(gf, gs) if gf is not None else None,
-                                 reserve_party_band=reserve_party_band, **kw)
+                                 reserve_party_band=reserve_party_band,
+                                 shadow=(ch.get("shadow", True) if shadows else None), **kw)
     return eb
 
 
@@ -6988,6 +7025,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
     npc_slots = {}           # npc name -> entry slot (so a [[prop]] can attach_to it)
     _pooled_bh = _behaviortoml.pooled_npcs(project.raw)   # pooled behavior units: seat DORMANT
+    _stock_shadows = _casts_stock_shadows(project, warnings)
     for i, n in enumerate(project.raw.get("npc", [])):
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
@@ -7037,6 +7075,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                        greeting_txid=txid if n.get("dialogue") else None,
                                        lock=n.get("lock", True), lock_menu=bool(n.get("lock_menu")))
         _nw, _nf, _ = _window_attrs(n, None, label=f"[[npc]] {n.get('name') or '#' + str(i)}")
+        # shadow: an absent key casts the census for ANY model. An [[npc]] does NOT follow STOCK_CASTS the way a
+        # [[prop]] does: it always stands on the walkmesh, where stock's objects cast (2141 of 2191), and the
+        # models STOCK_CASTS disables are disabled perched, flying, walkmesh-unbound or hidden, not standing.
+        # studies/actor-shadow/NPC-STOCK-CASTS.md; pinned by tests/test_shadow_npc_default.py
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), facing=int(n.get("face") or 0),
                              talk_text_id=txid, slot=slot,
                              gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
@@ -7045,6 +7087,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              talk_window=_nw, talk_flags=_nf, talk_dim=n.get("dim", False),
                              talk_dim_tint=n.get("dim_tint"),
                              talk_lock=n.get("lock", True), talk_lock_menu=bool(n.get("lock_menu")),
+                             shadow=(n.get("shadow", True) if _stock_shadows else None),
                              **kwargs)
         if gf is not None and n.get("name") not in _pooled_bh:
             gated_npc_slots.setdefault(gf, []).append(slot)
@@ -7082,9 +7125,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         bone = int(p.get("bone", 11))
         for mid, pose, dx, dz in parts:                     # a composite may offset a part from the anchor
             slot = EbScript.from_bytes(eb).first_free_slot()
+            # the stock shadow, PER PART: an absent key casts only for a model stock lets cast (a composite
+            # save point's moogle does, its book does not); inject_prop drops it on a held (attach_to) prop
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face, slot=slot,
                                    attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs,
-                                   collision=bool(p.get("collision", True)))
+                                   collision=bool(p.get("collision", True)),
+                                   shadow=(_shadow.set_piece_value(p.get("shadow"), mid)
+                                           if _stock_shadows else None))
 
     # gateways
     gw_names = _story_names(project)                    # [[flag]] name -> index, for set_flags resolution
@@ -7214,7 +7261,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # press-to-open handler that animates the lid, gives the item/gil, shows the centered "Received X" box,
     # and latches the opened-flag). Self-contained objects with no cross-refs, so appended (no party-band
     # reserve on the synthesize path -- a from-scratch field has no reserved character band). Absent -> none.
-    eb = _inject_chests(project, eb, chest_txids, reserve_party_band=False)
+    eb = _inject_chests(project, eb, chest_txids, reserve_party_band=False, shadows=_stock_shadows)
 
     # zone-triggered choices: a region the player triggers for a choice menu (a lever / sign).
     #   trigger="action" (default): press-action-in-quad (tag 3). Edge-triggered by the button, so it
@@ -7702,7 +7749,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     eb, container_pos=reveal_cpos,
                     height=int(sp.get("reveal_height", _savepoint.REVEAL_CONTAINER_HEIGHT)),
                     steps=sp.get("reveal_steps"), sfx=sp.get("reveal_sfx"),
-                    container=sp.get("reveal_container", True), index=_reveal_idx[k])
+                    container=sp.get("reveal_container", True), index=_reveal_idx[k],
+                    # the cask casts by the [[prop]] rule (stock's casks do); `shadow = false` on the
+                    # save point turns off BOTH its shadows, a table only sizes the moogle's
+                    shadow=((sp.get("shadow") is not False and _shadow.stock_casts(_savepoint.cask_model()))
+                            if _stock_shadows else None))
                 # the moogle's tag 1 becomes the state loop OUTRIGHT (see reveal_state_loop): a one-shot
                 # intro splice could pop him out but never put him back, which is half the real cycle.
                 reveal_loop = _savepoint.reveal_state_loop(
@@ -7758,9 +7809,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # cluster's own prediction; otherwise inject_npc seats at first_free_slot, so read it now
             # rather than trying to recover it afterwards.
             m_here = m_slot if m_slot is not None else EbScript.from_bytes(eb).first_free_slot()
+            # the moogle's stock shadow at its Init tail, after the reveal/act preloads -- 58 of 58 stock save
+            # moogles keep theirs (the act's verbatim DisableShadow/EnableShadow hop pair now has one to hide)
             eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), model=m_model, animset=m_animset,
                                  anims=dict(m_anims or {}), speak_body=talk,
-                                 init_tail=m_init_tail, slot=m_slot)
+                                 init_tail=m_init_tail, slot=m_slot,
+                                 shadow=(sp.get("shadow", True) if _stock_shadows else None))
             if reveal_loop is not None:
                 # replace tag 1 outright -- the moogle's whole loop IS the state machine (donor shape)
                 from .eb import edit as _rv_edit
@@ -8099,7 +8153,66 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         except (_behaviortoml.BehaviorTomlError, _behavior.BehaviorError) as e:
             raise BuildError(f"[behavior]: {e}") from e
 
+    # the player's stock blob shadow (content.shadow) -- LAST, so it is sized for the model the player
+    # finally wears ([player] model re-skin) and no later pass has to step around it. [[npc]]s, [[prop]]s,
+    # [[chest]]s and the save points' moogles + casks got theirs at injection, above.
+    if _stock_shadows:
+        eb = _shadow.cast_player_shadow(eb, (project.raw.get("player") or {}).get("shadow", True))
     return eb
+
+
+def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) -> bool:
+    """Whether a synthesized field's actors get the stock blob shadow from the SCRIPT (content.shadow):
+    true unless the field ships MapConfigData (``[field] mapconfig``: a native or editable fork carries its
+    donor's) -- that MCF's per-model service already shadows every actor, grafted donor objects included,
+    and would overwrite a script value on the first frame, so those builds carry no shadow ops and an
+    explicit ``shadow`` key there is reported as having no effect."""
+    if not project.field.get("mapconfig"):
+        return True
+    raw = project.raw
+    authored = (["[player]"] if "shadow" in (raw.get("player") or {}) else []) + \
+        [f"[[npc]] {n.get('name', '#' + str(i))!r}" for i, n in enumerate(raw.get("npc", []))
+         if "shadow" in n] + \
+        [f"[[prop]] {p.get('prop', p.get('name', '#' + str(i)))!r}" for i, p in enumerate(raw.get("prop", []))
+         if "shadow" in p] + \
+        [f"[[chest]] #{i}" for i, ch in enumerate(raw.get("chest", [])) if "shadow" in ch] + \
+        [f"[[savepoint]] #{i}" for i, sp in enumerate(raw.get("savepoint", [])) if "shadow" in sp]
+    if authored and warnings is not None:
+        msg = (f"{', '.join(authored)} shadow: ignored -- this field ships MapConfigData ([field] mapconfig), "
+               f"whose per-model shadow service sets every actor's shadow itself")
+        if msg not in warnings:                    # build_script runs once per language -- warn once
+            warnings.append(msg)
+    return False
+
+
+def mapconfig_bytes(project: FieldProject, warnings: list | None = None):
+    """The MapConfigData the build ships as ``EVT_<name>.bytes``, or None when the field declares none.
+
+    ``[field] mapconfig`` VERBATIM -- unless the walkmesh is a reshaped ``.obj`` whose rebuild RENUMBERED the
+    donor's floors. The MCF's per-floor lights key on the BGI floor index the actor stands on
+    (``fldmcf.ff9fieldMCFGetLightByCharFloor`` <- ``FieldMapActorController.activeFloor``), and
+    ``bgi.build`` numbers floors in first-seen face order: delete ``o floor_1`` of three and ``floor_2``
+    becomes floor 1, lit with floor 1's colour and shadow. So the lights are re-keyed through the floor
+    NAMES both exporters write (``o floor_<donor index>``). The unedited round-trip is the identity on all
+    816 shipping walkmeshes -- shipped verbatim, byte for byte -- as is a ``[walkmesh] bgi`` (verbatim)."""
+    mc = project.field.get("mapconfig")
+    if not mc:
+        return None
+    data = project.path(mc).read_bytes()
+    wm = project.raw.get("walkmesh", {}) or {}
+    if wm.get("bgi") or not wm.get("obj"):                # resolve_walkmesh's own order: bgi ships verbatim
+        return data
+    floor_map = _donor_floor_map(project.path(wm["obj"]))
+    if floor_map is None:
+        return data
+    lost = sorted(_mapconfig.lit_floors(data) - set(floor_map))
+    if lost and warnings is not None:
+        msg = (f"[field] mapconfig: donor floor(s) {lost} have their own light but no floor in the reshaped "
+               f"walkmesh.obj any more -- their light is dropped; floors not named `floor_<donor index>` "
+               f"take the room's default light")
+        if msg not in warnings:
+            warnings.append(msg)
+    return _mapconfig.remap_light_floors(data, floor_map)
 
 
 def behavior_floor_table(project: FieldProject):
@@ -9455,14 +9568,6 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                         dst.write_bytes(edited)
                         continue
                 shutil.copyfile(sf, dst)
-        # the field's 3D-model LIGHTING (MapConfigData: per-floor lights + shadows + per-object colors),
-        # shipped under the fork's event name so the engine lights the models like the real field. Loaded
-        # by the SAME event name as the .eb (MapConfiguration.LoadMapConfigData) -> EVT_<name>.bytes.
-        mapconfig = project.field.get("mapconfig")
-        if mapconfig:
-            dst = layout.mapconfig_path(f"EVT_{project.name}")
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(project.path(mapconfig), dst)
     elif not borrow_bg:
         bgi_bytes = resolve_walkmesh(project, camera, warnings)
         wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
@@ -9525,6 +9630,16 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             _g_text = bgx.build(None, _g_ovls, base_scene=_g_donor, animations=_g_anims,
                                 header_comment=f"{project.name} [[gauge]] blocks on {_g_donor}")
             (_gfm / f"{_g_donor}.bgx").write_text(_g_text, encoding="utf-8", newline="\n")
+
+    # the field's 3D-model LIGHTING (MapConfigData: per-floor lights + shadows + per-model colours), shipped
+    # under the fork's event name so the engine lights the models like the real field. Loaded by the SAME
+    # event name as the .eb (MapConfiguration.LoadMapConfigData, HonoluluFieldMain) whatever the scene is
+    # -- native, editable (.bgx) or borrow -- so it ships from any of them -> EVT_<name>.bytes.
+    _mcf = mapconfig_bytes(project, warnings)
+    if _mcf is not None:
+        dst = layout.mapconfig_path(f"EVT_{project.name}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(_mcf)
 
     # [[sps]] Tier-2 from-scratch effects: auto-ground any pos=[x,z] from the walkmesh (so authors needn't
     # hand-compute floor heights), then write each authored <id>.sps.bytes + supply its tcb into the FBG folder

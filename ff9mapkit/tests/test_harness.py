@@ -17,6 +17,7 @@ hard way.
 import json
 import os
 import pathlib
+import re
 import sys
 import threading
 import time
@@ -186,6 +187,75 @@ def test_state_maps_the_fields_a_scenario_asserts_on():
     assert st.texts == ["Hello", "world"] and st.text == "Hello\nworld"
     assert st.flag(8712) is True and st.flag(9999) is None
     assert st.held == ["Up"] and "field 30500" in repr(st)
+
+
+# --------------------------------------------------------------------------- the dead tri/floor keys
+# s83 publishes player.tri / player.floor from PosObj.activeTri / activeFloor, which only the
+# battle-entry backup ever writes: 0/0 before any battle, frozen after one. Two gates keep them from
+# being read as where the player stands -- one on State, one on the code that reads the document.
+
+#: Distinctive values no other State field could produce by accident.
+_DEAD_TRI, _DEAD_FLOOR = 4321, 77
+
+
+def test_state_exposes_the_s83_tri_and_floor_only_as_a_battle_snapshot():
+    st = State({"player": {"x": 1.0, "y": 0.0, "z": 2.0, "tri": _DEAD_TRI, "floor": _DEAD_FLOOR}})
+    assert st.player_tri_battle_snapshot == _DEAD_TRI
+    assert st.player_floor_battle_snapshot == _DEAD_FLOOR
+    # The gate is on VALUES, not names: an accessor of any name that hands the bare key back
+    # presents the snapshot as live, which is the failure this exists to stop.
+    leaks = []
+    for name in dir(State):
+        if name.startswith("_") or name.endswith("_battle_snapshot"):
+            continue
+        if not isinstance(getattr(State, name), property):
+            continue
+        v = getattr(st, name)
+        vals = v.values() if isinstance(v, dict) else v if isinstance(v, (tuple, list)) else (v,)
+        if any(not isinstance(x, bool) and x in (_DEAD_TRI, _DEAD_FLOOR) for x in vals):
+            leaks.append(name)
+    assert leaks == []
+
+
+def test_the_floor_snapshot_undoes_the_byte_cast_and_absence_is_none():
+    assert State({"player": {"floor": 255}}).player_floor_battle_snapshot == -1   # Byte(-1)
+    assert State({"player": {"floor": 3}}).player_floor_battle_snapshot == 3
+    assert State({"player": {"x": 0.0}}).player_tri_battle_snapshot is None       # no such key
+    assert State({"player": {"x": 0.0}}).player_floor_battle_snapshot is None
+    assert State({}).player_tri_battle_snapshot is None
+
+
+#: A read of a bare key off the player section: ``st.raw["player"]["tri"]``,
+#: ``st.raw.get("player", {}).get("floor")``. Same line only -- a reader that binds the section to a
+#: name and subscripts it on a later line gets past this, and the State gate above is the backstop.
+_BARE_TRI_READ = re.compile(r"""["']player["'].{0,40}?(?:\[|\.get\()\s*["'](?:tri|floor)["']""")
+
+
+def _bare_tri_readers(root: pathlib.Path) -> list[str]:
+    hits = []
+    for base in ("tools", "studies"):
+        for path in sorted((root / base).rglob("*.py")):
+            if path == root / "tools" / "harness" / "channel.py":         # the one sanctioned reader
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for n, line in enumerate(text.splitlines(), 1):
+                if _BARE_TRI_READ.search(line):
+                    hits.append(f"{path.relative_to(root).as_posix()}:{n}")
+    return hits
+
+
+def test_no_harness_code_reads_the_bare_tri_or_floor_keys(tmp_path):
+    # It has to catch the reads it exists for, the recon.py line this change removed among them...
+    for line in ("st.raw.get('player', {}).get('floor')", 'st.raw["player"]["tri"]',
+                 '(doc.get("player") or {}).get("tri")'):
+        assert _BARE_TRI_READ.search(line), line
+    assert not _BARE_TRI_READ.search('"player": {"x": px, "floor": 0, "tri": 0}')   # a literal
+    # ...and has to find one in a real tree, not just match a string.
+    (tmp_path / "studies" / "s").mkdir(parents=True)
+    (tmp_path / "studies" / "s" / "scn.py").write_text(
+        "def run(g):\n    print(g.state.raw.get('player', {}).get('floor'))\n", encoding="utf-8")
+    assert _bare_tri_readers(tmp_path) == ["studies/s/scn.py:2"]
+    assert _bare_tri_readers(REPO) == []
 
 
 # --------------------------------------------------------------------------- process guards

@@ -1,0 +1,67 @@
+# =====================================================================================
+# ACTOR SHADOWS -- [[npc]] / [player] do NOT follow STOCK_CASTS  --  field 30925
+# =====================================================================================
+# The [[prop]] rule (_shadowparams.STOCK_CASTS) turns a set piece's shadow off where stock's own Inits do.
+# The [[npc]] and the [player] deliberately do NOT follow it (studies/actor-shadow/NPC-STOCK-CASTS.md): a
+# kit NPC always stands on the walkmesh, where stock's objects cast. Every actor here wears a model
+# STOCK_CASTS disables, with NO shadow key -- so each casts its census shadow, standing, like stock's own
+# standing frog / bird / Ramuh / Black Waltz 3 objects do. On rung 0's floor + camera + actor slots
+# (bench/shadow0.field.toml), so measure_shadows.py's rung-0 feet boxes frame them unchanged:
+#   player    GEO_SUB_F0_BW3 re-skin (Black Waltz 3), census (8, 4)  -> SetShadowSize(8, 8)   SetShadowAmplifier(32)
+#   frog      archetype frog  = GEO_NPC_F0_FRM, census (6, 2)         -> SetShadowSize(6, 6)   SetShadowAmplifier(16)
+#   bird      archetype bird  = GEO_NPC_F0_CCB, census (5, 3)         -> SetShadowSize(5, 5)   SetShadowAmplifier(24)
+#   ramuh     archetype ramuh = GEO_MON_F0_RAM, census (11, 5)        -> SetShadowSize(11, 11) SetShadowAmplifier(40)
+#   frog_off  the frog with shadow = false                            -> no ops (the in-frame NEGATIVE CONTROL)
+# The control bench (npc_default_control.field.toml) is this one with shadow = false on every actor.
+#
+#   py tools/deploy_field.py studies/actor-shadow/bench/npc_default.field.toml --id 30925 --name SHN0 --text-block 30925
+
+[field]
+id = 30925
+name = "SHN0"
+area = 11
+title = "SHADOW NPC"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "shadow0.walkmesh.obj"
+links = "shadow0.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-407, -472]
+model = "GEO_SUB_F0_BW3"
+
+[[npc]]
+name = "frog"
+archetype = "frog"
+pos = [450, -250]
+
+[[npc]]
+name = "bird"
+archetype = "bird"
+pos = [-800, -1000]
+
+[[npc]]
+name = "ramuh"
+archetype = "ramuh"
+pos = [900, -900]
+
+[[npc]]
+name = "frog_off"
+archetype = "frog"
+pos = [-150, -1000]
+shadow = false

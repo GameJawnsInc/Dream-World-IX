@@ -1713,6 +1713,15 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     meta["layers"] = len(layers)
     meta["blend_layers"] = layers_info["blend_layers"]
     meta["editable_name"] = name
+    # ship the field's MapConfigData VERBATIM, as a native fork does: the per-model blob shadow + tint and the
+    # per-floor lights the engine applies to EVERY actor (fldmcf.ff9fieldMCFService) -- the player, kit NPCs,
+    # and the grafted [[object]]s, which are not [[npc]]s, so the build's script shadow never reached them.
+    # The lights key on the walkmesh floor index: walkmesh.bgi keeps the donor's, and a reshaped
+    # walkmesh.obj is re-keyed by its `o floor_<donor>` names at build (build.mapconfig_bytes).
+    mc_bytes = extract_mapconfig(field, game=game)
+    if mc_bytes:
+        (out / "mapconfig.bytes").write_bytes(mc_bytes)
+    meta["mapconfig"] = bool(mc_bytes)
     # A single composited backdrop (opaque art) for the Blender modeling preview: the per-tile-depth
     # sub-layers are tight crops that don't FIT-stretch, so the add-on models against this instead.
     try:                                                          # preview-only -- never fatal
@@ -1765,7 +1774,9 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f'name = "{name}"\n'
         f"area = {safe_area}\n"
         f"text_block = {text_block}\n"
-        f"{_walkmesh_hotfix_line(field)}"
+        + ('mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights, shadows, model tint) '
+           'for every 3D model\n' if mc_bytes else "")
+        + f"{_walkmesh_hotfix_line(field)}"
         f"{_area_title_hide_lines(meta)}\n"
         f"[camera]\n"
         f"{_ENTRY_SETTLE_LINE}"

@@ -127,6 +127,10 @@ class State:
 
     Accessors for values a NEWER agent publishes return ``None`` when the key is absent rather than a
     plausible default, so "this DLL does not publish that" can never be mistaken for game data.
+
+    ⚠ ``raw`` is the agent's document UNTOUCHED, so it still carries ``player.tri`` / ``player.floor``
+    under names that read as live. They are not -- see :attr:`player_tri_battle_snapshot`, the only
+    sanctioned reader. ``tests/test_harness.py`` refuses a harness scenario that reads the bare keys.
     """
 
     __slots__ = ("raw", "read_at", "mtime")
@@ -271,6 +275,50 @@ class State:
     def control(self) -> bool:
         """Whether the player currently has control -- false during cutscenes and transitions."""
         return bool(self.raw.get("player", {}).get("control", False))
+
+    # -- the walkmesh triangle: NOT PUBLISHED LIVE ------------------------------------------
+    # No agent yet publishes the triangle or floor the player stands on. What s83 publishes under
+    # player.tri / player.floor is a battle-entry snapshot, so it is exposed only under names that
+    # say so. The patch that would publish the live value is scoped, unbuilt, in
+    # studies/test-harness/PLAYER-TRI-PATCH-PLAN.md.
+    @property
+    def player_tri_battle_snapshot(self) -> int | None:
+        """⚠ NOT THE TRIANGLE THE PLAYER STANDS ON -- the one they stood on when the field was last left
+        for a battle.
+
+        The agent publishes ``PosObj.activeTri`` as ``player.tri``, and that field is not live. Its only
+        writer is ``EventEngine.BackupPosObjData`` (``EventEngine.cs:1441``), which copies the actor
+        controller's value on the way into a battle (an encounter, a scripted battle, the ~ menu's
+        battle jump) or a Tetra Master game. ``PosObj.copy`` only copies it between contexts, and
+        neither constructor sets it. So it reads 0 before the session's first battle, which cannot be
+        told apart from a real triangle 0. After a battle it holds still however far the player walks.
+        The engine reads it back exactly once, on the return trip: ``FieldMap.RestoreModels``
+        (``FieldMap.cs:522-528``) seeds the respawned actor's controller with it. It is a seed for the
+        post-battle respawn, never a reading of where the player is.
+
+        The live value is ``fieldMapActorController.activeTri``, the one ``.eb``'s ``B_BGIID`` reads
+        (``BGI.cs:11-20``). Until an agent publishes it, a triangle-level fact about where the player
+        stands comes from ``expr:B_PTR(250) B_BGIID`` in the field (a raw uid, so ``const(250)`` reads
+        -1) or from ``scene.bgi.BgiWalkmesh`` at the published x/z, never from here. ``None`` when the
+        key is absent.
+        """
+        v = self.raw.get("player", {}).get("tri")
+        return None if v is None else int(v)
+
+    @property
+    def player_floor_battle_snapshot(self) -> int | None:
+        """⚠ NOT THE FLOOR THE PLAYER IS ON -- the same battle-entry snapshot as
+        :attr:`player_tri_battle_snapshot`, with one more distortion.
+
+        ``PosObj.activeFloor`` is a ``Byte``, while the controller's is an ``Int32`` whose "no floor"
+        is -1. The backup casts it, so -1 lands as 255. It is decoded back to -1 here; ``raw`` still
+        says 255. ``None`` when the key is absent.
+        """
+        v = self.raw.get("player", {}).get("floor")
+        if v is None:
+            return None
+        v = int(v)
+        return -1 if v == 255 else v
 
     # -- what is on screen ------------------------------------------------------------------
     @property

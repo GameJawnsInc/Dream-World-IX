@@ -1,0 +1,77 @@
+# =====================================================================================
+# ACTOR SHADOWS, RUNG 0 -- the stock blob shadow under kit-field actors  --  field 30920
+# =====================================================================================
+# A synthesized field ships no MapConfigData, so the engine's per-model shadow service (fldmcf) never runs
+# and every actor's FF9Shadow keeps its zero scale. The build now emits SetShadowSize + SetShadowAmplifier
+# (the same two engine calls) from the census (ff9mapkit/_shadowparams.py). This bench puts every case in
+# ONE frame, on the walkmesh-sensor bench's floor + camera (studies/walkmesh-sensor, field 30910 -- whose
+# rung-0 shot is the BEFORE: no shadow under anyone):
+#   player  Zidane, census               (9, 4)  -> SetShadowSize(9, 9)   SetShadowAmplifier(32)
+#   stock   GEO_NPC_F0_CSO, census       (9, 3)  -> SetShadowSize(9, 9)   SetShadowAmplifier(24)
+#   big     GEO_NPC_F0_CSO, override    (16, 8)  -> SetShadowSize(16, 16) SetShadowAmplifier(64)
+#   none    GEO_NPC_F0_CSO, shadow=false         -> no ops (the in-frame NEGATIVE CONTROL)
+#   rover   GEO_NPC_F0_CSO, census, a BEHAVIOR UNIT -- holds its post until `walk`, then a seeded wander
+#
+#   py tools/deploy_field.py studies/actor-shadow/bench/shadow0.field.toml --id 30920 --name SHD0 --text-block 30920
+
+[field]
+id = 30920
+name = "SHD0"
+area = 11
+title = "SHADOW 0"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "shadow0.walkmesh.obj"
+links = "shadow0.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-407, -472]
+
+[[npc]]
+name = "stock"
+model = "GEO_NPC_F0_CSO"
+pos = [450, -250]
+
+[[npc]]
+name = "big"
+model = "GEO_NPC_F0_CSO"
+pos = [900, -900]
+shadow = { size = 16, intensity = 8 }
+
+[[npc]]
+name = "none"
+model = "GEO_NPC_F0_CSO"
+pos = [-150, -1000]
+shadow = false
+
+[[npc]]
+name = "rover"
+model = "GEO_NPC_F0_CSO"
+pos = [-800, -1000]
+
+[behavior]
+warmup = 30
+public_flags = ["walk"]
+
+  [[behavior.unit]]
+  npc = "rover"
+    [[behavior.unit.branch]]
+    when = [{ flag = "walk" }]
+    do = { wander = [-800, -1000], radius = 160, every = 45, speed = 40, seed = 3 }
+    [[behavior.unit.branch]]
+    do = { hold_post = true }

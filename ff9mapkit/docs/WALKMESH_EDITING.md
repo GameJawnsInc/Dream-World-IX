@@ -112,6 +112,12 @@ assert reachability (section 4); warn on stranded floors
 `find_tri_edge` matches an unordered endpoint pair against each triangle's three edges within the
 named floor.
 
+**A seam's floor is a floor NAME, not a position.** `a_floor`/`b_floor` are the donor's floor numbers, the `N`
+of the `.obj`'s `o floor_<N>` blocks. `bgi.build` numbers floors in first-seen face order, so deleting or
+reordering a block renumbers the floors after it. The build translates
+each seam through those names first (`build._donor_floor_map`, the same map that re-keys the MapConfigData
+per-floor lights). An unedited re-export keeps every index, so it skips the translation and builds byte for byte.
+
 ### 3.4 Failure modes (graceful, never silent)
 
 | edit | result |
@@ -119,7 +125,9 @@ named floor.
 | unchanged geometry | identical to original (every seam/flag/anim matches) |
 | reshape a floor's **interior** (not its seam edges) | fully preserved |
 | **move/delete a seam edge** | that seam fails to match → **explicit warning** naming the world position to re-anchor; link dropped (reachability then flags it) |
-| **add a floor** | it's an island until you add a `[[seam]]`; the tool can *suggest* seams where the new floor's edges coincide with an existing floor's |
+| **delete or reorder a floor** (`o floor_<N>` block) | every seam between floors still in the `.obj` links; a deleted floor's seams miss, and the warning names the floor |
+| **rename a floor** | the build can no longer tell which donor floor it was, so its seams miss (warned); keep the `floor_<N>` name |
+| **add a floor** | it's an island until you add a `[[seam]]`. Name it `o floor_<N>` with an unused `N` and use that `N` in the seam; a new material slot in the Blender add-on does this for you. The tool can *suggest* seams where the new floor's edges coincide with an existing floor's |
 | reshape an **animated** floor | anim centroid match fails → warn + drop the anim |
 
 The guarantee is **no silent mis-link**: anything the reconciler can't match is reported, and the reachability
