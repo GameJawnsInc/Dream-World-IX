@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — an editable fork's carried donor objects are lit and shadowed like the real field
+- **`import --editable` now ships the donor's MapConfigData** (`mapconfig.bytes` + `[field] mapconfig`), exactly
+  as `--native` does. The engine's MCF service (`fldmcf.ff9fieldMCFService`) gives every actor its per-model blob
+  shadow and tint plus the light of the floor it stands on. The kit's script shadows only ever reached the player
+  and `[[npc]]`s, so an editable fork's grafted `[[object]]`s had no shadow and rendered bright and untinted. With
+  the MCF, the build retires those script ops, as on a native fork. Delete the `mapconfig` line to go back.
+- **The MCF now ships from any scene type**, not only a native one. Before, a non-native field declaring
+  `[field] mapconfig` shipped no MCF and also skipped its script shadows, so its actors cast nothing.
+- **A reshaped walkmesh keeps its lights.** Per-floor lights key on the BGI floor index, and `bgi.build`
+  renumbers `.obj` floors in first-seen order. The build re-keys the MCF's per-floor lights through the
+  `o floor_<donor index>` names that both exporters write (`build.mapconfig_bytes`,
+  `mapconfig.remap_light_floors`, `bgi.obj_built_floor_donors`). The unedited round-trip is the identity on all
+  816 shipping walkmeshes, so it ships the MCF byte for byte.
+- **Byte identity:** native and verbatim forks build byte-identically (field 122, all three import modes, HEAD
+  vs this change). An editable fork changes by exactly the shipped MCF plus the player's 7 retired shadow bytes.
+  `tests/test_fork_mapconfig.py` pins this on an authored fork with a grafted object.
+- **In-game proven** (harness, `studies/actor-shadow` rung 1, an editable fork of field 1607). With the MCF, the
+  carried moogles cast a shadow on the art and take the room's tint; without it, they cast nothing. Swapping two
+  floors in the reshaped walkmesh keeps the player's light exactly (1.002). Cancelling the re-key darkens him to
+  0.867 against the engine formula's predicted 0.857.
+
 ### Fixed — actors on a kit-built field cast the stock blob shadow
 - **The player and every `[[npc]]` (so every behavior unit) now get FF9's blob shadow.** A real field never
   scripts its shadows: its MapConfigData (MCF) gives each model a size and darkness through

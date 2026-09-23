@@ -76,6 +76,7 @@ from . import items as _items
 from . import itemstats as _itemstats
 from .content import itemdata as _itemdata
 from . import data as _data
+from . import mapconfig as _mapconfig
 from .eb import EbScript, opcodes
 from .eb.disasm import iter_code
 from .scene import bgi, bgx, cam, guide
@@ -1411,11 +1412,11 @@ def validate(project: FieldProject) -> list[str]:
             problems.append('[field] a native scene needs an atlas too -- add  atlas = "atlas.png"')
         elif not project.path(atl).is_file():
             problems.append(f"[field] atlas not found: {atl}")
-        mc = project.field.get("mapconfig")          # OPTIONAL: the field's 3D-model lighting config
-        if mc and not project.path(mc).is_file():
-            problems.append(f"[field] mapconfig (lighting) not found: {mc}")
         if not (wm.get("bgi") or wm.get("obj")):
             problems.append("[field] a native scene needs a [walkmesh] (bgi or obj)")
+    mc = project.field.get("mapconfig")              # OPTIONAL, any scene: the donor's 3D-model lighting config
+    if mc and not project.path(mc).is_file():
+        problems.append(f"[field] mapconfig (lighting) not found: {mc}")
     for layer in project.raw.get("layers", []):
         if "image" not in layer:
             problems.append("[[layers]] entry missing 'image'")
@@ -7646,9 +7647,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
 def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) -> bool:
     """Whether a synthesized field's actors get the stock blob shadow from the SCRIPT (content.shadow):
-    true unless the field ships MapConfigData (``[field] mapconfig``, a native fork) -- that MCF's per-model
-    service already shadows every actor and would overwrite a script value on the first frame, so those
-    builds stay byte-identical and an explicit ``shadow`` key there is reported as having no effect."""
+    true unless the field ships MapConfigData (``[field] mapconfig``: a native or editable fork carries its
+    donor's) -- that MCF's per-model service already shadows every actor, grafted donor objects included,
+    and would overwrite a script value on the first frame, so those builds carry no shadow ops and an
+    explicit ``shadow`` key there is reported as having no effect."""
     if not project.field.get("mapconfig"):
         return True
     authored = (["[player]"] if "shadow" in (project.raw.get("player") or {}) else []) + \
@@ -7660,6 +7662,37 @@ def _casts_stock_shadows(project: FieldProject, warnings: list | None = None) ->
         if msg not in warnings:                    # build_script runs once per language -- warn once
             warnings.append(msg)
     return False
+
+
+def mapconfig_bytes(project: FieldProject, warnings: list | None = None):
+    """The MapConfigData the build ships as ``EVT_<name>.bytes``, or None when the field declares none.
+
+    ``[field] mapconfig`` VERBATIM -- unless the walkmesh is a reshaped ``.obj`` whose rebuild RENUMBERED the
+    donor's floors. The MCF's per-floor lights key on the BGI floor index the actor stands on
+    (``fldmcf.ff9fieldMCFGetLightByCharFloor`` <- ``FieldMapActorController.activeFloor``), and
+    ``bgi.build`` numbers floors in first-seen face order: delete ``o floor_1`` of three and ``floor_2``
+    becomes floor 1, lit with floor 1's colour and shadow. So the lights are re-keyed through the floor
+    NAMES both exporters write (``o floor_<donor index>``). The unedited round-trip is the identity on all
+    816 shipping walkmeshes -- shipped verbatim, byte for byte -- as is a ``[walkmesh] bgi`` (verbatim)."""
+    mc = project.field.get("mapconfig")
+    if not mc:
+        return None
+    data = project.path(mc).read_bytes()
+    wm = project.raw.get("walkmesh", {}) or {}
+    if wm.get("bgi") or not wm.get("obj"):                # resolve_walkmesh's own order: bgi ships verbatim
+        return data
+    donors = bgi.obj_built_floor_donors(str(project.path(wm["obj"])))
+    if all(d == i for i, d in enumerate(donors)):
+        return data
+    floor_map = {d: i for i, d in enumerate(donors) if d is not None}
+    lost = sorted(_mapconfig.lit_floors(data) - set(floor_map))
+    if lost and warnings is not None:
+        msg = (f"[field] mapconfig: donor floor(s) {lost} have their own light but no floor in the reshaped "
+               f"walkmesh.obj any more -- their light is dropped; floors not named `floor_<donor index>` "
+               f"take the room's default light")
+        if msg not in warnings:
+            warnings.append(msg)
+    return _mapconfig.remap_light_floors(data, floor_map)
 
 
 def behavior_walkmesh(project: FieldProject):
@@ -8990,14 +9023,6 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                         dst.write_bytes(edited)
                         continue
                 shutil.copyfile(sf, dst)
-        # the field's 3D-model LIGHTING (MapConfigData: per-floor lights + shadows + per-object colors),
-        # shipped under the fork's event name so the engine lights the models like the real field. Loaded
-        # by the SAME event name as the .eb (MapConfiguration.LoadMapConfigData) -> EVT_<name>.bytes.
-        mapconfig = project.field.get("mapconfig")
-        if mapconfig:
-            dst = layout.mapconfig_path(f"EVT_{project.name}")
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(project.path(mapconfig), dst)
     elif not borrow_bg:
         bgi_bytes = resolve_walkmesh(project, camera, warnings)
         wmesh = bgi.BgiWalkmesh.from_bytes(bgi_bytes)
@@ -9059,6 +9084,16 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             _g_text = bgx.build(None, _g_ovls, base_scene=_g_donor, animations=_g_anims,
                                 header_comment=f"{project.name} [[gauge]] blocks on {_g_donor}")
             (_gfm / f"{_g_donor}.bgx").write_text(_g_text, encoding="utf-8", newline="\n")
+
+    # the field's 3D-model LIGHTING (MapConfigData: per-floor lights + shadows + per-model colours), shipped
+    # under the fork's event name so the engine lights the models like the real field. Loaded by the SAME
+    # event name as the .eb (MapConfiguration.LoadMapConfigData, HonoluluFieldMain) whatever the scene is
+    # -- native, editable (.bgx) or borrow -- so it ships from any of them -> EVT_<name>.bytes.
+    _mcf = mapconfig_bytes(project, warnings)
+    if _mcf is not None:
+        dst = layout.mapconfig_path(f"EVT_{project.name}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(_mcf)
 
     # [[sps]] Tier-2 from-scratch effects: auto-ground any pos=[x,z] from the walkmesh (so authors needn't
     # hand-compute floor heights), then write each authored <id>.sps.bytes + supply its tcb into the FBG folder
