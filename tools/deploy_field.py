@@ -205,6 +205,9 @@ mc_src = tl.mapconfig_path(f"EVT_{name}")              # native fork: the 3D-mod
 if mc_src.exists():
     live.mapconfig_path(f"EVT_{name}").parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(mc_src, live.mapconfig_path(f"EVT_{name}"))
+# The languages whose .mes this deploy WRITES -- the text-block guard below reads this, not the textid: a
+# field that ships no .mes (an --editable fork without --carry-text) only READS its block.
+mes_written = []
 for L in LANGS:
     live.ensure_dirs(FBG, langs=[L])
     shutil.copyfile(tl.eb_path(L, f"EVT_{name}.eb.bytes"), live.eb_path(L, f"EVT_{name}.eb.bytes"))
@@ -212,6 +215,7 @@ for L in LANGS:
     if sm.exists():                                        # dialogue: deploy the field's .mes block
         live.mes_path(L, text_block).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(sm, live.mes_path(L, text_block))
+        mes_written.append(L)
 # [[mint]] loose-model FBX tree (NEW additive GEO ids) -- ship the whole staged Models/ (merge into live).
 # Weapons (type 6, e.g. a [[weapon]] model mint) stage under BattleMap/BattleModel/ instead -- ship that too.
 for _sub in (("Models",), ("BattleMap", "BattleModel")):
@@ -729,7 +733,8 @@ print(f"revert: {OUT / ('revert_deploy_%d.py' % FID)}  (or revert_deploy.py for 
 # .mes block -> the engine renders THAT folder's text, not ours (the shared-1073 collision); (2) the block is a
 # REAL FF9 location's -> we overwrite the shipping game's own dialogue (the base game is in the engine's
 # cumulative text merge, so this needs no stacking at all). A VERBATIM fork re-ships its donor's own text on the
-# donor's own block, so it is exempt from (2) -- the overwrite is a byte-identical no-op.
+# donor's own block, so it is exempt from (2) -- the overwrite is a byte-identical no-op. So is a deploy that
+# copied no .mes for the block (mes_written empty): nothing of ours enters the merge.
 try:
     from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning, donor_block_for
     # The exemption is the DONOR'S OWN BLOCK, not "is a fork": a fork left on the kit default really does
@@ -738,7 +743,8 @@ try:
     _donor_block = donor_block_for(proj.raw)
     _warn = shadow_warning(
         check_text_block_shadow(GAME, MOD_FOLDER, text_block,
-                                verbatim_blocks=() if _donor_block is None else {_donor_block}),
+                                verbatim_blocks=() if _donor_block is None else {_donor_block},
+                                writes_mes=bool(mes_written)),
         MOD_FOLDER)
     if _warn:
         print(f"\n  !! {_warn}")
