@@ -342,6 +342,21 @@ class Flee(Action):
             raise BehaviorError("Flee avoid_r must be 1..4000")
 
 
+def wander_box_problem(center, radius) -> "str | None":
+    """A wander box the Int16 target slots cannot hold (one text for the compiler and the TOML validate). A
+    re-roll writes ``centre + (byte - 128) * radius / 128`` into ``Global.Int16`` wtx/wtz, and the store keeps
+    the low 16 bits -- a target past the edge wraps to the far side of the map (and a seeded wander's printed
+    prediction would no longer be what the game writes)."""
+    try:
+        cx, cz, r = int(center[0]), int(center[1]), int(radius)
+    except (TypeError, ValueError, IndexError):
+        return None                                  # shape problems are reported elsewhere
+    if abs(cx) + r > 0x7FFF or abs(cz) + r > 0x7FFF:
+        return (f"wander box ({cx},{cz}) +- {r} leaves -32768..32767 -- the target slots are Int16, so a "
+                f"target past the edge wraps to the far side of the map; shrink the radius or move the centre")
+    return None
+
+
 @dataclass
 class Wander(Action):
     """Random idle drift: every ``hold`` ticks pick a fresh target in the box
@@ -366,6 +381,9 @@ class Wander(Action):
         self.center = tuple(self.center)
         if not 1 <= int(self.radius) <= 4000:      # Int24-safe: 128 * 4000 << 2^23
             raise BehaviorError("Wander radius must be 1..4000")
+        prob = wander_box_problem(self.center, self.radius)
+        if prob:
+            raise BehaviorError(f"Wander {prob}")
         if not 1 <= int(self.hold) <= 255:
             raise BehaviorError("Wander hold must be 1..255 (a GLOB byte timer)")
 
@@ -2341,8 +2359,10 @@ class FieldBehavior:
         if fname:
             check.append(fname)
         for tname in check:
-            if tname in self.tables:
-                raise BehaviorError(f"scan {name!r}: table name {tname!r} is taken")
+            if tname in self.tables or tname in self.streams:
+                raise BehaviorError(f"scan {name!r}: table name {tname!r} is taken"
+                                    + (" by a roll stream (streams, tables and counters share one namespace)"
+                                       if tname in self.streams else ""))
         zeros = (0,) * len(units)
         sc = ScanSpec(name, tuple(units),
                       (int(point[0]), int(point[1])) if point else None,
@@ -2569,33 +2589,38 @@ class FieldBehavior:
 
     @staticmethod
     def _walk_do_paths(tree: "Node | None"):
-        """Yield ``(Do, positive Cond texts on its path)`` for every Do OCCURRENCE: a Sequence accumulates its
-        Cond children (an Invert is a negative test, not a gate on a flag being SET); Once/Cooldown descend."""
-        def walk(n, conds):
+        """Yield ``(Do, positive Cond texts, negated Cond texts)`` on its path for every Do OCCURRENCE: a
+        Sequence accumulates its Cond children, and an Invert's Cond lands in the NEGATED list (a negative test
+        is not a gate on a flag being SET -- but the same flag both required and negated is a branch that can
+        never be selected); Once/Cooldown descend."""
+        def walk(n, conds, negs):
             if isinstance(n, Selector):
                 for c in n.children:
-                    yield from walk(c, conds)
+                    yield from walk(c, conds, negs)
             elif isinstance(n, Sequence):
-                acc = list(conds)
+                acc, nacc = list(conds), list(negs)
                 for c in n.children:
                     if isinstance(c, Cond):
                         acc.append(c.text)
+                    elif isinstance(c, Invert):
+                        nacc.append(c.child.text)
                     else:
-                        yield from walk(c, acc)
+                        yield from walk(c, acc, nacc)
             elif isinstance(n, (Once, Cooldown)):
-                yield from walk(n.child, conds)
+                yield from walk(n.child, conds, negs)
             elif isinstance(n, Do):
-                yield n, list(conds)
+                yield n, list(conds), list(negs)
         if tree is not None:
-            yield from walk(tree, [])
+            yield from walk(tree, [], [])
 
     def _check_streams(self) -> None:
         """THE DRAW-CADENCE LAWS, before any emission (every lane -- TOML, Python, lint, build -- passes here).
         A selected branch EXECUTES EVERY TICK, so a roll draws once per event only on THE EDGE IDIOM: a public
         flag raised from outside, required by the branch's when, cleared by that branch and by no other."""
         owners = self._tree_owners()
-        occ = [(owner, is_cls, do, conds) for owner, tree, is_cls in owners
-               for do, conds in self._walk_do_paths(tree)]
+        occ5 = [(owner, is_cls, do, conds, negs) for owner, tree, is_cls in owners
+                for do, conds, negs in self._walk_do_paths(tree)]
+        occ = [o[:4] for o in occ5]
         raised = {f for _o, _c, do, _k in occ for f in do.raise_flags}
         clearers: dict[str, int] = {}
         for _o, _c, do, _k in occ:
@@ -2606,7 +2631,7 @@ class FieldBehavior:
         sched = {c for c, _t in self._schedules}
         drawn: set = set()
         self.stream_sites = {}
-        for owner, is_cls, do, conds in occ:
+        for owner, is_cls, do, conds, negs in occ5:
             seeded = isinstance(do.action, Wander) and do.action.seed is not None
             if (do.roll is not None or seeded) and (is_cls or self.brains):
                 raise BehaviorError(
@@ -2641,6 +2666,9 @@ class FieldBehavior:
             if edge is None:
                 why = ("no flag F is both required by this branch's when (a plain `flag = \"F\"` row), cleared "
                        "by its clear_flags, and declared in public_flags")
+            elif f"Global.Bit[{self.bb.flag(edge)}]" in negs:
+                why = (f"the same when also requires NOT {edge!r} (a not_flag row) -- the branch can never be "
+                       f"selected, so the stream would never draw")
             elif edge in raised:
                 why = f"{edge!r} is raised by a branch's raise_flags -- the system would re-arm its own edge"
             elif edge in alternators:
@@ -2651,8 +2679,9 @@ class FieldBehavior:
                 raise BehaviorError(
                     f"{owner}: a roll draws once per EXECUTION of its branch, and a selected branch executes "
                     f"every tick -- ride THE EDGE IDIOM: when = [{{ flag = \"F\" }}] + clear_flags = [\"F\"] on "
-                    f"this branch, F declared in public_flags (raised from outside: a [[choice]] row, an "
-                    f"[[event]], a gateway), raised by no raise_flags or alternator, cleared by no other "
+                    f"this branch, F declared in public_flags (raised from outside, by a press: a [[choice]] "
+                    f"row or an [[event]] trigger = \"action\"), raised by no raise_flags or alternator, cleared "
+                    f"by no other "
                     f"branch. Failed: {why}")
             drawn.add(r.stream)
             self.stream_sites.setdefault(r.stream, []).append(
@@ -2728,7 +2757,10 @@ class FieldBehavior:
                 out.append(f"       rolls 1-{k}: {' '.join(str(_RS.roll_value(v, lo, hi)) for v in st)}")
             elif len(sites) > 1:
                 out.append(f"       shared by {len(sites)} consumers: the i-th raise overall takes state i, "
-                           f"whichever flag it was")
+                           f"whichever flag it was -- each site's roll from those states:")
+                for _o, flag, _b, ctr, lo, hi in sites:
+                    out.append(f"         {ctr} (on {flag!r}): "
+                               f"{' '.join(str(_RS.roll_value(v, lo, hi)) for v in st)}")
         for owner, info in self.wander_streams.items():
             w = next(a for a in self._collect_tree_actions(self.units[owner].tree)
                      if isinstance(a, Wander) and a.seed is not None)

@@ -11,17 +11,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the largest product stays inside the 26-bit CalcStack); `roll = { stream, counter, range = [lo, hi] }` advances
   it once and writes `lo + S % n`. Ephemeral streams re-seed at every field entry, so a visit replays its draws;
   `persist = true` + `id` (6000000..6999999) guards the state like a persistent table, so **a reload cannot
-  re-roll**. The build prints each stream's start state and first states; `behavior compile` lists the rolls
-  each site will see — the numbers the game then draws.
+  re-roll**. The build prints each stream's start state and first states; `behavior compile` lists the roll
+  each draw site makes from them — the numbers the game then draws.
 - **`wander` gains `seed = N`**: the targets come from a private stream, the same sequence after every entry
   (the Workspace simulator replays it). A HUD value `"stream:<name>"` shows a stream's state.
 - The draw-cadence laws are refusals at build: a roll rides the edge idiom (a public flag its branch requires
-  and clears, raised by nothing inside the tree); a `roll` in `when` is refused; so is a walk tread with
-  `once = false` that raises a roll's flag.
+  and clears, raised by nothing inside the tree); a `roll` in `when` is refused; so is anything that writes a
+  roll's flag every frame — a walk tread with `once = false`, a tread whose once-latch is that flag, a `[[coop]]`
+  gate. A wander box past the Int16 target slots (±32767) is refused for every wander.
 
 ### Changed
-- **A `[behavior]` table with no `[[behavior.unit]]` is now refused** (outside verbatim forks). It compiled to
-  nothing — its tables, streams, counters and HUDs never ran — and said nothing.
+- **A `[behavior]` table with no `[[behavior.unit]]` is now refused.** It compiled to nothing — its tables,
+  streams, counters and HUDs never ran — and said nothing. On a verbatim fork any `[behavior]` block is refused
+  by name (it was silently dropped when it had no unit).
 
 ### Fixed — the overflow docs, the wander simulator, the branch editor
 - **CalcStack overflow wraps mod 2^26** and stays an integer, measured in-game; the kit's comments and docs

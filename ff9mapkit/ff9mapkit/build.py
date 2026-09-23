@@ -1521,7 +1521,21 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append("[[gateway]] ate_title must be a non-empty string (the ATE title-window text).")
         if str(gw.get("to")).strip().lower() != "worldmap":   # worldmap already rejects both keys outright above
             _validate_gate_exclusive(gw, "[[gateway]]", problems)
-    _roll_edges_cache: dict = {}                 # roll_edge_flags runs a throwaway build: once
+    # THE PER-FRAME WRITER LAW (roll streams): a roll draws once per EXECUTION of its branch, and the branch
+    # is selected while its edge flag is set -- so nothing may rewrite that flag every frame. roll_edge_flags
+    # runs a throwaway build: computed lazily, once, and only for a field that has a writer to check.
+    _roll_edges_cache: dict = {}
+
+    def _roll_edges() -> dict:
+        if "v" not in _roll_edges_cache:
+            _roll_edges_cache["v"] = _behaviortoml.roll_edge_flags(project.raw)
+        return _roll_edges_cache["v"]
+
+    def _bit_of(v):
+        """A flag index from ``[idx, val]`` or a bare ``idx`` -- None for anything else (validate never raises)."""
+        v = v[0] if isinstance(v, (list, tuple)) and v else v
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+
     for ev in project.raw.get("event", []):
         z = ev.get("zone", [])
         if len(z) not in (4, 5):
@@ -1562,17 +1576,21 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[event]] trigger=\"action\" with once=false and a give_item/gil reward "
                             "is an infinite item/gil faucet (every press pays out) -- set once=true, "
                             "or drop the reward from a repeatable sign")
-        if trig in (None, "walk") and ev.get("once", True) is False and "set_flag" in ev:
-            try:
-                _edge_bit = int(ev["set_flag"][0])
-            except (TypeError, ValueError, IndexError, KeyError):
-                _edge_bit = None
-            _edges = _roll_edges_cache.setdefault("v", _behaviortoml.roll_edge_flags(project.raw))
-            if _edge_bit in _edges:
+        if trig in (None, "walk"):
+            # the build keys the tread's latch on TRUTHINESS (`if ev.get("once", True)`), so `once = 0` is an
+            # unlatched tread too -- test it the same way, never `is False`
+            _set_bit = _bit_of(ev.get("set_flag")) if not ev.get("once", True) else None
+            _latch_bit = _bit_of(ev.get("flag")) if ev.get("once", True) else None
+            if _set_bit is not None and _set_bit in _roll_edges():
                 problems.append(f"[[event]] a walk tread with once = false re-fires every frame while the player "
-                                f"stands in it -- it writes roll edge flag {_edges[_edge_bit]!r} (bit "
-                                f"{_edge_bit}) repeatedly, so the roll would draw once per TICK; use trigger = "
+                                f"stands in it -- it writes roll edge flag {_roll_edges()[_set_bit]!r} (bit "
+                                f"{_set_bit}) every frame, so the roll would draw once per TICK; use trigger = "
                                 f"\"action\" (a press) or once = true")
+            if _latch_bit is not None and _latch_bit in _roll_edges():
+                problems.append(f"[[event]] a walk tread's once-latch flag {_latch_bit} is roll edge flag "
+                                f"{_roll_edges()[_latch_bit]!r} -- the roll's clear RE-ARMS the tread, so it "
+                                f"re-fires every frame the player stands in it and the roll draws once per TICK; "
+                                f"drop `flag` (the build allocates a private latch) or use trigger = \"action\"")
         if ev.get("bubble") and trig != "action":
             problems.append("[[event]] bubble (the \"!\" press prompt) needs trigger = \"action\" -- "
                             "a walk event's tread slot IS its trigger, there is no press to prompt for")
@@ -1625,6 +1643,14 @@ def validate(project: FieldProject) -> list[str]:
         _validate_gate_exclusive(p, f"[[prop]] {p.get('prop', p.get('name', '#' + str(k)))!r}", problems)
     for k, co in enumerate(project.raw.get("coop", [])):
         _validate_gate_exclusive(co, f"[[coop]] gate {co.get('name', '#' + str(k))!r}", problems)
+        _co_bit = _bit_of(co.get("set_flag")) if isinstance(co, dict) else None
+        if _co_bit is not None and _co_bit in _roll_edges():
+            problems.append(f"[[coop]] gate {co.get('name', '#' + str(k))!r} writes roll edge flag "
+                            f"{_roll_edges()[_co_bit]!r} (bit {_co_bit}) -- a gate is polled every frame "
+                            f"(mode = \"hold\" rewrites its level each frame; mode = \"once\" latches ON the flag, "
+                            f"so the roll's clear re-arms it), so the roll would draw once per TICK while the "
+                            f"plate is held; raise the edge from a press ([[event]] trigger = \"action\", a "
+                            f"[[choice]] row) instead")
     # [start_inventory] / [[equipment]] -- new-game starting state (mod-global CSV deltas on the entry field)
     si = project.raw.get("start_inventory")
     if si is not None:

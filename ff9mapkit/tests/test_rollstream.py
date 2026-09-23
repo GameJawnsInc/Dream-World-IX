@@ -3,6 +3,7 @@
 Goldens pin the contract (a persistent stream's check word folds GEN_TAG in, so these numbers are a promise
 to every save that holds a stream); the lattice test documents why 236 and not 237."""
 import math
+from pathlib import Path
 
 import pytest
 
@@ -87,5 +88,20 @@ def test_the_roll_bias_stays_under_half_a_percent(n):
 
 
 def test_the_wander_bytes_visit_every_pair_once():
-    pairs = {(s % 256, (s // 256) % 256) for s in range(1, R.M)}
-    assert len(pairs) == R.M - 1
+    """wander_target's byte split: at radius 128 an offset IS (byte - 128), so over one period the targets are
+    exactly the 256 x 256 grid, each once -- x from the low byte, z from the next (a swapped or repeated byte
+    would collapse the set)."""
+    targets = [R.wander_target(s, 0, 0, 128) for s in range(1, R.M)]
+    assert set(targets) == {(x, z) for x in range(-128, 128) for z in range(-128, 128)}
+    assert R.wander_target(0x1234 + 0x10000 * 0, 0, 0, 128) == (0x34 - 128, 0x12 - 128)
+
+
+def test_the_import_itself_runs_the_proof():
+    """The module proves its constants AT IMPORT: the same source with an overflowing multiplier refuses to
+    load (a proof that only a test calls is a proof the shipped build never runs)."""
+    src = Path(R.__file__).read_text(encoding="utf-8")
+    assert src.count("A, M = 236, 65537") == 1
+    ns = {"__name__": "ff9mapkit.content._rollstream_probe", "__package__": "ff9mapkit.content"}
+    exec(compile(src, R.__file__, "exec"), dict(ns))                  # the shipped source loads
+    with pytest.raises(RuntimeError, match="overflows the 26-bit CalcStack"):
+        exec(compile(src.replace("A, M = 236, 65537", "A, M = 600, 65537"), R.__file__, "exec"), dict(ns))

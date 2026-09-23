@@ -566,20 +566,17 @@ def _branch_roll(br: dict, ctx: str):
 
 
 def roll_edge_flags(raw: dict) -> dict:
-    """``{flag index: name}`` for every public flag a roll branch rides (its edge) -- what an [[event]] must
-    not re-raise every frame. A throwaway build (the :func:`published_flags` pattern); never raises."""
-    b = table(raw)
-    if not b:
-        return {}
-    edges = set()
-    for u in b.get("unit", []) or []:
-        for br in (u.get("branch", []) if isinstance(u, dict) else []) or []:
-            if isinstance(br, dict) and isinstance(br.get("roll"), dict):
-                edges.update(str(f) for f in (br.get("clear_flags") or []))
-    if not edges:
-        return {}
+    """``{flag index: name}`` for every public flag a roll DRAWS on -- the edge the compiler's own edge law
+    picked for each draw site (``FieldBehavior.stream_sites``), never merely another flag the branch also
+    clears. What an [[event]] tread or a [[coop]] gate must not rewrite every frame. A throwaway build (the
+    :func:`published_flags` pattern); never raises -- a malformed table is validate's to report."""
     import copy as _copy
     try:
+        b = table(raw)
+        if not b or not any(isinstance(br, dict) and isinstance(br.get("roll"), dict)
+                            for u in b.get("unit", []) or [] if isinstance(u, dict)
+                            for br in u.get("branch", []) or []):
+            return {}
         work = _copy.deepcopy(raw)
         for u in (table(work) or {}).get("unit", []) or []:
             for br in u.get("branch", []) or []:
@@ -590,7 +587,8 @@ def roll_edge_flags(raw: dict) -> dict:
         fb = build(work, npc_slots=placeholder_slots(work),
                    npc_txids_by_name={n.get("name"): 0 for n in work.get("npc", []) or []},
                    behavior_txids=txids)
-        return {fb.bb.flag(f): f for f in sorted(edges) if f in fb._public_flags}
+        fb._check_streams()                        # the edge law itself fills stream_sites (no emission)
+        return {bit: flag for sites in fb.stream_sites.values() for _o, flag, bit, *_rest in sites}
     except Exception:                              # noqa: BLE001 -- never fail a lint
         return {}
 
@@ -1475,7 +1473,11 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
     """Static problems with the [behavior] table (build ``validate()`` + `behavior
     lint`). Structural only — a full dry compile is the CLI's job."""
     rb = raw.get("behavior")
-    if isinstance(rb, dict) and rb and not rb.get("unit") and not verbatim:
+    if verbatim and isinstance(rb, dict) and rb:     # with or without units: the build drops it either way
+        return ["[behavior] on a VERBATIM fork is not wired (the donor's real .eb "
+                "runs; behavior needs the kit's injected NPC entries) — use a "
+                "--native/--editable fork or a novel field"]
+    if isinstance(rb, dict) and rb and not rb.get("unit"):
         return ["[behavior] has no [[behavior.unit]] — the block compiles to NOTHING (its streams and "
                 "tables are never seeded, its counters and HUDs never run); add a unit (any NPC holding "
                 "its post)"]
@@ -1483,11 +1485,6 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
     if not b:
         return []
     problems = []
-    if verbatim:
-        problems.append("[behavior] on a VERBATIM fork is not wired (the donor's real .eb "
-                        "runs; behavior needs the kit's injected NPC entries) — use a "
-                        "--native/--editable fork or a novel field")
-        return problems
     extra = set(b) - FIELD_KEYS
     if extra:
         problems.append(f"[behavior]: unknown key(s) {sorted(extra)}")
@@ -1850,6 +1847,9 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
             problems.append(f"{ctx}: flags need a point/radius box")
         if fl is not None and str(fl) in declared_tables:
             problems.append(f"{ctx}: flags {fl!r} collides with a [[behavior.table]]")
+        elif fl is not None and str(fl) in declared_streams:
+            problems.append(f"{ctx}: flags {fl!r} collides with a [[behavior.stream]] -- streams, tables and "
+                            f"counters share one namespace")
         elif nm and roster_len:
             # scans DECLARE tables too — the flags table (user-named or the
             # scan.<name>.near default, box scans only) plus, in the units
@@ -2043,7 +2043,11 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 if verb == "flee" and "to" in do:
                     _resolve_route(do["to"], positions, mpaths, ctx)
                 if verb in ("walk_to", "hold", "wander"):
-                    _resolve_point(v, positions, ctx)
+                    _pt = _resolve_point(v, positions, ctx)
+                    if verb == "wander":
+                        _wb = B.wander_box_problem(_pt, do.get("radius", 400))
+                        if _wb:
+                            problems.append(f"{ctx}: {_wb}")
                 if verb == "hold_post" and v is not True:
                     problems.append(f"{ctx}: hold_post takes `true` (it holds the unit's "
                                     f"own placement post)")

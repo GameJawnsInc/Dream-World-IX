@@ -70,8 +70,16 @@ oracle. Laws, all refusals at build: a roll only on the edge idiom (its flag pub
 cleared by it and no other branch, never raised by `raise_flags` or an alternator); a roll in `when` is refused
 permanently (a condition is evaluated per tick); no roll into a scan headcount or the wave-schedule counter; a
 declared stream no roll draws; streams on class rows or `brains = true` (v1 ticker only); a seeded wander beside a
-second wander on one unit; a `[behavior]` with no unit (it compiles to nothing — streams never seeded); a walk tread
-with `once = false` that raises a roll's edge flag (it would draw once per tick while stood in).
+second wander on one unit; a `[behavior]` with no unit (it compiles to nothing — streams never seeded); anything that
+writes a roll's edge every frame — a walk tread with `once = false`, a tread whose once-latch is the edge, a `[[coop]]`
+gate; a `when` that negates its own edge; a wander box past the Int16 target slots.
+
+**The review round** (5 lenses, 2 skeptics per finding): 33 findings survived, ~12 distinct. Fixed: the per-frame
+writers above (the `[[coop]]` gate, `once = 0` slipping an `is False` test, the latch-is-edge tread);
+`roll_edge_flags` now reads the compiler's own draw sites (it had counted every flag a roll branch clears) and
+never raises; a scan `flags` table can no longer take a stream's name; verbatim forks refuse any `[behavior]`; the
+simulator's ledger names idle rolls and seeded timing and never raises on a bad seed; `behavior compile` prints a
+shared stream's per-site rolls; and the tests that could not fail now can (18 new mutants, all killed).
 
 **The bench** [`bench/roll1.field.toml`](bench/roll1.field.toml) (30900): an ephemeral stream `eph` (seed 1, x0 14369)
 drawn by two consumers (`pick` 0..5 and `die` 1..6), a persistent `dwix_rs1` (id 6004900, x0 28707, check word

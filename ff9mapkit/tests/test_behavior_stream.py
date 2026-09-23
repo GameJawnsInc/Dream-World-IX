@@ -186,11 +186,7 @@ def test_a_foreign_or_older_generator_word_reseeds(guard):
     assert e.vec[p.tid] == [p.x0] and e.vec[p.tid + B.PERSIST_GUARD_OFFSET] == [p.word]
 
 
-def test_a_field_without_streams_keeps_its_ids_and_emits_no_advance():
-    """With every stream/roll/seed removed, nothing stream-shaped is emitted and the table ids are the ones a
-    stream-free compile always allocated (byte identity of every [behavior] toml in the repo was checked
-    before/after the feature by compiling each one)."""
-    r = raw()
+def _strip_streams(r: dict) -> dict:
     b = r["behavior"]
     del b["stream"]
     for u in b["unit"]:
@@ -198,10 +194,21 @@ def test_a_field_without_streams_keeps_its_ids_and_emits_no_advance():
             br.pop("roll", None)
             if isinstance(br.get("do"), dict):
                 br["do"].pop("seed", None)
-    fb, cb = BT.dry_compile(r)
+    return r
+
+
+def test_adding_streams_moves_no_declared_table_or_counter_id_and_a_stream_free_field_emits_none():
+    """Streams allocate AFTER the declared tables and counters, so adding one to a field keeps every id those
+    already had (compiled both ways here); a stream-free compile emits nothing stream-shaped. (Byte identity of
+    every repo [behavior] toml was checked before/after the feature by compiling each one.)"""
+    fb_s, _cb = compiled()
+    fb, cb = BT.dry_compile(_strip_streams(raw()))
     assert not fb.streams and not fb.wander_streams
-    assert all(SIG not in t for t in stmts(cb.ticker_body))
-    assert fb.tables["tally"][0] == B.TABLE_ID_BASE           # the stream never moved an existing id
+    assert all(SIG not in t for t in stmts(cb.ticker_body) + stmts(cb.main_init))
+    assert fb.tables["tally"][0] == fb_s.tables["tally"][0] == B.TABLE_ID_BASE
+    assert fb._ctr_tid == fb_s._ctr_tid
+    assert all(fb_s.tables[k][0] > fb_s._ctr_tid for k in fb_s._stream_keys
+               if fb_s.tables[k][0] < B.PERSIST_TID_LO)          # ephemeral streams come after, never between
 
 
 # ---------------------------------------------------------------------------------------- report + HUD
@@ -213,6 +220,10 @@ def test_the_report_and_warning_carry_the_oracle():
     rolls = " ".join(str(R.roll_value(v, 1, 100)) for v in R.states(p.x0, 8))
     assert f"rolls 1-8: {rolls}" in cb.report
     assert "shared by 2 consumers" in cb.report
+    # a SHARED stream lists each site's roll from the same states (the docs promise it)
+    for ctr, lo, hi, flag in (("pick", 0, 5, "draw_e"), ("die", 1, 6, "draw_d")):
+        per = " ".join(str(R.roll_value(v, lo, hi)) for v in R.states(eph.x0, 8))
+        assert f"{ctr} (on {flag!r}): {per}" in cb.report
     assert f"check word {p.word}" in fb.streams_warning()
     assert "(225,-915)" in cb.report                          # the walker's first target
     assert "dwix_rs1.lehmer236.65537:" not in cb.report       # not listed again as a table
@@ -273,13 +284,100 @@ def test_edge_law_no_other_branch_may_clear_the_edge():
     assert "cleared by another branch" in _compile_err(_with(m))
 
 
-def test_once_or_cooldown_over_an_edge_consumed_roll_is_still_one_draw():
+def _straight_blocks(body: bytes) -> list:
+    """The body cut into straight-line runs: a run ends at a jump and a new one starts at any jump TARGET."""
+    ins = list(D.iter_code(body, 0, len(body)))
+    targets = {D.jump_target(i) for i in ins if i.op in D.JUMP_OPS}
+    blocks, cur = [], []
+    for i in ins:
+        if i.off in targets and cur:
+            blocks.append(cur)
+            cur = []
+        cur.append(i)
+        if i.op in D.JUMP_OPS:
+            blocks.append(cur)
+            cur = []
+    return blocks + ([cur] if cur else [])
+
+
+@pytest.mark.parametrize("deco", [None, {"cooldown": 30}, {"once": "told"}])
+def test_every_roll_advance_runs_only_in_a_pass_that_clears_its_edge(deco):
+    """One draw per raise, whatever decorates the branch: each roll's advance sits in the SAME straight-line
+    run as its edge's clear, after it -- so the pass that draws is the pass that consumes the edge, and the next
+    tick's `when` fails. (A decorator may gate the run; it can never split the draw from the consume.)"""
     def m(b):
-        _keeper(b)[0]["cooldown"] = 30
-    BT.dry_compile(_with(m))                                  # allowed: the edge still decides
+        if deco:
+            _keeper(b)[0].update(deco)
+    fb, cb = BT.dry_compile(_with(m))
+    body = cb.ticker_body
+    clear_re = re.compile(r"Global\.Bit\[(\d+)\] const\(0\) B_LET")
+    for stream, sites in fb.stream_sites.items():
+        S = B.stream_ref(fb.streams[stream].tid)
+        consumed = []                        # for each advance of S: the edge its straight-line run cleared
+        for blk in _straight_blocks(body):
+            last_clear = None
+            for i in blk:
+                if i.op != 0x05:
+                    continue
+                t = stmts(body[i.off:i.end])[0]
+                mc = clear_re.fullmatch(t)
+                if mc:
+                    last_clear = int(mc.group(1))
+                elif t.startswith(f"{S} {S}") and SIG in t:
+                    consumed.append(last_clear)
+        # exactly one advance per draw site, each after ITS OWN edge's clear in the same run
+        assert sorted(consumed, key=str) == sorted((bit for _o, _f, bit, *_r in sites), key=str),             (stream, consumed)
+    assert sum(len(v) for v in fb.stream_sites.values()) == 3
+    assert sum(SIG in t for t in stmts(body)) == 4                  # + the seeded wander's own advance
 
 
-def test_a_roll_into_a_scan_or_scheduled_counter_is_refused():
+def test_a_roll_whose_when_also_negates_its_edge_is_refused():
+    def m(b):
+        _keeper(b)[0]["when"] = [{"flag": "draw_e"}, {"not_flag": "draw_e"}]
+    assert "can never be selected" in _compile_err(_with(m))
+
+
+def test_an_alternator_edge_is_refused():
+    """A flag that is public AND an alternator is a clock, not an event: the alternator clause itself fires
+    (the flag stays public here, so no other clause can)."""
+    def m(b):
+        b["alternators"] = [{"name": "draw_e", "frames": 30}]
+    assert "is an alternator -- a clock, not an event" in _compile_err(_with(m))
+
+
+def test_a_roll_into_the_schedule_counter_is_refused():
+    def m(b):
+        b["timer"] = 120
+        b["schedule"] = [{"counter": "pick", "table": "tally"}]
+    assert "a clock rewrites that counter" in _compile_err(_with(m))
+
+
+def test_a_scan_flags_table_may_not_take_a_streams_name():
+    def m(b):
+        b["counters"].append("hc")
+        b["scan"] = [{"name": "sc", "units": ["walker"], "point": [0, -1100], "radius": 300, "count": "hc",
+                      "flags": "eph"}]
+    r = _with(m)
+    assert any("collides with a [[behavior.stream]]" in p for p in BT.validate(r))
+    assert "taken by a roll stream" in _compile_err(r)
+
+
+@pytest.mark.parametrize("centre,radius,bad", [([0, -1100], 300, False), ([30000, 0], 4000, True),
+                                               ([0, -32000], 800, True), ([32000, 0], 767, False)])
+def test_a_wander_box_past_the_int16_target_slots_is_refused(centre, radius, bad):
+    """The re-roll stores wtx/wtz as Int16: a box past +-32767 would wrap (and a seeded prediction would lie)."""
+    def m(b):
+        b["unit"][1]["branch"][0]["do"].update(wander=centre, radius=radius)
+    r = _with(m)
+    probs = [p for p in BT.validate(r) if "Int16" in p]
+    assert bool(probs) == bad
+    if bad:
+        assert "Int16" in _compile_err(r)
+    else:
+        BT.dry_compile(r)
+
+
+def test_a_roll_into_a_scan_counter_is_refused():
     def m(b):
         b["scan"] = [{"name": "hc", "units": ["walker"], "point": [0, -1100], "radius": 300, "count": "pick"}]
     assert "a clock rewrites that counter" in _compile_err(_with(m))
@@ -398,6 +496,52 @@ def test_a_walk_tread_that_re_raises_a_roll_edge_every_frame_is_refused(tmp_path
     assert probs(f"once=true\nset_flag=[{edge_bit},1]\n") == []
     assert probs(f'trigger="action"\nonce=false\nset_flag=[{edge_bit},1]\n') == []
     assert probs(f"once=false\nset_flag=[{fb.bb.flag('draw_p') + 7},1]\n") == []
+    assert probs(f"once=0\nset_flag=[{edge_bit},1]\n")             # the build latches on TRUTHINESS
+    # a latched tread whose once-latch IS the edge: the roll's clear re-arms it every frame
+    assert probs(f"flag={edge_bit}\nset_flag=[{edge_bit},1]\n")
+    assert probs(f'trigger="action"\nflag={edge_bit}\nset_flag=[{edge_bit},1]\n') == []
+
+
+@pytest.mark.parametrize("mode", ["hold", "once"])
+def test_a_coop_gate_that_writes_a_roll_edge_is_refused(tmp_path, mode):
+    """A [[coop]] gate is polled every frame: hold rewrites its level, once latches ON the flag (so the roll's
+    clear re-arms it) -- either way the roll would draw once per tick while the plate is held."""
+    from ff9mapkit import build
+    fb, _ = compiled()
+    base = ('[field]\nid=4003\nname="Z"\narea=11\ntext_block=1073\n\n[camera]\npitch=45\nfov=42.2\n\n'
+            '[walkmesh]\nquad=[[-1500,-2000],[1500,-2000],[1500,500],[-1500,500]]\n\n' + FIELD)
+
+    def probs(bit):
+        p = tmp_path / "c.field.toml"
+        p.write_text(base + f'\n[[coop]]\nname="g"\nmode="{mode}"\nplate=[100,-100,300,-300]\nset_flag={bit}\n',
+                     encoding="utf-8")
+        return [x for x in build.validate(build.FieldProject.load(p)) if "roll edge" in x]
+    assert probs(fb.bb.flag("draw_e"))
+    assert probs(fb.bb.flag("draw_p") + 7) == []
+
+
+def test_roll_edge_flags_is_exactly_the_drawn_edges_and_never_raises():
+    """Only the flag each roll DRAWS on is an edge -- not another public flag the branch also clears -- and a
+    malformed table yields {} (validate reports it) instead of raising out of build.validate."""
+    def m(b):
+        b["public_flags"].append("tidy")
+        _keeper(b)[0]["clear_flags"] = ["draw_e", "tidy"]
+    r = _with(m)
+    fb, _ = BT.dry_compile(r)
+    edges = BT.roll_edge_flags(r)
+    assert set(edges.values()) == {"draw_e", "draw_d", "draw_p"}
+    assert fb.bb.flag("tidy") not in edges
+    bad = raw()
+    _keeper(bad["behavior"])[0]["clear_flags"] = 5
+    assert BT.roll_edge_flags(bad) == {}
+
+
+def test_any_behavior_block_on_a_verbatim_fork_is_refused_by_name():
+    r = raw()
+    del r["behavior"]["unit"]
+    probs = BT.validate(r, verbatim=True)
+    assert len(probs) == 1 and "VERBATIM fork is not wired" in probs[0]
+    assert "has no [[behavior.unit]]" in BT.validate(r)[0]
 
 
 def test_the_branch_editor_round_trips_a_roll_branch():
@@ -409,17 +553,27 @@ def test_the_branch_editor_round_trips_a_roll_branch():
 
 
 def test_the_behavior_doc_example_builds_and_its_rolls_are_the_oracles():
-    """The docs' roll-stream example is what authors copy: it must validate, compile as written, and its one
-    draw site must advance the persistent stream the oracle predicts (x0 from (name, seed); die 1..6)."""
+    """The docs' roll-stream example is what authors copy: it must validate, compile as written, and the rolls
+    its report prints must equal an INDEPENDENT recomputation -- the seed recipe and the recurrence written out
+    here with literal constants, not the rollstream functions the compiler itself calls."""
+    import hashlib
     from pathlib import Path
     doc = (Path(__file__).resolve().parents[1] / "docs" / "BEHAVIOR.md").read_text(encoding="utf-8")
     sect = doc[doc.index("### Roll streams"):]
     start = sect.index("```toml") + len("```toml")
     raw = tomllib.loads('[[npc]]\nname = "teller"\npos = [0, 0]\n' + sect[start:sect.index("```", start)])
     assert BT.validate(raw) == []
-    fb, _cb = BT.dry_compile(raw)
+    fb, cb = BT.dry_compile(raw)
     info = fb.streams["mymod_fate"]
-    assert info.persist and info.tid == 6412346 and info.x0 == R.seed_state("mymod_fate", 7)
+    d = hashlib.sha256(b"ff9mapkit.stream.v1\0mymod_fate\x007").digest()
+    x = 1 + int.from_bytes(d[:4], "little") % 65536
+    assert info.persist and info.tid == 6412346 and info.x0 == x
+    omens = []
+    for _ in range(8):
+        x = 236 * x % 65537
+        omens.append(1 + x % 6)
+    assert f"rolls 1-8: {' '.join(map(str, omens))}" in cb.report
     assert [(o, f, c, lo, hi) for o, f, _b, c, lo, hi in fb.stream_sites["mymod_fate"]] == \
         [("teller", "ask", "omen", 1, 6)]
-    assert list(fb.persist_words) == [R.backing_key("mymod_fate")] and         fb.persist_words[R.backing_key("mymod_fate")] == info.word
+    assert list(fb.persist_words) == [R.backing_key("mymod_fate")]
+    assert fb.persist_words[R.backing_key("mymod_fate")] == info.word

@@ -773,9 +773,12 @@ text = "[MPOS=10,48]OMEN [NUMB=0]"
   branch would draw about 30 times a second. The build refuses a roll unless its branch's `when`
   requires a public flag that the same branch clears and nothing else raises (`raise_flags`, an
   alternator) or clears. Raise the flag from outside: a `[[choice]]` row, an `[[event]]` with
-  `trigger = "action"`. A walk tread with `once = false` re-fires while the player stands in it and is
-  refused when it raises a roll's flag. A `roll` inside `when` is refused outright — a condition is
-  evaluated every tick it is reached, so it would draw per evaluation.
+  `trigger = "action"`. Anything that writes the flag every frame is refused: a walk tread with
+  `once = false` (it re-fires while the player stands in it), a tread whose once-latch `flag` IS the
+  roll's flag (the roll's clear re-arms it), and any `[[coop]]` gate that writes it (a gate is polled
+  every frame). A `roll` inside `when` is refused outright — a condition is evaluated every tick it is
+  reached, so it would draw per evaluation — and so is a `when` that also negates the roll's flag (it
+  can never be selected).
 - **Ephemeral or persistent.** Without `persist` the stream re-seeds at every field entry (`~ → Reload`
   and Continue too), so the same visit replays the same draws: fixed puzzles, reproducible encounters,
   a deterministic test. With `persist = true` it is guarded exactly like a persistent table (same id
@@ -784,7 +787,8 @@ text = "[MPOS=10,48]OMEN [NUMB=0]"
   proven by the harness ([`studies/roll-stream/`](../../studies/roll-stream/PLAN.md) rung 1).
 - **The oracle.** The build prints each stream's start state and first states —
   `mymod_fate (PERSISTENT vector 6412346, …) x0 … -> …` — and `ff9mapkit behavior compile` lists the
-  first eight with the rolls each site will see. The seed is hashed with the stream's name, so two
+  first eight with the roll each draw site makes from them (a stream shared by several sites hands each
+  raise the next state, whichever site it was). The seed is hashed with the stream's name, so two
   streams on one seed are unrelated. Editing a persistent stream's `seed` reaches new games only.
 - **A seeded wander.** `do = { wander = [x, z], radius = r, seed = N }` takes its targets from a
   private stream instead of the engine RNG: the unit walks the same sequence of targets after every
@@ -792,7 +796,9 @@ text = "[MPOS=10,48]OMEN [NUMB=0]"
 - **See the state.** A HUD value `"stream:<name>"` shows the raw state (read-only — it never
   advances the stream); give it `digits = 5`.
 - **Limits.** v1 ticker only (not on class rows or with `brains = true`); every declared stream must
-  be drawn by some `roll`; no roll into a scan headcount or the schedule counter.
+  be drawn by some `roll`; no roll into a scan headcount or the schedule counter; streams, tables and
+  counters share one namespace (a scan's `flags` table too); a wander box must stay inside ±32767 (the
+  target slots are Int16).
 
 ## Adjust and drift — the numeric-write lane
 

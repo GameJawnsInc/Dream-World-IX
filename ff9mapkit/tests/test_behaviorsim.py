@@ -7,6 +7,8 @@ Plus the instrument laws: determinism, and the honesty ledger on its face."""
 
 from __future__ import annotations
 
+import pytest
+
 from ff9mapkit.workspace import behaviorsim as SIM
 
 
@@ -375,6 +377,28 @@ def test_wander_rerolls_every_plus_one_selected_ticks():
             rolls.append(t)
         prev = cur
     assert len(rolls) >= 4 and all(b - a == 11 for a, b in zip(rolls, rolls[1:])), rolls
+
+
+def test_the_honesty_ledger_names_idle_rolls_and_seeded_timing():
+    """A roll rides a public flag raised from OUTSIDE the tree, which the sim never raises -- so the ledger says
+    its counter stays 0; a seeded wander's timing is the sim's own."""
+    roll = {"when": [{"flag": "ask"}], "roll": {"stream": "s", "counter": "c", "range": [1, 6]},
+            "clear_flags": ["ask"], "do": {"hold_post": True}}
+    raw = _field([_unit("a", [roll, {"do": {"wander": [0, 0], "radius": 300, "seed": 7}}])])
+    sim = SIM.Sim(raw)
+    assert any("roll branches" in n for n in sim.notes) and "rolls idle" in sim.short
+    assert any("seeded wander" in n for n in sim.notes)
+    assert not any("roll branches" in n for n in SIM.Sim(_field([_unit("a", [{"do": {"hold_post": True}}])])).notes)
+
+
+@pytest.mark.parametrize("seed", ["abc", [1], {"a": 1}, 0, True])
+def test_a_malformed_wander_seed_never_raises_in_the_sim(seed):
+    """Lenient like the stage: a bad seed (validate reports it) simulates unseeded with a note."""
+    raw = _field([_unit("a", [{"do": {"wander": [0, 0], "radius": "x", "every": [2], "seed": seed}}])])
+    sim = SIM.Sim(raw)
+    sim.run_to(30)
+    assert sim._units[0].wander_tgt is not None
+    assert any("invalid" in n for n in sim.notes)
 
 
 def test_a_seeded_wander_replays_its_in_game_target_sequence():

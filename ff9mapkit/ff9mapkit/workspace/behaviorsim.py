@@ -46,6 +46,16 @@ from . import behaviorscan as BS
 TICKS_PER_SEC = 30                     # the engine event loop; 400-frame alternator ≈ 13 s
 
 
+def _int_or(v, default: int) -> int:
+    """``v`` as an int, or ``default`` when absent or malformed -- the sim is lenient (validate refuses)."""
+    if isinstance(v, bool) or v is None:
+        return default
+    try:
+        return int(v) or default
+    except (TypeError, ValueError):
+        return default
+
+
 def _dflt(cls, name):
     """A compiler action dataclass's field default — derived, never copied."""
     return cls.__dataclass_fields__[name].default
@@ -200,6 +210,17 @@ class Sim:
             self.notes.append("battle logs an event here; in-game it suspends the "
                               "field (swirl, fight, Main_Reinit return)")
             self.short.append("battle only logs")
+        if any(isinstance(br.get("roll"), dict) for r in self.rows for br in r["branches"]):
+            # a roll rides THE EDGE IDIOM: its public flag is raised from OUTSIDE the tree (a press), and
+            # nothing here raises a public flag -- so a roll branch never selects and its counter stays 0
+            self.notes.append("roll branches draw only when their public flag is raised from outside the "
+                              "tree (a [[choice]] press, an [[event]]) -- the sim raises none, so they never "
+                              "select here and their counters stay at 0")
+            self.short.append("rolls idle")
+        if any(isinstance(br.get("do"), dict) and "wander" in br["do"] and br["do"].get("seed") is not None
+               for r in self.rows for br in r["branches"]):
+            self.notes.append("a seeded wander walks its in-game target SEQUENCE; WHEN each re-roll lands is "
+                              "the sim's own timing (no warm-up, straight walks)")
         self._snapshot(0)              # state 0 = boot
 
     # ------------------------------------------------------------------ public API
@@ -630,22 +651,27 @@ class Sim:
             centre = self._point(do.get("wander"))
             if centre is None:
                 return
-            radius = int(do.get("radius") or _WANDER_R)
+            radius = _int_or(do.get("radius"), _WANDER_R)
             # the compiled re-roll (behavior._feed_effect): `wt > 0 ? wt-- : { wt = every; roll }` on every
             # SELECTED tick -- a per-unit countdown that freezes while another branch holds selection, the
             # first roll on the first selected tick. (The TOML key is `every`; this read `hold`, a key a
             # wander `do` can never carry, so every author period came out as the default 90.)
-            hold = int(do.get("every") or _WANDER_HOLD)
+            hold = _int_or(do.get("every"), _WANDER_HOLD)
             if u.wtimer > 0 and u.wander_tgt is not None:
                 u.wtimer -= 1
             else:
                 u.wtimer = hold
-                if do.get("seed") is not None:
+                from ..content import rollstream as _RS
+                seed = do.get("seed")
+                if seed is not None and _RS.seed_problem(seed):
+                    self._note_once(f"{u.name}: wander seed {seed!r} is invalid -- simulated unseeded "
+                                    f"(validate reports it)")
+                    seed = None
+                if seed is not None:
                     # a SEEDED wander replays its private roll stream exactly (content/rollstream.py): the
                     # target SEQUENCE is the in-game one; only the timing is the simulator's
-                    from ..content import rollstream as _RS
                     if u.wstream is None:
-                        u.wstream = _RS.seed_state(_RS.wander_ident(u.name), int(do["seed"]))
+                        u.wstream = _RS.seed_state(_RS.wander_ident(u.name), seed)
                     u.wstream = _RS.advance(u.wstream)
                     u.wander_tgt = _RS.wander_target(u.wstream, int(centre[0]), int(centre[1]), radius)
                 else:
