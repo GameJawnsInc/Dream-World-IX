@@ -532,8 +532,7 @@ def test_music_replace_field_music():
     assert EbScript.from_bytes(out).to_bytes() == out    # entry table / structure intact (length-preserving)
     # the LOAD must be rescored TOO -- PLAY alone leaves the OLD song loaded + audible (the Ice Cavern fork bug).
     # a field that LOADs (code 1792) + PLAYs song 9: BOTH calls rescore (n == 2) and no PLAY/LOAD of 9 survives.
-    mi = EbScript.from_bytes(base).entry(0).func_by_tag(0)
-    loaded = _edit.insert_bytes(base, mi.abs_start, opcodes.run_sound_code(music.SONG_LOAD, 9))
+    loaded = _edit.insert_in_function(base, 0, 0, 0, opcodes.run_sound_code(music.SONG_LOAD, 9))
     out2, n2, _ = music.replace_field_music(loaded, 42)
     assert n2 == 2
     eb2 = EbScript.from_bytes(out2)
