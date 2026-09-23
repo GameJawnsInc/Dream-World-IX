@@ -1,0 +1,59 @@
+# CONTROL for npc_default.field.toml (field 30925): the same bench with shadow = false on every actor --
+# what every kit field shipped before the census shadow. Deploy it to the SAME slot and shoot the same
+# moment; measure_npc_default.py compares the two spawn frames.
+#
+#   py tools/deploy_field.py studies/actor-shadow/bench/npc_default_control.field.toml --id 30925 --name SHN0 --text-block 30925
+
+[field]
+id = 30925
+name = "SHN0"
+area = 11
+title = "SHADOW NPC"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+obj = "shadow0.walkmesh.obj"
+links = "shadow0.walkmesh.links.toml"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [-407, -472]
+model = "GEO_SUB_F0_BW3"
+shadow = false
+
+[[npc]]
+name = "frog"
+archetype = "frog"
+pos = [450, -250]
+shadow = false
+
+[[npc]]
+name = "bird"
+archetype = "bird"
+shadow = false
+pos = [-800, -1000]
+
+[[npc]]
+name = "ramuh"
+archetype = "ramuh"
+shadow = false
+pos = [900, -900]
+
+[[npc]]
+name = "frog_off"
+archetype = "frog"
+pos = [-150, -1000]
+shadow = false
